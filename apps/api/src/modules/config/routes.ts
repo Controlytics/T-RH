@@ -17,19 +17,10 @@ import { userIdRoutes } from './static-routes/user-id.routes.js';
 import { fieldIdsRoutes } from './static-routes/field-ids.routes.js';
 import { auditTemplatesRoutes } from './static-routes/audit-templates.routes.js';
 import { dashboardCardsRoutes } from './static-routes/dashboard-cards.routes.js';
-import { tabletAccessRoutes } from './static-routes/tablet-access.routes.js';
 import { accessMatrixRoutes } from './static-routes/access-matrix.routes.js';
 import { rolesConfigRoutes } from './static-routes/roles.routes.js';
-import { cleaningProfileAssignmentRoutes } from './static-routes/cleaning-profile-assignment.routes.js';
-import { reportPageTitlesRoutes } from './static-routes/report-page-titles.routes.js';
-import { reportLabelsRoutes } from './static-routes/report-labels.routes.js';
-import { offlineCacheRoutes } from './static-routes/offline-cache.routes.js';
 import { exportOptionsRoutes } from './static-routes/export-options.routes.js';
-import { replacementScheduleFiltersRoutes } from './static-routes/replacement-schedule-filters.routes.js';
-import { pmScheduleFiltersRoutes } from './static-routes/pm-schedule-filters.routes.js';
-import { reportSignatoriesRoutes } from './static-routes/report-signatories.routes.js';
-import { ahuCompletionProcessRoutes } from './static-routes/ahu-completion-process.routes.js';
-import { blockChangeApprovalRoutes } from './static-routes/block-change-approval.routes.js';
+import { reportPageTitlesRoutes } from './static-routes/report-page-titles.routes.js';
 
 // Map config keys to reauth action names (consumed by the generic configEndpoint factory).
 const CONFIG_KEY_TO_ACTION: Record<string, string> = {
@@ -47,19 +38,10 @@ export default async function configRoutes(app: FastifyInstance) {
   await fieldIdsRoutes(app);
   await auditTemplatesRoutes(app);
   await dashboardCardsRoutes(app);
-  await tabletAccessRoutes(app);
   await accessMatrixRoutes(app);
   await exportOptionsRoutes(app);
-  await replacementScheduleFiltersRoutes(app);
-  await pmScheduleFiltersRoutes(app);
-  await reportSignatoriesRoutes(app);
-  await rolesConfigRoutes(app);
-  await cleaningProfileAssignmentRoutes(app);
   await reportPageTitlesRoutes(app);
-  await reportLabelsRoutes(app);
-  await offlineCacheRoutes(app);
-  await ahuCompletionProcessRoutes(app);
-  await blockChangeApprovalRoutes(app);
+  await rolesConfigRoutes(app);
 
   // Generic CRUD factory for configs whose only work is get/update a typed blob.
   // Used for: password-policy, login-security, session, datetime, pagination.

@@ -10,8 +10,8 @@ import {
 import type { FlowStep } from '../types';
 
 const SA: RoleAccess = { name: 'SUPER_ADMIN', displayName: 'Super Admin', hierarchyLevel: 6, color: 'bg-red-500', permissions: [], sidebarItems: [] };
-const OPERATOR: RoleAccess = { name: 'OPERATOR', displayName: 'Operator', hierarchyLevel: 2, color: 'bg-emerald-500', permissions: ['DASHBOARD_VIEW', 'FILTER_OPERATE'], sidebarItems: [] };
-const CUSTOM: RoleAccess = { name: 'APPROVER', displayName: 'Approver', hierarchyLevel: 3, color: '#6366f1', permissions: ['DASHBOARD_VIEW', 'PM_APPROVE'], sidebarItems: [] };
+const OPERATOR: RoleAccess = { name: 'OPERATOR', displayName: 'Operator', hierarchyLevel: 2, color: 'bg-emerald-500', permissions: ['DASHBOARD_VIEW', 'AUDIT_READ'], sidebarItems: [] };
+const CUSTOM: RoleAccess = { name: 'APPROVER', displayName: 'Approver', hierarchyLevel: 3, color: '#6366f1', permissions: ['DASHBOARD_VIEW', 'ADMIN_REQUEST_APPROVE'], sidebarItems: [] };
 
 describe('canRoleSeeModule', () => {
   it('SUPER_ADMIN sees every module (even with no permissions)', () => {
@@ -37,19 +37,19 @@ describe('rolesForStep', () => {
   const roles = [SA, OPERATOR, CUSTOM];
 
   it('gate-based step returns SUPER_ADMIN (always) + every role holding the gate', () => {
-    const step: FlowStep = { label: 'Advance', gate: ['FILTER_OPERATE'], kind: 'action' };
+    const step: FlowStep = { label: 'Advance', gate: ['AUDIT_READ'], kind: 'action' };
     const out = rolesForStep(step, 'dashboard', roles)!.map((r) => r.name);
-    expect(out).toEqual(['SUPER_ADMIN', 'OPERATOR']); // CUSTOM lacks FILTER_OPERATE
+    expect(out).toEqual(['SUPER_ADMIN', 'OPERATOR']); // CUSTOM lacks AUDIT_READ
   });
 
-  it('picks up a CUSTOM role that holds the operation permission (e.g. PM_APPROVE)', () => {
-    const step: FlowStep = { label: 'Approve', gate: ['PM_APPROVE'], kind: 'decision' };
+  it('picks up a CUSTOM role that holds the operation permission (e.g. ADMIN_REQUEST_APPROVE)', () => {
+    const step: FlowStep = { label: 'Approve', gate: ['ADMIN_REQUEST_APPROVE'], kind: 'decision' };
     const out = rolesForStep(step, 'dashboard', roles)!.map((r) => r.name);
     expect(out).toEqual(['SUPER_ADMIN', 'APPROVER']);
   });
 
   it('gate no default/custom role holds → only SUPER_ADMIN (bypass)', () => {
-    const step: FlowStep = { label: 'Bypass', gate: ['FILTER_BYPASS'], kind: 'decision' };
+    const step: FlowStep = { label: 'Bypass', gate: ['MANAGE_DEBUG_TRACE'], kind: 'decision' };
     const out = rolesForStep(step, 'dashboard', roles)!.map((r) => r.name);
     expect(out).toEqual(['SUPER_ADMIN']);
   });
@@ -61,10 +61,10 @@ describe('rolesForStep', () => {
   });
 
   it('tolerates an undefined roles list without throwing (transient/loading state)', () => {
-    const step: FlowStep = { label: 'Advance', gate: ['FILTER_OPERATE'], kind: 'action' };
+    const step: FlowStep = { label: 'Advance', gate: ['AUDIT_READ'], kind: 'action' };
     expect(() => rolesForStep(step, 'dashboard', undefined as unknown as RoleAccess[])).not.toThrow();
     expect(rolesForStep(step, 'dashboard', undefined as unknown as RoleAccess[])).toEqual([]);
-    expect(rolesForGate(['FILTER_OPERATE'], 'dashboard', undefined as unknown as RoleAccess[])).toEqual([]);
+    expect(rolesForGate(['AUDIT_READ'], 'dashboard', undefined as unknown as RoleAccess[])).toEqual([]);
   });
 
   it('automatic/public/configured steps return null (chip, not roles)', () => {
@@ -75,7 +75,7 @@ describe('rolesForStep', () => {
 
   it('excludes a role that holds the gate but cannot SEE the module', () => {
     const pinnedOperator: RoleAccess = { ...OPERATOR, sidebarItems: ['filter-operations'] };
-    const step: FlowStep = { label: 'Advance', gate: ['FILTER_OPERATE'], kind: 'action' };
+    const step: FlowStep = { label: 'Advance', gate: ['AUDIT_READ'], kind: 'action' };
     // On 'dashboard' the pinned operator can't see it → excluded (SA remains).
     const out = rolesForStep(step, 'dashboard', [SA, pinnedOperator])!.map((r) => r.name);
     expect(out).toEqual(['SUPER_ADMIN']);
@@ -83,7 +83,7 @@ describe('rolesForStep', () => {
 
   it('audit mode (ignoreSidebar) includes a gate-holder even if its sidebar hides the module', () => {
     const pinnedOperator: RoleAccess = { ...OPERATOR, sidebarItems: ['filter-operations'] };
-    const step: FlowStep = { label: 'Advance', gate: ['FILTER_OPERATE'], kind: 'action' };
+    const step: FlowStep = { label: 'Advance', gate: ['AUDIT_READ'], kind: 'action' };
     const out = rolesForStep(step, 'dashboard', [SA, pinnedOperator], true)!.map((r) => r.name);
     expect(out).toEqual(['SUPER_ADMIN', 'OPERATOR']);
   });
@@ -91,7 +91,7 @@ describe('rolesForStep', () => {
 
 describe('rolesForGate (branches)', () => {
   it('returns SA + roles holding the branch gate', () => {
-    const out = rolesForGate(['PM_APPROVE'], 'dashboard', [SA, OPERATOR, CUSTOM]).map((r) => r.name);
+    const out = rolesForGate(['ADMIN_REQUEST_APPROVE'], 'dashboard', [SA, OPERATOR, CUSTOM]).map((r) => r.name);
     expect(out).toEqual(['SUPER_ADMIN', 'APPROVER']);
   });
 });

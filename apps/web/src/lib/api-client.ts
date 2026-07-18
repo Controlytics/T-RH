@@ -1,23 +1,6 @@
 // NOTE: Prefer importing as `apiClient` using @/ alias across all files
 import { markServerContactFromResponse } from './server-contact';
-import { isHardCutoffExceeded } from './hard-cutoff';
 import { getApiBase } from './api-base';
-
-// W4: methods that are refused before they hit the network when the
-// hard-cutoff lockout has fired. GET stays allowed so SWR polling can keep
-// trying to re-establish contact; allowing POST /api/auth/login is the
-// narrow exception that lets the operator re-auth and (transitively) mark
-// fresh server contact, which dismisses the blocker.
-const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
-function isHardCutoffBlocked(method: string | undefined, url: string): boolean {
-  const m = (method ?? 'GET').toUpperCase();
-  if (!MUTATING_METHODS.has(m)) return false;
-  // Allow login + token refresh so the operator can recover from the lockout
-  // without an "everything's broken" experience. The fresh response from
-  // these endpoints marks server contact and dismisses the blocker.
-  if (url.includes('/api/auth/login') || url.includes('/api/auth/refresh')) return false;
-  return isHardCutoffExceeded();
-}
 
 class ApiClient {
   private getToken(): string | null {
@@ -25,16 +8,6 @@ class ApiClient {
   }
 
   private async request<T>(url: string, options: RequestInit = {}): Promise<T> {
-    // W4 hard-cutoff gate: refuse mutating calls before they hit the wire.
-    // Throws a structured error so callers (e.g. handleSubmit in
-    // filter-operations) can distinguish the lockout from generic failures.
-    if (isHardCutoffBlocked(options.method, url)) {
-      const err = new Error('Read-only mode — reconnect to the server to perform actions.');
-      (err as any).code = 'HARD_CUTOFF';
-      (err as any).status = 503;
-      throw err;
-    }
-
     const token = this.getToken();
     const headers: Record<string, string> = {
       ...(token && { Authorization: `Bearer ${token}` }),

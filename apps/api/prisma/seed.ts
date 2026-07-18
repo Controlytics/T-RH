@@ -193,23 +193,6 @@ async function main() {
   }
   console.log('  Created default system configurations');
 
-  // Filter field options — standalone upsert so re-seed never clobbers admin edits
-  await prisma.systemConfig.upsert({
-    where: { configKey: 'filter-field-options' },
-    update: {}, // do not overwrite admin edits on re-seed
-    create: {
-      configKey: 'filter-field-options',
-      configValue: {
-        ahuType: ['Process', 'Non Process'],
-        filterType: [],
-        micronSize: [],
-        filterSize: [],
-      },
-      configType: 'filter',
-      requiresReauth: true,
-    },
-  });
-
   // Configuration Access matrix — { [moduleKey]: roleNames[] }.
   // Phase 2 (gap S1) flipped config-card visibility to DEFAULT-DENY: a module with no
   // matrix entry is hidden from non-SUPER_ADMIN roles. Without this seed, a fresh install
@@ -248,12 +231,6 @@ async function main() {
     { fieldId: 'FLD_AUDIT_003', defaultName: 'Action', displayName: 'Action', module: 'Audit Trail', description: 'Type of action performed' },
     { fieldId: 'FLD_AUDIT_004', defaultName: 'Performed By', displayName: 'Performed By', module: 'Audit Trail', description: 'User who performed the action' },
     { fieldId: 'FLD_AUDIT_005', defaultName: 'Status', displayName: 'Status', module: 'Audit Trail', description: 'Integrity verification status' },
-    // Asset Management
-    { fieldId: 'FLD_ASSET_001', defaultName: 'Name', displayName: 'Name', module: 'Asset Management', description: 'Asset instance name' },
-    { fieldId: 'FLD_ASSET_002', defaultName: 'Template', displayName: 'Template', module: 'Asset Management', description: 'Associated template' },
-    { fieldId: 'FLD_ASSET_003', defaultName: 'Parent', displayName: 'Parent', module: 'Asset Management', description: 'Parent asset in hierarchy' },
-    { fieldId: 'FLD_ASSET_004', defaultName: 'Children', displayName: 'Children', module: 'Asset Management', description: 'Number of child assets' },
-    { fieldId: 'FLD_ASSET_005', defaultName: 'Created', displayName: 'Created', module: 'Asset Management', description: 'Creation timestamp' },
     // Notifications
     { fieldId: 'FLD_NOTIF_001', defaultName: 'Rule Name', displayName: 'Rule Name', module: 'Notifications', description: 'Notification rule name' },
     { fieldId: 'FLD_NOTIF_002', defaultName: 'Event Type', displayName: 'Event Type', module: 'Notifications', description: 'Triggering event type' },
@@ -261,58 +238,8 @@ async function main() {
     { fieldId: 'FLD_NOTIF_004', defaultName: 'Priority', displayName: 'Priority', module: 'Notifications', description: 'Rule priority order' },
     { fieldId: 'FLD_NOTIF_005', defaultName: 'Status', displayName: 'Status', module: 'Notifications', description: 'Active or inactive' },
     { fieldId: 'FLD_NOTIF_006', defaultName: 'Cooldown', displayName: 'Cooldown', module: 'Notifications', description: 'Cooldown period in minutes' },
-    // (Telemetry + Alarms field IDs removed 2026-06-29 — those subsystems were
-    //  torn out; the seed must not recreate them. Stale DB rows deleted too.)
-    // Attributes
-    { fieldId: 'FLD_ATTR_001', defaultName: 'Key', displayName: 'Key', module: 'Attributes', description: 'Attribute key name' },
-    { fieldId: 'FLD_ATTR_002', defaultName: 'Value', displayName: 'Value', module: 'Attributes', description: 'Attribute value' },
-    { fieldId: 'FLD_ATTR_003', defaultName: 'Last Updated', displayName: 'Last Updated', module: 'Attributes', description: 'Last update timestamp' },
-    // Phase 2: Filter Operations
-    { fieldId: 'FLD_FILTER_001', defaultName: 'Filter Name', displayName: 'Filter Name', module: 'Filter Operations', description: 'Filter instance name' },
-    { fieldId: 'FLD_FILTER_002', defaultName: 'Filter Set', displayName: 'Filter Set', module: 'Filter Operations', description: 'Filter set (A or B)' },
-    { fieldId: 'FLD_FILTER_003', defaultName: 'Current State', displayName: 'Current State', module: 'Filter Operations', description: 'Current lifecycle state' },
-    { fieldId: 'FLD_FILTER_004', defaultName: 'Block', displayName: 'Block', module: 'Filter Operations', description: 'Cleaning area/block assignment' },
-    { fieldId: 'FLD_FILTER_005', defaultName: 'Cleaning Reason', displayName: 'Cleaning Reason', module: 'Filter Operations', description: 'Reason for cleaning cycle' },
-    { fieldId: 'FLD_FILTER_006', defaultName: 'Scan/ID', displayName: 'Scan/ID', module: 'Filter Operations', description: 'Scanned QR code or filter identifier' },
-    // Cleaning Cycles
-    { fieldId: 'FLD_CYCLE_001', defaultName: 'Cycle Code', displayName: 'Cycle Code', module: 'Cleaning Cycles', description: 'Unique cleaning cycle identifier' },
-    { fieldId: 'FLD_CYCLE_002', defaultName: 'Filter', displayName: 'Filter', module: 'Cleaning Cycles', description: 'Associated filter name' },
-    { fieldId: 'FLD_CYCLE_003', defaultName: 'Block', displayName: 'Block', module: 'Cleaning Cycles', description: 'Cleaning area/block' },
-    { fieldId: 'FLD_CYCLE_004', defaultName: 'Reason', displayName: 'Reason', module: 'Cleaning Cycles', description: 'Cleaning reason' },
-    { fieldId: 'FLD_CYCLE_005', defaultName: 'Status', displayName: 'Status', module: 'Cleaning Cycles', description: 'Cycle status' },
-    { fieldId: 'FLD_CYCLE_006', defaultName: 'Progress', displayName: 'Progress', module: 'Cleaning Cycles', description: 'Stage progress indicators' },
-    { fieldId: 'FLD_CYCLE_007', defaultName: 'Duration', displayName: 'Duration', module: 'Cleaning Cycles', description: 'Total cycle duration' },
-    { fieldId: 'FLD_CYCLE_008', defaultName: 'Started', displayName: 'Started', module: 'Cleaning Cycles', description: 'Cycle start timestamp' },
-    { fieldId: 'FLD_CYCLE_009', defaultName: 'Completed', displayName: 'Completed', module: 'Cleaning Cycles', description: 'Cycle completion timestamp' },
-    // Cleaning Profiles
-    { fieldId: 'FLD_CP_001', defaultName: 'Profile Name', displayName: 'Profile Name', module: 'Cleaning Profiles', description: 'Cleaning profile name' },
-    { fieldId: 'FLD_CP_002', defaultName: 'Version', displayName: 'Version', module: 'Cleaning Profiles', description: 'Profile version number' },
-    { fieldId: 'FLD_CP_003', defaultName: 'Status', displayName: 'Status', module: 'Cleaning Profiles', description: 'Profile status' },
-    { fieldId: 'FLD_CP_004', defaultName: 'Flow Mode', displayName: 'Flow Mode', module: 'Cleaning Profiles', description: 'Pipeline flow mode' },
-    { fieldId: 'FLD_CP_005', defaultName: 'Stages', displayName: 'Stages', module: 'Cleaning Profiles', description: 'Number of pipeline stages' },
-    // Checklists
-    { fieldId: 'FLD_CL_001', defaultName: 'Checklist Name', displayName: 'Checklist Name', module: 'Checklists', description: 'Checklist profile name' },
-    { fieldId: 'FLD_CL_002', defaultName: 'Questions', displayName: 'Questions', module: 'Checklists', description: 'Number of questions' },
-    { fieldId: 'FLD_CL_003', defaultName: 'Active', displayName: 'Active', module: 'Checklists', description: 'Checklist active status' },
-    // Equipment Groups
-    { fieldId: 'FLD_EQ_001', defaultName: 'Group Name', displayName: 'Group Name', module: 'Equipment Groups', description: 'Equipment group name' },
-    { fieldId: 'FLD_EQ_002', defaultName: 'Block', displayName: 'Block', module: 'Equipment Groups', description: 'Associated block' },
-    { fieldId: 'FLD_EQ_003', defaultName: 'Description', displayName: 'Description', module: 'Equipment Groups', description: 'Instrument description' },
-    { fieldId: 'FLD_EQ_004', defaultName: 'Instrument ID', displayName: 'Instrument ID', module: 'Equipment Groups', description: 'Instrument identifier' },
-    { fieldId: 'FLD_EQ_005', defaultName: 'Range', displayName: 'Range', module: 'Equipment Groups', description: 'Instrument min-max range' },
-    { fieldId: 'FLD_EQ_006', defaultName: 'Operating Range', displayName: 'Operating Range', module: 'Equipment Groups', description: 'Operating min-max range' },
-    { fieldId: 'FLD_EQ_007', defaultName: 'UOM', displayName: 'UOM', module: 'Equipment Groups', description: 'Unit of measurement' },
-    { fieldId: 'FLD_EQ_008', defaultName: 'Least Count', displayName: 'Least Count', module: 'Equipment Groups', description: 'Instrument least count/resolution' },
-    // PM Schedules
-    { fieldId: 'FLD_PM_001', defaultName: 'Schedule Name', displayName: 'Schedule Name', module: 'PM Schedules', description: 'PM schedule name' },
-    { fieldId: 'FLD_PM_002', defaultName: 'Entity', displayName: 'Entity', module: 'PM Schedules', description: 'Associated entity' },
-    { fieldId: 'FLD_PM_003', defaultName: 'Interval', displayName: 'Interval', module: 'PM Schedules', description: 'Schedule interval in days' },
-    { fieldId: 'FLD_PM_004', defaultName: 'Next Due', displayName: 'Next Due', module: 'PM Schedules', description: 'Next scheduled execution date' },
-    { fieldId: 'FLD_PM_005', defaultName: 'Status', displayName: 'Status', module: 'PM Schedules', description: 'Schedule status' },
-    // Filter Profiles
-    { fieldId: 'FLD_FP_001', defaultName: 'Filter', displayName: 'Filter', module: 'Filter Profiles', description: 'Filter instance' },
-    { fieldId: 'FLD_FP_002', defaultName: 'Cleaning Profile', displayName: 'Cleaning Profile', module: 'Filter Profiles', description: 'Assigned cleaning profile' },
-    { fieldId: 'FLD_FP_003', defaultName: 'Assigned Date', displayName: 'Assigned Date', module: 'Filter Profiles', description: 'Profile assignment date' },
+    // (Domain field IDs — Asset/Attributes/Filter/Cycle/Cleaning Profile/Checklist/
+    //  Equipment/PM/Filter Profile — removed with the domain strip 2026-07-18.)
   ];
 
   for (const field of fieldIds) {
@@ -330,41 +257,12 @@ async function main() {
   console.log('  Created default field ID configurations');
 
   // 5. Default Help Articles (from Appendix B)
+  // Domain help articles (entity/connectivity/data/checklist/uns/filter-*/cleaning-*/
+  // pm-*/equipment) removed with the domain strip 2026-07-18. Only the generic
+  // compliance/admin articles remain.
   const helpArticles = [
-    { key: 'entity.overview', title: 'Entity Management Overview', category: 'entity', sortOrder: 1 },
-    { key: 'entity.templates', title: 'Working with Entity Templates', category: 'entity', sortOrder: 2 },
-    { key: 'entity.tree', title: 'Navigating the Entity Tree', category: 'entity', sortOrder: 3 },
-    { key: 'entity.relationships', title: 'Entity Relationships Guide', category: 'entity', sortOrder: 4 },
-    { key: 'entity.identifiers', title: 'Entity Identifiers (QR, RFID, NFC)', category: 'entity', sortOrder: 5 },
-    { key: 'connectivity.overview', title: 'Device Connectivity Guide', category: 'connectivity', sortOrder: 1 },
-    { key: 'connectivity.mqtt', title: 'MQTT Protocol Setup', category: 'connectivity', sortOrder: 2 },
-    { key: 'connectivity.http', title: 'HTTP API Integration', category: 'connectivity', sortOrder: 3 },
-    { key: 'connectivity.testing', title: 'Testing Device Connectivity', category: 'connectivity', sortOrder: 4 },
-    { key: 'data.telemetry', title: 'Telemetry Data Guide', category: 'data', sortOrder: 1 },
-    { key: 'data.attributes', title: 'Entity Attributes (Client/Server/Shared)', category: 'data', sortOrder: 2 },
-    { key: 'data.binary', title: 'Binary Data (Images, Audio, Vibration)', category: 'data', sortOrder: 3 },
-    { key: 'checklist.overview', title: 'Checklist System Overview', category: 'checklist', sortOrder: 1 },
-    { key: 'checklist.mobile', title: 'Filling Checklists on Mobile', category: 'checklist', sortOrder: 2 },
-    { key: 'checklist.qr-code', title: 'QR Code Scanning Guide', category: 'checklist', sortOrder: 3 },
-    { key: 'checklist.approval', title: 'Checklist Approval Workflow', category: 'checklist', sortOrder: 4 },
-    { key: 'uns.overview', title: 'Unified Namespace (UNS) Concepts', category: 'uns', sortOrder: 1 },
-    { key: 'uns.isa95', title: 'ISA-95 Hierarchy Mapping', category: 'uns', sortOrder: 2 },
-    { key: 'uns.wildcards', title: 'UNS Wildcard Patterns', category: 'uns', sortOrder: 3 },
     { key: 'audit.overview', title: 'Audit Trail & Compliance', category: 'audit', sortOrder: 1 },
     { key: 'users.roles', title: 'User Roles & Permissions', category: 'users', sortOrder: 1 },
-    // Phase 2: Filter Management
-    { key: 'filter-ops.overview', title: 'Filter Operations Overview', category: 'filter-operations', sortOrder: 1 },
-    { key: 'filter-ops.scanning', title: 'Filter Scanning & Identification', category: 'filter-operations', sortOrder: 2 },
-    { key: 'filter-ops.equipment', title: 'Equipment Groups & Instrument Readings', category: 'filter-operations', sortOrder: 3 },
-    { key: 'cleaning-cycles.overview', title: 'Cleaning Cycle History', category: 'cleaning-cycles', sortOrder: 1 },
-    { key: 'cleaning-cycles.timeline', title: 'Cycle Timeline & Events', category: 'cleaning-cycles', sortOrder: 2 },
-    { key: 'cleaning-profiles.overview', title: 'Cleaning Profiles Overview', category: 'cleaning-profiles', sortOrder: 1 },
-    { key: 'cleaning-profiles.editor', title: 'Pipeline Visual Editor', category: 'cleaning-profiles', sortOrder: 2 },
-    { key: 'checklist-profiles.overview', title: 'Checklist Profiles Guide', category: 'checklist-profiles', sortOrder: 1 },
-    { key: 'filter-profiles.overview', title: 'Filter Profile Assignment', category: 'filter-profiles', sortOrder: 1 },
-    { key: 'equipment-groups.overview', title: 'Equipment Groups Configuration', category: 'equipment-groups', sortOrder: 1 },
-    { key: 'pm-schedules.overview', title: 'PM Schedule Management', category: 'pm-schedules', sortOrder: 1 },
-    { key: 'filter-lifecycle.overview', title: 'Filter Lifecycle States', category: 'filter-lifecycle', sortOrder: 1 },
   ];
 
   for (const article of helpArticles) {
@@ -386,26 +284,6 @@ async function main() {
     });
   }
   console.log('  Created default help articles (33 articles)');
-
-  // 6. Seed system template kinds (BLOCK / AREA / AHU / FILTER / EQUIPMENT / OTHER).
-  //    These are protected (isSystem=true) — admins can edit label/description/sortOrder
-  //    but cannot rename code or delete them. Frontend pages route by code.
-  const systemKinds = [
-    { code: 'BLOCK',     label: 'Block',     description: 'Building wing or pharmacy module', sortOrder: 10 },
-    { code: 'AREA',      label: 'Area',      description: 'Cleanroom / corridor / gowning room', sortOrder: 20 },
-    { code: 'AHU',       label: 'AHU',       description: 'Air Handling Unit (HVAC)', sortOrder: 30 },
-    { code: 'FILTER',    label: 'Filter',    description: 'Replaceable filter cartridge (HEPA / ULPA / pre-filter)', sortOrder: 40 },
-    { code: 'EQUIPMENT', label: 'Equipment', description: 'Cleaning machine / dryer / instrument', sortOrder: 50 },
-    { code: 'OTHER',     label: 'Other',     description: 'Generic / non-canonical template', sortOrder: 999 },
-  ];
-  for (const k of systemKinds) {
-    await prisma.templateKind.upsert({
-      where: { code: k.code },
-      update: { label: k.label, description: k.description, sortOrder: k.sortOrder, isSystem: true },
-      create: { code: k.code, label: k.label, description: k.description, sortOrder: k.sortOrder, isSystem: true, isActive: true },
-    });
-  }
-  console.log(`  Seeded ${systemKinds.length} system template kinds`);
 
   await applyInvariants();
 

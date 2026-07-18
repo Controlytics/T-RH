@@ -9,13 +9,13 @@ import type { RoleAccess } from '../viewer-access';
 // visibility). Roles carry a permission so canRoleSeeModule('dashboard') = true.
 const ROLES: RoleAccess[] = [
   { name: 'SUPER_ADMIN', displayName: 'Super Admin', hierarchyLevel: 6, color: 'bg-red-500', permissions: ['DASHBOARD_VIEW'], sidebarItems: [] },
-  { name: 'OPERATOR', displayName: 'Operator', hierarchyLevel: 2, color: 'bg-emerald-500', permissions: ['DASHBOARD_VIEW', 'FILTER_OPERATE'], sidebarItems: [] },
+  { name: 'OPERATOR', displayName: 'Operator', hierarchyLevel: 2, color: 'bg-emerald-500', permissions: ['DASHBOARD_VIEW', 'AUDIT_READ'], sidebarItems: [] },
 ];
 
 const steps: FlowStep[] = [
-  { label: 'Start Cycle', gate: ['FILTER_OPERATE'], kind: 'action' },
-  { label: 'Submit Checklist', gate: ['FILTER_OPERATE'], kind: 'action',
-    branch: { label: 'Bypass (deviation)', gate: ['FILTER_BYPASS'] } },
+  { label: 'Start Cycle', gate: ['AUDIT_READ'], kind: 'action' },
+  { label: 'Submit Checklist', gate: ['AUDIT_READ'], kind: 'action',
+    branch: { label: 'Bypass (deviation)', gate: ['MANAGE_DEBUG_TRACE'] } },
 ];
 
 describe('FlowChart', () => {
@@ -25,10 +25,10 @@ describe('FlowChart', () => {
     expect(screen.getByText('Submit Checklist')).toBeInTheDocument();
   });
 
-  it('shows every role configured for an operation (Operator holds FILTER_OPERATE)', () => {
+  it('shows every role configured for an operation (Operator holds AUDIT_READ)', () => {
     render(<FlowChart steps={steps} moduleId="dashboard" roles={ROLES} />);
-    // Both steps are FILTER_OPERATE → Super Admin (always) + Operator (2 each).
-    // Super Admin also appears on the bypass branch card (FILTER_BYPASS) → 3 total.
+    // Both steps are AUDIT_READ → Super Admin (always) + Operator (2 each).
+    // Super Admin also appears on the bypass branch card (MANAGE_DEBUG_TRACE) → 3 total.
     expect(screen.getAllByText('Operator').length).toBe(2);
     expect(screen.getAllByText('Super Admin').length).toBe(3);
   });
@@ -39,9 +39,9 @@ describe('FlowChart', () => {
   });
 
   it('branch gate that only SUPER_ADMIN satisfies shows only Super Admin', () => {
-    // Bypass gate FILTER_BYPASS — no default role here holds it, SA always does.
+    // Bypass gate MANAGE_DEBUG_TRACE — no default role here holds it, SA always does.
     render(<FlowChart steps={steps} moduleId="dashboard" roles={ROLES} />);
-    // The branch card's roles: Super Admin only (Operator lacks FILTER_BYPASS).
+    // The branch card's roles: Super Admin only (Operator lacks MANAGE_DEBUG_TRACE).
     // Operator appears on the two main steps but NOT inside the branch card.
     const bypassLabel = screen.getByText('Bypass (deviation)');
     const branchCard = bypassLabel.closest('div')!;

@@ -29,25 +29,12 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
     import('../modules/config/defs/roles.def.js'),
     import('../modules/config/defs/field-ids.def.js'),
     // retention.def + uns.def deleted with data-ingestion removal.
+    // Domain config defs (filter/pm/replacement/ahu/report/offline/guest/stage)
+    // removed with the domain strip.
     import('../modules/config/defs/help.def.js'),
-    import('../modules/config/defs/filter-cleaning-reasons.def.js'),
-    import('../modules/config/defs/block-change-approval.def.js'),
-    import('../modules/config/defs/pm-schedule-settings.def.js'),
-    import('../modules/config/defs/pm-schedule-approval.def.js'),
-    import('../modules/config/defs/replacement-schedule-approval.def.js'),
-    import('../modules/config/defs/qnn-notifications.def.js'),
-    import('../modules/config/defs/guest-cleaning-requests.def.js'),
-    import('../modules/config/defs/ahu-filter-set-config.def.js'),
-    import('../modules/config/defs/report-page-titles.def.js'),
-    import('../modules/config/defs/report-signatories.def.js'),
-    import('../modules/config/defs/report-labels.def.js'),
     import('../modules/config/defs/access-matrix.def.js'),
-    import('../modules/config/defs/offline-cache.def.js'),
-    import('../modules/config/defs/filter-field-options.def.js'),
     import('../modules/config/defs/export-options.def.js'),
-    import('../modules/config/defs/replacement-schedule-filters.def.js'),
-    import('../modules/config/defs/stage-interlock.def.js'),
-    import('../modules/config/defs/ahu-completion-process.def.js'),
+    import('../modules/config/defs/report-page-titles.def.js'),
     // ─── Add new module configs below this line ───
   ]);
 

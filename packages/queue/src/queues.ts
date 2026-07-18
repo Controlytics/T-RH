@@ -17,22 +17,10 @@
  *     `graphile_worker.completed_jobs` cleanup cron
  */
 export const QUEUES = {
-  INGESTION: {
-    name: 'ingestion',
-    defaultJobOptions: {
-      attempts: 3,
-    },
-  },
   NOTIFICATION: {
     name: 'notification',
     defaultJobOptions: {
       attempts: 3,
-    },
-  },
-  MAINTENANCE: {
-    name: 'maintenance',
-    defaultJobOptions: {
-      attempts: 1,
     },
   },
 } as const;

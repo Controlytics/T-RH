@@ -12,8 +12,6 @@ import { registerSwagger } from './lib/swagger.js';
 import authPlugin from './plugins/auth.js';
 import rbacPlugin from './plugins/rbac.js';
 import superAdminRoutes from "./modules/super-admin/routes.js";
-import reportReviewRoutes from "./modules/report-reviews/routes.js";
-import stageApprovalRoutes from "./modules/stage-approvals/routes.js";
 import debugTraceRoutes from "./modules/debug-traces/routes.js";
 import ldapRoutes from "./modules/ldap/routes.js";
 import dashboardRoutes from "./modules/dashboards/routes.js";
@@ -28,7 +26,6 @@ import { UPLOADS_ROOT } from './lib/uploads-dir.js';
 import notificationRoutes from './modules/notifications/routes.js';
 import roleRoutes from './modules/roles/routes.js';
 import backupRoutes from './modules/backup/routes.js';
-import assetRoutes from './modules/assets/index.js';
 import helpRoutes from './modules/help/routes.js';
 import systemHealthRoutes, { trackRequest } from './modules/system-health/routes.js';
 
@@ -42,23 +39,13 @@ import userGroupRoutes from './modules/user-groups/routes.js';
 import notificationRulesRoutes from './modules/notification-rules/routes.js';
 
 import { notificationTask } from './workers/notification.worker.js';
-import { pmOverdueCheckTask } from './workers/pm-overdue.worker.js';
 import { passwordExpiryCheckTask } from './workers/password-expiry.worker.js';
 import { sessionSweepTask } from './workers/session-sweep.worker.js';
 import { startJobRunner, stopJobRunner } from '@digilog/queue';
 import { AppError } from './lib/errors.js';
 import { OfflineTimeError } from './lib/offline-time-window.js';
 import { dispatchNotification } from './modules/notification-delivery/notification-dispatcher.js';
-import cleaningProfileRoutes from './modules/cleaning-profiles/routes.js';import checklistProfileRoutes from './modules/checklist-profiles/routes.js';import filterProfileRoutes from './modules/filter-profiles/routes.js';
-import pmScheduleRoutes from './modules/pm-schedules/routes.js';import pmExecutionRoutes from './modules/pm-schedules/execution-routes.js';import filterOperationsRoutes from './modules/filter-operations/routes.js';import filterEventsRoutes from './modules/filter-operations/events-routes.js';
-import replacementScheduleRoutes from './modules/replacement-schedule/routes.js';
-import equipmentGroupRoutes from './modules/equipment-groups/routes.js';
-import syncRoutes from './modules/sync/routes.js';
-import deploymentCheckRoutes from './modules/deployment-check/routes.js';
 import adminRequestRoutes from './modules/admin-requests/routes.js';
-import blockChangeRoutes from './modules/block-change-requests/routes.js';
-import hierarchyRoutes from './modules/hierarchy/routes.js';
-// reportRoutes imported dynamically below
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -343,10 +330,8 @@ await app.register(dynamicConfigRoutes, { prefix: '/api/config' });
 await app.register(auditRoutes, { prefix: '/api/audit' });
 await app.register(uploadRoutes, { prefix: '/api/uploads' });
 await app.register(notificationRoutes, { prefix: '/api/notifications' });
-await app.register((await import('./modules/guest/routes.js')).default, { prefix: '/api/guest' });
 await app.register(roleRoutes, { prefix: '/api/roles' });
 await app.register(backupRoutes, { prefix: '/api/backup' });
-await app.register(assetRoutes, { prefix: '/api/assets' });
 
 // (Data-ingestion / MQTT / transport routes were removed in Phase 7.)
 
@@ -362,20 +347,10 @@ await app.register(notificationRulesRoutes, { prefix: '/api/notification-rules' 
 
 // Admin + assignment routes
 await app.register(superAdminRoutes, { prefix: "/api/super-admin" });
-await app.register(reportReviewRoutes, { prefix: "/api/report-reviews" });
-await app.register(stageApprovalRoutes, { prefix: "/api/stage-approvals" });
 await app.register(debugTraceRoutes, { prefix: "/api/debug/traces" });
 await app.register(ldapRoutes, { prefix: "/api/ldap" });
 await app.register(dashboardRoutes, { prefix: "/api/dashboards" });
-await app.register(cleaningProfileRoutes, { prefix: '/api/filter-cleaning-profiles' });await app.register(checklistProfileRoutes, { prefix: '/api/checklist-profiles' });await app.register(filterProfileRoutes, { prefix: '/api/filter-profiles' });
-await app.register(pmScheduleRoutes, { prefix: '/api/pm-schedules' });await app.register(pmExecutionRoutes, { prefix: '/api/pm-executions' });await app.register(filterOperationsRoutes, { prefix: '/api/filters' });await app.register(filterEventsRoutes, { prefix: '/api/filters' });
-await app.register(equipmentGroupRoutes, { prefix: '/api/equipment-groups' });
-await app.register(replacementScheduleRoutes, { prefix: '/api/replacement-schedules' });
-await app.register(syncRoutes, { prefix: '/api/sync' });
-await app.register(deploymentCheckRoutes, { prefix: '/api/deployment-check' });
 await app.register(adminRequestRoutes, { prefix: '/api/admin-requests' });
-await app.register(blockChangeRoutes, { prefix: '/api/block-change-requests' });
-await app.register(hierarchyRoutes, { prefix: '/api/hierarchy' });
 
 
 // ─── M1: serve the built web UI from the API (single-process bundle) ─────────
@@ -457,8 +432,7 @@ try {
         // apps/api/src/workers/notification.worker.ts for the mapping
         // from queue payload to `dispatchNotification` event types.
         notification: notificationTask,
-        
-        pm_overdue_check: pmOverdueCheckTask,
+
         password_expiry_check: passwordExpiryCheckTask,
         session_sweep: sessionSweepTask,
       },

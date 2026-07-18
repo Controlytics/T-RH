@@ -18,15 +18,15 @@ import {
 } from './__snapshots__/legacy-maps-snapshot.js';
 
 describe('Phase 5E: derived maps === original snapshots', () => {
-  it('FEATURE_PRIVILEGES (83 entries) matches snapshot exactly — order-sensitive', () => {
+  it('FEATURE_PRIVILEGES (27 entries) matches snapshot exactly — order-sensitive', () => {
     expect(FEATURE_PRIVILEGES).toEqual(FEATURE_PRIVILEGES_SNAPSHOT);
   });
 
-  it('FEATURE_TO_PERMISSION_MAP (83 keys) matches snapshot exactly — per-key array equality', () => {
+  it('FEATURE_TO_PERMISSION_MAP (27 keys) matches snapshot exactly — per-key array equality', () => {
     expect(FEATURE_TO_PERMISSION_MAP).toEqual(FEATURE_TO_PERMISSION_MAP_SNAPSHOT);
   });
 
-  it('SIDEBAR_PRIVILEGE_MAP (24 sections): sidebarIds match snapshot in order', () => {
+  it('SIDEBAR_PRIVILEGE_MAP (9 sections): sidebarIds match snapshot in order', () => {
     expect(SIDEBAR_PRIVILEGE_MAP.map(s => s.sidebarId))
       .toEqual(SIDEBAR_PRIVILEGE_MAP_SNAPSHOT.map(s => s.sidebarId));
   });
@@ -40,28 +40,24 @@ describe('Phase 5E: derived maps === original snapshots', () => {
     }
   });
 
-  it('configurable node count is exactly 83', () => {
-    // 83 = 90 minus 9 orphaned report_templates.*/reports.* nodes (removed 2026-07-04 with the
-    // orphaned reports generate/sign module) plus 2 that BECAME configurable the same day
-    // (cleaning_record.export + lifecycle.export — repromoted to the grantable PDF-export toggles,
-    // since the reports.export/generate toggles that used to grant REPORT_EXPORT/REPORT_GENERATE were
-    // removed). Net -7. 90 = 89 plus filters.rfid_manage (re-added to the picker 2026-07-02); 89 = 88
-    // plus audit.delete (2026-07-01); 88 = 89 minus notifications.manage; 89 = 92 minus
-    // checklists.submit/toggle + cleaning_profiles.toggle; 92 = 96 minus RFID/relationship nodes;
-    // 96 = 99 minus assets.create/edit/delete.
+  it('configurable node count is exactly 27', () => {
+    // Post domain-strip (2026-07-18): only the 9 core sidebar groups remain
+    // (dashboard, users, admin-requests, configuration, notifications, audit,
+    // system-health, debug-traces, version-history); 27 of their nodes are
+    // configurable feature privileges.
     const count = PERMISSION_TREE.flatMap(g => g.nodes).filter(n => n.configurable === true).length;
-    expect(count).toBe(83);
+    expect(count).toBe(27);
   });
 
-  it('FEATURE_PRIVILEGES has exactly 83 entries', () => {
-    expect(FEATURE_PRIVILEGES).toHaveLength(83);
+  it('FEATURE_PRIVILEGES has exactly 27 entries', () => {
+    expect(FEATURE_PRIVILEGES).toHaveLength(27);
   });
 
-  it('FEATURE_TO_PERMISSION_MAP has exactly 83 keys', () => {
-    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(83);
+  it('FEATURE_TO_PERMISSION_MAP has exactly 27 keys', () => {
+    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(27);
   });
 
-  it('SIDEBAR_PRIVILEGE_MAP has exactly 24 sections', () => {
-    expect(SIDEBAR_PRIVILEGE_MAP).toHaveLength(24);
+  it('SIDEBAR_PRIVILEGE_MAP has exactly 9 sections', () => {
+    expect(SIDEBAR_PRIVILEGE_MAP).toHaveLength(9);
   });
 });

@@ -1,5 +1,41 @@
 # Changelog
 
+## [Unreleased] — compliance-core: cleanroom DOMAIN strip (Phase 0) (2026-07-18)
+
+Forked DigiLog into **compliance-core** and stripped the cleanroom domain to
+leave a generic, enterprise 21 CFR Part 11 administration core to build on.
+Restore tag: `pre-domain-strip`. Decisions: strip the domain · keep the stack
+(React 19 + Tailwind v4 + SWR / Fastify 5 + Prisma 6 — NOT the brief's MUI/Redux)
+· re-baseline the DB fresh.
+
+**Removed** (~15 API modules, ~11 web route dirs, domain lib/hooks, 16 domain
+config defs): filter-operations, cleaning/checklist/filter/equipment profiles,
+pm-schedules, replacement-schedule, hierarchy, assets, block-change-requests,
+stage-approvals, report-reviews, guest, sync (offline), + the Android/RFID
+sub-apps' web coupling. Surgical de-domaining of two CORE files that imported the
+domain: `super-admin/routes.ts` (Filter-Data console → core tables only) and
+`audit/routes.ts` (read-enrichment → core redactor-name resolution only).
+
+**Schema re-baselined:** 61 → **23 models**, 23 → **6 enums** (dropped 38 domain
+models incl. the `TemplateAssignment`/`EntityAssignment` FK bridges + 17 domain
+enums). Migration history collapsed to a single fresh baseline (old history →
+`prisma/migrations_archive_20260718/`); the baseline carries the core 21 CFR
+§11.10(e) `audit_trail_no_delete` immutability trigger. `invariants.sql` pruned
+to that trigger only. Dev + test DBs reset and reseeded.
+
+**Shared:** permissions 102 → **31**; reauth actions 92 → **39**; sidebar items
+27 → **10**; feature privileges 83 → **27**. **Config defs** 36 → **21**.
+**API modules** 33 → **18**.
+
+**Verified:** api/web/shared/queue all `tsc`/build exit 0 · API boots on HTTPS ·
+login OK · `GET /api/audit/verify-chain` → `intact:true` on the fresh chain ·
+web production build OK. Restored the generic `report-page-titles` config
+(def + `/current` endpoint + editor page + route) — the core Audit page's report
+chrome + PDF export depend on it (would otherwise 404). **Remaining (not
+blocking):** vitest runtime rework (use-can / sidebar-visibility / stale e2e that
+exercise removed endpoints); a full rewrite of the DigiLog-era `CLAUDE.md`/docs.
+Plans: `tasks/{COMPLIANCE-CORE-ANALYSIS,TARGET-ARCHITECTURE,STRIP-MANIFEST}.md`.
+
 ## [Unreleased] — Replacement-schedule audit rows name the AHU/filter (2026-07-18)
 
 Replacement-schedule workflow audit rows now show **which** entry was acted on.

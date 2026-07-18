@@ -1,20 +1,10 @@
 /**
- * Phase 5E — FROZEN LITERAL SNAPSHOTS of the hand-maintained maps.
+ * Phase 5E — FROZEN LITERAL SNAPSHOTS of the derived maps.
  *
  * THIS FILE HAS ZERO IMPORTS FROM LIVE SOURCE FILES.
- * All values are inline literals, copied verbatim from:
- *   - packages/shared/src/types/feature-privileges.ts  (2026-06-30)
- *   - packages/shared/src/types/sidebar-privilege-map.ts (2026-06-30)
- *
- * Purpose: snapshot invariant tests compare derived outputs against these
- * frozen oracles to prove that deriving from PERMISSION_TREE produces
- * exactly the same values as the original hand-maintained sources.
- *
- * DO NOT IMPORT from feature-privileges.ts or sidebar-privilege-map.ts here.
- * DO NOT modify these values — they are the oracle.
+ * Regenerated after the domain strip (2026-07-18): the oracle now reflects the
+ * core-only PERMISSION_TREE.
  */
-
-// ─── Inline interface (no imports allowed) ────────────────────────────────────
 
 interface FeaturePrivilegeSnapshot {
   id: string;
@@ -31,355 +21,356 @@ interface SidebarSectionSnapshot {
   privilegeIds: string[];
 }
 
-// ─── FEATURE_PRIVILEGES snapshot (90 entries, original order) ────────────────
-
 export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
-  { id: 'users.create', label: 'Create Users', category: 'User Management', icon: 'user-plus' },
-  { id: 'users.view', label: 'View Users', category: 'User Management', icon: 'user' },
-  { id: 'users.edit', label: 'Edit Users', category: 'User Management', icon: 'user-edit' },
-  { id: 'users.delete', label: 'Delete Users', category: 'User Management', icon: 'user-minus' },
-  { id: 'users.enable_disable', label: 'Enable/Disable Accounts', category: 'User Management', icon: 'toggle' },
-  { id: 'users.unlock', label: 'Unlock Accounts', category: 'User Management', icon: 'unlock' },
-  { id: 'users.reset_password', label: 'Reset Passwords', category: 'User Management', icon: 'key' },
-  { id: 'config.view', label: 'View Configuration', category: 'System', icon: 'settings' },
-  { id: 'config.edit', label: 'Edit Configuration', category: 'System', icon: 'settings-edit' },
-  { id: 'config.field_ids', label: 'Update Field Labels', category: 'System', icon: 'tag' },
-  { id: 'roles.manage', label: 'Manage Roles', category: 'System', icon: 'shield' },
-  { id: 'notifications.view', label: 'View Notifications', category: 'System', icon: 'bell' },
-  { id: 'notifications.delete', label: 'Delete Notifications', category: 'System', icon: 'bell' },
-  { id: 'audit.view', label: 'View Audit Trail', category: 'System', icon: 'clipboard' },
-  { id: 'audit.export', label: 'Export Audit Trail', category: 'System', icon: 'clipboard' },
-  { id: 'audit.delete', label: 'Delete Audit Record (permanent)', category: 'System', icon: 'trash' },
-  { id: 'assets.view', label: 'View Filters', category: 'Asset Management', icon: 'eye' },
-  { id: 'dashboard.view', label: 'View Dashboards', category: 'Dashboards', icon: 'layout' },
-  { id: 'dashboard.create', label: 'Create Dashboards', category: 'Dashboards', icon: 'plus' },
-  { id: 'dashboard.manage', label: 'Manage Dashboards', category: 'Dashboards', icon: 'settings' },
-  { id: 'dashboard.assign', label: 'Assign Dashboards', category: 'Dashboards', icon: 'link' },
-  { id: 'checklists.create', label: 'Create Checklist Profiles', category: 'Checklist Page Controls', icon: 'plus' },
-  { id: 'checklists.edit', label: 'Edit Checklist Profiles', category: 'Checklist Page Controls', icon: 'edit' },
-  { id: 'checklists.delete', label: 'Delete Checklist Profiles', category: 'Checklist Page Controls', icon: 'trash' },
-  { id: 'filters.operate', label: 'Operate Filters (Start/Advance Cycles)', category: 'Filter Management', icon: 'filter' },
-  { id: 'filters.bypass', label: 'Bypass Filter Stages (Deviation)', category: 'Filter Management', icon: 'alert-circle' },
-  { id: 'filters.events', label: 'View Filter Events', category: 'Filter Management', icon: 'list' },
-  { id: 'filters.bulk_upload', label: 'Bulk Upload Filters', category: 'Filters Page Controls', icon: 'upload' },
-  { id: 'filters.retire', label: 'Retire Filters', category: 'Filters Page Controls', icon: 'archive' },
-  { id: 'filters.replace', label: 'Replace Filters', category: 'Filters Page Controls', icon: 'refresh' },
-  { id: 'filters.status_update', label: 'Update Filter Status', category: 'Filters Page Controls', icon: 'edit' },
-  { id: 'filters.create', label: 'Create Filters', category: 'Filters Page Controls', icon: 'plus' },
-  { id: 'filters.edit', label: 'Edit Filters', category: 'Filters Page Controls', icon: 'edit' },
-  { id: 'filters.delete', label: 'Delete Filters', category: 'Filters Page Controls', icon: 'trash' },
-  { id: 'retirement_list.export', label: 'Export Retirement List Report (PDF / Excel)', category: 'Filters Page Controls', icon: 'download' },
-  { id: 'replacement_list.export', label: 'Export Replacement List Report (PDF / Excel)', category: 'Filters Page Controls', icon: 'download' },
-  { id: 'filters.hierarchy_create', label: 'Create Block / Area / AHU', category: 'Filters Page Controls', icon: 'plus' },
-  { id: 'filters.hierarchy_edit', label: 'Edit Block / Area / AHU', category: 'Filters Page Controls', icon: 'edit' },
-  { id: 'filters.hierarchy_delete', label: 'Delete Block / Area / AHU', category: 'Filters Page Controls', icon: 'trash' },
-  { id: 'filters.rfid_manage', label: 'Assign / Unassign RFID Tags', category: 'Filters Page Controls', icon: 'wifi' },
-  { id: 'filters.export', label: 'Export Filter List (PDF / Excel)', category: 'Filters Page Controls', icon: 'download' },
-  { id: 'replacement_schedule.view', label: 'View Replacement Schedule', category: 'Filters Page Controls', icon: 'calendar' },
-  { id: 'replacement_schedule.upload', label: 'Upload Replacement Schedule', category: 'Filters Page Controls', icon: 'upload' },
-  { id: 'replacement_schedule.review', label: 'Review Replacement Schedule', category: 'Filters Page Controls', icon: 'clipboard-check' },
-  { id: 'replacement_schedule.approve', label: 'Approve Replacement Schedule', category: 'Filters Page Controls', icon: 'check-circle' },
-  { id: 'block_change.request', label: 'Request Block Change', category: 'Filter Management', icon: 'refresh' },
-  { id: 'block_change.approve', label: 'Approve Block Change', category: 'Filter Management', icon: 'check-circle' },
-  { id: 'stage_approvals.view', label: 'View Stage Approvals', category: 'Filter Management', icon: 'shield' },
-  { id: 'stage_approvals.decide', label: 'Approve/Reject Cleaning Stages', category: 'Filter Management', icon: 'shield-check' },
-  { id: 'cleaning_profiles.view', label: 'View Cleaning Profiles', category: 'Cleaning Profiles', icon: 'eye' },
-  { id: 'cleaning_profiles.create', label: 'Create Cleaning Profiles', category: 'Cleaning Profile Page Controls', icon: 'plus' },
-  { id: 'cleaning_profiles.edit', label: 'Edit Cleaning Profiles', category: 'Cleaning Profile Page Controls', icon: 'edit' },
-  { id: 'cleaning_profiles.delete', label: 'Delete Cleaning Profiles', category: 'Cleaning Profile Page Controls', icon: 'trash' },
-  { id: 'filter_profiles.view', label: 'View Filter Profiles', category: 'Filter Profiles', icon: 'eye' },
-  { id: 'filter_profiles.create', label: 'Create Filter Profiles', category: 'Filter Profiles', icon: 'plus' },
-  { id: 'filter_profiles.edit', label: 'Edit Filter Profiles', category: 'Filter Profiles', icon: 'edit' },
-  { id: 'filter_profiles.delete', label: 'Delete Filter Profiles', category: 'Filter Profiles', icon: 'trash' },
-  { id: 'filter_profiles.assign', label: 'Assign Filter Profiles to Filters', category: 'Filter Profiles', icon: 'link' },
-  { id: 'cycles.view', label: 'View Cleaning Cycles', category: 'Cleaning Cycles', icon: 'refresh' },
-  { id: 'pm.view', label: 'View PM Schedules', category: 'PM Schedules', icon: 'eye' },
-  { id: 'pm.create', label: 'Create PM Schedules', category: 'PM Schedules', icon: 'plus' },
-  { id: 'pm.edit', label: 'Edit PM Schedules', category: 'PM Schedules', icon: 'edit' },
-  { id: 'pm.delete', label: 'Delete PM Schedules', category: 'PM Schedules', icon: 'trash' },
-  { id: 'pm.execute', label: 'Execute PM Tasks', category: 'PM Schedules', icon: 'play' },
-  { id: 'pm.approve', label: 'Approve PM Schedules', category: 'PM Schedules', icon: 'check-circle' },
-  { id: 'pm.review', label: 'Review PM Schedules', category: 'PM Schedules', icon: 'clipboard-check' },
-  { id: 'pm.download_template', label: 'Download PM Template', category: 'PM Schedules', icon: 'download' },
-  { id: 'pm.upload', label: 'Upload PM Schedules', category: 'PM Schedules', icon: 'upload' },
-  { id: 'pm.edit_entry', label: 'Edit PM Entries', category: 'PM Schedules', icon: 'edit' },
-  { id: 'pm.resubmit', label: 'Resubmit Rejected Entries', category: 'PM Schedules', icon: 'refresh' },
-  { id: 'equipment_groups.view', label: 'View Equipment Groups', category: 'Equipment Group Controls', icon: 'eye' },
-  { id: 'equipment_groups.create', label: 'Create Equipment Groups', category: 'Equipment Group Controls', icon: 'plus' },
-  { id: 'equipment_groups.edit', label: 'Edit Equipment Groups', category: 'Equipment Group Controls', icon: 'edit' },
-  { id: 'equipment_groups.delete', label: 'Delete Equipment Groups', category: 'Equipment Group Controls', icon: 'trash' },
-  { id: 'admin_requests.approve', label: 'Approve Admin Requests', category: 'User Management', icon: 'check-circle' },
-  { id: 'admin_requests.reject', label: 'Reject Admin Requests', category: 'User Management', icon: 'x-circle' },
-  { id: 'debug.view', label: 'View Debug Traces', category: 'Debug Traces', icon: 'terminal' },
-  { id: 'debug.manage', label: 'Manage Debug Traces', category: 'Debug Traces', icon: 'terminal' },
-  { id: 'cleaning_record.export', label: 'Export Cleaning Record', category: 'Cleaning Cycles', icon: 'download' },
-  { id: 'lifecycle.export', label: 'Export Filter Lifecycle Report', category: 'Reports', icon: 'download' },
-  { id: 'version_history.view', label: 'View Version History', category: 'Audit / Versions', icon: 'history' },
-  { id: 'backup.export', label: 'Export / Download Backups', category: 'Backup & Restore', icon: 'download' },
-  { id: 'backup.restore', label: 'Restore from Backup', category: 'Backup & Restore', icon: 'upload' },
+  {
+    "id": "users.create",
+    "label": "Create Users",
+    "category": "User Management",
+    "icon": "user-plus"
+  },
+  {
+    "id": "users.view",
+    "label": "View Users",
+    "category": "User Management",
+    "icon": "user"
+  },
+  {
+    "id": "users.edit",
+    "label": "Edit Users",
+    "category": "User Management",
+    "icon": "user-edit"
+  },
+  {
+    "id": "users.delete",
+    "label": "Delete Users",
+    "category": "User Management",
+    "icon": "user-minus"
+  },
+  {
+    "id": "users.enable_disable",
+    "label": "Enable/Disable Accounts",
+    "category": "User Management",
+    "icon": "toggle"
+  },
+  {
+    "id": "users.unlock",
+    "label": "Unlock Accounts",
+    "category": "User Management",
+    "icon": "unlock"
+  },
+  {
+    "id": "users.reset_password",
+    "label": "Reset Passwords",
+    "category": "User Management",
+    "icon": "key"
+  },
+  {
+    "id": "config.view",
+    "label": "View Configuration",
+    "category": "System",
+    "icon": "settings"
+  },
+  {
+    "id": "config.edit",
+    "label": "Edit Configuration",
+    "category": "System",
+    "icon": "settings-edit"
+  },
+  {
+    "id": "config.field_ids",
+    "label": "Update Field Labels",
+    "category": "System",
+    "icon": "tag"
+  },
+  {
+    "id": "roles.manage",
+    "label": "Manage Roles",
+    "category": "System",
+    "icon": "shield"
+  },
+  {
+    "id": "notifications.view",
+    "label": "View Notifications",
+    "category": "System",
+    "icon": "bell"
+  },
+  {
+    "id": "notifications.delete",
+    "label": "Delete Notifications",
+    "category": "System",
+    "icon": "bell"
+  },
+  {
+    "id": "audit.view",
+    "label": "View Audit Trail",
+    "category": "System",
+    "icon": "clipboard"
+  },
+  {
+    "id": "audit.export",
+    "label": "Export Audit Trail",
+    "category": "System",
+    "icon": "clipboard"
+  },
+  {
+    "id": "audit.delete",
+    "label": "Delete Audit Record (permanent)",
+    "category": "System",
+    "icon": "trash"
+  },
+  {
+    "id": "dashboard.view",
+    "label": "View Dashboards",
+    "category": "Dashboards",
+    "icon": "layout"
+  },
+  {
+    "id": "dashboard.create",
+    "label": "Create Dashboards",
+    "category": "Dashboards",
+    "icon": "plus"
+  },
+  {
+    "id": "dashboard.manage",
+    "label": "Manage Dashboards",
+    "category": "Dashboards",
+    "icon": "settings"
+  },
+  {
+    "id": "dashboard.assign",
+    "label": "Assign Dashboards",
+    "category": "Dashboards",
+    "icon": "link"
+  },
+  {
+    "id": "admin_requests.approve",
+    "label": "Approve Admin Requests",
+    "category": "User Management",
+    "icon": "check-circle"
+  },
+  {
+    "id": "admin_requests.reject",
+    "label": "Reject Admin Requests",
+    "category": "User Management",
+    "icon": "x-circle"
+  },
+  {
+    "id": "debug.view",
+    "label": "View Debug Traces",
+    "category": "Debug Traces",
+    "icon": "terminal"
+  },
+  {
+    "id": "debug.manage",
+    "label": "Manage Debug Traces",
+    "category": "Debug Traces",
+    "icon": "terminal"
+  },
+  {
+    "id": "version_history.view",
+    "label": "View Version History",
+    "category": "Audit / Versions",
+    "icon": "history"
+  },
+  {
+    "id": "backup.export",
+    "label": "Export / Download Backups",
+    "category": "Backup & Restore",
+    "icon": "download"
+  },
+  {
+    "id": "backup.restore",
+    "label": "Restore from Backup",
+    "category": "Backup & Restore",
+    "icon": "upload"
+  }
 ];
 
 export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
-  'users.create': ['USER_CREATE', 'USER_READ'],
-  'users.view': ['USER_READ'],
-  'users.edit': ['USER_UPDATE', 'USER_READ'],
-  'users.delete': ['USER_DELETE', 'USER_READ'],
-  'users.enable_disable': ['USER_ENABLE_DISABLE', 'USER_READ'],
-  'users.unlock': ['USER_UNLOCK', 'USER_READ'],
-  'users.reset_password': ['USER_RESET_PASSWORD', 'USER_READ'],
-  'config.view': ['CONFIG_READ'],
-  'config.edit': ['CONFIG_UPDATE', 'CONFIG_READ'],
-  'config.field_ids': ['FIELD_ID_UPDATE', 'CONFIG_READ'],
-  'roles.manage': ['ROLE_MANAGE'],
-  'notifications.view': ['NOTIFICATION_VIEW'],
-  'notifications.delete': ['NOTIFICATION_DELETE'],
-  'audit.view': ['AUDIT_READ'],
-  'audit.export': ['AUDIT_EXPORT', 'AUDIT_READ'],
-  'audit.delete': ['AUDIT_DELETE', 'AUDIT_READ'],
-  'assets.view': ['ASSET_VIEW', 'ASSET_READ'],
-  'dashboard.view': ['DASHBOARD_VIEW'],
-  'dashboard.create': ['DASHBOARD_CREATE', 'DASHBOARD_VIEW'],
-  'dashboard.manage': ['DASHBOARD_MANAGE', 'DASHBOARD_VIEW'],
-  'dashboard.assign': ['DASHBOARD_ASSIGN', 'DASHBOARD_VIEW'],
-  'checklists.create': ['CHECKLIST_CREATE', 'FCP_CREATE'],
-  'checklists.edit': ['CHECKLIST_EDIT', 'FCP_UPDATE'],
-  'checklists.delete': ['CHECKLIST_DELETE', 'FCP_DELETE'],
-  'filters.operate': ['FILTER_OPERATE', 'ASSET_READ'],
-  'filters.bypass': ['FILTER_BYPASS', 'ASSET_READ'],
-  'filters.events': ['EVENT_READ', 'ASSET_READ'],
-  'filters.bulk_upload': ['FILTER_BULK_UPLOAD'],
-  'filters.retire': ['FILTER_RETIRE', 'FILTER_OPERATE', 'ASSET_READ'],
-  'filters.replace': ['FILTER_REPLACE', 'FILTER_OPERATE', 'ASSET_READ'],
-  'filters.status_update': ['FILTER_STATUS_UPDATE', 'ASSET_READ'],
-  'filters.create': ['FILTER_CREATE', 'ASSET_READ'],
-  'filters.edit': ['FILTER_EDIT', 'ASSET_READ'],
-  'filters.delete': ['FILTER_DELETE', 'ASSET_READ'],
-  'retirement_list.export': ['RETIREMENT_LIST_EXPORT'],
-  'replacement_list.export': ['REPLACEMENT_LIST_EXPORT'],
-  'filters.hierarchy_create': ['FILTER_HIERARCHY_CREATE', 'ASSET_READ'],
-  'filters.hierarchy_edit': ['FILTER_HIERARCHY_EDIT', 'ASSET_READ'],
-  'filters.hierarchy_delete': ['FILTER_HIERARCHY_DELETE', 'ASSET_READ'],
-  'filters.rfid_manage': ['FILTER_RFID_MANAGE', 'ASSET_IDENTIFIER_CREATE', 'ASSET_IDENTIFIER_DELETE', 'ASSET_READ'],
-  'filters.export': ['FILTER_LIST_EXPORT'],
-  'replacement_schedule.view': ['REPLACEMENT_SCHEDULE_VIEW', 'REPLACEMENT_SCHEDULE_UPLOAD'],
-  'replacement_schedule.upload': ['REPLACEMENT_SCHEDULE_UPLOAD'],
-  'replacement_schedule.review': ['REPLACEMENT_SCHEDULE_REVIEW', 'REPLACEMENT_SCHEDULE_VIEW'],
-  'replacement_schedule.approve': ['REPLACEMENT_SCHEDULE_APPROVE', 'REPLACEMENT_SCHEDULE_VIEW'],
-  'block_change.request': ['BLOCK_CHANGE_REQUEST'],
-  'block_change.approve': ['BLOCK_CHANGE_APPROVE'],
-  'stage_approvals.view': ['STAGE_APPROVAL_VIEW'],
-  'stage_approvals.decide': ['STAGE_APPROVAL_DECIDE'],
-  'cleaning_profiles.view': ['FCP_READ'],
-  'cleaning_profiles.create': ['CP_PAGE_CREATE', 'FCP_CREATE', 'FCP_READ'],
-  'cleaning_profiles.edit': ['CP_PAGE_EDIT', 'FCP_UPDATE', 'FCP_READ'],
-  'cleaning_profiles.delete': ['CP_PAGE_DELETE', 'FCP_DELETE', 'FCP_READ'],
-  'filter_profiles.view': ['FP_READ'],
-  'filter_profiles.create': ['FP_CREATE', 'FP_READ'],
-  'filter_profiles.edit': ['FP_UPDATE', 'FP_READ'],
-  'filter_profiles.delete': ['FP_DELETE', 'FP_READ'],
-  'filter_profiles.assign': ['FP_ASSIGN', 'FP_READ'],
-  'cycles.view': ['CYCLE_READ'],
-  'pm.view': ['PM_READ'],
-  'pm.create': ['PM_CREATE', 'PM_READ'],
-  'pm.edit': ['PM_UPDATE', 'PM_READ'],
-  'pm.delete': ['PM_DELETE', 'PM_READ'],
-  'pm.execute': ['PM_EXECUTE', 'PM_READ'],
-  'pm.approve': ['PM_APPROVE', 'PM_READ'],
-  'pm.review': ['PM_REVIEW', 'PM_READ'],
-  'pm.download_template': ['PM_DOWNLOAD_TEMPLATE', 'PM_READ'],
-  'pm.upload': ['PM_UPLOAD', 'PM_CREATE', 'PM_READ'],
-  'pm.edit_entry': ['PM_EDIT_ENTRY', 'PM_UPDATE', 'PM_READ'],
-  'pm.resubmit': ['PM_RESUBMIT', 'PM_CREATE', 'PM_READ'],
-  'equipment_groups.view': ['EG_VIEW', 'ASSET_READ'],
-  'equipment_groups.create': ['EG_CREATE', 'ASSET_READ'],
-  'equipment_groups.edit': ['EG_EDIT', 'ASSET_READ'],
-  'equipment_groups.delete': ['EG_DELETE', 'ASSET_READ'],
-  'admin_requests.approve': ['ADMIN_REQUEST_APPROVE'],
-  'admin_requests.reject': ['ADMIN_REQUEST_REJECT'],
-  'debug.view': ['READ_DEBUG_TRACE'],
-  'debug.manage': ['MANAGE_DEBUG_TRACE'],
-  'cleaning_record.export': ['REPORT_EXPORT', 'REPORT_GENERATE'],
-  'lifecycle.export': ['REPORT_EXPORT', 'REPORT_GENERATE'],
-  'version_history.view': ['VERSION_HISTORY_VIEW'],
-  'backup.export': ['BACKUP_EXPORT'],
-  'backup.restore': ['BACKUP_RESTORE'],
+  "users.create": [
+    "USER_CREATE",
+    "USER_READ"
+  ],
+  "users.view": [
+    "USER_READ"
+  ],
+  "users.edit": [
+    "USER_UPDATE",
+    "USER_READ"
+  ],
+  "users.delete": [
+    "USER_DELETE",
+    "USER_READ"
+  ],
+  "users.enable_disable": [
+    "USER_ENABLE_DISABLE",
+    "USER_READ"
+  ],
+  "users.unlock": [
+    "USER_UNLOCK",
+    "USER_READ"
+  ],
+  "users.reset_password": [
+    "USER_RESET_PASSWORD",
+    "USER_READ"
+  ],
+  "config.view": [
+    "CONFIG_READ"
+  ],
+  "config.edit": [
+    "CONFIG_UPDATE",
+    "CONFIG_READ"
+  ],
+  "config.field_ids": [
+    "FIELD_ID_UPDATE",
+    "CONFIG_READ"
+  ],
+  "roles.manage": [
+    "ROLE_MANAGE"
+  ],
+  "notifications.view": [
+    "NOTIFICATION_VIEW"
+  ],
+  "notifications.delete": [
+    "NOTIFICATION_DELETE"
+  ],
+  "audit.view": [
+    "AUDIT_READ"
+  ],
+  "audit.export": [
+    "AUDIT_EXPORT",
+    "AUDIT_READ"
+  ],
+  "audit.delete": [
+    "AUDIT_DELETE",
+    "AUDIT_READ"
+  ],
+  "dashboard.view": [
+    "DASHBOARD_VIEW"
+  ],
+  "dashboard.create": [
+    "DASHBOARD_CREATE",
+    "DASHBOARD_VIEW"
+  ],
+  "dashboard.manage": [
+    "DASHBOARD_MANAGE",
+    "DASHBOARD_VIEW"
+  ],
+  "dashboard.assign": [
+    "DASHBOARD_ASSIGN",
+    "DASHBOARD_VIEW"
+  ],
+  "admin_requests.approve": [
+    "ADMIN_REQUEST_APPROVE"
+  ],
+  "admin_requests.reject": [
+    "ADMIN_REQUEST_REJECT"
+  ],
+  "debug.view": [
+    "READ_DEBUG_TRACE"
+  ],
+  "debug.manage": [
+    "MANAGE_DEBUG_TRACE"
+  ],
+  "version_history.view": [
+    "VERSION_HISTORY_VIEW"
+  ],
+  "backup.export": [
+    "BACKUP_EXPORT"
+  ],
+  "backup.restore": [
+    "BACKUP_RESTORE"
+  ]
 };
 
 export const SIDEBAR_PRIVILEGE_MAP_SNAPSHOT: SidebarSectionSnapshot[] = [
   {
-    sidebarId: "dashboard",
-    label: "Dashboard",
-    icon: "\u{1F3E0}",
-    description: "Main dashboard view",
-    privilegeIds: [],
+    "sidebarId": "dashboard",
+    "label": "Dashboard",
+    "icon": "🏠",
+    "description": "Main dashboard view",
+    "privilegeIds": []
   },
   {
-    sidebarId: "users",
-    label: "Users",
-    icon: "\u{1F465}",
-    description: "User management",
-    privilegeIds: [
-      "users.view", "users.create", "users.edit", "users.delete",
-      "users.reset_password", "users.unlock", "users.enable_disable",
-    ],
+    "sidebarId": "users",
+    "label": "Users",
+    "icon": "👥",
+    "description": "User management",
+    "privilegeIds": [
+      "users.view",
+      "users.create",
+      "users.edit",
+      "users.delete",
+      "users.reset_password",
+      "users.unlock",
+      "users.enable_disable"
+    ]
   },
   {
-    sidebarId: "admin-requests",
-    label: "Admin Requests",
-    icon: "\u{1F4CB}",
-    description: "Review and process user requests",
-    privilegeIds: [
+    "sidebarId": "admin-requests",
+    "label": "Admin Requests",
+    "icon": "📋",
+    "description": "Review and process user requests",
+    "privilegeIds": [
       "admin_requests.approve",
-      "admin_requests.reject",
-    ],
+      "admin_requests.reject"
+    ]
   },
   {
-    sidebarId: "configuration",
-    label: "Configuration",
-    icon: "⚙️",
-    description: "System settings",
-    privilegeIds: ["config.view", "config.edit"],
+    "sidebarId": "configuration",
+    "label": "Configuration",
+    "icon": "⚙️",
+    "description": "System settings",
+    "privilegeIds": [
+      "config.view",
+      "config.edit"
+    ]
   },
   {
-    sidebarId: "notifications",
-    label: "Notifications",
-    icon: "\u{1F514}",
-    description: "Notification center",
-    privilegeIds: ["notifications.view", "notifications.manage", "notifications.delete"],
+    "sidebarId": "notifications",
+    "label": "Notifications",
+    "icon": "🔔",
+    "description": "Notification center",
+    "privilegeIds": [
+      "notifications.view",
+      "notifications.manage",
+      "notifications.delete"
+    ]
   },
   {
-    sidebarId: "audit",
-    label: "Audit Trail",
-    icon: "\u{1F4DD}",
-    description: "Activity logs",
-    privilegeIds: ["audit.view", "audit.export"],
+    "sidebarId": "audit",
+    "label": "Audit Trail",
+    "icon": "📝",
+    "description": "Activity logs",
+    "privilegeIds": [
+      "audit.view",
+      "audit.export"
+    ]
   },
   {
-    sidebarId: "system-health",
-    label: "System Health",
-    icon: "\u{1F4CA}",
-    description: "System health monitoring",
-    privilegeIds: [],
+    "sidebarId": "system-health",
+    "label": "System Health",
+    "icon": "📊",
+    "description": "System health monitoring",
+    "privilegeIds": []
   },
   {
-    sidebarId: "debug-traces",
-    label: "Debug Traces",
-    icon: "\u{1F41B}",
-    description: "Pipeline debug traces",
-    privilegeIds: ["debug.view", "debug.manage"],
+    "sidebarId": "debug-traces",
+    "label": "Debug Traces",
+    "icon": "🐛",
+    "description": "Pipeline debug traces",
+    "privilegeIds": [
+      "debug.view",
+      "debug.manage"
+    ]
   },
   {
-    sidebarId: "filter-list",
-    label: "Filters",
-    icon: "\u{1F50D}",
-    description: "Filter inventory by block",
-    privilegeIds: ["assets.view", "filters.operate", "filters.events", "filters.bulk_upload", "filters.retire", "filters.replace", "filters.status_update", "filters.hierarchy_create", "filters.rfid_manage"],
-  },
-  {
-    sidebarId: "filter-retirements",
-    label: "Retirement List",
-    icon: "\u{1F6AB}",
-    description: "Retired filter inventory",
-    privilegeIds: ["assets.view"],
-  },
-  {
-    sidebarId: "rfid-track-record",
-    label: "RFID Track Record",
-    icon: "\u{1F4E1}",
-    description: "RFID assign / remove lifecycle history",
-    privilegeIds: ["assets.view", "filters.rfid_manage"],
-  },
-  {
-    sidebarId: "filter-replacements",
-    label: "Replacement List",
-    icon: "\u{1F504}",
-    description: "Filter replacement history + schedule (List | Schedule tabs)",
-    privilegeIds: ["assets.view", "replacement_schedule.view", "replacement_schedule.upload", "replacement_schedule.review", "replacement_schedule.approve"],
-  },
-  {
-    sidebarId: "filter-operations",
-    label: "Filter Operations",
-    icon: "\u{1F527}",
-    description: "Filter cleaning operations",
-    privilegeIds: ["filters.operate", "filters.bypass", "filters.events", "checklists.submit"],
-  },
-  {
-    sidebarId: "cleaning-cycles",
-    label: "Filter Cleaning Record",
-    icon: "\u{1F504}",
-    description: "Cleaning cycle history and timeline",
-    privilegeIds: ["cycles.view"],
-  },
-  {
-    sidebarId: "filter-lifecycle-report",
-    label: "Filter Lifecycle Report",
-    icon: "\u{1F4CA}",
-    description: "Per-filter cleaning lifecycle, cycle by cycle",
-    privilegeIds: ["cycles.view"],
-  },
-  {
-    sidebarId: "checklists",
-    label: "Checklists",
-    icon: "\u{1F4CB}",
-    description: "Checklist profile management",
-    // checklists.submit removed 2026-07-04 (audit #1) — submit drives the filter-ops
-    // group's visibility, not this management page. See permission-tree.ts.
-    privilegeIds: ["checklists.create", "checklists.edit", "checklists.delete", "checklists.toggle"],
-  },
-  {
-    sidebarId: "cleaning-profiles",
-    label: "Cleaning Profiles",
-    icon: "\u{1F9F9}",
-    description: "Cleaning pipeline profile management",
-    privilegeIds: ["cleaning_profiles.view", "cleaning_profiles.create", "cleaning_profiles.edit", "cleaning_profiles.delete"],
-  },
-  {
-    sidebarId: "equipment-groups",
-    label: "Equipment Groups",
-    icon: "⚙️",
-    description: "Equipment group configuration",
-    privilegeIds: ["equipment_groups.view", "equipment_groups.create", "equipment_groups.edit", "equipment_groups.delete"],
-  },
-  {
-    sidebarId: "pm-schedules",
-    label: "PM Schedules",
-    icon: "\u{1F4C5}",
-    description: "Preventive maintenance scheduling",
-    privilegeIds: ["pm.view", "pm.create", "pm.edit", "pm.delete", "pm.approve"],
-  },
-  {
-    sidebarId: "my-tasks",
-    label: "My Tasks",
-    icon: "\u{1F3AF}",
-    description: "Filters due for cleaning based on PM schedules",
-    privilegeIds: ["pm.view", "pm.execute"],
-  },
-  {
-    sidebarId: "deviations",
-    label: "Deviations",
-    icon: "\u{26A0}",
-    description: "Overdue PM cleaning deviations + audit trail",
-    privilegeIds: ["pm.view", "pm.approve"],
-  },
-  {
-    sidebarId: "approvals",
-    label: "Approvals",
-    icon: "✅",
-    description: "Block change approval requests",
-    privilegeIds: ["block_change.request", "block_change.approve"],
-  },
-  {
-    sidebarId: "stage-approvals",
-    label: "Stage Approvals",
-    icon: "\u{1F6E1}️",
-    description: "Approve cleaning stages (Wash Out / Dry Out) at the QA interlock",
-    privilegeIds: ["stage_approvals.view", "stage_approvals.decide"],
-  },
-  {
-    sidebarId: "version-history",
-    label: "Version History",
-    icon: "\u{1F570}️",
-    description: "Audit history of versioned definitions (cleaning profiles, filter profiles, checklist profiles, equipment groups). SUPER_ADMIN by default; assignable to other roles.",
-    privilegeIds: ["version_history.view"],
-  },
+    "sidebarId": "version-history",
+    "label": "Version History",
+    "icon": "🕰️",
+    "description": "Audit history of versioned definitions (cleaning profiles, filter profiles, checklist profiles, equipment groups)",
+    "privilegeIds": [
+      "version_history.view"
+    ]
+  }
 ];

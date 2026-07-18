@@ -6,7 +6,6 @@ import { auditQuerySchema } from '@digilog/shared';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { verifyAuditChain } from '../../lib/audit-verify.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
-import { entryLabel as replacementEntryLabel } from '../replacement-schedule/workflow.js';
 
 export default async function auditRoutes(app: FastifyInstance) {
   // GET /api/audit — query audit trail (requires AUDIT_READ permission)
@@ -160,165 +159,24 @@ export default async function auditRoutes(app: FastifyInstance) {
       prisma.auditTrail.count({ where: where as any }),
     ]);
 
-    // 2026-05-20 enrichment fix: many older audit rows stored only IDs in
-    // afterValue (e.g. CYCLE_STARTED had {cycleCode, cleaningReasonKey,
-    // filterId} but no filterName). The audit-templates substitution on the
-    // FE looks for `name` / `filterName` / `equipmentName` and falls through
-    // to "" when none are present — so the rendered row reads
-    //   `cycle started for filter "" with reason "FILTER" by 101114`
-    // Backfilling stored payloads is impossible without a chain-breaking
-    // UPDATE. Instead, enrich at read time by batch-looking up filters and
-    // cycles that the audit row references, then attaching `_enriched`
-    // fields to afterValue (NOT modifying the original — the checksum still
-    // verifies). FE merges these in for rendering.
-    // Common shapes for asset-instance ID across audit row variants:
-    //   - afterValue.filterId           (cycle-write events)
-    //   - afterValue.assetId            (identifier service)
-    //   - afterValue.assetInstanceId    (legacy)
-    //   - afterValue.entityId           (legacy + some queries)
-    //   - targetId when targetType='filter' OR 'asset_instance'
-    const filterIds = new Set<string>();
-    const cycleIds = new Set<string>();
-    const pmEntryIds = new Set<string>();
-    // Replacement-schedule workflow rows (reviewed/approved/rejected/resubmitted/
-    // modified) written before the 2026-07-18 descriptor fix stored only the
-    // comment/remarks in afterValue — no AHU/filter name. Resolve the entry at
-    // read time (same non-destructive pattern as the PM rows above).
-    const replEntryIds = new Set<string>();
-    // redacted_by stores a user UUID. Same read-time enrichment idea as the
-    // filter names above: an inspector needs a username, not a UUID. The
-    // redactor may since have been hard-deleted (user delete is physical), so
-    // the render falls back to the raw id rather than dropping the attribution.
+    // Read-time enrichment: resolve the redactor UUID (redacted_by) to a
+    // username for the inspector view. The redactor may since have been
+    // hard-deleted (user delete is physical), so the render falls back to the
+    // raw id rather than dropping the attribution. (The cleanroom domain
+    // enrichment — filter/cycle/PM/replacement name lookups — was removed with
+    // the 2026-07-18 domain strip; historic domain audit rows render with their
+    // stored payloads as-is.)
     const redactorIds = new Set<string>();
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     for (const r of records as any[]) {
-      const af = (r.afterValue ?? {}) as Record<string, unknown>;
-      const bf = (r.beforeValue ?? {}) as Record<string, unknown>;
       if (typeof r.redactedBy === 'string' && UUID_RE.test(r.redactedBy)) redactorIds.add(r.redactedBy);
-      for (const key of ['filterId', 'assetId', 'assetInstanceId', 'entityId']) {
-        const v = af[key] || bf[key];
-        if (typeof v === 'string' && UUID_RE.test(v)) filterIds.add(v);
-      }
-      if (typeof r.targetId === 'string' && UUID_RE.test(r.targetId)) {
-        if (r.targetType === 'filter' || r.targetType === 'asset_instance') {
-          filterIds.add(r.targetId);
-        }
-        if (r.targetType === 'cleaning_cycle') cycleIds.add(r.targetId);
-        // PM schedule entry rows (reviewed/approved/rejected): rows written
-        // before AHU capture lack afterValue.ahuName. Resolve the AHU at read
-        // time via the entry's schedule (entityId = AHU asset instance) — the
-        // stored row is never modified (checksum still verifies vs. the original).
-        if (r.targetType === 'pm_schedule_entry' && !af.ahuName) pmEntryIds.add(r.targetId);
-        if (r.targetType === 'replacement_schedule_entry' && !af.name) replEntryIds.add(r.targetId);
-      }
     }
-    // Resolve PM entries -> their schedule's AHU id, and fold those AHU ids into
-    // the asset-instance name lookup below so we get the AHU's display name.
-    const pmEntries = pmEntryIds.size > 0
-      ? await prisma.pmScheduleEntry.findMany({
-          where: { id: { in: Array.from(pmEntryIds) } },
-          select: { id: true, schedule: { select: { entityId: true } } },
-        })
-      : [];
-    const ahuIdByPmEntry = new Map<string, string>();
-    for (const e of pmEntries) {
-      if (e.schedule?.entityId) { ahuIdByPmEntry.set(e.id, e.schedule.entityId); filterIds.add(e.schedule.entityId); }
-    }
-    // Replacement entries carry ahuName/filterSize/filterMicron/qty directly
-    // (no join needed). Build the same titled descriptor the workflow now writes.
-    const replEntries = replEntryIds.size > 0
-      ? await prisma.replacementScheduleEntry.findMany({
-          where: { id: { in: Array.from(replEntryIds) } },
-          select: { id: true, ahuName: true, filterSize: true, filterMicron: true, qty: true },
-        })
-      : [];
-    const replEntryById = new Map(replEntries.map((e) => [e.id, e]));
-    const [filters, cycles] = await Promise.all([
-      filterIds.size > 0
-        ? prisma.assetInstance.findMany({
-            where: { id: { in: Array.from(filterIds) } },
-            select: { id: true, name: true },
-          })
-        : Promise.resolve([] as Array<{ id: string; name: string }>),
-      cycleIds.size > 0
-        ? prisma.cleaningCycle.findMany({
-            where: { id: { in: Array.from(cycleIds) } },
-            select: { id: true, cycleCode: true, filterId: true, cleaningReasonLabel: true },
-          })
-        : Promise.resolve([] as Array<{ id: string; cycleCode: string; filterId: string; cleaningReasonLabel: string | null }>),
-    ]);
-    const filterNameById = new Map(filters.map((f) => [f.id, f.name]));
-    const cycleById = new Map(cycles.map((c) => [c.id, c]));
     const redactors = redactorIds.size > 0
       ? await prisma.user.findMany({ where: { id: { in: Array.from(redactorIds) } }, select: { id: true, username: true } })
       : [];
     const redactorNameById = new Map(redactors.map((u) => [u.id, u.username]));
-    // Second-pass filter lookup for cycles → their referenced filterIds
-    const extraFilterIds = new Set<string>();
-    for (const c of cycles) if (c.filterId && !filterNameById.has(c.filterId)) extraFilterIds.add(c.filterId);
-    if (extraFilterIds.size > 0) {
-      const extra = await prisma.assetInstance.findMany({
-        where: { id: { in: Array.from(extraFilterIds) } },
-        select: { id: true, name: true },
-      });
-      for (const f of extra) filterNameById.set(f.id, f.name);
-    }
 
     const data = records.map((record: any) => {
-      const af = (record.afterValue ?? {}) as Record<string, unknown>;
-      const bf = (record.beforeValue ?? {}) as Record<string, unknown>;
-      const enriched: Record<string, unknown> = { ...af };
-
-      // Any of the common ID-keys map to the same asset_instances row;
-      // stamp filterName on the enriched payload so the FE's targetName
-      // resolver (after.name || filterName || ...) picks it up.
-      const fid = (af.filterId as string)
-        || (bf.filterId as string)
-        || (af.assetId as string)
-        || (bf.assetId as string)
-        || (af.assetInstanceId as string)
-        || (bf.assetInstanceId as string)
-        || (af.entityId as string)
-        || (bf.entityId as string)
-        || ((record.targetType === 'filter' || record.targetType === 'asset_instance')
-            ? record.targetId
-            : null);
-      if (fid && filterNameById.has(fid)) {
-        enriched.filterName = enriched.filterName ?? filterNameById.get(fid);
-      }
-      if (record.targetType === 'cleaning_cycle' && typeof record.targetId === 'string') {
-        const c = cycleById.get(record.targetId);
-        if (c) {
-          if (c.filterId && filterNameById.has(c.filterId)) {
-            enriched.filterName = enriched.filterName ?? filterNameById.get(c.filterId);
-          }
-          if (c.cleaningReasonLabel) {
-            enriched.cleaningReasonLabel = enriched.cleaningReasonLabel ?? c.cleaningReasonLabel;
-          }
-          if (c.cycleCode) {
-            enriched.cycleCode = enriched.cycleCode ?? c.cycleCode;
-          }
-        }
-      }
-      // Old PM review/approve rows: resolve AHU name from the entry's schedule.
-      if (record.targetType === 'pm_schedule_entry' && !enriched.ahuName) {
-        const ahuId = ahuIdByPmEntry.get(record.targetId);
-        if (ahuId && filterNameById.has(ahuId)) enriched.ahuName = filterNameById.get(ahuId);
-      }
-      // Old replacement-schedule rows: stamp the titled descriptor into `name`
-      // (fills {targetName} in the summary) plus the structured fields (so the
-      // detail modal itemizes them). Only when the entry still exists.
-      if (record.targetType === 'replacement_schedule_entry' && !enriched.name) {
-        const e = replEntryById.get(record.targetId);
-        if (e) {
-          enriched.name = replacementEntryLabel(e);
-          enriched.ahuName = enriched.ahuName ?? e.ahuName;
-          enriched.filterSize = enriched.filterSize ?? e.filterSize;
-          enriched.filterMicron = enriched.filterMicron ?? e.filterMicron;
-          enriched.qty = enriched.qty ?? e.qty;
-        }
-      }
-
       return {
         ...record,
         // Redactor username for display; null when the row isn't redacted, the
@@ -326,16 +184,9 @@ export default async function auditRoutes(app: FastifyInstance) {
         redactedByName: record.redactedBy
           ? (redactorNameById.get(record.redactedBy) ?? record.redactedBy)
           : null,
-        // Override afterValue with enriched fields so the FE template
-        // substitution picks them up without any FE-side fetches. Original
-        // checksum is computed against ORIGINAL afterValue — recompute
-        // verification against THAT, not the enriched copy.
-        afterValue: enriched,
-        // Verify against the ORIGINAL stored afterValue (record.afterValue), not
-        // the enriched copy AND not `af` (= `?? {}`, which would canonicalize a
-        // null afterValue to '{}' instead of 'null' → false mismatch).
-        // verifyAuditChecksum null-normalizes internally. beforeValue + the rest
-        // pass through raw via `...record` (needed for the expanded checksum).
+        // Verify against the ORIGINAL stored afterValue. verifyAuditChecksum
+        // null-normalizes internally; beforeValue + the rest pass through raw
+        // via `...record` (needed for the expanded checksum).
         integrityValid: verifyAuditChecksum({ ...record, afterValue: record.afterValue }),
       };
     });

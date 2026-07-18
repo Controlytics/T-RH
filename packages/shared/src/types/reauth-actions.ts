@@ -42,10 +42,6 @@ export const REAUTH_ACTIONS = {
   // policy page can require step-up auth on outbound-comms credential edits.
   UPDATE_EMAIL_CONFIG: { label: 'Update Email Config', category: 'Configuration' },
   UPDATE_SMS_CONFIG: { label: 'Update SMS Config', category: 'Configuration' },
-  // Offline-cache settings are SUPER_ADMIN-only; require step-up auth on
-  // changes because operators rely on the configured staleness + hard-cutoff
-  // values for 21 CFR Part 11 read-only-lockout enforcement.
-  UPDATE_OFFLINE_CACHE_CONFIG: { label: 'Update Offline Cache Config', category: 'Configuration' },
 
   // Role Management
   CREATE_ROLE: { label: 'Create Role', category: 'Role Management' },
@@ -56,22 +52,6 @@ export const REAUTH_ACTIONS = {
   EXPORT_BACKUP: { label: 'Export Backup', category: 'Backup' },
   RESTORE_BACKUP: { label: 'Restore Backup', category: 'Backup' },
 
-  // Asset Management
-  CREATE_ASSET: { label: 'Create Asset', category: 'Asset Management' },
-  UPDATE_ASSET: { label: 'Update Asset', category: 'Asset Management' },
-  DELETE_ASSET: { label: 'Delete Asset', category: 'Asset Management' },
-  // 2026-05-26 audit fix (PA-CLEANUP-4): CREATE_ASSET_RELATIONSHIP +
-  // DELETE_ASSET_RELATIONSHIP removed — neither FE nor BE ever called
-  // enforceReauth / reauth.execute with those names. Dead constants.
-  CREATE_ASSET_IDENTIFIER: { label: 'Create Asset Identifier', category: 'Asset Management' },
-  DELETE_ASSET_IDENTIFIER: { label: 'Delete Asset Identifier', category: 'Asset Management' },
-
-  // Data Ingestion & Integration (Phase A)
-  CREATE_CHECKLIST_PROFILE: { label: 'Create Checklist Profile', category: 'Checklist' },
-  UPDATE_CHECKLIST_PROFILE: { label: 'Update Checklist Profile', category: 'Checklist' },
-  DELETE_CHECKLIST_PROFILE: { label: 'Delete Checklist Profile', category: 'Checklist' },
-  SUBMIT_CHECKLIST_WITH_SIGNATURE: { label: 'Submit Checklist with Signature', category: 'Checklist' },
-  // (OVERRIDE_UNS_PATH / DELETE_UNS_MAPPING / UPDATE_UNS_CONFIG removed with data-ingestion removal.)
   CREATE_HELP_ARTICLE: { label: 'Create Help Article', category: 'Help' },
   UPDATE_HELP_ARTICLE: { label: 'Update Help Article', category: 'Help' },
   DELETE_HELP_ARTICLE: { label: 'Delete Help Article', category: 'Help' },
@@ -118,75 +98,6 @@ export const REAUTH_ACTIONS = {
   // targetType + targetId distinguishes the surface; the action is
   // shared so operators can opt in / out via one reauth-policy entry.
   UPDATE_CONFIG_PAGE: { label: 'Update Configuration Page', category: 'Configuration' },
-
-  // Phase 2: Filter Management
-  START_CLEANING_CYCLE: { label: 'Start Cleaning Cycle', category: 'Filter Management' },
-  // Audit S-4 (2026-05-29): POST /:id/advance was the only cycle endpoint
-  // without enforceReauth. Every sibling (start-cycle, submit-checklist,
-  // bypass, retire, replace, terminate-cycle) requires step-up auth.
-  // Advancing through a stage IS a 21 CFR §11 signature-of-intent event —
-  // it is the highest-frequency operator action and must be operator-owned.
-  ADVANCE_FILTER_STAGE: { label: 'Advance Filter to Next Stage', category: 'Filter Management' },
-  BYPASS_FILTER_STAGE: { label: 'Bypass Filter Stage (Deviation)', category: 'Filter Management' },
-  // Cleaning stage interlock — always-on signature (not config-toggleable). Listed
-  // here for the audit/registry view only; enforced via enforceReauthAlways.
-  APPROVE_CLEANING_STAGE: { label: 'Approve Cleaning Stage (Interlock)', category: 'Filter Management' },
-  REJECT_CLEANING_STAGE: { label: 'Reject Cleaning Stage (Interlock)', category: 'Filter Management' },
-  TERMINATE_CLEANING_CYCLE: { label: 'Terminate Cleaning Cycle', category: 'Filter Management' },
-  CREATE_FILTER: { label: 'Create Filter', category: 'Filter Management' },
-  EDIT_FILTER: { label: 'Edit Filter', category: 'Filter Management' },
-  DELETE_FILTER: { label: 'Delete Filter', category: 'Filter Management' },
-  RETIRE_FILTER: { label: 'Retire Filter', category: 'Filter Management' },
-  REPLACE_FILTER: { label: 'Replace Filter', category: 'Filter Management' },
-  BULK_UPLOAD_FILTERS: { label: 'Bulk Upload Filters', category: 'Filter Management' },
-  REVIEW_REPLACEMENT_SCHEDULE: { label: 'Review Replacement Schedule', category: 'Filter Management' },
-  APPROVE_REPLACEMENT_SCHEDULE: { label: 'Approve Replacement Schedule', category: 'Filter Management' },
-  REJECT_REPLACEMENT_SCHEDULE: { label: 'Reject Replacement Schedule', category: 'Filter Management' },
-  // M2 (audit 2026-05-04): manual filter lifecycle PATCH (INSTALLED / WASH_IN /
-  // ... / IN_USE) was reusing the generic UPDATE_ASSET action, hiding cleanroom
-  // lifecycle moves under the same audit key as ordinary asset edits. Dedicated
-  // action makes inspector audits unambiguous.
-  UPDATE_FILTER_LIFECYCLE: { label: 'Update Filter Lifecycle State', category: 'Filter Management' },
-  EDIT_HIERARCHY_NODE: { label: 'Edit Hierarchy Node', category: 'Filter Management' },
-  DELETE_HIERARCHY_NODE: { label: 'Delete Hierarchy Node', category: 'Filter Management' },
-  CREATE_CLEANING_PROFILE: { label: 'Create Cleaning Profile', category: 'Cleaning Profiles' },
-  UPDATE_CLEANING_PROFILE: { label: 'Update Cleaning Profile', category: 'Cleaning Profiles' },
-  DELETE_CLEANING_PROFILE: { label: 'Delete Cleaning Profile', category: 'Cleaning Profiles' },
-  CREATE_FILTER_PROFILE: { label: 'Create Filter Profile', category: 'Filter Profiles' },
-  UPDATE_FILTER_PROFILE: { label: 'Update Filter Profile', category: 'Filter Profiles' },
-  DELETE_FILTER_PROFILE: { label: 'Delete Filter Profile', category: 'Filter Profiles' },
-  ASSIGN_FILTER_PROFILE: { label: 'Assign Filter Profile', category: 'Filter Profiles' },
-  CREATE_PM_SCHEDULE: { label: 'Create PM Schedule', category: 'PM Schedules' },
-  UPDATE_PM_SCHEDULE: { label: 'Update PM Schedule', category: 'PM Schedules' },
-  DELETE_PM_SCHEDULE: { label: 'Delete PM Schedule', category: 'PM Schedules' },
-  EDIT_PM_SCHEDULE: { label: 'Edit PM Entry', category: 'PM Schedules' },
-  APPROVE_PM_SCHEDULE: { label: 'Approve PM Schedule', category: 'PM Schedules' },
-  REJECT_PM_SCHEDULE: { label: 'Reject PM Schedule', category: 'PM Schedules' },
-  REVIEW_PM_SCHEDULE: { label: 'Review PM Schedule', category: 'PM Schedules' },
-  // Audit 2026-05-09 fix: bulk PM upload + execution-start + entry resubmit
-  // were missing reauth gates. SUPER_ADMIN bulk uploads auto-approve every
-  // row (pm-import.ts:133), so the upload was a high-trust mutation with no
-  // password challenge. PM execution start creates an immutable PmExecution
-  // row comparable to start-cycle (which IS reauth-gated). Resubmit flips
-  // REJECTED → PENDING — minor but inconsistent with approve/reject.
-  UPLOAD_PM_SCHEDULES: { label: 'Bulk Upload PM Schedules', category: 'PM Schedules' },
-  START_PM_TASK: { label: 'Start PM Task', category: 'PM Schedules' },
-  RESUBMIT_PM_ENTRY: { label: 'Resubmit PM Entry', category: 'PM Schedules' },
-  ACKNOWLEDGE_PM_OVERDUE: { label: 'Acknowledge Overdue PM Task', category: 'PM Schedules' },
-  CREATE_EQUIPMENT_GROUP: { label: 'Create Equipment Group', category: 'Equipment Groups' },
-  UPDATE_EQUIPMENT_GROUP: { label: 'Update Equipment Group', category: 'Equipment Groups' },
-  DELETE_EQUIPMENT_GROUP: { label: 'Delete Equipment Group', category: 'Equipment Groups' },
-
-  // Block Change
-  APPROVE_BLOCK_CHANGE: { label: 'Approve Block Change', category: 'Filter Management' },
-  REJECT_BLOCK_CHANGE: { label: 'Reject Block Change', category: 'Filter Management' },
-
-  // Reports
-  // (CREATE/UPDATE/DELETE_REPORT_TEMPLATE, GENERATE_REPORT, SIGN_REPORT,
-  // REJECT_REPORT, DELETE_REPORT removed 2026-07-04 with the orphaned reports
-  // generate/sign module.) The active report-reviews workflow keeps these two:
-  REVIEW_REPORT: { label: 'Review Report', category: 'Reports' },
-  APPROVE_REPORT: { label: 'Approve Report', category: 'Reports' },
 } as const;
 
 export type ReauthAction = keyof typeof REAUTH_ACTIONS;
@@ -196,16 +107,7 @@ export const REAUTH_ACTION_CATEGORIES = [
   'Configuration',
   'Role Management',
   'Backup',
-  'Asset Management',
-  'Checklist',
-  // ('UNS' + 'Retention' categories removed with data-ingestion removal.)
   'Help',
-  'Filter Management',
-  'Cleaning Profiles',
-  'Filter Profiles',
-  'PM Schedules',
-  'Equipment Groups',
-  'Reports',
   // Both editors (config/action-reauth.tsx and roles-components/reauth-tab.tsx)
   // build their lists by iterating THIS array, so an action whose category is
   // missing here renders nowhere and its policy can never be set. These two were

@@ -8,7 +8,6 @@ import userRoutes from '../modules/users/routes.js';
 import configRoutes from '../modules/config/routes.js';
 import auditRoutes from '../modules/audit/routes.js';
 import roleRoutes from '../modules/roles/routes.js';
-import assetRoutes from '../modules/assets/index.js';
 import notificationRoutes from '../modules/notifications/routes.js';
 import notificationDeliveryRoutes from '../modules/notification-delivery/routes.js';
 import userGroupRoutes from '../modules/user-groups/routes.js';
@@ -67,7 +66,6 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(configRoutes, { prefix: '/api/config' });
   await app.register(auditRoutes, { prefix: '/api/audit' });
   await app.register(roleRoutes, { prefix: '/api/roles' });
-  await app.register(assetRoutes, { prefix: '/api/assets' });
   await app.register(notificationRoutes, { prefix: '/api/notifications' });
   await app.register(notificationDeliveryRoutes, { prefix: '/api/notification-settings' });
   await app.register(userGroupRoutes, { prefix: '/api/user-groups' });

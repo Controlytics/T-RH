@@ -108,3 +108,7 @@ certs/certs/
 # Local DB dumps must never be committed — they hold bcrypt password hashes,
 # audit-trail PII, and the full data set (audit 2026-05-30).
 old/db-backups/*
+
+# DigiLog-era debug artifacts (compliance-core strip)
+/*.png
+/*.log

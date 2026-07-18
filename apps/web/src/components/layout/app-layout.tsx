@@ -1,30 +1,20 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Outlet, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/use-auth';
 import { useSession } from '@/hooks/use-session';
 import { useSingleTab } from '@/hooks/use-single-tab';
 import { useBranding } from '@/hooks/use-branding';
-import { useRfidGuard } from '@/hooks/use-rfid-guard';
-import { useOfflineConfig } from '@/hooks/use-offline-config';
 import { useDragScroll } from '@/hooks/use-drag-scroll';
-import { HardCutoffBlocker } from '@/components/hard-cutoff-blocker';
 import { SuperAdminLockdownScreen } from '@/components/super-admin-api-access';
 import { useSuperAdminLock } from '@/hooks/use-super-admin-lock';
-import { FailedOpsPanel } from '@/components/failed-ops-panel';
 import { Sidebar } from './sidebar';
 import { Header } from './header';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Button } from '../ui/button';
 import useSWR from 'swr';
-import { triggerSync, startSyncPolling } from '@/lib/sync-since';
 
 export function AppLayout() {
-  useRfidGuard(); // Block RFID UKB input from going into random fields
   useDragScroll(); // App-wide click-drag horizontal panning for wide tables/grids
-  // W2: read the SUPER_ADMIN-tuned offline-cache config and push the staleness
-  // value into offline-store. Also exposes cacheHardCutoffHours for W4's
-  // read-only blocker (consumed by a child component to be added in W4).
-  useOfflineConfig();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { user, isAuthenticated, isLoading, logout } = useAuth();
   // Super Admin API kill-switch. When OFF and the current user is a SUPER_ADMIN,
@@ -50,17 +40,6 @@ export function AppLayout() {
     user?.id,
     user?.username,
   );
-
-  // Phase 8.4b — versioned-cache sync. Fires once at AppLayout mount (post-
-  // auth, post-login redirect — keeps the login screen pristine), then wires
-  // up visibilitychange + online + 60s poll triggers. Errors are swallowed
-  // inside the trigger; the next event will retry. Teardown on unmount.
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    triggerSync('app-start');
-    const teardown = startSyncPolling();
-    return () => teardown();
-  }, [isAuthenticated]);
 
   if (isLoading) {
     return (
@@ -194,15 +173,6 @@ export function AppLayout() {
           <Outlet />
         </main>
       </div>
-
-      {/* W4: read-only blocker overlay when hard-cutoff window has elapsed
-          since the last successful server contact. Renders nothing under
-          normal conditions. */}
-      <HardCutoffBlocker />
-
-      {/* Floating "couldn't sync" review panel — appears only when there are
-          terminal-failed offline operations to retry or dismiss. */}
-      <FailedOpsPanel />
 
       {/* Session Timeout Warning Dialog */}
       <Dialog open={showWarning} onClose={continueSession}>

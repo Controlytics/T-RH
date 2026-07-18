@@ -24,9 +24,6 @@ export const PERMISSIONS = {
   // after the 2026-05 removal (REDACT is the chain-preserving alternative).
   AUDIT_DELETE: 'AUDIT_DELETE',
 
-  // Filter Events
-  EVENT_READ: 'EVENT_READ',
-
   // Notifications
   NOTIFICATION_VIEW: 'NOTIFICATION_VIEW',
   NOTIFICATION_CREATE: 'NOTIFICATION_CREATE',
@@ -34,107 +31,15 @@ export const PERMISSIONS = {
   NOTIFICATION_DELETE: 'NOTIFICATION_DELETE',
   NOTIFICATION_MANAGE: 'NOTIFICATION_MANAGE',
 
-  // Asset Management
-  ASSET_READ: 'ASSET_READ',
-  ASSET_VIEW: 'ASSET_VIEW',
-  ASSET_CREATE: 'ASSET_CREATE',
-  ASSET_UPDATE: 'ASSET_UPDATE',
-  ASSET_DELETE: 'ASSET_DELETE',
-
-  // Asset Identifiers
-  ASSET_IDENTIFIER_CREATE: 'ASSET_IDENTIFIER_CREATE',
-  ASSET_IDENTIFIER_DELETE: 'ASSET_IDENTIFIER_DELETE',
-
   // Dashboard
   DASHBOARD_CREATE: 'DASHBOARD_CREATE',
   DASHBOARD_MANAGE: 'DASHBOARD_MANAGE',
   DASHBOARD_VIEW: 'DASHBOARD_VIEW',
   DASHBOARD_ASSIGN: 'DASHBOARD_ASSIGN',
 
-  // (UNS_VIEW + UNS_MANAGE removed with data-ingestion removal.)
-
-  // Checklist
-  CHECKLIST_SUBMIT: 'CHECKLIST_SUBMIT',
-
   // Debug Trace
   READ_DEBUG_TRACE: 'READ_DEBUG_TRACE',
   MANAGE_DEBUG_TRACE: 'MANAGE_DEBUG_TRACE',
-
-  // Filter Operations (Phase 2)
-  FILTER_OPERATE: 'FILTER_OPERATE',
-  FILTER_BYPASS: 'FILTER_BYPASS',
-
-  // Filter List Page Controls (visibility toggles)
-  FILTER_BULK_UPLOAD: 'FILTER_BULK_UPLOAD',
-  FILTER_CREATE: 'FILTER_CREATE',
-  FILTER_EDIT: 'FILTER_EDIT',
-  FILTER_DELETE: 'FILTER_DELETE',
-  FILTER_RETIRE: 'FILTER_RETIRE',
-  FILTER_REPLACE: 'FILTER_REPLACE',
-  FILTER_STATUS_UPDATE: 'FILTER_STATUS_UPDATE',
-  // Report exports for the retirement / replacement list pages (PDF + Excel)
-  RETIREMENT_LIST_EXPORT: 'RETIREMENT_LIST_EXPORT',
-  REPLACEMENT_LIST_EXPORT: 'REPLACEMENT_LIST_EXPORT',
-  FILTER_LIST_EXPORT: 'FILTER_LIST_EXPORT',
-  FILTER_HIERARCHY_CREATE: 'FILTER_HIERARCHY_CREATE',
-  FILTER_HIERARCHY_EDIT: 'FILTER_HIERARCHY_EDIT',
-  FILTER_HIERARCHY_DELETE: 'FILTER_HIERARCHY_DELETE',
-  FILTER_RFID_MANAGE: 'FILTER_RFID_MANAGE',
-  // Replacement Schedule (upload-driven, 2026-06-02). UPLOAD is the one
-  // SUPER_ADMIN grants to whichever role may upload schedules.
-  REPLACEMENT_SCHEDULE_VIEW: 'REPLACEMENT_SCHEDULE_VIEW',
-  REPLACEMENT_SCHEDULE_UPLOAD: 'REPLACEMENT_SCHEDULE_UPLOAD',
-  REPLACEMENT_SCHEDULE_REVIEW: 'REPLACEMENT_SCHEDULE_REVIEW',
-  REPLACEMENT_SCHEDULE_APPROVE: 'REPLACEMENT_SCHEDULE_APPROVE',
-
-  // Filter Cleaning Profiles (Phase 2)
-  FCP_READ: 'FCP_READ',
-  FCP_CREATE: 'FCP_CREATE',
-  FCP_UPDATE: 'FCP_UPDATE',
-  FCP_DELETE: 'FCP_DELETE',
-
-  // Checklist Page Controls
-  CHECKLIST_CREATE: 'CHECKLIST_CREATE',
-  CHECKLIST_EDIT: 'CHECKLIST_EDIT',
-  CHECKLIST_DELETE: 'CHECKLIST_DELETE',
-  CHECKLIST_TOGGLE: 'CHECKLIST_TOGGLE',
-
-  // Cleaning Profile Page Controls
-  CP_TOGGLE: 'CP_TOGGLE',
-  CP_PAGE_CREATE: 'CP_PAGE_CREATE',
-  CP_PAGE_EDIT: 'CP_PAGE_EDIT',
-  CP_PAGE_DELETE: 'CP_PAGE_DELETE',
-
-  // Equipment Group Page Controls
-  EG_VIEW: 'EG_VIEW',
-  EG_CREATE: 'EG_CREATE',
-  EG_EDIT: 'EG_EDIT',
-  EG_DELETE: 'EG_DELETE',
-
-  // Filter Profiles (Phase 2)
-  FP_READ: 'FP_READ',
-  FP_CREATE: 'FP_CREATE',
-  FP_UPDATE: 'FP_UPDATE',
-  FP_DELETE: 'FP_DELETE',
-  FP_ASSIGN: 'FP_ASSIGN',
-
-  // PM Schedules (Phase 2)
-  PM_READ: 'PM_READ',
-  PM_CREATE: 'PM_CREATE',
-  PM_UPDATE: 'PM_UPDATE',
-  PM_DELETE: 'PM_DELETE',
-  PM_EXECUTE: 'PM_EXECUTE',
-  PM_APPROVE: 'PM_APPROVE',
-  PM_REVIEW: 'PM_REVIEW',
-
-  // PM Page Controls
-  PM_DOWNLOAD_TEMPLATE: 'PM_DOWNLOAD_TEMPLATE',
-  PM_UPLOAD: 'PM_UPLOAD',
-  PM_EDIT_ENTRY: 'PM_EDIT_ENTRY',
-  PM_RESUBMIT: 'PM_RESUBMIT',
-
-  // Cleaning Cycles (Phase 2)
-  CYCLE_READ: 'CYCLE_READ',
 
   // Backup
   // BACKUP_MANAGE implicitly grants BACKUP_EXPORT via the suffix-expansion
@@ -152,24 +57,6 @@ export const PERMISSIONS = {
   // hygiene-only (typing + searchability + stable identifier).
   BACKUP_EXPORT: 'BACKUP_EXPORT',
   BACKUP_RESTORE: 'BACKUP_RESTORE',
-
-  // Block Change Requests
-  BLOCK_CHANGE_REQUEST: 'BLOCK_CHANGE_REQUEST',
-  BLOCK_CHANGE_APPROVE: 'BLOCK_CHANGE_APPROVE',
-
-  // Report PDF export — gate for the cleaning-record + filter-lifecycle PDF
-  // export (client-side render). The orphaned reports generate/sign module +
-  // its REPORT_TEMPLATE_*/REPORT_VIEW/REPORT_SIGN/REPORT_DELETE perms were
-  // removed 2026-07-04; these two survive solely as the export gate.
-  REPORT_GENERATE: 'REPORT_GENERATE',
-  REPORT_EXPORT: 'REPORT_EXPORT',
-  // Report review/approval workflow (2026-06-11)
-  REPORT_REVIEW_SUBMIT: 'REPORT_REVIEW_SUBMIT', // send a generated report for review
-  REPORT_REVIEW: 'REPORT_REVIEW',               // act on the review (stage 2)
-  REPORT_APPROVE: 'REPORT_APPROVE',             // act on the approval (stage 3)
-  // Cleaning stage interlock (QA approval after WASH_OUT/DRY_OUT) — 2026-06-12
-  STAGE_APPROVAL_VIEW: 'STAGE_APPROVAL_VIEW',     // see the stage approval inbox
-  STAGE_APPROVAL_DECIDE: 'STAGE_APPROVAL_DECIDE', // approve/reject a cleaning stage
 
   // Admin Requests (2026-06-30): two distinct action permissions, no separate review/view
   // level. The page + request details are visible to anyone holding APPROVE or REJECT.

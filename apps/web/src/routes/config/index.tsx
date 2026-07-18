@@ -5,7 +5,6 @@ import { useAuth } from '@/hooks/use-auth';
 import { Badge } from '@/components/ui/badge';
 import { SuperAdminApiAccessCard } from '@/components/super-admin-api-access';
 import { canAccessConfigModule } from './can-access-module';
-import { useAhuCompletionMode } from '@/hooks/use-ahu-completion-mode';
 
 const configCards = [
   {
@@ -76,19 +75,6 @@ const superAdminCards = [
     shadowColor: 'shadow-indigo-500/25',
   },
   {
-    title: 'Schedule AHU Filters',
-    description: 'Per role, allow expanding an AHU to see its filters — set independently for the PM Schedule and Replacement Schedule pages',
-    href: '/config/replacement-schedule-filters',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-      </svg>
-    ),
-    gradient: 'from-teal-500 to-cyan-600',
-    shadowColor: 'shadow-teal-500/25',
-  },
-  {
     title: 'Branding & Dashboard',
     description: 'Logo, colors, themes, company & app name — plus which dashboard cards each role sees',
     href: '/config/appearance',
@@ -99,30 +85,6 @@ const superAdminCards = [
     ),
     gradient: 'from-violet-500 to-fuchsia-600',
     shadowColor: 'shadow-violet-500/25',
-  },
-  {
-    title: 'Report Configuration',
-    description: 'Identity, per-report labels & columns, per-role signatories, and export (PDF/Excel) access — all in one place',
-    href: '/config/report-config',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-      </svg>
-    ),
-    gradient: 'from-indigo-500 to-purple-600',
-    shadowColor: 'shadow-indigo-500/25',
-  },
-  {
-    title: 'Tablet App Access',
-    description: 'Control which roles can login and access features on the tablet app',
-    href: '/config/tablet-access',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 18h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-      </svg>
-    ),
-    gradient: 'from-cyan-500 to-teal-600',
-    shadowColor: 'shadow-cyan-500/25',
   },
   {
     title: 'Role & Access Configuration',
@@ -200,45 +162,6 @@ const superAdminCards = [
     shadowColor: "shadow-blue-500/25",
   },
   {
-    title: 'Filter Data Management',
-    description: 'Edit, delete, or unretire retirement and replacement records (no audit trail)',
-    href: '/config/filter-data-management',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-      </svg>
-    ),
-    gradient: 'from-red-500 to-rose-600',
-    shadowColor: 'shadow-red-500/25',
-  },
-  {
-    title: 'Filter Setup',
-    description: 'Cleaning-profile assignment rules, cleaning reasons, and filter add/edit dropdown options',
-    href: '/config/filter-setup',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.879a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-      </svg>
-    ),
-    gradient: 'from-amber-500 to-orange-600',
-    shadowColor: 'shadow-amber-500/25',
-  },
-  {
-    title: 'AHU Cleaning Completion Process',
-    description: 'Interlock / Popup / None for final-stage submission',
-    href: '/config/dynamic/ahu-completion-process',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-      </svg>
-    ),
-    gradient: 'from-teal-500 to-emerald-600',
-    shadowColor: 'shadow-teal-500/25',
-  },
-  // PM Schedule Settings is edited on the consolidated Role Assignments page
-  // (Section "PM Schedule Settings"). The old standalone card was a duplicate
-  // and has been removed — see roleAssignmentKeys in ConfigIndexPage.
-  {
     title: 'Role Assignments',
     description: 'All role assignments in one place — PM workflow, block-change, QNN visibility, guest requests',
     href: '/config/role-assignments',
@@ -249,23 +172,6 @@ const superAdminCards = [
     ),
     gradient: 'from-cyan-500 to-blue-600',
     shadowColor: 'shadow-cyan-500/25',
-  },
-  // PM Schedule Approval, Block Change Approval (Cross-Block Cleaning), and
-  // Cleaning Stage Interlock are all edited on the consolidated Role Assignments
-  // page. Their old standalone cards were duplicates and have been removed — see
-  // roleAssignmentKeys in ConfigIndexPage.
-  {
-    title: 'Offline Cache & Lockout',
-    description: 'Cache staleness window + hard-cutoff read-only lockout after losing server contact',
-    href: '/config/offline-cache',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
-        <line x1="3" y1="3" x2="21" y2="21" strokeLinecap="round" strokeWidth={1.5} stroke="currentColor" />
-      </svg>
-    ),
-    gradient: 'from-slate-700 to-slate-900',
-    shadowColor: 'shadow-slate-500/25',
   },
 ];
 
@@ -290,17 +196,6 @@ export function ConfigIndexPage() {
 
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
 
-  // Task 8 — AHU Interlock enforcement warning
-  // Fetch the current AHU completion mode; when it's not NONE, also fetch the
-  // list of active cleaning profiles whose final STAGE leads directly to END
-  // without a terminal CHECKLIST node (those profiles cannot be enforced).
-  const ahuMode = useAhuCompletionMode();
-  const { data: unenforceableProfiles } = useSWR<{ profiles: { id: string; name: string }[] }>(
-    isSuperAdmin && ahuMode !== 'NONE'
-      ? '/api/filters/cleaning-profiles/without-final-checklist'
-      : null,
-    { revalidateOnMount: true, dedupingInterval: 10_000 },
-  );
   // Modules that may be DELEGATED to a non-admin via Configuration Access (shown in
   // the Super Admin Settings section to a granted role). Filter Data Management edits/
   // deletes filter records, so it's the one card admins can hand off explicitly.
@@ -472,34 +367,6 @@ export function ConfigIndexPage() {
             {/* Master kill-switch for all Super Admin API access. */}
             <div className="mt-5">
               <SuperAdminApiAccessCard />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* AHU Interlock enforcement warning (Task 8) */}
-      {/* Shown only to SUPER_ADMIN when mode is not NONE and some profiles are unenforceable */}
-      {isSuperAdmin && ahuMode !== 'NONE' && (unenforceableProfiles?.profiles.length ?? 0) > 0 && (
-        <div className="bg-amber-50 rounded-2xl border border-amber-200 p-5 shadow-sm">
-          <div className="flex items-start gap-3">
-            <div className="flex-shrink-0 mt-0.5">
-              <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-              </svg>
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-amber-800">
-                AHU Interlock — Unenforceable Profiles
-              </p>
-              <p className="text-sm text-amber-700 mt-1">
-                These cleaning profiles do not end with a checklist and will NOT be enforced by
-                Interlock:{' '}
-                <span className="font-medium">
-                  {unenforceableProfiles!.profiles.map((p) => p.name).join(', ')}
-                </span>
-                . Add a Checklist node before END in the pipeline editor, or switch the AHU
-                Completion mode to None.
-              </p>
             </div>
           </div>
         </div>

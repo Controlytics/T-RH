@@ -461,11 +461,10 @@ export default async function dashboardRoutes(app: FastifyInstance) {
       }
 
       case 'entity_table': {
-        const entities = await prisma.assetInstance.findMany({
-          where: { id: { in: entityIds }, isActive: true },
-          select: { id: true, name: true, status: true, attributes: true, templateId: true },
-        });
-        return { widgetId, widgetType: 'entity_table', data: entities };
+        // Entity source removed with the cleanroom domain strip (2026-07-18);
+        // the asset_instances table is gone. Returns empty like the telemetry
+        // widgets above.
+        return { widgetId, widgetType: 'entity_table', data: [] };
       }
 
       default:

@@ -27,9 +27,6 @@
 #   - fill=… — don't backfill missed runs after a restart. For periodic sweeps,
 #              replaying missed minutes adds load without value.
 
-# PM overdue deviation sweep — daily 03:00. Opens deviations for newly overdue
-# AHU cleaning tasks + closes those since cleaned. Idempotent (no daily dupes).
-0 3 * * * pm_overdue_check ?id=pm_overdue_check&max=1&fill=0s
 # Session reaper — every 5 min. Terminates idle/expired sessions + records a
 # LOGOUT audit so app-close / window-close / crash logouts are captured.
 */5 * * * * session_sweep ?id=session_sweep&max=1&fill=0s

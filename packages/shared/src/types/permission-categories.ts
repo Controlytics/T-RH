@@ -30,24 +30,11 @@ export const PERMISSION_CATEGORIES: Record<string, PermissionItem[]> = {
     { key: PERMISSIONS.AUDIT_READ, label: 'View Audit Trail' },
     { key: PERMISSIONS.AUDIT_EXPORT, label: 'Export Audit Trail' },
   ],
-  'Asset Management': [
-    { key: PERMISSIONS.ASSET_VIEW, label: 'View Assets' },
-    { key: PERMISSIONS.ASSET_CREATE, label: 'Create Assets' },
-    { key: PERMISSIONS.ASSET_UPDATE, label: 'Edit Assets' },
-    { key: PERMISSIONS.ASSET_DELETE, label: 'Delete Assets' },
-  ],
-  'Asset Identifiers': [
-    { key: PERMISSIONS.ASSET_IDENTIFIER_CREATE, label: 'Create Identifiers' },
-    { key: PERMISSIONS.ASSET_IDENTIFIER_DELETE, label: 'Delete Identifiers' },
-  ],
   'Notifications': [
     { key: PERMISSIONS.NOTIFICATION_VIEW, label: 'View Notifications' },
     { key: PERMISSIONS.NOTIFICATION_CREATE, label: 'Create Notifications' },
     { key: PERMISSIONS.NOTIFICATION_UPDATE, label: 'Update Notifications' },
     { key: PERMISSIONS.NOTIFICATION_DELETE, label: 'Delete Notifications' },
-  ],
-  'Checklists': [
-    { key: PERMISSIONS.CHECKLIST_SUBMIT, label: 'Submit Checklists' },
   ],
   'Advanced': [
     { key: PERMISSIONS.READ_DEBUG_TRACE, label: 'View Debug Traces' },

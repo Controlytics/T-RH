@@ -78,22 +78,5 @@ export type { AuditQueryInput } from './schemas/audit.js';
 export { actionReauthConfigSchema } from './schemas/action-reauth.js';
 export type { ActionReauthConfig } from './schemas/action-reauth.js';
 
-export {
-  ATTRIBUTE_DATA_TYPES, TELEMETRY_DATA_TYPES, RELATIONSHIP_TYPES, IDENTIFIER_TYPES, TEMPLATE_CATEGORIES,
-  ASSET_STATUSES, INVERSE_RELATIONSHIP_MAP, CHECKLIST_QUESTION_TYPES,
-  createAssetTemplateSchema, createAssetTemplateValidated, updateAssetTemplateSchema,
-  createAssetInstanceSchema, updateAssetInstanceSchema,
-  createAssetRelationshipSchema, createAssetIdentifierSchema,
-  assetQuerySchema, templateQuerySchema,
-  SYSTEM_TEMPLATE_KIND_CODES,
-} from './schemas/assets.js';
-export type {
-  CreateAssetTemplateInput, UpdateAssetTemplateInput,
-  CreateAssetInstanceInput, UpdateAssetInstanceInput,
-  CreateAssetRelationshipInput, CreateAssetIdentifierInput,
-  AssetQueryInput, TemplateQueryInput,
-  SystemTemplateKindCode,
-} from './schemas/assets.js';
-
 // Pipeline executor (Phase 8.4c scaffold; 8.5 fills in guard bodies).
 export * from './pipeline-executor/index.js';

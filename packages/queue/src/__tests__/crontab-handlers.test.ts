@@ -64,6 +64,6 @@ describe('crontab ↔ taskList', () => {
   });
 
   it('the surviving tasks are the expected set', () => {
-    expect(scheduledTasks().sort()).toEqual(['password_expiry_check', 'pm_overdue_check', 'session_sweep']);
+    expect(scheduledTasks().sort()).toEqual(['password_expiry_check', 'session_sweep']);
   });
 });
