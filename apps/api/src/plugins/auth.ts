@@ -2,21 +2,12 @@ import fp from 'fastify-plugin';
 import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
 import { verifyToken, type JwtPayload } from '../lib/jwt.js';
 import { prisma } from '../lib/prisma.js';
-import {
-  verifyOfflineReplayToken,
-  OfflineReplayTokenError,
-  OFFLINE_REPLAY_TOKEN_HEADER,
-  LEGACY_OFFLINE_REPLAY_HEADER,
-} from '../lib/offline-replay-token.js';
 import { isPasswordExpired } from '../lib/password-expiry.js';
 import { isSuperAdminApiEnabled } from '../lib/super-admin-lock.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
     user: JwtPayload;
-    /** True only after a verified offline-replay grant token has been
-     * presented for the current request. Audit 2026-05-04 fix C1. */
-    offlineReplayVerified?: boolean;
   }
 }
 
@@ -387,35 +378,6 @@ async function authPlugin(app: FastifyInstance) {
       });
     }
 
-    // Audit 2026-05-04 fix C1: verify offline-replay grant token (if any).
-    //
-    // Tablets in offline-replay mode send `x-offline-replay-token: <jwt>`.
-    // We verify it here in onRequest so the result is available to ALL
-    // downstream code (buildContext, enforceReauth, route handlers, the
-    // offlinePerformedAt validator) without making 146 buildContext sites
-    // async. Rejecting bare `x-offline-replay: true` (the legacy boolean
-    // header) here makes the upgrade fail loud, not silent.
-    const replayToken = req.headers[OFFLINE_REPLAY_TOKEN_HEADER];
-    if (replayToken) {
-      try {
-        await verifyOfflineReplayToken(
-          Array.isArray(replayToken) ? replayToken[0] : replayToken,
-          req.user.sub,
-          req.user.sessionId,
-        );
-        req.offlineReplayVerified = true;
-      } catch (err: any) {
-        if (err instanceof OfflineReplayTokenError) {
-          return reply.code(401).send({ error: err.code, message: err.message });
-        }
-        throw err;
-      }
-    } else if (req.headers[LEGACY_OFFLINE_REPLAY_HEADER] === 'true') {
-      return reply.code(401).send({
-        error: 'OFFLINE_REPLAY_HEADER_DEPRECATED',
-        message: 'Bare `x-offline-replay: true` is no longer accepted. Obtain an offline-replay grant via POST /api/auth/offline-grant and send it as `x-offline-replay-token`.',
-      });
-    }
   });
 }
 

@@ -43,7 +43,6 @@ import { passwordExpiryCheckTask } from './workers/password-expiry.worker.js';
 import { sessionSweepTask } from './workers/session-sweep.worker.js';
 import { startJobRunner, stopJobRunner } from '@digilog/queue';
 import { AppError } from './lib/errors.js';
-import { OfflineTimeError } from './lib/offline-time-window.js';
 import { dispatchNotification } from './modules/notification-delivery/notification-dispatcher.js';
 import adminRequestRoutes from './modules/admin-requests/routes.js';
 
@@ -170,16 +169,6 @@ let lastErrorNotification = 0;
 app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
   if (err instanceof AppError) {
     return reply.code(err.statusCode).send({
-      error: err.code,
-      message: err.message,
-      ...(err.details ? { details: err.details } : {}),
-    });
-  }
-  // Audit 2026-05-04 fix C2: bounded offlinePerformedAt validator. Map the
-  // dedicated error class to a clean 400 with a stable error code so the
-  // client knows whether to retry, re-perform the action, or contact admin.
-  if (err instanceof OfflineTimeError) {
-    return reply.code(400).send({
       error: err.code,
       message: err.message,
       ...(err.details ? { details: err.details } : {}),
