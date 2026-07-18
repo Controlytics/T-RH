@@ -1,0 +1,34 @@
+-- 2026-05-25 — Drop the now-dead filter_details → filters mirror trigger.
+--
+-- Context: commit 97d298c ("fix(db): drop dormant mirror columns from
+-- filters sidecar + dead audit index") dropped four mirror columns from
+-- the `filters` table:
+--   - filter_profile_id
+--   - current_lifecycle_state
+--   - current_cycle_id
+--   - filter_set
+-- These were duplicates of the same columns on `filter_details`. After
+-- the drop, the canonical home for these values is `filter_details`.
+--
+-- That commit DID NOT touch the `fn_mirror_filter_details()` trigger
+-- function, which fires on every INSERT / UPDATE / DELETE against
+-- `filter_details` and writes the same four values into the now-gone
+-- columns on `filters`. Every cycle write (start-cycle, advance,
+-- terminate, bypass, submit-checklist) goes through filter_details.upsert
+-- or filter_details.update via Prisma, so every cycle write currently
+-- explodes with:
+--
+--     "The column `filter_profile_id` does not exist in the current database."
+--
+-- This blocks all filter operations across the entire app — tablet
+-- operators cannot start a cleaning cycle, advance a stage, terminate,
+-- bypass, or submit a checklist. Confirmed reproducible on 2026-05-25
+-- against SUPERVISOR (101114) on filter L1/AHu-01/00 via direct curl
+-- against /api/filters/:id/start-cycle.
+--
+-- Fix: drop the trigger + the function. Mirroring is moot now that the
+-- target columns are gone, and there is no application code that ever
+-- read the dropped mirror columns through `prisma.filter.*` (verified
+-- in the 97d298c commit message).
+DROP TRIGGER IF EXISTS trg_mirror_filter_details_iud ON filter_details;
+DROP FUNCTION IF EXISTS fn_mirror_filter_details();

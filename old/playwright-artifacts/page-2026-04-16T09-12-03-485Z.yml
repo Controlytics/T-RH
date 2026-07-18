@@ -1,0 +1,246 @@
+- generic [ref=e62]:
+  - complementary [ref=e63]:
+    - link "DigiLog DigiLog" [ref=e65] [cursor=pointer]:
+      - /url: /
+      - img "DigiLog" [ref=e66]
+      - generic [ref=e67]: DigiLog
+    - navigation [ref=e68]:
+      - paragraph [ref=e69]: Menu
+      - link "Dashboard" [ref=e70] [cursor=pointer]:
+        - /url: /
+        - img [ref=e72]
+        - text: Dashboard
+      - link "Notifications" [ref=e75] [cursor=pointer]:
+        - /url: /notifications
+        - img [ref=e77]
+        - text: Notifications
+      - link "Audit Trail" [ref=e79] [cursor=pointer]:
+        - /url: /audit
+        - img [ref=e81]
+        - text: Audit Trail
+      - link "Filters" [ref=e83] [cursor=pointer]:
+        - /url: /filter-list
+        - img [ref=e85]
+        - text: Filters
+      - link "Retirement List" [ref=e87] [cursor=pointer]:
+        - /url: /filter-retirements
+        - img [ref=e89]
+        - text: Retirement List
+      - link "Replacement List" [ref=e91] [cursor=pointer]:
+        - /url: /filter-replacements
+        - img [ref=e93]
+        - text: Replacement List
+      - link "Filter Operations" [ref=e95] [cursor=pointer]:
+        - /url: /filters
+        - img [ref=e97]
+        - text: Filter Operations
+      - link "Cleaning Cycles" [ref=e99] [cursor=pointer]:
+        - /url: /cleaning-cycles
+        - img [ref=e101]
+        - text: Cleaning Cycles
+      - link "Checklists" [ref=e103] [cursor=pointer]:
+        - /url: /checklists
+        - img [ref=e105]
+        - text: Checklists
+      - link "Cleaning Profiles" [ref=e107] [cursor=pointer]:
+        - /url: /filter-cleaning-profiles
+        - img [ref=e109]
+        - text: Cleaning Profiles
+      - link "PM Schedules" [ref=e111] [cursor=pointer]:
+        - /url: /pm-schedules
+        - img [ref=e113]
+        - text: PM Schedules
+      - link "My Tasks" [ref=e115] [cursor=pointer]:
+        - /url: /my-tasks
+        - img [ref=e117]
+        - text: My Tasks
+      - link "Approvals" [ref=e119] [cursor=pointer]:
+        - /url: /approvals
+        - img [ref=e121]
+        - text: Approvals
+    - generic [ref=e124]:
+      - paragraph [ref=e125]: Controlytics AI Pvt Ltd
+      - paragraph [ref=e126]: 21 CFR Part 11 Compliant
+  - generic [ref=e127]:
+    - banner [ref=e128]:
+      - generic [ref=e129]:
+        - button "Notifications" [ref=e130]:
+          - img [ref=e131]
+        - button "K kumar Supervisor" [ref=e135]:
+          - generic [ref=e136]: K
+          - generic [ref=e137]:
+            - paragraph [ref=e138]: kumar
+            - generic [ref=e140]: Supervisor
+          - img [ref=e141]
+    - main [ref=e143]:
+      - generic [ref=e144]:
+        - generic [ref=e145]:
+          - generic [ref=e146]:
+            - paragraph [ref=e147]: Welcome back,
+            - heading "kumar" [level=1] [ref=e148]
+            - paragraph [ref=e149]: DigiLog - 21 CFR Part 11 Compliant Digital Logbook
+          - img [ref=e151]
+          - generic [ref=e154]:
+            - generic [ref=e155]:
+              - paragraph [ref=e156]: Role
+              - paragraph [ref=e157]: SUPERVISOR
+            - generic [ref=e159]:
+              - paragraph [ref=e160]: Today
+              - paragraph [ref=e161]: 16-Apr-2026
+        - generic [ref=e162]:
+          - heading "Quick Overview" [level=2] [ref=e163]
+          - generic [ref=e164]:
+            - link "Audit Trail 885 View details" [ref=e165] [cursor=pointer]:
+              - /url: /audit
+              - generic [ref=e168]:
+                - generic [ref=e169]:
+                  - generic [ref=e170]:
+                    - paragraph [ref=e171]: Audit Trail
+                    - paragraph [ref=e172]: "885"
+                  - img [ref=e174]
+                - generic [ref=e176]:
+                  - generic [ref=e177]: View details
+                  - img [ref=e178]
+            - link "Notifications 0 View details" [ref=e180] [cursor=pointer]:
+              - /url: /notifications
+              - generic [ref=e183]:
+                - generic [ref=e184]:
+                  - generic [ref=e185]:
+                    - paragraph [ref=e186]: Notifications
+                    - paragraph [ref=e187]: "0"
+                  - img [ref=e189]
+                - generic [ref=e191]:
+                  - generic [ref=e192]: View details
+                  - img [ref=e193]
+        - generic [ref=e195]:
+          - generic [ref=e196]:
+            - heading "Filter Cleaning Analytics" [level=2] [ref=e197]
+            - link "Go to Operations" [ref=e198] [cursor=pointer]:
+              - /url: /filters
+              - text: Go to Operations
+              - img [ref=e199]
+          - generic [ref=e201]:
+            - generic [ref=e202]:
+              - generic [ref=e203]: Total Filters
+              - generic [ref=e204]: "25"
+            - generic [ref=e205]:
+              - generic [ref=e206]: Active Cycles
+              - generic [ref=e207]: "9"
+            - generic [ref=e208]:
+              - generic [ref=e209]: Completed Today
+              - generic [ref=e210]: "4"
+            - generic [ref=e211]:
+              - generic [ref=e212]: Total Cycles
+              - generic [ref=e213]: "199"
+          - generic [ref=e214]:
+            - generic [ref=e215]:
+              - heading "Filters by Current Stage" [level=3] [ref=e216]
+              - generic [ref=e217]:
+                - generic [ref=e218]:
+                  - generic [ref=e219]: Wash In
+                  - generic [ref=e222]: "7"
+                - generic [ref=e223]:
+                  - generic [ref=e224]: Wash Out
+                  - generic [ref=e227]: "2"
+                - generic [ref=e228]:
+                  - generic [ref=e229]: Dry In
+                  - generic [ref=e232]: "1"
+                - generic [ref=e233]:
+                  - generic [ref=e234]: Dry Out
+                  - generic [ref=e237]: "1"
+                - generic [ref=e238]:
+                  - generic [ref=e239]: Storage In
+                  - generic [ref=e242]: "1"
+                - generic [ref=e243]:
+                  - generic [ref=e244]: Storage Out
+                  - generic [ref=e246]: "0"
+            - generic [ref=e247]:
+              - heading "Cycle Status Breakdown" [level=3] [ref=e248]
+              - generic [ref=e249]:
+                - generic [ref=e250]:
+                  - img [ref=e251]
+                  - generic [ref=e255]:
+                    - generic [ref=e256]: "199"
+                    - generic [ref=e257]: total
+                - generic [ref=e258]:
+                  - generic [ref=e259]:
+                    - generic [ref=e261]: In Progress
+                    - generic [ref=e262]: "9"
+                  - generic [ref=e263]:
+                    - generic [ref=e265]: Completed
+                    - generic [ref=e266]: "186"
+                  - generic [ref=e267]:
+                    - generic [ref=e269]: Terminated
+                    - generic [ref=e270]: "4"
+          - generic [ref=e271]:
+            - generic [ref=e272]:
+              - heading "Daily Cycles (Last 30 Days)" [level=3] [ref=e273]
+              - generic [ref=e274]:
+                - generic [ref=e275]:
+                  - generic [ref=e276]: "3"
+                  - generic [ref=e277]: Mar 28
+                - generic [ref=e278]:
+                  - generic [ref=e279]: "2"
+                  - generic [ref=e280]: Mar 30
+                - generic [ref=e281]:
+                  - generic [ref=e282]: "2"
+                  - generic [ref=e283]: Mar 31
+                - generic [ref=e284]:
+                  - generic [ref=e285]: "29"
+                  - generic [ref=e286]: Apr 1
+                - generic [ref=e287]:
+                  - generic [ref=e288]: "2"
+                  - generic [ref=e289]: Apr 3
+                - generic [ref=e290]:
+                  - generic [ref=e291]: "19"
+                  - generic [ref=e292]: Apr 6
+                - generic [ref=e293]:
+                  - generic [ref=e294]: "27"
+                  - generic [ref=e295]: Apr 7
+                - generic [ref=e296]:
+                  - generic [ref=e297]: "33"
+                  - generic [ref=e298]: Apr 8
+                - generic [ref=e299]:
+                  - generic [ref=e300]: "28"
+                  - generic [ref=e301]: Apr 9
+                - generic [ref=e302]:
+                  - generic [ref=e303]: "1"
+                  - generic [ref=e304]: Apr 10
+                - generic [ref=e305]:
+                  - generic [ref=e306]: "5"
+                  - generic [ref=e307]: Apr 11
+                - generic [ref=e308]:
+                  - generic [ref=e309]: "16"
+                  - generic [ref=e310]: Apr 13
+                - generic [ref=e311]:
+                  - generic [ref=e312]: "5"
+                  - generic [ref=e313]: Apr 14
+                - generic [ref=e314]:
+                  - generic [ref=e315]: "23"
+                  - generic [ref=e316]: Apr 15
+                - generic [ref=e317]:
+                  - generic [ref=e318]: "4"
+                  - generic [ref=e319]: Apr 16
+            - generic [ref=e320]:
+              - heading "Monthly Cycles (Last 12 Months)" [level=3] [ref=e321]
+              - generic [ref=e322]:
+                - generic [ref=e323]:
+                  - generic [ref=e324]: "7"
+                  - generic [ref=e325]: Mar 26
+                - generic [ref=e326]:
+                  - generic [ref=e327]: "192"
+                  - generic [ref=e328]: Apr 26
+        - generic [ref=e329]:
+          - heading "Quick Actions" [level=2] [ref=e330]
+          - link "View Audit Trail Check system activities" [ref=e332] [cursor=pointer]:
+            - /url: /audit
+            - generic [ref=e334]:
+              - img [ref=e336]
+              - generic [ref=e338]:
+                - paragraph [ref=e339]: View Audit Trail
+                - paragraph [ref=e340]: Check system activities
+        - generic [ref=e342]:
+          - img [ref=e344]
+          - generic [ref=e346]:
+            - paragraph [ref=e347]: 21 CFR Part 11 Compliant
+            - paragraph [ref=e348]: Controlytics AI Pvt Ltd

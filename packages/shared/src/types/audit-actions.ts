@@ -1,0 +1,177 @@
+/**
+ * 21 CFR Part 11 inspector contracts — audit action enum.
+ *
+ * **Deprecation policy:** entries are NEVER deleted, even if no production
+ * code currently emits them. The audit-template editor at
+ * `/config/audit-templates` renders one row per entry so operators can
+ * customise the human-readable description for each action. Inspectors
+ * reference the enum by name as the controlled vocabulary of audit-able
+ * events; removing an entry would orphan any operator-customised template
+ * tied to it and would force a regulatory documentation update.
+ *
+ * **Currently unemitted entries (audit 2026-05-16):** the following 20
+ * entries have zero `audit.log({ action: 'X' })` call-sites in apps/api/src
+ * but are retained per the policy above. If you wire one up, no annotation
+ * change is needed — emitting it just makes the contract truthful again.
+ *
+ *   ROLE_ASSIGNED, APPROVAL_REQUESTED, APPROVAL_GRANTED, APPROVAL_REJECTED,
+ *   DATA_VIEWED, DATA_EXPORTED, ALARM_ESCALATED, CHECKLIST_REVIEWED,
+ *   CHECKLIST_APPROVED, CHECKLIST_REJECTED, CHECKLIST_REOPENED,
+ *   SEPARATION_OF_DUTIES_DISABLED, RULE_CHAIN_SET_ROOT, RULE_CHAIN_IMPORTED,
+ *   DEVICE_CREDENTIAL_REGENERATED, RETENTION_POLICY_UPDATED, DATA_ARCHIVED,
+ *   RETENTION_EXECUTED, SYSTEM_CONFIG_UPDATED, SERVER_RESTART_TRIGGERED
+ *
+ * Future code reviewers: do NOT delete unemitted entries on dead-code
+ * cleanup grounds. See tasks/CLEANUP-ANALYSIS-2026-05-16.md §3.7 + Tier 3
+ * "Deliberate Keep" items.
+ */
+export const AUDIT_ACTIONS = {
+  USER_CREATED: 'USER_CREATED',
+  USER_UPDATED: 'USER_UPDATED',
+  USER_DELETED: 'USER_DELETED',
+  USER_ENABLED: 'USER_ENABLED',
+  USER_DISABLED: 'USER_DISABLED',
+  PASSWORD_RESET: 'PASSWORD_RESET',
+  PASSWORD_CHANGED: 'PASSWORD_CHANGED',
+  ROLE_ASSIGNED: 'ROLE_ASSIGNED',
+  LOGIN_SUCCESS: 'LOGIN_SUCCESS',
+  LOGIN_FAILED: 'LOGIN_FAILED',
+  LOGOUT: 'LOGOUT',
+  SESSION_TIMEOUT: 'SESSION_TIMEOUT',
+  ACCOUNT_LOCKED: 'ACCOUNT_LOCKED',
+  ACCOUNT_UNLOCKED: 'ACCOUNT_UNLOCKED',
+  PASSWORD_EXPIRED: 'PASSWORD_EXPIRED',
+  CONFIG_CHANGED: 'CONFIG_CHANGED',
+  APPROVAL_REQUESTED: 'APPROVAL_REQUESTED',
+  APPROVAL_GRANTED: 'APPROVAL_GRANTED',
+  APPROVAL_REJECTED: 'APPROVAL_REJECTED',
+  // Cleaning stage interlock — QA approve/reject signature (2026-06-12)
+  STAGE_APPROVAL_APPROVED: 'STAGE_APPROVAL_APPROVED',
+  STAGE_APPROVAL_REJECTED: 'STAGE_APPROVAL_REJECTED',
+  // Closed WITHOUT a decision — the filter left the gate before the approver acted,
+  // so no e-signature was ever given. Not a decision; the inspector's record of WHY
+  // a §11 approval request ended undecided (2026-07-15).
+  STAGE_APPROVAL_SUPERSEDED: 'STAGE_APPROVAL_SUPERSEDED',
+  DATA_VIEWED: 'DATA_VIEWED',
+  DATA_EXPORTED: 'DATA_EXPORTED',
+  UNAUTHORIZED_ACTION_ATTEMPT: 'UNAUTHORIZED_ACTION_ATTEMPT',
+  BULK_USER_DELETED: 'BULK_USER_DELETED',
+  BACKUP_CREATED: 'BACKUP_CREATED',
+  BACKUP_RESTORED: 'BACKUP_RESTORED',
+
+  // Entity Management
+  ASSET_TEMPLATE_CREATED: 'ASSET_TEMPLATE_CREATED',
+  ASSET_TEMPLATE_UPDATED: 'ASSET_TEMPLATE_UPDATED',
+  ASSET_TEMPLATE_DELETED: 'ASSET_TEMPLATE_DELETED',
+  ASSET_TEMPLATE_VERSION_CREATED: 'ASSET_TEMPLATE_VERSION_CREATED',
+  ASSET_CREATED: 'ASSET_CREATED',
+  ASSET_UPDATED: 'ASSET_UPDATED',
+  ASSET_STATUS_CHANGED: 'ASSET_STATUS_CHANGED',
+  ASSET_DELETED: 'ASSET_DELETED',
+  ASSET_RELATIONSHIP_CREATED: 'ASSET_RELATIONSHIP_CREATED',
+  ASSET_RELATIONSHIP_DELETED: 'ASSET_RELATIONSHIP_DELETED',
+  ASSET_IDENTIFIER_CREATED: 'ASSET_IDENTIFIER_CREATED',
+  ASSET_IDENTIFIER_DELETED: 'ASSET_IDENTIFIER_DELETED',
+
+  // Data Ingestion & Integration (Phase A)
+  DATA_ATTRIBUTES_UPDATED: 'DATA_ATTRIBUTES_UPDATED',
+  DATA_CHECKLIST_SUBMITTED: 'DATA_CHECKLIST_SUBMITTED',
+
+  // Alarms — retained per 21 CFR §11 — no longer emitted as of 2026-05-17
+  ALARM_CREATED: 'ALARM_CREATED',
+  ALARM_ACKNOWLEDGED: 'ALARM_ACKNOWLEDGED',
+  ALARM_CLEARED: 'ALARM_CLEARED',
+  ALARM_ESCALATED: 'ALARM_ESCALATED',
+
+  // Checklist profile questions — profile-level create/update/delete use the
+  // generic CREATED / UPDATED / DELETED verbs (targetType disambiguates them).
+  CHECKLIST_QUESTION_ADDED: 'CHECKLIST_QUESTION_ADDED',
+  CHECKLIST_QUESTION_UPDATED: 'CHECKLIST_QUESTION_UPDATED',
+  CHECKLIST_QUESTION_DELETED: 'CHECKLIST_QUESTION_DELETED',
+  CHECKLIST_QUESTIONS_REORDERED: 'CHECKLIST_QUESTIONS_REORDERED',
+
+  // Checklist workflow
+  CHECKLIST_REVIEWED: 'CHECKLIST_REVIEWED',
+  CHECKLIST_APPROVED: 'CHECKLIST_APPROVED',
+  CHECKLIST_REJECTED: 'CHECKLIST_REJECTED',
+  CHECKLIST_REOPENED: 'CHECKLIST_REOPENED',
+  SEPARATION_OF_DUTIES_DISABLED: 'SEPARATION_OF_DUTIES_DISABLED',
+
+  // Rule chain — retained per 21 CFR §11 — no longer emitted as of 2026-05-17
+  RULE_CHAIN_CREATED: 'RULE_CHAIN_CREATED',
+  RULE_CHAIN_UPDATED: 'RULE_CHAIN_UPDATED',
+  RULE_CHAIN_DELETED: 'RULE_CHAIN_DELETED',
+  RULE_CHAIN_SET_ROOT: 'RULE_CHAIN_SET_ROOT',
+  RULE_CHAIN_IMPORTED: 'RULE_CHAIN_IMPORTED',
+
+  // Auth (additional)
+  FORCED_LOGOUT: 'FORCED_LOGOUT',
+  PROFILE_UPDATED: 'PROFILE_UPDATED',
+
+  // Password Reset Requests
+  PASSWORD_RESET_REQUEST_APPROVED: 'PASSWORD_RESET_REQUEST_APPROVED',
+  PASSWORD_RESET_REQUEST_REJECTED: 'PASSWORD_RESET_REQUEST_REJECTED',
+
+  // Audit Record Management
+  AUDIT_RECORD_DELETED: 'AUDIT_RECORD_DELETED',
+  AUDIT_RECORDS_BULK_DELETED: 'AUDIT_RECORDS_BULK_DELETED',
+
+  // Credentials
+  DEVICE_CREDENTIAL_REGENERATED: 'DEVICE_CREDENTIAL_REGENERATED',
+
+  // UNS
+  UNS_PATH_OVERRIDDEN: 'UNS_PATH_OVERRIDDEN',
+  UNS_CONFIG_UPDATED: 'UNS_CONFIG_UPDATED',
+
+  // User Groups — membership drives notification recipient resolution
+  // (notification-dispatcher.ts), so every mutation is a record change.
+  USER_GROUP_CREATED: 'USER_GROUP_CREATED',
+  USER_GROUP_UPDATED: 'USER_GROUP_UPDATED',
+  USER_GROUP_DELETED: 'USER_GROUP_DELETED',
+  USER_GROUP_MEMBERS_ADDED: 'USER_GROUP_MEMBERS_ADDED',
+  USER_GROUP_MEMBER_REMOVED: 'USER_GROUP_MEMBER_REMOVED',
+
+  // Notification rules
+  NOTIFICATION_RULE_CREATED: 'NOTIFICATION_RULE_CREATED',
+  NOTIFICATION_RULE_UPDATED: 'NOTIFICATION_RULE_UPDATED',
+  NOTIFICATION_RULE_DELETED: 'NOTIFICATION_RULE_DELETED',
+
+  // Notification records — physical deletes, no soft-delete fallback.
+  NOTIFICATION_DELETED: 'NOTIFICATION_DELETED',
+  NOTIFICATIONS_BULK_DELETED: 'NOTIFICATIONS_BULK_DELETED',
+  // Delivery log (who was emailed/SMS'd about what) — destroying a row destroys
+  // the evidence of the dispatch it recorded.
+  NOTIFICATION_LOG_DELETED: 'NOTIFICATION_LOG_DELETED',
+
+  // Help
+  HELP_ARTICLE_CREATED: 'HELP_ARTICLE_CREATED',
+  HELP_ARTICLE_UPDATED: 'HELP_ARTICLE_UPDATED',
+  HELP_ARTICLE_DELETED: 'HELP_ARTICLE_DELETED',
+
+  // Retention
+  RETENTION_POLICY_UPDATED: 'RETENTION_POLICY_UPDATED',
+  DATA_ARCHIVED: 'DATA_ARCHIVED',
+  RETENTION_EXECUTED: 'RETENTION_EXECUTED',
+
+  // System Config
+  SYSTEM_CONFIG_UPDATED: 'SYSTEM_CONFIG_UPDATED',
+  SERVER_RESTART_TRIGGERED: 'SERVER_RESTART_TRIGGERED',
+
+  // Guest (unauthenticated) activity
+  GUEST_CLEANING_REQUEST_SUBMITTED: 'GUEST_CLEANING_REQUEST_SUBMITTED',
+
+  // Report generation / export — emitted when a user downloads any report
+  // (audit trail, filters, PM schedule, cleaning records, etc.) as PDF/Excel.
+  REPORT_GENERATED: 'REPORT_GENERATED',
+
+  // PM Schedules — emitted by the overdue-deviation sweep when a PM task goes
+  // overdue AGAIN but its deviation row is already CLOSED, so the re-occurrence
+  // cannot be recorded (one deviation per task). Surfaces what would otherwise
+  // be a silently missing §11 deviation. NOTE: this subsystem's sibling actions
+  // (DEVIATION_OPENED / DEVIATION_CLOSED / ACKNOWLEDGE_PM_OVERDUE) predate this
+  // entry and are registered only in `audit-templates.ts` — a pre-existing gap
+  // in this file, not a signal that they are unaudited.
+  DEVIATION_OPEN_BLOCKED: 'DEVIATION_OPEN_BLOCKED',
+} as const;
+
+export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

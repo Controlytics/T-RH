@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Vendor IDs lifted from rfid_scan_app/app/src/main/res/xml/device_filter.xml.
+  These cover KC-series UHF UART/USB readers (CH340, CP210x, FT232, PL2303,
+  WCH variants) used by the standalone scanner. Adding the same list here
+  lets the DigiLog APK auto-launch when the reader is plugged in and gives
+  it permission to open the USB endpoint.
+-->
+<resources>
+    <usb-device vendor-id="10473" product-id="20993"/>
+    <usb-device vendor-id="1024" />
+    <usb-device vendor-id="4292" />
+    <usb-device vendor-id="6790" />
+    <usb-device vendor-id="1659" />
+    <usb-device vendor-id="10473" />
+</resources>

@@ -1,0 +1,160 @@
+@import "tailwindcss";
+
+@theme {
+  /* Primary brand colors - Professional navy blue */
+  --color-primary: #1e3a5f;
+  --color-primary-foreground: #ffffff;
+
+  /* Secondary colors */
+  --color-secondary: #f0f4f8;
+  --color-secondary-foreground: #1e3a5f;
+
+  /* Accent - vibrant blue */
+  --color-accent: #3b82f6;
+  --color-accent-foreground: #ffffff;
+
+  /* Status colors */
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #ffffff;
+  --color-success: #10b981;
+  --color-success-foreground: #ffffff;
+  --color-warning: #f59e0b;
+  --color-warning-foreground: #ffffff;
+
+  /* Neutral colors */
+  --color-muted: #f1f5f9;
+  --color-muted-foreground: #64748b;
+  --color-border: #e2e8f0;
+  --color-input: #e2e8f0;
+  --color-ring: #3b82f6;
+
+  /* Background */
+  --color-background: #f8fafc;
+  --color-foreground: #0f172a;
+
+  /* Card */
+  --color-card: #ffffff;
+  --color-card-foreground: #1e293b;
+
+  /* Sidebar */
+  --color-sidebar: #1e3a5f;
+  --color-sidebar-foreground: #ffffff;
+  --color-sidebar-border: #2d4a6f;
+  --color-sidebar-accent: #2d4a6f;
+  --color-sidebar-muted: #94a3b8;
+
+  /* Border radius */
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;
+  border-radius: 3px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: #94a3b8;
+}
+
+/* 2026-05-21 UI refresh font stack */
+:root {
+  --font-display: 'Bricolage Grotesque', 'SF Pro Display', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-body: 'Sora', 'SF Pro Text', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, 'Cascadia Code', Menlo, monospace;
+}
+
+body {
+  font-family: var(--font-body);
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'ss01', 'cv11';
+}
+
+/* Distinctive display face for headings + operator-name. Bricolage Grotesque
+   has a slight editorial character (taller x-height, sharper terminals) that
+   reads as deliberate-design rather than "default sans". */
+.font-display { font-family: var(--font-display); font-feature-settings: 'ss01'; letter-spacing: -0.01em; }
+.font-mono-tab { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-feature-settings: 'zero', 'ss01'; }
+
+/* Professional focus styles */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Smooth transitions for interactive elements */
+button, a, input, select, textarea {
+  transition: all 0.2s ease;
+}
+
+/* Professional table styles */
+table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+/* Animation utilities */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* Professional shadow utilities */
+.shadow-soft {
+  box-shadow: 0 2px 15px -3px rgba(0, 0, 0, 0.07), 0 10px 20px -2px rgba(0, 0, 0, 0.04);
+}
+
+.shadow-elevated {
+  box-shadow: 0 10px 40px -10px rgba(30, 58, 95, 0.15), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
+
+/* 2026-05-21 UI refresh — mobile-tablet helpers */
+
+/* Subtle dot-grid background pattern for the operator dashboard. Adds texture
+   without distracting from the data. Sized for 1200x1920 tablet at 240 dpi. */
+.bg-dot-grid {
+  background-image: radial-gradient(circle at 1px 1px, rgba(15, 23, 42, 0.07) 1px, transparent 0);
+  background-size: 18px 18px;
+}
+
+/* Pipeline stage tile — used in the home-view cleaning pipeline visualization.
+   Hover/active lift is subtle so gloved operators don't feel "stuck". */
+.tile-lift {
+  transition: transform 180ms cubic-bezier(0.32, 0.72, 0, 1), box-shadow 180ms ease, border-color 180ms ease;
+}
+.tile-lift:active {
+  transform: scale(0.97);
+}
+
+/* Staggered fade-in for the home grid. Animation-delay applied inline per tile. */
+@keyframes mobileRise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-rise { animation: mobileRise 360ms cubic-bezier(0.16, 1, 0.3, 1) backwards; }
+
+/* Theme utility class — replaces inline style={{ color: 'var(--theme-primary)' }} */
+.text-theme-primary { color: var(--theme-primary); }

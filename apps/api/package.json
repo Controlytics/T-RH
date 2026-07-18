@@ -1,0 +1,51 @@
+{
+  "name": "@digilog/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/app.ts",
+    "build": "tsc",
+    "start": "node dist/app.js",
+    "lint": "tsc --noEmit",
+    "test": "vitest run --pool=forks --poolOptions.forks.singleFork=true",
+    "test:e2e": "vitest run --pool=forks --poolOptions.forks.singleFork=true --testPathPattern=e2e"
+  },
+  "dependencies": {
+    "@digilog/queue": "*",
+    "@digilog/shared": "*",
+    "@fastify/cors": "^11.0.0",
+    "@fastify/helmet": "^13.0.0",
+    "@fastify/multipart": "^9.4.0",
+    "@fastify/rate-limit": "^10.2.0",
+    "@fastify/static": "^10.1.0",
+    "@fastify/swagger": "^9.7.0",
+    "@fastify/swagger-ui": "^5.2.5",
+    "@prisma/client": "^6.3.0",
+    "adm-zip": "^0.5.16",
+    "bcrypt": "^5.1.1",
+    "dotenv": "^16.4.0",
+    "exceljs": "^4.4.0",
+    "fastify": "^5.10.0",
+    "fastify-plugin": "^5.0.0",
+    "jose": "^6.0.0",
+    "ldapts": "^8.1.7",
+    "nodemailer": "^9.0.3",
+    "prisma": "^6.3.0",
+    "sanitize-html": "^2.17.2",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/adm-zip": "^0.5.7",
+    "@types/bcrypt": "^5.0.2",
+    "@types/node": "^22.0.0",
+    "@types/nodemailer": "^7.0.11",
+    "@types/sanitize-html": "^2.16.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  }
+}

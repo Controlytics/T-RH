@@ -1,0 +1,12 @@
+flowchart TD
+    T0["08:00 — Log in on tablet"] --> T1
+    T1["08:07 — Scan F-001 on WASH_IN<br/>Pick reason · record readings · reauth"] --> T2
+    T2["08:30 — WiFi drops"] --> T3
+    T3["08:31 → 09:14 — Continue offline<br/>Advance · set dryer · submit temp<br/>All queued locally"] --> T4
+    T4["09:15 — WiFi returns<br/>Sync engine replays 3 queued ops<br/>Indicator goes green"] --> T5
+    T5["09:20 — Cycle auto-completes"] --> T6
+    T6["10:00 — Supervisor downloads signed PDF"]
+
+    style T2 fill:#fef3c7,stroke:#d97706
+    style T3 fill:#fef3c7,stroke:#d97706
+    style T4 fill:#d1fae5,stroke:#059669

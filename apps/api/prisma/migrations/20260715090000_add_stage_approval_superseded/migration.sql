@@ -1,0 +1,16 @@
+-- Add the SUPERSEDED terminal state to cleaning stage approvals (2026-07-15).
+--
+-- A PENDING approval whose filter has left the gated stage can never be decided:
+-- assertFilterStillAtGate 409s on both approve and reject, so the row was stuck in
+-- the approver's queue forever with no way to clear it. SUPERSEDED closes such an
+-- orphan honestly — closed WITHOUT a decision — instead of faking an APPROVED/REJECTED
+-- signature that no human ever gave (21 CFR §11).
+--
+-- Additive only: no existing row changes status here. stageApprovalService.queue()
+-- closes orphans lazily on read and writes a STAGE_APPROVAL_SUPERSEDED audit row
+-- recording who/what/why.
+--
+-- ADD VALUE appends to the end of the enum, matching the schema.prisma order.
+-- Safe inside migrate deploy's transaction on PG12+ so long as the new value is not
+-- USED in this same migration — it isn't.
+ALTER TYPE "cleaning_stage_approval_status" ADD VALUE IF NOT EXISTS 'SUPERSEDED';

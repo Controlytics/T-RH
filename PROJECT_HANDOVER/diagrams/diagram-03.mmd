@@ -1,0 +1,9 @@
+sequenceDiagram
+    actor U as User
+    participant B as Browser / APK
+    participant API as API Server
+    U->>B: Open /login
+    B->>API: POST credentials
+    API-->>B: Access token + refresh token
+    B-->>U: Dashboard
+    Note over B: Single-tab enforcement · 30-min refresh · idle-timeout warning

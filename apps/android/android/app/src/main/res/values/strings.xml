@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">DigiLog</string>
+    <string name="title_activity_main">DigiLog</string>
+    <string name="package_name">com.digilog.filtermanagement</string>
+    <string name="custom_url_scheme">com.digilog.filtermanagement</string>
+</resources>

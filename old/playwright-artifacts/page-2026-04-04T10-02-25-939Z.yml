@@ -1,0 +1,112 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - link "DigiLog DigiLog" [ref=e6] [cursor=pointer]:
+      - /url: /
+      - img "DigiLog" [ref=e7]
+      - generic [ref=e8]: DigiLog
+    - navigation [ref=e9]:
+      - paragraph [ref=e10]: Menu
+      - link "Dashboard" [ref=e11] [cursor=pointer]:
+        - /url: /
+        - img [ref=e13]
+        - text: Dashboard
+      - link "Users" [ref=e15] [cursor=pointer]:
+        - /url: /users
+        - img [ref=e17]
+        - text: Users
+      - link "Admin Requests" [ref=e19] [cursor=pointer]:
+        - /url: /admin-requests
+        - img [ref=e21]
+        - text: Admin Requests
+      - link "Organizations" [ref=e23] [cursor=pointer]:
+        - /url: /organizations
+        - img [ref=e25]
+        - text: Organizations
+      - link "Entities" [ref=e27] [cursor=pointer]:
+        - /url: /assets
+        - img [ref=e29]
+        - text: Entities
+      - link "Entity Templates" [ref=e31] [cursor=pointer]:
+        - /url: /assets/templates
+        - img [ref=e33]
+        - text: Entity Templates
+      - link "Configuration" [ref=e35] [cursor=pointer]:
+        - /url: /config
+        - img [ref=e37]
+        - text: Configuration
+      - link "Notifications" [ref=e40] [cursor=pointer]:
+        - /url: /notifications
+        - img [ref=e42]
+        - text: Notifications
+      - link "Audit Trail" [ref=e44] [cursor=pointer]:
+        - /url: /audit
+        - img [ref=e46]
+        - text: Audit Trail
+      - link "System Health" [ref=e48] [cursor=pointer]:
+        - /url: /system-health
+        - img [ref=e50]
+        - text: System Health
+      - link "Rule Chains" [ref=e52] [cursor=pointer]:
+        - /url: /rule-chains
+        - img [ref=e54]
+        - text: Rule Chains
+      - link "Alarms" [ref=e56] [cursor=pointer]:
+        - /url: /alarms
+        - img [ref=e58]
+        - text: Alarms
+      - link "Debug Traces" [ref=e60] [cursor=pointer]:
+        - /url: /debug/traces
+        - img [ref=e62]
+        - text: Debug Traces
+      - link "Filters" [ref=e64] [cursor=pointer]:
+        - /url: /filter-list
+        - img [ref=e66]
+        - text: Filters
+      - link "Retirement List" [ref=e68] [cursor=pointer]:
+        - /url: /filter-retirements
+        - img [ref=e70]
+        - text: Retirement List
+      - link "Replacement List" [ref=e72] [cursor=pointer]:
+        - /url: /filter-replacements
+        - img [ref=e74]
+        - text: Replacement List
+      - link "Filter Operations" [ref=e76] [cursor=pointer]:
+        - /url: /filters
+        - img [ref=e78]
+        - text: Filter Operations
+      - link "Cleaning Cycles" [ref=e80] [cursor=pointer]:
+        - /url: /cleaning-cycles
+        - img [ref=e82]
+        - text: Cleaning Cycles
+      - link "Checklists" [ref=e84] [cursor=pointer]:
+        - /url: /checklists
+        - img [ref=e86]
+        - text: Checklists
+      - link "Cleaning Profiles" [ref=e89] [cursor=pointer]:
+        - /url: /filter-cleaning-profiles
+        - img [ref=e91]
+        - text: Cleaning Profiles
+      - link "Equipment Groups" [ref=e93] [cursor=pointer]:
+        - /url: /config/equipment-groups
+        - img [ref=e95]
+        - text: Equipment Groups
+      - link "PM Schedules" [ref=e98] [cursor=pointer]:
+        - /url: /pm-schedules
+        - img [ref=e100]
+        - text: PM Schedules
+    - generic [ref=e103]:
+      - paragraph [ref=e104]: Controlytics AI Pvt Ltd
+      - paragraph [ref=e105]: 21 CFR Part 11 Compliant
+  - generic [ref=e106]:
+    - banner [ref=e107]:
+      - generic [ref=e108]:
+        - button "Notifications" [ref=e109]:
+          - img [ref=e110]
+        - button "SA System Administrator Super Admin" [ref=e114]:
+          - generic [ref=e115]: SA
+          - generic [ref=e116]:
+            - paragraph [ref=e117]: System Administrator
+            - generic [ref=e119]: Super Admin
+          - img [ref=e120]
+    - main [ref=e122]:
+      - img [ref=e124]

@@ -1,0 +1,11 @@
+-- Keyed audit hash-chain (V3, HMAC-SHA256) — per-row formula version marker.
+--
+-- NULL           = legacy unkeyed SHA-256 (V1/V2). Every existing row is NULL,
+--                  so all historical audit history keeps verifying via the
+--                  unkeyed V1/V2 fallback in lib/hash-chain.ts.
+-- 3              = keyed HMAC-SHA256, written when AUDIT_CHAIN_KEY is set. The
+--                  verifier requires the key + an HMAC match for these rows.
+--
+-- Additive, nullable column — no backfill, no data loss. The audit_trail
+-- immutability triggers guard row UPDATE/DELETE, not DDL, so ADD COLUMN is safe.
+ALTER TABLE "audit_trail" ADD COLUMN "checksum_version" SMALLINT;

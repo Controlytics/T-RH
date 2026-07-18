@@ -1,0 +1,6 @@
+flowchart LR
+    B1[UI Backup · 64 tables] --> F[(Backup file)]
+    B2[pg_dump scheduled] --> F
+    F --> R1[Upload to Restore UI]
+    R1 --> R2[Two-pass import<br/>handles self-ref FKs]
+    R2 --> R3[App online again]

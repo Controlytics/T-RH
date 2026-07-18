@@ -1,0 +1,9 @@
+flowchart TD
+    A[Operator advances stage] --> B{Pipeline has<br/>CHECKLIST node?}
+    B -->|no| C[Next stage]
+    B -->|yes| D[Required questions dialog]
+    D --> E{All answered?}
+    E -->|no| F[Block submit]
+    E -->|yes| G[Submit with signature + reauth]
+    G --> H[Audit event with SHA-256 hash]
+    H --> C

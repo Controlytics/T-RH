@@ -1,0 +1,25 @@
+flowchart TD
+    L([Operator on tablet]) --> SEL[Select Block / Filter-set]
+    SEL --> TAP[Tap stage card<br/>e.g. WASH_IN]
+    TAP --> SCAN[Scan filter RFID tag<br/>or type filter name]
+    SCAN --> CHK{Active cycle?}
+
+    CHK -->|no| REASON[Pick cleaning reason]
+    REASON --> EQUIP{Equipment<br/>readings needed?}
+    EQUIP -->|yes| READ[Record pressure / temp<br/>with reauth]
+    EQUIP -->|no| ADV
+    READ --> ADV
+
+    CHK -->|yes| CLST{Checklist<br/>pending?}
+    CLST -->|yes| Q[Answer mandatory questions]
+    CLST -->|no| ADV
+    Q --> ADV
+
+    ADV[Advance stage] --> DRY{DRY_IN?}
+    DRY -->|yes, step 1| SET[Set dryer duration]
+    SET --> WAIT[Wait half-time]
+    WAIT --> TEMP[Enter temperature]
+    TEMP --> NEXT
+    DRY -->|no| NEXT{Last stage?}
+    NEXT -->|no| TAP
+    NEXT -->|yes| DONE([Cycle auto-completes])

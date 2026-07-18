@@ -1,0 +1,14 @@
+sequenceDiagram
+    actor OP as Operator
+    participant T as Tablet
+    participant API as API
+    actor AP as Approver
+
+    OP->>T: Scan filter in Block B (home = A)
+    T-->>OP: Block-change required dialog
+    OP->>T: State reason (mandatory)
+    T->>API: Block-change request
+    API->>AP: Push notification
+    AP->>API: Approve with remarks
+    API-->>T: Approval persisted (one-time use)
+    OP->>T: Resume cleaning in Block B

@@ -1,0 +1,385 @@
+- generic [ref=e62]:
+  - complementary [ref=e63]:
+    - link "DigiLog DigiLog" [ref=e65] [cursor=pointer]:
+      - /url: /
+      - img "DigiLog" [ref=e66]
+      - generic [ref=e67]: DigiLog
+    - navigation [ref=e68]:
+      - paragraph [ref=e69]: Menu
+      - link "Dashboard" [ref=e70] [cursor=pointer]:
+        - /url: /
+        - img [ref=e72]
+        - text: Dashboard
+      - link "Users" [ref=e74] [cursor=pointer]:
+        - /url: /users
+        - img [ref=e76]
+        - text: Users
+      - link "Admin Requests" [ref=e78] [cursor=pointer]:
+        - /url: /admin-requests
+        - img [ref=e80]
+        - text: Admin Requests
+      - link "Organizations" [ref=e82] [cursor=pointer]:
+        - /url: /organizations
+        - img [ref=e84]
+        - text: Organizations
+      - link "Entities" [ref=e86] [cursor=pointer]:
+        - /url: /assets
+        - img [ref=e88]
+        - text: Entities
+      - link "Entity Templates" [ref=e90] [cursor=pointer]:
+        - /url: /assets/templates
+        - img [ref=e92]
+        - text: Entity Templates
+      - link "Configuration" [ref=e94] [cursor=pointer]:
+        - /url: /config
+        - img [ref=e96]
+        - text: Configuration
+      - link "Notifications" [ref=e99] [cursor=pointer]:
+        - /url: /notifications
+        - img [ref=e101]
+        - text: Notifications
+      - link "Audit Trail" [ref=e103] [cursor=pointer]:
+        - /url: /audit
+        - img [ref=e105]
+        - text: Audit Trail
+      - link "System Health" [ref=e107] [cursor=pointer]:
+        - /url: /system-health
+        - img [ref=e109]
+        - text: System Health
+      - link "Rule Chains" [ref=e111] [cursor=pointer]:
+        - /url: /rule-chains
+        - img [ref=e113]
+        - text: Rule Chains
+      - link "Alarms" [ref=e115] [cursor=pointer]:
+        - /url: /alarms
+        - img [ref=e117]
+        - text: Alarms
+      - link "Debug Traces" [ref=e119] [cursor=pointer]:
+        - /url: /debug/traces
+        - img [ref=e121]
+        - text: Debug Traces
+      - link "Filters" [ref=e123] [cursor=pointer]:
+        - /url: /filter-list
+        - img [ref=e125]
+        - text: Filters
+      - link "Retirement List" [ref=e128] [cursor=pointer]:
+        - /url: /filter-retirements
+        - img [ref=e130]
+        - text: Retirement List
+      - link "Replacement List" [ref=e132] [cursor=pointer]:
+        - /url: /filter-replacements
+        - img [ref=e134]
+        - text: Replacement List
+      - link "Filter Operations" [ref=e136] [cursor=pointer]:
+        - /url: /filters
+        - img [ref=e138]
+        - text: Filter Operations
+      - link "Cleaning Cycles" [ref=e140] [cursor=pointer]:
+        - /url: /cleaning-cycles
+        - img [ref=e142]
+        - text: Cleaning Cycles
+      - link "Checklists" [ref=e144] [cursor=pointer]:
+        - /url: /checklists
+        - img [ref=e146]
+        - text: Checklists
+      - link "Cleaning Profiles" [ref=e148] [cursor=pointer]:
+        - /url: /filter-cleaning-profiles
+        - img [ref=e150]
+        - text: Cleaning Profiles
+      - link "Equipment Groups" [ref=e152] [cursor=pointer]:
+        - /url: /config/equipment-groups
+        - img [ref=e154]
+        - text: Equipment Groups
+      - link "PM Schedules" [ref=e157] [cursor=pointer]:
+        - /url: /pm-schedules
+        - img [ref=e159]
+        - text: PM Schedules
+    - generic [ref=e162]:
+      - paragraph [ref=e163]: Controlytics AI Pvt Ltd
+      - paragraph [ref=e164]: 21 CFR Part 11 Compliant
+  - generic [ref=e165]:
+    - banner [ref=e166]:
+      - generic [ref=e167]:
+        - button "4" [ref=e168]:
+          - img [ref=e169]
+          - generic [ref=e171]: "4"
+        - button "SA System Administrator Super Admin" [ref=e174]:
+          - generic [ref=e175]: SA
+          - generic [ref=e176]:
+            - paragraph [ref=e177]: System Administrator
+            - generic [ref=e179]: Super Admin
+          - img [ref=e180]
+    - main [ref=e182]:
+      - generic [ref=e183]:
+        - generic [ref=e184]:
+          - img [ref=e186]
+          - generic [ref=e188]:
+            - heading "Filters" [level=1] [ref=e189]
+            - paragraph [ref=e190]: 26 filter(s) across 4 block(s)
+        - generic [ref=e232]:
+          - button [ref=e233]:
+            - img [ref=e234]
+          - generic [ref=e236]:
+            - heading "CWH Block" [level=2] [ref=e237]
+            - paragraph [ref=e238]: 10 filter(s)
+        - generic [ref=e239]:
+          - table [ref=e241]:
+            - rowgroup [ref=e242]:
+              - row "Block AHU Filter ID Type Set Last Cleaning Status RFID Actions" [ref=e243]:
+                - columnheader "Block" [ref=e244]
+                - columnheader "AHU" [ref=e245]
+                - columnheader "Filter ID" [ref=e246]
+                - columnheader "Type" [ref=e247]
+                - columnheader "Set" [ref=e248]
+                - columnheader "Last Cleaning" [ref=e249]
+                - columnheader "Status" [ref=e250]
+                - columnheader "RFID" [ref=e251]
+                - columnheader "Actions" [ref=e252]
+            - rowgroup [ref=e253]:
+              - row "CWH Block CWH-AHU-01 CWH/F05/00-01 Pre - - Wash In RFID-TEST-00001 Unassign RFID" [ref=e254]:
+                - cell "CWH Block" [ref=e255]
+                - cell "CWH-AHU-01" [ref=e256]:
+                  - link "CWH-AHU-01" [ref=e257] [cursor=pointer]:
+                    - /url: /ahus/ae9736fb-7e3b-4b48-85d4-0f17326d00b0
+                - cell "CWH/F05/00-01" [ref=e258]:
+                  - generic [ref=e261]: CWH/F05/00-01
+                - cell "Pre" [ref=e262]
+                - cell "-" [ref=e263]
+                - cell "-" [ref=e264]
+                - cell "Wash In" [ref=e265]
+                - cell "RFID-TEST-00001 Unassign RFID" [ref=e266]:
+                  - generic [ref=e267]:
+                    - generic "RFID-TEST-00001" [ref=e268]:
+                      - img [ref=e269]
+                      - text: RFID-TEST-00001
+                    - button "Unassign RFID" [ref=e271]:
+                      - img [ref=e272]
+                - cell [ref=e274]:
+                  - generic [ref=e275]:
+                    - link "View History" [ref=e276] [cursor=pointer]:
+                      - /url: /filters/38b69a22-7cb0-43e9-a4c6-314bbce2ed3c/trace
+                      - img [ref=e277]
+                    - button "Update Status" [ref=e279]:
+                      - img [ref=e280]
+                    - button "Retire / Replace" [ref=e282]:
+                      - img [ref=e283]
+              - row "CWH Block CWH-AHU-01 CWH/F04/00 HEPA - - Idle Assign RFID" [ref=e285]:
+                - cell "CWH Block" [ref=e286]
+                - cell "CWH-AHU-01" [ref=e287]:
+                  - link "CWH-AHU-01" [ref=e288] [cursor=pointer]:
+                    - /url: /ahus/ae9736fb-7e3b-4b48-85d4-0f17326d00b0
+                - cell "CWH/F04/00" [ref=e289]:
+                  - generic [ref=e292]: CWH/F04/00
+                - cell "HEPA" [ref=e293]
+                - cell "-" [ref=e294]
+                - cell "-" [ref=e295]
+                - cell "Idle" [ref=e296]
+                - cell "Assign RFID" [ref=e297]:
+                  - button "Assign RFID" [ref=e298]:
+                    - img [ref=e299]
+                    - text: Assign RFID
+                - cell [ref=e301]:
+                  - generic [ref=e302]:
+                    - link "View History" [ref=e303] [cursor=pointer]:
+                      - /url: /filters/82b25afd-e2b2-4903-8bff-869052b0db4d/trace
+                      - img [ref=e304]
+                    - button "Update Status" [ref=e306]:
+                      - img [ref=e307]
+                    - button "Retire / Replace" [ref=e309]:
+                      - img [ref=e310]
+              - row "CWH Block CWH-AHU-01 CWH/F03/00 Pre - - Idle Assign RFID" [ref=e312]:
+                - cell "CWH Block" [ref=e313]
+                - cell "CWH-AHU-01" [ref=e314]:
+                  - link "CWH-AHU-01" [ref=e315] [cursor=pointer]:
+                    - /url: /ahus/ae9736fb-7e3b-4b48-85d4-0f17326d00b0
+                - cell "CWH/F03/00" [ref=e316]:
+                  - generic [ref=e319]: CWH/F03/00
+                - cell "Pre" [ref=e320]
+                - cell "-" [ref=e321]
+                - cell "-" [ref=e322]
+                - cell "Idle" [ref=e323]
+                - cell "Assign RFID" [ref=e324]:
+                  - button "Assign RFID" [ref=e325]:
+                    - img [ref=e326]
+                    - text: Assign RFID
+                - cell [ref=e328]:
+                  - generic [ref=e329]:
+                    - link "View History" [ref=e330] [cursor=pointer]:
+                      - /url: /filters/2ddfafef-a924-4b9a-9dce-440f2cd43983/trace
+                      - img [ref=e331]
+                    - button "Update Status" [ref=e333]:
+                      - img [ref=e334]
+                    - button "Retire / Replace" [ref=e336]:
+                      - img [ref=e337]
+              - row "CWH Block CWH-AHU-01 CWH/F02/00 HEPA - - Idle Assign RFID" [ref=e339]:
+                - cell "CWH Block" [ref=e340]
+                - cell "CWH-AHU-01" [ref=e341]:
+                  - link "CWH-AHU-01" [ref=e342] [cursor=pointer]:
+                    - /url: /ahus/ae9736fb-7e3b-4b48-85d4-0f17326d00b0
+                - cell "CWH/F02/00" [ref=e343]:
+                  - generic [ref=e346]: CWH/F02/00
+                - cell "HEPA" [ref=e347]
+                - cell "-" [ref=e348]
+                - cell "-" [ref=e349]
+                - cell "Idle" [ref=e350]
+                - cell "Assign RFID" [ref=e351]:
+                  - button "Assign RFID" [ref=e352]:
+                    - img [ref=e353]
+                    - text: Assign RFID
+                - cell [ref=e355]:
+                  - generic [ref=e356]:
+                    - link "View History" [ref=e357] [cursor=pointer]:
+                      - /url: /filters/8b1dd477-84a9-4ee7-93ba-83b79c6d3054/trace
+                      - img [ref=e358]
+                    - button "Update Status" [ref=e360]:
+                      - img [ref=e361]
+                    - button "Retire / Replace" [ref=e363]:
+                      - img [ref=e364]
+              - row "CWH Block CWH-AHU-01 CWH/F01/00 HEPA - - Idle Assign RFID" [ref=e366]:
+                - cell "CWH Block" [ref=e367]
+                - cell "CWH-AHU-01" [ref=e368]:
+                  - link "CWH-AHU-01" [ref=e369] [cursor=pointer]:
+                    - /url: /ahus/ae9736fb-7e3b-4b48-85d4-0f17326d00b0
+                - cell "CWH/F01/00" [ref=e370]:
+                  - generic [ref=e373]: CWH/F01/00
+                - cell "HEPA" [ref=e374]
+                - cell "-" [ref=e375]
+                - cell "-" [ref=e376]
+                - cell "Idle" [ref=e377]
+                - cell "Assign RFID" [ref=e378]:
+                  - button "Assign RFID" [ref=e379]:
+                    - img [ref=e380]
+                    - text: Assign RFID
+                - cell [ref=e382]:
+                  - generic [ref=e383]:
+                    - link "View History" [ref=e384] [cursor=pointer]:
+                      - /url: /filters/9bff0547-388f-4dce-b8e4-b2ed9332cdad/trace
+                      - img [ref=e385]
+                    - button "Update Status" [ref=e387]:
+                      - img [ref=e388]
+                    - button "Retire / Replace" [ref=e390]:
+                      - img [ref=e391]
+              - row "CWH Block AHU-01 PRE-B-02 Pre Set B 15-Feb-2026 Wash In Assign RFID" [ref=e393]:
+                - cell "CWH Block" [ref=e394]
+                - cell "AHU-01" [ref=e395]:
+                  - link "AHU-01" [ref=e396] [cursor=pointer]:
+                    - /url: /ahus/b03ee584-8427-4b6f-9b02-9f60545ca2ab
+                - cell "PRE-B-02" [ref=e397]:
+                  - generic [ref=e400]: PRE-B-02
+                - cell "Pre" [ref=e401]
+                - cell "Set B" [ref=e402]
+                - cell "15-Feb-2026" [ref=e403]
+                - cell "Wash In" [ref=e404]
+                - cell "Assign RFID" [ref=e405]:
+                  - button "Assign RFID" [ref=e406]:
+                    - img [ref=e407]
+                    - text: Assign RFID
+                - cell [ref=e409]:
+                  - generic [ref=e410]:
+                    - link "View History" [ref=e411] [cursor=pointer]:
+                      - /url: /filters/8d8b3333-f187-4ed6-88d9-d632334a5468/trace
+                      - img [ref=e412]
+                    - button "Update Status" [ref=e414]:
+                      - img [ref=e415]
+                    - button "Retire / Replace" [ref=e417]:
+                      - img [ref=e418]
+              - row "CWH Block AHU-01 TEST-HEPA-02 HEPA Set A 01-Mar-2026 Idle Assign RFID" [ref=e420]:
+                - cell "CWH Block" [ref=e421]
+                - cell "AHU-01" [ref=e422]:
+                  - link "AHU-01" [ref=e423] [cursor=pointer]:
+                    - /url: /ahus/b03ee584-8427-4b6f-9b02-9f60545ca2ab
+                - cell "TEST-HEPA-02" [ref=e424]:
+                  - generic [ref=e427]: TEST-HEPA-02
+                - cell "HEPA" [ref=e428]
+                - cell "Set A" [ref=e429]
+                - cell "01-Mar-2026" [ref=e430]
+                - cell "Idle" [ref=e431]
+                - cell "Assign RFID" [ref=e432]:
+                  - button "Assign RFID" [ref=e433]:
+                    - img [ref=e434]
+                    - text: Assign RFID
+                - cell [ref=e436]:
+                  - generic [ref=e437]:
+                    - link "View History" [ref=e438] [cursor=pointer]:
+                      - /url: /filters/8d582ee5-b9ee-40eb-b622-8556e77e5acb/trace
+                      - img [ref=e439]
+                    - button "Update Status" [ref=e441]:
+                      - img [ref=e442]
+                    - button "Retire / Replace" [ref=e444]:
+                      - img [ref=e445]
+              - row "CWH Block AHU-01 HEPA-B-001 HEPA - - Idle Assign RFID" [ref=e447]:
+                - cell "CWH Block" [ref=e448]
+                - cell "AHU-01" [ref=e449]:
+                  - link "AHU-01" [ref=e450] [cursor=pointer]:
+                    - /url: /ahus/b03ee584-8427-4b6f-9b02-9f60545ca2ab
+                - cell "HEPA-B-001" [ref=e451]:
+                  - generic [ref=e454]: HEPA-B-001
+                - cell "HEPA" [ref=e455]
+                - cell "-" [ref=e456]
+                - cell "-" [ref=e457]
+                - cell "Idle" [ref=e458]
+                - cell "Assign RFID" [ref=e459]:
+                  - button "Assign RFID" [ref=e460]:
+                    - img [ref=e461]
+                    - text: Assign RFID
+                - cell [ref=e463]:
+                  - generic [ref=e464]:
+                    - link "View History" [ref=e465] [cursor=pointer]:
+                      - /url: /filters/b325afaf-c143-465b-b04d-12b1e921ea62/trace
+                      - img [ref=e466]
+                    - button "Update Status" [ref=e468]:
+                      - img [ref=e469]
+                    - button "Retire / Replace" [ref=e471]:
+                      - img [ref=e472]
+              - row "CWH Block AHU-01 HEPA-A-002 HEPA - - Idle Assign RFID" [ref=e474]:
+                - cell "CWH Block" [ref=e475]
+                - cell "AHU-01" [ref=e476]:
+                  - link "AHU-01" [ref=e477] [cursor=pointer]:
+                    - /url: /ahus/b03ee584-8427-4b6f-9b02-9f60545ca2ab
+                - cell "HEPA-A-002" [ref=e478]:
+                  - generic [ref=e481]: HEPA-A-002
+                - cell "HEPA" [ref=e482]
+                - cell "-" [ref=e483]
+                - cell "-" [ref=e484]
+                - cell "Idle" [ref=e485]
+                - cell "Assign RFID" [ref=e486]:
+                  - button "Assign RFID" [ref=e487]:
+                    - img [ref=e488]
+                    - text: Assign RFID
+                - cell [ref=e490]:
+                  - generic [ref=e491]:
+                    - link "View History" [ref=e492] [cursor=pointer]:
+                      - /url: /filters/c8cde975-e53d-4ceb-aaad-5a5276cf5011/trace
+                      - img [ref=e493]
+                    - button "Update Status" [ref=e495]:
+                      - img [ref=e496]
+                    - button "Retire / Replace" [ref=e498]:
+                      - img [ref=e499]
+              - row "CWH Block AHU-01 HEPA-A-001 HEPA - - Idle 12345 Unassign RFID" [ref=e501]:
+                - cell "CWH Block" [ref=e502]
+                - cell "AHU-01" [ref=e503]:
+                  - link "AHU-01" [ref=e504] [cursor=pointer]:
+                    - /url: /ahus/b03ee584-8427-4b6f-9b02-9f60545ca2ab
+                - cell "HEPA-A-001" [ref=e505]:
+                  - generic [ref=e508]: HEPA-A-001
+                - cell "HEPA" [ref=e509]
+                - cell "-" [ref=e510]
+                - cell "-" [ref=e511]
+                - cell "Idle" [ref=e512]
+                - cell "12345 Unassign RFID" [ref=e513]:
+                  - generic [ref=e514]:
+                    - generic "12345" [ref=e515]:
+                      - img [ref=e516]
+                      - text: "12345"
+                    - button "Unassign RFID" [ref=e518]:
+                      - img [ref=e519]
+                - cell [ref=e521]:
+                  - generic [ref=e522]:
+                    - link "View History" [ref=e523] [cursor=pointer]:
+                      - /url: /filters/aa5ca89c-88bb-4f54-9ecd-6c5dc2e22e4b/trace
+                      - img [ref=e524]
+                    - button "Update Status" [ref=e526]:
+                      - img [ref=e527]
+                    - button "Retire / Replace" [ref=e529]:
+                      - img [ref=e530]
+          - paragraph [ref=e533]: Showing 10 filter(s) in CWH Block

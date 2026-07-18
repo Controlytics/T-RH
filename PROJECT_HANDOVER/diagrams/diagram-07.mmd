@@ -1,0 +1,12 @@
+sequenceDiagram
+    actor U as Locked-out User
+    participant L as Login page
+    participant API as API
+    actor A as Admin
+
+    U->>L: Click "Contact Admin"
+    U->>API: Submit request<br/>(unlock / reset / create / modify)
+    API->>A: Notification
+    A->>API: Approve with mandatory remarks
+    API->>API: Execute action + audit log
+    API-->>U: Notification / email

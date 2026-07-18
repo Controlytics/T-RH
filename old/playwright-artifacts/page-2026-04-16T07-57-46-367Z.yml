@@ -1,0 +1,51 @@
+- main [ref=e10]:
+  - generic [ref=e11]:
+    - button "← Back to Stages" [ref=e12]:
+      - generic [ref=e13]: ←
+      - text: Back to Stages
+    - generic [ref=e15]:
+      - generic [ref=e16]:
+        - generic [ref=e17]: 🚿
+        - generic [ref=e18]:
+          - heading "Wash In" [level=2] [ref=e19]
+          - paragraph [ref=e20]: "Block: CWH Block"
+      - generic [ref=e21]:
+        - generic [ref=e39]:
+          - generic [ref=e40]: CWH Block
+          - button "Change" [ref=e41]
+        - generic [ref=e65]:
+          - generic [ref=e66]: Scan or Enter Filter Identifier
+          - textbox "Scan tag or type filter name" [ref=e67]
+        - paragraph [ref=e68]: Hold RFID tag near reader, or type filter name and press Submit
+        - textbox "Remarks (optional)" [ref=e69]
+        - button "Add to Queue" [disabled] [ref=e70]:
+          - img [ref=e71]
+          - text: Add to Queue
+        - generic [ref=e73]:
+          - generic [ref=e75]: Queue (1)
+          - generic [ref=e77]:
+            - generic [ref=e78]: "1."
+            - generic [ref=e79]: MUPS/F01/00
+            - button "Remove" [ref=e80]
+        - generic [ref=e50]:
+          - button "Close" [ref=e51]
+          - button "Submit All (1)" [ref=e81]:
+            - img [ref=e82]
+            - text: Submit All (1)
+    - generic [ref=e87]:
+      - generic [ref=e88]:
+        - img [ref=e90]
+        - generic [ref=e92]:
+          - heading "Block Change Required" [level=3] [ref=e93]
+          - paragraph [ref=e94]: This filter belongs to a different block
+      - generic [ref=e95]:
+        - generic [ref=e96]:
+          - generic [ref=e97]: "Filter: MUPS/F01/00"
+          - generic [ref=e98]: "Home Block: MUPS Block"
+          - generic [ref=e99]: "Requested Block: CWH Block"
+        - generic [ref=e100]:
+          - generic [ref=e101]: Reason *
+          - textbox "Why does this filter need to be cleaned in a different block? (required)" [ref=e102]
+      - generic [ref=e103]:
+        - button "Cancel" [ref=e104]
+        - button "Request Change" [disabled] [ref=e105]

@@ -1,0 +1,20 @@
+sequenceDiagram
+    actor O as Operator
+    participant T as Tablet
+    participant IDB as IndexedDB
+    participant API as API Server
+
+    Note over T: WiFi drops
+    O->>T: Scan + advance
+    T->>API: POST /advance
+    API--xT: Network error
+    T->>IDB: Queue the operation
+    T->>T: Use cached pipeline graph<br/>for next-stage validation
+    T-->>O: "(queued)" badge
+
+    Note over T,API: WiFi returns (or periodic /health ping)
+    loop for each queued op
+        T->>API: Replay with original timestamp
+        API-->>T: 200 OK
+    end
+    T-->>O: "Data Synced" indicator green

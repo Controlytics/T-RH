@@ -1,0 +1,5 @@
+flowchart LR
+    S[Supervisor] --> H[Cleaning Cycles · History]
+    H --> F[Filter by date / status / filter ID]
+    F --> P[Download PDF]
+    P --> OUT[(PDF with logo, readings,<br/>hash chain, signatures)]

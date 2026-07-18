@@ -1,0 +1,39 @@
+# packages/queue/crontab.txt — Maintenance cron schedules for graphile-worker
+# Loaded by the Runner in apps/api/src/app.ts when USE_PG_QUEUE=true.
+# Cron format: minute hour day-of-month month day-of-week  task_name  ?key=…
+#
+# EVERY identifier below MUST have a handler in app.ts's `taskList`.
+# graphile-worker does not reject an unknown identifier — it enqueues the job and
+# leaves it queued forever, so a handler-less cron entry is an unbounded row leak.
+# app.ts already carries a comment describing exactly this failure ("jobs leaked
+# into graphile_worker.jobs forever") from when `notification` had no handler —
+# but the crontab was never checked for the same class.
+#
+# REMOVED 2026-07-15 — all three were scheduled for subsystems DELETED in the
+# 2026-06-11..17 data-ingestion tear-out, so no handler existed and the jobs
+# never completed:
+#     * * * * * dlq_check           (DeadLetterQueue model dropped)
+#     * * * * * connectivity_check  (ConnectivityStatus model + module dropped)
+#     0 2 * * * retention_cleanup   (retention module + retention.def removed)
+# The two per-minute entries accrued ~120 rows/hour between them; the queue had
+# reached 51,798 orphan jobs when this was found. The `?id=…&max=1` dedup added
+# by the 2026-05-04 queue review capped how many were IN FLIGHT at once, but
+# nothing ever completed them, so the table still grew without bound.
+#
+# `?id=…&fill=…&max=…` on the surviving crons (2026-05-04 queue review H2):
+#   - id=…   — opaque key for graphile-worker's "skip if same id already
+#              queued" semantics, so a slow handler can't overlap itself.
+#   - max=1  — hard ceiling on queued instances; belt-and-braces with the id.
+#   - fill=… — don't backfill missed runs after a restart. For periodic sweeps,
+#              replaying missed minutes adds load without value.
+
+# PM overdue deviation sweep — daily 03:00. Opens deviations for newly overdue
+# AHU cleaning tasks + closes those since cleaned. Idempotent (no daily dupes).
+0 3 * * * pm_overdue_check ?id=pm_overdue_check&max=1&fill=0s
+# Session reaper — every 5 min. Terminates idle/expired sessions + records a
+# LOGOUT audit so app-close / window-close / crash logouts are captured.
+*/5 * * * * session_sweep ?id=session_sweep&max=1&fill=0s
+# Password-expiry notifications — daily 00:00. Warns each user daily for the
+# configured window before their password expires + a one-time expiry notice.
+# Idempotent (one warning per user per day; expiry notice once per event).
+0 0 * * * password_expiry_check ?id=password_expiry_check&max=1&fill=0s

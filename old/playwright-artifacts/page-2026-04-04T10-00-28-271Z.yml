@@ -1,0 +1,5 @@
+- generic [ref=e289]:
+  - img [ref=e291]
+  - heading "Something went wrong" [level=2] [ref=e293]
+  - paragraph [ref=e294]: Rendered more hooks than during the previous render.
+  - button "Reload Page" [ref=e295]

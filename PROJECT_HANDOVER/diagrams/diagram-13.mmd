@@ -1,0 +1,7 @@
+flowchart LR
+    EV[App event] --> R[Notification Rule]
+    R --> D[Delivery service]
+    D --> E[Email SMTP]
+    D --> S[SMS]
+    D --> TG[Telegram]
+    D --> SL[Slack]

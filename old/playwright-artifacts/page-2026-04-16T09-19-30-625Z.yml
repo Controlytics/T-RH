@@ -1,0 +1,92 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - link "DigiLog DigiLog" [ref=e6] [cursor=pointer]:
+      - /url: /
+      - img "DigiLog" [ref=e7]
+      - generic [ref=e8]: DigiLog
+    - navigation [ref=e9]:
+      - paragraph [ref=e10]: Menu
+      - link "Dashboard" [ref=e11] [cursor=pointer]:
+        - /url: /
+        - img [ref=e13]
+        - text: Dashboard
+      - link "Entities" [ref=e15] [cursor=pointer]:
+        - /url: /assets
+        - img [ref=e17]
+        - text: Entities
+      - link "Notifications" [ref=e19] [cursor=pointer]:
+        - /url: /notifications
+        - img [ref=e21]
+        - text: Notifications
+      - link "Audit Trail" [ref=e23] [cursor=pointer]:
+        - /url: /audit
+        - img [ref=e25]
+        - text: Audit Trail
+      - link "System Health" [ref=e27] [cursor=pointer]:
+        - /url: /system-health
+        - img [ref=e29]
+        - text: System Health
+      - link "Debug Traces" [ref=e31] [cursor=pointer]:
+        - /url: /debug/traces
+        - img [ref=e33]
+        - text: Debug Traces
+      - link "Filters" [ref=e35] [cursor=pointer]:
+        - /url: /filter-list
+        - img [ref=e37]
+        - text: Filters
+      - link "Retirement List" [ref=e40] [cursor=pointer]:
+        - /url: /filter-retirements
+        - img [ref=e42]
+        - text: Retirement List
+      - link "Replacement List" [ref=e44] [cursor=pointer]:
+        - /url: /filter-replacements
+        - img [ref=e46]
+        - text: Replacement List
+      - link "Filter Operations" [ref=e48] [cursor=pointer]:
+        - /url: /filters
+        - img [ref=e50]
+        - text: Filter Operations
+      - link "Cleaning Cycles" [ref=e52] [cursor=pointer]:
+        - /url: /cleaning-cycles
+        - img [ref=e54]
+        - text: Cleaning Cycles
+      - link "Checklists" [ref=e56] [cursor=pointer]:
+        - /url: /checklists
+        - img [ref=e58]
+        - text: Checklists
+      - link "Cleaning Profiles" [ref=e60] [cursor=pointer]:
+        - /url: /filter-cleaning-profiles
+        - img [ref=e62]
+        - text: Cleaning Profiles
+      - link "Equipment Groups" [ref=e64] [cursor=pointer]:
+        - /url: /config/equipment-groups
+        - img [ref=e66]
+        - text: Equipment Groups
+      - link "PM Schedules" [ref=e69] [cursor=pointer]:
+        - /url: /pm-schedules
+        - img [ref=e71]
+        - text: PM Schedules
+      - link "My Tasks" [ref=e73] [cursor=pointer]:
+        - /url: /my-tasks
+        - img [ref=e75]
+        - text: My Tasks
+      - link "Approvals" [ref=e77] [cursor=pointer]:
+        - /url: /approvals
+        - img [ref=e79]
+        - text: Approvals
+    - generic [ref=e82]:
+      - paragraph [ref=e83]: Controlytics AI Pvt Ltd
+      - paragraph [ref=e84]: 21 CFR Part 11 Compliant
+  - generic [ref=e85]:
+    - banner [ref=e86]:
+      - generic [ref=e87]:
+        - button "Notifications" [ref=e88]:
+          - img [ref=e89]
+        - button "K kumar Supervisor" [ref=e93]:
+          - generic [ref=e94]: K
+          - generic [ref=e95]:
+            - paragraph [ref=e96]: kumar
+            - generic [ref=e98]: Supervisor
+          - img [ref=e99]
+    - main [ref=e101]:
+      - img [ref=e103]

@@ -1,0 +1,27 @@
+- generic [ref=e3]:
+  - button "← Back to Stages" [ref=e32]:
+    - generic [ref=e33]: ←
+    - text: Back to Stages
+  - generic [ref=e35]:
+    - generic [ref=e36]:
+      - generic [ref=e37]: 🚿
+      - generic [ref=e38]:
+        - heading "Wash In" [level=2] [ref=e39]
+        - paragraph [ref=e40]: "Block: CWH Block"
+    - generic [ref=e41]:
+      - generic [ref=e59]:
+        - generic [ref=e60]: CWH Block
+        - button "Change" [ref=e61]
+      - generic [ref=e62]:
+        - generic [ref=e63]: Scan or Enter Filter Identifier
+        - textbox "Scan tag or type filter name" [active] [ref=e64]
+      - paragraph [ref=e65]: Hold RFID tag near reader, or type filter name and press Submit
+      - textbox "Remarks (optional)" [ref=e66]
+      - button "Add to Queue" [disabled] [ref=e67]:
+        - img [ref=e68]
+        - text: Add to Queue
+      - generic [ref=e70]:
+        - button "Close" [ref=e71]
+        - button "Submit All (0)" [disabled] [ref=e72]:
+          - img [ref=e73]
+          - text: Submit All (0)

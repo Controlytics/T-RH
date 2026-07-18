@@ -1,0 +1,325 @@
+- generic [ref=e37]:
+  - complementary [ref=e38]:
+    - link "DigiLog DigiLog" [ref=e40] [cursor=pointer]:
+      - /url: /
+      - img "DigiLog" [ref=e41]
+      - generic [ref=e42]: DigiLog
+    - navigation [ref=e43]:
+      - paragraph [ref=e44]: Menu
+      - link "Dashboard" [ref=e45] [cursor=pointer]:
+        - /url: /
+        - img [ref=e47]
+        - text: Dashboard
+      - link "Users" [ref=e50] [cursor=pointer]:
+        - /url: /users
+        - img [ref=e52]
+        - text: Users
+      - link "Admin Requests" [ref=e54] [cursor=pointer]:
+        - /url: /admin-requests
+        - img [ref=e56]
+        - text: Admin Requests
+      - link "Organizations" [ref=e58] [cursor=pointer]:
+        - /url: /organizations
+        - img [ref=e60]
+        - text: Organizations
+      - link "Entities" [ref=e62] [cursor=pointer]:
+        - /url: /assets
+        - img [ref=e64]
+        - text: Entities
+      - link "Entity Templates" [ref=e66] [cursor=pointer]:
+        - /url: /assets/templates
+        - img [ref=e68]
+        - text: Entity Templates
+      - link "Configuration" [ref=e70] [cursor=pointer]:
+        - /url: /config
+        - img [ref=e72]
+        - text: Configuration
+      - link "Notifications" [ref=e75] [cursor=pointer]:
+        - /url: /notifications
+        - img [ref=e77]
+        - text: Notifications
+      - link "Audit Trail" [ref=e79] [cursor=pointer]:
+        - /url: /audit
+        - img [ref=e81]
+        - text: Audit Trail
+      - link "System Health" [ref=e83] [cursor=pointer]:
+        - /url: /system-health
+        - img [ref=e85]
+        - text: System Health
+      - link "Rule Chains" [ref=e87] [cursor=pointer]:
+        - /url: /rule-chains
+        - img [ref=e89]
+        - text: Rule Chains
+      - link "Alarms" [ref=e91] [cursor=pointer]:
+        - /url: /alarms
+        - img [ref=e93]
+        - text: Alarms
+      - link "Debug Traces" [ref=e95] [cursor=pointer]:
+        - /url: /debug/traces
+        - img [ref=e97]
+        - text: Debug Traces
+      - link "Filters" [ref=e99] [cursor=pointer]:
+        - /url: /filter-list
+        - img [ref=e101]
+        - text: Filters
+      - link "Retirement List" [ref=e103] [cursor=pointer]:
+        - /url: /filter-retirements
+        - img [ref=e105]
+        - text: Retirement List
+      - link "Replacement List" [ref=e107] [cursor=pointer]:
+        - /url: /filter-replacements
+        - img [ref=e109]
+        - text: Replacement List
+      - link "Filter Operations" [ref=e111] [cursor=pointer]:
+        - /url: /filters
+        - img [ref=e113]
+        - text: Filter Operations
+      - link "Cleaning Cycles" [ref=e115] [cursor=pointer]:
+        - /url: /cleaning-cycles
+        - img [ref=e117]
+        - text: Cleaning Cycles
+      - link "Checklists" [ref=e119] [cursor=pointer]:
+        - /url: /checklists
+        - img [ref=e121]
+        - text: Checklists
+      - link "Cleaning Profiles" [ref=e123] [cursor=pointer]:
+        - /url: /filter-cleaning-profiles
+        - img [ref=e125]
+        - text: Cleaning Profiles
+      - link "Equipment Groups" [ref=e127] [cursor=pointer]:
+        - /url: /config/equipment-groups
+        - img [ref=e129]
+        - text: Equipment Groups
+      - link "PM Schedules" [ref=e132] [cursor=pointer]:
+        - /url: /pm-schedules
+        - img [ref=e134]
+        - text: PM Schedules
+      - link "My Tasks" [ref=e136] [cursor=pointer]:
+        - /url: /my-tasks
+        - img [ref=e138]
+        - text: My Tasks
+      - link "Approvals" [ref=e140] [cursor=pointer]:
+        - /url: /approvals
+        - img [ref=e142]
+        - text: Approvals
+      - link "Report Templates" [ref=e144] [cursor=pointer]:
+        - /url: /report-templates
+        - img [ref=e146]
+        - text: Report Templates
+      - link "Generated Reports" [ref=e148] [cursor=pointer]:
+        - /url: /reports
+        - img [ref=e150]
+        - text: Generated Reports
+    - generic [ref=e153]:
+      - paragraph [ref=e154]: Controlytics AI Pvt Ltd
+      - paragraph [ref=e155]: 21 CFR Part 11 Compliant
+  - generic [ref=e156]:
+    - banner [ref=e157]:
+      - generic [ref=e158]:
+        - button "1" [ref=e159]:
+          - img [ref=e160]
+          - generic [ref=e162]: "1"
+        - button "SA System Administrator Super Admin" [ref=e165]:
+          - generic [ref=e166]: SA
+          - generic [ref=e167]:
+            - paragraph [ref=e168]: System Administrator
+            - generic [ref=e170]: Super Admin
+          - img [ref=e171]
+    - main [ref=e173]:
+      - generic [ref=e174]:
+        - generic [ref=e175]:
+          - generic [ref=e176]:
+            - paragraph [ref=e177]: Welcome back,
+            - heading "System Administrator" [level=1] [ref=e178]
+            - paragraph [ref=e179]: DigiLog - 21 CFR Part 11 Compliant Digital Logbook
+          - img [ref=e181]
+          - generic [ref=e184]:
+            - generic [ref=e185]:
+              - paragraph [ref=e186]: Role
+              - paragraph [ref=e187]: SUPER ADMIN
+            - generic [ref=e189]:
+              - paragraph [ref=e190]: Today
+              - paragraph [ref=e191]: 16-Apr-2026
+        - generic [ref=e192]:
+          - heading "Quick Overview" [level=2] [ref=e193]
+          - generic [ref=e194]:
+            - link "Total Users 16 View details" [ref=e195] [cursor=pointer]:
+              - /url: /users
+              - generic [ref=e198]:
+                - generic [ref=e199]:
+                  - generic [ref=e200]:
+                    - paragraph [ref=e201]: Total Users
+                    - paragraph [ref=e202]: "16"
+                  - img [ref=e204]
+                - generic [ref=e206]:
+                  - generic [ref=e207]: View details
+                  - img [ref=e208]
+            - link "Audit Trail 863 View details" [ref=e210] [cursor=pointer]:
+              - /url: /audit
+              - generic [ref=e213]:
+                - generic [ref=e214]:
+                  - generic [ref=e215]:
+                    - paragraph [ref=e216]: Audit Trail
+                    - paragraph [ref=e217]: "863"
+                  - img [ref=e219]
+                - generic [ref=e221]:
+                  - generic [ref=e222]: View details
+                  - img [ref=e223]
+            - link "Notifications 79 View details" [ref=e225] [cursor=pointer]:
+              - /url: /notifications
+              - generic [ref=e228]:
+                - generic [ref=e229]:
+                  - generic [ref=e230]:
+                    - paragraph [ref=e231]: Notifications
+                    - paragraph [ref=e232]: "79"
+                  - img [ref=e234]
+                - generic [ref=e236]:
+                  - generic [ref=e237]: View details
+                  - img [ref=e238]
+        - generic [ref=e240]:
+          - generic [ref=e241]:
+            - heading "Filter Cleaning Analytics" [level=2] [ref=e242]
+            - link "Go to Operations" [ref=e243] [cursor=pointer]:
+              - /url: /filters
+              - text: Go to Operations
+              - img [ref=e244]
+          - generic [ref=e246]:
+            - generic [ref=e247]:
+              - generic [ref=e248]: Total Filters
+              - generic [ref=e249]: "30"
+            - generic [ref=e250]:
+              - generic [ref=e251]: Active Cycles
+              - generic [ref=e252]: "9"
+            - generic [ref=e253]:
+              - generic [ref=e254]: Completed Today
+              - generic [ref=e255]: "4"
+            - generic [ref=e256]:
+              - generic [ref=e257]: Total Cycles
+              - generic [ref=e258]: "233"
+          - generic [ref=e259]:
+            - generic [ref=e260]:
+              - heading "Filters by Current Stage" [level=3] [ref=e261]
+              - generic [ref=e262]:
+                - generic [ref=e263]:
+                  - generic [ref=e264]: Wash In
+                  - generic [ref=e267]: "9"
+                - generic [ref=e268]:
+                  - generic [ref=e269]: Wash Out
+                  - generic [ref=e272]: "2"
+                - generic [ref=e273]:
+                  - generic [ref=e274]: Dry In
+                  - generic [ref=e277]: "1"
+                - generic [ref=e278]:
+                  - generic [ref=e279]: Dry Out
+                  - generic [ref=e282]: "1"
+                - generic [ref=e283]:
+                  - generic [ref=e284]: Storage In
+                  - generic [ref=e287]: "1"
+                - generic [ref=e288]:
+                  - generic [ref=e289]: Storage Out
+                  - generic [ref=e291]: "0"
+            - generic [ref=e292]:
+              - heading "Cycle Status Breakdown" [level=3] [ref=e293]
+              - generic [ref=e294]:
+                - generic [ref=e295]:
+                  - img [ref=e296]
+                  - generic [ref=e300]:
+                    - generic [ref=e301]: "233"
+                    - generic [ref=e302]: total
+                - generic [ref=e303]:
+                  - generic [ref=e304]:
+                    - generic [ref=e306]: In Progress
+                    - generic [ref=e307]: "9"
+                  - generic [ref=e308]:
+                    - generic [ref=e310]: Completed
+                    - generic [ref=e311]: "219"
+                  - generic [ref=e312]:
+                    - generic [ref=e314]: Terminated
+                    - generic [ref=e315]: "5"
+          - generic [ref=e316]:
+            - generic [ref=e317]:
+              - heading "Daily Cycles (Last 30 Days)" [level=3] [ref=e318]
+              - generic [ref=e319]:
+                - generic [ref=e320]:
+                  - generic [ref=e321]: "3"
+                  - generic [ref=e322]: Mar 28
+                - generic [ref=e323]:
+                  - generic [ref=e324]: "20"
+                  - generic [ref=e325]: Mar 30
+                - generic [ref=e326]:
+                  - generic [ref=e327]: "9"
+                  - generic [ref=e328]: Mar 31
+                - generic [ref=e329]:
+                  - generic [ref=e330]: "32"
+                  - generic [ref=e331]: Apr 1
+                - generic [ref=e332]:
+                  - generic [ref=e333]: "2"
+                  - generic [ref=e334]: Apr 3
+                - generic [ref=e335]:
+                  - generic [ref=e336]: "21"
+                  - generic [ref=e337]: Apr 6
+                - generic [ref=e338]:
+                  - generic [ref=e339]: "28"
+                  - generic [ref=e340]: Apr 7
+                - generic [ref=e341]:
+                  - generic [ref=e342]: "33"
+                  - generic [ref=e343]: Apr 8
+                - generic [ref=e344]:
+                  - generic [ref=e345]: "28"
+                  - generic [ref=e346]: Apr 9
+                - generic [ref=e347]:
+                  - generic [ref=e348]: "1"
+                  - generic [ref=e349]: Apr 10
+                - generic [ref=e350]:
+                  - generic [ref=e351]: "5"
+                  - generic [ref=e352]: Apr 11
+                - generic [ref=e353]:
+                  - generic [ref=e354]: "19"
+                  - generic [ref=e355]: Apr 13
+                - generic [ref=e356]:
+                  - generic [ref=e357]: "5"
+                  - generic [ref=e358]: Apr 14
+                - generic [ref=e359]:
+                  - generic [ref=e360]: "23"
+                  - generic [ref=e361]: Apr 15
+                - generic [ref=e362]:
+                  - generic [ref=e363]: "4"
+                  - generic [ref=e364]: Apr 16
+            - generic [ref=e365]:
+              - heading "Monthly Cycles (Last 12 Months)" [level=3] [ref=e366]
+              - generic [ref=e367]:
+                - generic [ref=e368]:
+                  - generic [ref=e369]: "32"
+                  - generic [ref=e370]: Mar 26
+                - generic [ref=e371]:
+                  - generic [ref=e372]: "201"
+                  - generic [ref=e373]: Apr 26
+        - generic [ref=e374]:
+          - heading "Quick Actions" [level=2] [ref=e375]
+          - generic [ref=e376]:
+            - link "Create User Add a new user account" [ref=e377] [cursor=pointer]:
+              - /url: /users/create
+              - generic [ref=e379]:
+                - img [ref=e381]
+                - generic [ref=e383]:
+                  - paragraph [ref=e384]: Create User
+                  - paragraph [ref=e385]: Add a new user account
+            - link "View Audit Trail Check system activities" [ref=e386] [cursor=pointer]:
+              - /url: /audit
+              - generic [ref=e388]:
+                - img [ref=e390]
+                - generic [ref=e392]:
+                  - paragraph [ref=e393]: View Audit Trail
+                  - paragraph [ref=e394]: Check system activities
+            - link "System Configuration Manage system settings" [ref=e395] [cursor=pointer]:
+              - /url: /config
+              - generic [ref=e397]:
+                - img [ref=e399]
+                - generic [ref=e402]:
+                  - paragraph [ref=e403]: System Configuration
+                  - paragraph [ref=e404]: Manage system settings
+        - generic [ref=e406]:
+          - img [ref=e408]
+          - generic [ref=e410]:
+            - paragraph [ref=e411]: 21 CFR Part 11 Compliant
+            - paragraph [ref=e412]: Controlytics AI Pvt Ltd

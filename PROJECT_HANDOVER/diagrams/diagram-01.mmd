@@ -1,0 +1,22 @@
+flowchart TB
+    subgraph Users["End Users"]
+        A1[Admin Browser]
+        A2[Operator Tablet Browser]
+        A3[Android APK Tablet]
+    end
+
+    subgraph Server["On-Premises Windows Server"]
+        NG[Nginx<br/>Serves web + proxies API]
+        API[Fastify API<br/>34 route modules]
+        DB[(PostgreSQL<br/>+ TimescaleDB)]
+        R[(Memurai<br/>queue)]
+        M[(EMQX<br/>MQTT telemetry)]
+    end
+
+    A1 --> NG
+    A2 --> NG
+    A3 --> NG
+    NG --> API
+    API --> DB
+    API --> R
+    API -.-> M

@@ -1,0 +1,281 @@
+- generic [ref=e3]:
+  - complementary [ref=e9]:
+    - link "DigiLog DigiLog" [ref=e11] [cursor=pointer]:
+      - /url: /
+      - img "DigiLog" [ref=e12]
+      - generic [ref=e13]: DigiLog
+    - navigation [ref=e14]:
+      - paragraph [ref=e15]: Menu
+      - link "Dashboard" [ref=e16] [cursor=pointer]:
+        - /url: /
+        - img [ref=e18]
+        - text: Dashboard
+      - link "Users" [ref=e20] [cursor=pointer]:
+        - /url: /users
+        - img [ref=e22]
+        - text: Users
+      - link "Admin Requests" [ref=e24] [cursor=pointer]:
+        - /url: /admin-requests
+        - img [ref=e26]
+        - text: Admin Requests
+      - link "Organizations" [ref=e28] [cursor=pointer]:
+        - /url: /organizations
+        - img [ref=e30]
+        - text: Organizations
+      - link "Entities" [ref=e32] [cursor=pointer]:
+        - /url: /assets
+        - img [ref=e34]
+        - text: Entities
+      - link "Entity Templates" [ref=e36] [cursor=pointer]:
+        - /url: /assets/templates
+        - img [ref=e38]
+        - text: Entity Templates
+      - link "Configuration" [ref=e40] [cursor=pointer]:
+        - /url: /config
+        - img [ref=e42]
+        - text: Configuration
+      - link "Notifications" [ref=e46] [cursor=pointer]:
+        - /url: /notifications
+        - img [ref=e48]
+        - text: Notifications
+      - link "Audit Trail" [ref=e50] [cursor=pointer]:
+        - /url: /audit
+        - img [ref=e52]
+        - text: Audit Trail
+      - link "System Health" [ref=e54] [cursor=pointer]:
+        - /url: /system-health
+        - img [ref=e56]
+        - text: System Health
+      - link "Rule Chains" [ref=e58] [cursor=pointer]:
+        - /url: /rule-chains
+        - img [ref=e60]
+        - text: Rule Chains
+      - link "Alarms" [ref=e62] [cursor=pointer]:
+        - /url: /alarms
+        - img [ref=e64]
+        - text: Alarms
+      - link "Debug Traces" [ref=e66] [cursor=pointer]:
+        - /url: /debug/traces
+        - img [ref=e68]
+        - text: Debug Traces
+      - link "Filters" [ref=e70] [cursor=pointer]:
+        - /url: /filter-list
+        - img [ref=e72]
+        - text: Filters
+      - link "Retirement List" [ref=e74] [cursor=pointer]:
+        - /url: /filter-retirements
+        - img [ref=e76]
+        - text: Retirement List
+      - link "Replacement List" [ref=e78] [cursor=pointer]:
+        - /url: /filter-replacements
+        - img [ref=e80]
+        - text: Replacement List
+      - link "Filter Operations" [ref=e82] [cursor=pointer]:
+        - /url: /filters
+        - img [ref=e84]
+        - text: Filter Operations
+      - link "Cleaning Cycles" [ref=e86] [cursor=pointer]:
+        - /url: /cleaning-cycles
+        - img [ref=e88]
+        - text: Cleaning Cycles
+      - link "Checklists" [ref=e90] [cursor=pointer]:
+        - /url: /checklists
+        - img [ref=e92]
+        - text: Checklists
+      - link "Cleaning Profiles" [ref=e94] [cursor=pointer]:
+        - /url: /filter-cleaning-profiles
+        - img [ref=e96]
+        - text: Cleaning Profiles
+      - link "Equipment Groups" [ref=e98] [cursor=pointer]:
+        - /url: /config/equipment-groups
+        - img [ref=e100]
+        - text: Equipment Groups
+      - link "PM Schedules" [ref=e104] [cursor=pointer]:
+        - /url: /pm-schedules
+        - img [ref=e106]
+        - text: PM Schedules
+      - link "My Tasks" [ref=e108] [cursor=pointer]:
+        - /url: /my-tasks
+        - img [ref=e110]
+        - text: My Tasks
+      - link "Approvals" [ref=e112] [cursor=pointer]:
+        - /url: /approvals
+        - img [ref=e114]
+        - text: Approvals
+      - link "Report Templates" [ref=e116] [cursor=pointer]:
+        - /url: /report-templates
+        - img [ref=e118]
+        - text: Report Templates
+      - link "Generated Reports" [ref=e120] [cursor=pointer]:
+        - /url: /reports
+        - img [ref=e122]
+        - text: Generated Reports
+    - generic [ref=e125]:
+      - paragraph [ref=e126]: Controlytics AI Pvt Ltd
+      - paragraph [ref=e127]: 21 CFR Part 11 Compliant
+  - generic [ref=e128]:
+    - banner [ref=e129]:
+      - generic [ref=e130]:
+        - button "2" [ref=e131]:
+          - img [ref=e132]
+          - generic [ref=e134]: "2"
+        - button "SA System Administrator Super Admin" [ref=e137]:
+          - generic [ref=e138]: SA
+          - generic [ref=e139]:
+            - paragraph [ref=e140]: System Administrator
+            - generic [ref=e142]: Super Admin
+          - img [ref=e143]
+    - main [ref=e145]:
+      - generic [ref=e146]:
+        - generic [ref=e147]:
+          - generic [ref=e148]:
+            - button [ref=e149]:
+              - img [ref=e150]
+            - img [ref=e153]
+            - generic [ref=e156]:
+              - heading "Equipment Groups" [level=1] [ref=e157]
+              - paragraph [ref=e158]: Configure instrument groups per cleaning block
+          - button "Add Equipment Group" [ref=e159]:
+            - img [ref=e160]
+            - text: Add Equipment Group
+        - generic [ref=e162]:
+          - generic [ref=e163]:
+            - generic [ref=e164]: Select Block
+            - combobox [ref=e165]:
+              - option "-- Select Block --"
+              - option "test3"
+              - option "FD Block" [selected]
+              - option "PFI Block"
+              - option "MUPS Block"
+              - option "CWH Block"
+          - generic [ref=e166]:
+            - generic [ref=e167]: "2"
+            - generic [ref=e168]: Equipment Groups
+          - generic [ref=e169]:
+            - generic [ref=e170]: "6"
+            - generic [ref=e171]: Total Instruments
+        - generic [ref=e178]:
+          - generic [ref=e179]:
+            - generic [ref=e181]:
+              - generic [ref=e182]:
+                - img [ref=e184]
+                - generic [ref=e187]:
+                  - heading "filter" [level=3] [ref=e188]
+                  - paragraph [ref=e189]: 3 instruments configured
+              - generic [ref=e190]:
+                - button "Edit" [ref=e191]
+                - button "Delete" [ref=e192]
+            - generic [ref=e194]:
+              - generic [ref=e195]:
+                - generic [ref=e196]:
+                  - generic [ref=e197]: Compressed Air Pressure
+                  - generic [ref=e198]: WASH IN
+                - generic [ref=e199]:
+                  - generic [ref=e200]:
+                    - generic [ref=e201]: Instrument ID
+                    - generic [ref=e202]: air
+                  - generic [ref=e203]:
+                    - generic [ref=e204]: UOM
+                    - generic [ref=e205]: bar
+                  - generic [ref=e206]:
+                    - generic [ref=e207]: Range
+                    - generic [ref=e208]: 10.0 – 100.0
+                  - generic [ref=e209]:
+                    - generic [ref=e210]: Operating
+                    - generic [ref=e211]: 10.0 – 100.0
+              - generic [ref=e212]:
+                - generic [ref=e213]:
+                  - generic [ref=e214]: RO Water Pressure
+                  - generic [ref=e215]: WASH IN
+                - generic [ref=e216]:
+                  - generic [ref=e217]:
+                    - generic [ref=e218]: Instrument ID
+                    - generic [ref=e219]: water
+                  - generic [ref=e220]:
+                    - generic [ref=e221]: UOM
+                    - generic [ref=e222]: bar
+                  - generic [ref=e223]:
+                    - generic [ref=e224]: Range
+                    - generic [ref=e225]: 10.0 – 90.0
+                  - generic [ref=e226]:
+                    - generic [ref=e227]: Operating
+                    - generic [ref=e228]: 10.0 – 90.0
+              - generic [ref=e229]:
+                - generic [ref=e230]:
+                  - generic [ref=e231]: Dryer Temperature
+                  - generic [ref=e232]: DRY IN
+                - generic [ref=e233]:
+                  - generic [ref=e234]:
+                    - generic [ref=e235]: Instrument ID
+                    - generic [ref=e236]: temp
+                  - generic [ref=e237]:
+                    - generic [ref=e238]: UOM
+                    - generic [ref=e239]: °C
+                  - generic [ref=e240]:
+                    - generic [ref=e241]: Range
+                    - generic [ref=e242]: 10.0 – 80.0
+                  - generic [ref=e243]:
+                    - generic [ref=e244]: Operating
+                    - generic [ref=e245]: 10.0 – 70.0
+          - generic [ref=e246]:
+            - generic [ref=e248]:
+              - generic [ref=e249]:
+                - img [ref=e251]
+                - generic [ref=e254]:
+                  - heading "filter" [level=3] [ref=e255]
+                  - paragraph [ref=e256]: 3 instruments configured
+              - generic [ref=e257]:
+                - button "Edit" [ref=e258]
+                - button "Delete" [ref=e259]
+            - generic [ref=e261]:
+              - generic [ref=e262]:
+                - generic [ref=e263]:
+                  - generic [ref=e264]: Compressed Air Pressure
+                  - generic [ref=e265]: WASH IN
+                - generic [ref=e266]:
+                  - generic [ref=e267]:
+                    - generic [ref=e268]: Instrument ID
+                    - generic [ref=e269]: pressure
+                  - generic [ref=e270]:
+                    - generic [ref=e271]: UOM
+                    - generic [ref=e272]: bar
+                  - generic [ref=e273]:
+                    - generic [ref=e274]: Range
+                    - generic [ref=e275]: 10.0 – 60.0
+                  - generic [ref=e276]:
+                    - generic [ref=e277]: Operating
+                    - generic [ref=e278]: 10.0 – 50.0
+              - generic [ref=e279]:
+                - generic [ref=e280]:
+                  - generic [ref=e281]: RO Water Pressure
+                  - generic [ref=e282]: WASH IN
+                - generic [ref=e283]:
+                  - generic [ref=e284]:
+                    - generic [ref=e285]: Instrument ID
+                    - generic [ref=e286]: water
+                  - generic [ref=e287]:
+                    - generic [ref=e288]: UOM
+                    - generic [ref=e289]: bar
+                  - generic [ref=e290]:
+                    - generic [ref=e291]: Range
+                    - generic [ref=e292]: 10.0 – 50.0
+                  - generic [ref=e293]:
+                    - generic [ref=e294]: Operating
+                    - generic [ref=e295]: 10.0 – 40.0
+              - generic [ref=e296]:
+                - generic [ref=e297]:
+                  - generic [ref=e298]: Dryer Temperature
+                  - generic [ref=e299]: DRY IN
+                - generic [ref=e300]:
+                  - generic [ref=e301]:
+                    - generic [ref=e302]: Instrument ID
+                    - generic [ref=e303]: temp
+                  - generic [ref=e304]:
+                    - generic [ref=e305]: UOM
+                    - generic [ref=e306]: °C
+                  - generic [ref=e307]:
+                    - generic [ref=e308]: Range
+                    - generic [ref=e309]: 10.0 – 40.0
+                  - generic [ref=e310]:
+                    - generic [ref=e311]: Operating
+                    - generic [ref=e312]: 10.0 – 30.0

@@ -1,0 +1,306 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - link "DigiLog DigiLog" [ref=e6] [cursor=pointer]:
+      - /url: /
+      - img "DigiLog" [ref=e7]
+      - generic [ref=e8]: DigiLog
+    - navigation [ref=e9]:
+      - paragraph [ref=e10]: Menu
+      - link "Dashboard" [ref=e11] [cursor=pointer]:
+        - /url: /
+        - img [ref=e13]
+        - text: Dashboard
+      - link "Users" [ref=e15] [cursor=pointer]:
+        - /url: /users
+        - img [ref=e17]
+        - text: Users
+      - link "Admin Requests" [ref=e19] [cursor=pointer]:
+        - /url: /admin-requests
+        - img [ref=e21]
+        - text: Admin Requests
+      - link "Organizations" [ref=e23] [cursor=pointer]:
+        - /url: /organizations
+        - img [ref=e25]
+        - text: Organizations
+      - link "Entities" [ref=e27] [cursor=pointer]:
+        - /url: /assets
+        - img [ref=e29]
+        - text: Entities
+      - link "Entity Templates" [ref=e31] [cursor=pointer]:
+        - /url: /assets/templates
+        - img [ref=e33]
+        - text: Entity Templates
+      - link "Configuration" [ref=e35] [cursor=pointer]:
+        - /url: /config
+        - img [ref=e37]
+        - text: Configuration
+      - link "Notifications" [ref=e41] [cursor=pointer]:
+        - /url: /notifications
+        - img [ref=e43]
+        - text: Notifications
+      - link "Audit Trail" [ref=e45] [cursor=pointer]:
+        - /url: /audit
+        - img [ref=e47]
+        - text: Audit Trail
+      - link "System Health" [ref=e49] [cursor=pointer]:
+        - /url: /system-health
+        - img [ref=e51]
+        - text: System Health
+      - link "Rule Chains" [ref=e53] [cursor=pointer]:
+        - /url: /rule-chains
+        - img [ref=e55]
+        - text: Rule Chains
+      - link "Alarms" [ref=e57] [cursor=pointer]:
+        - /url: /alarms
+        - img [ref=e59]
+        - text: Alarms
+      - link "Debug Traces" [ref=e61] [cursor=pointer]:
+        - /url: /debug/traces
+        - img [ref=e63]
+        - text: Debug Traces
+      - link "Filters" [ref=e65] [cursor=pointer]:
+        - /url: /filter-list
+        - img [ref=e67]
+        - text: Filters
+      - link "Retirement List" [ref=e69] [cursor=pointer]:
+        - /url: /filter-retirements
+        - img [ref=e71]
+        - text: Retirement List
+      - link "Replacement List" [ref=e73] [cursor=pointer]:
+        - /url: /filter-replacements
+        - img [ref=e75]
+        - text: Replacement List
+      - link "Filter Operations" [ref=e77] [cursor=pointer]:
+        - /url: /filters
+        - img [ref=e79]
+        - text: Filter Operations
+      - link "Cleaning Cycles" [ref=e81] [cursor=pointer]:
+        - /url: /cleaning-cycles
+        - img [ref=e83]
+        - text: Cleaning Cycles
+      - link "Checklists" [ref=e85] [cursor=pointer]:
+        - /url: /checklists
+        - img [ref=e87]
+        - text: Checklists
+      - link "Cleaning Profiles" [ref=e89] [cursor=pointer]:
+        - /url: /filter-cleaning-profiles
+        - img [ref=e91]
+        - text: Cleaning Profiles
+      - link "Equipment Groups" [ref=e93] [cursor=pointer]:
+        - /url: /config/equipment-groups
+        - img [ref=e95]
+        - text: Equipment Groups
+      - link "PM Schedules" [ref=e98] [cursor=pointer]:
+        - /url: /pm-schedules
+        - img [ref=e100]
+        - text: PM Schedules
+    - generic [ref=e103]:
+      - paragraph [ref=e104]: Controlytics AI Pvt Ltd
+      - paragraph [ref=e105]: 21 CFR Part 11 Compliant
+  - generic [ref=e106]:
+    - banner [ref=e107]:
+      - generic [ref=e108]:
+        - button "Notifications" [ref=e109]:
+          - img [ref=e110]
+        - button "SA System Administrator Super Admin" [ref=e114]:
+          - generic [ref=e115]: SA
+          - generic [ref=e116]:
+            - paragraph [ref=e117]: System Administrator
+            - generic [ref=e119]: Super Admin
+          - img [ref=e120]
+    - main [ref=e122]:
+      - generic [ref=e123]:
+        - generic [ref=e124]:
+          - img [ref=e126]
+          - generic [ref=e129]:
+            - heading "System Configuration" [level=1] [ref=e130]
+            - paragraph [ref=e131]: Manage system settings and security policies
+        - generic [ref=e132]:
+          - generic [ref=e133]:
+            - heading "Security & General Settings" [level=2] [ref=e134]:
+              - img [ref=e136]
+              - text: Security & General Settings
+            - paragraph [ref=e139]: Configure security policies and general application settings
+          - generic [ref=e141]:
+            - link "General & Password Settings Re-auth Configure password policy, login security, and session timeout Configure" [ref=e142] [cursor=pointer]:
+              - /url: /config/password-policy
+              - generic [ref=e145]:
+                - img [ref=e147]
+                - generic [ref=e149]:
+                  - generic [ref=e150]:
+                    - heading "General & Password Settings" [level=3] [ref=e151]
+                    - generic [ref=e152]: Re-auth
+                  - paragraph [ref=e153]: Configure password policy, login security, and session timeout
+                  - generic [ref=e154]:
+                    - generic [ref=e155]: Configure
+                    - img [ref=e156]
+            - link "Date/Time Format Set application date and time display format Configure" [ref=e158] [cursor=pointer]:
+              - /url: /config/datetime
+              - generic [ref=e161]:
+                - img [ref=e163]
+                - generic [ref=e165]:
+                  - heading "Date/Time Format" [level=3] [ref=e167]
+                  - paragraph [ref=e168]: Set application date and time display format
+                  - generic [ref=e169]:
+                    - generic [ref=e170]: Configure
+                    - img [ref=e171]
+            - link "Backup & Restore Export or restore the entire database Configure" [ref=e173] [cursor=pointer]:
+              - /url: /config/backup
+              - generic [ref=e176]:
+                - img [ref=e178]
+                - generic [ref=e180]:
+                  - heading "Backup & Restore" [level=3] [ref=e182]
+                  - paragraph [ref=e183]: Export or restore the entire database
+                  - generic [ref=e184]:
+                    - generic [ref=e185]: Configure
+                    - img [ref=e186]
+        - generic [ref=e188]:
+          - generic [ref=e190]:
+            - img [ref=e192]
+            - generic [ref=e194]:
+              - heading "Super Admin Settings Restricted Access" [level=2] [ref=e195]:
+                - text: Super Admin Settings
+                - generic [ref=e196]: Restricted Access
+              - paragraph [ref=e197]: Advanced configuration options for super administrators
+          - generic [ref=e199]:
+            - link "User ID Format Configure User ID format and rules Configure" [ref=e200] [cursor=pointer]:
+              - /url: /config/user-id
+              - generic [ref=e203]:
+                - img [ref=e205]
+                - heading "User ID Format" [level=3] [ref=e207]
+                - paragraph [ref=e208]: Configure User ID format and rules
+                - generic [ref=e209]:
+                  - generic [ref=e210]: Configure
+                  - img [ref=e211]
+            - link "Role & Access Configuration Manage roles, permissions, sidebar visibility, and re-authentication Configure" [ref=e213] [cursor=pointer]:
+              - /url: /config/roles
+              - generic [ref=e216]:
+                - img [ref=e218]
+                - heading "Role & Access Configuration" [level=3] [ref=e220]
+                - paragraph [ref=e221]: Manage roles, permissions, sidebar visibility, and re-authentication
+                - generic [ref=e222]:
+                  - generic [ref=e223]: Configure
+                  - img [ref=e224]
+            - link "Branding Customize logo, colors, company name & version Configure" [ref=e226] [cursor=pointer]:
+              - /url: /config/branding
+              - generic [ref=e229]:
+                - img [ref=e231]
+                - heading "Branding" [level=3] [ref=e233]
+                - paragraph [ref=e234]: Customize logo, colors, company name & version
+                - generic [ref=e235]:
+                  - generic [ref=e236]: Configure
+                  - img [ref=e237]
+            - link "Field ID Names Configure field display names globally Configure" [ref=e239] [cursor=pointer]:
+              - /url: /config/field-ids
+              - generic [ref=e242]:
+                - img [ref=e244]
+                - heading "Field ID Names" [level=3] [ref=e246]
+                - paragraph [ref=e247]: Configure field display names globally
+                - generic [ref=e248]:
+                  - generic [ref=e249]: Configure
+                  - img [ref=e250]
+            - link "Audit Text Templates Customize audit trail description text per action Configure" [ref=e252] [cursor=pointer]:
+              - /url: /config/audit-templates
+              - generic [ref=e255]:
+                - img [ref=e257]
+                - heading "Audit Text Templates" [level=3] [ref=e259]
+                - paragraph [ref=e260]: Customize audit trail description text per action
+                - generic [ref=e261]:
+                  - generic [ref=e262]: Configure
+                  - img [ref=e263]
+            - link "Pagination Settings Configure records per page options for all list views Configure" [ref=e265] [cursor=pointer]:
+              - /url: /config/pagination
+              - generic [ref=e268]:
+                - img [ref=e270]
+                - heading "Pagination Settings" [level=3] [ref=e272]
+                - paragraph [ref=e273]: Configure records per page options for all list views
+                - generic [ref=e274]:
+                  - generic [ref=e275]: Configure
+                  - img [ref=e276]
+            - link "Data Retention Configure hypertable compression and retention policies Configure" [ref=e278] [cursor=pointer]:
+              - /url: /config/retention
+              - generic [ref=e281]:
+                - img [ref=e283]
+                - heading "Data Retention" [level=3] [ref=e285]
+                - paragraph [ref=e286]: Configure hypertable compression and retention policies
+                - generic [ref=e287]:
+                  - generic [ref=e288]: Configure
+                  - img [ref=e289]
+            - link "LDAP / Active Directory Configure LDAP authentication and user provisioning Configure" [ref=e291] [cursor=pointer]:
+              - /url: /config/ldap
+              - generic [ref=e294]:
+                - img [ref=e296]
+                - heading "LDAP / Active Directory" [level=3] [ref=e298]
+                - paragraph [ref=e299]: Configure LDAP authentication and user provisioning
+                - generic [ref=e300]:
+                  - generic [ref=e301]: Configure
+                  - img [ref=e302]
+            - link "Help Articles Manage contextual help content and documentation Configure" [ref=e304] [cursor=pointer]:
+              - /url: /config/help
+              - generic [ref=e307]:
+                - img [ref=e309]
+                - heading "Help Articles" [level=3] [ref=e311]
+                - paragraph [ref=e312]: Manage contextual help content and documentation
+                - generic [ref=e313]:
+                  - generic [ref=e314]: Configure
+                  - img [ref=e315]
+            - link "Alarm Columns Configure alarm table column visibility per role Configure" [ref=e317] [cursor=pointer]:
+              - /url: /config/alarm-columns
+              - generic [ref=e320]:
+                - img [ref=e322]
+                - heading "Alarm Columns" [level=3] [ref=e324]
+                - paragraph [ref=e325]: Configure alarm table column visibility per role
+                - generic [ref=e326]:
+                  - generic [ref=e327]: Configure
+                  - img [ref=e328]
+            - link "UNS Configuration Unified Namespace topic mapping and ISA-95 hierarchy Configure" [ref=e330] [cursor=pointer]:
+              - /url: /config/uns
+              - generic [ref=e333]:
+                - img [ref=e335]
+                - heading "UNS Configuration" [level=3] [ref=e337]
+                - paragraph [ref=e338]: Unified Namespace topic mapping and ISA-95 hierarchy
+                - generic [ref=e339]:
+                  - generic [ref=e340]: Configure
+                  - img [ref=e341]
+            - link "Notification Rules Configure alerts, recipients, templates & delivery logs Configure" [ref=e343] [cursor=pointer]:
+              - /url: /config/notification-rules
+              - generic [ref=e346]:
+                - img [ref=e348]
+                - heading "Notification Rules" [level=3] [ref=e350]
+                - paragraph [ref=e351]: Configure alerts, recipients, templates & delivery logs
+                - generic [ref=e352]:
+                  - generic [ref=e353]: Configure
+                  - img [ref=e354]
+            - link "Notification Channels Configure email SMTP and SMS provider settings Configure" [ref=e356] [cursor=pointer]:
+              - /url: /config/email-settings
+              - generic [ref=e359]:
+                - img [ref=e361]
+                - heading "Notification Channels" [level=3] [ref=e363]
+                - paragraph [ref=e364]: Configure email SMTP and SMS provider settings
+                - generic [ref=e365]:
+                  - generic [ref=e366]: Configure
+                  - img [ref=e367]
+            - link "Cleaning Profile Assignment Configure how cleaning profiles are automatically assigned to filters Configure" [ref=e369] [cursor=pointer]:
+              - /url: /config/cleaning-profile-assignment
+              - generic [ref=e372]:
+                - img [ref=e374]
+                - heading "Cleaning Profile Assignment" [level=3] [ref=e376]
+                - paragraph [ref=e377]: Configure how cleaning profiles are automatically assigned to filters
+                - generic [ref=e378]:
+                  - generic [ref=e379]: Configure
+                  - img [ref=e380]
+        - generic [ref=e383]:
+          - img [ref=e385]
+          - generic [ref=e387]:
+            - heading "21 CFR Part 11 Compliance" [level=3] [ref=e388]
+            - paragraph [ref=e389]: All security-critical settings require re-authentication and are logged in the audit trail for compliance purposes. Changes to these settings are recorded with timestamps and user information.
+            - generic [ref=e390]:
+              - generic [ref=e391]:
+                - img [ref=e392]
+                - text: Electronic Signatures
+              - generic [ref=e394]:
+                - img [ref=e395]
+                - text: Audit Trail
+              - generic [ref=e397]:
+                - img [ref=e398]
+                - text: Access Control

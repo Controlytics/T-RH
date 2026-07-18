@@ -1,0 +1,8 @@
+flowchart LR
+    A[Admin] -->|creates + grants| S[Supervisor]
+    A -->|creates + grants| O[Operator]
+    A -->|creates + grants| C[Custom Role]
+    A --> V1[Full tenant access]
+    S --> V2[Operations · Reports · Approvals]
+    O --> V3[Mobile Operations only]
+    C --> V4[Custom screen set]

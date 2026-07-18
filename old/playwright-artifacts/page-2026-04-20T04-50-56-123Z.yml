@@ -1,0 +1,206 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - link "DigiLog DigiLog" [ref=e6] [cursor=pointer]:
+      - /url: /
+      - img "DigiLog" [ref=e7]
+      - generic [ref=e8]: DigiLog
+    - navigation [ref=e9]:
+      - paragraph [ref=e10]: Menu
+      - link "Dashboard" [ref=e11] [cursor=pointer]:
+        - /url: /
+        - img [ref=e13]
+        - text: Dashboard
+      - link "Users" [ref=e16] [cursor=pointer]:
+        - /url: /users
+        - img [ref=e18]
+        - text: Users
+      - link "Admin Requests" [ref=e20] [cursor=pointer]:
+        - /url: /admin-requests
+        - img [ref=e22]
+        - text: Admin Requests
+      - link "Organizations" [ref=e24] [cursor=pointer]:
+        - /url: /organizations
+        - img [ref=e26]
+        - text: Organizations
+      - link "Entities" [ref=e28] [cursor=pointer]:
+        - /url: /assets
+        - img [ref=e30]
+        - text: Entities
+      - link "Entity Templates" [ref=e32] [cursor=pointer]:
+        - /url: /assets/templates
+        - img [ref=e34]
+        - text: Entity Templates
+      - link "Configuration" [ref=e36] [cursor=pointer]:
+        - /url: /config
+        - img [ref=e38]
+        - text: Configuration
+      - link "Notifications" [ref=e41] [cursor=pointer]:
+        - /url: /notifications
+        - img [ref=e43]
+        - text: Notifications
+      - link "Audit Trail" [ref=e45] [cursor=pointer]:
+        - /url: /audit
+        - img [ref=e47]
+        - text: Audit Trail
+      - link "System Health" [ref=e49] [cursor=pointer]:
+        - /url: /system-health
+        - img [ref=e51]
+        - text: System Health
+      - link "Rule Chains" [ref=e53] [cursor=pointer]:
+        - /url: /rule-chains
+        - img [ref=e55]
+        - text: Rule Chains
+      - link "Alarms" [ref=e57] [cursor=pointer]:
+        - /url: /alarms
+        - img [ref=e59]
+        - text: Alarms
+      - link "Debug Traces" [ref=e61] [cursor=pointer]:
+        - /url: /debug/traces
+        - img [ref=e63]
+        - text: Debug Traces
+      - link "Filters" [ref=e65] [cursor=pointer]:
+        - /url: /filter-list
+        - img [ref=e67]
+        - text: Filters
+      - link "Retirement List" [ref=e69] [cursor=pointer]:
+        - /url: /filter-retirements
+        - img [ref=e71]
+        - text: Retirement List
+      - link "Replacement List" [ref=e73] [cursor=pointer]:
+        - /url: /filter-replacements
+        - img [ref=e75]
+        - text: Replacement List
+      - link "Filter Operations" [ref=e77] [cursor=pointer]:
+        - /url: /filters
+        - img [ref=e79]
+        - text: Filter Operations
+      - link "Cleaning Cycles" [ref=e81] [cursor=pointer]:
+        - /url: /cleaning-cycles
+        - img [ref=e83]
+        - text: Cleaning Cycles
+      - link "Checklists" [ref=e85] [cursor=pointer]:
+        - /url: /checklists
+        - img [ref=e87]
+        - text: Checklists
+      - link "Cleaning Profiles" [ref=e89] [cursor=pointer]:
+        - /url: /filter-cleaning-profiles
+        - img [ref=e91]
+        - text: Cleaning Profiles
+      - link "Equipment Groups" [ref=e93] [cursor=pointer]:
+        - /url: /config/equipment-groups
+        - img [ref=e95]
+        - text: Equipment Groups
+      - link "PM Schedules" [ref=e98] [cursor=pointer]:
+        - /url: /pm-schedules
+        - img [ref=e100]
+        - text: PM Schedules
+      - link "My Tasks" [ref=e102] [cursor=pointer]:
+        - /url: /my-tasks
+        - img [ref=e104]
+        - text: My Tasks
+      - link "Approvals" [ref=e106] [cursor=pointer]:
+        - /url: /approvals
+        - img [ref=e108]
+        - text: Approvals
+      - link "Report Templates" [ref=e110] [cursor=pointer]:
+        - /url: /report-templates
+        - img [ref=e112]
+        - text: Report Templates
+      - link "Generated Reports" [ref=e114] [cursor=pointer]:
+        - /url: /reports
+        - img [ref=e116]
+        - text: Generated Reports
+    - generic [ref=e119]:
+      - paragraph [ref=e120]: Controlytics AI Pvt Ltd
+      - paragraph [ref=e121]: 21 CFR Part 11 Compliant
+  - generic [ref=e122]:
+    - banner [ref=e123]:
+      - generic [ref=e124]:
+        - button "Notifications" [ref=e125]:
+          - img [ref=e126]
+        - button "SA System Administrator Super Admin" [ref=e130]:
+          - generic [ref=e131]: SA
+          - generic [ref=e132]:
+            - paragraph [ref=e133]: System Administrator
+            - generic [ref=e135]: Super Admin
+          - img [ref=e136]
+    - main [ref=e138]:
+      - generic [ref=e139]:
+        - generic [ref=e140]:
+          - generic [ref=e141]:
+            - paragraph [ref=e142]: Welcome back,
+            - heading "System Administrator" [level=1] [ref=e143]
+            - paragraph [ref=e144]: DigiLog - 21 CFR Part 11 Compliant Digital Logbook
+          - img [ref=e146]
+          - generic [ref=e149]:
+            - generic [ref=e150]:
+              - paragraph [ref=e151]: Role
+              - paragraph [ref=e152]: SUPER ADMIN
+            - generic [ref=e154]:
+              - paragraph [ref=e155]: Today
+              - paragraph [ref=e156]: 20/04/2026
+        - generic [ref=e157]:
+          - heading "Quick Overview" [level=2] [ref=e158]
+          - generic [ref=e159]:
+            - link "Total Users - View details" [ref=e160] [cursor=pointer]:
+              - /url: /users
+              - generic [ref=e163]:
+                - generic [ref=e164]:
+                  - generic [ref=e165]:
+                    - paragraph [ref=e166]: Total Users
+                    - paragraph [ref=e167]: "-"
+                  - img [ref=e169]
+                - generic [ref=e171]:
+                  - generic [ref=e172]: View details
+                  - img [ref=e173]
+            - link "Audit Trail - View details" [ref=e175] [cursor=pointer]:
+              - /url: /audit
+              - generic [ref=e178]:
+                - generic [ref=e179]:
+                  - generic [ref=e180]:
+                    - paragraph [ref=e181]: Audit Trail
+                    - paragraph [ref=e182]: "-"
+                  - img [ref=e184]
+                - generic [ref=e186]:
+                  - generic [ref=e187]: View details
+                  - img [ref=e188]
+            - link "Notifications - View details" [ref=e190] [cursor=pointer]:
+              - /url: /notifications
+              - generic [ref=e193]:
+                - generic [ref=e194]:
+                  - generic [ref=e195]:
+                    - paragraph [ref=e196]: Notifications
+                    - paragraph [ref=e197]: "-"
+                  - img [ref=e199]
+                - generic [ref=e201]:
+                  - generic [ref=e202]: View details
+                  - img [ref=e203]
+        - generic [ref=e205]:
+          - heading "Quick Actions" [level=2] [ref=e206]
+          - generic [ref=e207]:
+            - link "Create User Add a new user account" [ref=e208] [cursor=pointer]:
+              - /url: /users/create
+              - generic [ref=e210]:
+                - img [ref=e212]
+                - generic [ref=e214]:
+                  - paragraph [ref=e215]: Create User
+                  - paragraph [ref=e216]: Add a new user account
+            - link "View Audit Trail Check system activities" [ref=e217] [cursor=pointer]:
+              - /url: /audit
+              - generic [ref=e219]:
+                - img [ref=e221]
+                - generic [ref=e223]:
+                  - paragraph [ref=e224]: View Audit Trail
+                  - paragraph [ref=e225]: Check system activities
+            - link "System Configuration Manage system settings" [ref=e226] [cursor=pointer]:
+              - /url: /config
+              - generic [ref=e228]:
+                - img [ref=e230]
+                - generic [ref=e233]:
+                  - paragraph [ref=e234]: System Configuration
+                  - paragraph [ref=e235]: Manage system settings
+        - generic [ref=e237]:
+          - img [ref=e239]
+          - generic [ref=e241]:
+            - paragraph [ref=e242]: 21 CFR Part 11 Compliant
+            - paragraph [ref=e243]: Controlytics AI Pvt Ltd

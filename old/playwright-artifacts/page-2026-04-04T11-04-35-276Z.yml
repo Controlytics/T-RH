@@ -1,0 +1,45 @@
+- generic [ref=e3]:
+  - generic [ref=e7]:
+    - generic [ref=e8]:
+      - img "DigiLog" [ref=e10]
+      - heading "DigiLog" [level=1] [ref=e11]
+      - paragraph [ref=e12]: 21 CFR Part 11 Compliant Digital Logbook
+    - generic [ref=e13]:
+      - generic [ref=e14]:
+        - generic [ref=e15]: User ID
+        - generic [ref=e16]:
+          - img [ref=e18]
+          - textbox "Enter your user ID" [ref=e20]: superadmin
+      - generic [ref=e21]:
+        - generic [ref=e22]: Password
+        - generic [ref=e23]:
+          - img [ref=e25]
+          - textbox "Enter your password" [ref=e27]: Admin@123
+          - button "Show" [ref=e28]
+        - link "Forgot password?" [ref=e30] [cursor=pointer]:
+          - /url: /forgot-password
+      - button "Sign In" [ref=e31]
+    - link "Contact Admin" [ref=e33] [cursor=pointer]:
+      - /url: /contact-admin
+    - generic [ref=e34]:
+      - paragraph [ref=e35]: Controlytics AI Pvt Ltd
+      - paragraph [ref=e36]: Version 1.0
+  - generic [ref=e39]:
+    - heading "Active Session Detected" [level=2] [ref=e41]:
+      - img [ref=e43]
+      - text: Active Session Detected
+    - generic [ref=e45]:
+      - paragraph [ref=e46]: Your account is currently logged in from another location. Continuing will terminate the existing session.
+      - generic [ref=e47]:
+        - paragraph [ref=e48]: Existing Session
+        - generic [ref=e49]:
+          - generic [ref=e50]:
+            - img [ref=e51]
+            - generic [ref=e53]: "IP Address: 127.0.0.1"
+          - generic [ref=e54]:
+            - img [ref=e55]
+            - generic [ref=e57]: "Logged in: 04-Apr-2026 16:20"
+      - paragraph [ref=e58]: Do you want to continue and logout the other session?
+    - generic [ref=e59]:
+      - button "Cancel" [ref=e60]
+      - button "Continue & Logout Old Session" [ref=e61]

@@ -1,0 +1,1901 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AssigneeType {
+  USER
+  ROLE
+}
+
+// Organization — logical grouping under a tenant
+// Template Assignment — maps templates to users for visibility
+model TemplateAssignment {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  templateId   String       @map("template_id") @db.Uuid
+  assigneeType AssigneeType @map("assignee_type")
+  userId       String?      @map("user_id") @db.Uuid
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  createdBy    String?      @map("created_by") @db.VarChar(50)
+
+  template AssetTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  user     User?         @relation("UserTemplateAssignments", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([templateId])
+  @@index([userId])
+  @@map("template_assignments")
+}
+
+// Entity Assignment — controls which users can access which entities
+model EntityAssignment {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entityId     String       @map("entity_id") @db.Uuid
+  assigneeType AssigneeType @map("assignee_type")
+  userId       String?      @map("user_id") @db.Uuid
+  roleValue    String?      @map("role_value") @db.VarChar(50)
+  permissions  Json         @default("{\"view\":true,\"control\":false,\"configure\":false}") @db.JsonB
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  createdBy    String?      @map("created_by") @db.VarChar(50)
+
+  entity AssetInstance @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  user   User?         @relation("UserEntityAssignments", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([entityId])
+  @@index([userId])
+  @@map("entity_assignments")
+}
+
+// =============================================
+// DASHBOARD MODELS
+// =============================================
+
+// Dashboard — container for widgets
+model Dashboard {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title       String   @db.VarChar(200)
+  description String?  @db.VarChar(500)
+  layout      Json     @default("{}") @db.JsonB // Grid layout config
+  isDefault   Boolean  @default(false) @map("is_default")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy   String?  @map("created_by") @db.Uuid
+
+  widgets     DashboardWidget[]
+  assignments DashboardAssignment[]
+
+  @@index([isActive])
+  @@map("dashboards")
+}
+
+// Dashboard Widget — individual widget on a dashboard
+model DashboardWidget {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  dashboardId     String   @map("dashboard_id") @db.Uuid
+  widgetType      String   @map("widget_type") @db.VarChar(50) // timeseries_chart, gauge, value_card, etc.
+  title           String   @db.VarChar(200)
+  config          Json     @default("{}") @db.JsonB // Widget-specific configuration
+  position        Json     @default("{\"x\":0,\"y\":0,\"w\":4,\"h\":3}") @db.JsonB // {x, y, w, h}
+  dataSource      Json     @default("{}") @map("data_source") @db.JsonB // {entityIds, telemetryKeys, aggregation, timeWindow}
+  refreshInterval Int      @default(30) @map("refresh_interval") // seconds, 0 = real-time via WebSocket
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  dashboard Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+
+  @@index([dashboardId])
+  @@map("dashboard_widgets")
+}
+
+// Dashboard Assignment — who can see which dashboard
+model DashboardAssignment {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  dashboardId  String       @map("dashboard_id") @db.Uuid
+  assigneeType AssigneeType @map("assignee_type")
+  userId       String?      @map("user_id") @db.Uuid
+  roleValue    String?      @map("role_value") @db.VarChar(50)
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz
+
+  dashboard Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+
+  @@index([dashboardId])
+  @@index([userId])
+  @@map("dashboard_assignments")
+}
+
+// Dynamic Role model - allows Super Admin to add/manage roles
+model Role {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String   @unique @db.VarChar(50) // e.g., "SUPER_ADMIN", "ADMIN"
+  displayName    String   @map("display_name") @db.VarChar(100) // e.g., "Super Admin", "Admin"
+  description    String?  @db.VarChar(500)
+  hierarchyLevel Int      @map("hierarchy_level") // Higher = more privileges (6 for SUPER_ADMIN)
+  permissions    Json     @default("[]") @db.JsonB // Array of permission strings
+  color          String   @default("#6366f1") @db.VarChar(100) // Badge color for UI (CSS class)
+  isSystem       Boolean  @default(false) @map("is_system") // System roles cannot be deleted
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy      String?  @map("created_by") @db.VarChar(50)
+  updatedBy      String?  @map("updated_by") @db.VarChar(50)
+
+  @@index([hierarchyLevel])
+  @@index([isActive])
+  @@map("roles")
+}
+
+enum UserStatus {
+  ENABLED
+  DISABLED
+  LOCKED
+  EXPIRED
+}
+
+model User {
+  id                  String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  username            String     @unique @db.VarChar(50)
+  fullName            String     @map("full_name") @db.VarChar(100)
+  email               String?    @unique @db.VarChar(100)
+  passwordHash        String     @map("password_hash")
+  department          String?    @db.VarChar(50)
+  photoUrl            String?    @map("photo_url") @db.VarChar(500)
+  role                String     @db.VarChar(50) // References roles.name
+  status              UserStatus @default(ENABLED)
+  failedLoginAttempts Int        @default(0) @map("failed_login_attempts")
+  lockedAt            DateTime?  @map("locked_at") @db.Timestamptz
+  lockoutUntil        DateTime?  @map("lockout_until") @db.Timestamptz
+  passwordChangedAt   DateTime?  @map("password_changed_at") @db.Timestamptz
+  passwordExpiresAt   DateTime?  @map("password_expires_at") @db.Timestamptz
+  forcePasswordChange Boolean    @default(true) @map("force_password_change")
+  isTemporaryPassword Boolean    @default(true) @map("is_temporary_password")
+  authSource          String     @default("local") @map("auth_source") @db.VarChar(10)
+  ldapDn              String?    @map("ldap_dn")
+  lastLogin           DateTime?  @map("last_login") @db.Timestamptz
+  createdAt           DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy           String?    @map("created_by") @db.VarChar(50)
+  updatedBy           String?    @map("updated_by") @db.VarChar(50)
+
+  passwordHistory     PasswordHistory[]
+  sessions            Session[]
+  templateAssignments TemplateAssignment[] @relation("UserTemplateAssignments")
+  entityAssignments   EntityAssignment[]   @relation("UserEntityAssignments")
+
+  // (Report generate/sign relations removed 2026-07-04 with the orphaned module.)
+
+  @@index([role])
+  @@index([status])
+  @@map("users")
+}
+
+model PasswordHistory {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("password_history")
+}
+
+model Session {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String   @map("user_id") @db.Uuid
+  tokenHash         String   @unique @map("token_hash")
+  ipAddress         String?  @map("ip_address") @db.VarChar(45)
+  userAgent         String?  @map("user_agent")
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+  lastActiveAt      DateTime @default(now()) @map("last_active_at") @db.Timestamptz
+  expiresAt         DateTime @map("expires_at") @db.Timestamptz
+  terminationReason String?  @map("termination_reason") @db.VarChar(50)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, isActive])
+  @@map("sessions")
+}
+
+model SystemConfig {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  configKey      String   @unique @map("config_key") @db.VarChar(100)
+  configValue    Json     @map("config_value")
+  configType     String   @map("config_type") @db.VarChar(50)
+  requiresReauth Boolean  @default(false) @map("requires_reauth")
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz
+  updatedBy      String?  @map("updated_by") @db.VarChar(50)
+
+  @@map("system_config")
+}
+
+model FieldIdConfig {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  fieldId     String   @unique @map("field_id") @db.VarChar(50)
+  defaultName String   @map("default_name") @db.VarChar(100)
+  displayName String   @map("display_name") @db.VarChar(100)
+  module      String   @db.VarChar(50)
+  description String?
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz
+  updatedBy   String?  @map("updated_by") @db.VarChar(50)
+
+  @@map("field_id_config")
+}
+
+model PasswordResetRequest {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  status      String    @default("PENDING") @db.VarChar(20)
+  requestedAt DateTime  @default(now()) @map("requested_at") @db.Timestamptz
+  processedAt DateTime? @map("processed_at") @db.Timestamptz
+  processedBy String?   @map("processed_by") @db.VarChar(50)
+  notes       String?
+
+  @@map("password_reset_requests")
+}
+
+model AdminRequest {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  requestType         String    @map("request_type") @db.VarChar(30) // CREATE_USER, MODIFY_USER, UNLOCK, FORGOT_PASSWORD
+  status              String    @default("PENDING") @db.VarChar(20) // PENDING, APPROVED, REJECTED
+  requesterName       String    @map("requester_name") @db.VarChar(100)
+  requesterEmployeeId String?   @map("requester_employee_id") @db.VarChar(50)
+  requesterEmail      String?   @map("requester_email") @db.VarChar(100)
+  requestData         Json      @default("{}") @map("request_data") @db.JsonB // Type-specific form data
+  remarks             String?   @db.VarChar(500) // Requester's reason
+  adminRemarks        String?   @map("admin_remarks") @db.VarChar(500) // Admin notes on approve/reject
+  processedBy         String?   @map("processed_by") @db.VarChar(100)
+  manualEntry         Boolean   @default(false) @map("manual_entry") // manual data-mgmt insert
+  requestedAt         DateTime  @default(now()) @map("requested_at") @db.Timestamptz
+  processedAt         DateTime? @map("processed_at") @db.Timestamptz
+
+  @@index([status])
+  @@index([requestType])
+  @@index([requestedAt(sort: Desc)])
+  @@map("admin_requests")
+}
+
+model AuditTrail {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  timestamp        DateTime @default(now()) @db.Timestamptz
+  userId           String?  @map("user_id") @db.VarChar(100)
+  userName         String?  @map("user_name") @db.VarChar(100)
+  userRole         String?  @map("user_role") @db.VarChar(20)
+  action           String   @db.VarChar(100)
+  targetType       String?  @map("target_type") @db.VarChar(50)
+  targetId         String?  @map("target_id") @db.VarChar(255)
+  beforeValue      Json?    @map("before_value")
+  afterValue       Json?    @map("after_value")
+  reason           String?
+  ipAddress        String?  @map("ip_address") @db.VarChar(45)
+  userAgent        String?  @map("user_agent")
+  sessionId        String?  @map("session_id") @db.VarChar(100)
+  checksum         String   @db.VarChar(64)
+  // Checksum formula version. NULL = legacy unkeyed SHA-256 (V1/V2, all rows
+  // written before the keyed-chain cutover). 3 = keyed HMAC-SHA256 (V3) written
+  // when AUDIT_CHAIN_KEY is set. The verifier REQUIRES the key + an HMAC match
+  // for version-3 rows (never accepts the unkeyed formula for them), so a
+  // DB-level actor cannot forge or downgrade a keyed row. See lib/hash-chain.ts.
+  checksumVersion  Int?     @map("checksum_version") @db.SmallInt
+  // Audit 2026-05-04 fix C3: tamper-evident hash chain. Each new row carries
+  // the prior row's checksum (under a Postgres advisory lock during write so
+  // the chain is monotonic across concurrent writers). Existing rows written
+  // before the migration carry NULL — they are the "pre-chain" era and are
+  // verified by per-row checksum only. New rows verify both per-row +
+  // chain link via apps/api/src/lib/audit-verify.ts.
+  previousChecksum String?  @map("previous_checksum") @db.VarChar(64)
+  // Monotonically-incrementing position assigned at insert time. Sort key
+  // for chain verification (timestamp can collide at sub-millisecond on
+  // batched writes; chainPosition can't). bigserial-equivalent.
+  chainPosition    BigInt?  @default(autoincrement()) @map("chain_position")
+  signatureMeaning String?  @map("signature_meaning") @db.VarChar(255)
+  // Audit 2026-05-20 §C1 / May 16 §1.2 fix: 21 CFR §11.10(e)-compliant
+  // REDACTION path replaces physical DELETE. When set, beforeValue + afterValue
+  // are NULLed but checksum + chainPosition + previousChecksum are preserved
+  // so the chain stays intact. verifyAuditChecksum() treats redactedAt != null
+  // rows as "valid: redacted" rather than recomputing the per-row checksum
+  // (which would no longer match after payload was NULLed).
+  redactedAt       DateTime? @map("redacted_at") @db.Timestamptz
+  redactedBy       String?   @map("redacted_by") @db.VarChar(100)
+  redactionReason  String?   @map("redaction_reason")
+
+  @@index([timestamp(sort: Desc)])
+  @@index([userId])
+  @@index([action])
+  @@index([targetType, targetId])
+  @@index([sessionId])
+  @@index([userId, timestamp(sort: Desc)])
+  @@index([chainPosition])
+  @@map("audit_trail")
+}
+
+// Notification types for user alerts
+enum NotificationType {
+  ACCOUNT_LOCKED
+  ACCOUNT_DISABLED
+  ACCOUNT_ENABLED
+  PASSWORD_RESET_REQUEST
+  PASSWORD_RESET_APPROVED
+  PASSWORD_RESET_REJECTED
+  USER_CREATED
+  USER_UPDATED
+  ROLE_CHANGED
+  USER_CREATION_REQUEST_SUBMITTED
+  USER_CREATION_REQUEST_APPROVED
+  USER_CREATION_REQUEST_REJECTED
+  DEVICE_ONLINE
+  DEVICE_OFFLINE
+  DEVICE_INACTIVITY
+  USER_LOGIN
+  USER_LOCKED
+  CHECKLIST_SUBMITTED
+  CHECKLIST_APPROVED
+  CHECKLIST_REJECTED
+  SYSTEM_ERROR
+  // PM overdue deviation workflow (2026-06-03)
+  PM_OVERDUE
+  PM_OVERDUE_COMPLETED
+  // PM schedule workflow QNN (Quality Notification Number) — 2026-06-08
+  PM_SCHEDULE_QNN
+  // Guest (unauthenticated) filter cleaning request — 2026-06-09
+  GUEST_CLEANING_REQUEST
+  // Report review/approval workflow — 2026-06-11
+  REPORT_REVIEW_REQUESTED
+  REPORT_REVIEW_APPROVED
+  REPORT_REVIEW_REJECTED
+  // Password expiry warnings — per-user daily warning window + expiry notice (2026-07-08)
+  PASSWORD_EXPIRY_WARNING
+  PASSWORD_EXPIRED_NOTICE
+  // Cleaning stage interlock (QA approval after WASH_OUT/DRY_OUT) — 2026-06-12
+  STAGE_APPROVAL_REQUESTED
+  STAGE_APPROVAL_APPROVED
+  STAGE_APPROVAL_REJECTED
+}
+
+model Notification {
+  id           String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  type         NotificationType
+  title        String           @db.VarChar(200)
+  message      String           @db.VarChar(1000)
+  targetUserId String?          @map("target_user_id") @db.VarChar(50) // The user this notification is about
+  forUserId    String?          @map("for_user_id") @db.VarChar(50) // The user who should see this (null = admins)
+  forRole      String?          @map("for_role") @db.VarChar(50) // Role that should see this notification
+  isRead       Boolean          @default(false) @map("is_read")
+  readAt       DateTime?        @map("read_at") @db.Timestamptz
+  metadata     Json?            @db.JsonB // Additional context data
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  createdBy    String?          @map("created_by") @db.VarChar(50)
+  manualEntry  Boolean          @default(false) @map("manual_entry") // manual data-mgmt insert
+
+  @@index([forUserId])
+  @@index([forRole])
+  @@index([isRead])
+  @@index([createdAt(sort: Desc)])
+  @@index([forUserId, isRead, createdAt(sort: Desc)])
+  @@map("notifications")
+}
+
+// User-specific sidebar and feature configuration
+model UserConfig {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String   @unique @map("user_id") @db.Uuid
+  sidebarItems Json     @default("[]") @map("sidebar_items") @db.JsonB // Array of enabled sidebar items
+  homeWidgets  Json     @default("[]") @map("home_widgets") @db.JsonB // Array of enabled home widgets
+  permissions  Json     @default("{}") @map("permissions") @db.JsonB // Feature-level permissions
+  updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz
+  updatedBy    String?  @map("updated_by") @db.VarChar(50)
+
+  @@map("user_configs")
+}
+
+// Role-based default configuration
+model RoleConfig {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  role         String   @unique @db.VarChar(50) // References roles.name
+  sidebarItems Json     @default("[]") @map("sidebar_items") @db.JsonB
+  homeWidgets  Json     @default("[]") @map("home_widgets") @db.JsonB
+  permissions  Json     @default("{}") @map("permissions") @db.JsonB
+  updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz
+  updatedBy    String?  @map("updated_by") @db.VarChar(50)
+
+  @@map("role_configs")
+}
+
+// =============================================
+// ASSET MANAGEMENT MODELS
+// =============================================
+
+// Lookup table for the canonical template families that the Filter Management
+// / Cleaning Operations / Mobile pages resolve by code. Stored as a table (not
+// a Prisma enum) so SUPER_ADMIN can add new kinds (e.g. PUMP, VALVE,
+// COMPRESSOR) at runtime via the Configuration UI without a code migration.
+//
+// `code` is the stable, code-level identifier the frontend compares against
+// (`templateKind === 'BLOCK'`). Pages route on code; admins can edit `label`
+// for display.
+//
+// `isSystem=true` rows (BLOCK / AREA / AHU / FILTER / EQUIPMENT / OTHER —
+// seeded by prisma/seed.ts) cannot be deleted and their `code` cannot be
+// renamed; only `label`/`description`/`sortOrder`/`isActive` are admin-
+// editable on system kinds. Non-system kinds are fully editable.
+model TemplateKind {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code        String   @unique @db.VarChar(50)
+  label       String   @db.VarChar(100)
+  description String?  @db.VarChar(500)
+  isSystem    Boolean  @default(false) @map("is_system")
+  isActive    Boolean  @default(true) @map("is_active")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy   String?  @map("created_by") @db.VarChar(50)
+  updatedBy   String?  @map("updated_by") @db.VarChar(50)
+
+  templates AssetTemplate[]
+
+  @@index([isActive, sortOrder])
+  @@map("template_kinds")
+}
+
+// ─── Typed Hierarchy Tables (Wave 1 of asset-removal, 2026-05-17) ──────────
+// These mirror AssetInstance rows by template_kind via a Postgres trigger
+// (`fn_mirror_asset_instance`). Reusing AssetInstance.id (UUID) so existing
+// soft-FK columns like cleaning_cycles.filterId, filter_events.blockId, etc.
+// continue to resolve. Reads can swap to these tables module-by-module behind
+// a feature flag (Wave 5). AssetInstance / AssetTemplate remain authoritative
+// until Wave 6 cutover.
+
+model Block {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name             String   @db.VarChar(255)
+  description      String?
+  status           String   @default("Active") @db.VarChar(50)
+  attributes       Json     @default("{}") @db.JsonB
+  customAttributes Json     @default("{}") @map("custom_attributes") @db.JsonB
+
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy        String?  @map("created_by") @db.VarChar(50)
+  updatedBy        String?  @map("updated_by") @db.VarChar(50)
+
+  areas Area[]
+  // A-01 T2.2: AHUs parented directly by a block (no area level).
+  ahus  Ahu[]
+
+  @@index([status])
+  @@index([name])
+  @@index([isActive])
+  @@map("blocks")
+}
+
+model Area {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  blockId          String?  @map("block_id") @db.Uuid
+  name             String   @db.VarChar(255)
+  description      String?
+  status           String   @default("Active") @db.VarChar(50)
+  attributes       Json     @default("{}") @db.JsonB
+  customAttributes Json     @default("{}") @map("custom_attributes") @db.JsonB
+ 
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy        String?  @map("created_by") @db.VarChar(50)
+  updatedBy        String?  @map("updated_by") @db.VarChar(50)
+
+  block Block? @relation(fields: [blockId], references: [id])
+  ahus  Ahu[]
+
+  @@index([blockId])
+  @@index([status])
+  @@index([name])
+  @@index([isActive])
+  @@map("areas")
+}
+
+model Ahu {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  areaId           String?  @map("area_id") @db.Uuid
+  blockId          String?  @map("block_id") @db.Uuid
+  name             String   @db.VarChar(255)
+  description      String?
+  status           String   @default("Active") @db.VarChar(50)
+  attributes       Json     @default("{}") @db.JsonB
+  customAttributes Json     @default("{}") @map("custom_attributes") @db.JsonB
+  
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy        String?  @map("created_by") @db.VarChar(50)
+  updatedBy        String?  @map("updated_by") @db.VarChar(50)
+
+  area    Area?    @relation(fields: [areaId], references: [id])
+  block   Block?   @relation(fields: [blockId], references: [id])
+  filters Filter[]
+
+  @@index([areaId])
+  @@index([blockId])
+  @@index([status])
+  @@index([name])
+  @@index([isActive])
+  @@map("ahus")
+}
+
+model Filter {
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ahuId                 String?  @map("ahu_id") @db.Uuid
+  name                  String   @db.VarChar(255)
+  description           String?
+  status                String   @default("Active") @db.VarChar(50)
+  attributes            Json     @default("{}") @db.JsonB
+  customAttributes      Json     @default("{}") @map("custom_attributes") @db.JsonB
+  
+  isActive              Boolean  @default(true) @map("is_active")
+  // 2026-05-25 D-03 fix: the four mirror columns (filterProfileId,
+  // currentLifecycleState, currentCycleId, filterSet) lived here as a
+  // duplicate of FilterDetails. No application code ever read or wrote
+  // them through prisma.filter.*, so they were pure drift hazard.
+  // FilterDetails remains the authoritative source for cycle state.
+  // When the asset cutover (A-01) lands and FilterDetails merges into
+  // this model, re-add these columns then.
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy             String?  @map("created_by") @db.VarChar(50)
+  updatedBy             String?  @map("updated_by") @db.VarChar(50)
+
+  ahu Ahu? @relation(fields: [ahuId], references: [id])
+
+  @@index([ahuId])
+  @@index([status])
+  @@index([name])
+  @@index([isActive])
+  @@map("filters")
+}
+
+// Asset Template — reusable blueprint for asset types
+model AssetTemplate {
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                  String   @unique @db.VarChar(100)
+  description           String?  @db.VarChar(500)
+  category              String   @default("General") @db.VarChar(50) // Equipment, Room, Building, etc.
+  icon                  String   @default("box") @db.VarChar(50) // Icon identifier for UI
+  templateKind          String   @default("OTHER") @map("template_kind") @db.VarChar(50) // FK code → TemplateKind.code (admin-editable lookup)
+  version               Int      @default(1) // Current version number
+  attributeSchema       Json     @default("[]") @map("attribute_schema") @db.JsonB // Array of attribute definitions
+  telemetrySchema       Json     @default("[]") @map("telemetry_schema") @db.JsonB // Array of telemetry point definitions
+  expectedIdentifiers   Json     @default("[]") @map("expected_identifiers") @db.JsonB // Array of expected identifier types
+  expectedRelationships Json     @default("[]") @map("expected_relationships") @db.JsonB // Array of expected relationship types
+  statusLifecycle       Json     @default("[]") @map("status_lifecycle") @db.JsonB // Array of status definitions with transitions
+  checklistSchema       Json     @default("[]") @map("checklist_schema") @db.JsonB // Array of checklist question definitions
+  maxParentConnections  Int      @default(1) @map("max_parent_connections") // Max CONTAINS parents: 0=none, 1+=limit
+  maxConnections        Int      @default(10) @map("max_connections") // Max total connections (all types): 0=unlimited, N=limit
+  isActive              Boolean  @default(true) @map("is_active")
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy             String?  @map("created_by") @db.VarChar(50)
+  updatedBy             String?  @map("updated_by") @db.VarChar(50)
+
+  // ─── Data Ingestion Blueprint (Phase A) ────────────────
+  dataIngestionEnabled Boolean @default(false) @map("data_ingestion_enabled")
+  transportType        String? @map("transport_type") @db.VarChar(20) // MQTT | HTTP | WEBSOCKET
+  credentialType       String? @default("TOKEN") @map("credential_type") @db.VarChar(20) // TOKEN | BASIC | X509
+  inactivityTimeout    Int     @default(60) @map("inactivity_timeout") // seconds
+  defaultMaxDataRate   Int     @default(600) @map("default_max_data_rate") // default rate limit for instances
+  autoProvision        Boolean @default(true) @map("auto_provision") // auto-create credentials on instance creation
+
+  versions              AssetTemplateVersion[]
+  instances             AssetInstance[]
+  templateAssignments   TemplateAssignment[]
+  // May 16 H12 fix (2026-05-20): explicit onUpdate: Restrict. Was implicit
+  // ON UPDATE CASCADE per Prisma default — a direct SQL `UPDATE template_kinds
+  // SET code='NEW' WHERE code='OLD'` would silently rewrite the
+  // template_kind column on EVERY asset_template row, breaking Filter
+  // Management's resolution (admin UI doesn't expose this path but DB-level
+  // operators / scripts could trigger it). RESTRICT forces explicit row
+  // migration; safer for compliance.
+  templateKindRef       TemplateKind                      @relation(fields: [templateKind], references: [code], onUpdate: Restrict)
+  // Step 4 (2026-05-02): FilterProfile applicable-templates moved from JSONB
+  // array on FilterProfile to a proper join table with cascade FKs. Deletes
+  // are guarded server-side with 409 IN_USE if any FilterProfile binds this
+  // template; the cascade is the safety net, not the user-facing path.
+  filterProfileBindings FilterProfileApplicableTemplate[]
+
+  @@index([isActive])
+  @@index([category])
+  @@index([templateKind])
+  @@map("asset_templates")
+}
+
+// Asset Template Version — snapshot of template at a point in time
+model AssetTemplateVersion {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  templateId    String   @map("template_id") @db.Uuid
+  versionNumber Int      @map("version_number")
+  snapshot      Json     @db.JsonB // Full template snapshot at time of version
+  changeNotes   String?  @map("change_notes")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdBy     String?  @map("created_by") @db.VarChar(50)
+
+  template AssetTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, versionNumber])
+  @@index([templateId])
+  @@map("asset_template_versions")
+}
+
+// Asset Instance — actual asset created from a template
+model AssetInstance {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name             String   @db.VarChar(255)
+  description      String?
+  templateId       String   @map("template_id") @db.Uuid
+  templateVersion  Int      @default(1) @map("template_version") // Which version it was created from
+  status           String   @default("Active") @db.VarChar(50) // Active, Inactive, Under Maintenance, Decommissioned
+  attributes       Json     @default("{}") @db.JsonB // Key-value pairs with actual attribute values
+  telemetryConfig  Json     @default("{}") @map("telemetry_config") @db.JsonB // Instance-level telemetry overrides
+  customAttributes Json     @default("{}") @map("custom_attributes") @db.JsonB // Extra attributes added at instance level
+  parentId         String?  @map("parent_id") @db.Uuid // Primary containment parent (for tree)
+ 
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy        String?  @map("created_by") @db.VarChar(50)
+  updatedBy        String?  @map("updated_by") @db.VarChar(50)
+
+  template          AssetTemplate       @relation(fields: [templateId], references: [id])
+  // Wave 5 (2026-05-20) / May 16 H8 fix: was onDelete: SetNull. That meant
+  // deleting a Block silently re-rooted every Area / AHU / Filter under it
+  // (parent_id → NULL), losing the hierarchy context with no error. Restrict
+  // forces the operator to detach children explicitly before delete.
+  parent            AssetInstance?      @relation("AssetHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children          AssetInstance[]     @relation("AssetHierarchy")
+  sourceRelations   AssetRelationship[] @relation("SourceAsset")
+  targetRelations   AssetRelationship[] @relation("TargetAsset")
+  identifiers       AssetIdentifier[]
+  entityAssignments EntityAssignment[]
+  equipmentGroups   EquipmentGroup[]
+
+  // Filter-specific 1:1 split (Step 6 — 2026-05-01). FilterDetails is created
+  // eagerly when the instance's template has templateKind='FILTER'. Other
+  // template kinds never get a FilterDetails row.
+  filterDetails FilterDetails?
+
+  @@index([templateId])
+  @@index([status])
+  @@index([parentId])
+  @@index([name])
+  @@index([isActive])
+  @@map("asset_instances")
+}
+
+// FilterDetails — 1:1 sidecar holding filter-specific cycle state.
+// Split off AssetInstance in Step 6 (2026-05-01) because these fields are
+// meaningless for non-filter rows and were leaking nullable state across
+// every entity in the system.
+model FilterDetails {
+  id                    String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assetInstanceId       String          @unique @map("asset_instance_id") @db.Uuid
+  filterProfileId       String?         @map("filter_profile_id") @db.Uuid
+  currentLifecycleState String?         @map("current_lifecycle_state") @db.VarChar(100)
+  currentCycleId        String?         @map("current_cycle_id") @db.Uuid
+  filterSet             FilterSetLabel? @map("filter_set")
+  createdAt             DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime        @updatedAt @map("updated_at") @db.Timestamptz
+
+  assetInstance AssetInstance  @relation(fields: [assetInstanceId], references: [id], onDelete: Cascade)
+  filterProfile FilterProfile? @relation("FilterProfileFilterDetails", fields: [filterProfileId], references: [id])
+  currentCycle  CleaningCycle? @relation("CurrentCycleFilterDetails", fields: [currentCycleId], references: [id])
+
+  @@index([currentLifecycleState])
+  @@index([currentCycleId])
+  @@index([filterProfileId])
+  @@map("filter_details")
+}
+
+// Step 2 (2026-05-01): converted from free-form String to a closed enum.
+// Values mirror INVERSE_RELATIONSHIP_MAP in packages/shared/src/schemas/assets.ts.
+// Bidirectional pair invariant is enforced by a deferred constraint trigger
+// applied via apps/api/prisma/sql/invariants.sql at every reseed.
+enum RelationshipType {
+  CONTAINS
+  CONTAINED_IN
+  CONNECTED_TO
+  FEEDS
+  FED_BY
+  DEPENDS_ON
+  DEPENDED_ON_BY
+  BACKS_UP
+  BACKED_UP_BY
+  MONITORS
+  MONITORED_BY
+  CUSTOM
+
+  @@map("relationship_type_enum")
+}
+
+// Asset Relationship — bidirectional connections between assets
+model AssetRelationship {
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sourceAssetId    String           @map("source_asset_id") @db.Uuid
+  targetAssetId    String           @map("target_asset_id") @db.Uuid
+  relationshipType RelationshipType @map("relationship_type")
+  customLabel      String?          @map("custom_label") @db.VarChar(100) // For CUSTOM type
+  notes            String?
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy        String?          @map("created_by") @db.VarChar(50)
+  updatedBy        String?          @map("updated_by") @db.VarChar(50)
+
+  sourceAsset AssetInstance @relation("SourceAsset", fields: [sourceAssetId], references: [id], onDelete: Cascade)
+  targetAsset AssetInstance @relation("TargetAsset", fields: [targetAssetId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceAssetId, targetAssetId, relationshipType])
+  @@index([sourceAssetId])
+  @@index([targetAssetId])
+  @@index([relationshipType])
+  @@map("asset_relationships")
+}
+
+// Asset Identifier — physical identifiers (QR, RFID, NFC, Barcode, Manual)
+model AssetIdentifier {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assetId         String   @map("asset_id") @db.Uuid
+  identifierType  String   @map("identifier_type") @db.VarChar(20) // QR, BARCODE, RFID, NFC, MANUAL
+  identifierValue String   @unique @map("identifier_value") @db.VarChar(255)
+  label           String?  @db.VarChar(100)
+  isPrimary       Boolean  @default(false) @map("is_primary")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy       String?  @map("created_by") @db.VarChar(50)
+  updatedBy       String?  @map("updated_by") @db.VarChar(50)
+
+  asset AssetInstance @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([assetId])
+  @@index([identifierType])
+  @@map("asset_identifiers")
+}
+
+// =============================================
+// DATA INGESTION & INTEGRATION MODELS (Phase A)
+// =============================================
+
+// Device Credentials (per entity instance)
+// (DeviceCredential model removed with data-ingestion removal — MQTT device auth no longer used.)
+
+// (ChecklistReview + ElectronicSignature models removed 2026-07-04 — orphaned scaffolding
+//  introduced with the data-ingestion feature set (commit e8706bb) and stranded by the
+//  Phase 6/7 tear-outs: ChecklistReview.checklistId linked to the dropped ts_checklist_responses
+//  hypertable; ElectronicSignature.recordId keyed off Alarm.id (removed 2026-05-17) or
+//  ChecklistReview.id. Both 0 rows, 0 code references, no relations. The live e-signature
+//  surface uses ReportSignature + the hash-chained audit_trail, not these tables.
+//  Migration: 20260704062157_drop_checklistreview_electronicsignature.)
+
+// (UnsMapping + ConnectivityStatus models removed with data-ingestion removal.)
+
+// QR Codes (per entity)
+
+
+// Help Articles (version-controlled)
+model HelpArticle {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  key            String   @unique @db.VarChar(100)
+  title          String   @db.VarChar(200)
+  content        String   @db.Text
+  category       String   @db.VarChar(50)
+  sortOrder      Int      @default(0) @map("sort_order")
+  currentVersion Int      @default(1) @map("current_version")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  versions HelpArticleVersion[]
+
+  @@map("help_articles")
+}
+
+// Help Article Versions
+model HelpArticleVersion {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  helpArticleId String   @map("help_article_id") @db.Uuid
+  version       Int
+  content       String   @db.Text
+  changedBy     String   @map("changed_by") @db.VarChar(50)
+  changeNotes   String?  @map("change_notes")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  helpArticle HelpArticle @relation(fields: [helpArticleId], references: [id], onDelete: Cascade)
+
+  @@unique([helpArticleId, version])
+  @@map("help_article_versions")
+}
+
+// (DataStream + DeadLetterQueue + IngestionSystemConfig models removed with data-ingestion removal.)
+
+// ====== Notification Delivery Logs (Email/SMS) ======
+enum NotificationChannel {
+  EMAIL
+  SMS
+  IN_APP
+  TELEGRAM
+  WHATSAPP
+  SLACK
+}
+
+enum NotificationDeliveryStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+  RETRYING
+}
+
+model NotificationLog {
+  id           String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  channel      NotificationChannel
+  recipient    String                     @db.VarChar(500)
+  subject      String?                    @db.VarChar(500)
+  message      String
+  templateId   String?                    @map("template_id") @db.VarChar(100)
+  status       NotificationDeliveryStatus @default(PENDING)
+  retryCount   Int                        @default(0) @map("retry_count")
+  maxRetries   Int                        @default(3) @map("max_retries")
+  nextRetryAt  DateTime?                  @map("next_retry_at") @db.Timestamptz
+  errorMessage String?                    @map("error_message")
+  metadata     Json?                      @db.JsonB
+  triggeredBy  String?                    @map("triggered_by") @db.VarChar(100) // system | manual (historic rows may contain 'rule-chain'/'alarm' — inert strings, no decoder)
+  createdAt    DateTime                   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime                   @updatedAt @map("updated_at") @db.Timestamptz
+  sentAt       DateTime?                  @map("sent_at") @db.Timestamptz
+
+  @@index([channel])
+  @@index([status])
+  @@index([recipient])
+  @@index([createdAt(sort: Desc)])
+  @@map("notification_logs")
+}
+
+model NotificationTemplate {
+  id           String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String              @unique @db.VarChar(100)
+  channel      NotificationChannel
+  subject      String?             @db.VarChar(500)
+  bodyTemplate String              @map("body_template")
+  description  String?             @db.VarChar(500)
+  variables    Json?               @db.JsonB // list of available variables
+  isActive     Boolean             @default(true) @map("is_active")
+  createdAt    DateTime            @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime            @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy    String?             @map("created_by") @db.VarChar(50)
+
+  @@index([channel])
+  @@index([isActive])
+  @@map("notification_templates")
+}
+
+// ─── Notification Event Types ─────────────────────────────────────────
+enum NotificationEventType {
+  DEVICE_ONLINE
+  DEVICE_OFFLINE
+  DEVICE_INACTIVITY
+  USER_LOGIN
+  USER_CREATED
+  USER_LOCKED
+  CHECKLIST_SUBMITTED
+  CHECKLIST_APPROVED
+  CHECKLIST_REJECTED
+  SYSTEM_ERROR
+}
+
+// ─── User Groups ──────────────────────────────────────────────────────
+model UserGroup {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String   @unique @db.VarChar(100)
+  description String?  @db.VarChar(500)
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy   String?  @map("created_by") @db.VarChar(50)
+
+  members        UserGroupMember[]
+  ruleRecipients NotificationRuleRecipient[]
+
+  @@map("user_groups")
+}
+
+model UserGroupMember {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  groupId   String   @map("group_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  group UserGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([groupId])
+  @@index([userId])
+  @@map("user_group_members")
+}
+
+// ─── Notification Rules ───────────────────────────────────────────────
+model NotificationRule {
+  id          String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String                  @db.VarChar(200)
+  description String?                 @db.VarChar(500)
+  eventType   NotificationEventType   @map("event_type")
+  eventTypes  NotificationEventType[] @default([]) @map("event_types")
+
+  // Filtering conditions (JSONB): e.g. {"severity": ["CRITICAL","MAJOR"]}
+  conditions Json @default("{}") @db.JsonB
+
+  // Channels
+  emailEnabled Boolean @default(false) @map("email_enabled")
+  smsEnabled   Boolean @default(false) @map("sms_enabled")
+  inAppEnabled Boolean @default(true) @map("in_app_enabled")
+
+  // Template references
+  emailTemplateId String? @map("email_template_id") @db.Uuid
+  smsTemplateId   String? @map("sms_template_id") @db.Uuid
+
+  // Throttling
+  cooldownMinutes Int @default(0) @map("cooldown_minutes")
+
+  isActive  Boolean  @default(true) @map("is_active")
+  priority  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy String?  @map("created_by") @db.VarChar(50)
+
+  recipients NotificationRuleRecipient[]
+
+  @@index([eventType])
+  @@index([isActive])
+  @@index([isActive, priority(sort: Desc)])
+  @@map("notification_rules")
+}
+
+model NotificationRuleRecipient {
+  id            String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ruleId        String  @map("rule_id") @db.Uuid
+  recipientType String  @map("recipient_type") @db.VarChar(20) // ROLE | GROUP | USER
+  roleValue     String? @map("role_value") @db.VarChar(50)
+  groupId       String? @map("group_id") @db.Uuid
+  userId        String? @map("user_id") @db.Uuid
+
+  rule  NotificationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  group UserGroup?       @relation(fields: [groupId], references: [id], onDelete: SetNull)
+
+  @@index([ruleId])
+  @@map("notification_rule_recipients")
+}
+
+// ─── Phase 2: Filter Management System ─────────────────────
+
+enum PmScheduleStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+
+  @@map("pm_schedule_status")
+}
+
+enum PmEntryApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  // 3-step workflow (when enabled): upload -> PENDING_REVIEW -> PENDING_APPROVAL -> APPROVED.
+  // Legacy PENDING is kept for the workflow-disabled (single-approval) path.
+  PENDING_REVIEW
+  PENDING_APPROVAL
+
+  @@map("pm_entry_approval_status")
+}
+
+enum CleaningProfileStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+
+  @@map("cleaning_profile_status")
+}
+
+enum PmExecutionStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  OVERDUE
+  MISSED
+
+  @@map("pm_execution_status")
+}
+
+enum FilterSetLabel {
+  SET_A
+  SET_B
+
+  @@map("filter_set_label")
+}
+
+enum PipelineFlowMode {
+  STRICT
+  BYPASS_ENABLED
+
+  @@map("pipeline_flow_mode")
+}
+
+enum PipelineNodeType {
+  STAGE
+  START
+  END
+  CHECKLIST
+  REMARKS
+  DURATION_INTERLOCK
+  PARAM_CAPTURE
+  CUSTOM_SCRIPT
+  APPROVAL
+  EQUIPMENT_LINK
+
+  @@map("pipeline_node_type")
+}
+
+enum CleaningCycleStatus {
+  IN_PROGRESS
+  COMPLETED
+  TERMINATED
+
+  @@map("cleaning_cycle_status")
+}
+
+enum FilterEventType {
+  STATE_TRANSITION
+  PARAMETER_CAPTURE
+  CHECKLIST_COMPLETED
+  BYPASS_DEVIATION
+  EQUIPMENT_LINKED
+  REMARK_ADDED
+  APPROVAL_GRANTED
+  SCRIPT_EXECUTED
+  CYCLE_STARTED
+  CYCLE_COMPLETED
+  CYCLE_TERMINATED
+
+  @@map("filter_event_type")
+}
+
+enum BlockRestriction {
+  OWN_BLOCK_ONLY
+  ANY_BLOCK
+  SPECIFIC_BLOCKS
+
+  @@map("block_restriction")
+}
+
+model PmSchedule {
+  id        String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entityId  String           @map("entity_id") @db.Uuid
+  year      Int
+  version   Int              @default(1)
+  status    PmScheduleStatus @default(DRAFT)
+  createdBy String           @map("created_by") @db.Uuid
+  createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+
+  entries        PmScheduleEntry[]
+  filterProfiles FilterProfile[]
+
+  @@unique([entityId, year, version])
+  @@index([entityId, status])
+  @@index([year])
+  @@map("pm_schedules")
+}
+
+model PmScheduleEntry {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  scheduleId    String   @map("schedule_id") @db.Uuid
+  month         Int
+  plannedDate   DateTime @map("planned_date") @db.Date
+  toleranceDays Int      @default(0) @map("tolerance_days")
+  windowStart   DateTime @map("window_start") @db.Date
+  windowEnd     DateTime @map("window_end") @db.Date
+  notes         String?
+
+  // QA approval workflow
+  approvalStatus  PmEntryApprovalStatus @default(PENDING) @map("approval_status")
+  approvalRemarks String?               @map("approval_remarks")
+  approvedBy      String?               @map("approved_by") @db.Uuid
+  approvedByName  String?               @map("approved_by_name") @db.VarChar(255)
+  approvedAt      DateTime?             @map("approved_at") @db.Timestamptz
+  submittedBy     String?               @map("submitted_by") @db.Uuid
+  submittedByName String?               @map("submitted_by_name") @db.VarChar(255)
+
+  // 3-step workflow tracking (review step + reject attribution).
+  reviewedBy      String?   @map("reviewed_by") @db.Uuid
+  reviewedByName  String?   @map("reviewed_by_name") @db.VarChar(255)
+  reviewedAt      DateTime? @map("reviewed_at") @db.Timestamptz
+  reviewRemarks   String?   @map("review_remarks")
+  rejectedBy      String?   @map("rejected_by") @db.Uuid
+  rejectedByName  String?   @map("rejected_by_name") @db.VarChar(255)
+  rejectedAt      DateTime? @map("rejected_at") @db.Timestamptz
+  rejectionStage  String?   @map("rejection_stage") @db.VarChar(20) // REVIEW | APPROVAL
+
+  // Pending edit (approved value stays active while edit awaits QA)
+  pendingPlannedDate   DateTime? @map("pending_planned_date") @db.Date
+  pendingToleranceDays Int?      @map("pending_tolerance_days")
+  pendingEditBy        String?   @map("pending_edit_by") @db.Uuid
+  pendingEditAt        DateTime? @map("pending_edit_at") @db.Timestamptz
+
+  manualEntry Boolean @default(false) @map("manual_entry") // manual data-mgmt insert
+
+  schedule   PmSchedule    @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  executions PmExecution[]
+
+  @@unique([scheduleId, month])
+  @@index([scheduleId])
+  @@index([windowStart, windowEnd])
+  @@index([approvalStatus])
+  @@map("pm_schedule_entries")
+}
+
+// Quality Notification registry. One row per PM-schedule action (upload / review /
+// approve / reject / resubmit). The qnn (QN-YYYY-000001, from the qnn_seq sequence)
+// is the human-facing reference number surfaced in the Notifications center. Soft
+// refs (no FK cascade) so the audit record survives entry/schedule deletion.
+model QualityNotification {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  qnn               String   @unique @db.VarChar(40)
+  action            String   @db.VarChar(40)
+  pmScheduleEntryId String?  @map("pm_schedule_entry_id") @db.Uuid
+  scheduleId        String?  @map("schedule_id") @db.Uuid
+  ahuName           String?  @map("ahu_name") @db.VarChar(255)
+  message           String?  @db.VarChar(1000)
+  performedBy       String?  @map("performed_by") @db.Uuid
+  performedByName   String?  @map("performed_by_name") @db.VarChar(255)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([pmScheduleEntryId])
+  @@index([scheduleId])
+  @@index([createdAt(sort: Desc)])
+  @@map("quality_notifications")
+}
+
+model PmExecution {
+  id              String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  scheduleEntryId String            @map("schedule_entry_id") @db.Uuid
+  entityId        String            @map("entity_id") @db.Uuid
+  status          PmExecutionStatus @default(SCHEDULED)
+  startedAt       DateTime?         @map("started_at") @db.Timestamptz
+  completedAt     DateTime?         @map("completed_at") @db.Timestamptz
+  performedBy     String?           @map("performed_by") @db.Uuid
+  isWithinWindow  Boolean           @default(true) @map("is_within_window")
+  filterSet       FilterSetLabel?   @map("filter_set")
+  notes           String?
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz
+
+  scheduleEntry PmScheduleEntry @relation(fields: [scheduleEntryId], references: [id])
+
+  @@index([entityId, status])
+  @@index([scheduleEntryId])
+  @@map("pm_executions")
+}
+
+// ─── Filter Replacement Schedule (upload-driven, 2026-06-02) ───────────────
+// Additive feature: a user uploads a schedule (one ReplacementSchedule batch);
+// each row becomes a ReplacementScheduleEntry (AHU + filter spec + qty + date +
+// ± tolerance window). Due entries surface as tablet My-Tasks; each filter
+// actually replaced is logged as a ReplacementExecution (qty tracking + audit).
+// AHU is a soft ref (no FK) to avoid coupling to the asset/typed-filter tables.
+// The execute step WRAPS the existing replace action — it does not change it.
+enum ReplacementEntryStatus {
+  PENDING
+  DUE
+  IN_PROGRESS
+  COMPLETED
+  MISSED
+
+  @@map("replacement_entry_status")
+}
+
+model ReplacementSchedule {
+  id             String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  fileName       String?                    @map("file_name") @db.VarChar(255)
+  status         String                     @default("ACTIVE") @db.VarChar(20) // ACTIVE | ARCHIVED
+  notes          String?
+  uploadedBy     String                     @map("uploaded_by") @db.Uuid
+  uploadedByName String?                    @map("uploaded_by_name") @db.VarChar(255)
+  createdAt      DateTime                   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime                   @updatedAt @map("updated_at") @db.Timestamptz
+
+  entries        ReplacementScheduleEntry[]
+
+  @@index([status])
+  @@map("replacement_schedules")
+}
+
+model ReplacementScheduleEntry {
+  id            String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  scheduleId    String                 @map("schedule_id") @db.Uuid
+  slNo          Int?                   @map("sl_no")
+  ahuId         String                 @map("ahu_id") @db.Uuid
+  ahuName       String                 @map("ahu_name") @db.VarChar(255)
+  filterMicron  String?                @map("filter_micron") @db.VarChar(100)
+  filterSize    String?                @map("filter_size") @db.VarChar(100)
+  qty           Int
+  qtyReplaced   Int                    @default(0) @map("qty_replaced")
+  scheduleDate  DateTime               @map("schedule_date") @db.Date
+  toleranceDays Int                    @default(0) @map("tolerance_days")
+  windowStart   DateTime               @map("window_start") @db.Date
+  windowEnd     DateTime               @map("window_end") @db.Date
+  status        ReplacementEntryStatus @default(PENDING)
+  notes         String?
+
+  // 3-step workflow (reuses the PM workflow config). approvalStatus defaults to
+  // APPROVED so existing rows + workflow-off uploads stay live (current behaviour);
+  // uploads land in PENDING_REVIEW only when the workflow is enabled. Distinct from
+  // `status` (the DUE/IN_PROGRESS/COMPLETED execution lifecycle).
+  approvalStatus  PmEntryApprovalStatus @default(APPROVED) @map("approval_status")
+  approvalRemarks String?               @map("approval_remarks")
+  submittedBy     String?               @map("submitted_by") @db.Uuid
+  submittedByName String?               @map("submitted_by_name") @db.VarChar(255)
+  reviewedBy      String?               @map("reviewed_by") @db.Uuid
+  reviewedByName  String?               @map("reviewed_by_name") @db.VarChar(255)
+  reviewedAt      DateTime?             @map("reviewed_at") @db.Timestamptz
+  reviewRemarks   String?               @map("review_remarks")
+  approvedBy      String?               @map("approved_by") @db.Uuid
+  approvedByName  String?               @map("approved_by_name") @db.VarChar(255)
+  approvedAt      DateTime?             @map("approved_at") @db.Timestamptz
+  rejectedBy      String?               @map("rejected_by") @db.Uuid
+  rejectedByName  String?               @map("rejected_by_name") @db.VarChar(255)
+  rejectedAt      DateTime?             @map("rejected_at") @db.Timestamptz
+  rejectionStage  String?               @map("rejection_stage") @db.VarChar(20)
+
+  schedule      ReplacementSchedule    @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  executions    ReplacementExecution[]
+
+  @@index([scheduleId])
+  @@index([ahuId])
+  @@index([windowStart, windowEnd])
+  @@index([status])
+  @@map("replacement_schedule_entries")
+}
+
+model ReplacementExecution {
+  id              String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entryId         String                   @map("entry_id") @db.Uuid
+  oldFilterId     String                   @map("old_filter_id") @db.Uuid
+  newFilterId     String?                  @map("new_filter_id") @db.Uuid
+  performedBy     String                   @map("performed_by") @db.Uuid
+  performedByName String?                  @map("performed_by_name") @db.VarChar(255)
+  isWithinWindow  Boolean                  @default(true) @map("is_within_window")
+  remarks         String?
+  performedAt     DateTime                 @default(now()) @map("performed_at") @db.Timestamptz
+
+  entry           ReplacementScheduleEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  @@index([entryId])
+  @@map("replacement_executions")
+}
+
+// ─── PM Overdue Deviations (2026-06-03) ───────────────────────────────────
+// When a PM cleaning task (PmScheduleEntry) passes its tolerance window without
+// all of the AHU's counted filters cleaned, the overdue sweep opens ONE
+// Deviation per entry (UNIQUE pm_schedule_entry_id → no daily duplicates). The
+// ROW IS THE STATE MACHINE: OPEN → ACKNOWLEDGED (operator confirms with password
+// on My Tasks) → CLOSED (all filters cleaned afterwards). Notifications fire once
+// per transition, guarded by notified_at / completion_notified_at. Soft refs (no
+// FK) — like ReplacementSchedule — so the deviation audit record survives
+// schedule/entry deletion (21 CFR). Created via psql DDL (db push blocked).
+enum DeviationStatus {
+  OPEN
+  ACKNOWLEDGED
+  CLOSED
+
+  @@map("deviation_status")
+}
+
+model Deviation {
+  id                   String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  deviationNumber      String          @unique @default(dbgenerated("('DEV-' || lpad((nextval('deviation_number_seq'))::text, 6, '0'))")) @map("deviation_number") @db.VarChar(40)
+  pmScheduleEntryId    String          @unique @map("pm_schedule_entry_id") @db.Uuid // soft ref → PmScheduleEntry (the "task")
+  ahuId                String          @map("ahu_id") @db.Uuid
+  ahuName              String          @map("ahu_name") @db.VarChar(255)
+  filterIds            Json            @default("[]") @map("filter_ids") @db.JsonB // string[] of filter ids counted at open
+  filterCount          Int             @default(0) @map("filter_count")
+  scheduledDate        DateTime        @map("scheduled_date") @db.Date
+  windowStart          DateTime?       @map("window_start") @db.Date // tolerance window open (for self-contained closure predicate)
+  windowEnd            DateTime        @map("window_end") @db.Date
+  overdueDaysAtOpen    Int             @map("overdue_days_at_open") // now − scheduledDate at the moment the deviation opened
+  assignedUserId       String?         @map("assigned_user_id") @db.Uuid
+  status               DeviationStatus @default(OPEN)
+  acknowledgedBy       String?         @map("acknowledged_by") @db.Uuid
+  acknowledgedByName   String?         @map("acknowledged_by_name") @db.VarChar(255)
+  acknowledgedAt       DateTime?       @map("acknowledged_at") @db.Timestamptz
+  passwordVerified     Boolean         @default(false) @map("password_verified")
+  notifiedAt           DateTime?       @map("notified_at") @db.Timestamptz // overdue-notification guard (fire once)
+  completedBy          String?         @map("completed_by") @db.Uuid
+  completedByName      String?         @map("completed_by_name") @db.VarChar(255)
+  completedAt          DateTime?       @map("completed_at") @db.Timestamptz
+  delayDays            Int?            @map("delay_days") // completedAt − scheduledDate
+  closedAt             DateTime?       @map("closed_at") @db.Timestamptz
+  completionNotifiedAt DateTime?       @map("completion_notified_at") @db.Timestamptz // completion-notification guard
+  createdAt            DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime        @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([status])
+  @@index([ahuId])
+  @@index([createdAt(sort: Desc)])
+  @@map("deviations")
+}
+
+model FilterCleaningProfile {
+  id                   String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  lineageId            String                @map("lineage_id") @db.Uuid
+  name                 String                @db.VarChar(255)
+  description          String?
+  flowMode             PipelineFlowMode      @default(STRICT) @map("flow_mode")
+  alarmOnForwardSkip   Boolean               @default(true) @map("alarm_on_forward_skip")
+  alarmOnBackwardJump  Boolean               @default(true) @map("alarm_on_backward_jump")
+  alarmOnOutOfSequence Boolean               @default(true) @map("alarm_on_out_of_sequence")
+  cleaningReasons      Json?                 @map("cleaning_reasons") @db.JsonB
+  version              Int                   @default(1)
+  status               CleaningProfileStatus @default(DRAFT)
+  createdBy            String                @map("created_by") @db.Uuid
+  createdAt            DateTime              @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime              @updatedAt @map("updated_at") @db.Timestamptz
+
+  stages         FilterPipelineStage[]
+  connections    FilterPipelineConnection[]
+  cleaningCycles CleaningCycle[]
+  filterProfiles FilterProfile[]
+
+  @@unique([lineageId, version])
+  @@index([status])
+  @@index([lineageId])
+  @@map("filter_cleaning_profiles")
+}
+
+model FilterPipelineStage {
+  id            String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  profileId     String           @map("profile_id") @db.Uuid
+  stateKey      String?          @map("state_key") @db.VarChar(100)
+  nodeType      PipelineNodeType @map("node_type")
+  configuration Json             @default("{}") @db.JsonB
+  positionX     Float            @default(0) @map("position_x")
+  positionY     Float            @default(0) @map("position_y")
+  sortOrder     Int              @default(0) @map("sort_order")
+  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz
+
+  profile   FilterCleaningProfile      @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  fromConns FilterPipelineConnection[] @relation("FromStage")
+  toConns   FilterPipelineConnection[] @relation("ToStage")
+
+  @@index([profileId, sortOrder])
+  @@map("filter_pipeline_stages")
+}
+
+model FilterPipelineConnection {
+  id          String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  profileId   String  @map("profile_id") @db.Uuid
+  fromStageId String  @map("from_stage_id") @db.Uuid
+  toStageId   String  @map("to_stage_id") @db.Uuid
+  label       String? @default("Next") @db.VarChar(100)
+
+  profile   FilterCleaningProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  fromStage FilterPipelineStage   @relation("FromStage", fields: [fromStageId], references: [id], onDelete: Cascade)
+  toStage   FilterPipelineStage   @relation("ToStage", fields: [toStageId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
+  @@index([fromStageId])
+  @@map("filter_pipeline_connections")
+}
+
+model FilterProfile {
+  id                  String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                String           @db.VarChar(255)
+  description         String?
+  cleaningProfileId   String           @map("cleaning_profile_id") @db.Uuid
+  defaultPmScheduleId String?          @map("default_pm_schedule_id") @db.Uuid
+  blockRestriction    BlockRestriction @default(OWN_BLOCK_ONLY) @map("block_restriction")
+  allowedBlocks       Json?            @map("allowed_blocks") @db.JsonB
+  maxCleaningCycles   Int?             @map("max_cleaning_cycles")
+  isActive            Boolean          @default(true) @map("is_active")
+  // Monotonic version counter — bumped on every mutation. Snapshot-then-bump
+  // pattern (Phase A.3): the OUTGOING state is frozen into FilterProfileVersion
+  // before the live row is updated, so audit replay can reconstruct the exact
+  // mapping that was active at any historical moment.
+  version             Int              @default(1)
+  createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+
+  cleaningProfile     FilterCleaningProfile?            @relation(fields: [cleaningProfileId], references: [id])
+  pmSchedule          PmSchedule?                       @relation(fields: [defaultPmScheduleId], references: [id])
+  filterDetails       FilterDetails[]                   @relation("FilterProfileFilterDetails")
+  versions            FilterProfileVersion[]
+  // Step 4 (2026-05-02): replaces the prior `applicableTemplates Json` array
+  // on this row. Reads should `include: { applicableTemplates: { select: {
+  // templateId: true } } }` and flatten so the API response shape stays
+  // `applicableTemplates: string[]` and the FE doesn't need to change.
+  applicableTemplates FilterProfileApplicableTemplate[]
+
+  @@index([isActive])
+  @@index([cleaningProfileId]) // audit 2026-06-08: FK lookup
+  @@map("filter_profiles")
+}
+
+// Step 4 (2026-05-02): join table replacing FilterProfile.applicableTemplates
+// JSONB array. Both FKs cascade-delete so a vanishing AssetTemplate or
+// FilterProfile takes its bindings with it — no more dangling UUIDs in JSON.
+// Server-side guard in template.service blocks AssetTemplate delete with
+// 409 IN_USE if any FilterProfile still binds it; the cascade is the safety
+// net, not the operator-visible path.
+model FilterProfileApplicableTemplate {
+  profileId  String   @map("profile_id") @db.Uuid
+  templateId String   @map("template_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  profile  FilterProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  template AssetTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@id([profileId, templateId])
+  @@index([templateId])
+  @@map("filter_profile_applicable_templates")
+}
+
+// Immutable historical snapshot of a FilterProfile at a specific version.
+// Written BEFORE every mutation to the live profile (snapshot-then-bump, Phase A.3).
+// FilterProfile drift cannot affect in-flight cycles because cycles already
+// pin `cleaning_cycles.profileId` to a specific FilterCleaningProfile row at
+// start, so no cycle-side pin map is needed here — versions exist purely for
+// audit replay and admin history.
+model FilterProfileVersion {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  profileId     String   @map("profile_id") @db.Uuid
+  versionNumber Int      @map("version_number")
+  // Full snapshot of the live FilterProfile row: { name, description, cleaningProfileId,
+  // applicableTemplates, defaultPmScheduleId, blockRestriction, allowedBlocks,
+  // maxCleaningCycles, isActive }.
+  snapshot      Json     @db.JsonB
+  changeNotes   String?  @map("change_notes")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdBy     String?  @map("created_by") @db.Uuid
+
+  profile FilterProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, versionNumber])
+  @@index([profileId])
+  @@map("filter_profile_versions")
+}
+
+model CleaningCycle {
+  id                    String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cycleCode             String              @unique @map("cycle_code") @db.VarChar(100)
+  filterId              String              @map("filter_id") @db.Uuid
+  profileId             String              @map("profile_id") @db.Uuid
+  profileVersion        Int                 @map("profile_version")
+  sequenceNumber        Int                 @map("sequence_number")
+  status                CleaningCycleStatus @default(IN_PROGRESS)
+  startedAt             DateTime            @default(now()) @map("started_at") @db.Timestamptz
+  completedAt           DateTime?           @map("completed_at") @db.Timestamptz
+  terminatedAt          DateTime?           @map("terminated_at") @db.Timestamptz
+  terminationReason     String?             @map("termination_reason")
+  cleaningAreaId        String?             @map("cleaning_area_id") @db.Uuid
+  pmExecutionId         String?             @map("pm_execution_id") @db.Uuid
+  cleaningReasonKey     String              @map("cleaning_reason_key") @db.VarChar(100)
+  cleaningReasonLabel   String              @map("cleaning_reason_label") @db.VarChar(255)
+  cleaningJustification String?             @map("cleaning_justification")
+  createdAt             DateTime            @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime            @updatedAt @map("updated_at") @db.Timestamptz
+
+  equipmentGroupId         String? @map("equipment_group_id") @db.Uuid
+  // P1 (2026-05-02): pins the EquipmentGroup version in effect when this cycle
+  // bound the group. Set at start-cycle (or at the first auto-bind, whichever
+  // happens first). Reading validation reads operating-range from the pinned
+  // EquipmentGroupVersion snapshot, NOT the live group, so admin edits to
+  // ranges mid-cycle don't reach the in-flight cycle. Nullable so legacy
+  // cycles + cycles that never bound a group fall back to the live row
+  // (backwards compatible). Slice B (next APK) will add an
+  // `expectedGroupVersion` field on submit-readings + 409 SCHEMA_DRIFT
+  // self-heal flow on the tablet — see future/offline-version-sync-contract.md.
+  equipmentGroupVersionPin Int?    @map("equipment_group_version_pin")
+
+  // Dryer timing — tracks the dryer duration and start time for DRY_IN stage
+  dryerDurationMinutes   Int?      @map("dryer_duration_minutes")
+  dryerStartedAt         DateTime? @map("dryer_started_at") @db.Timestamptz
+  dryerReadingsSubmitted Boolean   @default(false) @map("dryer_readings_submitted")
+
+  // True for rows inserted manually via the SUPER_ADMIN data-management Create
+  // tool (back-/future-dated records) — drives a "Manual entry" badge so they
+  // are visually distinguishable from natively-captured records.
+  manualEntry Boolean @default(false) @map("manual_entry")
+
+  // Phase A.1: pinned ChecklistProfile versions at cycle start.
+  // Shape: { [checklistProfileId: string]: versionNumber: int }
+  // All checklist resolution during this cycle reads through these pins,
+  // so admin edits to a profile mid-cycle do NOT change the questions or
+  // required-flags the operator sees. Empty {} for legacy cycles started
+  // before this column existed (fallback to live profile).
+  checklistVersionPins Json @default("{}") @map("checklist_version_pins") @db.JsonB
+
+  events              FilterEvent[]
+  equipmentGroup      EquipmentGroup?        @relation(fields: [equipmentGroupId], references: [id])
+  profile             FilterCleaningProfile? @relation(fields: [profileId], references: [id])
+  activeFilterDetails FilterDetails[]        @relation("CurrentCycleFilterDetails")
+  // Phase 5b.5 invariant (DB-side, not Prisma-expressible): at most ONE
+  // IN_PROGRESS cycle per filter, enforced by partial unique index applied
+  // via apps/api/prisma/sql/invariants.sql after every db push.
+
+  @@index([filterId, status])
+  @@index([status])
+  @@index([startedAt])
+  @@index([cleaningReasonKey])
+  @@index([pmExecutionId])
+  @@index([filterId, status, startedAt(sort: Desc)])
+  @@index([equipmentGroupId]) // audit 2026-06-08: FK scanned on group edit/delete
+  @@index([profileId])        // audit 2026-06-08: FK scanned on profile in-use checks
+  @@map("cleaning_cycles")
+}
+
+model FilterEvent {
+  id                String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  filterId          String          @map("filter_id") @db.Uuid
+  cycleId           String?         @map("cycle_id") @db.Uuid
+  eventType         FilterEventType @map("event_type")
+  fromState         String?         @map("from_state") @db.VarChar(100)
+  toState           String?         @map("to_state") @db.VarChar(100)
+  performedBy       String          @map("performed_by") @db.Uuid
+  performedAt       DateTime        @default(now()) @map("performed_at") @db.Timestamptz
+  cleaningAreaId    String?         @map("cleaning_area_id") @db.Uuid
+  equipmentId       String?         @map("equipment_id") @db.Uuid
+  blockId           String?         @map("block_id") @db.Uuid
+  attributes        Json            @default("{}") @db.JsonB
+  telemetrySnapshot Json            @default("{}") @map("telemetry_snapshot") @db.JsonB
+  remarks           String?
+  deviationDetails  Json?           @map("deviation_details") @db.JsonB
+  manualEntry       Boolean         @default(false) @map("manual_entry") // manual data-mgmt insert
+  checksum          String          @db.VarChar(64)
+  ipAddress         String          @map("ip_address") @db.VarChar(45)
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz
+
+  cycle CleaningCycle? @relation(fields: [cycleId], references: [id])
+
+  @@index([filterId, cycleId])
+  @@index([performedAt])
+  @@index([eventType, filterId])
+  @@index([cycleId])
+  @@index([filterId, cycleId, eventType])
+  @@index([filterId, performedAt(sort: Desc)])
+  @@map("filter_events")
+}
+
+// ─── Equipment Groups ──────────────────────────────────────
+
+model EquipmentGroup {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String   @db.VarChar(255)
+  blockId   String   @map("block_id") @db.Uuid
+  isActive  Boolean  @default(true) @map("is_active")
+  // Instrument auto-fetch (2026-06-13): ONE endpoint per group returns all
+  // readings keyed by name under a `reading` object, e.g.
+  //   { "reading": { "air_pressure": 6.2, "ro_water_pressure": 4.1, "dryer_temperature": 75 } }
+  // Each instrument extracts its own value via EquipmentGroupInstrument.responseKey.
+  readingUrl String? @map("reading_url") @db.VarChar(2048)
+  // Monotonic version counter — bumped on every mutation of the group OR any of
+  // its 3 instruments. Snapshot-then-bump pattern (Phase A.4): the OUTGOING
+  // composite (group + all instruments) is frozen into EquipmentGroupVersion
+  // before the live rows are updated, so admin-edit history is preserved.
+  // Note: cycles do NOT pin a group version — operational drift is already
+  // covered by FilterEvent.attributes.instrumentReadings (immutable snapshot
+  // of description / instrumentCode / uom / leastCount / value at submit time).
+  version   Int      @default(1)
+  createdBy String?  @map("created_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  block       AssetInstance              @relation(fields: [blockId], references: [id])
+  instruments EquipmentGroupInstrument[]
+  cycles      CleaningCycle[]
+  versions    EquipmentGroupVersion[]
+
+  @@index([blockId])
+  @@index([isActive])
+  @@map("equipment_groups")
+}
+
+// Immutable historical snapshot of an EquipmentGroup at a specific version.
+// Written BEFORE every mutation to the live group or any of its instruments
+// (snapshot-then-bump, Phase A.4). The composite (group + 3 instruments) is
+// always snapshotted together because update() mutates them as a unit.
+model EquipmentGroupVersion {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  groupId       String   @map("group_id") @db.Uuid
+  versionNumber Int      @map("version_number")
+  // Full snapshot: { name, blockId, isActive, instruments: [{...full
+  // EquipmentGroupInstrument shape, ordered by sortOrder...}] }
+  snapshot      Json     @db.JsonB
+  changeNotes   String?  @map("change_notes")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdBy     String?  @map("created_by") @db.Uuid
+
+  group EquipmentGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, versionNumber])
+  @@index([groupId])
+  @@map("equipment_group_versions")
+}
+
+model EquipmentGroupInstrument {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  groupId       String   @map("group_id") @db.Uuid
+  description   String   @db.VarChar(255) // "Compressed Air Pressure", "RO Water Pressure", "Dryer Temperature"
+  stageKey      String   @map("stage_key") @db.VarChar(100) // "WASH_IN" or "DRY_IN"
+  serialNumber  String   @map("serial_number") @db.VarChar(100)
+  instrumentId  String   @map("instrument_id") @db.VarChar(100)
+  uom           String   @db.VarChar(50)
+  instrumentMin Float    @map("instrument_min")
+  instrumentMax Float    @map("instrument_max")
+  operatingMin  Float    @map("operating_min")
+  operatingMax  Float    @map("operating_max")
+  leastCount    Float    @map("least_count")
+  // Instrument auto-fetch (2026-06-13): the JSON key for THIS instrument inside
+  // the group's reading endpoint response (e.g. "air_pressure"). autoFetchEnabled
+  // is true iff the group has a readingUrl AND this instrument has a responseKey.
+  // Both are snapshot-pinned into EquipmentGroupVersion. Missing = manual entry.
+  responseKey      String?  @map("response_key") @db.VarChar(100)
+  autoFetchEnabled Boolean  @default(false) @map("auto_fetch_enabled")
+  sortOrder     Int      @default(0) @map("sort_order")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  group EquipmentGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, sortOrder])
+  @@map("equipment_group_instruments")
+}
+
+// ─── Checklist Profiles & Questions ──────────────────────────
+
+enum ChecklistQuestionType {
+  YES_NO
+  PASS_FAIL
+  YES_NO_NA
+  TEXT
+  NUMERIC
+  DROPDOWN
+  MULTI_SELECT
+  DATE_TIME
+  PHOTO
+  SIGNATURE
+  CALCULATED
+  CONDITIONAL
+
+  @@map("checklist_question_type")
+}
+
+model ChecklistProfile {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String   @db.VarChar(255)
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  // Monotonic version counter — bumped on every mutation of profile or its questions.
+  // Cycles pin the version at start so answers always resolve against the schema
+  // the operator actually saw, even if the live profile is edited later (Phase A.1).
+  version     Int      @default(1)
+  createdBy   String?  @map("created_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  questions ChecklistQuestion[]
+  versions  ChecklistProfileVersion[]
+
+  @@index([isActive])
+  @@map("checklist_profiles")
+}
+
+model ChecklistQuestion {
+  id           String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  profileId    String                @map("profile_id") @db.Uuid
+  question     String
+  questionType ChecklistQuestionType @default(YES_NO) @map("question_type")
+  required     Boolean               @default(false)
+  section      String?               @db.VarChar(255)
+  description  String?
+  options      Json                  @default("[]") @db.JsonB
+  validation   Json                  @default("{}") @db.JsonB
+  sortOrder    Int                   @default(0) @map("sort_order")
+  createdAt    DateTime              @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime              @updatedAt @map("updated_at") @db.Timestamptz
+
+  profile ChecklistProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, sortOrder])
+  @@map("checklist_questions")
+}
+
+// Immutable historical snapshot of a checklist profile at a specific version.
+// Created BEFORE every mutation to the live profile or its questions (snapshot-then-bump).
+// Cycles store a pin map { profileId: versionNumber } and resolve questions through here
+// so answers always reproduce against the schema that was active when the cycle started.
+model ChecklistProfileVersion {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  profileId     String   @map("profile_id") @db.Uuid
+  versionNumber Int      @map("version_number")
+  // Full snapshot: { name, description, isActive, questions: [...full ChecklistQuestion shape...] }
+  snapshot      Json     @db.JsonB
+  changeNotes   String?  @map("change_notes")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdBy     String?  @map("created_by") @db.Uuid
+
+  profile ChecklistProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, versionNumber])
+  @@index([profileId])
+  @@map("checklist_profile_versions")
+}
+
+enum BlockChangeStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+
+  @@map("block_change_status")
+}
+
+model BlockChangeRequest {
+  id               String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  filterId         String            @map("filter_id") @db.Uuid
+  filterName       String            @map("filter_name") @db.VarChar(255)
+  fromBlockId      String            @map("from_block_id") @db.Uuid
+  fromBlockName    String            @map("from_block_name") @db.VarChar(255)
+  toBlockId        String            @map("to_block_id") @db.Uuid
+  toBlockName      String            @map("to_block_name") @db.VarChar(255)
+  reason           String?
+  status           BlockChangeStatus @default(PENDING)
+  requestedBy      String            @map("requested_by") @db.Uuid
+  requestedByName  String            @map("requested_by_name") @db.VarChar(255)
+  processedBy      String?           @map("processed_by") @db.Uuid
+  processedByName  String?           @map("processed_by_name") @db.VarChar(255)
+  processedComment String?           @map("processed_comment")
+  processedAt      DateTime?         @map("processed_at") @db.Timestamptz
+  manualEntry      Boolean           @default(false) @map("manual_entry") // manual data-mgmt insert
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([filterId, toBlockId, status])
+  @@index([status])
+  @@index([requestedBy])
+  @@map("block_change_requests")
+}
+
+// (ReportTemplateStatus + ReportStatus enums removed 2026-07-04 with the
+// orphaned reports generate/sign models.)
+
+// ─── Report generate/sign models (ReportTemplate, ReportTemplateVersion,
+// ReportInstance, ReportSignature) removed 2026-07-04 with the orphaned
+// reports module. ReportReview (below) is the ACTIVE ad-hoc review workflow. ──
+
+// 3-stage review/approval workflow for AD-HOC PDF exports (Audit Trail, Filters,
+// Cleaning Cycles, etc. — generated via lib/pdf-report.ts). Because those reports
+// aren't otherwise persisted, "Send for Review" snapshots the rendered data here
+// so the reviewer/approver act on the exact content, and any later download
+// rebuilds the same PDF with Printed By / Reviewed By / Approved By.
+enum ReportReviewStatus {
+  PENDING_REVIEW
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+
+  @@map("report_review_status")
+}
+
+model ReportReview {
+  id              String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reportType      String             @map("report_type") @db.VarChar(100) // reportKey (lib/report-types.ts)
+  title           String             @db.VarChar(500)
+  subtitle        String?            @db.VarChar(1000)
+  // Frozen snapshot of the rendered report: { orientation, columnStyles?, sections:[{title?, head, body}] }.
+  dataSnapshot    Json               @map("data_snapshot") @db.JsonB
+  status          ReportReviewStatus @default(PENDING_REVIEW)
+
+  // Stage 1 — generated (Printed By). *Name fields store the User ID (username).
+  generatedBy     String             @map("generated_by") @db.Uuid
+  generatedByName String             @map("generated_by_name") @db.VarChar(255)
+  generatedAt     DateTime           @default(now()) @map("generated_at") @db.Timestamptz
+
+  // Current-stage assignee — a specific user OR a whole role.
+  assigneeUserId  String?            @map("assignee_user_id") @db.Uuid
+  assigneeRole    String?            @map("assignee_role") @db.VarChar(50)
+
+  // Stage 2 — reviewed (Reviewed By).
+  reviewedBy      String?            @map("reviewed_by") @db.Uuid
+  reviewedByName  String?            @map("reviewed_by_name") @db.VarChar(255)
+  reviewedAt      DateTime?          @map("reviewed_at") @db.Timestamptz
+  reviewRemarks   String?            @map("review_remarks") @db.Text
+
+  // Stage 3 — approved (Approved By).
+  approvedBy      String?            @map("approved_by") @db.Uuid
+  approvedByName  String?            @map("approved_by_name") @db.VarChar(255)
+  approvedAt      DateTime?          @map("approved_at") @db.Timestamptz
+  approvalRemarks String?            @map("approval_remarks") @db.Text
+
+  // Rejection (either stage).
+  rejectionStage  String?            @map("rejection_stage") @db.VarChar(20) // REVIEW | APPROVAL
+  rejectedBy      String?            @map("rejected_by") @db.Uuid
+  rejectedByName  String?            @map("rejected_by_name") @db.VarChar(255)
+  rejectedAt      DateTime?          @map("rejected_at") @db.Timestamptz
+
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([status])
+  @@index([assigneeUserId])
+  @@index([assigneeRole])
+  @@index([generatedBy])
+  @@map("report_reviews")
+}
+
+// =============================================
+// CLEANING STAGE INTERLOCK (QA approval gate)
+// =============================================
+// Two-point quality interlock inside a cleaning cycle. After WASH_OUT and after
+// DRY_OUT the cycle pauses; the filter context is snapshotted and routed to a
+// configurable approver role for a re-authenticated (digital-signature) decision.
+//  - APPROVE → filter continues per the pinned cleaning-profile graph.
+//  - REJECT  → currentLifecycleState moves back to rejectToStateKey (WASH_IN / DRY_IN).
+// Gate rule: an operator may LEAVE an interlock stage only if the LATEST approval
+// row for (cycleId, stageKey) is APPROVED. attemptSeq disambiguates reject→redo
+// loops so a stale prior-attempt APPROVED cannot release a fresh attempt.
+// No Prisma relations (mirrors ReportReview) — cycleId/filterId stored as raw Uuid.
+enum CleaningStageApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  // Closed WITHOUT a decision: the filter left the gated stage before the
+  // approver acted, so approve/reject are permanently unsafe (assertFilterStillAtGate
+  // 409s). Set lazily by stageApprovalService.queue(). Appended last — ALTER TYPE
+  // ADD VALUE appends in PG, and a mid-list order here reads as drift.
+  SUPERSEDED
+
+  @@map("cleaning_stage_approval_status")
+}
+
+model CleaningStageApproval {
+  id               String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cycleId          String                      @map("cycle_id") @db.Uuid
+  filterId         String                      @map("filter_id") @db.Uuid
+  stageKey         String                      @map("stage_key") @db.VarChar(40) // WASH_OUT | DRY_OUT
+  status           CleaningStageApprovalStatus @default(PENDING)
+  approverRole     String                      @map("approver_role") @db.VarChar(50)
+  rejectToStateKey String                      @map("reject_to_state_key") @db.VarChar(40) // WASH_IN | DRY_IN
+  attemptSeq       Int                         @default(1) @map("attempt_seq")
+  // Frozen filter context for the approver:
+  // { block, area, ahu, ahuType, micronSize, filterType, filterDimensions, filterSet }
+  detailsSnapshot  Json                        @map("details_snapshot") @db.JsonB
+
+  // Stage 1 — requested by the operator who completed the interlock stage.
+  // *Name fields store the User ID (username), matching ReportReview convention.
+  requestedBy      String                      @map("requested_by") @db.Uuid
+  requestedByName  String                      @map("requested_by_name") @db.VarChar(255)
+  requestedAt      DateTime                    @default(now()) @map("requested_at") @db.Timestamptz
+
+  // Stage 2 — the approve/reject decision (the digital signature; reauth-gated).
+  decidedBy        String?                     @map("decided_by") @db.Uuid
+  decidedByName    String?                     @map("decided_by_name") @db.VarChar(255)
+  decidedAt        DateTime?                   @map("decided_at") @db.Timestamptz
+  decisionRemarks  String?                     @map("decision_remarks") @db.Text
+
+  createdAt        DateTime                    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime                    @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([cycleId, stageKey])
+  @@index([status, approverRole])
+  @@index([filterId])
+  @@map("cleaning_stage_approvals")
+}

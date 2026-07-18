@@ -1,0 +1,28 @@
+- generic [ref=e3]:
+  - button "← Back to Stages" [ref=e32]:
+    - generic [ref=e33]: ←
+    - text: Back to Stages
+  - generic [ref=e35]:
+    - generic [ref=e36]:
+      - generic [ref=e37]: 🚿
+      - generic [ref=e38]:
+        - heading "Wash In" [level=2] [ref=e39]
+        - paragraph [ref=e40]: "Step 1: Select Block"
+    - generic [ref=e41]:
+      - generic [ref=e42]: "Select the block:"
+      - generic [ref=e43]:
+        - button "tesr" [ref=e44]:
+          - generic [ref=e45]: tesr
+        - button "FD Block D" [ref=e46]:
+          - generic [ref=e47]: FD Block
+          - generic [ref=e48]: D
+        - button "PFI Block C" [ref=e49]:
+          - generic [ref=e50]: PFI Block
+          - generic [ref=e51]: C
+        - button "MUPS Block A" [ref=e52]:
+          - generic [ref=e53]: MUPS Block
+          - generic [ref=e54]: A
+        - button "CWH Block B" [ref=e55]:
+          - generic [ref=e56]: CWH Block
+          - generic [ref=e57]: B
+      - button "Cancel" [ref=e58]

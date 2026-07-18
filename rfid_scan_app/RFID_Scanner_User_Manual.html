@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>RFID Scanner App - Complete User Manual</title>
+<style>
+body { font-family: 'Segoe UI', Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 40px; line-height: 1.6; color: #333; }
+h1 { color: #1a73e8; border-bottom: 3px solid #1a73e8; padding-bottom: 10px; text-align: center; font-size: 28px; }
+h2 { color: #fff; background: #1a73e8; padding: 10px 20px; border-radius: 6px; margin-top: 40px; font-size: 22px; }
+h3 { color: #1a73e8; border-left: 4px solid #1a73e8; padding-left: 12px; margin-top: 30px; font-size: 18px; }
+h4 { color: #333; margin-top: 20px; font-size: 16px; }
+table { border-collapse: collapse; width: 100%; margin: 15px 0; }
+th { background: #1a73e8; color: #fff; padding: 10px 15px; text-align: left; }
+td { border: 1px solid #ddd; padding: 8px 15px; }
+tr:nth-child(even) { background: #f8f9fa; }
+.warning { background: #fff3cd; border-left: 5px solid #ffc107; padding: 15px; margin: 15px 0; border-radius: 4px; }
+.danger { background: #f8d7da; border-left: 5px solid #dc3545; padding: 15px; margin: 15px 0; border-radius: 4px; }
+.success { background: #d4edda; border-left: 5px solid #28a745; padding: 15px; margin: 15px 0; border-radius: 4px; }
+.info { background: #d1ecf1; border-left: 5px solid #17a2b8; padding: 15px; margin: 15px 0; border-radius: 4px; }
+code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-family: 'Consolas', monospace; font-size: 14px; }
+pre { background: #2d2d2d; color: #f8f8f2; padding: 20px; border-radius: 6px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+.step { background: #e8f0fe; border-radius: 8px; padding: 15px 20px; margin: 10px 0; }
+.step-num { display: inline-block; background: #1a73e8; color: #fff; width: 28px; height: 28px; border-radius: 50%; text-align: center; line-height: 28px; font-weight: bold; margin-right: 10px; }
+.diagram { background: #f8f9fa; border: 1px solid #dee2e6; padding: 20px; border-radius: 8px; font-family: 'Consolas', monospace; white-space: pre; line-height: 1.4; font-size: 13px; margin: 15px 0; }
+.feature-box { border: 2px solid #1a73e8; border-radius: 10px; padding: 20px; margin: 20px 0; }
+.page-break { page-break-before: always; }
+.cover { text-align: center; padding: 100px 0; }
+.cover h1 { font-size: 36px; border: none; }
+.cover p { font-size: 18px; color: #666; }
+.toc { background: #f8f9fa; padding: 20px 30px; border-radius: 8px; margin: 20px 0; }
+.toc a { color: #1a73e8; text-decoration: none; }
+.toc a:hover { text-decoration: underline; }
+.toc ul { list-style: none; padding-left: 20px; }
+.toc > ul { padding-left: 0; }
+.toc li { margin: 5px 0; }
+.rssi-bar { display: inline-block; height: 14px; background: linear-gradient(90deg, #28a745, #ffc107, #dc3545); border-radius: 3px; }
+@media print {
+    .page-break { page-break-before: always; }
+    body { padding: 20px; }
+    h2 { break-after: avoid; }
+}
+</style>
+</head>
+<body>
+
+<!-- COVER PAGE -->
+<div class="cover">
+<h1>📡 RFID Scanner App</h1>
+<p><strong>Complete User Manual</strong></p>
+<p>Version 1.0</p>
+<p>Date: April 2026</p>
+<p style="margin-top: 60px; color: #999;">Built with Kotlin + Jetpack Compose<br>For Android 8.0 (API 26) and above</p>
+</div>
+
+<!-- TABLE OF CONTENTS -->
+<div class="page-break"></div>
+<h2>Table of Contents</h2>
+<div class="toc">
+<ul>
+<li><strong>1.</strong> <a href="#overview">Application Overview</a></li>
+<li><strong>2.</strong> <a href="#getting-started">Getting Started</a></li>
+<li><strong>3.</strong> <a href="#connect">Feature: USB Connection</a></li>
+<li><strong>4.</strong> <a href="#scan">Feature: Tag Scanning (Inventory)</a></li>
+<li><strong>5.</strong> <a href="#read">Feature: Read Tag Data</a></li>
+<li><strong>6.</strong> <a href="#write">Feature: Write Tag Data</a></li>
+<li><strong>7.</strong> <a href="#write-epc">Feature: Write EPC (Change Tag Identity)</a></li>
+<li><strong>8.</strong> <a href="#lock">Feature: Lock Tag</a></li>
+<li><strong>9.</strong> <a href="#kill">Feature: Kill Tag</a></li>
+<li><strong>10.</strong> <a href="#settings">Feature: Reader Settings</a>
+    <ul>
+    <li>10.1 RF Power</li>
+    <li>10.2 Frequency Band</li>
+    <li>10.3 Q Value</li>
+    <li>10.4 Session</li>
+    <li>10.5 Scan Time</li>
+    <li>10.6 Work Mode</li>
+    </ul>
+</li>
+<li><strong>11.</strong> <a href="#ukb">Feature: UKB Mode (USB Keyboard)</a></li>
+<li><strong>12.</strong> <a href="#export">Feature: Export Data</a></li>
+<li><strong>13.</strong> <a href="#tag-memory">Understanding Tag Memory</a></li>
+<li><strong>14.</strong> <a href="#workflows">Common Workflows</a></li>
+<li><strong>15.</strong> <a href="#errors">Error Codes Reference</a></li>
+<li><strong>16.</strong> <a href="#troubleshooting">Troubleshooting</a></li>
+<li><strong>17.</strong> <a href="#quick-ref">Quick Reference Card</a></li>
+</ul>
+</div>
+
+<!-- 1. OVERVIEW -->
+<div class="page-break"></div>
+<h2 id="overview">1. Application Overview</h2>
+
+<h3>What is RFID?</h3>
+<p>RFID (Radio Frequency Identification) uses radio waves to identify and track items. Unlike barcodes, RFID doesn't need line of sight — it works through boxes, packaging, and walls.</p>
+
+<table>
+<tr><th>Feature</th><th>Barcode</th><th>RFID</th></tr>
+<tr><td>Line of sight</td><td>Must see barcode</td><td>Works through boxes/walls</td></tr>
+<tr><td>Speed</td><td>1 item at a time</td><td><strong>100+ items at once</strong></td></tr>
+<tr><td>Range</td><td>10-30 cm</td><td><strong>1-10 meters</strong></td></tr>
+<tr><td>Durability</td><td>Paper gets dirty/torn</td><td>Chip works even if dirty</td></tr>
+<tr><td>Data</td><td>Read only</td><td><strong>Read AND Write</strong></td></tr>
+<tr><td>Unique ID</td><td>Can be copied easily</td><td>TID <strong>cannot be copied</strong></td></tr>
+</table>
+
+<h3>What does this app do?</h3>
+<div class="diagram">Phone (Our App) ←── USB Cable ──→ RFID Reader ←── RF Waves ──→ RFID Tags (on items)</div>
+
+<table>
+<tr><th>#</th><th>Feature</th><th>Description</th></tr>
+<tr><td>1</td><td>Connect</td><td>Connect phone to RFID reader via USB</td></tr>
+<tr><td>2</td><td>Scan</td><td>Discover and count all nearby RFID tags</td></tr>
+<tr><td>3</td><td>Read</td><td>Read data stored inside a tag's memory</td></tr>
+<tr><td>4</td><td>Write</td><td>Write your own data to a tag</td></tr>
+<tr><td>5</td><td>Write EPC</td><td>Change a tag's identity (EPC number)</td></tr>
+<tr><td>6</td><td>Lock</td><td>Password-protect tag memory</td></tr>
+<tr><td>7</td><td>Kill</td><td>Permanently destroy a tag</td></tr>
+<tr><td>8</td><td>Settings</td><td>Configure reader power, frequency, speed</td></tr>
+<tr><td>9</td><td>UKB Mode</td><td>Reader acts as USB keyboard</td></tr>
+<tr><td>10</td><td>Export</td><td>Save scanned data to CSV file</td></tr>
+</table>
+
+<!-- 2. GETTING STARTED -->
+<div class="page-break"></div>
+<h2 id="getting-started">2. Getting Started</h2>
+
+<h3>Requirements</h3>
+<table>
+<tr><th>Item</th><th>Requirement</th></tr>
+<tr><td>Phone</td><td>Android 8.0 or higher with USB-C port</td></tr>
+<tr><td>RFID Reader</td><td>UHF RFID Reader (KC series) with USB connection</td></tr>
+<tr><td>Cable</td><td>USB cable or USB OTG adapter</td></tr>
+<tr><td>App</td><td>RFID Scanner APK installed</td></tr>
+</table>
+
+<h3>Installation</h3>
+<div class="step"><span class="step-num">1</span> Copy <code>app-release.apk</code> to your phone</div>
+<div class="step"><span class="step-num">2</span> Open the APK file on your phone</div>
+<div class="step"><span class="step-num">3</span> If prompted, enable "Install from unknown sources" in Settings</div>
+<div class="step"><span class="step-num">4</span> Tap "Install" and wait for completion</div>
+<div class="step"><span class="step-num">5</span> Tap "Open" to launch the app</div>
+
+<h3>App Navigation</h3>
+<div class="diagram">App Opens
+    │
+    ▼
+Connect Screen (USB Connection)
+    │ Connected successfully
+    ▼
+Main Screen with 4 Bottom Tabs:
+┌──────────┬──────────┬──────────┬──────────┐
+│   Scan   │Read/Write│ Settings │   UKB    │
+└──────────┴──────────┴──────────┴──────────┘</div>
+
+<!-- 3. USB CONNECTION -->
+<div class="page-break"></div>
+<h2 id="connect">3. Feature: USB Connection</h2>
+
+<h3>Purpose</h3>
+<p>Establishes communication between your phone and the RFID reader hardware through USB.</p>
+
+<h3>When to use</h3>
+<p>Every time you open the app. You <strong>must</strong> connect before using any other feature.</p>
+
+<h3>How to use</h3>
+<div class="step"><span class="step-num">1</span> Plug RFID reader into phone via USB cable</div>
+<div class="step"><span class="step-num">2</span> Open the app (or it opens automatically when USB is plugged in)</div>
+<div class="step"><span class="step-num">3</span> Tap <strong>"Search Device"</strong> — App searches for the reader on USB</div>
+<div class="step"><span class="step-num">4</span> Status shows: "USB device found (VID:10473 PID:20993)"</div>
+<div class="step"><span class="step-num">5</span> Tap <strong>"Connect"</strong> — Phone asks "Allow USB access?" → Tap Allow</div>
+<div class="step"><span class="step-num">6</span> Status shows: "Connected successfully!" with beep sound</div>
+<div class="step"><span class="step-num">7</span> App automatically navigates to Scan screen</div>
+
+<h3>Status Messages</h3>
+<table>
+<tr><th>Message</th><th>Meaning</th><th>Action</th></tr>
+<tr><td>"SDK loaded"</td><td>App started correctly</td><td>Plug in reader, tap Search</td></tr>
+<tr><td>"No USB devices found"</td><td>Reader not detected</td><td>Check cable, re-plug, try OTG adapter</td></tr>
+<tr><td>"USB device found"</td><td>Reader detected</td><td>Tap Connect</td></tr>
+<tr><td>"Connected successfully!"</td><td>Ready to use</td><td>Start scanning!</td></tr>
+<tr><td>"Connection failed. Error: 48"</td><td>USB authorization issue</td><td>Unplug, wait 3 sec, re-plug</td></tr>
+<tr><td>"Permission error"</td><td>USB permission denied</td><td>Re-plug, tap Allow</td></tr>
+</table>
+
+<!-- 4. TAG SCANNING -->
+<div class="page-break"></div>
+<h2 id="scan">4. Feature: Tag Scanning (Inventory)</h2>
+
+<h3>Purpose</h3>
+<p>Discover and count all RFID tags within range of the reader. The reader sends radio waves, and every tag in range responds with its unique ID.</p>
+
+<h3>When to use</h3>
+<table>
+<tr><th>Situation</th><th>Example</th></tr>
+<tr><td>Counting inventory</td><td>"How many items are on this shelf?"</td></tr>
+<tr><td>Finding items</td><td>"Where is that laptop? Let me scan the room"</td></tr>
+<tr><td>Receiving goods</td><td>"Truck arrived, let me verify all packages"</td></tr>
+<tr><td>Audit/verification</td><td>"Does this room have all 50 expected items?"</td></tr>
+<tr><td>Speed counting</td><td>"How many tags pass through this gate per second?"</td></tr>
+</table>
+
+<h3>How to use</h3>
+<div class="step"><span class="step-num">1</span> Make sure reader is connected (green icon on connect screen)</div>
+<div class="step"><span class="step-num">2</span> Tap <strong>"Scan"</strong> button → Button turns red, shows "Stop"</div>
+<div class="step"><span class="step-num">3</span> Move reader near items with RFID tags → Tags appear in list with beep</div>
+<div class="step"><span class="step-num">4</span> Tap <strong>"Stop"</strong> when done scanning</div>
+<div class="step"><span class="step-num">5</span> Review the list of scanned tags</div>
+<div class="step"><span class="step-num">6</span> Tap <strong>"Clear"</strong> to erase list and start fresh</div>
+
+<h3>Understanding the Stats</h3>
+<table>
+<tr><th>Stat Card</th><th>Meaning</th><th>Example</th></tr>
+<tr><td><strong>Tags</strong></td><td>Number of unique tags found</td><td>5 = five different tags detected</td></tr>
+<tr><td><strong>Total</strong></td><td>Total reads (same tag counted again)</td><td>47 = reader detected tags 47 times total</td></tr>
+<tr><td><strong>Speed</strong></td><td>Tags read per second</td><td>3/s = 3 tag reads every second</td></tr>
+</table>
+
+<h3>Understanding the Tag List</h3>
+<table>
+<tr><th>Column</th><th>Meaning</th><th>Example</th></tr>
+<tr><td><strong>EPC</strong></td><td>Tag's unique ID (Electronic Product Code)</td><td>E200A0B1C2D3</td></tr>
+<tr><td><strong>Count</strong></td><td>How many times this tag was read</td><td>12 = detected 12 times</td></tr>
+<tr><td><strong>RSSI</strong></td><td>Signal strength (how close the tag is)</td><td>85 = very close</td></tr>
+</table>
+
+<h3>RSSI Signal Strength Guide</h3>
+<table>
+<tr><th>RSSI Range</th><th>Signal</th><th>Distance</th><th>Use</th></tr>
+<tr><td>90-98</td><td>🔴 Very Strong</td><td>0-30 cm</td><td>Tag is touching/very close</td></tr>
+<tr><td>80-89</td><td>🟠 Strong</td><td>30cm - 1m</td><td>Tag is very near</td></tr>
+<tr><td>70-79</td><td>🟡 Good</td><td>1 - 3 meters</td><td>Tag is nearby</td></tr>
+<tr><td>60-69</td><td>🟢 Medium</td><td>3 - 5 meters</td><td>Tag at moderate distance</td></tr>
+<tr><td>50-59</td><td>🔵 Weak</td><td>5 - 7 meters</td><td>Tag is far</td></tr>
+<tr><td>30-49</td><td>⚪ Very Weak</td><td>7+ meters</td><td>Edge of range</td></tr>
+</table>
+
+<div class="info">
+<strong>Tip: Finding a specific item</strong><br>
+Start scanning and walk around. Watch the RSSI value of the target tag. RSSI getting higher = you're getting closer! When RSSI hits 90+, the item is right in front of you.
+</div>
+
+<h3>Tapping on a tag</h3>
+<p>When you tap any tag in the list, the app switches to the Read/Write tab with that tag's EPC auto-filled. You can then read, write, lock, or kill that specific tag.</p>
+
+<!-- 5. READ DATA -->
+<div class="page-break"></div>
+<h2 id="read">5. Feature: Read Tag Data</h2>
+
+<h3>Purpose</h3>
+<p>Reads data stored inside a specific RFID tag's memory. Every tag has 4 memory areas and you can read any of them.</p>
+
+<h3>When to use</h3>
+<table>
+<tr><th>Situation</th><th>What to read</th></tr>
+<tr><td>Check product info</td><td>Read User memory to see stored data</td></tr>
+<tr><td>Verify authenticity</td><td>Read TID (factory ID that cannot be faked)</td></tr>
+<tr><td>Check tag identity</td><td>Read EPC memory for full ID</td></tr>
+<tr><td>Check passwords</td><td>Read Reserved memory</td></tr>
+<tr><td>Debugging</td><td>Read any memory to check what's stored</td></tr>
+</table>
+
+<h3>How to use</h3>
+<div class="step"><span class="step-num">1</span> Scan a tag and tap on it (or type EPC manually)</div>
+<div class="step"><span class="step-num">2</span> Select <strong>Memory Bank</strong> (Reserved / EPC / TID / User)</div>
+<div class="step"><span class="step-num">3</span> Set <strong>Word Ptr</strong> = starting position (usually 0)</div>
+<div class="step"><span class="step-num">4</span> Set <strong>Length</strong> = how many words to read (1 word = 4 hex chars)</div>
+<div class="step"><span class="step-num">5</span> Enter <strong>Access Password</strong> (default: 00000000)</div>
+<div class="step"><span class="step-num">6</span> Tap <strong>"Read"</strong> → Result appears in Read Result field</div>
+
+<h3>Common Read Operations</h3>
+
+<h4>Read TID (Verify Genuine Product)</h4>
+<table>
+<tr><td>Memory Bank</td><td>TID</td></tr>
+<tr><td>Word Ptr</td><td>0</td></tr>
+<tr><td>Length</td><td>6</td></tr>
+<tr><td>Password</td><td>00000000</td></tr>
+<tr><td>Result</td><td>E28011052016A7B3... (unique factory ID)</td></tr>
+</table>
+<div class="info">TID is read-only and unique to every tag. Compare with manufacturer's database to verify authenticity.</div>
+
+<h4>Read User Memory</h4>
+<table>
+<tr><td>Memory Bank</td><td>User</td></tr>
+<tr><td>Word Ptr</td><td>0</td></tr>
+<tr><td>Length</td><td>6</td></tr>
+<tr><td>Password</td><td>00000000</td></tr>
+<tr><td>Result</td><td>48454C4C4F000000 (hex for "HELLO")</td></tr>
+</table>
+
+<h4>Read Passwords</h4>
+<table>
+<tr><td>Memory Bank</td><td>Reserved</td></tr>
+<tr><td>Word Ptr</td><td>0</td></tr>
+<tr><td>Length</td><td>4</td></tr>
+<tr><td>Password</td><td>00000000</td></tr>
+<tr><td>Result</td><td>00000000 00000000 (kill pwd + access pwd)</td></tr>
+</table>
+
+<!-- 6. WRITE DATA -->
+<div class="page-break"></div>
+<h2 id="write">6. Feature: Write Tag Data</h2>
+
+<h3>Purpose</h3>
+<p>Stores your own data inside an RFID tag's memory.</p>
+
+<h3>When to use</h3>
+<table>
+<tr><th>Situation</th><th>Example</th></tr>
+<tr><td>Store product info</td><td>Write batch number, expiry date</td></tr>
+<tr><td>Assign asset</td><td>Write employee ID or department code</td></tr>
+<tr><td>Set passwords</td><td>Write kill/access passwords to Reserved memory</td></tr>
+<tr><td>Update data</td><td>Overwrite old data with new information</td></tr>
+</table>
+
+<h3>How to use</h3>
+<div class="step"><span class="step-num">1</span> Select the tag (scan and tap, or type EPC)</div>
+<div class="step"><span class="step-num">2</span> Select <strong>Memory Bank</strong> (usually User for custom data)</div>
+<div class="step"><span class="step-num">3</span> Set <strong>Word Ptr</strong> = 0</div>
+<div class="step"><span class="step-num">4</span> Enter <strong>Write Data</strong> in hexadecimal</div>
+<div class="step"><span class="step-num">5</span> Enter <strong>Password</strong> (00000000 if not locked)</div>
+<div class="step"><span class="step-num">6</span> Tap <strong>"Write"</strong></div>
+
+<div class="warning">
+<strong>Write Data Rules:</strong><br>
+• Must be hexadecimal characters only (0-9, A-F)<br>
+• Length must be a <strong>multiple of 4</strong> characters<br>
+• Valid: <code>48454C4C</code> (8 chars) ✅<br>
+• Invalid: <code>4845E</code> (5 chars) ❌<br>
+• Invalid: <code>HELLO</code> (not hex) ❌
+</div>
+
+<h3>Common Text to Hex Conversions</h3>
+<table>
+<tr><th>Text</th><th>Hex</th></tr>
+<tr><td>HELLO</td><td>48454C4C4F</td></tr>
+<tr><td>RFID</td><td>52464944</td></tr>
+<tr><td>2026</td><td>32303236</td></tr>
+<tr><td>Item-001</td><td>4974656D2D303031</td></tr>
+</table>
+
+<h3>Hex Character Reference</h3>
+<table>
+<tr><th>Char</th><th>Hex</th><th>Char</th><th>Hex</th><th>Char</th><th>Hex</th><th>Char</th><th>Hex</th></tr>
+<tr><td>A</td><td>41</td><td>N</td><td>4E</td><td>a</td><td>61</td><td>0</td><td>30</td></tr>
+<tr><td>B</td><td>42</td><td>O</td><td>4F</td><td>b</td><td>62</td><td>1</td><td>31</td></tr>
+<tr><td>C</td><td>43</td><td>P</td><td>50</td><td>c</td><td>63</td><td>2</td><td>32</td></tr>
+<tr><td>D</td><td>44</td><td>Q</td><td>51</td><td>d</td><td>64</td><td>3</td><td>33</td></tr>
+<tr><td>E</td><td>45</td><td>R</td><td>52</td><td>e</td><td>65</td><td>4</td><td>34</td></tr>
+<tr><td>F</td><td>46</td><td>S</td><td>53</td><td>f</td><td>66</td><td>5</td><td>35</td></tr>
+<tr><td>G</td><td>47</td><td>T</td><td>54</td><td>g</td><td>67</td><td>6</td><td>36</td></tr>
+<tr><td>H</td><td>48</td><td>U</td><td>55</td><td>h</td><td>68</td><td>7</td><td>37</td></tr>
+<tr><td>I</td><td>49</td><td>V</td><td>56</td><td>i</td><td>69</td><td>8</td><td>38</td></tr>
+<tr><td>J</td><td>4A</td><td>W</td><td>57</td><td>j</td><td>6A</td><td>9</td><td>39</td></tr>
+<tr><td>K</td><td>4B</td><td>X</td><td>58</td><td>Space</td><td>20</td><td>-</td><td>2D</td></tr>
+<tr><td>L</td><td>4C</td><td>Y</td><td>59</td><td>.</td><td>2E</td><td>/</td><td>2F</td></tr>
+<tr><td>M</td><td>4D</td><td>Z</td><td>5A</td><td>,</td><td>2C</td><td>:</td><td>3A</td></tr>
+</table>
+
+<!-- 7. WRITE EPC -->
+<div class="page-break"></div>
+<h2 id="write-epc">7. Feature: Write EPC (Change Tag Identity)</h2>
+
+<h3>Purpose</h3>
+<p>Changes a tag's EPC number — its identity. Like renaming the tag.</p>
+
+<h3>When to use</h3>
+<table>
+<tr><th>Situation</th><th>Example</th></tr>
+<tr><td>Assign your numbering</td><td>Replace random factory EPC with your product code</td></tr>
+<tr><td>Re-use tags</td><td>Write new EPC for a different product</td></tr>
+<tr><td>Organize inventory</td><td>EPCs with category prefix: "01" = electronics, "02" = clothing</td></tr>
+<tr><td>Replace damaged tag</td><td>Copy old tag's EPC to a new tag</td></tr>
+</table>
+
+<div class="danger">
+<strong>⚠️ IMPORTANT:</strong> Only <strong>ONE</strong> tag should be near the reader when writing EPC! If multiple tags are present, the wrong tag might get changed.
+</div>
+
+<h3>How to use</h3>
+<div class="step"><span class="step-num">1</span> Remove all other tags from the area</div>
+<div class="step"><span class="step-num">2</span> Place ONLY the target tag near the reader</div>
+<div class="step"><span class="step-num">3</span> Enter new EPC in <strong>Write Data</strong> field (hex, multiple of 4 chars)</div>
+<div class="step"><span class="step-num">4</span> Enter <strong>Password</strong> (00000000 if not locked)</div>
+<div class="step"><span class="step-num">5</span> Tap <strong>"Write EPC"</strong></div>
+
+<!-- 8. LOCK -->
+<div class="page-break"></div>
+<h2 id="lock">8. Feature: Lock Tag</h2>
+
+<h3>Purpose</h3>
+<p>Protects tag memory with password so unauthorized people cannot read or change it.</p>
+
+<h3>When to use</h3>
+<table>
+<tr><th>Situation</th><th>Example</th></tr>
+<tr><td>Prevent tampering</td><td>Lock EPC so no one can change the tag's identity</td></tr>
+<tr><td>Protect data</td><td>Lock User memory so stored data can't be modified</td></tr>
+<tr><td>Secure passwords</td><td>Lock Reserved memory so passwords can't be read</td></tr>
+<tr><td>Anti-counterfeit</td><td>Lock everything so tag can't be cloned</td></tr>
+</table>
+
+<h3>Lock Memory Options</h3>
+<table>
+<tr><th>Option</th><th>What it locks</th></tr>
+<tr><td>Kill Pwd (0)</td><td>The kill password — prevents unauthorized killing</td></tr>
+<tr><td>Access Pwd (1)</td><td>The access password — prevents password changes</td></tr>
+<tr><td>EPC (2)</td><td>The EPC number — prevents identity changes</td></tr>
+<tr><td>TID (3)</td><td>The TID memory — usually already locked by factory</td></tr>
+<tr><td>User (4)</td><td>The user data — prevents data modification</td></tr>
+</table>
+
+<h3>Lock Type Options</h3>
+<table>
+<tr><th>Type</th><th>What it means</th><th>Reversible?</th></tr>
+<tr><td>No Protection (0)</td><td>Anyone can read/write. Default state.</td><td>N/A</td></tr>
+<tr><td>Permanent R/W (1)</td><td>Permanently open. Can never be locked.</td><td>❌ No</td></tr>
+<tr><td><strong>Password Protected (2)</strong></td><td><strong>Need password to access. Recommended option.</strong></td><td>✅ Yes</td></tr>
+<tr><td>Permanent Lock (3)</td><td>Permanently locked. Nobody can ever access.</td><td>❌ No</td></tr>
+</table>
+
+<h3>How to use</h3>
+<div class="step"><span class="step-num">1</span> <strong>Set access password first</strong> (if not already done):<br>
+Memory Bank = Reserved, Word Ptr = 2, Write Data = <code>AABB1234</code> → Tap Write</div>
+<div class="step"><span class="step-num">2</span> Select <strong>Lock Memory</strong> (e.g., User)</div>
+<div class="step"><span class="step-num">3</span> Select <strong>Lock Type</strong> (e.g., Password Protected)</div>
+<div class="step"><span class="step-num">4</span> Enter <strong>Access Password</strong> = <code>AABB1234</code></div>
+<div class="step"><span class="step-num">5</span> Tap <strong>"Lock"</strong></div>
+
+<div class="warning">
+<strong>⚠️ Permanent Lock (Type 3) cannot be undone!</strong> The memory area will be locked forever, even with the correct password.
+</div>
+
+<!-- 9. KILL -->
+<div class="page-break"></div>
+<h2 id="kill">9. Feature: Kill Tag</h2>
+
+<h3>Purpose</h3>
+<p>Permanently and irreversibly destroys an RFID tag. After killing, the tag will <strong>never</strong> respond to any reader again.</p>
+
+<h3>When to use</h3>
+<table>
+<tr><th>Situation</th><th>Example</th></tr>
+<tr><td>Customer privacy</td><td>Kill tag after purchase so customer can't be tracked</td></tr>
+<tr><td>Data destruction</td><td>Destroy sensitive data on discarded items</td></tr>
+<tr><td>Regulation compliance</td><td>Some laws require tag destruction after use</td></tr>
+<tr><td>Decommissioning</td><td>Item is scrapped, tag should not exist</td></tr>
+</table>
+
+<div class="danger">
+<strong>⚠️⚠️⚠️ KILL IS PERMANENT AND IRREVERSIBLE! ⚠️⚠️⚠️</strong><br><br>
+Once killed, the tag becomes permanently dead. No reader in the world can communicate with it. There is NO undo. Make 100% sure before you kill!
+</div>
+
+<h3>How to use</h3>
+<div class="step"><span class="step-num">1</span> <strong>Set kill password first</strong>:<br>
+Memory Bank = Reserved, Word Ptr = 0, Write Data = <code>DEAD1234</code> → Tap Write</div>
+<div class="step"><span class="step-num">2</span> Enter <strong>Kill Password</strong> = <code>DEAD1234</code> (same as what you wrote)</div>
+<div class="step"><span class="step-num">3</span> Tap red <strong>"Kill"</strong> button</div>
+<div class="step"><span class="step-num">4</span> "Kill successful" → Tag is permanently dead</div>
+
+<h3>Safety Features</h3>
+<table>
+<tr><th>Safety Rule</th><th>What happens</th></tr>
+<tr><td>Password = 00000000</td><td>Kill is <strong>rejected</strong> (default password disabled for safety)</td></tr>
+<tr><td>Wrong password</td><td>Kill is <strong>rejected</strong></td></tr>
+<tr><td>Must be 8 hex chars</td><td>App validates before sending command</td></tr>
+<tr><td>Kill button is RED</td><td>Visual warning of danger</td></tr>
+</table>
+
+<!-- 10. SETTINGS -->
+<div class="page-break"></div>
+<h2 id="settings">10. Feature: Reader Settings</h2>
+
+<h3>Purpose</h3>
+<p>Configure the RFID reader hardware — signal strength, frequency, scanning speed, and behavior.</p>
+
+<h3>10.1 RF Power (0-33 dBm)</h3>
+<p>Controls how strong the reader's radio signal is. Higher power = longer range but more battery drain.</p>
+<table>
+<tr><th>Power</th><th>Range</th><th>Battery</th><th>Best for</th></tr>
+<tr><td>0-10 dBm</td><td>0-50 cm</td><td>Very low</td><td>Reading one nearby tag</td></tr>
+<tr><td>15-20 dBm</td><td>1-3 meters</td><td>Low</td><td>Desk/shelf scanning</td></tr>
+<tr><td>26-30 dBm</td><td>3-5 meters</td><td>Medium</td><td>Normal warehouse scanning</td></tr>
+<tr><td>33 dBm</td><td>5-10 meters</td><td>High</td><td>Maximum range scanning</td></tr>
+</table>
+
+<h3>10.2 Frequency Band</h3>
+<div class="warning"><strong>⚠️ Must match your country's regulations!</strong> Using wrong frequency may be illegal.</div>
+<table>
+<tr><th>Band</th><th>Frequency</th><th>Countries</th></tr>
+<tr><td>US Band</td><td>902-928 MHz</td><td>USA, Canada, Brazil, Mexico, South America</td></tr>
+<tr><td><strong>EU Band</strong></td><td><strong>865-868 MHz</strong></td><td><strong>Europe, UK, India, Africa, Middle East</strong></td></tr>
+<tr><td>Chinese Band 2</td><td>920-925 MHz</td><td>China, Singapore, Thailand, Malaysia</td></tr>
+<tr><td>Chinese Band 1</td><td>840-845 MHz</td><td>China (older)</td></tr>
+<tr><td>Korean Band</td><td>917-924 MHz</td><td>South Korea</td></tr>
+</table>
+
+<h3>10.3 Q Value (0-15)</h3>
+<p>Controls how the reader handles multiple tags at once. Higher Q = more thorough but slower.</p>
+<table>
+<tr><th>Tags nearby</th><th>Recommended Q</th><th>Speed</th></tr>
+<tr><td>1-10 tags</td><td>Q = 2-3</td><td>Fast</td></tr>
+<tr><td>10-50 tags</td><td>Q = 4-5</td><td>Balanced (default)</td></tr>
+<tr><td>50-200 tags</td><td>Q = 6-8</td><td>Thorough</td></tr>
+<tr><td>200+ tags</td><td>Q = 10-15</td><td>Very thorough (slow)</td></tr>
+</table>
+
+<h3>10.4 Session (S0-S3)</h3>
+<p>Controls how the reader remembers already-read tags.</p>
+<table>
+<tr><th>Session</th><th>Memory</th><th>Behavior</th><th>Best for</th></tr>
+<tr><td><strong>S0</strong></td><td>None</td><td>Re-reads same tag continuously</td><td>Speed counting, finding specific tag</td></tr>
+<tr><td>S1</td><td>~2 seconds</td><td>Ignores tag for 2 sec after read</td><td>Normal inventory</td></tr>
+<tr><td>S2</td><td>~5-10 seconds</td><td>Focuses on finding new tags</td><td>Unique counting, walking scan</td></tr>
+<tr><td>S3</td><td>Long time</td><td>Only shows truly new tags</td><td>Gate/portal scanning</td></tr>
+</table>
+
+<h3>10.5 Scan Time</h3>
+<p>Maximum time for one inventory round. Value × 100ms.</p>
+<table>
+<tr><th>Value</th><th>Time</th><th>Use</th></tr>
+<tr><td>10</td><td>1 second</td><td>Quick refresh</td></tr>
+<tr><td>50</td><td>5 seconds (default)</td><td>Normal scanning</td></tr>
+<tr><td>100</td><td>10 seconds</td><td>Thorough scan</td></tr>
+<tr><td>255</td><td>25.5 seconds (max)</td><td>Very thorough</td></tr>
+</table>
+
+<h3>10.6 Work Mode</h3>
+<table>
+<tr><th>Mode</th><th>Description</th></tr>
+<tr><td><strong>Answer Mode</strong></td><td>Normal mode. App controls scanning. Tags appear in our Scan screen.</td></tr>
+<tr><td><strong>UKB Mode</strong></td><td>Reader acts as USB keyboard. Tag IDs are "typed" into any text field.</td></tr>
+</table>
+
+<h3>Settings Buttons</h3>
+<table>
+<tr><th>Button</th><th>Function</th></tr>
+<tr><td>Save Settings</td><td>Saves Power, Band, Q, Session, Scan Time to reader</td></tr>
+<tr><td>Refresh</td><td>Reads current settings from reader</td></tr>
+<tr><td>Set Work Mode</td><td>Switches between Answer and UKB mode</td></tr>
+<tr><td>Read Work Mode</td><td>Checks current mode</td></tr>
+</table>
+
+<!-- 11. UKB MODE -->
+<div class="page-break"></div>
+<h2 id="ukb">11. Feature: UKB Mode (USB Keyboard)</h2>
+
+<h3>Purpose</h3>
+<p>Makes the RFID reader act like a keyboard. When a tag is scanned, its EPC is automatically "typed" as text into whatever app is currently focused — Excel, Notepad, web forms, ERP systems, etc.</p>
+
+<h3>When to use</h3>
+<table>
+<tr><th>Situation</th><th>Example</th></tr>
+<tr><td>Excel data entry</td><td>Scan tags → EPCs fill cells automatically</td></tr>
+<tr><td>Web form filling</td><td>Scan tag → ID appears in form field</td></tr>
+<tr><td>ERP/WMS systems</td><td>Scan into any software with a text field</td></tr>
+<tr><td>No custom app needed</td><td>Works with ANY app that accepts keyboard input</td></tr>
+</table>
+
+<h3>UKB Settings</h3>
+<table>
+<tr><th>Setting</th><th>Description</th><th>Default</th></tr>
+<tr><td><strong>Cut Data</strong></td><td>Enable/Disable trimming output data</td><td>Disable</td></tr>
+<tr><td><strong>Align</strong></td><td>Left or Right alignment (when Cut enabled)</td><td>Left</td></tr>
+<tr><td><strong>Data Offset</strong></td><td>Skip first N characters</td><td>0</td></tr>
+<tr><td><strong>Data Length</strong></td><td>How many characters to output</td><td>12</td></tr>
+<tr><td><strong>Output Format</strong></td><td>Hex (raw) or ASCII (text)</td><td>Hex</td></tr>
+<tr><td><strong>Start Character</strong></td><td>Text added before tag ID</td><td>(empty)</td></tr>
+<tr><td><strong>End Character</strong></td><td>Text added after tag ID</td><td>(empty)</td></tr>
+<tr><td><strong>Add Enter</strong></td><td>Press Enter after each tag</td><td>Disable</td></tr>
+<tr><td><strong>Byte Interval</strong></td><td>Delay between each typed character</td><td>3ms</td></tr>
+<tr><td><strong>Tag Interval</strong></td><td>Delay between tags (×10ms)</td><td>0</td></tr>
+<tr><td><strong>Filter Time</strong></td><td>Ignore duplicate reads (×100ms)</td><td>500ms</td></tr>
+</table>
+
+<h3>Setup for Excel</h3>
+<div class="step"><span class="step-num">1</span> Go to <strong>UKB tab</strong></div>
+<div class="step"><span class="step-num">2</span> Set: Add Enter = <strong>Enable</strong>, Filter Time = <strong>500ms</strong>, Format = <strong>Hex</strong></div>
+<div class="step"><span class="step-num">3</span> Tap <strong>"Save"</strong></div>
+<div class="step"><span class="step-num">4</span> Go to <strong>Settings tab</strong> → Work Mode = <strong>UKB Mode</strong> → Tap <strong>"Set Work Mode"</strong></div>
+<div class="step"><span class="step-num">5</span> Open <strong>Excel</strong> → Click on cell A1</div>
+<div class="step"><span class="step-num">6</span> Scan tags → EPCs appear in cells, one per row!</div>
+
+<div class="info">
+<strong>To return to normal mode:</strong> Settings tab → Work Mode = Answer Mode → Tap "Set Work Mode"
+</div>
+
+<!-- 12. EXPORT -->
+<div class="page-break"></div>
+<h2 id="export">12. Feature: Export Data</h2>
+
+<h3>Purpose</h3>
+<p>Saves the scanned tag list to a CSV file in your phone's Downloads folder.</p>
+
+<h3>When to use</h3>
+<table>
+<tr><th>Situation</th><th>Example</th></tr>
+<tr><td>Save results</td><td>Keep a record of today's inventory scan</td></tr>
+<tr><td>Share data</td><td>Email scan results to your team</td></tr>
+<tr><td>Analysis</td><td>Open in Excel on PC for detailed analysis</td></tr>
+<tr><td>Backup</td><td>Save before clearing the list</td></tr>
+</table>
+
+<h3>CSV File Format</h3>
+<div class="diagram">File: RFID_Tags_2026-04-04_143022.csv
+Location: Phone's Downloads folder
+
+Content:
+EPC,Count,RSSI
+E200A0B1C2D3E4F5,12,85
+E280110520164A7B,8,72
+1234567890ABCDEF,15,90</div>
+
+<!-- 13. TAG MEMORY -->
+<div class="page-break"></div>
+<h2 id="tag-memory">13. Understanding Tag Memory</h2>
+
+<p>Every RFID tag has a small chip with 4 memory areas:</p>
+
+<div class="diagram">┌──────────────────────────────────────────┐
+│              RFID TAG CHIP               │
+│                                          │
+│  ┌────────────┐    ┌────────────┐        │
+│  │  Room 0     │    │  Room 1     │       │
+│  │  RESERVED   │    │  EPC        │       │
+│  │ Kill Pass   │    │ Tag's ID    │       │
+│  │ Access Pass │    │ E200A0B1.. │        │
+│  └────────────┘    └────────────┘        │
+│                                          │
+│  ┌────────────┐    ┌────────────┐        │
+│  │  Room 2     │    │  Room 3     │       │
+│  │  TID        │    │  USER       │       │
+│  │ Factory ID  │    │ Your data   │       │
+│  │ (read-only) │    │ (read/write)│       │
+│  └────────────┘    └────────────┘        │
+└──────────────────────────────────────────┘</div>
+
+<table>
+<tr><th>Memory</th><th>#</th><th>Content</th><th>Read?</th><th>Write?</th><th>Size</th></tr>
+<tr><td><strong>Reserved</strong></td><td>0</td><td>Kill &amp; Access passwords</td><td>With password</td><td>Yes</td><td>8 bytes</td></tr>
+<tr><td><strong>EPC</strong></td><td>1</td><td>Tag's ID number</td><td>Always</td><td>Yes</td><td>12-24 bytes</td></tr>
+<tr><td><strong>TID</strong></td><td>2</td><td>Factory-unique serial (anti-counterfeit)</td><td>Always</td><td><strong>Never</strong></td><td>12-20 bytes</td></tr>
+<tr><td><strong>User</strong></td><td>3</td><td>Your custom data storage</td><td>Yes</td><td>Yes</td><td>0-512 bytes</td></tr>
+</table>
+
+<div class="info">
+<strong>Key Point:</strong> TID is the only memory that <strong>cannot be changed</strong>. It's burned at the factory and is unique to every tag in the world. This makes it ideal for anti-counterfeit verification.
+</div>
+
+<!-- 14. COMMON WORKFLOWS -->
+<div class="page-break"></div>
+<h2 id="workflows">14. Common Workflows</h2>
+
+<h3>Workflow 1: Basic Inventory Counting</h3>
+<div class="step"><span class="step-num">1</span> Connect reader</div>
+<div class="step"><span class="step-num">2</span> Settings: Power = 33, Session = S0, Q = 4</div>
+<div class="step"><span class="step-num">3</span> Scan tab → Tap "Scan"</div>
+<div class="step"><span class="step-num">4</span> Walk around with reader near items</div>
+<div class="step"><span class="step-num">5</span> Watch tag count increase</div>
+<div class="step"><span class="step-num">6</span> Tap "Stop" when done</div>
+
+<h3>Workflow 2: Find a Specific Item</h3>
+<div class="step"><span class="step-num">1</span> Settings: Power = 20 (lower for closer range)</div>
+<div class="step"><span class="step-num">2</span> Scan tab → Tap "Scan"</div>
+<div class="step"><span class="step-num">3</span> Walk slowly, watch RSSI of target tag</div>
+<div class="step"><span class="step-num">4</span> RSSI increasing = getting closer!</div>
+<div class="step"><span class="step-num">5</span> RSSI 90+ = item is right here!</div>
+
+<h3>Workflow 3: Write Product Info to Tag</h3>
+<div class="step"><span class="step-num">1</span> Scan → Tap on the tag</div>
+<div class="step"><span class="step-num">2</span> Read/Write: Memory Bank = User, Word Ptr = 0</div>
+<div class="step"><span class="step-num">3</span> Write Data = your hex data</div>
+<div class="step"><span class="step-num">4</span> Tap "Write"</div>
+
+<h3>Workflow 4: Verify Product is Genuine</h3>
+<div class="step"><span class="step-num">1</span> Scan → Tap on the tag</div>
+<div class="step"><span class="step-num">2</span> Read/Write: Memory Bank = TID, Word Ptr = 0, Length = 6</div>
+<div class="step"><span class="step-num">3</span> Tap "Read"</div>
+<div class="step"><span class="step-num">4</span> Compare TID with manufacturer's database</div>
+<div class="step"><span class="step-num">5</span> Match = genuine. No match = counterfeit.</div>
+
+<h3>Workflow 5: Protect Tag Data</h3>
+<div class="step"><span class="step-num">1</span> Write your data to User memory</div>
+<div class="step"><span class="step-num">2</span> Set access password: Reserved, Word Ptr = 2, Write = <code>MYPASSWD</code></div>
+<div class="step"><span class="step-num">3</span> Lock: Memory = User, Type = Password Protected, Password = <code>MYPASSWD</code></div>
+<div class="step"><span class="step-num">4</span> Now only you can read/write User memory!</div>
+
+<h3>Workflow 6: Scan Tags into Excel (UKB Mode)</h3>
+<div class="step"><span class="step-num">1</span> UKB tab: Add Enter = Enable, Filter = 500ms → Save</div>
+<div class="step"><span class="step-num">2</span> Settings: Work Mode = UKB → Set Work Mode</div>
+<div class="step"><span class="step-num">3</span> Open Excel on phone/PC</div>
+<div class="step"><span class="step-num">4</span> Click cell A1</div>
+<div class="step"><span class="step-num">5</span> Scan tags → EPCs fill cells automatically!</div>
+
+<!-- 15. ERROR CODES -->
+<div class="page-break"></div>
+<h2 id="errors">15. Error Codes Reference</h2>
+
+<h3>Reader Error Codes</h3>
+<table>
+<tr><th>Code</th><th>Hex</th><th>Description</th><th>Solution</th></tr>
+<tr><td>0</td><td>0x00</td><td>Success</td><td>All good!</td></tr>
+<tr><td>5</td><td>0x05</td><td>Wrong access password</td><td>Check password</td></tr>
+<tr><td>9</td><td>0x09</td><td>Wrong kill password</td><td>Check kill password</td></tr>
+<tr><td>10</td><td>0x0A</td><td>Kill password is all zeros</td><td>Set a non-zero kill password first</td></tr>
+<tr><td>11</td><td>0x0B</td><td>Command not supported by tag</td><td>Try different tag model</td></tr>
+<tr><td>16</td><td>0x10</td><td>Memory is locked</td><td>Provide correct access password</td></tr>
+<tr><td>17</td><td>0x11</td><td>Lock operation failed</td><td>Check tag and retry</td></tr>
+<tr><td>18</td><td>0x12</td><td>Already locked</td><td>Tag is already in that lock state</td></tr>
+<tr><td>248</td><td>0xF8</td><td>Antenna error</td><td>Check USB connection</td></tr>
+<tr><td>249</td><td>0xF9</td><td>Operation failed</td><td>Try again</td></tr>
+<tr><td>250</td><td>0xFA</td><td>Tag detected but poor communication</td><td>Move tag closer</td></tr>
+<tr><td>251</td><td>0xFB</td><td>No tag detected</td><td>Bring tag closer to reader</td></tr>
+<tr><td>252</td><td>0xFC</td><td>Tag returned error</td><td>Check tag ErrorCode</td></tr>
+<tr><td>253</td><td>0xFD</td><td>Command length error</td><td>Check data format</td></tr>
+<tr><td>254</td><td>0xFE</td><td>Illegal command</td><td>Check parameters</td></tr>
+<tr><td>255</td><td>0xFF</td><td>Parameter error</td><td>Check all input values</td></tr>
+<tr><td>48</td><td>0x30</td><td>Communication / USB error</td><td>Reconnect USB cable</td></tr>
+</table>
+
+<h3>Tag Error Codes (when reader returns 0xFC)</h3>
+<table>
+<tr><th>Code</th><th>Description</th></tr>
+<tr><td>0x00</td><td>Other/unspecified error</td></tr>
+<tr><td>0x03</td><td>Memory overload or unsupported PC value</td></tr>
+<tr><td>0x04</td><td>Memory locked, cannot write</td></tr>
+<tr><td>0x0B</td><td>Insufficient power to tag (move closer)</td></tr>
+<tr><td>0x0F</td><td>Undefined or tag-unsupported error</td></tr>
+</table>
+
+<!-- 16. TROUBLESHOOTING -->
+<div class="page-break"></div>
+<h2 id="troubleshooting">16. Troubleshooting</h2>
+
+<table>
+<tr><th>Problem</th><th>Possible Cause</th><th>Solution</th></tr>
+<tr><td>App shows blank screen</td><td>App crash on startup</td><td>Reinstall APK, check USB connection</td></tr>
+<tr><td>"No USB devices found"</td><td>Cable not connected</td><td>Check cable, re-plug, try OTG adapter</td></tr>
+<tr><td>Connection failed (Error 48)</td><td>USB not authorized</td><td>Unplug, wait 3 sec, re-plug, allow permission</td></tr>
+<tr><td>Scan shows nothing</td><td>No tags in range</td><td>Bring RFID tags closer, increase power</td></tr>
+<tr><td>Scan shows "Reader in UKB mode"</td><td>Wrong work mode</td><td>Settings → Work Mode = Answer → Set Work Mode</td></tr>
+<tr><td>"Read failed"</td><td>Tag not in range</td><td>Move tag closer to reader</td></tr>
+<tr><td>"Write failed"</td><td>Tag is locked</td><td>Provide correct access password</td></tr>
+<tr><td>Write data rejected</td><td>Data not multiple of 4</td><td>Pad hex data to multiple of 4 chars</td></tr>
+<tr><td>"Kill failed"</td><td>Wrong kill password</td><td>Use correct kill password (not 00000000)</td></tr>
+<tr><td>Permission popup loop</td><td>USB permission issue</td><td>Reinstall app, check "Always open"</td></tr>
+<tr><td>Tags detected but can't read</td><td>Tag too far</td><td>Increase power or move tag closer</td></tr>
+<tr><td>UKB not typing</td><td>Not in UKB mode</td><td>Settings → Set Work Mode = UKB</td></tr>
+<tr><td>UKB types wrong data</td><td>Wrong UKB settings</td><td>Check offset, length, format in UKB tab</td></tr>
+<tr><td>Duplicate entries in Excel</td><td>Filter time too low</td><td>Increase Filter Time in UKB settings</td></tr>
+</table>
+
+<!-- 17. QUICK REFERENCE -->
+<div class="page-break"></div>
+<h2 id="quick-ref">17. Quick Reference Card</h2>
+
+<div class="feature-box" style="background: #f0f7ff;">
+<h3 style="text-align: center; border: none; padding: 0;">RFID Scanner — Quick Reference</h3>
+
+<table>
+<tr><th>Action</th><th>Steps</th></tr>
+<tr><td><strong>Connect</strong></td><td>Plug USB → Search → Connect</td></tr>
+<tr><td><strong>Scan</strong></td><td>Tap Scan → Move near tags → Tap Stop</td></tr>
+<tr><td><strong>Read</strong></td><td>Select tag → Choose memory → Set length → Read</td></tr>
+<tr><td><strong>Write</strong></td><td>Enter hex data (×4 chars) → Write</td></tr>
+<tr><td><strong>Write EPC</strong></td><td>Only 1 tag near reader → Enter new EPC → Write EPC</td></tr>
+<tr><td><strong>Lock</strong></td><td>Set password first → Choose memory → Lock</td></tr>
+<tr><td><strong>Kill</strong></td><td>Set kill password → Enter password → Kill ⚠️ PERMANENT!</td></tr>
+<tr><td><strong>Settings</strong></td><td>Adjust power/band/Q/session → Save Settings</td></tr>
+<tr><td><strong>UKB Mode</strong></td><td>UKB tab → Save → Settings → Set Work Mode = UKB</td></tr>
+</table>
+
+<h4>Quick Settings Guide</h4>
+<table>
+<tr><th>Setting</th><th>Low value</th><th>High value</th></tr>
+<tr><td>Power</td><td>Close range, save battery</td><td>Long range, more battery</td></tr>
+<tr><td>Q Value</td><td>Few tags, fast</td><td>Many tags, thorough</td></tr>
+<tr><td>Session</td><td>S0 = re-read constantly</td><td>S3 = read once only</td></tr>
+<tr><td>Scan Time</td><td>Quick refresh</td><td>More thorough</td></tr>
+</table>
+
+<h4>Common Errors</h4>
+<table>
+<tr><td>0xFB</td><td>No tag nearby</td></tr>
+<tr><td>0xFA</td><td>Tag too far, move closer</td></tr>
+<tr><td>0xF8</td><td>Antenna/USB problem</td></tr>
+<tr><td>0x30 / 48</td><td>Reconnect USB</td></tr>
+<tr><td>0x10</td><td>Memory locked, need password</td></tr>
+</table>
+
+<h4>For India</h4>
+<p>Frequency Band: <strong>EU Band (865-868 MHz)</strong></p>
+</div>
+
+<div style="text-align: center; margin-top: 60px; color: #999; border-top: 1px solid #ddd; padding-top: 20px;">
+<p>RFID Scanner App v1.0 — User Manual</p>
+<p>Built with Kotlin + Jetpack Compose for Android</p>
+<p>© 2026</p>
+</div>
+
+</body>
+</html>

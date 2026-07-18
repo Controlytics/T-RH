@@ -1,0 +1,4 @@
+{
+  "excludeRegExp": ["/dist/", "/node_modules/", "/.codegraph/"],
+  "fileExtensions": ["ts", "tsx"]
+}

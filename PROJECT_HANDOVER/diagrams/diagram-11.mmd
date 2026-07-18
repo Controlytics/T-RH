@@ -1,0 +1,8 @@
+flowchart LR
+    R[Request] --> A[Verify token + session]
+    A --> P[Check permission]
+    P --> RE{Sensitive<br/>action?}
+    RE -->|yes| PW[Reauth dialog]
+    RE -->|no| DO
+    PW --> DO[Execute]
+    DO --> AU[Write audit log<br/>SHA-256 hash-chained]
