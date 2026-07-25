@@ -31,7 +31,12 @@ param(
     [switch]$Force
 )
 
-$ErrorActionPreference = 'Stop'
+# 'Continue', NOT 'Stop'. Under 'Stop', PowerShell turns ANY stderr output from
+# a native exe into a terminating NativeCommandError — and git writes ordinary
+# progress ("From github.com:...") to stderr, so a perfectly successful fetch
+# aborted the script at step 1. Correctness here comes from the explicit
+# $LASTEXITCODE check after every external command, which is the reliable signal.
+$ErrorActionPreference = 'Continue'
 $AppDir  = 'C:\app\compliance-core'
 $Service = 'DigiLogAPI'
 $env:Path = "C:\Program Files\nodejs;C:\Program Files\Git\cmd;$env:Path"
@@ -59,9 +64,9 @@ Set-Location $AppDir
 # ---------------------------------------------------------------- 1. pull
 Step "Fetching $Branch"
 $before = (& git rev-parse HEAD).Trim()
-& git fetch --depth 1 origin $Branch 2>&1 | Out-Null
+& git fetch --depth 1 origin $Branch | Out-Null
 if ($LASTEXITCODE -ne 0) { Die "git fetch failed. Is the deploy key still valid?" }
-& git reset --hard "origin/$Branch" 2>&1 | Out-Null
+& git reset --hard "origin/$Branch" | Out-Null
 if ($LASTEXITCODE -ne 0) { Die "git reset failed." }
 $after = (& git rev-parse HEAD).Trim()
 
