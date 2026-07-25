@@ -7,6 +7,28 @@ import fs from 'fs';
 
 const apiTarget = process.env.API_PROXY_TARGET ?? 'https://localhost:3000';
 
+/**
+ * Dev-server TLS, read lazily.
+ *
+ * These certs are ONLY needed by `vite dev`. They used to be read with a
+ * top-level `fs.readFileSync`, which runs when the config module loads — so
+ * `vite build` also required them and died with ENOENT on any machine without
+ * them. `certs/` is gitignored, so that meant the web app could not be built on
+ * a fresh clone, a CI runner, or a deployment host (hit on the EC2 deploy,
+ * 2026-07-25).
+ *
+ * Returning undefined when the certs are absent makes the dev server fall back
+ * to plain HTTP instead of crashing, and lets `vite build` run anywhere.
+ */
+function devHttps() {
+  const keyPath = path.resolve(__dirname, '../../certs/server.key');
+  const certPath = path.resolve(__dirname, '../../certs/server.crt');
+  if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
+    return { key: fs.readFileSync(keyPath), cert: fs.readFileSync(certPath) };
+  }
+  return undefined;
+}
+
 export default defineConfig({
   plugins: [
     react(),
@@ -86,10 +108,7 @@ export default defineConfig({
     port: Number(process.env.WEB_PORT ?? 5175),
     strictPort: true,
     host: true,
-    https: {
-      key: fs.readFileSync(path.resolve(__dirname, '../../certs/server.key')),
-      cert: fs.readFileSync(path.resolve(__dirname, '../../certs/server.crt')),
-    },
+    https: devHttps(),
     proxy: {
       '/api': {
         target: apiTarget,
