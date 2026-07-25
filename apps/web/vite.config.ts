@@ -5,6 +5,8 @@ import { VitePWA } from 'vite-plugin-pwa';
 import path from 'path';
 import fs from 'fs';
 
+const apiTarget = process.env.API_PROXY_TARGET ?? 'https://localhost:3000';
+
 export default defineConfig({
   plugins: [
     react(),
@@ -79,7 +81,9 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5175,
+    // Port and API target are env-overridable so this clone can run alongside
+    // another checkout of the same app (which owns 5175 / 3000 by default).
+    port: Number(process.env.WEB_PORT ?? 5175),
     strictPort: true,
     host: true,
     https: {
@@ -88,12 +92,12 @@ export default defineConfig({
     },
     proxy: {
       '/api': {
-        target: 'https://localhost:3000',
+        target: apiTarget,
         changeOrigin: true,
         secure: false,
       },
       '/uploads': {
-        target: 'https://localhost:3000',
+        target: apiTarget,
         changeOrigin: true,
         secure: false,
       },
