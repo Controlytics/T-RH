@@ -46,10 +46,22 @@ $step = 0
 function Step($m) { $script:step++; Write-Host "" ; Write-Host ("[{0}] {1}" -f $script:step, $m) -ForegroundColor Cyan }
 function Ok($m)   { Write-Host "    OK   $m" -ForegroundColor Green }
 function Info($m) { Write-Host "    ..   $m" -ForegroundColor Gray }
+# Set once we stop the service for an npm ci, so Die() can bring it back up.
+$script:serviceStopped = $false
+
 function Die($m) {
     Write-Host ""
     Write-Host "  DEPLOY FAILED: $m" -ForegroundColor Red
-    Write-Host "  The service was NOT restarted - the previous version is still running." -ForegroundColor Yellow
+    if ($script:serviceStopped) {
+        # We stopped the service to release file locks. Do NOT leave the app
+        # down because a later step failed - the old build is still on disk and
+        # still works.
+        Write-Host "  Restarting the service on the PREVIOUS build..." -ForegroundColor Yellow
+        try { Start-Service $Service; Write-Host "  Service restarted." -ForegroundColor Yellow }
+        catch { Write-Host "  COULD NOT RESTART - the app is DOWN. Start it manually: Start-Service $Service" -ForegroundColor Red }
+    } else {
+        Write-Host "  The service was NOT restarted - the previous version is still running." -ForegroundColor Yellow
+    }
     Write-Host ""
     exit 1
 }
@@ -88,7 +100,17 @@ $lockChanged = $Force -or ((& git diff --name-only $before $after) -match 'packa
 if ($SkipInstall) {
     Info "skipped (-SkipInstall)"
 } elseif ($lockChanged) {
-    Info "package-lock.json changed - running npm ci (a few minutes)..."
+    # npm ci wipes node_modules, but the RUNNING service holds Prisma's
+    # query_engine-windows.dll.node open — Windows then refuses the unlink with
+    # EPERM and the whole install fails. The service must be stopped first.
+    # This is the only step that requires downtime, and only when dependencies
+    # actually changed. Die() restarts the service if anything below fails.
+    Info "package-lock.json changed - stopping $Service to release file locks"
+    Stop-Service $Service -Force
+    $script:serviceStopped = $true
+    Start-Sleep -Seconds 3
+
+    Info "running npm ci (a few minutes)..."
     & npm ci --no-audit --no-fund 2>&1 | Select-Object -Last 3
     if ($LASTEXITCODE -ne 0) { Die "npm ci failed." }
     # npm >= 11 blocks lifecycle scripts, so Prisma's postinstall never runs.
@@ -138,7 +160,13 @@ Ok "API"
 
 # ---------------------------------------------------------------- 5. restart
 Step "Restarting $Service"
-Restart-Service $Service -Force
+if ($script:serviceStopped) {
+    # Already stopped for the npm ci above — just bring it up.
+    Start-Service $Service
+    $script:serviceStopped = $false
+} else {
+    Restart-Service $Service -Force
+}
 Start-Sleep -Seconds 20
 $svc = Get-Service $Service
 if ($svc.Status -ne 'Running') { Die "$Service is $($svc.Status) after restart. Check C:\ProgramData\DigiLog\logs\." }
