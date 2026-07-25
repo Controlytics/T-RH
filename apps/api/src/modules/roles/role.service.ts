@@ -112,7 +112,6 @@ const PERMISSION_META: Record<string, { label: string; category: string }> = {
   [PERMISSIONS.READ_DEBUG_TRACE]: { label: 'View Debug Traces', category: 'Debug' },
   [PERMISSIONS.MANAGE_DEBUG_TRACE]: { label: 'Manage Debug Traces', category: 'Debug' },
   // Version history + admin-request review
-  [PERMISSIONS.VERSION_HISTORY_VIEW]: { label: 'View Version History', category: 'Audit' },
   [PERMISSIONS.ADMIN_REQUEST_APPROVE]: { label: 'Approve Admin Requests', category: 'User Management' },
   [PERMISSIONS.ADMIN_REQUEST_REJECT]: { label: 'Reject Admin Requests', category: 'User Management' },
 };

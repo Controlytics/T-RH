@@ -76,55 +76,10 @@ export function useAuth() {
     });
     sessionStorage.setItem('access_token', res.token);
 
-    // Audit 2026-05-04 fix C1: fetch an offline-replay grant token using the
-    // password the user just supplied (still in scope) so the sync engine can
-    // replay queued offline ops after the bare `x-offline-replay: true`
-    // header bypass was removed.
-    //
-    // 2026-05-20 fix: pre-fix the failure path was a bare console.warn that
-    // left the user in a silent broken state — login succeeded, but the next
-    // time they went offline, any queued ops would 401 REAUTH_REQUIRED on
-    // replay and silently fail. Operator 101114 (Siva) hit exactly this on
-    // 2026-05-20 11:04 (audit_trail shows LOGIN_SUCCESS but no GRANT_OFFLINE_REPLAY).
-    //
-    // Now: retry once on transient network failure, then surface a banner via
-    // sessionStorage so the connectivity ribbon shows "Offline mode disabled"
-    // and the operator knows to log back in. The sync engine's needs-reauth
-    // pre-flight is the safety net if all three login attempts to mint a
-    // grant silently fail.
-    if (!res.user.forcePasswordChange) {
-      const mintGrant = async (): Promise<void> => {
-        const grant = await apiClient.post<{ token: string; expiresAt: string }>(
-          '/api/auth/offline-grant',
-          { _currentPassword: password },
-        );
-        sessionStorage.setItem('offline_replay_token', grant.token);
-        sessionStorage.setItem('offline_replay_expires', grant.expiresAt);
-        // offline_replay_token_backup intentionally kept in localStorage:
-        // the grant outlives the session (Capacitor can clear sessionStorage
-        // on backgrounding while the IndexedDB queue persists).
-        localStorage.setItem('offline_replay_token_backup', grant.token);
-        localStorage.setItem('offline_replay_expires_backup', grant.expiresAt);
-        sessionStorage.removeItem('offline_grant_failed');
-      };
-      try {
-        await mintGrant();
-      } catch (e) {
-        // One retry on transient network error before giving up.
-        // eslint-disable-next-line no-console -- intentional structured log
-        console.warn('[auth] Offline-replay grant first attempt failed; retrying once:', e);
-        try {
-          await new Promise((resolve) => setTimeout(resolve, 500));
-          await mintGrant();
-        } catch (e2) {
-          // Surface persistently — the connectivity ribbon polls this on
-          // mount; user sees a banner instead of a silent broken offline mode.
-          // eslint-disable-next-line no-console -- intentional structured log
-          console.error('[auth] Failed to fetch offline-replay grant after retry — offline mode will fail until next login:', e2);
-          sessionStorage.setItem('offline_grant_failed', '1');
-        }
-      }
-    }
+    // The offline-replay grant mint that used to live here was removed with the
+    // offline-replay subsystem (commit cbcb913). `POST /api/auth/offline-grant`
+    // no longer exists, so the call 404'd on every single login and logged an
+    // error after a pointless retry.
 
     if (res.user.forcePasswordChange) {
       navigate('/change-password', { replace: true });
@@ -151,13 +106,6 @@ export function useAuth() {
     sessionStorage.removeItem('access_token');
     localStorage.removeItem('access_token_backup');
     localStorage.removeItem('digilog_cached_user');
-    // Audit 2026-05-04 fix C1: drop the offline-replay grant on logout so a
-    // subsequent user (shared workstation) does not inherit the prior user's
-    // offline-mode authorization.
-    sessionStorage.removeItem('offline_replay_token');
-    sessionStorage.removeItem('offline_replay_expires');
-    localStorage.removeItem('offline_replay_token_backup');
-    localStorage.removeItem('offline_replay_expires_backup');
     // W3: clear the last-server-contact timestamp on logout. Otherwise a
     // shared workstation could inherit a stale timestamp from the previous
     // user, making the W4 hard-cutoff blocker disagree with reality on the

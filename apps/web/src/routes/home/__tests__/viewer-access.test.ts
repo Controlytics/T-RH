@@ -97,16 +97,15 @@ describe('rolesForGate (branches)', () => {
 });
 
 describe('viewerCanSeeModule', () => {
-  const base: ViewerCtx = { role: 'OPERATOR', permissions: ['DASHBOARD_VIEW'], sidebarItems: [], qnnVisible: false };
+  const base: ViewerCtx = { role: 'OPERATOR', permissions: ['DASHBOARD_VIEW'], sidebarItems: [] };
 
   it('SUPER_ADMIN sees all modules', () => {
     expect(viewerCanSeeModule('users', { ...base, role: 'SUPER_ADMIN' })).toBe(true);
   });
 
-  it('quality-notifications hidden unless qnnVisible', () => {
-    expect(viewerCanSeeModule('quality-notifications', base)).toBe(false);
-    expect(viewerCanSeeModule('quality-notifications', { ...base, qnnVisible: true })).toBe(true);
-  });
+  // The 'quality-notifications hidden unless qnnVisible' case was removed with
+  // the qnnVisible flag — that module is no longer in MODULE_FLOWS and its
+  // `/api/pm-schedules/qnn/visible` feed no longer exists.
 
   it('honours the viewer sidebar override', () => {
     expect(viewerCanSeeModule('dashboard', { ...base, sidebarItems: ['system-health'] })).toBe(false);

@@ -8,16 +8,13 @@ const ALL_CARDS = [
   { key: 'total_users', label: 'Total Users', description: 'User count with link to user management' },
   { key: 'audit_trail', label: 'Audit Trail', description: 'Audit record count with link to audit page' },
   { key: 'notifications', label: 'Notifications', description: 'Notification count with link to notifications' },
-  { key: 'filter_analytics', label: 'Filter Cleaning Analytics', description: 'Stage counts, daily/monthly charts, cycle status donut' },
-  { key: 'total_filters', label: 'Total Filters', description: 'Filter count summary card' },
-  { key: 'active_cycles', label: 'Active Cycles', description: 'Currently running cleaning cycles' },
-  { key: 'completed_today', label: 'Completed Today', description: 'Cycles completed today' },
-  { key: 'stage_distribution', label: 'Stage Distribution', description: 'Bar chart of filters by cleaning stage' },
-  { key: 'cycle_status', label: 'Cycle Status Breakdown', description: 'Donut chart of cycle statuses' },
-  { key: 'daily_chart', label: 'Daily Cycles Chart', description: 'Bar chart of cycles per day (30 days)' },
-  { key: 'monthly_chart', label: 'Monthly Cycles Chart', description: 'Bar chart of cycles per month (12 months)' },
   { key: 'quick_actions', label: 'Quick Actions', description: 'Create user, view audit, system config shortcuts' },
 ];
+// The 8 filter-domain card keys (filter_analytics, total_filters, active_cycles,
+// completed_today, stage_distribution, cycle_status, daily_chart, monthly_chart)
+// were dropped with the Filter Cleaning Analytics block on the dashboard — the
+// `/api/filters/dashboard-stats` feed behind them went in the Phase 0 strip, so
+// those toggles controlled cards that could never render.
 
 interface RoleConfig {
   roleId: string;

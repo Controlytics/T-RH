@@ -1,5 +1,60 @@
 # Changelog
 
+## [Unreleased] — Phase 0 follow-up: dead frontend→backend calls removed (2026-07-25)
+
+Swept every frontend `/api/*` reference against the live OpenAPI route list and
+removed the callers left stranded by the Phase 0 domain strip. All of these
+404'd at runtime; none had a surviving backend route.
+
+**Dead fetches removed** (behaviour-preserving — each already failed soft, so
+the visible result is unchanged, minus the failed request + console error):
+- `POST /api/auth/offline-grant` (`hooks/use-auth.ts`) — fired on **every login**,
+  retried once, then logged an error. Went with the offline-replay subsystem
+  (commit `cbcb913`). The now-dead `offline_replay_*` storage cleanup in
+  `logout()` went with it.
+- `GET /api/filters/dashboard-stats` (`routes/dashboard.tsx`) — polled every 20s
+  forever. Removed with the `FilterAnalytics` block it fed (and that block's
+  helpers: `STAGE_CFG`, `STATUS_CFG`, `BarChart`, `MiniBreakdown`,
+  `FilterDrillDown`) — it rendered only when the fetch succeeded, so it had been
+  permanently invisible. `routes/dashboard.tsx` 575 → 252 lines.
+- `GET /api/config/report-labels/current` (`hooks/use-report-labels.ts`) and
+  `GET /api/config/report-signatories/resolved` (`lib/pdf-report.ts`) — both
+  config defs were dropped in Phase 0. Both resolvers already fell back to
+  built-in defaults on failure, so they now resolve from defaults directly.
+- `GET /api/pm-schedules/qnn/visible` + `GET /api/filter-cleaning-profiles`
+  (`routes/home/index.tsx`) — fed `ViewerCtx.qnnVisible` and an active-profile
+  count for modules (`quality-notifications`, `filter-operations`) no longer in
+  `MODULE_FLOWS`, so neither could ever render. `qnnVisible` dropped from
+  `ViewerCtx` + `viewerCanSeeModule()`.
+
+**Dashboard card config synced** — the 8 filter-domain card keys
+(`filter_analytics`, `total_filters`, `active_cycles`, `completed_today`,
+`stage_distribution`, `cycle_status`, `daily_chart`, `monthly_chart`) were
+toggles for cards that could never render. Removed from `ALL_CARDS`
+(`routes/config/dashboard-cards.tsx`) and its backend mirror `VALID_CARD_KEYS`
+(`config/static-routes/dashboard-cards.routes.ts`). 12 → **4** cards.
+
+**Version History page removed entirely** — all three of its tabs targeted
+modules deleted in Phase 0 (`filter-cleaning-profiles`, `checklist-profiles`,
+`equipment-groups`), so the whole page was dead, not just one call. Dropped:
+the route + lazy import (`main.tsx`, 39 → **38** `<Route>`s), `routes/version-history/`
+(page + `diff.test.ts`), the sidebar item (`sidebar.tsx` + `sidebar-items.ts`,
+27 → **26**), the `PERMISSION_TREE` group + `version_history.view` node
+(feature privileges 27 → **26**, sidebar sections 9 → **8**), the
+`VERSION_HISTORY_VIEW` permission constant, its `role.service.ts` label, its
+`module-flows.ts` entry, the frozen `legacy-maps-snapshot.ts` entries, and the
+grant in `default-roles.ts` / `seed.mjs` (+ the live `roles` row).
+
+**Login page** — removed the dead "Guest — Filter Cleaning Request" link; the
+`/guest-request` route and the API `guest` module are both gone, so it bounced
+straight back to `/login` on a public, unauthenticated page.
+
+**Verification:** all three suites compared before/after against clean HEAD —
+shared 3 failures, web 6 (byte-identical failure list), api 14 — **no new
+failures**; every one pre-dates this work. `tsc --noEmit` clean on both apps.
+Driven in-browser: fresh login + all 9 sidebar pages report **0 console errors**
+(was 5 dead endpoints across 3 pages).
+
 ## [Unreleased] — compliance-core: cleanroom DOMAIN strip (Phase 0) (2026-07-18)
 
 Forked DigiLog into **compliance-core** and stripped the cleanroom domain to

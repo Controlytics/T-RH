@@ -23,7 +23,6 @@ export const defaultRoles = [
       'NOTIFICATION_VIEW', 'NOTIFICATION_CREATE', 'NOTIFICATION_UPDATE', 'NOTIFICATION_DELETE', 'NOTIFICATION_MANAGE',
       'BACKUP_MANAGE', 'BACKUP_RESTORE',
       'READ_DEBUG_TRACE', 'MANAGE_DEBUG_TRACE',
-      'VERSION_HISTORY_VIEW',
     ],
     color: 'bg-gradient-to-r from-red-500 to-pink-500',
     isSystem: true,

@@ -299,17 +299,6 @@ export const PERMISSION_TREE: SidebarGroup[] = [
     ],
   },
 
-  // ---- Version History ----
-  {
-    sidebarId: 'version-history', label: 'Version History', icon: '🕰️',
-    description: 'Audit history of versioned definitions (cleaning profiles, filter profiles, checklist profiles, equipment groups)',
-    visibilityPrivilegeIds: ['version_history.view'],
-    nodes: [
-      { id: 'version_history.view', label: 'View Version History', sidebarId: 'version-history', page: 'Version History', action: 'View',
-        icon: 'history', category: 'Audit / Versions', permissions: ['VERSION_HISTORY_VIEW'], enforce: 'a',
-        gate: ['VERSION_HISTORY_VIEW'], configurable: true },
-    ],
-  },
 ];
 
 // ─── Phase 5E: Canonical ordering for derived maps ───────────────────────────
@@ -324,7 +313,6 @@ const CONFIGURABLE_PRIVILEGE_ORDER: readonly string[] = [
   'dashboard.view', 'dashboard.create', 'dashboard.manage', 'dashboard.assign',
   'admin_requests.approve', 'admin_requests.reject',
   'debug.view', 'debug.manage',
-  'version_history.view',
   'backup.export', 'backup.restore',
 ] as const;
 

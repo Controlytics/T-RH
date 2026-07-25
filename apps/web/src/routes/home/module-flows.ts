@@ -24,16 +24,6 @@ export const MODULE_FLOWS: ModuleFlow[] = [
     ],
   },
   {
-    id: 'version-history',
-    title: 'Version History',
-    category: 'Governance & Compliance',
-    summary: 'Read-only lineage browser for versioned definitions: inspect any prior frozen version archived on each edit.',
-    steps: [
-      { label: 'View version list + frozen snapshot at version N', kind: 'system', gate: ['VERSION_HISTORY_VIEW'],
-        description: 'VERSION_HISTORY_VIEW lets a role browse archived version history.' },
-    ],
-  },
-  {
     id: 'users',
     title: 'Users',
     category: 'Admin',

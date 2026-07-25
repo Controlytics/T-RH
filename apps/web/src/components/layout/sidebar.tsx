@@ -104,14 +104,6 @@ const allNavItems: NavItem[] = [
       </svg>
     ),
   },
-  {
-    // Audit / Versions: SUPER_ADMIN by default; assignable to other roles via
-    // Role Privileges → Audit / Versions → View Version History.
-    id: "version-history",
-    label: "Version History",
-    href: "/version-history",
-    icon: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>),
-  },
 ];
 
 export function Sidebar({ userRole: _userRole, open, onClose }: SidebarProps) {

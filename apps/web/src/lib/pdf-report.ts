@@ -92,15 +92,15 @@ type SignatoryMap = Record<string, Record<string, string>>; // roleName -> repor
 
 /** Per-role, per-report signature LABEL (Printed By / Reviewed By / Approved By).
  *  The generator's role + the report decide which label prints before their User
- *  ID. Keyed role -> reportKey. Null on failure → footer falls back to "Printed By". */
+ *  ID. Keyed role -> reportKey. Null → footer falls back to "Printed By".
+ *
+ *  This used to GET `/api/config/report-signatories/resolved`. That config def
+ *  was dropped in the Phase 0 domain strip, so the request 404'd on every PDF
+ *  export and this function returned null via its `!res.ok` guard anyway.
+ *  Returning null directly is behaviour-identical and drops the failed request.
+ *  Restore the fetch if a report-signatories config def is ever re-added. */
 async function loadSignatories(): Promise<SignatoryMap | null> {
-  try {
-    const base = getApiBase();
-    const token = sessionStorage.getItem('access_token');
-    const res = await fetch(`${base}/api/config/report-signatories/resolved`, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined);
-    if (!res.ok) return null;
-    return await res.json() as SignatoryMap;
-  } catch { return null; }
+  return null;
 }
 
 export interface ReportConfig {

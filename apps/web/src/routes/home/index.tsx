@@ -32,29 +32,26 @@ export default function HomePage() {
     { refreshInterval: 30_000 },
   );
   const { data: myConfig, mutate: mutateConfig } = useSWR<{ sidebarItems?: string[] }>('/api/config/my-config');
-  const { data: qnn, mutate: mutateQnn } = useSWR<{ visible: boolean }>('/api/pm-schedules/qnn/visible');
 
-  // Live count of ACTIVE cleaning profiles, to make the Filter Operations note
-  // concrete ("N active cleaning profiles configured"). Only fetched when the
-  // viewer can read profiles (FCP_READ / Super Admin) so no 403 hits the
-  // console for operators — the note still renders, just without the number.
-  const canReadProfiles = (user?.role === 'SUPER_ADMIN') || (user?.permissions ?? []).includes('FCP_READ');
-  const { data: cpData } = useSWR<any>(canReadProfiles ? '/api/filter-cleaning-profiles?limit=200' : null);
-  const cpList: any[] = Array.isArray(cpData) ? cpData : (Array.isArray(cpData?.data) ? cpData.data : []);
-  const activeProfileCount = cpList.filter((p) => p?.status === 'ACTIVE').length;
+  // Two dead fetches were removed here (Phase 0 leftovers, both 404):
+  //   - `/api/pm-schedules/qnn/visible` fed ViewerCtx.qnnVisible, which only
+  //     ever gated the 'quality-notifications' module — no longer in MODULE_FLOWS.
+  //   - `/api/filter-cleaning-profiles?limit=200` fed an active-profile count
+  //     rendered only for `m.id === 'filter-operations'` — also gone from
+  //     MODULE_FLOWS, so the count could never appear.
 
   // Audit view: every module + every role permitted by the backend gate,
   // regardless of the viewer's or any role's sidebar. Default = the viewer's
   // own modules (mirrors their sidebar).
   const [auditView, setAuditView] = useState(false);
 
-  // Manual refresh — re-pull the live role matrix (+ sidebar/qnn config) so a
+  // Manual refresh — re-pull the live role matrix (+ sidebar config) so a
   // role/permission change made elsewhere is reflected without leaving the page.
   const [refreshing, setRefreshing] = useState(false);
   async function handleRefresh() {
     setRefreshing(true);
     try {
-      await Promise.all([mutateMatrix(), mutateConfig(), mutateQnn()]);
+      await Promise.all([mutateMatrix(), mutateConfig()]);
     } finally {
       setRefreshing(false);
     }
@@ -67,7 +64,6 @@ export default function HomePage() {
     role: user?.role ?? '',
     permissions: user?.permissions ?? [],
     sidebarItems: (myConfig?.sidebarItems as string[]) ?? [],
-    qnnVisible: qnn?.visible ?? false,
   };
   const visibleModules = auditView
     ? MODULE_FLOWS
@@ -189,12 +185,7 @@ export default function HomePage() {
                             <svg className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
-                            <span>
-                              {m.note}
-                              {m.id === 'filter-operations' && canReadProfiles && activeProfileCount > 0 && (
-                                <> {' '}<span className="font-semibold">{activeProfileCount} active cleaning {activeProfileCount === 1 ? 'profile is' : 'profiles are'} configured.</span></>
-                              )}
-                            </span>
+                            <span>{m.note}</span>
                           </div>
                         )}
                         <FlowChart steps={m.steps} moduleId={m.id} roles={roles} auditMode={auditView} layout={m.layout} />

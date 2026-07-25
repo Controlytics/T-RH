@@ -55,7 +55,6 @@ const NotificationLogsPage = lazy(() => import('./routes/config/notification-set
 
 const AdminRequestsPage = lazy(() => import("./routes/admin-requests/index").then(m => ({ default: m.AdminRequestsPage })));
 
-const VersionHistoryPage = lazy(() => import("./routes/version-history/index").then(m => ({ default: m.VersionHistoryPage })));
 
 function LazyFallback() {
   return (
@@ -136,7 +135,6 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/admin-requests" element={<RequireRole permissions={[PERMISSIONS.ADMIN_REQUEST_APPROVE, PERMISSIONS.ADMIN_REQUEST_REJECT]}><Suspense fallback={<LazyFallback />}><AdminRequestsPage /></Suspense></RequireRole>} />
 
             {/* Audit / Versions — SUPER_ADMIN only by default; assignable via Role Privileges → Audit / Versions. */}
-            <Route path="/version-history" element={<RequireRole permissions={[PERMISSIONS.VERSION_HISTORY_VIEW]}><Suspense fallback={<LazyFallback />}><VersionHistoryPage /></Suspense></RequireRole>} />
 
           </Route>
 

@@ -167,12 +167,6 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
     "icon": "terminal"
   },
   {
-    "id": "version_history.view",
-    "label": "View Version History",
-    "category": "Audit / Versions",
-    "icon": "history"
-  },
-  {
     "id": "backup.export",
     "label": "Export / Download Backups",
     "category": "Backup & Restore",
@@ -272,9 +266,6 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   "debug.manage": [
     "MANAGE_DEBUG_TRACE"
   ],
-  "version_history.view": [
-    "VERSION_HISTORY_VIEW"
-  ],
   "backup.export": [
     "BACKUP_EXPORT"
   ],
@@ -362,15 +353,6 @@ export const SIDEBAR_PRIVILEGE_MAP_SNAPSHOT: SidebarSectionSnapshot[] = [
     "privilegeIds": [
       "debug.view",
       "debug.manage"
-    ]
-  },
-  {
-    "sidebarId": "version-history",
-    "label": "Version History",
-    "icon": "🕰️",
-    "description": "Audit history of versioned definitions (cleaning profiles, filter profiles, checklist profiles, equipment groups)",
-    "privilegeIds": [
-      "version_history.view"
     ]
   }
 ];
