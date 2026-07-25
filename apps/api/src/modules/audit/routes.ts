@@ -7,6 +7,18 @@ import { errorResponses } from '../../lib/error-schemas.js';
 import { verifyAuditChain } from '../../lib/audit-verify.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 
+/**
+ * Path-param guard for audit record ids.
+ *
+ * Every `/:id` route below hits a Prisma `uuid` column. Without a format check
+ * a non-uuid segment reaches the query and Prisma throws, which the global
+ * handler turns into HTTP 500 AND fires a SYSTEM_ERROR notification — so an
+ * unauthenticated typo, a scanner, or `/api/audit/export` (a path that does not
+ * exist) all produced 500s and error noise. Validating in the schema makes
+ * Fastify answer 400 before the handler runs.
+ */
+const UUID_PATTERN = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
+
 export default async function auditRoutes(app: FastifyInstance) {
   // GET /api/audit — query audit trail (requires AUDIT_READ permission)
   app.get('/', {
@@ -211,7 +223,11 @@ export default async function auditRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['id'],
         properties: {
-          id: { type: 'string', description: 'Audit record ID' },
+          // Must be a UUID. Without this, ANY non-uuid path segment reached the
+          // handler and Prisma threw on the uuid column — returning HTTP 500
+          // (plus a SYSTEM_ERROR notification) for what is simply a bad URL.
+          // e.g. GET /api/audit/export used to 500. Rejecting here yields 400.
+          id: { type: 'string', pattern: UUID_PATTERN, description: 'Audit record ID (UUID)' },
         },
       },
       response: {
@@ -347,7 +363,7 @@ export default async function auditRoutes(app: FastifyInstance) {
       params: {
         type: 'object',
         required: ['id'],
-        properties: { id: { type: 'string', description: 'Audit record ID' } },
+        properties: { id: { type: 'string', pattern: UUID_PATTERN, description: 'Audit record ID (UUID)' } },
       },
       body: {
         type: 'object',
@@ -496,7 +512,7 @@ export default async function auditRoutes(app: FastifyInstance) {
       params: {
         type: 'object',
         required: ['id'],
-        properties: { id: { type: 'string', description: 'Audit record ID' } },
+        properties: { id: { type: 'string', pattern: UUID_PATTERN, description: 'Audit record ID (UUID)' } },
       },
       body: {
         type: 'object',
