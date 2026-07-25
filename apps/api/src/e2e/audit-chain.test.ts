@@ -188,3 +188,116 @@ describe('Audit hash chain — C3', () => {
     expect(body).toHaveProperty('anomalies');
   });
 });
+
+/**
+ * Keyed-era downgrade — 2026-07-25.
+ *
+ * verifyAuditChecksum() selects the keyed (v3) or unkeyed (v1/v2) formula from
+ * the row's OWN checksum_version column, which lives in the mutable table the
+ * chain is supposed to protect. So a DB-level actor can relabel a v3 row to
+ * NULL, recompute its checksum with the unkeyed formula (no key required), and
+ * the walk takes the unkeyed branch and passes.
+ *
+ * AUDIT_CHAIN_KEYED_FROM is the out-of-band anchor that closes this. It was
+ * read by getAuditChainKeyedFrom() — which had ZERO callers, so the defence its
+ * docstring described was never enforced.
+ *
+ * These two tests are the proof, and they must be read as a pair:
+ *   - WITHOUT the boundary, the forged row passes  → the vulnerability is real
+ *   - WITH the boundary, it is caught              → the fix actually works
+ * If the first test ever starts failing, the vulnerability was closed some
+ * other way and this file needs revisiting rather than deleting.
+ */
+describe('Audit hash chain — keyed-era downgrade', () => {
+  const KEY = 'test-audit-chain-key-do-not-use-in-production';
+
+  async function writeKeyedRow(): Promise<{ id: string; position: number }> {
+    const { __setAuditChainKeyForTest } = await import('../lib/hash-chain.js');
+    const { auditLog } = await import('../lib/audit.js');
+    __setAuditChainKeyForTest(KEY);
+    await auditLog({
+      userId: 'downgrade-test-user',
+      userName: 'Downgrade Test',
+      userRole: 'SUPER_ADMIN',
+      action: 'LOGIN_SUCCESS',
+      targetType: 'User',
+      targetId: 'downgrade-test-target',
+      afterValue: { probe: 'keyed-era' },
+    });
+    const [row] = await prisma.$queryRaw<Array<{ id: string; chain_position: bigint; checksum_version: number | null }>>`
+      SELECT id, chain_position, checksum_version FROM audit_trail
+      ORDER BY chain_position DESC LIMIT 1
+    `;
+    expect(row.checksum_version).toBe(3);   // guard: the writer really keyed it
+    return { id: row.id, position: Number(row.chain_position) };
+  }
+
+  /** Relabel to unkeyed and recompute the checksum with the unkeyed formula. */
+  async function forgeDowngrade(id: string) {
+    const { computeChainedChecksum } = await import('../lib/hash-chain.js');
+    const [r] = await prisma.$queryRaw<Array<Record<string, any>>>`
+      SELECT timestamp, user_id, user_name, user_role, action, target_type,
+             target_id, after_value, previous_checksum
+      FROM audit_trail WHERE id = ${id}::uuid
+    `;
+    const forged = computeChainedChecksum({
+      timestamp: r.timestamp,
+      userId: r.user_id ?? undefined,
+      userName: r.user_name ?? undefined,
+      userRole: r.user_role ?? undefined,
+      action: r.action,
+      targetType: r.target_type ?? undefined,
+      targetId: r.target_id ?? undefined,
+      afterValue: r.after_value ?? undefined,
+    }, r.previous_checksum);
+    await prisma.$executeRaw`
+      UPDATE audit_trail SET checksum_version = NULL, checksum = ${forged}
+      WHERE id = ${id}::uuid
+    `;
+  }
+
+  afterAll(async () => {
+    const { __setAuditChainKeyForTest, __setAuditChainKeyedFromForTest } =
+      await import('../lib/hash-chain.js');
+    __setAuditChainKeyForTest(undefined);
+    __setAuditChainKeyedFromForTest(undefined);
+  });
+
+  it('WITHOUT the boundary, a downgraded row passes verification (the vulnerability)', async () => {
+    const { __setAuditChainKeyedFromForTest } = await import('../lib/hash-chain.js');
+    const { id, position } = await writeKeyedRow();
+    await forgeDowngrade(id);
+
+    __setAuditChainKeyedFromForTest(null);          // boundary NOT configured
+    const result = await verifyAuditChain({ fromPosition: position, toPosition: position });
+
+    expect(result.anomalies).toHaveLength(0);
+    expect(result.intact).toBe(true);
+  });
+
+  it('WITH the boundary, the same downgrade is caught (the fix)', async () => {
+    const { __setAuditChainKeyedFromForTest } = await import('../lib/hash-chain.js');
+    const { id, position } = await writeKeyedRow();
+    await forgeDowngrade(id);
+
+    __setAuditChainKeyedFromForTest(position);      // boundary at this row
+    const result = await verifyAuditChain({ fromPosition: position, toPosition: position });
+
+    expect(result.intact).toBe(false);
+    const downgrade = result.anomalies.find(a => a.kind === 'KEYED_ERA_DOWNGRADE');
+    expect(downgrade).toBeDefined();
+    expect(downgrade?.id).toBe(id);
+    expect(downgrade?.expected).toBe('3');
+  });
+
+  it('boundary of 0 is enforced, not treated as unset (falsy-zero guard)', async () => {
+    const { __setAuditChainKeyedFromForTest } = await import('../lib/hash-chain.js');
+    const { id, position } = await writeKeyedRow();
+    await forgeDowngrade(id);
+
+    __setAuditChainKeyedFromForTest(0);             // legitimate: key from row 0
+    const result = await verifyAuditChain({ fromPosition: position, toPosition: position });
+
+    expect(result.anomalies.some(a => a.kind === 'KEYED_ERA_DOWNGRADE')).toBe(true);
+  });
+});

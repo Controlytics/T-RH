@@ -71,15 +71,35 @@ written *before* destruction. Chain breakage is deliberately left loud.
 should be recorded in their validation documentation, because it materially
 changes their §11.10(e) posture.
 
-### 2.3 `AUDIT_CHAIN_KEY` is optional — MEDIUM (deployment)
-When unset, the writer falls back to unkeyed V2 checksums. A DB-level actor can
-then recompute a fully self-consistent forged chain — precisely the threat V3
-exists to stop. The code documents this clearly.
+### 2.3 Audit chain was unkeyed AND the downgrade defence was unimplemented — HIGH (partially fixed 2026-07-25)
 
-**Recommendation:** make the key **mandatory in production** (fail boot without
-it, exactly as CORS already does), and document key custody, backup, and
-rotation in the install guide. Rotation invalidates verification of existing v3
-rows, so it must be a deliberate, recorded event.
+Two distinct defects, found together:
+
+**(a) No installer ever generated `AUDIT_CHAIN_KEY`.** It appeared only as a
+commented-out line in `.env.example`; `install.ps1` generated `JWT_SECRET` but
+not this. Every install — including production — therefore ran with unkeyed
+SHA-256, and because the checksum lives in the same table it protects, a
+DB-level actor could recompute a fully self-consistent forged chain. The live
+database confirmed it: all 234 audit rows were `checksum_version = NULL`.
+
+**(b) `AUDIT_CHAIN_KEYED_FROM` was read but never enforced.**
+`getAuditChainKeyedFrom()` carried a 15-line docstring describing the
+downgrade defence and had **zero callers**. So even a keyed install was
+forgeable: relabel a v3 row `checksum_version = NULL`, recompute unkeyed (no key
+needed), relink forward, and verification passed. Demonstrated by regression
+test `e2e/audit-chain.test.ts` → *"WITHOUT the boundary, a downgraded row
+passes"*.
+
+**Fixed 2026-07-25:** enforcement implemented in `verifyAuditChain()` as the
+`KEYED_ERA_DOWNGRADE` anomaly; `install.ps1` generates both variables on fresh
+install (`KEYED_FROM=0`); `upgrade.ps1` backfills existing installs at
+`head + 1` with the API stopped. See
+[`../05-database/audit-chain.md`](../05-database/audit-chain.md) §3.1.
+
+**Still open:** the key is not yet *mandatory* — an install whose env lacks it
+still boots on the unkeyed path. Making that fatal was deliberately deferred:
+sequenced before the backfill has run everywhere, it would brick running
+installs on upgrade. Do it as a follow-up once backfill is confirmed deployed.
 
 ### 2.4 Tail-truncation is undetectable by the chain alone — KNOWN, mitigated
 Deleting the newest row (or the whole tail) leaves no successor to reveal the

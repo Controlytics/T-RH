@@ -128,12 +128,25 @@ if (Test-Path $envFile) {
   $jwt           = NewSecret 48
   $verify        = NewSecret 48
   $offline       = NewSecret 48
+  # 21 CFR 11.10(e) — audit-chain HMAC key. Without it the writer falls back to
+  # UNKEYED SHA-256, and because the checksum lives in the same table it
+  # protects, a DB-level actor can recompute a fully self-consistent forged
+  # chain that passes verify-chain. The key must live OUTSIDE the database
+  # (here, in the service env file) for the chain to be tamper-evident at all.
+  #
+  # AUDIT_CHAIN_KEYED_FROM is the out-of-band cutover anchor: the chain_position
+  # from which every row MUST be v3. Without it a v3 row can be relabelled
+  # unkeyed, recomputed with no key, and still verify. On a FRESH install the
+  # table is empty, so the keyed era starts at 0 (every row, forever).
+  $auditKey      = NewSecret 48
   $dbUrl = "postgresql://digilog:$appDbPassword@localhost:$PgPort/digilog_db?schema=public"
   $envBody = @"
 DATABASE_URL=$dbUrl
 JWT_SECRET=$jwt
 VERIFICATION_TOKEN_SECRET=$verify
 OFFLINE_REPLAY_SECRET=$offline
+AUDIT_CHAIN_KEY=$auditKey
+AUDIT_CHAIN_KEYED_FROM=0
 JWT_EXPIRES_IN=1h
 NODE_ENV=production
 PORT=$ApiPort

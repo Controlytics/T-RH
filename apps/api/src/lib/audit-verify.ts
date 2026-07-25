@@ -17,20 +17,43 @@
  *   - row N+1's previous_checksum doesn't match row N's checksum after row N
  *     is mutated (forward propagation — every later row also fails)
  *
+ *   - KEYED-ERA DOWNGRADE (2026-07-25): a v3 row relabelled checksum_version
+ *     = NULL and recomputed with the unkeyed formula. See below.
+ *
  * Tamper modes NOT detected by chain alone (require external counter):
  *   - deletion of the latest row (no successor exists to detect the gap)
  *   - removal of the entire tail. Mitigated by chain_position monotonicity:
  *     verifyChain returns the highest position seen, which an operator can
  *     compare against an out-of-band record (e.g., last known max from a
  *     daily snapshot).
+ *
+ * ── Keyed-era enforcement (added 2026-07-25) ────────────────────────────────
+ * verifyAuditChecksum() picks the keyed (v3) or unkeyed (v1/v2) formula from
+ * the row's OWN `checksum_version` column — which lives in the very table the
+ * chain protects. A DB-level actor could therefore:
+ *     1. take a v3 row, set checksum_version = NULL,
+ *     2. recompute its checksum with the unkeyed formula (NO key needed),
+ *     3. cascade-relink the forward chain unkeyed,
+ * and the walk below would take the unkeyed branch and PASS.
+ *
+ * AUDIT_CHAIN_KEYED_FROM is the out-of-band anchor that closes this: it lives
+ * in the API's environment, NOT in the database, and records the chain_position
+ * at which keying began. Any row at or after it MUST be v3. The downgrade above
+ * changes the row's version away from 3, so it is caught here.
+ *
+ * `getAuditChainKeyedFrom()` existed since the keyed-chain work but had NO
+ * CALLERS — the defence its docstring described was never actually enforced.
+ * This is that enforcement.
  */
 import { prisma } from './prisma.js';
 import { verifyAuditChecksum } from './hash-chain.js';
+import { getAuditChainKeyedFrom } from './hash-chain.js';
 
 export interface ChainAnomaly {
   position: number;
   id: string;
-  kind: 'PER_ROW_CHECKSUM_MISMATCH' | 'CHAIN_LINK_MISMATCH' | 'CHAIN_POSITION_GAP';
+  kind: 'PER_ROW_CHECKSUM_MISMATCH' | 'CHAIN_LINK_MISMATCH' | 'CHAIN_POSITION_GAP'
+      | 'KEYED_ERA_DOWNGRADE';
   message: string;
   expected?: string | null;
   actual?: string | null;
@@ -102,11 +125,37 @@ export async function verifyAuditChain(opts: VerifyChainOptions = {}): Promise<V
   let priorPosition: number | null = null;
   let highestPosition: number | null = null;
 
+  // Out-of-band keyed-era boundary. NOTE: 0 is a LEGITIMATE value (a fresh
+  // install keys from the very first row), so this must be compared with
+  // `!== null` — a truthiness check would silently disable enforcement for the
+  // strictest possible configuration.
+  const keyedFrom = getAuditChainKeyedFrom();
+
   for (const row of rows) {
     const position = row.chain_position == null
       ? -1
       : (typeof row.chain_position === 'bigint' ? Number(row.chain_position) : row.chain_position);
     if (position > (highestPosition ?? -1)) highestPosition = position;
+
+    // Keyed-era enforcement: at/after the cutover, a row that is not v3 has
+    // been downgraded. Checked BEFORE the per-row checksum, because a
+    // successful downgrade produces a checksum that verifies under the unkeyed
+    // formula — so the per-row check alone would report the row as healthy.
+    if (keyedFrom !== null && position >= keyedFrom && row.checksum_version !== 3) {
+      anomalies.push({
+        position,
+        id: row.id,
+        kind: 'KEYED_ERA_DOWNGRADE',
+        message:
+          `Row ${row.id} at chain_position ${position} is at/after the keyed-era boundary `
+          + `(AUDIT_CHAIN_KEYED_FROM=${keyedFrom}) but has checksum_version=`
+          + `${row.checksum_version === null ? 'NULL' : row.checksum_version}, not 3. `
+          + `A keyed row was downgraded to the unkeyed formula, or the boundary is misconfigured.`,
+        expected: '3',
+        actual: row.checksum_version === null ? null : String(row.checksum_version),
+      });
+      if (anomalies.length >= maxAnomalies) break;
+    }
 
     // Per-row checksum verification.
     const perRowOk = verifyAuditChecksum({

@@ -135,6 +135,63 @@ $btArgs = @{ InstallDir = $InstallDir; DataRoot = $DataRoot; RetainDays = $Backu
 if ($DryRun) { $btArgs['DryRun'] = $true }
 & (Join-Path $PSScriptRoot 'register-backup-task.ps1') @btArgs
 
+# 5c. Backfill the audit-chain HMAC key on installs that predate it (21 CFR
+#     §11.10(e)). Builds before 2026-07-25 never generated AUDIT_CHAIN_KEY, so
+#     their audit chain is UNKEYED: the checksum lives in the same table it
+#     protects, so a DB-level actor can recompute a fully self-consistent
+#     forged chain that passes verify-chain. install.ps1 deliberately reuses an
+#     existing env file and never regenerates secrets, so without this block an
+#     existing customer would NEVER acquire the key.
+#
+#     Safe to do mid-life by design: existing rows stay v1/v2 and keep
+#     verifying via the unkeyed fallback ("never rewrite immutable history");
+#     only NEW rows become v3.
+#
+#     ORDERING IS LOAD-BEARING. This runs with the API service STOPPED (step 3)
+#     and immediately before it is restarted (step 6), so no audit row can be
+#     written between reading the head position and the key taking effect. A
+#     row landing after the boundary but written unkeyed would make verify-chain
+#     fail permanently on a chain that was never tampered with.
+#
+#     Both variables are required. AUDIT_CHAIN_KEY alone is not enough: a v3 row
+#     can be relabelled checksum_version=NULL, recomputed with the unkeyed
+#     formula (no key needed) and still pass. AUDIT_CHAIN_KEYED_FROM is the
+#     out-of-band anchor that makes "at/after this position it MUST be v3"
+#     enforceable — see verifyAuditChain's KEYED_ERA_DOWNGRADE anomaly.
+$envRaw = Get-Content $envFile
+if ($envRaw -match '^\s*AUDIT_CHAIN_KEY\s*=\s*\S') {
+  Write-Host "==> AUDIT_CHAIN_KEY already present - preserved (never regenerate)" -ForegroundColor Cyan
+} else {
+  Write-Host "==> AUDIT_CHAIN_KEY absent - backfilling (audit chain is currently UNKEYED)" -ForegroundColor Yellow
+  # Head position with the API stopped. verify-chain reports the same number as
+  # highestPosition; read it directly here since the API is down.
+  $psqlExe = Join-Path $pgBin 'psql.exe'
+  $env:PGPASSWORD = $dbPass
+  $headRaw = & $psqlExe -h $dbHost -p $dbPort -U $dbUser -d $dbName -tAc "select coalesce(max(chain_position),-1) from audit_trail"
+  if ($LASTEXITCODE -ne 0 -or -not $headRaw) {
+    Write-Host "FATAL: could not read audit_trail head position; refusing to write a boundary we cannot trust." -ForegroundColor Red
+    exit 1
+  }
+  $head = [int64](($headRaw | Select-Object -First 1).ToString().Trim())
+  # Key from the NEXT position: rows up to and including $head were written
+  # unkeyed and must keep verifying via the unkeyed fallback.
+  $keyedFrom = $head + 1
+
+  $newKeyBytes = New-Object byte[] 48
+  [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($newKeyBytes)
+  $newKey = -join ($newKeyBytes | ForEach-Object { $_.ToString('x2') })
+
+  if ($DryRun) {
+    Write-Host "[dry-run] append AUDIT_CHAIN_KEY=<48-byte random> and AUDIT_CHAIN_KEYED_FROM=$keyedFrom to $envFile" -ForegroundColor Yellow
+  } else {
+    Add-Content -Path $envFile -Value "AUDIT_CHAIN_KEY=$newKey" -Encoding ascii
+    Add-Content -Path $envFile -Value "AUDIT_CHAIN_KEYED_FROM=$keyedFrom" -Encoding ascii
+    Write-Host "==> Audit chain keyed from position $keyedFrom (rows 0..$head remain unkeyed legacy)" -ForegroundColor Green
+    Write-Host "    BACK UP $envFile SEPARATELY FROM THE DATABASE." -ForegroundColor Yellow
+    Write-Host "    Losing this key makes every keyed audit row permanently unverifiable." -ForegroundColor Yellow
+  }
+}
+
 # 6. Start the API service + health check.
 if ($DryRun) { Write-Host "[dry-run] sc start $ApiService; poll http://localhost:$ApiPort/api/health" -ForegroundColor Yellow; exit 0 }
 Write-Host "==> Starting $ApiService" -ForegroundColor Cyan

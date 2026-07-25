@@ -87,11 +87,51 @@ Verifier rules — subtle and load-bearing:
 - **v3 rows REQUIRE the key and an HMAC match.** The verifier does **not** accept
   the unkeyed formula for them. Otherwise an attacker could *downgrade* a row to
   unkeyed and still pass.
-- A downgrade attempt still breaks the **forward** link (the next v3 row's
-  `previous_checksum` stops matching), and re-linking the whole forward chain
-  requires the key — so the attack surfaces on a chain walk either way.
+- **Correction (2026-07-25).** An earlier revision of this page claimed a
+  downgrade "still breaks the forward link… so the attack surfaces on a chain
+  walk either way." **That was wrong**, and the code proved it: relabelling a v3
+  row to `checksum_version = NULL`, recomputing it with the unkeyed formula (no
+  key required) and relinking the forward chain unkeyed **passed verification**.
+  A regression test now demonstrates exactly this
+  (`e2e/audit-chain.test.ts` → "WITHOUT the boundary, a downgraded row passes").
+- The real defence is the **out-of-band cutover anchor** `AUDIT_CHAIN_KEYED_FROM`
+  — see §3.1 below.
 - Legacy rows keep verifying via the unkeyed fallback, so historical data stays
   valid across the cutover.
+
+### 3.1 The keyed era needs TWO variables, not one
+
+`AUDIT_CHAIN_KEY` alone is **not sufficient**. `verifyAuditChecksum()` picks the
+keyed or unkeyed formula from the row's own `checksum_version` column — which
+lives in the very table the chain protects. So a DB-level actor can:
+
+1. take a v3 row and set `checksum_version = NULL`,
+2. recompute its checksum with the unkeyed formula (**no key needed**),
+3. cascade-relink the forward chain unkeyed,
+
+and verification takes the unkeyed branch and passes.
+
+**`AUDIT_CHAIN_KEYED_FROM`** closes this. It lives in the API's environment, not
+the database, and records the `chain_position` at which keying began. Every row
+at or after it MUST be v3; anything else is reported as a `KEYED_ERA_DOWNGRADE`
+anomaly.
+
+> **History (2026-07-25):** `getAuditChainKeyedFrom()` existed in
+> `hash-chain.ts` with a detailed docstring describing this defence — but had
+> **zero callers**. The enforcement was never implemented; the comment described
+> an intention. It is now enforced in `verifyAuditChain()`, and provisioned by
+> `install.ps1` (fresh: `KEYED_FROM=0`) and `upgrade.ps1` (backfill: `head + 1`).
+
+**Ordering is load-bearing.** Capture the head position and write both variables
+with the API **stopped**:
+
+```
+stop API  →  read max(chain_position)  →  write BOTH vars  →  start API
+```
+
+Rows written between capturing the head and the key taking effect would land
+after the boundary as unkeyed, making verification fail permanently on a chain
+that was never tampered with.
 
 **Operational consequence:** `AUDIT_CHAIN_KEY` must be backed up separately from
 the database, and rotating it invalidates verification of existing v3 rows. A
