@@ -26,28 +26,49 @@ consequences that change how you should approach the move:
    (fixed 2026-07-25) is what makes DB-level tampering detectable. Do not deploy
    to RDS without it.
 
-## 1. What you are building
+## 1. What you are building — PRIVATE, VPN-only
+
+**Decision (2026-07-25): no public domain. The application is not reachable from
+the internet.** Users connect over VPN. This preserves the on-premises threat
+model the system was designed and validated against, and it is the more
+defensible posture for 21 CFR Part 11 records.
 
 ```
-        Internet
-           │  443
-    ┌──────▼──────────────────────────┐
+   Users ──VPN──►  AWS Client VPN endpoint
+                          │  (VPN client CIDR, e.g. 10.100.0.0/22)
+                          ▼
+    ┌─────────────────────────────────┐
     │ EC2 Windows Server              │   security group: sg-app
-    │   DigiLogAPI (WinSW service)    │   in : 443 from 0.0.0.0/0 (or your CIDR)
-    │     node dist/app.js            │        3389 from <YOUR_IP>/32 ONLY
-    │     SERVE_WEB=true → serves SPA │   out: 5432 to sg-db
+    │   NO public IP                  │   in : 443  from <VPN_CIDR> ONLY
+    │   DigiLogAPI (WinSW service)    │        3389 from <VPN_CIDR> ONLY
+    │     node dist/app.js            │   out: 5432 to sg-db
+    │     SERVE_WEB=true → serves SPA │
     └──────┬──────────────────────────┘
            │ 5432
     ┌──────▼──────────────────────────┐
     │ RDS PostgreSQL 16+              │   security group: sg-db
     │   compliance_core_db            │   in : 5432 from sg-app ONLY
-    │   NOT publicly accessible       │   NO public access
+    │   NOT publicly accessible       │
     └─────────────────────────────────┘
 ```
 
 **One process serves everything.** `SERVE_WEB=true` makes the Fastify API serve
 the built React SPA, so there is no nginx/IIS and no separate web server. This
 is why only one service is registered.
+
+**What the private choice buys you**, beyond the obvious:
+
+- **No ALB, no ACM, no public certificate, no DNS.** Self-signed certs are
+  acceptable again (§8) because the trust boundary is the VPN, not the browser's
+  public CA list.
+- **No public 443**, so the CSP `unsafe-inline` and exposed Swagger findings drop
+  from "internet-facing risk" to "authenticated-network risk".
+- **No Elastic IP needed** — nothing addresses the instance publicly.
+
+**What it does not buy you.** VPN is perimeter control, not a substitute for the
+application's own controls. Everything else in this runbook still applies: the
+audit chain key (§6), `ALLOWED_ORIGINS` (§6), a real initial admin password
+(§7), and RDS reachable only from the app SG (§3).
 
 ## 2. Prerequisites on your workstation
 
@@ -86,27 +107,63 @@ aws ec2 create-security-group --group-name compliance-core-db `
 # → note GroupId as sg-db
 ```
 
-Rules — **the database must never be reachable from the internet**:
+Rules. **Nothing here opens a port to the internet** — `0.0.0.0/0` must not
+appear in any rule below.
 
 ```powershell
+$VPN_CIDR = "<VPN_CLIENT_CIDR>"     # e.g. 10.100.0.0/22 — see section 3a
+
 # RDS: accept 5432 ONLY from the app security group
 aws ec2 authorize-security-group-ingress --group-id <SG_DB> `
   --protocol tcp --port 5432 --source-group <SG_APP>
 
-# App: HTTPS from users
+# App: HTTPS from the VPN only
 aws ec2 authorize-security-group-ingress --group-id <SG_APP> `
-  --protocol tcp --port 443 --cidr 0.0.0.0/0
+  --protocol tcp --port 443 --cidr $VPN_CIDR
 
-# App: RDP from YOUR IP ONLY — never 0.0.0.0/0
+# App: RDP from the VPN only
 aws ec2 authorize-security-group-ingress --group-id <SG_APP> `
-  --protocol tcp --port 3389 --cidr <YOUR_PUBLIC_IP>/32
+  --protocol tcp --port 3389 --cidr $VPN_CIDR
 ```
 
-Attach `sg-app` to the instance (keep any SG you already rely on for access):
+Attach `sg-app` to the instance. **Do this only once VPN access is confirmed
+working** — if the instance currently has a public-IP SG that is how you reach
+it, replacing that SG will lock you out.
 
 ```powershell
 aws ec2 modify-instance-attribute --instance-id i-05a5f520ba20927b6 --groups <SG_APP>
 ```
+
+Then remove the public IP so the host is genuinely unreachable:
+
+```powershell
+# confirm what is currently attached before changing anything
+aws ec2 describe-instances --instance-ids i-05a5f520ba20927b6 `
+  --query "Reservations[].Instances[].{PublicIp:PublicIpAddress,SGs:SecurityGroups[].GroupId}" --output table
+```
+
+A public IPv4 auto-assigned at launch cannot be detached in place — you either
+disassociate an Elastic IP, or recreate the instance in a private subnet. If
+recreating is not acceptable right now, leaving the public IP with **no inbound
+rules permitting it** is an acceptable interim: the address exists but nothing
+listens to the internet. Note it as a deviation and close it later.
+
+### 3a. The VPN itself
+
+Three options, in descending order of fit for this system:
+
+| Option | When it fits |
+|---|---|
+| **AWS Client VPN** | Individual users on laptops. Certificate or AD/SSO auth. Per-endpoint-hour + per-connection cost. Cleanest for a handful of named operators. |
+| **Site-to-Site VPN** | The site already has a hardware VPN appliance and users are on a corporate LAN. Extends the existing network — often the best fit for a pharma site that already has one. |
+| **Bastion + SSM Session Manager** | Admin access only, not an end-user path. Good for you to administer the box; not how operators would use the app. |
+
+Whichever you choose, `<VPN_CLIENT_CIDR>` above is the address range assigned to
+connected clients, and it must be routable to the instance's subnet.
+
+> **If the site already has a Site-to-Site VPN, use it.** It avoids a second
+> credential set for operators and keeps access governance where the site's
+> existing SOPs already cover it — which matters for validation.
 
 ## 4. RDS PostgreSQL
 
@@ -200,7 +257,7 @@ UPLOAD_DIR=C:\ProgramData\DigiLog\uploads
 JWT_SECRET=<GENERATED>
 VERIFICATION_TOKEN_SECRET=<GENERATED>
 JWT_EXPIRES_IN=1h
-ALLOWED_ORIGINS=https://<YOUR_DNS_NAME>
+ALLOWED_ORIGINS=https://<PRIVATE_IP_OR_INTERNAL_NAME>
 AUDIT_CHAIN_KEY=<GENERATED>
 AUDIT_CHAIN_KEYED_FROM=0
 ```
@@ -252,22 +309,45 @@ only `DigiLogAPI`. Either add a skip-DB switch to that script, or register the
 API alone with WinSW using the same XML shape it generates. Point
 `DOTENV_CONFIG_PATH` at the env file from §6.
 
-## 8. TLS
+## 8. TLS — self-signed, on the instance
 
-Self-signed certs will not work for public access — every user gets a browser
-warning and traffic is trivially MITM-able. Two acceptable options:
+With no public domain and VPN-only access, a public CA certificate is neither
+available nor needed: there is no public DNS name to issue one against, and the
+trust boundary is the VPN. **Self-signed is the correct choice here** — the same
+model the on-premises product already uses.
 
-**A — ALB + ACM (recommended).** Request a public certificate in ACM for your
-domain, put an Application Load Balancer in front, terminate TLS at the ALB, and
-let it reach the instance on 443. Certificate renewal is automatic.
+TLS still stays **on**. It protects credentials and audit data on the wire
+*inside* the VPN, and `API_HTTPS=true` in §6 assumes it.
 
-**B — Certificate on the instance.** Use `win-acme` for a Let's Encrypt cert
-directly on the box, writing to the `TLS_KEY_PATH` / `TLS_CERT_PATH` in §6.
-Fewer moving parts, but you own renewal.
+Generate a cert on the instance whose SAN covers how users will actually reach
+it — the private IP, and any internal DNS name if the site has one:
 
-Either way you need a **DNS name** pointing at the ALB or the instance's Elastic
-IP. Allocate an Elastic IP if you go with B — a stopped instance loses its
-public IP otherwise.
+```powershell
+# on the EC2 instance, using the repo's existing mkcert-style flow
+mkcert -key-file C:\ProgramData\DigiLog\certs\server.key `
+       -cert-file C:\ProgramData\DigiLog\certs\server.crt `
+       <PRIVATE_IP> <INTERNAL_DNS_NAME_IF_ANY> localhost 127.0.0.1
+```
+
+> **The SAN list matters.** Browsers reject a certificate that does not name the
+> host as typed. If operators will browse to `https://10.0.1.42`, that IP must
+> be in the SAN — a CN-only cert will fail.
+
+**Distribute the root CA to client machines**, otherwise every operator sees a
+warning and is trained to click through security prompts — a genuinely bad habit
+in a regulated environment:
+
+- Windows clients: import `rootCA.pem` into *Trusted Root Certification
+  Authorities* (Local Machine), ideally pushed by Group Policy.
+- Record the CA fingerprint in your deployment documentation.
+
+**Set `ALLOWED_ORIGINS` (§6) to exactly what users type**, e.g.
+`https://10.0.1.42` or `https://compliance.internal.example`. It is not optional
+— production boot fails without it.
+
+**Renewal:** self-signed certs do not auto-renew. Note the expiry date and put a
+reminder in your maintenance calendar; an expired cert takes the application
+offline for every user at once.
 
 ## 9. Backups and recovery
 
@@ -285,8 +365,8 @@ willing to lose — treat it as a compliance parameter.
 ## 10. Post-deployment verification
 
 ```powershell
-# service up
-Invoke-WebRequest https://<YOUR_DNS_NAME>/health -UseBasicParsing
+# service up (from a VPN-connected machine)
+Invoke-WebRequest https://<PRIVATE_IP_OR_INTERNAL_NAME>/health -UseBasicParsing
 
 # audit chain intact AND keyed  ← the one that matters
 # log in, then:
@@ -304,11 +384,15 @@ SELECT checksum_version, count(*) FROM audit_trail GROUP BY checksum_version;
 Also verify:
 
 - [ ] `superadmin` first login forces a password change
-- [ ] RDP (3389) is restricted to your IP, not `0.0.0.0/0`
+- [ ] **No security-group rule anywhere contains `0.0.0.0/0`**
+- [ ] 443 and 3389 accept the VPN CIDR only
 - [ ] RDS is `PubliclyAccessible: false`
-- [ ] `/docs` (Swagger) — decide whether to expose it; it publishes a complete
-      API map. Recommended: disable in production.
-- [ ] `ALLOWED_ORIGINS` matches the real origin
+- [ ] App is NOT reachable from a non-VPN network (verify by disconnecting)
+- [ ] Root CA imported on client machines — no browser warning on normal use
+- [ ] Certificate SAN covers the host as users actually type it
+- [ ] `ALLOWED_ORIGINS` matches that exact origin
+- [ ] `/docs` (Swagger) — lower risk now it is VPN-only, but still publishes a
+      complete API map to anyone on the VPN. Disable in production if you can.
 
 ## 11. Known gaps this deployment inherits
 
@@ -317,7 +401,7 @@ scheduling:
 
 | Item | Detail |
 |---|---|
-| CSP `script-src 'unsafe-inline'` | Present so Swagger UI can run; neutralises CSP for the origin. Disabling Swagger in production lets you tighten it |
+| CSP `script-src 'unsafe-inline'` | Present so Swagger UI can run; neutralises CSP for the origin. Lower severity now the app is VPN-only, but disabling Swagger in production still lets you tighten it |
 | Audit key not mandatory at boot | An env missing `AUDIT_CHAIN_KEY` still boots unkeyed. §10's SQL check is your safety net until this is made fatal |
 | Tail truncation | Deleting the newest audit rows is not detectable by the chain alone. Record `verify-chain`'s `highestPosition` daily to write-once storage |
 | Dead `capacitor://localhost` CORS entry | Remove from the allow-list |
