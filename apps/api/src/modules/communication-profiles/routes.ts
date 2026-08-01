@@ -18,7 +18,16 @@ import { maskSecrets } from '../../lib/mask-secrets.js';
 import { stripHtml } from '../../lib/sanitize.js';
 import { NotFoundError, ValidationError, ConflictError } from '../../lib/errors.js';
 
-// Two allowlists for two different audiences (fix round 1, finding #1):
+// Two allowlists for two different audiences (fix round 1, finding #1) —
+// DELIBERATELY MAINTAINED SEPARATELY, not derived from one another (fix round
+// 2: an earlier version derived AUDIT_SAFE_KEYS by filtering RESPONSE_SAFE_KEYS,
+// which meant a future key added only to RESPONSE_SAFE_KEYS — e.g. a protocol
+// adds `callbackUrl`/`proxyUrl` — would silently inherit into the audit list
+// too, with nobody touching or even aware of the exclusion. That inverts
+// mask-secrets.ts's own fail-closed guarantee: "an unrecognised key is
+// redacted until a human deliberately declares it safe." A new config key
+// must be added to EACH list independently — do not re-derive one from the
+// other, however tempting the near-duplication looks.
 //
 // - RESPONSE_SAFE_KEYS gates the GET/POST/PUT response body. That path is
 //   already behind COMM_PROFILE_VIEW, and an admin editing a profile needs
@@ -46,9 +55,14 @@ const COMM_PROFILE_RESPONSE_SAFE_KEYS = [
   'unitId', 'baudRate', 'dataBits', 'stopBits', 'parity',
   'region', 'deviceId', 'apiVersion',
 ];
-const COMM_PROFILE_AUDIT_SAFE_KEYS = COMM_PROFILE_RESPONSE_SAFE_KEYS.filter(
-  (key) => !['brokerUrl', 'url', 'endpoint'].includes(key),
-);
+const COMM_PROFILE_AUDIT_SAFE_KEYS = [
+  'host', 'port', 'path',
+  'qos', 'topic', 'topicPrefix', 'clientId', 'username',
+  'useTls', 'tls', 'protocolVersion', 'keepAlive', 'retain', 'clean',
+  'pollIntervalMs', 'timeout', 'connectTimeout', 'reconnectPeriod',
+  'unitId', 'baudRate', 'dataBits', 'stopBits', 'parity',
+  'region', 'deviceId', 'apiVersion',
+];
 
 function maskForResponse(config: unknown): unknown {
   return maskSecrets(config, COMM_PROFILE_RESPONSE_SAFE_KEYS);
