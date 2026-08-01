@@ -1,22 +1,29 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type FastifyInstance } from 'fastify';
-import { buildApp, loginAs, authGet, authPost } from './test-helper.js';
+import { buildApp, loginAs, authGet, authPost, authDelete } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
 import { hashPassword } from '../lib/password.js';
+import { REDACTED } from '../lib/mask-secrets.js';
 
 /**
  * Task 7 — communication profiles module.
  *
  * Provisions its own SUPER_ADMIN user (`commprof_admin`) per apps/api/CLAUDE.md
  * single-fork guidance — the shared `admin` login races across concurrently
- * running suites.
+ * running suites. Also provisions a low-privilege OPERATOR user
+ * (`commprof_operator`) to prove COMM_PROFILE_VIEW is actually enforced —
+ * OPERATOR is not granted it by default (the module is off-by-default, per
+ * every other 2026-07/08 permission addition in this codebase).
  */
 const TEST_USERNAME = 'commprof_admin';
 const TEST_PASSWORD = 'CommProf@Test1';
+const OPERATOR_USERNAME = 'commprof_operator';
+const OPERATOR_PASSWORD = 'CommProfOp@Test1';
 
 describe('communication profiles', () => {
   let app: FastifyInstance;
   let token: string;
+  let operatorToken: string;
 
   beforeAll(async () => {
     app = await buildApp();
@@ -47,14 +54,45 @@ describe('communication profiles', () => {
         isTemporaryPassword: false,
       },
     });
-
     token = await loginAs(app, TEST_USERNAME, TEST_PASSWORD);
+
+    const operatorPasswordHash = await hashPassword(OPERATOR_PASSWORD);
+    await prisma.user.upsert({
+      where: { username: OPERATOR_USERNAME },
+      update: {
+        passwordHash: operatorPasswordHash,
+        fullName: 'CommProfile Test Operator',
+        email: 'commprof-operator-test@example.test',
+        role: 'OPERATOR',
+        status: 'ENABLED',
+        forcePasswordChange: false,
+        isTemporaryPassword: false,
+        failedLoginAttempts: 0,
+        lockedAt: null,
+        lockoutUntil: null,
+      },
+      create: {
+        username: OPERATOR_USERNAME,
+        passwordHash: operatorPasswordHash,
+        fullName: 'CommProfile Test Operator',
+        email: 'commprof-operator-test@example.test',
+        role: 'OPERATOR',
+        status: 'ENABLED',
+        forcePasswordChange: false,
+        isTemporaryPassword: false,
+      },
+    });
+    operatorToken = await loginAs(app, OPERATOR_USERNAME, OPERATOR_PASSWORD);
   });
 
   afterAll(async () => {
     // The `name` column is unique — clean up so re-runs against the same
-    // (non-reset) test DB don't collide with the row this file creates.
-    await prisma.communicationProfile.deleteMany({ where: { name: 'Plant MQTT' } });
+    // (non-reset) test DB don't collide with the rows this file creates.
+    await prisma.gateway.deleteMany({ where: { code: { startsWith: 'CPTEST-GW-' } } });
+    await prisma.hierarchyNode.deleteMany({ where: { slug: { startsWith: 'cptest-plant-' } } });
+    await prisma.communicationProfile.deleteMany({
+      where: { name: { in: ['Plant MQTT', 'Delete Me MQTT', 'In Use MQTT'] } },
+    });
     await app.close();
   });
 
@@ -64,17 +102,35 @@ describe('communication profiles', () => {
     expect(res.json()).toHaveLength(18);
   });
 
-  it('creates a profile and MASKS the secret on read', async () => {
+  it('creates a profile and MASKS the secret on read, and keeps it out of the audit row', async () => {
+    // Credential-bearing broker URL — the exact shape the fix-round-1 finding
+    // was about: userinfo embedded in the connection URL itself.
+    const credentialUrl = 'mqtts://svc:S3cret!@broker:8883';
     const create = await authPost(app, '/api/communication-profiles', token, {
       name: 'Plant MQTT', protocolKey: 'mqtt',
-      config: { brokerUrl: 'mqtts://broker:8883', username: 'svc', password: 'S3cret!', qos: 1 },
+      config: { brokerUrl: credentialUrl, username: 'svc', password: 'S3cret!', qos: 1 },
     });
     expect(create.statusCode).toBe(200);
+    const profileId = create.json().id;
 
     const list = await authGet(app, '/api/communication-profiles', token);
     const profile = list.json().find((p: { name: string }) => p.name === 'Plant MQTT');
-    expect(profile.config.password).not.toBe('S3cret!');
-    expect(profile.config.brokerUrl).toBe('mqtts://broker:8883');
+    // Response path (COMM_PROFILE_VIEW-gated) — password redacted, brokerUrl visible.
+    expect(profile.config.password).toBe(REDACTED);
+    expect(profile.config.brokerUrl).toBe(credentialUrl);
+
+    // Audit path — strict allowlist. brokerUrl (which carries the credential)
+    // must NOT appear verbatim anywhere in the stored afterValue.
+    const auditRow = await prisma.auditTrail.findFirst({
+      where: { action: 'COMMUNICATION_PROFILE_CREATED', targetId: profileId },
+      orderBy: { timestamp: 'desc' },
+    });
+    expect(auditRow).not.toBeNull();
+    const afterValue = auditRow!.afterValue as any;
+    expect(afterValue.config.brokerUrl).toBe(REDACTED);
+    expect(afterValue.config.password).toBe(REDACTED);
+    expect(JSON.stringify(afterValue)).not.toContain('S3cret!');
+    expect(JSON.stringify(afterValue)).not.toContain(credentialUrl);
   });
 
   it('rejects an unknown protocol key', async () => {
@@ -82,5 +138,47 @@ describe('communication profiles', () => {
       name: 'Bad', protocolKey: 'opc-da', config: {},
     });
     expect(res.statusCode).toBe(400);
+  });
+
+  it('deletes an unused profile', async () => {
+    const create = await authPost(app, '/api/communication-profiles', token, {
+      name: 'Delete Me MQTT', protocolKey: 'mqtt', config: { brokerUrl: 'mqtts://x:1' },
+    });
+    expect(create.statusCode).toBe(200);
+    const profileId = create.json().id;
+
+    const del = await authDelete(app, `/api/communication-profiles/${profileId}`, token);
+    expect(del.statusCode).toBe(200);
+    expect(del.json()).toEqual({ success: true });
+
+    const list = await authGet(app, '/api/communication-profiles', token);
+    expect(list.json().find((p: { id: string }) => p.id === profileId)).toBeUndefined();
+  });
+
+  it('returns 409 PROFILE_IN_USE when deleting a profile a gateway depends on', async () => {
+    const create = await authPost(app, '/api/communication-profiles', token, {
+      name: 'In Use MQTT', protocolKey: 'mqtt', config: { brokerUrl: 'mqtts://x:1' },
+    });
+    const profileId = create.json().id;
+
+    const node = await prisma.hierarchyNode.create({
+      data: { level: 'PLANT', name: 'CPTest Plant', slug: 'cptest-plant-' + Date.now() },
+    });
+    await prisma.gateway.create({
+      data: {
+        name: 'CPTest Gateway', code: 'CPTEST-GW-' + Date.now(), slug: 'cptest-gw-' + Date.now(),
+        gatewayType: 'edge', externalId: 'cptest-ext-' + Date.now(),
+        hierarchyNodeId: node.id, communicationProfileId: profileId,
+      },
+    });
+
+    const del = await authDelete(app, `/api/communication-profiles/${profileId}`, token);
+    expect(del.statusCode).toBe(409);
+    expect(del.json().error).toBe('PROFILE_IN_USE');
+  });
+
+  it('returns 403 for a role lacking COMM_PROFILE_VIEW', async () => {
+    const res = await authGet(app, '/api/communication-profiles', operatorToken);
+    expect(res.statusCode).toBe(403);
   });
 });

@@ -9,6 +9,7 @@
  * are immutable and hash-chained (21 CFR §11.10(e)).
  */
 import { type FastifyInstance } from 'fastify';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { buildContext } from '../../lib/build-context.js';
 import { auditLog } from '../../lib/audit.js';
@@ -17,12 +18,27 @@ import { maskSecrets } from '../../lib/mask-secrets.js';
 import { stripHtml } from '../../lib/sanitize.js';
 import { NotFoundError, ValidationError, ConflictError } from '../../lib/errors.js';
 
-// Allowlist of config keys that are safe to return unmasked / write into audit
-// diffs. Covers connection-shape fields shared across the protocol registry
-// (mqtt, http, modbus, opcua, kafka, ...). Deliberately excludes credentials —
-// password, token, apiKey, secret, certificate/key material, etc. — which fall
-// through to REDACTED by default per the allowlist-not-denylist rule.
-const COMM_PROFILE_SAFE_KEYS = [
+// Two allowlists for two different audiences (fix round 1, finding #1):
+//
+// - RESPONSE_SAFE_KEYS gates the GET/POST/PUT response body. That path is
+//   already behind COMM_PROFILE_VIEW, and an admin editing a profile needs
+//   to see the broker URL / endpoint or the edit form is unusable.
+// - AUDIT_SAFE_KEYS gates beforeValue/afterValue written into audit_trail.
+//   STRICT — url/endpoint/brokerUrl are deliberately absent here. Broker URLs
+//   commonly carry userinfo (mqtts://user:pass@host:8883) and this registry
+//   also seeds `rest` + `webhook`, whose URLs commonly carry API keys as query
+//   params. AUDIT_READ is held by far more roles than CONFIG_UPDATE, and the
+//   write is permanent + hash-chained (21 CFR §11.10(e)) — unlike the SMTP/SMS
+//   audit allowlists this borrows the pattern from (see
+//   notification-delivery/routes.ts's EMAIL_AUDIT_SAFE_KEYS /
+//   SMS_AUDIT_SAFE_KEYS), there is no per-field rehydration step here to make
+//   omitting a URL merely inconvenient — so it stays out of the strict list
+//   entirely. Redacting something harmless is the cheap error; leaking a
+//   credential into an unscrubbable chain forever is the expensive one.
+//
+// Both fall through to maskSecrets' REDACTED default for anything not
+// listed — password, token, apiKey, secret, certificate/key material, etc.
+const COMM_PROFILE_RESPONSE_SAFE_KEYS = [
   'brokerUrl', 'host', 'port', 'url', 'endpoint', 'path',
   'qos', 'topic', 'topicPrefix', 'clientId', 'username',
   'useTls', 'tls', 'protocolVersion', 'keepAlive', 'retain', 'clean',
@@ -30,9 +46,20 @@ const COMM_PROFILE_SAFE_KEYS = [
   'unitId', 'baudRate', 'dataBits', 'stopBits', 'parity',
   'region', 'deviceId', 'apiVersion',
 ];
+const COMM_PROFILE_AUDIT_SAFE_KEYS = COMM_PROFILE_RESPONSE_SAFE_KEYS.filter(
+  (key) => !['brokerUrl', 'url', 'endpoint'].includes(key),
+);
 
-function maskConfig(config: unknown): unknown {
-  return maskSecrets(config, COMM_PROFILE_SAFE_KEYS);
+function maskForResponse(config: unknown): unknown {
+  return maskSecrets(config, COMM_PROFILE_RESPONSE_SAFE_KEYS);
+}
+function maskForAudit(config: unknown): unknown {
+  return maskSecrets(config, COMM_PROFILE_AUDIT_SAFE_KEYS);
+}
+
+/** True for a Prisma foreign-key-violation error (P2003). */
+function isFkViolation(err: unknown): boolean {
+  return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2003';
 }
 
 export default async function communicationProfileRoutes(app: FastifyInstance) {
@@ -47,7 +74,7 @@ export default async function communicationProfileRoutes(app: FastifyInstance) {
     schema: { tags: ['Data Injection'], summary: 'List communication profiles' },
   }, async () => {
     const rows = await prisma.communicationProfile.findMany({ orderBy: { name: 'asc' } });
-    return rows.map(r => ({ ...r, config: maskConfig(r.config) }));
+    return rows.map(r => ({ ...r, config: maskForResponse(r.config) }));
   });
 
   app.post('/', {
@@ -82,13 +109,13 @@ export default async function communicationProfileRoutes(app: FastifyInstance) {
       });
       await auditLog({
         action: 'COMMUNICATION_PROFILE_CREATED', targetType: 'CommunicationProfile', targetId: row.id,
-        afterValue: { name: row.name, protocolKey: row.protocolKey, config: maskConfig(body.config) },
+        afterValue: { name: row.name, protocolKey: row.protocolKey, config: maskForAudit(body.config) },
         userId: ctx.userId, userRole: ctx.userRole, ipAddress: ctx.ipAddress,
         userAgent: ctx.userAgent, sessionId: ctx.sessionId,
       }, tx);
       return row;
     });
-    return { ...created, config: maskConfig(created.config) };
+    return { ...created, config: maskForResponse(created.config) };
   });
 
   app.put('/:id', {
@@ -125,14 +152,14 @@ export default async function communicationProfileRoutes(app: FastifyInstance) {
       });
       await auditLog({
         action: 'COMMUNICATION_PROFILE_UPDATED', targetType: 'CommunicationProfile', targetId: id,
-        beforeValue: { name: before.name, config: maskConfig(before.config), isActive: before.isActive },
-        afterValue: { name: row.name, config: maskConfig(row.config), isActive: row.isActive },
+        beforeValue: { name: before.name, config: maskForAudit(before.config), isActive: before.isActive },
+        afterValue: { name: row.name, config: maskForAudit(row.config), isActive: row.isActive },
         userId: ctx.userId, userRole: ctx.userRole, ipAddress: ctx.ipAddress,
         userAgent: ctx.userAgent, sessionId: ctx.sessionId,
       }, tx);
       return row;
     });
-    return { ...updated, config: maskConfig(updated.config) };
+    return { ...updated, config: maskForResponse(updated.config) };
   });
 
   app.delete('/:id', {
@@ -150,29 +177,46 @@ export default async function communicationProfileRoutes(app: FastifyInstance) {
     if (!before) throw new NotFoundError('Communication profile not found.');
 
     // Gateway/Instrument FKs to communication_profiles are onDelete: Restrict.
-    // Prisma would raise P2003 on the delete below, and the global error
-    // handler has no mapping for that code (falls through to a bare 500) —
-    // so check up front and return a clean, actionable 409 instead.
-    const [gatewayCount, instrumentCount] = await Promise.all([
-      prisma.gateway.count({ where: { communicationProfileId: id } }),
-      prisma.instrument.count({ where: { communicationProfileId: id } }),
-    ]);
-    if (gatewayCount > 0 || instrumentCount > 0) {
-      throw new ConflictError(
-        `Cannot delete communication profile '${before.name}': in use by ${gatewayCount} gateway(s) and ${instrumentCount} instrument(s).`,
-        'PROFILE_IN_USE',
-      );
-    }
+    // Fix round 1, finding #2: counting outside the transaction that deletes
+    // is a TOCTOU gap — a gateway/instrument can attach to this profile in the
+    // window between the count and the delete, and the delete would then hit
+    // the Restrict FK and raise P2003, which the global error handler has no
+    // mapping for (falls through to a bare 500). So the count is re-checked
+    // INSIDE the same transaction as the delete (closing the window as far as
+    // Postgres's transaction isolation allows), AND a P2003 catch backstops
+    // whatever race the re-check still can't close, mapping it to the same
+    // clean 409 instead of ever letting it reach the generic error path.
+    try {
+      await prisma.$transaction(async (tx) => {
+        const [gatewayCount, instrumentCount] = await Promise.all([
+          tx.gateway.count({ where: { communicationProfileId: id } }),
+          tx.instrument.count({ where: { communicationProfileId: id } }),
+        ]);
+        if (gatewayCount > 0 || instrumentCount > 0) {
+          throw new ConflictError(
+            `Cannot delete communication profile '${before.name}': in use by ${gatewayCount} gateway(s) and ${instrumentCount} instrument(s).`,
+            'PROFILE_IN_USE',
+          );
+        }
 
-    await prisma.$transaction(async (tx) => {
-      await tx.communicationProfile.delete({ where: { id } });
-      await auditLog({
-        action: 'COMMUNICATION_PROFILE_DELETED', targetType: 'CommunicationProfile', targetId: id,
-        beforeValue: { name: before.name, protocolKey: before.protocolKey },
-        userId: ctx.userId, userRole: ctx.userRole, ipAddress: ctx.ipAddress,
-        userAgent: ctx.userAgent, sessionId: ctx.sessionId,
-      }, tx);
-    });
+        await tx.communicationProfile.delete({ where: { id } });
+        await auditLog({
+          action: 'COMMUNICATION_PROFILE_DELETED', targetType: 'CommunicationProfile', targetId: id,
+          beforeValue: { name: before.name, protocolKey: before.protocolKey },
+          userId: ctx.userId, userRole: ctx.userRole, ipAddress: ctx.ipAddress,
+          userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+        }, tx);
+      });
+    } catch (err) {
+      if (err instanceof ConflictError) throw err;
+      if (isFkViolation(err)) {
+        throw new ConflictError(
+          `Cannot delete communication profile '${before.name}': in use by a gateway or instrument.`,
+          'PROFILE_IN_USE',
+        );
+      }
+      throw err;
+    }
     return { success: true };
   });
 }
