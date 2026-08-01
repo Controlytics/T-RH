@@ -59,6 +59,7 @@ const DataInjectionDashboard = lazy(() => import('./routes/data-injection/index'
 const HierarchyPage = lazy(() => import('./routes/data-injection/hierarchy'));
 const GatewaysPage = lazy(() => import('./routes/data-injection/gateways'));
 const InstrumentsPage = lazy(() => import('./routes/data-injection/instruments'));
+const InstrumentWizard = lazy(() => import('./routes/data-injection/instrument-wizard'));
 const ProfilesPage = lazy(() => import('./routes/data-injection/profiles'));
 
 
@@ -145,6 +146,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/data-injection/hierarchy" element={<RequireRole permissions={[PERMISSIONS.HIERARCHY_VIEW]}><Suspense fallback={<LazyFallback />}><HierarchyPage /></Suspense></RequireRole>} />
             <Route path="/data-injection/gateways" element={<RequireRole permissions={[PERMISSIONS.GATEWAY_VIEW]}><Suspense fallback={<LazyFallback />}><GatewaysPage /></Suspense></RequireRole>} />
             <Route path="/data-injection/instruments" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_VIEW]}><Suspense fallback={<LazyFallback />}><InstrumentsPage /></Suspense></RequireRole>} />
+            <Route path="/data-injection/instruments/create" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_CREATE]}><Suspense fallback={<LazyFallback />}><InstrumentWizard /></Suspense></RequireRole>} />
             <Route path="/data-injection/profiles" element={<RequireRole permissions={[PERMISSIONS.COMM_PROFILE_VIEW]}><Suspense fallback={<LazyFallback />}><ProfilesPage /></Suspense></RequireRole>} />
 
             {/* Audit / Versions — SUPER_ADMIN only by default; assignable via Role Privileges → Audit / Versions. */}
