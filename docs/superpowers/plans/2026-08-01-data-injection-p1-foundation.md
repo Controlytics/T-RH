@@ -22,7 +22,8 @@
 - **Light theme only.** No dark-mode styling. `bg-white`, `bg-slate-50`, `border-slate-200`.
 - **Tests run single-fork:** `cd apps/api && npm test`. Multi-fork causes shared-`admin`-user races that are not real bugs.
 - **New test files provision their own uniquely-named user** in `beforeAll` rather than reusing the shared `admin`.
-- Target counts on completion: **30 models, 8 enums, 22 API modules, 46 permissions, 51 reauth actions, 9 sidebar groups, 10 sidebar items, 43 frontend routes, 22 config surfaces.**
+- Target counts on completion: **30 models, 8 enums, 22 API modules, 46 permissions, 51 reauth actions, 9 sidebar groups, 10 sidebar items, 44 frontend routes, 22 config surfaces.**
+- **CI baseline is a documented ratchet, not a fudge.** The `BASELINE` constant must carry a comment naming each failing suite and why it is Phase 0 domain-strip debt. It may only ever be lowered. This is the agreed resolution of the tension with the project rule against hardcoding values to make tests pass: the gate exists to fail on *new* breakage, and the baseline is the thing being ratcheted away.
 
 ---
 
@@ -207,9 +208,26 @@ Replace `SHARED`/`WEB`/`API` with **your Step 1 numbers**.
 import { execSync } from 'node:child_process';
 
 /**
- * Known-failing baseline. These are Phase 0 domain-strip test debt, not product
- * defects. CI fails if failures EXCEED the baseline, so no NEW breakage lands.
- * Ratchet these down to 0 over time; never up.
+ * Known-failing baseline — a documented RATCHET, not a fudge.
+ *
+ * These failures are Phase 0 domain-strip test debt that predates this work;
+ * every one fails identically on a clean checkout of HEAD. CI fails only when
+ * failures EXCEED the baseline, so no NEW breakage can land. That property is
+ * what makes "extends without breaking existing functionality" verifiable
+ * across the other 14 tasks.
+ *
+ * Itemised so this is auditable rather than a magic number:
+ *   shared (3) — 1 audit-template placeholder for a removed domain template,
+ *                2 permission-tree gate tests for removed nodes
+ *                (cleaning_profiles.toggle, checklists.submit)
+ *   web    (6) — 3 url-utils tests referencing route files deleted in the strip,
+ *                2 use-can tests asserting gates for removed nodes
+ *                (FCP_UPDATE, CP_PAGE_EDIT), 1 route-guard count from pre-strip
+ *   api   (14) — not individually triaged; confirmed identical before/after the
+ *                preceding change set. Triage is tracked as rebuild-plan A2.
+ *
+ * These numbers may only ever be LOWERED. Raising one to make CI pass is
+ * forbidden — fix the regression instead.
  */
 const BASELINE = { shared: 3, web: 6, api: 14 };
 
