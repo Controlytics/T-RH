@@ -5,7 +5,11 @@ import { VitePWA } from 'vite-plugin-pwa';
 import path from 'path';
 import fs from 'fs';
 
-const apiTarget = process.env.API_PROXY_TARGET ?? 'https://localhost:3000';
+// Defaults belong to THIS checkout (compliance-core: API 3001, web 5176).
+// The sibling DigiLog checkout owns 3000 / 5175. These used to default to the
+// sibling's values, so a bare `npx vite` proxied /api straight into DigiLog's
+// API — which fails confusingly rather than loudly.
+const apiTarget = process.env.API_PROXY_TARGET ?? 'https://localhost:3001';
 
 /**
  * Dev-server TLS, read lazily.
@@ -104,8 +108,8 @@ export default defineConfig({
   },
   server: {
     // Port and API target are env-overridable so this clone can run alongside
-    // another checkout of the same app (which owns 5175 / 3000 by default).
-    port: Number(process.env.WEB_PORT ?? 5175),
+    // the sibling DigiLog checkout, which owns 5175 / 3000.
+    port: Number(process.env.WEB_PORT ?? 5176),
     strictPort: true,
     host: true,
     https: devHttps(),

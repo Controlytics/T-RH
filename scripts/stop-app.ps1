@@ -28,7 +28,11 @@ Write-Host "   compliance-core  -  stopping services" -ForegroundColor White
 Write-Host "  ===================================================" -ForegroundColor White
 
 # ---- work out which API port this checkout uses -----------------------------
-$ApiPort = 3000
+# Fallback is 3001 (this checkout). 3000 is the sibling DigiLog checkout's port.
+# Processes are matched by owning repo folder as well as port, so this fallback
+# could never have stopped the sibling — but pointing it at the right port keeps
+# the two allocations consistent.
+$ApiPort = 3001
 $EnvPath = Join-Path $RepoRoot 'apps\api\.env'
 if (Test-Path $EnvPath) {
     foreach ($line in (Get-Content $EnvPath)) {

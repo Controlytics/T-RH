@@ -24,7 +24,8 @@
       14 Start API + web, wait for health, open browser
 
 .PARAMETER WebPort
-    Port for the Vite dev server. Defaults to 5175, auto-incrementing if busy.
+    Port for the Vite dev server. Defaults to 5176, auto-incrementing if busy.
+    (5175 belongs to the sibling DigiLog checkout and is never chosen here.)
 
 .PARAMETER SkipBrowser
     Do not open the browser when the stack is up.
@@ -168,8 +169,10 @@ foreach ($line in (Get-Content $EnvPath)) {
 $DatabaseUrl = $EnvMap['DATABASE_URL']
 if (-not $DatabaseUrl) { Die "DATABASE_URL is not set in apps/api/.env." @("Add e.g.  DATABASE_URL=postgresql://user:pass@localhost:5432/compliance_core_db?schema=public") }
 
-# app.ts reads PORT (API_PORT is legacy/unused)
-$ApiPort = 3000
+# app.ts reads PORT (API_PORT is legacy/unused).
+# Fallback is 3001 — THIS checkout's port. 3000 belongs to the sibling DigiLog
+# checkout, so defaulting there would point us at the wrong app.
+$ApiPort = 3001
 if ($EnvMap['PORT']) { $ApiPort = [int]$EnvMap['PORT'] }
 $ApiHttps = ($EnvMap['API_HTTPS'] -eq 'true')
 $ApiScheme = 'http'
@@ -354,7 +357,12 @@ if (Test-PortBusy $ApiPort) {
 Ok "API port $ApiPort free"
 
 if ($WebPort -eq 0) {
-    $WebPort = 5175
+    # Base at 5176 — THIS checkout's port. It used to base at 5175, which the
+    # sibling DigiLog checkout owns, and only incremented off it when 5175 was
+    # already busy. That made allocation depend on START ORDER: launch this app
+    # while the sibling was down and it silently took 5175, so the two apps
+    # swapped ports depending on who booted first.
+    $WebPort = 5176
     while ((Test-PortBusy $WebPort) -and ($WebPort -lt 5200)) { $WebPort++ }
 }
 if (Test-PortBusy $WebPort) { Die "Web port $WebPort is in use." @("Pass a free one:  start-app.bat -WebPort 5180") }
@@ -363,9 +371,10 @@ Ok "Web port $WebPort free"
 # ---------------------------------------------------------------- 14. launch
 Step "Starting services"
 
-# CRITICAL: vite.config.ts defaults its /api proxy to https://localhost:3000.
-# This repo's .env sets PORT=3001, so without API_PROXY_TARGET every request
-# from the browser would 404 against the wrong (or a sibling checkout's) API.
+# Pass the proxy target explicitly rather than relying on vite.config.ts's
+# default. The default now matches this repo (3001), but .env owns the real
+# value — if an operator changes PORT there, only this variable keeps the web
+# server pointed at the API it actually started.
 $ApiTarget = "${ApiScheme}://localhost:$ApiPort"
 
 $apiDir = Join-Path $RepoRoot 'apps\api'
