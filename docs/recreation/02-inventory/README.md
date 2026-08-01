@@ -56,7 +56,7 @@ ls packages/    # → queue shared
 | DB views | 0 | 0 | — |
 | DB sequences | 1 | 1 (unchanged) | `audit_trail_chain_position_seq` |
 | Frontend routes | 38 | **44** | `grep -cE '<Route' apps/web/src/main.tsx` |
-| Frontend route groups | 11 | 11 (P1 pages live under the existing `data-injection` group, already counted) | `ls apps/web/src/routes/` |
+| Frontend route groups | 11 | **12** (new `data-injection` dir) | `ls apps/web/src/routes/` |
 | Config pages | 21 | 21 (unchanged — P1 has no config page; see `uns-settings` note in §11) | `ls apps/web/src/routes/config/*.tsx` |
 | Config definitions | 21 | **22** | `ls apps/api/src/modules/config/defs/*.def.ts` |
 | Custom hooks | 17 | 17 (unchanged) | `ls apps/web/src/hooks/*.ts` |
@@ -64,20 +64,22 @@ ls packages/    # → queue shared
 | API libs | 22 | 22 (unchanged) | `ls apps/api/src/lib/` (excl. tests) |
 | Permission constants | 30 | **46** | `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts` |
 | Reauth actions | 39 | **51** | `grep -cE '^\s+[A-Z_]+:' packages/shared/src/types/reauth-actions.ts` |
+| Feature privileges | 26 | **42** | executed built `PERMISSION_TREE` — `configurable: true` node count (see `../04-roles-permissions/README.md`) |
 | Sidebar permission groups | 8 | **9** | `PERMISSION_TREE` groups |
 | Sidebar items (configurable) | 9 | **10** | `sidebar-items.ts` |
 | Roles (seeded) | 6 | 6 (unchanged) | `select count(*) from roles` |
 | Background job tasks | 3 | 3 (unchanged) | `notification`, `password_expiry_check`, `session_sweep` |
 | Color themes | 10 | 10 (unchanged) | `apps/web/src/lib/themes.ts` |
 
-**Feature-privilege / grant-set counts are not re-quoted here** — the
-2026-07-25 dossier's "26" for that row could not be reconciled against a live
-re-derivation during this pass (a raw `configurable: true` count across the
-whole tree now reads 45, which is not simply "26 + 16 new"). Rather than
-publish a guessed number, this dossier states only what P1 is known to add:
-**16 new nodes, all `configurable: true`** (§11.2) — treat the pre-P1 baseline
-in that row as unverified and re-derive both numbers together before quoting
-either.
+**Feature-privilege count, resolved 2026-08-01.** The initial pass here
+flagged the "26" baseline as unreconcilable against a source-grep of
+`configurable: true` (which read 45 across the whole tree, not "26 + 16").
+That was a source-derivation artifact, not a real discrepancy: executing the
+*built* `PERMISSION_TREE` (`node -e "require('./dist/...')..."`, with the
+branch settled and `packages/shared` freshly rebuilt) gives **42 configurable
+nodes** — exactly 26 + the 16 new Data Injection nodes, all of which are
+configurable. 42 is the verified figure; see
+`../04-roles-permissions/README.md` for the full derivation.
 
 ## 3. The 22 API modules (18 pre-P1 + 4 added by Data Injection P1)
 

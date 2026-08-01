@@ -2,16 +2,18 @@
 
 *Counts verified by executing the built `PERMISSION_TREE` module and querying the
 live `roles` table, 2026-07-25. Updated 2026-08-01 for the Data Injection (P1)
-group — see §10.*
+group — see §10. The `configurable`/`FEATURE_PRIVILEGES` count below was
+re-verified 2026-08-01 by rebuilding `packages/shared` and executing the
+compiled tree once the branch had settled (no agents mid-edit on
+`permission-tree.ts`) — superseding the same-day source-derived pass that
+had left it flagged unverified.*
 
 ```bash
 node -e "const t=require('./dist/types/permission-tree.js');
          const n=t.PERMISSION_TREE.flatMap(g=>g.nodes);
          console.log(n.length, n.filter(x=>x.configurable).length, t.PERMISSION_TREE.length)"
 # 2026-07-25: → 38 nodes, 26 configurable, 8 groups
-# 2026-08-01: source-derived (grep, not a dist/ rebuild — see §10) →
-#             54 nodes, 9 groups. The "configurable" figure was not
-#             re-derived this pass; see the caveat in ../02-inventory/README.md §2.
+# 2026-08-01: → 54 nodes, 42 configurable, 9 groups
 ```
 
 ---
@@ -101,12 +103,13 @@ The 16 added by P1 (§10): `HIERARCHY_{VIEW,CREATE,UPDATE,DELETE}`,
 | `debug-traces` | `debug.view`, `.manage` |
 | `data-injection` **(P1, 2026-08-01)** | `hierarchy.view/.create/.edit/.delete`, `gateways.view/.create/.edit/.delete`, `instruments.view/.create/.edit/.delete`, `comm_profiles.view/.create/.edit/.delete` — 16 nodes |
 
-**54 total nodes** (38 + the 16 added by `data-injection`); **all 16 of the
-new nodes are `configurable: true`**, i.e. all are admin toggles, unlike the
-pre-P1 groups which mix configurable and enforced-only nodes. The pre-P1
-"26 configurable / 12 enforced-only" split is left as originally recorded —
-see the caveat in `../02-inventory/README.md` §2 for why the combined total
-isn't quoted here.
+**54 total nodes** (38 + the 16 added by `data-injection`); **42 are
+`configurable: true`** (was 26; +16, exactly the Data Injection nodes — all
+16 of which are configurable, i.e. all are admin toggles, unlike the pre-P1
+groups which mix configurable and enforced-only nodes). The remaining 12
+enforced-only nodes are all pre-P1. `FEATURE_PRIVILEGES` (derived from the
+`configurable: true` nodes) is therefore **42**, verified 2026-08-01 by
+executing the built tree — see the header note above.
 
 **Sidebar items: 10** — the 9 groups above plus `home` (Module Guide), which has
 no permission group and is therefore visible-to-all by permission while still
