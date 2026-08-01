@@ -1159,6 +1159,10 @@ export async function writeDeadLetters(
 
 /**
  * Slug/deviceKey → instrumentId lookup for the fan-out resolver.
+ *
+ * Keys are joined with '|', which sanitizeSlug can never emit (it strips
+ * everything outside [a-z0-9-]). Plain concatenation would collide:
+ * gateway 'gw-1' + instrument '0temp' would equal 'gw-10' + 'temp'.
  * Loaded once per flush rather than per message: a 500-reading batch would
  * otherwise issue 500 lookups for what is almost always the same few gateways.
  */
@@ -1173,8 +1177,8 @@ export async function buildResolverCache(): Promise<{
   const byDeviceKey = new Map<string, string>();
   for (const r of rows) {
     if (!r.gateway) continue;
-    bySlug.set(`${r.gateway.slug} ${r.slug}`, r.id);
-    if (r.deviceKey) byDeviceKey.set(`${r.gateway.slug} ${r.deviceKey}`, r.id);
+    bySlug.set(`${r.gateway.slug}|${r.slug}`, r.id);
+    if (r.deviceKey) byDeviceKey.set(`${r.gateway.slug}|${r.deviceKey}`, r.id);
   }
   return { bySlug, byDeviceKey };
 }
@@ -1744,8 +1748,8 @@ export async function flushNow(): Promise<void> {
   // One resolver load per flush, not per message.
   const cache = await buildResolverCache();
   const resolver: InstrumentResolver = {
-    bySlug: (g, i) => cache.bySlug.get(`${g} ${i}`) ?? null,
-    byDeviceKey: (g, k) => cache.byDeviceKey.get(`${g} ${k}`) ?? null,
+    bySlug: (g, i) => cache.bySlug.get(`${g}|${i}`) ?? null,
+    byDeviceKey: (g, k) => cache.byDeviceKey.get(`${g}|${k}`) ?? null,
   };
 
   for (const m of batchMsgs) {
@@ -2059,6 +2063,6 @@ The changelog must state plainly: **telemetry now flows end-to-end for MQTT**; p
 
 **Placeholder scan.** No TBD/TODO. Tasks 11–15 are specified more tightly than they are code-complete: they name exact files, gates, audit actions, registration points and verification commands, but leave routine CRUD and JSX to the implementer rather than inventing 400 lines of route boilerplate. Tasks 1–10 — everything novel or risky — carry complete code.
 
-**Type consistency.** `Reading`/`ValueType` (Task 3) flow unchanged into 4, 6, 9. `TopicRoute` (2) → 4. `InboundMessage`/`AdapterHealth`/`ProfileWithSecrets` (1) → 7, 8, 9, 10. `InstrumentResolver` (4) is satisfied by `buildResolverCache` (6) via the ` `-joined key in 9. `getConnectionHealth()` (8) → 10, 11, 14.
+**Type consistency.** `Reading`/`ValueType` (Task 3) flow unchanged into 4, 6, 9. `TopicRoute` (2) → 4. `InboundMessage`/`AdapterHealth`/`ProfileWithSecrets` (1) → 7, 8, 9, 10. `InstrumentResolver` (4) is satisfied by `buildResolverCache` (6) via the `|`-joined composite key in 9. `getConnectionHealth()` (8) → 10, 11, 14.
 
 **Known risk carried from P1.** Task 5 Step 1 is a hard gate on an unverified assumption (Prisma tolerating a partitioned parent). It says stop and report rather than force. Ten of P1's defects were unverified assumptions of exactly this kind.
