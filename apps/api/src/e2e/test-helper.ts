@@ -27,6 +27,7 @@ import adminRequestRoutes from '../modules/admin-requests/routes.js';
 import communicationProfileRoutes from '../modules/communication-profiles/routes.js';
 import hierarchyRoutes from '../modules/hierarchy/routes.js';
 import gatewayRoutes from '../modules/gateways/routes.js';
+import instrumentRoutes from '../modules/instruments/routes.js';
 import { prisma } from '../lib/prisma.js';
 import { AppError } from '../lib/errors.js';
 
@@ -108,6 +109,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(communicationProfileRoutes, { prefix: '/api/communication-profiles' });
   await app.register(hierarchyRoutes, { prefix: '/api/hierarchy' });
   await app.register(gatewayRoutes, { prefix: '/api/gateways' });
+  await app.register(instrumentRoutes, { prefix: '/api/instruments' });
 
   await app.ready();
   return app;

@@ -48,6 +48,7 @@ import adminRequestRoutes from './modules/admin-requests/routes.js';
 import communicationProfileRoutes from './modules/communication-profiles/routes.js';
 import hierarchyRoutes from './modules/hierarchy/routes.js';
 import gatewayRoutes from './modules/gateways/routes.js';
+import instrumentRoutes from './modules/instruments/routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -346,6 +347,7 @@ await app.register(adminRequestRoutes, { prefix: '/api/admin-requests' });
 await app.register(communicationProfileRoutes, { prefix: '/api/communication-profiles' });
 await app.register(hierarchyRoutes, { prefix: '/api/hierarchy' });
 await app.register(gatewayRoutes, { prefix: '/api/gateways' });
+await app.register(instrumentRoutes, { prefix: '/api/instruments' });
 
 
 // ─── M1: serve the built web UI from the API (single-process bundle) ─────────
