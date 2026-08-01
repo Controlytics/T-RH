@@ -117,7 +117,7 @@ describe('instruments routes', () => {
     expect(topics.statusCode).toBe(200);
     const body = topics.json();
     expect(Object.keys(body)).toHaveLength(13);
-    expect(body.TELEMETRY).toBe(`controlyt/instco${runSuffix}/area02-${runSuffix}/gw-001/temp001/telemetry`);
+    expect(body.TELEMETRY).toBe(`instco${runSuffix}/area02-${runSuffix}/gw-001/temp001/telemetry`);
   });
 
   it('rejects an independent instrument with no profile (CHECK constraint mirror)', async () => {
@@ -206,7 +206,7 @@ describe('instruments routes', () => {
       method: 'GET', url: `/api/instruments/${inst.id}/topics`, headers: auth(),
     })).json();
     expect(topics.TELEMETRY).toBe('legacy/raw/ovr001');
-    expect(topics.ALARM).toContain('controlyt/');
+    expect(topics.ALARM).toContain(`instco${runSuffix}/`);
 
     // Clearing with a blank customTopic falls back to the derived topic and
     // emits CLEARED, not SET.
@@ -223,7 +223,7 @@ describe('instruments routes', () => {
     const afterClear = (await app.inject({
       method: 'GET', url: `/api/instruments/${inst.id}/topics`, headers: auth(),
     })).json();
-    expect(afterClear.TELEMETRY).toContain('controlyt/');
+    expect(afterClear.TELEMETRY).toContain(`instco${runSuffix}/`);
     expect(afterClear.TELEMETRY).not.toBe('legacy/raw/ovr001');
   });
 

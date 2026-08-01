@@ -14,7 +14,7 @@ import { prisma } from '../../lib/prisma.js';
 import { buildContext } from '../../lib/build-context.js';
 import { auditLog } from '../../lib/audit.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
-import { maskSecrets } from '../../lib/mask-secrets.js';
+import { maskSecrets, REDACTED } from '../../lib/mask-secrets.js';
 import { stripHtml } from '../../lib/sanitize.js';
 import { NotFoundError, ValidationError, ConflictError } from '../../lib/errors.js';
 
@@ -66,8 +66,58 @@ export const COMM_PROFILE_AUDIT_SAFE_KEYS = [
   'region', 'deviceId', 'apiVersion',
 ];
 
+// Keys whose value is a URL that MAY carry embedded credentials — either as
+// userinfo (mqtts://user:pass@host:8883) or as a query-string secret (the
+// `rest`/`webhook` protocols commonly pass an API key as ?api_key=...). These
+// three are exactly the URL-shaped entries in COMM_PROFILE_RESPONSE_SAFE_KEYS
+// above; unlike the rest of that allowlist they need scrubbing, not just
+// pass-through, before they reach a COMM_PROFILE_VIEW-only response.
+const CREDENTIAL_URL_KEYS = new Set(['brokerUrl', 'url', 'endpoint']);
+// Query-param names treated as credentials wherever they appear, matched
+// case-insensitively since providers are inconsistent about casing.
+const CREDENTIAL_QUERY_PARAM_NAMES = new Set([
+  'api_key', 'apikey', 'token', 'access_token', 'password', 'sig', 'signature',
+]);
+
+/**
+ * Strip credentials from a URL while keeping scheme/host/port/path intact —
+ * the edit form still needs those to be usable. Fails CLOSED: anything that
+ * doesn't parse as a URL comes back as the fully-redacted sentinel rather
+ * than being returned unsanitised.
+ */
+function sanitizeCredentialUrl(raw: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return REDACTED;
+  }
+  // Strips the `user:pass@` userinfo from the authority component.
+  parsed.username = '';
+  parsed.password = '';
+  for (const key of Array.from(parsed.searchParams.keys())) {
+    if (CREDENTIAL_QUERY_PARAM_NAMES.has(key.toLowerCase())) {
+      parsed.searchParams.set(key, REDACTED);
+    }
+  }
+  return parsed.toString();
+}
+
+/** Recursively applies {@link sanitizeCredentialUrl} to any CREDENTIAL_URL_KEYS value, at every depth. */
+function sanitizeCredentialUrls(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sanitizeCredentialUrls);
+  if (value === null || typeof value !== 'object') return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
+    out[key] = CREDENTIAL_URL_KEYS.has(key) && typeof v === 'string'
+      ? sanitizeCredentialUrl(v)
+      : sanitizeCredentialUrls(v);
+  }
+  return out;
+}
+
 function maskForResponse(config: unknown): unknown {
-  return maskSecrets(config, COMM_PROFILE_RESPONSE_SAFE_KEYS);
+  return sanitizeCredentialUrls(maskSecrets(config, COMM_PROFILE_RESPONSE_SAFE_KEYS));
 }
 function maskForAudit(config: unknown): unknown {
   return maskSecrets(config, COMM_PROFILE_AUDIT_SAFE_KEYS);

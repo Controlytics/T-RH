@@ -26,7 +26,9 @@ function isFkViolation(err: unknown): boolean {
 
 // Must match uns-settings.def.ts's declared `default`s exactly (apps/api/src/modules/config/defs/uns-settings.def.ts)
 // so topics derive identically whether or not an admin has ever opened the config page.
-const DEFAULT_UNS: UnsSettings = { prefix: 'controlyt', separator: '/', includeGateway: true };
+// `prefix` defaults to '' — the company already comes from the hierarchy's COMPANY-level
+// root node, so a non-empty default here would duplicate it in every derived topic.
+const DEFAULT_UNS: UnsSettings = { prefix: '', separator: '/', includeGateway: true };
 
 async function unsSettings(): Promise<UnsSettings> {
   const stored = await configRepository.getSystemConfig('uns-settings');

@@ -116,9 +116,14 @@ describe('communication profiles', () => {
 
     const list = await authGet(app, '/api/communication-profiles', token);
     const profile = list.json().find((p: { name: string }) => p.name === 'Plant MQTT');
-    // Response path (COMM_PROFILE_VIEW-gated) — password redacted, brokerUrl visible.
+    // Response path (COMM_PROFILE_VIEW-gated) — password field redacted, and
+    // the same secret embedded in brokerUrl's userinfo is stripped too (it
+    // used to leak here verbatim even though the sibling `password` field
+    // was masked). Host/port survive so the edit form stays usable.
     expect(profile.config.password).toBe(REDACTED);
-    expect(profile.config.brokerUrl).toBe(credentialUrl);
+    expect(profile.config.brokerUrl).toBe('mqtts://broker:8883');
+    expect(profile.config.brokerUrl).not.toContain('svc');
+    expect(profile.config.brokerUrl).not.toContain('S3cret!');
 
     // Audit path — strict allowlist. brokerUrl (which carries the credential)
     // must NOT appear verbatim anywhere in the stored afterValue.
@@ -132,6 +137,38 @@ describe('communication profiles', () => {
     expect(afterValue.config.password).toBe(REDACTED);
     expect(JSON.stringify(afterValue)).not.toContain('S3cret!');
     expect(JSON.stringify(afterValue)).not.toContain(credentialUrl);
+  });
+
+  it('strips a credential-bearing query param from a rest/webhook URL, keeping host/path', async () => {
+    const create = await authPost(app, '/api/communication-profiles', token, {
+      name: 'Webhook With Key', protocolKey: 'rest',
+      config: { url: 'https://api.example.com/hook?api_key=SECRETVALUE&foo=bar' },
+    });
+    expect(create.statusCode).toBe(200);
+    const profileId = create.json().id;
+
+    const list = await authGet(app, '/api/communication-profiles', token);
+    const profile = list.json().find((p: { id: string }) => p.id === profileId);
+    expect(profile.config.url).not.toContain('SECRETVALUE');
+    expect(profile.config.url).toContain('https://api.example.com/hook');
+    expect(profile.config.url).toContain('foo=bar');
+
+    await prisma.communicationProfile.delete({ where: { id: profileId } });
+  });
+
+  it('falls back to the redacted sentinel for a credential-URL key that does not parse as a URL', async () => {
+    const create = await authPost(app, '/api/communication-profiles', token, {
+      name: 'Unparseable Endpoint', protocolKey: 'rest',
+      config: { endpoint: 'not a valid url' },
+    });
+    expect(create.statusCode).toBe(200);
+    const profileId = create.json().id;
+
+    const list = await authGet(app, '/api/communication-profiles', token);
+    const profile = list.json().find((p: { id: string }) => p.id === profileId);
+    expect(profile.config.endpoint).toBe(REDACTED);
+
+    await prisma.communicationProfile.delete({ where: { id: profileId } });
   });
 
   it('rejects an unknown protocol key', async () => {

@@ -19,8 +19,11 @@ export const unsSettingsDef: ModuleConfigDefinition = {
   hasCustomPage: false,
   settings: [
     {
-      key: 'prefix', type: 'string', label: 'Topic Prefix', default: 'controlyt',
-      helpText: 'Leading namespace segment, e.g. the company slug. Leave blank to omit.',
+      key: 'prefix', type: 'string', label: 'Topic Prefix', default: '',
+      helpText: 'Optional extra namespace segment ABOVE the company (e.g. a versioned '
+        + 'namespace like "acme/v1"). The company itself already comes from the hierarchy\'s '
+        + 'top-level (COMPANY) node — do not repeat it here, or it will appear twice in every '
+        + 'topic. Leave blank in the common case.',
       group: 'Topic Shape',
     },
     {
