@@ -33,6 +33,20 @@ export interface ResolveTopicsInput {
 export function resolveTopics(input: ResolveTopicsInput): Record<TopicCategory, string> {
   const { settings, ancestry, gatewaySlug, instrumentSlug, overrides } = input;
 
+  // Fail loud on malformed settings rather than silently publishing a wrong topic.
+  // `prefix` may legitimately be '' (empty prefix is a documented, cleanly-omitted
+  // case) — only `separator` must be a non-empty string, since `Array.join(undefined)`
+  // silently falls back to ',' and produces plausible-looking garbage.
+  if (typeof settings.prefix !== 'string') {
+    throw new Error(`resolveTopics: settings.prefix must be a string, got ${typeof settings.prefix}`);
+  }
+  if (typeof settings.separator !== 'string' || settings.separator.length === 0) {
+    throw new Error(`resolveTopics: settings.separator must be a non-empty string, got ${JSON.stringify(settings.separator)}`);
+  }
+  if (typeof settings.includeGateway !== 'boolean') {
+    throw new Error(`resolveTopics: settings.includeGateway must be a boolean, got ${typeof settings.includeGateway}`);
+  }
+
   const segments = [
     settings.prefix,
     ...ancestry,
@@ -44,7 +58,12 @@ export function resolveTopics(input: ResolveTopicsInput): Record<TopicCategory, 
 
   const out = {} as Record<TopicCategory, string>;
   for (const category of TOPIC_CATEGORIES) {
-    out[category] = overrides[category] ?? `${base}${settings.separator}${category.toLowerCase()}`;
+    // A blank/whitespace-only override means "stop customising", not "publish to
+    // nothing" — treat it as absent and fall through to the derived topic.
+    const override = overrides[category];
+    out[category] = override && override.trim().length > 0
+      ? override
+      : `${base}${settings.separator}${category.toLowerCase()}`;
   }
   return out;
 }

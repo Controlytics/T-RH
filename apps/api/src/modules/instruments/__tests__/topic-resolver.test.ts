@@ -11,9 +11,12 @@ const base = {
 };
 
 describe('resolveTopics', () => {
-  it('produces all 13 categories', () => {
-    expect(TOPIC_CATEGORIES).toHaveLength(13);
-    expect(Object.keys(resolveTopics(base))).toHaveLength(13);
+  it('produces exactly the 13 documented categories', () => {
+    expect(TOPIC_CATEGORIES).toEqual([
+      'TELEMETRY', 'ATTRIBUTES', 'ALARM', 'COMMAND', 'RPC', 'HEARTBEAT', 'EVENT',
+      'STATUS', 'CONFIG', 'RESPONSE', 'SETTINGS', 'PUBLISH', 'SUBSCRIBE',
+    ]);
+    expect(Object.keys(resolveTopics(base)).sort()).toEqual([...TOPIC_CATEGORIES].sort());
   });
 
   it('builds the documented UNS topic', () => {
@@ -52,5 +55,46 @@ describe('resolveTopics', () => {
       ancestry: ['india'],
     });
     expect(out.STATUS).toBe('india.temp001.status');
+  });
+
+  it('combines an override with a hierarchy gap and no gateway', () => {
+    const out = resolveTopics({
+      ...base,
+      ancestry: ['india', 'packing'],
+      gatewaySlug: null,
+      overrides: { EVENT: 'legacy/events' },
+    });
+    expect(out.EVENT).toBe('legacy/events');
+    expect(out.STATUS).toBe('controlyt/india/packing/temp001/status');
+    expect(out.STATUS).not.toContain('//');
+  });
+
+  it('treats a blank/whitespace-only override as absent, falling through to the derived topic', () => {
+    const out = resolveTopics({ ...base, overrides: { TELEMETRY: '', ALARM: '   ' } });
+    expect(out.TELEMETRY).toBe(
+      'controlyt/india/hyderabad/plant01/blocka/area02/packing/gw001/temp001/telemetry',
+    );
+    expect(out.ALARM).toBe(
+      'controlyt/india/hyderabad/plant01/blocka/area02/packing/gw001/temp001/alarm',
+    );
+  });
+
+  it('throws rather than silently comma-joining when separator is missing', () => {
+    const badSettings = { prefix: 'controlyt', includeGateway: true } as any;
+    expect(() => resolveTopics({ ...base, settings: badSettings })).toThrow(/separator/);
+  });
+
+  it('throws when separator is an empty string', () => {
+    const badSettings = { ...settings, separator: '' };
+    expect(() => resolveTopics({ ...base, settings: badSettings })).toThrow(/separator/);
+  });
+
+  it('throws when prefix or includeGateway is the wrong type', () => {
+    expect(() => resolveTopics({ ...base, settings: { ...settings, prefix: null as any } })).toThrow(/prefix/);
+    expect(() => resolveTopics({ ...base, settings: { ...settings, includeGateway: 'yes' as any } })).toThrow(/includeGateway/);
+  });
+
+  it('still allows an empty-string prefix (documented, cleanly omitted case)', () => {
+    expect(() => resolveTopics({ ...base, settings: { ...settings, prefix: '' } })).not.toThrow();
   });
 });
