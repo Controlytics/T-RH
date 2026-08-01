@@ -2,8 +2,9 @@
  * Phase 5E — FROZEN LITERAL SNAPSHOTS of the derived maps.
  *
  * THIS FILE HAS ZERO IMPORTS FROM LIVE SOURCE FILES.
- * Regenerated after the domain strip (2026-07-18): the oracle now reflects the
- * core-only PERMISSION_TREE.
+ * Regenerated 2026-08-01: added the data-injection group (16 nodes) to
+ * PERMISSION_TREE, bringing FEATURE_PRIVILEGES/FEATURE_TO_PERMISSION_MAP to
+ * 42 entries and SIDEBAR_PRIVILEGE_MAP to 9 sections.
  */
 
 interface FeaturePrivilegeSnapshot {
@@ -177,6 +178,102 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
     "label": "Restore from Backup",
     "category": "Backup & Restore",
     "icon": "upload"
+  },
+  {
+    "id": "hierarchy.view",
+    "label": "View Hierarchy",
+    "category": "Data Injection",
+    "icon": "sitemap"
+  },
+  {
+    "id": "hierarchy.create",
+    "label": "Create Hierarchy Node",
+    "category": "Data Injection",
+    "icon": "plus"
+  },
+  {
+    "id": "hierarchy.edit",
+    "label": "Edit Hierarchy Node",
+    "category": "Data Injection",
+    "icon": "edit"
+  },
+  {
+    "id": "hierarchy.delete",
+    "label": "Delete Hierarchy Node",
+    "category": "Data Injection",
+    "icon": "trash"
+  },
+  {
+    "id": "gateways.view",
+    "label": "View Gateways",
+    "category": "Data Injection",
+    "icon": "router"
+  },
+  {
+    "id": "gateways.create",
+    "label": "Create Gateway",
+    "category": "Data Injection",
+    "icon": "plus"
+  },
+  {
+    "id": "gateways.edit",
+    "label": "Edit Gateway",
+    "category": "Data Injection",
+    "icon": "edit"
+  },
+  {
+    "id": "gateways.delete",
+    "label": "Delete Gateway",
+    "category": "Data Injection",
+    "icon": "trash"
+  },
+  {
+    "id": "instruments.view",
+    "label": "View Instruments",
+    "category": "Data Injection",
+    "icon": "cpu"
+  },
+  {
+    "id": "instruments.create",
+    "label": "Create Instrument",
+    "category": "Data Injection",
+    "icon": "plus"
+  },
+  {
+    "id": "instruments.edit",
+    "label": "Edit Instrument",
+    "category": "Data Injection",
+    "icon": "edit"
+  },
+  {
+    "id": "instruments.delete",
+    "label": "Delete Instrument",
+    "category": "Data Injection",
+    "icon": "trash"
+  },
+  {
+    "id": "comm_profiles.view",
+    "label": "View Communication Profiles",
+    "category": "Data Injection",
+    "icon": "plug"
+  },
+  {
+    "id": "comm_profiles.create",
+    "label": "Create Communication Profile",
+    "category": "Data Injection",
+    "icon": "plus"
+  },
+  {
+    "id": "comm_profiles.edit",
+    "label": "Edit Communication Profile",
+    "category": "Data Injection",
+    "icon": "edit"
+  },
+  {
+    "id": "comm_profiles.delete",
+    "label": "Delete Communication Profile",
+    "category": "Data Injection",
+    "icon": "trash"
   }
 ];
 
@@ -271,6 +368,76 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   ],
   "backup.restore": [
     "BACKUP_RESTORE"
+  ],
+  "hierarchy.view": [
+    "HIERARCHY_VIEW"
+  ],
+  "hierarchy.create": [
+    "HIERARCHY_CREATE",
+    "HIERARCHY_VIEW"
+  ],
+  "hierarchy.edit": [
+    "HIERARCHY_UPDATE",
+    "HIERARCHY_VIEW"
+  ],
+  "hierarchy.delete": [
+    "HIERARCHY_DELETE",
+    "HIERARCHY_VIEW"
+  ],
+  "gateways.view": [
+    "GATEWAY_VIEW"
+  ],
+  "gateways.create": [
+    "GATEWAY_CREATE",
+    "GATEWAY_VIEW",
+    "HIERARCHY_VIEW",
+    "COMM_PROFILE_VIEW"
+  ],
+  "gateways.edit": [
+    "GATEWAY_UPDATE",
+    "GATEWAY_VIEW",
+    "HIERARCHY_VIEW",
+    "COMM_PROFILE_VIEW"
+  ],
+  "gateways.delete": [
+    "GATEWAY_DELETE",
+    "GATEWAY_VIEW"
+  ],
+  "instruments.view": [
+    "INSTRUMENT_VIEW"
+  ],
+  "instruments.create": [
+    "INSTRUMENT_CREATE",
+    "INSTRUMENT_VIEW",
+    "HIERARCHY_VIEW",
+    "GATEWAY_VIEW",
+    "COMM_PROFILE_VIEW"
+  ],
+  "instruments.edit": [
+    "INSTRUMENT_UPDATE",
+    "INSTRUMENT_VIEW",
+    "HIERARCHY_VIEW",
+    "GATEWAY_VIEW",
+    "COMM_PROFILE_VIEW"
+  ],
+  "instruments.delete": [
+    "INSTRUMENT_DELETE",
+    "INSTRUMENT_VIEW"
+  ],
+  "comm_profiles.view": [
+    "COMM_PROFILE_VIEW"
+  ],
+  "comm_profiles.create": [
+    "COMM_PROFILE_CREATE",
+    "COMM_PROFILE_VIEW"
+  ],
+  "comm_profiles.edit": [
+    "COMM_PROFILE_UPDATE",
+    "COMM_PROFILE_VIEW"
+  ],
+  "comm_profiles.delete": [
+    "COMM_PROFILE_DELETE",
+    "COMM_PROFILE_VIEW"
   ]
 };
 
@@ -353,6 +520,18 @@ export const SIDEBAR_PRIVILEGE_MAP_SNAPSHOT: SidebarSectionSnapshot[] = [
     "privilegeIds": [
       "debug.view",
       "debug.manage"
+    ]
+  },
+  {
+    "sidebarId": "data-injection",
+    "label": "Data Injection",
+    "icon": "🔗",
+    "description": "Instruments, gateways and industrial communication",
+    "privilegeIds": [
+      "hierarchy.view",
+      "gateways.view",
+      "instruments.view",
+      "comm_profiles.view"
     ]
   }
 ];

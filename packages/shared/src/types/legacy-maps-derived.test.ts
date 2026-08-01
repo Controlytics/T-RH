@@ -18,11 +18,11 @@ import {
 } from './__snapshots__/legacy-maps-snapshot.js';
 
 describe('Phase 5E: derived maps === original snapshots', () => {
-  it('FEATURE_PRIVILEGES (26 entries) matches snapshot exactly — order-sensitive', () => {
+  it('FEATURE_PRIVILEGES (42 entries) matches snapshot exactly — order-sensitive', () => {
     expect(FEATURE_PRIVILEGES).toEqual(FEATURE_PRIVILEGES_SNAPSHOT);
   });
 
-  it('FEATURE_TO_PERMISSION_MAP (26 keys) matches snapshot exactly — per-key array equality', () => {
+  it('FEATURE_TO_PERMISSION_MAP (42 keys) matches snapshot exactly — per-key array equality', () => {
     expect(FEATURE_TO_PERMISSION_MAP).toEqual(FEATURE_TO_PERMISSION_MAP_SNAPSHOT);
   });
 
@@ -40,25 +40,25 @@ describe('Phase 5E: derived maps === original snapshots', () => {
     }
   });
 
-  it('configurable node count is exactly 26', () => {
-    // Post domain-strip: only the 8 core sidebar groups remain
-    // (dashboard, users, admin-requests, configuration, notifications, audit,
-    // system-health, debug-traces); 26 of their nodes are configurable feature
-    // privileges. The 9th group, version-history, was removed with its page —
-    // all four versioned entities it browsed went in the Phase 0 strip.
+  it('configurable node count is exactly 42', () => {
+    // Post domain-strip: the 8 core sidebar groups (dashboard, users,
+    // admin-requests, configuration, notifications, audit, system-health,
+    // debug-traces) carried 26 configurable nodes. 2026-08-01 added the 9th
+    // group, data-injection (hierarchy/gateways/instruments/comm_profiles),
+    // contributing 16 more configurable nodes — 26 + 16 = 42.
     const count = PERMISSION_TREE.flatMap(g => g.nodes).filter(n => n.configurable === true).length;
-    expect(count).toBe(26);
+    expect(count).toBe(42);
   });
 
-  it('FEATURE_PRIVILEGES has exactly 26 entries', () => {
-    expect(FEATURE_PRIVILEGES).toHaveLength(26);
+  it('FEATURE_PRIVILEGES has exactly 42 entries', () => {
+    expect(FEATURE_PRIVILEGES).toHaveLength(42);
   });
 
-  it('FEATURE_TO_PERMISSION_MAP has exactly 26 keys', () => {
-    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(26);
+  it('FEATURE_TO_PERMISSION_MAP has exactly 42 keys', () => {
+    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(42);
   });
 
-  it('SIDEBAR_PRIVILEGE_MAP has exactly 8 sections', () => {
-    expect(SIDEBAR_PRIVILEGE_MAP).toHaveLength(8);
+  it('SIDEBAR_PRIVILEGE_MAP has exactly 9 sections', () => {
+    expect(SIDEBAR_PRIVILEGE_MAP).toHaveLength(9);
   });
 });
