@@ -105,7 +105,7 @@ describe('viewerCanSeeModule', () => {
 
   // The 'quality-notifications hidden unless qnnVisible' case was removed with
   // the qnnVisible flag — that module is no longer in MODULE_FLOWS and its
-  // `/api/pm-schedules/qnn/visible` feed no longer exists.
+  // pm-schedules qnn/visible feed no longer exists.
 
   it('honours the viewer sidebar override', () => {
     expect(viewerCanSeeModule('dashboard', { ...base, sidebarItems: ['system-health'] })).toBe(false);

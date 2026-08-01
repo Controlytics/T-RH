@@ -24,7 +24,6 @@ import { exportToExcel } from '@/lib/excel-export';
 import { logReportExport } from '@/lib/report-export-log';
 import { useExportLimit } from '@/hooks/use-export-limit';
 import { ExportMenu } from '@/components/ExportMenu';
-import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { useReportLabels } from '../../hooks/use-report-labels';
 
 const AUDIT_COLS = ['timestamp', 'action', 'user', 'role', 'targetType', 'description', 'ipAddress'];
@@ -355,21 +354,6 @@ export function AuditTrailPage() {
     } finally { setDownloading(false); }
   };
 
-  // Snapshot for the review workflow — same build over all filtered records,
-  // captured instead of saved (no export-log; nothing is downloaded here).
-  const buildAuditSnapshot = async () => {
-    const records = await fetchAllFilteredRecords();
-    if (records.length === 0) return null;
-    const report = await createReport({ reportKey: 'audit-trail',
-      title: auditL.title,
-      subtitle: auditL.subtitle || `Period: ${currentPeriod()}${search ? `  |  Search: "${search}"` : ''}  |  Total: ${records.length} record(s)  |  21 CFR Part 11 Compliant`,
-      orientation: 'landscape',
-      formatDateTime,
-    });
-    report.addTable({ head: auditHead, body: mapAuditRows(records), columnStyles: { 0: { cellWidth: 35 }, 5: { cellWidth: 65 } } });
-    return report.getSnapshot();
-  };
-
   const exportExcel = async () => {
     setDownloading(true);
     try {
@@ -418,7 +402,6 @@ export function AuditTrailPage() {
             <>
               <ExportMenu surface="audit" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={downloading}
                 className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-colors disabled:opacity-40" />
-              <SendForReviewButton buildSnapshot={buildAuditSnapshot} />
             </>
           )}
         </div>

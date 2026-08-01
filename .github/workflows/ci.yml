@@ -1,0 +1,29 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env: { POSTGRES_PASSWORD: postgres, POSTGRES_DB: compliance_core_db_test }
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/compliance_core_db_test?schema=public
+      JWT_SECRET: CI_JWT_SECRET_AT_LEAST_32_CHARACTERS_LONG_FOR_HS256
+      INITIAL_ADMIN_PASSWORD: Admin@123
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci
+      - run: psql "$DATABASE_URL" -f apps/api/prisma/sql/extensions.sql
+      - run: npm run build -w @digilog/shared && npm run build -w @digilog/queue
+      - run: npx prisma migrate deploy --schema apps/api/prisma/schema.prisma
+      - run: npx tsc --noEmit -p apps/api/tsconfig.json
+      - name: Tests (known-failing baseline enforced)
+        run: node scripts/ci-test-gate.mjs
+      - run: npm audit --audit-level=critical || true
