@@ -90,8 +90,18 @@ Set-Location $AppDir
 # ---------------------------------------------------------------- 1. pull
 Step "Fetching $Branch"
 $before = (& git rev-parse HEAD).Trim()
-& git fetch --depth 1 origin $Branch | Out-Null
-if ($LASTEXITCODE -ne 0) { Die "git fetch failed. Is the deploy key still valid?" }
+# Fetch with an EXPLICIT refspec so the remote-tracking ref is created.
+#
+# `git fetch origin <branch>` only writes FETCH_HEAD — it does NOT create
+# `origin/<branch>` unless that branch is already covered by a tracking refspec
+# in this clone. So the plain form works for a branch the server has seen before
+# and fails for any NEW one with:
+#     fatal: ambiguous argument 'origin/<branch>': unknown revision
+# which is exactly what happened on the first deploy of `data-injection`
+# (2026-08-01). Naming the destination ref makes it work for both cases and
+# leaves the tracking ref behind for next time.
+& git fetch --depth 1 origin "${Branch}:refs/remotes/origin/${Branch}" | Out-Null
+if ($LASTEXITCODE -ne 0) { Die "git fetch failed. Is the deploy key still valid, and does origin/$Branch exist?" }
 & git reset --hard "origin/$Branch" | Out-Null
 if ($LASTEXITCODE -ne 0) { Die "git reset failed." }
 $after = (& git rev-parse HEAD).Trim()
