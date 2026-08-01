@@ -1,11 +1,14 @@
 # Phase 7 — UI Analysis
 
 ```bash
-grep -cE '<Route' apps/web/src/main.tsx   # → 38
-ls apps/web/src/routes/                   # → 11 groups
-ls apps/web/src/hooks/                    # → 17
-ls apps/web/src/lib/*.ts                  # → 20
+grep -cE '<Route' apps/web/src/main.tsx   # → 44 (2026-08-01; was 38)
+ls apps/web/src/routes/                   # → 12 groups (2026-08-01; was 11 — new `data-injection` dir)
+ls apps/web/src/hooks/*.ts                # → 17 (unchanged)
+ls apps/web/src/lib/*.ts                  # → 20 (unchanged)
 ```
+
+*Updated 2026-08-01 for the Data Injection (P1) frontend — 6 new routes under
+`routes/data-injection/`. See §2 and §11.*
 
 ---
 
@@ -29,7 +32,7 @@ fork. UI primitives are hand-rolled in `components/ui/`. A rebuild that adopts a
 component library would change every screen's appearance — out of scope for
 "preserve the user experience".
 
-## 2. Route map — 11 groups, 38 routes
+## 2. Route map — 12 groups, 44 routes (was 11 groups / 38 routes before P1)
 
 | Group | Representative routes |
 |---|---|
@@ -43,9 +46,11 @@ component library would change every screen's appearance — out of scope for
 | `system-health` | `/system-health` |
 | `debug` | `/debug/traces` |
 | `profile` | `/profile` |
+| `data-injection` **(P1, new)** | `/data-injection`, `/data-injection/hierarchy`, `/data-injection/gateways`, `/data-injection/instruments`, `/data-injection/instruments/create`, `/data-injection/profiles` |
 
-**Sidebar shows 9 items**: Home, Dashboard, Users, Admin Requests,
-Configuration, Notifications, Audit Trail, System Health, Debug Traces.
+**Sidebar shows 10 items** (was 9): Home, Dashboard, Users, Admin Requests,
+Configuration, Notifications, Audit Trail, System Health, Debug Traces,
+**Data Injection**.
 
 Heavy pages are `lazy()`-loaded with a `<Suspense>` fallback; guards wrap routes
 as `<RequireRole permissions={[PERMISSIONS.X]}>`.
@@ -56,7 +61,7 @@ as `<RequireRole permissions={[PERMISSIONS.X]}>`.
 ┌──────────────────────────────────────────────────────┐
 │ Sidebar (collapsible)  │  Header: notifications · user│
 │  ├─ logo / app name    ├──────────────────────────────┤
-│  ├─ 9 nav items        │                              │
+│  ├─ 10 nav items       │                              │
 │  │   (RBAC-filtered)   │   <main> — routed page       │
 │  └─ footer:            │                              │
 │     company · "21 CFR  │                              │
@@ -185,3 +190,35 @@ containers on wide tables.
   defs were stripped); the resolvers return built-in defaults. Either restore the
   config surfaces or remove the indirection.
 - `lib/api-base.ts`'s `localStorage` server-URL override is mobile-era vestige.
+
+## 12. Data Injection (P1) — 6 new pages, landed 2026-08-01
+
+All 6 files live in `routes/data-injection/`, lazy-loaded with the same
+`<Suspense>`/`<LazyFallback />`/`<RequireRole permissions={[...]}>` pattern
+as every other route (§2, §6) — no new loading/guard mechanism was
+introduced.
+
+| File | Route | Purpose |
+|---|---|---|
+| `index.tsx` | `/data-injection` | Dashboard — 4 SWR-backed count cards (Instruments, Gateways, Communication Profiles, Hierarchy Nodes), each conditionally fetched via `useCan(...)` (`null` SWR key when the user lacks the view permission, per the §5 convention) and linking to its page. |
+| `hierarchy.tsx` | `/data-injection/hierarchy` | Tree view + CRUD over `HierarchyNode` (create, edit, move, delete). |
+| `gateways.tsx` | `/data-injection/gateways` | Gateway list + CRUD, referencing a hierarchy node and a communication profile per gateway. |
+| `instruments.tsx` | `/data-injection/instruments` | Instrument list + edit/delete; create is routed to the wizard rather than an inline form. |
+| `instrument-wizard.tsx` | `/data-injection/instruments/create` | **3-step wizard**: (1) name/code/hierarchy-node — gates "Next" on `step1Valid`; (2) gateway vs. independent communication profile choice; (3) confirm — gates submit on `step3Valid` (mirrors the backend's `instruments_reachable_chk`, §11.4 of the database doc, in the UI before the request is even sent). |
+| `profiles.tsx` | `/data-injection/profiles` | Communication profile list + CRUD, with the protocol picker sourced from `GET /api/communication-profiles/protocols`. |
+
+**Permission gates on the routes** (`main.tsx`): the dashboard and
+instruments list both gate on `PERMISSIONS.INSTRUMENT_VIEW`; hierarchy gates
+on `HIERARCHY_VIEW`; gateways on `GATEWAY_VIEW`; the wizard on
+`INSTRUMENT_CREATE`; profiles on `COMM_PROFILE_VIEW` — one gate per route,
+same one-permission-per-guard convention as the rest of the app.
+
+**No new hooks or lib modules were added** — the pages reuse `useCan`, `useSWR`,
+and the existing `api-client`/`toast` primitives (§5, §6, §8), which is why the
+hooks/lib counts in the header of this doc are unchanged.
+
+**What these pages do not do:** none of the 6 pages connect to a device, poll
+a broker, or render live telemetry. They are CRUD forms and a tree editor over
+configuration rows — consistent with the backend's P1 scope
+([`../06-api/README.md`](../06-api/README.md) §9,
+[`../05-database/README.md`](../05-database/README.md) §11.9).

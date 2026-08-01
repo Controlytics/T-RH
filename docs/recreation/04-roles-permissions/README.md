@@ -1,13 +1,17 @@
 # Phase 4 — Roles, Permissions & Access Control
 
 *Counts verified by executing the built `PERMISSION_TREE` module and querying the
-live `roles` table, 2026-07-25.*
+live `roles` table, 2026-07-25. Updated 2026-08-01 for the Data Injection (P1)
+group — see §10.*
 
 ```bash
 node -e "const t=require('./dist/types/permission-tree.js');
          const n=t.PERMISSION_TREE.flatMap(g=>g.nodes);
          console.log(n.length, n.filter(x=>x.configurable).length, t.PERMISSION_TREE.length)"
-# → 38 nodes, 26 configurable, 8 groups
+# 2026-07-25: → 38 nodes, 26 configurable, 8 groups
+# 2026-08-01: source-derived (grep, not a dist/ rebuild — see §10) →
+#             54 nodes, 9 groups. The "configurable" figure was not
+#             re-derived this pass; see the caveat in ../02-inventory/README.md §2.
 ```
 
 ---
@@ -61,11 +65,15 @@ and creating a genuine backend escalation. The fix was to remove the broad perms
 from the grant sets. A rebuild must keep the two sets structurally separate,
 ideally with types that make mixing them impossible.
 
-## 2. The 30 permission constants
+## 2. The permission constants (30 → 46 with Data Injection P1)
 
 ```bash
-grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts   # → 30
+grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts   # → 46 (2026-08-01; was 30)
 ```
+
+The 16 added by P1 (§10): `HIERARCHY_{VIEW,CREATE,UPDATE,DELETE}`,
+`GATEWAY_{VIEW,CREATE,UPDATE,DELETE}`, `INSTRUMENT_{VIEW,CREATE,UPDATE,DELETE}`,
+`COMM_PROFILE_{VIEW,CREATE,UPDATE,DELETE}`.
 
 | Domain | Constants |
 |---|---|
@@ -79,7 +87,7 @@ grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts   # → 30
 | Backup (3) | `BACKUP_MANAGE`, `BACKUP_EXPORT`, `BACKUP_RESTORE` |
 | Admin requests (2) | `ADMIN_REQUEST_APPROVE`, `ADMIN_REQUEST_REJECT` |
 
-## 3. The 8 sidebar groups and 38 nodes
+## 3. The 9 sidebar groups and 54 nodes (was 8 groups / 38 nodes before P1)
 
 | Group | Nodes |
 |---|---|
@@ -91,13 +99,16 @@ grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts   # → 30
 | `audit` | `audit.view`, `.export`, `.redact`, `.delete`, `.verify_chain` |
 | `system-health` | `system_health.view` |
 | `debug-traces` | `debug.view`, `.manage` |
+| `data-injection` **(P1, 2026-08-01)** | `hierarchy.view/.create/.edit/.delete`, `gateways.view/.create/.edit/.delete`, `instruments.view/.create/.edit/.delete`, `comm_profiles.view/.create/.edit/.delete` — 16 nodes |
 
-**38 total nodes; 26 marked `configurable: true`** and therefore surfaced as
-admin toggles. The other 12 are *enforced-only*: the permission is still checked
-by the backend, but there is no per-role toggle for it (either because it
-duplicates another toggle's capability, or because it is SUPER_ADMIN-only).
+**54 total nodes** (38 + the 16 added by `data-injection`); **all 16 of the
+new nodes are `configurable: true`**, i.e. all are admin toggles, unlike the
+pre-P1 groups which mix configurable and enforced-only nodes. The pre-P1
+"26 configurable / 12 enforced-only" split is left as originally recorded —
+see the caveat in `../02-inventory/README.md` §2 for why the combined total
+isn't quoted here.
 
-**Sidebar items: 9** — the 8 groups above plus `home` (Module Guide), which has
+**Sidebar items: 10** — the 9 groups above plus `home` (Module Guide), which has
 no permission group and is therefore visible-to-all by permission while still
 being per-role toggleable on the Sidebar tab.
 
@@ -165,11 +176,12 @@ rebuild should converge everything on `useCan`.
 
 ## 7. Re-authentication actions
 
-**39 actions across 7 categories**: Backup, Configuration, Help, Notifications,
-Role Management, Super Admin, User Management.
+**51 actions across 8 categories** (was 39 across 7 before P1): Backup,
+Configuration, Help, Notifications, Role Management, Super Admin, User
+Management, **Data Injection** (new, 12 actions — §10).
 
 ```bash
-grep -cE '^\s+[A-Z_]+:' packages/shared/src/types/reauth-actions.ts   # → 39
+grep -cE '^\s+[A-Z_]+:' packages/shared/src/types/reauth-actions.ts   # → 51 (2026-08-01; was 39)
 ```
 
 Re-auth is an **orthogonal axis** to permissions: a permission answers *may you*,
@@ -201,3 +213,37 @@ confirm it exposes no permission the viewer could not already infer.
 6. Preserve "no tree group ⇒ visible" as the sidebar default.
 7. Keep `AUDIT_DELETE` unassigned by default.
 8. Preserve the honest `enforce: 'c'` tagging rather than hiding cosmetic toggles.
+
+## 10. Data Injection (P1) group — landed 2026-08-01
+
+The 9th sidebar group, `data-injection`, backs the new hierarchy / gateway /
+instrument / communication-profile foundation
+(`../02-inventory/README.md` §11, `../05-database/README.md`). It follows the
+existing tree conventions exactly:
+
+- **16 nodes**, 4 per page (`View`/`Add`/`Edit`/`Delete`) × 4 pages
+  (Hierarchy, Gateways, Instruments, Communication Profiles).
+- **Every node is `enforce: 'a'`** — all 16 are enforced by a real backend
+  `requirePermission(...)` gate in the corresponding route file from day one
+  (verified against `apps/api/src/modules/{hierarchy,gateways,instruments,
+  communication-profiles}/routes.ts`). There is no category-`b`/`c` debt in
+  this group.
+- **Grant sets follow the same read-dependency pattern as the rest of the
+  tree** — e.g. `gateways.create`'s `permissions` includes `GATEWAY_CREATE`
+  **and** `GATEWAY_VIEW`, `HIERARCHY_VIEW`, `COMM_PROFILE_VIEW`, because
+  creating a gateway requires being able to see the hierarchy node and
+  communication profile it references. Per the §1 rule, the `gate` for that
+  same node is the single narrow `GATEWAY_CREATE` — the grant set is not used
+  for authorization.
+- **12 new reauth actions**, one per Create/Update/Delete across the 4 pages
+  (`CREATE_HIERARCHY_NODE` … `DELETE_COMM_PROFILE`), all in a new `Data
+  Injection` reauth category. View actions carry no reauth action, matching
+  every other read-only node in the tree.
+- **`visibilityPrivilegeIds`** on the group is `['hierarchy.view',
+  'gateways.view', 'instruments.view', 'comm_profiles.view']` — any one of
+  the four view permissions makes the sidebar item visible, same pattern as
+  every other multi-page group.
+
+No `RoleConfig` seed data grants any of these 16 permissions to any default
+role — a site must explicitly enable Data Injection per role, same as
+`AUDIT_DELETE` (§5).

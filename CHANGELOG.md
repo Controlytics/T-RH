@@ -1,5 +1,106 @@
 # Changelog
 
+## [Unreleased] — Data Injection: P1 foundation (hierarchy, gateways, instruments, communication profiles) (2026-08-01)
+
+Added a configuration-only foundation for future device data ingestion: a
+location hierarchy, protocol-agnostic gateway/instrument/communication-profile
+records, and derived UNS topic paths. **This lands no protocol adapter and
+nothing in this codebase talks to a device** — see the explicit non-scope
+note at the bottom of this entry.
+
+**Schema — 7 new models, 2 new enums** (`apps/api/prisma/schema.prisma`;
+migrations `20260801120000_data_injection_p1` +
+`20260801130000_data_injection_p1_indexes`; drift guard PASS):
+`HierarchyNode`, `Protocol`, `CommunicationProfile`, `Gateway`, `Instrument`,
+`InstrumentSetting`, `InstrumentTopic`; `HierarchyLevel` (7-value location
+enum, `COMPANY → SITE → PLANT → BUILDING → BLOCK → AREA → LINE`) and
+`TopicCategory` (13-value UNS topic-slot enum). 9 new foreign keys, all
+`onDelete: Restrict` except the two `Instrument`-keyed sidecars (`Cascade`).
+
+**`ltree` hierarchy, single-query ancestry.** `hierarchy_nodes.path` is a raw
+`ltree` column — deliberately absent from `schema.prisma` (Prisma maps
+`ltree` to `Unsupported()`, which would make it unselectable through the
+typed client) — added by hand-authored SQL and read/written only through
+`apps/api/src/modules/hierarchy/hierarchy.repository.ts`. GiST + btree
+indexes back it for ancestor/descendant lookups in one query, no recursive
+CTE. A partial unique index, `hierarchy_nodes_root_slug_key` (`slug` unique
+WHERE `parent_id IS NULL`), enforces root-level slug uniqueness — also
+inexpressible in `schema.prisma`, also raw SQL, added in the second migration.
+A `instruments_reachable_chk` CHECK constraint requires every instrument to
+carry a `gateway_id` or a `communication_profile_id` (or both) — an
+instrument reachable neither way is a device the system has no way to talk
+to, and Prisma cannot express the conditional NOT NULL this needs.
+
+**Topics are derived, not stored.** `resolveTopics()`
+(`apps/api/src/modules/instruments/topic-resolver.ts`) is a pure function
+over hierarchy ancestry + gateway/instrument slugs + the new `uns-settings`
+config surface (prefix, separator, includeGateway). Renaming a hierarchy node
+re-derives every descendant's topic paths on the next read — no backfill, no
+stored path to go stale. Only explicit per-category customisations persist,
+one row per instrument+category in `InstrumentTopic`; a blank override is
+treated as "stop customising," not "publish nowhere."
+
+**Audit boundary (deliberate):** every hierarchy/gateway/instrument/
+communication-profile mutation is audited — 15 new `AUDIT_ACTIONS` entries
+(`HIERARCHY_NODE_*`, `GATEWAY_*`, `INSTRUMENT_*`,
+`INSTRUMENT_TOPIC_OVERRIDE_*`, `COMMUNICATION_PROFILE_*`), each written in
+the same transaction as the mutating route, matching the existing
+`writeAudit()`-in-transaction pattern. **Telemetry is deliberately NOT
+audited.** Telemetry is process data, not a §11 electronic record — auditing
+every reading would misapply a records-integrity control to a data stream it
+was never designed for. There is no telemetry pipeline in this phase to
+audit either way; the boundary is recorded now so a later phase doesn't
+default into auditing it by habit. When device **commands** arrive in a
+future phase, they will be audited, and — being state-changing, higher-risk
+actions — gated behind re-authentication, the same treatment every other
+destructive action in this system gets.
+
+**Protocol registry seeded, all 18 rows disabled.** `mqtt`, `mqtts`, `http`,
+`https`, `websocket`, `wss`, `tcp`, `udp`, `serial`, `modbus-tcp`,
+`modbus-rtu`, `opcua`, `kafka`, `amqp`, `azure-iot`, `aws-iot`, `webhook`,
+`rest` — every row ships with `is_enabled = false`. P1 ships zero protocol
+adapters, so an enabled protocol with nothing behind it would misrepresent
+working functionality in the UI. OPC-DA is deliberately excluded from the
+registry (COM/DCOM, no viable Node implementation).
+
+**RBAC:** 16 new permission constants (4 each for `HIERARCHY_*`, `GATEWAY_*`,
+`INSTRUMENT_*`, `COMM_PROFILE_*`; 30 → 46), 12 new re-auth actions in a new
+"Data Injection" category (39 → 51 across 8 categories), a 9th
+`PERMISSION_TREE` sidebar group (`data-injection`, 16 nodes, all
+`configurable: true`, all `enforce: 'a'` from day one), and a 10th sidebar
+item. No default role is granted any of the 16 permissions — same posture as
+`AUDIT_DELETE`: a site must explicitly opt in per role.
+
+**API:** 4 new module groups — `hierarchy`, `gateways`, `instruments`,
+`communication-profiles` (22 API modules total, was 18) — 13 new unique
+OpenAPI paths (21 route registrations) plus 1 new config path
+(`uns-settings`), for +14 paths overall (139 → 153, OpenAPI-verified).
+`CommunicationProfile.config` secrets are masked through the existing
+fail-closed `lib/mask-secrets.ts`, with the module's own allowlists for
+response vs. audit-diff visibility — a raw secret never reaches a
+(permanent, unredactable) audit row.
+
+**Frontend:** 6 new pages under `routes/data-injection/` (dashboard,
+hierarchy tree, gateways list, instruments list, a 3-step instrument creation
+wizard, communication-profiles list) — 6 new `<Route>`s (44 total, was 38).
+The wizard's step-3 gate mirrors `instruments_reachable_chk` client-side
+(gateway vs. independent communication profile) before the request is even
+sent.
+
+**Explicitly out of scope for this phase — read before assuming otherwise:**
+no protocol adapter of any kind exists yet. Nothing in this codebase opens a
+network connection to a broker, polls a device, or subscribes to anything.
+The 4 new API modules are pure CRUD over configuration rows; the protocol
+registry lists capabilities no code currently exercises. Telemetry table
+partitioning is likewise out of scope — there is no telemetry table yet to
+partition. This is configuration scaffolding for a future ingestion phase,
+not a partial ingestion implementation.
+
+Documentation: `docs/recreation/{02-inventory,04-roles-permissions,
+05-database,06-api,07-ui}/README.md` updated with verified counts and
+Data-Injection-specific sections. Build record:
+`.superpowers/sdd/2026-08-01-data-injection-p1-foundation/`.
+
 ## [Unreleased] — Phase 0 follow-up: dead frontend→backend calls removed (2026-07-25)
 
 Swept every frontend `/api/*` reference against the live OpenAPI route list and

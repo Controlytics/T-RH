@@ -1,11 +1,15 @@
 # Phase 6 — API Analysis
 
-**139 paths across 19 groups.** The complete path-by-path listing is generated
-directly from the running server's OpenAPI document:
-**[`endpoints.md`](endpoints.md)**.
+**153 paths across 23 groups**, verified 2026-08-01 (was 139 across 19 groups
+on 2026-07-25 — the +14 is the Data Injection P1 modules, §9). The complete
+path-by-path listing referenced below (**[`endpoints.md`](endpoints.md)**)
+was generated against the pre-P1 server and **has not been regenerated in
+this pass** — it is out of scope for this doc-sync task (only the 5
+`docs/recreation` READMEs + CHANGELOG). Treat `endpoints.md` as stale for the
+4 new module groups until it is regenerated from a live `/docs/json` pull.
 
 ```bash
-curl -sk https://localhost:3001/docs/json | jq '.paths | length'   # → 139
+curl -sk https://localhost:3001/docs/json | jq '.paths | length'   # → 153 (2026-08-01; was 139)
 ```
 
 This page documents the **conventions** every endpoint follows, which is what a
@@ -17,7 +21,7 @@ rebuild actually needs — the path list is mechanical.
 
 | Group | Paths | Group | Paths |
 |---|---|---|---|
-| `config` | 35 | `notification-rules` | 5 |
+| `config` | 36 (was 35; +1 for `uns-settings`, P1) | `notification-rules` | 5 |
 | `notification-settings` | 14 | `debug` | 5 |
 | `users` | 12 | `user-groups` | 4 |
 | `notifications` | 9 | `help` | 4 |
@@ -27,10 +31,14 @@ rebuild actually needs — the path list is mechanical.
 | `audit` | 7 | `uploads` | 1 |
 | `roles` | 6 | `system-health` | 1 |
 | | | `health` (root) | 1 |
+| `instruments` **(P1)** | 4 | `hierarchy` **(P1)** | 3 |
+| `gateways` **(P1)** | 3 | `communication-profiles` **(P1)** | 3 |
 
 **Configuration is a quarter of the API.** That is the defining characteristic
 of this system: it is built to be reconfigured by administrators at a regulated
-site, without a redeploy.
+site, without a redeploy. The 4 new P1 groups (§9) add 13 paths on top of
+that — source-derived from route registrations, not yet cross-checked
+against `endpoints.md` (which predates P1; see the note above).
 
 ## 2. Middleware pipeline (every request)
 
@@ -107,7 +115,8 @@ opens the re-auth dialog and retries with the credential.
 - **10-second in-memory cache** so multi-step operations do not re-prompt.
 - **Which actions require re-auth is configurable** (`action-reauth` surface),
   not hardcoded — sites tune their own signature policy.
-- 39 actions across 7 categories.
+- 51 actions across 8 categories (was 39 / 7 before P1; see
+  [`../04-roles-permissions/README.md`](../04-roles-permissions/README.md) §10).
 
 ## 6. Request/response conventions
 
@@ -176,3 +185,60 @@ global limit cannot serve both purposes.
    to reflect what it is.
 4. **Dead CORS entry.** `capacitor://localhost` remains in the allow-list with
    no Capacitor client. Remove it.
+5. **`endpoints.md` predates P1** (§9) — regenerate it from a live
+   `/docs/json` pull before relying on it for the 4 new module groups.
+
+## 9. Data Injection (P1) — 4 new module groups, landed 2026-08-01
+
+Registered in `apps/api/src/app.ts` under `/api/communication-profiles`,
+`/api/hierarchy`, `/api/gateways`, `/api/instruments`. All four follow every
+convention in §2–§6 unchanged — same middleware pipeline, same
+`requirePermission`/`enforceReauth`/`writeAudit`-in-transaction shape as the
+pre-P1 modules. Nothing new was introduced at the framework level; this
+section records what's specific to the new surface.
+
+**Route inventory** (13 unique OpenAPI paths, 21 route registrations —
+GET/POST share `/`, so path count is lower than registration count):
+
+| Module | Routes |
+|---|---|
+| `hierarchy` | `GET /`, `POST /`, `PUT /:id`, `POST /:id/move`, `DELETE /:id` |
+| `gateways` | `GET /`, `GET /:id/instruments`, `POST /`, `PUT /:id`, `DELETE /:id` |
+| `instruments` | `GET /`, `GET /:id/topics`, `POST /`, `PUT /:id`, `PUT /:id/topics/:category`, `DELETE /:id` |
+| `communication-profiles` | `GET /protocols`, `GET /`, `POST /`, `PUT /:id`, `DELETE /:id` |
+
+**Secret masking on `CommunicationProfile.config`.** The module's own
+`maskForResponse`/`maskForAudit` wrap the shared `lib/mask-secrets.ts` with
+two explicit allowlists (response-safe keys vs. audit-safe keys), rather than
+the module inventing its own redaction. `maskSecrets` **fails closed** — an
+unrecognised key is redacted by default until a human explicitly adds it to
+an allowlist — so a new connection-config field added later (a new protocol's
+credential shape) is redacted automatically rather than silently leaking.
+Masked config is what lands in both the API response *and* the audit diff —
+a raw secret never reaches an audit row, because audit rows are permanent
+and effectively unredactable in practice.
+
+**`GET /api/instruments/:id/topics`** is the resolved-topics endpoint —
+it runs `resolveTopics()` (pure function, no DB write) over the instrument's
+hierarchy ancestry, gateway slug, and `uns-settings` config, merged with any
+persisted `InstrumentTopic` overrides, and returns the effective topic string
+per `TopicCategory`. `PUT /api/instruments/:id/topics/:category` is the only
+way to set/clear an override; there is no bulk-override endpoint.
+
+**Audit actions (12 new):** `HIERARCHY_NODE_{CREATED,UPDATED,MOVED,DELETED}`,
+`GATEWAY_{CREATED,UPDATED,DELETED}`, `INSTRUMENT_{CREATED,UPDATED,DELETED}`,
+`INSTRUMENT_TOPIC_OVERRIDE_{SET,CLEARED}`, plus 3 more for communication
+profiles (`COMMUNICATION_PROFILE_{CREATED,UPDATED,DELETED}`) — 15 total new
+`AUDIT_ACTIONS` entries across the 4 modules. Every mutating route in all
+four modules calls `writeAudit()` in the same transaction as the write,
+matching the §2 pipeline. **Telemetry is deliberately not audited** — see
+[`../05-database/README.md`](../05-database/README.md) §11.9 for why (there
+is none yet to audit; the boundary decision is for when an adapter lands).
+
+**No protocol adapter exists.** These 4 modules are pure CRUD over
+configuration rows — hierarchy nodes, gateway/instrument records, connection
+profiles, and derived/overridden topic strings. None of them open a network
+connection, poll a device, or subscribe to a broker. `GET
+/api/communication-profiles/protocols` lists the 18 seeded `Protocol` rows
+(all `is_enabled: false`) for the frontend picker; nothing consumes that flag
+to actually connect.

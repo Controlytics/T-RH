@@ -1,10 +1,11 @@
 # Phase 5 — Database Reverse Engineering
 
-*Verified against the live `compliance_core_db` and `schema.prisma`, 2026-07-25.*
+*Verified against the live `compliance_core_db` and `schema.prisma`, 2026-07-25.
+Re-verified 2026-08-01 after the Data Injection (P1) migration — see §11.*
 
 ```bash
-grep -cE '^model ' apps/api/prisma/schema.prisma   # → 23
-grep -cE '^enum '  apps/api/prisma/schema.prisma   # → 6
+grep -cE '^model ' apps/api/prisma/schema.prisma   # → 30 (2026-08-01; was 23)
+grep -cE '^enum '  apps/api/prisma/schema.prisma   # → 8  (2026-08-01; was 6)
 ```
 
 > The audit chain is documented separately in
@@ -82,7 +83,12 @@ grep -cE '^enum '  apps/api/prisma/schema.prisma   # → 6
 
 ## 3. Relationships
 
-Only **8 declared foreign keys** — this is a deliberately shallow schema.
+**8 declared foreign keys** in the pre-P1 schema — this was a deliberately
+shallow schema. **Data Injection P1 adds 9 more** (§11.3), all `onDelete:
+Restrict` except the two cascade-on-parent-instrument sidecars — bringing the
+live total to **17**. The "deliberately shallow" characterization above still
+holds for the original 23-model core; P1 is a genuinely relational subsystem
+layered on top of it, not a continuation of the shallow style.
 
 | Child | → Parent | On delete |
 |---|---|---|
@@ -148,8 +154,12 @@ Every remaining function in `pg_proc` belongs to `pgcrypto` (`crypt`, `digest`,
 application tier — with the deliberate exception of delete-blocking, which must
 be enforced *below* the application to mean anything against a DB-level actor.
 
-`pgcrypto` is required for `gen_random_uuid()` defaults; `ltree` is a leftover
-from the upstream hierarchy feature and is a **removal candidate**.
+`pgcrypto` is required for `gen_random_uuid()` defaults. `ltree` was flagged
+as a removal candidate in the 2026-07-25 pass (no live consumer at the time)
+— **that is no longer true as of 2026-08-01**: `hierarchy_nodes.path` (§11)
+is an `ltree` column, GiST- and btree-indexed, and is the mechanism the
+hierarchy repository uses for single-query ancestor/descendant lookups. Do
+not remove the extension.
 
 ## 6. Migration strategy — read before any schema change
 
@@ -238,3 +248,131 @@ previously wrote **permanent, immutable, hash-chained rows into the real
 
 **This is a compliance requirement, not a convenience.** A rebuild must isolate
 test writes from any database holding regulated records.
+
+## 11. Data Injection (P1) — 7 models + 2 enums, landed 2026-08-01
+
+Migrations: `20260801120000_data_injection_p1` (models, seed, the `ltree`
+column, the CHECK constraint) + `20260801130000_data_injection_p1_indexes`
+(the deferred partial-unique index). Both pass the drift guard.
+
+### 11.1 The 7 models
+
+| Model | Table | Purpose |
+|---|---|---|
+| `HierarchyNode` | `hierarchy_nodes` | Self-referencing location tree — `COMPANY → SITE → PLANT → BUILDING → BLOCK → AREA → LINE` (`HierarchyLevel` enum, 7 values). Backs UNS topic paths. |
+| `Protocol` | `protocols` | Lookup table of communication protocols; `key` is the PK (e.g. `mqtt`, `opcua`). Seeded, not user-creatable. |
+| `CommunicationProfile` | `communication_profiles` | A named, reusable set of connection credentials/config (broker URL, auth) for one `Protocol`. |
+| `Gateway` | `gateways` | A physical/logical edge device at a `HierarchyNode`, using one `CommunicationProfile`. |
+| `Instrument` | `instruments` | A sensor/device — either hangs off a `Gateway` or communicates independently with its own `CommunicationProfile` (§11.4). |
+| `InstrumentSetting` | `instrument_settings` | 1:1 sidecar — arbitrary `values Json` per instrument, cascade-deletes with it. |
+| `InstrumentTopic` | `instrument_topics` | Per-`TopicCategory` override row (13 categories, one row max per instrument+category via `@@unique`); presence of a row means "don't derive, use this string" (§11.5). |
+
+### 11.2 The 2 enums
+
+- `HierarchyLevel` — `COMPANY | SITE | PLANT | BUILDING | BLOCK | AREA | LINE` (7 values, ordered root→leaf).
+- `TopicCategory` — `TELEMETRY | ATTRIBUTES | ALARM | COMMAND | RPC | HEARTBEAT | EVENT | STATUS | CONFIG | RESPONSE | SETTINGS | PUBLISH | SUBSCRIBE` (13 values).
+
+### 11.3 The 9 new foreign keys
+
+| Child | → Parent | On delete |
+|---|---|---|
+| `HierarchyNode.parent` (self, named relation `"NodeTree"`) | → `HierarchyNode` | Restrict |
+| `CommunicationProfile.protocol` | → `Protocol` | Restrict |
+| `Gateway.hierarchyNode` | → `HierarchyNode` | Restrict |
+| `Gateway.profile` | → `CommunicationProfile` | Restrict |
+| `Instrument.hierarchyNode` | → `HierarchyNode` | Restrict |
+| `Instrument.gateway` (nullable) | → `Gateway` | Restrict |
+| `Instrument.profile` (nullable) | → `CommunicationProfile` | Restrict |
+| `InstrumentSetting.instrument` | → `Instrument` | Cascade |
+| `InstrumentTopic.instrument` | → `Instrument` | Cascade |
+
+**Every reference is `Restrict`, not `Cascade`, except the two 1:1/1:many
+sidecars keyed directly off `Instrument.id`.** Deleting a `HierarchyNode`,
+`CommunicationProfile`, or `Gateway` that still has children/dependents fails
+loudly rather than silently orphaning or cascading — the same conservatism
+the rest of the schema applies to `AuditTrail`. `Instrument` rows delete
+their own `InstrumentSetting`/`InstrumentTopic` rows on delete (they have no
+independent identity).
+
+### 11.4 The `instruments_reachable_chk` CHECK constraint
+
+```sql
+ALTER TABLE "instruments" ADD CONSTRAINT "instruments_reachable_chk"
+  CHECK ("gateway_id" IS NOT NULL OR "communication_profile_id" IS NOT NULL);
+```
+
+An instrument must be reachable one of two ways: hang off a `Gateway` (and
+inherit that gateway's `CommunicationProfile`), or carry its own
+`communication_profile_id` and talk independently. Prisma cannot express a
+conditional NOT NULL, so this is hand-authored raw SQL in the migration —
+same pattern as the partial unique index below. **A rebuild must not drop
+this thinking it's redundant with the two nullable FK columns** — without it,
+an instrument with both `gateway_id` and `communication_profile_id` NULL is a
+device the system has no way to reach.
+
+### 11.5 The `path ltree` column and its indexes
+
+`path ltree` is **deliberately absent from `schema.prisma`** — Prisma maps
+`ltree` to `Unsupported()`, which would make the column unselectable through
+the typed client. It is added by raw SQL in the migration and read/written
+only through `apps/api/src/modules/hierarchy/hierarchy.repository.ts`, which
+issues raw SQL for ancestry/descendant queries (single-query, no recursive
+CTE needed). Two indexes back it:
+
+```sql
+CREATE INDEX "hierarchy_nodes_path_gist_idx" ON "hierarchy_nodes" USING GIST ("path");
+CREATE INDEX "hierarchy_nodes_path_btree_idx" ON "hierarchy_nodes" USING BTREE ("path");
+```
+
+GiST for ltree's `<@`/`@>` ancestor/descendant operators; btree for exact/
+prefix path lookups. This is also why `ltree` is no longer a removal
+candidate in §5 above — reverse the earlier flag.
+
+### 11.6 The partial unique index — `hierarchy_nodes_root_slug_key`
+
+```sql
+CREATE UNIQUE INDEX "hierarchy_nodes_root_slug_key"
+  ON "hierarchy_nodes" ("slug") WHERE "parent_id" IS NULL;
+```
+
+Root-level slug uniqueness (no two top-level `COMPANY` nodes sharing a slug)
+is enforced by this partial unique index, added in the second, deferred
+migration. Prisma cannot express a partial unique index as `@@unique`, so —
+same as the CHECK constraint — it exists only in raw SQL and is **not**
+visible in `schema.prisma`. Non-root uniqueness (siblings under the same
+parent) IS expressible and IS in the schema: `@@unique([parentId, slug])`.
+**Do not delete this index as "untracked"** — without it, two root nodes
+could share a slug and produce identical UNS topic paths for two different
+instrument trees, silently merging their data streams.
+
+### 11.7 Other new indexes
+
+```
+hierarchy_nodes_level_idx                     btree (level)
+gateways_hierarchy_node_id_idx                btree (hierarchy_node_id)
+gateways_communication_profile_id_idx         btree (communication_profile_id)
+instruments_gateway_id_idx                    btree (gateway_id)
+instruments_communication_profile_id_idx      btree (communication_profile_id)
+communication_profiles_protocol_key_idx       btree (protocol_key)
+```
+
+### 11.8 Seed data — the protocol registry
+
+18 `Protocol` rows, **all `is_enabled = false`**: `mqtt`, `mqtts`, `http`,
+`https`, `websocket`, `wss`, `tcp`, `udp`, `serial`, `modbus-tcp`,
+`modbus-rtu`, `opcua`, `kafka`, `amqp`, `azure-iot`, `aws-iot`, `webhook`,
+`rest`. Each carries a `capabilities` JSON blob (`publish`/`subscribe`/
+`poll`/`write` booleans) describing what an eventual adapter *would* support
+— none currently exist. **OPC-DA is deliberately absent** (COM/DCOM, no
+viable Node implementation). Shipping any row enabled with no adapter behind
+it would misrepresent working functionality; this is a scaffold for a later
+phase, not a partial implementation of one.
+
+### 11.9 What P1 does not do
+
+No protocol adapter. No connection to any physical device, broker, or OPC
+server. No telemetry table, no data ingestion path, no command dispatch. The
+`CommunicationProfile.config Json` column stores credentials for a connection
+that nothing in this codebase opens. Partitioning of a future telemetry table
+is out of scope for P1 by design (deferred to a later phase) — there is no
+telemetry table yet to partition.
