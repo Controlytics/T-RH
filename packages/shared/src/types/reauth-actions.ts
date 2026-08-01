@@ -98,6 +98,20 @@ export const REAUTH_ACTIONS = {
   // targetType + targetId distinguishes the surface; the action is
   // shared so operators can opt in / out via one reauth-policy entry.
   UPDATE_CONFIG_PAGE: { label: 'Update Configuration Page', category: 'Configuration' },
+
+  // Data Injection
+  CREATE_HIERARCHY_NODE: { label: 'Create Hierarchy Node', category: 'Data Injection' },
+  UPDATE_HIERARCHY_NODE: { label: 'Update Hierarchy Node', category: 'Data Injection' },
+  DELETE_HIERARCHY_NODE: { label: 'Delete Hierarchy Node', category: 'Data Injection' },
+  CREATE_GATEWAY: { label: 'Create Gateway', category: 'Data Injection' },
+  UPDATE_GATEWAY: { label: 'Update Gateway', category: 'Data Injection' },
+  DELETE_GATEWAY: { label: 'Delete Gateway', category: 'Data Injection' },
+  CREATE_INSTRUMENT: { label: 'Create Instrument', category: 'Data Injection' },
+  UPDATE_INSTRUMENT: { label: 'Update Instrument', category: 'Data Injection' },
+  DELETE_INSTRUMENT: { label: 'Delete Instrument', category: 'Data Injection' },
+  CREATE_COMM_PROFILE: { label: 'Create Communication Profile', category: 'Data Injection' },
+  UPDATE_COMM_PROFILE: { label: 'Update Communication Profile', category: 'Data Injection' },
+  DELETE_COMM_PROFILE: { label: 'Delete Communication Profile', category: 'Data Injection' },
 } as const;
 
 export type ReauthAction = keyof typeof REAUTH_ACTIONS;

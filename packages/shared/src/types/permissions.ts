@@ -69,6 +69,29 @@ export const PERMISSIONS = {
   // versioned entities it browsed (CleaningProfile, FilterProfile,
   // ChecklistProfile, EquipmentGroup) went in the Phase 0 domain strip, so the
   // page had no reachable data and every one of its tabs 404'd.
+
+  // ── Data Injection (P1) ────────────────────────────────────
+  // Location hierarchy (Company→Line) backing UNS topic paths.
+  HIERARCHY_VIEW: 'HIERARCHY_VIEW',
+  HIERARCHY_CREATE: 'HIERARCHY_CREATE',
+  HIERARCHY_UPDATE: 'HIERARCHY_UPDATE',
+  HIERARCHY_DELETE: 'HIERARCHY_DELETE',
+
+  GATEWAY_VIEW: 'GATEWAY_VIEW',
+  GATEWAY_CREATE: 'GATEWAY_CREATE',
+  GATEWAY_UPDATE: 'GATEWAY_UPDATE',
+  GATEWAY_DELETE: 'GATEWAY_DELETE',
+
+  INSTRUMENT_VIEW: 'INSTRUMENT_VIEW',
+  INSTRUMENT_CREATE: 'INSTRUMENT_CREATE',
+  INSTRUMENT_UPDATE: 'INSTRUMENT_UPDATE',
+  INSTRUMENT_DELETE: 'INSTRUMENT_DELETE',
+
+  // Communication profiles hold broker credentials — masked on read.
+  COMM_PROFILE_VIEW: 'COMM_PROFILE_VIEW',
+  COMM_PROFILE_CREATE: 'COMM_PROFILE_CREATE',
+  COMM_PROFILE_UPDATE: 'COMM_PROFILE_UPDATE',
+  COMM_PROFILE_DELETE: 'COMM_PROFILE_DELETE',
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
