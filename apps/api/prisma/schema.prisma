@@ -784,6 +784,12 @@ enum TopicCategory {
   SUBSCRIBE
 }
 
+// NOTE: root-level slug uniqueness (parentId IS NULL) is enforced by a
+// partial unique index added in raw SQL — Prisma cannot express a partial
+// unique index, so it does not appear as an `@@unique` here. See
+// hierarchy_nodes_root_slug_key in migration 20260801130000_data_injection_p1_indexes.
+// Do not delete it as "untracked" — without it, two root nodes could share a
+// slug and produce identical UNS topic paths for different instrument trees.
 model HierarchyNode {
   id        String         @id @default(uuid())
   parentId  String?        @map("parent_id")
@@ -828,6 +834,7 @@ model CommunicationProfile {
   protocol    Protocol     @relation(fields: [protocolKey], references: [key], onDelete: Restrict)
   gateways    Gateway[]
   instruments Instrument[]
+  @@index([protocolKey])
   @@map("communication_profiles")
 }
 
@@ -852,6 +859,7 @@ model Gateway {
 
   @@unique([hierarchyNodeId, slug])
   @@index([hierarchyNodeId])
+  @@index([communicationProfileId])
   @@map("gateways")
 }
 
@@ -883,6 +891,7 @@ model Instrument {
   @@unique([gatewayId, deviceKey])
   @@unique([hierarchyNodeId, slug])
   @@index([gatewayId])
+  @@index([communicationProfileId])
   @@map("instruments")
 }
 
