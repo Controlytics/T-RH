@@ -7,8 +7,21 @@
  * $queryRaw / $executeRaw, and every other module reaches the hierarchy through
  * these functions rather than touching the column.
  */
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { ValidationError } from '../../lib/errors.js';
+
+/**
+ * Anything that can run a query — either the top-level Prisma client or a
+ * `tx` handed in from a caller's `prisma.$transaction(async (tx) => ...)`.
+ * Every mutation below accepts an optional client so a caller (routes.ts)
+ * can compose the ltree write with an audit-log insert in one transaction —
+ * see the module doc comment above and CLAUDE.md's "mutation + audit atomic"
+ * rule. When no client is passed, mutations that need more than one
+ * statement open their own transaction so standalone callers (e.g. this
+ * repository's own tests) stay atomic too.
+ */
+type DbClient = typeof prisma | Prisma.TransactionClient;
 
 export type HierarchyLevel =
   | 'COMPANY' | 'SITE' | 'PLANT' | 'BUILDING' | 'BLOCK' | 'AREA' | 'LINE';
@@ -54,17 +67,17 @@ export async function createNode(input: {
   name: string;
   sortOrder?: number;
   createdBy?: string;
-}): Promise<HierarchyNodeRow> {
+}, client: DbClient = prisma): Promise<HierarchyNodeRow> {
   const slug = sanitizeSlug(input.name);
   if (!slug) throw new ValidationError('Name must contain at least one alphanumeric character.');
 
-  const parentPath = input.parentId ? await getRawPath(input.parentId) : null;
+  const parentPath = input.parentId ? await getRawPath(input.parentId, client) : null;
   if (input.parentId && parentPath === null) {
     throw new ValidationError(`Parent node ${input.parentId} does not exist.`);
   }
   const path = parentPath ? `${parentPath}.${toLabel(slug)}` : toLabel(slug);
 
-  const rows = await prisma.$queryRaw<HierarchyNodeRow[]>`
+  const rows = await client.$queryRaw<HierarchyNodeRow[]>`
     INSERT INTO hierarchy_nodes (id, parent_id, level, name, slug, path, sort_order, is_active, created_at, updated_at, created_by)
     VALUES (gen_random_uuid(), ${input.parentId}, ${input.level}::"HierarchyLevel", ${input.name},
             ${slug}, ${path}::ltree, ${input.sortOrder ?? 0}, true, now(), now(), ${input.createdBy ?? null})
@@ -73,8 +86,8 @@ export async function createNode(input: {
   return { ...rows[0], path: fromLabel(rows[0].path) };
 }
 
-async function getRawPath(nodeId: string): Promise<string | null> {
-  const rows = await prisma.$queryRaw<{ path: string }[]>`
+async function getRawPath(nodeId: string, client: DbClient = prisma): Promise<string | null> {
+  const rows = await client.$queryRaw<{ path: string }[]>`
     SELECT path::text AS path FROM hierarchy_nodes WHERE id = ${nodeId}`;
   return rows[0]?.path ?? null;
 }
@@ -94,12 +107,23 @@ export async function getAncestryPath(nodeId: string): Promise<string[]> {
   return rows.map(r => r.slug);
 }
 
-/** Reparent a node and rewrite every descendant's path in one statement. */
-export async function moveNode(nodeId: string, newParentId: string | null): Promise<void> {
-  const oldPath = await getRawPath(nodeId);
+/**
+ * Reparent a node and rewrite every descendant's path atomically.
+ *
+ * Accepts an optional transaction client so a caller (e.g. the route
+ * handler) can run this in the SAME transaction as its audit-log write —
+ * Prisma does not allow nesting `$transaction`, so when a client IS passed
+ * we issue the two statements directly against it rather than opening our
+ * own. When no client is passed (e.g. this repository's own unit tests
+ * calling moveNode standalone) we still open a transaction ourselves so the
+ * two-statement rewrite stays atomic.
+ */
+export async function moveNode(nodeId: string, newParentId: string | null, tx?: Prisma.TransactionClient): Promise<void> {
+  const client = tx ?? prisma;
+  const oldPath = await getRawPath(nodeId, client);
   if (oldPath === null) throw new ValidationError(`Node ${nodeId} does not exist.`);
 
-  const newParentPath = newParentId ? await getRawPath(newParentId) : null;
+  const newParentPath = newParentId ? await getRawPath(newParentId, client) : null;
   if (newParentId && newParentPath === null) {
     throw new ValidationError(`Target parent ${newParentId} does not exist.`);
   }
@@ -111,48 +135,64 @@ export async function moveNode(nodeId: string, newParentId: string | null): Prom
   const leaf = oldPath.split('.').pop()!;
   const newPath = newParentPath ? `${newParentPath}.${leaf}` : leaf;
 
-  await prisma.$transaction([
-    prisma.$executeRaw`UPDATE hierarchy_nodes SET parent_id = ${newParentId}, updated_at = now() WHERE id = ${nodeId}`,
+  const run = async (c: DbClient) => {
+    await c.$executeRaw`UPDATE hierarchy_nodes SET parent_id = ${newParentId}, updated_at = now() WHERE id = ${nodeId}`;
     // Rewrite this node AND its whole subtree. `<@` is "is descendant of (or equal)".
     // subpath(path, offset) errors with "invalid positions" when offset == nlevel(path)
     // (i.e. for the moved node itself, whose path exactly equals oldPath) — it only
     // accepts an offset strictly less than the path's own length. The CASE guards
     // that exact-match row separately instead of asking subpath for an empty tail.
-    prisma.$executeRaw`
+    await c.$executeRaw`
       UPDATE hierarchy_nodes
       SET path = CASE WHEN path = ${oldPath}::ltree
                        THEN ${newPath}::ltree
                        ELSE ${newPath}::ltree || subpath(path, nlevel(${oldPath}::ltree))
                   END,
           updated_at = now()
-      WHERE path <@ ${oldPath}::ltree`,
-  ]);
+      WHERE path <@ ${oldPath}::ltree`;
+  };
+
+  if (tx) {
+    await run(tx);
+  } else {
+    await prisma.$transaction((txx) => run(txx));
+  }
 }
 
-/** Rename a node, re-deriving its slug and every descendant path. */
-export async function renameNode(nodeId: string, name: string): Promise<void> {
+/**
+ * Rename a node, re-deriving its slug and every descendant path atomically.
+ * See moveNode's doc comment for why `tx` is optional and how nesting is avoided.
+ */
+export async function renameNode(nodeId: string, name: string, tx?: Prisma.TransactionClient): Promise<void> {
   const slug = sanitizeSlug(name);
   if (!slug) throw new ValidationError('Name must contain at least one alphanumeric character.');
 
-  const oldPath = await getRawPath(nodeId);
+  const client = tx ?? prisma;
+  const oldPath = await getRawPath(nodeId, client);
   if (oldPath === null) throw new ValidationError(`Node ${nodeId} does not exist.`);
 
   const parts = oldPath.split('.');
   parts[parts.length - 1] = toLabel(slug);
   const newPath = parts.join('.');
 
-  await prisma.$transaction([
-    prisma.$executeRaw`UPDATE hierarchy_nodes SET name = ${name}, slug = ${slug}, updated_at = now() WHERE id = ${nodeId}`,
+  const run = async (c: DbClient) => {
+    await c.$executeRaw`UPDATE hierarchy_nodes SET name = ${name}, slug = ${slug}, updated_at = now() WHERE id = ${nodeId}`;
     // Same exact-match guard as moveNode — see the comment there.
-    prisma.$executeRaw`
+    await c.$executeRaw`
       UPDATE hierarchy_nodes
       SET path = CASE WHEN path = ${oldPath}::ltree
                        THEN ${newPath}::ltree
                        ELSE ${newPath}::ltree || subpath(path, nlevel(${oldPath}::ltree))
                   END,
           updated_at = now()
-      WHERE path <@ ${oldPath}::ltree`,
-  ]);
+      WHERE path <@ ${oldPath}::ltree`;
+  };
+
+  if (tx) {
+    await run(tx);
+  } else {
+    await prisma.$transaction((txx) => run(txx));
+  }
 }
 
 export async function listTree(): Promise<HierarchyNodeRow[]> {
