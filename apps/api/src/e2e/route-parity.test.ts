@@ -52,6 +52,19 @@ describe('frontend↔backend route parity', () => {
     // `/api/config/dynamic/:param`. Collapse that literal family into one
     // wildcard shape so the comparison checks what's actually verifiable
     // statically: "does a dynamic-config route exist at this shape."
+    //
+    // DELIBERATE COARSENING, NOT AN OVERSIGHT: this is the one path family
+    // where this test's precision is intentionally lower than everywhere
+    // else. extractApiPaths() only sees the SPA source text, so a call like
+    // `/api/config/dynamic/${moduleKey}` loses the real runtime moduleKey and
+    // becomes the generic `:param` — there is no way to statically recover
+    // which literal config key was actually requested. Because of that, this
+    // check CANNOT catch a SPA call to a moduleKey that doesn't exist as a
+    // registered config def (e.g. a typo'd or removed key) — it only confirms
+    // that *some* dynamic-config route exists at this shape. Every other path
+    // in this test still gets exact literal-vs-literal (or literal-vs-{param})
+    // matching; only this family is widened, and only because the SPA-side
+    // extraction makes anything narrower structurally impossible.
     const rawServerPaths = Object.keys(spec.paths).map(p => p.replace(/\/+$/, ''));
     const serverPaths = [...new Set(rawServerPaths.map(
       p => (/^\/api\/config\/dynamic\/[^/]+$/.test(p) ? '/api/config/dynamic/:param' : p),
