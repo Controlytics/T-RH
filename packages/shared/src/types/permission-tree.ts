@@ -323,15 +323,22 @@ export const PERMISSION_TREE: SidebarGroup[] = [
       { id: 'gateways.view', label: 'View Gateways', sidebarId: 'data-injection', page: 'Gateways', action: 'View',
         icon: 'router', category: 'Data Injection', permissions: ['GATEWAY_VIEW'], enforce: 'a',
         gate: ['GATEWAY_VIEW'], configurable: true },
+      // gateways.create/edit/delete: configurable:false (final branch review,
+      // finding I4) — gateways.tsx is a read-only table with no add/edit/
+      // delete affordance. The backend route (GATEWAY_CREATE/UPDATE/DELETE)
+      // stays enforced; granting this toggle just can't surface a button
+      // until a P2 UI ships. Permission constant + gate + node kept so the
+      // API contract and future UI work are unaffected — only the
+      // role-config picker toggle is hidden.
       { id: 'gateways.create', label: 'Create Gateway', sidebarId: 'data-injection', page: 'Gateways', action: 'Add',
         icon: 'plus', category: 'Data Injection', permissions: ['GATEWAY_CREATE', 'GATEWAY_VIEW', 'HIERARCHY_VIEW', 'COMM_PROFILE_VIEW'],
-        reauthAction: 'CREATE_GATEWAY', enforce: 'a', gate: ['GATEWAY_CREATE'], configurable: true },
+        reauthAction: 'CREATE_GATEWAY', enforce: 'a', gate: ['GATEWAY_CREATE'], configurable: false },
       { id: 'gateways.edit', label: 'Edit Gateway', sidebarId: 'data-injection', page: 'Gateways', action: 'Edit',
         icon: 'edit', category: 'Data Injection', permissions: ['GATEWAY_UPDATE', 'GATEWAY_VIEW', 'HIERARCHY_VIEW', 'COMM_PROFILE_VIEW'],
-        reauthAction: 'UPDATE_GATEWAY', enforce: 'a', gate: ['GATEWAY_UPDATE'], configurable: true },
+        reauthAction: 'UPDATE_GATEWAY', enforce: 'a', gate: ['GATEWAY_UPDATE'], configurable: false },
       { id: 'gateways.delete', label: 'Delete Gateway', sidebarId: 'data-injection', page: 'Gateways', action: 'Delete',
         icon: 'trash', category: 'Data Injection', permissions: ['GATEWAY_DELETE', 'GATEWAY_VIEW'],
-        reauthAction: 'DELETE_GATEWAY', enforce: 'a', gate: ['GATEWAY_DELETE'], configurable: true },
+        reauthAction: 'DELETE_GATEWAY', enforce: 'a', gate: ['GATEWAY_DELETE'], configurable: false },
 
       { id: 'instruments.view', label: 'View Instruments', sidebarId: 'data-injection', page: 'Instruments', action: 'View',
         icon: 'cpu', category: 'Data Injection', permissions: ['INSTRUMENT_VIEW'], enforce: 'a',
@@ -339,25 +346,33 @@ export const PERMISSION_TREE: SidebarGroup[] = [
       { id: 'instruments.create', label: 'Create Instrument', sidebarId: 'data-injection', page: 'Instruments', action: 'Add',
         icon: 'plus', category: 'Data Injection', permissions: ['INSTRUMENT_CREATE', 'INSTRUMENT_VIEW', 'HIERARCHY_VIEW', 'GATEWAY_VIEW', 'COMM_PROFILE_VIEW'],
         reauthAction: 'CREATE_INSTRUMENT', enforce: 'a', gate: ['INSTRUMENT_CREATE'], configurable: true },
+      // instruments.edit/delete: configurable:false (finding I4) —
+      // instrument-wizard.tsx only implements Create; instruments.tsx is a
+      // read-only table with no edit/delete affordance. Route stays
+      // enforced; see the gateways.create comment above for the rationale.
       { id: 'instruments.edit', label: 'Edit Instrument', sidebarId: 'data-injection', page: 'Instruments', action: 'Edit',
         icon: 'edit', category: 'Data Injection', permissions: ['INSTRUMENT_UPDATE', 'INSTRUMENT_VIEW', 'HIERARCHY_VIEW', 'GATEWAY_VIEW', 'COMM_PROFILE_VIEW'],
-        reauthAction: 'UPDATE_INSTRUMENT', enforce: 'a', gate: ['INSTRUMENT_UPDATE'], configurable: true },
+        reauthAction: 'UPDATE_INSTRUMENT', enforce: 'a', gate: ['INSTRUMENT_UPDATE'], configurable: false },
       { id: 'instruments.delete', label: 'Delete Instrument', sidebarId: 'data-injection', page: 'Instruments', action: 'Delete',
         icon: 'trash', category: 'Data Injection', permissions: ['INSTRUMENT_DELETE', 'INSTRUMENT_VIEW'],
-        reauthAction: 'DELETE_INSTRUMENT', enforce: 'a', gate: ['INSTRUMENT_DELETE'], configurable: true },
+        reauthAction: 'DELETE_INSTRUMENT', enforce: 'a', gate: ['INSTRUMENT_DELETE'], configurable: false },
 
       { id: 'comm_profiles.view', label: 'View Communication Profiles', sidebarId: 'data-injection', page: 'Communication Profiles', action: 'View',
         icon: 'plug', category: 'Data Injection', permissions: ['COMM_PROFILE_VIEW'], enforce: 'a',
         gate: ['COMM_PROFILE_VIEW'], configurable: true },
+      // comm_profiles.create/edit/delete: configurable:false (finding I4) —
+      // profiles.tsx is a read-only table with no add/edit/delete
+      // affordance. Route stays enforced; see the gateways.create comment
+      // above for the rationale.
       { id: 'comm_profiles.create', label: 'Create Communication Profile', sidebarId: 'data-injection', page: 'Communication Profiles', action: 'Add',
         icon: 'plus', category: 'Data Injection', permissions: ['COMM_PROFILE_CREATE', 'COMM_PROFILE_VIEW'],
-        reauthAction: 'CREATE_COMM_PROFILE', enforce: 'a', gate: ['COMM_PROFILE_CREATE'], configurable: true },
+        reauthAction: 'CREATE_COMM_PROFILE', enforce: 'a', gate: ['COMM_PROFILE_CREATE'], configurable: false },
       { id: 'comm_profiles.edit', label: 'Edit Communication Profile', sidebarId: 'data-injection', page: 'Communication Profiles', action: 'Edit',
         icon: 'edit', category: 'Data Injection', permissions: ['COMM_PROFILE_UPDATE', 'COMM_PROFILE_VIEW'],
-        reauthAction: 'UPDATE_COMM_PROFILE', enforce: 'a', gate: ['COMM_PROFILE_UPDATE'], configurable: true },
+        reauthAction: 'UPDATE_COMM_PROFILE', enforce: 'a', gate: ['COMM_PROFILE_UPDATE'], configurable: false },
       { id: 'comm_profiles.delete', label: 'Delete Communication Profile', sidebarId: 'data-injection', page: 'Communication Profiles', action: 'Delete',
         icon: 'trash', category: 'Data Injection', permissions: ['COMM_PROFILE_DELETE', 'COMM_PROFILE_VIEW'],
-        reauthAction: 'DELETE_COMM_PROFILE', enforce: 'a', gate: ['COMM_PROFILE_DELETE'], configurable: true },
+        reauthAction: 'DELETE_COMM_PROFILE', enforce: 'a', gate: ['COMM_PROFILE_DELETE'], configurable: false },
     ],
   },
 ];
@@ -376,9 +391,9 @@ const CONFIGURABLE_PRIVILEGE_ORDER: readonly string[] = [
   'debug.view', 'debug.manage',
   'backup.export', 'backup.restore',
   'hierarchy.view', 'hierarchy.create', 'hierarchy.edit', 'hierarchy.delete',
-  'gateways.view', 'gateways.create', 'gateways.edit', 'gateways.delete',
-  'instruments.view', 'instruments.create', 'instruments.edit', 'instruments.delete',
-  'comm_profiles.view', 'comm_profiles.create', 'comm_profiles.edit', 'comm_profiles.delete',
+  'gateways.view',
+  'instruments.view', 'instruments.create',
+  'comm_profiles.view',
 ] as const;
 
 // ─── Derive Functions ────────────────────────────────────────────────────────

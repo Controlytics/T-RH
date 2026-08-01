@@ -753,10 +753,13 @@ model NotificationRuleRecipient {
 // reusable connection configs (CommunicationProfile), gateway/instrument
 // device registry, and per-instrument settings/topic overrides.
 //
-// `path ltree` is deliberately absent from HierarchyNode below: Prisma maps
-// ltree to Unsupported(), which would make the whole model unselectable
-// through the typed client. The column is added by raw SQL in the migration
-// and read/written only through hierarchy.repository.ts (Task 5).
+// `path` on HierarchyNode is modeled as `Unsupported("ltree")?` below. That
+// keeps it TRACKED in schema.prisma (so `prisma migrate diff` no longer
+// proposes dropping the column or its two indexes — see C1 in the final
+// branch review) while remaining unselectable through the typed client,
+// which is the only property the original "leave it out" decision needed.
+// It is still read/written only through hierarchy.repository.ts's raw SQL
+// (Task 5) — Prisma cannot select/filter an Unsupported() field at all.
 
 enum HierarchyLevel {
   COMPANY
@@ -801,6 +804,7 @@ model HierarchyNode {
   createdAt DateTime       @default(now()) @map("created_at")
   updatedAt DateTime       @updatedAt @map("updated_at")
   createdBy String?        @map("created_by")
+  path      Unsupported("ltree")?
 
   parent    HierarchyNode?  @relation("NodeTree", fields: [parentId], references: [id], onDelete: Restrict)
   children  HierarchyNode[] @relation("NodeTree")

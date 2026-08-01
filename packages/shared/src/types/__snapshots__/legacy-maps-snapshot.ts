@@ -5,6 +5,17 @@
  * Regenerated 2026-08-01: added the data-injection group (16 nodes) to
  * PERMISSION_TREE, bringing FEATURE_PRIVILEGES/FEATURE_TO_PERMISSION_MAP to
  * 42 entries and SIDEBAR_PRIVILEGE_MAP to 9 sections.
+ *
+ * Re-regenerated 2026-08-01 (finding I4, final branch review): 8 of the 16
+ * data-injection nodes have no UI yet — gateways.tsx, profiles.tsx and
+ * instruments.tsx are read-only tables (only hierarchy.tsx has full CRUD;
+ * instrument-wizard.tsx has Create only) — so `gateways.create/edit/delete`,
+ * `instruments.edit/delete`, and `comm_profiles.create/edit/delete` were
+ * marked `configurable: false` in permission-tree.ts. That drops
+ * FEATURE_PRIVILEGES/FEATURE_TO_PERMISSION_MAP from 42 to 34 entries (the
+ * permission constants, gates, and routes themselves are unchanged — only
+ * the role-config picker toggle is hidden). SIDEBAR_PRIVILEGE_MAP is
+ * unaffected (built from `visibilityPrivilegeIds`, not `configurable`).
  */
 
 interface FeaturePrivilegeSnapshot {
@@ -210,24 +221,6 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
     "icon": "router"
   },
   {
-    "id": "gateways.create",
-    "label": "Create Gateway",
-    "category": "Data Injection",
-    "icon": "plus"
-  },
-  {
-    "id": "gateways.edit",
-    "label": "Edit Gateway",
-    "category": "Data Injection",
-    "icon": "edit"
-  },
-  {
-    "id": "gateways.delete",
-    "label": "Delete Gateway",
-    "category": "Data Injection",
-    "icon": "trash"
-  },
-  {
     "id": "instruments.view",
     "label": "View Instruments",
     "category": "Data Injection",
@@ -240,40 +233,10 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
     "icon": "plus"
   },
   {
-    "id": "instruments.edit",
-    "label": "Edit Instrument",
-    "category": "Data Injection",
-    "icon": "edit"
-  },
-  {
-    "id": "instruments.delete",
-    "label": "Delete Instrument",
-    "category": "Data Injection",
-    "icon": "trash"
-  },
-  {
     "id": "comm_profiles.view",
     "label": "View Communication Profiles",
     "category": "Data Injection",
     "icon": "plug"
-  },
-  {
-    "id": "comm_profiles.create",
-    "label": "Create Communication Profile",
-    "category": "Data Injection",
-    "icon": "plus"
-  },
-  {
-    "id": "comm_profiles.edit",
-    "label": "Edit Communication Profile",
-    "category": "Data Injection",
-    "icon": "edit"
-  },
-  {
-    "id": "comm_profiles.delete",
-    "label": "Delete Communication Profile",
-    "category": "Data Injection",
-    "icon": "trash"
   }
 ];
 
@@ -387,22 +350,6 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   "gateways.view": [
     "GATEWAY_VIEW"
   ],
-  "gateways.create": [
-    "GATEWAY_CREATE",
-    "GATEWAY_VIEW",
-    "HIERARCHY_VIEW",
-    "COMM_PROFILE_VIEW"
-  ],
-  "gateways.edit": [
-    "GATEWAY_UPDATE",
-    "GATEWAY_VIEW",
-    "HIERARCHY_VIEW",
-    "COMM_PROFILE_VIEW"
-  ],
-  "gateways.delete": [
-    "GATEWAY_DELETE",
-    "GATEWAY_VIEW"
-  ],
   "instruments.view": [
     "INSTRUMENT_VIEW"
   ],
@@ -413,30 +360,7 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
     "GATEWAY_VIEW",
     "COMM_PROFILE_VIEW"
   ],
-  "instruments.edit": [
-    "INSTRUMENT_UPDATE",
-    "INSTRUMENT_VIEW",
-    "HIERARCHY_VIEW",
-    "GATEWAY_VIEW",
-    "COMM_PROFILE_VIEW"
-  ],
-  "instruments.delete": [
-    "INSTRUMENT_DELETE",
-    "INSTRUMENT_VIEW"
-  ],
   "comm_profiles.view": [
-    "COMM_PROFILE_VIEW"
-  ],
-  "comm_profiles.create": [
-    "COMM_PROFILE_CREATE",
-    "COMM_PROFILE_VIEW"
-  ],
-  "comm_profiles.edit": [
-    "COMM_PROFILE_UPDATE",
-    "COMM_PROFILE_VIEW"
-  ],
-  "comm_profiles.delete": [
-    "COMM_PROFILE_DELETE",
     "COMM_PROFILE_VIEW"
   ]
 };

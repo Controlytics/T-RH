@@ -135,13 +135,47 @@ describe('hierarchy routes', () => {
     expect(res.statusCode).toBe(403);
   });
 
-  it('refuses to delete a node that still has children', async () => {
+  it('refuses to delete a node that still has children — 409, not 400 (finding I2: same contract as gateways/communication-profiles delete guards)', async () => {
     const co = await post({ parentId: null, level: 'COMPANY', name: 'DeleteCo' });
     await post({ parentId: co.json().id, level: 'SITE', name: 'DeleteSite' });
     const res = await app.inject({
       method: 'DELETE', url: `/api/hierarchy/${co.json().id}`, headers: auth(),
     });
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toBe('HIERARCHY_NODE_IN_USE');
+  });
+
+  it('creating a duplicate sibling name returns 409, not 500 (finding I1)', async () => {
+    const co = await post({ parentId: null, level: 'COMPANY', name: 'DupCo' });
+    await post({ parentId: co.json().id, level: 'SITE', name: 'DupSite' });
+    const res = await post({ parentId: co.json().id, level: 'SITE', name: 'DupSite' });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toBe('HIERARCHY_SLUG_CONFLICT');
+  });
+
+  it('renaming into a sibling\'s slug returns 409, not 500 (finding I1)', async () => {
+    const co = await post({ parentId: null, level: 'COMPANY', name: 'RenDupCo' });
+    await post({ parentId: co.json().id, level: 'SITE', name: 'Alpha' });
+    const beta = await post({ parentId: co.json().id, level: 'SITE', name: 'Beta' });
+    const res = await app.inject({
+      method: 'PUT', url: `/api/hierarchy/${beta.json().id}`,
+      headers: auth(), payload: { name: 'Alpha' },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toBe('HIERARCHY_SLUG_CONFLICT');
+  });
+
+  it('moving a node into a parent that already has that slug returns 409, not 500 (finding I1)', async () => {
+    const coA = await post({ parentId: null, level: 'COMPANY', name: 'MoveDupA' });
+    const coB = await post({ parentId: null, level: 'COMPANY', name: 'MoveDupB' });
+    await post({ parentId: coB.json().id, level: 'SITE', name: 'Shared' });
+    const moving = await post({ parentId: coA.json().id, level: 'SITE', name: 'Shared' });
+    const res = await app.inject({
+      method: 'POST', url: `/api/hierarchy/${moving.json().id}/move`,
+      headers: auth(), payload: { newParentId: coB.json().id },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toBe('HIERARCHY_SLUG_CONFLICT');
   });
 
   it('renames a node, writes an audit row, and deletes it once it is a leaf again', async () => {

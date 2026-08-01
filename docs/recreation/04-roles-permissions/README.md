@@ -6,14 +6,22 @@ group — see §10. The `configurable`/`FEATURE_PRIVILEGES` count below was
 re-verified 2026-08-01 by rebuilding `packages/shared` and executing the
 compiled tree once the branch had settled (no agents mid-edit on
 `permission-tree.ts`) — superseding the same-day source-derived pass that
-had left it flagged unverified.*
+had left it flagged unverified. Re-verified again 2026-08-01, same day, after
+the final whole-branch review (finding I4): 8 of the 16 data-injection nodes
+(`gateways.create/edit/delete`, `instruments.edit/delete`,
+`comm_profiles.create/edit/delete`) were found to advertise a role-config
+toggle with no corresponding UI — `gateways.tsx`/`profiles.tsx`/
+`instruments.tsx` are read-only tables — and were switched to
+`configurable: false`. Node count and group count are unchanged; only the
+configurable count moved, 42 → 34.*
 
 ```bash
 node -e "const t=require('./dist/types/permission-tree.js');
          const n=t.PERMISSION_TREE.flatMap(g=>g.nodes);
          console.log(n.length, n.filter(x=>x.configurable).length, t.PERMISSION_TREE.length)"
 # 2026-07-25: → 38 nodes, 26 configurable, 8 groups
-# 2026-08-01: → 54 nodes, 42 configurable, 9 groups
+# 2026-08-01 (P1 landed): → 54 nodes, 42 configurable, 9 groups
+# 2026-08-01 (I4 fix, same day): → 54 nodes, 34 configurable, 9 groups
 ```
 
 ---
@@ -103,13 +111,19 @@ The 16 added by P1 (§10): `HIERARCHY_{VIEW,CREATE,UPDATE,DELETE}`,
 | `debug-traces` | `debug.view`, `.manage` |
 | `data-injection` **(P1, 2026-08-01)** | `hierarchy.view/.create/.edit/.delete`, `gateways.view/.create/.edit/.delete`, `instruments.view/.create/.edit/.delete`, `comm_profiles.view/.create/.edit/.delete` — 16 nodes |
 
-**54 total nodes** (38 + the 16 added by `data-injection`); **42 are
-`configurable: true`** (was 26; +16, exactly the Data Injection nodes — all
-16 of which are configurable, i.e. all are admin toggles, unlike the pre-P1
-groups which mix configurable and enforced-only nodes). The remaining 12
-enforced-only nodes are all pre-P1. `FEATURE_PRIVILEGES` (derived from the
-`configurable: true` nodes) is therefore **42**, verified 2026-08-01 by
-executing the built tree — see the header note above.
+**54 total nodes** (38 + the 16 added by `data-injection`). At P1 landing all
+16 data-injection nodes were `configurable: true`, bringing the total to 42
+(was 26; see the superseded figure in the header note's first bullet).
+**As of the same-day I4 fix, 34 are `configurable: true`**: 8 of the 16
+data-injection nodes — `gateways.create/.edit/.delete`,
+`instruments.edit/.delete`, `comm_profiles.create/.edit/.delete` — were
+switched to `configurable: false` because `gateways.tsx`, `profiles.tsx` and
+`instruments.tsx` are read-only tables (only `hierarchy.tsx` has full CRUD;
+`instrument-wizard.tsx` has Create only) — granting those 8 toggles produced
+no button anywhere. Their permission constants, `gate`, and enforced backend
+routes are unchanged; only the picker-visible toggle was removed pending a P2
+UI. `FEATURE_PRIVILEGES` (derived from the `configurable: true` nodes) is
+therefore **34**, verified 2026-08-01 by executing the built tree.
 
 **Sidebar items: 10** — the 9 groups above plus `home` (Module Guide), which has
 no permission group and is therefore visible-to-all by permission while still

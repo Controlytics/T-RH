@@ -6,11 +6,16 @@
 -- --to-schema-datamodel schema.prisma) also included two blocks of noise,
 -- both deliberately omitted here:
 --   1. DROP INDEX "hierarchy_nodes_path_btree_idx"; DROP INDEX
---      "hierarchy_nodes_path_gist_idx"; ALTER TABLE "hierarchy_nodes" DROP
---      COLUMN "path"; — because `path ltree` is intentionally absent from
---      schema.prisma (see the comment above HierarchyNode), any datamodel
---      diff will always propose dropping it. It must never actually be
---      dropped.
+--      "hierarchy_nodes_path_gist_idx"; — as of the C1 fix (final branch
+--      review, 2026-08-01) `hierarchy_nodes.path` is modeled in
+--      schema.prisma as `Unsupported("ltree")?`, so the COLUMN itself is
+--      tracked and no longer part of this diff (the catastrophic case —
+--      losing the materialised path data — is closed). Prisma still can't
+--      express a GiST/btree index over an Unsupported() column, so these
+--      two DropIndex lines remain permanent, harmless diff noise (indexes
+--      are regenerable structure, not data) — same category as the
+--      triggers/functions/sequences noise in prisma/sql/*. Never act on
+--      them.
 --   2. ALTER TABLE "audit_trail" ALTER COLUMN "chain_position" DROP NOT
 --      NULL; — the same pre-existing schema.prisma/live-DB divergence
 --      documented in the first migration and tasks/todo.md. audit_trail is

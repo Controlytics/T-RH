@@ -4,12 +4,28 @@ import { PERMISSION_TREE } from '../permission-tree.js';
 describe('data-injection permission group', () => {
   const group = () => PERMISSION_TREE.find(g => g.sidebarId === 'data-injection');
 
-  it('exists with 16 nodes, all configurable and all enforce:a', () => {
+  it('exists with 16 nodes, still all enforce:a (routes stay enforced even where the toggle is hidden)', () => {
     const g = group();
     expect(g).toBeDefined();
     expect(g!.nodes).toHaveLength(16);
-    expect(g!.nodes.every(n => n.configurable === true)).toBe(true);
     expect(g!.nodes.every(n => n.enforce === 'a')).toBe(true);
+  });
+
+  it('8 nodes are configurable:false — no UI yet (finding I4, final branch review)', () => {
+    // gateways.tsx / profiles.tsx / instruments.tsx are read-only tables;
+    // only hierarchy.tsx has full CRUD and instrument-wizard.tsx has Create.
+    // Granting these toggles previously produced no button anywhere.
+    const NO_UI = new Set([
+      'gateways.create', 'gateways.edit', 'gateways.delete',
+      'instruments.edit', 'instruments.delete',
+      'comm_profiles.create', 'comm_profiles.edit', 'comm_profiles.delete',
+    ]);
+    const g = group()!;
+    for (const node of g.nodes) {
+      expect(node.configurable, `${node.id}.configurable`).toBe(!NO_UI.has(node.id));
+    }
+    expect(g.nodes.filter(n => n.configurable === true)).toHaveLength(8);
+    expect(g.nodes.filter(n => n.configurable === false)).toHaveLength(8);
   });
 
   it('gate is the single discriminating permission, never the grant set', () => {

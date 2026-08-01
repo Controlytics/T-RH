@@ -1,11 +1,11 @@
 /**
  * Hierarchy repository — the ONLY place raw ltree SQL lives.
  *
- * `hierarchy_nodes.path` is an ltree column deliberately absent from
- * schema.prisma: Prisma maps ltree to Unsupported(), which would make the whole
- * model unselectable through the typed client. Everything below therefore uses
- * $queryRaw / $executeRaw, and every other module reaches the hierarchy through
- * these functions rather than touching the column.
+ * `hierarchy_nodes.path` is modeled in schema.prisma as `Unsupported("ltree")?`
+ * so it stays tracked by migration diffing, but Prisma still can't select or
+ * filter an Unsupported() field through the typed client. Everything below
+ * therefore uses $queryRaw / $executeRaw, and every other module reaches the
+ * hierarchy through these functions rather than touching the column.
  */
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
@@ -42,6 +42,15 @@ export interface HierarchyNodeRow {
  * Ported from the upstream uns-path-builder. ltree labels accept only
  * [A-Za-z0-9_], so hyphens are encoded as underscores at the storage layer
  * (see toLabel) while the public slug keeps hyphens for readable topics.
+ *
+ * `_` is deliberately EXCLUDED from the allowed character class (final
+ * branch review, finding I3): toLabel/fromLabel map '-'<->'_' 1:1 for ltree
+ * storage, so if the slug itself could also contain '_', that mapping stops
+ * being lossless — e.g. "Foo_Bar" would slug to "foo_bar", store as label
+ * "foo_bar", and read back as "foo-bar", silently renaming the node on every
+ * round-trip. Stripping '_' here (any input underscore is simply dropped,
+ * same as any other disallowed character) keeps '-' the only separator the
+ * slug ever contains, which is what makes toLabel/fromLabel reversible.
  */
 export function sanitizeSlug(name: string): string {
   return name
@@ -52,7 +61,7 @@ export function sanitizeSlug(name: string): string {
     // character to be silently deleted like an accented letter is.
     .replace(/[‐-―−]/g, '-')
     .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9\-_]/g, '')
+    .replace(/[^a-z0-9\-]/g, '')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '');
 }
@@ -60,6 +69,29 @@ export function sanitizeSlug(name: string): string {
 /** ltree labels forbid '-'; store as '_' and reverse on read. */
 const toLabel = (slug: string) => slug.replace(/-/g, '_');
 const fromLabel = (label: string) => label.replace(/_/g, '-');
+
+/**
+ * True for a unique-constraint violation raised through a $queryRaw /
+ * $executeRaw statement (final branch review, finding I1).
+ *
+ * The typed Prisma client maps a unique violation to `P2002`, which
+ * app.ts's global error handler already turns into a clean 409. Raw SQL
+ * goes through a different path: Postgres raises SQLSTATE 23505, and Prisma
+ * wraps that as `PrismaClientKnownRequestError` with code `P2010` (generic
+ * "raw query failed") and the underlying Postgres code in `meta.code`. The
+ * global handler's `P2002` check never matches that, so without this it
+ * falls through to a 500 plus a spurious SYSTEM_ERROR notification —
+ * exactly the gap the review found by creating two sibling nodes with the
+ * same name. Every createNode/renameNode/moveNode caller in routes.ts
+ * should catch this and re-throw a ConflictError naming what collided.
+ */
+export function isRawUniqueViolation(err: unknown): boolean {
+  return (
+    err instanceof Prisma.PrismaClientKnownRequestError &&
+    err.code === 'P2010' &&
+    (err.meta as { code?: string } | undefined)?.code === '23505'
+  );
+}
 
 export async function createNode(input: {
   parentId: string | null;

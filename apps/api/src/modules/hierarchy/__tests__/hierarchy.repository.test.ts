@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { prisma } from '../../../lib/prisma.js';
 import {
-  sanitizeSlug, createNode, getAncestryPath, moveNode, renameNode,
+  sanitizeSlug, createNode, getAncestryPath, moveNode, renameNode, isRawUniqueViolation,
 } from '../hierarchy.repository.js';
 
 describe('sanitizeSlug', () => {
@@ -13,6 +13,14 @@ describe('sanitizeSlug', () => {
   it('collapses and trims hyphens', () => {
     expect(sanitizeSlug('a   ---   b')).toBe('a-b');
     expect(sanitizeSlug('---x---')).toBe('x');
+  });
+  it('strips underscores instead of preserving them, so the "-"<->"_" ltree label mapping stays lossless (I3)', () => {
+    // If '_' survived into the slug, "Foo_Bar" would slug to "foo_bar", store
+    // as ltree label "foo_bar" (toLabel only encodes '-' -> '_'), and read
+    // back via fromLabel as "foo-bar" — a different slug than what was
+    // written. Stripping '_' up front closes that round-trip mismatch.
+    expect(sanitizeSlug('Foo_Bar')).toBe('foobar');
+    expect(sanitizeSlug('Foo_Bar')).not.toContain('_');
   });
 });
 
@@ -68,9 +76,20 @@ describe('hierarchy repository (ltree)', () => {
     await expect(moveNode(co.id, site.id)).rejects.toThrow(/cycle/i);
   });
 
-  it('rejects duplicate slugs under one parent', async () => {
+  it('rejects duplicate slugs under one parent with a raw-SQL unique violation isRawUniqueViolation recognises (finding I1)', async () => {
+    // `rejects.toThrow()` alone (the prior assertion here) passes for ANY
+    // thrown error, including a generic 500 — it doesn't prove routes.ts's
+    // isRawUniqueViolation() catch actually fires for this collision.
+    // Assert the concrete Postgres/Prisma shape instead.
     const co = await createNode({ parentId: null, level: 'COMPANY', name: 'Controlyt' });
     await createNode({ parentId: co.id, level: 'SITE', name: 'India' });
-    await expect(createNode({ parentId: co.id, level: 'SITE', name: 'India' })).rejects.toThrow();
+    let caught: unknown;
+    try {
+      await createNode({ parentId: co.id, level: 'SITE', name: 'India' });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeDefined();
+    expect(isRawUniqueViolation(caught)).toBe(true);
   });
 });

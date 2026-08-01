@@ -64,7 +64,7 @@ ls packages/    # → queue shared
 | API libs | 22 | 22 (unchanged) | `ls apps/api/src/lib/` (excl. tests) |
 | Permission constants | 30 | **46** | `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts` |
 | Reauth actions | 39 | **51** | `grep -cE '^\s+[A-Z_]+:' packages/shared/src/types/reauth-actions.ts` |
-| Feature privileges | 26 | **42** | executed built `PERMISSION_TREE` — `configurable: true` node count (see `../04-roles-permissions/README.md`) |
+| Feature privileges | 26 | **34** | executed built `PERMISSION_TREE` — `configurable: true` node count (see `../04-roles-permissions/README.md`) |
 | Sidebar permission groups | 8 | **9** | `PERMISSION_TREE` groups |
 | Sidebar items (configurable) | 9 | **10** | `sidebar-items.ts` |
 | Roles (seeded) | 6 | 6 (unchanged) | `select count(*) from roles` |
@@ -76,9 +76,18 @@ flagged the "26" baseline as unreconcilable against a source-grep of
 `configurable: true` (which read 45 across the whole tree, not "26 + 16").
 That was a source-derivation artifact, not a real discrepancy: executing the
 *built* `PERMISSION_TREE` (`node -e "require('./dist/...')..."`, with the
-branch settled and `packages/shared` freshly rebuilt) gives **42 configurable
-nodes** — exactly 26 + the 16 new Data Injection nodes, all of which are
-configurable. 42 is the verified figure; see
+branch settled and `packages/shared` freshly rebuilt) gave **42 configurable
+nodes** — exactly 26 + the 16 new Data Injection nodes, all of which were
+configurable at that point.
+
+**Revised same day, final whole-branch review (finding I4).** 8 of those 16
+Data Injection nodes — `gateways.create/.edit/.delete`,
+`instruments.edit/.delete`, `comm_profiles.create/.edit/.delete` — advertised
+a role-config toggle with no UI behind it (`gateways.tsx`, `profiles.tsx` and
+`instruments.tsx` are read-only tables; only `hierarchy.tsx` has full CRUD
+and `instrument-wizard.tsx` has Create). They were switched to
+`configurable: false` — routes stay enforced, only the picker toggle is
+hidden. **34 is the current verified figure**; see
 `../04-roles-permissions/README.md` for the full derivation.
 
 ## 3. The 22 API modules (18 pre-P1 + 4 added by Data Injection P1)
