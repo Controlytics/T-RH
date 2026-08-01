@@ -4,6 +4,7 @@ import { buildApp, loginAs, authGet, authPost, authDelete } from './test-helper.
 import { prisma } from '../lib/prisma.js';
 import { hashPassword } from '../lib/password.js';
 import { REDACTED } from '../lib/mask-secrets.js';
+import { COMM_PROFILE_AUDIT_SAFE_KEYS } from '../modules/communication-profiles/routes.js';
 
 /**
  * Task 7 — communication profiles module.
@@ -180,5 +181,15 @@ describe('communication profiles', () => {
   it('returns 403 for a role lacking COMM_PROFILE_VIEW', async () => {
     const res = await authGet(app, '/api/communication-profiles', operatorToken);
     expect(res.statusCode).toBe(403);
+  });
+
+  // Fix round 3 — guards the INVARIANT, not just today's known keys. A future
+  // protocol adding e.g. callbackUrl/proxyUrl to the response allowlist
+  // (reasonable — the edit form needs it) must not let it silently inherit
+  // into the audit allowlist too.
+  it('audit allowlist excludes URL-bearing keys', () => {
+    for (const k of ['brokerUrl', 'url', 'endpoint']) {
+      expect(COMM_PROFILE_AUDIT_SAFE_KEYS).not.toContain(k);
+    }
   });
 });

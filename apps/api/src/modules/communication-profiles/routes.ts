@@ -55,7 +55,9 @@ const COMM_PROFILE_RESPONSE_SAFE_KEYS = [
   'unitId', 'baudRate', 'dataBits', 'stopBits', 'parity',
   'region', 'deviceId', 'apiVersion',
 ];
-const COMM_PROFILE_AUDIT_SAFE_KEYS = [
+// Exported purely so the test suite can assert the URL-exclusion invariant
+// directly (fix round 3) rather than only against today's known keys.
+export const COMM_PROFILE_AUDIT_SAFE_KEYS = [
   'host', 'port', 'path',
   'qos', 'topic', 'topicPrefix', 'clientId', 'username',
   'useTls', 'tls', 'protocolVersion', 'keepAlive', 'retain', 'clean',
