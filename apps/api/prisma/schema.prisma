@@ -746,3 +746,164 @@ model NotificationRuleRecipient {
 // loops so a stale prior-attempt APPROVED cannot release a fresh attempt.
 // No Prisma relations (mirrors ReportReview) — cycleId/filterId stored as raw Uuid.
 
+// =============================================
+// DATA INJECTION LAYER — P1 FOUNDATION
+// =============================================
+// Industrial IoT hierarchy (HierarchyNode), protocol registry (Protocol),
+// reusable connection configs (CommunicationProfile), gateway/instrument
+// device registry, and per-instrument settings/topic overrides.
+//
+// `path ltree` is deliberately absent from HierarchyNode below: Prisma maps
+// ltree to Unsupported(), which would make the whole model unselectable
+// through the typed client. The column is added by raw SQL in the migration
+// and read/written only through hierarchy.repository.ts (Task 5).
+
+enum HierarchyLevel {
+  COMPANY
+  SITE
+  PLANT
+  BUILDING
+  BLOCK
+  AREA
+  LINE
+}
+
+enum TopicCategory {
+  TELEMETRY
+  ATTRIBUTES
+  ALARM
+  COMMAND
+  RPC
+  HEARTBEAT
+  EVENT
+  STATUS
+  CONFIG
+  RESPONSE
+  SETTINGS
+  PUBLISH
+  SUBSCRIBE
+}
+
+model HierarchyNode {
+  id        String         @id @default(uuid())
+  parentId  String?        @map("parent_id")
+  level     HierarchyLevel
+  name      String
+  slug      String
+  sortOrder Int            @default(0) @map("sort_order")
+  isActive  Boolean        @default(true) @map("is_active")
+  createdAt DateTime       @default(now()) @map("created_at")
+  updatedAt DateTime       @updatedAt @map("updated_at")
+  createdBy String?        @map("created_by")
+
+  parent    HierarchyNode?  @relation("NodeTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children  HierarchyNode[] @relation("NodeTree")
+  gateways    Gateway[]
+  instruments Instrument[]
+
+  @@unique([parentId, slug])
+  @@index([level])
+  @@map("hierarchy_nodes")
+}
+
+model Protocol {
+  key          String  @id
+  name         String
+  isEnabled    Boolean @default(false) @map("is_enabled")
+  capabilities Json
+  profiles     CommunicationProfile[]
+  @@map("protocols")
+}
+
+model CommunicationProfile {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  protocolKey String   @map("protocol_key")
+  config      Json
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdBy   String?  @map("created_by")
+
+  protocol    Protocol     @relation(fields: [protocolKey], references: [key], onDelete: Restrict)
+  gateways    Gateway[]
+  instruments Instrument[]
+  @@map("communication_profiles")
+}
+
+model Gateway {
+  id                     String   @id @default(uuid())
+  name                   String
+  code                   String   @unique
+  slug                   String
+  gatewayType            String   @map("gateway_type")
+  externalId             String   @map("external_id")
+  hierarchyNodeId        String   @map("hierarchy_node_id")
+  communicationProfileId String   @map("communication_profile_id")
+  description            String?
+  isActive               Boolean  @default(true) @map("is_active")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+  createdBy              String?  @map("created_by")
+
+  hierarchyNode HierarchyNode        @relation(fields: [hierarchyNodeId], references: [id], onDelete: Restrict)
+  profile       CommunicationProfile @relation(fields: [communicationProfileId], references: [id], onDelete: Restrict)
+  instruments   Instrument[]
+
+  @@unique([hierarchyNodeId, slug])
+  @@index([hierarchyNodeId])
+  @@map("gateways")
+}
+
+model Instrument {
+  id                     String   @id @default(uuid())
+  name                   String
+  code                   String   @unique
+  slug                   String
+  instrumentType         String   @map("instrument_type")
+  manufacturer           String?
+  model                  String?
+  serialNumber           String?  @map("serial_number")
+  description            String?
+  hierarchyNodeId        String   @map("hierarchy_node_id")
+  gatewayId              String?  @map("gateway_id")
+  deviceKey              String?  @map("device_key")
+  communicationProfileId String?  @map("communication_profile_id")
+  isActive               Boolean  @default(true) @map("is_active")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+  createdBy              String?  @map("created_by")
+
+  hierarchyNode HierarchyNode         @relation(fields: [hierarchyNodeId], references: [id], onDelete: Restrict)
+  gateway       Gateway?              @relation(fields: [gatewayId], references: [id], onDelete: Restrict)
+  profile       CommunicationProfile? @relation(fields: [communicationProfileId], references: [id], onDelete: Restrict)
+  setting       InstrumentSetting?
+  topics        InstrumentTopic[]
+
+  @@unique([gatewayId, deviceKey])
+  @@unique([hierarchyNodeId, slug])
+  @@index([gatewayId])
+  @@map("instruments")
+}
+
+model InstrumentSetting {
+  instrumentId String     @id @map("instrument_id")
+  values       Json
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+  instrument   Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+  @@map("instrument_settings")
+}
+
+model InstrumentTopic {
+  id           String        @id @default(uuid())
+  instrumentId String        @map("instrument_id")
+  category     TopicCategory
+  customTopic  String?       @map("custom_topic")
+  qos          Int           @default(1)
+  retain       Boolean       @default(false)
+  enabled      Boolean       @default(true)
+  instrument   Instrument    @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+  @@unique([instrumentId, category])
+  @@map("instrument_topics")
+}
+
