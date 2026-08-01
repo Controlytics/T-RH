@@ -169,7 +169,7 @@ export default async function communicationProfileRoutes(app: FastifyInstance) {
         data: {
           name: stripHtml(body.name),
           protocolKey: body.protocolKey,
-          config: body.config,
+          config: body.config as Prisma.InputJsonValue,
           createdBy: ctx.userId,
         },
       });
@@ -212,7 +212,7 @@ export default async function communicationProfileRoutes(app: FastifyInstance) {
         where: { id },
         data: {
           ...(body.name !== undefined && { name: stripHtml(body.name) }),
-          ...(body.config !== undefined && { config: body.config }),
+          ...(body.config !== undefined && { config: body.config as Prisma.InputJsonValue }),
           ...(body.isActive !== undefined && { isActive: body.isActive }),
         },
       });
