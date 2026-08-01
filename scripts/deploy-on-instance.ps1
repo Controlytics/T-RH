@@ -20,13 +20,27 @@
     the service is restarted — so a broken build leaves the previous working
     version running rather than taking the app down.
 
-.PARAMETER Branch      Branch to deploy. Default: final-user-management.
+.PARAMETER Branch
+    Branch to deploy. REQUIRED — there is deliberately no default.
+
+    This used to default to 'final-user-management'. On 2026-08-01 that branch
+    became a FROZEN BACKUP (everything up to 2026-07-25) when active work moved
+    to 'data-injection'. A default silently deploys whatever it names, so the
+    stale default meant deploy-to-aws.bat would ship month-old code and report
+    success. Deploying the wrong revision to a 21 CFR Part 11 system is not a
+    failure you want to be quiet.
+
+    deploy-to-aws.bat now always passes -Branch explicitly and shows it before
+    sending. If you invoke this script directly, name the branch yourself.
+
 .PARAMETER SkipInstall Skip npm ci even if the lockfile changed.
 .PARAMETER Force       Deploy even when already up to date.
 #>
 [CmdletBinding()]
 param(
-    [string]$Branch = 'final-user-management',
+    [Parameter(Mandatory = $true)]
+    [ValidateNotNullOrEmpty()]
+    [string]$Branch,
     [switch]$SkipInstall,
     [switch]$Force
 )
