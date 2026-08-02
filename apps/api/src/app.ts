@@ -48,6 +48,14 @@ import adminRequestRoutes from './modules/admin-requests/routes.js';
 import communicationProfileRoutes from './modules/communication-profiles/routes.js';
 import hierarchyRoutes from './modules/hierarchy/routes.js';
 import gatewayRoutes from './modules/gateways/routes.js';
+import { registerAdapter } from './modules/data-injection/adapters/protocol-adapter.js';
+import { createMqttAdapter } from './modules/data-injection/adapters/mqtt.adapter.js';
+import {
+  startConnections, stopConnections, getConnectionHealth,
+} from './modules/data-injection/connection-manager.js';
+import {
+  enqueue, startFlushLoop, stopFlushLoop, flushNow,
+} from './modules/data-injection/ingestion.service.js';
 import instrumentRoutes from './modules/instruments/routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -449,6 +457,25 @@ try {
       'graphile-worker job runner FAILED to start — all scheduled jobs (notifications, PM overdue, password expiry, session sweep) will not run. Server continuing.',
     );
   }
+
+  // ── Data Injection: protocol adapters ────────────────────────────────────
+  // Deliberately non-fatal, exactly like the job runner above. A broker being
+  // unreachable must still leave the configuration UI usable — otherwise an
+  // outage locks you out of the very settings needed to fix it. The MQTT
+  // adapter's start() also resolves on connect OR error OR timeout, so a dead
+  // broker cannot hang boot.
+  try {
+    registerAdapter(createMqttAdapter());
+    startFlushLoop();
+    await startConnections(enqueue);
+    const n = Object.keys(getConnectionHealth()).length;
+    app.log.info(`data-injection: ${n} protocol connection(s) started`);
+  } catch (adapterErr) {
+    app.log.error(
+      { err: adapterErr },
+      'data-injection: adapter startup failed — ingest is DOWN, configuration still available',
+    );
+  }
 } catch (err) {
   app.log.error(err);
   process.exit(1);
@@ -465,6 +492,18 @@ const shutdown = async (signal: string) => {
 
   try {
     await stopJobRunner();
+
+    // Data Injection teardown, in its own try block like the steps below.
+    // Order matters: stop the timer, stop taking new messages, THEN drain.
+    // The ingest queue is in-process, so whatever is unflushed at exit is
+    // genuinely lost — this is the only chance to persist it.
+    try {
+      stopFlushLoop();
+      await stopConnections();
+      await flushNow();
+    } catch (diErr) {
+      app.log.error({ err: diErr }, 'Shutdown: data-injection flush/disconnect failed — queued telemetry may be lost');
+    }
 
     await app.close();
     // Close queue + tsdb in their own try blocks so one failure doesn't
