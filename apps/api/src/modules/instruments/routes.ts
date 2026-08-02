@@ -60,6 +60,28 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     orderBy: { name: 'asc' },
   }));
 
+  // Single instrument. Added 2026-08-02 for the P2 detail page — the module had
+  // list, topics, create, update and delete but no way to read ONE instrument,
+  // so the detail page 404'd on its primary fetch.
+  app.get('/:id', {
+    preHandler: [app.requirePermission('INSTRUMENT_VIEW')],
+    schema: {
+      tags: ['Data Injection'], summary: 'Get one instrument',
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+    },
+  }, async (req) => {
+    const { id } = req.params as { id: string };
+    const row = await prisma.instrument.findUnique({
+      where: { id },
+      include: {
+        hierarchyNode: { select: { name: true } },
+        gateway: { select: { name: true, slug: true } },
+      },
+    });
+    if (!row) throw new NotFoundError('Instrument not found.');
+    return row;
+  });
+
   app.get('/:id/topics', {
     preHandler: [app.requirePermission('INSTRUMENT_VIEW')],
     schema: {

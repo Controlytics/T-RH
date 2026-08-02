@@ -894,8 +894,8 @@ model InstrumentTelemetryLatest {
   value        Json
   valueType    String   @map("value_type")
   quality      String?
-  ts           DateTime
-  receivedAt   DateTime @map("received_at")
+  ts           DateTime @db.Timestamptz(3)
+  receivedAt   DateTime @map("received_at") @db.Timestamptz(3)
 
   @@id([instrumentId, key])
   @@index([instrumentId])
@@ -908,8 +908,8 @@ model InstrumentTelemetryHistory {
   value        Json
   valueType    String   @map("value_type")
   quality      String?
-  ts           DateTime
-  receivedAt   DateTime @default(now()) @map("received_at")
+  ts           DateTime @db.Timestamptz(3)
+  receivedAt   DateTime @default(now()) @map("received_at") @db.Timestamptz(3)
 
   // PK MUST include ts: PostgreSQL requires a partitioned table's primary key
   // to contain every partition column. A synthetic id would be rejected outright.
@@ -928,8 +928,8 @@ model DeadLetter {
   payload     String
   reason      String
   detail      String?
-  receivedAt  DateTime  @default(now()) @map("received_at")
-  resolvedAt  DateTime? @map("resolved_at")
+  receivedAt  DateTime  @default(now()) @map("received_at") @db.Timestamptz(3)
+  resolvedAt  DateTime? @map("resolved_at") @db.Timestamptz(3)
   resolvedBy  String?   @map("resolved_by")
 
   @@index([receivedAt])

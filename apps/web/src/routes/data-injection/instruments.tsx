@@ -39,7 +39,10 @@ export default function InstrumentsPage() {
             )}
             {(data ?? []).map(r => (
               <tr key={r.id} className="border-b border-slate-100 last:border-0">
-                <td className="p-3">{r.name}</td>
+                <td className="p-3">
+                  <Link to={`/data-injection/instruments/${r.id}`}
+                    className="text-slate-900 hover:text-slate-600 hover:underline">{r.name}</Link>
+                </td>
                 <td className="p-3 font-mono text-xs">{r.code}</td>
                 <td className="p-3 text-slate-500">{r.instrumentType}</td>
                 <td className="p-3 text-slate-500">{r.hierarchyNode?.name ?? '—'}</td>
