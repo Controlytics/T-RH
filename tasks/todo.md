@@ -1841,3 +1841,44 @@ requests only (/api/block-change-requests), with an existing PENDING/APPROVED/RE
 (/api/stage-approvals, interlock QA) are NOT on the tablet. C3 = add them. Fork: (a) read-only status list+filter
 vs (b) full manage (approve/reject via enforceReauthAlways + /:id/approve|reject, mirrors desktop stage-approvals
 + the new bulk-decide). Awaiting user scope decision.
+
+---
+
+## Data Injection P2 — open items (2026-08-02)
+
+Raised while executing `docs/superpowers/plans/2026-08-01-data-injection-p2-mqtt-telemetry.md`.
+
+- [ ] **Resolver slug collision — confirm reachability.** `Instrument` has
+      `@@unique([gatewayId, deviceKey])` and `@@unique([hierarchyNodeId, slug])`
+      but **no** `@@unique([gatewayId, slug])`, so two instruments can share a
+      gateway + slug under different hierarchy nodes. A guard now drops both
+      entries (commit `119f1ee`) so readings are never misattributed. STILL TO DO:
+      read P1's topic derivation and decide whether an instrument can actually sit
+      under a gateway base topic from another hierarchy branch. If it can't, the
+      guard is dead code and a `@@unique([gatewayId, slug])` is the cleaner fix.
+- [ ] **EMQX has no authentication.** The local 5.3.2 broker allows anonymous
+      connections, so a Task 7/8 test asserting "connects using the profile's
+      credentials" would pass **vacuously**. Enable auth on the broker before
+      writing that test — spec risk R6 depends on it.
+- [ ] **`Reading.quality` is never populated.** Declared on the type and reserved
+      in `META_KEYS`, but `parsePayload` never extracts it and `toReadings` never
+      sets it. Dead field today; presumably P3. Do not mistake it for live data.
+- [ ] **Widen `INGESTIBLE_CATEGORIES` deliberately in P3.** Currently `{TELEMETRY}`
+      in `fan-out.ts`. Attributes/events need storage before they are added.
+- [ ] **Task 12 partition maintenance is a correctness requirement.** Proven: a row
+      outside every partition raises `no partition of relation ... found for row`.
+      Without a future partition, ingestion hard-fails at midnight on the 1st.
+- [ ] **EMQX is not a Windows service** — bare `erl.exe`, does not survive reboot.
+      `.\bin\emqx.cmd install` (as Administrator) would fix it.
+
+### Done 2026-08-02 (Tasks 1–6 of 15)
+`66cf4f5` adapter contract+registry · `087c8db` topic router (**redesigned** — the
+planned right-anchored version was unimplementable) · `2ec2cc4` payload parser ·
+`524f644` fan-out · `d9ece41` category guard · `c4019a4` telemetry schema (hard gate
+PASSED; plan would have added permanent drift) · `fb74fdf` telemetry repository
+(**fixed a production bug** — duplicate `(instrument,key)` in one flush aborted the
+whole transaction) · `119f1ee` resolver collision guard.
+
+**Root `.env` trap fixed:** it still named `digilog_db`; a `prisma migrate deploy`
+run from the repo root targeted the SIBLING database and aborted only by luck.
+Always pass `DATABASE_URL` explicitly.
