@@ -128,8 +128,8 @@ model User {
   createdBy           String?    @map("created_by") @db.VarChar(50)
   updatedBy           String?    @map("updated_by") @db.VarChar(50)
 
-  passwordHistory     PasswordHistory[]
-  sessions            Session[]
+  passwordHistory PasswordHistory[]
+  sessions        Session[]
 
   // (Report generate/sign relations removed 2026-07-04 with the orphaned module.)
 
@@ -228,39 +228,39 @@ model AdminRequest {
 }
 
 model AuditTrail {
-  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  timestamp        DateTime @default(now()) @db.Timestamptz
-  userId           String?  @map("user_id") @db.VarChar(100)
-  userName         String?  @map("user_name") @db.VarChar(100)
-  userRole         String?  @map("user_role") @db.VarChar(20)
-  action           String   @db.VarChar(100)
-  targetType       String?  @map("target_type") @db.VarChar(50)
-  targetId         String?  @map("target_id") @db.VarChar(255)
-  beforeValue      Json?    @map("before_value")
-  afterValue       Json?    @map("after_value")
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  timestamp        DateTime  @default(now()) @db.Timestamptz
+  userId           String?   @map("user_id") @db.VarChar(100)
+  userName         String?   @map("user_name") @db.VarChar(100)
+  userRole         String?   @map("user_role") @db.VarChar(20)
+  action           String    @db.VarChar(100)
+  targetType       String?   @map("target_type") @db.VarChar(50)
+  targetId         String?   @map("target_id") @db.VarChar(255)
+  beforeValue      Json?     @map("before_value")
+  afterValue       Json?     @map("after_value")
   reason           String?
-  ipAddress        String?  @map("ip_address") @db.VarChar(45)
-  userAgent        String?  @map("user_agent")
-  sessionId        String?  @map("session_id") @db.VarChar(100)
-  checksum         String   @db.VarChar(64)
+  ipAddress        String?   @map("ip_address") @db.VarChar(45)
+  userAgent        String?   @map("user_agent")
+  sessionId        String?   @map("session_id") @db.VarChar(100)
+  checksum         String    @db.VarChar(64)
   // Checksum formula version. NULL = legacy unkeyed SHA-256 (V1/V2, all rows
   // written before the keyed-chain cutover). 3 = keyed HMAC-SHA256 (V3) written
   // when AUDIT_CHAIN_KEY is set. The verifier REQUIRES the key + an HMAC match
   // for version-3 rows (never accepts the unkeyed formula for them), so a
   // DB-level actor cannot forge or downgrade a keyed row. See lib/hash-chain.ts.
-  checksumVersion  Int?     @map("checksum_version") @db.SmallInt
+  checksumVersion  Int?      @map("checksum_version") @db.SmallInt
   // Audit 2026-05-04 fix C3: tamper-evident hash chain. Each new row carries
   // the prior row's checksum (under a Postgres advisory lock during write so
   // the chain is monotonic across concurrent writers). Existing rows written
   // before the migration carry NULL — they are the "pre-chain" era and are
   // verified by per-row checksum only. New rows verify both per-row +
   // chain link via apps/api/src/lib/audit-verify.ts.
-  previousChecksum String?  @map("previous_checksum") @db.VarChar(64)
+  previousChecksum String?   @map("previous_checksum") @db.VarChar(64)
   // Monotonically-incrementing position assigned at insert time. Sort key
   // for chain verification (timestamp can collide at sub-millisecond on
   // batched writes; chainPosition can't). bigserial-equivalent.
-  chainPosition    BigInt?  @default(autoincrement()) @map("chain_position")
-  signatureMeaning String?  @map("signature_meaning") @db.VarChar(255)
+  chainPosition    BigInt?   @default(autoincrement()) @map("chain_position")
+  signatureMeaning String?   @map("signature_meaning") @db.VarChar(255)
   // Audit 2026-05-20 §C1 / May 16 §1.2 fix: 21 CFR §11.10(e)-compliant
   // REDACTION path replaces physical DELETE. When set, beforeValue + afterValue
   // are NULLed but checksum + chainPosition + previousChecksum are preserved
@@ -399,10 +399,6 @@ model RoleConfig {
 // a feature flag (Wave 5). AssetInstance / AssetTemplate remain authoritative
 // until Wave 6 cutover.
 
-
-
-
-
 // Asset Template — reusable blueprint for asset types
 
 // Asset Template Version — snapshot of template at a point in time
@@ -441,7 +437,6 @@ model RoleConfig {
 // (UnsMapping + ConnectivityStatus models removed with data-ingestion removal.)
 
 // QR Codes (per entity)
-
 
 // Help Articles (version-controlled)
 model HelpArticle {
@@ -638,23 +633,10 @@ model NotificationRuleRecipient {
 
 // ─── Phase 2: Filter Management System ─────────────────────
 
-
-
-
-
-
-
-
-
-
-
-
-
 // Quality Notification registry. One row per PM-schedule action (upload / review /
 // approve / reject / resubmit). The qnn (QN-YYYY-000001, from the qnn_seq sequence)
 // is the human-facing reference number surfaced in the Notifications center. Soft
 // refs (no FK cascade) so the audit record survives entry/schedule deletion.
-
 
 // ─── Filter Replacement Schedule (upload-driven, 2026-06-02) ───────────────
 // Additive feature: a user uploads a schedule (one ReplacementSchedule batch);
@@ -663,9 +645,6 @@ model NotificationRuleRecipient {
 // actually replaced is logged as a ReplacementExecution (qty tracking + audit).
 // AHU is a soft ref (no FK) to avoid coupling to the asset/typed-filter tables.
 // The execute step WRAPS the existing replace action — it does not change it.
-
-
-
 
 // ─── PM Overdue Deviations (2026-06-03) ───────────────────────────────────
 // When a PM cleaning task (PmScheduleEntry) passes its tolerance window without
@@ -676,11 +655,6 @@ model NotificationRuleRecipient {
 // per transition, guarded by notified_at / completion_notified_at. Soft refs (no
 // FK) — like ReplacementSchedule — so the deviation audit record survives
 // schedule/entry deletion (21 CFR). Created via psql DDL (db push blocked).
-
-
-
-
-
 
 // Step 4 (2026-05-02): join table replacing FilterProfile.applicableTemplates
 // JSONB array. Both FKs cascade-delete so a vanishing AssetTemplate or
@@ -696,28 +670,19 @@ model NotificationRuleRecipient {
 // start, so no cycle-side pin map is needed here — versions exist purely for
 // audit replay and admin history.
 
-
-
 // ─── Equipment Groups ──────────────────────────────────────
-
 
 // Immutable historical snapshot of an EquipmentGroup at a specific version.
 // Written BEFORE every mutation to the live group or any of its instruments
 // (snapshot-then-bump, Phase A.4). The composite (group + 3 instruments) is
 // always snapshotted together because update() mutates them as a unit.
 
-
 // ─── Checklist Profiles & Questions ──────────────────────────
-
-
-
 
 // Immutable historical snapshot of a checklist profile at a specific version.
 // Created BEFORE every mutation to the live profile or its questions (snapshot-then-bump).
 // Cycles store a pin map { profileId: versionNumber } and resolve questions through here
 // so answers always reproduce against the schema that was active when the cycle started.
-
-
 
 // (ReportTemplateStatus + ReportStatus enums removed 2026-07-04 with the
 // orphaned reports generate/sign models.)
@@ -731,7 +696,6 @@ model NotificationRuleRecipient {
 // aren't otherwise persisted, "Send for Review" snapshots the rendered data here
 // so the reviewer/approver act on the exact content, and any later download
 // rebuilds the same PDF with Printed By / Reviewed By / Approved By.
-
 
 // =============================================
 // CLEANING STAGE INTERLOCK (QA approval gate)
@@ -794,20 +758,20 @@ enum TopicCategory {
 // Do not delete it as "untracked" — without it, two root nodes could share a
 // slug and produce identical UNS topic paths for different instrument trees.
 model HierarchyNode {
-  id        String         @id @default(uuid())
-  parentId  String?        @map("parent_id")
+  id        String                @id @default(uuid())
+  parentId  String?               @map("parent_id")
   level     HierarchyLevel
   name      String
   slug      String
-  sortOrder Int            @default(0) @map("sort_order")
-  isActive  Boolean        @default(true) @map("is_active")
-  createdAt DateTime       @default(now()) @map("created_at")
-  updatedAt DateTime       @updatedAt @map("updated_at")
-  createdBy String?        @map("created_by")
+  sortOrder Int                   @default(0) @map("sort_order")
+  isActive  Boolean               @default(true) @map("is_active")
+  createdAt DateTime              @default(now()) @map("created_at")
+  updatedAt DateTime              @updatedAt @map("updated_at")
+  createdBy String?               @map("created_by")
   path      Unsupported("ltree")?
 
-  parent    HierarchyNode?  @relation("NodeTree", fields: [parentId], references: [id], onDelete: Restrict)
-  children  HierarchyNode[] @relation("NodeTree")
+  parent      HierarchyNode?  @relation("NodeTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children    HierarchyNode[] @relation("NodeTree")
   gateways    Gateway[]
   instruments Instrument[]
 
@@ -817,11 +781,12 @@ model HierarchyNode {
 }
 
 model Protocol {
-  key          String  @id
+  key          String                 @id
   name         String
-  isEnabled    Boolean @default(false) @map("is_enabled")
+  isEnabled    Boolean                @default(false) @map("is_enabled")
   capabilities Json
   profiles     CommunicationProfile[]
+
   @@map("protocols")
 }
 
@@ -838,6 +803,7 @@ model CommunicationProfile {
   protocol    Protocol     @relation(fields: [protocolKey], references: [key], onDelete: Restrict)
   gateways    Gateway[]
   instruments Instrument[]
+
   @@index([protocolKey])
   @@map("communication_profiles")
 }
@@ -904,6 +870,7 @@ model InstrumentSetting {
   values       Json
   updatedAt    DateTime   @updatedAt @map("updated_at")
   instrument   Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+
   @@map("instrument_settings")
 }
 
@@ -916,7 +883,56 @@ model InstrumentTopic {
   retain       Boolean       @default(false)
   enabled      Boolean       @default(true)
   instrument   Instrument    @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+
   @@unique([instrumentId, category])
   @@map("instrument_topics")
 }
 
+model InstrumentTelemetryLatest {
+  instrumentId String   @map("instrument_id")
+  key          String
+  value        Json
+  valueType    String   @map("value_type")
+  quality      String?
+  ts           DateTime
+  receivedAt   DateTime @map("received_at")
+
+  @@id([instrumentId, key])
+  @@index([instrumentId])
+  @@map("instrument_telemetry_latest")
+}
+
+model InstrumentTelemetryHistory {
+  instrumentId String   @map("instrument_id")
+  key          String
+  value        Json
+  valueType    String   @map("value_type")
+  quality      String?
+  ts           DateTime
+  receivedAt   DateTime @default(now()) @map("received_at")
+
+  // PK MUST include ts: PostgreSQL requires a partitioned table's primary key
+  // to contain every partition column. A synthetic id would be rejected outright.
+  @@id([instrumentId, key, ts])
+  // Declared here so migrate diff does not propose dropping it. The index is
+  // created in raw SQL (the table needs PARTITION BY, which Prisma cannot
+  // express); omitting it from the model would add permanent drift.
+  @@index([instrumentId, key, ts(sort: Desc)], map: "instrument_telemetry_history_lookup_idx")
+  @@map("instrument_telemetry_history")
+}
+
+model DeadLetter {
+  id          String    @id @default(uuid())
+  protocolKey String    @map("protocol_key")
+  topic       String
+  payload     String
+  reason      String
+  detail      String?
+  receivedAt  DateTime  @default(now()) @map("received_at")
+  resolvedAt  DateTime? @map("resolved_at")
+  resolvedBy  String?   @map("resolved_by")
+
+  @@index([receivedAt])
+  @@index([resolvedAt])
+  @@map("dead_letters")
+}
