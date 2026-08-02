@@ -41,6 +41,7 @@ import notificationRulesRoutes from './modules/notification-rules/routes.js';
 import { notificationTask } from './workers/notification.worker.js';
 import { passwordExpiryCheckTask } from './workers/password-expiry.worker.js';
 import { sessionSweepTask } from './workers/session-sweep.worker.js';
+import { telemetryPartitionTask } from './workers/telemetry-partition.worker.js';
 import { startJobRunner, stopJobRunner } from '@digilog/queue';
 import { AppError } from './lib/errors.js';
 import { dispatchNotification } from './modules/notification-delivery/notification-dispatcher.js';
@@ -444,6 +445,7 @@ try {
 
         password_expiry_check: passwordExpiryCheckTask,
         session_sweep: sessionSweepTask,
+        telemetry_partition_maintenance: telemetryPartitionTask,
       },
       crontabPath,
     });

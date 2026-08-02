@@ -34,3 +34,12 @@
 # configured window before their password expires + a one-time expiry notice.
 # Idempotent (one warning per user per day; expiry notice once per event).
 0 0 * * * password_expiry_check ?id=password_expiry_check&max=1&fill=0s
+
+# Telemetry partition maintenance — 02:00 on the 1st AND the 15th.
+# instrument_telemetry_history is RANGE-partitioned by month, and PostgreSQL
+# REJECTS any row falling outside every partition ("no partition of relation
+# ... found for row"). Ingestion does not slow down when partitions run out —
+# it stops dead at 00:00 on the 1st. The mid-month run exists so one missed
+# monthly run cannot be enough to break inserts.
+0 2 1 * * telemetry_partition_maintenance ?id=telemetry_partition_maintenance&max=1&fill=0s
+0 2 15 * * telemetry_partition_maintenance ?id=telemetry_partition_maintenance&max=1&fill=0s
