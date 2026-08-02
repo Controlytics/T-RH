@@ -241,3 +241,17 @@ curl -sk https://localhost:3001/docs/json
 | Method(s) | Path | Summary |
 |---|---|---|
 | POST | `/api/uploads/photo` | Upload a profile photo |
+
+## Data Injection P2 — telemetry (added 2026-08-02)
+
+| Method | Path | Permission | Notes |
+|---|---|---|---|
+| GET | `/api/instruments/:id` | `INSTRUMENT_VIEW` | Single instrument. Added in P2 — the module previously had list/create/update/delete but no single read, so the detail page 404'd. |
+| GET | `/api/instruments/:id/telemetry/latest` | `INSTRUMENT_VIEW` | Latest value per key. |
+| GET | `/api/instruments/:id/telemetry/history` | `INSTRUMENT_VIEW` | `key`, `from`, `to`, `limit` (max 1000), `offset`. Malformed dates and reversed windows are 400, not silently empty. |
+| GET | `/api/data-injection/health` | `INSTRUMENT_VIEW` | Per-profile connection health + ingest queue stats. |
+| GET | `/api/data-injection/dead-letters` | `INSTRUMENT_VIEW` | `resolved`, `reason`, `limit`, `offset`. |
+| POST | `/api/data-injection/dead-letters/:id/resolve` | `INSTRUMENT_UPDATE` | Reauth (`UPDATE_INSTRUMENT`) + audited (`DEAD_LETTER_RESOLVED`) in one transaction. Body optional. |
+
+Telemetry reads are NOT audited (spec D5) — process data, not a §11 record.
+Resolving a dead letter IS audited: that is an operator judgement about a record.

@@ -1871,6 +1871,23 @@ Raised while executing `docs/superpowers/plans/2026-08-01-data-injection-p2-mqtt
 - [ ] **EMQX is not a Windows service** — bare `erl.exe`, does not survive reboot.
       `.\bin\emqx.cmd install` (as Administrator) would fix it.
 
+### P2 COMPLETE 2026-08-02 — all 15 tasks
+
+Tasks 7–15: `ed65776` MQTT adapter · Task 8 connection manager + subscription
+derivation · `db29fa9` ingestion service · `9fd9e3b` startup wiring ·
+`915d7f4` telemetry + dead-letter API · Task 12 partition maintenance ·
+`865cc86` instrument detail page + health strip + **timestamptz fix**.
+
+**Resolved from the list above:** the slug-collision reachability question (keys
+are now collision-free by construction — `baseTopic|instrumentSlug` and
+`gatewayId|deviceKey`), and EMQX auth (enabled; anonymous and wrong-password are
+both rejected, so credential tests no longer pass vacuously).
+
+**Still open:** `Reading.quality` is never populated · widen
+`INGESTIBLE_CATEGORIES` deliberately in P3 · EMQX is not a Windows service
+(`.in\emqx.cmd install` as Administrator) · nothing is deployed — AWS still
+runs `final-user-management`.
+
 ### Done 2026-08-02 (Tasks 1–6 of 15)
 `66cf4f5` adapter contract+registry · `087c8db` topic router (**redesigned** — the
 planned right-anchored version was unimplementable) · `2ec2cc4` payload parser ·

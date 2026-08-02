@@ -32,7 +32,12 @@ fork. UI primitives are hand-rolled in `components/ui/`. A rebuild that adopts a
 component library would change every screen's appearance — out of scope for
 "preserve the user experience".
 
-## 2. Route map — 12 groups, 44 routes (was 11 groups / 38 routes before P1)
+## 2. Route map — 12 groups, 45 routes (38 before P1, 44 after P1)
+
+> **P2 (2026-08-02)** added `/data-injection/instruments/:id` — the instrument
+> detail page (live telemetry polling every 5s, derived topics, filterable
+> history). The Data Injection dashboard also gained an ingestion-health strip.
+> Verified `grep -cE "<Route" apps/web/src/main.tsx` = 45.
 
 | Group | Representative routes |
 |---|---|

@@ -90,7 +90,11 @@ and `instrument-wizard.tsx` has Create). They were switched to
 hidden. **34 is the current verified figure**; see
 `../04-roles-permissions/README.md` for the full derivation.
 
-## 3. The 22 API modules (18 pre-P1 + 4 added by Data Injection P1)
+## 3. The 23 API modules (18 pre-P1 + 4 added by Data Injection P1 + 1 by P2)
+
+> **P2 (2026-08-02)** added `data-injection` — the MQTT adapter, topic router,
+> payload parser, fan-out, telemetry repository, connection manager and ingestion
+> service. Verified `ls apps/api/src/modules/ | wc -l` = 23.
 
 | Module | Paths | Responsibility |
 |---|---|---|

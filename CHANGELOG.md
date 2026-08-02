@@ -1,5 +1,77 @@
 # Changelog
 
+## [Unreleased] — Data Injection: P2 MQTT adapter + telemetry (2026-08-02)
+
+**Telemetry now flows end to end for MQTT.** A device publishing to its derived
+UNS topic results in a stored, queryable, type-preserved reading visible in the
+UI. Verified against a real EMQX broker, not a mock: publish
+`{"temp":23.4,"rh":51,"running":true}` → adapter → ingestion → database → the
+instrument detail page showing 23.4/float, 51/int, true/boolean.
+
+### What this does NOT do — read before assuming
+
+- **Only MQTT has an adapter.** The other 17 protocols remain seeded and
+  disabled. Adding one is a new file implementing `IProtocolAdapter` plus
+  flipping `Protocol.isEnabled`; no pipeline change.
+- **No per-device broker credentials.** The API connects with the single
+  credential in the Communication Profile; device-side auth is the broker's
+  business (spec D4).
+- **The ingest queue is in-process and does NOT survive a restart.** Anything
+  unflushed at exit is lost. Shutdown drains it on a best-effort basis. This is
+  an accepted limitation of the single-instance design.
+- **Only `TELEMETRY` is stored.** Other categories (`ALARM`, `STATUS`, …)
+  dead-letter as `UNSUPPORTED_CATEGORY` rather than being written as telemetry.
+
+### Added
+
+- `data-injection` module: protocol adapter contract + registry, topic router,
+  payload parser, fan-out, telemetry repository, MQTT adapter, connection
+  manager, ingestion service (23 API modules).
+- 3 models — `InstrumentTelemetryLatest`, `InstrumentTelemetryHistory`
+  (monthly RANGE partitions), `DeadLetter` (33 models, 8 enums).
+- 6 endpoints (see `docs/recreation/06-api/endpoints.md`), a
+  `telemetry-retention` config surface, a partition-maintenance worker, an
+  instrument detail page and a dashboard ingestion-health strip (45 routes).
+- Audit action `DEAD_LETTER_RESOLVED`. Telemetry itself is deliberately NOT
+  audited (spec D5) — process data, not a §11 record.
+
+### Design decisions worth knowing
+
+- **The gateway is identified by the SUBSCRIPTION, never by parsing the topic.**
+  Hierarchy depth varies per site, so `…/<hierarchy>/<gateway>/<category>` and
+  `…/<gateway>/<instrument>/<category>` are indistinguishable from the string
+  alone. The adapter subscribes per gateway base topic and stamps each message.
+- **An instrument's base topic comes from the INSTRUMENT's ancestry, not the
+  gateway's.** One gateway spanning three hierarchy nodes publishes under three
+  base topics; a single `<gateway>/#` filter would miss two of them.
+- **Resolver keys are collision-free by construction:**
+  `baseTopic|instrumentSlug` (base encodes the node + `@@unique([hierarchyNodeId, slug])`)
+  and `gatewayId|deviceKey` (`@@unique([gatewayId, deviceKey])`). Gateway *slugs*
+  are not globally unique and are never used as keys.
+- **Partition maintenance is a correctness requirement, not housekeeping.** A row
+  outside every partition is REJECTED (`no partition of relation ... found for
+  row`) — ingestion stops dead at 00:00 on the 1st. The worker runs on the 1st
+  AND the 15th so one missed run cannot break inserts. Dropping old partitions
+  is OPT-IN (default off) because it destroys readings permanently.
+
+### Fixed during implementation
+
+- **Telemetry timestamps were `timestamp without time zone`.** All telemetry
+  access is raw SQL, so write and read disagreed by the server's UTC offset: a
+  reading published seconds earlier rendered with a **negative** age of −19790s,
+  exactly Asia/Kolkata's +5:30. Invisible on a UTC host, which is what made it
+  dangerous — the deployment target is ap-south-1. Now `timestamptz`, matching
+  `audit_trail`. Measured skew after the fix: 3s.
+- **Duplicate `(instrument, key)` in one flush aborted the whole transaction.**
+  `ON CONFLICT DO UPDATE command cannot affect row a second time` — triggered by
+  any instrument publishing more than once per flush window, discarding every
+  reading in the flush, not just the duplicate.
+- **`GET /api/instruments/:id` did not exist**, so the detail page 404'd.
+- **`fanOut` accepted `category` and never read it**, so an alarm would have been
+  stored as telemetry.
+- **The resolve endpoint rejected a bodiless POST** (`body must be object`) even
+  though its only field is optional.
+
 ## [Unreleased] — Data Injection: P1 foundation (hierarchy, gateways, instruments, communication profiles) (2026-08-01)
 
 Added a configuration-only foundation for future device data ingestion: a

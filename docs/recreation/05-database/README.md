@@ -14,7 +14,23 @@ grep -cE '^enum '  apps/api/prisma/schema.prisma   # → 8  (2026-08-01; was 6)
 
 ---
 
-## 1. The 23 models, by bounded context
+## 1. The models, by bounded context
+
+> **CURRENT COUNT: 33 models, 8 enums** (verified `grep -cE "^model " ` /
+> `grep -cE "^enum "` against `apps/api/prisma/schema.prisma`, 2026-08-02).
+> The breakdown below predates Data Injection. P1 added 7 models + 2 enums
+> (hierarchy, gateways, instruments, communication profiles, protocols);
+> **P2 added 3 more** — `InstrumentTelemetryLatest`, `InstrumentTelemetryHistory`
+> (monthly RANGE partitions) and `DeadLetter`.
+>
+> Telemetry timestamps are `timestamptz`, matching `audit_trail`. They were
+> briefly `timestamp` and that produced a 5.5-hour skew on an IST host — see the
+> CHANGELOG entry for 2026-08-02.
+>
+> Telemetry is NOT audited (spec D5): it is process data, not a §11 electronic
+> record. Resolving a dead letter IS audited (`DEAD_LETTER_RESOLVED`).
+
+### Pre-Data-Injection models, by bounded context
 
 ### Identity & access (7)
 | Model | Table | Purpose |
