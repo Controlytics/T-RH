@@ -169,12 +169,26 @@ other operator requires `limit`. Enforced in the zod schema and asserted in test
 | `ackedBy`, `ackedAt`, `ackReason` | the e-signature; `ackReason` is mandatory |
 | `closedAt` | |
 
-Partial unique index on `(instrumentId, key)` `WHERE state <> 'CLOSED'` — the
-one-open-alarm-per-series rule is enforced by the **database**, not only by
-evaluator logic. Prisma cannot express a partial unique index, so this is raw SQL
-in the migration, mirroring the existing `hierarchy_nodes_root_slug_key`
-precedent. The schema must carry a comment saying so, or a later `migrate diff`
-will propose dropping it as untracked.
+> **Corrected 2026-08-03 during planning.** This section originally declared the
+> alarm series as `(instrumentId, key)`. That is wrong. `AlarmThreshold` is
+> unique on `(instrumentId, key, operator)`, so one key can carry both a high and
+> a low limit — and with a shared series a reading of 105 against `GT 100` +
+> `LT 10` raises on the GT spec, then satisfies the LT spec's recovery test
+> (`105 >= 10`) in the same pass and **resolves the alarm it just raised**. The
+> series is `(instrument, key, threshold)`. See the implementation plan, Task 4.
+
+The one-open-alarm-per-series rule is enforced by the **database**, not only by
+evaluator logic, via two partial unique indexes:
+
+- `(instrument_id, key, threshold_id) WHERE state <> 'CLOSED' AND threshold_id IS NOT NULL`
+- `(instrument_id) WHERE state <> 'CLOSED' AND threshold_id IS NULL` — liveness
+  alarms carry a NULL `threshold_id`, and PostgreSQL treats NULLs as distinct in
+  a unique index, so the first index gives them no guarantee at all.
+
+Prisma cannot express a partial unique index, so both are raw SQL in the
+migration, mirroring the existing `hierarchy_nodes_root_slug_key` precedent. The
+schema must carry a comment saying so, or a later `migrate diff` will propose
+dropping them as untracked.
 
 **Not partitioned.** Volume is low and every row is a record that must be
 retained, so the `dropExpiredPartitions` hazard does not extend here. No delete

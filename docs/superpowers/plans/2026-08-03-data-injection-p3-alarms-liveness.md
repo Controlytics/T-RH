@@ -412,12 +412,19 @@ model AlarmThreshold {
   @@map("alarm_thresholds")
 }
 
-// The one-open-alarm-per-(instrument,key) rule is enforced by a PARTIAL unique
-// index created in raw SQL — Prisma cannot express `WHERE state <> 'CLOSED'`, so
-// it does not appear as an @@unique here. See alarms_one_open_per_series_key in
-// migration <timestamp>_p3_alarms_liveness. Do NOT delete it as "untracked":
-// without it, two concurrent flushes can both raise an alarm for the same
-// series and the re-trigger counter silently becomes two rows.
+// An alarm series is (instrument, key, THRESHOLD) — not (instrument, key).
+// AlarmThreshold is unique on (instrumentId, key, operator), so one telemetry
+// key can carry both a high and a low limit. If the series omitted thresholdId,
+// a reading of 105 against `GT 100` + `LT 10` would raise on the GT spec and
+// then, in the SAME loop iteration set, satisfy the LT spec's recovery test
+// (105 >= 10) and immediately resolve the alarm it had just raised.
+//
+// Enforced by TWO partial unique indexes created in raw SQL — Prisma can express
+// neither, so neither appears as an @@unique here. See
+// alarms_one_open_per_threshold_key and alarms_one_open_liveness_key in
+// migration <timestamp>_p3_alarms_liveness. Do NOT delete them as "untracked":
+// without them two concurrent flushes can both raise for the same series and the
+// re-trigger counter silently becomes two rows.
 model Alarm {
   id           String        @id @default(uuid())
   instrumentId String        @map("instrument_id")
@@ -495,15 +502,27 @@ Read the output. Expected: `CREATE TYPE` ×4, `CREATE TABLE` ×3, `ALTER TABLE i
 Create `apps/api/prisma/migrations/<UTC-timestamp>_p3_alarms_liveness/migration.sql` containing the reviewed diff, then append the partial unique index Prisma cannot express:
 
 ```sql
--- Enforces "at most one OPEN alarm per (instrument, key)" in the DATABASE, not
--- only in evaluator logic. Two concurrent flushes evaluating the same series
--- would otherwise both INSERT and the re-trigger counter would silently become
--- two rows. Prisma cannot express a partial unique index, so this is raw SQL and
--- is declared in a comment on model Alarm so migrate diff does not propose
--- dropping it as untracked.
-CREATE UNIQUE INDEX alarms_one_open_per_series_key
-  ON alarms (instrument_id, key)
-  WHERE state <> 'CLOSED';
+-- At most one OPEN alarm per (instrument, key, threshold), enforced in the
+-- DATABASE and not only in evaluator logic — two concurrent flushes would
+-- otherwise both INSERT and the re-trigger counter would silently become two
+-- rows.
+--
+-- threshold_id is part of the key because one telemetry key can carry several
+-- thresholds (a high limit and a low limit). Collapsing them into one series
+-- makes a reading that breaches the high limit satisfy the low limit's recovery
+-- test in the same pass, resolving the alarm it just raised.
+CREATE UNIQUE INDEX alarms_one_open_per_threshold_key
+  ON alarms (instrument_id, key, threshold_id)
+  WHERE state <> 'CLOSED' AND threshold_id IS NOT NULL;
+
+-- Liveness alarms carry threshold_id = NULL, and PostgreSQL treats NULLs as
+-- DISTINCT in a unique index — so the index above gives them no guarantee at
+-- all and a device could accumulate one offline alarm per sweep. This second
+-- index covers exactly that case: at most one open liveness alarm per
+-- instrument.
+CREATE UNIQUE INDEX alarms_one_open_liveness_key
+  ON alarms (instrument_id)
+  WHERE state <> 'CLOSED' AND threshold_id IS NULL;
 ```
 
 - [ ] **Step 6: Apply and verify no drift**
@@ -1077,8 +1096,10 @@ list because it is the e-signature."
 **Interfaces:**
 - Consumes: `OpenAlarmView` (Task 6), `ThresholdSpec` (Task 5).
 - Produces:
-  - `export async function loadThresholdCache(): Promise<Map<string, ThresholdSpec[]>>` — keyed `` `${instrumentId}|${key}` ``
-  - `export async function loadOpenAlarms(): Promise<Map<string, OpenAlarmView>>` — keyed `` `${instrumentId}|${key}` ``
+  - `export function seriesKey(instrumentId: string, key: string): string` — `` `${instrumentId}|${key}` ``, for the threshold cache (looked up per reading)
+  - `export function alarmKey(instrumentId: string, key: string, thresholdId: string | null): string` — `` `${instrumentId}|${key}|${thresholdId ?? '__liveness__'}` ``, for open alarms
+  - `export async function loadThresholdCache(): Promise<Map<string, ThresholdSpec[]>>` — keyed by `seriesKey`
+  - `export async function loadOpenAlarms(): Promise<Map<string, OpenAlarmView>>` — keyed by `alarmKey`
   - `export async function raiseAlarm(input: { instrumentId: string; key: string; thresholdId: string | null; severity: AlarmSeverity; value: number | null; ts: Date }): Promise<{ id: string } | null>`
   - `export async function rebreachAlarm(alarmId: string, value: number | null, ts: Date, backToActive: boolean): Promise<void>`
   - `export async function resolveAlarm(alarmId: string, ts: Date, close: boolean): Promise<void>`
@@ -1093,6 +1114,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '../../../lib/prisma.js';
 import {
   loadThresholdCache, loadOpenAlarms, raiseAlarm, rebreachAlarm, resolveAlarm, touchLiveness,
+  alarmKey,
 } from '../alarm.repository.js';
 
 const TAG = `p3repo-${Date.now()}`;
@@ -1149,7 +1171,7 @@ describe('raise / rebreach / resolve', () => {
   });
 
   it('rebreach bumps the counter and tracks the peak', async () => {
-    const openBefore = (await loadOpenAlarms()).get(`${instrumentId}|temp`)!;
+    const openBefore = (await loadOpenAlarms()).get(alarmKey(instrumentId, 'temp', thresholdId))!;
     await rebreachAlarm(openBefore.id, 150, new Date(), false);
     const row = await prisma.alarm.findUnique({ where: { id: openBefore.id } });
     expect(row?.breachCount).toBe(2);
@@ -1157,7 +1179,7 @@ describe('raise / rebreach / resolve', () => {
   });
 
   it('rebreach with backToActive returns a resolved alarm to ACTIVE', async () => {
-    const open = (await loadOpenAlarms()).get(`${instrumentId}|temp`)!;
+    const open = (await loadOpenAlarms()).get(alarmKey(instrumentId, 'temp', thresholdId))!;
     await resolveAlarm(open.id, new Date(), false);
     expect((await prisma.alarm.findUnique({ where: { id: open.id } }))?.state).toBe('RESOLVED_UNACKED');
     await rebreachAlarm(open.id, 160, new Date(), true);
@@ -1165,9 +1187,9 @@ describe('raise / rebreach / resolve', () => {
   });
 
   it('loadOpenAlarms excludes CLOSED rows', async () => {
-    const open = (await loadOpenAlarms()).get(`${instrumentId}|temp`)!;
+    const open = (await loadOpenAlarms()).get(alarmKey(instrumentId, 'temp', thresholdId))!;
     await prisma.alarm.update({ where: { id: open.id }, data: { state: 'CLOSED', closedAt: new Date() } });
-    expect((await loadOpenAlarms()).get(`${instrumentId}|temp`)).toBeUndefined();
+    expect((await loadOpenAlarms()).get(alarmKey(instrumentId, 'temp', thresholdId))).toBeUndefined();
   });
 });
 
@@ -1209,7 +1231,18 @@ import { prisma } from '../../lib/prisma.js';
 import type { ThresholdSpec } from './threshold-evaluator.js';
 import type { OpenAlarmView } from './alarm-state.js';
 
-const seriesKey = (instrumentId: string, key: string) => `${instrumentId}|${key}`;
+/** Threshold-cache key: looked up once per reading, before the threshold is known. */
+export const seriesKey = (instrumentId: string, key: string) => `${instrumentId}|${key}`;
+
+/**
+ * Open-alarm key. Includes the THRESHOLD because one telemetry key can carry
+ * several thresholds, and each is an independent excursion condition with its
+ * own severity. Keying on (instrument, key) alone lets a high-limit breach
+ * satisfy a low-limit threshold's recovery test and resolve the alarm it just
+ * raised. Liveness alarms have no threshold and use a fixed sentinel.
+ */
+export const alarmKey = (instrumentId: string, key: string, thresholdId: string | null) =>
+  `${instrumentId}|${key}|${thresholdId ?? '__liveness__'}`;
 
 export async function loadThresholdCache(): Promise<Map<string, ThresholdSpec[]>> {
   const rows = await prisma.alarmThreshold.findMany({ where: { isActive: true } });
@@ -1230,10 +1263,13 @@ export async function loadThresholdCache(): Promise<Map<string, ThresholdSpec[]>
 export async function loadOpenAlarms(): Promise<Map<string, OpenAlarmView>> {
   const rows = await prisma.alarm.findMany({
     where: { state: { not: 'CLOSED' } },
-    select: { id: true, instrumentId: true, key: true, state: true, breachCount: true, peakValue: true },
+    select: {
+      id: true, instrumentId: true, key: true, thresholdId: true,
+      state: true, breachCount: true, peakValue: true,
+    },
   });
   return new Map(rows.map(r => [
-    seriesKey(r.instrumentId, r.key),
+    alarmKey(r.instrumentId, r.key, r.thresholdId),
     { id: r.id, state: r.state, breachCount: r.breachCount, peakValue: r.peakValue },
   ]));
 }
@@ -1409,6 +1445,29 @@ describe('evaluateFlush', () => {
     expect(repo.touchLiveness).toHaveBeenCalledWith(['i1'], TS);
   });
 
+  it('raises SEPARATE alarms for a high and a low threshold on the same key', async () => {
+    // Regression: with the alarm series keyed on (instrument, key) alone, a
+    // reading of 105 raises on the GT spec and then satisfies the LT spec's
+    // recovery test (105 >= 10) in the very same pass — resolving the alarm it
+    // had just raised. The series must include the threshold.
+    repo.loadThresholdCache.mockResolvedValue(new Map([
+      ['i1|temp', [
+        { id: 't1', key: 'temp', operator: 'GT', limit: 100, limitLow: null, limitHigh: null, hysteresis: 0, severity: 'MAJOR' },
+        { id: 't2', key: 'temp', operator: 'LT', limit: 10, limitLow: null, limitHigh: null, hysteresis: 0, severity: 'CRITICAL' },
+      ]],
+    ]));
+
+    const res = await evaluateFlush([{ instrumentId: 'i1', readings: [reading('temp', 105)] }], TS);
+    expect(res.raised).toBe(1);
+    expect(res.resolved).toBe(0);          // the LT spec must NOT resolve the GT alarm
+    expect(repo.resolveAlarm).not.toHaveBeenCalled();
+
+    // And a genuine low breach raises its OWN alarm rather than being swallowed.
+    repo.raiseAlarm.mockResolvedValue({ id: 'a2' });
+    const low = await evaluateFlush([{ instrumentId: 'i1', readings: [reading('temp', 5)] }], TS);
+    expect(low.raised).toBe(1);
+  });
+
   it('raises ONE alarm when a flush contains many breaches of the same series', async () => {
     // Within a single flush the cache says "no open alarm" for every reading.
     // Without in-flush bookkeeping this raises N times and N-1 of them lose the
@@ -1446,11 +1505,10 @@ import { evaluate, numericValue, type ThresholdSpec } from './threshold-evaluato
 import { nextTransition, type OpenAlarmView } from './alarm-state.js';
 import {
   loadThresholdCache, loadOpenAlarms, raiseAlarm, rebreachAlarm, resolveAlarm, touchLiveness,
+  seriesKey, alarmKey,
 } from './alarm.repository.js';
 import { dispatchNotification } from '../notification-delivery/notification-dispatcher.js';
 import { auditLog } from '../../lib/audit.js';
-
-const seriesKey = (instrumentId: string, key: string) => `${instrumentId}|${key}`;
 
 export async function evaluateFlush(
   batches: { instrumentId: string; readings: Reading[] }[],
@@ -1473,7 +1531,10 @@ export async function evaluateFlush(
       if (value === null) continue;   // booleans/strings are not comparable to a limit
 
       for (const spec of specs) {
-        const k = seriesKey(batch.instrumentId, r.key);
+        // Keyed PER THRESHOLD. Each threshold on a key is an independent
+        // excursion condition; sharing one key across them lets a high-limit
+        // breach satisfy a low-limit threshold's recovery test in the same pass.
+        const k = alarmKey(batch.instrumentId, r.key, spec.id);
         // `open` is MUTATED as we go. Without that, three breaches of the same
         // series inside one flush would each see "no open alarm" and race the
         // unique index twice for nothing.
@@ -1722,11 +1783,17 @@ ALTER TYPE "NotificationEventType" ADD VALUE IF NOT EXISTS 'ALARM_RAISED';
 ALTER TYPE "NotificationEventType" ADD VALUE IF NOT EXISTS 'ALARM_ACKNOWLEDGED';
 ```
 
-Then:
+Then run the two commands **separately** and read the output of the first before running the second:
+
 ```bash
-npx prisma migrate deploy && npm run db:verify-migrations
+npx prisma migrate deploy
+echo "exit=$?"
+npm run db:verify-migrations
 ```
-Expected: applies cleanly, drift guard PASSES.
+
+Expected: `migrate deploy` reports the migration applied and exits 0; the drift guard PASSES.
+
+> `ALTER TYPE … ADD VALUE` is restricted inside a transaction block, and Prisma wraps each migration file in one. It is permitted on PostgreSQL 18 provided the new value is not *used* in the same transaction — which this migration does not do, so it should apply. Chaining with `&&` would hide a failure behind the drift guard's own confusing "unexpected state" output, so check the exit code explicitly. If it does fail, split the two `ALTER TYPE` statements into two migration directories.
 
 - [ ] **Step 6: Widen the four dispatcher maps**
 
@@ -1953,7 +2020,11 @@ export async function sweepLiveness(now = new Date()): Promise<{ wentOffline: st
        AND i.is_active = true
        AND l.last_seen_at IS NOT NULL
        AND l.state <> 'OFFLINE'
-       AND l.last_seen_at < ${now} - (i.expected_interval_sec * ${gracePeriodMultiplier} || ' seconds')::interval`;
+       -- make_interval rather than string-concatenation + ::interval: the bind
+       -- parameter arrives as `unknown` to the planner, and `integer * unknown`
+       -- can fail to resolve depending on driver type inference.
+       AND l.last_seen_at < ${now}::timestamptz
+                          - make_interval(secs => i.expected_interval_sec * ${gracePeriodMultiplier}::int)`;
 
   const wentOffline: string[] = [];
 
@@ -2431,5 +2502,7 @@ git commit -m "docs: sync counts and changelog for Data Injection P3"
 
 1. **Task 1 is a live P1 bug**, not P3 work. All 12 Data Injection reauth actions are invisible in both reauth editors because `'Data Injection'` was never added to `REAUTH_ACTION_CATEGORIES`. Task 12's new actions would have inherited it, so it is fixed first. CLAUDE.md's correctness rule requires fixing a bug found in scope even when it is not the task.
 2. **Task 7 exists because `auditLog` throws** for a userId-less action not on `SYSTEM_AUDIT_ACTIONS`. Since the alarm path runs inside `flushNow`, whose interval callback swallows errors, omitting this would have stopped alarms silently while ingestion continued to look healthy — a failure this whole phase exists to prevent.
+
+**A design-spec correction made during planning.** The spec's §5.3 declared the alarm series as `(instrument, key)`. That is wrong, and the plan supersedes it. `AlarmThreshold` is unique on `(instrumentId, key, operator)`, so one telemetry key can carry both a high and a low limit — and with a shared series, a reading of 105 against `GT 100` + `LT 10` raises on the GT spec and then satisfies the LT spec's recovery test (`105 >= 10`) in the same pass, **resolving the alarm it had just raised**. The series is therefore `(instrument, key, threshold)`, which required changes in three places that must stay consistent: the two partial unique indexes in Task 4, `alarmKey`/`loadOpenAlarms` in Task 8, and the `open`-map lookup in Task 9. Task 9 carries a regression test for exactly this case. The second partial index exists because liveness alarms have `threshold_id IS NULL` and PostgreSQL treats NULLs as distinct in a unique index, so the first index would give them no guarantee at all.
 
 **One deviation from the spec, flagged for the reviewer.** The spec said acknowledgement is "enforced through the existing `reauth-check.ts`". Reading that file showed two functions with materially different guarantees: `enforceReauth` is gated on the admin-managed action-reauth config and silently skips the challenge when unconfigured; `enforceReauthAlways` cannot be turned off. The plan uses `enforceReauthAlways` for acknowledgement, on the grounds that a §11.50 signature an administrator can disable is not a signature. Threshold CRUD keeps the configurable `enforceReauth`. If you would rather acknowledgement be administratively configurable, that is a one-word change in Task 12 Step 7.
