@@ -7,6 +7,21 @@
  */
 import type { TopicRoute } from './topic-router.js';
 import { toReadings, type ParsedPayload, type Reading } from './payload-parser.js';
+import type { TopicCategory } from '../instruments/topic-resolver.js';
+
+/**
+ * Categories P2 has storage for. Everything else dead-letters.
+ *
+ * Without this guard a message on …/alarm or …/status would be written to the
+ * telemetry tables and become indistinguishable from a real reading — and since
+ * the adapter subscribes to `<gatewayBase>/#`, outbound COMMAND/RPC traffic the
+ * API itself publishes (P8) would be received and ingested as instrument data,
+ * manufacturing readings from our own writes.
+ *
+ * Widen this deliberately when P3 adds attribute/event storage — never by
+ * accident.
+ */
+const INGESTIBLE_CATEGORIES = new Set<TopicCategory>(['TELEMETRY']);
 
 export interface InstrumentResolver {
   bySlug(gatewaySlug: string, instrumentSlug: string): string | null;
@@ -29,6 +44,18 @@ export function fanOut(
   resolver: InstrumentResolver,
   receivedAt: Date,
 ): FanOutResult {
+  // Checked before anything else — an unsupported category must never reach
+  // resolution or storage, regardless of whether its payload happens to parse.
+  if (!INGESTIBLE_CATEGORIES.has(route.category)) {
+    return {
+      batches: [],
+      deadLetters: [{
+        reason: 'UNSUPPORTED_CATEGORY',
+        detail: `Category '${route.category}' has no storage in P2`,
+      }],
+    };
+  }
+
   if (!parsed.ok) {
     return {
       batches: [],

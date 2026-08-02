@@ -79,3 +79,40 @@ describe('fanOut', () => {
     expect(r.deadLetters[0].reason).toBe('NO_READINGS');
   });
 });
+
+describe('fanOut category guard', () => {
+  // P2 stores telemetry only. Anything else must surface as a dead letter
+  // rather than being written to the telemetry tables, where an alarm would
+  // become indistinguishable from a reading.
+  it.each(['ALARM', 'STATUS', 'HEARTBEAT', 'EVENT', 'COMMAND', 'RPC'] as const)(
+    'dead-letters category %s instead of storing it as telemetry',
+    (category) => {
+      const r = fanOut(
+        { gatewaySlug: 'gw-001', instrumentSlug: 'temp001', category },
+        parsePayload(buf({ temp: 21.5 })), resolver, AT);
+      expect(r.batches).toEqual([]);
+      expect(r.deadLetters).toHaveLength(1);
+      expect(r.deadLetters[0].reason).toBe('UNSUPPORTED_CATEGORY');
+      expect(r.deadLetters[0].detail).toContain(category);
+    },
+  );
+
+  it('rejects before resolution — an unsupported category never hits the resolver', () => {
+    const exploding: InstrumentResolver = {
+      bySlug: () => { throw new Error('resolver must not be consulted'); },
+      byDeviceKey: () => { throw new Error('resolver must not be consulted'); },
+    };
+    const r = fanOut(
+      { gatewaySlug: 'gw-001', instrumentSlug: 'temp001', category: 'COMMAND' },
+      parsePayload(buf({ temp: 1 })), exploding, AT);
+    expect(r.deadLetters[0].reason).toBe('UNSUPPORTED_CATEGORY');
+  });
+
+  it('still accepts TELEMETRY', () => {
+    const r = fanOut(
+      { gatewaySlug: 'gw-001', instrumentSlug: 'temp001', category: 'TELEMETRY' },
+      parsePayload(buf({ temp: 21.5 })), resolver, AT);
+    expect(r.deadLetters).toEqual([]);
+    expect(r.batches).toHaveLength(1);
+  });
+});
