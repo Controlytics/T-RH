@@ -126,19 +126,63 @@ export async function writeDeadLetters(
  * Loaded once per flush rather than per message: a 500-reading batch would
  * otherwise issue 500 lookups for what is almost always the same few gateways.
  */
-export async function buildResolverCache(): Promise<{
-  bySlug: Map<string, string>; byDeviceKey: Map<string, string>;
-}> {
+export interface ResolverRow {
+  id: string;
+  slug: string;
+  deviceKey: string | null;
+  gateway: { slug: string } | null;
+}
+
+export interface ResolverCache {
+  bySlug: Map<string, string>;
+  byDeviceKey: Map<string, string>;
+  /** Composite keys dropped because two instruments claimed them. */
+  collisions: string[];
+}
+
+/**
+ * Pure map construction, split out so the collision behaviour is testable
+ * without database fixtures.
+ *
+ * `bySlug` is NOT backed by a uniqueness constraint. Instrument has
+ * `@@unique([gatewayId, deviceKey])` and `@@unique([hierarchyNodeId, slug])` —
+ * but nothing stops two instruments sharing a gateway AND a slug while sitting
+ * under different hierarchy nodes. A plain `.set()` would silently overwrite and
+ * attribute one instrument's readings to another, with no error anywhere. In a
+ * system whose purpose is faithful records that is worse than a hard failure.
+ *
+ * So a collision drops BOTH entries rather than picking a winner: the affected
+ * messages dead-letter as UNKNOWN_INSTRUMENT and the misconfiguration surfaces,
+ * while every other instrument keeps ingesting. Throwing would take the whole
+ * fleet down over one bad pair.
+ *
+ * `byDeviceKey` needs no such guard — `@@unique([gatewayId, deviceKey])` makes
+ * that collision impossible at the database level.
+ */
+export function buildResolverMaps(rows: ResolverRow[]): ResolverCache {
+  const bySlug = new Map<string, string>();
+  const byDeviceKey = new Map<string, string>();
+  const collided = new Set<string>();
+
+  for (const r of rows) {
+    if (!r.gateway) continue;
+    const slugKey = `${r.gateway.slug}|${r.slug}`;
+    if (bySlug.has(slugKey) && bySlug.get(slugKey) !== r.id) {
+      collided.add(slugKey);
+    } else {
+      bySlug.set(slugKey, r.id);
+    }
+    if (r.deviceKey) byDeviceKey.set(`${r.gateway.slug}|${r.deviceKey}`, r.id);
+  }
+
+  for (const k of collided) bySlug.delete(k);
+  return { bySlug, byDeviceKey, collisions: [...collided] };
+}
+
+export async function buildResolverCache(): Promise<ResolverCache> {
   const rows = await prisma.instrument.findMany({
     where: { isActive: true, gateway: { isNot: null } },
     select: { id: true, slug: true, deviceKey: true, gateway: { select: { slug: true } } },
   });
-  const bySlug = new Map<string, string>();
-  const byDeviceKey = new Map<string, string>();
-  for (const r of rows) {
-    if (!r.gateway) continue;
-    bySlug.set(`${r.gateway.slug}|${r.slug}`, r.id);
-    if (r.deviceKey) byDeviceKey.set(`${r.gateway.slug}|${r.deviceKey}`, r.id);
-  }
-  return { bySlug, byDeviceKey };
+  return buildResolverMaps(rows);
 }
