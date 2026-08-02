@@ -57,6 +57,7 @@ import {
   enqueue, startFlushLoop, stopFlushLoop, flushNow,
 } from './modules/data-injection/ingestion.service.js';
 import instrumentRoutes from './modules/instruments/routes.js';
+import dataInjectionRoutes, { instrumentTelemetryRoutes } from './modules/data-injection/routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -356,6 +357,9 @@ await app.register(communicationProfileRoutes, { prefix: '/api/communication-pro
 await app.register(hierarchyRoutes, { prefix: '/api/hierarchy' });
 await app.register(gatewayRoutes, { prefix: '/api/gateways' });
 await app.register(instrumentRoutes, { prefix: '/api/instruments' });
+// Telemetry reads mount under the SAME /api/instruments prefix.
+await app.register(instrumentTelemetryRoutes, { prefix: '/api/instruments' });
+await app.register(dataInjectionRoutes, { prefix: '/api/data-injection' });
 
 
 // ─── M1: serve the built web UI from the API (single-process bundle) ─────────
