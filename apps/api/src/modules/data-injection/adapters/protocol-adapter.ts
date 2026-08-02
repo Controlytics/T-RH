@@ -15,6 +15,19 @@ export interface InboundMessage {
   receivedAt: Date;
   qos?: number;
   retained?: boolean;
+  /**
+   * The gateway this message belongs to, taken from the SUBSCRIPTION it arrived
+   * on — never parsed out of `topic`.
+   *
+   * Hierarchy depth varies per site, which makes `…/<hierarchy>/<gateway>/<category>`
+   * and `…/<gateway>/<instrument>/<category>` indistinguishable from the topic
+   * string alone. The adapter subscribes per gateway, so it already knows the
+   * answer; carrying it here keeps that knowledge instead of throwing it away
+   * and guessing later. See topic-router.ts.
+   */
+  gatewaySlug: string;
+  /** The subscribed base topic, so the router can strip it to get the tail. */
+  baseTopic: string;
 }
 
 export interface AdapterHealth {

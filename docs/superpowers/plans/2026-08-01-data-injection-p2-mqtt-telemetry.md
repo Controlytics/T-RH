@@ -248,7 +248,30 @@ git commit -m "Add IProtocolAdapter contract and registry, plus mqtt/aedes deps"
 - Test: `apps/api/src/modules/data-injection/__tests__/topic-router.test.ts`
 
 **Interfaces:**
-- Produces: `routeTopic(topic: string, separator: string): TopicRoute | null` and `type TopicRoute = { gatewaySlug: string; instrumentSlug: string | null; category: TopicCategory }`
+- Produces: `tailOf(topic, baseTopic, separator): string | null`, `routeTail(tail, separator): RoutedTail | null`, `type RoutedTail = { instrumentSlug: string | null; category: TopicCategory }`, and `interface TopicRoute extends RoutedTail { gatewaySlug: string }`
+
+> **REVISED 2026-08-02 — the original right-anchored design was unimplementable.**
+> As first written, this task's own tests contradicted its own implementation:
+> `routeTopic('controlyt/india/area-02/gw-001/telemetry', '/')` returned
+> `{gatewaySlug:'area-02', instrumentSlug:'gw-001'}` where the test expected
+> `{gatewaySlug:'gw-001', instrumentSlug:null}`. Verified by running it.
+>
+> The cause is fundamental, not a typo. Matching from the RIGHT cannot separate
+> `…/<hierarchy>/<gateway>/<category>` from `…/<gateway>/<instrument>/<category>`
+> — both are ≥3 segments and the topic string carries nothing to tell them apart.
+> The original comment claiming "a hierarchy segment can never be mistaken for an
+> instrument here" was simply false.
+>
+> **Resolution: anchor on the subscription.** The adapter subscribes per gateway
+> to `<gatewayBaseTopic>/#`, so the gateway is known when the message arrives and
+> only the tail needs interpreting (2 segments ⇒ instrument+category, 1 ⇒ category,
+> anything else ⇒ null/dead-letter). The ambiguity is removed at its source.
+>
+> **Knock-on effects:** `InboundMessage` (Task 1) gains `gatewaySlug` and
+> `baseTopic`, populated by the adapter from the subscription. Task 4 is
+> **unchanged** — `TopicRoute` still carries `gatewaySlug`; the caller composes it
+> as `{ gatewaySlug: m.gatewaySlug, ...routeTail(tail, sep) }`. Task 9's call site
+> is updated below.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1699,7 +1722,7 @@ Expected: FAIL — module not found.
  * the system does not have.
  */
 import type { InboundMessage } from './adapters/protocol-adapter.js';
-import { routeTopic } from './topic-router.js';
+import { tailOf, routeTail } from './topic-router.js';
 import { parsePayload } from './payload-parser.js';
 import { fanOut, type InstrumentResolver } from './fan-out.js';
 import { writeBatch, writeDeadLetters, buildResolverCache } from './telemetry.repository.js';
@@ -1753,16 +1776,20 @@ export async function flushNow(): Promise<void> {
   };
 
   for (const m of batchMsgs) {
-    const route = routeTopic(m.topic, SEPARATOR);
-    if (!route) {
+    // REVISED: gateway comes from the subscription (m.gatewaySlug), not parsing.
+    const tail = tailOf(m.topic, m.baseTopic, SEPARATOR);
+    const routed = tail === null ? null : routeTail(tail, SEPARATOR);
+    if (!routed) {
       deadLetters.push({
         protocolKey: m.protocolKey, topic: m.topic,
         payload: m.payload.toString('utf8').slice(0, 4000),
         reason: 'UNROUTABLE_TOPIC',
-        detail: 'Topic does not end in a known category, or is too short',
+        detail: 'Topic is not under the subscribed base, does not end in a known '
+              + 'category, or has an ambiguous tail depth',
       });
       continue;
     }
+    const route = { gatewaySlug: m.gatewaySlug, ...routed };
     const result = fanOut(route, parsePayload(m.payload), resolver, m.receivedAt);
     allBatches.push(...result.batches);
     for (const dl of result.deadLetters) {
