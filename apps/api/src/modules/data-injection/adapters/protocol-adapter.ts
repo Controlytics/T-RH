@@ -1,0 +1,75 @@
+/**
+ * Protocol adapter contract + registry.
+ *
+ * Adding a protocol is one new file implementing IProtocolAdapter plus flipping
+ * Protocol.isEnabled — no change to the ingestion pipeline. That is the whole
+ * point of the indirection.
+ */
+
+/** A message as it arrived, before any parsing. */
+export interface InboundMessage {
+  protocolKey: string;
+  profileId: string;
+  topic: string;
+  payload: Buffer;
+  receivedAt: Date;
+  qos?: number;
+  retained?: boolean;
+}
+
+export interface AdapterHealth {
+  connected: boolean;
+  lastMessageAt: Date | null;
+  lastErrorAt: Date | null;
+  lastError: string | null;
+  messagesReceived: number;
+  reconnectCount: number;
+}
+
+/** Communication profile WITH secrets unmasked — the adapter needs the real password. */
+export interface ProfileWithSecrets {
+  id: string;
+  name: string;
+  protocolKey: string;
+  config: Record<string, unknown>;
+}
+
+export interface IProtocolAdapter {
+  readonly protocolKey: string;
+  start(
+    profile: ProfileWithSecrets,
+    onMessage: (m: InboundMessage) => Promise<void>,
+  ): Promise<void>;
+  stop(): Promise<void>;
+  health(): AdapterHealth;
+  /** Optional — only adapters that can write implement this. Arrives in P8. */
+  publish?(
+    topic: string,
+    payload: Buffer,
+    opts?: { qos?: number; retain?: boolean },
+  ): Promise<void>;
+}
+
+const adapters = new Map<string, IProtocolAdapter>();
+
+export function registerAdapter(adapter: IProtocolAdapter): void {
+  if (adapters.has(adapter.protocolKey)) {
+    // Throw rather than replace: a silent overwrite means two adapters fight
+    // over the same protocol and which one wins depends on import order.
+    throw new Error(`Protocol adapter '${adapter.protocolKey}' is already registered.`);
+  }
+  adapters.set(adapter.protocolKey, adapter);
+}
+
+export function getAdapter(protocolKey: string): IProtocolAdapter | undefined {
+  return adapters.get(protocolKey);
+}
+
+export function listAdapters(): string[] {
+  return [...adapters.keys()];
+}
+
+/** Test-only. Never call from application code. */
+export function clearAdaptersForTest(): void {
+  adapters.clear();
+}
