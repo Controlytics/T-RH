@@ -24,8 +24,10 @@ import type { TopicCategory } from '../instruments/topic-resolver.js';
 const INGESTIBLE_CATEGORIES = new Set<TopicCategory>(['TELEMETRY']);
 
 export interface InstrumentResolver {
-  bySlug(gatewaySlug: string, instrumentSlug: string): string | null;
-  byDeviceKey(gatewaySlug: string, deviceKey: string): string | null;
+  /** Keyed on baseTopic, NOT gatewaySlug — see TopicRoute for why. */
+  bySlug(baseTopic: string, instrumentSlug: string): string | null;
+  /** Keyed on gatewayId, NOT gatewaySlug — deviceKey is unique per gateway id. */
+  byDeviceKey(gatewayId: string, deviceKey: string): string | null;
 }
 
 export interface FanOutBatch {
@@ -77,7 +79,7 @@ export function fanOut(
   };
 
   if (route.instrumentSlug !== null) {
-    const id = resolver.bySlug(route.gatewaySlug, route.instrumentSlug);
+    const id = resolver.bySlug(route.baseTopic, route.instrumentSlug);
     if (!id) {
       deadLetters.push({
         reason: 'UNKNOWN_INSTRUMENT',
@@ -98,7 +100,7 @@ export function fanOut(
   }
 
   for (const [deviceKey, values] of Object.entries(parsed.devices)) {
-    const id = resolver.byDeviceKey(route.gatewaySlug, deviceKey);
+    const id = resolver.byDeviceKey(route.gatewayId, deviceKey);
     if (!id) {
       // Only THIS entry is lost. The rest of the batch still lands.
       deadLetters.push({

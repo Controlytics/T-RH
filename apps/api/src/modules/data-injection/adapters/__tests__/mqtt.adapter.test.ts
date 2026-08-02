@@ -26,7 +26,7 @@ const profile = {
   config: {
     brokerUrl: `mqtt://localhost:${PORT}`,
     qos: 1,
-    subscriptions: [{ gatewaySlug: 'gw-001', baseTopic: 'test/gw-001' }],
+    subscriptions: [{ gatewayId: 'gwid-1', gatewaySlug: 'gw-001', baseTopic: 'test/gw-001' }],
   },
 };
 
@@ -68,6 +68,7 @@ describe('mqtt adapter', () => {
     await settle();
 
     expect(got[0].gatewaySlug).toBe('gw-001');
+    expect(got[0].gatewayId).toBe('gwid-1');
     expect(got[0].baseTopic).toBe('test/gw-001');
 
     pub.end();
@@ -82,8 +83,8 @@ describe('mqtt adapter', () => {
       config: {
         ...profile.config,
         subscriptions: [
-          { gatewaySlug: 'gw-1', baseTopic: 'test/gw-1' },
-          { gatewaySlug: 'gw-10', baseTopic: 'test/gw-10' },
+          { gatewayId: 'gwid-1', gatewaySlug: 'gw-1', baseTopic: 'test/gw-1' },
+          { gatewayId: 'gwid-10', gatewaySlug: 'gw-10', baseTopic: 'test/gw-10' },
         ],
       },
     }, async m => { got.push(m); });
@@ -112,7 +113,7 @@ describe('mqtt adapter', () => {
       config: {
         ...profile.config,
         extraFilters: ['test/#'],
-        subscriptions: [{ gatewaySlug: 'gw-001', baseTopic: 'test/gw-001' }],
+        subscriptions: [{ gatewayId: 'gwid-1', gatewaySlug: 'gw-001', baseTopic: 'test/gw-001' }],
       },
     }, async m => { got.push(m); });
 
@@ -122,6 +123,7 @@ describe('mqtt adapter', () => {
 
     expect(got).toHaveLength(1);
     expect(got[0].gatewaySlug).toBe('');   // unattributable — Task 9 dead-letters it
+    expect(got[0].gatewayId).toBe('');
     expect(got[0].baseTopic).toBe('');
 
     pub.end();
@@ -171,7 +173,7 @@ describe.skipIf(!emqxUp)('mqtt adapter against real EMQX (auth enabled)', () => 
     config: {
       brokerUrl: 'mqtt://127.0.0.1:1883',
       username, password, qos: 1,
-      subscriptions: [{ gatewaySlug: 'gw-e2e', baseTopic: 'digilog-e2e/gw-e2e' }],
+      subscriptions: [{ gatewayId: 'gwid-e2e', gatewaySlug: 'gw-e2e', baseTopic: 'digilog-e2e/gw-e2e' }],
     },
   });
 

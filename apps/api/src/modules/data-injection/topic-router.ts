@@ -30,15 +30,21 @@ export interface RoutedTail {
 }
 
 /**
- * A fully-addressed message. `gatewaySlug` comes from the SUBSCRIPTION the
+ * A fully-addressed message. Every anchor comes from the SUBSCRIPTION the
  * message arrived on, not from parsing — see the module comment. The caller
  * joins the two halves:
  *
  *   const tail  = tailOf(topic, sub.baseTopic, sep);
- *   const route = { gatewaySlug: sub.gatewaySlug, ...routeTail(tail, sep) };
+ *   const route = { gatewayId: sub.gatewayId, gatewaySlug: sub.gatewaySlug,
+ *                   baseTopic: sub.baseTopic, ...routeTail(tail, sep) };
  */
 export interface TopicRoute extends RoutedTail {
+  /** Used for deviceKey lookups — unique per gateway by database constraint. */
+  gatewayId: string;
+  /** Human-readable only; NOT a lookup key (slugs are unique per node, not globally). */
   gatewaySlug: string;
+  /** Used for instrument-slug lookups — `baseTopic|slug` is unique by construction. */
+  baseTopic: string;
 }
 
 const CATEGORY_SET = new Set<string>(TOPIC_CATEGORIES);

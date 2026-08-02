@@ -26,7 +26,26 @@ export interface InboundMessage {
    * and guessing later. See topic-router.ts.
    */
   gatewaySlug: string;
-  /** The subscribed base topic, so the router can strip it to get the tail. */
+  /**
+   * The gateway's id, also from the subscription.
+   *
+   * Payload-addressed batches resolve by deviceKey, which is unique per gateway
+   * via `@@unique([gatewayId, deviceKey])` — but gateway SLUGS are only unique
+   * per hierarchy node (`@@unique([hierarchyNodeId, slug])`), so two gateways can
+   * share one. Keying that lookup on the id rather than the slug is what makes
+   * it collision-free.
+   */
+  gatewayId: string;
+  /**
+   * The subscribed base topic — `prefix/<ancestry>/<gateway>` — so the router can
+   * strip it to get the tail, and so topic-addressed lookups can key on it.
+   *
+   * The base encodes the hierarchy node, and `@@unique([hierarchyNodeId, slug])`
+   * makes an instrument slug unique within a node, so `baseTopic|instrumentSlug`
+   * is unique BY CONSTRUCTION. `gatewaySlug|instrumentSlug` is not: one gateway
+   * can carry instruments in several hierarchy nodes, and P1 derives an
+   * instrument's topic from the INSTRUMENT's ancestry, not the gateway's.
+   */
   baseTopic: string;
 }
 

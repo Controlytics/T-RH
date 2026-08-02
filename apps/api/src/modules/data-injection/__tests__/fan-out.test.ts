@@ -5,16 +5,24 @@ import { parsePayload } from '../payload-parser.js';
 const buf = (o: unknown) => Buffer.from(JSON.stringify(o));
 const AT = new Date('2026-08-01T10:00:00.000Z');
 
+const BASE = 'acme/area-02/gw-001';
+const GWID = 'gateway-uuid-1';
+
+// bySlug is keyed on baseTopic, byDeviceKey on gatewayId — see TopicRoute.
 const resolver: InstrumentResolver = {
-  bySlug: (g, i) => (g === 'gw-001' && i === 'temp001' ? 'inst-1' : null),
-  byDeviceKey: (g, k) =>
-    g === 'gw-001' ? ({ temp001: 'inst-1', hum002: 'inst-2' } as Record<string, string>)[k] ?? null : null,
+  bySlug: (base, i) => (base === BASE && i === 'temp001' ? 'inst-1' : null),
+  byDeviceKey: (gid, k) =>
+    gid === GWID ? ({ temp001: 'inst-1', hum002: 'inst-2' } as Record<string, string>)[k] ?? null : null,
 };
+
+const route = (instrumentSlug: string | null, category = 'TELEMETRY' as const) => ({
+  gatewayId: GWID, gatewaySlug: 'gw-001', baseTopic: BASE, instrumentSlug, category,
+});
 
 describe('fanOut', () => {
   it('topic-addressed: one batch for the resolved instrument', () => {
     const r = fanOut(
-      { gatewaySlug: 'gw-001', instrumentSlug: 'temp001', category: 'TELEMETRY' },
+      route('temp001'),
       parsePayload(buf({ temp: 21.5 })), resolver, AT);
     expect(r.deadLetters).toEqual([]);
     expect(r.batches).toHaveLength(1);
@@ -24,7 +32,7 @@ describe('fanOut', () => {
 
   it('topic-addressed: unknown instrument dead-letters, no batch', () => {
     const r = fanOut(
-      { gatewaySlug: 'gw-001', instrumentSlug: 'nope', category: 'TELEMETRY' },
+      route('nope'),
       parsePayload(buf({ temp: 1 })), resolver, AT);
     expect(r.batches).toEqual([]);
     expect(r.deadLetters[0].reason).toBe('UNKNOWN_INSTRUMENT');
@@ -32,7 +40,7 @@ describe('fanOut', () => {
 
   it('payload-addressed: splits a batch into one entry per device', () => {
     const r = fanOut(
-      { gatewaySlug: 'gw-001', instrumentSlug: null, category: 'TELEMETRY' },
+      route(null),
       parsePayload(buf({ devices: { temp001: { temp: 21.5 }, hum002: { rh: 45 } } })), resolver, AT);
     expect(r.deadLetters).toEqual([]);
     expect(r.batches.map(b => b.instrumentId).sort()).toEqual(['inst-1', 'inst-2']);
@@ -40,7 +48,7 @@ describe('fanOut', () => {
 
   it('payload-addressed: ONE unknown deviceKey does not discard the good ones', () => {
     const r = fanOut(
-      { gatewaySlug: 'gw-001', instrumentSlug: null, category: 'TELEMETRY' },
+      route(null),
       parsePayload(buf({ devices: { temp001: { temp: 21.5 }, ghost: { x: 1 } } })), resolver, AT);
     expect(r.batches).toHaveLength(1);
     expect(r.batches[0].instrumentId).toBe('inst-1');
@@ -51,21 +59,21 @@ describe('fanOut', () => {
 
   it('uses the device-supplied timestamp when present', () => {
     const r = fanOut(
-      { gatewaySlug: 'gw-001', instrumentSlug: 'temp001', category: 'TELEMETRY' },
+      route('temp001'),
       parsePayload(buf({ ts: '2026-07-01T00:00:00.000Z', temp: 1 })), resolver, AT);
     expect(r.batches[0].readings[0].ts.toISOString()).toBe('2026-07-01T00:00:00.000Z');
   });
 
   it('falls back to receivedAt when the device sent no timestamp', () => {
     const r = fanOut(
-      { gatewaySlug: 'gw-001', instrumentSlug: 'temp001', category: 'TELEMETRY' },
+      route('temp001'),
       parsePayload(buf({ temp: 1 })), resolver, AT);
     expect(r.batches[0].readings[0].ts).toEqual(AT);
   });
 
   it('dead-letters an unparseable payload', () => {
     const r = fanOut(
-      { gatewaySlug: 'gw-001', instrumentSlug: 'temp001', category: 'TELEMETRY' },
+      route('temp001'),
       parsePayload(Buffer.from('{bad')), resolver, AT);
     expect(r.batches).toEqual([]);
     expect(r.deadLetters[0].reason).toBe('UNPARSEABLE_PAYLOAD');
@@ -73,7 +81,7 @@ describe('fanOut', () => {
 
   it('produces no batch when a resolved device carries no usable readings', () => {
     const r = fanOut(
-      { gatewaySlug: 'gw-001', instrumentSlug: 'temp001', category: 'TELEMETRY' },
+      route('temp001'),
       parsePayload(buf({ a: null })), resolver, AT);
     expect(r.batches).toEqual([]);
     expect(r.deadLetters[0].reason).toBe('NO_READINGS');
@@ -88,7 +96,7 @@ describe('fanOut category guard', () => {
     'dead-letters category %s instead of storing it as telemetry',
     (category) => {
       const r = fanOut(
-        { gatewaySlug: 'gw-001', instrumentSlug: 'temp001', category },
+        route('temp001', category),
         parsePayload(buf({ temp: 21.5 })), resolver, AT);
       expect(r.batches).toEqual([]);
       expect(r.deadLetters).toHaveLength(1);
@@ -103,14 +111,14 @@ describe('fanOut category guard', () => {
       byDeviceKey: () => { throw new Error('resolver must not be consulted'); },
     };
     const r = fanOut(
-      { gatewaySlug: 'gw-001', instrumentSlug: 'temp001', category: 'COMMAND' },
+      route('temp001', 'COMMAND' as const),
       parsePayload(buf({ temp: 1 })), exploding, AT);
     expect(r.deadLetters[0].reason).toBe('UNSUPPORTED_CATEGORY');
   });
 
   it('still accepts TELEMETRY', () => {
     const r = fanOut(
-      { gatewaySlug: 'gw-001', instrumentSlug: 'temp001', category: 'TELEMETRY' },
+      route('temp001'),
       parsePayload(buf({ temp: 21.5 })), resolver, AT);
     expect(r.deadLetters).toEqual([]);
     expect(r.batches).toHaveLength(1);

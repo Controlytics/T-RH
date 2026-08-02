@@ -19,6 +19,7 @@ import type {
 import { tailOf } from '../topic-router.js';
 
 export interface MqttSubscription {
+  gatewayId: string;
   gatewaySlug: string;
   /** Everything up to and including the gateway, e.g. `acme/india/area-02/gw-001`. */
   baseTopic: string;
@@ -108,6 +109,7 @@ export function createMqttAdapter(): IProtocolAdapter {
           protocolKey: 'mqtt', profileId, topic, payload,
           receivedAt: new Date(), qos: packet.qos, retained: packet.retain,
           gatewaySlug: sub?.gatewaySlug ?? '',
+          gatewayId: sub?.gatewayId ?? '',
           baseTopic: sub?.baseTopic ?? '',
         }).catch((e: unknown) => {
           // A handler failure must never take down the connection. Record it and

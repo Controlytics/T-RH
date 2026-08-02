@@ -130,7 +130,9 @@ export interface ResolverRow {
   id: string;
   slug: string;
   deviceKey: string | null;
-  gateway: { slug: string } | null;
+  gatewayId: string | null;
+  /** Derived `prefix/<instrument ancestry>/<gateway>` — see buildSubscriptions. */
+  baseTopic: string | null;
 }
 
 export interface ResolverCache {
@@ -141,23 +143,28 @@ export interface ResolverCache {
 }
 
 /**
- * Pure map construction, split out so the collision behaviour is testable
- * without database fixtures.
+ * Pure map construction, split out so the keying is testable without database
+ * fixtures.
  *
- * `bySlug` is NOT backed by a uniqueness constraint. Instrument has
- * `@@unique([gatewayId, deviceKey])` and `@@unique([hierarchyNodeId, slug])` —
- * but nothing stops two instruments sharing a gateway AND a slug while sitting
- * under different hierarchy nodes. A plain `.set()` would silently overwrite and
- * attribute one instrument's readings to another, with no error anywhere. In a
- * system whose purpose is faithful records that is worse than a hard failure.
+ * Both keys are collision-free BY CONSTRUCTION, which is why neither needs a
+ * runtime guard:
  *
- * So a collision drops BOTH entries rather than picking a winner: the affected
- * messages dead-letter as UNKNOWN_INSTRUMENT and the misconfiguration surfaces,
- * while every other instrument keeps ingesting. Throwing would take the whole
- * fleet down over one bad pair.
+ *  - `baseTopic|instrumentSlug` — the base is `prefix/<instrument ancestry>/<gateway>`,
+ *    so it encodes the hierarchy node, and `@@unique([hierarchyNodeId, slug])`
+ *    makes the slug unique within that node.
+ *  - `gatewayId|deviceKey` — `@@unique([gatewayId, deviceKey])`.
  *
- * `byDeviceKey` needs no such guard — `@@unique([gatewayId, deviceKey])` makes
- * that collision impossible at the database level.
+ * Neither uses `gatewaySlug`. `gatewaySlug|instrumentSlug` was the original
+ * design and is genuinely ambiguous: one gateway can carry instruments in several
+ * hierarchy nodes, and P1 derives an instrument's topic from the INSTRUMENT's
+ * ancestry, not the gateway's — so two instruments with the same slug under one
+ * gateway have DIFFERENT topics but would have shared a resolver key, silently
+ * attributing one instrument's readings to the other. Gateway slugs are not
+ * globally unique either (`@@unique([hierarchyNodeId, slug])`).
+ *
+ * `collisions` is retained as a safety net. It should always be empty; a
+ * non-empty value means an assumption above has been violated and is worth
+ * surfacing rather than trusting.
  */
 export function buildResolverMaps(rows: ResolverRow[]): ResolverCache {
   const bySlug = new Map<string, string>();
@@ -165,14 +172,15 @@ export function buildResolverMaps(rows: ResolverRow[]): ResolverCache {
   const collided = new Set<string>();
 
   for (const r of rows) {
-    if (!r.gateway) continue;
-    const slugKey = `${r.gateway.slug}|${r.slug}`;
-    if (bySlug.has(slugKey) && bySlug.get(slugKey) !== r.id) {
-      collided.add(slugKey);
-    } else {
-      bySlug.set(slugKey, r.id);
+    if (r.baseTopic) {
+      const slugKey = `${r.baseTopic}|${r.slug}`;
+      if (bySlug.has(slugKey) && bySlug.get(slugKey) !== r.id) {
+        collided.add(slugKey);
+      } else {
+        bySlug.set(slugKey, r.id);
+      }
     }
-    if (r.deviceKey) byDeviceKey.set(`${r.gateway.slug}|${r.deviceKey}`, r.id);
+    if (r.gatewayId && r.deviceKey) byDeviceKey.set(`${r.gatewayId}|${r.deviceKey}`, r.id);
   }
 
   for (const k of collided) bySlug.delete(k);
@@ -180,9 +188,7 @@ export function buildResolverMaps(rows: ResolverRow[]): ResolverCache {
 }
 
 export async function buildResolverCache(): Promise<ResolverCache> {
-  const rows = await prisma.instrument.findMany({
-    where: { isActive: true, gateway: { isNot: null } },
-    select: { id: true, slug: true, deviceKey: true, gateway: { select: { slug: true } } },
-  });
+  const { instrumentBaseTopics } = await import('./subscriptions.js');
+  const rows = await instrumentBaseTopics();
   return buildResolverMaps(rows);
 }
