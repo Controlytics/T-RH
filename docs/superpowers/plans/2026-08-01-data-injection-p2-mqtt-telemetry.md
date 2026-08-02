@@ -608,6 +608,24 @@ git commit -m "Add pure payload parser with explicit value typing"
 - Consumes: `TopicRoute` (Task 2), `ParsedPayload`/`Reading` (Task 3)
 - Produces: `fanOut(route, parsed, resolver, receivedAt): FanOutResult` where `resolver` is `{ bySlug(gatewaySlug, instrumentSlug): string|null; byDeviceKey(gatewaySlug, deviceKey): string|null }` and `FanOutResult = { batches: { instrumentId: string; readings: Reading[] }[]; deadLetters: { reason: string; detail: string }[] }`
 
+> **ADDED 2026-08-02 — category guard.** As originally written, `fanOut` accepted
+> `route.category` and never read it. `category` was parsed in Task 2, carried
+> through Task 4, and then referenced nowhere again in Tasks 5–15 — while the only
+> storage models are `InstrumentTelemetryLatest` / `InstrumentTelemetryHistory`.
+> A message on `…/alarm` or `…/status` would therefore have been written to the
+> telemetry tables, indistinguishable from a real reading.
+>
+> The sharper case is outbound traffic: the adapter subscribes to
+> `<gatewayBase>/#`, and `COMMAND`/`RPC`/`PUBLISH` are conventionally
+> server→device. Once P8 adds `publish?()`, the wildcard subscription would
+> receive the API's own writes and ingest them as instrument data.
+>
+> `fanOut` now checks `INGESTIBLE_CATEGORIES` (currently `{TELEMETRY}`) **before**
+> parsing and **before** resolution, dead-lettering anything else as
+> `UNSUPPORTED_CATEGORY`. Dead-lettered rather than dropped, so a site publishing
+> alarms surfaces instead of silently corrupting telemetry. **Widen this set
+> deliberately when P3 adds attribute/event storage.**
+
 - [ ] **Step 1: Write the failing test**
 
 ```ts
