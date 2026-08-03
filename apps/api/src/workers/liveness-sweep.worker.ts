@@ -14,6 +14,7 @@ import { prisma } from '../lib/prisma.js';
 import { configRepository } from '../modules/config/config.repository.js';
 import { auditLog } from '../lib/audit.js';
 import { dispatchNotification } from '../modules/notification-delivery/notification-dispatcher.js';
+import { raiseAlarm } from '../modules/alarms/alarm.repository.js';
 
 export interface LivenessSettings { gracePeriodMultiplier: number }
 
@@ -50,19 +51,28 @@ export async function sweepLiveness(now = new Date()): Promise<{ wentOffline: st
        -- parameter arrives as 'unknown' to the planner, and 'integer * unknown'
        -- can fail to resolve depending on driver type inference.
        AND l.last_seen_at < ${now}::timestamptz
-                          - make_interval(secs => i.expected_interval_sec * ${gracePeriodMultiplier}::int)`;
+                          - make_interval(secs => i.expected_interval_sec * ${gracePeriodMultiplier}::int)
+     -- Deterministic order (most-stale first) — incidental benefit, not load-bearing:
+     -- lets the race-survival test control which row hits the unique-violation path.
+     ORDER BY l.last_seen_at ASC`;
 
   const wentOffline: string[] = [];
 
   for (const row of rows) {
-    const alarm = await prisma.alarm.create({
-      data: {
-        instrumentId: row.instrument_id, key: '__liveness__', thresholdId: null,
-        severity: 'MAJOR', state: 'ACTIVE',
-        firstBreachAt: now, lastBreachAt: now, breachCount: 1,
-      },
-      select: { id: true },
+    // alarms_one_open_liveness_key (instrument_id, WHERE state <> 'CLOSED' AND
+    // threshold_id IS NULL) guards this insert. raiseAlarm() already handles
+    // the P2002 from a concurrent sweep winning the same race and returns null
+    // — that race IS expected here, not a bug: two sweeps can both select this
+    // instrument as a candidate before either writes. A bare create() would
+    // throw, aborting the loop and starving every LATER instrument in this
+    // batch of its own offline detection for the tick. Skip and move on: the
+    // other sweep already owns this instrument's offline alarm.
+    const alarm = await raiseAlarm({
+      instrumentId: row.instrument_id, key: '__liveness__', thresholdId: null,
+      severity: 'MAJOR', value: null, ts: now,
     });
+    if (!alarm) continue;
+
     await prisma.instrumentLiveness.update({
       where: { instrumentId: row.instrument_id },
       data: { state: 'OFFLINE', stateChangedAt: now, offlineAlarmId: alarm.id },
