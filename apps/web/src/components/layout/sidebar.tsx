@@ -19,7 +19,9 @@ interface NavItem {
 }
 
 // All available nav items with their IDs matching the config
-const allNavItems: NavItem[] = [
+// Exported for the parity test — this list and SIDEBAR_ITEMS in
+// packages/shared must hold the same ids. See __tests__/sidebar-parity.test.ts.
+export const allNavItems: NavItem[] = [
   {
     id: 'home',
     label: 'Home',
