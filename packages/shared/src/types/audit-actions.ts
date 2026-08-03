@@ -173,6 +173,19 @@ export const AUDIT_ACTIONS = {
   // in this file, not a signal that they are unaudited.
   DEVIATION_OPEN_BLOCKED: 'DEVIATION_OPEN_BLOCKED',
 
+  // Data Injection P3 — alarms and liveness. ALARM_ACKNOWLEDGED already exists
+  // above (retained from the 2026-05-17 rule-chain/alarm tear-out) and is
+  // reused here as the §11.50 e-signature action — deliberately absent from
+  // SYSTEM_AUDIT_ACTIONS in apps/api/src/lib/audit.ts.
+  ALARM_RAISED: 'ALARM_RAISED',
+  ALARM_REBREACHED: 'ALARM_REBREACHED',
+  ALARM_RESOLVED: 'ALARM_RESOLVED',
+  DEVICE_WENT_OFFLINE: 'DEVICE_WENT_OFFLINE',
+  DEVICE_CAME_ONLINE: 'DEVICE_CAME_ONLINE',
+  ALARM_THRESHOLD_CREATED: 'ALARM_THRESHOLD_CREATED',
+  ALARM_THRESHOLD_UPDATED: 'ALARM_THRESHOLD_UPDATED',
+  ALARM_THRESHOLD_DELETED: 'ALARM_THRESHOLD_DELETED',
+
   // Data Injection — hierarchy, gateways, instruments, and communication profiles
   HIERARCHY_NODE_CREATED: 'HIERARCHY_NODE_CREATED',
   HIERARCHY_NODE_UPDATED: 'HIERARCHY_NODE_UPDATED',
