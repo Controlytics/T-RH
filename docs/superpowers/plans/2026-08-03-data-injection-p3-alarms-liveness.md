@@ -1322,7 +1322,7 @@ export async function rebreachAlarm(
            END,
            state = CASE WHEN ${backToActive} THEN 'ACTIVE'::"AlarmState" ELSE state END,
            resolved_at = CASE WHEN ${backToActive} THEN NULL ELSE resolved_at END
-     WHERE id = ${alarmId}::uuid`;
+     WHERE id = ${alarmId}`;   // NOT ::uuid — alarms.id is a TEXT column (Prisma String @default(uuid()))
 }
 
 export async function resolveAlarm(alarmId: string, ts: Date, close: boolean): Promise<void> {
@@ -1337,7 +1337,10 @@ export async function resolveAlarm(alarmId: string, ts: Date, close: boolean): P
 /** Upsert last-seen for every instrument that produced a reading in this flush. */
 export async function touchLiveness(instrumentIds: string[], seenAt: Date): Promise<void> {
   if (instrumentIds.length === 0) return;
-  const values = Prisma.join(instrumentIds.map(id => Prisma.sql`(${id}::uuid, ${seenAt}, 'UNKNOWN')`));
+  // NOT `${id}::uuid` — instrument_liveness.instrument_id is a TEXT column.
+  // Prisma's `String @default(uuid())` produces text, not native pg uuid, so a
+  // cast raises `operator does not exist: text = uuid` at runtime.
+  const values = Prisma.join(instrumentIds.map(id => Prisma.sql`(${id}, ${seenAt}, 'UNKNOWN')`));
   await prisma.$executeRaw`
     INSERT INTO instrument_liveness (instrument_id, last_seen_at, state)
     VALUES ${values}
