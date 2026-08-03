@@ -14,6 +14,7 @@ import { parsePayload, type Reading } from './payload-parser.js';
 import { fanOut, type InstrumentResolver } from './fan-out.js';
 import { writeBatch, writeDeadLetters, buildResolverCache } from './telemetry.repository.js';
 import { unsSettings } from './subscriptions.js';
+import { evaluateFlush } from '../alarms/alarm.service.js';
 
 const FLUSH_MS = 250;
 const FLUSH_SIZE = 500;
@@ -101,6 +102,20 @@ export async function flushNow(): Promise<void> {
   if (allBatches.length > 0) {
     await writeBatch(allBatches, new Date());
     flushed += allBatches.length;
+
+    // STRICTLY after the write. Evaluating first would let a failed write leave
+    // a latched excursion pointing at a reading that does not exist.
+    try {
+      await evaluateFlush(allBatches, new Date());
+    } catch (err) {
+      // Deliberately NOT rethrown into startFlushLoop's `catch(() => {})` — that
+      // would stop alarms silently while ingestion carried on looking healthy.
+      // A dead letter is the operator-visible record that evaluation broke.
+      deadLetters.push({
+        protocolKey: 'internal', topic: 'alarm-evaluation', payload: '',
+        reason: 'ALARM_EVALUATION_FAILED', detail: (err as Error).message.slice(0, 500),
+      });
+    }
   }
   if (deadLetters.length > 0) await writeDeadLetters(deadLetters);
 }

@@ -70,7 +70,15 @@ beforeEach(async () => {
   await prisma.$executeRawUnsafe(
     `DELETE FROM instrument_telemetry_history WHERE instrument_id IN ('${instA}','${instB}')`);
 });
-afterEach(async () => { resetQueueForTest(); });
+afterEach(async () => {
+  resetQueueForTest();
+  // flushNow now evaluates alarms after the write, and evaluateFlush upserts an
+  // instrument_liveness row for every instrument in the flush. Without this the
+  // two scratch instruments would be left looking recently-seen to any later
+  // test that scans the table (the liveness sweep is exactly such a consumer).
+  // Mirrors the afterAll cleanup in alarms/__tests__/alarm.repository.test.ts.
+  await prisma.instrumentLiveness.deleteMany({ where: { instrumentId: { in: [instA, instB] } } });
+});
 
 describe('ingestion service', () => {
   it('lands a topic-addressed message as telemetry', async () => {
