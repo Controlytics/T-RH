@@ -1899,3 +1899,54 @@ whole transaction) · `119f1ee` resolver collision guard.
 **Root `.env` trap fixed:** it still named `digilog_db`; a `prisma migrate deploy`
 run from the repo root targeted the SIBLING database and aborted only by luck.
 Always pass `DATABASE_URL` explicitly.
+
+---
+
+## Data Injection P3 — alarms & instrument liveness — COMPLETE 2026-08-03
+
+All 13 implementation tasks done + Task 14 (this entry) doc sync. Measured
+counts at completion: **36 Prisma models / 12 enums, 49 permission
+constants, 53 reauth actions, 24 API modules, 24 config defs, 46 frontend
+`<Route>` entries, 38 feature privileges, crontab 5 active lines (4 distinct
+task ids + telemetry twice), 12 `NotificationEventType` members.** Test
+baselines unchanged by P3: shared 3 / web 6 / api 14 known failures.
+
+**Shipped:** `AlarmThreshold`/`Alarm`/`InstrumentLiveness` models + 4 enums;
+a latching alarm state machine (`ACTIVE → ACTIVE_ACKED → RESOLVED_UNACKED →
+CLOSED`, `CLOSED` reachable only downstream of a human acknowledgement);
+acknowledgement as an undisableable §11.50 e-signature
+(`enforceReauthAlways`, compare-and-set against concurrent double-ack);
+alarm evaluation wired into the ingest flush loop strictly after
+`writeBatch`, with its own `ALARM_EVALUATION_FAILED` dead-letter path;
+`instrument_liveness_sweep` cron (5 min) with idempotent OFFLINE marking;
+new `alarms` API module (list/get/acknowledge + threshold CRUD, 3 perms, 2
+reauth actions); frontend alarm queue + ack dialog + threshold management
+(1 new route, no new sidebar item).
+
+**Two pre-existing bugs found and fixed, not P3 scope:**
+`REAUTH_ACTION_CATEGORIES` missing `'Data Injection'` (hid all 12 P1 reauth
+actions from both reauth editors since P1); `packages/queue/crontab.txt`
+duplicate `?id=` on the two `telemetry_partition_maintenance` lines (had
+been rejecting the whole crontab file, and with it every background job,
+since P2). Both fixed; see `CHANGELOG.md` 2026-08-03 entry for detail.
+
+**Still open from the P2 list above, NOT touched by P3:** `Reading.quality`
+still never populated; `INGESTIBLE_CATEGORIES` in `fan-out.ts` is still
+`{TELEMETRY}` only — P3 alarms are computed by evaluating telemetry readings
+against thresholds, not by widening ingestion to accept a separate `ALARM`
+topic category (worth reconciling that original P2 note against what P3
+actually built); EMQX still not a Windows service; nothing from P1/P2/P3 is
+deployed to AWS (still runs `final-user-management`).
+
+**Doc sync (Task 14, this pass):** `CHANGELOG.md`,
+`docs/recreation/{02-inventory,05-database,06-api,07-ui}/README.md` updated
+with verified counts and new P3 sections. **Not touched** (flagged, not
+fixed): `docs/recreation/04-roles-permissions/README.md` still describes
+the P1 permission/reauth/sidebar-node breakdown (46/51/9-groups/54-nodes)
+and needs its own re-verification pass; `05-database/README.md` has no
+P2-equivalent detailed section (only a header note) — a pre-existing gap
+from the P2 sync, not created by this pass. Root `CLAUDE.md`,
+`apps/api/CLAUDE.md`, and `packages/shared/CLAUDE.md` remain wholesale
+stale (describe the pre-strip DigiLog product) — left untouched per
+standing guidance that partially updating an otherwise-wrong document is
+more misleading than leaving it alone.

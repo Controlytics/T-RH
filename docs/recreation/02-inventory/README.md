@@ -2,7 +2,8 @@
 
 *Every count below is followed by the command that produced it, run 2026-07-25.
 Counts marked "2026-08-01" were re-verified after the Data Injection (P1)
-foundation landed — see §11.*
+foundation landed — see §11. Counts marked "2026-08-03" were re-verified
+after Data Injection P3 (alarms & instrument liveness) landed — see §12.*
 
 ---
 
@@ -43,33 +44,42 @@ ls apps/        # → api web
 ls packages/    # → queue shared
 ```
 
-## 2. Headline counts (verified 2026-07-25; re-verified 2026-08-01 after Data Injection P1 — see §11)
+## 2. Headline counts (verified 2026-07-25; re-verified 2026-08-01 after P1; re-verified 2026-08-03 after P3 — see §11, §12)
 
-| Metric | Count (2026-07-25) | Count (2026-08-01) | Command |
-|---|---|---|---|
-| API modules | 18 | **22** | `ls apps/api/src/modules/ \| wc -l` |
-| API paths (OpenAPI) | 139 | **153** | `curl -sk https://localhost:3001/docs/json \| jq '.paths \| length'` |
-| Prisma models | 23 | **30** | `grep -cE '^model ' apps/api/prisma/schema.prisma` |
-| Prisma enums | 6 | **8** | `grep -cE '^enum ' apps/api/prisma/schema.prisma` |
-| DB triggers | 1 | 1 (unchanged — P1 adds no trigger) | `pg_trigger` where not internal |
-| DB custom functions | 1 | 1 (unchanged) | `block_audit_trail_delete` (rest are pgcrypto) |
-| DB views | 0 | 0 | — |
-| DB sequences | 1 | 1 (unchanged) | `audit_trail_chain_position_seq` |
-| Frontend routes | 38 | **44** | `grep -cE '<Route' apps/web/src/main.tsx` |
-| Frontend route groups | 11 | **12** (new `data-injection` dir) | `ls apps/web/src/routes/` |
-| Config pages | 21 | 21 (unchanged — P1 has no config page; see `uns-settings` note in §11) | `ls apps/web/src/routes/config/*.tsx` |
-| Config definitions | 21 | **22** | `ls apps/api/src/modules/config/defs/*.def.ts` |
-| Custom hooks | 17 | 17 (unchanged) | `ls apps/web/src/hooks/*.ts` |
-| Client libs | 20 | 20 (unchanged) | `ls apps/web/src/lib/*.ts` |
-| API libs | 22 | 22 (unchanged) | `ls apps/api/src/lib/` (excl. tests) |
-| Permission constants | 30 | **46** | `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts` |
-| Reauth actions | 39 | **51** | `grep -cE '^\s+[A-Z_]+:' packages/shared/src/types/reauth-actions.ts` |
-| Feature privileges | 26 | **34** | executed built `PERMISSION_TREE` — `configurable: true` node count (see `../04-roles-permissions/README.md`) |
-| Sidebar permission groups | 8 | **9** | `PERMISSION_TREE` groups |
-| Sidebar items (configurable) | 9 | **10** | `sidebar-items.ts` |
-| Roles (seeded) | 6 | 6 (unchanged) | `select count(*) from roles` |
-| Background job tasks | 3 | 3 (unchanged) | `notification`, `password_expiry_check`, `session_sweep` |
-| Color themes | 10 | 10 (unchanged) | `apps/web/src/lib/themes.ts` |
+| Metric | Count (2026-07-25) | Count (2026-08-01, P1) | Count (2026-08-03, P3) | Command |
+|---|---|---|---|---|
+| API modules | 18 | 22 | **24** | `ls apps/api/src/modules/ \| wc -l` |
+| API paths (OpenAPI) | 139 | 153 | **166** | `curl -sk https://localhost:3001/docs/json \| jq '.paths \| length'` |
+| Prisma models | 23 | 30 | **36** | `grep -cE '^model ' apps/api/prisma/schema.prisma` |
+| Prisma enums | 6 | 8 | **12** | `grep -cE '^enum ' apps/api/prisma/schema.prisma` |
+| DB triggers | 1 | 1 (unchanged — P1 adds no trigger) | 1 (unchanged — P3 adds no trigger; the two P3 partial unique indexes are indexes, not triggers) | `pg_trigger` where not internal |
+| DB custom functions | 1 | 1 (unchanged) | 1 (unchanged) | `block_audit_trail_delete` (rest are pgcrypto) |
+| DB views | 0 | 0 | 0 | — |
+| DB sequences | 1 | 1 (unchanged) | 1 (unchanged) | `audit_trail_chain_position_seq` |
+| Frontend routes | 38 | 44 | **46** (45 after P2 added the instrument-detail route) | `grep -cE '<Route' apps/web/src/main.tsx` |
+| Frontend route groups | 11 | 12 | 12 (unchanged — the P3 alarm queue is a route inside the existing `data-injection` group, not a new group) | `ls apps/web/src/routes/` |
+| Config pages | 21 | 21 (unchanged — P1 has no config page; see `uns-settings` note in §11) | 21 (unchanged — P3's `liveness` def also renders through the dynamic config path) | `ls apps/web/src/routes/config/*.tsx` |
+| Config definitions | 21 | 22 | **24** (23 after P2's `telemetry-retention`; P3 adds `liveness`) | `ls apps/api/src/modules/config/defs/*.def.ts` |
+| Custom hooks | 17 | 17 (unchanged) | 17 (unchanged) | `ls apps/web/src/hooks/*.ts` |
+| Client libs | 20 | 20 (unchanged) | 20 (unchanged) | `ls apps/web/src/lib/*.ts` |
+| API libs | 22 | 22 (unchanged) | 22 (unchanged) | `ls apps/api/src/lib/` (excl. tests) |
+| Permission constants | 30 | 46 | **49** | `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts` |
+| Reauth actions | 39 | 51 | **53** | `grep -cE '^\s+[A-Z_]+:' packages/shared/src/types/reauth-actions.ts` |
+| Feature privileges | 26 | 34 | **38** | executed built `PERMISSION_TREE` — `configurable: true` node count (see `../04-roles-permissions/README.md`) |
+| Sidebar permission groups | 8 | 9 | 9 (unchanged — alarms/thresholds hang off the existing `data-injection` group, no new sidebar item) | `PERMISSION_TREE` groups |
+| Sidebar items (configurable) | 9 | 10 | 10 (unchanged) | `sidebar-items.ts` |
+| Roles (seeded) | 6 | 6 (unchanged) | 6 (unchanged) | `select count(*) from roles` |
+| Background job tasks | 3 | 3 (unchanged) | **4** (`instrument_liveness_sweep` added) | `notification`, `password_expiry_check`, `session_sweep`, `instrument_liveness_sweep` |
+| Color themes | 10 | 10 (unchanged) | 10 (unchanged) | `apps/web/src/lib/themes.ts` |
+
+**Note on Feature privileges (38) and Reauth actions (53):** the P1-era
+derivation walkthrough directly below (26→34, resolved 2026-08-01) predates
+P3 and has not been re-verified against a rebuilt `PERMISSION_TREE`/reauth
+category list; 38 and 53 are the flat counts team-lead measured against the
+current `packages/shared` source on 2026-08-03. The detailed category/node
+breakdown in `../04-roles-permissions/README.md` was **not** updated as part
+of this doc-sync pass — it still describes the P1 state (46 permissions / 51
+reauth / 9 groups / 54 nodes) and needs its own pass.
 
 **Feature-privilege count, resolved 2026-08-01.** The initial pass here
 flagged the "26" baseline as unreconcilable against a source-grep of
@@ -90,11 +100,15 @@ and `instrument-wizard.tsx` has Create). They were switched to
 hidden. **34 is the current verified figure**; see
 `../04-roles-permissions/README.md` for the full derivation.
 
-## 3. The 23 API modules (18 pre-P1 + 4 added by Data Injection P1 + 1 by P2)
+## 3. The 24 API modules (18 pre-P1 + 4 added by Data Injection P1 + 1 by P2 + 1 by P3)
 
 > **P2 (2026-08-02)** added `data-injection` — the MQTT adapter, topic router,
 > payload parser, fan-out, telemetry repository, connection manager and ingestion
 > service. Verified `ls apps/api/src/modules/ | wc -l` = 23.
+>
+> **P3 (2026-08-03)** added `alarms` — alarm list/get/acknowledge, threshold
+> CRUD, and the resolved-thresholds-per-instrument read. Verified
+> `ls apps/api/src/modules/ | wc -l` = 24.
 
 | Module | Paths | Responsibility |
 |---|---|---|
@@ -121,6 +135,7 @@ hidden. **34 is the current verified figure**; see
 | `gateways` | 3 unique paths (5 route defs) | **P1** — protocol gateway CRUD (§11) |
 | `instruments` | 4 unique paths (6 route defs) | **P1** — instrument CRUD + resolved-topics endpoint (§11) |
 | `communication-profiles` | 3 unique paths (5 route defs) | **P1** — broker/endpoint credential profiles + protocol registry (§11) |
+| `alarms` | 6 unique paths (7 route defs: `/api/alarms` × 3, `/api/alarm-thresholds` × 3, plus `GET /api/instruments/:id/thresholds` mounted under the `instruments` prefix) | **P3** — alarm queue, §11.50 acknowledgement, threshold CRUD (§12) |
 
 ```bash
 sed 's|^/api/||' be.txt | cut -d/ -f1 | sort | uniq -c | sort -rn
@@ -289,3 +304,55 @@ definitions" goes to 22.
   single-query ancestor/descendant lookups. That line has been corrected.
 
 Full task-by-task build record: `.superpowers/sdd/2026-08-01-data-injection-p1-foundation/`.
+
+## 12. Data Injection (P3) — alarms & instrument liveness, landed 2026-08-03
+
+A latching alarm state machine over the P2 telemetry stream, plus a liveness
+sweep that marks a silent instrument OFFLINE. Full detail:
+[`../05-database/README.md`](../05-database/README.md) §13,
+[`../06-api/README.md`](../06-api/README.md) §10,
+[`../07-ui/README.md`](../07-ui/README.md) §13.
+
+**New API module (1, verified `ls apps/api/src/modules/` 2026-08-03):**
+`alarms`. See §3 above.
+
+**New frontend surface:** an alarm queue + acknowledgement dialog +
+threshold management, reached via a card on the existing Data Injection hub.
+One new route, `/data-injection/alarms` — **no new sidebar item, no new
+route group.** Threshold management (`instrument-thresholds.tsx`) is embedded
+in the existing instrument detail page, not a standalone route.
+
+**New Prisma models (3) + enums (4):** `AlarmThreshold`, `Alarm`,
+`InstrumentLiveness`; `AlarmState`, `AlarmSeverity`, `ThresholdOperator`,
+`LivenessState`. `Instrument.expectedIntervalSec` added (nullable — opt-in
+per instrument).
+
+**New config definition (24th, `liveness.def.ts`):** `expectedIntervalSec` /
+`gracePeriodMultiplier` — the write path that makes liveness monitoring
+enableable. Renders through the dynamic-config path, same as P2's
+`telemetry-retention` — no new frontend config page.
+
+**New background job (4th):** `instrument_liveness_sweep`, every 5 minutes.
+
+**Design decisions worth carrying into a rebuild:**
+- **Acknowledgement is the §11.50 signature, not an optional policy.** It
+  uses `enforceReauthAlways`, bypassing the admin-configurable re-auth
+  surface that every other reauth-gated action goes through — an
+  administrator cannot switch off the challenge for this one action.
+- **`CLOSED` is reachable only through acknowledgement.** A threshold
+  returning to normal moves an already-acked alarm to `RESOLVED_UNACKED`,
+  never straight to `CLOSED` — so a deviation cannot self-clear off the
+  queue without a human seeing it.
+- **Alarm evaluation runs strictly after the telemetry write completes** in
+  the ingest flush loop, with its own `ALARM_EVALUATION_FAILED` dead-letter
+  error path — a threshold is never evaluated against data that didn't
+  durably land, and an evaluation failure doesn't silently vanish.
+- **Two bugs predating P3 were found and fixed while building it** (not P3
+  scope, but consequential): `REAUTH_ACTION_CATEGORIES` was missing `'Data
+  Injection'`, hiding all 12 P1 reauth actions from both reauth editors; and
+  a duplicate cron `?id=` in `packages/queue/crontab.txt` had been rejecting
+  the entire crontab file since P2, silently taking every background job
+  offline. See `CHANGELOG.md`.
+
+Full task-by-task build record:
+`.superpowers/sdd/2026-08-03-data-injection-p3-alarms-liveness/`.

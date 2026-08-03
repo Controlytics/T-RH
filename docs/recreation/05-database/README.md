@@ -1,11 +1,12 @@
 # Phase 5 — Database Reverse Engineering
 
 *Verified against the live `compliance_core_db` and `schema.prisma`, 2026-07-25.
-Re-verified 2026-08-01 after the Data Injection (P1) migration — see §11.*
+Re-verified 2026-08-01 after the Data Injection (P1) migration — see §11.
+Re-verified 2026-08-03 after the Data Injection (P3) migration — see §13.*
 
 ```bash
-grep -cE '^model ' apps/api/prisma/schema.prisma   # → 30 (2026-08-01; was 23)
-grep -cE '^enum '  apps/api/prisma/schema.prisma   # → 8  (2026-08-01; was 6)
+grep -cE '^model ' apps/api/prisma/schema.prisma   # → 36 (2026-08-03; was 30 after P1, 23 pre-P1)
+grep -cE '^enum '  apps/api/prisma/schema.prisma   # → 12 (2026-08-03; was 8 after P1, 6 pre-P1)
 ```
 
 > The audit chain is documented separately in
@@ -16,19 +17,23 @@ grep -cE '^enum '  apps/api/prisma/schema.prisma   # → 8  (2026-08-01; was 6)
 
 ## 1. The models, by bounded context
 
-> **CURRENT COUNT: 33 models, 8 enums** (verified `grep -cE "^model " ` /
-> `grep -cE "^enum "` against `apps/api/prisma/schema.prisma`, 2026-08-02).
+> **CURRENT COUNT: 36 models, 12 enums** (verified `grep -cE "^model " ` /
+> `grep -cE "^enum "` against `apps/api/prisma/schema.prisma`, 2026-08-03).
 > The breakdown below predates Data Injection. P1 added 7 models + 2 enums
 > (hierarchy, gateways, instruments, communication profiles, protocols);
 > **P2 added 3 more** — `InstrumentTelemetryLatest`, `InstrumentTelemetryHistory`
-> (monthly RANGE partitions) and `DeadLetter`.
+> (monthly RANGE partitions) and `DeadLetter`; **P3 added 3 more models + 4
+> enums** — `AlarmThreshold`, `Alarm`, `InstrumentLiveness`; `AlarmState`,
+> `AlarmSeverity`, `ThresholdOperator`, `LivenessState` (§13).
 >
 > Telemetry timestamps are `timestamptz`, matching `audit_trail`. They were
 > briefly `timestamp` and that produced a 5.5-hour skew on an IST host — see the
 > CHANGELOG entry for 2026-08-02.
 >
 > Telemetry is NOT audited (spec D5): it is process data, not a §11 electronic
-> record. Resolving a dead letter IS audited (`DEAD_LETTER_RESOLVED`).
+> record. Resolving a dead letter IS audited (`DEAD_LETTER_RESOLVED`). Alarm
+> acknowledgement IS audited AND is itself the §11.50 electronic signature
+> (§13) — a different posture from telemetry/dead-letters, deliberately.
 
 ### Pre-Data-Injection models, by bounded context
 
@@ -392,3 +397,168 @@ server. No telemetry table, no data ingestion path, no command dispatch. The
 that nothing in this codebase opens. Partitioning of a future telemetry table
 is out of scope for P1 by design (deferred to a later phase) — there is no
 telemetry table yet to partition.
+
+> **Note (2026-08-03):** unlike P1, P2's own equivalent section (telemetry
+> models, `InstrumentTelemetryLatest`/`History`/`DeadLetter`) was never
+> written up here in the same §11-style detail — only the header note in §1
+> and the CHANGELOG record it. That gap predates this pass and was not
+> closed here (out of scope for the P3 doc sync); flagged for a future pass.
+
+## 12. Data Injection (P2) — telemetry, landed 2026-08-02 (see note above)
+
+Not documented in full here. See `CHANGELOG.md`'s 2026-08-02 entry for the
+3 models (`InstrumentTelemetryLatest`, `InstrumentTelemetryHistory` —
+monthly RANGE partitions — and `DeadLetter`), the `timestamptz` fix, and the
+partition-maintenance worker.
+
+## 13. Data Injection (P3) — alarms & instrument liveness, 3 models + 4 enums, landed 2026-08-03
+
+Migration: hand-authored (Prisma cannot express the two partial unique
+indexes below), drift guard PASS.
+
+### 13.1 The 3 models
+
+| Model | Table | Purpose |
+|---|---|---|
+| `AlarmThreshold` | `alarm_thresholds` | A configured limit for one instrument+key: `operator` (`GT/GTE/LT/LTE/EQ/NEQ/OUT_OF_RANGE`), `limit`/`limitLow`/`limitHigh`, `hysteresis`, `severity`. Evaluated against every flushed telemetry reading for that instrument+key. |
+| `Alarm` | `alarms` | One row per open-or-historic deviation series, keyed `(instrument, key, threshold)` for a threshold breach, or `(instrument, key='liveness')` for an offline event. Carries the latching `AlarmState`, `severity`, first/last-breach timestamps, and (once acknowledged) the signer + note. |
+| `InstrumentLiveness` | `instrument_liveness` | 1:1 sidecar per instrument — last-seen timestamp + current `LivenessState`; what the sweep reads and updates to stay idempotent. |
+
+### 13.2 The 4 enums
+
+- `AlarmState` — `ACTIVE | ACTIVE_ACKED | RESOLVED_UNACKED | CLOSED` (the latching state machine, §13.4).
+- `AlarmSeverity` — `CRITICAL | MAJOR | MINOR | INFO`.
+- `ThresholdOperator` — `GT | GTE | LT | LTE | EQ | NEQ | OUT_OF_RANGE`.
+- `LivenessState` — `ONLINE | OFFLINE | UNKNOWN`.
+
+### 13.3 The two hand-authored partial unique indexes
+
+Migration `20260803060000_p3_alarms_liveness/migration.sql`:
+
+```sql
+CREATE UNIQUE INDEX alarms_one_open_per_threshold_key
+  ON alarms (instrument_id, key, threshold_id)
+  WHERE state <> 'CLOSED' AND threshold_id IS NOT NULL;
+
+CREATE UNIQUE INDEX alarms_one_open_liveness_key
+  ON alarms (instrument_id)
+  WHERE state <> 'CLOSED' AND threshold_id IS NULL;
+```
+
+Prisma cannot express a partial unique index — same limitation as P1's
+`hierarchy_nodes_root_slug_key` (§11.6). Purpose: at most one OPEN
+(non-`CLOSED`) alarm per threshold-breach series `(instrument, key,
+threshold)`, and at most one OPEN liveness alarm per instrument (the
+liveness index has no `key` component — one instrument can only be OFFLINE
+once at a time). A re-breach while an alarm is already open updates the
+existing row instead of creating a duplicate queue entry. **Do not drop
+these as "untracked"** — without them, a flapping threshold or a flapping
+connection would spawn a new alarm row on every evaluation instead of
+latching one.
+
+### 13.4 The latching alarm state machine
+
+Pure-function implementation, no DB access, in
+`apps/api/src/modules/alarms/alarm-state.ts` (`nextTransition` for
+raise/re-breach/resolve, called from the flush loop and the sweep;
+`applyAck` for the operator-driven acknowledgement, called from the route):
+
+```
+            breach
+  (none) ───────────▶ ACTIVE ───── recover ────▶ RESOLVED_UNACKED
+                        │  ▲                          │      │
+                   ack  │  └───── re-breach ──────────┘      │ ack
+                        ▼                                    ▼
+                  ACTIVE_ACKED ──── recover ──────────▶   CLOSED
+```
+
+A brand-new breach starts at `ACTIVE`. An alarm can be acknowledged while
+still breaching (`ACTIVE` → `ACTIVE_ACKED`) — acknowledgement records that a
+human has seen and is handling an ongoing deviation; it does not require the
+deviation to have ended first. **Two invariants, both asserted in tests:**
+
+1. **`CLOSED` is reachable only downstream of a human acknowledgement** —
+   there are two paths in, `RESOLVED_UNACKED` **+ `applyAck`** → `CLOSED`
+   (an operator acknowledging a since-recovered alarm), and `ACTIVE_ACKED`
+   **+ recovery** → `CLOSED` (the flush loop auto-closing an alarm the
+   operator already acknowledged while it was still breaching). Both routes
+   require `applyAck` to have run at some point on that alarm — the only
+   state the ingest flush can close on its own (`ACTIVE_ACKED`) is one a
+   human already signed. A plain `ACTIVE` alarm recovering goes to
+   `RESOLVED_UNACKED`, never straight to `CLOSED`, so an unacknowledged
+   deviation can never leave the queue unseen.
+2. **A re-breach on `RESOLVED_UNACKED` walks it back to `ACTIVE`**
+   (`backToActive: true`), so a flapping sensor cannot have its excursion
+   closed out from under the reviewing operator by a resolve that arrives
+   just before the next breach.
+
+`applyAck(state)` returns the post-acknowledgement state, or `null` to
+reject (HTTP 409) if the alarm isn't in an acknowledgeable state (`ACTIVE` →
+`ACTIVE_ACKED`; `RESOLVED_UNACKED` → `CLOSED`; anything else → `null`).
+`null` is a rejection, not a silent no-op — re-signing an already-signed
+record would put a second attributable signature on the same event.
+
+### 13.5 Acknowledgement is the §11.50 signature
+
+`POST /api/alarms/:id/acknowledge` uses `enforceReauthAlways`, not the
+admin-configurable `enforceReauth` every other reauth-gated route in this
+codebase uses. The distinction matters: `enforceReauth` consults the
+`action-reauth` config surface and skips the password challenge entirely if
+an administrator has not turned it on for the caller's role — appropriate
+for actions where re-auth is a security *policy* choice. Acknowledgement
+**is** the electronic signature §11.50 requires, not a policy an
+administrator can opt out of, so it is hardcoded to always challenge.
+
+The write is atomic with its audit row and protected by a **compare-and-set
+on the alarm's current state** (the update's `WHERE` clause includes the
+state the handler read), so two operators acknowledging the same alarm
+concurrently cannot both succeed — the second write affects zero rows and
+the handler surfaces a conflict rather than silently overwriting the first
+signer.
+
+### 13.6 Evaluation ordering and failure handling
+
+Alarm evaluation is invoked from the ingest flush loop **strictly after**
+`writeBatch` completes — see `apps/api/src/modules/alarms/alarm.service.ts`
+and its call site in the P2 ingestion flush path. A threshold is never
+evaluated against a reading that has not yet durably landed. An evaluation
+failure (DB error, malformed threshold, etc.) writes an
+`ALARM_EVALUATION_FAILED` dead letter (the same `DeadLetter` model P2
+introduced) rather than throwing past the flush or silently dropping the
+failure.
+
+### 13.7 The liveness sweep
+
+`instrument_liveness_sweep` — new 4th background job task, cron `*/5 * * * *`
+in `packages/queue/crontab.txt`. Marks an instrument OFFLINE once
+`now - lastSeenAt > expectedIntervalSec × gracePeriodMultiplier` (both
+configurable; `gracePeriodMultiplier` via the new `liveness` config def, §12
+of the inventory doc). The query excludes instruments already `OFFLINE`, so
+persisted `InstrumentLiveness` state makes the sweep idempotent — a device
+dark for a week produces exactly one OFFLINE transition, not one per 5-minute
+tick. `Instrument.expectedIntervalSec` is nullable: liveness monitoring is
+opt-in per instrument, not automatic for every row.
+
+### 13.8 Two pre-existing bugs found and fixed while building P3
+
+Neither is a P3 feature; both predate it and were caught during this work.
+Full detail in `CHANGELOG.md`'s 2026-08-03 entry.
+
+1. `packages/shared/src/types/reauth-actions.ts`'s `REAUTH_ACTION_CATEGORIES`
+   was missing `'Data Injection'`, hiding all 12 P1 reauth actions from both
+   reauth-policy editors since P1 landed.
+2. `packages/queue/crontab.txt` had a duplicate `?id=` across the two
+   `telemetry_partition_maintenance` cron lines, which made graphile-worker
+   reject the **entire crontab file** at boot — every background job
+   (`notification`, `password_expiry_check`, `session_sweep`, and
+   partition maintenance itself) had been silently dead since P2.
+
+### 13.9 What P3 does not do
+
+No new protocol, no change to the P1/P2 ingestion path itself (evaluation
+hooks onto the existing flush, it doesn't alter what gets written).
+Alarm/threshold rows are audited on every mutating action, but **alarm
+STATE transitions other than acknowledgement are never writable from the
+REST surface** — raise, re-breach, and resolve are exclusively driven by the
+flush loop and the sweep; see the deliberate-deviation note in
+`apps/api/src/modules/alarms/routes.ts`'s file header.

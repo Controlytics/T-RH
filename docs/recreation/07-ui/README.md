@@ -1,14 +1,17 @@
 # Phase 7 — UI Analysis
 
 ```bash
-grep -cE '<Route' apps/web/src/main.tsx   # → 44 (2026-08-01; was 38)
-ls apps/web/src/routes/                   # → 12 groups (2026-08-01; was 11 — new `data-injection` dir)
+grep -cE '<Route' apps/web/src/main.tsx   # → 46 (2026-08-03; was 45 after P2, 44 after P1, 38 pre-P1)
+ls apps/web/src/routes/                   # → 12 groups (unchanged since P1 — new `data-injection` dir)
 ls apps/web/src/hooks/*.ts                # → 17 (unchanged)
 ls apps/web/src/lib/*.ts                  # → 20 (unchanged)
 ```
 
 *Updated 2026-08-01 for the Data Injection (P1) frontend — 6 new routes under
-`routes/data-injection/`. See §2 and §11.*
+`routes/data-injection/`. See §2 and §11. Updated 2026-08-03 for P3 (alarms
+& instrument liveness) — 1 new route, `/data-injection/alarms`, plus
+threshold management embedded in the existing instrument-detail page. See §2
+and §13.*
 
 ---
 
@@ -32,12 +35,21 @@ fork. UI primitives are hand-rolled in `components/ui/`. A rebuild that adopts a
 component library would change every screen's appearance — out of scope for
 "preserve the user experience".
 
-## 2. Route map — 12 groups, 45 routes (38 before P1, 44 after P1)
+## 2. Route map — 12 groups, 46 routes (38 before P1, 44 after P1, 45 after P2)
 
 > **P2 (2026-08-02)** added `/data-injection/instruments/:id` — the instrument
 > detail page (live telemetry polling every 5s, derived topics, filterable
 > history). The Data Injection dashboard also gained an ingestion-health strip.
 > Verified `grep -cE "<Route" apps/web/src/main.tsx` = 45.
+
+> **P3 (2026-08-03)** added `/data-injection/alarms` — the alarm queue +
+> acknowledgement dialog. Threshold management does **not** get its own
+> route: it's a section (`instrument-thresholds.tsx`) embedded directly in
+> the existing `/data-injection/instruments/:id` detail page, gated the same
+> way the rest of that page's sections are. **No new sidebar item** — alarms
+> is reached via a card on the existing Data Injection dashboard, same as
+> every other sub-page in this group. Verified
+> `grep -cE "<Route" apps/web/src/main.tsx` = 46.
 
 | Group | Representative routes |
 |---|---|
@@ -51,11 +63,12 @@ component library would change every screen's appearance — out of scope for
 | `system-health` | `/system-health` |
 | `debug` | `/debug/traces` |
 | `profile` | `/profile` |
-| `data-injection` **(P1, new)** | `/data-injection`, `/data-injection/hierarchy`, `/data-injection/gateways`, `/data-injection/instruments`, `/data-injection/instruments/create`, `/data-injection/profiles` |
+| `data-injection` **(P1, +1 in P2, +1 in P3)** | `/data-injection`, `/data-injection/hierarchy`, `/data-injection/gateways`, `/data-injection/instruments`, `/data-injection/instruments/create`, `/data-injection/instruments/:id`, `/data-injection/profiles`, `/data-injection/alarms` **(P3)** |
 
-**Sidebar shows 10 items** (was 9): Home, Dashboard, Users, Admin Requests,
-Configuration, Notifications, Audit Trail, System Health, Debug Traces,
-**Data Injection**.
+**Sidebar still shows 10 items** (unchanged since P1): Home, Dashboard,
+Users, Admin Requests, Configuration, Notifications, Audit Trail, System
+Health, Debug Traces, Data Injection. P3's alarm queue and threshold
+management live entirely inside the existing Data Injection sidebar item.
 
 Heavy pages are `lazy()`-loaded with a `<Suspense>` fallback; guards wrap routes
 as `<RequireRole permissions={[PERMISSIONS.X]}>`.
@@ -227,3 +240,35 @@ a broker, or render live telemetry. They are CRUD forms and a tree editor over
 configuration rows — consistent with the backend's P1 scope
 ([`../06-api/README.md`](../06-api/README.md) §9,
 [`../05-database/README.md`](../05-database/README.md) §11.9).
+
+## 13. Data Injection (P3) — alarm queue, acknowledgement, thresholds, landed 2026-08-03
+
+One new route (`/data-injection/alarms`, `alarms.tsx`), plus two files that
+back it without owning a route of their own: `alarm-ack-dialog.tsx` and
+`alarm-severity-pill.tsx` (shared display component, also reused by the
+instrument detail page and, presumably, the dashboard). Threshold management
+(`instrument-thresholds.tsx`) is a section embedded in the existing
+`/data-injection/instruments/:id` page, gated by `can('alarms.view')` at
+its mount point (`instrument-detail.tsx`) — not a route in its own right.
+
+| File | Route / mount point | Purpose |
+|---|---|---|
+| `alarms.tsx` | `/data-injection/alarms` | Alarm queue. State filter includes a UI-only `OPEN` pseudo-state (`ACTIVE`/`ACTIVE_ACKED`/`RESOLVED_UNACKED` — everything except `CLOSED`) since the API has no "not closed" filter of its own; defaults to `OPEN` so a fresh load doesn't drown the operator in history. Severity-colour-coded state pills (`ACTIVE` red, `ACTIVE_ACKED` blue, `RESOLVED_UNACKED` amber, `CLOSED` slate). |
+| `alarm-ack-dialog.tsx` | mounted from `alarms.tsx` (and instrument detail, for the per-instrument alarm list) | The §11.50 acknowledgement flow — collects the re-auth credential via the existing `ReauthDialog` pattern and an optional note, then calls `POST /api/alarms/:id/acknowledge`. |
+| `alarm-severity-pill.tsx` | shared component | `SeverityPill` — colour-coded severity badge, factored out so the queue and the instrument detail page render severity identically. |
+| `alarm-shared.ts` | shared module, no UI | Types (`AlarmRow`, `AlarmState`, `AlarmSeverity`) and constants (`ALARM_STATES`, `OPEN_ALARM_STATES`, label maps, `describeThreshold`/`formatNumber`/`formatTimestamp` formatters) shared between `alarms.tsx` and `instrument-thresholds.tsx` — avoids duplicating the state/severity vocabulary across the two surfaces. |
+| `instrument-thresholds.tsx` | embedded in `/data-injection/instruments/:id` (not its own route) | Threshold CRUD for one instrument — list, create, edit, delete `AlarmThreshold` rows against `/api/alarm-thresholds` + `GET /api/instruments/:id/thresholds`. |
+
+**A known bug was found and fixed mid-P3, not a design decision to note
+here as "current behaviour":** an early version of the 409-conflict message
+on double-acknowledgement unmounted before the operator could read it; fixed
+to stay on screen. See `CHANGELOG.md` (commit `3f8d3d4`,
+"keep the alarm 409 message on screen instead of unmounting it").
+
+**No new sidebar item, no new sidebar permission group.** Both alarms and
+thresholds are reached through the existing Data Injection hub and existing
+instrument detail page — gated by the existing `PERMISSION_TREE` `data
+-injection` group's nodes plus the 3 new P3 permissions
+(`ALARM_VIEW`/`ALARM_ACKNOWLEDGE`/`ALARM_THRESHOLD_MANAGE`), not a new
+group. See [`../06-api/README.md`](../06-api/README.md) §10 for the backend
+side of the same gates.

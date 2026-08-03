@@ -1,5 +1,89 @@
 # Changelog
 
+## [Unreleased] — Data Injection: P3 alarms & instrument liveness (2026-08-03)
+
+**Threshold breaches and silent instruments now raise alarms that a human must
+sign off on to close.** A telemetry reading crossing a configured threshold —
+or an instrument going quiet longer than its expected interval — latches an
+alarm that stays open until an operator acknowledges it under a 21 CFR §11.50
+electronic signature. Acknowledgement is not "mark as read": it is the record
+that a human saw the deviation and took responsibility for it.
+
+### Added
+
+- 3 models — `AlarmThreshold`, `Alarm`, `InstrumentLiveness` — and 4 enums —
+  `AlarmState`, `AlarmSeverity`, `ThresholdOperator`, `LivenessState` (36
+  models, 12 enums). `Instrument.expectedIntervalSec` (nullable — liveness
+  monitoring is opt-in per instrument).
+- Two hand-authored partial unique indexes (`alarms_one_open_per_threshold_key`,
+  `alarms_one_open_liveness_key`) enforcing at most one OPEN alarm per
+  `(instrument, key, threshold)` series — Prisma cannot express a partial
+  unique constraint, same pattern as the P1 `hierarchy_nodes_root_slug_key`.
+- **Latching alarm state machine**: `ACTIVE → ACTIVE_ACKED → RESOLVED_UNACKED
+  → CLOSED`. `CLOSED` is reachable ONLY through a human acknowledgement — a
+  reading returning to normal moves an acked alarm to `RESOLVED_UNACKED`, not
+  `CLOSED`, so a deviation can't self-clear off the queue unseen.
+- Acknowledgement (`POST /api/alarms/:id/acknowledge`) uses
+  `enforceReauthAlways` — the undisableable re-auth path, not the
+  admin-configurable one — because the acknowledgement itself IS the §11.50
+  signature, not an optional step-up policy. It is atomic with its audit row
+  and protected by a compare-and-set on the alarm's current state, so two
+  concurrent acknowledgements cannot both "win" and overwrite each other's
+  signer.
+- Alarm evaluation runs in the ingest flush loop **strictly after**
+  `writeBatch` — a threshold is only evaluated against telemetry that has
+  already durably landed. Its own error path writes an
+  `ALARM_EVALUATION_FAILED` dead letter rather than losing the failure
+  silently or blocking the telemetry write.
+- `instrument_liveness_sweep` cron, every 5 minutes: marks an instrument
+  OFFLINE once its silence exceeds `expectedIntervalSec × gracePeriodMultiplier`.
+  Persisted `InstrumentLiveness` state makes the sweep idempotent — a device
+  dark for a week produces exactly one OFFLINE transition, not one per sweep.
+- New API module `alarms` (24 modules total): alarm list/get/acknowledge
+  (`/api/alarms`), threshold CRUD (`/api/alarm-thresholds`), and
+  `GET /api/instruments/:id/thresholds`. 7 new route registrations, 3
+  permissions (`ALARM_VIEW`, `ALARM_ACKNOWLEDGE`, `ALARM_THRESHOLD_MANAGE`;
+  49 total), 2 reauth actions (`ACKNOWLEDGE_ALARM`, `MANAGE_ALARM_THRESHOLD`;
+  53 total, still 8 categories).
+- New config def `liveness` (24 config defs) — the
+  `expectedIntervalSec`/`gracePeriodMultiplier` write path that makes liveness
+  monitoring enableable per instrument.
+- Frontend: an alarm queue, an acknowledgement dialog, and threshold
+  management, reached via a card on the existing Data Injection hub — **no
+  new sidebar item.** One new route, `/data-injection/alarms` (46 total).
+  Threshold management is embedded in the instrument detail page
+  (`instrument-thresholds.tsx`), not a standalone route.
+- 4 new `NotificationEventType` members — `ALARM_RAISED`,
+  `ALARM_ACKNOWLEDGED` (plus the pre-existing `DEVICE_ONLINE`/`DEVICE_OFFLINE`
+  wired up for the first time by the liveness sweep; 12 members total).
+
+### Fixed (pre-existing bugs found during P3, unrelated to P3 scope)
+
+- **`REAUTH_ACTION_CATEGORIES` was missing `'Data Injection'`.** All 12 P1
+  Data Injection reauth actions declared `category: 'Data Injection'`, but
+  the string was never added to the category list both reauth editors
+  (`config/action-reauth.tsx`, `roles-components/reauth-tab.tsx`) iterate to
+  build their UI. The actions rendered in neither screen, so their re-auth
+  policy could never be set by an administrator — same failure class as the
+  pre-existing `Notifications`/`Super Admin` omissions already documented
+  next to the constant. Fixed by adding `'Data Injection'` to
+  `REAUTH_ACTION_CATEGORIES` (`packages/shared/src/types/reauth-actions.ts`).
+- **`packages/queue/crontab.txt` gave both `telemetry_partition_maintenance`
+  lines (1st-of-month and 15th-of-month) the same `?id=`.**
+  graphile-worker requires the id unique per cron item and rejects the
+  **entire file** on a duplicate — meaning the job runner had failed to
+  start since P2 landed (2026-08-02), silently taking `notification`,
+  `password_expiry_check`, `session_sweep`, and
+  `telemetry_partition_maintenance` all offline with it. Fixed by giving
+  each entry a unique id (`telemetry_partition_maintenance_dom01` /
+  `_dom15`). The regression guard now imports graphile-worker's own
+  `parseCrontab` instead of a hand-rolled check, so a future duplicate id
+  fails the test the same way it fails at boot.
+
+Documentation: `docs/recreation/{02-inventory,05-database,06-api,07-ui}/README.md`
+updated with verified counts and Data-Injection P3 sections. Build record:
+`.superpowers/sdd/2026-08-03-data-injection-p3-alarms-liveness/`.
+
 ## [Unreleased] — Data Injection: P2 MQTT adapter + telemetry (2026-08-02)
 
 **Telemetry now flows end to end for MQTT.** A device publishing to its derived
