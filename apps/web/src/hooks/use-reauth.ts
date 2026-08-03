@@ -57,11 +57,19 @@ export function useReauth() {
 
   const needsReauth = useCallback(
     (action: string): boolean => {
-      // Always-on actions are enforced by `enforceReauthAlways` on the server,
-      // which ignores the action-reauth config entirely. Asking the config
-      // alone would answer "no challenge needed" for an un-ticked role, the
-      // callback would fire passwordless, and the backend would reject it with
-      // REAUTH_REQUIRED — a dead button with no dialog to explain why.
+      // KEPT DELIBERATELY after the server-side fix, not left behind by
+      // accident. `isReauthRequired()` is now always-on-aware, so /my-actions
+      // does include these actions and the config path below would answer
+      // correctly once it has loaded — but `myActions` arrives asynchronously
+      // via SWR, and until it does `myActions?.actions` is undefined and the
+      // `?? false` reports "no challenge needed". A click in that window would
+      // fire the callback passwordless and take a REAUTH_REQUIRED 401: a dead
+      // button with no dialog to explain it. This is a real race on first
+      // paint, not redundant double-handling.
+      //
+      // The two mechanisms cannot disagree — both derive from the same
+      // `alwaysOn` flag in `packages/shared/src/types/reauth-actions.ts`, which
+      // is the single source of truth.
       if (isAlwaysOnReauthAction(action)) return true;
       return myActions?.actions.includes(action) ?? false;
     },

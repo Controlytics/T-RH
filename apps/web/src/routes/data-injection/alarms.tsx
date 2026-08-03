@@ -88,6 +88,11 @@ export default function AlarmsPage() {
   );
 
   const rows = useMemo(() => data ?? [], [data]);
+  // The Acknowledge column only renders for users who hold the privilege, so a
+  // hardcoded colSpan under-spans the empty/loading/error rows for everyone
+  // else. Derive it from the same condition that renders the header.
+  const canAcknowledge = can('alarms.acknowledge');
+  const columnCount = canAcknowledge ? 9 : 8;
   const hasFilters = stateFilter !== 'OPEN' || severityFilter !== '' || instrumentFilter !== '';
 
   const setInstrumentFilter = (id: string) => {
@@ -182,20 +187,20 @@ export default function AlarmsPage() {
               <th className="p-3">Last breach</th>
               <th className="p-3">Breaches</th>
               <th className="p-3">Peak value</th>
-              {can('alarms.acknowledge') && <th className="p-3" />}
+              {canAcknowledge && <th className="p-3" />}
             </tr>
           </thead>
           <tbody>
             {isLoading && (
-              <tr><td colSpan={9} className="p-6 text-center text-slate-500">Loading alarms…</td></tr>
+              <tr><td colSpan={columnCount} className="p-6 text-center text-slate-500">Loading alarms…</td></tr>
             )}
             {!isLoading && error && (
-              <tr><td colSpan={9} className="p-6 text-center text-red-700">
+              <tr><td colSpan={columnCount} className="p-6 text-center text-red-700">
                 Could not load alarms. {(error as Error).message}
               </td></tr>
             )}
             {!isLoading && !error && rows.length === 0 && (
-              <tr><td colSpan={9} className="p-6 text-center text-slate-500">
+              <tr><td colSpan={columnCount} className="p-6 text-center text-slate-500">
                 <div className="font-medium text-slate-700">No alarms match these filters</div>
                 <div className="mt-1 text-xs">
                   {stateFilter === 'OPEN'
@@ -225,7 +230,7 @@ export default function AlarmsPage() {
                 <td className="p-3 text-slate-500">{formatTimestamp(a.lastBreachAt)}</td>
                 <td className="p-3 tabular-nums text-slate-700">{a.breachCount}</td>
                 <td className="p-3 tabular-nums text-slate-700">{formatNumber(a.peakValue)}</td>
-                {can('alarms.acknowledge') && (
+                {canAcknowledge && (
                   <td className="p-3">
                     {isAckable(a) ? (
                       <button

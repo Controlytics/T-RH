@@ -2,7 +2,7 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from './prisma.js';
 import { verifyPassword } from './password.js';
 import { applyFailedPasswordAttempt } from '../modules/auth/auth.service.js';
-import type { ActionReauthConfig } from '@digilog/shared';
+import { isAlwaysOnReauthAction, type ActionReauthConfig } from '@digilog/shared';
 
 /**
  * Reauth password verification shared by enforceReauth / enforceReauthAlways.
@@ -116,8 +116,20 @@ export function invalidateReauthCache(): void {
 
 /**
  * Check if re-auth is required for the given action and role.
+ *
+ * Always-on actions short-circuit to `true` BEFORE the config is consulted.
+ * They are enforced by `enforceReauthAlways`, which ignores the config
+ * entirely, so answering from the config alone made this function — and
+ * therefore `GET /api/config/action-reauth/check` and `/my-actions` — report
+ * "no signature required" for the one action where the signature is mandatory
+ * and cannot be switched off. Any client trusting that answer (a script, an
+ * integration, a future mobile app) would omit the password and take a 401.
+ *
+ * This is the single source of truth for the question; clients must not each
+ * re-implement the always-on carve-out.
  */
 export async function isReauthRequired(action: string, role: string): Promise<boolean> {
+  if (isAlwaysOnReauthAction(action)) return true;
   const config = await getActionReauthConfig();
   const roles = config[action];
   if (!roles || roles.length === 0) return false;

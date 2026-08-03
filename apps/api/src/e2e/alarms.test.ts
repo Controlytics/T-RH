@@ -52,7 +52,7 @@ vi.mock('../modules/notification-delivery/notification-dispatcher.js', async (im
 
 const { buildApp, loginAs } = await import('./test-helper.js');
 const { prisma } = await import('../lib/prisma.js');
-const { isReauthRequired } = await import('../lib/reauth-check.js');
+const { isReauthRequired, getActionReauthConfig } = await import('../lib/reauth-check.js');
 
 const ADMIN_USERNAME = 'alarm_admin';
 const ADMIN_PASSWORD = 'AlarmAdmin@Test1';
@@ -231,10 +231,21 @@ describe('acknowledgement — the §11.50 electronic signature', () => {
     //
     // Proved directly rather than inferred: with NO policy configured for this
     // action, `enforceReauth` would wave the request straight through, so the
-    // 401 below can only come from the always-on path. Without this line the
-    // test would still pass if someone later configured ACKNOWLEDGE_ALARM in
-    // the test DB — and would no longer discriminate the two functions.
-    expect(await isReauthRequired('ACKNOWLEDGE_ALARM', 'SUPER_ADMIN')).toBe(false);
+    // 401 below can only come from the always-on path. Without this the test
+    // would still pass if someone later configured ACKNOWLEDGE_ALARM in the
+    // test DB — and would no longer discriminate the two functions.
+    //
+    // This asserts on the stored CONFIG, not on isReauthRequired(). It used to
+    // assert `isReauthRequired(...) === false`, which stopped being the right
+    // probe once that function was made always-on-aware: it now returns true
+    // for this action by design, so it can no longer stand in for "no policy is
+    // configured". The config is what `enforceReauth` would actually consult.
+    const storedConfig = await getActionReauthConfig();
+    expect(storedConfig.ACKNOWLEDGE_ALARM).toBeUndefined();
+
+    // And the always-on carve-out itself is reported honestly to clients — the
+    // /check and /my-actions endpoints read through this function.
+    expect(await isReauthRequired('ACKNOWLEDGE_ALARM', 'SUPER_ADMIN')).toBe(true);
 
     const alarm = await seedAlarm(`noauth-${runSuffix}`);
     const res = await app.inject({
@@ -510,5 +521,79 @@ describe('instrument delete with alarm history', () => {
     });
     expect(res.statusCode).toBe(400);
     expect(await prisma.instrument.findUnique({ where: { id: instrumentId } })).not.toBeNull();
+  });
+});
+
+/**
+ * The always-on carve-out has to be told truthfully by the API, not only
+ * compensated for in one client. A script, an integration or a future mobile
+ * app reads these endpoints to decide whether to collect a password; answering
+ * "not required" for the one action where the signature is mandatory sends them
+ * into a 401 they cannot explain.
+ */
+describe('always-on reauth is reported honestly and cannot be configured away', () => {
+  it('GET /check reports ACKNOWLEDGE_ALARM as required despite no config entry', async () => {
+    const stored = await getActionReauthConfig();
+    expect(stored.ACKNOWLEDGE_ALARM).toBeUndefined();
+
+    const res = await app.inject({
+      method: 'GET', url: '/api/config/action-reauth/check?action=ACKNOWLEDGE_ALARM',
+      headers: auth(),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ action: 'ACKNOWLEDGE_ALARM', required: true });
+  });
+
+  it('GET /my-actions includes ACKNOWLEDGE_ALARM', async () => {
+    const res = await app.inject({
+      method: 'GET', url: '/api/config/action-reauth/my-actions', headers: auth(),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().actions).toContain('ACKNOWLEDGE_ALARM');
+  });
+
+  it('PUT /action-reauth REFUSES to store a policy for an always-on action', async () => {
+    // The password rides the HEADER, not the body. `enforceReauth` only strips
+    // `_currentPassword` from the body when a challenge was actually needed, so
+    // a body-borne password survives into the config parse and is rejected as a
+    // non-array value — which would make this test pass without the always-on
+    // refinement doing any work at all. Verified: with the body form, this
+    // assertion held even against the unfixed schema.
+    const res = await app.inject({
+      method: 'PUT', url: '/api/config/action-reauth',
+      headers: { ...auth(), 'x-reauth-password': ADMIN_PASSWORD },
+      payload: { ACKNOWLEDGE_ALARM: [] },
+    });
+    expect(res.statusCode).toBe(400);
+
+    // And nothing was persisted — a stored entry would make the API's own
+    // config read back as though the §11.50 signature had been switched off.
+    const stored = await getActionReauthConfig();
+    expect(stored.ACKNOWLEDGE_ALARM).toBeUndefined();
+  });
+
+  it('PUT /action-reauth rejects the whole payload rather than dropping the bad key', async () => {
+    // Snapshot rather than asserting MANAGE_ALARM_THRESHOLD is absent: whether
+    // any OTHER suite has configured it is ambient state this test must not
+    // depend on. What matters is that this rejected request changed nothing.
+    const before = JSON.stringify(await getActionReauthConfig());
+
+    const res = await app.inject({
+      method: 'PUT', url: '/api/config/action-reauth',
+      headers: { ...auth(), 'x-reauth-password': ADMIN_PASSWORD },
+      payload: {
+        MANAGE_ALARM_THRESHOLD: ['OPERATOR'],
+        ACKNOWLEDGE_ALARM: ['ADMIN'],
+      },
+    });
+    expect(res.statusCode).toBe(400);
+
+    // The valid sibling must NOT have been saved — a partial write would leave
+    // the operator believing a policy they never successfully submitted. And
+    // `updateActionReauth` REPLACES the whole config, so a payload that got
+    // through would also wipe every unrelated policy already stored.
+    const stored = await getActionReauthConfig();
+    expect(JSON.stringify(stored)).toBe(before);
+    expect(stored.ACKNOWLEDGE_ALARM).toBeUndefined();
   });
 });
