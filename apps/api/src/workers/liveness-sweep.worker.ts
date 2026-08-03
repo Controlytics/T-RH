@@ -83,13 +83,27 @@ export async function sweepLiveness(now = new Date()): Promise<{ wentOffline: st
       action: 'DEVICE_WENT_OFFLINE', targetType: 'Instrument', targetId: row.instrument_id,
       afterValue: { alarmId: alarm.id, detectedAt: now.toISOString() },
     });
-    await dispatchNotification({
+    // Fire-and-forget with a logged catch — the same pattern as
+    // alarm.service.ts's ALARM_RAISED dispatch and routes.ts's
+    // ALARM_ACKNOWLEDGED dispatch. Awaited, a rejecting notifier would unwind
+    // this loop and starve every LATER instrument in this tick of its own
+    // offline detection. The alarm row, the liveness flip and the audit row
+    // are all committed above, so the regulated record is safe regardless of
+    // what the notifier does.
+    //
+    // The auditLog above is deliberately still AWAITED: it is the §11.10(e)
+    // record for a state change already committed to instrument_liveness.
+    // Making it fire-and-forget would let the instrument sit OFFLINE with no
+    // audit row. alarm.service.ts awaits its auditLog for the same reason.
+    void dispatchNotification({
       eventType: 'DEVICE_OFFLINE',
       context: { severity: 'MAJOR', instrumentId: row.instrument_id },
       variables: {
         deviceName: row.name, unsPath: '', timestamp: now.toISOString(),
       },
-    });
+    }).catch(err => console.error(
+      '[Liveness] DEVICE_OFFLINE notification dispatch failed:', (err as Error).message,
+    ));
   }
 
   return { wentOffline };

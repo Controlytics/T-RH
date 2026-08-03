@@ -9,10 +9,22 @@
  *                    ACTIVE_ACKED ──── recover ──────────▶   CLOSED
  *
  * Two invariants, both asserted in the tests:
- *   1. CLOSED is reachable ONLY through a human acknowledgement. Nothing
- *      self-closes — that is the entire point of latching.
+ *   1. Within THIS machine, CLOSED is reachable ONLY through a human
+ *      acknowledgement. Nothing self-closes — that is the entire point of
+ *      latching. See the exception below: the invariant holds for THRESHOLD
+ *      alarms, and is not the whole truth for the system as a whole.
  *   2. A re-breach walks RESOLVED_UNACKED back to ACTIVE, so a flapping sensor
  *      cannot have its excursion closed out from under the reviewing operator.
+ *
+ * EXCEPTION — a second writer of `alarms.state` exists outside this machine.
+ * `touchLiveness()` in `alarm.repository.ts` closes LIVENESS alarms
+ * (`threshold_id IS NULL`, key `__liveness__`) automatically when the device
+ * resumes reporting, with no acknowledgement. That is deliberate and specified
+ * (design spec §8): a device coming back is not a deviation needing
+ * disposition — the THRESHOLD excursions are what latch. So invariant 1 reads
+ * precisely as: THRESHOLD alarms reach CLOSED only via `applyAck` below;
+ * LIVENESS alarms are additionally auto-closed by `touchLiveness`, which emits
+ * its own ALARM_RESOLVED audit row for the closure.
  */
 import type { AlarmSeverity, AlarmState } from '@prisma/client';
 import type { Verdict } from './threshold-evaluator.js';

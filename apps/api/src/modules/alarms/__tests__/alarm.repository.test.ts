@@ -140,4 +140,59 @@ describe('touchLiveness', () => {
     expect(alarm?.state).toBe('CLOSED');
     expect(alarm?.closedAt).toEqual(recoveredAt);
   });
+
+  it('makes the auto-closure traceable to the alarm it closed', async () => {
+    // The regression: an Alarm reached CLOSED — a terminal state on a regulated
+    // record — and the only audit row written was DEVICE_CAME_ONLINE against the
+    // INSTRUMENT, carrying no alarmId. An inspector filtering targetType='Alarm'
+    // saw the raise (the sweep puts alarmId on DEVICE_WENT_OFFLINE) and never
+    // the closure.
+    const offlineAlarm = await prisma.alarm.create({
+      data: {
+        instrumentId, key: '__liveness__', thresholdId: null,
+        severity: 'MAJOR', state: 'ACTIVE_ACKED',   // acknowledged while still dark
+        firstBreachAt: new Date('2026-08-03T10:00:00.000Z'),
+        lastBreachAt: new Date('2026-08-03T10:00:00.000Z'),
+        breachCount: 1,
+      },
+      select: { id: true },
+    });
+    await prisma.instrumentLiveness.update({
+      where: { instrumentId },
+      data: {
+        state: 'OFFLINE', stateChangedAt: new Date('2026-08-03T10:00:00.000Z'),
+        offlineAlarmId: offlineAlarm.id,
+      },
+    });
+
+    const recoveredAt = new Date('2026-08-03T10:30:00.000Z');
+    await touchLiveness([instrumentId], recoveredAt);
+
+    expect((await prisma.alarm.findUnique({ where: { id: offlineAlarm.id } }))?.state)
+      .toBe('CLOSED');
+
+    // A row targeting the ALARM itself, so the closure is reachable from an
+    // Alarm-scoped query.
+    const closureRow = await prisma.auditTrail.findFirst({
+      where: { action: 'ALARM_RESOLVED', targetType: 'Alarm', targetId: offlineAlarm.id },
+    });
+    expect(closureRow).not.toBeNull();
+    expect(closureRow?.afterValue).toMatchObject({
+      closed: true,
+      // Read from the DB, not assumed — the alarm was ACTIVE_ACKED, not ACTIVE.
+      previousState: 'ACTIVE_ACKED',
+      reason: 'DEVICE_RECOVERED',
+      instrumentId,
+    });
+
+    // And the instrument-level row now names the alarm too, so either entry
+    // point leads to the other.
+    const onlineRow = await prisma.auditTrail.findFirst({
+      where: { action: 'DEVICE_CAME_ONLINE', targetType: 'Instrument', targetId: instrumentId },
+      orderBy: { chainPosition: 'desc' },
+    });
+    expect(onlineRow?.afterValue).toMatchObject({
+      alarmId: offlineAlarm.id, alarmPreviousState: 'ACTIVE_ACKED',
+    });
+  });
 });

@@ -139,15 +139,40 @@ export async function touchLiveness(instrumentIds: string[], seenAt: Date): Prom
   // A device coming back is not a deviation needing disposition — the THRESHOLD
   // excursions are what latch. This is the single, deliberate exception to
   // "nothing self-closes"; see §8 of the design spec.
+  // `offlineAlarm.state` is read here, BEFORE the update, because it is written
+  // into the audit row as the prior state. It cannot be assumed to be 'ACTIVE':
+  // an operator may have acknowledged the liveness alarm (→ ACTIVE_ACKED) while
+  // the device was still dark. Hardcoding it would put a fabricated value in a
+  // tamper-evident chain.
   const recovered = await prisma.instrumentLiveness.findMany({
     where: { instrumentId: { in: instrumentIds }, state: 'OFFLINE' },
-    select: { instrumentId: true, offlineAlarmId: true },
+    select: {
+      instrumentId: true, offlineAlarmId: true,
+      offlineAlarm: { select: { state: true } },
+    },
   });
   for (const r of recovered) {
     if (r.offlineAlarmId) {
+      const previousState = r.offlineAlarm?.state ?? null;
       await prisma.alarm.update({
         where: { id: r.offlineAlarmId },
         data: { state: 'CLOSED', resolvedAt: seenAt, closedAt: seenAt },
+      });
+      // Written immediately after the close, and targeting the ALARM, because
+      // the record that just reached a terminal state IS the alarm. The
+      // instrument-level DEVICE_CAME_ONLINE below is a different fact (the
+      // device is reachable again) and an inspector filtering
+      // targetType='Alarm' would never see it. Same action + target shape as
+      // the threshold close in alarm.service.ts, so both closure sources read
+      // identically in the trail; `reason` is what separates them.
+      await auditLog({
+        action: 'ALARM_RESOLVED', targetType: 'Alarm', targetId: r.offlineAlarmId,
+        beforeValue: { state: previousState },
+        afterValue: {
+          closed: true, previousState,
+          reason: 'DEVICE_RECOVERED',
+          instrumentId: r.instrumentId, closedAt: seenAt.toISOString(),
+        },
       });
     }
     await prisma.instrumentLiveness.update({
@@ -156,7 +181,14 @@ export async function touchLiveness(instrumentIds: string[], seenAt: Date): Prom
     });
     await auditLog({
       action: 'DEVICE_CAME_ONLINE', targetType: 'Instrument', targetId: r.instrumentId,
-      afterValue: { recoveredAt: seenAt.toISOString() },
+      afterValue: {
+        recoveredAt: seenAt.toISOString(),
+        // Mirrors DEVICE_WENT_OFFLINE (liveness-sweep.worker.ts), which already
+        // carries alarmId — the raise was traceable to its alarm and the
+        // closure was not.
+        alarmId: r.offlineAlarmId,
+        alarmPreviousState: r.offlineAlarm?.state ?? null,
+      },
     });
   }
 }
