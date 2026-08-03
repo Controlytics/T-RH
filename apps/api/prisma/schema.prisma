@@ -751,6 +751,36 @@ enum TopicCategory {
   SUBSCRIBE
 }
 
+enum AlarmState {
+  ACTIVE
+  ACTIVE_ACKED
+  RESOLVED_UNACKED
+  CLOSED
+}
+
+enum AlarmSeverity {
+  CRITICAL
+  MAJOR
+  MINOR
+  INFO
+}
+
+enum ThresholdOperator {
+  GT
+  GTE
+  LT
+  LTE
+  EQ
+  NEQ
+  OUT_OF_RANGE
+}
+
+enum LivenessState {
+  ONLINE
+  OFFLINE
+  UNKNOWN
+}
+
 // NOTE: root-level slug uniqueness (parentId IS NULL) is enforced by a
 // partial unique index added in raw SQL — Prisma cannot express a partial
 // unique index, so it does not appear as an `@@unique` here. See
@@ -848,6 +878,9 @@ model Instrument {
   deviceKey              String?  @map("device_key")
   communicationProfileId String?  @map("communication_profile_id")
   isActive               Boolean  @default(true) @map("is_active")
+  // NULL means "exempt from liveness monitoring". The sweep filters on this
+  // column, which is why it is a column and not a key in InstrumentSetting.values.
+  expectedIntervalSec    Int?     @map("expected_interval_sec")
   createdAt              DateTime @default(now()) @map("created_at")
   updatedAt              DateTime @updatedAt @map("updated_at")
   createdBy              String?  @map("created_by")
@@ -857,6 +890,9 @@ model Instrument {
   profile       CommunicationProfile? @relation(fields: [communicationProfileId], references: [id], onDelete: Restrict)
   setting       InstrumentSetting?
   topics        InstrumentTopic[]
+  thresholds    AlarmThreshold[]
+  alarms        Alarm[]
+  liveness      InstrumentLiveness?
 
   @@unique([gatewayId, deviceKey])
   @@unique([hierarchyNodeId, slug])
@@ -919,6 +955,85 @@ model InstrumentTelemetryHistory {
   // express); omitting it from the model would add permanent drift.
   @@index([instrumentId, key, ts(sort: Desc)], map: "instrument_telemetry_history_lookup_idx")
   @@map("instrument_telemetry_history")
+}
+
+model AlarmThreshold {
+  id           String            @id @default(uuid())
+  instrumentId String            @map("instrument_id")
+  key          String
+  operator     ThresholdOperator
+  limit        Float?
+  limitLow     Float?            @map("limit_low")
+  limitHigh    Float?            @map("limit_high")
+  hysteresis   Float             @default(0)
+  severity     AlarmSeverity
+  isActive     Boolean           @default(true) @map("is_active")
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdBy    String?           @map("created_by")
+
+  instrument Instrument @relation(fields: [instrumentId], references: [id], onDelete: Restrict)
+  alarms     Alarm[]
+
+  @@unique([instrumentId, key, operator])
+  @@index([instrumentId])
+  @@map("alarm_thresholds")
+}
+
+// An alarm series is (instrument, key, THRESHOLD) — not (instrument, key).
+// AlarmThreshold is unique on (instrumentId, key, operator), so one telemetry
+// key can carry both a high and a low limit. If the series omitted thresholdId,
+// a reading of 105 against `GT 100` + `LT 10` would raise on the GT spec and
+// then, in the SAME loop iteration set, satisfy the LT spec's recovery test
+// (105 >= 10) and immediately resolve the alarm it had just raised.
+//
+// Enforced by TWO partial unique indexes created in raw SQL — Prisma can express
+// neither, so neither appears as an @@unique here. See
+// alarms_one_open_per_threshold_key and alarms_one_open_liveness_key in
+// migration 20260803060000_p3_alarms_liveness. Do NOT delete them as "untracked":
+// without them two concurrent flushes can both raise for the same series and the
+// re-trigger counter silently becomes two rows.
+model Alarm {
+  id            String        @id @default(uuid())
+  instrumentId  String        @map("instrument_id")
+  key           String
+  thresholdId   String?       @map("threshold_id")
+  severity      AlarmSeverity
+  state         AlarmState    @default(ACTIVE)
+  firstBreachAt DateTime      @map("first_breach_at") @db.Timestamptz(3)
+  lastBreachAt  DateTime      @map("last_breach_at") @db.Timestamptz(3)
+  breachCount   Int           @default(1) @map("breach_count")
+  triggerValue  Float?        @map("trigger_value")
+  peakValue     Float?        @map("peak_value")
+  resolvedAt    DateTime?     @map("resolved_at") @db.Timestamptz(3)
+  ackedBy       String?       @map("acked_by")
+  ackedAt       DateTime?     @map("acked_at") @db.Timestamptz(3)
+  ackReason     String?       @map("ack_reason")
+  closedAt      DateTime?     @map("closed_at") @db.Timestamptz(3)
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  instrument Instrument           @relation(fields: [instrumentId], references: [id], onDelete: Restrict)
+  threshold  AlarmThreshold?      @relation(fields: [thresholdId], references: [id], onDelete: Restrict)
+  liveness   InstrumentLiveness[] @relation("OfflineAlarm")
+
+  @@index([state, severity])
+  @@index([instrumentId, key])
+  @@index([firstBreachAt(sort: Desc)])
+  @@map("alarms")
+}
+
+model InstrumentLiveness {
+  instrumentId   String        @id @map("instrument_id")
+  lastSeenAt     DateTime?     @map("last_seen_at") @db.Timestamptz(3)
+  state          LivenessState @default(UNKNOWN)
+  stateChangedAt DateTime?     @map("state_changed_at") @db.Timestamptz(3)
+  offlineAlarmId String?       @map("offline_alarm_id")
+
+  instrument   Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+  offlineAlarm Alarm?     @relation("OfflineAlarm", fields: [offlineAlarmId], references: [id], onDelete: SetNull)
+
+  @@index([state])
+  @@map("instrument_liveness")
 }
 
 model DeadLetter {
