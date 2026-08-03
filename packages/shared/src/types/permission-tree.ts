@@ -373,6 +373,20 @@ export const PERMISSION_TREE: SidebarGroup[] = [
       { id: 'comm_profiles.delete', label: 'Delete Communication Profile', sidebarId: 'data-injection', page: 'Communication Profiles', action: 'Delete',
         icon: 'trash', category: 'Data Injection', permissions: ['COMM_PROFILE_DELETE', 'COMM_PROFILE_VIEW'],
         reauthAction: 'DELETE_COMM_PROFILE', enforce: 'a', gate: ['COMM_PROFILE_DELETE'], configurable: false },
+
+      // Alarms (P3). All three are `configurable: true` — unlike the eight
+      // nodes above left non-configurable for want of UI, these ship with the
+      // Task 13 alarm queue, ack dialog and threshold editor, so each toggle
+      // grants a capability an operator can actually see.
+      { id: 'alarms.view', label: 'View Alarms', sidebarId: 'data-injection', page: 'Alarms', action: 'View',
+        icon: 'bell', category: 'Data Injection', permissions: ['ALARM_VIEW', 'INSTRUMENT_VIEW'], enforce: 'a',
+        gate: ['ALARM_VIEW'], configurable: true },
+      { id: 'alarms.acknowledge', label: 'Acknowledge Alarm', sidebarId: 'data-injection', page: 'Alarms', action: 'Acknowledge',
+        icon: 'check', category: 'Data Injection', permissions: ['ALARM_ACKNOWLEDGE', 'ALARM_VIEW'],
+        reauthAction: 'ACKNOWLEDGE_ALARM', enforce: 'a', gate: ['ALARM_ACKNOWLEDGE'], configurable: true },
+      { id: 'alarms.thresholds', label: 'Manage Alarm Thresholds', sidebarId: 'data-injection', page: 'Alarms', action: 'Configure',
+        icon: 'sliders', category: 'Data Injection', permissions: ['ALARM_THRESHOLD_MANAGE', 'ALARM_VIEW', 'INSTRUMENT_VIEW'],
+        reauthAction: 'MANAGE_ALARM_THRESHOLD', enforce: 'a', gate: ['ALARM_THRESHOLD_MANAGE'], configurable: true },
     ],
   },
 ];
@@ -394,6 +408,7 @@ const CONFIGURABLE_PRIVILEGE_ORDER: readonly string[] = [
   'gateways.view',
   'instruments.view', 'instruments.create',
   'comm_profiles.view',
+  'alarms.view', 'alarms.acknowledge', 'alarms.thresholds',
 ] as const;
 
 // ─── Derive Functions ────────────────────────────────────────────────────────

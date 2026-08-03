@@ -56,6 +56,7 @@ import {
 } from './modules/data-injection/ingestion.service.js';
 import instrumentRoutes from './modules/instruments/routes.js';
 import dataInjectionRoutes, { instrumentTelemetryRoutes } from './modules/data-injection/routes.js';
+import alarmRoutes, { alarmThresholdRoutes, instrumentThresholdRoutes } from './modules/alarms/routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -358,6 +359,11 @@ await app.register(instrumentRoutes, { prefix: '/api/instruments' });
 // Telemetry reads mount under the SAME /api/instruments prefix.
 await app.register(instrumentTelemetryRoutes, { prefix: '/api/instruments' });
 await app.register(dataInjectionRoutes, { prefix: '/api/data-injection' });
+// Alarm threshold reads mount under the /api/instruments prefix too — the
+// thresholds belong to the instrument.
+await app.register(instrumentThresholdRoutes, { prefix: '/api/instruments' });
+await app.register(alarmRoutes, { prefix: '/api/alarms' });
+await app.register(alarmThresholdRoutes, { prefix: '/api/alarm-thresholds' });
 
 
 // ─── M1: serve the built web UI from the API (single-process bundle) ─────────

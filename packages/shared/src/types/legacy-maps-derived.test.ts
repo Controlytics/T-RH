@@ -18,11 +18,11 @@ import {
 } from './__snapshots__/legacy-maps-snapshot.js';
 
 describe('Phase 5E: derived maps === original snapshots', () => {
-  it('FEATURE_PRIVILEGES (34 entries) matches snapshot exactly — order-sensitive', () => {
+  it('FEATURE_PRIVILEGES (37 entries) matches snapshot exactly — order-sensitive', () => {
     expect(FEATURE_PRIVILEGES).toEqual(FEATURE_PRIVILEGES_SNAPSHOT);
   });
 
-  it('FEATURE_TO_PERMISSION_MAP (34 keys) matches snapshot exactly — per-key array equality', () => {
+  it('FEATURE_TO_PERMISSION_MAP (37 keys) matches snapshot exactly — per-key array equality', () => {
     expect(FEATURE_TO_PERMISSION_MAP).toEqual(FEATURE_TO_PERMISSION_MAP_SNAPSHOT);
   });
 
@@ -40,7 +40,7 @@ describe('Phase 5E: derived maps === original snapshots', () => {
     }
   });
 
-  it('configurable node count is exactly 34', () => {
+  it('configurable node count is exactly 37', () => {
     // Post domain-strip: the 8 core sidebar groups (dashboard, users,
     // admin-requests, configuration, notifications, audit, system-health,
     // debug-traces) carried 26 configurable nodes. 2026-08-01 added the 9th
@@ -50,17 +50,19 @@ describe('Phase 5E: derived maps === original snapshots', () => {
     // injection nodes (gateways.create/edit/delete, instruments.edit/delete,
     // comm_profiles.create/edit/delete) have no UI yet — gateways.tsx,
     // profiles.tsx and instruments.tsx are read-only tables — so they were
-    // marked `configurable: false`. 42 - 8 = 34.
+    // marked `configurable: false`. 42 - 8 = 34. 2026-08-03 (P3 Task 12) added
+    // 3 configurable alarm nodes (alarms.view/acknowledge/thresholds), which
+    // DO ship with UI in Task 13 — 34 + 3 = 37.
     const count = PERMISSION_TREE.flatMap(g => g.nodes).filter(n => n.configurable === true).length;
-    expect(count).toBe(34);
+    expect(count).toBe(37);
   });
 
-  it('FEATURE_PRIVILEGES has exactly 34 entries', () => {
-    expect(FEATURE_PRIVILEGES).toHaveLength(34);
+  it('FEATURE_PRIVILEGES has exactly 37 entries', () => {
+    expect(FEATURE_PRIVILEGES).toHaveLength(37);
   });
 
-  it('FEATURE_TO_PERMISSION_MAP has exactly 34 keys', () => {
-    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(34);
+  it('FEATURE_TO_PERMISSION_MAP has exactly 37 keys', () => {
+    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(37);
   });
 
   it('SIDEBAR_PRIVILEGE_MAP has exactly 9 sections', () => {

@@ -24,6 +24,19 @@ function isFkViolation(err: unknown): boolean {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2003';
 }
 
+/**
+ * True for a Postgres RESTRICT violation (SQLSTATE 23001).
+ *
+ * Prisma maps a plain FK violation (23503) to P2003, but a RESTRICT-mode
+ * violation raises 23001, which it does NOT map — it escapes as an
+ * unrecognised connector error and the global handler turns it into a 500.
+ * `alarms` and `alarm_thresholds` are both onDelete: Restrict on instrument, so
+ * this is the shape an instrument delete actually fails with.
+ */
+function isRestrictViolation(err: unknown): boolean {
+  return err instanceof Error && /violates RESTRICT setting of foreign key/i.test(err.message);
+}
+
 // Must match uns-settings.def.ts's declared `default`s exactly (apps/api/src/modules/config/defs/uns-settings.def.ts)
 // so topics derive identically whether or not an admin has ever opened the config page.
 // `prefix` defaults to '' — the company already comes from the hierarchy's COMPANY-level
@@ -365,15 +378,43 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const before = await prisma.instrument.findUnique({ where: { id } });
     if (!before) throw new NotFoundError('Instrument not found.');
 
-    await prisma.$transaction(async (tx) => {
-      await tx.instrument.delete({ where: { id } });   // topics + settings cascade
-      await auditLog({
-        action: 'INSTRUMENT_DELETED', targetType: 'Instrument', targetId: id,
-        beforeValue: { name: before.name, code: before.code },
-        userId: ctx.userId, userRole: ctx.userRole, ipAddress: ctx.ipAddress,
-        userAgent: ctx.userAgent, sessionId: ctx.sessionId,
-      }, tx);
-    });
+    // `alarms.instrument_id` and `alarm_thresholds.instrument_id` are both
+    // onDelete: Restrict (P3) — alarms are the regulated record of an
+    // excursion and must keep naming the instrument that produced it. Without
+    // this the delete raised a raw SQLSTATE 23001 that the global handler
+    // rendered as a 500 with a Postgres constraint name in it.
+    const [alarms, thresholds] = await Promise.all([
+      prisma.alarm.count({ where: { instrumentId: id } }),
+      prisma.alarmThreshold.count({ where: { instrumentId: id } }),
+    ]);
+    if (alarms > 0 || thresholds > 0) {
+      throw new ValidationError(
+        `This instrument has ${alarms} alarm(s) and ${thresholds} alarm threshold(s) `
+        + 'referencing it and cannot be deleted. Set isActive to false to retire it instead.',
+      );
+    }
+
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.instrument.delete({ where: { id } });   // topics + settings cascade
+        await auditLog({
+          action: 'INSTRUMENT_DELETED', targetType: 'Instrument', targetId: id,
+          beforeValue: { name: before.name, code: before.code },
+          userId: ctx.userId, userRole: ctx.userRole, ipAddress: ctx.ipAddress,
+          userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+        }, tx);
+      });
+    } catch (err) {
+      // The counts above close the common case; a threshold or alarm created
+      // between the count and the delete still trips the constraint.
+      if (isFkViolation(err) || isRestrictViolation(err)) {
+        throw new ValidationError(
+          'This instrument is referenced by alarm records and cannot be deleted. '
+          + 'Set isActive to false to retire it instead.',
+        );
+      }
+      throw err;
+    }
     return { success: true };
   });
 }

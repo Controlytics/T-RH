@@ -4,10 +4,10 @@ import { PERMISSION_TREE } from '../permission-tree.js';
 describe('data-injection permission group', () => {
   const group = () => PERMISSION_TREE.find(g => g.sidebarId === 'data-injection');
 
-  it('exists with 16 nodes, still all enforce:a (routes stay enforced even where the toggle is hidden)', () => {
+  it('exists with 19 nodes, still all enforce:a (routes stay enforced even where the toggle is hidden)', () => {
     const g = group();
     expect(g).toBeDefined();
-    expect(g!.nodes).toHaveLength(16);
+    expect(g!.nodes).toHaveLength(19);
     expect(g!.nodes.every(n => n.enforce === 'a')).toBe(true);
   });
 
@@ -20,12 +20,25 @@ describe('data-injection permission group', () => {
       'instruments.edit', 'instruments.delete',
       'comm_profiles.create', 'comm_profiles.edit', 'comm_profiles.delete',
     ]);
+    // The 3 P3 alarm nodes are NOT in NO_UI — alarms.tsx (Task 13) ships the
+    // queue, the ack dialog and the threshold editor, so each toggle surfaces
+    // a control.
     const g = group()!;
     for (const node of g.nodes) {
       expect(node.configurable, `${node.id}.configurable`).toBe(!NO_UI.has(node.id));
     }
-    expect(g.nodes.filter(n => n.configurable === true)).toHaveLength(8);
+    expect(g.nodes.filter(n => n.configurable === true)).toHaveLength(11);
     expect(g.nodes.filter(n => n.configurable === false)).toHaveLength(8);
+  });
+
+  it('acknowledge is gated on ALARM_ACKNOWLEDGE alone, not on the view grant', () => {
+    // Reading a deviation is not signing it off (§11.50). If the gate ever
+    // widened to include ALARM_VIEW, every viewer would see the Acknowledge
+    // button — the backend would still 403, but the UI would lie.
+    const ack = group()!.nodes.find(n => n.id === 'alarms.acknowledge')!;
+    expect(ack.gate).toEqual(['ALARM_ACKNOWLEDGE']);
+    expect(ack.permissions).toContain('ALARM_VIEW');
+    expect(ack.reauthAction).toBe('ACKNOWLEDGE_ALARM');
   });
 
   it('gate is the single discriminating permission, never the grant set', () => {
@@ -36,8 +49,8 @@ describe('data-injection permission group', () => {
     expect(create.permissions.length).toBeGreaterThan(create.gate.length);
   });
 
-  it('brings the tree to 9 groups and 54 nodes', () => {
+  it('brings the tree to 9 groups and 57 nodes', () => {
     expect(PERMISSION_TREE).toHaveLength(9);
-    expect(PERMISSION_TREE.flatMap(g => g.nodes)).toHaveLength(54);
+    expect(PERMISSION_TREE.flatMap(g => g.nodes)).toHaveLength(57);
   });
 });

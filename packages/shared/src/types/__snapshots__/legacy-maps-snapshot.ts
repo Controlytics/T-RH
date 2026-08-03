@@ -16,6 +16,15 @@
  * permission constants, gates, and routes themselves are unchanged — only
  * the role-config picker toggle is hidden). SIDEBAR_PRIVILEGE_MAP is
  * unaffected (built from `visibilityPrivilegeIds`, not `configurable`).
+ *
+ * Re-regenerated 2026-08-03 (P3 Task 12): the three alarm nodes
+ * (`alarms.view`, `alarms.acknowledge`, `alarms.thresholds`) joined the
+ * data-injection group as `configurable: true` — unlike the eight above, they
+ * ship with UI in Task 13 — taking FEATURE_PRIVILEGES and
+ * FEATURE_TO_PERMISSION_MAP from 34 to 37 entries. SIDEBAR_PRIVILEGE_MAP is
+ * again unaffected: `alarms.view` was deliberately NOT added to the group's
+ * `visibilityPrivilegeIds`, so reaching the Data Injection sidebar entry still
+ * requires one of the four P1 view privileges. Revisit with the Task 13 UI.
  */
 
 interface FeaturePrivilegeSnapshot {
@@ -237,6 +246,24 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
     "label": "View Communication Profiles",
     "category": "Data Injection",
     "icon": "plug"
+  },
+  {
+    "id": "alarms.view",
+    "label": "View Alarms",
+    "category": "Data Injection",
+    "icon": "bell"
+  },
+  {
+    "id": "alarms.acknowledge",
+    "label": "Acknowledge Alarm",
+    "category": "Data Injection",
+    "icon": "check"
+  },
+  {
+    "id": "alarms.thresholds",
+    "label": "Manage Alarm Thresholds",
+    "category": "Data Injection",
+    "icon": "sliders"
   }
 ];
 
@@ -362,6 +389,19 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   ],
   "comm_profiles.view": [
     "COMM_PROFILE_VIEW"
+  ],
+  "alarms.view": [
+    "ALARM_VIEW",
+    "INSTRUMENT_VIEW"
+  ],
+  "alarms.acknowledge": [
+    "ALARM_ACKNOWLEDGE",
+    "ALARM_VIEW"
+  ],
+  "alarms.thresholds": [
+    "ALARM_THRESHOLD_MANAGE",
+    "ALARM_VIEW",
+    "INSTRUMENT_VIEW"
   ]
 };
 

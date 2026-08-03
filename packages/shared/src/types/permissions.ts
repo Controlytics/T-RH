@@ -92,6 +92,13 @@ export const PERMISSIONS = {
   COMM_PROFILE_CREATE: 'COMM_PROFILE_CREATE',
   COMM_PROFILE_UPDATE: 'COMM_PROFILE_UPDATE',
   COMM_PROFILE_DELETE: 'COMM_PROFILE_DELETE',
+
+  // Alarms (P3). ALARM_ACKNOWLEDGE is separate from ALARM_VIEW because the
+  // acknowledgement is the §11.50 electronic signature — the right to read a
+  // deviation is not the right to sign it off.
+  ALARM_VIEW: 'ALARM_VIEW',
+  ALARM_ACKNOWLEDGE: 'ALARM_ACKNOWLEDGE',
+  ALARM_THRESHOLD_MANAGE: 'ALARM_THRESHOLD_MANAGE',
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

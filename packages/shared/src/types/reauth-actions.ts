@@ -112,6 +112,15 @@ export const REAUTH_ACTIONS = {
   CREATE_COMM_PROFILE: { label: 'Create Communication Profile', category: 'Data Injection' },
   UPDATE_COMM_PROFILE: { label: 'Update Communication Profile', category: 'Data Injection' },
   DELETE_COMM_PROFILE: { label: 'Delete Communication Profile', category: 'Data Injection' },
+  // ACKNOWLEDGE_ALARM is enforced with enforceReauthAlways, so it is NOT
+  // disableable through the admin-managed action-reauth config. It is listed
+  // here so the action renders with a label in the audit/reauth editors; a role
+  // left un-ticked still gets the password challenge.
+  ACKNOWLEDGE_ALARM: { label: 'Acknowledge Alarm', category: 'Data Injection' },
+  // One action covers create/update/delete. Per-verb actions that no endpoint
+  // discriminates on are theatre — three *_TEMPLATE_KIND actions were removed
+  // on 2026-07-04 for exactly that reason.
+  MANAGE_ALARM_THRESHOLD: { label: 'Manage Alarm Threshold', category: 'Data Injection' },
 } as const;
 
 export type ReauthAction = keyof typeof REAUTH_ACTIONS;

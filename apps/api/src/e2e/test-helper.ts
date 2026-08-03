@@ -29,6 +29,7 @@ import hierarchyRoutes from '../modules/hierarchy/routes.js';
 import gatewayRoutes from '../modules/gateways/routes.js';
 import instrumentRoutes from '../modules/instruments/routes.js';
 import dataInjectionRoutes, { instrumentTelemetryRoutes } from '../modules/data-injection/routes.js';
+import alarmRoutes, { alarmThresholdRoutes, instrumentThresholdRoutes } from '../modules/alarms/routes.js';
 import { prisma } from '../lib/prisma.js';
 import { AppError } from '../lib/errors.js';
 
@@ -114,6 +115,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   // Telemetry reads mount under the SAME /api/instruments prefix.
   await app.register(instrumentTelemetryRoutes, { prefix: '/api/instruments' });
   await app.register(dataInjectionRoutes, { prefix: '/api/data-injection' });
+  // Alarm thresholds for an instrument also ride the /api/instruments prefix.
+  await app.register(instrumentThresholdRoutes, { prefix: '/api/instruments' });
+  await app.register(alarmRoutes, { prefix: '/api/alarms' });
+  await app.register(alarmThresholdRoutes, { prefix: '/api/alarm-thresholds' });
 
   await app.ready();
   return app;
