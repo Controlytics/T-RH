@@ -547,6 +547,8 @@ enum NotificationEventType {
   CHECKLIST_APPROVED
   CHECKLIST_REJECTED
   SYSTEM_ERROR
+  ALARM_RAISED
+  ALARM_ACKNOWLEDGED
 }
 
 // ─── User Groups ──────────────────────────────────────────────────────
