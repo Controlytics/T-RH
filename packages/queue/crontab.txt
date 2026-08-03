@@ -41,8 +41,8 @@
 # ... found for row"). Ingestion does not slow down when partitions run out —
 # it stops dead at 00:00 on the 1st. The mid-month run exists so one missed
 # monthly run cannot be enough to break inserts.
-0 2 1 * * telemetry_partition_maintenance ?id=telemetry_partition_maintenance&max=1&fill=0s
-0 2 15 * * telemetry_partition_maintenance ?id=telemetry_partition_maintenance&max=1&fill=0s
+0 2 1 * * telemetry_partition_maintenance ?id=telemetry_partition_maintenance_dom01&max=1&fill=0s
+0 2 15 * * telemetry_partition_maintenance ?id=telemetry_partition_maintenance_dom15&max=1&fill=0s
 
 # Instrument liveness — every 5 min. Marks an instrument OFFLINE once its
 # silence exceeds expected_interval_sec x the configured grace multiplier.
