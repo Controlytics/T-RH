@@ -125,12 +125,17 @@ opens the re-auth dialog and retries with the credential.
 
 - **10-second in-memory cache** so multi-step operations do not re-prompt.
 - **Which actions require re-auth is configurable** (`action-reauth` surface),
-  not hardcoded — sites tune their own signature policy.
+  not hardcoded — sites tune their own signature policy — **with exactly one
+  exception**: `ACKNOWLEDGE_ALARM` is `alwaysOn`, and the config schema
+  itself rejects any attempt to set it as a key, so it cannot be turned off
+  even by an administrator with `CONFIG_UPDATE`. See
+  [`../04-roles-permissions/README.md`](../04-roles-permissions/README.md)
+  §11.
 - **53 actions across 8 categories** (2026-08-03; was 51/8 after P1, 39/7
   before P1 — P3 added 2 actions, `ACKNOWLEDGE_ALARM` and
   `MANAGE_ALARM_THRESHOLD`, no new category). See
   [`../04-roles-permissions/README.md`](../04-roles-permissions/README.md)
-  §10 — **not re-verified in this pass**, still describes the P1 figures.
+  §§7, 11 — re-verified 2026-08-03.
 
 ## 6. Request/response conventions
 
@@ -202,11 +207,11 @@ global limit cannot serve both purposes.
 5. **`endpoints.md` predates P1** (§9) — regenerate it from a live
    `/docs/json` pull before relying on it for the 4 P1 module groups, the P2
    telemetry surface, or P3's `alarms`/`alarm-thresholds` groups.
-6. **`../04-roles-permissions/README.md`'s permission/reauth/sidebar-node
-   breakdown was never re-verified after P1** and is now two phases stale
-   (still describes 46 permissions / 51 reauth actions / 9 groups / 54
-   nodes against the current 49 / 53 / — / 38 configurable privileges).
-   Flagged, not fixed, in this pass — out of the assigned file list.
+6. ~~`../04-roles-permissions/README.md`'s permission/reauth/sidebar-node
+   breakdown was never re-verified after P1.`~~ **Fixed 2026-08-03** — now
+   carries the P3 figures (49 perms / 53 reauth / 9 groups / 57 nodes / 38
+   configurable), including the `ACKNOWLEDGE_ALARM` always-on reauth
+   exception (§11 there).
 
 ## 9. Data Injection (P1) — 4 new module groups, landed 2026-08-01
 

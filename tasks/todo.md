@@ -1938,15 +1938,35 @@ topic category (worth reconciling that original P2 note against what P3
 actually built); EMQX still not a Windows service; nothing from P1/P2/P3 is
 deployed to AWS (still runs `final-user-management`).
 
+**Source comment now stale, flagged not fixed (per instruction — docs-only
+pass):** `apps/api/src/modules/data-injection/fan-out.ts:21-22`'s comment on
+`INGESTIBLE_CATEGORIES` reads *"Widen this deliberately when P3 adds
+attribute/event storage — never by accident."* P3 came and went without
+widening it — alarms are derived from evaluating telemetry readings and
+liveness from silence, neither needs a new ingest category. Whoever picks up
+P4 (attributes) should re-point this comment there; it currently misdirects
+a future reader into thinking P3 was supposed to do this and didn't.
+
 **Doc sync (Task 14, this pass):** `CHANGELOG.md`,
 `docs/recreation/{02-inventory,05-database,06-api,07-ui}/README.md` updated
-with verified counts and new P3 sections. **Not touched** (flagged, not
-fixed): `docs/recreation/04-roles-permissions/README.md` still describes
-the P1 permission/reauth/sidebar-node breakdown (46/51/9-groups/54-nodes)
-and needs its own re-verification pass; `05-database/README.md` has no
-P2-equivalent detailed section (only a header note) — a pre-existing gap
-from the P2 sync, not created by this pass. Root `CLAUDE.md`,
+with verified counts and new P3 sections. **`04-roles-permissions/README.md`
+was out of the original assigned file list, flagged as 2-phases-stale, then
+brought in-scope by team-lead ruling and updated the same session** — now
+carries the P3 figures (49 perms / 53 reauth / 9 groups / 57 nodes / 38
+configurable, derived from the passing `data-injection-tree.test.ts`), the 3
+new alarm nodes, the `instruments.edit` configurable flip, and the
+`ACKNOWLEDGE_ALARM` always-on reauth exception (schema-level rejection, not
+just a route-level one). `05-database/README.md` still has no P2-equivalent
+detailed section (only a header note) — a pre-existing gap from the P2 sync,
+accepted as a stub rather than backfilled. Root `CLAUDE.md`,
 `apps/api/CLAUDE.md`, and `packages/shared/CLAUDE.md` remain wholesale
 stale (describe the pre-strip DigiLog product) — left untouched per
 standing guidance that partially updating an otherwise-wrong document is
 more misleading than leaving it alone.
+
+**Known test debt found while deriving the P3 tree counts (not fixed, not
+P3 scope):** `packages/shared/src/types/permission-tree.test.ts` has 2
+failing assertions (`checklists.submit` gate expected `['FILTER_OPERATE']`,
+received `[]`) — pre-existing, unrelated to P3. The P3 counts above come
+from the separate, fully-passing `data-injection-tree.test.ts`, which this
+failure does not touch.

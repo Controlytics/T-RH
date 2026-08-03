@@ -74,12 +74,12 @@ ls packages/    # → queue shared
 
 **Note on Feature privileges (38) and Reauth actions (53):** the P1-era
 derivation walkthrough directly below (26→34, resolved 2026-08-01) predates
-P3 and has not been re-verified against a rebuilt `PERMISSION_TREE`/reauth
-category list; 38 and 53 are the flat counts team-lead measured against the
-current `packages/shared` source on 2026-08-03. The detailed category/node
-breakdown in `../04-roles-permissions/README.md` was **not** updated as part
-of this doc-sync pass — it still describes the P1 state (46 permissions / 51
-reauth / 9 groups / 54 nodes) and needs its own pass.
+P3. **Update (2026-08-03):** `../04-roles-permissions/README.md` has now
+been re-verified for P3 — 49 permissions / 53 reauth actions / 9 groups /
+57 nodes / 38 configurable (derived from the passing
+`data-injection-tree.test.ts`, not a rebuilt-tree execution like the P1
+figures — see that doc's header note for the distinction) — including the
+new `ACKNOWLEDGE_ALARM` always-on reauth exception (§11 there).
 
 **Feature-privilege count, resolved 2026-08-01.** The initial pass here
 flagged the "26" baseline as unreconcilable against a source-grep of
