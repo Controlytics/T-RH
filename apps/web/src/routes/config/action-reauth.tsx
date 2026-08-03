@@ -61,6 +61,12 @@ const CATEGORY_META: Record<ReauthActionCategory, { gradient: string; bgLight: s
     icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z',
     description: 'Direct record edits in Filter Data Management',
   },
+  'Data Injection': {
+    gradient: 'from-teal-500 to-cyan-600',
+    bgLight: 'bg-teal-50 border-teal-200 text-teal-700',
+    icon: 'M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z',
+    description: 'Hierarchy, gateway, instrument, and communication profile writes',
+  },
 };
 
 // Group actions by category
