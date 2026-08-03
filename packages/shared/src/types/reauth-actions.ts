@@ -129,6 +129,12 @@ export const REAUTH_ACTION_CATEGORIES = [
   // SUPER_ADMIN_DATA_EDIT from both screens.
   'Notifications',
   'Super Admin',
+  // Added 2026-08-03 (P3 Task 1). The 12 Data Injection actions added in P1
+  // declared category:'Data Injection' but the string was never added here,
+  // so none of them rendered in either reauth editor and their policy could
+  // never be set. Same failure class as the Notifications / Super Admin
+  // omission documented below.
+  'Data Injection',
 ] as const;
 
 export type ReauthActionCategory = (typeof REAUTH_ACTION_CATEGORIES)[number];
