@@ -63,6 +63,9 @@ let app: FastifyInstance;
 let token: string;
 let instrumentId: string;
 let thresholdId: string;
+let companyNodeId: string;
+let areaNodeId: string;
+let profileNodeId: string;
 
 const runSuffix = Date.now();
 const auth = () => ({ authorization: `Bearer ${token}` });
@@ -103,17 +106,20 @@ beforeAll(async () => {
     payload: { parentId: null, level: 'COMPANY', name: `AlarmCo${runSuffix}` },
   });
   expect(co.statusCode).toBe(200);
+  companyNodeId = co.json().id;
   const area = await app.inject({
     method: 'POST', url: '/api/hierarchy', headers: auth(),
-    payload: { parentId: co.json().id, level: 'AREA', name: `AlarmArea-${runSuffix}` },
+    payload: { parentId: companyNodeId, level: 'AREA', name: `AlarmArea-${runSuffix}` },
   });
   expect(area.statusCode).toBe(200);
+  areaNodeId = area.json().id;
 
   const profile = await app.inject({
     method: 'POST', url: '/api/communication-profiles', headers: auth(),
     payload: { name: `Alarm MQTT ${runSuffix}`, protocolKey: 'mqtt', config: { brokerUrl: 'mqtt://b:1883' } },
   });
   expect(profile.statusCode).toBe(200);
+  profileNodeId = profile.json().id;
 
   // No gateway, so the instrument MUST carry its own communication profile —
   // the instruments_reachable_chk CHECK constraint rejects the row otherwise.
@@ -121,7 +127,7 @@ beforeAll(async () => {
     method: 'POST', url: '/api/instruments', headers: auth(),
     payload: {
       name: `Chamber ${runSuffix}`, code: `ALM-${runSuffix}`, instrumentType: 'temperature-sensor',
-      hierarchyNodeId: area.json().id, communicationProfileId: profile.json().id,
+      hierarchyNodeId: areaNodeId, communicationProfileId: profileNodeId,
     },
   });
   expect(inst.statusCode).toBe(200);
@@ -136,11 +142,19 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  // alarms.threshold_id and alarms.instrument_id are both onDelete: Restrict —
-  // the alarms have to go first or every delete below raises an FK violation.
+  // FK-safe order. alarms.threshold_id and alarms.instrument_id are both
+  // onDelete: Restrict, so the alarms go first or every delete below raises a
+  // violation; the hierarchy node cannot go before the instrument that sits on
+  // it, nor the parent before the child. Users cascade their sessions.
+  // Everything this file creates is removed — the suite shares
+  // digilog_test_db, and a fixture left behind grows it on every run.
   await prisma.alarm.deleteMany({ where: { instrumentId } });
   await prisma.alarmThreshold.deleteMany({ where: { instrumentId } });
   await prisma.instrument.deleteMany({ where: { id: instrumentId } });
+  await prisma.communicationProfile.deleteMany({ where: { id: profileNodeId } });
+  await prisma.hierarchyNode.deleteMany({ where: { id: areaNodeId } });
+  await prisma.hierarchyNode.deleteMany({ where: { id: companyNodeId } });
+  await prisma.user.deleteMany({ where: { username: { in: [ADMIN_USERNAME, VIEWER_USERNAME] } } });
   await app.close();
 });
 
@@ -308,6 +322,33 @@ describe('acknowledgement — the §11.50 electronic signature', () => {
     expect(expected).toContain('instrumentName');
     expect(expected.length).toBeGreaterThan(4);
     expect(expected.filter(k => sent[k] === undefined || sent[k] === '')).toEqual([]);
+  });
+
+  it('lets exactly one of two genuinely concurrent acknowledgements through', async () => {
+    // The double-acknowledge test below covers the SEQUENTIAL case. This is the
+    // concurrent one, and it is the reason the write is a compare-and-set: the
+    // handler's read runs outside the transaction, so with an unconditional
+    // `update` both requests clear the applyAck check, the second overwrites the
+    // first signer's ackedBy/ackedAt/ackReason, and TWO ALARM_ACKNOWLEDGED audit
+    // rows exist for one event — a regulated §11.50 signature attributed to the
+    // wrong person. Verified to fail on the pre-fix handler (2 x 200, 2 audit
+    // rows); see task-12-report.md.
+    //
+    // Both requests spend ~250ms in the reauth bcrypt before touching the row,
+    // which is what makes the reads reliably overlap.
+    const alarm = await seedAlarm(`concurrent-${runSuffix}`);
+    const payload = { reason: 'Concurrent signer.', _currentPassword: ADMIN_PASSWORD };
+    const results = await Promise.all([
+      app.inject({ method: 'POST', url: `/api/alarms/${alarm.id}/acknowledge`, headers: auth(), payload }),
+      app.inject({ method: 'POST', url: `/api/alarms/${alarm.id}/acknowledge`, headers: auth(), payload }),
+    ]);
+
+    expect(results.filter(r => r.statusCode === 200)).toHaveLength(1);
+    expect(results.filter(r => r.statusCode === 409)).toHaveLength(1);
+    expect(await prisma.auditTrail.count({
+      where: { action: 'ALARM_ACKNOWLEDGED', targetId: alarm.id },
+    })).toBe(1);
+    expect((await prisma.alarm.findUnique({ where: { id: alarm.id } }))!.ackedBy).toBe(ADMIN_USERNAME);
   });
 
   it('closes an alarm that had already recovered, and refuses to sign it twice', async () => {

@@ -193,8 +193,17 @@ export default async function alarmRoutes(app: FastifyInstance) {
     const targetName = `${existing.instrument.name} / ${existing.key}`;
 
     const updated = await prisma.$transaction(async (tx) => {
-      const row = await tx.alarm.update({
-        where: { id },
+      // COMPARE-AND-SET on `state`. The read above is outside this transaction,
+      // so an unconditional update would let two concurrent acknowledgements
+      // both clear the applyAck check and the second would overwrite the first
+      // signer's ackedBy/ackedAt/ackReason and write a SECOND audit row — a
+      // regulated §11.50 signature attributed to the wrong person, with two
+      // conflicting rows for one event. Naming the read state in the WHERE
+      // makes Postgres arbitrate: under READ COMMITTED the loser's UPDATE
+      // blocks on the winner's row lock, then re-evaluates the predicate
+      // against the committed new state and matches nothing.
+      const res = await tx.alarm.updateMany({
+        where: { id, state: existing.state },
         data: {
           state: next, ackedBy: ctx.userId, ackedAt: now, ackReason: clean,
           // Only stamp closedAt on the transition that actually closes. The
@@ -202,6 +211,13 @@ export default async function alarmRoutes(app: FastifyInstance) {
           ...(next === 'CLOSED' && { closedAt: now }),
         },
       });
+      // Lost the race. Return without writing an audit row — the winner's
+      // signature is the only one that happened.
+      if (res.count === 0) return null;
+      // updateMany returns a count, not the row; re-read inside the same
+      // transaction so the response and notification reflect the post-write
+      // state rather than the stale pre-read.
+      const row = await tx.alarm.findUniqueOrThrow({ where: { id } });
       await auditLog({
         action: 'ALARM_ACKNOWLEDGED', targetType: 'Alarm', targetId: id,
         beforeValue: { state: existing.state },
@@ -216,6 +232,15 @@ export default async function alarmRoutes(app: FastifyInstance) {
       }, tx);
       return row;
     });
+
+    if (updated === null) {
+      const current = await prisma.alarm.findUnique({ where: { id }, select: { state: true } });
+      return reply.code(409).send({
+        error: 'ALARM_STATE_CHANGED',
+        message: `Alarm was ${existing.state} when read and is now ${current?.state ?? 'unknown'}; `
+          + 'it was not acknowledged. Reload and review the current state before signing.',
+      });
+    }
 
     // Fire-and-forget with a logged catch — the alarm row and its audit row are
     // both committed above, so the regulated record survives whatever the
