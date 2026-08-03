@@ -64,13 +64,29 @@ describe('applyAck', () => {
 });
 
 describe('invariant: CLOSED is only reachable through a human ack', () => {
-  it('no verdict-driven transition closes an unacknowledged alarm', () => {
-    const states: AlarmState[] = ['ACTIVE', 'RESOLVED_UNACKED'];
-    for (const s of states) {
-      for (const v of ['BREACH', 'RECOVERED', 'NEUTRAL'] as const) {
-        const t = nextTransition(v, open(s), 'MAJOR', 50, TS);
-        expect(t.kind === 'RESOLVE' && t.close).toBe(false);
+  it('close:true only ever accompanies a prior ACTIVE_ACKED state, across the full state x verdict grid', () => {
+    const states: AlarmState[] = ['ACTIVE', 'ACTIVE_ACKED', 'RESOLVED_UNACKED', 'CLOSED'];
+    const verdicts = ['BREACH', 'RECOVERED', 'NEUTRAL'] as const;
+
+    let resolveCount = 0;
+
+    for (const priorState of states) {
+      for (const v of verdicts) {
+        const t = nextTransition(v, open(priorState), 'MAJOR', 50, TS);
+        if (t.kind === 'RESOLVE') {
+          resolveCount++;
+          if (t.close) expect(priorState).toBe('ACTIVE_ACKED');
+        }
       }
     }
+    // open === null case: no alarm to resolve/close either way.
+    for (const v of verdicts) {
+      const t = nextTransition(v, null, 'MAJOR', 50, TS);
+      if (t.kind === 'RESOLVE') resolveCount++;
+    }
+
+    // Guard against the sweep going vacuous: it must actually exercise the
+    // RESOLVE path, or the close:true assertion above would never run.
+    expect(resolveCount).toBeGreaterThan(0);
   });
 });
