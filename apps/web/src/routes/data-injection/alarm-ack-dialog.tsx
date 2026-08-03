@@ -46,6 +46,12 @@ export function AlarmAckDialog({ alarm, onClose, onAcknowledged, onStale }: Prop
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set on either 409. This dialog signs against the alarm snapshot it was
+  // opened with, and that snapshot is now known to be stale — retrying would
+  // post the same stale read and fail identically. Block submit and make the
+  // operator reopen against fresh facts rather than letting them jab a button
+  // that cannot succeed.
+  const [staleRead, setStaleRead] = useState(false);
 
   // Reset per alarm — a reason typed against one excursion must never carry
   // over and end up signed against a different one.
@@ -54,12 +60,13 @@ export function AlarmAckDialog({ alarm, onClose, onAcknowledged, onStale }: Prop
     setPassword('');
     setError(null);
     setSubmitting(false);
+    setStaleRead(false);
   }, [alarm?.id]);
 
   if (!alarm) return null;
 
   const reasonValid = reason.trim().length > 0;
-  const canSubmit = reasonValid && password.length > 0 && !submitting;
+  const canSubmit = reasonValid && password.length > 0 && !submitting && !staleRead;
 
   const submit = async () => {
     if (!canSubmit) return;
@@ -84,14 +91,18 @@ export function AlarmAckDialog({ alarm, onClose, onAcknowledged, onStale }: Prop
       // would send them away from a live excursion.
       if (code === 'ALREADY_ACKNOWLEDGED') {
         setError('This alarm has already been acknowledged — someone else signed it first. '
-          + 'The queue has been refreshed; no second signature was recorded.');
+          + 'The queue behind this dialog has been refreshed; no second signature was recorded. '
+          + 'Close this dialog to review the current state.');
+        setStaleRead(true);
         setSubmitting(false);
         onStale();
         return;
       }
       if (code === 'ALARM_STATE_CHANGED') {
         setError('This alarm changed state while you were signing — it may have re-breached or been '
-          + 'resolved. Nothing was signed. Review the refreshed alarm before acknowledging.');
+          + 'resolved. Nothing was signed. Close this dialog and reopen it to sign against the '
+          + 'current state — the queue behind it has been refreshed.');
+        setStaleRead(true);
         setSubmitting(false);
         onStale();
         return;
@@ -206,7 +217,11 @@ export function AlarmAckDialog({ alarm, onClose, onAcknowledged, onStale }: Prop
       </div>
 
       <DialogFooter>
-        <Button variant="outline" onClick={onClose} disabled={submitting}>Cancel</Button>
+        {/* After a 409 there is nothing left to cancel — the signature never
+            happened and submit is blocked — so the button says what it does. */}
+        <Button variant="outline" onClick={onClose} disabled={submitting}>
+          {staleRead ? 'Close' : 'Cancel'}
+        </Button>
         <Button onClick={submit} disabled={!canSubmit}>
           {submitting ? 'Signing…' : 'Sign and acknowledge'}
         </Button>

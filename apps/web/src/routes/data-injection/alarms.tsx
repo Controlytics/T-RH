@@ -253,7 +253,13 @@ export default function AlarmsPage() {
         alarm={ackTarget}
         onClose={() => setAckTarget(null)}
         onAcknowledged={() => { setAckTarget(null); void mutate(); }}
-        onStale={() => { setAckTarget(null); void mutate(); }}
+        // Deliberately does NOT close the dialog. Closing it would unmount the
+        // component on the same commit that set the 409 message, so the
+        // operator would see the dialog vanish and could not tell
+        // "someone else already signed this" from "it re-breached while you
+        // typed" — two facts that call for opposite responses. Refresh the
+        // queue underneath and let them read the explanation, then dismiss.
+        onStale={() => { void mutate(); }}
       />
     </div>
   );
