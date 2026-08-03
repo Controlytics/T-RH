@@ -20,8 +20,13 @@ describe('data-injection RBAC surface', () => {
     expect(REAUTH_ACTIONS.CREATE_INSTRUMENT).toEqual({
       label: 'Create Instrument', category: 'Data Injection',
     });
+    // `alwaysOn` is not decoration: it is what makes both reauth editors render
+    // this action as locked. The route enforces it with `enforceReauthAlways`,
+    // so a tickable toggle would tell an administrator they can switch a
+    // 21 CFR §11.50 signature off. Asserted explicitly so dropping the flag
+    // fails here rather than silently restoring the misleading checkbox.
     expect(REAUTH_ACTIONS.ACKNOWLEDGE_ALARM).toEqual({
-      label: 'Acknowledge Alarm', category: 'Data Injection',
+      label: 'Acknowledge Alarm', category: 'Data Injection', alwaysOn: true,
     });
     expect(REAUTH_ACTIONS.MANAGE_ALARM_THRESHOLD).toEqual({
       label: 'Manage Alarm Threshold', category: 'Data Injection',

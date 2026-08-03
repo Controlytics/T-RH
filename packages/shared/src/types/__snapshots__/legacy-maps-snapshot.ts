@@ -495,7 +495,8 @@ export const SIDEBAR_PRIVILEGE_MAP_SNAPSHOT: SidebarSectionSnapshot[] = [
       "hierarchy.view",
       "gateways.view",
       "instruments.view",
-      "comm_profiles.view"
+      "comm_profiles.view",
+      "alarms.view"
     ]
   }
 ];

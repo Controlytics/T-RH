@@ -49,6 +49,18 @@ describe('data-injection permission group', () => {
     expect(create.permissions.length).toBeGreaterThan(create.gate.length);
   });
 
+  it('alarms.view is a visibility privilege for the group (Task 13)', () => {
+    // Without this the sidebar item is hidden from a role granted ONLY alarm
+    // privileges, so the Alarms page — reachable from the Data Injection hub
+    // and by no other route — has no nav path for exactly the operator it
+    // exists to serve. Every other page-level `.view` in the group is listed.
+    const g = group()!;
+    expect(g.visibilityPrivilegeIds).toContain('alarms.view');
+    for (const view of ['hierarchy.view', 'gateways.view', 'instruments.view', 'comm_profiles.view']) {
+      expect(g.visibilityPrivilegeIds).toContain(view);
+    }
+  });
+
   it('brings the tree to 9 groups and 57 nodes', () => {
     expect(PERMISSION_TREE).toHaveLength(9);
     expect(PERMISSION_TREE.flatMap(g => g.nodes)).toHaveLength(57);

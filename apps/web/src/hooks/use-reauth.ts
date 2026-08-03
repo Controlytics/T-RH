@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import useSWR from 'swr';
+import { isAlwaysOnReauthAction } from '@digilog/shared';
 
 interface ReauthState {
   isOpen: boolean;
@@ -56,6 +57,12 @@ export function useReauth() {
 
   const needsReauth = useCallback(
     (action: string): boolean => {
+      // Always-on actions are enforced by `enforceReauthAlways` on the server,
+      // which ignores the action-reauth config entirely. Asking the config
+      // alone would answer "no challenge needed" for an un-ticked role, the
+      // callback would fire passwordless, and the backend would reject it with
+      // REAUTH_REQUIRED — a dead button with no dialog to explain why.
+      if (isAlwaysOnReauthAction(action)) return true;
       return myActions?.actions.includes(action) ?? false;
     },
     [myActions],

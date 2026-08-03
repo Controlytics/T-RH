@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, forwardRef, useImperativeHan
 import useSWR, { useSWRConfig } from 'swr';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api-client';
-import { REAUTH_ACTIONS, REAUTH_ACTION_CATEGORIES } from '@digilog/shared';
+import { REAUTH_ACTIONS, REAUTH_ACTION_CATEGORIES, isAlwaysOnReauthAction } from '@digilog/shared';
 import type { RoleData, ReauthAction, ReauthActionCategory } from '@digilog/shared';
 
 // ── Re-auth tab constants ──
@@ -60,13 +60,22 @@ const REAUTH_CATEGORY_META: Record<ReauthActionCategory, { gradient: string; bgL
   },
 };
 
-// Group reauth actions by category
+// Group reauth actions by category.
+//
+// `alwaysOn` marks actions the backend enforces with `enforceReauthAlways`, so
+// no per-role policy exists to set. Mirrors config/action-reauth.tsx, which
+// renders the same matrix — both editors must tell the same story about which
+// signatures an administrator can and cannot switch off.
 const reauthActionsByCategory = REAUTH_ACTION_CATEGORIES.map((category) => ({
   category,
   actions: (Object.entries(REAUTH_ACTIONS) as [ReauthAction, { label: string; category: string }][])
     .filter(([, v]) => v.category === category)
-    .map(([key, v]) => ({ key, label: v.label })),
+    .map(([key, v]) => ({ key, label: v.label, alwaysOn: isAlwaysOnReauthAction(key) })),
 })).filter(g => g.actions.length > 0);
+
+/** Action keys whose policy this tab can actually change. See action-reauth.tsx. */
+const CONFIGURABLE_ACTION_KEYS = (Object.keys(REAUTH_ACTIONS) as ReauthAction[])
+  .filter(k => !isAlwaysOnReauthAction(k));
 
 export interface ReauthTabHandle {
   save: () => Promise<void>;
@@ -112,12 +121,13 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
     }, [reauthSearch]);
 
     const reauthStats = useMemo(() => {
-      const totalActions = Object.keys(REAUTH_ACTIONS).length;
+      const totalActions = CONFIGURABLE_ACTION_KEYS.length;
       const configuredActions = Object.keys(reauthCurrentConfig).filter(k => (reauthCurrentConfig[k]?.length ?? 0) > 0).length;
       const totalChecks = Object.values(reauthCurrentConfig).reduce((sum, arr) => sum + (arr?.length ?? 0), 0);
       const categoryStats = reauthActionsByCategory.map(g => {
-        const configured = g.actions.filter(a => (reauthCurrentConfig[a.key]?.length ?? 0) > 0).length;
-        return { category: g.category, total: g.actions.length, configured };
+        const configurable = g.actions.filter(a => !a.alwaysOn);
+        const configured = configurable.filter(a => (reauthCurrentConfig[a.key]?.length ?? 0) > 0).length;
+        return { category: g.category, total: configurable.length, configured };
       });
       return { totalActions, configuredActions, totalChecks, categoryStats };
     }, [reauthCurrentConfig]);
@@ -127,6 +137,8 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
     }, [reauthCurrentConfig]);
 
     const reauthToggleAction = useCallback((action: string, role: string) => {
+      // No checkbox is rendered for these; guard the write path regardless.
+      if (isAlwaysOnReauthAction(action)) return;
       const updated = { ...reauthCurrentConfig };
       const currentRoles = updated[action] ?? [];
       if (currentRoles.includes(role)) {
@@ -141,7 +153,8 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
 
     const reauthSelectAllCategory = useCallback((category: ReauthActionCategory) => {
       const updated = { ...reauthCurrentConfig };
-      const categoryActions = reauthActionsByCategory.find(c => c.category === category)?.actions ?? [];
+      const categoryActions = (reauthActionsByCategory.find(c => c.category === category)?.actions ?? [])
+        .filter(a => !a.alwaysOn);
       const targetRoles = reauthVisibleRoles.map(r => r.name);
       for (const { key } of categoryActions) {
         const existing = new Set(updated[key] ?? []);
@@ -154,7 +167,8 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
 
     const reauthClearCategory = useCallback((category: ReauthActionCategory) => {
       const updated = { ...reauthCurrentConfig };
-      const categoryActions = reauthActionsByCategory.find(c => c.category === category)?.actions ?? [];
+      const categoryActions = (reauthActionsByCategory.find(c => c.category === category)?.actions ?? [])
+        .filter(a => !a.alwaysOn);
       const targetRoles = new Set(reauthVisibleRoles.map(r => r.name));
       for (const { key } of categoryActions) {
         if (updated[key]) {
@@ -168,7 +182,7 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
 
     const reauthSelectAllRole = useCallback((roleName: string) => {
       const updated = { ...reauthCurrentConfig };
-      for (const action of Object.keys(REAUTH_ACTIONS)) {
+      for (const action of CONFIGURABLE_ACTION_KEYS) {
         const existing = new Set(updated[action] ?? []);
         existing.add(roleName);
         updated[action] = Array.from(existing);
@@ -476,7 +490,7 @@ function ReauthCategorySection({
   totalCount,
 }: {
   category: ReauthActionCategory;
-  actions: { key: string; label: string }[];
+  actions: { key: string; label: string; alwaysOn: boolean }[];
   roles: RoleData[];
   meta: { gradient: string; bgLight: string; icon: string; description: string };
   isCollapsed: boolean;
@@ -538,7 +552,7 @@ function ReauthCategorySection({
         <td colSpan={roles.length} />
       </tr>
       {/* Action Rows (collapsible) */}
-      {!isCollapsed && actions.map(({ key, label }, idx) => (
+      {!isCollapsed && actions.map(({ key, label, alwaysOn }, idx) => (
         <tr
           key={key}
           className={`border-b border-slate-50 hover:bg-blue-50/40 transition-colors ${
@@ -549,9 +563,21 @@ function ReauthCategorySection({
             <div className="flex items-center gap-2">
               <span className="w-1 h-1 rounded-full bg-slate-300" />
               <span className="text-sm text-slate-700 font-medium">{label}</span>
+              {alwaysOn && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border bg-slate-100 border-slate-300 text-slate-600">
+                  <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
+                  Always required
+                </span>
+              )}
             </div>
           </td>
-          {roles.map(role => {
+          {alwaysOn ? (
+            <td colSpan={roles.length} className="px-2 py-2.5 text-center text-xs text-slate-500">
+              Password always required for every role — this action is the electronic signature.
+            </td>
+          ) : roles.map(role => {
             const checked = isChecked(key, role.name);
             return (
               <td key={role.name} className="px-2 py-2.5 text-center">

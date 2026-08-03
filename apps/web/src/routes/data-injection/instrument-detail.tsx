@@ -1,10 +1,16 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import useSWR from 'swr';
+import { apiClient } from '@/lib/api-client';
+import { InstrumentThresholds } from './instrument-thresholds';
+import { SeverityPill } from './alarm-severity-pill';
+import { useCan } from '@/hooks/use-can';
+import { OPEN_ALARM_STATES, SEVERITY_ORDER, type AlarmRow } from './alarm-shared';
 
 interface Instrument {
   id: string; name: string; code: string; instrumentType: string;
   deviceKey: string | null; isActive: boolean;
+  expectedIntervalSec: number | null;
   hierarchyNode: { name: string } | null;
   gateway: { name: string; slug: string } | null;
 }
@@ -37,6 +43,7 @@ const PAGE = 25;
 
 export default function InstrumentDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const can = useCan();
   const [key, setKey] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -62,6 +69,23 @@ export default function InstrumentDetailPage() {
   const { data: history } = useSWR<{ rows: Reading[]; total: number }>(
     id ? `/api/instruments/${id}/telemetry/history?${historyQuery.toString()}` : null,
   );
+
+  // Conditional key — null when the user lacks ALARM_VIEW, so no 403 reaches
+  // the console. One request per open state; see alarms.tsx.
+  const { data: openAlarms } = useSWR<AlarmRow[]>(
+    id && can('alarms.view') ? ['instrument-open-alarms', id] : null,
+    async () => {
+      const res = await Promise.all(OPEN_ALARM_STATES.map(
+        s => apiClient.get<AlarmRow[]>(`/api/alarms?state=${s}&instrumentId=${id}`),
+      ));
+      return res.flat();
+    },
+    { refreshInterval: 15_000 },
+  );
+
+  const openBySeverity = SEVERITY_ORDER
+    .map(sev => ({ sev, count: (openAlarms ?? []).filter(a => a.severity === sev).length }))
+    .filter(x => x.count > 0);
 
   const liveReadings = latest?.readings ?? [];
   const telemetryTopic = topics?.TELEMETRY;
@@ -89,6 +113,48 @@ export default function InstrumentDetailPage() {
             {instrument.isActive ? 'Active' : 'Inactive'}
           </span>
         )}
+      </div>
+
+      {/* ── Open alarms ──────────────────────────────────────────────────── */}
+      {can('alarms.view') && (
+        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white p-4">
+          <span className="text-sm text-slate-600">Open alarms</span>
+          {openBySeverity.length === 0 ? (
+            <span className="text-sm text-slate-400">None</span>
+          ) : (
+            openBySeverity.map(({ sev, count }) => (
+              <Link
+                key={sev}
+                to={`/data-injection/alarms?instrumentId=${id}`}
+                className="inline-flex items-center gap-1.5 hover:underline"
+              >
+                <SeverityPill severity={sev} />
+                <span className="tabular-nums text-sm font-medium text-slate-900">{count}</span>
+              </Link>
+            ))
+          )}
+          <Link
+            to={`/data-injection/alarms?instrumentId=${id}`}
+            className="ml-auto text-sm text-slate-500 hover:text-slate-700 hover:underline"
+          >View alarm queue →</Link>
+        </div>
+      )}
+
+      {/* ── Liveness ─────────────────────────────────────────────────────── */}
+      <div className="mt-4 rounded-lg border border-slate-200 bg-white p-4">
+        <div className="text-sm text-slate-600">Expected reading interval</div>
+        <div className="mt-1 text-slate-900">
+          {instrument?.expectedIntervalSec == null
+            ? 'Not set'
+            : `${instrument.expectedIntervalSec}s`}
+        </div>
+        <p className="mt-1 text-xs text-slate-500">
+          {instrument?.expectedIntervalSec == null
+            ? 'Liveness monitoring is OFF for this instrument — no device-offline alarm will '
+              + 'ever be raised, however long it stays silent.'
+            : 'The liveness sweep raises a device-offline alarm when no reading arrives within '
+              + 'this interval. Clearing it switches liveness monitoring off.'}
+        </p>
       </div>
 
       {/* ── Live ─────────────────────────────────────────────────────────── */}
@@ -156,6 +222,9 @@ export default function InstrumentDetailPage() {
           </div>
         </section>
       )}
+
+      {/* ── Alarm thresholds ─────────────────────────────────────────────── */}
+      {id && can('alarms.view') && <InstrumentThresholds instrumentId={id} />}
 
       {/* ── History ──────────────────────────────────────────────────────── */}
       <section className="mt-6">

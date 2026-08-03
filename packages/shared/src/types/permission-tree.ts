@@ -303,8 +303,16 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   {
     sidebarId: 'data-injection', label: 'Data Injection', icon: '\u{1F517}',
     description: 'Instruments, gateways and industrial communication',
+    // Every page-level `.view` in this group is listed, which is the same
+    // convention the other eight groups follow (debug-traces lists both of its
+    // page-level nodes). `alarms.view` was omitted when the P3 nodes were added
+    // in Task 12: without it a role granted ONLY alarm privileges fails
+    // isSidebarItemVisible() for the whole group, so the Alarms page it CAN
+    // reach by permission has no nav path to it — unreachable for exactly the
+    // operator the page exists for.
     visibilityPrivilegeIds: [
       'hierarchy.view', 'gateways.view', 'instruments.view', 'comm_profiles.view',
+      'alarms.view',
     ],
     nodes: [
       { id: 'hierarchy.view', label: 'View Hierarchy', sidebarId: 'data-injection', page: 'Hierarchy', action: 'View',

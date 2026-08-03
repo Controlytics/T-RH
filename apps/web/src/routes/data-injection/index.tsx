@@ -1,6 +1,8 @@
 import useSWR from 'swr';
 import { Link } from 'react-router-dom';
 import { useCan } from '@/hooks/use-can';
+import { apiClient } from '@/lib/api-client';
+import { OPEN_ALARM_STATES, type AlarmRow } from './alarm-shared';
 
 interface CountCard { label: string; count: number; to: string; visible: boolean }
 
@@ -41,6 +43,20 @@ export default function DataInjectionDashboard() {
   const { data: profiles } = useSWR<unknown[]>(can('comm_profiles.view') ? '/api/communication-profiles' : null);
   const { data: nodes } = useSWR<unknown[]>(can('hierarchy.view') ? '/api/hierarchy' : null);
 
+  // Open alarms = everything except CLOSED. The API filters on a single state
+  // enum, so this is one request per open state (see alarms.tsx for why an
+  // unfiltered call would be wrong).
+  const { data: openAlarms } = useSWR<AlarmRow[]>(
+    can('alarms.view') ? ['alarms-open-count'] : null,
+    async () => {
+      const res = await Promise.all(OPEN_ALARM_STATES.map(
+        s => apiClient.get<AlarmRow[]>(`/api/alarms?state=${s}`),
+      ));
+      return res.flat();
+    },
+    { refreshInterval: 30_000 },
+  );
+
   // Conditional keys — null when the user lacks the permission, so no 403 ever
   // reaches the console. Same convention as the counts above.
   const { data: health } = useSWR<HealthResponse>(
@@ -60,6 +76,9 @@ export default function DataInjectionDashboard() {
     { label: 'Gateways', count: gateways?.length ?? 0, to: '/data-injection/gateways', visible: can('gateways.view') },
     { label: 'Communication Profiles', count: profiles?.length ?? 0, to: '/data-injection/profiles', visible: can('comm_profiles.view') },
     { label: 'Hierarchy Nodes', count: nodes?.length ?? 0, to: '/data-injection/hierarchy', visible: can('hierarchy.view') },
+    // Alarms is reached from this hub like every other Data Injection page —
+    // none of them carry their own top-level sidebar item.
+    { label: 'Open Alarms', count: openAlarms?.length ?? 0, to: '/data-injection/alarms', visible: can('alarms.view') },
   ];
 
   return (
@@ -68,7 +87,7 @@ export default function DataInjectionDashboard() {
       <p className="mt-1 text-sm text-slate-500">
         Instruments, gateways and industrial communication configuration.
       </p>
-      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {cards.filter(c => c.visible).map(c => (
           <Link key={c.label} to={c.to}
             className="rounded-lg border border-slate-200 bg-white p-5 transition hover:border-slate-300 hover:shadow-sm
