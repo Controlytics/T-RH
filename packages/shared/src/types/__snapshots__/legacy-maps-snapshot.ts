@@ -22,9 +22,19 @@
  * data-injection group as `configurable: true` — unlike the eight above, they
  * ship with UI in Task 13 — taking FEATURE_PRIVILEGES and
  * FEATURE_TO_PERMISSION_MAP from 34 to 37 entries. SIDEBAR_PRIVILEGE_MAP is
- * again unaffected: `alarms.view` was deliberately NOT added to the group's
- * `visibilityPrivilegeIds`, so reaching the Data Injection sidebar entry still
- * requires one of the four P1 view privileges. Revisit with the Task 13 UI.
+ * again unaffected at that point.
+ *
+ * Re-regenerated 2026-08-03 (P3 Task 13, the UI): two changes.
+ *   1. `alarms.view` WAS added to the data-injection group's
+ *      `visibilityPrivilegeIds` (4 -> 5 ids), reversing the Task 12 decision
+ *      noted above. Without it a role granted only alarm privileges could not
+ *      see the Data Injection sidebar entry, and the Alarms page is reached
+ *      from that entry and nowhere else. SIDEBAR_PRIVILEGE_MAP therefore DOES
+ *      change this time.
+ *   2. `instruments.edit` flipped to `configurable: true` — the instrument
+ *      detail page now edits `expectedIntervalSec`, so the I4 rationale ("no
+ *      edit affordance") no longer holds. FEATURE_PRIVILEGES and
+ *      FEATURE_TO_PERMISSION_MAP go from 37 to 38 entries.
  */
 
 interface FeaturePrivilegeSnapshot {
@@ -242,6 +252,12 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
     "icon": "plus"
   },
   {
+    "id": "instruments.edit",
+    "label": "Edit Instrument",
+    "category": "Data Injection",
+    "icon": "edit"
+  },
+  {
     "id": "comm_profiles.view",
     "label": "View Communication Profiles",
     "category": "Data Injection",
@@ -382,6 +398,13 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   ],
   "instruments.create": [
     "INSTRUMENT_CREATE",
+    "INSTRUMENT_VIEW",
+    "HIERARCHY_VIEW",
+    "GATEWAY_VIEW",
+    "COMM_PROFILE_VIEW"
+  ],
+  "instruments.edit": [
+    "INSTRUMENT_UPDATE",
     "INSTRUMENT_VIEW",
     "HIERARCHY_VIEW",
     "GATEWAY_VIEW",

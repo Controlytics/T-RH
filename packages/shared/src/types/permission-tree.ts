@@ -354,13 +354,17 @@ export const PERMISSION_TREE: SidebarGroup[] = [
       { id: 'instruments.create', label: 'Create Instrument', sidebarId: 'data-injection', page: 'Instruments', action: 'Add',
         icon: 'plus', category: 'Data Injection', permissions: ['INSTRUMENT_CREATE', 'INSTRUMENT_VIEW', 'HIERARCHY_VIEW', 'GATEWAY_VIEW', 'COMM_PROFILE_VIEW'],
         reauthAction: 'CREATE_INSTRUMENT', enforce: 'a', gate: ['INSTRUMENT_CREATE'], configurable: true },
-      // instruments.edit/delete: configurable:false (finding I4) —
-      // instrument-wizard.tsx only implements Create; instruments.tsx is a
-      // read-only table with no edit/delete affordance. Route stays
-      // enforced; see the gateways.create comment above for the rationale.
+      // instruments.edit: configurable:true since 2026-08-03 (P3 Task 13).
+      // It was configurable:false under finding I4 because instruments.tsx was
+      // a read-only table with no edit affordance. That is no longer true —
+      // the instrument detail page now edits `expectedIntervalSec`, the field
+      // that switches liveness monitoring on. Leaving the toggle hidden would
+      // have meant only SUPER_ADMIN could ever enable liveness for an
+      // instrument, which is how the whole liveness half came to ship dark.
+      // instruments.delete stays configurable:false — still no delete UI.
       { id: 'instruments.edit', label: 'Edit Instrument', sidebarId: 'data-injection', page: 'Instruments', action: 'Edit',
         icon: 'edit', category: 'Data Injection', permissions: ['INSTRUMENT_UPDATE', 'INSTRUMENT_VIEW', 'HIERARCHY_VIEW', 'GATEWAY_VIEW', 'COMM_PROFILE_VIEW'],
-        reauthAction: 'UPDATE_INSTRUMENT', enforce: 'a', gate: ['INSTRUMENT_UPDATE'], configurable: false },
+        reauthAction: 'UPDATE_INSTRUMENT', enforce: 'a', gate: ['INSTRUMENT_UPDATE'], configurable: true },
       { id: 'instruments.delete', label: 'Delete Instrument', sidebarId: 'data-injection', page: 'Instruments', action: 'Delete',
         icon: 'trash', category: 'Data Injection', permissions: ['INSTRUMENT_DELETE', 'INSTRUMENT_VIEW'],
         reauthAction: 'DELETE_INSTRUMENT', enforce: 'a', gate: ['INSTRUMENT_DELETE'], configurable: false },
@@ -414,7 +418,7 @@ const CONFIGURABLE_PRIVILEGE_ORDER: readonly string[] = [
   'backup.export', 'backup.restore',
   'hierarchy.view', 'hierarchy.create', 'hierarchy.edit', 'hierarchy.delete',
   'gateways.view',
-  'instruments.view', 'instruments.create',
+  'instruments.view', 'instruments.create', 'instruments.edit',
   'comm_profiles.view',
   'alarms.view', 'alarms.acknowledge', 'alarms.thresholds',
 ] as const;

@@ -140,12 +140,22 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           gatewayId: { type: ['string', 'null'] },
           deviceKey: { type: ['string', 'null'], maxLength: 100 },
           communicationProfileId: { type: ['string', 'null'] },
+          // Liveness monitoring. NULL (or omitted) means this instrument is
+          // exempt: the sweep skips it and no device-offline alarm is ever
+          // raised for it, however long it stays silent. `minimum: 1` because
+          // a 0-second interval would mark every instrument offline instantly.
+          expectedIntervalSec: { type: ['integer', 'null'], minimum: 1 },
         },
       },
     },
   }, async (req, reply) => {
     if (!(await enforceReauth('CREATE_INSTRUMENT', req, reply)).ok) return reply;
+    // `expectedIntervalSec` is a number, so this map is no longer uniformly
+    // string|null — read it off req.body directly rather than widening every
+    // other field's type.
     const b = req.body as Record<string, string | null>;
+    const expectedIntervalSec = (req.body as { expectedIntervalSec?: number | null })
+      .expectedIntervalSec ?? null;
     const ctx = buildContext(req);
 
     // Mirror of the instruments_reachable_chk CHECK constraint, surfaced as a
@@ -189,12 +199,16 @@ export default async function instrumentRoutes(app: FastifyInstance) {
             gatewayId: b.gatewayId ?? null,
             deviceKey: b.deviceKey ? stripHtml(b.deviceKey) : null,
             communicationProfileId: b.communicationProfileId ?? null,
+            expectedIntervalSec,
             createdBy: ctx.userId,
           },
         });
         await auditLog({
           action: 'INSTRUMENT_CREATED', targetType: 'Instrument', targetId: row.id,
-          afterValue: { name: row.name, code: row.code, gatewayId: row.gatewayId, deviceKey: row.deviceKey },
+          afterValue: {
+            name: row.name, code: row.code, gatewayId: row.gatewayId, deviceKey: row.deviceKey,
+            expectedIntervalSec: row.expectedIntervalSec,
+          },
           userId: ctx.userId, userRole: ctx.userRole, ipAddress: ctx.ipAddress,
           userAgent: ctx.userAgent, sessionId: ctx.sessionId,
         }, tx);
@@ -230,6 +244,9 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           deviceKey: { type: ['string', 'null'], maxLength: 100 },
           communicationProfileId: { type: ['string', 'null'] },
           isActive: { type: 'boolean' },
+          // Send an explicit null to exempt the instrument from liveness
+          // monitoring; omit the key to leave the current setting alone.
+          expectedIntervalSec: { type: ['integer', 'null'], minimum: 1 },
         },
       },
     },
@@ -289,12 +306,24 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           ...(b.deviceKey !== undefined && { deviceKey: b.deviceKey as string | null }),
           ...(b.communicationProfileId !== undefined && { communicationProfileId: b.communicationProfileId as string | null }),
           ...(b.isActive !== undefined && { isActive: b.isActive as boolean }),
+          ...(b.expectedIntervalSec !== undefined && {
+            expectedIntervalSec: b.expectedIntervalSec as number | null,
+          }),
         },
       });
       await auditLog({
         action: 'INSTRUMENT_UPDATED', targetType: 'Instrument', targetId: id,
-        beforeValue: { name: before.name, deviceKey: before.deviceKey, isActive: before.isActive },
-        afterValue: { name: row.name, deviceKey: row.deviceKey, isActive: row.isActive },
+        // expectedIntervalSec is audited because turning liveness monitoring
+        // off is a compliance-relevant change: it silently stops device-offline
+        // alarms being raised for this instrument.
+        beforeValue: {
+          name: before.name, deviceKey: before.deviceKey, isActive: before.isActive,
+          expectedIntervalSec: before.expectedIntervalSec,
+        },
+        afterValue: {
+          name: row.name, deviceKey: row.deviceKey, isActive: row.isActive,
+          expectedIntervalSec: row.expectedIntervalSec,
+        },
         userId: ctx.userId, userRole: ctx.userRole, ipAddress: ctx.ipAddress,
         userAgent: ctx.userAgent, sessionId: ctx.sessionId,
       }, tx);

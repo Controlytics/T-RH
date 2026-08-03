@@ -2,6 +2,9 @@ import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
+import { Button } from '@/components/ui/button';
 import { InstrumentThresholds } from './instrument-thresholds';
 import { SeverityPill } from './alarm-severity-pill';
 import { useCan } from '@/hooks/use-can';
@@ -49,7 +52,8 @@ export default function InstrumentDetailPage() {
   const [to, setTo] = useState('');
   const [page, setPage] = useState(0);
 
-  const { data: instrument } = useSWR<Instrument>(id ? `/api/instruments/${id}` : null);
+  const { data: instrument, mutate: mutateInstrument } =
+    useSWR<Instrument>(id ? `/api/instruments/${id}` : null);
   const { data: topics } = useSWR<Record<string, string>>(id ? `/api/instruments/${id}/topics` : null);
 
   // Live panel — polls. The interval is the only thing making this "live";
@@ -82,6 +86,59 @@ export default function InstrumentDetailPage() {
     },
     { refreshInterval: 15_000 },
   );
+
+  // ── Liveness editing ──────────────────────────────────────────────────
+  const reauth = useReauth();
+  const [editingLiveness, setEditingLiveness] = useState(false);
+  // `monitor` is the explicit on/off switch and `intervalDraft` the seconds.
+  // Kept separate so "off" is a deliberate choice rather than an empty box that
+  // could equally mean "I have not typed it yet".
+  const [monitor, setMonitor] = useState(false);
+  const [intervalDraft, setIntervalDraft] = useState('');
+  const [livenessBusy, setLivenessBusy] = useState(false);
+  const [livenessError, setLivenessError] = useState<string | null>(null);
+
+  const openLivenessEdit = () => {
+    const current = instrument?.expectedIntervalSec ?? null;
+    setMonitor(current !== null);
+    setIntervalDraft(current === null ? '' : String(current));
+    setLivenessError(null);
+    setEditingLiveness(true);
+  };
+
+  const saveLiveness = () => {
+    let next: number | null = null;
+    if (monitor) {
+      const parsed = Number(intervalDraft);
+      if (!Number.isInteger(parsed) || parsed < 1) {
+        setLivenessError('Enter a whole number of seconds, at least 1.');
+        return;
+      }
+      next = parsed;
+    }
+    setLivenessError(null);
+    setLivenessBusy(true);
+    reauth.execute(
+      'UPDATE_INSTRUMENT',
+      async (password?: string) => {
+        const body = { expectedIntervalSec: next };
+        if (password) await apiClient.putWithReauth(`/api/instruments/${id}`, body, password);
+        else await apiClient.put(`/api/instruments/${id}`, body);
+      },
+      {
+        onSuccess: () => {
+          setLivenessBusy(false);
+          setEditingLiveness(false);
+          void mutateInstrument();
+        },
+        onError: (err: unknown) => {
+          setLivenessBusy(false);
+          setLivenessError(err instanceof Error ? err.message : 'Could not save the interval.');
+        },
+        onCancel: () => setLivenessBusy(false),
+      },
+    );
+  };
 
   const openBySeverity = SEVERITY_ORDER
     .map(sev => ({ sev, count: (openAlarms ?? []).filter(a => a.severity === sev).length }))
@@ -142,19 +199,80 @@ export default function InstrumentDetailPage() {
 
       {/* ── Liveness ─────────────────────────────────────────────────────── */}
       <div className="mt-4 rounded-lg border border-slate-200 bg-white p-4">
-        <div className="text-sm text-slate-600">Expected reading interval</div>
-        <div className="mt-1 text-slate-900">
-          {instrument?.expectedIntervalSec == null
-            ? 'Not set'
-            : `${instrument.expectedIntervalSec}s`}
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-sm text-slate-600">Expected reading interval</div>
+            <div className="mt-1 text-slate-900">
+              {instrument?.expectedIntervalSec == null
+                ? 'Liveness monitoring off'
+                : `Every ${instrument.expectedIntervalSec}s`}
+            </div>
+            <p className="mt-1 max-w-2xl text-xs text-slate-500">
+              {/* "Empty" must not be left to inference: an unset interval is a
+                  deliberate exemption, and reading it as "not configured yet"
+                  would hide the fact that this instrument can never raise a
+                  device-offline alarm. */}
+              {instrument?.expectedIntervalSec == null
+                ? 'This instrument is EXEMPT from liveness monitoring. No device-offline alarm '
+                  + 'will ever be raised for it, however long it stays silent.'
+                : 'The liveness sweep raises a device-offline alarm when no reading arrives '
+                  + 'within this interval. Switching monitoring off exempts the instrument '
+                  + 'entirely — no device-offline alarm will be raised for it again.'}
+            </p>
+          </div>
+          {can('instruments.edit') && !editingLiveness && (
+            <Button size="sm" variant="outline" onClick={openLivenessEdit}>
+              {instrument?.expectedIntervalSec == null ? 'Enable monitoring' : 'Edit'}
+            </Button>
+          )}
         </div>
-        <p className="mt-1 text-xs text-slate-500">
-          {instrument?.expectedIntervalSec == null
-            ? 'Liveness monitoring is OFF for this instrument — no device-offline alarm will '
-              + 'ever be raised, however long it stays silent.'
-            : 'The liveness sweep raises a device-offline alarm when no reading arrives within '
-              + 'this interval. Clearing it switches liveness monitoring off.'}
-        </p>
+
+        {can('instruments.edit') && editingLiveness && (
+          <div className="mt-4 border-t border-slate-100 pt-4">
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={monitor}
+                onChange={e => setMonitor(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-300"
+              />
+              Monitor this instrument for liveness
+            </label>
+
+            {monitor ? (
+              <label className="mt-3 block text-xs text-slate-600">
+                Expected interval (seconds)
+                <input
+                  type="number" min={1} step={1} value={intervalDraft}
+                  onChange={e => setIntervalDraft(e.target.value)}
+                  className="mt-1 block w-40 rounded border border-slate-200 px-2 py-1 text-sm"
+                />
+                <span className="mt-1 block text-[11px] text-slate-400">
+                  A device-offline alarm is raised once no reading has arrived for this long.
+                </span>
+              </label>
+            ) : (
+              <p className="mt-3 text-xs text-amber-700">
+                Saving with monitoring off exempts this instrument: the sweep will skip it and
+                no device-offline alarm will be raised for it, however long it stays silent.
+              </p>
+            )}
+
+            {livenessError && (
+              <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                {livenessError}
+              </div>
+            )}
+
+            <div className="mt-4 flex justify-end gap-2">
+              <Button variant="outline" size="sm" disabled={livenessBusy}
+                onClick={() => { setEditingLiveness(false); setLivenessError(null); }}>Cancel</Button>
+              <Button size="sm" onClick={saveLiveness} disabled={livenessBusy}>
+                {livenessBusy ? 'Saving…' : 'Save'}
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Live ─────────────────────────────────────────────────────────── */}
@@ -222,6 +340,17 @@ export default function InstrumentDetailPage() {
           </div>
         </section>
       )}
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={() => { reauth.cancel(); setLivenessBusy(false); }}
+        actionLabel="Update Instrument"
+      />
 
       {/* ── Alarm thresholds ─────────────────────────────────────────────── */}
       {id && can('alarms.view') && <InstrumentThresholds instrumentId={id} />}

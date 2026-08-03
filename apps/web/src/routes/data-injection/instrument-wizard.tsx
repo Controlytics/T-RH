@@ -23,6 +23,9 @@ export default function InstrumentWizard() {
     manufacturer: '', model: '', serialNumber: '',
     hierarchyNodeId: '', communicationProfileId: '',
     gatewayEnabled: false, gatewayId: '', deviceKey: '',
+    // Liveness monitoring, off by default. Empty string means "no interval" =
+    // exempt, which is what the API stores as null.
+    expectedIntervalSec: '',
   });
 
   const { data: nodes } = useSWR<HierarchyOption[]>('/api/hierarchy');
@@ -37,6 +40,18 @@ export default function InstrumentWizard() {
     : Boolean(form.communicationProfileId);
 
   async function submit() {
+    // Caught here rather than left to the schema: a raw AJV rejection reads as
+    // "must be integer" with no field name attached.
+    const rawInterval = form.expectedIntervalSec.trim();
+    if (rawInterval !== '') {
+      const parsed = Number(rawInterval);
+      if (!Number.isInteger(parsed) || parsed < 1) {
+        toast.error('Check the reading interval',
+          'Enter a whole number of seconds, at least 1 — or leave it empty to exempt this '
+          + 'instrument from liveness monitoring.');
+        return;
+      }
+    }
     setBusy(true);
     try {
       await apiClient.post('/api/instruments', {
@@ -47,6 +62,11 @@ export default function InstrumentWizard() {
         gatewayId: form.gatewayEnabled ? form.gatewayId : null,
         deviceKey: form.gatewayEnabled ? form.deviceKey : null,
         communicationProfileId: form.gatewayEnabled ? null : form.communicationProfileId,
+        // null = exempt from liveness monitoring. Sent explicitly rather than
+        // omitted so the intent is legible in the request and the audit row.
+        expectedIntervalSec: form.expectedIntervalSec.trim() === ''
+          ? null
+          : Number(form.expectedIntervalSec),
       });
       toast.success('Instrument created', `"${form.name}" has been created.`);
       nav('/data-injection/instruments');
@@ -140,6 +160,17 @@ export default function InstrumentWizard() {
                 This instrument communicates independently and will use the profile chosen in step 2.
               </p>
             )}
+
+            <label className="block text-sm">Expected reading interval (seconds)
+              <input type="number" min={1} step={1} className={field}
+                value={form.expectedIntervalSec}
+                onChange={e => set('expectedIntervalSec', e.target.value)} />
+              <span className="mt-1 block text-xs text-slate-500">
+                Optional. Leave empty to exempt this instrument from liveness monitoring —
+                no device-offline alarm will ever be raised for it. Set it, and a
+                device-offline alarm is raised once no reading has arrived for this long.
+                Changeable later on the instrument page.
+              </span></label>
           </>
         )}
       </div>

@@ -14,11 +14,17 @@ interface Props {
   /** Signature accepted — the caller should refresh its list. */
   onAcknowledged: () => void;
   /**
-   * The alarm moved on before the signature landed (409). Distinct from
-   * onAcknowledged: nothing was signed, and the caller must refetch because
-   * what it is showing is stale.
+   * The alarm moved on before the signature landed (409). Nothing was signed,
+   * and the list the caller is showing is stale, so it must refetch.
+   *
+   * Named for what the caller should DO, not for what happened, because the
+   * first version of this was called `onStale` and the queue "handled
+   * staleness" by closing the dialog — which unmounted the 409 message on the
+   * commit that set it, leaving the operator unable to tell an
+   * already-acknowledged alarm from one that re-breached. This callback must
+   * refresh only; the dialog owns its own dismissal via `onClose`.
    */
-  onStale: () => void;
+  onRefreshRequested: () => void;
 }
 
 /** Extracts the backend's error code from either error shape api-client throws. */
@@ -41,7 +47,7 @@ function errorMessage(err: unknown): string {
   return 'The acknowledgement could not be recorded.';
 }
 
-export function AlarmAckDialog({ alarm, onClose, onAcknowledged, onStale }: Props) {
+export function AlarmAckDialog({ alarm, onClose, onAcknowledged, onRefreshRequested }: Props) {
   const [reason, setReason] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -95,7 +101,7 @@ export function AlarmAckDialog({ alarm, onClose, onAcknowledged, onStale }: Prop
           + 'Close this dialog to review the current state.');
         setStaleRead(true);
         setSubmitting(false);
-        onStale();
+        onRefreshRequested();
         return;
       }
       if (code === 'ALARM_STATE_CHANGED') {
@@ -104,7 +110,7 @@ export function AlarmAckDialog({ alarm, onClose, onAcknowledged, onStale }: Prop
           + 'current state — the queue behind it has been refreshed.');
         setStaleRead(true);
         setSubmitting(false);
-        onStale();
+        onRefreshRequested();
         return;
       }
       if (code === 'REAUTH_FAILED' || code === 'INVALID_PASSWORD') {

@@ -11,13 +11,18 @@ describe('data-injection permission group', () => {
     expect(g!.nodes.every(n => n.enforce === 'a')).toBe(true);
   });
 
-  it('8 nodes are configurable:false — no UI yet (finding I4, final branch review)', () => {
-    // gateways.tsx / profiles.tsx / instruments.tsx are read-only tables;
-    // only hierarchy.tsx has full CRUD and instrument-wizard.tsx has Create.
-    // Granting these toggles previously produced no button anywhere.
+  it('7 nodes are configurable:false — no UI yet (finding I4, final branch review)', () => {
+    // gateways.tsx / profiles.tsx are read-only tables; only hierarchy.tsx has
+    // full CRUD and instrument-wizard.tsx has Create.
+    // Granting these toggles produces no button anywhere.
+    // `instruments.edit` LEFT this set on 2026-08-03 (P3 Task 13): the
+    // instrument detail page now edits expectedIntervalSec, the field that
+    // switches liveness monitoring on. Keeping it hidden meant only
+    // SUPER_ADMIN could ever enable liveness — that is how the liveness half
+    // came to ship dark. `instruments.delete` stays: still no delete UI.
     const NO_UI = new Set([
       'gateways.create', 'gateways.edit', 'gateways.delete',
-      'instruments.edit', 'instruments.delete',
+      'instruments.delete',
       'comm_profiles.create', 'comm_profiles.edit', 'comm_profiles.delete',
     ]);
     // The 3 P3 alarm nodes are NOT in NO_UI — alarms.tsx (Task 13) ships the
@@ -27,8 +32,8 @@ describe('data-injection permission group', () => {
     for (const node of g.nodes) {
       expect(node.configurable, `${node.id}.configurable`).toBe(!NO_UI.has(node.id));
     }
-    expect(g.nodes.filter(n => n.configurable === true)).toHaveLength(11);
-    expect(g.nodes.filter(n => n.configurable === false)).toHaveLength(8);
+    expect(g.nodes.filter(n => n.configurable === true)).toHaveLength(12);
+    expect(g.nodes.filter(n => n.configurable === false)).toHaveLength(7);
   });
 
   it('acknowledge is gated on ALARM_ACKNOWLEDGE alone, not on the view grant', () => {

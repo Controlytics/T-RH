@@ -120,6 +120,89 @@ describe('instruments routes', () => {
     expect(body.TELEMETRY).toBe(`instco${runSuffix}/area02-${runSuffix}/gw-001/temp001/telemetry`);
   });
 
+  /*
+   * P3 Task 13. `expectedIntervalSec` was absent from BOTH body schemas, which
+   * declare `additionalProperties: false` — so the field was stripped on every
+   * request and the liveness sweep, which keys entirely off that column, could
+   * never fire for any instrument an operator created. The sweep's own unit
+   * test set the column with a direct `prisma.instrument.update`, so nothing
+   * exercised the write path and the whole liveness feature shipped dark.
+   * These three cases are the round trip through the API that was missing.
+   */
+  it('persists expectedIntervalSec on create and returns it on read', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/instruments', headers: auth(),
+      payload: {
+        name: 'LIVE001', code: `LIVE001-${runSuffix}`, instrumentType: 'temperature-sensor',
+        hierarchyNodeId: areaId, gatewayId, deviceKey: 'live001',
+        expectedIntervalSec: 60,
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().expectedIntervalSec).toBe(60);
+
+    const read = await app.inject({
+      method: 'GET', url: `/api/instruments/${res.json().id}`, headers: auth(),
+    });
+    expect(read.json().expectedIntervalSec).toBe(60);
+  });
+
+  it('updates expectedIntervalSec and audits the before/after values', async () => {
+    const created = await app.inject({
+      method: 'POST', url: '/api/instruments', headers: auth(),
+      payload: {
+        name: 'LIVE002', code: `LIVE002-${runSuffix}`, instrumentType: 'temperature-sensor',
+        hierarchyNodeId: areaId, gatewayId, deviceKey: 'live002',
+      },
+    });
+    const id = created.json().id;
+    // Omitted on create — exempt from liveness monitoring.
+    expect(created.json().expectedIntervalSec).toBeNull();
+
+    const res = await app.inject({
+      method: 'PUT', url: `/api/instruments/${id}`, headers: auth(),
+      payload: { expectedIntervalSec: 90 },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().expectedIntervalSec).toBe(90);
+
+    // Enabling or disabling liveness monitoring is compliance-relevant: it
+    // changes whether device-offline alarms can be raised at all.
+    const audit = await prisma.auditTrail.findFirst({
+      where: { action: 'INSTRUMENT_UPDATED', targetId: id },
+      orderBy: { timestamp: 'desc' },
+    });
+    expect(audit).not.toBeNull();
+    expect((audit!.beforeValue as { expectedIntervalSec: number | null }).expectedIntervalSec).toBeNull();
+    expect((audit!.afterValue as { expectedIntervalSec: number | null }).expectedIntervalSec).toBe(90);
+  });
+
+  it('accepts an explicit null to exempt an instrument, and rejects a zero interval', async () => {
+    const created = await app.inject({
+      method: 'POST', url: '/api/instruments', headers: auth(),
+      payload: {
+        name: 'LIVE003', code: `LIVE003-${runSuffix}`, instrumentType: 'temperature-sensor',
+        hierarchyNodeId: areaId, gatewayId, deviceKey: 'live003',
+        expectedIntervalSec: 30,
+      },
+    });
+    const id = created.json().id;
+
+    const cleared = await app.inject({
+      method: 'PUT', url: `/api/instruments/${id}`, headers: auth(),
+      payload: { expectedIntervalSec: null },
+    });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json().expectedIntervalSec).toBeNull();
+
+    // 0 would mark every instrument offline on the first sweep.
+    const zero = await app.inject({
+      method: 'PUT', url: `/api/instruments/${id}`, headers: auth(),
+      payload: { expectedIntervalSec: 0 },
+    });
+    expect(zero.statusCode).toBe(400);
+  });
+
   it('rejects an independent instrument with no profile (CHECK constraint mirror)', async () => {
     const res = await app.inject({
       method: 'POST', url: '/api/instruments', headers: auth(),
