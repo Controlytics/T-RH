@@ -1,4 +1,36 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DISPATCHER = path.resolve(__dirname, '../../notification-delivery/notification-dispatcher.ts');
+const RULES = path.resolve(__dirname, '../../notification-rules/routes.ts');
+
+/**
+ * The variable keys the CONSUMERS expect for ALARM_RAISED, read out of their
+ * source rather than restated here — a hand-copied list would drift in exactly
+ * the way this test exists to prevent.
+ *
+ * Parsed as text because `EVENT_FIELDS` is a function-local const in
+ * notification-dispatcher.ts and not importable. This mirrors the approach
+ * already taken by notification-delivery/__tests__/event-type-coverage.test.ts.
+ */
+function dispatcherKeys(): string[] {
+  const src = readFileSync(DISPATCHER, 'utf8');
+  // Match only the EVENT_FIELDS entry — the array-of-pairs form. `ALARM_RAISED:`
+  // also appears in EVENT_LABELS and in the email/in-app template maps.
+  const line = /^\s*ALARM_RAISED:\s*\[\[.*$/m.exec(src)?.[0] ?? '';
+  return [...line.matchAll(/\['[^']*','([^']*)'\]/g)].map(m => m[1]);
+}
+
+function rulesKeys(): string[] {
+  const src = readFileSync(RULES, 'utf8');
+  const line = /^\s*ALARM_RAISED:\s*\{.*$/m.exec(src)?.[0] ?? '';
+  const arr = /variables:\s*\[([^\]]*)\]/.exec(line)?.[1] ?? '';
+  return [...arr.matchAll(/'([^']+)'/g)].map(m => m[1]);
+}
+
 
 const repo = {
   loadThresholdCache: vi.fn(),
@@ -38,7 +70,7 @@ beforeEach(() => {
   dispatch.mockResolvedValue(undefined);
   repo.touchLiveness.mockResolvedValue(undefined);
   repo.loadThresholdCache.mockResolvedValue(new Map([
-    ['i1|temp', [{ id: 't1', key: 'temp', operator: 'GT', limit: 100, limitLow: null, limitHigh: null, hysteresis: 0, severity: 'MAJOR' }]],
+    ['i1|temp', [{ id: 't1', key: 'temp', instrumentName: 'Chamber A', operator: 'GT', limit: 100, limitLow: null, limitHigh: null, hysteresis: 0, severity: 'MAJOR' }]],
   ]));
 });
 
@@ -79,8 +111,8 @@ describe('evaluateFlush', () => {
     // had just raised. The series must include the threshold.
     repo.loadThresholdCache.mockResolvedValue(new Map([
       ['i1|temp', [
-        { id: 't1', key: 'temp', operator: 'GT', limit: 100, limitLow: null, limitHigh: null, hysteresis: 0, severity: 'MAJOR' },
-        { id: 't2', key: 'temp', operator: 'LT', limit: 10, limitLow: null, limitHigh: null, hysteresis: 0, severity: 'CRITICAL' },
+        { id: 't1', key: 'temp', instrumentName: 'Chamber A', operator: 'GT', limit: 100, limitLow: null, limitHigh: null, hysteresis: 0, severity: 'MAJOR' },
+        { id: 't2', key: 'temp', instrumentName: 'Chamber A', operator: 'LT', limit: 10, limitLow: null, limitHigh: null, hysteresis: 0, severity: 'CRITICAL' },
       ]],
     ]));
 
@@ -93,6 +125,28 @@ describe('evaluateFlush', () => {
     repo.raiseAlarm.mockResolvedValue({ id: 'a2' });
     const low = await evaluateFlush([{ instrumentId: 'i1', readings: [reading('temp', 5)] }], TS);
     expect(low.raised).toBe(1);
+  });
+
+  it('dispatches every variable key its consumers render', async () => {
+    // Binds producer to consumer. The original defect: this service sent
+    // `instrumentId` while every consumer reads `instrumentName`, so operators
+    // got an email titled "[DigiLog] Alarm Raised: " and an in-app message
+    // reading "Alarm on : temp = 105 (limit 100)". Nothing failed — the
+    // template just interpolated a missing key to empty.
+    //
+    // Asserting `instrumentName` alone would not stop the NEXT divergence, so
+    // this reads the consumers' own key lists and requires all of them.
+    await evaluateFlush([{ instrumentId: 'i1', readings: [reading('temp', 101)] }], TS);
+    const sent = dispatch.mock.calls[0][0].variables as Record<string, string>;
+
+    const expected = [...new Set([...dispatcherKeys(), ...rulesKeys()])];
+    // Guard against a silently vacuous test: if either regex stops matching,
+    // `expected` empties and every assertion below passes for free.
+    expect(expected).toContain('instrumentName');
+    expect(expected.length).toBeGreaterThan(4);
+
+    const missing = expected.filter(k => sent[k] === undefined || sent[k] === '');
+    expect(missing).toEqual([]);
   });
 
   it('records last-seen even when no thresholds are configured', async () => {
@@ -117,8 +171,8 @@ describe('evaluateFlush', () => {
     // rather than the notifier. Losing a regulated excursion record because an
     // email failed is the wrong trade.
     repo.loadThresholdCache.mockResolvedValue(new Map([
-      ['i1|temp', [{ id: 't1', key: 'temp', operator: 'GT', limit: 100, limitLow: null, limitHigh: null, hysteresis: 0, severity: 'MAJOR' }]],
-      ['i1|press', [{ id: 't2', key: 'press', operator: 'GT', limit: 50, limitLow: null, limitHigh: null, hysteresis: 0, severity: 'CRITICAL' }]],
+      ['i1|temp', [{ id: 't1', key: 'temp', instrumentName: 'Chamber A', operator: 'GT', limit: 100, limitLow: null, limitHigh: null, hysteresis: 0, severity: 'MAJOR' }]],
+      ['i1|press', [{ id: 't2', key: 'press', instrumentName: 'Chamber A', operator: 'GT', limit: 50, limitLow: null, limitHigh: null, hysteresis: 0, severity: 'CRITICAL' }]],
     ]));
     dispatch.mockRejectedValueOnce(new Error('smtp down'));
 

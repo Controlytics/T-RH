@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { evaluate, numericValue, type ThresholdSpec } from '../threshold-evaluator.js';
 
 const spec = (over: Partial<ThresholdSpec>): ThresholdSpec => ({
-  id: 't1', key: 'temp', operator: 'GT',
+  id: 't1', key: 'temp', operator: 'GT', instrumentName: 'Chamber A',
   limit: 100, limitLow: null, limitHigh: null,
   hysteresis: 0, severity: 'MAJOR', ...over,
 });

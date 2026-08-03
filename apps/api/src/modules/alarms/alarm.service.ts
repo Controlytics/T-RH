@@ -72,6 +72,11 @@ export async function evaluateFlush(
             eventType: 'ALARM_RAISED',
             context: { severity: t.severity, instrumentId: batch.instrumentId },
             variables: {
+              // instrumentName is what every consumer renders (subject line,
+              // email row, in-app text). instrumentId is KEPT because `context`
+              // matches rule conditions on it — dropping it would break
+              // instrument-scoped rules.
+              instrumentName: spec.instrumentName,
               instrumentId: batch.instrumentId, key: r.key,
               value: String(t.value), severity: t.severity,
               limit: String(spec.limit ?? `${spec.limitLow}..${spec.limitHigh}`),

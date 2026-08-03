@@ -51,6 +51,15 @@ describe('threshold cache', () => {
     const specs = cache.get(`${instrumentId}|temp`);
     expect(specs?.[0]).toMatchObject({ id: thresholdId, operator: 'GT', limit: 100 });
   });
+
+  it('carries the instrument NAME, which notifications render', async () => {
+    // Against the real database, so a broken join is caught here. The service
+    // test mocks loadThresholdCache and therefore cannot prove this: it would
+    // keep passing while every alarm email showed a blank instrument.
+    const cache = await loadThresholdCache();
+    const specs = cache.get(`${instrumentId}|temp`);
+    expect(specs?.[0].instrumentName).toBe(TAG);
+  });
 });
 
 describe('raise / rebreach / resolve', () => {

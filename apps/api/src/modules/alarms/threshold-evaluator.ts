@@ -14,6 +14,12 @@ import type { AlarmSeverity, ThresholdOperator } from '@prisma/client';
 export interface ThresholdSpec {
   id: string;
   key: string;
+  /**
+   * Carried for NOTIFICATION RENDERING only — `evaluate()` must never read it.
+   * It rides along on the spec because the threshold cache already joins the
+   * instrument once per flush; see loadThresholdCache.
+   */
+  instrumentName: string;
   operator: ThresholdOperator;
   limit: number | null;
   limitLow: number | null;

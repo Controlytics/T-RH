@@ -25,7 +25,15 @@ export const alarmKey = (instrumentId: string, key: string, thresholdId: string 
   `${instrumentId}|${key}|${thresholdId ?? '__liveness__'}`;
 
 export async function loadThresholdCache(): Promise<Map<string, ThresholdSpec[]>> {
-  const rows = await prisma.alarmThreshold.findMany({ where: { isActive: true } });
+  // The instrument NAME is joined in here rather than looked up when an alarm
+  // fires. Notifications render `instrumentName` (a uuid is useless in an
+  // email), and this query already runs once per flush — a join costs no extra
+  // round trip, whereas resolving names at dispatch time would put a query
+  // inside the 250 ms flush loop.
+  const rows = await prisma.alarmThreshold.findMany({
+    where: { isActive: true },
+    include: { instrument: { select: { name: true } } },
+  });
   const map = new Map<string, ThresholdSpec[]>();
   for (const r of rows) {
     const k = seriesKey(r.instrumentId, r.key);
@@ -34,6 +42,7 @@ export async function loadThresholdCache(): Promise<Map<string, ThresholdSpec[]>
       id: r.id, key: r.key, operator: r.operator,
       limit: r.limit, limitLow: r.limitLow, limitHigh: r.limitHigh,
       hysteresis: r.hysteresis, severity: r.severity,
+      instrumentName: r.instrument.name,
     });
     map.set(k, list);
   }
