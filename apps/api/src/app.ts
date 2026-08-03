@@ -38,10 +38,7 @@ import notificationDeliveryRoutes from './modules/notification-delivery/routes.j
 import userGroupRoutes from './modules/user-groups/routes.js';
 import notificationRulesRoutes from './modules/notification-rules/routes.js';
 
-import { notificationTask } from './workers/notification.worker.js';
-import { passwordExpiryCheckTask } from './workers/password-expiry.worker.js';
-import { sessionSweepTask } from './workers/session-sweep.worker.js';
-import { telemetryPartitionTask } from './workers/telemetry-partition.worker.js';
+import { taskList } from './workers/task-list.js';
 import { startJobRunner, stopJobRunner } from '@digilog/queue';
 import { AppError } from './lib/errors.js';
 import { dispatchNotification } from './modules/notification-delivery/notification-dispatcher.js';
@@ -433,20 +430,7 @@ try {
       process.env.MAINTENANCE_CRONTAB_PATH ??
       path.resolve(__dirname, '../../../packages/queue/crontab.txt');
     await startJobRunner({
-      taskList: {
-        
-        // `notification` task handler — closes the producer/consumer gap
-        // flagged in the 2026-05-12 deep review. Before this commit
-        // `enqueueNotificationJob` posted to a task name with no handler
-        // and jobs leaked into graphile_worker.jobs forever. See
-        // apps/api/src/workers/notification.worker.ts for the mapping
-        // from queue payload to `dispatchNotification` event types.
-        notification: notificationTask,
-
-        password_expiry_check: passwordExpiryCheckTask,
-        session_sweep: sessionSweepTask,
-        telemetry_partition_maintenance: telemetryPartitionTask,
-      },
+      taskList,
       crontabPath,
     });
     jobRunnerStatus = 'running';
