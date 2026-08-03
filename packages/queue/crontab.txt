@@ -43,3 +43,9 @@
 # monthly run cannot be enough to break inserts.
 0 2 1 * * telemetry_partition_maintenance ?id=telemetry_partition_maintenance&max=1&fill=0s
 0 2 15 * * telemetry_partition_maintenance ?id=telemetry_partition_maintenance&max=1&fill=0s
+
+# Instrument liveness — every 5 min. Marks an instrument OFFLINE once its
+# silence exceeds expected_interval_sec x the configured grace multiplier.
+# Idempotent: the query excludes rows already in state OFFLINE, so a device
+# dark for a week produces exactly one excursion.
+*/5 * * * * instrument_liveness_sweep ?id=instrument_liveness_sweep&max=1&fill=0s

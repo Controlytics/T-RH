@@ -8,6 +8,7 @@
  */
 import { Prisma, type AlarmSeverity } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
+import { auditLog } from '../../lib/audit.js';
 import type { ThresholdSpec } from './threshold-evaluator.js';
 import type { OpenAlarmView } from './alarm-state.js';
 
@@ -134,4 +135,28 @@ export async function touchLiveness(instrumentIds: string[], seenAt: Date): Prom
     INSERT INTO instrument_liveness (instrument_id, last_seen_at, state)
     VALUES ${values}
     ON CONFLICT (instrument_id) DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at`;
+
+  // A device coming back is not a deviation needing disposition — the THRESHOLD
+  // excursions are what latch. This is the single, deliberate exception to
+  // "nothing self-closes"; see §8 of the design spec.
+  const recovered = await prisma.instrumentLiveness.findMany({
+    where: { instrumentId: { in: instrumentIds }, state: 'OFFLINE' },
+    select: { instrumentId: true, offlineAlarmId: true },
+  });
+  for (const r of recovered) {
+    if (r.offlineAlarmId) {
+      await prisma.alarm.update({
+        where: { id: r.offlineAlarmId },
+        data: { state: 'CLOSED', resolvedAt: seenAt, closedAt: seenAt },
+      });
+    }
+    await prisma.instrumentLiveness.update({
+      where: { instrumentId: r.instrumentId },
+      data: { state: 'ONLINE', stateChangedAt: seenAt, offlineAlarmId: null },
+    });
+    await auditLog({
+      action: 'DEVICE_CAME_ONLINE', targetType: 'Instrument', targetId: r.instrumentId,
+      afterValue: { recoveredAt: seenAt.toISOString() },
+    });
+  }
 }

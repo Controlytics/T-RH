@@ -13,6 +13,7 @@ import { notificationTask } from './notification.worker.js';
 import { passwordExpiryCheckTask } from './password-expiry.worker.js';
 import { sessionSweepTask } from './session-sweep.worker.js';
 import { telemetryPartitionTask } from './telemetry-partition.worker.js';
+import { livenessSweepTask } from './liveness-sweep.worker.js';
 
 export const taskList: TaskList = {
   // `notification` closes the producer/consumer gap flagged in the 2026-05-12
@@ -22,4 +23,5 @@ export const taskList: TaskList = {
   password_expiry_check: passwordExpiryCheckTask,
   session_sweep: sessionSweepTask,
   telemetry_partition_maintenance: telemetryPartitionTask,
+  instrument_liveness_sweep: livenessSweepTask,
 };

@@ -112,4 +112,32 @@ describe('touchLiveness', () => {
     expect((await prisma.instrumentLiveness.findUnique({ where: { instrumentId } }))?.lastSeenAt)
       .toEqual(t2);
   });
+
+  it('recovers an OFFLINE instrument to ONLINE and closes its offline alarm', async () => {
+    const offlineAlarm = await prisma.alarm.create({
+      data: {
+        instrumentId, key: '__liveness__', thresholdId: null,
+        severity: 'MAJOR', state: 'ACTIVE',
+        firstBreachAt: new Date('2026-08-03T08:00:00.000Z'),
+        lastBreachAt: new Date('2026-08-03T08:00:00.000Z'),
+        breachCount: 1,
+      },
+      select: { id: true },
+    });
+    await prisma.instrumentLiveness.update({
+      where: { instrumentId },
+      data: { state: 'OFFLINE', stateChangedAt: new Date('2026-08-03T08:00:00.000Z'), offlineAlarmId: offlineAlarm.id },
+    });
+
+    const recoveredAt = new Date('2026-08-03T09:10:00.000Z');
+    await touchLiveness([instrumentId], recoveredAt);
+
+    const liveness = await prisma.instrumentLiveness.findUnique({ where: { instrumentId } });
+    expect(liveness?.state).toBe('ONLINE');
+    expect(liveness?.offlineAlarmId).toBeNull();
+
+    const alarm = await prisma.alarm.findUnique({ where: { id: offlineAlarm.id } });
+    expect(alarm?.state).toBe('CLOSED');
+    expect(alarm?.closedAt).toEqual(recoveredAt);
+  });
 });
