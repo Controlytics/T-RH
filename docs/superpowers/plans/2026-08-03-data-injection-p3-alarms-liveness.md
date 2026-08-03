@@ -1774,7 +1774,14 @@ Expected: FAIL — both new members missing from all three maps.
 
 ```bash
 cd apps/api
-npx prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma --script
+# NOTE: --from-migrations does NOT work in this repo. It requires a shadow
+# database, which Prisma RESETS — wiping the `ltree` extension, after which the
+# P1 baseline fails with `type "ltree" does not exist`. Use --from-url against
+# the dev database instead, which is equivalent ONLY while the drift guard
+# passes (i.e. dev DB state == migrations state). Run the guard FIRST to
+# establish that, exactly as Task 4 did.
+npm run db:verify-migrations   # from repo root — must PASS before trusting the diff below
+npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --script
 ```
 Hand-author into `prisma/migrations/<UTC-timestamp>_p3_alarm_notification_events/migration.sql`:
 
