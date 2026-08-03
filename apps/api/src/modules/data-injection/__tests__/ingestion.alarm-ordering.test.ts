@@ -81,6 +81,25 @@ describe('flushNow — alarm evaluation ordering', () => {
     );
   });
 
+  it('logs loudly rather than vanishing when the dead-letter write itself fails', async () => {
+    // The likeliest reason evaluateFlush throws is Postgres being unreachable —
+    // and in exactly that scenario writeDeadLetters fails too. Unguarded, that
+    // error escapes flushNow into startFlushLoop's `catch(() => {})`, so the
+    // operator-visible failure mechanism disappears precisely when it is needed.
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(evaluateFlush).mockRejectedValueOnce(new Error('evaluator exploded'));
+    vi.mocked(writeDeadLetters).mockRejectedValueOnce(new Error('dead letters unreachable too'));
+
+    await enqueue(goodMessage());
+    await expect(flushNow()).resolves.toBeUndefined();   // must not propagate
+    expect(spy).toHaveBeenCalled();
+    // The log has to name what was lost, or it is no better than the silent catch.
+    const logged = spy.mock.calls.flat().join(' ');
+    expect(logged).toContain('ALARM_EVALUATION_FAILED');
+    expect(logged).toContain('dead letters unreachable too');
+    spy.mockRestore();
+  });
+
   it('carries the evaluator failure detail onto the dead letter', async () => {
     // A bare reason with no message would tell an operator that evaluation
     // broke but nothing about why.

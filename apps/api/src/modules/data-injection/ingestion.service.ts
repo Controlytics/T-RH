@@ -117,7 +117,23 @@ export async function flushNow(): Promise<void> {
       });
     }
   }
-  if (deadLetters.length > 0) await writeDeadLetters(deadLetters);
+  if (deadLetters.length > 0) {
+    // The dead-letter write is itself protected. The likeliest reason
+    // evaluateFlush throws is Postgres being unreachable — and in exactly that
+    // scenario this write fails too. Unguarded, the error would escape flushNow
+    // into startFlushLoop's `catch(() => {})`, so the mechanism built to make
+    // ingest failures operator-visible would disappear precisely when needed.
+    // Nothing is swallowed: the loss is logged loudly, with the count.
+    try {
+      await writeDeadLetters(deadLetters);
+    } catch (err) {
+      console.error(
+        `[Ingestion] FAILED to persist ${deadLetters.length} dead letter(s); `
+        + `reasons=[${[...new Set(deadLetters.map(d => d.reason))].join(', ')}]:`,
+        (err as Error).message,
+      );
+    }
+  }
 }
 
 export function startFlushLoop(): void {

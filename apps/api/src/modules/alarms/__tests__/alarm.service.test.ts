@@ -33,6 +33,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   repo.loadOpenAlarms.mockResolvedValue(new Map());
   repo.raiseAlarm.mockResolvedValue({ id: 'a1' });
+  // dispatchNotification is `async`, so the real one always returns a promise —
+  // the service attaches .catch() to it. Mirror that contract here.
+  dispatch.mockResolvedValue(undefined);
   repo.touchLiveness.mockResolvedValue(undefined);
   repo.loadThresholdCache.mockResolvedValue(new Map([
     ['i1|temp', [{ id: 't1', key: 'temp', operator: 'GT', limit: 100, limitLow: null, limitHigh: null, hysteresis: 0, severity: 'MAJOR' }]],
@@ -90,6 +93,42 @@ describe('evaluateFlush', () => {
     repo.raiseAlarm.mockResolvedValue({ id: 'a2' });
     const low = await evaluateFlush([{ instrumentId: 'i1', readings: [reading('temp', 5)] }], TS);
     expect(low.raised).toBe(1);
+  });
+
+  it('records last-seen even when no thresholds are configured', async () => {
+    // Pins touchLiveness ahead of the `thresholds.size === 0` early return.
+    // Liveness and thresholds are independent: an instrument on a site with no
+    // limits configured must still be seen to be alive, or the liveness sweep
+    // would report every such instrument as offline. Without this case the
+    // early return could be moved above the liveness update and the existing
+    // "records last-seen" test — which runs with a populated cache — would
+    // still pass.
+    repo.loadThresholdCache.mockResolvedValue(new Map());
+    await evaluateFlush([{ instrumentId: 'i1', readings: [reading('temp', 101)] }], TS);
+    expect(repo.touchLiveness).toHaveBeenCalledWith(['i1'], TS);
+    expect(repo.raiseAlarm).not.toHaveBeenCalled();
+  });
+
+  it('a failing notification does not cost a later reading its alarm', async () => {
+    // The batch is already written and the queue drained by the time the
+    // evaluator runs, so there is no retry. If a rejecting dispatch unwound the
+    // loop, a single-sample transient excursion in any reading AFTER it would
+    // be lost permanently — and the dead letter would blame the evaluator
+    // rather than the notifier. Losing a regulated excursion record because an
+    // email failed is the wrong trade.
+    repo.loadThresholdCache.mockResolvedValue(new Map([
+      ['i1|temp', [{ id: 't1', key: 'temp', operator: 'GT', limit: 100, limitLow: null, limitHigh: null, hysteresis: 0, severity: 'MAJOR' }]],
+      ['i1|press', [{ id: 't2', key: 'press', operator: 'GT', limit: 50, limitLow: null, limitHigh: null, hysteresis: 0, severity: 'CRITICAL' }]],
+    ]));
+    dispatch.mockRejectedValueOnce(new Error('smtp down'));
+
+    const res = await evaluateFlush([{
+      instrumentId: 'i1',
+      readings: [reading('temp', 101), reading('press', 60)],
+    }], TS);
+
+    expect(res.raised).toBe(2);
+    expect(repo.raiseAlarm).toHaveBeenCalledTimes(2);
   });
 
   it('raises ONE alarm when a flush contains many breaches of the same series', async () => {

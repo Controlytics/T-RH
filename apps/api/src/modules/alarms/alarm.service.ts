@@ -60,7 +60,15 @@ export async function evaluateFlush(
             action: 'ALARM_RAISED', targetType: 'Alarm', targetId: row.id,
             afterValue: { instrumentId: batch.instrumentId, key: r.key, value: t.value, severity: t.severity },
           });
-          await dispatchNotification({
+          // Fire-and-forget with a logged catch — the same pattern as
+          // auth.service.ts's USER_LOCKED dispatch. Awaited, a rejecting
+          // notifier would unwind this loop mid-flush; the batch is already
+          // written and the queue drained, so every excursion in a LATER
+          // reading would be lost with no retry, and the dead letter would
+          // blame the evaluator rather than the notifier. The alarm row and
+          // its audit row are both committed above, so the regulated record
+          // is safe regardless of what the notifier does.
+          dispatchNotification({
             eventType: 'ALARM_RAISED',
             context: { severity: t.severity, instrumentId: batch.instrumentId },
             variables: {
@@ -69,7 +77,7 @@ export async function evaluateFlush(
               limit: String(spec.limit ?? `${spec.limitLow}..${spec.limitHigh}`),
               breachCount: '1', timestamp: t.ts.toISOString(),
             },
-          });
+          }).catch(err => console.error('[Alarms] ALARM_RAISED notification dispatch failed:', err.message));
         } else if (t.kind === 'REBREACH') {
           await rebreachAlarm(t.alarmId, t.value, t.ts, t.backToActive);
           const prev = open.get(k)!;
