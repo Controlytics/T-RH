@@ -75,7 +75,7 @@ describe('D6 — api-client REAUTH error shape contract', () => {
     const { apiClient } = await import('../api-client');
     let thrown: any = null;
     try {
-      await apiClient.post('/api/roles', {});
+      await apiClient.post('/api/filters/x/start-cycle', {});
     } catch (e) {
       thrown = e;
     }
@@ -100,7 +100,7 @@ describe('D6 — api-client REAUTH error shape contract', () => {
     const { apiClient } = await import('../api-client');
     let thrown: any = null;
     try {
-      await apiClient.post('/api/roles', {});
+      await apiClient.post('/api/filters/x/advance', {});
     } catch (e) {
       thrown = e;
     }
@@ -123,7 +123,7 @@ describe('D6 — api-client REAUTH error shape contract', () => {
     const { apiClient } = await import('../api-client');
     let thrown: any = null;
     try {
-      await apiClient.post('/api/roles', {});
+      await apiClient.post('/api/filters/x/advance', {});
     } catch (e) {
       thrown = e;
     }

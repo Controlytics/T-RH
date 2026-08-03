@@ -75,7 +75,7 @@ export function DashboardPage() {
   const { data: userStats } = useSWR(isAdmin ? '/api/users/stats' : null, swrOpts);
   const { data: auditStats } = useSWR('/api/audit?limit=1', swrOpts);
   const { data: notifStats } = useSWR('/api/notifications?limit=1', swrOpts);
-  // The filters dashboard-stats poll that fed the Filter Cleaning
+  // The `/api/filters/dashboard-stats` poll that fed the Filter Cleaning
   // Analytics block was removed with the filters domain (Phase 0). It 404'd
   // every 20s forever; the block it fed rendered only when the fetch succeeded,
   // so it had been permanently invisible.

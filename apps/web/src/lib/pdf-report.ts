@@ -94,7 +94,7 @@ type SignatoryMap = Record<string, Record<string, string>>; // roleName -> repor
  *  The generator's role + the report decide which label prints before their User
  *  ID. Keyed role -> reportKey. Null → footer falls back to "Printed By".
  *
- *  This used to GET the report-signatories "resolved" config endpoint. That def
+ *  This used to GET `/api/config/report-signatories/resolved`. That config def
  *  was dropped in the Phase 0 domain strip, so the request 404'd on every PDF
  *  export and this function returned null via its `!res.ok` guard anyway.
  *  Returning null directly is behaviour-identical and drops the failed request.

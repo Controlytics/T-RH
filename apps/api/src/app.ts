@@ -38,25 +38,13 @@ import notificationDeliveryRoutes from './modules/notification-delivery/routes.j
 import userGroupRoutes from './modules/user-groups/routes.js';
 import notificationRulesRoutes from './modules/notification-rules/routes.js';
 
-import { taskList } from './workers/task-list.js';
+import { notificationTask } from './workers/notification.worker.js';
+import { passwordExpiryCheckTask } from './workers/password-expiry.worker.js';
+import { sessionSweepTask } from './workers/session-sweep.worker.js';
 import { startJobRunner, stopJobRunner } from '@digilog/queue';
 import { AppError } from './lib/errors.js';
 import { dispatchNotification } from './modules/notification-delivery/notification-dispatcher.js';
 import adminRequestRoutes from './modules/admin-requests/routes.js';
-import communicationProfileRoutes from './modules/communication-profiles/routes.js';
-import hierarchyRoutes from './modules/hierarchy/routes.js';
-import gatewayRoutes from './modules/gateways/routes.js';
-import { registerAdapter } from './modules/data-injection/adapters/protocol-adapter.js';
-import { createMqttAdapter } from './modules/data-injection/adapters/mqtt.adapter.js';
-import {
-  startConnections, stopConnections, getConnectionHealth,
-} from './modules/data-injection/connection-manager.js';
-import {
-  enqueue, startFlushLoop, stopFlushLoop, flushNow,
-} from './modules/data-injection/ingestion.service.js';
-import instrumentRoutes from './modules/instruments/routes.js';
-import dataInjectionRoutes, { instrumentTelemetryRoutes } from './modules/data-injection/routes.js';
-import alarmRoutes, { alarmThresholdRoutes, instrumentThresholdRoutes } from './modules/alarms/routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -352,18 +340,6 @@ await app.register(debugTraceRoutes, { prefix: "/api/debug/traces" });
 await app.register(ldapRoutes, { prefix: "/api/ldap" });
 await app.register(dashboardRoutes, { prefix: "/api/dashboards" });
 await app.register(adminRequestRoutes, { prefix: '/api/admin-requests' });
-await app.register(communicationProfileRoutes, { prefix: '/api/communication-profiles' });
-await app.register(hierarchyRoutes, { prefix: '/api/hierarchy' });
-await app.register(gatewayRoutes, { prefix: '/api/gateways' });
-await app.register(instrumentRoutes, { prefix: '/api/instruments' });
-// Telemetry reads mount under the SAME /api/instruments prefix.
-await app.register(instrumentTelemetryRoutes, { prefix: '/api/instruments' });
-await app.register(dataInjectionRoutes, { prefix: '/api/data-injection' });
-// Alarm threshold reads mount under the /api/instruments prefix too — the
-// thresholds belong to the instrument.
-await app.register(instrumentThresholdRoutes, { prefix: '/api/instruments' });
-await app.register(alarmRoutes, { prefix: '/api/alarms' });
-await app.register(alarmThresholdRoutes, { prefix: '/api/alarm-thresholds' });
 
 
 // ─── M1: serve the built web UI from the API (single-process bundle) ─────────
@@ -436,7 +412,19 @@ try {
       process.env.MAINTENANCE_CRONTAB_PATH ??
       path.resolve(__dirname, '../../../packages/queue/crontab.txt');
     await startJobRunner({
-      taskList,
+      taskList: {
+        
+        // `notification` task handler — closes the producer/consumer gap
+        // flagged in the 2026-05-12 deep review. Before this commit
+        // `enqueueNotificationJob` posted to a task name with no handler
+        // and jobs leaked into graphile_worker.jobs forever. See
+        // apps/api/src/workers/notification.worker.ts for the mapping
+        // from queue payload to `dispatchNotification` event types.
+        notification: notificationTask,
+
+        password_expiry_check: passwordExpiryCheckTask,
+        session_sweep: sessionSweepTask,
+      },
       crontabPath,
     });
     jobRunnerStatus = 'running';
@@ -451,25 +439,6 @@ try {
     app.log.error(
       { err: runnerErr },
       'graphile-worker job runner FAILED to start — all scheduled jobs (notifications, PM overdue, password expiry, session sweep) will not run. Server continuing.',
-    );
-  }
-
-  // ── Data Injection: protocol adapters ────────────────────────────────────
-  // Deliberately non-fatal, exactly like the job runner above. A broker being
-  // unreachable must still leave the configuration UI usable — otherwise an
-  // outage locks you out of the very settings needed to fix it. The MQTT
-  // adapter's start() also resolves on connect OR error OR timeout, so a dead
-  // broker cannot hang boot.
-  try {
-    registerAdapter(createMqttAdapter());
-    startFlushLoop();
-    await startConnections(enqueue);
-    const n = Object.keys(getConnectionHealth()).length;
-    app.log.info(`data-injection: ${n} protocol connection(s) started`);
-  } catch (adapterErr) {
-    app.log.error(
-      { err: adapterErr },
-      'data-injection: adapter startup failed — ingest is DOWN, configuration still available',
     );
   }
 } catch (err) {
@@ -488,18 +457,6 @@ const shutdown = async (signal: string) => {
 
   try {
     await stopJobRunner();
-
-    // Data Injection teardown, in its own try block like the steps below.
-    // Order matters: stop the timer, stop taking new messages, THEN drain.
-    // The ingest queue is in-process, so whatever is unflushed at exit is
-    // genuinely lost — this is the only chance to persist it.
-    try {
-      stopFlushLoop();
-      await stopConnections();
-      await flushNow();
-    } catch (diErr) {
-      app.log.error({ err: diErr }, 'Shutdown: data-injection flush/disconnect failed — queued telemetry may be lost');
-    }
 
     await app.close();
     // Close queue + tsdb in their own try blocks so one failure doesn't

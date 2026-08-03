@@ -2,39 +2,8 @@
  * Phase 5E — FROZEN LITERAL SNAPSHOTS of the derived maps.
  *
  * THIS FILE HAS ZERO IMPORTS FROM LIVE SOURCE FILES.
- * Regenerated 2026-08-01: added the data-injection group (16 nodes) to
- * PERMISSION_TREE, bringing FEATURE_PRIVILEGES/FEATURE_TO_PERMISSION_MAP to
- * 42 entries and SIDEBAR_PRIVILEGE_MAP to 9 sections.
- *
- * Re-regenerated 2026-08-01 (finding I4, final branch review): 8 of the 16
- * data-injection nodes have no UI yet — gateways.tsx, profiles.tsx and
- * instruments.tsx are read-only tables (only hierarchy.tsx has full CRUD;
- * instrument-wizard.tsx has Create only) — so `gateways.create/edit/delete`,
- * `instruments.edit/delete`, and `comm_profiles.create/edit/delete` were
- * marked `configurable: false` in permission-tree.ts. That drops
- * FEATURE_PRIVILEGES/FEATURE_TO_PERMISSION_MAP from 42 to 34 entries (the
- * permission constants, gates, and routes themselves are unchanged — only
- * the role-config picker toggle is hidden). SIDEBAR_PRIVILEGE_MAP is
- * unaffected (built from `visibilityPrivilegeIds`, not `configurable`).
- *
- * Re-regenerated 2026-08-03 (P3 Task 12): the three alarm nodes
- * (`alarms.view`, `alarms.acknowledge`, `alarms.thresholds`) joined the
- * data-injection group as `configurable: true` — unlike the eight above, they
- * ship with UI in Task 13 — taking FEATURE_PRIVILEGES and
- * FEATURE_TO_PERMISSION_MAP from 34 to 37 entries. SIDEBAR_PRIVILEGE_MAP is
- * again unaffected at that point.
- *
- * Re-regenerated 2026-08-03 (P3 Task 13, the UI): two changes.
- *   1. `alarms.view` WAS added to the data-injection group's
- *      `visibilityPrivilegeIds` (4 -> 5 ids), reversing the Task 12 decision
- *      noted above. Without it a role granted only alarm privileges could not
- *      see the Data Injection sidebar entry, and the Alarms page is reached
- *      from that entry and nowhere else. SIDEBAR_PRIVILEGE_MAP therefore DOES
- *      change this time.
- *   2. `instruments.edit` flipped to `configurable: true` — the instrument
- *      detail page now edits `expectedIntervalSec`, so the I4 rationale ("no
- *      edit affordance") no longer holds. FEATURE_PRIVILEGES and
- *      FEATURE_TO_PERMISSION_MAP go from 37 to 38 entries.
+ * Regenerated after the domain strip (2026-07-18): the oracle now reflects the
+ * core-only PERMISSION_TREE.
  */
 
 interface FeaturePrivilegeSnapshot {
@@ -208,78 +177,6 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
     "label": "Restore from Backup",
     "category": "Backup & Restore",
     "icon": "upload"
-  },
-  {
-    "id": "hierarchy.view",
-    "label": "View Hierarchy",
-    "category": "Data Injection",
-    "icon": "sitemap"
-  },
-  {
-    "id": "hierarchy.create",
-    "label": "Create Hierarchy Node",
-    "category": "Data Injection",
-    "icon": "plus"
-  },
-  {
-    "id": "hierarchy.edit",
-    "label": "Edit Hierarchy Node",
-    "category": "Data Injection",
-    "icon": "edit"
-  },
-  {
-    "id": "hierarchy.delete",
-    "label": "Delete Hierarchy Node",
-    "category": "Data Injection",
-    "icon": "trash"
-  },
-  {
-    "id": "gateways.view",
-    "label": "View Gateways",
-    "category": "Data Injection",
-    "icon": "router"
-  },
-  {
-    "id": "instruments.view",
-    "label": "View Instruments",
-    "category": "Data Injection",
-    "icon": "cpu"
-  },
-  {
-    "id": "instruments.create",
-    "label": "Create Instrument",
-    "category": "Data Injection",
-    "icon": "plus"
-  },
-  {
-    "id": "instruments.edit",
-    "label": "Edit Instrument",
-    "category": "Data Injection",
-    "icon": "edit"
-  },
-  {
-    "id": "comm_profiles.view",
-    "label": "View Communication Profiles",
-    "category": "Data Injection",
-    "icon": "plug"
-  },
-  {
-    "id": "alarms.view",
-    "label": "View Alarms",
-    "category": "Data Injection",
-    "icon": "bell"
-  },
-  {
-    "id": "alarms.acknowledge",
-    "label": "Acknowledge Alarm",
-    "category": "Data Injection",
-    "icon": "check"
-  },
-  {
-    "id": "alarms.thresholds",
-    "label": "Manage Alarm Thresholds",
-    "category": "Data Injection",
-    "icon": "sliders"
   }
 ];
 
@@ -374,57 +271,6 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   ],
   "backup.restore": [
     "BACKUP_RESTORE"
-  ],
-  "hierarchy.view": [
-    "HIERARCHY_VIEW"
-  ],
-  "hierarchy.create": [
-    "HIERARCHY_CREATE",
-    "HIERARCHY_VIEW"
-  ],
-  "hierarchy.edit": [
-    "HIERARCHY_UPDATE",
-    "HIERARCHY_VIEW"
-  ],
-  "hierarchy.delete": [
-    "HIERARCHY_DELETE",
-    "HIERARCHY_VIEW"
-  ],
-  "gateways.view": [
-    "GATEWAY_VIEW"
-  ],
-  "instruments.view": [
-    "INSTRUMENT_VIEW"
-  ],
-  "instruments.create": [
-    "INSTRUMENT_CREATE",
-    "INSTRUMENT_VIEW",
-    "HIERARCHY_VIEW",
-    "GATEWAY_VIEW",
-    "COMM_PROFILE_VIEW"
-  ],
-  "instruments.edit": [
-    "INSTRUMENT_UPDATE",
-    "INSTRUMENT_VIEW",
-    "HIERARCHY_VIEW",
-    "GATEWAY_VIEW",
-    "COMM_PROFILE_VIEW"
-  ],
-  "comm_profiles.view": [
-    "COMM_PROFILE_VIEW"
-  ],
-  "alarms.view": [
-    "ALARM_VIEW",
-    "INSTRUMENT_VIEW"
-  ],
-  "alarms.acknowledge": [
-    "ALARM_ACKNOWLEDGE",
-    "ALARM_VIEW"
-  ],
-  "alarms.thresholds": [
-    "ALARM_THRESHOLD_MANAGE",
-    "ALARM_VIEW",
-    "INSTRUMENT_VIEW"
   ]
 };
 
@@ -507,19 +353,6 @@ export const SIDEBAR_PRIVILEGE_MAP_SNAPSHOT: SidebarSectionSnapshot[] = [
     "privilegeIds": [
       "debug.view",
       "debug.manage"
-    ]
-  },
-  {
-    "sidebarId": "data-injection",
-    "label": "Data Injection",
-    "icon": "🔗",
-    "description": "Instruments, gateways and industrial communication",
-    "privilegeIds": [
-      "hierarchy.view",
-      "gateways.view",
-      "instruments.view",
-      "comm_profiles.view",
-      "alarms.view"
     ]
   }
 ];

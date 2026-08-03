@@ -20,8 +20,6 @@ const EVENT_TYPE_META: Record<string, { label: string; module: string; variables
   CHECKLIST_APPROVED:   { label: 'Checklist Approved',    module: 'checklists', variables: ['checklistName', 'approvedBy', 'timestamp'] },
   CHECKLIST_REJECTED:   { label: 'Checklist Rejected',    module: 'checklists', variables: ['checklistName', 'rejectedBy', 'reason', 'timestamp'] },
   SYSTEM_ERROR:         { label: 'System Error',          module: 'system',     variables: ['errorType', 'errorMessage', 'timestamp'] },
-  ALARM_RAISED:         { label: 'Alarm Raised',           module: 'alarms',     variables: ['instrumentName', 'key', 'value', 'limit', 'severity', 'breachCount', 'timestamp'] },
-  ALARM_ACKNOWLEDGED:   { label: 'Alarm Acknowledged',     module: 'alarms',     variables: ['instrumentName', 'key', 'severity', 'ackedBy', 'reason', 'timestamp'] },
 };
 
 export default async function notificationRulesRoutes(app: FastifyInstance) {

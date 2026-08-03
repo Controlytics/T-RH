@@ -13,7 +13,7 @@ const ALL_CARDS = [
 // The 8 filter-domain card keys (filter_analytics, total_filters, active_cycles,
 // completed_today, stage_distribution, cycle_status, daily_chart, monthly_chart)
 // were dropped with the Filter Cleaning Analytics block on the dashboard — the
-// filters dashboard-stats feed behind them went in the Phase 0 strip, so
+// `/api/filters/dashboard-stats` feed behind them went in the Phase 0 strip, so
 // those toggles controlled cards that could never render.
 
 interface RoleConfig {

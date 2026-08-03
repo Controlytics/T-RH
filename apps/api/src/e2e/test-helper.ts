@@ -1,35 +1,18 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
-import { registerSwagger } from '../lib/swagger.js';
 import authPlugin from '../plugins/auth.js';
 import rbacPlugin from '../plugins/rbac.js';
 import authRoutes from '../modules/auth/routes.js';
 import userRoutes from '../modules/users/routes.js';
 import configRoutes from '../modules/config/routes.js';
-import { discoverAndRegisterConfigs } from '../lib/config-discovery.js';
-import dynamicConfigRoutes from '../modules/config/dynamic-routes.js';
 import auditRoutes from '../modules/audit/routes.js';
-import uploadRoutes from '../modules/uploads/routes.js';
 import roleRoutes from '../modules/roles/routes.js';
 import notificationRoutes from '../modules/notifications/routes.js';
 import notificationDeliveryRoutes from '../modules/notification-delivery/routes.js';
-import notificationRulesRoutes from '../modules/notification-rules/routes.js';
 import userGroupRoutes from '../modules/user-groups/routes.js';
 import backupRoutes from '../modules/backup/routes.js';
-import helpRoutes from '../modules/help/routes.js';
 import systemHealthRoutes from '../modules/system-health/routes.js';
-import superAdminRoutes from '../modules/super-admin/routes.js';
-import debugTraceRoutes from '../modules/debug-traces/routes.js';
-import ldapRoutes from '../modules/ldap/routes.js';
-import dashboardRoutes from '../modules/dashboards/routes.js';
-import adminRequestRoutes from '../modules/admin-requests/routes.js';
-import communicationProfileRoutes from '../modules/communication-profiles/routes.js';
-import hierarchyRoutes from '../modules/hierarchy/routes.js';
-import gatewayRoutes from '../modules/gateways/routes.js';
-import instrumentRoutes from '../modules/instruments/routes.js';
-import dataInjectionRoutes, { instrumentTelemetryRoutes } from '../modules/data-injection/routes.js';
-import alarmRoutes, { alarmThresholdRoutes, instrumentThresholdRoutes } from '../modules/alarms/routes.js';
 import { prisma } from '../lib/prisma.js';
 import { AppError } from '../lib/errors.js';
 
@@ -49,11 +32,6 @@ export async function buildApp(): Promise<FastifyInstance> {
       },
     },
   });
-
-  // Swagger — mirrors app.ts ("register before routes"). Needed so
-  // app.swagger() reflects the full registered route surface for
-  // route-parity checking (src/e2e/route-parity.test.ts).
-  await registerSwagger(app);
 
   await app.register(cors, { origin: true, credentials: true });
   await app.register(multipart, { limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
@@ -82,43 +60,17 @@ export async function buildApp(): Promise<FastifyInstance> {
   // Health check
   app.get('/api/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
 
-  // Auto-discover config module definitions (needed by dynamicConfigRoutes,
-  // mirrors app.ts's `await discoverAndRegisterConfigs()` before routes).
-  await discoverAndRegisterConfigs();
-
-  // Routes — mirrors the full registration list in app.ts (minus CORS/helmet/
-  // rate-limit/static hardening, which don't affect the route surface) so
-  // app.swagger().paths reflects every real API route for parity checking.
+  // Routes
   await app.register(authRoutes, { prefix: '/api/auth' });
   await app.register(userRoutes, { prefix: '/api/users' });
   await app.register(configRoutes, { prefix: '/api/config' });
-  await app.register(dynamicConfigRoutes, { prefix: '/api/config' });
   await app.register(auditRoutes, { prefix: '/api/audit' });
-  await app.register(uploadRoutes, { prefix: '/api/uploads' });
-  await app.register(notificationRoutes, { prefix: '/api/notifications' });
   await app.register(roleRoutes, { prefix: '/api/roles' });
-  await app.register(backupRoutes, { prefix: '/api/backup' });
-  await app.register(helpRoutes, { prefix: '/api/help' });
-  await app.register(systemHealthRoutes, { prefix: '/api/system-health' });
+  await app.register(notificationRoutes, { prefix: '/api/notifications' });
   await app.register(notificationDeliveryRoutes, { prefix: '/api/notification-settings' });
   await app.register(userGroupRoutes, { prefix: '/api/user-groups' });
-  await app.register(notificationRulesRoutes, { prefix: '/api/notification-rules' });
-  await app.register(superAdminRoutes, { prefix: '/api/super-admin' });
-  await app.register(debugTraceRoutes, { prefix: '/api/debug/traces' });
-  await app.register(ldapRoutes, { prefix: '/api/ldap' });
-  await app.register(dashboardRoutes, { prefix: '/api/dashboards' });
-  await app.register(adminRequestRoutes, { prefix: '/api/admin-requests' });
-  await app.register(communicationProfileRoutes, { prefix: '/api/communication-profiles' });
-  await app.register(hierarchyRoutes, { prefix: '/api/hierarchy' });
-  await app.register(gatewayRoutes, { prefix: '/api/gateways' });
-  await app.register(instrumentRoutes, { prefix: '/api/instruments' });
-  // Telemetry reads mount under the SAME /api/instruments prefix.
-  await app.register(instrumentTelemetryRoutes, { prefix: '/api/instruments' });
-  await app.register(dataInjectionRoutes, { prefix: '/api/data-injection' });
-  // Alarm thresholds for an instrument also ride the /api/instruments prefix.
-  await app.register(instrumentThresholdRoutes, { prefix: '/api/instruments' });
-  await app.register(alarmRoutes, { prefix: '/api/alarms' });
-  await app.register(alarmThresholdRoutes, { prefix: '/api/alarm-thresholds' });
+  await app.register(backupRoutes, { prefix: '/api/backup' });
+  await app.register(systemHealthRoutes, { prefix: '/api/system-health' });
 
   await app.ready();
   return app;

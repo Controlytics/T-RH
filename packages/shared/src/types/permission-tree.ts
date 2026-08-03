@@ -299,108 +299,6 @@ export const PERMISSION_TREE: SidebarGroup[] = [
     ],
   },
 
-  // ---- Data Injection (P1) ----
-  {
-    sidebarId: 'data-injection', label: 'Data Injection', icon: '\u{1F517}',
-    description: 'Instruments, gateways and industrial communication',
-    // Every page-level `.view` in this group is listed, which is the same
-    // convention the other eight groups follow (debug-traces lists both of its
-    // page-level nodes). `alarms.view` was omitted when the P3 nodes were added
-    // in Task 12: without it a role granted ONLY alarm privileges fails
-    // isSidebarItemVisible() for the whole group, so the Alarms page it CAN
-    // reach by permission has no nav path to it — unreachable for exactly the
-    // operator the page exists for.
-    visibilityPrivilegeIds: [
-      'hierarchy.view', 'gateways.view', 'instruments.view', 'comm_profiles.view',
-      'alarms.view',
-    ],
-    nodes: [
-      { id: 'hierarchy.view', label: 'View Hierarchy', sidebarId: 'data-injection', page: 'Hierarchy', action: 'View',
-        icon: 'sitemap', category: 'Data Injection', permissions: ['HIERARCHY_VIEW'], enforce: 'a',
-        gate: ['HIERARCHY_VIEW'], configurable: true },
-      { id: 'hierarchy.create', label: 'Create Hierarchy Node', sidebarId: 'data-injection', page: 'Hierarchy', action: 'Add',
-        icon: 'plus', category: 'Data Injection', permissions: ['HIERARCHY_CREATE', 'HIERARCHY_VIEW'],
-        reauthAction: 'CREATE_HIERARCHY_NODE', enforce: 'a', gate: ['HIERARCHY_CREATE'], configurable: true },
-      { id: 'hierarchy.edit', label: 'Edit Hierarchy Node', sidebarId: 'data-injection', page: 'Hierarchy', action: 'Edit',
-        icon: 'edit', category: 'Data Injection', permissions: ['HIERARCHY_UPDATE', 'HIERARCHY_VIEW'],
-        reauthAction: 'UPDATE_HIERARCHY_NODE', enforce: 'a', gate: ['HIERARCHY_UPDATE'], configurable: true },
-      { id: 'hierarchy.delete', label: 'Delete Hierarchy Node', sidebarId: 'data-injection', page: 'Hierarchy', action: 'Delete',
-        icon: 'trash', category: 'Data Injection', permissions: ['HIERARCHY_DELETE', 'HIERARCHY_VIEW'],
-        reauthAction: 'DELETE_HIERARCHY_NODE', enforce: 'a', gate: ['HIERARCHY_DELETE'], configurable: true },
-
-      { id: 'gateways.view', label: 'View Gateways', sidebarId: 'data-injection', page: 'Gateways', action: 'View',
-        icon: 'router', category: 'Data Injection', permissions: ['GATEWAY_VIEW'], enforce: 'a',
-        gate: ['GATEWAY_VIEW'], configurable: true },
-      // gateways.create/edit/delete: configurable:false (final branch review,
-      // finding I4) — gateways.tsx is a read-only table with no add/edit/
-      // delete affordance. The backend route (GATEWAY_CREATE/UPDATE/DELETE)
-      // stays enforced; granting this toggle just can't surface a button
-      // until a P2 UI ships. Permission constant + gate + node kept so the
-      // API contract and future UI work are unaffected — only the
-      // role-config picker toggle is hidden.
-      { id: 'gateways.create', label: 'Create Gateway', sidebarId: 'data-injection', page: 'Gateways', action: 'Add',
-        icon: 'plus', category: 'Data Injection', permissions: ['GATEWAY_CREATE', 'GATEWAY_VIEW', 'HIERARCHY_VIEW', 'COMM_PROFILE_VIEW'],
-        reauthAction: 'CREATE_GATEWAY', enforce: 'a', gate: ['GATEWAY_CREATE'], configurable: false },
-      { id: 'gateways.edit', label: 'Edit Gateway', sidebarId: 'data-injection', page: 'Gateways', action: 'Edit',
-        icon: 'edit', category: 'Data Injection', permissions: ['GATEWAY_UPDATE', 'GATEWAY_VIEW', 'HIERARCHY_VIEW', 'COMM_PROFILE_VIEW'],
-        reauthAction: 'UPDATE_GATEWAY', enforce: 'a', gate: ['GATEWAY_UPDATE'], configurable: false },
-      { id: 'gateways.delete', label: 'Delete Gateway', sidebarId: 'data-injection', page: 'Gateways', action: 'Delete',
-        icon: 'trash', category: 'Data Injection', permissions: ['GATEWAY_DELETE', 'GATEWAY_VIEW'],
-        reauthAction: 'DELETE_GATEWAY', enforce: 'a', gate: ['GATEWAY_DELETE'], configurable: false },
-
-      { id: 'instruments.view', label: 'View Instruments', sidebarId: 'data-injection', page: 'Instruments', action: 'View',
-        icon: 'cpu', category: 'Data Injection', permissions: ['INSTRUMENT_VIEW'], enforce: 'a',
-        gate: ['INSTRUMENT_VIEW'], configurable: true },
-      { id: 'instruments.create', label: 'Create Instrument', sidebarId: 'data-injection', page: 'Instruments', action: 'Add',
-        icon: 'plus', category: 'Data Injection', permissions: ['INSTRUMENT_CREATE', 'INSTRUMENT_VIEW', 'HIERARCHY_VIEW', 'GATEWAY_VIEW', 'COMM_PROFILE_VIEW'],
-        reauthAction: 'CREATE_INSTRUMENT', enforce: 'a', gate: ['INSTRUMENT_CREATE'], configurable: true },
-      // instruments.edit: configurable:true since 2026-08-03 (P3 Task 13).
-      // It was configurable:false under finding I4 because instruments.tsx was
-      // a read-only table with no edit affordance. That is no longer true —
-      // the instrument detail page now edits `expectedIntervalSec`, the field
-      // that switches liveness monitoring on. Leaving the toggle hidden would
-      // have meant only SUPER_ADMIN could ever enable liveness for an
-      // instrument, which is how the whole liveness half came to ship dark.
-      // instruments.delete stays configurable:false — still no delete UI.
-      { id: 'instruments.edit', label: 'Edit Instrument', sidebarId: 'data-injection', page: 'Instruments', action: 'Edit',
-        icon: 'edit', category: 'Data Injection', permissions: ['INSTRUMENT_UPDATE', 'INSTRUMENT_VIEW', 'HIERARCHY_VIEW', 'GATEWAY_VIEW', 'COMM_PROFILE_VIEW'],
-        reauthAction: 'UPDATE_INSTRUMENT', enforce: 'a', gate: ['INSTRUMENT_UPDATE'], configurable: true },
-      { id: 'instruments.delete', label: 'Delete Instrument', sidebarId: 'data-injection', page: 'Instruments', action: 'Delete',
-        icon: 'trash', category: 'Data Injection', permissions: ['INSTRUMENT_DELETE', 'INSTRUMENT_VIEW'],
-        reauthAction: 'DELETE_INSTRUMENT', enforce: 'a', gate: ['INSTRUMENT_DELETE'], configurable: false },
-
-      { id: 'comm_profiles.view', label: 'View Communication Profiles', sidebarId: 'data-injection', page: 'Communication Profiles', action: 'View',
-        icon: 'plug', category: 'Data Injection', permissions: ['COMM_PROFILE_VIEW'], enforce: 'a',
-        gate: ['COMM_PROFILE_VIEW'], configurable: true },
-      // comm_profiles.create/edit/delete: configurable:false (finding I4) —
-      // profiles.tsx is a read-only table with no add/edit/delete
-      // affordance. Route stays enforced; see the gateways.create comment
-      // above for the rationale.
-      { id: 'comm_profiles.create', label: 'Create Communication Profile', sidebarId: 'data-injection', page: 'Communication Profiles', action: 'Add',
-        icon: 'plus', category: 'Data Injection', permissions: ['COMM_PROFILE_CREATE', 'COMM_PROFILE_VIEW'],
-        reauthAction: 'CREATE_COMM_PROFILE', enforce: 'a', gate: ['COMM_PROFILE_CREATE'], configurable: false },
-      { id: 'comm_profiles.edit', label: 'Edit Communication Profile', sidebarId: 'data-injection', page: 'Communication Profiles', action: 'Edit',
-        icon: 'edit', category: 'Data Injection', permissions: ['COMM_PROFILE_UPDATE', 'COMM_PROFILE_VIEW'],
-        reauthAction: 'UPDATE_COMM_PROFILE', enforce: 'a', gate: ['COMM_PROFILE_UPDATE'], configurable: false },
-      { id: 'comm_profiles.delete', label: 'Delete Communication Profile', sidebarId: 'data-injection', page: 'Communication Profiles', action: 'Delete',
-        icon: 'trash', category: 'Data Injection', permissions: ['COMM_PROFILE_DELETE', 'COMM_PROFILE_VIEW'],
-        reauthAction: 'DELETE_COMM_PROFILE', enforce: 'a', gate: ['COMM_PROFILE_DELETE'], configurable: false },
-
-      // Alarms (P3). All three are `configurable: true` — unlike the eight
-      // nodes above left non-configurable for want of UI, these ship with the
-      // Task 13 alarm queue, ack dialog and threshold editor, so each toggle
-      // grants a capability an operator can actually see.
-      { id: 'alarms.view', label: 'View Alarms', sidebarId: 'data-injection', page: 'Alarms', action: 'View',
-        icon: 'bell', category: 'Data Injection', permissions: ['ALARM_VIEW', 'INSTRUMENT_VIEW'], enforce: 'a',
-        gate: ['ALARM_VIEW'], configurable: true },
-      { id: 'alarms.acknowledge', label: 'Acknowledge Alarm', sidebarId: 'data-injection', page: 'Alarms', action: 'Acknowledge',
-        icon: 'check', category: 'Data Injection', permissions: ['ALARM_ACKNOWLEDGE', 'ALARM_VIEW'],
-        reauthAction: 'ACKNOWLEDGE_ALARM', enforce: 'a', gate: ['ALARM_ACKNOWLEDGE'], configurable: true },
-      { id: 'alarms.thresholds', label: 'Manage Alarm Thresholds', sidebarId: 'data-injection', page: 'Alarms', action: 'Configure',
-        icon: 'sliders', category: 'Data Injection', permissions: ['ALARM_THRESHOLD_MANAGE', 'ALARM_VIEW', 'INSTRUMENT_VIEW'],
-        reauthAction: 'MANAGE_ALARM_THRESHOLD', enforce: 'a', gate: ['ALARM_THRESHOLD_MANAGE'], configurable: true },
-    ],
-  },
 ];
 
 // ─── Phase 5E: Canonical ordering for derived maps ───────────────────────────
@@ -416,11 +314,6 @@ const CONFIGURABLE_PRIVILEGE_ORDER: readonly string[] = [
   'admin_requests.approve', 'admin_requests.reject',
   'debug.view', 'debug.manage',
   'backup.export', 'backup.restore',
-  'hierarchy.view', 'hierarchy.create', 'hierarchy.edit', 'hierarchy.delete',
-  'gateways.view',
-  'instruments.view', 'instruments.create', 'instruments.edit',
-  'comm_profiles.view',
-  'alarms.view', 'alarms.acknowledge', 'alarms.thresholds',
 ] as const;
 
 // ─── Derive Functions ────────────────────────────────────────────────────────

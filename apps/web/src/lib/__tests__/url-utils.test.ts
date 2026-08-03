@@ -7,18 +7,18 @@ describe('apiUrl', () => {
   beforeEach(() => { localStorage.clear(); delete (window as any).__API_BASE__; });
 
   it('is a no-op on the desktop browser (same-origin, base "")', () => {
-    expect(apiUrl('/api/uploads/photo')).toBe('/api/uploads/photo');
+    expect(apiUrl('/api/pm-schedules/upload')).toBe('/api/pm-schedules/upload');
   });
 
   it('prefixes the configured server address (the Capacitor APK case)', () => {
     localStorage.setItem('digilog.serverUrl', 'https://192.168.1.55:3000');
-    expect(apiUrl('/api/uploads/photo')).toBe('https://192.168.1.55:3000/api/uploads/photo');
+    expect(apiUrl('/api/pm-schedules/upload')).toBe('https://192.168.1.55:3000/api/pm-schedules/upload');
   });
 
   it('picks up a base set after module load (no cached read)', () => {
-    expect(apiUrl('/api/health')).toBe('/api/health');
+    expect(apiUrl('/api/x')).toBe('/api/x');
     (window as any).__API_BASE__ = 'https://tablet:3000';
-    expect(apiUrl('/api/health')).toBe('https://tablet:3000/api/health');
+    expect(apiUrl('/api/x')).toBe('https://tablet:3000/api/x');
   });
 });
 
@@ -41,7 +41,7 @@ describe('getPhotoUrl', () => {
  * `${getApiBase()}` idiom.
  *
  * Why it matters: getApiBase() is the base EVERY other caller already uses
- * (apiClient, getPhotoUrl, guest-request). A bare relative /api path is the
+ * (apiClient, getPhotoUrl, guest-request). A bare relative '/api/...' is the
  * only thing that doesn't, so it silently talks to a different origin than the
  * rest of the app — and on the Capacitor APK there is no origin at all, so the
  * WebView serves index.html with HTTP 200 and the call silently does nothing.
@@ -59,9 +59,8 @@ describe('raw fetch call sites resolve against getApiBase()', () => {
     'lib/pdf-report.ts',
   ];
 
-  // Matches a fetch() call whose first arg opens with a quote or backtick
-  // directly followed by an unprefixed /api path (fetch(apiUrl(...)) and
-  // fetch(`${getApiBase()}...`) both open with something else, so they pass).
+  // Matches fetch('/api/...') or fetch(`/api/...`) — i.e. an unprefixed path.
+  // fetch(apiUrl('/api/... and fetch(`${getApiBase()}/api/... both pass.
   const RAW_RELATIVE_FETCH = /fetch\(\s*['"`]\/api\//g;
 
   for (const rel of FILES) {

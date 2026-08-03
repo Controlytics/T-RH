@@ -1,18 +1,11 @@
 # Phase 6 — API Analysis
 
-**166 paths across 26 groups**, verified 2026-08-03 by booting the API and
-pulling `/docs/json` live (was 153 across 23 groups on 2026-08-01 — the
-Data Injection P1 baseline; 139 across 19 groups on 2026-07-25 pre-P1). The
-+13 since P1 is P2's telemetry/dead-letter surface (`data-injection` module)
-plus P3's `alarms` module. The complete path-by-path listing referenced below
-(**[`endpoints.md`](endpoints.md)**) still predates P1 and **has not been
-regenerated as part of this pass either** — same out-of-scope call as the
-2026-08-01 sync. Treat `endpoints.md` as stale for every module added since
-P1 (`data-injection`, `alarms`, `alarm-thresholds`, and the P2 additions to
-`instruments`) until it is regenerated from a live `/docs/json` pull.
+**139 paths across 19 groups.** The complete path-by-path listing is generated
+directly from the running server's OpenAPI document:
+**[`endpoints.md`](endpoints.md)**.
 
 ```bash
-curl -sk https://localhost:3001/docs/json | jq '.paths | length'   # → 166 (2026-08-03; was 153 after P1, 139 pre-P1)
+curl -sk https://localhost:3001/docs/json | jq '.paths | length'   # → 139
 ```
 
 This page documents the **conventions** every endpoint follows, which is what a
@@ -22,34 +15,22 @@ rebuild actually needs — the path list is mechanical.
 
 ## 1. Surface shape
 
-Live-measured from `/docs/json`, grouped by the first path segment after
-`/api/` (2026-08-03):
-
 | Group | Paths | Group | Paths |
 |---|---|---|---|
-| `config` | 38 (was 36 after P1; +2 for P3's `liveness` def) | `debug` | 5 |
-| `notification-settings` | 14 | `help` | 4 |
+| `config` | 35 | `notification-rules` | 5 |
+| `notification-settings` | 14 | `debug` | 5 |
 | `users` | 12 | `user-groups` | 4 |
-| `auth` | 9 | `admin-requests` | 4 |
-| `notifications` | 9 | `backup` | 3 |
-| `dashboards` | 9 | `ldap` | 3 |
-| `audit` | 7 | `communication-profiles` **(P1)** | 3 |
-| `super-admin` | 7 | `hierarchy` **(P1)** | 3 |
-| `instruments` **(P1, grew in P2/P3)** | 7 | `gateways` **(P1)** | 3 |
-| `roles` | 6 | `data-injection` **(P2)** | 3 |
-| `notification-rules` | 5 | `alarms` **(P3)** | 3 |
-| | | `alarm-thresholds` **(P3)** | 2 |
+| `notifications` | 9 | `help` | 4 |
+| `dashboards` | 9 | `admin-requests` | 4 |
+| `auth` | 9 | `ldap` | 3 |
+| `super-admin` | 7 | `backup` | 3 |
+| `audit` | 7 | `uploads` | 1 |
+| `roles` | 6 | `system-health` | 1 |
 | | | `health` (root) | 1 |
-| | | `uploads` | 1 |
-| | | `system-health` | 1 |
 
 **Configuration is a quarter of the API.** That is the defining characteristic
 of this system: it is built to be reconfigured by administrators at a regulated
-site, without a redeploy. The `instruments` group's growth from 4 paths at P1
-to 7 today reflects P2's resolved-topics/telemetry endpoints and P3's
-`GET /:id/thresholds` landing on the same prefix rather than a dedicated
-group — grep against `endpoints.md` before assuming which module owns a given
-`/api/instruments/...` path; it predates all three phases (see note above).
+site, without a redeploy.
 
 ## 2. Middleware pipeline (every request)
 
@@ -125,17 +106,8 @@ opens the re-auth dialog and retries with the credential.
 
 - **10-second in-memory cache** so multi-step operations do not re-prompt.
 - **Which actions require re-auth is configurable** (`action-reauth` surface),
-  not hardcoded — sites tune their own signature policy — **with exactly one
-  exception**: `ACKNOWLEDGE_ALARM` is `alwaysOn`, and the config schema
-  itself rejects any attempt to set it as a key, so it cannot be turned off
-  even by an administrator with `CONFIG_UPDATE`. See
-  [`../04-roles-permissions/README.md`](../04-roles-permissions/README.md)
-  §11.
-- **53 actions across 8 categories** (2026-08-03; was 51/8 after P1, 39/7
-  before P1 — P3 added 2 actions, `ACKNOWLEDGE_ALARM` and
-  `MANAGE_ALARM_THRESHOLD`, no new category). See
-  [`../04-roles-permissions/README.md`](../04-roles-permissions/README.md)
-  §§7, 11 — re-verified 2026-08-03.
+  not hardcoded — sites tune their own signature policy.
+- 39 actions across 7 categories.
 
 ## 6. Request/response conventions
 
@@ -204,120 +176,3 @@ global limit cannot serve both purposes.
    to reflect what it is.
 4. **Dead CORS entry.** `capacitor://localhost` remains in the allow-list with
    no Capacitor client. Remove it.
-5. **`endpoints.md` predates P1** (§9) — regenerate it from a live
-   `/docs/json` pull before relying on it for the 4 P1 module groups, the P2
-   telemetry surface, or P3's `alarms`/`alarm-thresholds` groups.
-6. ~~`../04-roles-permissions/README.md`'s permission/reauth/sidebar-node
-   breakdown was never re-verified after P1.`~~ **Fixed 2026-08-03** — now
-   carries the P3 figures (49 perms / 53 reauth / 9 groups / 57 nodes / 38
-   configurable), including the `ACKNOWLEDGE_ALARM` always-on reauth
-   exception (§11 there).
-
-## 9. Data Injection (P1) — 4 new module groups, landed 2026-08-01
-
-Registered in `apps/api/src/app.ts` under `/api/communication-profiles`,
-`/api/hierarchy`, `/api/gateways`, `/api/instruments`. All four follow every
-convention in §2–§6 unchanged — same middleware pipeline, same
-`requirePermission`/`enforceReauth`/`writeAudit`-in-transaction shape as the
-pre-P1 modules. Nothing new was introduced at the framework level; this
-section records what's specific to the new surface.
-
-**Route inventory** (13 unique OpenAPI paths, 21 route registrations —
-GET/POST share `/`, so path count is lower than registration count):
-
-| Module | Routes |
-|---|---|
-| `hierarchy` | `GET /`, `POST /`, `PUT /:id`, `POST /:id/move`, `DELETE /:id` |
-| `gateways` | `GET /`, `GET /:id/instruments`, `POST /`, `PUT /:id`, `DELETE /:id` |
-| `instruments` | `GET /`, `GET /:id/topics`, `POST /`, `PUT /:id`, `PUT /:id/topics/:category`, `DELETE /:id` |
-| `communication-profiles` | `GET /protocols`, `GET /`, `POST /`, `PUT /:id`, `DELETE /:id` |
-
-**Secret masking on `CommunicationProfile.config`.** The module's own
-`maskForResponse`/`maskForAudit` wrap the shared `lib/mask-secrets.ts` with
-two explicit allowlists (response-safe keys vs. audit-safe keys), rather than
-the module inventing its own redaction. `maskSecrets` **fails closed** — an
-unrecognised key is redacted by default until a human explicitly adds it to
-an allowlist — so a new connection-config field added later (a new protocol's
-credential shape) is redacted automatically rather than silently leaking.
-Masked config is what lands in both the API response *and* the audit diff —
-a raw secret never reaches an audit row, because audit rows are permanent
-and effectively unredactable in practice.
-
-**`GET /api/instruments/:id/topics`** is the resolved-topics endpoint —
-it runs `resolveTopics()` (pure function, no DB write) over the instrument's
-hierarchy ancestry, gateway slug, and `uns-settings` config, merged with any
-persisted `InstrumentTopic` overrides, and returns the effective topic string
-per `TopicCategory`. `PUT /api/instruments/:id/topics/:category` is the only
-way to set/clear an override; there is no bulk-override endpoint.
-
-**Audit actions (12 new):** `HIERARCHY_NODE_{CREATED,UPDATED,MOVED,DELETED}`,
-`GATEWAY_{CREATED,UPDATED,DELETED}`, `INSTRUMENT_{CREATED,UPDATED,DELETED}`,
-`INSTRUMENT_TOPIC_OVERRIDE_{SET,CLEARED}`, plus 3 more for communication
-profiles (`COMMUNICATION_PROFILE_{CREATED,UPDATED,DELETED}`) — 15 total new
-`AUDIT_ACTIONS` entries across the 4 modules. Every mutating route in all
-four modules calls `writeAudit()` in the same transaction as the write,
-matching the §2 pipeline. **Telemetry is deliberately not audited** — see
-[`../05-database/README.md`](../05-database/README.md) §11.9 for why (there
-is none yet to audit; the boundary decision is for when an adapter lands).
-
-**No protocol adapter exists.** These 4 modules are pure CRUD over
-configuration rows — hierarchy nodes, gateway/instrument records, connection
-profiles, and derived/overridden topic strings. None of them open a network
-connection, poll a device, or subscribe to a broker. `GET
-/api/communication-profiles/protocols` lists the 18 seeded `Protocol` rows
-(all `is_enabled: false`) for the frontend picker; nothing consumes that flag
-to actually connect.
-
-## 10. Data Injection (P3) — the `alarms` module, landed 2026-08-03
-
-One new module, registered as **three separate prefixes** in `app.ts` — the
-only Data Injection module split this way:
-
-```ts
-await app.register(instrumentThresholdRoutes, { prefix: '/api/instruments' });
-await app.register(alarmRoutes,               { prefix: '/api/alarms' });
-await app.register(alarmThresholdRoutes,      { prefix: '/api/alarm-thresholds' });
-```
-
-**Route inventory** (6 unique paths, 7 route registrations):
-
-| Prefix | Routes | Gate |
-|---|---|---|
-| `/api/alarms` | `GET /`, `GET /:id`, `POST /:id/acknowledge` | `ALARM_VIEW` (list/get), `ALARM_ACKNOWLEDGE` (acknowledge) |
-| `/api/alarm-thresholds` | `POST /`, `PUT /:id`, `DELETE /:id` | `ALARM_THRESHOLD_MANAGE` |
-| `/api/instruments` | `GET /:id/thresholds` | `ALARM_VIEW` |
-
-**Acknowledgement deliberately does not follow the §5 `enforceReauth`
-pattern.** Every other reauth-gated route in this codebase calls
-`enforceReauth(action)`, which consults the admin-configurable
-`action-reauth` surface and can be turned off per role. `POST
-/api/alarms/:id/acknowledge` calls `enforceReauthAlways` instead — the
-acknowledgement IS the 21 CFR §11.50 electronic signature, not a security
-policy an administrator should be able to disable. Threshold CRUD (the
-other new surface) keeps the normal configurable `enforceReauth` — setting a
-limit is an engineering decision, not a signed disposition. See the file
-header of `apps/api/src/modules/alarms/routes.ts` for the full rationale
-(both deviations are documented there, not just in this doc).
-
-**Alarm state is write-restricted at the route layer.** `alarms` has no
-`PUT`/`PATCH` on the alarm resource itself and no route that can move an
-alarm to `RESOLVED_UNACKED` or `CLOSED` directly — only `POST
-/:id/acknowledge`, which can only ever produce `ACTIVE_ACKED` or `CLOSED`
-(never skip states; see [`../05-database/README.md`](../05-database/README.md)
-§13.4). Raise, re-breach, and resolve are driven exclusively by the ingest
-flush loop and the liveness sweep, not by any REST caller — a deliberate
-gap, not an oversight, so a caller can never close out a deviation by hand
-without the state machine's invariants applying.
-
-**Audit actions:** every threshold create/update/delete and every
-acknowledgement is audited in the same transaction as the write, matching
-the §2 pipeline. Telemetry-driven state transitions (raise/re-breach/resolve)
-audit at the point they happen inside the flush loop / sweep, not through
-this REST surface.
-
-**Permissions (3, new):** `ALARM_VIEW`, `ALARM_ACKNOWLEDGE`,
-`ALARM_THRESHOLD_MANAGE` (49 total). **Reauth actions (2, new):**
-`ACKNOWLEDGE_ALARM`, `MANAGE_ALARM_THRESHOLD`, both category `Data
-Injection` (53 total, still 8 categories — the category itself already
-existed from P1, but see the CHANGELOG for a bug that had hidden the whole
-category from the reauth-policy UI until this phase).

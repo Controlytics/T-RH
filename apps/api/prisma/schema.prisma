@@ -128,8 +128,8 @@ model User {
   createdBy           String?    @map("created_by") @db.VarChar(50)
   updatedBy           String?    @map("updated_by") @db.VarChar(50)
 
-  passwordHistory PasswordHistory[]
-  sessions        Session[]
+  passwordHistory     PasswordHistory[]
+  sessions            Session[]
 
   // (Report generate/sign relations removed 2026-07-04 with the orphaned module.)
 
@@ -228,39 +228,39 @@ model AdminRequest {
 }
 
 model AuditTrail {
-  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  timestamp        DateTime  @default(now()) @db.Timestamptz
-  userId           String?   @map("user_id") @db.VarChar(100)
-  userName         String?   @map("user_name") @db.VarChar(100)
-  userRole         String?   @map("user_role") @db.VarChar(20)
-  action           String    @db.VarChar(100)
-  targetType       String?   @map("target_type") @db.VarChar(50)
-  targetId         String?   @map("target_id") @db.VarChar(255)
-  beforeValue      Json?     @map("before_value")
-  afterValue       Json?     @map("after_value")
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  timestamp        DateTime @default(now()) @db.Timestamptz
+  userId           String?  @map("user_id") @db.VarChar(100)
+  userName         String?  @map("user_name") @db.VarChar(100)
+  userRole         String?  @map("user_role") @db.VarChar(20)
+  action           String   @db.VarChar(100)
+  targetType       String?  @map("target_type") @db.VarChar(50)
+  targetId         String?  @map("target_id") @db.VarChar(255)
+  beforeValue      Json?    @map("before_value")
+  afterValue       Json?    @map("after_value")
   reason           String?
-  ipAddress        String?   @map("ip_address") @db.VarChar(45)
-  userAgent        String?   @map("user_agent")
-  sessionId        String?   @map("session_id") @db.VarChar(100)
-  checksum         String    @db.VarChar(64)
+  ipAddress        String?  @map("ip_address") @db.VarChar(45)
+  userAgent        String?  @map("user_agent")
+  sessionId        String?  @map("session_id") @db.VarChar(100)
+  checksum         String   @db.VarChar(64)
   // Checksum formula version. NULL = legacy unkeyed SHA-256 (V1/V2, all rows
   // written before the keyed-chain cutover). 3 = keyed HMAC-SHA256 (V3) written
   // when AUDIT_CHAIN_KEY is set. The verifier REQUIRES the key + an HMAC match
   // for version-3 rows (never accepts the unkeyed formula for them), so a
   // DB-level actor cannot forge or downgrade a keyed row. See lib/hash-chain.ts.
-  checksumVersion  Int?      @map("checksum_version") @db.SmallInt
+  checksumVersion  Int?     @map("checksum_version") @db.SmallInt
   // Audit 2026-05-04 fix C3: tamper-evident hash chain. Each new row carries
   // the prior row's checksum (under a Postgres advisory lock during write so
   // the chain is monotonic across concurrent writers). Existing rows written
   // before the migration carry NULL — they are the "pre-chain" era and are
   // verified by per-row checksum only. New rows verify both per-row +
   // chain link via apps/api/src/lib/audit-verify.ts.
-  previousChecksum String?   @map("previous_checksum") @db.VarChar(64)
+  previousChecksum String?  @map("previous_checksum") @db.VarChar(64)
   // Monotonically-incrementing position assigned at insert time. Sort key
   // for chain verification (timestamp can collide at sub-millisecond on
   // batched writes; chainPosition can't). bigserial-equivalent.
-  chainPosition    BigInt?   @default(autoincrement()) @map("chain_position")
-  signatureMeaning String?   @map("signature_meaning") @db.VarChar(255)
+  chainPosition    BigInt?  @default(autoincrement()) @map("chain_position")
+  signatureMeaning String?  @map("signature_meaning") @db.VarChar(255)
   // Audit 2026-05-20 §C1 / May 16 §1.2 fix: 21 CFR §11.10(e)-compliant
   // REDACTION path replaces physical DELETE. When set, beforeValue + afterValue
   // are NULLed but checksum + chainPosition + previousChecksum are preserved
@@ -399,6 +399,10 @@ model RoleConfig {
 // a feature flag (Wave 5). AssetInstance / AssetTemplate remain authoritative
 // until Wave 6 cutover.
 
+
+
+
+
 // Asset Template — reusable blueprint for asset types
 
 // Asset Template Version — snapshot of template at a point in time
@@ -437,6 +441,7 @@ model RoleConfig {
 // (UnsMapping + ConnectivityStatus models removed with data-ingestion removal.)
 
 // QR Codes (per entity)
+
 
 // Help Articles (version-controlled)
 model HelpArticle {
@@ -547,8 +552,6 @@ enum NotificationEventType {
   CHECKLIST_APPROVED
   CHECKLIST_REJECTED
   SYSTEM_ERROR
-  ALARM_RAISED
-  ALARM_ACKNOWLEDGED
 }
 
 // ─── User Groups ──────────────────────────────────────────────────────
@@ -635,10 +638,23 @@ model NotificationRuleRecipient {
 
 // ─── Phase 2: Filter Management System ─────────────────────
 
+
+
+
+
+
+
+
+
+
+
+
+
 // Quality Notification registry. One row per PM-schedule action (upload / review /
 // approve / reject / resubmit). The qnn (QN-YYYY-000001, from the qnn_seq sequence)
 // is the human-facing reference number surfaced in the Notifications center. Soft
 // refs (no FK cascade) so the audit record survives entry/schedule deletion.
+
 
 // ─── Filter Replacement Schedule (upload-driven, 2026-06-02) ───────────────
 // Additive feature: a user uploads a schedule (one ReplacementSchedule batch);
@@ -647,6 +663,9 @@ model NotificationRuleRecipient {
 // actually replaced is logged as a ReplacementExecution (qty tracking + audit).
 // AHU is a soft ref (no FK) to avoid coupling to the asset/typed-filter tables.
 // The execute step WRAPS the existing replace action — it does not change it.
+
+
+
 
 // ─── PM Overdue Deviations (2026-06-03) ───────────────────────────────────
 // When a PM cleaning task (PmScheduleEntry) passes its tolerance window without
@@ -657,6 +676,11 @@ model NotificationRuleRecipient {
 // per transition, guarded by notified_at / completion_notified_at. Soft refs (no
 // FK) — like ReplacementSchedule — so the deviation audit record survives
 // schedule/entry deletion (21 CFR). Created via psql DDL (db push blocked).
+
+
+
+
+
 
 // Step 4 (2026-05-02): join table replacing FilterProfile.applicableTemplates
 // JSONB array. Both FKs cascade-delete so a vanishing AssetTemplate or
@@ -672,19 +696,28 @@ model NotificationRuleRecipient {
 // start, so no cycle-side pin map is needed here — versions exist purely for
 // audit replay and admin history.
 
+
+
 // ─── Equipment Groups ──────────────────────────────────────
+
 
 // Immutable historical snapshot of an EquipmentGroup at a specific version.
 // Written BEFORE every mutation to the live group or any of its instruments
 // (snapshot-then-bump, Phase A.4). The composite (group + 3 instruments) is
 // always snapshotted together because update() mutates them as a unit.
 
+
 // ─── Checklist Profiles & Questions ──────────────────────────
+
+
+
 
 // Immutable historical snapshot of a checklist profile at a specific version.
 // Created BEFORE every mutation to the live profile or its questions (snapshot-then-bump).
 // Cycles store a pin map { profileId: versionNumber } and resolve questions through here
 // so answers always reproduce against the schema that was active when the cycle started.
+
+
 
 // (ReportTemplateStatus + ReportStatus enums removed 2026-07-04 with the
 // orphaned reports generate/sign models.)
@@ -699,6 +732,7 @@ model NotificationRuleRecipient {
 // so the reviewer/approver act on the exact content, and any later download
 // rebuilds the same PDF with Printed By / Reviewed By / Approved By.
 
+
 // =============================================
 // CLEANING STAGE INTERLOCK (QA approval gate)
 // =============================================
@@ -712,344 +746,3 @@ model NotificationRuleRecipient {
 // loops so a stale prior-attempt APPROVED cannot release a fresh attempt.
 // No Prisma relations (mirrors ReportReview) — cycleId/filterId stored as raw Uuid.
 
-// =============================================
-// DATA INJECTION LAYER — P1 FOUNDATION
-// =============================================
-// Industrial IoT hierarchy (HierarchyNode), protocol registry (Protocol),
-// reusable connection configs (CommunicationProfile), gateway/instrument
-// device registry, and per-instrument settings/topic overrides.
-//
-// `path` on HierarchyNode is modeled as `Unsupported("ltree")?` below. That
-// keeps it TRACKED in schema.prisma (so `prisma migrate diff` no longer
-// proposes dropping the column or its two indexes — see C1 in the final
-// branch review) while remaining unselectable through the typed client,
-// which is the only property the original "leave it out" decision needed.
-// It is still read/written only through hierarchy.repository.ts's raw SQL
-// (Task 5) — Prisma cannot select/filter an Unsupported() field at all.
-
-enum HierarchyLevel {
-  COMPANY
-  SITE
-  PLANT
-  BUILDING
-  BLOCK
-  AREA
-  LINE
-}
-
-enum TopicCategory {
-  TELEMETRY
-  ATTRIBUTES
-  ALARM
-  COMMAND
-  RPC
-  HEARTBEAT
-  EVENT
-  STATUS
-  CONFIG
-  RESPONSE
-  SETTINGS
-  PUBLISH
-  SUBSCRIBE
-}
-
-enum AlarmState {
-  ACTIVE
-  ACTIVE_ACKED
-  RESOLVED_UNACKED
-  CLOSED
-}
-
-enum AlarmSeverity {
-  CRITICAL
-  MAJOR
-  MINOR
-  INFO
-}
-
-enum ThresholdOperator {
-  GT
-  GTE
-  LT
-  LTE
-  EQ
-  NEQ
-  OUT_OF_RANGE
-}
-
-enum LivenessState {
-  ONLINE
-  OFFLINE
-  UNKNOWN
-}
-
-// NOTE: root-level slug uniqueness (parentId IS NULL) is enforced by a
-// partial unique index added in raw SQL — Prisma cannot express a partial
-// unique index, so it does not appear as an `@@unique` here. See
-// hierarchy_nodes_root_slug_key in migration 20260801130000_data_injection_p1_indexes.
-// Do not delete it as "untracked" — without it, two root nodes could share a
-// slug and produce identical UNS topic paths for different instrument trees.
-model HierarchyNode {
-  id        String                @id @default(uuid())
-  parentId  String?               @map("parent_id")
-  level     HierarchyLevel
-  name      String
-  slug      String
-  sortOrder Int                   @default(0) @map("sort_order")
-  isActive  Boolean               @default(true) @map("is_active")
-  createdAt DateTime              @default(now()) @map("created_at")
-  updatedAt DateTime              @updatedAt @map("updated_at")
-  createdBy String?               @map("created_by")
-  path      Unsupported("ltree")?
-
-  parent      HierarchyNode?  @relation("NodeTree", fields: [parentId], references: [id], onDelete: Restrict)
-  children    HierarchyNode[] @relation("NodeTree")
-  gateways    Gateway[]
-  instruments Instrument[]
-
-  @@unique([parentId, slug])
-  @@index([level])
-  @@map("hierarchy_nodes")
-}
-
-model Protocol {
-  key          String                 @id
-  name         String
-  isEnabled    Boolean                @default(false) @map("is_enabled")
-  capabilities Json
-  profiles     CommunicationProfile[]
-
-  @@map("protocols")
-}
-
-model CommunicationProfile {
-  id          String   @id @default(uuid())
-  name        String   @unique
-  protocolKey String   @map("protocol_key")
-  config      Json
-  isActive    Boolean  @default(true) @map("is_active")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-  createdBy   String?  @map("created_by")
-
-  protocol    Protocol     @relation(fields: [protocolKey], references: [key], onDelete: Restrict)
-  gateways    Gateway[]
-  instruments Instrument[]
-
-  @@index([protocolKey])
-  @@map("communication_profiles")
-}
-
-model Gateway {
-  id                     String   @id @default(uuid())
-  name                   String
-  code                   String   @unique
-  slug                   String
-  gatewayType            String   @map("gateway_type")
-  externalId             String   @map("external_id")
-  hierarchyNodeId        String   @map("hierarchy_node_id")
-  communicationProfileId String   @map("communication_profile_id")
-  description            String?
-  isActive               Boolean  @default(true) @map("is_active")
-  createdAt              DateTime @default(now()) @map("created_at")
-  updatedAt              DateTime @updatedAt @map("updated_at")
-  createdBy              String?  @map("created_by")
-
-  hierarchyNode HierarchyNode        @relation(fields: [hierarchyNodeId], references: [id], onDelete: Restrict)
-  profile       CommunicationProfile @relation(fields: [communicationProfileId], references: [id], onDelete: Restrict)
-  instruments   Instrument[]
-
-  @@unique([hierarchyNodeId, slug])
-  @@index([hierarchyNodeId])
-  @@index([communicationProfileId])
-  @@map("gateways")
-}
-
-model Instrument {
-  id                     String   @id @default(uuid())
-  name                   String
-  code                   String   @unique
-  slug                   String
-  instrumentType         String   @map("instrument_type")
-  manufacturer           String?
-  model                  String?
-  serialNumber           String?  @map("serial_number")
-  description            String?
-  hierarchyNodeId        String   @map("hierarchy_node_id")
-  gatewayId              String?  @map("gateway_id")
-  deviceKey              String?  @map("device_key")
-  communicationProfileId String?  @map("communication_profile_id")
-  isActive               Boolean  @default(true) @map("is_active")
-  // NULL means "exempt from liveness monitoring". The sweep filters on this
-  // column, which is why it is a column and not a key in InstrumentSetting.values.
-  expectedIntervalSec    Int?     @map("expected_interval_sec")
-  createdAt              DateTime @default(now()) @map("created_at")
-  updatedAt              DateTime @updatedAt @map("updated_at")
-  createdBy              String?  @map("created_by")
-
-  hierarchyNode HierarchyNode         @relation(fields: [hierarchyNodeId], references: [id], onDelete: Restrict)
-  gateway       Gateway?              @relation(fields: [gatewayId], references: [id], onDelete: Restrict)
-  profile       CommunicationProfile? @relation(fields: [communicationProfileId], references: [id], onDelete: Restrict)
-  setting       InstrumentSetting?
-  topics        InstrumentTopic[]
-  thresholds    AlarmThreshold[]
-  alarms        Alarm[]
-  liveness      InstrumentLiveness?
-
-  @@unique([gatewayId, deviceKey])
-  @@unique([hierarchyNodeId, slug])
-  @@index([gatewayId])
-  @@index([communicationProfileId])
-  @@map("instruments")
-}
-
-model InstrumentSetting {
-  instrumentId String     @id @map("instrument_id")
-  values       Json
-  updatedAt    DateTime   @updatedAt @map("updated_at")
-  instrument   Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
-
-  @@map("instrument_settings")
-}
-
-model InstrumentTopic {
-  id           String        @id @default(uuid())
-  instrumentId String        @map("instrument_id")
-  category     TopicCategory
-  customTopic  String?       @map("custom_topic")
-  qos          Int           @default(1)
-  retain       Boolean       @default(false)
-  enabled      Boolean       @default(true)
-  instrument   Instrument    @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
-
-  @@unique([instrumentId, category])
-  @@map("instrument_topics")
-}
-
-model InstrumentTelemetryLatest {
-  instrumentId String   @map("instrument_id")
-  key          String
-  value        Json
-  valueType    String   @map("value_type")
-  quality      String?
-  ts           DateTime @db.Timestamptz(3)
-  receivedAt   DateTime @map("received_at") @db.Timestamptz(3)
-
-  @@id([instrumentId, key])
-  @@index([instrumentId])
-  @@map("instrument_telemetry_latest")
-}
-
-model InstrumentTelemetryHistory {
-  instrumentId String   @map("instrument_id")
-  key          String
-  value        Json
-  valueType    String   @map("value_type")
-  quality      String?
-  ts           DateTime @db.Timestamptz(3)
-  receivedAt   DateTime @default(now()) @map("received_at") @db.Timestamptz(3)
-
-  // PK MUST include ts: PostgreSQL requires a partitioned table's primary key
-  // to contain every partition column. A synthetic id would be rejected outright.
-  @@id([instrumentId, key, ts])
-  // Declared here so migrate diff does not propose dropping it. The index is
-  // created in raw SQL (the table needs PARTITION BY, which Prisma cannot
-  // express); omitting it from the model would add permanent drift.
-  @@index([instrumentId, key, ts(sort: Desc)], map: "instrument_telemetry_history_lookup_idx")
-  @@map("instrument_telemetry_history")
-}
-
-model AlarmThreshold {
-  id           String            @id @default(uuid())
-  instrumentId String            @map("instrument_id")
-  key          String
-  operator     ThresholdOperator
-  limit        Float?
-  limitLow     Float?            @map("limit_low")
-  limitHigh    Float?            @map("limit_high")
-  hysteresis   Float             @default(0)
-  severity     AlarmSeverity
-  isActive     Boolean           @default(true) @map("is_active")
-  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
-  createdBy    String?           @map("created_by")
-
-  instrument Instrument @relation(fields: [instrumentId], references: [id], onDelete: Restrict)
-  alarms     Alarm[]
-
-  @@unique([instrumentId, key, operator])
-  @@index([instrumentId])
-  @@map("alarm_thresholds")
-}
-
-// An alarm series is (instrument, key, THRESHOLD) — not (instrument, key).
-// AlarmThreshold is unique on (instrumentId, key, operator), so one telemetry
-// key can carry both a high and a low limit. If the series omitted thresholdId,
-// a reading of 105 against `GT 100` + `LT 10` would raise on the GT spec and
-// then, in the SAME loop iteration set, satisfy the LT spec's recovery test
-// (105 >= 10) and immediately resolve the alarm it had just raised.
-//
-// Enforced by TWO partial unique indexes created in raw SQL — Prisma can express
-// neither, so neither appears as an @@unique here. See
-// alarms_one_open_per_threshold_key and alarms_one_open_liveness_key in
-// migration 20260803060000_p3_alarms_liveness. Do NOT delete them as "untracked":
-// without them two concurrent flushes can both raise for the same series and the
-// re-trigger counter silently becomes two rows.
-model Alarm {
-  id            String        @id @default(uuid())
-  instrumentId  String        @map("instrument_id")
-  key           String
-  thresholdId   String?       @map("threshold_id")
-  severity      AlarmSeverity
-  state         AlarmState    @default(ACTIVE)
-  firstBreachAt DateTime      @map("first_breach_at") @db.Timestamptz(3)
-  lastBreachAt  DateTime      @map("last_breach_at") @db.Timestamptz(3)
-  breachCount   Int           @default(1) @map("breach_count")
-  triggerValue  Float?        @map("trigger_value")
-  peakValue     Float?        @map("peak_value")
-  resolvedAt    DateTime?     @map("resolved_at") @db.Timestamptz(3)
-  ackedBy       String?       @map("acked_by")
-  ackedAt       DateTime?     @map("acked_at") @db.Timestamptz(3)
-  ackReason     String?       @map("ack_reason")
-  closedAt      DateTime?     @map("closed_at") @db.Timestamptz(3)
-  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
-
-  instrument Instrument           @relation(fields: [instrumentId], references: [id], onDelete: Restrict)
-  threshold  AlarmThreshold?      @relation(fields: [thresholdId], references: [id], onDelete: Restrict)
-  liveness   InstrumentLiveness[] @relation("OfflineAlarm")
-
-  @@index([state, severity])
-  @@index([instrumentId, key])
-  @@index([firstBreachAt(sort: Desc)])
-  @@map("alarms")
-}
-
-model InstrumentLiveness {
-  instrumentId   String        @id @map("instrument_id")
-  lastSeenAt     DateTime?     @map("last_seen_at") @db.Timestamptz(3)
-  state          LivenessState @default(UNKNOWN)
-  stateChangedAt DateTime?     @map("state_changed_at") @db.Timestamptz(3)
-  offlineAlarmId String?       @map("offline_alarm_id")
-
-  instrument   Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
-  offlineAlarm Alarm?     @relation("OfflineAlarm", fields: [offlineAlarmId], references: [id], onDelete: SetNull)
-
-  @@index([state])
-  @@map("instrument_liveness")
-}
-
-model DeadLetter {
-  id          String    @id @default(uuid())
-  protocolKey String    @map("protocol_key")
-  topic       String
-  payload     String
-  reason      String
-  detail      String?
-  receivedAt  DateTime  @default(now()) @map("received_at") @db.Timestamptz(3)
-  resolvedAt  DateTime? @map("resolved_at") @db.Timestamptz(3)
-  resolvedBy  String?   @map("resolved_by")
-
-  @@index([receivedAt])
-  @@index([resolvedAt])
-  @@map("dead_letters")
-}

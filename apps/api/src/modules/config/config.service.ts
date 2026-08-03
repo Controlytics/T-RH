@@ -3,7 +3,6 @@ import { auditLog } from '../../lib/audit.js';
 import { NotFoundError, ValidationError } from '../../lib/errors.js';
 import { configRepository } from './config.repository.js';
 import { getActionReauthConfig, invalidateReauthCache, isReauthRequired } from '../../lib/reauth-check.js';
-import { ALWAYS_ON_REAUTH_ACTIONS } from '@digilog/shared';
 import { getDefaultTemplates, FEATURE_TO_PERMISSION_MAP, FEATURE_PRIVILEGES, SIDEBAR_PRIVILEGE_MAP } from '@digilog/shared';
 import { validateUserId } from '../../lib/user-id-validator.js';
 import { prisma } from '../../lib/prisma.js';
@@ -350,13 +349,7 @@ export const configService = {
 
   async getMyActions(role: string) {
     const config = await getActionReauthConfig();
-    // Always-on actions are enforced by `enforceReauthAlways` and never appear
-    // in the config, so building this list from the config alone omitted them —
-    // a client reading /my-actions to decide when to collect a password would
-    // skip the challenge on the one action that always needs it. Seeded first
-    // so the carve-out is visible; the loop below cannot duplicate them because
-    // an always-on key is rejected by the config schema.
-    const actions: string[] = [...ALWAYS_ON_REAUTH_ACTIONS];
+    const actions: string[] = [];
     for (const [action, roles] of Object.entries(config)) {
       if (roles.includes(role)) actions.push(action);
     }

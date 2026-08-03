@@ -55,15 +55,6 @@ const NotificationLogsPage = lazy(() => import('./routes/config/notification-set
 
 const AdminRequestsPage = lazy(() => import("./routes/admin-requests/index").then(m => ({ default: m.AdminRequestsPage })));
 
-const DataInjectionDashboard = lazy(() => import('./routes/data-injection/index'));
-const HierarchyPage = lazy(() => import('./routes/data-injection/hierarchy'));
-const GatewaysPage = lazy(() => import('./routes/data-injection/gateways'));
-const InstrumentsPage = lazy(() => import('./routes/data-injection/instruments'));
-const InstrumentWizard = lazy(() => import('./routes/data-injection/instrument-wizard'));
-const InstrumentDetail = lazy(() => import('./routes/data-injection/instrument-detail'));
-const ProfilesPage = lazy(() => import('./routes/data-injection/profiles'));
-const AlarmsPage = lazy(() => import('./routes/data-injection/alarms'));
-
 
 function LazyFallback() {
   return (
@@ -142,16 +133,6 @@ createRoot(document.getElementById('root')!).render(
             {/* Audit trail */}
             <Route path="/audit" element={<RequireRole permissions={[PERMISSIONS.AUDIT_READ]}><Suspense fallback={<LazyFallback />}><AuditTrailPage /></Suspense></RequireRole>} />
             <Route path="/admin-requests" element={<RequireRole permissions={[PERMISSIONS.ADMIN_REQUEST_APPROVE, PERMISSIONS.ADMIN_REQUEST_REJECT]}><Suspense fallback={<LazyFallback />}><AdminRequestsPage /></Suspense></RequireRole>} />
-
-            {/* Data Injection — Instruments, Gateways, Hierarchy, Communication Profiles */}
-            <Route path="/data-injection" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_VIEW]}><Suspense fallback={<LazyFallback />}><DataInjectionDashboard /></Suspense></RequireRole>} />
-            <Route path="/data-injection/hierarchy" element={<RequireRole permissions={[PERMISSIONS.HIERARCHY_VIEW]}><Suspense fallback={<LazyFallback />}><HierarchyPage /></Suspense></RequireRole>} />
-            <Route path="/data-injection/gateways" element={<RequireRole permissions={[PERMISSIONS.GATEWAY_VIEW]}><Suspense fallback={<LazyFallback />}><GatewaysPage /></Suspense></RequireRole>} />
-            <Route path="/data-injection/instruments" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_VIEW]}><Suspense fallback={<LazyFallback />}><InstrumentsPage /></Suspense></RequireRole>} />
-            <Route path="/data-injection/instruments/create" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_CREATE]}><Suspense fallback={<LazyFallback />}><InstrumentWizard /></Suspense></RequireRole>} />
-            <Route path="/data-injection/instruments/:id" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_VIEW]}><Suspense fallback={<LazyFallback />}><InstrumentDetail /></Suspense></RequireRole>} />
-            <Route path="/data-injection/profiles" element={<RequireRole permissions={[PERMISSIONS.COMM_PROFILE_VIEW]}><Suspense fallback={<LazyFallback />}><ProfilesPage /></Suspense></RequireRole>} />
-            <Route path="/data-injection/alarms" element={<RequireRole permissions={[PERMISSIONS.ALARM_VIEW]}><Suspense fallback={<LazyFallback />}><AlarmsPage /></Suspense></RequireRole>} />
 
             {/* Audit / Versions — SUPER_ADMIN only by default; assignable via Role Privileges → Audit / Versions. */}
 

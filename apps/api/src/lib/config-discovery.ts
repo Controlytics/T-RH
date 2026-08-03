@@ -19,8 +19,6 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
     import('../modules/config/defs/user-id.def.js'),
     import('../modules/config/defs/pagination.def.js'),
     import('../modules/config/defs/export-limit.def.js'),
-    import('../modules/config/defs/telemetry-retention.def.js'),
-    import('../modules/config/defs/liveness.def.js'),
     import('../modules/config/defs/action-reauth.def.js'),
     import('../modules/config/defs/audit-templates.def.js'),
     import('../modules/config/defs/notification-email.def.js'),
@@ -37,7 +35,6 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
     import('../modules/config/defs/access-matrix.def.js'),
     import('../modules/config/defs/export-options.def.js'),
     import('../modules/config/defs/report-page-titles.def.js'),
-    import('../modules/config/defs/uns-settings.def.js'),
     // ─── Add new module configs below this line ───
   ]);
 

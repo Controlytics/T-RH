@@ -1,6 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
 import useSWR from 'swr';
-import { isAlwaysOnReauthAction } from '@digilog/shared';
 
 interface ReauthState {
   isOpen: boolean;
@@ -57,20 +56,6 @@ export function useReauth() {
 
   const needsReauth = useCallback(
     (action: string): boolean => {
-      // KEPT DELIBERATELY after the server-side fix, not left behind by
-      // accident. `isReauthRequired()` is now always-on-aware, so /my-actions
-      // does include these actions and the config path below would answer
-      // correctly once it has loaded — but `myActions` arrives asynchronously
-      // via SWR, and until it does `myActions?.actions` is undefined and the
-      // `?? false` reports "no challenge needed". A click in that window would
-      // fire the callback passwordless and take a REAUTH_REQUIRED 401: a dead
-      // button with no dialog to explain it. This is a real race on first
-      // paint, not redundant double-handling.
-      //
-      // The two mechanisms cannot disagree — both derive from the same
-      // `alwaysOn` flag in `packages/shared/src/types/reauth-actions.ts`, which
-      // is the single source of truth.
-      if (isAlwaysOnReauthAction(action)) return true;
       return myActions?.actions.includes(action) ?? false;
     },
     [myActions],

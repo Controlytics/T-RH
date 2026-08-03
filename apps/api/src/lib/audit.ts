@@ -46,16 +46,6 @@ const SYSTEM_AUDIT_ACTIONS = new Set<string>([
   'DEVIATION_OPENED',           // PM overdue sweep — auto-opens a deviation (no user when cron-fired)
   'DEVIATION_CLOSED',           // PM overdue sweep — auto-closes when filters cleaned (no user when cron-fired)
   'DEVIATION_OPEN_BLOCKED',     // PM overdue sweep — re-overdue task whose deviation row is already CLOSED (no user when cron-fired)
-
-  // P3 alarms/liveness. Emitted from the ingest flush loop and the liveness
-  // cron; neither has a user principal. ALARM_ACKNOWLEDGED is deliberately
-  // ABSENT — the acknowledgement is the §11.50 e-signature and must always
-  // name the individual responsible.
-  'ALARM_RAISED',
-  'ALARM_REBREACHED',
-  'ALARM_RESOLVED',
-  'DEVICE_WENT_OFFLINE',
-  'DEVICE_CAME_ONLINE',
 ]);
 
 /**

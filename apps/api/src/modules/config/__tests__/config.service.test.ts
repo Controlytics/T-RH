@@ -42,22 +42,15 @@ vi.mock('../../../lib/reauth-check.js', () => ({
   invalidateReauthCache: mockInvalidateReauthCache,
   isReauthRequired: mockIsReauthRequired,
 }));
-vi.mock('@digilog/shared', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@digilog/shared')>();
-  return {
-    getDefaultTemplates: mockGetDefaultTemplates,
-    FEATURE_TO_PERMISSION_MAP: { 'user-management': ['USER_CREATE', 'USER_READ'] },
-    FEATURE_PRIVILEGES: [{ id: 'user-management', label: 'User Management' }],
-    SIDEBAR_PRIVILEGE_MAP: [
-      { sidebarId: 'users', label: 'Users', icon: '', description: '', privilegeIds: ['user-management'] },
-      { sidebarId: 'dashboard', label: 'Dashboard', icon: '', description: '', privilegeIds: [] },
-    ],
-    // The REAL list, not a fixture. Which actions are always-on is the
-    // behaviour under test in getMyActions below; a hardcoded stand-in would
-    // keep passing after someone removed the flag from the real catalogue.
-    ALWAYS_ON_REAUTH_ACTIONS: actual.ALWAYS_ON_REAUTH_ACTIONS,
-  };
-});
+vi.mock('@digilog/shared', () => ({
+  getDefaultTemplates: mockGetDefaultTemplates,
+  FEATURE_TO_PERMISSION_MAP: { 'user-management': ['USER_CREATE', 'USER_READ'] },
+  FEATURE_PRIVILEGES: [{ id: 'user-management', label: 'User Management' }],
+  SIDEBAR_PRIVILEGE_MAP: [
+    { sidebarId: 'users', label: 'Users', icon: '', description: '', privilegeIds: ['user-management'] },
+    { sidebarId: 'dashboard', label: 'Dashboard', icon: '', description: '', privilegeIds: [] },
+  ],
+}));
 vi.mock('../../../lib/user-id-validator.js', () => ({ validateUserId: mockValidateUserId }));
 vi.mock('../../../lib/prisma.js', () => ({ prisma: mockPrisma }));
 
@@ -247,18 +240,6 @@ describe('configService', () => {
       const result = await configService.getMyActions('ADMIN');
       expect(result.actions).toContain('DELETE_USER');
       expect(result.actions).toContain('CREATE_USER');
-    });
-
-    it('includes always-on actions even though they never appear in the config', async () => {
-      // Always-on actions are enforced by enforceReauthAlways and are REJECTED
-      // as config keys, so building this list from the config alone omitted
-      // them — and a client reading /my-actions to decide when to collect a
-      // password would skip the challenge on the one action that always needs
-      // one.
-      mockGetActionReauthConfig.mockResolvedValue({});
-
-      const result = await configService.getMyActions('OPERATOR');
-      expect(result.actions).toContain('ACKNOWLEDGE_ALARM');
     });
   });
 

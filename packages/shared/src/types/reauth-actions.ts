@@ -98,59 +98,9 @@ export const REAUTH_ACTIONS = {
   // targetType + targetId distinguishes the surface; the action is
   // shared so operators can opt in / out via one reauth-policy entry.
   UPDATE_CONFIG_PAGE: { label: 'Update Configuration Page', category: 'Configuration' },
-
-  // Data Injection
-  CREATE_HIERARCHY_NODE: { label: 'Create Hierarchy Node', category: 'Data Injection' },
-  UPDATE_HIERARCHY_NODE: { label: 'Update Hierarchy Node', category: 'Data Injection' },
-  DELETE_HIERARCHY_NODE: { label: 'Delete Hierarchy Node', category: 'Data Injection' },
-  CREATE_GATEWAY: { label: 'Create Gateway', category: 'Data Injection' },
-  UPDATE_GATEWAY: { label: 'Update Gateway', category: 'Data Injection' },
-  DELETE_GATEWAY: { label: 'Delete Gateway', category: 'Data Injection' },
-  CREATE_INSTRUMENT: { label: 'Create Instrument', category: 'Data Injection' },
-  UPDATE_INSTRUMENT: { label: 'Update Instrument', category: 'Data Injection' },
-  DELETE_INSTRUMENT: { label: 'Delete Instrument', category: 'Data Injection' },
-  CREATE_COMM_PROFILE: { label: 'Create Communication Profile', category: 'Data Injection' },
-  UPDATE_COMM_PROFILE: { label: 'Update Communication Profile', category: 'Data Injection' },
-  DELETE_COMM_PROFILE: { label: 'Delete Communication Profile', category: 'Data Injection' },
-  // ACKNOWLEDGE_ALARM is enforced with enforceReauthAlways, so it is NOT
-  // disableable through the admin-managed action-reauth config. It is listed
-  // here so the action renders with a label in the audit/reauth editors; a role
-  // left un-ticked still gets the password challenge.
-  //
-  // `alwaysOn` exists so the two reauth editors can say that out loud. Without
-  // it they rendered an ordinary, freely tickable checkbox for this action —
-  // an administrator could clear it, see it saved, and reasonably conclude the
-  // §11.50 signature was no longer required. The control was inert either way;
-  // the lie was the problem. See ALWAYS_ON_REAUTH_ACTIONS below.
-  ACKNOWLEDGE_ALARM: { label: 'Acknowledge Alarm', category: 'Data Injection', alwaysOn: true },
-  // One action covers create/update/delete. Per-verb actions that no endpoint
-  // discriminates on are theatre — three *_TEMPLATE_KIND actions were removed
-  // on 2026-07-04 for exactly that reason.
-  MANAGE_ALARM_THRESHOLD: { label: 'Manage Alarm Threshold', category: 'Data Injection' },
 } as const;
 
 export type ReauthAction = keyof typeof REAUTH_ACTIONS;
-
-/**
- * Actions the backend enforces with `enforceReauthAlways` — the password
- * challenge is intrinsic to the action and the admin-managed action-reauth
- * config cannot switch it off.
- *
- * Derived from the `alwaysOn` flag rather than hand-listed, so marking a new
- * action always-on in one place locks the toggle in both reauth editors
- * (`config/action-reauth.tsx` and `config/roles-components/reauth-tab.tsx`).
- * If you add one here, the route MUST use `enforceReauthAlways` — a locked
- * toggle claiming a signature the backend never demands is the same lie in the
- * opposite direction.
- */
-export const ALWAYS_ON_REAUTH_ACTIONS: readonly ReauthAction[] =
-  (Object.entries(REAUTH_ACTIONS) as [ReauthAction, { alwaysOn?: boolean }][])
-    .filter(([, v]) => v.alwaysOn === true)
-    .map(([k]) => k);
-
-export function isAlwaysOnReauthAction(action: string): boolean {
-  return (ALWAYS_ON_REAUTH_ACTIONS as readonly string[]).includes(action);
-}
 
 export const REAUTH_ACTION_CATEGORIES = [
   'User Management',
@@ -165,12 +115,6 @@ export const REAUTH_ACTION_CATEGORIES = [
   // SUPER_ADMIN_DATA_EDIT from both screens.
   'Notifications',
   'Super Admin',
-  // Added 2026-08-03 (P3 Task 1). The 12 Data Injection actions added in P1
-  // declared category:'Data Injection' but the string was never added here,
-  // so none of them rendered in either reauth editor and their policy could
-  // never be set. Same failure class as the Notifications / Super Admin
-  // omission documented below.
-  'Data Injection',
 ] as const;
 
 export type ReauthActionCategory = (typeof REAUTH_ACTION_CATEGORIES)[number];

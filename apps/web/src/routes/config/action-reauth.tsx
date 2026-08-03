@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api-client';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
-import { REAUTH_ACTIONS, REAUTH_ACTION_CATEGORIES, isAlwaysOnReauthAction } from '@digilog/shared';
+import { REAUTH_ACTIONS, REAUTH_ACTION_CATEGORIES } from '@digilog/shared';
 import type { ReauthAction, ReauthActionCategory } from '@digilog/shared';
 import type { RoleData } from '@digilog/shared';
 
@@ -61,38 +61,15 @@ const CATEGORY_META: Record<ReauthActionCategory, { gradient: string; bgLight: s
     icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z',
     description: 'Direct record edits in Filter Data Management',
   },
-  'Data Injection': {
-    gradient: 'from-teal-500 to-cyan-600',
-    bgLight: 'bg-teal-50 border-teal-200 text-teal-700',
-    icon: 'M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z',
-    description: 'Hierarchy, gateway, instrument, and communication profile writes',
-  },
 };
 
-// Group actions by category.
-//
-// `alwaysOn` marks actions the backend enforces with `enforceReauthAlways`
-// (currently ACKNOWLEDGE_ALARM, the 21 CFR §11.50 alarm signature). Their row
-// renders a locked indicator instead of a checkbox: the config genuinely has no
-// effect on them, and a tickable box implied an administrator could switch the
-// signature off.
+// Group actions by category
 const actionsByCategory = REAUTH_ACTION_CATEGORIES.map((category) => ({
   category,
   actions: (Object.entries(REAUTH_ACTIONS) as [ReauthAction, { label: string; category: string }][])
     .filter(([, v]) => v.category === category)
-    .map(([key, v]) => ({ key, label: v.label, alwaysOn: isAlwaysOnReauthAction(key) })),
+    .map(([key, v]) => ({ key, label: v.label })),
 })).filter(g => g.actions.length > 0);
-
-/**
- * Action keys whose policy this page can actually change. Always-on actions are
- * excluded from every write path and from the denominators — counting them as
- * "unconfigured" would show a category permanently short of its total when
- * nothing is in fact missing.
- */
-const CONFIGURABLE_ACTION_KEYS = (Object.keys(REAUTH_ACTIONS) as ReauthAction[])
-  .filter(k => !isAlwaysOnReauthAction(k));
-
-const ALWAYS_ON_COUNT = Object.keys(REAUTH_ACTIONS).length - CONFIGURABLE_ACTION_KEYS.length;
 
 export function ActionReauthPage() {
   const { data: config, isLoading: configLoading } = useSWR<ActionReauthConfig>('/api/config/action-reauth', { revalidateOnMount: true, dedupingInterval: 0 });
@@ -133,13 +110,12 @@ export function ActionReauthPage() {
 
   // Stats
   const stats = useMemo(() => {
-    const totalActions = CONFIGURABLE_ACTION_KEYS.length;
+    const totalActions = Object.keys(REAUTH_ACTIONS).length;
     const configuredActions = Object.keys(currentConfig).filter(k => (currentConfig[k]?.length ?? 0) > 0).length;
     const totalChecks = Object.values(currentConfig).reduce((sum, arr) => sum + (arr?.length ?? 0), 0);
     const categoryStats = actionsByCategory.map(g => {
-      const configurable = g.actions.filter(a => !a.alwaysOn);
-      const configured = configurable.filter(a => (currentConfig[a.key]?.length ?? 0) > 0).length;
-      return { category: g.category, total: configurable.length, configured };
+      const configured = g.actions.filter(a => (currentConfig[a.key]?.length ?? 0) > 0).length;
+      return { category: g.category, total: g.actions.length, configured };
     });
     return { totalActions, configuredActions, totalChecks, categoryStats };
   }, [currentConfig]);
@@ -149,9 +125,6 @@ export function ActionReauthPage() {
   }, [currentConfig]);
 
   const toggleAction = useCallback((action: string, role: string) => {
-    // Always-on actions have no checkbox to click, but guard the write path
-    // anyway — a stored entry for one would be dead weight the backend ignores.
-    if (isAlwaysOnReauthAction(action)) return;
     const updated = { ...currentConfig };
     const currentRoles = updated[action] ?? [];
     if (currentRoles.includes(role)) {
@@ -166,8 +139,7 @@ export function ActionReauthPage() {
 
   const selectAllCategory = useCallback((category: ReauthActionCategory) => {
     const updated = { ...currentConfig };
-    const categoryActions = (actionsByCategory.find(c => c.category === category)?.actions ?? [])
-      .filter(a => !a.alwaysOn);
+    const categoryActions = actionsByCategory.find(c => c.category === category)?.actions ?? [];
     const targetRoles = visibleRoles.map(r => r.name);
     for (const { key } of categoryActions) {
       const existing = new Set(updated[key] ?? []);
@@ -180,8 +152,7 @@ export function ActionReauthPage() {
 
   const clearCategory = useCallback((category: ReauthActionCategory) => {
     const updated = { ...currentConfig };
-    const categoryActions = (actionsByCategory.find(c => c.category === category)?.actions ?? [])
-      .filter(a => !a.alwaysOn);
+    const categoryActions = actionsByCategory.find(c => c.category === category)?.actions ?? [];
     const targetRoles = new Set(visibleRoles.map(r => r.name));
     for (const { key } of categoryActions) {
       if (updated[key]) {
@@ -195,7 +166,7 @@ export function ActionReauthPage() {
 
   const selectAllRole = useCallback((roleName: string) => {
     const updated = { ...currentConfig };
-    for (const action of CONFIGURABLE_ACTION_KEYS) {
+    for (const action of Object.keys(REAUTH_ACTIONS)) {
       const existing = new Set(updated[action] ?? []);
       existing.add(roleName);
       updated[action] = Array.from(existing);
@@ -384,13 +355,6 @@ export function ActionReauthPage() {
               When a checked action is performed by a user with the corresponding role, they will be prompted to
               re-enter their password before the action executes. This adds an extra layer of security for sensitive operations.
             </p>
-            {ALWAYS_ON_COUNT > 0 && (
-              <p className="mt-2 text-blue-600">
-                {ALWAYS_ON_COUNT} action{ALWAYS_ON_COUNT === 1 ? '' : 's'} shown below {ALWAYS_ON_COUNT === 1 ? 'is' : 'are'}{' '}
-                <span className="font-semibold">always required</span> and cannot be switched off here — the password
-                IS the electronic signature for {ALWAYS_ON_COUNT === 1 ? 'that action' : 'those actions'} (21 CFR §11.50).
-              </p>
-            )}
           </div>
         </div>
       </div>
@@ -610,7 +574,7 @@ function CategorySection({
   totalCount,
 }: {
   category: ReauthActionCategory;
-  actions: { key: string; label: string; alwaysOn: boolean }[];
+  actions: { key: string; label: string }[];
   roles: RoleData[];
   meta: { gradient: string; bgLight: string; icon: string; description: string };
   isCollapsed: boolean;
@@ -672,7 +636,7 @@ function CategorySection({
         <td colSpan={roles.length} />
       </tr>
       {/* Action Rows (collapsible) */}
-      {!isCollapsed && actions.map(({ key, label, alwaysOn }, idx) => (
+      {!isCollapsed && actions.map(({ key, label }, idx) => (
         <tr
           key={key}
           className={`border-b border-slate-50 hover:bg-blue-50/40 transition-colors ${
@@ -683,24 +647,9 @@ function CategorySection({
             <div className="flex items-center gap-2">
               <span className="w-1 h-1 rounded-full bg-slate-300" />
               <span className="text-sm text-slate-700 font-medium">{label}</span>
-              {alwaysOn && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border bg-slate-100 border-slate-300 text-slate-600">
-                  <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                  </svg>
-                  Always required
-                </span>
-              )}
             </div>
           </td>
-          {alwaysOn ? (
-            // One spanning cell rather than a row of disabled checkboxes: there
-            // is no per-role policy to express, so per-role controls — even
-            // greyed ones — would still suggest one exists.
-            <td colSpan={roles.length} className="px-2 py-2.5 text-center text-xs text-slate-500">
-              Password always required for every role — this action is the electronic signature.
-            </td>
-          ) : roles.map(role => {
+          {roles.map(role => {
             const checked = isChecked(key, role.name);
             return (
               <td key={role.name} className="px-2 py-2.5 text-center">

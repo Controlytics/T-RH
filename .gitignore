@@ -112,6 +112,3 @@ old/db-backups/*
 # DigiLog-era debug artifacts (compliance-core strip)
 /*.png
 /*.log
-
-# Subagent-driven-development scratch workspace (ledger, briefs, review packages)
-.superpowers/

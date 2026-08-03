@@ -39,7 +39,6 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
     USER_LOGIN: 'User Login', USER_CREATED: 'User Created', USER_LOCKED: 'User Locked',
     CHECKLIST_SUBMITTED: 'Checklist Submitted',
     CHECKLIST_APPROVED: 'Checklist Approved', CHECKLIST_REJECTED: 'Checklist Rejected', SYSTEM_ERROR: 'System Error',
-    ALARM_RAISED: 'Alarm Raised', ALARM_ACKNOWLEDGED: 'Alarm Acknowledged',
   };
   // Which fields to show per event type (label -> variable key)
   const EVENT_FIELDS: Record<string, [string, string][]> = {
@@ -53,8 +52,6 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
     CHECKLIST_APPROVED: [['Checklist','checklistName'],['Approved By','approvedBy'],['Time','timestamp']],
     CHECKLIST_REJECTED: [['Checklist','checklistName'],['Rejected By','rejectedBy'],['Reason','reason'],['Time','timestamp']],
     SYSTEM_ERROR: [['Error Type','errorType'],['Message','errorMessage'],['URL','url'],['Time','timestamp']],
-    ALARM_RAISED: [['Instrument','instrumentName'],['Measurement','key'],['Value','value'],['Limit','limit'],['Severity','severity'],['Time','timestamp']],
-    ALARM_ACKNOWLEDGED: [['Instrument','instrumentName'],['Measurement','key'],['Severity','severity'],['Acknowledged By','ackedBy'],['Reason','reason'],['Time','timestamp']],
   };
   variables.eventLabel = EVENT_LABELS[eventType] ?? eventType;
   variables.summary = variables.message ?? variables.username ?? variables.deviceName ?? variables.checklistName ?? variables.errorType ?? eventType;
@@ -388,30 +385,6 @@ function getDefaultEmailTemplate(eventType: string): { subject: string; bodyTemp
 <tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Time</td><td style="padding:6px 12px;border:1px solid #ddd">\${timestamp}</td></tr>
 </table>`,
     },
-    ALARM_RAISED: {
-      subject: '[DigiLog] Alarm Raised: ${instrumentName}',
-      body: `<h2>Alarm Raised</h2>
-<table style="border-collapse:collapse;width:100%">
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Instrument</td><td style="padding:6px 12px;border:1px solid #ddd">\${instrumentName}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Measurement</td><td style="padding:6px 12px;border:1px solid #ddd">\${key}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Value</td><td style="padding:6px 12px;border:1px solid #ddd">\${value}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Limit</td><td style="padding:6px 12px;border:1px solid #ddd">\${limit}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Severity</td><td style="padding:6px 12px;border:1px solid #ddd">\${severity}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Time</td><td style="padding:6px 12px;border:1px solid #ddd">\${timestamp}</td></tr>
-</table>`,
-    },
-    ALARM_ACKNOWLEDGED: {
-      subject: '[DigiLog] Alarm Acknowledged: ${instrumentName}',
-      body: `<h2>Alarm Acknowledged</h2>
-<table style="border-collapse:collapse;width:100%">
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Instrument</td><td style="padding:6px 12px;border:1px solid #ddd">\${instrumentName}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Measurement</td><td style="padding:6px 12px;border:1px solid #ddd">\${key}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Severity</td><td style="padding:6px 12px;border:1px solid #ddd">\${severity}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Acknowledged By</td><td style="padding:6px 12px;border:1px solid #ddd">\${ackedBy}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Reason</td><td style="padding:6px 12px;border:1px solid #ddd">\${reason}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Time</td><td style="padding:6px 12px;border:1px solid #ddd">\${timestamp}</td></tr>
-</table>`,
-    },
   };
 
   const tmpl = templates[eventType];
@@ -437,8 +410,6 @@ function getDefaultInAppMessage(eventType: string): string {
     CHECKLIST_APPROVED: 'Checklist ${checklistName} approved by ${approvedBy}',
     CHECKLIST_REJECTED: 'Checklist ${checklistName} rejected by ${rejectedBy}',
     SYSTEM_ERROR: 'System error: ${errorMessage}',
-    ALARM_RAISED: 'Alarm on ${instrumentName}: ${key} = ${value} (limit ${limit})',
-    ALARM_ACKNOWLEDGED: 'Alarm on ${instrumentName} acknowledged by ${ackedBy}',
   };
   return msgs[eventType] ?? `Notification: ${eventType}`;
 }

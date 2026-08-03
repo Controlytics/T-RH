@@ -20,27 +20,13 @@
     the service is restarted — so a broken build leaves the previous working
     version running rather than taking the app down.
 
-.PARAMETER Branch
-    Branch to deploy. REQUIRED — there is deliberately no default.
-
-    This used to default to 'final-user-management'. On 2026-08-01 that branch
-    became a FROZEN BACKUP (everything up to 2026-07-25) when active work moved
-    to 'data-injection'. A default silently deploys whatever it names, so the
-    stale default meant deploy-to-aws.bat would ship month-old code and report
-    success. Deploying the wrong revision to a 21 CFR Part 11 system is not a
-    failure you want to be quiet.
-
-    deploy-to-aws.bat now always passes -Branch explicitly and shows it before
-    sending. If you invoke this script directly, name the branch yourself.
-
+.PARAMETER Branch      Branch to deploy. Default: final-user-management.
 .PARAMETER SkipInstall Skip npm ci even if the lockfile changed.
 .PARAMETER Force       Deploy even when already up to date.
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
-    [ValidateNotNullOrEmpty()]
-    [string]$Branch,
+    [string]$Branch = 'final-user-management',
     [switch]$SkipInstall,
     [switch]$Force
 )
@@ -90,18 +76,8 @@ Set-Location $AppDir
 # ---------------------------------------------------------------- 1. pull
 Step "Fetching $Branch"
 $before = (& git rev-parse HEAD).Trim()
-# Fetch with an EXPLICIT refspec so the remote-tracking ref is created.
-#
-# `git fetch origin <branch>` only writes FETCH_HEAD — it does NOT create
-# `origin/<branch>` unless that branch is already covered by a tracking refspec
-# in this clone. So the plain form works for a branch the server has seen before
-# and fails for any NEW one with:
-#     fatal: ambiguous argument 'origin/<branch>': unknown revision
-# which is exactly what happened on the first deploy of `data-injection`
-# (2026-08-01). Naming the destination ref makes it work for both cases and
-# leaves the tracking ref behind for next time.
-& git fetch --depth 1 origin "${Branch}:refs/remotes/origin/${Branch}" | Out-Null
-if ($LASTEXITCODE -ne 0) { Die "git fetch failed. Is the deploy key still valid, and does origin/$Branch exist?" }
+& git fetch --depth 1 origin $Branch | Out-Null
+if ($LASTEXITCODE -ne 0) { Die "git fetch failed. Is the deploy key still valid?" }
 & git reset --hard "origin/$Branch" | Out-Null
 if ($LASTEXITCODE -ne 0) { Die "git reset failed." }
 $after = (& git rev-parse HEAD).Trim()
