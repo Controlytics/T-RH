@@ -191,7 +191,7 @@ function RulesTab() {
   const { data: eventTypes } = useSWR<EventTypeMeta[]>('/api/notification-rules/event-types', { revalidateOnMount: true, dedupingInterval: 0 });
   const { data: groups } = useSWR<UserGroup[]>('/api/user-groups', { revalidateOnMount: true, dedupingInterval: 0 });
   const { data: templates } = useSWR<Template[]>('/api/notification-settings/templates', { revalidateOnMount: true, dedupingInterval: 0 });
-  const { data: usersData } = useSWR<{ data: UserOption[] }>('/api/users?limit=500');
+  const { data: usersData } = useSWR<{ data: UserOption[] }>('/api/users?limit=500&status=ENABLED');
   const users = (usersData?.data ?? []).filter((u: UserOption) => u.username !== 'superadmin');
   const { data: rolesData } = useSWR<Array<{ name: string; displayName: string }>>('/api/roles', { revalidateOnMount: true, dedupingInterval: 0 });
   const roles = (rolesData ?? []).filter(r => r.name !== 'SUPER_ADMIN');
@@ -514,7 +514,7 @@ function RulesTab() {
 // ─── Groups Tab ───────────────────────────────────────────────────────
 function GroupsTab() {
   const { data: groups, mutate } = useSWR<UserGroup[]>('/api/user-groups', { revalidateOnMount: true, dedupingInterval: 0 });
-  const { data: usersData } = useSWR<{ data: UserOption[] }>('/api/users?limit=500');
+  const { data: usersData } = useSWR<{ data: UserOption[] }>('/api/users?limit=500&status=ENABLED');
   const users = (usersData?.data ?? []).filter((u: UserOption) => u.username !== 'superadmin');
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');

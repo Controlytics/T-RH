@@ -34,7 +34,7 @@ export function SendForReviewButton({ buildSnapshot, className }: {
   const [busy, setBusy] = useState(false);
 
   const { data: rolesData } = useSWR<Role[]>(open ? '/api/roles/active' : null);
-  const { data: usersData } = useSWR<any>(open ? '/api/users?limit=500' : null);
+  const { data: usersData } = useSWR<any>(open ? '/api/users?limit=500&status=ENABLED' : null);
   const roles = useMemo(() => (rolesData ?? []).filter((r) => r.name !== 'SUPER_ADMIN'), [rolesData]);
   const users: User[] = useMemo(() => {
     const raw = Array.isArray(usersData) ? usersData : (usersData?.data ?? usersData?.users ?? []);
