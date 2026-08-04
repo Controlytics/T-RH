@@ -64,4 +64,48 @@ describe('resolveInstrumentByToken', () => {
     findMany.mockResolvedValue([]);
     expect(await resolveInstrumentByToken(t)).toBeNull();
   });
+
+  it('expires positive cache after TTL boundary', async () => {
+    vi.useFakeTimers();
+    const t = generateToken();
+    findMany.mockResolvedValue([row(t)]);
+
+    // First call: DB hit, cache stored with timestamp.
+    await resolveInstrumentByToken(t);
+    expect(findMany).toHaveBeenCalledTimes(1);
+
+    // Advance to 9_999ms (just before TTL): cache hit.
+    vi.advanceTimersByTime(9_999);
+    await resolveInstrumentByToken(t);
+    expect(findMany).toHaveBeenCalledTimes(1);
+
+    // Advance to 10_001ms (past TTL): cache miss, DB queried again.
+    vi.advanceTimersByTime(2);
+    await resolveInstrumentByToken(t);
+    expect(findMany).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
+  });
+
+  it('expires negative cache after TTL boundary', async () => {
+    vi.useFakeTimers();
+    const t = generateToken();
+    findMany.mockResolvedValue([]);
+
+    // First call: miss, negative cache stored with timestamp.
+    expect(await resolveInstrumentByToken(t)).toBeNull();
+    expect(findMany).toHaveBeenCalledTimes(1);
+
+    // Advance to 9_999ms (just before TTL): negative cache hit, no DB query.
+    vi.advanceTimersByTime(9_999);
+    expect(await resolveInstrumentByToken(t)).toBeNull();
+    expect(findMany).toHaveBeenCalledTimes(1);
+
+    // Advance to 10_001ms (past TTL): negative cache miss, DB queried again.
+    vi.advanceTimersByTime(2);
+    expect(await resolveInstrumentByToken(t)).toBeNull();
+    expect(findMany).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
+  });
 });
