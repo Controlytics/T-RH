@@ -190,8 +190,8 @@ model Instrument {
   serialNumber        String?  @map("serial_number")
   description         String?
   expectedIntervalSec Int?     @map("expected_interval_sec")
-  createdAt           DateTime @default(now()) @map("created_at")
-  updatedAt           DateTime @updatedAt @map("updated_at")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
   createdBy           String?  @map("created_by")
 
   credentials InstrumentCredential[]
@@ -204,9 +204,9 @@ model InstrumentCredential {
   instrumentId String    @map("instrument_id")
   tokenHash    String    @map("token_hash")
   tokenPrefix  String    @map("token_prefix")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  lastUsedAt   DateTime? @map("last_used_at")
-  revokedAt    DateTime? @map("revoked_at")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastUsedAt   DateTime? @map("last_used_at") @db.Timestamptz(3)
+  revokedAt    DateTime? @map("revoked_at") @db.Timestamptz(3)
 
   instrument Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
 
@@ -214,7 +214,41 @@ model InstrumentCredential {
   @@index([instrumentId])
   @@map("instrument_credentials")
 }
+
+// instrument_telemetry_latest and dead_letters are ORDINARY tables — only
+// instrument_telemetry_history needs PARTITION BY, which Prisma cannot express.
+// Modelling these two gives later tasks the typed client instead of $queryRaw.
+// The columns must match the raw SQL below EXACTLY or the drift guard fails.
+model InstrumentTelemetryLatest {
+  instrumentId String   @map("instrument_id")
+  key          String
+  value        Json
+  valueType    String   @map("value_type")
+  ts           DateTime @db.Timestamptz(6)
+
+  @@id([instrumentId, key])
+  @@index([instrumentId])
+  @@map("instrument_telemetry_latest")
+}
+
+model DeadLetter {
+  id           String   @id @default(uuid())
+  instrumentId String?  @map("instrument_id")
+  transport    String
+  reason       String
+  rawPayload   String?  @map("raw_payload")
+  receivedAt   DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+
+  @@index([receivedAt])
+  @@map("dead_letters")
+}
 ```
+
+> **Ruling (2026-08-04, operator-approved).** `@db.Timestamptz` is required: 44 of
+> 49 existing DateTime fields carry it, and omitting it lets a future
+> `migrate dev` propose stripping the timezone — the −19790s IST bug this
+> codebase already shipped once. `instrument_telemetry_history` stays
+> raw-SQL-only; the other two are modelled.
 
 - [ ] **Step 2: Hand-author the migration**
 
