@@ -639,12 +639,21 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
       tags: ['Notification Settings'],
       summary: 'Update notification template',
       params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
-      body: { type: 'object', properties: { name: { type: 'string' }, subject: { type: 'string' }, bodyTemplate: { type: 'string' }, description: { type: 'string' }, variables: { type: 'array', items: { type: 'string' } }, isActive: { type: 'boolean' } } },
+      body: { type: 'object', additionalProperties: false, properties: { name: { type: 'string' }, subject: { type: 'string' }, bodyTemplate: { type: 'string' }, description: { type: 'string' }, variables: { type: 'array', items: { type: 'string' } }, isActive: { type: 'boolean' } } },
       response: { 200: { type: 'object', additionalProperties: true } },
     },
   }, async (req) => {
     const { id } = req.params as { id: string };
-    return prisma.notificationTemplate.update({ where: { id }, data: req.body as any });
+    // Whitelist updatable fields — never spread req.body into Prisma (mass-assignment
+    // guard; the schema's additionalProperties:false is belt, this is suspenders since
+    // ajv is not configured with global removeAdditional). Provenance columns
+    // (createdBy, channel, createdAt) are intentionally NOT updatable here.
+    const body = req.body as Record<string, unknown>;
+    const data: Record<string, unknown> = {};
+    for (const key of ['name', 'subject', 'bodyTemplate', 'description', 'variables', 'isActive'] as const) {
+      if (key in body) data[key] = body[key];
+    }
+    return prisma.notificationTemplate.update({ where: { id }, data });
   });
 
   app.delete('/templates/:id', {
