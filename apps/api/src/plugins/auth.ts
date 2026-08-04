@@ -174,6 +174,10 @@ const PUBLIC_PATHS = [
 
   ...(isProduction ? [] : ['/docs', '/docs/']),  // Swagger only public in non-production
   '/api/notification-settings/email/oauth2/code', // OAuth2 callback (no JWT - redirect from Microsoft/Google)
+  // Device-facing ingest. Authenticated by a per-instrument token in
+  // ingest-routes.ts, NOT by a user JWT — so it must bypass this hook.
+  // Guarded by plugins/__tests__/public-paths.test.ts.
+  '/api/ingest/v1/telemetry',
   // 2026-07-03: removed 6 stale JWT-skip entries whose routes were deleted in the
   // Phase 7 data-ingestion + MQTT tear-out — no route is registered for any of
   // them, so the allowlist entries were dead cruft:

@@ -13,6 +13,7 @@ import notificationDeliveryRoutes from '../modules/notification-delivery/routes.
 import userGroupRoutes from '../modules/user-groups/routes.js';
 import backupRoutes from '../modules/backup/routes.js';
 import systemHealthRoutes from '../modules/system-health/routes.js';
+import ingestRoutes from '../modules/instruments/ingest-routes.js';
 import { prisma } from '../lib/prisma.js';
 import { AppError } from '../lib/errors.js';
 
@@ -71,6 +72,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(userGroupRoutes, { prefix: '/api/user-groups' });
   await app.register(backupRoutes, { prefix: '/api/backup' });
   await app.register(systemHealthRoutes, { prefix: '/api/system-health' });
+  await app.register(ingestRoutes, { prefix: '/api/ingest/v1' });
 
   await app.ready();
   return app;

@@ -45,6 +45,7 @@ import { startJobRunner, stopJobRunner } from '@digilog/queue';
 import { AppError } from './lib/errors.js';
 import { dispatchNotification } from './modules/notification-delivery/notification-dispatcher.js';
 import adminRequestRoutes from './modules/admin-requests/routes.js';
+import ingestRoutes from './modules/instruments/ingest-routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -340,6 +341,7 @@ await app.register(debugTraceRoutes, { prefix: "/api/debug/traces" });
 await app.register(ldapRoutes, { prefix: "/api/ldap" });
 await app.register(dashboardRoutes, { prefix: "/api/dashboards" });
 await app.register(adminRequestRoutes, { prefix: '/api/admin-requests' });
+await app.register(ingestRoutes, { prefix: '/api/ingest/v1' });
 
 
 // ─── M1: serve the built web UI from the API (single-process bundle) ─────────
