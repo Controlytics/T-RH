@@ -145,8 +145,12 @@ describe('userQuerySchema', () => {
     expect(userQuerySchema.safeParse({ status: 'DELETED' }).success).toBe(false);
   });
 
-  it('rejects limit over 100', () => {
-    expect(userQuerySchema.safeParse({ limit: '101' }).success).toBe(false);
+  it('accepts limit up to 500 (recipient pickers request the whole user list)', () => {
+    expect(userQuerySchema.safeParse({ limit: '500' }).success).toBe(true);
+  });
+
+  it('rejects limit over 500', () => {
+    expect(userQuerySchema.safeParse({ limit: '501' }).success).toBe(false);
   });
 });
 

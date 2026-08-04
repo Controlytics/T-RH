@@ -224,11 +224,19 @@ export default async function userRoutes(app: FastifyInstance) {
             total: { type: 'integer' }, page: { type: 'integer' }, limit: { type: 'integer' }, totalPages: { type: 'integer' },
           },
         },
+        ...errorResponses,
       },
     },
-  }, async (req) => {
-    const query = userQuerySchema.parse(req.query);
-    return userService.list({ ...query, callerRole: req.user.role });
+  }, async (req, reply) => {
+    // safeParse, not parse: a thrown ZodError escapes to the global error handler
+    // and surfaces as a 500 INTERNAL_ERROR carrying the raw issue array, so a bad
+    // query string reads as a server fault and dumps the schema into the UI.
+    // Every other handler in this file already returns a 400 this way.
+    const parsed = userQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
+    }
+    return userService.list({ ...parsed.data, callerRole: req.user.role });
   });
 
   // GET /api/users/:id — Get user detail

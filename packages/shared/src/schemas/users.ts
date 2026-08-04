@@ -36,8 +36,12 @@ export const userQuerySchema = z.object({
   status: z.enum(['ENABLED', 'DISABLED', 'LOCKED', 'EXPIRED']).optional(),
   search: z.string().optional(),
   page: z.coerce.number().min(1).default(1),
-  // Cap upper bound so a missing limit doesn't pull thousands of rows.
-  limit: z.coerce.number().min(1).max(100).default(20),
+  // Cap the upper bound so a caller can't pull thousands of rows; the default(20)
+  // is what protects the "no limit supplied" case. 500 rather than 100 because the
+  // recipient pickers (notification rules, send-for-review) need the WHOLE user
+  // list in one request and silently truncating it drops selectable recipients —
+  // a real install of this codebase runs 156 users, so 100 was not enough.
+  limit: z.coerce.number().min(1).max(500).default(20),
 });
 
 export const bulkDeleteUsersSchema = z.object({
