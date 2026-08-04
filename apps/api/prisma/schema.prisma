@@ -746,3 +746,41 @@ model NotificationRuleRecipient {
 // loops so a stale prior-attempt APPROVED cannot release a fresh attempt.
 // No Prisma relations (mirrors ReportReview) — cycleId/filterId stored as raw Uuid.
 
+// ─── Instruments (Data Injection P1) ───────────────────────────────────────
+model Instrument {
+  id                  String   @id @default(uuid())
+  name                String
+  code                String   @unique
+  transport           String
+  isActive            Boolean  @default(true) @map("is_active")
+  instrumentType      String?  @map("instrument_type")
+  manufacturer        String?
+  model               String?
+  serialNumber        String?  @map("serial_number")
+  description         String?
+  expectedIntervalSec Int?     @map("expected_interval_sec")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+  createdBy           String?  @map("created_by")
+
+  credentials InstrumentCredential[]
+
+  @@map("instruments")
+}
+
+model InstrumentCredential {
+  id           String    @id @default(uuid())
+  instrumentId String    @map("instrument_id")
+  tokenHash    String    @map("token_hash")
+  tokenPrefix  String    @map("token_prefix")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  lastUsedAt   DateTime? @map("last_used_at")
+  revokedAt    DateTime? @map("revoked_at")
+
+  instrument Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+
+  @@index([tokenPrefix])
+  @@index([instrumentId])
+  @@map("instrument_credentials")
+}
+
