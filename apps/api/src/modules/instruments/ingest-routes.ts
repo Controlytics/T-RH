@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { resolveInstrumentByToken } from './ingest-auth.js';
 import { parsePayload, toReadings } from './payload-parser.js';
 import { writeBatch, writeDeadLetters } from './telemetry.repository.js';
+import { stampLastSeen } from './last-seen.js';
 
 function bearer(header?: string): string {
   if (!header) return '';
@@ -94,6 +95,11 @@ export default async function ingestRoutes(app: FastifyInstance) {
 
     const readings = toReadings(parsed.values, ts);
     await writeBatch(readings.map((r) => ({ ...r, instrumentId: identity.id })));
+    // "Is it talking?" is answered by the INSTRUMENT's own column, not by the
+    // credential's lastUsedAt (spec D9) — a gateway-reported child never
+    // presents a credential of its own. Throttled and never allowed to fail an
+    // accepted reading.
+    await stampLastSeen([identity.id], 'direct');
     return reply.send({ accepted: readings.length });
   });
 }

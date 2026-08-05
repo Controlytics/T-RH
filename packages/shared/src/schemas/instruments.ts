@@ -37,6 +37,13 @@ export const createInstrumentSchema = z.object({
   // null / omitted = exempt from liveness checks. Capped at a week so a typo
   // can't silently disable the (future) liveness sweep for a decade.
   expectedIntervalSec: z.coerce.number().int().min(1).max(604_800).nullish(),
+  location: z.string().max(120).nullish(),
+  area: z.string().max(120).nullish(),
+  block: z.string().max(120).nullish(),
+  isGateway: z.boolean().optional(),
+  // null is meaningful: it unlinks. `.nullish()` keeps "omitted" and
+  // "explicitly cleared" distinguishable in the handler.
+  gatewayId: z.string().uuid().nullish(),
 });
 
 export const updateInstrumentSchema = z.object({
@@ -52,12 +59,23 @@ export const updateInstrumentSchema = z.object({
   serialNumber: z.string().max(120).nullish(),
   description: z.string().max(500).nullish(),
   expectedIntervalSec: z.coerce.number().int().min(1).max(604_800).nullish(),
+  location: z.string().max(120).nullish(),
+  area: z.string().max(120).nullish(),
+  block: z.string().max(120).nullish(),
+  isGateway: z.boolean().optional(),
+  // null is meaningful: it unlinks. `.nullish()` keeps "omitted" and
+  // "explicitly cleared" distinguishable in the handler.
+  gatewayId: z.string().uuid().nullish(),
 });
 
 export const instrumentQuerySchema = z.object({
   search: z.string().optional(),
   transport: z.enum(TRANSPORTS).optional(),
   isActive: z.enum(['true', 'false']).optional(),
+  block: z.string().optional(),
+  area: z.string().optional(),
+  location: z.string().optional(),
+  isGateway: z.enum(['true', 'false']).optional(),
   page: z.coerce.number().min(1).default(1),
   limit: z.coerce.number().min(1).max(500).default(20),
 });

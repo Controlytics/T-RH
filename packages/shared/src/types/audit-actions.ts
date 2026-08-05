@@ -180,6 +180,14 @@ export const AUDIT_ACTIONS = {
   INSTRUMENT_UPDATED: 'INSTRUMENT_UPDATED',
   INSTRUMENT_DELETED: 'INSTRUMENT_DELETED',
   INSTRUMENT_TOKEN_REGENERATED: 'INSTRUMENT_TOKEN_REGENERATED',
+  // Gateway wiring is an ACCESS-CONTROL change, not metadata: `gatewayId` is
+  // the rule deciding which credential may write an instrument's telemetry, so
+  // every link/unlink/enable/disable gets its own row rather than hiding inside
+  // a generic INSTRUMENT_UPDATED.
+  INSTRUMENT_GATEWAY_ENABLED: 'INSTRUMENT_GATEWAY_ENABLED',
+  INSTRUMENT_GATEWAY_DISABLED: 'INSTRUMENT_GATEWAY_DISABLED',
+  INSTRUMENT_LINKED_TO_GATEWAY: 'INSTRUMENT_LINKED_TO_GATEWAY',
+  INSTRUMENT_UNLINKED_FROM_GATEWAY: 'INSTRUMENT_UNLINKED_FROM_GATEWAY',
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

@@ -189,3 +189,77 @@ describe('Instrument token lifecycle', () => {
     expect(after.statusCode).toBe(401);
   });
 });
+
+describe('Instrument gateway links', () => {
+  const mk = async (payload: Record<string, unknown>) => {
+    const res = await app.inject({ method: 'POST', url: '/api/instruments', headers: auth, payload });
+    if (res.statusCode === 201) created.push(res.json().id);
+    return res;
+  };
+
+  it('stores placement fields', async () => {
+    const res = await mk({
+      name: 'Placed', code: `PL-${Date.now()}`, transport: 'http',
+      block: 'Block C', area: 'Sterile Core', location: 'Room 214',
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toMatchObject({ block: 'Block C', area: 'Sterile Core', location: 'Room 214' });
+  });
+
+  it('refuses linking to an instrument that is not a gateway', async () => {
+    const s = Date.now();
+    const plain = await mk({ name: 'Plain', code: `PN-${s}`, transport: 'http' });
+    const res = await mk({ name: 'Child', code: `CH-${s}`, transport: 'http', gatewayId: plain.json().id });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('NOT_A_GATEWAY');
+  });
+
+  it('refuses making a linked child into a gateway (one level only)', async () => {
+    const s = Date.now();
+    const gw = await mk({ name: 'G', code: `G-${s}`, transport: 'http', isGateway: true });
+    const child = await mk({ name: 'C', code: `C-${s}`, transport: 'http', gatewayId: gw.json().id });
+    const res = await app.inject({
+      method: 'PUT', url: `/api/instruments/${child.json().id}`, headers: auth, payload: { isGateway: true },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('NESTED_GATEWAY');
+  });
+
+  it('refuses disabling a gateway that still has children, and names them', async () => {
+    const s = Date.now();
+    const gw = await mk({ name: 'G2', code: `G2-${s}`, transport: 'http', isGateway: true });
+    await mk({ name: 'C2', code: `C2-${s}`, transport: 'http', gatewayId: gw.json().id });
+    const res = await app.inject({
+      method: 'PUT', url: `/api/instruments/${gw.json().id}`, headers: auth, payload: { isGateway: false },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toBe('GATEWAY_HAS_CHILDREN');
+    expect(res.json().message).toContain(`C2-${s}`);
+  });
+
+  it('lists children, and eligible candidates exclude gateways and already-linked instruments', async () => {
+    const s = Date.now();
+    const gw = await mk({ name: 'G3', code: `G3-${s}`, transport: 'http', isGateway: true });
+    const child = await mk({ name: 'C3', code: `C3-${s}`, transport: 'http', gatewayId: gw.json().id });
+
+    const kids = await app.inject({ method: 'GET', url: `/api/instruments/${gw.json().id}/children`, headers: auth });
+    expect(kids.json().data.map((c: { id: string }) => c.id)).toContain(child.json().id);
+
+    const elig = await app.inject({ method: 'GET', url: '/api/instruments/eligible-children', headers: auth });
+    const ids = elig.json().data.map((c: { id: string }) => c.id);
+    expect(ids).not.toContain(gw.json().id);      // a gateway cannot be a child
+    expect(ids).not.toContain(child.json().id);   // already parented
+  });
+
+  it('deleting a gateway unlinks its children rather than deleting them', async () => {
+    const s = Date.now();
+    const gw = await mk({ name: 'G4', code: `G4-${s}`, transport: 'http', isGateway: true });
+    const child = await mk({ name: 'C4', code: `C4-${s}`, transport: 'http', gatewayId: gw.json().id });
+
+    await app.inject({ method: 'DELETE', url: `/api/instruments/${gw.json().id}`, headers: auth });
+
+    const still = await app.inject({ method: 'GET', url: `/api/instruments/${child.json().id}`, headers: auth });
+    expect(still.statusCode).toBe(200);
+    expect(still.json().gatewayId).toBeNull();
+  });
+});
