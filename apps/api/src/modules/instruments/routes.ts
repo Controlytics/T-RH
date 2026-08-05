@@ -16,6 +16,7 @@ import { generateToken, hashToken, tokenPrefix } from './token.js';
 import { parseInstrumentCsv, type InstrumentDraft } from './bulk-csv.js';
 import { invalidateIngestAuthCache } from './ingest-auth.js';
 import { invalidateChildMapCache } from './gateway-children.js';
+import { gatewayInvariantError, lockedGatewayRecheck, GatewayInvariantViolation } from './gateway-invariants.js';
 import { getLatest, getHistory } from './telemetry.repository.js';
 
 /**
@@ -100,50 +101,6 @@ const activeCredential = {
   take: 1,
 } as const;
 
-/**
- * Spec D2/D3 invariants. Returns an error payload, or null when the write is
- * allowed. Cannot be a CHECK constraint — two of the three rules read a
- * different row.
- */
-async function gatewayInvariantError(
-  next: { isGateway?: boolean; gatewayId?: string | null },
-  current: { id: string; isGateway: boolean; gatewayId: string | null } | null,
-): Promise<{ status: number; body: { error: string; message: string } } | null> {
-  const isGateway = next.isGateway ?? current?.isGateway ?? false;
-  const gatewayId = next.gatewayId === undefined ? (current?.gatewayId ?? null) : next.gatewayId;
-
-  if (isGateway && gatewayId) {
-    return { status: 400, body: { error: 'NESTED_GATEWAY', message: 'A gateway cannot itself be linked to another gateway. Unlink it first.' } };
-  }
-  if (current && gatewayId === current.id) {
-    return { status: 400, body: { error: 'SELF_GATEWAY', message: 'An instrument cannot be its own gateway.' } };
-  }
-  if (gatewayId) {
-    const parent = await prisma.instrument.findUnique({
-      where: { id: gatewayId }, select: { id: true, code: true, isGateway: true },
-    });
-    if (!parent) return { status: 400, body: { error: 'NOT_FOUND', message: 'The selected gateway does not exist.' } };
-    if (!parent.isGateway) {
-      return { status: 400, body: { error: 'NOT_A_GATEWAY', message: `Instrument "${parent.code}" is not configured as a gateway.` } };
-    }
-  }
-  // Spec D6 — refusing beats silently unlinking, which would stop those
-  // sensors reporting with nothing in the UI to say why.
-  if (current?.isGateway && next.isGateway === false) {
-    const kids = await prisma.instrument.findMany({ where: { gatewayId: current.id }, select: { code: true } });
-    if (kids.length > 0) {
-      return {
-        status: 409,
-        body: {
-          error: 'GATEWAY_HAS_CHILDREN',
-          message: `Unlink these instruments before disabling gateway mode: ${kids.map((k) => k.code).join(', ')}.`,
-        },
-      };
-    }
-  }
-  return null;
-}
-
 /** Human label for an audit row, so the trail never carries a bare UUID. */
 async function codeOf(id: string | null | undefined): Promise<string | null> {
   if (!id) return null;
@@ -202,6 +159,11 @@ async function createWithCredential(
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
       }, tx);
     }
+
+    // Backstop for the pre-flight guard, under a row lock on the gateway and
+    // AFTER the write that must be undone if it trips. See gateway-invariants.ts.
+    await lockedGatewayRecheck(tx, { linkTo: instrument.gatewayId });
+
     return { id: instrument.id, code: instrument.code, name: instrument.name, token };
   });
 }
@@ -495,6 +457,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       const row = await prisma.instrument.findUnique({ where: { id }, include: { credentials: activeCredential } });
       return reply.code(201).send({ ...present(row as unknown as InstrumentRow), token });
     } catch (err) {
+      if (err instanceof GatewayInvariantViolation) return reply.code(err.status).send(err.body);
       if (isDuplicateCode(err)) {
         return reply.code(409).send({ error: 'DUPLICATE_CODE', message: `An instrument with code "${parsed.data.code}" already exists.` });
       }
@@ -610,12 +573,12 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       : [null, null];
 
     const ctx = buildContext(req);
-    const updated = await prisma.$transaction(async (tx) => {
+    const run = () => prisma.$transaction(async (tx) => {
       const row = await tx.instrument.update({ where: { id }, data: parsed.data as never });
       await auditLog({
         action: 'INSTRUMENT_UPDATED', targetType: 'Instrument', targetId: id,
-        beforeValue: { name: existing.name, transport: existing.transport, isActive: existing.isActive, expectedIntervalSec: existing.expectedIntervalSec },
-        afterValue: { name: row.name, transport: row.transport, isActive: row.isActive, expectedIntervalSec: row.expectedIntervalSec },
+        beforeValue: { name: existing.name, transport: existing.transport, isActive: existing.isActive, expectedIntervalSec: existing.expectedIntervalSec, location: existing.location, area: existing.area, block: existing.block },
+        afterValue: { name: row.name, transport: row.transport, isActive: row.isActive, expectedIntervalSec: row.expectedIntervalSec, location: row.location, area: row.area, block: row.block },
         signatureMeaning: `Instrument "${row.code}" updated`,
         userId: ctx.userId, userRole: ctx.userRole,
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
@@ -651,8 +614,28 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
         }, tx);
       }
+
+      // Backstop for the pre-flight guard: re-checked under a row lock on the
+      // gateway, AFTER the mutation, so a violation rolls back the update AND
+      // its audit rows together. See gateway-invariants.ts for the interleaving
+      // this catches and why the lock is on the gateway rather than the children.
+      await lockedGatewayRecheck(tx, {
+        linkTo: gatewayChanged ? parsed.data.gatewayId : null,
+        disablingGatewayId: modeChanged && parsed.data.isGateway === false ? id : null,
+      });
+
       return row;
     });
+
+    let updated: Awaited<ReturnType<typeof run>>;
+    try {
+      updated = await run();
+    } catch (err) {
+      // The locked re-check lost the race: the transaction — update and audit
+      // rows alike — is already rolled back.
+      if (err instanceof GatewayInvariantViolation) return reply.code(err.status).send(err.body);
+      throw err;
+    }
 
     // Deactivating an instrument must stop its ingest NOW, not in up to 10s:
     // resolveInstrumentByToken caches the resolved identity, and `isActive` is
@@ -687,8 +670,27 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
 
     const ctx = buildContext(req);
-    await prisma.$transaction(async (tx) => {
+    const orphaned = await prisma.$transaction(async (tx) => {
+      // `onDelete: SetNull` unlinks every child in the DATABASE, silently. That
+      // is the same access-control event a PUT audits, so it gets the same rows
+      // — read before the delete, written in the same transaction, one per
+      // child. Without this, "when did S-4 stop being writable by GW-1, and who
+      // did it?" has no answer in the trail (§11.10(e)).
+      const kids = await tx.instrument.findMany({
+        where: { gatewayId: id }, select: { id: true, code: true },
+      });
+
       await tx.instrument.delete({ where: { id } });
+      for (const kid of kids) {
+        await auditLog({
+          action: 'INSTRUMENT_UNLINKED_FROM_GATEWAY', targetType: 'Instrument', targetId: kid.id,
+          beforeValue: { instrument: kid.code, gateway: existing.code, gatewayId: id },
+          afterValue: { instrument: kid.code, gateway: null, gatewayId: null },
+          signatureMeaning: `Instrument "${kid.code}" unlinked from gateway "${existing.code}" because that gateway was deleted`,
+          userId: ctx.userId, userRole: ctx.userRole,
+          ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+        }, tx);
+      }
       await auditLog({
         action: 'INSTRUMENT_DELETED', targetType: 'Instrument', targetId: id,
         beforeValue: { name: existing.name, code: existing.code, transport: existing.transport },
@@ -696,6 +698,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         userId: ctx.userId, userRole: ctx.userRole,
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
       }, tx);
+      return kids;
     });
 
     invalidateIngestAuthCache(id);
@@ -703,6 +706,9 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     // former parent's, which still lists it.
     invalidateChildMapCache(id);
     if (existing.gatewayId) invalidateChildMapCache(existing.gatewayId);
+    // Each orphaned child's ingest identity is cached too, and it no longer has
+    // a gateway that may write for it.
+    for (const kid of orphaned) invalidateIngestAuthCache(kid.id);
     return { success: true };
   });
 
