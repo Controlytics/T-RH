@@ -60,4 +60,20 @@ describe('fanoutDevices', () => {
   it('returns nothing for an empty devices map', () => {
     expect(fanoutDevices({}, map, TS, 'GW-1')).toEqual({ readings: [], rejected: [] });
   });
+
+  it('does not silently drop a reading key literally named "__proto__"', () => {
+    // JSON.parse produces an own "__proto__" property (unlike an object literal,
+    // which would set the prototype instead) — this is exactly the shape a
+    // device payload arrives in after `JSON.parse(buf)`.
+    const block = JSON.parse('{"__proto__": 5, "temperature": 21}');
+    const r = fanoutDevices({ 'SENSOR-A': block }, map, TS, 'GW-1');
+    expect(r.rejected).toEqual([]);
+    expect(r.readings).toEqual(
+      expect.arrayContaining([
+        { instrumentId: 'id-a', key: '__proto__', value: 5, valueType: 'int', ts: TS },
+        { instrumentId: 'id-a', key: 'temperature', value: 21, valueType: 'int', ts: TS },
+      ]),
+    );
+    expect(r.readings).toHaveLength(2);
+  });
 });

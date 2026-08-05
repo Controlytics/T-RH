@@ -59,7 +59,11 @@ export function fanoutDevices(
       if (!Number.isNaN(d.getTime())) blockTs = d;
     }
 
-    const values: Record<string, unknown> = {};
+    // Object.create(null) — a plain {} has an inherited Object.prototype.__proto__
+    // setter, so a reading key literally named "__proto__" would hit that
+    // accessor instead of creating an own property and vanish with no trace in
+    // either readings or rejected. Do not "tidy" this back to {}.
+    const values: Record<string, unknown> = Object.create(null);
     for (const [k, v] of Object.entries(obj)) if (!BLOCK_META.has(k)) values[k] = v;
 
     for (const r of toReadings(values, blockTs)) {
