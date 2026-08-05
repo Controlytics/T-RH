@@ -126,15 +126,25 @@ CREATE INDEX "instruments_block_area_location_idx" ON "instruments"("block", "ar
 Stop the dev server first — `prisma generate` cannot replace the query engine while a node process holds it open (that is the EPERM failure documented in `scripts/start-app.ps1`).
 
 ```bash
-stop-app.bat
+stop-app.bat            # prisma generate cannot replace the query engine while
+                        # a node process holds it open (EPERM)
 cd apps/api
-DATABASE_URL='postgresql://digilog:digilog123@localhost:5432/compliance_core_db?schema=public' npx prisma migrate resolve --applied 20260805120000_instrument_gateway
-DATABASE_URL='postgresql://digilog:digilog123@localhost:5432/compliance_core_db?schema=public' psql -h localhost -U digilog -d compliance_core_db -f prisma/migrations/20260805120000_instrument_gateway/migration.sql
+
+# 1. APPLY the SQL first. psql does not read DATABASE_URL — it needs the
+#    connection flags plus PGPASSWORD.
+PGPASSWORD=digilog123 psql -h localhost -U digilog -d compliance_core_db   -v ON_ERROR_STOP=1   -f prisma/migrations/20260805120000_instrument_gateway/migration.sql
+
+# 2. Only THEN mark it applied. Doing this first would leave the DB recorded as
+#    migrated even if step 1 failed, and the next `migrate deploy` would skip it
+#    forever — a silent schema divergence on every install.
+DATABASE_URL='postgresql://digilog:digilog123@localhost:5432/compliance_core_db?schema=public'   npx prisma migrate resolve --applied 20260805120000_instrument_gateway
+
 npx prisma generate
 cd ../.. && npm run db:verify-migrations
 ```
 
-Expected: drift guard PASS.
+Expected: every command exits 0 and the drift guard reports PASS. If step 1
+fails, fix the SQL and re-run it — do NOT run step 2.
 
 - [ ] **Step 4: Prove the self-reference constraint holds**
 
