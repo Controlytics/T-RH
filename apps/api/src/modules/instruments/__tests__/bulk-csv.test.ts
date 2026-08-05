@@ -43,4 +43,36 @@ describe('parseInstrumentCsv', () => {
     const r = parseInstrumentCsv('name,code,transport,manufacturer\nA,A-1,http,Vaisala');
     expect(r.rows[0]).toMatchObject({ manufacturer: 'Vaisala' });
   });
+
+  it('handles blank lines in the middle and reports correct row numbers', () => {
+    const r = parseInstrumentCsv(`${HEADER}\nGood,G-1,http\n\nBad,B-1,carrier-pigeon`);
+    expect(r.rows).toEqual([{ name: 'Good', code: 'G-1', transport: 'http' }]);
+    expect(r.errors).toHaveLength(1);
+    expect(r.errors[0]).toMatchObject({ row: 4 }); // The bad row is on line 4 in the source
+  });
+
+  it('unquotes fields wrapped in double quotes', () => {
+    const r = parseInstrumentCsv(`${HEADER}\n"Probe A",PA-1,http`);
+    expect(r.rows[0]).toMatchObject({ name: 'Probe A' });
+    expect(r.errors).toEqual([]);
+  });
+
+  it('handles commas inside quoted fields', () => {
+    const r = parseInstrumentCsv(`${HEADER}\n"Probe, north wing",PN-1,http`);
+    expect(r.rows[0]).toMatchObject({ name: 'Probe, north wing' });
+    expect(r.errors).toEqual([]);
+  });
+
+  it('handles escaped quotes inside quoted fields', () => {
+    const r = parseInstrumentCsv(`${HEADER}\n"Probe ""alpha"" model",PA-1,http`);
+    expect(r.rows[0]).toMatchObject({ name: 'Probe "alpha" model' });
+    expect(r.errors).toEqual([]);
+  });
+
+  it('reports row error for unterminated quoted field', () => {
+    const r = parseInstrumentCsv(`${HEADER}\n"Probe A,PA-1,http`);
+    expect(r.rows).toEqual([]);
+    expect(r.errors).toHaveLength(1);
+    expect(r.errors[0].message).toMatch(/unterminated|quote/i);
+  });
 });

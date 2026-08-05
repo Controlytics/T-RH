@@ -11,28 +11,118 @@ export interface InstrumentDraft {
 export interface RowError { row: number; message: string }
 
 /**
+ * Parse a CSV line with RFC4180-style quoted field handling:
+ * - Fields can be wrapped in double quotes
+ * - Commas inside quoted fields are literal
+ * - Escaped quotes inside quoted fields use ""
+ * - Unquoted fields are used as-is
+ */
+function parseCSVLine(line: string): string[] {
+  const fields: string[] = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        // Escaped quote: "" inside a quoted field becomes a single quote
+        current += '"';
+        i++; // Skip the next quote
+      } else {
+        // Toggle quote state
+        inQuotes = !inQuotes;
+      }
+    } else if (char === ',' && !inQuotes) {
+      // Field separator (only if not inside quotes)
+      fields.push(current);
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+
+  // Add the last field
+  fields.push(current);
+
+  return fields;
+}
+
+/**
  * Deliberately partial-success: valid rows are returned even when others fail,
  * so one typo does not reject a 200-device import. Row numbers are 1-based and
  * count the header, matching what the operator sees in a spreadsheet.
  */
 export function parseInstrumentCsv(text: string): { rows: InstrumentDraft[]; errors: RowError[] } {
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
-  if (lines.length === 0) return { rows: [], errors: [{ row: 1, message: 'Missing header row' }] };
+  // Split into lines WITHOUT filtering to preserve source row numbers
+  const allLines = text.split(/\r?\n/);
 
-  const header = lines[0].split(',').map((h) => h.trim());
+  // Find the header: first non-blank line
+  let headerRowIndex = -1;
+  let header: string[] = [];
+
+  for (let i = 0; i < allLines.length; i++) {
+    const trimmed = allLines[i].trim();
+    if (trimmed.length > 0) {
+      headerRowIndex = i;
+      header = parseCSVLine(trimmed);
+      break;
+    }
+  }
+
+  // Check header validity
+  if (headerRowIndex === -1) {
+    return { rows: [], errors: [{ row: 1, message: 'Missing header row' }] };
+  }
+
   const missing = REQUIRED.filter((c) => !header.includes(c));
   if (missing.length > 0) {
-    return { rows: [], errors: [{ row: 1, message: `Missing header column(s): ${missing.join(', ')}` }] };
+    return { rows: [], errors: [{ row: headerRowIndex + 1, message: `Missing header column(s): ${missing.join(', ')}` }] };
   }
 
   const rows: InstrumentDraft[] = [];
   const errors: RowError[] = [];
   const seen = new Set<string>();
 
-  for (let i = 1; i < lines.length; i++) {
-    const rowNo = i + 1;
-    const cells = lines[i].split(',').map((c) => c.trim());
-    const get = (col: string) => { const idx = header.indexOf(col); return idx === -1 ? '' : (cells[idx] ?? ''); };
+  // Process data rows
+  for (let i = headerRowIndex + 1; i < allLines.length; i++) {
+    const trimmed = allLines[i].trim();
+
+    // Skip blank lines
+    if (trimmed.length === 0) {
+      continue;
+    }
+
+    const rowNo = i + 1; // 1-based row number matching source file
+
+    // Check for unterminated quotes
+    let quoteCount = 0;
+    for (const char of trimmed) {
+      if (char === '"') quoteCount++;
+    }
+
+    // Odd number of unescaped quotes means unterminated
+    // Count escaped quotes ("") as two quotes, unescaped as one
+    let unescapedQuotes = 0;
+    for (let j = 0; j < trimmed.length; j++) {
+      if (trimmed[j] === '"' && trimmed[j + 1] !== '"') {
+        unescapedQuotes++;
+      } else if (trimmed[j] === '"' && trimmed[j + 1] === '"') {
+        j++; // Skip the escaped quote pair
+      }
+    }
+
+    if (unescapedQuotes % 2 !== 0) {
+      errors.push({ row: rowNo, message: 'Unterminated quoted field' });
+      continue;
+    }
+
+    const cells = parseCSVLine(trimmed);
+    const get = (col: string) => {
+      const idx = header.indexOf(col);
+      return idx === -1 ? '' : (cells[idx] ?? '').trim();
+    };
 
     const name = get('name'), code = get('code'), transport = get('transport').toLowerCase();
 
