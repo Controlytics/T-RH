@@ -384,14 +384,53 @@ describe('Instrument gateway audit trail', () => {
   /**
    * The pre-flight guard cannot see an uncommitted write, so two concurrent
    * requests could commit a non-gateway that still has live children. The
-   * backstop is a re-check under a row lock on the GATEWAY, after the mutation.
+   * backstop is a re-check under a row lock on the GATEWAY, taken as the first
+   * statement of the transaction.
    *
-   * This drives the race deterministically by playing the concurrent linker
-   * itself: a held transaction takes the same gateway-row lock the link path
-   * takes, links a child, and only commits once the route's PUT is parked on
-   * that lock. The PUT then re-reads committed state, refuses, and rolls back —
-   * taking its own audit rows with it, which is the §11.10(e) half of the test.
+   * These two tests drive the race deterministically by playing the concurrent
+   * linker: `heldLinker` takes the same locks the real link path takes — the
+   * gateway row AND the audit chain's advisory lock, because omitting the
+   * advisory lock is precisely what would hide a lock-order deadlock — links a
+   * child, and commits only once the route under test is genuinely blocked.
+   *
+   * "Genuinely blocked" is asked of Postgres (`pg_blocking_pids`), not guessed
+   * with a sleep: a timer that expires early would silently downgrade the test
+   * to exercising the pre-flight instead of the lock.
    */
+  const AUDIT_CHAIN_LOCK_ID = 7421151037n;
+
+  /** Hold the link path's locks + an uncommitted child link, until released. */
+  function heldLinker(gatewayId: string, childId: string) {
+    let release!: () => void;
+    let pidResolve!: (pid: number) => void;
+    const held = new Promise<void>((r) => { release = r; });
+    const pid = new Promise<number>((r) => { pidResolve = r; });
+
+    const done = prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid()::int AS pid`;
+      await tx.$queryRaw`SELECT id FROM instruments WHERE id = ${gatewayId} FOR UPDATE`;
+      // Lock-equivalence with the real link path: every audit write takes this.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${AUDIT_CHAIN_LOCK_ID})`;
+      await tx.instrument.update({ where: { id: childId }, data: { gatewayId } });
+      pidResolve(rows[0].pid);
+      await held;
+    }, { timeout: 20_000 });
+
+    return { pid, release, done };
+  }
+
+  /** Wait until `pid` is actually blocking another backend. */
+  async function waitUntilBlocking(pid: number): Promise<void> {
+    for (let i = 0; i < 400; i++) {
+      const rows = await prisma.$queryRaw<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM pg_stat_activity WHERE ${pid} = ANY(pg_blocking_pids(pid))
+      `;
+      if (rows[0].n > 0) return;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    throw new Error(`backend ${pid} never blocked anyone — the route did not take the lock`);
+  }
+
   it('rolls the update AND its audit rows back when the locked re-check loses a race', async () => {
     const s = Date.now();
     const gw = await mk({ name: 'RGW', code: `RGW-${s}`, transport: 'http', isGateway: true });
@@ -402,26 +441,20 @@ describe('Instrument gateway audit trail', () => {
       prisma.auditTrail.count({ where: { targetId: gwId, action: 'INSTRUMENT_GATEWAY_DISABLED' } });
     expect(await auditCount()).toBe(0);
 
-    let release!: () => void;
-    const held = new Promise<void>((r) => { release = r; });
-    const linker = prisma.$transaction(async (tx) => {
-      // Exactly what the link path does: lock the gateway row, then write the
-      // child. Uncommitted, so the route's pre-flight cannot see it.
-      await tx.$queryRaw`SELECT id FROM instruments WHERE id = ${gwId} FOR UPDATE`;
-      await tx.instrument.update({ where: { id: child.json().id }, data: { gatewayId: gwId } });
-      await held;
-    }, { timeout: 15_000 });
+    const linker = heldLinker(gwId, child.json().id);
+    const linkerPid = await linker.pid;
 
     const pending = app.inject({
       method: 'PUT', url: `/api/instruments/${gwId}`, headers: auth, payload: { isGateway: false },
     });
-    // Let the PUT clear its pre-flight (0 children visible) and park on the
-    // gateway row lock the linker is holding.
-    await new Promise((r) => setTimeout(r, 500));
-    release();
-    await linker;
+    // The PUT clears its pre-flight (0 children visible) and parks on the
+    // gateway row lock. If it never parks, the lock is gone and this throws.
+    await waitUntilBlocking(linkerPid);
+    linker.release();
+    await linker.done;
 
     const res = await pending;
+    // A deadlock instead of a wait would surface here as a 500.
     expect(res.statusCode).toBe(409);
     expect(res.json().error).toBe('GATEWAY_HAS_CHILDREN');
 
@@ -431,6 +464,73 @@ describe('Instrument gateway audit trail', () => {
     // ...and so is its audit row. A refactor that moved auditLog outside
     // $transaction would leave one here and fail this line.
     expect(await auditCount()).toBe(0);
+  });
+
+  /**
+   * Lock ORDER, not just lock presence. `auditLog` takes
+   * `pg_advisory_xact_lock` and holds it to commit, so a path that mutates
+   * before locking the gateway runs `own row -> advisory -> gateway row` and
+   * cycles against a concurrent link. Postgres breaks that with 40P01 and the
+   * clean 409 becomes a 500.
+   *
+   * Both sides here are REAL requests — a synthetic linker can only reproduce
+   * the ordering it was written to mimic, which is how this defect survived the
+   * first fix round. The assertion is a property, not an outcome: whichever
+   * request wins, neither may 500 and the pair may never leave a non-gateway
+   * holding a live child.
+   */
+  it('does not deadlock when a disable and a link race on the same gateway', async () => {
+    const s = Date.now();
+    for (let i = 0; i < 8; i++) {
+      const gw = await mk({ name: 'PGW', code: `PGW-${s}-${i}`, transport: 'http', isGateway: true });
+      const child = await mk({ name: 'PC', code: `PC-${s}-${i}`, transport: 'http' });
+      const gwId = gw.json().id;
+
+      const [disable, link] = await Promise.all([
+        app.inject({ method: 'PUT', url: `/api/instruments/${gwId}`, headers: auth, payload: { isGateway: false } }),
+        app.inject({ method: 'PUT', url: `/api/instruments/${child.json().id}`, headers: auth, payload: { gatewayId: gwId } }),
+      ]);
+
+      for (const res of [disable, link]) {
+        expect([200, 400, 409], `unexpected ${res.statusCode}: ${res.body}`).toContain(res.statusCode);
+      }
+
+      const after = await prisma.instrument.findUnique({
+        where: { id: gwId }, select: { isGateway: true, children: { select: { id: true } } },
+      });
+      // The invariant itself: never a non-gateway with live children.
+      if (after && !after.isGateway) expect(after.children).toHaveLength(0);
+    }
+  });
+
+  it('audits a child linked concurrently with the gateway delete — the delete must lock first', async () => {
+    const s = Date.now();
+    const gw = await mk({ name: 'XGW', code: `XGW-${s}`, transport: 'http', isGateway: true });
+    const child = await mk({ name: 'XC', code: `XC-${s}`, transport: 'http' });
+    const gwId = gw.json().id;
+    const childId = child.json().id;
+
+    const linker = heldLinker(gwId, childId);
+    const linkerPid = await linker.pid;
+
+    const pending = app.inject({ method: 'DELETE', url: `/api/instruments/${gwId}`, headers: auth });
+    // Without the delete's own FOR UPDATE, it reads `kids` without waiting, the
+    // linker's child is invisible, and the child is unlinked by SetNull with no
+    // audit row — the exact §11.10(e) gap. So this must block.
+    await waitUntilBlocking(linkerPid);
+    linker.release();
+    await linker.done;
+
+    expect((await pending).statusCode).toBe(200);
+
+    const rows = await prisma.auditTrail.findMany({
+      where: { targetId: childId, action: 'INSTRUMENT_UNLINKED_FROM_GATEWAY' },
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].beforeValue).toMatchObject({ gateway: `XGW-${s}` });
+    // And the child itself survived, unlinked.
+    const still = await prisma.instrument.findUnique({ where: { id: childId } });
+    expect(still?.gatewayId).toBeNull();
   });
 
   it('the locked re-check refuses both violations when called directly', async () => {

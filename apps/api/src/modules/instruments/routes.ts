@@ -16,7 +16,9 @@ import { generateToken, hashToken, tokenPrefix } from './token.js';
 import { parseInstrumentCsv, type InstrumentDraft } from './bulk-csv.js';
 import { invalidateIngestAuthCache } from './ingest-auth.js';
 import { invalidateChildMapCache } from './gateway-children.js';
-import { gatewayInvariantError, lockedGatewayRecheck, GatewayInvariantViolation } from './gateway-invariants.js';
+import {
+  gatewayInvariantError, lockedGatewayRecheck, lockInstrumentRows, GatewayInvariantViolation,
+} from './gateway-invariants.js';
 import { getLatest, getHistory } from './telemetry.repository.js';
 
 /**
@@ -120,6 +122,10 @@ async function createWithCredential(
 ): Promise<{ id: string; code: string; name: string; token: string }> {
   const token = generateToken();
   return prisma.$transaction(async (tx) => {
+    // FIRST statement of the transaction, before the write and before any
+    // auditLog takes the audit advisory lock — see gateway-invariants.ts.
+    await lockedGatewayRecheck(tx, { linkTo: (draft.gatewayId as string | null | undefined) ?? null });
+
     const instrument = await tx.instrument.create({
       data: { ...draft, createdBy: ctx.userId } as unknown as Prisma.InstrumentCreateInput,
     });
@@ -159,10 +165,6 @@ async function createWithCredential(
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
       }, tx);
     }
-
-    // Backstop for the pre-flight guard, under a row lock on the gateway and
-    // AFTER the write that must be undone if it trips. See gateway-invariants.ts.
-    await lockedGatewayRecheck(tx, { linkTo: instrument.gatewayId });
 
     return { id: instrument.id, code: instrument.code, name: instrument.name, token };
   });
@@ -574,6 +576,15 @@ export default async function instrumentRoutes(app: FastifyInstance) {
 
     const ctx = buildContext(req);
     const run = () => prisma.$transaction(async (tx) => {
+      // FIRST statement of the transaction. Backstop for the pre-flight guard,
+      // under a row lock on the gateway; taking it before the update and before
+      // any auditLog is what keeps the lock order deadlock-free. See
+      // gateway-invariants.ts for the interleaving this catches.
+      await lockedGatewayRecheck(tx, {
+        linkTo: gatewayChanged ? parsed.data.gatewayId : null,
+        disablingGatewayId: modeChanged && parsed.data.isGateway === false ? id : null,
+      });
+
       const row = await tx.instrument.update({ where: { id }, data: parsed.data as never });
       await auditLog({
         action: 'INSTRUMENT_UPDATED', targetType: 'Instrument', targetId: id,
@@ -614,16 +625,6 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
         }, tx);
       }
-
-      // Backstop for the pre-flight guard: re-checked under a row lock on the
-      // gateway, AFTER the mutation, so a violation rolls back the update AND
-      // its audit rows together. See gateway-invariants.ts for the interleaving
-      // this catches and why the lock is on the gateway rather than the children.
-      await lockedGatewayRecheck(tx, {
-        linkTo: gatewayChanged ? parsed.data.gatewayId : null,
-        disablingGatewayId: modeChanged && parsed.data.isGateway === false ? id : null,
-      });
-
       return row;
     });
 
@@ -671,6 +672,15 @@ export default async function instrumentRoutes(app: FastifyInstance) {
 
     const ctx = buildContext(req);
     const orphaned = await prisma.$transaction(async (tx) => {
+      // FIRST statement: lock this gateway before reading its children. An
+      // unlocked read races a concurrent `PUT /C {gatewayId: this}` committing
+      // between the read and the delete — C would be missing from `kids`, get no
+      // unlink row, and still be unlinked by the SetNull cascade, which is
+      // exactly the §11.10(e) gap the audit rows below exist to close. (It also
+      // deadlocks on row locks alone: the delete holds this row and wants C
+      // while the linker holds C and wants this row.)
+      await lockInstrumentRows(tx, [id]);
+
       // `onDelete: SetNull` unlinks every child in the DATABASE, silently. That
       // is the same access-control event a PUT audits, so it gets the same rows
       // — read before the delete, written in the same transaction, one per

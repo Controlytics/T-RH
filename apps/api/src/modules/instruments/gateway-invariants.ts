@@ -73,10 +73,62 @@ export async function gatewayInvariantError(
   return null;
 }
 
+type LockedRow = { id: string; code: string; is_gateway: boolean };
+
+/**
+ * Take `FOR UPDATE` row locks on the given instruments, **ordered by id**, and
+ * return what was locked (missing ids are simply absent).
+ *
+ * MUST BE THE FIRST STATEMENT OF THE CALLER'S TRANSACTION. Not a style rule —
+ * a correctness one, for two separate reasons:
+ *
+ * 1. DEADLOCK. `auditLog` takes `pg_advisory_xact_lock(AUDIT_CHAIN_LOCK_ID)`
+ *    as the first statement of every audit write and holds it to commit, so a
+ *    request that mutates before locking runs in the order
+ *    `own row -> advisory -> gateway row`. Against a concurrent link
+ *    (`own row -> advisory` where "own row" IS the child) that cycles:
+ *
+ *      A: UPDATE GW [locks GW] -> auditLog -> WAITS on advisory
+ *      B: UPDATE C  [locks C]  -> auditLog [holds advisory]
+ *                              -> FOR UPDATE GW -> WAITS on A
+ *
+ *    Postgres breaks it with 40P01 after ~1s and the clean 409 becomes a 500.
+ *    Locking first makes the order `gateway row -> own row -> advisory` on
+ *    EVERY path, so nobody can hold the advisory lock while waiting for a
+ *    gateway row.
+ * 2. It makes the re-check's position moot. Holding the gateway row from the
+ *    start means nothing can change underneath the check, so it is equally
+ *    sound before or after the caller's mutation.
+ *
+ * The `ORDER BY id` matters for the one request that locks TWO gateways —
+ * `PUT /G1 {isGateway:false, gatewayId:G2}`, which stops being a gateway and
+ * becomes a child in the same call. Its mirror on G2 would otherwise acquire
+ * the same pair in the opposite order and deadlock.
+ */
+export async function lockInstrumentRows(
+  tx: Prisma.TransactionClient,
+  ids: (string | null | undefined)[],
+): Promise<Map<string, LockedRow>> {
+  const ordered = [...new Set(ids.filter((id): id is string => !!id))].sort();
+  const locked = new Map<string, LockedRow>();
+  // One statement per id, in sorted order: a single `WHERE id = ANY(...)
+  // ORDER BY id FOR UPDATE` would rely on the planner keeping LockRows above
+  // the Sort, which is not a contract worth betting a deadlock on. There are
+  // never more than two ids.
+  for (const id of ordered) {
+    const rows = await tx.$queryRaw<LockedRow[]>`
+      SELECT id, code, is_gateway FROM instruments WHERE id = ${id} FOR UPDATE
+    `;
+    if (rows[0]) locked.set(id, rows[0]);
+  }
+  return locked;
+}
+
 /**
  * Re-check the two cross-row invariants inside the caller's transaction, under
  * a row lock, and throw `GatewayInvariantViolation` (rolling the transaction
- * back) if they no longer hold.
+ * back) if they do not hold. Call it as the FIRST statement of the transaction
+ * — see `lockInstrumentRows`.
  *
  * WHY THIS EXISTS. The pre-flight reads and returns before any transaction
  * opens, so this interleaving passes both checks and commits a gateway that is
@@ -92,29 +144,23 @@ export async function gatewayInvariantError(
  * WHY A LOCK ON THE GATEWAY ROW, AND NOT ON THE CHILDREN. `SELECT ... WHERE
  * gateway_id = $self FOR UPDATE` locks the rows it can SEE — and in the race
  * above that set is empty, so it locks nothing and blocks nobody (Postgres has
- * no predicate locking below Serializable). The only row both sides of the race
- * have in common is the GATEWAY, so that is the row both sides take:
+ * no predicate locking below Serializable). The only row both sides of the
+ * race have in common is the GATEWAY, so that is the row both sides take.
  *
- *   - disabling a gateway  -> the caller's own `UPDATE instruments ... WHERE
- *                             id = GW` already write-locks it; the explicit
- *                             `FOR UPDATE` below documents and re-asserts it.
- *   - linking a child      -> the caller updates the CHILD, so it must lock the
- *                             gateway row explicitly.
- *
- * Both re-checks run AFTER the caller's mutation, so the lock is taken while
- * the write is already pending. Whichever request reaches the gateway row
- * second blocks, then re-reads committed state and refuses. Lock order is
- * always "the gateway row", so two concurrent links cannot deadlock.
+ * NOT covered, deliberately: unlinking (`gatewayId: null`) locks nothing, so it
+ * can race a concurrent disable of the OLD parent. Both orders are consistent —
+ * either the disable sees the child and returns 409 (a retry then succeeds), or
+ * the unlink lands first and the disable proceeds. No invariant breaks, so
+ * there is nothing to serialise.
  */
 export async function lockedGatewayRecheck(
   tx: Prisma.TransactionClient,
   opts: { linkTo?: string | null; disablingGatewayId?: string | null },
 ): Promise<void> {
+  const locked = await lockInstrumentRows(tx, [opts.linkTo, opts.disablingGatewayId]);
+
   if (opts.linkTo) {
-    const rows = await tx.$queryRaw<{ id: string; code: string; is_gateway: boolean }[]>`
-      SELECT id, code, is_gateway FROM instruments WHERE id = ${opts.linkTo} FOR UPDATE
-    `;
-    const parent = rows[0];
+    const parent = locked.get(opts.linkTo);
     if (!parent) {
       throw new GatewayInvariantViolation(400, { error: 'NOT_FOUND', message: 'The selected gateway does not exist.' });
     }
@@ -127,7 +173,6 @@ export async function lockedGatewayRecheck(
   }
 
   if (opts.disablingGatewayId) {
-    await tx.$queryRaw`SELECT id FROM instruments WHERE id = ${opts.disablingGatewayId} FOR UPDATE`;
     const kids = await tx.$queryRaw<{ code: string }[]>`
       SELECT code FROM instruments WHERE gateway_id = ${opts.disablingGatewayId} ORDER BY code
     `;
