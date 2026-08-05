@@ -41,6 +41,7 @@ import notificationRulesRoutes from './modules/notification-rules/routes.js';
 import { notificationTask } from './workers/notification.worker.js';
 import { passwordExpiryCheckTask } from './workers/password-expiry.worker.js';
 import { sessionSweepTask } from './workers/session-sweep.worker.js';
+import { telemetryPartitionTask } from './workers/telemetry-partition.worker.js';
 import { startJobRunner, stopJobRunner } from '@digilog/queue';
 import { AppError } from './lib/errors.js';
 import { dispatchNotification } from './modules/notification-delivery/notification-dispatcher.js';
@@ -430,6 +431,13 @@ try {
 
         password_expiry_check: passwordExpiryCheckTask,
         session_sweep: sessionSweepTask,
+
+        // Telemetry partition maintenance. NOT housekeeping: an insert whose
+        // `ts` falls outside every partition of instrument_telemetry_history is
+        // REJECTED by Postgres, so without a future partition device ingestion
+        // stops dead at 00:00 on the 1st. Runs ahead by several months so one
+        // missed run cannot cause that.
+        telemetry_partition_maintenance: telemetryPartitionTask,
       },
       crontabPath,
     });

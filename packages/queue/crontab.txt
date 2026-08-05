@@ -34,3 +34,10 @@
 # configured window before their password expires + a one-time expiry notice.
 # Idempotent (one warning per user per day; expiry notice once per event).
 0 0 * * * password_expiry_check ?id=password_expiry_check&max=1&fill=0s
+# Telemetry partitions — 1st and 15th at 00:05. Creates next month's partition
+# ahead of time. This is a CORRECTNESS entry, not cleanup: Postgres REJECTS an
+# insert whose ts falls outside every partition, so if this never runs, device
+# telemetry stops being accepted at midnight on the 1st. Twice a month so a
+# single missed run (machine off on the 1st) is still covered.
+5 0 1 * * telemetry_partition_maintenance ?id=telemetry_partition_dom01&max=1&fill=0s
+5 0 15 * * telemetry_partition_maintenance ?id=telemetry_partition_dom15&max=1&fill=0s

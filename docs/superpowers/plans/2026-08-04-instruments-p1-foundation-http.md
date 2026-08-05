@@ -1067,18 +1067,18 @@ git commit -m "feat(instruments): registry CRUD, bulk create and token regenerat
 - Consumes: Task 2 tables
 - Produces: graphile task `telemetry_partition_maintenance`
 
-- [ ] **Step 1: Recover the worker and its test**
+- [x] **Step 1: Recover the worker and its test**
 
 ```bash
 git show pre-data-injection-drop:apps/api/src/workers/telemetry-partition.worker.ts > apps/api/src/workers/telemetry-partition.worker.ts
 git show pre-data-injection-drop:apps/api/src/workers/__tests__/telemetry-partition.test.ts > apps/api/src/workers/__tests__/telemetry-partition.test.ts
 ```
 
-- [ ] **Step 2: Make the test use a SCRATCH table**
+- [x] **Step 2: Make the test use a SCRATCH table**
 
 ⚠️ The original version of this test ran `dropExpiredPartitions` against the **real** table with a far-future `now`, destroying every 2026 partition and breaking 12 other tests — and the guard test written to catch that passed, because it ran after the drop against an already-empty baseline. Rewrite the test to create and operate on a scratch partitioned table, never `instrument_telemetry_history`.
 
-- [ ] **Step 3: Register the task and cron entry**
+- [x] **Step 3: Register the task and cron entry**
 
 Add `telemetry_partition_maintenance` to the graphile `taskList`, and to `packages/queue/crontab.txt`:
 
@@ -1098,12 +1098,12 @@ PGPASSWORD=digilog123 psql -h localhost -U digilog -d compliance_core_db \
 
 Expected: includes both `telemetry_partition_dom01` and `telemetry_partition_dom15`, and still includes `session_sweep` and `password_expiry_check`.
 
-- [ ] **Step 4: Run the test**
+- [x] **Step 4: Run the test**
 
 Run: `cd apps/api && npx vitest run src/workers/__tests__/telemetry-partition.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/src/workers/telemetry-partition.worker.ts apps/api/src/workers/__tests__/telemetry-partition.test.ts packages/queue/crontab.txt apps/api/src/workers/task-list.ts
