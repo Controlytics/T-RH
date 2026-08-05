@@ -13,18 +13,29 @@
       3  psql available
       4  Read apps/api/.env  (DATABASE_URL, PORT, API_HTTPS)
       5  Database exists (created if not)
-      6  npm workspaces installed
-      7  packages/shared + packages/queue built
-      8  Prisma client generated
-      9  Extensions (ltree, pgcrypto) applied
-      10 Migrations deployed
-      11 Seeded (only if the users table is empty)
-      12 TLS certs present when API_HTTPS=true
-      13 Ports free
+      6  Ports free  (BEFORE anything writes to node_modules - see below)
+      7  npm workspaces installed
+      8  packages/shared + packages/queue built
+      9  Prisma client generated
+      10 Extensions (ltree, pgcrypto) applied
+      11 Migrations deployed
+      12 Seeded (only if the users table is empty)
+      13 TLS certs present when API_HTTPS=true
       14 Start API + web, wait for health, open browser
 
+    The port check runs BEFORE npm install / shared build / prisma generate.
+    A previously-started API holds an open handle on
+    node_modules\.prisma\client\query_engine-windows.dll.node, and Windows
+    refuses the rename `prisma generate` performs - so a re-run while the app
+    was up used to die at step 8 with a bare EPERM instead of the actionable
+    "port in use, run stop-app.bat". Same reasoning for npm install.
+
 .PARAMETER WebPort
-    Port for the Vite dev server. Defaults to 5175, auto-incrementing if busy.
+    Port for the Vite dev server. Fixed, not auto-selected: defaults to
+    WEB_PORT from apps/api/.env, else 5175. If it is busy the script stops
+    rather than silently drifting to the next free port - a moving URL breaks
+    bookmarks, and on a machine with two checkouts it is how you end up looking
+    at the other one.
 
 .PARAMETER SkipBrowser
     Do not open the browser when the stack is up.
@@ -211,7 +222,50 @@ if ($exists -notmatch '1') {
     Ok "Present"
 }
 
-# ---------------------------------------------------------------- 6. npm install
+# ---------------------------------------------------------------- 6. ports
+# Deliberately BEFORE npm install / shared build / prisma generate. A running
+# API keeps an open handle on node_modules\.prisma\client\query_engine-*.dll.node
+# and Windows will not let `prisma generate` rename over it, so an already-up
+# stack used to fail three steps later with a bare EPERM. Fail here instead,
+# where the cause and the fix are both obvious.
+Step "Checking ports"
+function Test-PortBusy([int]$Port) {
+    $c = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+    return ($null -ne $c)
+}
+function Get-PortOwner([int]$Port) {
+    $owner = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $owner) { return '(unknown)' }
+    $proc = Get-Process -Id $owner.OwningProcess -ErrorAction SilentlyContinue
+    if ($proc) { return "$($proc.ProcessName) (PID $($proc.Id))" }
+    return "PID $($owner.OwningProcess)"
+}
+
+if (Test-PortBusy $ApiPort) {
+    Die "API port $ApiPort is already in use by $(Get-PortOwner $ApiPort)." @(
+        "This checkout is probably already running.",
+        "Stop it first:  stop-app.bat",
+        "Or change PORT in apps\api\.env if a different app owns that port."
+    )
+}
+Ok "API port $ApiPort free"
+
+# Fixed, never auto-incremented. -WebPort wins, else WEB_PORT from apps/api/.env,
+# else 5175. Two checkouts on one machine must each PIN their own port: silently
+# drifting 5175 -> 5176 is how you end up testing the sibling checkout.
+if ($WebPort -eq 0) {
+    if ($EnvMap['WEB_PORT']) { $WebPort = [int]$EnvMap['WEB_PORT'] } else { $WebPort = 5175 }
+}
+if (Test-PortBusy $WebPort) {
+    Die "Web port $WebPort is already in use by $(Get-PortOwner $WebPort)." @(
+        "Stop it first:  stop-app.bat",
+        "Or pin a different one:  start-app.bat -WebPort 5180",
+        "To make that permanent, set WEB_PORT in apps\api\.env."
+    )
+}
+Ok "Web port $WebPort free"
+
+# ---------------------------------------------------------------- 7. npm install
 Step "Checking npm dependencies"
 $needInstall = $false
 if (-not (Test-Path (Join-Path $RepoRoot 'node_modules'))) { $needInstall = $true }
@@ -231,7 +285,7 @@ if ($needInstall) {
     Ok "Up to date"
 }
 
-# ---------------------------------------------------------------- 7. build shared packages
+# ---------------------------------------------------------------- 8. build shared packages
 Step "Building shared packages"
 if (-not (Test-Path (Join-Path $RepoRoot 'packages\shared\dist'))) {
     Info "Building @digilog/shared..."
@@ -247,16 +301,48 @@ if (-not (Test-Path (Join-Path $RepoRoot 'packages\queue\dist'))) {
     Ok "@digilog/queue built"
 } else { Ok "@digilog/queue present" }
 
-# ---------------------------------------------------------------- 8. prisma client
+# ---------------------------------------------------------------- 9. prisma client
 Step "Generating Prisma client"
-Push-Location (Join-Path $RepoRoot 'apps\api')
-& npx prisma generate | Out-Null
-$genOk = ($LASTEXITCODE -eq 0)
-Pop-Location
-if (-not $genOk) { Die "prisma generate failed." @("Run it manually:  cd apps\api && npx prisma generate") }
-Ok "Prisma client ready"
+# Skip when the generated client is already newer than the schema. Regenerating
+# rewrites query_engine-windows.dll.node, which fails with EPERM if ANY node
+# process has it open - and on Windows that includes processes this script does
+# not own (a test run, an editor's TS server, a sibling checkout sharing the
+# node_modules). Not rewriting an already-current client removes the whole
+# failure mode from the common re-run path.
+$schemaFile = Join-Path $RepoRoot 'apps\api\prisma\schema.prisma'
+$clientIdx  = Join-Path $RepoRoot 'node_modules\.prisma\client\index.js'
+$clientFresh = (Test-Path $clientIdx) -and (Test-Path $schemaFile) -and
+               ((Get-Item $clientIdx).LastWriteTime -ge (Get-Item $schemaFile).LastWriteTime)
 
-# ---------------------------------------------------------------- 9. extensions
+if ($clientFresh) {
+    Ok "Prisma client already current (schema unchanged)"
+} else {
+    Push-Location (Join-Path $RepoRoot 'apps\api')
+    $genOut = & npx prisma generate 2>&1
+    $genOk = ($LASTEXITCODE -eq 0)
+    Pop-Location
+    if (-not $genOk) {
+        $text = ($genOut | Out-String)
+        if ($text -match 'EPERM') {
+            # Name the real cause. "Run it manually" is useless advice here -
+            # run by hand it fails identically until the holder is stopped.
+            Die "prisma generate could not replace the query engine (EPERM - file locked)." @(
+                "A running Node process is holding node_modules\.prisma\client\query_engine-windows.dll.node.",
+                "Usual suspects: an API started outside this script (tsx watch), a vitest run,",
+                "or an editor TypeScript server.",
+                "",
+                "  1. stop-app.bat",
+                "  2. If it persists:  powershell -Command ""Get-Process node | Stop-Process -Force""",
+                "  3. Re-run start-app.bat"
+            )
+        }
+        Write-Host $text
+        Die "prisma generate failed." @("See the output above, then:  cd apps\api && npx prisma generate")
+    }
+    Ok "Prisma client ready"
+}
+
+# ---------------------------------------------------------------- 10. extensions
 Step "Applying required PostgreSQL extensions"
 # The migration baseline USES ltree + pgcrypto but does not CREATE them, so a
 # bare database fails `migrate deploy` without this step.
@@ -268,7 +354,7 @@ if (Test-Path $extSql) {
 }
 Ok "ltree + pgcrypto"
 
-# ---------------------------------------------------------------- 10. migrations
+# ---------------------------------------------------------------- 11. migrations
 Step "Applying database migrations"
 Push-Location (Join-Path $RepoRoot 'apps\api')
 & npx prisma migrate deploy
@@ -277,7 +363,7 @@ Pop-Location
 if (-not $migOk) { Die "prisma migrate deploy failed." @("Review the output above. Do NOT use 'prisma db push' on a populated database.") }
 Ok "Schema up to date"
 
-# ---------------------------------------------------------------- 11. seed
+# ---------------------------------------------------------------- 12. seed
 Step "Checking seed data"
 $userCount = Invoke-Psql $DbName "select count(*) from users"
 if ($LASTEXITCODE -ne 0) { $userCount = '0' }
@@ -316,7 +402,7 @@ if ([int]$userCount -eq 0) {
     Ok "$userCount user(s) already present - not reseeding"
 }
 
-# ---------------------------------------------------------------- 12. TLS certs
+# ---------------------------------------------------------------- 13. TLS certs
 Step "Checking TLS certificates"
 if ($ApiHttps) {
     $key = Join-Path $RepoRoot 'certs\server.key'
@@ -332,33 +418,6 @@ if ($ApiHttps) {
 } else {
     Ok "API_HTTPS=false - not required"
 }
-
-# ---------------------------------------------------------------- 13. ports
-Step "Checking ports"
-function Test-PortBusy([int]$Port) {
-    $c = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
-    return ($null -ne $c)
-}
-
-if (Test-PortBusy $ApiPort) {
-    $owner = Get-NetTCPConnection -LocalPort $ApiPort -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
-    $pname = '(unknown)'
-    if ($owner) {
-        $proc = Get-Process -Id $owner.OwningProcess -ErrorAction SilentlyContinue
-        if ($proc) { $pname = "$($proc.ProcessName) (PID $($proc.Id))" }
-    }
-    Die "API port $ApiPort is already in use by $pname." @(
-        "Either stop that process (stop-app.bat), or change PORT in apps\api\.env."
-    )
-}
-Ok "API port $ApiPort free"
-
-if ($WebPort -eq 0) {
-    $WebPort = 5175
-    while ((Test-PortBusy $WebPort) -and ($WebPort -lt 5200)) { $WebPort++ }
-}
-if (Test-PortBusy $WebPort) { Die "Web port $WebPort is in use." @("Pass a free one:  start-app.bat -WebPort 5180") }
-Ok "Web port $WebPort free"
 
 # ---------------------------------------------------------------- 14. launch
 Step "Starting services"

@@ -248,8 +248,10 @@ curl -sk https://localhost:3001/docs/json
 
 The listing above is a snapshot of the OpenAPI document as it stood on
 2026-07-25. The Instruments feature landed afterwards and its paths are recorded
-here by hand — re-generate the whole file (`curl -sk https://localhost:3001/docs/json`)
-next time the snapshot is refreshed.
+here by hand — re-generate the whole file next time the snapshot is refreshed.
+
+Verified against the running API on 2026-08-05: **144 paths** (139 above + the
+5 below).
 
 ### /instruments — 4 paths (registry; JWT + permission gated)
 
