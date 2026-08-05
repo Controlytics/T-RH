@@ -763,8 +763,31 @@ model Instrument {
   updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
   createdBy           String?  @map("created_by")
 
+  // Placement — free text by design (spec D8). No lookup tables, no admin
+  // screens; `code` remains the unique identifier and the MQTT topic segment.
+  location            String?  @map("location")
+  area                String?  @map("area")
+  block               String?  @map("block")
+
+  // Gateway model. `gatewayId` IS the authorisation rule: a gateway may write
+  // instrument X iff X.gatewayId = gateway.id. One comparison, no link table.
+  isGateway           Boolean  @default(false) @map("is_gateway")
+  gatewayId           String?  @map("gateway_id")
+
+  // Last-seen lives on the INSTRUMENT, not on its credential: a child reported
+  // through its gateway never presents its own credential, so a
+  // credential-based column would read "Never" for exactly the instruments the
+  // gateway feature exists to serve.
+  lastSeenAt          DateTime? @map("last_seen_at") @db.Timestamptz(3)
+  lastSeenVia         String?   @map("last_seen_via")
+
   credentials InstrumentCredential[]
 
+  gateway  Instrument?  @relation("GatewayChildren", fields: [gatewayId], references: [id], onDelete: SetNull)
+  children Instrument[] @relation("GatewayChildren")
+
+  @@index([gatewayId])
+  @@index([block, area, location])
   @@map("instruments")
 }
 
