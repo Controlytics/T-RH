@@ -19,7 +19,9 @@ interface NavItem {
 }
 
 // All available nav items with their IDs matching the config
-const allNavItems: NavItem[] = [
+// Exported for the SIDEBAR_ITEMS<->allNavItems parity test. These two lists are
+// independent: one drives the Roles & Access toggles, the other renders the nav.
+export const allNavItems: NavItem[] = [
   {
     id: 'home',
     label: 'Home',
@@ -91,6 +93,16 @@ const allNavItems: NavItem[] = [
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'instruments',
+    label: 'Instruments',
+    href: '/instruments',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
       </svg>
     ),
   },

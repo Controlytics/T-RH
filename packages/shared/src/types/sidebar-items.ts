@@ -24,5 +24,6 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
   { id: 'notifications', label: 'Notifications', icon: '\u{1F514}', description: 'Notification center' },
   { id: 'audit', label: 'Audit Trail', icon: '\u{1F4DD}', description: 'Activity logs' },
   { id: 'system-health', label: 'System Health', icon: '\u{1F4CA}', description: 'Server and system metrics' },
+  { id: 'instruments', label: 'Instruments', icon: '\u{1F4E1}', description: 'Instrument registry and telemetry' },
   { id: 'debug-traces', label: 'Debug Traces', icon: '\u{1F50D}', description: 'Pipeline debug trace viewer' },
 ];

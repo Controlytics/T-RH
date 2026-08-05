@@ -156,6 +156,24 @@ describe('Instrument token lifecycle', () => {
     expect((await ingest(newToken)).statusCode).toBe(200);
   });
 
+  it('stamps lastSeenAt when the device authenticates, so the list can answer "is it talking?"', async () => {
+    const res = await create({ name: 'Seen', code: `SEEN-${Date.now()}`, transport: 'http' });
+    const { id, token } = res.json();
+    created.push(id);
+
+    const before = await app.inject({ method: 'GET', url: `/api/instruments/${id}`, headers: auth });
+    expect(before.json().lastSeenAt).toBeNull();
+
+    await app.inject({
+      method: 'POST', url: '/api/ingest/v1/telemetry',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { temperature: 20 },
+    });
+
+    const after = await app.inject({ method: 'GET', url: `/api/instruments/${id}`, headers: auth });
+    expect(after.json().lastSeenAt).not.toBeNull();
+  });
+
   it('stops ingest the moment an instrument is deactivated', async () => {
     const res = await create({ name: 'Toggle', code: `TOG-${Date.now()}`, transport: 'http' });
     const { id, token } = res.json();

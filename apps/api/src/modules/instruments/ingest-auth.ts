@@ -38,15 +38,30 @@ export async function resolveInstrumentByToken(token: string): Promise<IngestIde
   });
 
   let identity: IngestIdentity | null = null;
+  let matchedCredentialId: string | null = null;
   for (const r of rows) {
     if (!tokenMatches(token, r.tokenHash)) continue;
     if (r.revokedAt) break;                  // revoked credential
     if (!r.instrument?.isActive) break;      // known token, disabled device
     identity = { id: r.instrument.id, code: r.instrument.code, transport: r.instrument.transport };
+    matchedCredentialId = r.id;
     break;
   }
 
   if (identity) {
+    // Stamp last-used. This runs on a cache MISS only, so a device posting every
+    // second costs one write per TTL window (10s), not one per reading — while
+    // still being accurate enough for the "is this device talking?" column the
+    // instrument list is built around. Without it that column reads "Never"
+    // forever, which is worse than not showing it.
+    if (matchedCredentialId) {
+      await prisma.instrumentCredential.update({
+        where: { id: matchedCredentialId },
+        data: { lastUsedAt: new Date() },
+      }).catch(() => {
+        // Never fail an accepted reading over a telemetry-about-telemetry write.
+      });
+    }
     cache.set(token, { identity, at: Date.now() });
   } else {
     // Cache miss with size limit to prevent memory exhaustion.

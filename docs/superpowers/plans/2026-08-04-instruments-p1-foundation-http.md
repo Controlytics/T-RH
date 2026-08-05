@@ -1124,7 +1124,7 @@ git commit -m "feat(instruments): telemetry partition maintenance worker and cro
 - Consumes: Task 7 permissions
 - Produces: `/instruments` route, `instruments` sidebar id
 
-- [ ] **Step 1: Restore the parity test FIRST**
+- [x] **Step 1: Restore the parity test FIRST**
 
 ```bash
 git show pre-data-injection-drop:apps/web/src/components/layout/__tests__/sidebar-parity.test.ts \
@@ -1134,7 +1134,7 @@ git show pre-data-injection-drop:apps/web/src/components/layout/__tests__/sideba
 Run it now: `cd apps/web && npx vitest run src/components/layout/__tests__/sidebar-parity.test.ts`
 Expected: PASS against the current 9/9 ids. This establishes the guard **before** you add a tenth.
 
-- [ ] **Step 2: Add the id to BOTH lists**
+- [x] **Step 2: Add the id to BOTH lists**
 
 There are two independent lists and updating only one ships a feature with no nav link — that has happened here before:
 - `packages/shared/src/types/sidebar-items.ts`: `{ id: 'instruments', label: 'Instruments', icon: '📟', description: 'Devices and telemetry' }`
@@ -1142,16 +1142,16 @@ There are two independent lists and updating only one ships a feature with no na
 
 Then: `npm run build -w @digilog/shared`
 
-- [ ] **Step 3: Re-run the parity test**
+- [x] **Step 3: Re-run the parity test**
 
 Run: `cd apps/web && npx vitest run src/components/layout/__tests__/sidebar-parity.test.ts`
 Expected: PASS with 10 ids each. If it fails, one list is missing the entry — that is exactly the bug it exists to catch.
 
-- [ ] **Step 4: Add the routes**
+- [x] **Step 4: Add the routes**
 
 In `apps/web/src/main.tsx`, add lazy routes for `/instruments`, `/instruments/new`, `/instruments/bulk`, `/instruments/:id`, each wrapped in `<RequireRole permissions={[PERMISSIONS.INSTRUMENT_READ]}>`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/shared/src/types/sidebar-items.ts apps/web/src/components/layout/sidebar.tsx apps/web/src/main.tsx apps/web/src/components/layout/__tests__/sidebar-parity.test.ts
@@ -1169,20 +1169,20 @@ git commit -m "feat(web): Instruments sidebar entry, routes, and restored sideba
 - Consumes: `GET /api/instruments` (Task 7)
 - Produces: the `/instruments` page
 
-- [ ] **Step 1: Build the page following `users/list.tsx`**
+- [x] **Step 1: Build the page following `users/list.tsx`**
 
 Use `useSWR` and `usePaginationConfig()` exactly as `apps/web/src/routes/users/list.tsx` does. Columns: name, code, transport, status, last seen, actions. Filters: transport, active/inactive, search. Buttons for **New Instrument** and **Bulk Upload**, gated with `useCan('instruments.create')`.
 
-- [ ] **Step 2: Typecheck**
+- [x] **Step 2: Typecheck**
 
 Run: `cd apps/web && npx tsc -p tsconfig.json --noEmit`
 Expected: no output.
 
-- [ ] **Step 3: Verify in the browser**
+- [x] **Step 3: Verify in the browser**
 
 Log in (note: **:5176** if the sibling checkout holds :5175), open `/instruments`, confirm the page renders, the nav item is present and highlighted, and the browser console has **no errors**.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apps/web/src/routes/instruments/list.tsx
@@ -1202,7 +1202,7 @@ git commit -m "feat(web): Instruments list page"
 - Consumes: `POST /api/instruments`
 - Produces: `<ConnectionInstructions transport={string} code={string} token={string} />`
 
-- [ ] **Step 1: Write the failing test for the instructions component**
+- [x] **Step 1: Write the failing test for the instructions component**
 
 ```tsx
 // apps/web/src/routes/instruments/__tests__/connection-instructions.test.tsx
@@ -1229,24 +1229,24 @@ describe('ConnectionInstructions', () => {
 });
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `cd apps/web && npx vitest run src/routes/instruments/__tests__/connection-instructions.test.tsx`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement the component and the create page**
+- [x] **Step 3: Implement the component and the create page**
 
 `ConnectionInstructions` switches on `transport` and renders exactly one block: endpoint/topic plus a paste-ready example. The create form posts to `/api/instruments`; on success it opens a modal showing the token with a copy button, the words **"This is the only time this token will be shown"**, and `<ConnectionInstructions />`.
 
-- [ ] **Step 4: Run the test**
+- [x] **Step 4: Run the test**
 
 Expected: PASS (3 tests)
 
-- [ ] **Step 5: End-to-end check in the browser**
+- [x] **Step 5: End-to-end check in the browser**
 
 Create an instrument, copy the token, and actually run the displayed `curl` command. It must return `{"accepted":N}`. **If the pasted command does not work, the instructions are wrong** — that is the whole point of this task.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/web/src/routes/instruments/create.tsx apps/web/src/routes/instruments/connection-instructions.tsx apps/web/src/routes/instruments/__tests__/connection-instructions.test.tsx
@@ -1264,21 +1264,21 @@ git commit -m "feat(web): single instrument creation with one-time token and con
 **Interfaces:**
 - Consumes: `POST /api/instruments/bulk`, `GET /api/instruments/:id`, `POST /api/instruments/:id/regenerate-token`
 
-- [ ] **Step 1: Build the bulk page**
+- [x] **Step 1: Build the bulk page**
 
 A **Download template** link producing `name,code,transport\n`, a file input accepting `.csv`, and a results view listing created instruments (with tokens) and per-row errors with row numbers.
 
 Include a **Download results CSV** button, and label it clearly: *"Contains device tokens in plain text — store securely. Tokens cannot be retrieved later."*
 
-- [ ] **Step 2: Build the detail page**
+- [x] **Step 2: Build the detail page**
 
 Connection instructions for that transport, latest telemetry table, recent history, this device's dead letters, and a **Regenerate token** button gated by `useCan('instruments.update')` that triggers the reauth dialog.
 
-- [ ] **Step 3: Verify in the browser**
+- [x] **Step 3: Verify in the browser**
 
 Upload a CSV with 3 good rows and 1 bad. Confirm: 3 created, 1 error with the correct row number, results CSV downloads, and one of the new tokens actually works against the ingest endpoint.
 
-- [ ] **Step 4: Full verification sweep**
+- [x] **Step 4: Full verification sweep**
 
 ```bash
 npx tsc -p apps/api/tsconfig.json --noEmit
@@ -1287,7 +1287,7 @@ cd apps/api && npm test        # single-fork; expect 14 pre-existing failures, n
 cd ../.. && npm run db:verify-migrations
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web/src/routes/instruments/

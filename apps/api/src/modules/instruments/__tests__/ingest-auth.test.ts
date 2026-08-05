@@ -1,8 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const findMany = vi.fn();
+// `update` stamps lastUsedAt on a cache miss — the source of the "Last seen"
+// column on the instruments list.
+const update = vi.fn();
 vi.mock('../../../lib/prisma.js', () => ({
-  prisma: { instrumentCredential: { findMany: (...a: unknown[]) => findMany(...a) } },
+  prisma: {
+    instrumentCredential: {
+      findMany: (...a: unknown[]) => findMany(...a),
+      update: (...a: unknown[]) => update(...a),
+    },
+  },
 }));
 
 import { generateToken, hashToken, tokenPrefix } from '../token.js';
@@ -17,13 +25,27 @@ const row = (token: string, over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-beforeEach(() => { findMany.mockReset(); invalidateIngestAuthCache(); });
+beforeEach(() => { findMany.mockReset(); update.mockReset(); update.mockResolvedValue({}); invalidateIngestAuthCache(); });
 
 describe('resolveInstrumentByToken', () => {
   it('resolves a valid token to its instrument', async () => {
     const t = generateToken();
     findMany.mockResolvedValue([row(t)]);
     await expect(resolveInstrumentByToken(t)).resolves.toMatchObject({ id: 'inst-1', code: 'TEMP-01' });
+  });
+
+  it('stamps lastUsedAt on the matched credential — but only on a cache MISS', async () => {
+    const t = generateToken();
+    findMany.mockResolvedValue([row(t)]);
+
+    await resolveInstrumentByToken(t);
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(update.mock.calls[0][0]).toMatchObject({ where: { id: 'cred-1' } });
+
+    // Second call inside the TTL is served from cache. A device posting every
+    // second must not cost a write per reading.
+    await resolveInstrumentByToken(t);
+    expect(update).toHaveBeenCalledTimes(1);
   });
 
   it('returns null for an unknown token', async () => {

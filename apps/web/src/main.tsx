@@ -54,6 +54,10 @@ const NotificationRulesPage = lazy(() => import('./routes/config/notification-ru
 const NotificationLogsPage = lazy(() => import('./routes/config/notification-settings/notification-logs').then(m => ({ default: m.NotificationLogsPage })));
 
 const AdminRequestsPage = lazy(() => import("./routes/admin-requests/index").then(m => ({ default: m.AdminRequestsPage })));
+const InstrumentListPage = lazy(() => import('./routes/instruments/list').then(m => ({ default: m.InstrumentListPage })));
+const InstrumentCreatePage = lazy(() => import('./routes/instruments/create').then(m => ({ default: m.InstrumentCreatePage })));
+const InstrumentBulkCreatePage = lazy(() => import('./routes/instruments/bulk-create').then(m => ({ default: m.InstrumentBulkCreatePage })));
+const InstrumentDetailPage = lazy(() => import('./routes/instruments/detail').then(m => ({ default: m.InstrumentDetailPage })));
 
 
 function LazyFallback() {
@@ -133,6 +137,13 @@ createRoot(document.getElementById('root')!).render(
             {/* Audit trail */}
             <Route path="/audit" element={<RequireRole permissions={[PERMISSIONS.AUDIT_READ]}><Suspense fallback={<LazyFallback />}><AuditTrailPage /></Suspense></RequireRole>} />
             <Route path="/admin-requests" element={<RequireRole permissions={[PERMISSIONS.ADMIN_REQUEST_APPROVE, PERMISSIONS.ADMIN_REQUEST_REJECT]}><Suspense fallback={<LazyFallback />}><AdminRequestsPage /></Suspense></RequireRole>} />
+            {/* Instruments. `/new` and `/bulk` are declared BEFORE `/:id` for
+                readability; React Router ranks static segments above dynamic
+                ones regardless of order. */}
+            <Route path="/instruments" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_READ]}><Suspense fallback={<LazyFallback />}><InstrumentListPage /></Suspense></RequireRole>} />
+            <Route path="/instruments/new" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_CREATE]}><Suspense fallback={<LazyFallback />}><InstrumentCreatePage /></Suspense></RequireRole>} />
+            <Route path="/instruments/bulk" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_CREATE]}><Suspense fallback={<LazyFallback />}><InstrumentBulkCreatePage /></Suspense></RequireRole>} />
+            <Route path="/instruments/:id" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_READ]}><Suspense fallback={<LazyFallback />}><InstrumentDetailPage /></Suspense></RequireRole>} />
 
             {/* Audit / Versions — SUPER_ADMIN only by default; assignable via Role Privileges → Audit / Versions. */}
 

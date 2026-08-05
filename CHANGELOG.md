@@ -1,5 +1,57 @@
 # Changelog
 
+## [Unreleased] — Instruments P1 complete: worker, sidebar, and UI (2026-08-05)
+
+Closes Tasks 8-12 of the Instruments P1 plan. The feature is now usable end to
+end: register a device in the UI, copy its token, paste the displayed command,
+and watch the reading appear on the detail page.
+
+**Sidebar + routes (Task 9).** `instruments` added to BOTH `SIDEBAR_ITEMS` and
+`allNavItems`, and the sidebar-parity test restored from the tag FIRST so the
+guard existed before the tenth id was added. `allNavItems` is now exported so
+that test can see it. Four lazy routes under `/instruments`, each behind
+`RequireRole`.
+
+**Pages (Tasks 10-12).**
+- `list.tsx` — SWR + `usePaginationConfig`, search and transport/status filters,
+  and a "Last seen" column.
+- `create.tsx` + `token-dialog.tsx` — the one-time credential dialog: the token,
+  a copy button, the words "this is the only time this token will be shown", and
+  the connection instructions. Done is gated on an explicit acknowledgement,
+  because closing it is irreversible for that value.
+- `connection-instructions.tsx` — exactly ONE example, for the instrument's own
+  transport. Transports whose listener does not exist yet (everything but
+  HTTP/HTTPS in P1) are labelled as such rather than shown as if they worked.
+- `bulk-create.tsx` — template download, per-row results with source row
+  numbers, and a results CSV explicitly labelled as a plaintext credential file.
+- `detail.tsx` — details, connection instructions, latest readings, this
+  device's rejected payloads, inline edit, reauth-gated regenerate, delete.
+
+**Two real bugs found by using it rather than by testing it:**
+
+1. *"Last seen" would always have read "Never".* Nothing ever wrote
+   `InstrumentCredential.lastUsedAt`. Ingest auth now stamps it — on a cache
+   MISS only, so a device posting every second costs one write per 10s TTL
+   window rather than one per reading.
+
+2. *The displayed curl command was not runnable.* `getApiBase()` returns '' on
+   the desktop browser (same-origin), which is right for `fetch()` and useless
+   in a terminal: the dialog rendered `curl -X POST /api/ingest/v1/telemetry`.
+   It now falls back to `window.location.origin`. A test asserts the endpoint is
+   absolute.
+
+**New read endpoints** the detail page needs and the plan never specified:
+`GET /api/instruments/:id/telemetry` (latest + capped recent history) and
+`GET /api/instruments/:id/dead-letters`.
+
+Verified in the browser at :5176 — created an instrument, ran the displayed curl
+verbatim (`{"accepted":2}`), saw both readings and a populated "Last seen" on the
+detail page, deleted it again. Zero console errors on any of the pages.
+
+apps/api 14 failed / 760 passed (baseline 14 failed / 734 passed — same 5 files).
+apps/web 6 failed / 289 passed (baseline 6 failed / 278 passed — identical
+failures). Both typechecks clean.
+
 ## [Unreleased] — Instruments registry API (2026-08-05)
 
 Task 7 of the Instruments P1 plan

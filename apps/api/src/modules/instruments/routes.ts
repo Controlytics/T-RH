@@ -15,6 +15,7 @@ import { sanitizeStrings } from '../../lib/sanitize.js';
 import { generateToken, hashToken, tokenPrefix } from './token.js';
 import { parseInstrumentCsv, type InstrumentDraft } from './bulk-csv.js';
 import { invalidateIngestAuthCache } from './ingest-auth.js';
+import { getLatest, getHistory } from './telemetry.repository.js';
 
 /**
  * Registry (operator-facing, JWT + permission gated). The device-facing ingest
@@ -47,6 +48,14 @@ const instrumentProps = {
   tokenPrefix: { type: 'string', nullable: true },
   /** Last time this instrument's token successfully authenticated — "is it talking?" */
   lastSeenAt: { type: 'string', format: 'date-time', nullable: true },
+} as const;
+
+/** One telemetry reading as the UI renders it. `value` is free-form JSON. */
+const readingProps = {
+  key: { type: 'string' },
+  value: {},
+  valueType: { type: 'string' },
+  ts: { type: 'string', format: 'date-time' },
 } as const;
 
 type CredentialRow = { tokenPrefix: string; lastUsedAt: Date | null };
@@ -183,6 +192,94 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const row = await prisma.instrument.findUnique({ where: { id }, include: { credentials: activeCredential } });
     if (!row) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
     return present(row as unknown as InstrumentRow);
+  });
+
+  // GET /api/instruments/:id/telemetry — latest value per key + recent history.
+  // The detail page's whole job is answering "data is being sent, why can't I
+  // see it?", which needs the readings and the failures side by side.
+  app.get('/:id/telemetry', {
+    preHandler: [app.requirePermission('INSTRUMENT_READ')],
+    schema: {
+      tags: ['Instruments'],
+      summary: 'Latest and recent telemetry for one instrument',
+      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
+      querystring: {
+        type: 'object',
+        properties: {
+          key: { type: 'string' },
+          limit: { type: 'integer', default: 100 },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            latest: { type: 'array', items: { type: 'object', properties: readingProps } },
+            history: { type: 'array', items: { type: 'object', properties: readingProps } },
+            historyTotal: { type: 'integer' },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const q = req.query as { key?: string; limit?: number };
+    const exists = await prisma.instrument.findUnique({ where: { id }, select: { id: true } });
+    if (!exists) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
+
+    // Capped server-side: this reads a partitioned history table and the page
+    // only ever renders a recent window.
+    const limit = Math.min(Math.max(Number(q.limit ?? 100), 1), 500);
+    const [latest, history] = await Promise.all([
+      getLatest(id),
+      getHistory({ instrumentId: id, key: q.key, limit }),
+    ]);
+    return { latest, history: history.rows, historyTotal: history.total };
+  });
+
+  // GET /api/instruments/:id/dead-letters — this device's rejected payloads
+  app.get('/:id/dead-letters', {
+    preHandler: [app.requirePermission('INSTRUMENT_READ')],
+    schema: {
+      tags: ['Instruments'],
+      summary: 'Rejected payloads for one instrument',
+      description: 'Payloads that could not be parsed or were refused. The first place to look when a device reports success but no readings appear.',
+      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
+      querystring: { type: 'object', properties: { limit: { type: 'integer', default: 50 } } },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            data: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' }, transport: { type: 'string' }, reason: { type: 'string' },
+                  rawPayload: { type: 'string', nullable: true },
+                  receivedAt: { type: 'string', format: 'date-time' },
+                },
+              },
+            },
+            total: { type: 'integer' },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const q = req.query as { limit?: number };
+    const exists = await prisma.instrument.findUnique({ where: { id }, select: { id: true } });
+    if (!exists) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
+
+    const take = Math.min(Math.max(Number(q.limit ?? 50), 1), 200);
+    const [data, total] = await Promise.all([
+      prisma.deadLetter.findMany({ where: { instrumentId: id }, orderBy: { receivedAt: 'desc' }, take }),
+      prisma.deadLetter.count({ where: { instrumentId: id } }),
+    ]);
+    return { data, total };
   });
 
   // POST /api/instruments — create one instrument + its credential
