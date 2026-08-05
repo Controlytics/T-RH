@@ -1,4 +1,7 @@
-export const TRANSPORTS = ['http', 'https', 'mqtt', 'mqtts', 'websocket', 'wss', 'tcp'] as const;
+// Single source of truth lives in @digilog/shared so the create form and this
+// parser cannot drift. Re-exported for the existing callers/tests in this module.
+import { TRANSPORTS } from '@digilog/shared';
+export { TRANSPORTS };
 
 const REQUIRED = ['name', 'code', 'transport'] as const;
 const OPTIONAL = ['instrumentType', 'manufacturer', 'model', 'serialNumber', 'description'] as const;
@@ -53,8 +56,14 @@ function parseCSVLine(line: string): string[] {
  * Deliberately partial-success: valid rows are returned even when others fail,
  * so one typo does not reject a 200-device import. Row numbers are 1-based and
  * count the header, matching what the operator sees in a spreadsheet.
+ *
+ * `rowNumbers` runs parallel to `rows` (same length, same order) so a failure
+ * discovered LATER — a code that collides with an instrument already in the
+ * database — can still be reported against the operator's source row. It is a
+ * sidecar array rather than a field on the draft so the drafts stay
+ * assignable straight to Prisma.
  */
-export function parseInstrumentCsv(text: string): { rows: InstrumentDraft[]; errors: RowError[] } {
+export function parseInstrumentCsv(text: string): { rows: InstrumentDraft[]; rowNumbers: number[]; errors: RowError[] } {
   // Split into lines WITHOUT filtering to preserve source row numbers
   const allLines = text.split(/\r?\n/);
 
@@ -73,15 +82,16 @@ export function parseInstrumentCsv(text: string): { rows: InstrumentDraft[]; err
 
   // Check header validity
   if (headerRowIndex === -1) {
-    return { rows: [], errors: [{ row: 1, message: 'Missing header row' }] };
+    return { rows: [], rowNumbers: [], errors: [{ row: 1, message: 'Missing header row' }] };
   }
 
   const missing = REQUIRED.filter((c) => !header.includes(c));
   if (missing.length > 0) {
-    return { rows: [], errors: [{ row: headerRowIndex + 1, message: `Missing header column(s): ${missing.join(', ')}` }] };
+    return { rows: [], rowNumbers: [], errors: [{ row: headerRowIndex + 1, message: `Missing header column(s): ${missing.join(', ')}` }] };
   }
 
   const rows: InstrumentDraft[] = [];
+  const rowNumbers: number[] = [];
   const errors: RowError[] = [];
   const seen = new Set<string>();
 
@@ -138,7 +148,8 @@ export function parseInstrumentCsv(text: string): { rows: InstrumentDraft[]; err
     const draft: InstrumentDraft = { name, code, transport };
     for (const col of OPTIONAL) { const v = get(col); if (v) (draft as unknown as Record<string, string>)[col] = v; }
     rows.push(draft);
+    rowNumbers.push(rowNo);
   }
 
-  return { rows, errors };
+  return { rows, rowNumbers, errors };
 }

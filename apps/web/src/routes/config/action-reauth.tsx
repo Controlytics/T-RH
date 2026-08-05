@@ -61,6 +61,12 @@ const CATEGORY_META: Record<ReauthActionCategory, { gradient: string; bgLight: s
     icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z',
     description: 'Direct record edits in Filter Data Management',
   },
+  'Instruments': {
+    gradient: 'from-cyan-600 to-teal-600',
+    bgLight: 'bg-cyan-50 border-cyan-200 text-cyan-700',
+    icon: 'M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0',
+    description: 'Instrument registry and device credentials',
+  },
 };
 
 // Group actions by category

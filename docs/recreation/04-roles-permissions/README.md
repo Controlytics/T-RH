@@ -1,13 +1,14 @@
 # Phase 4 — Roles, Permissions & Access Control
 
 *Counts verified by executing the built `PERMISSION_TREE` module and querying the
-live `roles` table, 2026-07-25.*
+live `roles` table, 2026-07-25; re-verified 2026-08-05 after the instruments
+registry added a 9th group.*
 
 ```bash
 node -e "const t=require('./dist/types/permission-tree.js');
          const n=t.PERMISSION_TREE.flatMap(g=>g.nodes);
          console.log(n.length, n.filter(x=>x.configurable).length, t.PERMISSION_TREE.length)"
-# → 38 nodes, 26 configurable, 8 groups
+# → 42 nodes, 30 configurable, 9 groups
 ```
 
 ---
@@ -20,14 +21,14 @@ them wrong is the most likely way a rebuild introduces a privilege leak.
 ```
 ┌────────────────────────────────────────────────────────────────────┐
 │ PERMISSION_TREE  (packages/shared/src/types/permission-tree.ts)    │
-│ 8 sidebar groups → 38 action nodes                                 │
+│ 9 sidebar groups → 42 action nodes                                 │
 │                                                                    │
 │   Each node carries:                                               │
 │     gate         → the DISCRIMINATING permission the backend       │
 │                    actually checks.  [] means SUPER_ADMIN-only.    │
 │     permissions  → the GRANT-EXPANSION set handed out when an      │
 │                    admin enables the toggle (includes read deps).  │
-│     configurable → is this node an admin-facing toggle? (26 are)   │
+│     configurable → is this node an admin-facing toggle? (30 are)   │
 │     enforce      → a = enforced today · b = needs a narrow gate    │
 │                    c = cosmetic/visibility-only                    │
 │     reauthAction → cross-linked step-up action, if any             │
@@ -36,7 +37,7 @@ them wrong is the most likely way a rebuild introduces a privilege leak.
         ┌─────────────────────┼─────────────────────┐
         ▼                     ▼                     ▼
  FEATURE_PRIVILEGES   FEATURE_TO_PERMISSION_MAP   SIDEBAR_PRIVILEGE_MAP
- (26 admin toggles)   (toggle → permissions[])    (sidebar visibility)
+ (30 admin toggles)   (toggle → permissions[])    (sidebar visibility)
 ```
 
 `FEATURE_PRIVILEGES`, `FEATURE_TO_PERMISSION_MAP`, and `SIDEBAR_PRIVILEGE_MAP`
@@ -61,10 +62,10 @@ and creating a genuine backend escalation. The fix was to remove the broad perms
 from the grant sets. A rebuild must keep the two sets structurally separate,
 ideally with types that make mixing them impossible.
 
-## 2. The 30 permission constants
+## 2. The 34 permission constants
 
 ```bash
-grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts   # → 30
+grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts   # → 34
 ```
 
 | Domain | Constants |
@@ -78,8 +79,9 @@ grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts   # → 30
 | Debug (2) | `READ_DEBUG_TRACE`, `MANAGE_DEBUG_TRACE` |
 | Backup (3) | `BACKUP_MANAGE`, `BACKUP_EXPORT`, `BACKUP_RESTORE` |
 | Admin requests (2) | `ADMIN_REQUEST_APPROVE`, `ADMIN_REQUEST_REJECT` |
+| Instruments (4) | `INSTRUMENT_READ`, `INSTRUMENT_CREATE`, `INSTRUMENT_UPDATE`, `INSTRUMENT_DELETE` |
 
-## 3. The 8 sidebar groups and 38 nodes
+## 3. The 9 sidebar groups and 42 nodes
 
 | Group | Nodes |
 |---|---|
@@ -91,15 +93,19 @@ grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts   # → 30
 | `audit` | `audit.view`, `.export`, `.redact`, `.delete`, `.verify_chain` |
 | `system-health` | `system_health.view` |
 | `debug-traces` | `debug.view`, `.manage` |
+| `instruments` | `instruments.view`, `.create`, `.edit`, `.delete` |
 
-**38 total nodes; 26 marked `configurable: true`** and therefore surfaced as
+**42 total nodes; 30 marked `configurable: true`** and therefore surfaced as
 admin toggles. The other 12 are *enforced-only*: the permission is still checked
 by the backend, but there is no per-role toggle for it (either because it
 duplicates another toggle's capability, or because it is SUPER_ADMIN-only).
 
-**Sidebar items: 9** — the 8 groups above plus `home` (Module Guide), which has
-no permission group and is therefore visible-to-all by permission while still
-being per-role toggleable on the Sidebar tab.
+**Sidebar items: 10 groups' worth, 9 registered** — `SIDEBAR_ITEMS` holds the 8
+original groups plus `home` (Module Guide), which has no permission group and is
+therefore visible-to-all by permission while still being per-role toggleable on
+the Sidebar tab. The `instruments` group exists in `PERMISSION_TREE` but is
+deliberately NOT yet in `SIDEBAR_ITEMS` — its pages do not exist until Instruments
+Task 9/10, so a toggle for it would point at nothing.
 
 ## 4. The `enforce` taxonomy
 
@@ -165,11 +171,11 @@ rebuild should converge everything on `useCan`.
 
 ## 7. Re-authentication actions
 
-**39 actions across 7 categories**: Backup, Configuration, Help, Notifications,
-Role Management, Super Admin, User Management.
+**40 actions across 8 categories**: Backup, Configuration, Help, Instruments,
+Notifications, Role Management, Super Admin, User Management.
 
 ```bash
-grep -cE '^\s+[A-Z_]+:' packages/shared/src/types/reauth-actions.ts   # → 39
+grep -cE '^\s+[A-Z_]+:' packages/shared/src/types/reauth-actions.ts   # → 40
 ```
 
 Re-auth is an **orthogonal axis** to permissions: a permission answers *may you*,

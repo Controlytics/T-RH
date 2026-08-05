@@ -16,7 +16,8 @@
  * Phase 5E: added `configurable?: boolean` to PermissionNode. The nodes
  *   that appear in FEATURE_PRIVILEGES/FEATURE_TO_PERMISSION_MAP are flagged
  *   `configurable: true`; all others omit the flag (treated as false).
- *   Count: 96 (was 99 — assets.create/edit/delete de-duplicated to enforced-only 2026-06-30).
+ *   Count: 30 (26 after the 2026-07-18 domain strip, +4 for the instruments
+ *   registry 2026-08-05).
  *   The three derive functions now select/sort by this flag instead of
  *   importing from the legacy hand-maintained files (which now derive from
  *   this tree). PERMISSION_TREE is the single source of truth.
@@ -71,7 +72,7 @@ export interface PermissionNode {
   /**
    * Phase 5E — marks this node as a configurable feature privilege.
    * When true, this node participates in FEATURE_PRIVILEGES / FEATURE_TO_PERMISSION_MAP
-   * derivation. 96 nodes carry this flag (2026-06-30: assets.create/edit/delete dropped).
+   * derivation. 30 nodes carry this flag (26 core + 4 instruments, 2026-08-05).
    * Absent (undefined) means false — node is enforced-only, not user-configurable.
    */
   configurable?: boolean;
@@ -299,6 +300,30 @@ export const PERMISSION_TREE: SidebarGroup[] = [
     ],
   },
 
+  // ---- Instruments ----
+  // The device registry. `instruments.edit` covers token regeneration too — the
+  // route pairs INSTRUMENT_UPDATE with the REGENERATE_INSTRUMENT_TOKEN reauth
+  // action, so the extra proof (not a separate permission) is what distinguishes
+  // issuing a credential from an ordinary field edit.
+  {
+    sidebarId: 'instruments', label: 'Instruments', icon: '📡', description: 'Instrument registry and telemetry',
+    visibilityPrivilegeIds: ['instruments.view', 'instruments.create', 'instruments.edit', 'instruments.delete'],
+    nodes: [
+      { id: 'instruments.view', label: 'View Instruments', sidebarId: 'instruments', page: 'Instruments', action: 'View',
+        icon: 'radio', category: 'Instruments', permissions: ['INSTRUMENT_READ'], enforce: 'a',
+        gate: ['INSTRUMENT_READ'], configurable: true },
+      { id: 'instruments.create', label: 'Create Instruments', sidebarId: 'instruments', page: 'Instruments', action: 'Add',
+        icon: 'plus', category: 'Instruments', permissions: ['INSTRUMENT_CREATE', 'INSTRUMENT_READ'], enforce: 'a',
+        gate: ['INSTRUMENT_CREATE'], configurable: true },
+      { id: 'instruments.edit', label: 'Edit Instruments / Regenerate Token', sidebarId: 'instruments', page: 'Instruments', action: 'Edit',
+        icon: 'edit', category: 'Instruments', permissions: ['INSTRUMENT_UPDATE', 'INSTRUMENT_READ'], enforce: 'a',
+        gate: ['INSTRUMENT_UPDATE'], reauthAction: 'REGENERATE_INSTRUMENT_TOKEN', configurable: true },
+      { id: 'instruments.delete', label: 'Delete Instruments', sidebarId: 'instruments', page: 'Instruments', action: 'Delete',
+        icon: 'trash', category: 'Instruments', permissions: ['INSTRUMENT_DELETE', 'INSTRUMENT_READ'], enforce: 'a',
+        gate: ['INSTRUMENT_DELETE'], configurable: true },
+    ],
+  },
+
 ];
 
 // ─── Phase 5E: Canonical ordering for derived maps ───────────────────────────
@@ -314,6 +339,7 @@ const CONFIGURABLE_PRIVILEGE_ORDER: readonly string[] = [
   'admin_requests.approve', 'admin_requests.reject',
   'debug.view', 'debug.manage',
   'backup.export', 'backup.restore',
+  'instruments.view', 'instruments.create', 'instruments.edit', 'instruments.delete',
 ] as const;
 
 // ─── Derive Functions ────────────────────────────────────────────────────────

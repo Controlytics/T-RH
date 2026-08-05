@@ -1,5 +1,60 @@
 # Changelog
 
+## [Unreleased] — Instruments registry API (2026-08-05)
+
+Task 7 of the Instruments P1 plan
+(`docs/superpowers/plans/2026-08-04-instruments-p1-foundation-http.md`). Until
+now the HTTP ingest endpoint existed but there was no way to create an
+instrument or issue it a token, so nothing could authenticate against it.
+
+**New module surface** — `apps/api/src/modules/instruments/routes.ts`, registered
+at `/api/instruments` in both `app.ts` and `e2e/test-helper.ts`:
+- `GET /api/instruments` — paginated list (`{data,total,page,limit,totalPages}`),
+  search over name/code/serial, filters on transport and active state, plus
+  `tokenPrefix` and `lastSeenAt` (the active credential's `lastUsedAt`) so the
+  list answers "is this device talking?"
+- `GET /api/instruments/:id` · `PUT /api/instruments/:id` · `DELETE /api/instruments/:id`
+- `POST /api/instruments` — instrument + credential in ONE transaction, `201`
+  with the plaintext token. Duplicate `code` → `409` (caught from Prisma P2002,
+  not a pre-SELECT).
+- `POST /api/instruments/bulk` — `{csv}` in, partial success out. Per-row
+  transaction so a code that collides with an EXISTING instrument becomes one
+  error row rather than rolling back the batch.
+- `POST /api/instruments/:id/regenerate-token` — re-auth gated, revokes (never
+  deletes) the current credential, issues a new one, and calls
+  `invalidateIngestAuthCache(id)` so the old token stops working immediately
+  rather than after the 10 s cache TTL.
+
+**Write-once token.** `token` appears in exactly two response schemas (create,
+regenerate). Fastify strips unlisted response properties, so reads cannot leak
+it even if a handler forgets — the invariant is enforced by serialisation.
+
+**`code` is immutable on update** — it is baked into MQTT topics
+(`instruments/<code>/telemetry`) and into whatever the technician configured on
+the device, so a server-side rename would silently break a live instrument.
+
+**Shared package** (+4 permissions, +1 re-auth action, +1 re-auth category,
++4 audit actions, +1 audit-template category, +1 permission-tree group):
+- `INSTRUMENT_READ/CREATE/UPDATE/DELETE` (permission constants 30 → 34)
+- `REGENERATE_INSTRUMENT_TOKEN` under a new `Instruments` re-auth category
+  (actions 39 → 40; the category was also added to `REAUTH_ACTION_CATEGORIES`,
+  without which the policy renders nowhere and can never be set)
+- `instruments` PERMISSION_TREE group with 4 configurable nodes (tree: 38 → 42
+  nodes, 26 → 30 configurable, 8 → 9 groups; frozen snapshot + counts updated)
+- `INSTRUMENT_CREATED/UPDATED/DELETED/TOKEN_REGENERATED` audit actions and their
+  templates. Bulk creation writes one audit row per instrument, and every audit
+  write joins the business transaction (§11.10(e)).
+- `schemas/instruments.ts` — `TRANSPORTS` moved here from the API module so the
+  create form and the CSV parser cannot drift; `bulk-csv.ts` now imports it.
+
+**Also fixed** — `parseInstrumentCsv` gained a `rowNumbers` sidecar array so a
+failure discovered at INSERT time (a code already in the database) can still be
+reported against the operator's source spreadsheet row instead of row 0.
+
+**Deliberately NOT done here:** no `SIDEBAR_ITEMS` entry and no web pages — the
+Instruments nav item and its four pages are Tasks 9–12, and a sidebar toggle for
+a page that does not exist would be a dead control.
+
 ## [Unreleased] — Phase 0 follow-up: dead frontend→backend calls removed (2026-07-25)
 
 Swept every frontend `/api/*` reference against the live OpenAPI route list and

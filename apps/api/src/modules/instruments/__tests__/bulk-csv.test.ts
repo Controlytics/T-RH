@@ -22,6 +22,15 @@ describe('parseInstrumentCsv', () => {
     expect(r.errors[1].message).toMatch(/transport/i);
   });
 
+  it('returns a rowNumbers sidecar aligned to rows, skipping blanks and bad rows', () => {
+    // Only the sidecar can attribute a LATER failure (a code that already
+    // exists in the database) back to the operator's spreadsheet row.
+    const r = parseInstrumentCsv(`${HEADER}\nGood,G-1,http\n\n,MISSING-NAME,http\nAlso Good,G-2,mqtt`);
+    expect(r.rows.map((x) => x.code)).toEqual(['G-1', 'G-2']);
+    expect(r.rowNumbers).toEqual([2, 5]);
+    expect(r.rowNumbers).toHaveLength(r.rows.length);
+  });
+
   it('rejects duplicate codes within the same file', () => {
     const r = parseInstrumentCsv(`${HEADER}\nA,DUP,http\nB,DUP,http`);
     expect(r.rows).toHaveLength(1);

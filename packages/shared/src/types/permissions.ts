@@ -65,6 +65,15 @@ export const PERMISSIONS = {
   ADMIN_REQUEST_APPROVE: 'ADMIN_REQUEST_APPROVE',
   ADMIN_REQUEST_REJECT: 'ADMIN_REQUEST_REJECT',
 
+  // Instruments (2026-08-05) — the device registry behind /api/ingest/v1.
+  // These gate the OPERATOR-facing registry (create / edit / delete an
+  // instrument and issue its credential). They do NOT gate ingest itself:
+  // a device authenticates with its own token, never a user permission.
+  INSTRUMENT_READ: 'INSTRUMENT_READ',
+  INSTRUMENT_CREATE: 'INSTRUMENT_CREATE',
+  INSTRUMENT_UPDATE: 'INSTRUMENT_UPDATE',
+  INSTRUMENT_DELETE: 'INSTRUMENT_DELETE',
+
   // VERSION_HISTORY_VIEW was removed with the Version History page — all four
   // versioned entities it browsed (CleaningProfile, FilterProfile,
   // ChecklistProfile, EquipmentGroup) went in the Phase 0 domain strip, so the

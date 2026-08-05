@@ -172,6 +172,14 @@ export const AUDIT_ACTIONS = {
   // entry and are registered only in `audit-templates.ts` — a pre-existing gap
   // in this file, not a signal that they are unaudited.
   DEVIATION_OPEN_BLOCKED: 'DEVIATION_OPEN_BLOCKED',
+
+  // Instruments — the device registry (2026-08-05). Bulk creation emits one
+  // INSTRUMENT_CREATED per instrument rather than one row per batch, so the
+  // trail stays per-entity and a single device's history is complete on its own.
+  INSTRUMENT_CREATED: 'INSTRUMENT_CREATED',
+  INSTRUMENT_UPDATED: 'INSTRUMENT_UPDATED',
+  INSTRUMENT_DELETED: 'INSTRUMENT_DELETED',
+  INSTRUMENT_TOKEN_REGENERATED: 'INSTRUMENT_TOKEN_REGENERATED',
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

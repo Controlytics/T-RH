@@ -54,7 +54,7 @@ Registry routes and device-facing ingest routes are **separate files on purpose*
 - Consumes: nothing
 - Produces: `generateToken(): string`, `hashToken(token: string): string`, `tokenPrefix(token: string): string`, `tokenMatches(token: string, storedHash: string): boolean`, `TOKEN_PREFIX_LEN: number`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```typescript
 // apps/api/src/modules/instruments/__tests__/token.test.ts
@@ -100,12 +100,12 @@ describe('device tokens', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd apps/api && npx vitest run src/modules/instruments/__tests__/token.test.ts`
 Expected: FAIL — cannot resolve `../token.js`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```typescript
 // apps/api/src/modules/instruments/token.ts
@@ -146,17 +146,17 @@ export function tokenMatches(token: string, storedHash: string): boolean {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd apps/api && npx vitest run src/modules/instruments/__tests__/token.test.ts`
 Expected: PASS (6 tests)
 
-- [ ] **Step 5: Typecheck**
+- [x] **Step 5: Typecheck**
 
 Run: `npx tsc -p apps/api/tsconfig.json --noEmit`
 Expected: no output
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/api/src/modules/instruments/token.ts apps/api/src/modules/instruments/__tests__/token.test.ts
@@ -175,7 +175,7 @@ git commit -m "feat(instruments): device token generation, hashing and timing-sa
 - Consumes: nothing
 - Produces: Prisma models `Instrument`, `InstrumentCredential`; tables `instrument_telemetry_latest`, `instrument_telemetry_history` (partitioned), `dead_letters`
 
-- [ ] **Step 1: Add the Prisma models**
+- [x] **Step 1: Add the Prisma models**
 
 ```prisma
 model Instrument {
@@ -250,7 +250,7 @@ model DeadLetter {
 > codebase already shipped once. `instrument_telemetry_history` stays
 > raw-SQL-only; the other two are modelled.
 
-- [ ] **Step 2: Hand-author the migration**
+- [x] **Step 2: Hand-author the migration**
 
 ```sql
 -- apps/api/prisma/migrations/20260804120000_instruments_p1/migration.sql
@@ -335,7 +335,7 @@ CREATE TABLE "dead_letters" (
 CREATE INDEX "dead_letters_received_at_idx" ON "dead_letters"("received_at");
 ```
 
-- [ ] **Step 3: Apply and verify no drift**
+- [x] **Step 3: Apply and verify no drift**
 
 ```bash
 DATABASE_URL="postgresql://digilog:digilog123@localhost:5432/compliance_core_db?schema=public" npm run db:migrate
@@ -345,7 +345,7 @@ npm run db:verify-migrations
 
 Expected: migrate applies; drift guard PASSES.
 
-- [ ] **Step 4: Confirm the partition constraint actually holds**
+- [x] **Step 4: Confirm the partition constraint actually holds**
 
 ```bash
 PGPASSWORD=digilog123 psql -h localhost -U digilog -d compliance_core_db -c \
@@ -354,7 +354,7 @@ PGPASSWORD=digilog123 psql -h localhost -U digilog -d compliance_core_db -c \
 
 Expected: **ERROR: no partition of relation "instrument_telemetry_history" found for row.** This proves the partition requirement is real and motivates Task 8. (No cleanup needed — the insert failed.)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/prisma/schema.prisma apps/api/prisma/migrations/20260804120000_instruments_p1
@@ -374,7 +374,7 @@ git commit -m "feat(db): instruments, credentials and partitioned telemetry tabl
 - Consumes: Task 2 tables
 - Produces: `parsePayload(buf: Buffer): ParsedPayload`, `toReadings(values: Record<string, unknown>, ts: Date): Reading[]`, `classifyValue(v: unknown): ValueType`, `writeBatch(rows)`, `writeDeadLetters(rows)`, `getLatest(instrumentId)`, `getHistory(opts)`
 
-- [ ] **Step 1: Recover the files**
+- [x] **Step 1: Recover the files**
 
 ```bash
 git show pre-data-injection-drop:apps/api/src/modules/data-injection/payload-parser.ts \
@@ -385,21 +385,21 @@ git show pre-data-injection-drop:apps/api/src/modules/data-injection/telemetry.r
   > apps/api/src/modules/instruments/telemetry.repository.ts
 ```
 
-- [ ] **Step 2: Fix imports and delete outbound-only code**
+- [x] **Step 2: Fix imports and delete outbound-only code**
 
 In `telemetry.repository.ts`, delete `buildResolverMaps` and `buildResolverCache` — they resolved *outbound* broker topics to instruments and have no inbound equivalent. Update relative imports (`../../lib/prisma.js` still resolves; verify each). In the test file, fix the import path to `../payload-parser.js`.
 
-- [ ] **Step 3: Run the ported tests**
+- [x] **Step 3: Run the ported tests**
 
 Run: `cd apps/api && npx vitest run src/modules/instruments/__tests__/payload-parser.test.ts`
 Expected: PASS. If any fail, the port is wrong — do not edit the assertions to match; re-read the original.
 
-- [ ] **Step 4: Typecheck**
+- [x] **Step 4: Typecheck**
 
 Run: `npx tsc -p apps/api/tsconfig.json --noEmit`
 Expected: no output.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/src/modules/instruments/payload-parser.ts apps/api/src/modules/instruments/telemetry.repository.ts apps/api/src/modules/instruments/__tests__/payload-parser.test.ts
@@ -418,7 +418,7 @@ git commit -m "feat(instruments): port payload parser and telemetry repository f
 - Consumes: Task 1 (`tokenPrefix`, `tokenMatches`), Task 2 models
 - Produces: `resolveInstrumentByToken(token: string): Promise<{ id: string; code: string; transport: string } | null>`, `invalidateIngestAuthCache(instrumentId?: string): void`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```typescript
 // apps/api/src/modules/instruments/__tests__/ingest-auth.test.ts
@@ -491,12 +491,12 @@ describe('resolveInstrumentByToken', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd apps/api && npx vitest run src/modules/instruments/__tests__/ingest-auth.test.ts`
 Expected: FAIL — cannot resolve `../ingest-auth.js`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```typescript
 // apps/api/src/modules/instruments/ingest-auth.ts
@@ -542,12 +542,12 @@ export async function resolveInstrumentByToken(token: string): Promise<IngestIde
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd apps/api && npx vitest run src/modules/instruments/__tests__/ingest-auth.test.ts`
 Expected: PASS (7 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/src/modules/instruments/ingest-auth.ts apps/api/src/modules/instruments/__tests__/ingest-auth.test.ts
@@ -569,7 +569,7 @@ git commit -m "feat(instruments): resolve device tokens to instruments with a sh
 - Consumes: Task 3 (`parsePayload`, `toReadings`, `writeBatch`, `writeDeadLetters`), Task 4 (`resolveInstrumentByToken`)
 - Produces: `POST /api/ingest/v1/telemetry`
 
-- [ ] **Step 1: Write the failing invariant test for the allowlist**
+- [x] **Step 1: Write the failing invariant test for the allowlist**
 
 ```typescript
 // apps/api/src/plugins/__tests__/public-paths.test.ts
@@ -608,12 +608,12 @@ describe('auth plugin public paths', () => {
 });
 ```
 
-- [ ] **Step 2: Run it to confirm it fails**
+- [x] **Step 2: Run it to confirm it fails**
 
 Run: `cd apps/api && npx vitest run src/plugins/__tests__/public-paths.test.ts`
 Expected: FAIL — `/api/ingest/v1/telemetry` missing.
 
-- [ ] **Step 3: Add the ingest path to the allowlist**
+- [x] **Step 3: Add the ingest path to the allowlist**
 
 In `apps/api/src/plugins/auth.ts`, inside `PUBLIC_PATHS`, add:
 
@@ -624,7 +624,7 @@ In `apps/api/src/plugins/auth.ts`, inside `PUBLIC_PATHS`, add:
   '/api/ingest/v1/telemetry',
 ```
 
-- [ ] **Step 4: Write the ingest route**
+- [x] **Step 4: Write the ingest route**
 
 ```typescript
 // apps/api/src/modules/instruments/ingest-routes.ts
@@ -678,7 +678,7 @@ export default async function ingestRoutes(app: FastifyInstance) {
 
 > If `parsePayload`'s returned shape differs from `{ ok, values, ts, error }`, adapt to the ported file — it is the source of truth, not this snippet.
 
-- [ ] **Step 5: Register it**
+- [x] **Step 5: Register it**
 
 In `apps/api/src/app.ts`, beside the other registrations:
 
@@ -686,7 +686,7 @@ In `apps/api/src/app.ts`, beside the other registrations:
 await app.register(ingestRoutes, { prefix: '/api/ingest/v1' });
 ```
 
-- [ ] **Step 6: Write the e2e test**
+- [x] **Step 6: Write the e2e test**
 
 ```typescript
 // apps/api/src/e2e/instrument-ingest.test.ts
@@ -755,12 +755,12 @@ describe('POST /api/ingest/v1/telemetry', () => {
 });
 ```
 
-- [ ] **Step 7: Run both test files**
+- [x] **Step 7: Run both test files**
 
 Run: `cd apps/api && npx vitest run src/plugins/__tests__/public-paths.test.ts src/e2e/instrument-ingest.test.ts --pool=forks --poolOptions.forks.singleFork=true`
 Expected: PASS.
 
-- [ ] **Step 8: Verify against the running API, not just tests**
+- [x] **Step 8: Verify against the running API, not just tests**
 
 ```bash
 # start the API, then:
@@ -777,7 +777,7 @@ PGPASSWORD=digilog123 psql -h localhost -U digilog -d compliance_core_db \
   -c "SELECT key, value, ts FROM instrument_telemetry_latest ORDER BY ts DESC LIMIT 5;"
 ```
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add apps/api/src/modules/instruments/ingest-routes.ts apps/api/src/plugins/auth.ts apps/api/src/app.ts apps/api/src/e2e/instrument-ingest.test.ts apps/api/src/plugins/__tests__/public-paths.test.ts
@@ -796,7 +796,7 @@ git commit -m "feat(instruments): HTTP telemetry ingest with device-token auth a
 - Consumes: nothing
 - Produces: `parseInstrumentCsv(text: string): { rows: InstrumentDraft[]; errors: RowError[] }`, `TRANSPORTS: readonly string[]`, types `InstrumentDraft { name; code; transport; instrumentType?; manufacturer?; model?; serialNumber?; description? }` and `RowError { row: number; message: string }`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```typescript
 // apps/api/src/modules/instruments/__tests__/bulk-csv.test.ts
@@ -848,12 +848,12 @@ describe('parseInstrumentCsv', () => {
 });
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `cd apps/api && npx vitest run src/modules/instruments/__tests__/bulk-csv.test.ts`
 Expected: FAIL — cannot resolve `../bulk-csv.js`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```typescript
 // apps/api/src/modules/instruments/bulk-csv.ts
@@ -913,12 +913,12 @@ export function parseInstrumentCsv(text: string): { rows: InstrumentDraft[]; err
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd apps/api && npx vitest run src/modules/instruments/__tests__/bulk-csv.test.ts`
 Expected: PASS (6 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/src/modules/instruments/bulk-csv.ts apps/api/src/modules/instruments/__tests__/bulk-csv.test.ts
@@ -939,17 +939,17 @@ git commit -m "feat(instruments): CSV parsing with partial success for bulk crea
 - Consumes: Tasks 1, 4, 6
 - Produces: `GET /api/instruments`, `GET /api/instruments/:id`, `POST /api/instruments`, `PUT /api/instruments/:id`, `DELETE /api/instruments/:id`, `POST /api/instruments/bulk`, `POST /api/instruments/:id/regenerate-token`
 
-- [ ] **Step 1: Add permissions and reauth action to shared**
+- [x] **Step 1: Add permissions and reauth action to shared**
 
 In `packages/shared/src/types/permissions.ts` add `INSTRUMENT_READ`, `INSTRUMENT_CREATE`, `INSTRUMENT_UPDATE`, `INSTRUMENT_DELETE`. In `reauth-actions.ts` add `REGENERATE_INSTRUMENT_TOKEN` under a new `Instruments` category. In `permission-tree.ts` add an `instruments` group with a page node and action nodes whose `gate` values are the four permissions above.
 
 Then: `npm run build -w @digilog/shared`
 
-- [ ] **Step 2: Update the frozen snapshot test**
+- [x] **Step 2: Update the frozen snapshot test**
 
 The shared package has a frozen-snapshot test locking `FEATURE_PRIVILEGES` counts. Run `cd packages/shared && npx vitest run` — it will fail with the old counts. Update the snapshot to the new values **only after confirming the delta equals exactly the nodes you added**.
 
-- [ ] **Step 3: Write the e2e test**
+- [x] **Step 3: Write the e2e test**
 
 ```typescript
 // apps/api/src/e2e/instruments.test.ts
@@ -1022,7 +1022,7 @@ describe('Instruments registry', () => {
 });
 ```
 
-- [ ] **Step 4: Implement the routes**
+- [x] **Step 4: Implement the routes**
 
 Follow `apps/api/src/modules/users/routes.ts` for structure: `app.requirePermission(...)` in `preHandler`, `safeParse` + `reply.code(400).send({ error: 'VALIDATION_ERROR', details })` for bodies (**never `.parse()`** — a thrown ZodError becomes a 500), `...errorResponses` in every response schema, and `auditLog(...)` after each mutation.
 
@@ -1033,7 +1033,7 @@ Key behaviours the tests above pin:
 - `POST /:id/regenerate-token` requires `enforceReauth('REGENERATE_INSTRUMENT_TOKEN', req, reply)`, revokes the current credential, inserts a new one, calls `invalidateIngestAuthCache(id)`, returns the new token once.
 - `DELETE /:id` cascades the credential.
 
-- [ ] **Step 5: Register and run**
+- [x] **Step 5: Register and run**
 
 ```typescript
 await app.register(instrumentRoutes, { prefix: '/api/instruments' });
@@ -1042,11 +1042,11 @@ await app.register(instrumentRoutes, { prefix: '/api/instruments' });
 Run: `cd apps/api && npx vitest run src/e2e/instruments.test.ts --pool=forks --poolOptions.forks.singleFork=true`
 Expected: PASS (5 tests)
 
-- [ ] **Step 6: Verify regeneration actually revokes**
+- [x] **Step 6: Verify regeneration actually revokes**
 
 Create an instrument, POST telemetry with its token (expect 200), regenerate, then POST with the **old** token. Expect `401` — with no more than the 10 s cache TTL of delay. This is the test that proves `invalidateIngestAuthCache` is wired.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/api/src/modules/instruments/routes.ts apps/api/src/app.ts packages/shared/src apps/api/src/e2e/instruments.test.ts

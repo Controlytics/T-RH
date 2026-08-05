@@ -13,8 +13,8 @@ import {
 describe('AUDIT_TEMPLATE_CATEGORIES', () => {
   // Mirror src/types/audit-templates.ts. Update both when adding a new
   // top-level audit category.
-  it('has 13 categories', () => {
-    expect(AUDIT_TEMPLATE_CATEGORIES).toHaveLength(13);
+  it('has 14 categories', () => {
+    expect(AUDIT_TEMPLATE_CATEGORIES).toHaveLength(14);
   });
 
   it('contains all expected categories', () => {
@@ -32,6 +32,7 @@ describe('AUDIT_TEMPLATE_CATEGORIES', () => {
       'Filter Profiles',
       'Equipment Groups',
       'PM Schedules',
+      'Instruments',
     ];
     for (const cat of expected) {
       expect(AUDIT_TEMPLATE_CATEGORIES).toContain(cat);

@@ -98,6 +98,14 @@ export const REAUTH_ACTIONS = {
   // targetType + targetId distinguishes the surface; the action is
   // shared so operators can opt in / out via one reauth-policy entry.
   UPDATE_CONFIG_PAGE: { label: 'Update Configuration Page', category: 'Configuration' },
+
+  // Instruments — issuing a device credential is the same class of act as
+  // resetting a user's password: it mints a secret that authenticates against
+  // the ingest endpoint. Regeneration also immediately revokes the credential
+  // the field device is using, so it is disruptive as well as sensitive.
+  // Creating / editing / deleting an instrument carries no reauth — those are
+  // ordinary registry edits.
+  REGENERATE_INSTRUMENT_TOKEN: { label: 'Regenerate Instrument Token', category: 'Instruments' },
 } as const;
 
 export type ReauthAction = keyof typeof REAUTH_ACTIONS;
@@ -115,6 +123,7 @@ export const REAUTH_ACTION_CATEGORIES = [
   // SUPER_ADMIN_DATA_EDIT from both screens.
   'Notifications',
   'Super Admin',
+  'Instruments',
 ] as const;
 
 export type ReauthActionCategory = (typeof REAUTH_ACTION_CATEGORIES)[number];

@@ -241,3 +241,37 @@ curl -sk https://localhost:3001/docs/json
 | Method(s) | Path | Summary |
 |---|---|---|
 | POST | `/api/uploads/photo` | Upload a profile photo |
+
+---
+
+## Added after the 2026-07-25 generation
+
+The listing above is a snapshot of the OpenAPI document as it stood on
+2026-07-25. The Instruments feature landed afterwards and its paths are recorded
+here by hand — re-generate the whole file (`curl -sk https://localhost:3001/docs/json`)
+next time the snapshot is refreshed.
+
+### /instruments — 4 paths (registry; JWT + permission gated)
+
+| Method(s) | Path | Summary |
+|---|---|---|
+| GET · POST | `/api/instruments` | List instruments · Create instrument (returns the access token **once**) |
+| GET · PUT · DELETE | `/api/instruments/{id}` | Instrument detail · Update (never `code`) · Delete |
+| POST | `/api/instruments/bulk` | Bulk-create from CSV, partial success, one token per created row |
+| POST | `/api/instruments/{id}/regenerate-token` | Revoke the current credential and issue a new one (re-auth: `REGENERATE_INSTRUMENT_TOKEN`) |
+
+Gates: `INSTRUMENT_READ` (reads), `INSTRUMENT_CREATE` (create + bulk),
+`INSTRUMENT_UPDATE` (update + regenerate), `INSTRUMENT_DELETE` (delete).
+The plaintext token appears in exactly two response schemas — create and
+regenerate. Everything else returns `tokenPrefix` only, and Fastify's response
+serialisation is what enforces that, not handler discipline.
+
+### /ingest/v1 — 1 path (device-facing; NOT behind the auth hook)
+
+| Method(s) | Path | Summary |
+|---|---|---|
+| POST | `/api/ingest/v1/telemetry` | Submit telemetry, authenticated by a per-instrument device token (`Authorization: Bearer <token>`) |
+
+This is the only route reachable without a login. It is on the auth-hook
+allowlist (invariant-tested in `plugins/__tests__/public-paths.test.ts`), rate
+limited to 600/min, and body-capped at 64 KB.

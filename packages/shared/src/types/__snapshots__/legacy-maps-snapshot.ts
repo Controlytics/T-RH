@@ -177,6 +177,30 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
     "label": "Restore from Backup",
     "category": "Backup & Restore",
     "icon": "upload"
+  },
+  {
+    "id": "instruments.view",
+    "label": "View Instruments",
+    "category": "Instruments",
+    "icon": "radio"
+  },
+  {
+    "id": "instruments.create",
+    "label": "Create Instruments",
+    "category": "Instruments",
+    "icon": "plus"
+  },
+  {
+    "id": "instruments.edit",
+    "label": "Edit Instruments / Regenerate Token",
+    "category": "Instruments",
+    "icon": "edit"
+  },
+  {
+    "id": "instruments.delete",
+    "label": "Delete Instruments",
+    "category": "Instruments",
+    "icon": "trash"
   }
 ];
 
@@ -271,6 +295,21 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   ],
   "backup.restore": [
     "BACKUP_RESTORE"
+  ],
+  "instruments.view": [
+    "INSTRUMENT_READ"
+  ],
+  "instruments.create": [
+    "INSTRUMENT_CREATE",
+    "INSTRUMENT_READ"
+  ],
+  "instruments.edit": [
+    "INSTRUMENT_UPDATE",
+    "INSTRUMENT_READ"
+  ],
+  "instruments.delete": [
+    "INSTRUMENT_DELETE",
+    "INSTRUMENT_READ"
   ]
 };
 
@@ -353,6 +392,18 @@ export const SIDEBAR_PRIVILEGE_MAP_SNAPSHOT: SidebarSectionSnapshot[] = [
     "privilegeIds": [
       "debug.view",
       "debug.manage"
+    ]
+  },
+  {
+    "sidebarId": "instruments",
+    "label": "Instruments",
+    "icon": "📡",
+    "description": "Instrument registry and telemetry",
+    "privilegeIds": [
+      "instruments.view",
+      "instruments.create",
+      "instruments.edit",
+      "instruments.delete"
     ]
   }
 ];
