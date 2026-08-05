@@ -1,0 +1,71 @@
+/**
+ * Gateway fan-out — PURE. No database, no I/O.
+ *
+ * Splits a device-keyed batch payload into per-child readings, applying the one
+ * authorisation rule this feature exists for: a gateway may write instrument X
+ * iff X is in its child map. Everything else is dead-lettered rather than
+ * silently dropped, and never auto-created — a registry that grows itself from
+ * payloads cannot be trusted as a §11 record.
+ */
+import { toReadings, type Reading } from './payload-parser.js';
+
+export interface ChildRef { id: string; isActive: boolean }
+/** code → child. The gateway's OWN code is deliberately absent. */
+export type ChildMap = Map<string, ChildRef>;
+
+export interface FanoutResult {
+  readings: (Reading & { instrumentId: string })[];
+  rejected: { code: string; reason: string }[];
+}
+
+/** Reserved keys inside a per-device block (mirrors payload-parser's META_KEYS). */
+const BLOCK_META = new Set(['ts', 'timestamp', 'quality']);
+
+export function fanoutDevices(
+  devices: Record<string, unknown>,
+  childMap: ChildMap,
+  ts: Date,
+  gatewayCode: string,
+): FanoutResult {
+  const readings: FanoutResult['readings'] = [];
+  const rejected: FanoutResult['rejected'] = [];
+
+  for (const [code, block] of Object.entries(devices)) {
+    const child = childMap.get(code);
+    if (!child) {
+      rejected.push({
+        code,
+        reason: `"${code}" is not linked to gateway "${gatewayCode}" (unknown or linked elsewhere)`,
+      });
+      continue;
+    }
+    if (!child.isActive) {
+      rejected.push({ code, reason: `Instrument "${code}" is not active` });
+      continue;
+    }
+    if (block === null || typeof block !== 'object' || Array.isArray(block)) {
+      rejected.push({ code, reason: `Block for "${code}" must be a JSON object` });
+      continue;
+    }
+
+    const obj = block as Record<string, unknown>;
+    // A per-block timestamp wins: the gateway may be forwarding a reading it
+    // buffered minutes ago, and stamping it with the envelope time would
+    // silently rewrite when it was measured.
+    let blockTs = ts;
+    const rawTs = obj.ts ?? obj.timestamp;
+    if (typeof rawTs === 'string' || typeof rawTs === 'number') {
+      const d = new Date(rawTs);
+      if (!Number.isNaN(d.getTime())) blockTs = d;
+    }
+
+    const values: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(obj)) if (!BLOCK_META.has(k)) values[k] = v;
+
+    for (const r of toReadings(values, blockTs)) {
+      readings.push({ ...r, instrumentId: child.id });
+    }
+  }
+
+  return { readings, rejected };
+}
