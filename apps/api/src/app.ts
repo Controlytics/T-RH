@@ -52,7 +52,7 @@ import wsIngestRoutes from './modules/instruments/listeners/ws-listener.js';
 import mqttAuthRoutes from './modules/instruments/mqtt-auth-routes.js';
 import instrumentRoutes from './modules/instruments/routes.js';
 import { startTcpListener, type TcpListenerHandle } from './modules/instruments/listeners/tcp-listener.js';
-import { startMqttBridge, type MqttBridgeHandle } from './modules/instruments/listeners/mqtt-bridge.js';
+import { startMqttBridge, plaintextRemoteBrokerWarning, type MqttBridgeHandle } from './modules/instruments/listeners/mqtt-bridge.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -516,6 +516,15 @@ if (tcpPortEnv) {
 let mqttBridge: MqttBridgeHandle | null = null;
 const mqttBrokerUrl = process.env.MQTT_BROKER_URL;
 if (mqttBrokerUrl) {
+  // The bridge's subscription hop is plaintext by design ON LOOPBACK ONLY —
+  // it carries the bridge's own broker credential, never a device token. Off
+  // loopback that reasoning collapses, and it used to collapse silently.
+  // WARN, never refuse: a LAN broker on purpose is legitimate, and blocking
+  // boot over a config preference would be the wrong trade.
+  const brokerHopWarning = plaintextRemoteBrokerWarning(mqttBrokerUrl);
+  if (brokerHopWarning) {
+    app.log.warn(`[ingest:mqtt] INSECURE BROKER HOP — ${brokerHopWarning}`);
+  }
   try {
     mqttBridge = await startMqttBridge(mqttBrokerUrl, {
       log: (msg, meta) => app.log.warn(meta ?? {}, `[ingest:mqtt] ${msg}`),

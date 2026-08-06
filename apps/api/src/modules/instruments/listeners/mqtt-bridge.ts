@@ -101,6 +101,68 @@ export function parseTelemetryTopic(topic: string): string | null {
   return parts[1].length > 0 ? parts[1] : null;
 }
 
+/** mqtt.js transports that encrypt. Anything else puts the credential on the wire. */
+const ENCRYPTED_BROKER_SCHEMES = new Set(['mqtts:', 'wss:', 'tls:', 'ssl:']);
+
+/**
+ * RFC 6761: `localhost` and any `*.localhost` name resolve to a loopback
+ * address, so the hostname form must be handled and not just the literals — on
+ * Windows `localhost` resolves to `::1` FIRST, which is exactly the asymmetry
+ * that made the EMQX authenticator fail with `econnrefused` when it was pointed
+ * at `localhost` against an IPv4-only bind.
+ *
+ * The whole 127.0.0.0/8 block is loopback, not merely 127.0.0.1.
+ */
+function isLoopbackHost(hostname: string): boolean {
+  // `new URL('mqtt://[::1]:1883').hostname` keeps the brackets.
+  const host = hostname.replace(/^\[/, '').replace(/\]$/, '').toLowerCase();
+  if (host === 'localhost' || host.endsWith('.localhost')) return true;
+  if (host === '::1' || host === '0:0:0:0:0:0:0:1') return true;
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
+}
+
+/**
+ * The bridge's subscription hop is deliberately PLAINTEXT while the broker is on
+ * loopback: what crosses it is the bridge's own static broker credential, never
+ * a device token, and it never reaches a network. That decision is recorded in
+ * `apps/api/.env.example` and `LOCAL_SETUP_WINDOWS.md` §9B.
+ *
+ * The decision stops holding the instant the broker is somewhere else, and until
+ * this check existed that failure was SILENT: an operator edits a URL, the
+ * scheme stays `mqtt://`, the credential starts crossing a real network in the
+ * clear, and nothing anywhere says so. A comment in `.env` does not survive
+ * contact with someone editing a URL.
+ *
+ * Returns the warning text, or null when the hop is fine. Deliberately a pure
+ * function returning a string rather than something that logs or throws: it
+ * makes every branch testable without a broker, and it keeps the WARN-don't-
+ * refuse choice in the caller's hands. Booting is not blocked — pointing at a
+ * LAN broker on purpose is legitimate, and refusing to start over a config
+ * preference would be the wrong trade.
+ */
+export function plaintextRemoteBrokerWarning(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    // Cannot prove it is loopback, so say so rather than stay quiet. This URL
+    // will fail to connect anyway and the bridge will complain separately.
+    return `MQTT_BROKER_URL is not a parseable URL (${url}) — cannot verify whether the bridge's broker credential stays on this machine. Expected e.g. mqtt://127.0.0.1:1883`;
+  }
+
+  if (ENCRYPTED_BROKER_SCHEMES.has(parsed.protocol)) return null;
+  if (isLoopbackHost(parsed.hostname)) return null;
+
+  return (
+    `MQTT_BROKER_URL points at a REMOTE broker over PLAINTEXT (${parsed.protocol}//${parsed.host}) — ` +
+    `the bridge's own broker credential (MQTT_USERNAME / MQTT_PASSWORD) crosses the network in the clear ` +
+    `on every connect and can be captured and replayed by anyone on the path. ` +
+    `Use mqtts:// (and give the bridge a CA — app.ts forwards only username/password today, so that needs code), ` +
+    `or keep the broker on loopback. ` +
+    `This is the API's OWN subscription hop; devices publishing over mqtts on 8883 are unaffected.`
+  );
+}
+
 /**
  * Starts unconditionally against the URL it is handed. The `MQTT_BROKER_URL`
  * gate lives in `app.ts`, not here, so a test can point one at a local broker
