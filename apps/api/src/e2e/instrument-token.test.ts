@@ -5,7 +5,7 @@ import { buildApp, loginAs } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
 import { resetTokenKeyCache } from '../modules/instruments/token-crypto.js';
 import { invalidateIngestAuthCache } from '../modules/instruments/ingest-auth.js';
-import { invalidateReauthCache } from '../lib/reauth-check.js';
+import { invalidateReauthCache, getActionReauthConfig } from '../lib/reauth-check.js';
 
 /**
  * Reveal / set of a device access token — the 2026-08-06 reversal of spec D5.
@@ -53,8 +53,8 @@ async function newInstrument(prefix: string) {
 /**
  * Re-auth on these two endpoints is ALWAYS ON (`enforceReauthAlways`) — not the
  * admin-managed `action-reauth` policy. Every request below therefore carries a
- * password, and the gate tests at the bottom prove one is genuinely required
- * with NO policy row present at all.
+ * password, and the gate test at the bottom proves one is genuinely required
+ * even when the policy row exists and does not list these actions.
  */
 const reauth = { 'x-reauth-password': 'Admin@123' };
 
@@ -313,9 +313,9 @@ describe('Instrument token permission gate', () => {
     auth = { authorization: `Bearer ${await loginAs(app)}` };
   });
 
-  // THE POINT OF THIS TEST: the password is required with NO `action-reauth`
-  // policy configured at all — the state of a stock install, and the state this
-  // suite's other tests would otherwise run in without noticing.
+  // THE POINT OF THIS TEST: the password is required when the `action-reauth`
+  // policy does NOT list these actions — the state of a stock install, and the
+  // state this suite's other tests would otherwise run in without noticing.
   //
   // Until 2026-08-06 these endpoints used the admin-configurable `enforceReauth`,
   // so an installation that never opened the policy page handed out live device
@@ -325,18 +325,35 @@ describe('Instrument token permission gate', () => {
   // it three everywhere, and this test is what keeps it that way — the policy row
   // is DELETED here on purpose, so a regression back to `enforceReauth` turns
   // these assertions red rather than passing on someone's configured dev box.
-  it('demands the password with NO action-reauth policy configured — the gate is not opt-in', async () => {
+  it('demands the password when the action-reauth policy does not list it — the gate is not opt-in', async () => {
     const inst = await newInstrument('REAUTH');
     const before = await prisma.systemConfig.findUnique({ where: { configKey: 'action-reauth' } });
     const previous = (before?.configValue as Record<string, unknown>) ?? {};
-    // Stock install: no policy row whatsoever.
-    await prisma.systemConfig.deleteMany({ where: { configKey: 'action-reauth' } });
+
+    // A policy row that EXISTS and deliberately omits these two actions —
+    // stronger than deleting the row, and non-destructive, which matters
+    // because `compliance_core_db_test` is shared: deleting a global config row
+    // mid-run would turn re-auth silently off for anything else executing at
+    // the same time, and a crash between the delete and the restore would leave
+    // it off permanently. The decoy entry is scoped to VIEWER so it enables no
+    // gate for the SUPER_ADMIN this suite runs as, and cannot bite another test.
+    const policy = { ...previous, REGENERATE_INSTRUMENT_TOKEN: ['VIEWER'] };
+    delete (policy as Record<string, unknown>).REVEAL_INSTRUMENT_TOKEN;
+    delete (policy as Record<string, unknown>).SET_INSTRUMENT_TOKEN;
+    await prisma.systemConfig.upsert({
+      where: { configKey: 'action-reauth' },
+      create: { configKey: 'action-reauth', configType: 'SYSTEM', configValue: policy as never },
+      update: { configValue: policy as never },
+    });
     invalidateReauthCache();
     try {
-      // Sanity: the policy really is absent, so a 401 below cannot come from a
-      // leftover config row. Without this the test could pass for the wrong
-      // reason on a machine whose dev DB happens to enable these actions.
-      expect(await prisma.systemConfig.findUnique({ where: { configKey: 'action-reauth' } })).toBeNull();
+      // Sanity: the live policy really does not cover these actions, so a 401
+      // below cannot come from a leftover config row. Without this the test
+      // could pass for the wrong reason on a machine whose dev DB happens to
+      // enable them.
+      const live = await getActionReauthConfig();
+      expect(live.REVEAL_INSTRUMENT_TOKEN).toBeUndefined();
+      expect(live.SET_INSTRUMENT_TOKEN).toBeUndefined();
 
       // No password at all.
       const bare = await app.inject({ method: 'GET', url: `/api/instruments/${inst.id}/token`, headers: auth });
@@ -373,15 +390,14 @@ describe('Instrument token permission gate', () => {
       expect((await reveal(inst.id)).statusCode).toBe(200);
       expect((await setToken(inst.id, `PASSED-${'x'.repeat(30)}`)).statusCode).toBe(200);
     } finally {
-      // The row was DELETED above, so this restores rather than updates.
+      // Put the original policy back byte-for-byte; if there was no row before,
+      // remove the one this test created.
       if (before) {
-        await prisma.systemConfig.create({
-          data: {
-            configKey: 'action-reauth',
-            configType: before.configType,
-            configValue: previous as never,
-          },
+        await prisma.systemConfig.update({
+          where: { configKey: 'action-reauth' }, data: { configValue: previous as never },
         });
+      } else {
+        await prisma.systemConfig.deleteMany({ where: { configKey: 'action-reauth' } });
       }
       invalidateReauthCache();
     }
