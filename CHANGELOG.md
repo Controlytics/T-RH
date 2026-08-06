@@ -1,5 +1,41 @@
 # Changelog
 
+## [Unreleased] — Destructive actions confirm in a themed dialog (2026-08-06)
+
+Five destructive actions asked for confirmation through `window.confirm`:
+remove instrument attribute, delete instrument, unlink a gateway's child, and
+the notification-rules page's delete rule / delete group / delete template.
+Every other confirmation in the app is a themed dialog, so the destructive
+actions were the ones appearing in unstyled OS chrome — and `window.confirm`
+blocks the JS thread, so nothing else on the page can react while it is open.
+
+**New shared component** `components/ui/confirm-dialog.tsx`, following the
+`audit-delete-dialog` idiom (red warning header, consequence in a red panel,
+Cancel + a red confirm naming the act). `warning` is optional: the two
+instrument cases have a real consequence to spell out, the notification-rules
+ones mostly do not, and inventing red copy for those would train operators to
+skip the panel where it matters. The template warning is the exception and was
+verified against `notification-dispatcher.ts` — a rule pointing at a deleted
+template keeps sending, falling through to the event's built-in default
+wording.
+
+**Two in-flight guards that did not exist before.** Deleting an instrument had
+none at all: the button stayed live during the request, so a double click sent
+a second DELETE and the operator got a spurious 404 toast for a row that had
+just been removed. The three notification-rules deletes were likewise
+unguarded. All six now disable both buttons and block backdrop/Esc dismissal
+while the request is in flight, and close only once it settles — closing first
+would leave the operator looking at a row that is still there if the call
+failed.
+
+Cancel is unchanged in effect and now has tests: the row button only opens the
+dialog. Verified live against the broker on the attribute case — cancelling
+publishes nothing, confirming publishes the `changed: {key: null}` downlink.
+
+Not touched: the three notification-rules deletes still have no error handling
+(a failed DELETE rejects as it always did, and the dialog stays open, which is
+the honest outcome), and `alert()` survives elsewhere on that page.
+
 ## [Unreleased] — Attribute downlink: the first platform → device path (2026-08-06)
 
 **This narrows a documented exclusion.** Spec

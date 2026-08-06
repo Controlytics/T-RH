@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { ReauthDialog } from '@/components/reauth-dialog';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { ConnectionInstructions } from './connection-instructions';
 import { TokenDialog } from './token-dialog';
 import { GatewayPanel } from './gateway-panel';
@@ -84,6 +85,8 @@ export function InstrumentDetailPage() {
    * password prompt that misnames what it is authorising is worse than none.
    */
   const [reauthLabel, setReauthLabel] = useState('Instrument Token');
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   if (!inst) return <div className="py-10 text-center text-slate-400">Loading…</div>;
 
@@ -179,12 +182,20 @@ export function InstrumentDetailPage() {
   };
 
   const remove = async () => {
-    if (!window.confirm(`Delete instrument "${inst.code}"? Its credentials are removed and the device stops being able to send data. Telemetry already recorded is kept.`)) return;
+    // `deleting` is new with the confirm dialog (2026-08-06). The old
+    // `window.confirm` path had no in-flight guard at all: the button stayed
+    // live during the request, so a double click sent a second DELETE and the
+    // operator got a spurious 404 toast for a row that had just been removed.
+    setDeleting(true);
     try {
       await apiClient.delete(`/api/instruments/${inst.id}`);
       toast.success('Instrument deleted', `"${inst.code}" removed.`);
+      // No `setDeleting(false)` / dialog close on success — we navigate away,
+      // and this component unmounts.
       navigate('/instruments');
     } catch (err: unknown) {
+      setConfirmDelete(false);
+      setDeleting(false);
       toast.error('Delete failed', (err as { message?: string })?.message ?? 'Could not delete.');
     }
   };
@@ -206,7 +217,9 @@ export function InstrumentDetailPage() {
           <Link to="/instruments"><Button variant="secondary">Back</Button></Link>
           {can('instruments.edit') && !editing && <Button variant="secondary" onClick={startEdit}>Edit</Button>}
           {can('instruments.edit') && <Button variant="secondary" onClick={regenerate}>Regenerate token</Button>}
-          {can('instruments.delete') && <Button variant="destructive" onClick={remove}>Delete</Button>}
+          {can('instruments.delete') && (
+            <Button variant="destructive" disabled={deleting} onClick={() => setConfirmDelete(true)}>Delete</Button>
+          )}
         </div>
       </div>
 
@@ -400,6 +413,18 @@ export function InstrumentDetailPage() {
           onClose={() => setNewToken(null)}
         />
       )}
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title="Delete instrument"
+        message={<>Delete <span className="font-semibold text-red-700">{inst.code}</span>?</>}
+        warning="Its credentials are removed and the device stops being able to send data. Telemetry already recorded is kept."
+        confirmLabel="Delete instrument"
+        busyLabel="Deleting…"
+        busy={deleting}
+        onConfirm={() => void remove()}
+        onClose={() => setConfirmDelete(false)}
+      />
 
       <ReauthDialog
         open={reauth.isOpen}

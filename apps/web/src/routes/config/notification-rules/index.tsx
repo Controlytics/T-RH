@@ -5,6 +5,7 @@ import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Pagination } from '@/components/ui/pagination';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useDatetimeFormat } from '../../../hooks/use-datetime-format';
 
 // ─── Types ────────────────────────────────────────────────────────────
@@ -199,6 +200,10 @@ function RulesTab() {
   const [editing, setEditing] = useState<Partial<NotificationRule> | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // The rule awaiting delete confirmation — held whole so the dialog can name
+  // it. `window.confirm` was used here until 2026-08-06.
+  const [pendingDelete, setPendingDelete] = useState<NotificationRule | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const saveRule = async () => {
     if (!editing?.name || !(editing?.eventTypes?.length)) return;
@@ -218,10 +223,18 @@ function RulesTab() {
     setSaving(false);
   };
 
+  // Error handling here is unchanged (there is none — a failed DELETE rejects
+  // as it always did). The dialog stays open in that case, which is the honest
+  // outcome: the row is still there.
   const deleteRule = async (id: string) => {
-    if (!confirm('Delete this notification rule?')) return;
-    await apiClient.delete(`/api/notification-rules/${id}`);
-    mutate();
+    setDeleting(true);
+    try {
+      await apiClient.delete(`/api/notification-rules/${id}`);
+      setPendingDelete(null);
+      mutate();
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const toggleRule = async (id: string) => {
@@ -498,7 +511,7 @@ function RulesTab() {
                   <button onClick={() => setEditing(rule)} className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600" title="Edit">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                   </button>
-                  <button onClick={() => deleteRule(rule.id)} className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600" title="Delete">
+                  <button onClick={() => setPendingDelete(rule)} className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600" title="Delete">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                   </button>
                 </div>
@@ -507,6 +520,17 @@ function RulesTab() {
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete notification rule"
+        message={<>Delete <span className="font-semibold text-red-700">{pendingDelete?.name}</span>?</>}
+        confirmLabel="Delete rule"
+        busyLabel="Deleting…"
+        busy={deleting}
+        onConfirm={() => { if (pendingDelete) void deleteRule(pendingDelete.id); }}
+        onClose={() => setPendingDelete(null)}
+      />
     </div>
   );
 }
@@ -522,6 +546,8 @@ function GroupsTab() {
   const [managingId, setManagingId] = useState<string | null>(null);
   const [members, setMembers] = useState<GroupMember[]>([]);
   const [addUserId, setAddUserId] = useState('');
+  const [pendingDelete, setPendingDelete] = useState<UserGroup | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const createGroup = async () => {
     if (!newName) return;
@@ -533,9 +559,14 @@ function GroupsTab() {
   };
 
   const deleteGroup = async (id: string) => {
-    if (!confirm('Delete this group?')) return;
-    await apiClient.delete(`/api/user-groups/${id}`);
-    mutate();
+    setDeleting(true);
+    try {
+      await apiClient.delete(`/api/user-groups/${id}`);
+      setPendingDelete(null);
+      mutate();
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const loadMembers = async (groupId: string) => {
@@ -639,7 +670,7 @@ function GroupsTab() {
                   <button onClick={() => loadMembers(group.id)} className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600" title="Manage Members">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
                   </button>
-                  <button onClick={() => deleteGroup(group.id)} className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600" title="Delete">
+                  <button onClick={() => setPendingDelete(group)} className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600" title="Delete">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                   </button>
                 </div>
@@ -648,6 +679,22 @@ function GroupsTab() {
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete group"
+        message={<>Delete <span className="font-semibold text-red-700">{pendingDelete?.name}</span>?</>}
+        warning={
+          pendingDelete && pendingDelete.memberCount > 0
+            ? `${pendingDelete.memberCount} member${pendingDelete.memberCount === 1 ? '' : 's'} will stop receiving anything addressed to this group.`
+            : undefined
+        }
+        confirmLabel="Delete group"
+        busyLabel="Deleting…"
+        busy={deleting}
+        onConfirm={() => { if (pendingDelete) void deleteGroup(pendingDelete.id); }}
+        onClose={() => setPendingDelete(null)}
+      />
     </div>
   );
 }
@@ -658,6 +705,8 @@ function TemplatesTab() {
   const { data: eventTypes } = useSWR<EventTypeMeta[]>('/api/notification-rules/event-types', { revalidateOnMount: true, dedupingInterval: 0 });
   const [editing, setEditing] = useState<Partial<Template> | null>(null);
   const [saving, setSaving] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<Template | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const saveTemplate = async () => {
     if (!editing?.name || !editing?.bodyTemplate) return;
@@ -677,9 +726,14 @@ function TemplatesTab() {
   };
 
   const deleteTemplate = async (id: string) => {
-    if (!confirm('Delete this template?')) return;
-    await apiClient.delete(`/api/notification-settings/templates/${id}`);
-    mutate();
+    setDeleting(true);
+    try {
+      await apiClient.delete(`/api/notification-settings/templates/${id}`);
+      setPendingDelete(null);
+      mutate();
+    } finally {
+      setDeleting(false);
+    }
   };
 
   if (editing) {
@@ -773,7 +827,7 @@ function TemplatesTab() {
                 <button onClick={() => setEditing(t)} className="p-2 rounded-lg hover:bg-slate-100 text-slate-400">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                 </button>
-                <button onClick={() => deleteTemplate(t.id)} className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600">
+                <button onClick={() => setPendingDelete(t)} className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                 </button>
               </div>
@@ -781,6 +835,23 @@ function TemplatesTab() {
           ))}
         </div>
       )}
+
+      {/* The warning is verified against `notification-dispatcher.ts`: a rule
+          whose emailTemplateId/smsTemplateId no longer resolves falls through
+          to getDefaultEmailTemplate/getDefaultSmsTemplate for the event. It
+          keeps sending — quietly, with different wording — which is exactly
+          what an operator should know before deleting. */}
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete template"
+        message={<>Delete <span className="font-semibold text-red-700">{pendingDelete?.name}</span>?</>}
+        warning="Any rule still pointing at this template keeps sending, using the built-in default wording for its event."
+        confirmLabel="Delete template"
+        busyLabel="Deleting…"
+        busy={deleting}
+        onConfirm={() => { if (pendingDelete) void deleteTemplate(pendingDelete.id); }}
+        onClose={() => setPendingDelete(null)}
+      />
     </div>
   );
 }

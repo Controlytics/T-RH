@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 interface ChildInstrument { id: string; code: string; name: string; isActive: boolean }
 
@@ -18,6 +19,10 @@ export function GatewayPanel({ instrumentId, canEdit }: { instrumentId: string; 
   const { toast } = useToast();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [linkingId, setLinkingId] = useState<string | null>(null);
+  // The child awaiting unlink confirmation. Holds the whole row, not the id:
+  // the dialog names the CODE, and looking it up again from `rows` would break
+  // the moment the list revalidates under it.
+  const [pendingUnlink, setPendingUnlink] = useState<ChildInstrument | null>(null);
 
   const childrenKey = `/api/instruments/${instrumentId}/children`;
   const { data: children, mutate: mutateChildren } = useSWR<{ data: ChildInstrument[] }>(childrenKey);
@@ -55,13 +60,16 @@ export function GatewayPanel({ instrumentId, canEdit }: { instrumentId: string; 
   };
 
   const unlink = async (child: ChildInstrument) => {
-    if (!window.confirm(`Unlink "${child.code}" from this gateway? It will need to report telemetry directly (or through another gateway).`)) return;
     setLinkingId(child.id);
     try {
       await apiClient.put(`/api/instruments/${child.id}`, { gatewayId: null });
+      // Closed only once the request settles — closing first would leave the
+      // operator looking at a row that is still linked if the call failed.
+      setPendingUnlink(null);
       await refreshAfterLink();
       toast.success('Instrument unlinked', `"${child.code}" no longer reports through this gateway.`);
     } catch (err: unknown) {
+      setPendingUnlink(null);
       toast.error('Unlink failed', (err as { message?: string })?.message ?? 'Could not unlink the instrument.');
     } finally {
       setLinkingId(null);
@@ -97,7 +105,7 @@ export function GatewayPanel({ instrumentId, canEdit }: { instrumentId: string; 
                       <Button
                         variant="secondary"
                         disabled={linkingId === c.id}
-                        onClick={() => unlink(c)}
+                        onClick={() => setPendingUnlink(c)}
                       >
                         {linkingId === c.id ? 'Unlinking…' : 'Unlink'}
                       </Button>
@@ -145,6 +153,18 @@ export function GatewayPanel({ instrumentId, canEdit }: { instrumentId: string; 
           <Button variant="secondary" onClick={() => setPickerOpen(false)}>Close</Button>
         </DialogFooter>
       </Dialog>
+
+      <ConfirmDialog
+        open={pendingUnlink !== null}
+        title="Unlink instrument"
+        message={<>Unlink <span className="font-semibold text-red-700">{pendingUnlink?.code}</span> from this gateway?</>}
+        warning="It will need to report telemetry directly, or through another gateway."
+        confirmLabel="Unlink instrument"
+        busyLabel="Unlinking…"
+        busy={pendingUnlink !== null && linkingId === pendingUnlink.id}
+        onConfirm={() => { if (pendingUnlink) void unlink(pendingUnlink); }}
+        onClose={() => setPendingUnlink(null)}
+      />
     </Card>
   );
 }

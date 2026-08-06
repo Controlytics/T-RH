@@ -5,6 +5,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 
 interface Attribute { key: string; value: string; createdAt: string; updatedAt: string }
@@ -41,6 +42,11 @@ export function AttributesPanel({ instrumentId, canEdit }: { instrumentId: strin
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
   const [busy, setBusy] = useState(false);
+  // The key awaiting delete confirmation. `window.confirm` was used here until
+  // 2026-08-06: it is unstyled OS chrome in an app whose every other
+  // confirmation is a themed dialog, and it blocks the JS thread, so nothing
+  // else on the page can react while it is open.
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
   const rows = data?.data ?? [];
 
@@ -80,13 +86,16 @@ export function AttributesPanel({ instrumentId, canEdit }: { instrumentId: strin
   };
 
   const remove = async (attrKey: string) => {
-    if (!window.confirm(`Remove the attribute "${attrKey}"? Its current value is kept in the audit trail, but not on the instrument.`)) return;
     setBusy(true);
     try {
       await apiClient.delete(`${key}/${encodeURIComponent(attrKey)}`);
+      // Closed only after the request settles. Closing first would leave the
+      // operator looking at a row that is still there if the delete fails.
+      setPendingDelete(null);
       await mutate();
       toast.success('Attribute removed', `"${attrKey}" deleted.`);
     } catch (err) {
+      setPendingDelete(null);
       fail('Could not remove attribute', err);
     } finally {
       setBusy(false);
@@ -179,7 +188,7 @@ export function AttributesPanel({ instrumentId, canEdit }: { instrumentId: strin
                           >
                             Edit
                           </Button>
-                          <Button type="button" size="sm" variant="destructive" disabled={busy} onClick={() => void remove(a.key)}>
+                          <Button type="button" size="sm" variant="destructive" disabled={busy} onClick={() => setPendingDelete(a.key)}>
                             Delete
                           </Button>
                         </div>
@@ -192,6 +201,18 @@ export function AttributesPanel({ instrumentId, canEdit }: { instrumentId: strin
           </Table>
         )}
       </CardContent>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Remove attribute"
+        message={<>Remove <span className="font-semibold text-red-700">{pendingDelete}</span> from this instrument?</>}
+        warning="Its current value is kept in the audit trail, but not on the instrument."
+        confirmLabel="Remove attribute"
+        busyLabel="Removing…"
+        busy={busy}
+        onConfirm={() => { if (pendingDelete !== null) void remove(pendingDelete); }}
+        onClose={() => setPendingDelete(null)}
+      />
     </Card>
   );
 }

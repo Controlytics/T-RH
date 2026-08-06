@@ -35,8 +35,13 @@ beforeEach(() => {
   put.mockReset().mockResolvedValue({});
   del.mockReset().mockResolvedValue({});
   mutate.mockReset().mockResolvedValue(undefined);
-  vi.spyOn(window, 'confirm').mockReturnValue(true);
 });
+
+/** Row Delete opens the confirm dialog; the dialog's own button does the work. */
+const confirmDelete = () => {
+  fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+  fireEvent.click(screen.getByRole('button', { name: /^remove attribute$/i }));
+};
 
 describe('AttributesPanel', () => {
   it('explains itself when empty rather than showing a bare table', () => {
@@ -71,16 +76,42 @@ describe('AttributesPanel', () => {
   it('URL-encodes the key on edit and delete', async () => {
     rows.current = [attr('Flow kg/h', '12')];
     render(<AttributesPanel instrumentId="i-1" canEdit />);
-    fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+    confirmDelete();
     await waitFor(() => expect(del).toHaveBeenCalledWith('/api/instruments/i-1/attributes/Flow%20kg%2Fh'));
   });
 
-  it('deletes an attribute after confirming', async () => {
+  it('deletes an attribute after confirming in the dialog', async () => {
     rows.current = [attr('Room', '204')];
     render(<AttributesPanel instrumentId="i-1" canEdit />);
     fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+    // The row button only opens the dialog — nothing is destroyed by it alone.
+    expect(del).not.toHaveBeenCalled();
+    expect(screen.getByText(/kept in the audit trail/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /^remove attribute$/i }));
+    await waitFor(() => expect(del).toHaveBeenCalledWith('/api/instruments/i-1/attributes/Room'));
+  });
+
+  // The whole point of replacing `window.confirm` is that the cancel path stays
+  // as safe as it was — an unstyled dialog that no longer guards anything would
+  // be a worse outcome than the OS one it replaced.
+  it('deletes nothing when the confirm dialog is cancelled', async () => {
+    rows.current = [attr('Room', '204')];
+    render(<AttributesPanel instrumentId="i-1" canEdit />);
+    fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
+    await waitFor(() => expect(screen.queryByText(/kept in the audit trail/i)).not.toBeInTheDocument());
+    expect(del).not.toHaveBeenCalled();
+  });
+
+  // A dangling `pendingDelete` would re-open the dialog on the next render, and
+  // the row it names is already gone.
+  it('closes the dialog after a successful delete', async () => {
+    rows.current = [attr('Room', '204')];
+    render(<AttributesPanel instrumentId="i-1" canEdit />);
+    confirmDelete();
     await waitFor(() => expect(del).toHaveBeenCalled());
-    expect(window.confirm).toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByText(/kept in the audit trail/i)).not.toBeInTheDocument());
   });
 
   // The backend accepts an empty value on purpose ("we track this, we do not
