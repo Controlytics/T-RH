@@ -52,6 +52,7 @@ import wsIngestRoutes from './modules/instruments/listeners/ws-listener.js';
 import mqttAuthRoutes from './modules/instruments/mqtt-auth-routes.js';
 import instrumentRoutes from './modules/instruments/routes.js';
 import { startTcpListener, type TcpListenerHandle } from './modules/instruments/listeners/tcp-listener.js';
+import { startMqttBridge, type MqttBridgeHandle } from './modules/instruments/listeners/mqtt-bridge.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -506,6 +507,31 @@ if (tcpPortEnv) {
   }
 }
 
+// ─── MQTT ingest bridge ──────────────────────────────────────────────────────
+// Opt-in ONLY, exactly like the TCP port above: an unset MQTT_BROKER_URL means
+// no outbound connection is attempted at all. The broker must be configured
+// with the device auth hook AND the per-clientid topic ACL described in
+// mqtt-bridge.ts — without the ACL, any valid device token can publish any
+// instrument's telemetry.
+let mqttBridge: MqttBridgeHandle | null = null;
+const mqttBrokerUrl = process.env.MQTT_BROKER_URL;
+if (mqttBrokerUrl) {
+  try {
+    mqttBridge = await startMqttBridge(mqttBrokerUrl, {
+      log: (msg, meta) => app.log.warn(meta ?? {}, `[ingest:mqtt] ${msg}`),
+      clientOptions: {
+        ...(process.env.MQTT_USERNAME ? { username: process.env.MQTT_USERNAME } : {}),
+        ...(process.env.MQTT_PASSWORD ? { password: process.env.MQTT_PASSWORD } : {}),
+      },
+    });
+    app.log.info(`MQTT ingest bridge connecting to ${mqttBrokerUrl}`);
+  } catch (mqttErr) {
+    // Not fatal: the other ingest surfaces are unaffected, and the bridge
+    // retries in the background anyway.
+    app.log.error({ err: mqttErr }, 'MQTT ingest bridge FAILED to start — devices on that transport cannot report.');
+  }
+}
+
 // Graceful shutdown
 const shutdown = async (signal: string) => {
   app.log.info(`Received ${signal}, shutting down gracefully...`);
@@ -526,6 +552,16 @@ const shutdown = async (signal: string) => {
         await tcpListener.close();
       } catch (tcpErr) {
         app.log.error({ err: tcpErr }, 'Shutdown: TCP ingest listener close failed');
+      }
+    }
+
+    // Same reason: an open MQTT socket with a reconnect timer keeps the process
+    // alive to the 15s force-exit.
+    if (mqttBridge) {
+      try {
+        await mqttBridge.close();
+      } catch (mqttErr) {
+        app.log.error({ err: mqttErr }, 'Shutdown: MQTT ingest bridge close failed');
       }
     }
 

@@ -31,6 +31,7 @@
     "fastify-plugin": "^5.0.0",
     "jose": "^6.0.0",
     "ldapts": "^8.1.7",
+    "mqtt": "^5.15.2",
     "nodemailer": "^9.0.3",
     "prisma": "^6.3.0",
     "sanitize-html": "^2.17.2",
