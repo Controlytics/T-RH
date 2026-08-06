@@ -4,6 +4,8 @@ import { resolveInstrumentByToken } from './ingest-auth.js';
 import { parsePayload, toReadings } from './payload-parser.js';
 import { writeBatch, writeDeadLetters } from './telemetry.repository.js';
 import { stampLastSeen } from './last-seen.js';
+import { fanoutDevices } from './gateway-fanout.js';
+import { childMapFor } from './gateway-children.js';
 
 function bearer(header?: string): string {
   if (!header) return '';
@@ -37,7 +39,7 @@ export default async function ingestRoutes(app: FastifyInstance) {
       tags: ['Ingest'],
       summary: 'Submit telemetry (device token auth)',
       response: {
-        200: { type: 'object', properties: { accepted: { type: 'integer' } } },
+        200: { type: 'object', properties: { accepted: { type: 'integer' }, rejected: { type: 'integer' } } },
         202: { type: 'object', properties: { accepted: { type: 'integer' } } },
         400: { type: 'object', properties: { error: { type: 'string' }, message: { type: 'string' } } },
         401: { type: 'object', properties: { error: { type: 'string' } } },
@@ -63,21 +65,43 @@ export default async function ingestRoutes(app: FastifyInstance) {
 
     const ts = parsed.ts ?? new Date();
     // Flat payload -> one instrument (the authenticated caller). Batch payload
-    // (`{"devices": {...}}`) is device-keyed data for OTHER instruments, which
-    // P1's single-instrument-token model has no way to authenticate. Unlike the
-    // parse-failure case above, this IS well-formed JSON the device could fix
-    // by not sending a batch — 400, not 202, so the device doesn't mistake
-    // "accepted 0" for success and silently lose the reading.
+    // (`{"devices": {...}}`) is device-keyed data for OTHER instruments. Only a
+    // gateway may send one, and only for the instruments linked to it.
     if (parsed.devices) {
-      await writeDeadLetters([{
-        id: randomUUID(), instrumentId: identity.id, transport: 'http',
-        reason: 'Batch (devices) payload not supported over token-authenticated HTTP ingest',
-        rawPayload: raw.toString('utf8').slice(0, 4000),
-      }]);
-      return reply.code(400).send({
-        error: 'UNSUPPORTED_BATCH_PAYLOAD',
-        message: 'Batch (devices) payloads are not supported on this token-authenticated endpoint. Send one flat object of readings per instrument.',
-      });
+      if (!identity.isGateway) {
+        await writeDeadLetters([{
+          id: randomUUID(), instrumentId: identity.id, transport: 'http',
+          reason: 'Batch (devices) payload from an instrument that is not configured as a gateway',
+          rawPayload: raw.toString('utf8').slice(0, 4000),
+        }]);
+        return reply.code(400).send({
+          error: 'NOT_A_GATEWAY',
+          message: `Instrument "${identity.code}" is not configured as a gateway, so it cannot report for other instruments. Enable "Is Gateway" on it and link the instruments it reports for.`,
+        });
+      }
+
+      const childMap = await childMapFor(identity.id);
+      const { readings, rejected } = fanoutDevices(parsed.devices, childMap, ts, identity.code);
+
+      if (rejected.length > 0) {
+        // Attributed to the GATEWAY: the named child either does not exist or
+        // is not ours, so filing it against that child would be a claim we
+        // cannot make.
+        await writeDeadLetters(rejected.map((r) => ({
+          id: randomUUID(), instrumentId: identity.id, transport: 'http',
+          reason: r.reason, rawPayload: raw.toString('utf8').slice(0, 4000),
+        })));
+      }
+
+      if (readings.length > 0) {
+        await writeBatch(readings);
+        await stampLastSeen([...new Set(readings.map((r) => r.instrumentId))], 'gateway');
+      }
+
+      // 200, not 207: the request was handled correctly and every accepted
+      // reading is stored. `rejected` tells an integrator about partial
+      // failure without making them read the dead-letter table.
+      return reply.send({ accepted: readings.length, rejected: rejected.length });
     }
 
     const keyCount = Object.keys(parsed.values).length;

@@ -76,14 +76,14 @@ describe('POST /api/ingest/v1/telemetry', () => {
     expect(rows[0].reason).toBe('Payload must be a JSON object');
   });
 
-  it('rejects a devices (batch) payload with 400 instead of silently dropping it', async () => {
+  it('rejects a devices (batch) payload with 400 instead of silently dropping it — non-gateway instrument', async () => {
     const res = await app.inject({
       method: 'POST', url: '/api/ingest/v1/telemetry',
       headers: { authorization: `Bearer ${token}` },
       payload: { devices: { dev1: { temp: 1 } } },
     });
     expect(res.statusCode).toBe(400);
-    expect(res.json().error).toBe('UNSUPPORTED_BATCH_PAYLOAD');
+    expect(res.json().error).toBe('NOT_A_GATEWAY');
   });
 
   it('rejects a payload over the key-count limit with 400', async () => {

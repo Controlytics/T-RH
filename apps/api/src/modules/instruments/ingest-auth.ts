@@ -1,7 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { tokenMatches, tokenPrefix } from './token.js';
 
-export interface IngestIdentity { id: string; code: string; transport: string }
+export interface IngestIdentity { id: string; code: string; transport: string; isGateway: boolean }
 
 // Short TTL, mirroring lib/reauth-check.ts. A device may post every second; a DB
 // round trip per reading is the difference between working and not. The TTL is
@@ -43,7 +43,10 @@ export async function resolveInstrumentByToken(token: string): Promise<IngestIde
     if (!tokenMatches(token, r.tokenHash)) continue;
     if (r.revokedAt) break;                  // revoked credential
     if (!r.instrument?.isActive) break;      // known token, disabled device
-    identity = { id: r.instrument.id, code: r.instrument.code, transport: r.instrument.transport };
+    identity = {
+      id: r.instrument.id, code: r.instrument.code,
+      transport: r.instrument.transport, isGateway: r.instrument.isGateway,
+    };
     matchedCredentialId = r.id;
     break;
   }
