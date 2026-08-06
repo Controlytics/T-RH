@@ -82,6 +82,22 @@ export interface MqttBridgeOptions {
 
 export interface MqttBridgeHandle {
   close(): Promise<void>;
+  /**
+   * Publish on the bridge's connection. The DOWNLINK path (attribute changes
+   * out to devices) — the only thing this bridge ever publishes.
+   *
+   * Resolves on the broker's acknowledgement, rejects on a publish error, and
+   * imposes no timeout of its own: bounding the wait is the caller's job, and
+   * `attribute-downlink.ts` does it. This deliberately does NOT check
+   * `client.connected` first — `mqtt.js` queues an offline QoS 1 publish, and a
+   * check here would only move the race one line earlier.
+   *
+   * The broker must permit it: `etc/acl.conf` grants the bridge's username
+   * publish on `instruments/+/attributes` and `instruments/+/attributes/+`.
+   * Without those rules the publish is denied and, with
+   * `deny_action = disconnect`, takes the ingest subscription down with it.
+   */
+  publish(topic: string, payload: string, opts: { qos: 0 | 1 | 2; retain: boolean }): Promise<void>;
   /** Exposed for tests and health checks; never used for control flow. */
   readonly client: MqttClient;
 }
@@ -323,6 +339,17 @@ export async function startMqttBridge(
 
   return {
     client,
+    publish: (topic, payload, publishOpts) =>
+      new Promise<void>((resolve, reject) => {
+        // Refuse once we are shutting down rather than handing mqtt.js a
+        // publish on a client that is being torn down — `client.end(true, …)`
+        // discards the outgoing store, so the callback would never fire and the
+        // caller would wait out its whole timeout for a message that was never
+        // going to leave.
+        if (closing) return reject(new Error('bridge is closing'));
+        client.publish(topic, payload, publishOpts, (err) =>
+          err ? reject(err) : resolve());
+      }),
     close: () =>
       new Promise<void>((resolve) => {
         closing = true;

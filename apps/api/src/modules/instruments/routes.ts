@@ -25,6 +25,7 @@ import {
   GatewayInvariantViolation,
 } from './gateway-invariants.js';
 import { getLatest, getHistory } from './telemetry.repository.js';
+import { publishAttributeDownlink } from './attribute-downlink.js';
 
 /**
  * Registry (operator-facing, JWT + permission gated). The device-facing ingest
@@ -1240,6 +1241,57 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(20260807, hashtext(${`${instrumentId}:${key}`}))`;
   }
 
+  /**
+   * Everything the downlink needs, in the lookup each handler already does.
+   * `gateway.code` is what decides the topic. Read OUTSIDE any transaction, so
+   * the lock-order rule at the top of this file stays out of play.
+   */
+  const attributeOwnerSelect = { code: true, gateway: { select: { code: true } } } as const;
+
+  /**
+   * Tell the device an attribute moved. CALLED AFTER THE COMMIT, never inside
+   * the transaction — a retained message describing an edit that then rolled
+   * back would leave the device permanently ahead of the platform.
+   *
+   * The complete set is re-read HERE rather than taken from inside the
+   * transaction. An in-transaction read is internally consistent but blind to a
+   * concurrent commit on a DIFFERENT key, so the retained message could
+   * reconstruct a set that is missing an attribute — which is precisely what
+   * carrying the complete set exists to prevent. Post-commit is the fresher
+   * answer.
+   *
+   * Never throws. A broker failure, or even the re-read failing, must not turn
+   * a committed attribute write into an error the operator would retry.
+   */
+  async function announceAttributeChange(
+    instrumentId: string,
+    owner: { code: string; gateway: { code: string } | null },
+    changedKey: string,
+    changedValue: string | null,
+  ): Promise<void> {
+    try {
+      const rows = await prisma.instrumentAttribute.findMany({
+        where: { instrumentId }, select: { key: true, value: true },
+      });
+      await publishAttributeDownlink(
+        {
+          code: owner.code,
+          gatewayCode: owner.gateway?.code ?? null,
+          attributes: Object.fromEntries(rows.map((r) => [r.key, r.value])),
+          changedKey,
+          changedValue,
+          ts: new Date(),
+        },
+        (msg, meta) => app.log.warn(meta ?? {}, `[downlink:attributes] ${msg}`),
+      );
+    } catch (e) {
+      app.log.warn(
+        { err: (e as Error).message, instrumentId, key: changedKey },
+        '[downlink:attributes] could not build the downlink message — the device was NOT told about this change',
+      );
+    }
+  }
+
   // GET /api/instruments/:id/attributes
   app.get('/:id/attributes', {
     preHandler: [app.requirePermission('INSTRUMENT_READ')],
@@ -1294,7 +1346,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     }
     const { key, value } = parsed.data;
 
-    const existing = await prisma.instrument.findUnique({ where: { id }, select: { code: true } });
+    const existing = await prisma.instrument.findUnique({ where: { id }, select: attributeOwnerSelect });
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
 
     const ctx = buildContext(req);
@@ -1332,6 +1384,9 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       return { row: saved, created: !before };
     });
 
+    // Committed. Now, and only now, tell the device.
+    await announceAttributeChange(id, existing, key, value);
+
     return reply.code(created ? 201 : 200).send(row);
   });
 
@@ -1360,13 +1415,13 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const value = parsed.data.value;
     const key = normaliseKey(rawKey);
 
-    const existing = await prisma.instrument.findUnique({ where: { id }, select: { code: true } });
+    const existing = await prisma.instrument.findUnique({ where: { id }, select: attributeOwnerSelect });
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
     if (!key) return reply.code(404).send(noSuchAttribute(rawKey));
 
     const ctx = buildContext(req);
     try {
-      return await prisma.$transaction(async (tx) => {
+      const saved = await prisma.$transaction(async (tx) => {
         await lockAttribute(tx, id, key);
 
         const before = await tx.instrumentAttribute.findUnique({
@@ -1396,6 +1451,11 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         }, tx);
         return saved;
       });
+
+      // Committed. Now, and only now, tell the device. A 404 above throws past
+      // this line, so a refused edit never reaches a broker.
+      await announceAttributeChange(id, existing, key, value);
+      return saved;
     } catch (err) {
       if (err instanceof HandledRouteError) return reply.code(err.status).send(err.body);
       throw err;
@@ -1421,7 +1481,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const { id, key: rawKey } = req.params as { id: string; key: string };
     const key = normaliseKey(rawKey);
 
-    const existing = await prisma.instrument.findUnique({ where: { id }, select: { code: true } });
+    const existing = await prisma.instrument.findUnique({ where: { id }, select: attributeOwnerSelect });
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
     if (!key) return reply.code(404).send(noSuchAttribute(rawKey));
 
@@ -1454,6 +1514,11 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       if (err instanceof HandledRouteError) return reply.code(err.status).send(err.body);
       throw err;
     }
+
+    // Committed. `null` in `changed` is what tells the device the attribute was
+    // REMOVED rather than merely omitted — the re-read inside will no longer
+    // contain the key, and both facts travel in the same message.
+    await announceAttributeChange(id, existing, key, null);
 
     return { success: true };
   });

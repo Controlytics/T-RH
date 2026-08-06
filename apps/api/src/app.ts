@@ -53,6 +53,7 @@ import mqttAuthRoutes from './modules/instruments/mqtt-auth-routes.js';
 import instrumentRoutes from './modules/instruments/routes.js';
 import { startTcpListener, type TcpListenerHandle } from './modules/instruments/listeners/tcp-listener.js';
 import { startMqttBridge, plaintextRemoteBrokerWarning, type MqttBridgeHandle } from './modules/instruments/listeners/mqtt-bridge.js';
+import { setDownlinkPublisher } from './modules/instruments/attribute-downlink.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -533,6 +534,12 @@ if (mqttBrokerUrl) {
         ...(process.env.MQTT_PASSWORD ? { password: process.env.MQTT_PASSWORD } : {}),
       },
     });
+    // DOWNLINK: attribute changes go out on this same connection. Installed
+    // only once the bridge exists, so an install with no broker keeps the
+    // publisher null and attribute edits behave exactly as they did before the
+    // downlink path was added.
+    const bridge = mqttBridge;
+    setDownlinkPublisher((topic, payload, publishOpts) => bridge.publish(topic, payload, publishOpts));
     app.log.info(`MQTT ingest bridge connecting to ${mqttBrokerUrl}`);
   } catch (mqttErr) {
     // Not fatal: the other ingest surfaces are unaffected, and the bridge
@@ -567,6 +574,9 @@ const shutdown = async (signal: string) => {
     // Same reason: an open MQTT socket with a reconnect timer keeps the process
     // alive to the 15s force-exit.
     if (mqttBridge) {
+      // Before the close: a publisher pointing at a torn-down bridge would make
+      // every subsequent attribute write wait out the downlink timeout.
+      setDownlinkPublisher(null);
       try {
         await mqttBridge.close();
       } catch (mqttErr) {
