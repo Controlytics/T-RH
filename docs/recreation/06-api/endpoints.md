@@ -305,6 +305,9 @@ number here should be re-derived and never carried forward.
 | GET | `/api/instruments/{id}/dead-letters` | Rejected payloads for one instrument |
 | GET | `/api/instruments/eligible-children` | Active instruments eligible to be linked to a gateway (not themselves a gateway, not already linked — D2/D3) |
 | GET | `/api/instruments/{id}/children` | Instruments currently linked to this gateway |
+| GET · PUT | `/api/instruments/{id}/token` | Reveal the live plaintext token · Set an operator-chosen one. Both need `INSTRUMENT_UPDATE` **and an always-on password re-auth** (`x-reauth-password` header, or `_currentPassword` in the PUT body) — not the admin-managed policy, it cannot be switched off. Every reveal writes an `INSTRUMENT_TOKEN_VIEWED` audit row; a set writes `INSTRUMENT_TOKEN_SET` and revokes the previous credential. Neither row carries the value. Reveal 409s `TOKEN_NOT_RECOVERABLE` for a credential issued before 2026-08-06 |
+| GET · POST | `/api/instruments/{id}/attributes` | List free-form attributes (`INSTRUMENT_READ`) · Set one, idempotent on the trimmed key (`INSTRUMENT_UPDATE`; 201 on create, 200 on update) |
+| PUT · DELETE | `/api/instruments/{id}/attributes/{key}` | Edit an existing attribute's value · Remove it (`INSTRUMENT_UPDATE`). PUT does NOT create — a key that is not there 404s `ATTRIBUTE_NOT_FOUND`. Each mutation writes one audit row naming the key and both values |
 
 Gates: `INSTRUMENT_READ` (reads, including both gateway-child endpoints),
 `INSTRUMENT_CREATE` (create + bulk), `INSTRUMENT_UPDATE` (update + regenerate),

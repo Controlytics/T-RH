@@ -91,6 +91,40 @@ export const setInstrumentTokenSchema = z.object({
     .regex(/^[A-Za-z0-9._-]+$/, 'Use letters, digits, dot, dash or underscore only'),
 });
 
+/**
+ * One free-form attribute on an instrument.
+ *
+ * The key is TRIMMED before the length check, so a key of only whitespace is
+ * refused rather than stored: such a row is unreachable through the edit and
+ * delete endpoints (which take the key as a URL segment) and invisible in a
+ * table, so it can only ever accumulate. Trimming also makes `" Room "` and
+ * `"Room"` the same attribute, which is what an operator retyping a key expects.
+ *
+ * The value is NOT length-floored — an empty value is a real state ("we track
+ * this, we do not know it yet") and refusing it would push operators into
+ * placeholder text like "-" that no report can filter out.
+ *
+ * Neither field is character-restricted the way `code` and the token are: an
+ * attribute is display text, not a topic segment or a credential, and a site
+ * that wants "Certificat d'étalonnage" should get it. Markup is stripped by
+ * `sanitizeStrings` at the route, as on every other text field in this module.
+ */
+export const setInstrumentAttributeSchema = z.object({
+  key: z.string()
+    .transform((s) => s.trim())
+    .pipe(
+      z.string()
+        .min(1, 'Key is required')
+        .max(64, 'Maximum 64 characters'),
+    ),
+  value: z.string().max(1000, 'Maximum 1000 characters'),
+});
+
+/** PUT body — the key comes from the URL, so only the value is supplied. */
+export const updateInstrumentAttributeSchema = z.object({
+  value: z.string().max(1000, 'Maximum 1000 characters'),
+});
+
 export const instrumentQuerySchema = z.object({
   search: z.string().optional(),
   isActive: z.enum(['true', 'false']).optional(),
@@ -117,3 +151,5 @@ export type UpdateInstrumentInput = z.infer<typeof updateInstrumentSchema>;
 export type InstrumentQueryInput = z.infer<typeof instrumentQuerySchema>;
 export type BulkCreateInstrumentsInput = z.infer<typeof bulkCreateInstrumentsSchema>;
 export type SetInstrumentTokenInput = z.infer<typeof setInstrumentTokenSchema>;
+export type SetInstrumentAttributeInput = z.infer<typeof setInstrumentAttributeSchema>;
+export type UpdateInstrumentAttributeInput = z.infer<typeof updateInstrumentAttributeSchema>;

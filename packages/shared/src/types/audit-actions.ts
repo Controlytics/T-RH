@@ -194,6 +194,13 @@ export const AUDIT_ACTIONS = {
   INSTRUMENT_GATEWAY_DISABLED: 'INSTRUMENT_GATEWAY_DISABLED',
   INSTRUMENT_LINKED_TO_GATEWAY: 'INSTRUMENT_LINKED_TO_GATEWAY',
   INSTRUMENT_UNLINKED_FROM_GATEWAY: 'INSTRUMENT_UNLINKED_FROM_GATEWAY',
+  // Free-form attributes (2026-08-06). ONE ROW PER KEY, carrying the key and
+  // both values — not a single "attributes changed" row. An attribute may hold a
+  // calibration due date or a validation reference, so "who moved the
+  // calibration date, from what, to what" has to be answerable directly from the
+  // trail rather than by diffing two blobs.
+  INSTRUMENT_ATTRIBUTE_SET: 'INSTRUMENT_ATTRIBUTE_SET',
+  INSTRUMENT_ATTRIBUTE_REMOVED: 'INSTRUMENT_ATTRIBUTE_REMOVED',
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

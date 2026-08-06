@@ -78,8 +78,8 @@ export type { AuditQueryInput } from './schemas/audit.js';
 export { actionReauthConfigSchema } from './schemas/action-reauth.js';
 export type { ActionReauthConfig } from './schemas/action-reauth.js';
 
-export { TRANSPORTS, createInstrumentSchema, updateInstrumentSchema, instrumentQuerySchema, bulkCreateInstrumentsSchema, setInstrumentTokenSchema } from './schemas/instruments.js';
-export type { Transport, CreateInstrumentInput, UpdateInstrumentInput, InstrumentQueryInput, BulkCreateInstrumentsInput, SetInstrumentTokenInput } from './schemas/instruments.js';
+export { TRANSPORTS, createInstrumentSchema, updateInstrumentSchema, instrumentQuerySchema, bulkCreateInstrumentsSchema, setInstrumentTokenSchema, setInstrumentAttributeSchema, updateInstrumentAttributeSchema } from './schemas/instruments.js';
+export type { Transport, CreateInstrumentInput, UpdateInstrumentInput, InstrumentQueryInput, BulkCreateInstrumentsInput, SetInstrumentTokenInput, SetInstrumentAttributeInput, UpdateInstrumentAttributeInput } from './schemas/instruments.js';
 
 // Pipeline executor (Phase 8.4c scaffold; 8.5 fills in guard bodies).
 export * from './pipeline-executor/index.js';

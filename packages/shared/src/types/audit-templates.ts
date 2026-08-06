@@ -928,6 +928,22 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'Instrument "{instrument}" unlinked from gateway "{gateway}" by {actor}',
     placeholders: ['actor', 'instrument', 'gateway'],
   },
+  // {attribute} is the KEY. The values are deliberately not in the sentence:
+  // one of these may be a 1000-character note, which would make the trail
+  // unreadable. Both sides are in the row's before/after detail, where the
+  // reader who cares can see them.
+  INSTRUMENT_ATTRIBUTE_SET: {
+    label: 'Instrument Attribute Set',
+    category: 'Instruments',
+    template: 'Attribute "{attribute}" on instrument "{instrument}" set by {actor}',
+    placeholders: ['actor', 'instrument', 'attribute'],
+  },
+  INSTRUMENT_ATTRIBUTE_REMOVED: {
+    label: 'Instrument Attribute Removed',
+    category: 'Instruments',
+    template: 'Attribute "{attribute}" removed from instrument "{instrument}" by {actor}',
+    placeholders: ['actor', 'instrument', 'attribute'],
+  },
 };
 
 /** Extract just the template strings as defaults for the config schema */

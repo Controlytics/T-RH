@@ -15,7 +15,7 @@ grep -cE '^enum '  apps/api/prisma/schema.prisma   # → 6
 
 ---
 
-## 1. The 27 models, by bounded context
+## 1. The 28 models, by bounded context
 
 ### Identity & access (7)
 | Model | Table | Purpose |
@@ -68,11 +68,12 @@ grep -cE '^enum '  apps/api/prisma/schema.prisma   # → 6
 | `HelpArticle` | `help_articles` | In-app documentation, keyed for deep-links |
 | `HelpArticleVersion` | `help_article_versions` | Version history (cascade) |
 
-### Instruments (4)
+### Instruments (5)
 | Model | Table | Purpose |
 |---|---|---|
 | `Instrument` | `instruments` | Device registry. See §1a below — the gateway/placement/last-seen columns landed after the 2026-07-25 count and were never previously documented here. |
-| `InstrumentCredential` | `instrument_credentials` | Per-instrument device tokens (hashed; `tokenPrefix` is the only readable trace); cascades on instrument delete |
+| `InstrumentCredential` | `instrument_credentials` | Per-instrument device tokens. `tokenHash` (SHA-256) is the ONLY thing authentication consults. Since 2026-08-06 a second copy is stored in `tokenEncrypted` (AES-256-GCM under `INSTRUMENT_TOKEN_KEY`) purely so `GET /api/instruments/:id/token` can show it — nullable, so credentials issued earlier or on a key-less deployment simply stay unviewable. Cascades on instrument delete |
+| `InstrumentAttribute` | `instrument_attributes` | Free-form operator-recorded facts per instrument (calibration due, asset tag, …). Unique on `(instrumentId, key)`, one audit row per key change; cascades on instrument delete |
 | `InstrumentTelemetryLatest` | `instrument_telemetry_latest` | Most recent value per `(instrumentId, key)` — no FK, `instrumentId` is an indexed plain column |
 | `DeadLetter` | `dead_letters` | Rejected/unparseable ingest payloads, kept for diagnosis; no FK |
 
@@ -138,6 +139,7 @@ a deliberately shallow schema.
 | `NotificationRuleRecipient` → `NotificationRule` | Cascade |
 | `NotificationRuleRecipient` → `UserGroup` | **SetNull** |
 | `InstrumentCredential` → `Instrument` | Cascade |
+| `InstrumentAttribute` → `Instrument` | Cascade |
 | `Instrument.gatewayId` → `Instrument` (self) | **SetNull** — deleting a gateway unlinks, never cascades to, its children |
 
 **`AuditTrail` has no foreign keys — by design.** It stores `user_id` /

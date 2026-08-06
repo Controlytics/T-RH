@@ -785,6 +785,7 @@ model Instrument {
   lastSeenVia         String?   @map("last_seen_via")
 
   credentials InstrumentCredential[]
+  attributes  InstrumentAttribute[]
 
   gateway  Instrument?  @relation("GatewayChildren", fields: [gatewayId], references: [id], onDelete: SetNull)
   children Instrument[] @relation("GatewayChildren")
@@ -814,6 +815,34 @@ model InstrumentCredential {
   @@index([tokenPrefix])
   @@index([instrumentId])
   @@map("instrument_credentials")
+}
+
+/// Free-form operator-recorded facts about an instrument — calibration due date,
+/// asset tag, vendor contract, whatever the site tracks.
+///
+/// A CHILD TABLE, not a JSONB column on `instruments`, for two reasons:
+///   1. `@@unique([instrumentId, key])` makes "set this attribute" idempotent at
+///      the storage layer. A JSONB blob has no such constraint and a merge bug
+///      shows up as silently duplicated or lost keys.
+///   2. Each change is audited individually, naming the key and both values.
+///      An attribute may hold a calibration date — a §11 record — and
+///      "who changed it, from what, to what" must be answerable without diffing
+///      two opaque blobs.
+model InstrumentAttribute {
+  id           String   @id @default(uuid())
+  instrumentId String   @map("instrument_id")
+  /// Trimmed and sanitised before storage; never empty. It is also the URL
+  /// segment for the edit/delete endpoints.
+  key          String
+  value        String
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  instrument Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+
+  @@unique([instrumentId, key])
+  @@index([key])
+  @@map("instrument_attributes")
 }
 
 model InstrumentTelemetryLatest {

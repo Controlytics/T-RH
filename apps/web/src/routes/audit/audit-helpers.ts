@@ -248,6 +248,11 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
   // the existing empty-quoted-placeholder cleanup below collapses
   // `gateway ""` rather than showing a false or literal value.
   const gateway = (after.gateway as string) || (before.gateway as string) || '';
+  // {attribute}: the KEY of an instrument attribute. A removal carries it only
+  // in beforeValue (there is no after), so both sides are tried — same shape as
+  // {gateway} above. A template placeholder with no substitution here renders as
+  // the literal "{attribute}", which is the bug this line exists to avoid.
+  const attribute = (after.attribute as string) || (before.attribute as string) || '';
 
   const replacePlaceholders = (tpl: string) => {
     const filled = tpl
@@ -276,7 +281,8 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
       .replace(/\{rejectToStateKey\}/g, rejectToStateKey)
       .replace(/\{currentState\}/g, currentState)
       .replace(/\{instrument\}/g, instrument)
-      .replace(/\{gateway\}/g, gateway);
+      .replace(/\{gateway\}/g, gateway)
+      .replace(/\{attribute\}/g, attribute);
     // Drop empty quoted placeholders: an unnamed record (e.g. a PM schedule
     // review/approve row carries no name — the AHU is shown separately) would
     // otherwise render 'PM schedule "" reviewed by EMP-123'. An empty "" is

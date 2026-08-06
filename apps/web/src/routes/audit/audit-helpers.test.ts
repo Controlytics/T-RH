@@ -241,6 +241,23 @@ describe('audit-helpers — instrument/gateway rendering', () => {
     expect(s).not.toContain('{instrument}');
     expect(s).toBe('Instrument "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb" updated by EMP-004');
   });
+
+  // Attributes (2026-08-06). Same failure mode as {instrument} above: a template
+  // placeholder with no substitution in audit-helpers renders literally, so the
+  // trail would read 'Attribute "{attribute}" ...' for every row.
+  it('INSTRUMENT_ATTRIBUTE_SET names the key, from afterValue.attribute', () => {
+    const row = { action: 'INSTRUMENT_ATTRIBUTE_SET', userId: 'EMP-004',
+      afterValue: { code: 'PROBE-01', attribute: 'Calibration Due', value: '2027-01-31' } };
+    expect(getAuditSummary(row, T))
+      .toBe('Attribute "Calibration Due" on instrument "PROBE-01" set by EMP-004');
+  });
+
+  it('INSTRUMENT_ATTRIBUTE_REMOVED reads the key from beforeValue (there is no after)', () => {
+    const row = { action: 'INSTRUMENT_ATTRIBUTE_REMOVED', userId: 'EMP-004',
+      beforeValue: { code: 'PROBE-01', attribute: 'Asset Tag', value: 'AT-9931' } };
+    expect(getAuditSummary(row, T))
+      .toBe('Attribute "Asset Tag" removed from instrument "PROBE-01" by EMP-004');
+  });
 });
 
 // M72 (2026-07-15): 3 redacted rows existed in the live audit trail and every
