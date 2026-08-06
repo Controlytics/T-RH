@@ -51,10 +51,10 @@ async function newInstrument(prefix: string) {
 }
 
 /**
- * Re-auth is admin-configurable, so on a default install these actions need no
- * password. The header is sent regardless: it is ignored when reauth is off and
- * satisfies it when an installation has turned it on, so the suite does not
- * depend on the config row.
+ * Re-auth on these two endpoints is ALWAYS ON (`enforceReauthAlways`) — not the
+ * admin-managed `action-reauth` policy. Every request below therefore carries a
+ * password, and the gate tests at the bottom prove one is genuinely required
+ * with NO policy row present at all.
  */
 const reauth = { 'x-reauth-password': 'Admin@123' };
 
@@ -313,28 +313,31 @@ describe('Instrument token permission gate', () => {
     auth = { authorization: `Bearer ${await loginAs(app)}` };
   });
 
-  // Re-auth here is admin-configurable (the same treatment REGENERATE_INSTRUMENT_TOKEN
-  // gets), so the tests above pass on a default install without a password. This
-  // one turns it ON and proves the gate is really wired — otherwise a typo in the
-  // action string would silently disable a compensating control the D5 reversal
-  // depends on, and nothing would fail.
-  it('enforces the password re-auth once an administrator turns it on', async () => {
+  // THE POINT OF THIS TEST: the password is required with NO `action-reauth`
+  // policy configured at all — the state of a stock install, and the state this
+  // suite's other tests would otherwise run in without noticing.
+  //
+  // Until 2026-08-06 these endpoints used the admin-configurable `enforceReauth`,
+  // so an installation that never opened the policy page handed out live device
+  // credentials on INSTRUMENT_UPDATE alone. The D5 reversal was granted on three
+  // compensating controls (encrypted at rest, re-auth, audited); one of them
+  // being opt-in meant most installs had two. `enforceReauthAlways` is what makes
+  // it three everywhere, and this test is what keeps it that way — the policy row
+  // is DELETED here on purpose, so a regression back to `enforceReauth` turns
+  // these assertions red rather than passing on someone's configured dev box.
+  it('demands the password with NO action-reauth policy configured — the gate is not opt-in', async () => {
     const inst = await newInstrument('REAUTH');
     const before = await prisma.systemConfig.findUnique({ where: { configKey: 'action-reauth' } });
     const previous = (before?.configValue as Record<string, unknown>) ?? {};
-    await prisma.systemConfig.upsert({
-      where: { configKey: 'action-reauth' },
-      create: {
-        configKey: 'action-reauth',
-        configType: 'SYSTEM',
-        configValue: { REVEAL_INSTRUMENT_TOKEN: ['SUPER_ADMIN'], SET_INSTRUMENT_TOKEN: ['SUPER_ADMIN'] },
-      },
-      update: {
-        configValue: { ...previous, REVEAL_INSTRUMENT_TOKEN: ['SUPER_ADMIN'], SET_INSTRUMENT_TOKEN: ['SUPER_ADMIN'] },
-      },
-    });
+    // Stock install: no policy row whatsoever.
+    await prisma.systemConfig.deleteMany({ where: { configKey: 'action-reauth' } });
     invalidateReauthCache();
     try {
+      // Sanity: the policy really is absent, so a 401 below cannot come from a
+      // leftover config row. Without this the test could pass for the wrong
+      // reason on a machine whose dev DB happens to enable these actions.
+      expect(await prisma.systemConfig.findUnique({ where: { configKey: 'action-reauth' } })).toBeNull();
+
       // No password at all.
       const bare = await app.inject({ method: 'GET', url: `/api/instruments/${inst.id}/token`, headers: auth });
       expect(bare.statusCode).toBe(401);
@@ -362,15 +365,23 @@ describe('Instrument token permission gate', () => {
       expect(set.statusCode).toBe(401);
       expect(set.json().error).toBe('REAUTH_REQUIRED');
 
-      // With the right password it goes through.
+      // Neither refusal touched the credential: the original token still works.
+      expect((await ingest(inst.token)).statusCode).toBe(200);
+
+      // With the right password BOTH go through — the gate is a password check,
+      // not a blanket refusal.
       expect((await reveal(inst.id)).statusCode).toBe(200);
+      expect((await setToken(inst.id, `PASSED-${'x'.repeat(30)}`)).statusCode).toBe(200);
     } finally {
+      // The row was DELETED above, so this restores rather than updates.
       if (before) {
-        await prisma.systemConfig.update({
-          where: { configKey: 'action-reauth' }, data: { configValue: previous as never },
+        await prisma.systemConfig.create({
+          data: {
+            configKey: 'action-reauth',
+            configType: before.configType,
+            configValue: previous as never,
+          },
         });
-      } else {
-        await prisma.systemConfig.delete({ where: { configKey: 'action-reauth' } }).catch(() => {});
       }
       invalidateReauthCache();
     }

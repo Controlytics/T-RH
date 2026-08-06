@@ -106,13 +106,16 @@ export const REAUTH_ACTIONS = {
   // Creating / editing / deleting an instrument carries no reauth — those are
   // ordinary registry edits.
   REGENERATE_INSTRUMENT_TOKEN: { label: 'Regenerate Instrument Token', category: 'Instruments' },
-  // Revealing is the act that spec D5 originally forbade outright (reversed
-  // 2026-08-06). Reading back a live credential deserves the same password proof
-  // as minting one — a borrowed session should not be enough to walk off with
-  // every device token. Setting one is both: it mints a secret AND immediately
-  // stops the field device until it is reconfigured.
-  REVEAL_INSTRUMENT_TOKEN: { label: 'Reveal Instrument Token', category: 'Instruments' },
-  SET_INSTRUMENT_TOKEN: { label: 'Set Instrument Token', category: 'Instruments' },
+  //
+  // DELIBERATELY ABSENT: `REVEAL_INSTRUMENT_TOKEN` / `SET_INSTRUMENT_TOKEN`.
+  // Both were listed here on 2026-08-06 and removed the same day. Everything in
+  // this registry is an admin-managed POLICY — the config page renders one
+  // per-role toggle per entry — and those two endpoints use
+  // `enforceReauthAlways`, so their password proof is intrinsic and no toggle can
+  // switch it off. Listing them would render a control that does nothing, which
+  // is exactly the "reauth theater" the three `*_TEMPLATE_KIND` entries were
+  // deleted for. `TOGGLE_SUPER_ADMIN_API_ACCESS` — the other always-on gate — is
+  // absent for the same reason. See `apps/api/src/modules/instruments/routes.ts`.
 } as const;
 
 export type ReauthAction = keyof typeof REAUTH_ACTIONS;

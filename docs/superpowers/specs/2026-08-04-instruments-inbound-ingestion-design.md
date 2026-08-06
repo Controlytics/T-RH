@@ -90,10 +90,18 @@ removing any one of them re-opens the liability D5 named:
 1. **Encrypted at rest, key outside the database.** A stolen `pg_dump`, backup or
    snapshot yields ciphertext. It does *not* protect against a host compromise
    where the attacker reads both the database and the environment.
-2. **`INSTRUMENT_UPDATE` + password re-auth** on both endpoints. Reveal uses the
-   *update* permission, not `INSTRUMENT_READ`: reading a live credential is not a
-   read of registry metadata. Re-auth actions `REVEAL_INSTRUMENT_TOKEN` /
-   `SET_INSTRUMENT_TOKEN`.
+2. **`INSTRUMENT_UPDATE` + an ALWAYS-ON password re-auth** on both endpoints.
+   Reveal uses the *update* permission, not `INSTRUMENT_READ`: reading a live
+   credential is not a read of registry metadata. The re-auth (actions
+   `REVEAL_INSTRUMENT_TOKEN` / `SET_INSTRUMENT_TOKEN`) uses
+   `enforceReauthAlways`, so it is **not** an admin-managed policy and cannot be
+   switched off. Corrected 2026-08-06, hours after the endpoints landed: the
+   first implementation used the configurable `enforceReauth`, and
+   `system_config['action-reauth']` lists nothing on a stock install — so an
+   installation that never opened the policy page had control 1 and control 3
+   only, while this document claimed three. Because the gate is intrinsic, the
+   two actions are deliberately NOT registered in `REAUTH_ACTIONS`: a per-role
+   toggle that changes nothing is worse than no toggle.
 3. **Every view is audited.** `INSTRUMENT_TOKEN_VIEWED` is written inside the
    transaction, before the value is returned. The token remains a secret; who
    looked at it and when does not. `INSTRUMENT_TOKEN_SET` covers the write side.
@@ -273,8 +281,10 @@ New permissions in `PERMISSION_TREE`: `INSTRUMENT_READ`, `INSTRUMENT_CREATE`,
 `INSTRUMENT_UPDATE`, `INSTRUMENT_DELETE`.
 
 New reauth action for **token regeneration** — issuing a credential warrants the
-same password proof as disabling a user. The D5 reversal (§3.1) adds
-`REVEAL_INSTRUMENT_TOKEN` and `SET_INSTRUMENT_TOKEN` on the same reasoning.
+same password proof as disabling a user. That one is admin-configurable
+(`REGENERATE_INSTRUMENT_TOKEN`, in `REAUTH_ACTIONS`). The D5 reversal (§3.1) adds
+`REVEAL_INSTRUMENT_TOKEN` and `SET_INSTRUMENT_TOKEN` on the same reasoning, but
+**always-on** and outside the registry — see §3.1 control 2.
 
 Audit rows for: instrument created (single and bulk), updated, deleted, token
 regenerated, token revoked, **token viewed** and **token set** (§3.1). Bulk creation writes one row per instrument, so the

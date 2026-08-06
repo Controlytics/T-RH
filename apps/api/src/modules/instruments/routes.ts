@@ -6,11 +6,13 @@ import {
   instrumentQuerySchema,
   bulkCreateInstrumentsSchema,
   setInstrumentTokenSchema,
+  setInstrumentAttributeSchema,
+  updateInstrumentAttributeSchema,
 } from '@digilog/shared';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { buildContext } from '../../lib/build-context.js';
-import { enforceReauth } from '../../lib/reauth-check.js';
+import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { generateToken, hashToken, tokenPrefix, tokenMatches } from './token.js';
@@ -937,12 +939,21 @@ export default async function instrumentRoutes(app: FastifyInstance) {
   // INSTRUMENT_UPDATE (not the read permission — this is not a read of registry
   // metadata), a password re-auth, and an audit row per view. The audit row is
   // the one that matters: the token stays secret, but who looked at it never is.
+  //
+  // The re-auth is `enforceReauthAlways`, NOT the admin-configurable
+  // `enforceReauth` (changed 2026-08-06, the day after this endpoint landed).
+  // Configurable was wrong here: `system_config['action-reauth']` lists nothing
+  // on a stock install, so a deployment that never opened the policy page would
+  // hand out live device credentials to anyone holding INSTRUMENT_UPDATE with no
+  // password at all — two of the three compensating controls the D5 reversal was
+  // granted on, and no way to tell from the outside which install you are in.
+  // A control that the reversal depends on cannot itself be opt-in.
   app.get('/:id/token', {
     preHandler: [app.requirePermission('INSTRUMENT_UPDATE')],
     schema: {
       tags: ['Instruments'],
       summary: 'Reveal the instrument access token',
-      description: 'Returns the live plaintext token. Requires INSTRUMENT_UPDATE and a password re-auth, and writes an INSTRUMENT_TOKEN_VIEWED audit row. Unavailable for credentials issued before 2026-08-06.',
+      description: 'Returns the live plaintext token. Requires INSTRUMENT_UPDATE and an ALWAYS-ON password re-auth (send it as the `x-reauth-password` header — it is not admin-configurable and cannot be turned off), and writes an INSTRUMENT_TOKEN_VIEWED audit row. Unavailable for credentials issued before 2026-08-06.',
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
       response: {
         200: { type: 'object', properties: { token: { type: 'string' }, tokenPrefix: { type: 'string' } } },
@@ -951,9 +962,9 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     // A GET carries no body, so the re-auth password arrives in the
-    // `x-reauth-password` header — the alternate `enforceReauth` already
+    // `x-reauth-password` header — the alternate `enforceReauthAlways` already
     // accepts, and the reason a reveal does not have to become a POST.
-    const { ok } = await enforceReauth('REVEAL_INSTRUMENT_TOKEN', req, reply);
+    const { ok } = await enforceReauthAlways('REVEAL_INSTRUMENT_TOKEN', req, reply);
     if (!ok) return;
 
     const { id } = req.params as { id: string };
@@ -1032,12 +1043,19 @@ export default async function instrumentRoutes(app: FastifyInstance) {
   // For the case regeneration cannot serve: a device whose credential is fixed
   // in its firmware or its installer's config sheet, where the platform has to
   // match the device rather than the other way round.
+  //
+  // Same ALWAYS-ON re-auth as the reveal, and for a sharper reason: choosing a
+  // token's VALUE is issuing a credential whose bytes the caller already knows.
+  // Regeneration at least produces a secret the attacker has to read back
+  // afterwards; this endpoint lets a borrowed session install one they picked in
+  // advance, in one request, and the device keeps working for whoever has it.
+  // That is not a setting an installation should be able to leave switched off.
   app.put('/:id/token', {
     preHandler: [app.requirePermission('INSTRUMENT_UPDATE')],
     schema: {
       tags: ['Instruments'],
       summary: 'Set a specific instrument access token',
-      description: 'Replaces the credential with an operator-supplied token. The previous credential is revoked, so the device stops authenticating until it is reconfigured. The token value is never echoed back — only its prefix.',
+      description: 'Replaces the credential with an operator-supplied token. Requires INSTRUMENT_UPDATE and an ALWAYS-ON password re-auth (`_currentPassword` in the body or the `x-reauth-password` header — not admin-configurable). The previous credential is revoked, so the device stops authenticating until it is reconfigured. The token value is never echoed back — only its prefix.',
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
       body: { type: 'object', required: ['token'], properties: { token: { type: 'string' } } },
       response: {
@@ -1046,7 +1064,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('SET_INSTRUMENT_TOKEN', req, reply);
+    const { ok } = await enforceReauthAlways('SET_INSTRUMENT_TOKEN', req, reply);
     if (!ok) return;
 
     // NOT run through `sanitizeStrings`: it strips HTML, and a token is an
@@ -1153,5 +1171,274 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     invalidateIngestAuthCache(id);
 
     return { tokenPrefix: prefix };
+  });
+
+  // ---------------------------------------------------------------------------
+  // Free-form attributes.
+  //
+  // A child table, one row per key (see the `InstrumentAttribute` model comment
+  // for why this is not a JSONB column). Reading is on INSTRUMENT_READ — an
+  // attribute is registry metadata, not a secret — while every write and delete
+  // is on INSTRUMENT_UPDATE and audited by key.
+  //
+  // NO INSTRUMENT ROW LOCK is taken in any of these handlers, so the lock-order
+  // rule at the top of this file is not in play. An attribute write cannot
+  // violate a gateway invariant: it touches no column any invariant reads.
+  // ---------------------------------------------------------------------------
+
+  const attributeProps = {
+    key: { type: 'string' },
+    value: { type: 'string' },
+    createdAt: { type: 'string', format: 'date-time' },
+    updatedAt: { type: 'string', format: 'date-time' },
+  } as const;
+
+  const attributeSelect = { key: true, value: true, createdAt: true, updatedAt: true } as const;
+
+  /** 404 body for an attribute key that is not on this instrument. */
+  const noSuchAttribute = (key: string) => ({
+    error: 'ATTRIBUTE_NOT_FOUND',
+    message: `This instrument has no attribute named "${key}".`,
+  });
+
+  /**
+   * Sanitise-then-trim a key arriving as a URL segment, so `PUT`/`DELETE`
+   * resolve the same stored row that `POST` created. `POST` runs the identical
+   * pair (route sanitiser, then the Zod transform) — if these two ever diverge,
+   * an attribute becomes creatable but not editable.
+   */
+  function normaliseKey(raw: string): string {
+    return String((sanitizeStrings({ key: raw }) as { key: unknown }).key ?? '').trim();
+  }
+
+  /**
+   * Serialise concurrent writers of the SAME attribute. Without it, two
+   * simultaneous sets of one key both read "absent" and both insert, and the
+   * loser gets a P2002 500 instead of an update. Two-argument form — a different
+   * key space from the audit chain's single-bigint lock — and the classid MUST
+   * fit in int4 (a larger literal is typed `bigint`, for which no overload
+   * exists: 42883). 20260807 is arbitrary but stable, and distinct from the
+   * token endpoint's 20260806 so the two never queue behind each other.
+   */
+  async function lockAttribute(tx: Prisma.TransactionClient, instrumentId: string, key: string) {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(20260807, hashtext(${`${instrumentId}:${key}`}))`;
+  }
+
+  // GET /api/instruments/:id/attributes
+  app.get('/:id/attributes', {
+    preHandler: [app.requirePermission('INSTRUMENT_READ')],
+    schema: {
+      tags: ['Instruments'],
+      summary: 'List an instrument\'s free-form attributes',
+      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
+      response: {
+        200: {
+          type: 'object',
+          properties: { data: { type: 'array', items: { type: 'object', properties: attributeProps } } },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const exists = await prisma.instrument.findUnique({ where: { id }, select: { id: true } });
+    if (!exists) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
+
+    const data = await prisma.instrumentAttribute.findMany({
+      where: { instrumentId: id }, select: attributeSelect, orderBy: { key: 'asc' },
+    });
+    return { data };
+  });
+
+  // POST /api/instruments/:id/attributes — set (create OR update) one attribute
+  app.post('/:id/attributes', {
+    preHandler: [app.requirePermission('INSTRUMENT_UPDATE')],
+    schema: {
+      tags: ['Instruments'],
+      summary: 'Set one free-form attribute',
+      description: 'Idempotent on the key: setting an existing key updates it (200) rather than adding a second row (201 on first create). The key is trimmed, so " Room " and "Room" are the same attribute.',
+      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
+      body: {
+        type: 'object', required: ['key', 'value'],
+        properties: { key: { type: 'string' }, value: { type: 'string' } },
+      },
+      response: {
+        200: { type: 'object', properties: attributeProps },
+        201: { type: 'object', properties: attributeProps },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const parsed = setInstrumentAttributeSchema.safeParse(
+      sanitizeStrings((req.body ?? {}) as Record<string, unknown>),
+    );
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
+    }
+    const { key, value } = parsed.data;
+
+    const existing = await prisma.instrument.findUnique({ where: { id }, select: { code: true } });
+    if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
+
+    const ctx = buildContext(req);
+    const { row, created } = await prisma.$transaction(async (tx) => {
+      await lockAttribute(tx, id, key);
+
+      // Read inside the lock: this is what decides create-vs-update, and it is
+      // also the audit row's `beforeValue`.
+      const before = await tx.instrumentAttribute.findUnique({
+        where: { instrumentId_key: { instrumentId: id, key } },
+        select: attributeSelect,
+      });
+      const saved = await tx.instrumentAttribute.upsert({
+        where: { instrumentId_key: { instrumentId: id, key } },
+        create: { instrumentId: id, key, value },
+        update: { value },
+        select: attributeSelect,
+      });
+
+      // In the SAME transaction (§11.10(e)): a rollback must take the audit row
+      // with it, and an attribute may be a calibration date rather than a note.
+      await auditLog({
+        action: 'INSTRUMENT_ATTRIBUTE_SET', targetType: 'Instrument', targetId: id,
+        // No `beforeValue` at all on a create — an absent attribute is not an
+        // empty one, and inventing `value: ''` would misreport the history.
+        ...(before ? { beforeValue: { code: existing.code, attribute: key, value: before.value } } : {}),
+        afterValue: { code: existing.code, attribute: key, value },
+        signatureMeaning: before
+          ? `Attribute "${key}" on instrument "${existing.code}" changed`
+          : `Attribute "${key}" set on instrument "${existing.code}"`,
+        userId: ctx.userId, userRole: ctx.userRole,
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      }, tx);
+
+      return { row: saved, created: !before };
+    });
+
+    return reply.code(created ? 201 : 200).send(row);
+  });
+
+  // PUT /api/instruments/:id/attributes/:key — edit an EXISTING attribute
+  app.put('/:id/attributes/:key', {
+    preHandler: [app.requirePermission('INSTRUMENT_UPDATE')],
+    schema: {
+      tags: ['Instruments'],
+      summary: 'Update an existing attribute\'s value',
+      description: 'Does NOT create: POST is the upsert. A mistyped key here returns 404 rather than quietly adding a second attribute nobody asked for.',
+      params: {
+        type: 'object',
+        properties: { id: { type: 'string', format: 'uuid' }, key: { type: 'string' } },
+      },
+      body: { type: 'object', required: ['value'], properties: { value: { type: 'string' } } },
+      response: { 200: { type: 'object', properties: attributeProps }, ...errorResponses },
+    },
+  }, async (req, reply) => {
+    const { id, key: rawKey } = req.params as { id: string; key: string };
+    const parsed = updateInstrumentAttributeSchema.safeParse(
+      sanitizeStrings((req.body ?? {}) as Record<string, unknown>),
+    );
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
+    }
+    const value = parsed.data.value;
+    const key = normaliseKey(rawKey);
+
+    const existing = await prisma.instrument.findUnique({ where: { id }, select: { code: true } });
+    if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
+    if (!key) return reply.code(404).send(noSuchAttribute(rawKey));
+
+    const ctx = buildContext(req);
+    try {
+      return await prisma.$transaction(async (tx) => {
+        await lockAttribute(tx, id, key);
+
+        const before = await tx.instrumentAttribute.findUnique({
+          where: { instrumentId_key: { instrumentId: id, key } },
+          select: attributeSelect,
+        });
+        // Thrown, not returned: the throw is what rolls the transaction back —
+        // there is nothing to undo yet here, but keeping the shape means a
+        // future statement added above cannot silently survive a 404.
+        if (!before) throw new HandledRouteError(404, noSuchAttribute(key));
+
+        const saved = await tx.instrumentAttribute.update({
+          where: { instrumentId_key: { instrumentId: id, key } },
+          data: { value },
+          select: attributeSelect,
+        });
+        // Same action as POST: an edit and a re-set are the same event, and a
+        // trail that distinguished them by which button was pressed would make
+        // "every change to this attribute" a two-query question.
+        await auditLog({
+          action: 'INSTRUMENT_ATTRIBUTE_SET', targetType: 'Instrument', targetId: id,
+          beforeValue: { code: existing.code, attribute: key, value: before.value },
+          afterValue: { code: existing.code, attribute: key, value },
+          signatureMeaning: `Attribute "${key}" on instrument "${existing.code}" changed`,
+          userId: ctx.userId, userRole: ctx.userRole,
+          ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+        }, tx);
+        return saved;
+      });
+    } catch (err) {
+      if (err instanceof HandledRouteError) return reply.code(err.status).send(err.body);
+      throw err;
+    }
+  });
+
+  // DELETE /api/instruments/:id/attributes/:key
+  app.delete('/:id/attributes/:key', {
+    preHandler: [app.requirePermission('INSTRUMENT_UPDATE')],
+    schema: {
+      tags: ['Instruments'],
+      summary: 'Remove an attribute',
+      params: {
+        type: 'object',
+        properties: { id: { type: 'string', format: 'uuid' }, key: { type: 'string' } },
+      },
+      response: {
+        200: { type: 'object', properties: { success: { type: 'boolean' } } },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const { id, key: rawKey } = req.params as { id: string; key: string };
+    const key = normaliseKey(rawKey);
+
+    const existing = await prisma.instrument.findUnique({ where: { id }, select: { code: true } });
+    if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
+    if (!key) return reply.code(404).send(noSuchAttribute(rawKey));
+
+    const ctx = buildContext(req);
+    try {
+      await prisma.$transaction(async (tx) => {
+        await lockAttribute(tx, id, key);
+
+        const before = await tx.instrumentAttribute.findUnique({
+          where: { instrumentId_key: { instrumentId: id, key } },
+          select: attributeSelect,
+        });
+        if (!before) throw new HandledRouteError(404, noSuchAttribute(key));
+
+        await tx.instrumentAttribute.delete({
+          where: { instrumentId_key: { instrumentId: id, key } },
+        });
+        // The removed VALUE is in `beforeValue`: once the row is gone this audit
+        // record is the only place it survives, and "what did the calibration
+        // date say before someone deleted it?" is exactly the §11 question.
+        await auditLog({
+          action: 'INSTRUMENT_ATTRIBUTE_REMOVED', targetType: 'Instrument', targetId: id,
+          beforeValue: { code: existing.code, attribute: key, value: before.value },
+          signatureMeaning: `Attribute "${key}" removed from instrument "${existing.code}"`,
+          userId: ctx.userId, userRole: ctx.userRole,
+          ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+        }, tx);
+      });
+    } catch (err) {
+      if (err instanceof HandledRouteError) return reply.code(err.status).send(err.body);
+      throw err;
+    }
+
+    return { success: true };
   });
 }
