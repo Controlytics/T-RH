@@ -371,8 +371,8 @@ describe('Instrument gateway audit trail', () => {
   /**
    * INSTRUMENT_UPDATED is the most common instrument row and was the least
    * useful: it carried neither `code` nor `instrument`, so the Audit Trail fell
-   * back to rendering a bare UUID, and its diff covered only 8 of the 13
-   * editable fields. Editing a description produced a row whose beforeValue and
+   * back to rendering a bare UUID, and its diff omitted most of the editable
+   * fields. Editing a description produced a row whose beforeValue and
    * afterValue were IDENTICAL — a §11 record that something changed but not
    * what.
    *
