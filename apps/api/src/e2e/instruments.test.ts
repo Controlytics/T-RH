@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { buildApp, loginAs } from './test-helper.js';
 import type { FastifyInstance } from 'fastify';
 import type { Prisma } from '@prisma/client';
+import { updateInstrumentSchema } from '@digilog/shared';
 import { prisma } from '../lib/prisma.js';
 import { lockedGatewayRecheck, GatewayInvariantViolation } from '../modules/instruments/gateway-invariants.js';
 
@@ -374,6 +375,13 @@ describe('Instrument gateway audit trail', () => {
    * editable fields. Editing a description produced a row whose beforeValue and
    * afterValue were IDENTICAL — a §11 record that something changed but not
    * what.
+   *
+   * The field list below is DERIVED from `updateInstrumentSchema.shape`, not
+   * typed out. That indirection is here because the hand-maintained version
+   * drifted twice in a single review cycle — three fields fixed in one round,
+   * five more in the next — and a hardcoded list cannot notice a fourteenth
+   * field being added to the schema and forgotten in `audited()`. Adding a
+   * field to the PUT schema without adding it to `audited()` now fails HERE.
    */
   it('INSTRUMENT_UPDATED carries the code and a diff over every editable field', async () => {
     const s = Date.now();
@@ -409,9 +417,24 @@ describe('Instrument gateway audit trail', () => {
 
     // And every editable field is present on both sides, so no future edit can
     // produce a row that says nothing.
-    for (const f of ['code', 'name', 'isActive', 'instrumentType',
-      'manufacturer', 'model', 'serialNumber', 'description',
-      'expectedIntervalSec', 'location', 'area', 'block']) {
+    //
+    // Nothing is excluded. `isGateway`/`gatewayId` DO also get their own
+    // companion rows (INSTRUMENT_GATEWAY_ENABLED and friends), which was once
+    // the argument for leaving them out of this diff — but omitting them meant
+    // `PUT {isGateway:true}` wrote an INSTRUMENT_UPDATED whose two sides were
+    // identical, i.e. exactly the defect this test exists to prevent. If a
+    // field ever genuinely must be excluded, name it here — a visible
+    // allowlist, not an implied one.
+    const AUDITED_EXCLUSIONS: string[] = [];
+    // In the audit payload but NOT in the PUT schema: `code` is deliberately
+    // not updatable (it is baked into device config), yet it is carried on
+    // both sides as the emitter key so the trail never renders a bare UUID.
+    const AUDITED_EXTRAS = ['code'];
+    const expectedFields = [
+      ...Object.keys(updateInstrumentSchema.shape).filter((f) => !AUDITED_EXCLUSIONS.includes(f)),
+      ...AUDITED_EXTRAS,
+    ];
+    for (const f of expectedFields) {
       expect(before, `beforeValue missing ${f}`).toHaveProperty(f);
       expect(after, `afterValue missing ${f}`).toHaveProperty(f);
     }

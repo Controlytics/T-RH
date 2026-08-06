@@ -619,6 +619,11 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       const effGatewayId = parsed.data.gatewayId === undefined
         ? before.gatewayId
         : (parsed.data.gatewayId ?? null);
+      // On a row that ALREADY holds `isGateway && gatewayId`, the pre-flight
+      // above returns first and this never runs — see the operator note on
+      // `gatewayInvariantError`'s NESTED_GATEWAY branch for what to do about
+      // such a row. This copy is for the interleaving described above, where
+      // neither request alone looks nested.
       if (effIsGateway && effGatewayId) {
         throw new GatewayInvariantViolation(400, {
           error: 'NESTED_GATEWAY',
@@ -648,13 +653,26 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       // after are IDENTICAL — a record that something changed but not what.
       // `code` is included (and is the emitter key the other INSTRUMENT_*
       // actions use) so the trail never has to fall back to a bare UUID.
-      // Keep this list in step with the PUT body schema above.
+      //
+      // `isGateway`/`gatewayId` are in here even though each ALSO gets a
+      // dedicated companion row below. The two carry different things and
+      // neither substitutes for the other: the companion rows carry the
+      // semantics (a signatureMeaning, the parent's resolved `code`), this row
+      // carries the diff. Leaving them out was the whole defect — a
+      // `PUT {isGateway:true}` then wrote an INSTRUMENT_UPDATED whose before
+      // and after were byte-identical.
+      //
+      // This list is not kept in step by hand: the e2e test
+      // "INSTRUMENT_UPDATED carries the code and a diff over every editable
+      // field" derives its expected key set from `updateInstrumentSchema.shape`,
+      // so adding a field to the PUT schema and forgetting it here FAILS.
       const audited = (i: typeof before) => ({
         code: i.code, name: i.name, isActive: i.isActive,
         instrumentType: i.instrumentType, manufacturer: i.manufacturer, model: i.model,
         serialNumber: i.serialNumber, description: i.description,
         expectedIntervalSec: i.expectedIntervalSec,
         location: i.location, area: i.area, block: i.block,
+        isGateway: i.isGateway, gatewayId: i.gatewayId,
       });
       await auditLog({
         action: 'INSTRUMENT_UPDATED', targetType: 'Instrument', targetId: id,
