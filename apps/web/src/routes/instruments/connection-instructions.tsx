@@ -50,9 +50,22 @@ export interface ConnectionInstructionsProps {
   code: string;
   /** Plaintext token. Only ever available at creation / regeneration. */
   token?: string;
+  /** True when this instrument is a gateway relaying telemetry for children. */
+  isGateway?: boolean;
+  /** The gateway's real linked children — drives the batch payload shape. */
+  childCodes?: string[];
+  /** Set on a CHILD instrument that is (also) reported via a gateway. */
+  gatewayCode?: string;
 }
 
-export function ConnectionInstructions({ transport, code, token }: ConnectionInstructionsProps) {
+export function ConnectionInstructions({
+  transport,
+  code,
+  token,
+  isGateway,
+  childCodes,
+  gatewayCode,
+}: ConnectionInstructionsProps) {
   // The token is knowable exactly once. When these instructions are shown on
   // the detail page (no token in hand) the example still has to be copyable, so
   // a placeholder stands in rather than an empty string that would paste as a
@@ -68,70 +81,111 @@ export function ConnectionInstructions({ transport, code, token }: ConnectionIns
   const wsUrl = `${base.replace(/^http/, 'ws')}/api/ingest/v1/ws`;
   const notLive = !LIVE_TRANSPORTS.has(transport);
 
+  // A gateway sends ONE batch payload keyed by each child's code, not the
+  // single-reading body an ordinary instrument sends. When there are no
+  // linked children yet there is no correct payload to show — a placeholder
+  // device map would be a lie a technician could paste and "succeed" with.
+  const hasChildren = isGateway && (childCodes?.length ?? 0) > 0;
+  const devicesPayload = hasChildren
+    ? JSON.stringify(
+        {
+          devices: Object.fromEntries(
+            (childCodes as string[]).map((c) => [c, { temperature: 21.5, humidity: 47 }]),
+          ),
+        },
+        null,
+        2,
+      )
+    : '';
+
   let body: React.ReactNode;
-  switch (transport) {
-    case 'http':
-    case 'https':
-      body = (
-        <>
-          <Row label="Endpoint" value={`POST ${httpUrl}`} />
-          <Row label="Auth" value={`Authorization: Bearer ${tok}`} />
-          <CodeBlock
-            text={`curl -k -X POST ${httpUrl} \\\n  -H "Authorization: Bearer ${tok}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"temperature": 21.5, "humidity": 47}'`}
-          />
-        </>
-      );
-      break;
 
-    case 'mqtt':
-    case 'mqtts':
-      body = (
-        <>
-          <Row label="Topic" value={topic} />
-          <Row label="Username" value={tok} />
-          <Row label="Password" value="(leave empty)" />
-          <CodeBlock
-            text={`mosquitto_pub -h <broker-host> -p ${transport === 'mqtts' ? '8883' : '1883'} \\\n  -t "${topic}" \\\n  -u "${tok}" \\\n  -m '{"temperature": 21.5}'`}
-          />
-        </>
-      );
-      break;
+  if (isGateway && !hasChildren) {
+    body = (
+      <p className="text-sm text-slate-500">
+        This gateway has no linked instruments yet — link instruments to this
+        gateway first, then reconnect here for the real batch payload.
+      </p>
+    );
+  } else {
+    switch (transport) {
+      case 'http':
+      case 'https':
+        body = (
+          <>
+            <Row label="Endpoint" value={`POST ${httpUrl}`} />
+            <Row label="Auth" value={`Authorization: Bearer ${tok}`} />
+            <CodeBlock
+              text={
+                isGateway
+                  ? `curl -k -X POST ${httpUrl} \\\n  -H "Authorization: Bearer ${tok}" \\\n  -H "Content-Type: application/json" \\\n  -d '${devicesPayload}'`
+                  : `curl -k -X POST ${httpUrl} \\\n  -H "Authorization: Bearer ${tok}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"temperature": 21.5, "humidity": 47}'`
+              }
+            />
+          </>
+        );
+        break;
 
-    case 'websocket':
-    case 'wss':
-      body = (
-        <>
-          <Row label="Endpoint" value={wsUrl} />
-          <Row label="Auth" value={`Authorization: Bearer ${tok}`} />
-          <CodeBlock
-            text={`const ws = new WebSocket("${wsUrl}", {\n  headers: { Authorization: "Bearer ${tok}" },\n});\nws.on("open", () => ws.send(JSON.stringify({ temperature: 21.5 })));`}
-          />
-        </>
-      );
-      break;
+      case 'mqtt':
+      case 'mqtts':
+        body = (
+          <>
+            <Row label="Topic" value={topic} />
+            <Row label="Username" value={tok} />
+            <Row label="Password" value="(leave empty)" />
+            <CodeBlock
+              text={`mosquitto_pub -h <broker-host> -p ${transport === 'mqtts' ? '8883' : '1883'} \\\n  -t "${topic}" \\\n  -u "${tok}" \\\n  -m '${isGateway ? devicesPayload : '{"temperature": 21.5}'}'`}
+            />
+          </>
+        );
+        break;
 
-    case 'tcp':
-      body = (
-        <>
-          <Row label="Host / port" value="<server-host>:1884" />
-          <Row label="Framing" value="One JSON object per line (newline-delimited)" />
-          <CodeBlock
-            text={`{"token":"${tok}"}\n{"temperature": 21.5}\n{"temperature": 21.7}`}
-          />
-          <p className="text-xs text-slate-500">
-            A byte stream carries no headers, so the FIRST line must be the token
-            object. Sockets that do not authenticate promptly are closed.
-          </p>
-        </>
-      );
-      break;
+      case 'websocket':
+      case 'wss':
+        body = (
+          <>
+            <Row label="Endpoint" value={wsUrl} />
+            <Row label="Auth" value={`Authorization: Bearer ${tok}`} />
+            <CodeBlock
+              text={`const ws = new WebSocket("${wsUrl}", {\n  headers: { Authorization: "Bearer ${tok}" },\n});\nws.on("open", () => ws.send(JSON.stringify(${isGateway ? devicesPayload : '{ temperature: 21.5 }'})));`}
+            />
+          </>
+        );
+        break;
 
-    default:
-      body = <p className="text-sm text-slate-500">No connection example for transport &quot;{transport}&quot;.</p>;
+      case 'tcp':
+        body = (
+          <>
+            <Row label="Host / port" value="<server-host>:1884" />
+            <Row label="Framing" value="One JSON object per line (newline-delimited)" />
+            <CodeBlock
+              text={
+                isGateway
+                  ? `{"token":"${tok}"}\n${devicesPayload}`
+                  : `{"token":"${tok}"}\n{"temperature": 21.5}\n{"temperature": 21.7}`
+              }
+            />
+            <p className="text-xs text-slate-500">
+              A byte stream carries no headers, so the FIRST line must be the token
+              object. Sockets that do not authenticate promptly are closed.
+            </p>
+          </>
+        );
+        break;
+
+      default:
+        body = <p className="text-sm text-slate-500">No connection example for transport &quot;{transport}&quot;.</p>;
+    }
   }
 
   return (
     <div className="space-y-2">
+      {gatewayCode && (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          This instrument is also reported by gateway <strong className="font-mono">{gatewayCode}</strong>.
+          The credentials below remain valid for reporting directly.
+        </div>
+      )}
       {notLive && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
           <strong>{transport.toUpperCase()} is not accepting connections yet.</strong>{' '}

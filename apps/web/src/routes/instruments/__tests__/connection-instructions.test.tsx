@@ -38,3 +38,26 @@ describe('ConnectionInstructions', () => {
     expect(screen.getByText(/not accepting connections yet/i)).toBeInTheDocument();
   });
 });
+
+describe('ConnectionInstructions — gateway', () => {
+  it('shows the devices batch shape naming this gateway\'s real children', () => {
+    render(
+      <ConnectionInstructions transport="http" code="GW-1" token="TOK" isGateway childCodes={['SENSOR-A', 'SENSOR-B']} />,
+    );
+    // Not an illustrative example — the correct command for THIS gateway.
+    expect(screen.getAllByText(/"devices"/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/SENSOR-A/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/SENSOR-B/).length).toBeGreaterThan(0);
+  });
+
+  it('tells a gateway with no children to link some first', () => {
+    render(<ConnectionInstructions transport="http" code="GW-1" token="TOK" isGateway childCodes={[]} />);
+    expect(screen.getByText(/link.*instrument/i)).toBeInTheDocument();
+  });
+
+  it('tells a child it is reported via its gateway, without hiding its own credentials', () => {
+    render(<ConnectionInstructions transport="http" code="SENSOR-A" token="TOK" gatewayCode="GW-1" />);
+    expect(screen.getByText(/GW-1/)).toBeInTheDocument();
+    expect(screen.getByText(/curl/)).toBeInTheDocument();   // direct path still shown (spec D4)
+  });
+});
