@@ -250,29 +250,43 @@ The listing above is a snapshot of the OpenAPI document as it stood on
 2026-07-25. The Instruments feature landed afterwards and its paths are recorded
 here by hand — re-generate the whole file next time the snapshot is refreshed.
 
-Verified against the running API on 2026-08-05: **144 paths** (139 above + the
-5 below).
+Verified against the running API on 2026-08-06 (`curl -sk https://localhost:3001/docs/json`,
+counted with `python -c "import json;print(len(json.load(open(...))['paths']))"`):
+**148 paths** (139 above + the 9 below).
 
-### /instruments — 4 paths (registry; JWT + permission gated)
+The previous update to this section (2026-08-05, 144 = 139 + 5) undercounted
+even at the time — `/api/instruments/{id}/telemetry` and
+`/api/instruments/{id}/dead-letters` were already live (added with the
+Instruments UI work, before the gateway feature) but had never been added to
+this table. Both are included below along with the two genuinely new gateway
+paths, `eligible-children` and `{id}/children`.
+
+### /instruments — 8 paths (registry; JWT + permission gated)
 
 | Method(s) | Path | Summary |
 |---|---|---|
-| GET · POST | `/api/instruments` | List instruments · Create instrument (returns the access token **once**) |
+| GET · POST | `/api/instruments` | List instruments (filterable by `block`/`area`/`location`/`isGateway`) · Create instrument (returns the access token **once**) |
 | GET · PUT · DELETE | `/api/instruments/{id}` | Instrument detail · Update (never `code`) · Delete |
 | POST | `/api/instruments/bulk` | Bulk-create from CSV, partial success, one token per created row |
 | POST | `/api/instruments/{id}/regenerate-token` | Revoke the current credential and issue a new one (re-auth: `REGENERATE_INSTRUMENT_TOKEN`) |
+| GET | `/api/instruments/{id}/telemetry` | Latest value per key + recent history for one instrument |
+| GET | `/api/instruments/{id}/dead-letters` | Rejected payloads for one instrument |
+| GET | `/api/instruments/eligible-children` | Active instruments eligible to be linked to a gateway (not themselves a gateway, not already linked — D2/D3) |
+| GET | `/api/instruments/{id}/children` | Instruments currently linked to this gateway |
 
-Gates: `INSTRUMENT_READ` (reads), `INSTRUMENT_CREATE` (create + bulk),
-`INSTRUMENT_UPDATE` (update + regenerate), `INSTRUMENT_DELETE` (delete).
-The plaintext token appears in exactly two response schemas — create and
-regenerate. Everything else returns `tokenPrefix` only, and Fastify's response
-serialisation is what enforces that, not handler discipline.
+Gates: `INSTRUMENT_READ` (reads, including both gateway-child endpoints),
+`INSTRUMENT_CREATE` (create + bulk), `INSTRUMENT_UPDATE` (update + regenerate),
+`INSTRUMENT_DELETE` (delete — unlinks a gateway's children via `ON DELETE SET
+NULL`, never deletes them). The plaintext token appears in exactly two
+response schemas — create and regenerate. Everything else returns
+`tokenPrefix` only, and Fastify's response serialisation is what enforces
+that, not handler discipline.
 
 ### /ingest/v1 — 1 path (device-facing; NOT behind the auth hook)
 
 | Method(s) | Path | Summary |
 |---|---|---|
-| POST | `/api/ingest/v1/telemetry` | Submit telemetry, authenticated by a per-instrument device token (`Authorization: Bearer <token>`) |
+| POST | `/api/ingest/v1/telemetry` | Submit telemetry, authenticated by a per-instrument device token (`Authorization: Bearer <token>`). A gateway's token may also submit a batch (`{"devices": {"<child code>": {...}}}`) covering its linked children; a non-gateway token sending a batch gets `400 NOT_A_GATEWAY`. Unknown/unowned child codes are dead-lettered against the gateway and the rest of the batch is still accepted, returning `{accepted, rejected}`. |
 
 This is the only route reachable without a login. It is on the auth-hook
 allowlist (invariant-tested in `plugins/__tests__/public-paths.test.ts`), rate

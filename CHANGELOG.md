@@ -1,5 +1,64 @@
 # Changelog
 
+## [Unreleased] — Instrument gateway model: relays report on behalf of their children (2026-08-06)
+
+The Instruments feature so far assumed every device holds and presents its
+own credential. That breaks down for a whole class of real hardware — a
+single relay (an EMQX bridge, a PLC aggregating a rack of sensors) that
+speaks upstream on behalf of instruments too dumb or too numerous to each
+carry their own token. This lands that relay as a first-class shape: an
+instrument can be marked `isGateway`, other instruments can be linked to it
+via `gatewayId`, and the gateway's own device token can then submit a batch
+covering all of them (`{"devices": {"<child code>": {...}}}`) against
+`POST /api/ingest/v1/telemetry`. `gatewayId` **is** the authorisation rule —
+a gateway may write instrument X's telemetry iff `X.gatewayId` equals its own
+id — so there's no separate link/grant table to keep in sync. A non-gateway
+token that sends a batch shape gets `400 NOT_A_GATEWAY`; an unknown or
+unowned child code inside an otherwise-valid batch is dead-lettered against
+the gateway rather than failing the whole request, and the response reports
+`{accepted, rejected}` so a partial failure is visible without digging into
+logs.
+
+Two invariants matter more than the happy path: a gateway can't be a child of
+another gateway, and an instrument can't be linked to something that isn't a
+gateway. Those read another row, so only the self-reference case
+(`gatewayId = id`) is a database `CHECK`; the rest live in the service layer.
+Deleting a gateway unlinks its children (`ON DELETE SET NULL`) — it never
+deletes them, matching how deleting a manager doesn't delete their reports.
+
+**Last-seen moved off the credential and onto the instrument, and changed
+meaning.** It used to mean "this token authenticated recently"
+(`InstrumentCredential.lastUsedAt`, added in the previous Instruments P1 pass
+below). A child instrument reported through its gateway never presents its
+own credential, so that column would read "Never" forever for exactly the
+instruments this feature exists to serve. `Instrument.lastSeenAt` /
+`lastSeenVia` now record "a reading landed for this instrument", stamped
+whether it arrived directly or via a gateway — this is a behaviour change,
+not just a relocation, and anything reading the old field needs to move to
+the new one.
+
+Also added: placement fields (`location`, `area`, `block` — free text by
+design, no lookup tables) so a gateway's linked-children picker and the
+instrument list can be filtered by where a device physically sits, without
+inventing a hierarchy the product doesn't need yet.
+
+No new permissions or reauth actions — gateway toggling and child linking
+ride the existing `INSTRUMENT_UPDATE` gate, since they're ordinary registry
+edits, not a new capability class. Four new audit actions
+(`INSTRUMENT_GATEWAY_ENABLED/DISABLED`, `INSTRUMENT_LINKED_TO_GATEWAY`,
+`INSTRUMENT_UNLINKED_FROM_GATEWAY`) so the trail says *why* a device stopped
+or started appearing under a gateway, not just that a row changed.
+
+One infra lesson worth keeping: a transaction that locks an instrument row
+*after* calling `auditLog` deadlocks against a concurrent writer, because
+`auditLog` holds the audit chain's advisory lock to commit and a row lock
+taken afterwards can cycle against another transaction doing the same thing
+in the other order. This reproduced as a real `40P01` under a race between a
+gateway disable and a child link. The fix is ordering discipline (row locks
+before `auditLog`, never after), documented as a whole-module invariant in
+`apps/api/DECISIONS.md` §4a because it only holds while every write path in
+the module obeys it.
+
 ## [Unreleased] — Instruments P1 complete: worker, sidebar, and UI (2026-08-05)
 
 Closes Tasks 8-12 of the Instruments P1 plan. The feature is now usable end to

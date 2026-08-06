@@ -1,9 +1,11 @@
 # Phase 5 — Database Reverse Engineering
 
-*Verified against the live `compliance_core_db` and `schema.prisma`, 2026-07-25.*
+*Verified against the live `compliance_core_db` and `schema.prisma`, 2026-07-25;
+model count re-verified 2026-08-06 after the Instruments + instrument-gateway
+work (never previously synced into this doc — see §1a).*
 
 ```bash
-grep -cE '^model ' apps/api/prisma/schema.prisma   # → 23
+grep -cE '^model ' apps/api/prisma/schema.prisma   # → 27
 grep -cE '^enum '  apps/api/prisma/schema.prisma   # → 6
 ```
 
@@ -13,7 +15,7 @@ grep -cE '^enum '  apps/api/prisma/schema.prisma   # → 6
 
 ---
 
-## 1. The 23 models, by bounded context
+## 1. The 27 models, by bounded context
 
 ### Identity & access (7)
 | Model | Table | Purpose |
@@ -66,6 +68,45 @@ grep -cE '^enum '  apps/api/prisma/schema.prisma   # → 6
 | `HelpArticle` | `help_articles` | In-app documentation, keyed for deep-links |
 | `HelpArticleVersion` | `help_article_versions` | Version history (cascade) |
 
+### Instruments (4)
+| Model | Table | Purpose |
+|---|---|---|
+| `Instrument` | `instruments` | Device registry. See §1a below — the gateway/placement/last-seen columns landed after the 2026-07-25 count and were never previously documented here. |
+| `InstrumentCredential` | `instrument_credentials` | Per-instrument device tokens (hashed; `tokenPrefix` is the only readable trace); cascades on instrument delete |
+| `InstrumentTelemetryLatest` | `instrument_telemetry_latest` | Most recent value per `(instrumentId, key)` — no FK, `instrumentId` is an indexed plain column |
+| `DeadLetter` | `dead_letters` | Rejected/unparseable ingest payloads, kept for diagnosis; no FK |
+
+## 1a. `Instrument` — placement, gateway link, and last-seen (added 2026-08-05)
+
+Verified against `apps/api/prisma/schema.prisma:750-791` and migration
+`20260805120000_instrument_gateway`:
+
+| Column | Type | Notes |
+|---|---|---|
+| `location`, `area`, `block` | `TEXT?` | Free text by design (spec D8) — no lookup tables, no admin screens. `code` remains the unique identifier and the ingest topic segment. |
+| `is_gateway` | `BOOLEAN NOT NULL DEFAULT false` | Marks an instrument as a relay that may submit telemetry on behalf of other instruments. |
+| `gateway_id` | `TEXT?` | Self-referencing FK → `instruments.id`, `ON DELETE SET NULL`. **This column is the authorisation rule**: a gateway's device token may write instrument X's telemetry iff `X.gateway_id = gateway.id` — one comparison, no link table. Deleting a gateway unlinks its children; it never deletes them. |
+| `last_seen_at` | `TIMESTAMPTZ(3)?` | When a reading last landed **for this instrument**, whether direct or via a gateway. |
+| `last_seen_via` | `TEXT?` | `'direct'` or `'gateway'` — which path the last reading arrived by. |
+
+**Behaviour change worth flagging:** last-seen used to live on the
+credential (`InstrumentCredential.lastUsedAt`, "did this token authenticate
+recently"). It now lives on the instrument and means "did a reading land" —
+because a child instrument reported through its gateway never presents its
+own credential, so a credential-derived value would permanently read "Never"
+for exactly the instruments the gateway feature serves.
+
+A `CHECK` constraint (`instruments_gateway_not_self`) blocks an instrument
+from being its own gateway; the two richer invariants — a gateway has no
+parent of its own, and only a gateway may be a parent — read another row and
+are enforced in the service layer, not the database (`gateway-invariants.ts`).
+
+**Transaction ordering:** any transaction that both locks an instrument row
+and calls `auditLog` must take the row lock **first** — `auditLog` holds the
+audit chain's advisory lock to commit, and locking a row after that cycles
+against a concurrent writer (Postgres kills one side with `40P01`). See
+`apps/api/DECISIONS.md` §4a for the full rationale and the reproduction case.
+
 ## 2. The 6 enums
 
 `AssigneeType`, `UserStatus`, `NotificationType`, `NotificationChannel`,
@@ -82,7 +123,9 @@ grep -cE '^enum '  apps/api/prisma/schema.prisma   # → 6
 
 ## 3. Relationships
 
-Only **8 declared foreign keys** — this is a deliberately shallow schema.
+**10 declared foreign keys** (grep: `grep -cE 'fields: \[' apps/api/prisma/schema.prisma`
+→ 10; was 8 at the 2026-07-25 count, +2 from the Instruments work below) — still
+a deliberately shallow schema.
 
 | Child | → Parent | On delete |
 |---|---|---|
@@ -94,6 +137,8 @@ Only **8 declared foreign keys** — this is a deliberately shallow schema.
 | `UserGroupMember` → `UserGroup` | Cascade |
 | `NotificationRuleRecipient` → `NotificationRule` | Cascade |
 | `NotificationRuleRecipient` → `UserGroup` | **SetNull** |
+| `InstrumentCredential` → `Instrument` | Cascade |
+| `Instrument.gatewayId` → `Instrument` (self) | **SetNull** — deleting a gateway unlinks, never cascades to, its children |
 
 **`AuditTrail` has no foreign keys — by design.** It stores `user_id` /
 `user_name` / `user_role` as denormalised **strings**, not a relation. If it
