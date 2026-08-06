@@ -1,5 +1,35 @@
 # Changelog
 
+## [Unreleased] — `Instrument.transport` removed (2026-08-06)
+
+Every instrument used to be pinned to exactly one transport, chosen at
+creation, so the detail page could show one unambiguous connection example
+(spec decision D3). That asserted a constraint the system never enforced:
+`resolveInstrumentByToken` authenticates on the credential alone and has never
+looked at protocol, so a token issued to an "mqtt" instrument always worked
+fine on the HTTP listener. With the detail page now shipping a switcher across
+all seven protocols, the stored column had no consumer and no enforcement
+behind it, so it is gone — column, zod fields, JSON schemas, list filter,
+create picker, detail editor, and `IngestIdentity.transport` (which nothing
+read). Migration `20260806051923_drop_instrument_transport`.
+
+**`dead_letters.transport` is kept and unaffected.** How a payload *actually
+arrived* is an observed fact rather than a claim, and it gets more useful once
+instruments are no longer pinned — it is stamped by the listener that accepted
+the connection.
+
+The bulk-upload CSV's `transport` column was REQUIRED until today, so every
+spreadsheet an operator has saved still carries it. It now imports rather than
+erroring — but not silently: the column is reported once per import in a new
+`warnings` field (distinct from `errors`, which drives the rejected-row table),
+because a typo like `htpp` used to fail loudly and would otherwise now import
+with no signal that the value is never read. The downloadable template and the
+"Required columns" text drop the column, so new imports never raise it.
+
+Historic `audit_trail` rows still carry `transport` in their before/after
+payloads and continue to render — the trail is immutable, and the
+audit-helpers regression guards on those shapes were deliberately left alone.
+
 ## [Unreleased] — Instrument gateway model: relays report on behalf of their children (2026-08-06)
 
 The Instruments feature so far assumed every device holds and presents its
