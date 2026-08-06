@@ -60,12 +60,58 @@ communication-profile models.
 | D2 | **All six named** transports live in v1 | HTTP, HTTPS, MQTT, MQTTS, WebSocket, TCP/IP. `wss` is additionally included as the TLS form of WebSocket, for symmetry with http/https and mqtt/mqtts — so **7 enum values, 4 protocol families** |
 | D3 | **One transport per instrument** | Lets the UI show exactly one correct connection example; matches ThingsBoard device profiles |
 | D4 | **Per-instrument access token** | One credential that works identically across every transport; simple to issue, rotate, revoke |
-| D5 | Token **stored hashed, shown once** | A retrievable credential is a standing liability |
+| D5 | ~~Token **stored hashed, shown once**~~ — **REVERSED 2026-08-06, see below** | A retrievable credential is a standing liability |
 | D6 | **EMQX** hosts MQTT; this app authorises | EMQX 5.3.2 is already installed and verified; writing a broker is not the job. The HTTP auth hook keeps credentials owned by us, so revocation is immediate |
 | D7 | Payload is **JSON key/value** | Maps directly onto telemetry key/value/timestamp; the reused parser already does this |
 | D8 | TCP framing is **newline-delimited** | Most common for instruments; simple to implement correctly |
 | D9 | **Flat instrument model** — no hierarchy FK | The deleted model *required* a hierarchy node. ThingsBoard devices are flat; grouping can come later |
 | D10 | Ingest queue stays **in-process** for v1 | Durable queueing is a separate piece of work. Consequence is stated in §9 |
+
+### 3.1 D5 reversed — tokens are viewable and settable (2026-08-06)
+
+**D5's reasoning above still stands and is not deleted: a retrievable credential
+IS a standing liability.** It was reversed anyway, at the operator's explicit
+request, because the cost it imposed was higher than the risk it avoided. With a
+write-once token, the only way to learn what a deployed device is using is to
+regenerate — which stops that device dead until somebody physically goes and
+reconfigures it. In practice that turns "what token is PROBE-07 on?" into a site
+visit, and the predictable result is operators keeping the creation-time token in
+a spreadsheet, which is strictly worse than the platform holding it encrypted.
+
+**What changed.** `instrument_credentials` gains `token_encrypted` — AES-256-GCM
+`iv:authTag:ciphertext`, keyed on `INSTRUMENT_TOKEN_KEY` from the environment.
+Two endpoints: `GET /api/instruments/:id/token` (reveal) and
+`PUT /api/instruments/:id/token` (set a specific value, e.g. to match a token
+baked into a device's firmware).
+
+**Compensating controls** — these are what make the reversal defensible, and
+removing any one of them re-opens the liability D5 named:
+
+1. **Encrypted at rest, key outside the database.** A stolen `pg_dump`, backup or
+   snapshot yields ciphertext. It does *not* protect against a host compromise
+   where the attacker reads both the database and the environment.
+2. **`INSTRUMENT_UPDATE` + password re-auth** on both endpoints. Reveal uses the
+   *update* permission, not `INSTRUMENT_READ`: reading a live credential is not a
+   read of registry metadata. Re-auth actions `REVEAL_INSTRUMENT_TOKEN` /
+   `SET_INSTRUMENT_TOKEN`.
+3. **Every view is audited.** `INSTRUMENT_TOKEN_VIEWED` is written inside the
+   transaction, before the value is returned. The token remains a secret; who
+   looked at it and when does not. `INSTRUMENT_TOKEN_SET` covers the write side.
+   Neither row ever carries the token value — only its 8-char prefix.
+
+**What did NOT change, and must not:**
+
+- **The hash is still the only thing authentication consults.**
+  `resolveInstrumentByToken` compares against `token_hash` exactly as before and
+  never decrypts. If hash and ciphertext ever disagree, the hash is right.
+- **Ingest is independent of the key.** No `INSTRUMENT_TOKEN_KEY`, or a wrong
+  one, costs a reveal — never a reading. Issuance does not depend on it either.
+- **Credentials issued before 2026-08-06 stay unviewable.** Plaintext cannot be
+  derived from a hash, so there is no backfill; those report
+  `TOKEN_NOT_RECOVERABLE` and the remedy is to regenerate. `token_encrypted` is
+  nullable for exactly this reason.
+
+Implementation and the full threat-model note: `apps/api/src/modules/instruments/token-crypto.ts`.
 
 ---
 
@@ -95,8 +141,11 @@ Deliberately absent: `hierarchyNodeId`, `gatewayId`, `communicationProfileId`.
 ```
 id           uuid pk
 instrumentId uuid fk -> Instrument (cascade delete)
-tokenHash    text            -- never the plaintext
+tokenHash    text            -- the ONLY column authentication consults
 tokenPrefix  text            -- first 8 chars, for identification + lookup
+tokenEncrypted text?         -- added 2026-08-06 (§3.1): AES-256-GCM copy so the
+                             -- token can be revealed. NULL for anything issued
+                             -- before that date, or with no key configured.
 createdAt    timestamptz
 lastUsedAt   timestamptz?
 revokedAt    timestamptz?
@@ -205,8 +254,10 @@ instrument has exactly one transport (D3), exactly one correct example is shown.
   bulk-operate pattern; one typo must not reject 200 devices.
 - Result is a **downloadable CSV** of created instruments and their tokens.
 
-> ⚠️ That result file contains live credentials in plaintext. It is unavoidable —
-> tokens are knowable only at creation (D5) — and is labelled as such in the UI.
+> ⚠️ That result file contains live credentials in plaintext, and is labelled as
+> such in the UI. It was originally unavoidable because tokens were knowable only
+> at creation; since the D5 reversal (§3.1) they can also be revealed one at a
+> time, but the bulk file is still the practical way to configure 200 devices.
 
 ### 6.5 Detail page
 
@@ -222,10 +273,11 @@ New permissions in `PERMISSION_TREE`: `INSTRUMENT_READ`, `INSTRUMENT_CREATE`,
 `INSTRUMENT_UPDATE`, `INSTRUMENT_DELETE`.
 
 New reauth action for **token regeneration** — issuing a credential warrants the
-same password proof as disabling a user.
+same password proof as disabling a user. The D5 reversal (§3.1) adds
+`REVEAL_INSTRUMENT_TOKEN` and `SET_INSTRUMENT_TOKEN` on the same reasoning.
 
 Audit rows for: instrument created (single and bulk), updated, deleted, token
-regenerated, token revoked. Bulk creation writes one row per instrument, so the
+regenerated, token revoked, **token viewed** and **token set** (§3.1). Bulk creation writes one row per instrument, so the
 trail is per-entity rather than per-batch.
 
 ---

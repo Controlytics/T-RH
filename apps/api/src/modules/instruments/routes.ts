@@ -5,6 +5,7 @@ import {
   updateInstrumentSchema,
   instrumentQuerySchema,
   bulkCreateInstrumentsSchema,
+  setInstrumentTokenSchema,
 } from '@digilog/shared';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
@@ -12,7 +13,8 @@ import { buildContext } from '../../lib/build-context.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
-import { generateToken, hashToken, tokenPrefix } from './token.js';
+import { generateToken, hashToken, tokenPrefix, tokenMatches } from './token.js';
+import { encryptToken, decryptToken, tokenKeyConfigured } from './token-crypto.js';
 import { parseInstrumentCsv, type InstrumentDraft } from './bulk-csv.js';
 import { invalidateIngestAuthCache } from './ingest-auth.js';
 import { invalidateChildMapCache } from './gateway-children.js';
@@ -57,6 +59,15 @@ const instrumentProps = {
   updatedAt: { type: 'string', format: 'date-time' },
   createdBy: { type: 'string', nullable: true },
   tokenPrefix: { type: 'string', nullable: true },
+  /**
+   * Can `GET /:id/token` actually return a value? False for a credential issued
+   * before 2026-08-06 (no ciphertext exists, and none can be derived from a
+   * hash) or on a deployment with no INSTRUMENT_TOKEN_KEY. The UI needs this
+   * BEFORE it offers a Reveal button, since finding out the other way costs the
+   * operator a password re-auth to reach an error. Not a secret: it says whether
+   * a value is recoverable, never anything about the value.
+   */
+  tokenRevealable: { type: 'boolean' },
   /** Last time a reading arrived FOR this instrument — "is it talking?" */
   lastSeenAt: { type: 'string', format: 'date-time', nullable: true },
   // Placement is free text by design (spec D8): `code` stays the identifier.
@@ -85,7 +96,7 @@ const readingProps = {
   ts: { type: 'string', format: 'date-time' },
 } as const;
 
-type CredentialRow = { tokenPrefix: string };
+type CredentialRow = { tokenPrefix: string; tokenEncrypted?: string | null };
 type InstrumentRow = Record<string, unknown> & { credentials?: CredentialRow[] };
 
 /**
@@ -100,14 +111,21 @@ type InstrumentRow = Record<string, unknown> & { credentials?: CredentialRow[] }
 function present(row: InstrumentRow) {
   const { credentials, ...rest } = row;
   const active = credentials?.[0];
-  return { ...rest, tokenPrefix: active?.tokenPrefix ?? null };
+  return {
+    ...rest,
+    tokenPrefix: active?.tokenPrefix ?? null,
+    // The CIPHERTEXT ITSELF is destructured away with `credentials` and never
+    // reaches the client — only the boolean derived from it. Selecting it here
+    // is what lets the UI decide whether Reveal is even offered.
+    tokenRevealable: Boolean(active?.tokenEncrypted) && tokenKeyConfigured(),
+  };
 }
 
 const activeCredential = {
   where: { revokedAt: null },
   // `lastUsedAt` is deliberately NOT selected: `present()` does not read it.
   // Last-seen moved to the instrument's own columns (spec D9) — see present().
-  select: { tokenPrefix: true },
+  select: { tokenPrefix: true, tokenEncrypted: true },
   orderBy: { createdAt: 'desc' },
   take: 1,
 } as const;
@@ -142,7 +160,15 @@ async function createWithCredential(
       data: { ...draft, createdBy: ctx.userId } as unknown as Prisma.InstrumentCreateInput,
     });
     await tx.instrumentCredential.create({
-      data: { instrumentId: instrument.id, tokenHash: hashToken(token), tokenPrefix: tokenPrefix(token) },
+      data: {
+        instrumentId: instrument.id,
+        tokenHash: hashToken(token),
+        tokenPrefix: tokenPrefix(token),
+        // Null when no INSTRUMENT_TOKEN_KEY is configured. Issuance must never
+        // depend on the key: a deployment without one still registers devices,
+        // their tokens just cannot be revealed later.
+        tokenEncrypted: encryptToken(token),
+      },
     });
     await auditLog({
       action: 'INSTRUMENT_CREATED', targetType: 'Instrument', targetId: instrument.id,
@@ -180,6 +206,19 @@ async function createWithCredential(
 
     return { id: instrument.id, code: instrument.code, name: instrument.name, token };
   });
+}
+
+/**
+ * A 4xx decided INSIDE a transaction. Throwing (rather than returning) is what
+ * rolls the partial work back; the handler catches it and sends `body`.
+ * `GatewayInvariantViolation` does the same job for the gateway rules — this one
+ * exists so a token conflict is not misreported as a gateway invariant.
+ */
+class HandledRouteError extends Error {
+  constructor(readonly status: number, readonly body: { error: string; message: string }) {
+    super(body.message);
+    this.name = 'HandledRouteError';
+  }
 }
 
 /** Postgres unique-violation on `instruments.code`. */
@@ -865,7 +904,12 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         data: { revokedAt: new Date() },
       });
       await tx.instrumentCredential.create({
-        data: { instrumentId: id, tokenHash: hashToken(token), tokenPrefix: tokenPrefix(token) },
+        data: {
+          instrumentId: id,
+          tokenHash: hashToken(token),
+          tokenPrefix: tokenPrefix(token),
+          tokenEncrypted: encryptToken(token),
+        },
       });
       await auditLog({
         action: 'INSTRUMENT_TOKEN_REGENERATED', targetType: 'Instrument', targetId: id,
@@ -881,5 +925,233 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     invalidateIngestAuthCache(id);
 
     return { token, tokenPrefix: tokenPrefix(token) };
+  });
+
+  // GET /api/instruments/:id/token — reveal the live token.
+  //
+  // This endpoint IS the D5 reversal (spec 2026-08-04, reversed 2026-08-06 at
+  // the operator's request). D5's reasoning — a retrievable credential is a
+  // standing liability — was not wrong; it was outweighed by the cost of the
+  // alternative, which is a site visit to reconfigure a device every time
+  // somebody needs to know what its token is. Three controls pay for it:
+  // INSTRUMENT_UPDATE (not the read permission — this is not a read of registry
+  // metadata), a password re-auth, and an audit row per view. The audit row is
+  // the one that matters: the token stays secret, but who looked at it never is.
+  app.get('/:id/token', {
+    preHandler: [app.requirePermission('INSTRUMENT_UPDATE')],
+    schema: {
+      tags: ['Instruments'],
+      summary: 'Reveal the instrument access token',
+      description: 'Returns the live plaintext token. Requires INSTRUMENT_UPDATE and a password re-auth, and writes an INSTRUMENT_TOKEN_VIEWED audit row. Unavailable for credentials issued before 2026-08-06.',
+      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
+      response: {
+        200: { type: 'object', properties: { token: { type: 'string' }, tokenPrefix: { type: 'string' } } },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    // A GET carries no body, so the re-auth password arrives in the
+    // `x-reauth-password` header — the alternate `enforceReauth` already
+    // accepts, and the reason a reveal does not have to become a POST.
+    const { ok } = await enforceReauth('REVEAL_INSTRUMENT_TOKEN', req, reply);
+    if (!ok) return;
+
+    const { id } = req.params as { id: string };
+    const existing = await prisma.instrument.findUnique({ where: { id }, select: { id: true, code: true } });
+    if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
+
+    const credential = await prisma.instrumentCredential.findFirst({
+      where: { instrumentId: id, revokedAt: null },
+      orderBy: { createdAt: 'desc' },
+      select: { tokenPrefix: true, tokenEncrypted: true },
+    });
+    if (!credential) {
+      return reply.code(404).send({
+        error: 'NO_CREDENTIAL',
+        message: 'This instrument has no active credential. Regenerate its token.',
+      });
+    }
+
+    // Three distinct failures, deliberately not collapsed into one "cannot show
+    // token": each has a different remedy, and an operator staring at a device
+    // that will not connect should not have to guess which one they are in.
+    if (!credential.tokenEncrypted) {
+      return reply.code(409).send({
+        error: 'TOKEN_NOT_RECOVERABLE',
+        message: 'This token was issued before tokens became viewable, so no recoverable copy exists. Regenerate the token to get a viewable one — the device must then be reconfigured.',
+      });
+    }
+    if (!tokenKeyConfigured()) {
+      return reply.code(503).send({
+        error: 'TOKEN_KEY_MISSING',
+        message: 'INSTRUMENT_TOKEN_KEY is not configured on the server, so stored tokens cannot be decrypted. Ingest is unaffected.',
+      });
+    }
+
+    let token: string;
+    try {
+      token = decryptToken(credential.tokenEncrypted);
+    } catch (err) {
+      // A real alarm, not a validation failure: the ciphertext exists and a key
+      // is present, so either the key has been ROTATED (every token silently
+      // unviewable from here on) or a row has been tampered with. Logged with
+      // the instrument, never with the ciphertext or any partial plaintext.
+      req.log.error(
+        { err, instrumentId: id, code: existing.code },
+        'INSTRUMENT_TOKEN_DECRYPT_FAILED — wrong INSTRUMENT_TOKEN_KEY or tampered ciphertext',
+      );
+      return reply.code(500).send({
+        error: 'TOKEN_DECRYPT_FAILED',
+        message: 'The stored token could not be decrypted. The encryption key may have changed. Regenerate the token to issue a readable one.',
+      });
+    }
+
+    // Inside a transaction, and written BEFORE the value is returned: a view
+    // that could not be recorded must not happen at all (§11.10(e)). No row
+    // lock is taken anywhere in this handler, so the lock-order rule at the top
+    // of this file is not in play.
+    const ctx = buildContext(req);
+    await prisma.$transaction(async (tx) => {
+      await auditLog({
+        action: 'INSTRUMENT_TOKEN_VIEWED', targetType: 'Instrument', targetId: id,
+        // The PREFIX only. Putting the token in an audit row would move the
+        // secret into an immutable, widely-readable table — the exact opposite
+        // of what the encryption is for.
+        afterValue: { code: existing.code, tokenPrefix: credential.tokenPrefix },
+        signatureMeaning: `Access token for instrument "${existing.code}" revealed`,
+        userId: ctx.userId, userRole: ctx.userRole,
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      }, tx);
+    });
+
+    return { token, tokenPrefix: credential.tokenPrefix };
+  });
+
+  // PUT /api/instruments/:id/token — set an operator-chosen token.
+  //
+  // For the case regeneration cannot serve: a device whose credential is fixed
+  // in its firmware or its installer's config sheet, where the platform has to
+  // match the device rather than the other way round.
+  app.put('/:id/token', {
+    preHandler: [app.requirePermission('INSTRUMENT_UPDATE')],
+    schema: {
+      tags: ['Instruments'],
+      summary: 'Set a specific instrument access token',
+      description: 'Replaces the credential with an operator-supplied token. The previous credential is revoked, so the device stops authenticating until it is reconfigured. The token value is never echoed back — only its prefix.',
+      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
+      body: { type: 'object', required: ['token'], properties: { token: { type: 'string' } } },
+      response: {
+        200: { type: 'object', properties: { tokenPrefix: { type: 'string' } } },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('SET_INSTRUMENT_TOKEN', req, reply);
+    if (!ok) return;
+
+    // NOT run through `sanitizeStrings`: it strips HTML, and a token is an
+    // opaque credential that must be stored byte-for-byte as the device will
+    // present it. The Zod character class is far stricter than the sanitiser
+    // anyway — `[A-Za-z0-9._-]` cannot contain markup.
+    const parsed = setInstrumentTokenSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
+    }
+    const token = parsed.data.token;
+
+    const { id } = req.params as { id: string };
+    const existing = await prisma.instrument.findUnique({ where: { id }, select: { id: true, code: true } });
+    if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
+
+    const hash = hashToken(token);
+    const prefix = tokenPrefix(token);
+    // Encrypt BEFORE the transaction: a configured-but-broken key must fail the
+    // whole request, not leave behind a credential nobody can ever read back.
+    // A deployment with no key at all stores null and carries on, exactly as
+    // issuance does.
+    let encrypted: string | null;
+    try {
+      encrypted = encryptToken(token);
+    } catch (err) {
+      req.log.error({ err, instrumentId: id }, 'INSTRUMENT_TOKEN_KEY is configured but unusable');
+      return reply.code(503).send({
+        error: 'TOKEN_KEY_INVALID',
+        message: 'INSTRUMENT_TOKEN_KEY is configured but unusable, so the token cannot be stored encrypted.',
+      });
+    }
+
+    const ctx = buildContext(req);
+    try {
+      await prisma.$transaction(async (tx) => {
+        // Serialise on the TOKEN, not on the instrument row, so two operators
+        // racing to claim the same token cannot both pass the check below.
+        // Two-argument form: a separate key space from the audit chain's
+        // single-bigint lock, so there is no chance of collision. Taken BEFORE
+        // `auditLog`, per the lock-order rule at the top of this file — and it
+        // is not a row lock, so it orders against nothing else in this module.
+        //
+        // The classid MUST fit in int4: the two-argument overload is
+        // `(int4, int4)`, and a literal above 2147483647 is typed `bigint` by
+        // Postgres, which resolves to no function at all (42883). 20260806 is
+        // the date this endpoint landed — arbitrary but stable and traceable.
+        // `hashtext` returns int4, so the second argument needs no cast.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(20260806, hashtext(${hash}))`;
+
+        // A token in use by a live credential elsewhere would make
+        // authentication AMBIGUOUS: `resolveInstrumentByToken` seeks on the
+        // prefix and returns the FIRST hash that matches, so the device that
+        // "wins" would depend on row order. Revoked credentials are not
+        // considered — they authenticate nothing.
+        const clash = await tx.instrumentCredential.findMany({
+          where: { tokenPrefix: prefix, revokedAt: null },
+          select: { instrumentId: true, tokenHash: true },
+        });
+        for (const c of clash) {
+          if (!tokenMatches(token, c.tokenHash)) continue;
+          throw new HandledRouteError(409, {
+            error: 'TOKEN_IN_USE',
+            message: c.instrumentId === id
+              ? 'This instrument is already using that token.'
+              : 'That token is already in use by another instrument. Choose a different value.',
+          });
+        }
+
+        // REVOKE-AND-INSERT, not update-in-place — the same shape as
+        // `regenerate-token`, and for the same §11 reason. `instrument_credentials`
+        // is the record of WHICH secret was live when a given reading arrived:
+        // `createdAt`/`revokedAt` bound the window and `lastUsedAt` says it was
+        // used inside it. Updating the hash in place would rewrite that history,
+        // making every past reading appear to have been authenticated by a
+        // credential that did not exist yet — an immutability breach in a table
+        // an inspector reads alongside the telemetry.
+        await tx.instrumentCredential.updateMany({
+          where: { instrumentId: id, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+        await tx.instrumentCredential.create({
+          data: { instrumentId: id, tokenHash: hash, tokenPrefix: prefix, tokenEncrypted: encrypted },
+        });
+        await auditLog({
+          action: 'INSTRUMENT_TOKEN_SET', targetType: 'Instrument', targetId: id,
+          // Prefix only — see the note on INSTRUMENT_TOKEN_VIEWED.
+          afterValue: { code: existing.code, tokenPrefix: prefix },
+          signatureMeaning: `Access token for instrument "${existing.code}" replaced with an operator-supplied value; previous token revoked`,
+          userId: ctx.userId, userRole: ctx.userRole,
+          ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+        }, tx);
+      });
+    } catch (err) {
+      // Thrown from INSIDE the transaction on purpose: the throw is what rolls
+      // the revoke back, so a refused set leaves the live credential untouched.
+      if (err instanceof HandledRouteError) return reply.code(err.status).send(err.body);
+      throw err;
+    }
+
+    // Same reason as regenerate: without this the OLD token keeps authenticating
+    // for up to the 10s cache TTL, which would make "the previous token is
+    // revoked" untrue for exactly as long as it takes to notice.
+    invalidateIngestAuthCache(id);
+
+    return { tokenPrefix: prefix };
   });
 }

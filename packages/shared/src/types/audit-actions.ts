@@ -180,6 +180,12 @@ export const AUDIT_ACTIONS = {
   INSTRUMENT_UPDATED: 'INSTRUMENT_UPDATED',
   INSTRUMENT_DELETED: 'INSTRUMENT_DELETED',
   INSTRUMENT_TOKEN_REGENERATED: 'INSTRUMENT_TOKEN_REGENERATED',
+  // Reading a credential back is itself the auditable act (2026-08-06, the D5
+  // reversal). It is the compensating control that makes a retrievable token
+  // acceptable at all: the token stays a secret, but WHO looked at it and WHEN
+  // never is. Neither row ever carries the token value — only its prefix.
+  INSTRUMENT_TOKEN_VIEWED: 'INSTRUMENT_TOKEN_VIEWED',
+  INSTRUMENT_TOKEN_SET: 'INSTRUMENT_TOKEN_SET',
   // Gateway wiring is an ACCESS-CONTROL change, not metadata: `gatewayId` is
   // the rule deciding which credential may write an instrument's telemetry, so
   // every link/unlink/enable/disable gets its own row rather than hiding inside

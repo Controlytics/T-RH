@@ -799,6 +799,12 @@ model InstrumentCredential {
   instrumentId String    @map("instrument_id")
   tokenHash    String    @map("token_hash")
   tokenPrefix  String    @map("token_prefix")
+  /// AES-256-GCM `iv:authTag:ciphertext` of the plaintext token, so an operator
+  /// can be shown the credential (reverses spec D5 — see token-crypto.ts).
+  /// NULLABLE ON PURPOSE: credentials issued before 2026-08-06, and any issued
+  /// while no INSTRUMENT_TOKEN_KEY is configured, have none and are simply
+  /// unviewable. Authentication reads `tokenHash` and never this column.
+  tokenEncrypted String? @map("token_encrypted")
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   lastUsedAt   DateTime? @map("last_used_at") @db.Timestamptz(3)
   revokedAt    DateTime? @map("revoked_at") @db.Timestamptz(3)

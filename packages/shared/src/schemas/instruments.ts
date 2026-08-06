@@ -70,6 +70,27 @@ export const updateInstrumentSchema = z.object({
   gatewayId: z.string().uuid().nullish(),
 });
 
+/**
+ * An operator-supplied replacement for a device's access token.
+ *
+ * The character class is the SAME one `generateToken()` produces (base64url):
+ * the value has to survive an `Authorization: Bearer` header, an MQTT username,
+ * a CSV cell and a newline-delimited JSON line with no escaping. A space or a
+ * colon in a token would authenticate here and fail on the device, which is the
+ * worst kind of bug to debug from the field.
+ *
+ * The 32-char floor is a real security bound, not a formality: a generated token
+ * is 256 bits, and a hand-typed one is the weakest credential on the ingest
+ * endpoint. `token_hash` is a fast SHA-256 (see `token.ts` for why bcrypt is
+ * wrong here), so a short token would be genuinely brute-forceable.
+ */
+export const setInstrumentTokenSchema = z.object({
+  token: z.string()
+    .min(32, 'Token must be at least 32 characters')
+    .max(128, 'Maximum 128 characters')
+    .regex(/^[A-Za-z0-9._-]+$/, 'Use letters, digits, dot, dash or underscore only'),
+});
+
 export const instrumentQuerySchema = z.object({
   search: z.string().optional(),
   isActive: z.enum(['true', 'false']).optional(),
@@ -95,3 +116,4 @@ export type CreateInstrumentInput = z.infer<typeof createInstrumentSchema>;
 export type UpdateInstrumentInput = z.infer<typeof updateInstrumentSchema>;
 export type InstrumentQueryInput = z.infer<typeof instrumentQuerySchema>;
 export type BulkCreateInstrumentsInput = z.infer<typeof bulkCreateInstrumentsSchema>;
+export type SetInstrumentTokenInput = z.infer<typeof setInstrumentTokenSchema>;

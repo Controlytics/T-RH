@@ -106,6 +106,13 @@ export const REAUTH_ACTIONS = {
   // Creating / editing / deleting an instrument carries no reauth — those are
   // ordinary registry edits.
   REGENERATE_INSTRUMENT_TOKEN: { label: 'Regenerate Instrument Token', category: 'Instruments' },
+  // Revealing is the act that spec D5 originally forbade outright (reversed
+  // 2026-08-06). Reading back a live credential deserves the same password proof
+  // as minting one — a borrowed session should not be enough to walk off with
+  // every device token. Setting one is both: it mints a secret AND immediately
+  // stops the field device until it is reconfigured.
+  REVEAL_INSTRUMENT_TOKEN: { label: 'Reveal Instrument Token', category: 'Instruments' },
+  SET_INSTRUMENT_TOKEN: { label: 'Set Instrument Token', category: 'Instruments' },
 } as const;
 
 export type ReauthAction = keyof typeof REAUTH_ACTIONS;
