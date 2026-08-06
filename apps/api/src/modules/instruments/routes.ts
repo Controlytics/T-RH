@@ -17,7 +17,8 @@ import { parseInstrumentCsv, type InstrumentDraft } from './bulk-csv.js';
 import { invalidateIngestAuthCache } from './ingest-auth.js';
 import { invalidateChildMapCache } from './gateway-children.js';
 import {
-  gatewayInvariantError, lockedGatewayRecheck, lockInstrumentRows, GatewayInvariantViolation,
+  gatewayInvariantError, lockedGatewayRecheck, lockInstrumentRows, isDeadlock,
+  GatewayInvariantViolation,
 } from './gateway-invariants.js';
 import { getLatest, getHistory } from './telemetry.repository.js';
 
@@ -27,6 +28,13 @@ import { getLatest, getHistory } from './telemetry.repository.js';
  * that one is on the auth-hook allowlist and reachable from the network without
  * a login, this one is not. Keeping them apart makes it obvious in review which
  * file is internet-facing.
+ *
+ * LOCK-ORDER RULE FOR EVERY TRANSACTION IN THIS FILE — no transaction may take
+ * an instrument row lock AFTER calling `auditLog`. `auditLog` takes the audit
+ * chain's advisory lock and holds it to commit, so locking afterwards cycles
+ * against a concurrent write and Postgres kills one with 40P01 (a 500). Take
+ * the row locks first, via `lockInstrumentRows`/`lockedGatewayRecheck`, parent
+ * before self. See `gateway-invariants.ts` and `apps/api/DECISIONS.md`.
  */
 
 /**
@@ -104,9 +112,12 @@ const activeCredential = {
 } as const;
 
 /** Human label for an audit row, so the trail never carries a bare UUID. */
-async function codeOf(id: string | null | undefined): Promise<string | null> {
+async function codeOf(
+  id: string | null | undefined,
+  client: Prisma.TransactionClient | typeof prisma = prisma,
+): Promise<string | null> {
   if (!id) return null;
-  const row = await prisma.instrument.findUnique({ where: { id }, select: { code: true } });
+  const row = await client.instrument.findUnique({ where: { id }, select: { code: true } });
   return row?.code ?? null;
 }
 
@@ -561,34 +572,44 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const invalid = await gatewayInvariantError(parsed.data, existing);
     if (invalid) return reply.code(invalid.status).send(invalid.body);
 
-    // Only a real transition is audited: a PUT that re-sends the current
-    // gatewayId is not a link event, and a trail full of no-op links is a trail
-    // nobody reads.
-    const gatewayChanged = parsed.data.gatewayId !== undefined
-      && (parsed.data.gatewayId ?? null) !== existing.gatewayId;
-    const modeChanged = parsed.data.isGateway !== undefined
-      && parsed.data.isGateway !== existing.isGateway;
-    // Resolved OUTSIDE the transaction: the codes are only for the audit text,
-    // and holding the transaction open for two extra reads buys nothing.
-    const [oldGatewayCode, newGatewayCode] = gatewayChanged
-      ? await Promise.all([codeOf(existing.gatewayId), codeOf(parsed.data.gatewayId)])
-      : [null, null];
-
     const ctx = buildContext(req);
     const run = () => prisma.$transaction(async (tx) => {
-      // FIRST statement of the transaction. Backstop for the pre-flight guard,
-      // under a row lock on the gateway; taking it before the update and before
-      // any auditLog is what keeps the lock order deadlock-free. See
-      // gateway-invariants.ts for the interleaving this catches.
+      // FIRST statement of the transaction, and gated on the REQUESTED value,
+      // never on a diff against `existing`.
+      //
+      // `existing` was read outside the transaction, so "unchanged" is a stale
+      // verdict — but `data: parsed.data` below re-asserts the value in SQL
+      // regardless. Gating the lock on the diff meant a whole-object PUT from a
+      // form (the common case, not an exotic one) re-wrote `gatewayId` with no
+      // lock and no re-check: enough to re-link a child to a gateway that had
+      // been demoted in between, i.e. exactly the invariant this guard exists
+      // to hold. Locking on what was ASKED FOR cannot go stale.
       await lockedGatewayRecheck(tx, {
-        linkTo: gatewayChanged ? parsed.data.gatewayId : null,
-        disablingGatewayId: modeChanged && parsed.data.isGateway === false ? id : null,
+        linkTo: parsed.data.gatewayId ?? null,
+        disablingGatewayId: parsed.data.isGateway === false ? id : null,
+        selfId: id,
       });
+
+      // Re-read under those locks. This — not `existing` — decides what counts
+      // as a transition, so the audit rows describe what actually changed.
+      const before = await tx.instrument.findUnique({ where: { id } });
+      if (!before) throw new GatewayInvariantViolation(404, { error: 'NOT_FOUND', message: 'Instrument not found.' });
+
+      // Only a real transition is audited: a PUT that re-sends the current
+      // gatewayId is not a link event, and a trail full of no-op links is a
+      // trail nobody reads.
+      const gatewayChanged = parsed.data.gatewayId !== undefined
+        && (parsed.data.gatewayId ?? null) !== before.gatewayId;
+      const modeChanged = parsed.data.isGateway !== undefined
+        && parsed.data.isGateway !== before.isGateway;
+      const [oldGatewayCode, newGatewayCode] = gatewayChanged
+        ? [(await codeOf(before.gatewayId, tx)), (await codeOf(parsed.data.gatewayId, tx))]
+        : [null, null];
 
       const row = await tx.instrument.update({ where: { id }, data: parsed.data as never });
       await auditLog({
         action: 'INSTRUMENT_UPDATED', targetType: 'Instrument', targetId: id,
-        beforeValue: { name: existing.name, transport: existing.transport, isActive: existing.isActive, expectedIntervalSec: existing.expectedIntervalSec, location: existing.location, area: existing.area, block: existing.block },
+        beforeValue: { name: before.name, transport: before.transport, isActive: before.isActive, expectedIntervalSec: before.expectedIntervalSec, location: before.location, area: before.area, block: before.block },
         afterValue: { name: row.name, transport: row.transport, isActive: row.isActive, expectedIntervalSec: row.expectedIntervalSec, location: row.location, area: row.area, block: row.block },
         signatureMeaning: `Instrument "${row.code}" updated`,
         userId: ctx.userId, userRole: ctx.userRole,
@@ -603,7 +624,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         await auditLog({
           action: parsed.data.isGateway ? 'INSTRUMENT_GATEWAY_ENABLED' : 'INSTRUMENT_GATEWAY_DISABLED',
           targetType: 'Instrument', targetId: id,
-          beforeValue: { instrument: existing.code, isGateway: existing.isGateway },
+          beforeValue: { instrument: before.code, isGateway: before.isGateway },
           afterValue: { instrument: row.code, isGateway: row.isGateway },
           signatureMeaning: parsed.data.isGateway
             ? `Gateway mode enabled on instrument "${row.code}"`
@@ -616,7 +637,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         await auditLog({
           action: parsed.data.gatewayId ? 'INSTRUMENT_LINKED_TO_GATEWAY' : 'INSTRUMENT_UNLINKED_FROM_GATEWAY',
           targetType: 'Instrument', targetId: id,
-          beforeValue: { instrument: existing.code, gateway: oldGatewayCode, gatewayId: existing.gatewayId },
+          beforeValue: { instrument: before.code, gateway: oldGatewayCode, gatewayId: before.gatewayId },
           afterValue: { instrument: row.code, gateway: newGatewayCode, gatewayId: row.gatewayId },
           signatureMeaning: parsed.data.gatewayId
             ? `Instrument "${row.code}" linked to gateway "${newGatewayCode}"`
@@ -628,15 +649,31 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       return row;
     });
 
-    let updated: Awaited<ReturnType<typeof run>>;
-    try {
-      updated = await run();
-    } catch (err) {
-      // The locked re-check lost the race: the transaction — update and audit
-      // rows alike — is already rolled back.
-      if (err instanceof GatewayInvariantViolation) return reply.code(err.status).send(err.body);
-      throw err;
+    // Two mirrored demote-and-link requests acquire two PARENT rows in opposite
+    // orders, which the parent-before-self rule cannot order (see
+    // gateway-invariants.ts). Postgres picks a victim, and the retry is
+    // uncontended because the winner has committed by then. ONE retry only — a
+    // repeat means a real lock-order bug and should surface as a 500 rather
+    // than spin.
+    //
+    // The retry runs inside the same handling as the first attempt: the winner
+    // has usually invalidated the loser's request (the gateway it wanted to
+    // link to just stopped being one), so the second attempt very often ends in
+    // a legitimate GatewayInvariantViolation that must still become its 4xx.
+    let updated: Awaited<ReturnType<typeof run>> | undefined;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        updated = await run();
+        break;
+      } catch (err) {
+        // The locked re-check refused: the transaction — update and audit rows
+        // alike — is already rolled back.
+        if (err instanceof GatewayInvariantViolation) return reply.code(err.status).send(err.body);
+        if (isDeadlock(err) && attempt === 0) continue;
+        throw err;
+      }
     }
+    if (!updated) throw new Error('Instrument update did not complete.');
 
     // Deactivating an instrument must stop its ingest NOW, not in up to 10s:
     // resolveInstrumentByToken caches the resolved identity, and `isActive` is
@@ -686,9 +723,17 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       // — read before the delete, written in the same transaction, one per
       // child. Without this, "when did S-4 stop being writable by GW-1, and who
       // did it?" has no answer in the trail (§11.10(e)).
-      const kids = await tx.instrument.findMany({
-        where: { gatewayId: id }, select: { id: true, code: true },
-      });
+      //
+      // FOR UPDATE, not a plain read: unlinking takes no lock, so a
+      // `PUT /C {gatewayId:null}` can commit between this read and the delete.
+      // The cascade would then never touch C, yet we would still have written a
+      // row saying C was unlinked BECAUSE this gateway was deleted — a false
+      // statement, and a second unlink row for one unlink, in an immutable
+      // trail. Waiting here re-qualifies the row and drops C. Order stays
+      // `gateway -> children`, matching the link path, so no cycle.
+      const kids = await tx.$queryRaw<{ id: string; code: string }[]>`
+        SELECT id, code FROM instruments WHERE gateway_id = ${id} FOR UPDATE
+      `;
 
       await tx.instrument.delete({ where: { id } });
       for (const kid of kids) {

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { buildApp, loginAs } from './test-helper.js';
 import type { FastifyInstance } from 'fastify';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { lockedGatewayRecheck, GatewayInvariantViolation } from '../modules/instruments/gateway-invariants.js';
 
@@ -399,8 +400,8 @@ describe('Instrument gateway audit trail', () => {
    */
   const AUDIT_CHAIN_LOCK_ID = 7421151037n;
 
-  /** Hold the link path's locks + an uncommitted child link, until released. */
-  function heldLinker(gatewayId: string, childId: string) {
+  /** Run `work` in a transaction and hold it open, uncommitted, until released. */
+  function heldTx(work: (tx: Prisma.TransactionClient) => Promise<void>) {
     let release!: () => void;
     let pidResolve!: (pid: number) => void;
     const held = new Promise<void>((r) => { release = r; });
@@ -408,16 +409,21 @@ describe('Instrument gateway audit trail', () => {
 
     const done = prisma.$transaction(async (tx) => {
       const rows = await tx.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid()::int AS pid`;
-      await tx.$queryRaw`SELECT id FROM instruments WHERE id = ${gatewayId} FOR UPDATE`;
-      // Lock-equivalence with the real link path: every audit write takes this.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${AUDIT_CHAIN_LOCK_ID})`;
-      await tx.instrument.update({ where: { id: childId }, data: { gatewayId } });
+      await work(tx);
       pidResolve(rows[0].pid);
       await held;
     }, { timeout: 20_000 });
 
     return { pid, release, done };
   }
+
+  /** Hold the link path's locks + an uncommitted child link, until released. */
+  const heldLinker = (gatewayId: string, childId: string) => heldTx(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM instruments WHERE id = ${gatewayId} FOR UPDATE`;
+    // Lock-equivalence with the real link path: every audit write takes this.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${AUDIT_CHAIN_LOCK_ID})`;
+    await tx.instrument.update({ where: { id: childId }, data: { gatewayId } });
+  });
 
   /** Wait until `pid` is actually blocking another backend. */
   async function waitUntilBlocking(pid: number): Promise<void> {
@@ -431,7 +437,159 @@ describe('Instrument gateway audit trail', () => {
     throw new Error(`backend ${pid} never blocked anyone — the route did not take the lock`);
   }
 
-  it('rolls the update AND its audit rows back when the locked re-check loses a race', async () => {
+  /**
+   * The lock must be gated on the value the caller ASKED FOR, never on a diff
+   * against a row read outside the transaction.
+   *
+   * `PUT {gatewayId: GW}` re-sending what the caller believes is already set is
+   * the ordinary whole-object form submit. Gating on the diff made that a
+   * no-op — no lock, no re-check — while `data: parsed.data` re-asserted the
+   * value in SQL anyway, so it could re-link a child to a gateway demoted in
+   * the meantime, with no audit row either.
+   */
+  it('re-asserting an unchanged gatewayId still locks and re-checks', async () => {
+    const s = Date.now();
+    const gw = await mk({ name: 'SGW', code: `SGW-${s}`, transport: 'http', isGateway: true });
+    const gwId = gw.json().id;
+    const child = await mk({ name: 'SC', code: `SC-${s}`, transport: 'http', gatewayId: gwId });
+    const childId = child.json().id;
+
+    // The world moves under the request: the child is unlinked and the gateway
+    // demoted, uncommitted until the PUT is already in flight.
+    const mover = heldTx(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM instruments WHERE id = ${gwId} FOR UPDATE`;
+      await tx.instrument.update({ where: { id: childId }, data: { gatewayId: null } });
+      await tx.instrument.update({ where: { id: gwId }, data: { isGateway: false } });
+    });
+    const moverPid = await mover.pid;
+
+    // Reads `existing` while the child still looks linked, so the diff says
+    // "unchanged" — the exact stale verdict.
+    const pending = app.inject({
+      method: 'PUT', url: `/api/instruments/${childId}`, headers: auth, payload: { gatewayId: gwId },
+    });
+    await waitUntilBlocking(moverPid);
+    mover.release();
+    await mover.done;
+
+    const res = await pending;
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('NOT_A_GATEWAY');
+
+    // The invariant: no child left pointing at a non-gateway.
+    const after = await prisma.instrument.findUnique({ where: { id: childId }, select: { gatewayId: true } });
+    expect(after?.gatewayId).toBeNull();
+  });
+
+  /** The mirror of the case above, on the other flag. */
+  it('re-asserting an unchanged isGateway:false still locks and re-checks', async () => {
+    const s = Date.now();
+    // Born a plain instrument, so `isGateway:false` reads as "no change".
+    const gw = await mk({ name: 'MGW', code: `MGW-${s}`, transport: 'http' });
+    const gwId = gw.json().id;
+    const child = await mk({ name: 'MC', code: `MC-${s}`, transport: 'http' });
+    const childId = child.json().id;
+
+    // Concurrently it is promoted to a gateway and given a child.
+    const mover = heldTx(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM instruments WHERE id = ${gwId} FOR UPDATE`;
+      await tx.instrument.update({ where: { id: gwId }, data: { isGateway: true } });
+      await tx.instrument.update({ where: { id: childId }, data: { gatewayId: gwId } });
+    });
+    const moverPid = await mover.pid;
+
+    // The pre-flight sees isGateway already false, so the D6 child check is
+    // skipped entirely — only the locked re-check can catch this.
+    const pending = app.inject({
+      method: 'PUT', url: `/api/instruments/${gwId}`, headers: auth, payload: { isGateway: false },
+    });
+    await waitUntilBlocking(moverPid);
+    mover.release();
+    await mover.done;
+
+    const res = await pending;
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toBe('GATEWAY_HAS_CHILDREN');
+
+    // The invariant: never a non-gateway holding a live child.
+    const after = await prisma.instrument.findUnique({ where: { id: gwId }, select: { isGateway: true } });
+    expect(after?.isGateway).toBe(true);
+  });
+
+  /**
+   * The other half of the same defect: what counts as a transition must be
+   * decided from the row read UNDER THE LOCK, not from `existing`. Gating the
+   * audit on the stale diff meant a re-link that really happened left no
+   * `INSTRUMENT_LINKED_TO_GATEWAY` row — a silent access-control change.
+   */
+  it('audits a re-link that the stale diff would have called a no-op', async () => {
+    const s = Date.now();
+    const gw = await mk({ name: 'NGW', code: `NGW-${s}`, transport: 'http', isGateway: true });
+    const gwId = gw.json().id;
+    const child = await mk({ name: 'NC', code: `NC-${s}`, transport: 'http', gatewayId: gwId });
+    const childId = child.json().id;
+
+    const links = async () => prisma.auditTrail.count({
+      where: { targetId: childId, action: 'INSTRUMENT_LINKED_TO_GATEWAY' },
+    });
+    // One row from the create — it was born linked.
+    expect(await links()).toBe(1);
+
+    // Unlinked underneath the request. The gateway stays a gateway, so the
+    // re-check passes and the PUT genuinely re-links.
+    const mover = heldTx(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM instruments WHERE id = ${gwId} FOR UPDATE`;
+      await tx.instrument.update({ where: { id: childId }, data: { gatewayId: null } });
+    });
+    const moverPid = await mover.pid;
+
+    const pending = app.inject({
+      method: 'PUT', url: `/api/instruments/${childId}`, headers: auth, payload: { gatewayId: gwId },
+    });
+    await waitUntilBlocking(moverPid);
+    mover.release();
+    await mover.done;
+
+    expect((await pending).statusCode).toBe(200);
+    const after = await prisma.instrument.findUnique({ where: { id: childId }, select: { gatewayId: true } });
+    expect(after?.gatewayId).toBe(gwId);
+    // `existing.gatewayId` was GW, so the stale diff says "unchanged" and skips
+    // the row. The locked read says null -> GW, which is a link.
+    expect(await links()).toBe(2);
+  });
+
+  /**
+   * The one case parent-before-self cannot order: both requests demote
+   * themselves AND link to the other, so each locks two PARENTS in the opposite
+   * order. Postgres picks a victim; `PUT` retries it once. Without that retry
+   * the victim surfaces as a 500.
+   */
+  it('survives two mirrored demote-and-link requests without a 500', async () => {
+    const s = Date.now();
+    for (let i = 0; i < 6; i++) {
+      const g1 = await mk({ name: 'M1', code: `M1-${s}-${i}`, transport: 'http', isGateway: true });
+      const g2 = await mk({ name: 'M2', code: `M2-${s}-${i}`, transport: 'http', isGateway: true });
+      const a = g1.json().id;
+      const b = g2.json().id;
+
+      const [ra, rb] = await Promise.all([
+        app.inject({ method: 'PUT', url: `/api/instruments/${a}`, headers: auth, payload: { isGateway: false, gatewayId: b } }),
+        app.inject({ method: 'PUT', url: `/api/instruments/${b}`, headers: auth, payload: { isGateway: false, gatewayId: a } }),
+      ]);
+
+      for (const res of [ra, rb]) {
+        expect([200, 400, 409], `unexpected ${res.statusCode}: ${res.body}`).toContain(res.statusCode);
+      }
+
+      // And whatever landed, no gateway ended up as somebody's child.
+      for (const id of [a, b]) {
+        const row = await prisma.instrument.findUnique({ where: { id }, select: { isGateway: true, gatewayId: true } });
+        if (row?.gatewayId) expect(row.isGateway).toBe(false);
+      }
+    }
+  });
+
+  it('refuses and writes nothing when the locked re-check loses a race', async () => {
     const s = Date.now();
     const gw = await mk({ name: 'RGW', code: `RGW-${s}`, transport: 'http', isGateway: true });
     const child = await mk({ name: 'RC', code: `RC-${s}`, transport: 'http' });
@@ -458,12 +616,53 @@ describe('Instrument gateway audit trail', () => {
     expect(res.statusCode).toBe(409);
     expect(res.json().error).toBe('GATEWAY_HAS_CHILDREN');
 
-    // The mutation is undone...
+    // Nothing was written: not the mutation...
     const after = await prisma.instrument.findUnique({ where: { id: gwId }, select: { isGateway: true } });
     expect(after?.isGateway).toBe(true);
-    // ...and so is its audit row. A refactor that moved auditLog outside
-    // $transaction would leave one here and fail this line.
+    // ...and not an audit row.
+    //
+    // Honest scope: since the re-check was hoisted ahead of the mutation, this
+    // refusal happens BEFORE any write, so the assertion pins "the re-check
+    // runs first and nothing is written" — it does NOT pin audit-in-transaction.
+    // No route path can fail after its audit rows are written, so nothing here
+    // can catch a refactor that moved `auditLog` outside `$transaction`; that
+    // property rests on passing `tx` and on review. Saying so beats a comment
+    // claiming a guarantee that is not there.
     expect(await auditCount()).toBe(0);
+  });
+
+  /**
+   * The mirror of the missing-row case: an unlink that commits while the delete
+   * is in flight must NOT produce a row claiming the child was unlinked
+   * *because the gateway was deleted*. The cascade never touches that child, so
+   * such a row is a false statement — and a second unlink row for one unlink —
+   * in an immutable trail.
+   */
+  it('does not audit a child that unlinked itself before the gateway delete landed', async () => {
+    const s = Date.now();
+    const gw = await mk({ name: 'FGW2', code: `FGW2-${s}`, transport: 'http', isGateway: true });
+    const gwId = gw.json().id;
+    const child = await mk({ name: 'FC2', code: `FC2-${s}`, transport: 'http', gatewayId: gwId });
+    const childId = child.json().id;
+
+    // The real unlink path takes no gateway lock, so neither does this.
+    const unlinker = heldTx(async (tx) => {
+      await tx.instrument.update({ where: { id: childId }, data: { gatewayId: null } });
+    });
+    const unlinkerPid = await unlinker.pid;
+
+    const pending = app.inject({ method: 'DELETE', url: `/api/instruments/${gwId}`, headers: auth });
+    await waitUntilBlocking(unlinkerPid);
+    unlinker.release();
+    await unlinker.done;
+
+    expect((await pending).statusCode).toBe(200);
+
+    // Only the child's own unlink happened; the delete must claim nothing.
+    const rows = await prisma.auditTrail.findMany({
+      where: { targetId: childId, action: 'INSTRUMENT_UNLINKED_FROM_GATEWAY' },
+    });
+    expect(rows).toHaveLength(0);
   });
 
   /**
