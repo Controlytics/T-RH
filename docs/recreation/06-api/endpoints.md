@@ -300,7 +300,7 @@ number here should be re-derived and never carried forward.
 | GET · POST | `/api/instruments` | List instruments (filterable by `block`/`area`/`location`/`isGateway`) · Create instrument (returns the access token **once**) |
 | GET · PUT · DELETE | `/api/instruments/{id}` | Instrument detail · Update (never `code`) · Delete |
 | POST | `/api/instruments/bulk` | Bulk-create from CSV, partial success, one token per created row |
-| POST | `/api/instruments/{id}/regenerate-token` | Revoke the current credential and issue a new one (re-auth: `REGENERATE_INSTRUMENT_TOKEN`) |
+| POST | `/api/instruments/{id}/regenerate-token` | Revoke the current credential and issue a new one; the new token is returned once in the body. Needs `INSTRUMENT_UPDATE` **and an always-on password re-auth** (`REGENERATE_INSTRUMENT_TOKEN`, `x-reauth-password` header) — as of 2026-08-06 this is not the admin-managed policy and cannot be switched off, matching the two `/token` verbs below |
 | GET | `/api/instruments/{id}/telemetry` | Latest value per key + recent history for one instrument |
 | GET | `/api/instruments/{id}/dead-letters` | Rejected payloads for one instrument |
 | GET | `/api/instruments/eligible-children` | Active instruments eligible to be linked to a gateway (not themselves a gateway, not already linked — D2/D3) |

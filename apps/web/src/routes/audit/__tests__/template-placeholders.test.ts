@@ -94,6 +94,7 @@ describe('audit template placeholders are all substituted by the renderer', () =
   // SELECTS them is worth exercising once so a placeholder reachable only that
   // way is not missed.
   it('substitutes placeholders on the self-action variants too', () => {
+    let checked = 0;
     for (const [key, def] of entries) {
       if (!key.endsWith('_SELF')) continue;
       const action = key.slice(0, -'_SELF'.length);
@@ -102,6 +103,13 @@ describe('audit template placeholders are all substituted by the renderer', () =
         { [key]: def.template },
       );
       expect(rendered.match(SURVIVING_PLACEHOLDER) ?? [], `${key}: "${rendered}"`).toEqual([]);
+      checked += 1;
     }
+    // Without this the loop is vacuous the moment the naming convention changes
+    // or an import resolves oddly: zero matches, zero assertions, green — which
+    // is precisely the failure mode this file exists to catch, and it would be
+    // embarrassing to have it here. Three today: USER_UPDATED_SELF,
+    // PROFILE_UPDATED_SELF, PASSWORD_CHANGED_SELF. Raise this if more are added.
+    expect(checked).toBeGreaterThanOrEqual(3);
   });
 });

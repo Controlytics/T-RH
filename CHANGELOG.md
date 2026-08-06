@@ -1,5 +1,104 @@
 # Changelog
 
+## [Unreleased] — Instrument access tokens can be read back, and instruments carry free-form attributes (2026-08-06)
+
+**This reverses a documented security decision.** Spec
+`2026-08-04-instruments-inbound-ingestion-design.md` D5 said a device token is
+stored hashed and shown once, because a retrievable credential is a standing
+liability. That reasoning was not wrong; it was outweighed, at the operator's
+explicit request, by what the alternative actually costs — a site visit to
+reconfigure a device every time somebody needs to know what its token is. D5's
+original rationale is preserved verbatim in the spec, with the reversal and its
+compensating controls recorded beside it in a new §3.1.
+
+**The hash is still the only thing authentication consults.** Tokens gained a
+*second* stored form: AES-256-GCM ciphertext in `instrument_credentials.token_encrypted`,
+alongside the unchanged SHA-256 hash. Nothing ever authenticates by decrypting.
+The column is nullable on purpose — every credential issued before this change
+has no ciphertext and stays unviewable rather than breaking — and ingest keeps
+working with no key configured, with a wrong key, or with the ciphertext nulled
+out. All three are asserted. The key is `INSTRUMENT_TOKEN_KEY`; rotating it
+orphans existing ciphertext (reveals start failing, devices keep working), which
+is documented next to the variable in `.env.example`.
+
+**Three compensating controls pay for the retrievability**, and removing any one
+re-opens the liability: encrypted at rest, `INSTRUMENT_UPDATE` plus a password
+re-auth, and an `INSTRUMENT_TOKEN_VIEWED` audit row written inside the same
+transaction as the read. The audit row is the one that matters — the token stays
+secret, but who looked at it never is. Audit rows carry the prefix only; the
+value is never logged, and both audit tests serialise the whole row and assert
+the token appears nowhere in it.
+
+**The re-auth is always-on, not admin-configurable, on all three token
+endpoints.** This took two corrections in one day and is worth stating plainly.
+Reveal and set shipped on `enforceReauth`, which consults
+`system_config['action-reauth']` — and a stock install lists nothing there, so a
+deployment that never opened the policy page had two of the three controls, not
+three, with no way to tell from the outside which kind of install it was. A
+control the reversal depends on cannot itself be opt-in. `POST
+/:id/regenerate-token` was then left behind as pre-existing, which was the wrong
+call: it returns a usable plaintext credential in its 200 body and is the *most*
+destructive of the three, since it kills the credential the field device is
+currently using. All three now use `enforceReauthAlways`.
+
+Consequently `REVEAL_INSTRUMENT_TOKEN`, `SET_INSTRUMENT_TOKEN` and
+`REGENERATE_INSTRUMENT_TOKEN` are all **absent from `REAUTH_ACTIONS`**
+(40 → 39 actions). Everything in that registry is a per-role policy toggle; an
+always-on gate has no policy, so an entry would render a control that changes
+nothing whether on or off — the same "reauth theater" the three `*_TEMPLATE_KIND`
+entries were deleted for on 2026-07-04, and the reason
+`TOGGLE_SUPER_ADMIN_API_ACCESS` was never listed either. That left the
+`Instruments` reauth category with no members, so it was dropped from
+`REAUTH_ACTION_CATEGORIES` (8 → 7) along with the two per-category style maps in
+the web app that are typed against it, and `PERMISSION_TREE`'s `instruments.edit`
+node lost its `reauthAction`, which drove a policy badge for a policy that no
+longer exists. The action strings still travel in the 401 bodies. **No new
+permissions** — all three reuse `INSTRUMENT_UPDATE`.
+
+`PUT /:id/token` sets an operator-chosen value, for the device whose credential
+is fixed in firmware or on an installer's config sheet. 32–128 chars,
+`[A-Za-z0-9._-]` only, so it survives an `Authorization` header, an MQTT
+username, a CSV cell and a JSON line unescaped. It **revokes and inserts**
+rather than updating in place, exactly as regeneration does:
+`instrument_credentials` answers "which secret was live when this reading
+arrived?", and rewriting a hash in place would make past readings appear to have
+been authenticated by a credential that did not exist yet. A token already live
+on another instrument is refused (409) — a duplicate would make authentication
+ambiguous, since resolution seeks on the 8-char prefix and returns the first
+matching hash. Concurrent claims are serialised on a per-token advisory lock.
+
+**Free-form attributes** (`instrument_attributes`) are a child table, not a JSONB
+column, so each change gets its own audit row naming the key and both values —
+an attribute may hold a calibration date, which makes the change a §11 record.
+Unique on `(instrument_id, key)`, cascading on instrument delete. `POST` upserts
+(201 create / 200 update); `PUT /:key` deliberately does **not** create, because
+a mistyped key on an edit is a typo and silently adding a second attribute beside
+the one the operator meant to change is the failure that is hard to notice and
+hard to undo.
+
+**UI.** The instrument detail page gains an Access token panel — Reveal (with a
+copy affordance and an on-screen note that the view was recorded), Set, and
+Regenerate — and an Attributes table with inline add/edit/delete. The revealed
+value is held in route-local state, never SWR: that is what re-hides it when the
+operator navigates away, which is the difference between this feature and a live
+credential left on screen at an unattended shared workstation. It flows into the
+connection panel's Token/Username rows *and* the paste-ready command, which stays
+runnable — verified by pasting the displayed `curl` into a terminal and getting
+`{"accepted":2}`. A credential the API reports unrecoverable shows that plainly
+and offers Regenerate instead of a Reveal button that could only produce an
+error. Four places that told operators a token "cannot be retrieved" were
+corrected; left standing they teach an operator to regenerate a lost token and
+needlessly kill a working device.
+
+**A guard against a bug that shipped three times.** An audit template's
+placeholders are substituted in `apps/web/src/routes/audit/audit-helpers.ts`, and
+nothing links the two files — so `{instrument}`, `{gateway}` and `{attribute}`
+each reached the Audit Trail as literal text before being fixed reactively.
+`routes/audit/__tests__/template-placeholders.test.ts` now walks
+`AUDIT_TEMPLATE_DEFAULTS` at runtime and asserts no literal `{name}` survives
+rendering, so a new template with an unhandled placeholder fails a test instead
+of reaching an inspector.
+
 ## [Unreleased] — Every protocol the UI advertises now has a listener behind it (2026-08-06)
 
 The Instruments detail page has always offered seven transports. Exactly one of

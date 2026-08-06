@@ -280,11 +280,31 @@ is arriving but not appearing.
 New permissions in `PERMISSION_TREE`: `INSTRUMENT_READ`, `INSTRUMENT_CREATE`,
 `INSTRUMENT_UPDATE`, `INSTRUMENT_DELETE`.
 
-New reauth action for **token regeneration** — issuing a credential warrants the
-same password proof as disabling a user. That one is admin-configurable
-(`REGENERATE_INSTRUMENT_TOKEN`, in `REAUTH_ACTIONS`). The D5 reversal (§3.1) adds
-`REVEAL_INSTRUMENT_TOKEN` and `SET_INSTRUMENT_TOKEN` on the same reasoning, but
-**always-on** and outside the registry — see §3.1 control 2.
+Reauth on **all three token actions** — issuing, replacing or reading back a
+credential warrants the same password proof as disabling a user. All three
+(`REGENERATE_INSTRUMENT_TOKEN`, `REVEAL_INSTRUMENT_TOKEN`,
+`SET_INSTRUMENT_TOKEN`) use `enforceReauthAlways` and are **outside**
+`REAUTH_ACTIONS` — see §3.1 control 2.
+
+> **Corrected 2026-08-06.** This section previously said regeneration was
+> admin-configurable *and in `REAUTH_ACTIONS`*, which is how it originally
+> shipped. Reveal and set were hardened first; regenerate was left on
+> `enforceReauth` as pre-existing, then moved hours later. The argument that
+> moved the other two applies to it more strongly, not less: it returns a usable
+> plaintext credential in its 200 body, needed only `INSTRUMENT_UPDATE` on a
+> stock install (where `system_config['action-reauth']` lists nothing), and is
+> the most destructive of the three — it revokes the credential the field device
+> is currently using, which a reveal does not. Two hardened siblings and one
+> opt-in was worse than either consistent state.
+>
+> It left `REAUTH_ACTIONS` for the same reason the other two did: every entry
+> there is a per-role policy toggle, and an always-on gate has no policy, so the
+> entry would render a control that changes nothing whether on or off. That
+> emptied the `Instruments` reauth category, which was dropped from
+> `REAUTH_ACTION_CATEGORIES` (and from the two per-category style maps in the web
+> app, which are typed against it). `PERMISSION_TREE`'s `instruments.edit` node
+> lost its `reauthAction` for the same reason — it drove a policy badge for a
+> policy that no longer exists. The action strings still travel in the 401 bodies.
 
 Audit rows for: instrument created (single and bulk), updated, deleted, token
 regenerated, token revoked, **token viewed** and **token set** (§3.1). Bulk creation writes one row per instrument, so the
