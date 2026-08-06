@@ -224,6 +224,28 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
   const currentStateRaw = (after.currentState as string) || (before.currentState as string) || '';
   const currentState = currentStateRaw ? titleCase(currentStateRaw) : '';
 
+  // 2026-08-06 fix: the eight INSTRUMENT_* templates use {instrument}/{gateway},
+  // but had no substitution here → every instrument row rendered the literal
+  // "{instrument}". apps/api/src/modules/instruments/routes.ts is NOT consistent
+  // about which key carries the instrument's code — INSTRUMENT_CREATED/DELETED/
+  // TOKEN_REGENERATED store it under afterValue.code / beforeValue.code, while the
+  // gateway-wiring actions (GATEWAY_ENABLED/DISABLED, LINKED/UNLINKED_TO_GATEWAY)
+  // store it under afterValue.instrument / beforeValue.instrument — so both keys
+  // must be read. INSTRUMENT_UPDATED's auditLog() call carries neither key at all
+  // (only name/transport/isActive/...); for that genuine gap we fall back to the
+  // row's own targetId (always the instrument's id) rather than rendering an
+  // empty or literal placeholder — a raw UUID is truthful, guessing is not.
+  const instrument = (after.instrument as string) || (before.instrument as string)
+    || (after.code as string) || (before.code as string) || record.targetId || '';
+  // {gateway}: on INSTRUMENT_UNLINKED_FROM_GATEWAY, afterValue.gateway is
+  // explicitly null (the link is gone) — the code that matters for that
+  // sentence is the FORMER gateway, which only beforeValue carries, so after
+  // must be tried first and fall through on null/empty. If a row genuinely
+  // lacks both (should not happen from the current emitters), leave it empty;
+  // the existing empty-quoted-placeholder cleanup below collapses
+  // `gateway ""` rather than showing a false or literal value.
+  const gateway = (after.gateway as string) || (before.gateway as string) || '';
+
   const replacePlaceholders = (tpl: string) => {
     const filled = tpl
       .replace(/\{actor\}/g, actor)
@@ -249,7 +271,9 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
       .replace(/\{stageKey\}/g, stageKey)
       .replace(/\{filterName\}/g, filterName)
       .replace(/\{rejectToStateKey\}/g, rejectToStateKey)
-      .replace(/\{currentState\}/g, currentState);
+      .replace(/\{currentState\}/g, currentState)
+      .replace(/\{instrument\}/g, instrument)
+      .replace(/\{gateway\}/g, gateway);
     // Drop empty quoted placeholders: an unnamed record (e.g. a PM schedule
     // review/approve row carries no name — the AHU is shown separately) would
     // otherwise render 'PM schedule "" reviewed by EMP-123'. An empty "" is
