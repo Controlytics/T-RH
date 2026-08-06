@@ -260,12 +260,23 @@ node -e "const d=require('./docs.json');console.log(Object.keys(d.paths).length)
 ```
 
 **150 addressable HTTP paths: 149 in the OpenAPI document, plus one it can never
-contain.** `GET /api/ingest/v1/ws` is missing from the spec because
+contain.** The decomposition, so the tables below add up to the headline:
+
+| | paths | in OpenAPI |
+|---|---|---|
+| the 2026-07-25 snapshot above | 139 | 139 |
+| `/instruments` (below) | 8 | 8 |
+| `/ingest/v1` (below) | 3 | 2 |
+| **total** | **150** | **149** |
+
+`GET /api/ingest/v1/ws` is the one path the spec is missing, because
 `@fastify/websocket` forces `schema.hide = true` on every websocket route — an
 HTTP upgrade is not expressible in OpenAPI 3.0 — so the route's `schema` block
 is in-source documentation only. **Anyone re-deriving this number from
 `/docs/json` will get 149 and be wrong by one**; state the adjustment rather
-than publishing the raw count.
+than publishing the raw count. Grepping the live document for `/ingest/`
+returns `/api/ingest/v1/telemetry` and `/api/ingest/v1/mqtt-auth` and nothing
+else, which is the check.
 
 The **TCP and MQTT listeners are not HTTP routes at all** and will never appear
 here under any count. TCP is a socket server on `INGEST_TCP_PORT`; MQTT is an
@@ -273,11 +284,14 @@ outbound subscription to an external broker. The only HTTP surface MQTT has is
 `POST /api/ingest/v1/mqtt-auth` below, which the broker calls — devices never
 touch it.
 
-The 149 is one more than the 148 recorded on 2026-08-06 earlier the same day;
-the addition is `mqtt-auth`. The 2026-08-05 update (144 = 139 + 5) undercounted
-even at the time — `/api/instruments/{id}/telemetry` and
-`/api/instruments/{id}/dead-letters` were already live but had never been added
-to this table.
+This section previously recorded 148 (2026-08-06, earlier the same day). The
+live count of 149 was derived fresh by the command above; the two path sets were
+**not** diffed against each other, so treat the difference as "at least
+`mqtt-auth` was added" rather than as a proof that nothing else changed. The
+2026-08-05 update (144 = 139 + 5) undercounted even at the time —
+`/api/instruments/{id}/telemetry` and `/api/instruments/{id}/dead-letters` were
+already live but had never been added to this table, which is precisely why a
+number here should be re-derived and never carried forward.
 
 ### /instruments — 8 paths (registry; JWT + permission gated)
 
