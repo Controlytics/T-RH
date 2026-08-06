@@ -19,6 +19,22 @@ export const TRANSPORTS = ['http', 'https', 'mqtt', 'mqtts', 'websocket', 'wss',
 export type Transport = (typeof TRANSPORTS)[number];
 
 /**
+ * How many leading characters of a token are stored as the NON-SECRET
+ * `instrument_credentials.token_prefix`, used to index-seek a credential at
+ * ingest.
+ *
+ * It lives here, in shared, rather than only in the API's `token.ts`, because
+ * two things must agree and they sit on opposite sides of the package boundary:
+ * `tokenPrefix()` slices this many characters off, and
+ * `setInstrumentTokenSchema` refuses any operator-supplied token short enough
+ * for that slice to BE the whole token (see the note on that schema — the
+ * prefix is visible to anyone with `INSTRUMENT_READ`). Two independent copies
+ * would let the bound drift below the slice and silently reopen that leak, so
+ * `token.ts` re-exports this one rather than declaring its own.
+ */
+export const TOKEN_PREFIX_LEN = 8;
+
+/**
  * `code` is the human reference and doubles as the MQTT topic segment
  * (`instruments/<code>/telemetry`), so it is restricted to characters that need
  * no escaping in a topic, a URL or a CSV cell.
@@ -79,15 +95,46 @@ export const updateInstrumentSchema = z.object({
  * colon in a token would authenticate here and fail on the device, which is the
  * worst kind of bug to debug from the field.
  *
- * The 32-char floor is a real security bound, not a formality: a generated token
- * is 256 bits, and a hand-typed one is the weakest credential on the ingest
- * endpoint. `token_hash` is a fast SHA-256 (see `token.ts` for why bcrypt is
- * wrong here), so a short token would be genuinely brute-forceable.
+ * ── Length: the 32–128 bounds were REMOVED 2026-08-06 at the operator's request.
+ *
+ * They existed because `token_hash` is a fast SHA-256 (see `token.ts` for why
+ * bcrypt is wrong here), so a short hand-typed token is genuinely
+ * brute-forceable where a 256-bit generated one is not. **That reasoning still
+ * holds** — it was outweighed by the case this endpoint exists for: a device
+ * whose credential is fixed in firmware or on an installer's config sheet, which
+ * the platform has to match rather than the other way round. A bound the
+ * hardware violates makes the feature unusable, and the operator cannot change
+ * the hardware. Nothing about issuance changed: `generateToken()` still mints 43
+ * base64url characters, so every token this system chooses for itself is still
+ * 256 bits.
+ *
+ * ── The one bound that remains, and why it is NOT the old security bound
+ *
+ * `TOKEN_PREFIX_LEN + 1`. This is not a strength requirement; it keeps a
+ * DIFFERENT control honest. `instrument_credentials.token_prefix` is the first
+ * `TOKEN_PREFIX_LEN` characters of the token, treated as non-secret: it is
+ * returned by the `INSTRUMENT_READ`-gated list and detail endpoints and rendered
+ * on both instrument pages. At `TOKEN_PREFIX_LEN` characters or fewer the prefix
+ * IS the whole token — so a viewer holding only `INSTRUMENT_READ` would read a
+ * live credential off the screen, with no password and no
+ * `INSTRUMENT_TOKEN_VIEWED` audit row, bypassing all three controls the reveal
+ * endpoint is built on. The old 32-char floor was hiding that; removing it
+ * without this one would have opened it.
+ *
+ * Derived from the constant, never written as a literal — if `TOKEN_PREFIX_LEN`
+ * ever changes, this bound has to move with it or the leak reopens.
+ *
+ * Fixing it the other way — deriving `token_prefix` from a hash instead of a
+ * slice — is NOT available: `resolveInstrumentByToken` recomputes
+ * `tokenPrefix()` on the presented token and seeks on it, so changing the
+ * derivation would stop every credential already in the database from matching.
  */
 export const setInstrumentTokenSchema = z.object({
   token: z.string()
-    .min(32, 'Token must be at least 32 characters')
-    .max(128, 'Maximum 128 characters')
+    .min(
+      TOKEN_PREFIX_LEN + 1,
+      `Token must be more than ${TOKEN_PREFIX_LEN} characters — the first ${TOKEN_PREFIX_LEN} are shown as a non-secret prefix to anyone who can view this instrument`,
+    )
     .regex(/^[A-Za-z0-9._-]+$/, 'Use letters, digits, dot, dash or underscore only'),
 });
 

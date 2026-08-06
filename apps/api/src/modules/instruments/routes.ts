@@ -1071,7 +1071,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Instruments'],
       summary: 'Set a specific instrument access token',
-      description: 'Replaces the credential with an operator-supplied token. Requires INSTRUMENT_UPDATE and an ALWAYS-ON password re-auth (`_currentPassword` in the body or the `x-reauth-password` header — not admin-configurable). The previous credential is revoked, so the device stops authenticating until it is reconfigured. The token value is never echoed back — only its prefix.',
+      description: 'Replaces the credential with an operator-supplied token. Requires INSTRUMENT_UPDATE and an ALWAYS-ON password re-auth (`_currentPassword` in the body or the `x-reauth-password` header — not admin-configurable). The previous credential is revoked, so the device stops authenticating until it is reconfigured. The token value is never echoed back — only its prefix. Any length above the 8-character public prefix is accepted (the 32–128 bounds were removed 2026-08-06 so a credential fixed in device firmware can be entered verbatim); characters are restricted to `[A-Za-z0-9._-]` so the value survives an Authorization header, an MQTT username and a JSON line unescaped.',
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
       body: { type: 'object', required: ['token'], properties: { token: { type: 'string' } } },
       response: {

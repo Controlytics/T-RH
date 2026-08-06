@@ -27,8 +27,21 @@ import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
  * accident.
  */
 
-/** The server's rule, from `setInstrumentTokenSchema` in @digilog/shared. */
-const TOKEN_RULE = '32–128 characters. Letters, digits, dot, dash and underscore only.';
+/**
+ * The server's rule, from `setInstrumentTokenSchema` in @digilog/shared.
+ *
+ * There is no maximum and no strength floor — the 32–128 bounds were removed
+ * 2026-08-06 so a credential fixed in a device's firmware can be entered as it
+ * is. The one remaining length rule is not about strength: the first
+ * `TOKEN_PREFIX_LEN` characters are stored as a NON-SECRET prefix and shown to
+ * anyone who can view this instrument, so a token that short would be fully
+ * disclosed on this very page without a password or an audit row. The reason is
+ * stated to the operator rather than hidden behind a bare number, because
+ * "longer than 8" looks arbitrary until you know what the prefix is.
+ */
+const TOKEN_PREFIX_LEN = 8;
+const TOKEN_RULE = `Any length over ${TOKEN_PREFIX_LEN} characters. Letters, digits, dot, dash and underscore only.`;
+const TOKEN_PREFIX_NOTE = `The first ${TOKEN_PREFIX_LEN} characters are shown as a non-secret prefix to anyone who can view this instrument, so a shorter token would be fully visible without a password.`;
 const TOKEN_PATTERN = /^[A-Za-z0-9._-]+$/;
 
 export interface TokenPanelProps {
@@ -64,8 +77,8 @@ export function TokenPanel({
   // prompt. The server still validates — this is a courtesy, not the gate.
   const draftError = !draft
     ? ''
-    : draft.length < 32 ? 'Too short — 32 characters minimum.'
-    : draft.length > 128 ? 'Too long — 128 characters maximum.'
+    : draft.length <= TOKEN_PREFIX_LEN
+      ? `Too short — more than ${TOKEN_PREFIX_LEN} characters, or the whole token shows in the prefix.`
     : !TOKEN_PATTERN.test(draft) ? 'Only letters, digits, dot, dash and underscore.'
     : '';
 
@@ -167,6 +180,7 @@ export function TokenPanel({
                     config sheet, and finding out after the fact that it is
                     unusable means going back to the device. */}
                 <p className="mt-0.5 text-xs text-slate-500">{TOKEN_RULE}</p>
+                <p className="mt-0.5 text-xs text-slate-500">{TOKEN_PREFIX_NOTE}</p>
               </div>
               <Input
                 value={draft}

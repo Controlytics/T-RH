@@ -1,7 +1,16 @@
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
+import { TOKEN_PREFIX_LEN } from '@digilog/shared';
 
-/** Length of the stored, non-secret prefix used to index-seek a credential. */
-export const TOKEN_PREFIX_LEN = 8;
+/**
+ * Length of the stored, non-secret prefix used to index-seek a credential.
+ *
+ * Re-exported, NOT declared here (moved to `@digilog/shared` 2026-08-06). The
+ * operator-supplied-token schema refuses anything this short or shorter,
+ * because at that length the "non-secret prefix" is the entire credential and
+ * it is rendered to anyone holding `INSTRUMENT_READ`. A second copy of the
+ * number would let the two drift apart and reopen that silently.
+ */
+export { TOKEN_PREFIX_LEN };
 
 /**
  * 32 random bytes -> 43 base64url chars. base64url so the value is safe in an

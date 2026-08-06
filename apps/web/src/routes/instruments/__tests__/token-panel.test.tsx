@@ -63,12 +63,30 @@ describe('TokenPanel', () => {
    * sheet, and learning after the fact that it is unusable means a second trip
    * to the device.
    */
-  it('states the character rules and the disruption up front, not only on error', () => {
+  it('states the rules and the disruption up front, not only on error', () => {
     render(<TokenPanel {...base} />);
     fireEvent.click(screen.getByRole('button', { name: /set a specific token/i }));
-    expect(screen.getByText(/32–128 characters/i)).toBeInTheDocument();
+    expect(screen.getByText(/any length over 8 characters/i)).toBeInTheDocument();
     expect(screen.getByText(/letters, digits, dot, dash and underscore only/i)).toBeInTheDocument();
+    // The prefix reason is stated, not just the number — "longer than 8" reads
+    // as arbitrary until the operator knows the first 8 are shown to viewers.
+    expect(screen.getByText(/non-secret prefix to anyone who can view/i)).toBeInTheDocument();
     expect(screen.getByText(/stops sending data/i)).toBeInTheDocument();
+  });
+
+  it('accepts lengths the old 32–128 bounds refused', async () => {
+    // The point of the 2026-08-06 removal: a credential fixed in a device's
+    // firmware is not negotiable, so neither bound may come back.
+    const onSetToken = vi.fn(async () => {});
+    render(<TokenPanel {...base} onSetToken={onSetToken} />);
+    fireEvent.click(screen.getByRole('button', { name: /set a specific token/i }));
+    const field = screen.getByPlaceholderText(/fixed in firmware/i);
+
+    fireEvent.change(field, { target: { value: 'DEV-KEY-01234' } });   // 13 — under the old floor
+    expect(screen.getByRole('button', { name: /save token/i })).toBeEnabled();
+
+    fireEvent.change(field, { target: { value: 'a'.repeat(300) } });   // over the old ceiling
+    expect(screen.getByRole('button', { name: /save token/i })).toBeEnabled();
   });
 
   it('refuses a token the server would reject, without sending it', async () => {
@@ -77,11 +95,14 @@ describe('TokenPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /set a specific token/i }));
     const field = screen.getByPlaceholderText(/fixed in firmware/i);
 
-    fireEvent.change(field, { target: { value: 'short' } });
-    expect(screen.getByText(/32 characters minimum/i)).toBeInTheDocument();
+    // Boundary-exact: EXACTLY the prefix length, where the public prefix is the
+    // whole credential. A test using an obviously-tiny value would still pass
+    // with the floor set one too low — which is the error that reopens the leak.
+    fireEvent.change(field, { target: { value: 'a'.repeat(8) } });
+    expect(screen.getByText(/whole token shows in the prefix/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /save token/i })).toBeDisabled();
 
-    // Right length, forbidden character — a colon is the token-blob separator
+    // Long enough, forbidden character — a colon is the token-blob separator
     // and a slash is the MQTT topic separator, so the class is not cosmetic.
     fireEvent.change(field, { target: { value: `a:${'x'.repeat(40)}` } });
     expect(screen.getByText(/only letters, digits, dot, dash and underscore/i)).toBeInTheDocument();

@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp, loginAs } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
 import { resetTokenKeyCache } from '../modules/instruments/token-crypto.js';
+import { TOKEN_PREFIX_LEN } from '../modules/instruments/token.js';
 import { invalidateIngestAuthCache } from '../modules/instruments/ingest-auth.js';
 import { invalidateReauthCache, getActionReauthConfig } from '../lib/reauth-check.js';
 
@@ -261,12 +262,14 @@ describe('Instrument token set', () => {
 
   it('rejects tokens that would not survive a header, an MQTT username or a JSON line', async () => {
     const inst = await newInstrument('BADTOK');
+    // The 32–128 length bounds were removed 2026-08-06, so the two former
+    // length cases here ('short', 129 chars) are now VALID and moved to the
+    // test below. Six malformed values remain, all of them format violations.
     const bad = [
-      'short',                                   // under 32
-      'x'.repeat(129),                           // over 128
       'has spaces in it aaaaaaaaaaaaaaaaaaaaaa', // space
       'has:a:colon:aaaaaaaaaaaaaaaaaaaaaaaaaaa', // colon (our own blob separator)
       'has/a/slash/aaaaaaaaaaaaaaaaaaaaaaaaaaa', // MQTT topic separator
+      'has+a+plus+aaaaaaaaaaaaaaaaaaaaaaaaaaaa', // base64 (not -url) — not in the class
       '<script>aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</script>',
       '',
     ];
@@ -276,6 +279,53 @@ describe('Instrument token set', () => {
     }
     // Nothing was revoked by any of those.
     expect((await ingest(inst.token)).statusCode).toBe(200);
+  });
+
+  /**
+   * The length bounds were REMOVED at the operator's request (2026-08-06): a
+   * device whose credential is fixed in firmware cannot be argued with, and a
+   * bound the hardware violates makes this endpoint useless.
+   *
+   * One length rule survives and it is NOT a strength bound. `token_prefix` is
+   * the first `TOKEN_PREFIX_LEN` characters, stored as non-secret and returned
+   * by the `INSTRUMENT_READ`-gated list and detail endpoints. At that length or
+   * shorter, the prefix IS the token — a viewer who cannot reveal tokens would
+   * read a live credential off the page with no password and no
+   * `INSTRUMENT_TOKEN_VIEWED` row. Asserted boundary-exact, because a floor set
+   * one character too low reopens exactly that and nothing else would catch it.
+   */
+  it('takes any length above the public prefix, and refuses anything at or below it', async () => {
+    const inst = await newInstrument('TOKLEN');
+
+    // Refused at the boundary and below.
+    for (const n of [1, TOKEN_PREFIX_LEN - 1, TOKEN_PREFIX_LEN]) {
+      const res = await setToken(inst.id, 'a'.repeat(n));
+      expect(res.statusCode, `expected 400 for a ${n}-char token`).toBe(400);
+    }
+    // Every refusal left the live credential alone.
+    expect((await ingest(inst.token)).statusCode).toBe(200);
+
+    // The shortest legal token — one longer than the prefix — works end to end.
+    const shortest = `s${'b'.repeat(TOKEN_PREFIX_LEN)}`;
+    expect(shortest).toHaveLength(TOKEN_PREFIX_LEN + 1);
+    expect((await setToken(inst.id, shortest)).statusCode).toBe(200);
+    expect((await ingest(shortest)).statusCode).toBe(200);
+
+    // And so does one well past the old 128 ceiling.
+    const long = 'L'.repeat(512);
+    expect((await setToken(inst.id, long)).statusCode).toBe(200);
+    expect((await ingest(long)).statusCode).toBe(200);
+    // The previous one is revoked, as any set does.
+    expect((await ingest(shortest)).statusCode).toBe(401);
+
+    // The stored prefix is still a STRICT prefix of the shortest legal token —
+    // this is the property the floor exists to guarantee, so assert it rather
+    // than trusting the arithmetic.
+    const cred = await prisma.instrumentCredential.findFirst({
+      where: { instrumentId: inst.id, revokedAt: null }, select: { tokenPrefix: true },
+    });
+    expect(cred!.tokenPrefix).toHaveLength(TOKEN_PREFIX_LEN);
+    expect(cred!.tokenPrefix).not.toBe(long);
   });
 
   it('writes exactly one INSTRUMENT_TOKEN_SET audit row, never carrying the value', async () => {

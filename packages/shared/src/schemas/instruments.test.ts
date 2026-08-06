@@ -1,5 +1,68 @@
 import { describe, it, expect } from 'vitest';
-import { setInstrumentAttributeSchema, updateInstrumentAttributeSchema } from './instruments.js';
+import {
+  setInstrumentAttributeSchema,
+  updateInstrumentAttributeSchema,
+  setInstrumentTokenSchema,
+  TOKEN_PREFIX_LEN,
+} from './instruments.js';
+
+/**
+ * The operator-supplied token rules, tested in ISOLATION — for the same reason
+ * the attribute rules are: this schema is what a client form validates against
+ * before any request leaves the browser, with no route and no sanitiser in
+ * front of it.
+ *
+ * The 32–128 length bounds were removed 2026-08-06 at the operator's request
+ * (a device credential fixed in firmware is not negotiable, and a bound the
+ * hardware violates makes the endpoint useless). What these tests pin is the
+ * ONE bound that survived, which is not a strength bound at all.
+ */
+describe('setInstrumentTokenSchema', () => {
+  const ok = (token: string) => setInstrumentTokenSchema.safeParse({ token }).success;
+
+  it('accepts a token far shorter than the old 32-character floor', () => {
+    // The point of the change. `TOKEN_PREFIX_LEN + 1` characters is the
+    // shortest legal token and it must pass, or the removal did not happen.
+    expect(ok('a'.repeat(TOKEN_PREFIX_LEN + 1))).toBe(true);
+    expect(ok('DEV-KEY-01234')).toBe(true);
+  });
+
+  it('accepts a token far longer than the old 128-character ceiling', () => {
+    expect(ok('a'.repeat(129))).toBe(true);
+    expect(ok('a'.repeat(4096))).toBe(true);
+  });
+
+  /**
+   * THE BOUND THAT MATTERS, and it is not about brute force.
+   *
+   * `token_prefix` is the first TOKEN_PREFIX_LEN characters, stored as
+   * non-secret and returned by the `INSTRUMENT_READ`-gated list and detail
+   * endpoints, where both instrument pages render it. At TOKEN_PREFIX_LEN
+   * characters or fewer, that prefix IS the token — so a viewer who cannot
+   * reveal tokens would read a live credential off the screen with no password
+   * and no `INSTRUMENT_TOKEN_VIEWED` audit row, bypassing all three controls
+   * the reveal endpoint rests on.
+   *
+   * Boundary-exact on purpose: a test that only checked "5 characters is
+   * refused" would still pass with the floor set one too low, which is the
+   * error that reopens the leak.
+   */
+  it('refuses a token short enough that its public prefix is the whole value', () => {
+    expect(ok('a'.repeat(TOKEN_PREFIX_LEN))).toBe(false);       // prefix === token
+    expect(ok('a'.repeat(TOKEN_PREFIX_LEN - 1))).toBe(false);
+    expect(ok('a')).toBe(false);
+    expect(ok('')).toBe(false);
+  });
+
+  it('still refuses anything that would not survive a header, a topic or a JSON line', () => {
+    // Unchanged by the length removal: this is a FORMAT rule, not a limit. A
+    // space or colon would authenticate here and fail on the device — the worst
+    // kind of bug to debug from the field.
+    for (const bad of ['has spaces', 'has:colon', 'has/slash', '<script>xx</script>', 'ünïcode', 'plus+sign']) {
+      expect(ok(bad), bad).toBe(false);
+    }
+  });
+});
 
 /**
  * The attribute schema's key rules, tested in ISOLATION.
