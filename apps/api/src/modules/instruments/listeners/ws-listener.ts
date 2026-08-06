@@ -28,8 +28,10 @@ import { ingestPayload } from '../ingest-core.js';
  * a `bodyLimit` never applies to a frame, and the global rate limit counts one
  * handshake, not the thousand frames that follow it. So the same three
  * defences the HTTP route gets for free are written by hand here — a frame
- * size cap enforced BEFORE any parse, a per-connection message rate cap, and
- * an absolute deadline on an unauthenticated connection.
+ * size cap enforced BEFORE any parse, a per-connection message rate cap, an
+ * absolute deadline on an unauthenticated connection, and a GLOBAL
+ * concurrent-connection cap (the per-connection caps bound what one client
+ * costs; only this one bounds how many clients there are).
  */
 
 /**
@@ -70,11 +72,24 @@ const DEFAULT_RATE_WINDOW_MS = 60_000;
  */
 const DEFAULT_MAX_QUEUED = 100;
 
+/**
+ * GLOBAL across this listener, mirroring the TCP listener's own cap. The
+ * per-connection rate cap bounds what ONE client costs; nothing bounded how
+ * many clients there were. An unauthenticated connection still holds a slot for
+ * the whole auth deadline, so without this a scanner opening connections in a
+ * loop consumes sockets, memory and file descriptors for free — the rate cap
+ * never fires because each connection sends nothing.
+ *
+ * Well beyond any real instrument count on one site.
+ */
+const DEFAULT_MAX_CONNECTIONS = 200;
+
 /** Application close codes (4000-4999 is the range reserved for us). */
 const CLOSE_UNAUTHENTICATED = 4401;
 const CLOSE_FRAME_TOO_LARGE = 4413;
 const CLOSE_RATE_EXCEEDED = 4429;
 const CLOSE_INTERNAL = 4500;
+const CLOSE_CONNECTION_CAP = 4503;
 
 export interface WsIngestOptions {
   authTimeoutMs?: number;
@@ -82,6 +97,7 @@ export interface WsIngestOptions {
   maxMessagesPerWindow?: number;
   rateWindowMs?: number;
   maxQueued?: number;
+  maxConnections?: number;
   /** Injected in tests to keep the run quiet; defaults to console. */
   log?: (msg: string, meta?: Record<string, unknown>) => void;
 }
@@ -114,8 +130,14 @@ export default async function wsIngestRoutes(
   const maxMessages = opts.maxMessagesPerWindow ?? DEFAULT_MAX_MESSAGES_PER_WINDOW;
   const rateWindowMs = opts.rateWindowMs ?? DEFAULT_RATE_WINDOW_MS;
   const maxQueued = opts.maxQueued ?? DEFAULT_MAX_QUEUED;
+  const maxConnections = opts.maxConnections ?? DEFAULT_MAX_CONNECTIONS;
   const log = opts.log ?? ((msg: string, meta?: Record<string, unknown>) =>
     console.warn(`[ingest:ws] ${msg}`, meta ?? ''));
+
+  // Scoped to THIS plugin registration, not the module: the test helper builds
+  // several apps in one process, and a module-level counter would leak between
+  // them (and between a future second registration).
+  const open = new Set<WebSocket>();
 
   app.get('/ws', {
     websocket: true,
@@ -134,6 +156,27 @@ export default async function wsIngestRoutes(
     },
   }, (socket: WebSocket, req: FastifyRequest) => {
     const remote = req.ip;
+
+    // Counted at accept, removed in 'close' ONLY — 'close' fires exactly once
+    // per connection however it died, whereas also decrementing on 'error'
+    // would double-count and the cap would drift shut. Refused connections are
+    // never added, so they cannot leak a slot.
+    if (open.size >= maxConnections) {
+      log('connection refused — concurrent-connection cap reached', {
+        cap: maxConnections, remote,
+      });
+      try {
+        socket.close(CLOSE_CONNECTION_CAP, 'connection cap reached');
+      } catch {
+        socket.terminate();
+      }
+      const capT = setTimeout(() => socket.terminate(), 1_000);
+      capT.unref();
+      return;
+    }
+    open.add(socket);
+    socket.on('close', () => open.delete(socket));
+
     let identity: IngestIdentity | null = null;
     let shut = false;
 

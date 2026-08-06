@@ -27,6 +27,7 @@ const S = Date.now();
 let mainApp: FastifyInstance;      // long auth deadline, high rate cap, 4 KB frame cap
 let fastAuthApp: FastifyInstance;  // 300 ms auth deadline — the timeout test only
 let rateApp: FastifyInstance;      // 3 messages per window — the rate-cap test only
+let capApp: FastifyInstance;       // 2 concurrent connections — the connection-cap test only
 
 const instrumentIds: string[] = [];
 let plainToken: string;
@@ -118,13 +119,22 @@ beforeAll(async () => {
     },
   });
 
-  for (const a of [mainApp, fastAuthApp, rateApp]) {
+  capApp = await buildApp({
+    // Only the CONNECTION cap may close anything here: the auth deadline is far
+    // past the test, the frame cap is the default and nothing large is sent,
+    // and the held-open connections are authenticated and silent.
+    wsIngest: {
+      authTimeoutMs: 30_000, maxMessagesPerWindow: 5000, maxConnections: 2, log: () => {},
+    },
+  });
+
+  for (const a of [mainApp, fastAuthApp, rateApp, capApp]) {
     await a.listen({ port: 0, host: '127.0.0.1' });
   }
 });
 
 afterAll(async () => {
-  for (const a of [mainApp, fastAuthApp, rateApp]) await a?.close();
+  for (const a of [mainApp, fastAuthApp, rateApp, capApp]) await a?.close();
   await prisma.deadLetter.deleteMany({ where: { instrumentId: { in: instrumentIds } } });
   await prisma.$executeRaw`DELETE FROM instrument_telemetry_latest WHERE instrument_id = ANY(${instrumentIds}::text[])`;
   await prisma.instrument.deleteMany({ where: { gatewayId: { in: instrumentIds } } });
@@ -219,6 +229,28 @@ describe('WebSocket ingest listener', () => {
     await sleep(80);
     for (let i = 0; i < 10; i++) ws.send(JSON.stringify({ [`rate${i}`]: i }));
     await expect(shut).resolves.toBe(4429);
+  });
+
+  it('refuses connections beyond the global concurrent-connection cap, and frees the slot on close', async () => {
+    // The per-connection rate cap bounds what ONE client costs; nothing bounded
+    // how many there were, and an unauthenticated connection holds a slot for
+    // the whole auth deadline while sending nothing at all.
+    const a = await open(capApp, { authorization: `Bearer ${plainToken}` });
+    const b = await open(capApp, { authorization: `Bearer ${plainToken}` });
+    await sleep(100);
+
+    const third = await open(capApp, { authorization: `Bearer ${plainToken}` });
+    await expect(closedCode(third)).resolves.toBe(4503);
+
+    // A slot is a slot only while it is held: closing one must let the next in,
+    // otherwise the cap drifts shut and the listener dies of its own defence.
+    a.close();
+    await sleep(200);
+    const fourth = await open(capApp, { authorization: `Bearer ${plainToken}` });
+    fourth.send(JSON.stringify({ wscapfreed: 1 }));
+    await waitFor(async () => (await latestKeys(plainId)).some((r) => r.key === 'wscapfreed'));
+
+    b.close(); fourth.close();
   });
 
   it('fans a gateway batch frame out to its children', async () => {
