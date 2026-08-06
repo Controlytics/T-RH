@@ -537,8 +537,13 @@ describe('Instrument gateway audit trail', () => {
 
     // Unlinked underneath the request. The gateway stays a gateway, so the
     // re-check passes and the PUT genuinely re-links.
+    //
+    // Deliberately NO lock on the gateway row — the real unlink path takes
+    // none. That leaves the CHILD row as the only thing the route can block on,
+    // which is what makes this test pin `selfId`: a plain read does not wait on
+    // a row lock, so without the `FOR UPDATE` on self the route's before/after
+    // read sails past and sees the pre-unlink value.
     const mover = heldTx(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM instruments WHERE id = ${gwId} FOR UPDATE`;
       await tx.instrument.update({ where: { id: childId }, data: { gatewayId: null } });
     });
     const moverPid = await mover.pid;
