@@ -54,8 +54,14 @@ const DEFAULT_MAX_MESSAGE_BYTES = 65_536;
  * Messages accepted while an earlier one is still being written. Processing is
  * serialised — one shared connection carries every device, so concurrent
  * `ingestPayload` calls would let one chatty publisher exhaust the connection
- * pool. QoS 1 means the broker will redeliver what we drop here on reconnect,
- * so a drop is back-pressure, not data loss, but it is logged either way.
+ * pool.
+ *
+ * A DROP HERE IS DATA LOSS, not back-pressure. `mqtt.js` PUBACKs a QoS 1
+ * message on receipt unless the client is created with `manualAcks`, so by the
+ * time this queue is consulted the broker already considers the message
+ * delivered and will never redeliver it. Hence the loud log. Making these
+ * drops recoverable means `manualAcks` plus acking only after the write — a
+ * real design change, not a tweak.
  */
 const DEFAULT_MAX_QUEUED = 500;
 
@@ -114,7 +120,17 @@ export async function startMqttBridge(
     // must be configured to admit it (a built-in-database authenticator ahead
     // of the HTTP one) — it presents no instrument token, so the device hook
     // would rightly deny it.
-    clientId: `digilog-ingest-bridge-${process.pid}`,
+    //
+    // STABLE across restarts, deliberately: with `clean: false` the session —
+    // and anything the broker queued while we were down — is keyed on this id,
+    // so putting the pid in it would start a fresh session on every restart,
+    // strand the old one until `session_expiry_interval`, and quietly discard
+    // exactly the messages the durable session exists to preserve. The topic
+    // ACL grants subscribe by USERNAME, not client id, so this is not an
+    // authorisation input. Single-instance deployment; if that ever changes,
+    // give each instance its own MQTT_CLIENT_ID (two clients sharing one id
+    // kick each other off in a loop).
+    clientId: process.env.MQTT_CLIENT_ID || 'digilog-ingest-bridge',
     reconnectPeriod: RECONNECT_MIN_MS,
     // Redelivery of anything published while we were down is the whole reason
     // for QoS 1; a clean session would throw it away at reconnect.
@@ -180,7 +196,9 @@ export async function startMqttBridge(
     }
 
     if (queue.length >= maxQueued) {
-      log('message dropped — publishing faster than readings can be written', {
+      // LOST, not deferred — see DEFAULT_MAX_QUEUED. The broker has already
+      // been acked for this message.
+      log('message LOST — publishing faster than readings can be written', {
         topic, queued: queue.length,
       });
       return;

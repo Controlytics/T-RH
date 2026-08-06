@@ -157,6 +157,15 @@ export default async function wsIngestRoutes(
   }, (socket: WebSocket, req: FastifyRequest) => {
     const remote = req.ip;
 
+    // FIRST, before any branch that can return: an ECONNRESET with no 'error'
+    // listener takes the whole process down. A REFUSED connection is exactly
+    // when a peer is most likely to reset — the flood that trips the cap below
+    // is the case this must survive.
+    socket.on('error', (err: Error) => {
+      log('socket error', { err: err.message, remote });
+      socket.terminate();
+    });
+
     // Counted at accept, removed in 'close' ONLY — 'close' fires exactly once
     // per connection however it died, whereas also decrementing on 'error'
     // would double-count and the cap would drift shut. Refused connections are
@@ -214,13 +223,8 @@ export default async function wsIngestRoutes(
       });
     }, authTimeoutMs);
 
-    // An 'error' listener on EVERY connection. An ECONNRESET from a device
-    // losing power is an unhandled 'error' event otherwise, which takes the
-    // process down rather than logging a warning.
-    socket.on('error', (err: Error) => {
-      log('socket error', { err: err.message, remote });
-      socket.terminate();
-    });
+    // ('error' is handled at the very top of this handler — see the comment
+    // there for why it cannot wait until after the connection-cap branch.)
 
     socket.on('close', () => {
       shut = true;
