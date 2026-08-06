@@ -34,8 +34,26 @@ import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
  * without first replacing that banner with something stronger.
  */
 
-/** P1 ships the HTTP listener only; the rest are catalogued but not yet served. */
-const LIVE_TRANSPORTS = new Set(['http', 'https']);
+/**
+ * The transports that have a listener behind them RIGHT NOW.
+ *
+ * A member of this set is a claim that someone connected over that protocol
+ * and watched a reading land in `instrument_telemetry_latest`. Each of the six
+ * below was verified that way on 2026-08-06 against the real listeners:
+ * HTTP/HTTPS on the ingest route, TCP on `INGEST_TCP_PORT`, WS/WSS on
+ * `/api/ingest/v1/ws`, and MQTT through EMQX 5.3.2 into the ingest bridge.
+ *
+ * `mqtts` is deliberately absent. It is NOT the same listener as `mqtt` the
+ * way `wss` is the same listener as `websocket` — it is a separate broker port
+ * with its own TLS config, and the EMQX authenticator that binds a device
+ * token to an instrument currently calls the API over plain HTTP. Nobody has
+ * run a reading through it. Adding it here on the strength of "MQTT works"
+ * would be exactly the guess this set exists to prevent.
+ *
+ * Do not add a transport because a plan says the listener landed. Connect over
+ * it and read the row back first.
+ */
+const LIVE_TRANSPORTS = new Set(['http', 'https', 'tcp', 'websocket', 'wss', 'mqtt']);
 
 function CodeBlock({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -90,8 +108,8 @@ export function ConnectionInstructions({
   childCodes,
   gatewayCode,
 }: ConnectionInstructionsProps) {
-  // No caller supplies one today, so this is HTTP in practice — the one
-  // listener that is actually live.
+  // No caller supplies one today, so this is HTTP in practice — the transport
+  // most devices speak and the safest tab to open on.
   const initial: Transport =
     transport && (ALL_TRANSPORTS as readonly string[]).includes(transport)
       ? (transport as Transport)
@@ -163,11 +181,20 @@ export function ConnectionInstructions({
         body = (
           <>
             <Row label="Topic" value={topic} />
+            <Row label="Client ID" value={code} />
             <Row label="Username" value={tok} />
             <Row label="Password" value="(leave empty)" />
             <CodeBlock
-              text={`mosquitto_pub -h <broker-host> -p ${selected === 'mqtts' ? '8883' : '1883'} \\\n  -t "${topic}" \\\n  -u "${tok}" \\\n  -m '${isGateway ? devicesPayload : '{"temperature": 21.5}'}'`}
+              text={`mosquitto_pub -h <broker-host> -p ${selected === 'mqtts' ? '8883' : '1883'} \\\n  -i "${code}" \\\n  -t "${topic}" \\\n  -u "${tok}" \\\n  -m '${isGateway ? devicesPayload : '{"temperature": 21.5}'}'`}
             />
+            <p className="text-xs text-slate-500">
+              The client ID must be exactly this instrument&apos;s code. The broker
+              refuses the connection otherwise — that binding is what stops a
+              device with a valid token publishing another instrument&apos;s
+              telemetry, since the topic ACL is written against the client ID.
+              Omitting <span className="font-mono">-i</span> lets the client pick
+              a random one, and the connection is denied.
+            </p>
           </>
         );
         break;
@@ -252,9 +279,11 @@ export function ConnectionInstructions({
       {notLive && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
           <strong>{selected.toUpperCase()} is not accepting connections yet.</strong>{' '}
-          The instrument and its token are valid, but only HTTP/HTTPS ingest is
-          running in this release. The details below are what this device will
-          use once the {selected.toUpperCase()} listener ships.
+          The instrument and its token are valid, and every other protocol on
+          this list is live — but the {selected.toUpperCase()} listener has not
+          been brought up and verified. Use MQTT on the broker&apos;s plaintext
+          port, or one of the TLS-terminated transports (HTTPS, WSS), until it
+          has. The details below are what this device will use once it ships.
         </div>
       )}
       {body}

@@ -1,5 +1,90 @@
 # Changelog
 
+## [Unreleased] — Every protocol the UI advertises now has a listener behind it (2026-08-06)
+
+The Instruments detail page has always offered seven transports. Exactly one of
+them worked. A technician could open the MQTT tab, copy a paste-ready
+`mosquitto_pub` line, run it, watch it appear to succeed, and then spend an hour
+debugging a device that was talking to nothing — because there was no broker
+subscription, no socket server, and no upgrade endpoint. An amber "not accepting
+connections yet" banner was the only thing standing between that page and a
+support call. This lands the missing listeners so the banner can come down
+honestly.
+
+The design decision that made four listeners affordable was made first, before
+any of them: the entire ingest pipeline — parse, gateway fan-out, dead-letter,
+batched write, last-seen stamp — was lifted out of the HTTP route handler into a
+transport-agnostic `ingestPayload()`. A listener's whole job is now to obtain
+bytes and obtain a token and hand both over. Nothing else about ingestion is
+duplicated anywhere, so a fix to fan-out or dead-lettering is a fix for all six
+protocols at once, and the `transport` recorded on a dead-letter is stamped by
+whichever listener actually accepted the connection rather than claimed from a
+field the device asserted about itself.
+
+**Raw TCP** listens on `INGEST_TCP_PORT` — unset by default, because a port
+opening on an operator's machine during an upgrade is a surprise nobody asked
+for. A byte stream carries no headers, so the first line must be
+`{"token":"..."}` and every line after it is one reading. That framing is its
+own pure unit with its own tests: framing bugs pass every normal test and fail
+the first time a message straddles a packet boundary, or the first time a split
+lands in the middle of a multi-byte character and a naive per-chunk
+`toString()` quietly rewrites the JSON. A stream also arrives with none of the
+protections a web framework gives for free, so the listener adds them by hand:
+an *absolute* five-second deadline to authenticate (an inactivity timer is
+useless here — a scanner dribbling one byte every four seconds would hold a slot
+forever), a post-auth idle timeout, a 64 KB per-line cap checked both on emitted
+lines and on the unterminated remainder, a global connection cap, and real
+backpressure so one chatty device cannot issue unbounded concurrent writes out
+of order. A malformed reading is dead-lettered and the socket **stays open**;
+one bad line must not kill a working device.
+
+**WebSocket** is `GET /api/ingest/v1/ws`, taking the token either in the
+`Authorization` header on the upgrade or in the first frame. `wss` is not a
+separate listener — TLS terminates in front of the same route — which is why
+both are marked live together. This re-adds `@fastify/websocket`, removed as
+dead code in 2026-07; the commit says so, to stop a future cleanup stripping it
+again.
+
+**MQTT** is the one that is not ours to run. The API is a subscriber against an
+external EMQX broker, not a broker itself, and that raises a question a CONNECT
+check cannot answer: a device authenticated at connect time could still publish
+to another instrument's topic, and MQTT never tells a subscriber who published,
+so there is no check the bridge could make. Enforcement has to be at the broker,
+and it takes two legs that are only meaningful together. Ours is
+`POST /api/ingest/v1/mqtt-auth`, the hook EMQX calls per connection: the
+username is the device token, resolved through the same single authority every
+other transport uses, and the client ID must equal that token's instrument code
+or the answer is deny. The broker's leg is a topic ACL permitting publish only
+to `instruments/${clientid}/telemetry`, with `no_match = deny`. Composed, they
+bind topic to client ID to token. Remove either and any valid token can write
+any instrument's telemetry while every happy-path test stays green.
+
+Keeping the credentials on our side rather than provisioning them into the
+broker is what makes revocation immediate: EMQX holds no device passwords, so
+regenerating a token refuses the very next connection instead of eventually.
+
+Two things are worth stating plainly rather than leaving in a config file.
+**Raw TCP is plaintext** — the device token crosses the wire in the clear, and
+that is inherent to the transport, not a gap waiting to be closed; keep the port
+on a trusted VLAN. And the **stock EMQX `acl.conf` ships two allow-all rules**,
+one of them scoped to `127.0.0.1`, both of which must be deleted. Leave either
+in place and the topic ACL silently does nothing — and a cross-topic test run
+from the same machine passes anyway, because every local test client is on
+loopback. That is a false pass that would read as proof of a protection that
+does not exist.
+
+**MQTTS is deliberately still marked not-live.** Unlike `wss`, it is not the
+same listener as its plaintext form: it is a separate broker port with its own
+certificates, and the authenticator hook currently calls the API over plain
+HTTP. The HTTPS variant needs `ssl { enable = true, verify = verify_none }` on
+the connector and has never been exercised, so the banner stays up for it. Six
+of seven transports were each verified by connecting over them and reading the
+row back out of `instrument_telemetry_latest`; the seventh was not, and the UI
+says so.
+
+Operator documentation, including the exact EMQX configuration, is in
+`LOCAL_SETUP_WINDOWS.md` §9A.
+
 ## [Unreleased] — `Instrument.transport` removed (2026-08-06)
 
 Every instrument used to be pinned to exactly one transport, chosen at

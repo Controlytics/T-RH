@@ -84,7 +84,9 @@ DATABASE_URL=postgresql://digilog:digilog123@localhost:5432/digilog_db?schema=pu
 # --- Redis — RETIRED (Phase 4, 2026-05-01) ---
 # Pub/sub moved in-process via EventEmitter bus. RPC correlation moved to
 # Map TTL cache. REDIS_* env vars are no longer read by anything.
-# (TimescaleDB / MQTT env keys were removed in Phase 7 — none are read anymore.)
+# (TimescaleDB env keys were removed in Phase 7 — none are read anymore. MQTT
+#  keys came back on 2026-08-06 for the instrument ingest bridge — a different
+#  subsystem entirely. They are OPTIONAL; see section 9A.)
 
 # --- SMTP (optional) ---
 SMTP_HOST=smtp.example.com
@@ -231,6 +233,196 @@ npx vite preview
 curl http://localhost:3000/api/health
 # or in browser: http://localhost:3000/docs (Swagger UI)
 ```
+
+---
+
+## 9A. Instrument Ingest Listeners
+
+*(Numbered 9A rather than 10 so the section numbers below did not all shift.)*
+
+Instruments send telemetry over one of six live transports. All six land in the
+same `ingestPayload()` core — the same parsing, gateway fan-out, dead-lettering
+and last-seen stamping — so a listener only ever obtains bytes and a token.
+
+| Transport | Runs when | Where |
+|---|---|---|
+| HTTP / HTTPS | always | `POST /api/ingest/v1/telemetry` on the API port; TLS is `API_HTTPS=true` |
+| WS / WSS | always | `GET /api/ingest/v1/ws` on the API port; TLS is the same `API_HTTPS=true` listener |
+| TCP | `INGEST_TCP_PORT` is set | its own socket server, newline-delimited JSON |
+| MQTT | `MQTT_BROKER_URL` is set | an external EMQX broker; the API is a *subscriber*, not a broker |
+
+**MQTTS is not live.** It is a separate EMQX TLS listener with its own
+certificates, and the authenticator below talks plain HTTP. Nobody has run a
+reading through it, so the Instruments UI still shows the "not accepting
+connections yet" banner for it. See the security note at the end of this
+section before you turn it on.
+
+### 9A.1 HTTP / HTTPS and WebSocket — nothing to configure
+
+Both are always on. Verify with a real instrument token (create an instrument in
+the UI and copy the token it shows once):
+
+```bash
+curl -sk -X POST https://localhost:3000/api/ingest/v1/telemetry \
+  -H "Authorization: Bearer <TOKEN>" -H "Content-Type: application/json" \
+  -d '{"temperature": 21.5}'
+# -> {"accepted":1}
+```
+
+The WebSocket endpoint takes the token either in the `Authorization: Bearer`
+header on the upgrade or as the first frame `{"token":"..."}`, then one JSON
+reading per frame. `wss://` is the identical route behind `API_HTTPS=true`.
+
+### 9A.2 Raw TCP
+
+```bash
+# apps/api/.env
+INGEST_TCP_PORT=1884
+```
+
+Unset means the listener does not start at all — upgrading never silently opens
+a port. The first line must be `{"token":"..."}`; every line after it is one
+reading. Limits are fixed in code, not env-configurable: 64 KB per line, a 5 s
+deadline to send the token, a 15-minute post-auth idle timeout, and 200
+concurrent connections.
+
+> **RAW TCP IS PLAINTEXT.** There is no TLS on this listener, so the device
+> token crosses the wire in the clear and anyone who can capture the traffic can
+> replay it indefinitely. Keep this port on a trusted VLAN and never expose it to
+> the internet. This is inherent to the transport, not a gap waiting to be
+> closed — use HTTPS or WSS for anything leaving the plant floor.
+
+### 9A.3 MQTT via EMQX 5.3.2
+
+EMQX 5.3.2 is installed at `C:\Users\hello\emqx-5.3.2` (the last release with a
+Windows build). Start it with `bin\emqx.cmd start`.
+
+```bash
+# apps/api/.env
+MQTT_BROKER_URL=mqtt://127.0.0.1:1883
+MQTT_USERNAME=digilog-bridge
+MQTT_PASSWORD=<the bridge's own broker password — NOT a device token>
+# MQTT_CLIENT_ID=digilog-ingest-bridge   # must stay stable across restarts
+```
+
+Devices publish to `instruments/<code>/telemetry`; the bridge subscribes
+`instruments/+/telemetry` at QoS 1 and hands each payload to the ingest core
+with `transport: 'mqtt'`.
+
+**A device connects as: username = its device token, client ID = its instrument
+code.** Both, or the broker refuses it.
+
+#### The three pieces of EMQX configuration, and why each is load-bearing
+
+**1. `etc/acl.conf`** — edited in place; the stock file is preserved as
+`etc/acl.conf.orig`. The source path is `${EMQX_ETC_DIR}/acl.conf`, so a restart
+reloads it.
+
+```erlang
+{allow, {username, {re, "^dashboard$"}}, subscribe, ["$SYS/#"]}.
+
+%% the ingest bridge — the only client allowed to read the whole tree
+{allow, {username, "digilog-bridge"}, subscribe, ["instruments/+/telemetry"]}.
+
+%% a device may publish to ITS OWN topic only
+{allow, all, publish, ["instruments/${clientid}/telemetry"]}.
+
+{deny, all, subscribe, ["$SYS/#", {eq, "#"}]}.
+{deny, all}.
+```
+
+> **THE SINGLE MOST IMPORTANT LINE IN THIS DOCUMENT.** The stock `acl.conf`
+> ships **two** allow-all rules — `{allow, all}.` and
+> `{allow, {ipaddr, "127.0.0.1"}, all, ["$SYS/#", "#"]}.` — and **both must be
+> removed**. Leave either in place and the topic ACL silently does nothing: any
+> device holding any valid token can publish any other instrument's telemetry.
+> Worse, every happy-path test still passes, and a cross-topic test run from the
+> same machine is a **false pass**, because every local test client is on
+> `127.0.0.1` and the second rule waves it straight through. If you are
+> reinstalling EMQX, check this before you trust any ACL test result.
+
+**2. The authenticator chain** (`POST /api/v5/authentication`, persisted to
+`data/configs/cluster.hocon`). Order matters: the built-in database resolves the
+bridge's own user and *ignores* everything else, falling through to the HTTP
+hook for devices.
+
+```jsonc
+// (a) the bridge's own broker credential — built-in database
+// POST /api/v5/authentication/password_based:built_in_database/users
+{ "user_id": "digilog-bridge", "password": "<choose one; put it in MQTT_PASSWORD>" }
+
+// (b) the device hook — EMQX holds no device passwords, it asks us per CONNECT
+// POST /api/v5/authentication
+{
+  "mechanism": "password_based", "backend": "http", "enable": true,
+  "method": "post",
+  "url": "http://127.0.0.1:3000/api/ingest/v1/mqtt-auth",
+  "headers": { "content-type": "application/json" },
+  "body": { "clientid": "${clientid}", "username": "${username}", "password": "${password}" },
+  "pool_size": 8, "connect_timeout": "5s", "request_timeout": "5s"
+}
+```
+
+Because the broker asks per connection rather than caching a credential,
+**revocation is immediate** — `POST /api/instruments/:id/regenerate-token`
+invalidates the resolver cache and the very next CONNECT is refused.
+
+**3. Authorization settings** (`PUT /api/v5/authorization/settings`):
+
+```jsonc
+{ "no_match": "deny", "deny_action": "disconnect", "cache": { "enable": false } }
+```
+
+`no_match = deny` reverses EMQX's permissive default; without it the ACL's final
+`{deny, all}.` is the only thing standing between a device and every topic.
+Turning the ACL cache off keeps a per-client topic decision from being
+remembered, which makes the deny path testable.
+
+#### Why the client ID matters
+
+EMQX can template a topic ACL only on `${clientid}` or `${username}` — and our
+username **is** the secret device token, which must never appear in a topic. So
+`${clientid}` is the only usable binding, and `POST /api/ingest/v1/mqtt-auth`
+denies any CONNECT whose `clientid` is not the token's instrument code. That is
+what turns `{allow, all, publish, ["instruments/${clientid}/telemetry"]}` into a
+real authorisation rule instead of an honour system. **A subscriber never learns
+who published**, so there is no check the bridge could do instead — remove
+either leg and the protection is gone with no error anywhere.
+
+#### Verifying it
+
+```bash
+# publish as a device (mosquitto_pub, or a node script using the `mqtt` package)
+mosquitto_pub -h 127.0.0.1 -p 1883 -i "<INSTRUMENT-CODE>" \
+  -t "instruments/<INSTRUMENT-CODE>/telemetry" -u "<DEVICE-TOKEN>" \
+  -m '{"temperature": 27.5}'
+```
+
+Then check the reading in the UI, or straight from the database:
+
+```sql
+SELECT key, value, ts FROM instrument_telemetry_latest
+ WHERE instrument_id = (SELECT id FROM instruments WHERE code = '<INSTRUMENT-CODE>');
+```
+
+Two negative checks are worth more than the positive one — run **both**, since
+either alone proves nothing:
+
+- publish with instrument **A**'s token to instrument **B**'s topic → the broker
+  disconnects on the PUBLISH and nothing lands against B;
+- connect with instrument A's token but B's client ID → `Connection refused:
+  Not authorized` at CONNECT.
+
+If either succeeds, re-read the stock-ACL warning above.
+
+> **THE AUTHENTICATOR CURRENTLY CALLS THE API OVER PLAIN HTTP.** The `url` in
+> the config above is `http://127.0.0.1:3000/...`, so with `API_HTTPS=true` the
+> hook will not connect at all, and even on loopback the device's token travels
+> unencrypted from broker to API. The HTTPS variant needs
+> `ssl { enable = true, verify = verify_none }` on the connector (the local
+> mkcert CA is not in EMQX's trust store) — **this has never been exercised**.
+> It is also the reason MQTTS is not marked live in the UI: securing the device
+> leg while the authenticator leg is plaintext would be theatre.
 
 ---
 

@@ -250,16 +250,34 @@ The listing above is a snapshot of the OpenAPI document as it stood on
 2026-07-25. The Instruments feature landed afterwards and its paths are recorded
 here by hand — re-generate the whole file next time the snapshot is refreshed.
 
-Verified against the running API on 2026-08-06 (`curl -sk https://localhost:3001/docs/json`,
-counted with `python -c "import json;print(len(json.load(open(...))['paths']))"`):
-**148 paths** (139 above + the 9 below).
+Re-derived against the running API on 2026-08-06, after the multi-protocol
+listener work:
 
-The previous update to this section (2026-08-05, 144 = 139 + 5) undercounted
+```bash
+curl -s http://127.0.0.1:3001/docs/json -o docs.json
+node -e "const d=require('./docs.json');console.log(Object.keys(d.paths).length)"
+# -> 149
+```
+
+**150 addressable HTTP paths: 149 in the OpenAPI document, plus one it can never
+contain.** `GET /api/ingest/v1/ws` is missing from the spec because
+`@fastify/websocket` forces `schema.hide = true` on every websocket route — an
+HTTP upgrade is not expressible in OpenAPI 3.0 — so the route's `schema` block
+is in-source documentation only. **Anyone re-deriving this number from
+`/docs/json` will get 149 and be wrong by one**; state the adjustment rather
+than publishing the raw count.
+
+The **TCP and MQTT listeners are not HTTP routes at all** and will never appear
+here under any count. TCP is a socket server on `INGEST_TCP_PORT`; MQTT is an
+outbound subscription to an external broker. The only HTTP surface MQTT has is
+`POST /api/ingest/v1/mqtt-auth` below, which the broker calls — devices never
+touch it.
+
+The 149 is one more than the 148 recorded on 2026-08-06 earlier the same day;
+the addition is `mqtt-auth`. The 2026-08-05 update (144 = 139 + 5) undercounted
 even at the time — `/api/instruments/{id}/telemetry` and
-`/api/instruments/{id}/dead-letters` were already live (added with the
-Instruments UI work, before the gateway feature) but had never been added to
-this table. Both are included below along with the two genuinely new gateway
-paths, `eligible-children` and `{id}/children`.
+`/api/instruments/{id}/dead-letters` were already live but had never been added
+to this table.
 
 ### /instruments — 8 paths (registry; JWT + permission gated)
 
@@ -282,12 +300,22 @@ response schemas — create and regenerate. Everything else returns
 `tokenPrefix` only, and Fastify's response serialisation is what enforces
 that, not handler discipline.
 
-### /ingest/v1 — 1 path (device-facing; NOT behind the auth hook)
+### /ingest/v1 — 3 paths (device-facing; NOT behind the auth hook)
 
 | Method(s) | Path | Summary |
 |---|---|---|
 | POST | `/api/ingest/v1/telemetry` | Submit telemetry, authenticated by a per-instrument device token (`Authorization: Bearer <token>`). A gateway's token may also submit a batch (`{"devices": {"<child code>": {...}}}`) covering its linked children; a non-gateway token sending a batch gets `400 NOT_A_GATEWAY`. Unknown/unowned child codes are dead-lettered against the gateway and the rest of the batch is still accepted, returning `{accepted, rejected}`. |
+| POST | `/api/ingest/v1/mqtt-auth` | **Called by the broker, never by a device.** EMQX's `http` authenticator hook: body `{clientid, username, password}`, response `{"result": "allow" \| "deny"}`. `username` is the device token, resolved through the same `resolveInstrumentByToken` as every other transport; `clientid` must equal the resolved instrument's `code` or the answer is `deny`. That binding is what makes the broker's `instruments/${clientid}/telemetry` topic ACL a real authorisation rule. Deny is the default on every unexpected body shape. Because EMQX asks per CONNECT instead of holding a credential, revocation takes effect on the next connection. Rate limited to 600/min, body-capped at 8 KB. |
+| GET | `/api/ingest/v1/ws` | WebSocket upgrade (`wss://` is the same route behind `API_HTTPS=true`). Token from either the `Authorization: Bearer` header on the upgrade or the first frame `{"token":"..."}`; one JSON reading per frame thereafter, gateway batches included. Per-frame cap 64 KB, 600 messages/min per connection, 5 s absolute deadline to authenticate. **Absent from `/docs/json` by construction** — `@fastify/websocket` sets `schema.hide = true` on every websocket route. A missing allowlist entry shows up as `401` at the handshake, before any frame, not as a close code. |
 
-This is the only route reachable without a login. It is on the auth-hook
-allowlist (invariant-tested in `plugins/__tests__/public-paths.test.ts`), rate
-limited to 600/min, and body-capped at 64 KB.
+These are the only routes reachable without a login, and the allowlist is pinned
+to exactly these three by an invariant test
+(`plugins/__tests__/public-paths.test.ts`) — that test failing when you add a
+route is the system working. `/telemetry` is rate limited to 600/min and
+body-capped at 64 KB.
+
+**Two ingest listeners have no HTTP surface whatsoever** and so appear nowhere
+in this file's counts: the raw TCP server (`INGEST_TCP_PORT`, newline-delimited
+JSON, first line `{"token":"..."}`) and the MQTT bridge (an outbound QoS-1
+subscription to `instruments/+/telemetry` on the broker at `MQTT_BROKER_URL`).
+Both funnel into the same `ingestPayload()` core as the routes above.
