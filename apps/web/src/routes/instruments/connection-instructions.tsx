@@ -80,6 +80,44 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
+/**
+ * States the credential three (or four) ways so a technician can fill a
+ * device's own configuration form without inferring anything from a command.
+ *
+ * Every protocol gets Token / Username / Password: a device's config screen
+ * commonly asks for a generic username+password pair even when the wire
+ * protocol underneath is bearer-auth or a bare token field, and a technician
+ * with no protocol expertise should not have to guess which box the token
+ * goes in. Password is never rendered blank — an empty value reads as a
+ * rendering bug and invites the technician to invent something — so it says
+ * the words "leave empty" instead.
+ *
+ * Client ID is the one field that is NOT universal: only MQTT and MQTTS
+ * require it (the broker's ACL templates on `${clientid}` and its auth hook
+ * refuses any CONNECT whose clientid does not match the token's instrument),
+ * so it is shown only for those two and left out everywhere else to avoid
+ * cluttering protocols that have no such concept.
+ */
+function CredentialRows({
+  token,
+  code,
+  showClientId,
+}: {
+  token: string;
+  code: string;
+  showClientId: boolean;
+}) {
+  return (
+    <div className="space-y-1 rounded-lg border border-slate-200 bg-slate-50 p-3">
+      <Row label="Token" value={token} />
+      <Row label="Username" value={token} />
+      <p className="text-xs text-slate-500">Username is the same as the token.</p>
+      <Row label="Password" value="leave empty" />
+      {showClientId && <Row label="Client ID" value={code} />}
+    </div>
+  );
+}
+
 export interface ConnectionInstructionsProps {
   /** Optional — picks the switcher's initial tab only. Not a stored fact. */
   transport?: string;
@@ -152,11 +190,15 @@ export function ConnectionInstructions({
       </p>
     );
   } else {
+    const showClientId = selected === 'mqtt' || selected === 'mqtts';
+    const credentialRows = <CredentialRows token={tok} code={code} showClientId={showClientId} />;
+
     switch (selected) {
       case 'http':
       case 'https':
         body = (
           <>
+            {credentialRows}
             <Row label="Endpoint" value={`POST ${httpUrl}`} />
             <Row label="Auth" value={`Authorization: Bearer ${tok}`} />
             <CodeBlock
@@ -174,10 +216,8 @@ export function ConnectionInstructions({
       case 'mqtts':
         body = (
           <>
+            {credentialRows}
             <Row label="Topic" value={topic} />
-            <Row label="Client ID" value={code} />
-            <Row label="Username" value={tok} />
-            <Row label="Password" value="(empty — but it must be sent)" />
             <CodeBlock
               text={`mosquitto_pub -h <broker-host> -p ${selected === 'mqtts' ? '8883' : '1883'} \\\n${selected === 'mqtts' ? '  --cafile "<ca-cert.pem>" \\\n' : ''}  -i "${code}" \\\n  -t "${topic}" \\\n  -u "${tok}" \\\n  -P "" \\\n  -m '${isGateway ? devicesPayload : '{"temperature": 21.5}'}'`}
             />
@@ -216,6 +256,7 @@ export function ConnectionInstructions({
       case 'wss':
         body = (
           <>
+            {credentialRows}
             <Row label="Endpoint" value={wsUrl} />
             <Row label="Auth" value={`Authorization: Bearer ${tok}`} />
             <CodeBlock
@@ -228,6 +269,7 @@ export function ConnectionInstructions({
       case 'tcp':
         body = (
           <>
+            {credentialRows}
             <Row label="Host / port" value="<server-host>:1884" />
             <Row label="Framing" value="One JSON object per line (newline-delimited)" />
             <CodeBlock

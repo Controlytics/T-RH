@@ -106,6 +106,63 @@ describe('ConnectionInstructions', () => {
   });
 });
 
+describe('ConnectionInstructions — credential triple', () => {
+  it('presents Username as equal to the token, for every protocol', () => {
+    // Not "similar to" — a technician pastes this into a config form's
+    // Username box, so the displayed value must be the literal token, not a
+    // paraphrase, and the row must say the two are the same thing.
+    for (const t of ['http', 'https', 'websocket', 'wss', 'tcp', 'mqtt', 'mqtts']) {
+      const { unmount } = render(<ConnectionInstructions transport={t} code="T-1" token="TOK" />);
+      const usernameRow = screen.getByText('Username').closest('div');
+      expect(usernameRow).not.toBeNull();
+      expect(usernameRow?.textContent).toContain('TOK');
+      expect(screen.getByText(/Username is the same as the token/i)).toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it('tells Password to be left empty rather than rendering a blank value', () => {
+    render(<ConnectionInstructions transport="http" code="T-1" token="TOK" />);
+    const passwordRow = screen.getByText('Password').closest('div');
+    expect(passwordRow?.textContent).toMatch(/leave empty/i);
+    // A blank value would render as just the label with nothing after it —
+    // guard against that regression directly.
+    expect(passwordRow?.textContent).not.toBe('Password');
+  });
+
+  it('shows Client ID with the instrument code for MQTT and MQTTS', () => {
+    for (const t of ['mqtt', 'mqtts']) {
+      const { unmount } = render(<ConnectionInstructions transport={t} code="T-1" token="TOK" />);
+      const clientIdRow = screen.getByText('Client ID').closest('div');
+      expect(clientIdRow?.textContent).toContain('T-1');
+      unmount();
+    }
+  });
+
+  it('does not show a Client ID row for protocols that have no such concept', () => {
+    for (const t of ['http', 'https', 'websocket', 'wss', 'tcp']) {
+      const { unmount } = render(<ConnectionInstructions transport={t} code="T-1" token="TOK" />);
+      expect(screen.queryByText('Client ID')).not.toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it('shows an explicit Token row for every protocol', () => {
+    for (const t of ['http', 'https', 'websocket', 'wss', 'tcp', 'mqtt', 'mqtts']) {
+      const { unmount } = render(<ConnectionInstructions transport={t} code="T-1" token="TOK" />);
+      const tokenRow = screen.getByText('Token').closest('div');
+      expect(tokenRow?.textContent).toContain('TOK');
+      unmount();
+    }
+  });
+
+  it('keeps the MQTT pasteable command carrying -i <code> and -P "" alongside the labelled rows', () => {
+    render(<ConnectionInstructions transport="mqtt" code="T-1" token="TOK" />);
+    expect(screen.getAllByText(/-i "T-1"/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/-P ""/).length).toBeGreaterThan(0);
+  });
+});
+
 describe('ConnectionInstructions — gateway', () => {
   it('shows the devices batch shape naming this gateway\'s real children', () => {
     render(
