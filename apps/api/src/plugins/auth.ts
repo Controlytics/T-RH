@@ -178,6 +178,11 @@ const PUBLIC_PATHS = [
   // ingest-routes.ts, NOT by a user JWT — so it must bypass this hook.
   // Guarded by plugins/__tests__/public-paths.test.ts.
   '/api/ingest/v1/telemetry',
+  // Same device-token authentication, on the WebSocket upgrade request instead
+  // of a POST. The upgrade goes through this hook like any GET, so without the
+  // exemption the handshake fails with a 401 before ws-listener.ts ever sees
+  // the token. Guarded by the same test.
+  '/api/ingest/v1/ws',
   // 2026-07-03: removed 6 stale JWT-skip entries whose routes were deleted in the
   // Phase 7 data-ingestion + MQTT tear-out — no route is registered for any of
   // them, so the allowlist entries were dead cruft:

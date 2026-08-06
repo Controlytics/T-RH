@@ -21,13 +21,20 @@ describe('auth plugin public paths', () => {
       '/api/guest/cleaning-request',
       '/api/health',
       '/api/ingest/v1/telemetry',
+      '/api/ingest/v1/ws',
       '/api/notification-settings/email/oauth2/code',
       '/docs',
       '/docs/',
     ]);
   });
 
-  it('exposes exactly one ingest path in P1', () => {
-    expect(paths.filter((p) => p.startsWith('/api/ingest/'))).toEqual(['/api/ingest/v1/telemetry']);
+  it('exposes exactly the two device-token ingest paths', () => {
+    // Both authenticate on a per-instrument token instead of a user JWT: the
+    // HTTP POST and the WebSocket upgrade. Any third entry under /api/ingest/
+    // is a new unauthenticated surface and belongs in a review, not a diff.
+    expect(paths.filter((p) => p.startsWith('/api/ingest/'))).toEqual([
+      '/api/ingest/v1/telemetry',
+      '/api/ingest/v1/ws',
+    ]);
   });
 });

@@ -5,6 +5,7 @@ import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import multipart from '@fastify/multipart';
+import websocket from '@fastify/websocket';
 import fastifyStatic from '@fastify/static';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -47,6 +48,7 @@ import { AppError } from './lib/errors.js';
 import { dispatchNotification } from './modules/notification-delivery/notification-dispatcher.js';
 import adminRequestRoutes from './modules/admin-requests/routes.js';
 import ingestRoutes from './modules/instruments/ingest-routes.js';
+import wsIngestRoutes from './modules/instruments/listeners/ws-listener.js';
 import instrumentRoutes from './modules/instruments/routes.js';
 import { startTcpListener, type TcpListenerHandle } from './modules/instruments/listeners/tcp-listener.js';
 
@@ -152,6 +154,14 @@ await app.register(multipart, {
     files: 1,
   },
 });
+// WebSocket support, re-added 2026-08-06 for the device ingest upgrade endpoint
+// (`/api/ingest/v1/ws`). It was stripped as dead code in 2026-07 when the last
+// pub/sub consumer went; it is LOAD-BEARING again — see ws-listener.ts.
+// `maxPayload` is the library's memory backstop on fragment reassembly,
+// deliberately far ABOVE the listener's own 64 KB frame cap: set to the same
+// value, `ws` would close the connection first and the handler's cap (which is
+// what bounds the gateway batch path) would never run.
+await app.register(websocket, { options: { maxPayload: 1024 * 1024 } });
 
 // Serve uploaded files. UPLOADS_ROOT honors UPLOAD_DIR (customer install points
 // it at C:\ProgramData\DigiLog\uploads) — must match the photo writer in
@@ -345,6 +355,10 @@ await app.register(ldapRoutes, { prefix: "/api/ldap" });
 await app.register(dashboardRoutes, { prefix: "/api/dashboards" });
 await app.register(adminRequestRoutes, { prefix: '/api/admin-requests' });
 await app.register(ingestRoutes, { prefix: '/api/ingest/v1' });
+// Same device-token credential, over a WebSocket upgrade instead of a POST.
+// Also on the auth-hook allowlist (plugins/auth.ts) — the upgrade request runs
+// through the onRequest hook like any other GET.
+await app.register(wsIngestRoutes, { prefix: '/api/ingest/v1' });
 // Operator-facing registry. Unlike /api/ingest/v1 above, this one is behind the
 // global auth hook and permission-gated — it is NOT on the public allowlist.
 await app.register(instrumentRoutes, { prefix: '/api/instruments' });

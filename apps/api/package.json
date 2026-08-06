@@ -21,6 +21,7 @@
     "@fastify/static": "^10.1.0",
     "@fastify/swagger": "^9.7.0",
     "@fastify/swagger-ui": "^5.2.5",
+    "@fastify/websocket": "^11.3.0",
     "@prisma/client": "^6.3.0",
     "adm-zip": "^0.5.16",
     "bcrypt": "^5.1.1",
@@ -41,9 +42,11 @@
     "@types/node": "^22.0.0",
     "@types/nodemailer": "^7.0.11",
     "@types/sanitize-html": "^2.16.1",
+    "@types/ws": "^8.18.1",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
-    "vitest": "^3.0.0"
+    "vitest": "^3.0.0",
+    "ws": "^8.21.2"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

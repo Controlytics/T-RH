@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
+import websocket from '@fastify/websocket';
 import authPlugin from '../plugins/auth.js';
 import rbacPlugin from '../plugins/rbac.js';
 import authRoutes from '../modules/auth/routes.js';
@@ -14,6 +15,7 @@ import userGroupRoutes from '../modules/user-groups/routes.js';
 import backupRoutes from '../modules/backup/routes.js';
 import systemHealthRoutes from '../modules/system-health/routes.js';
 import ingestRoutes from '../modules/instruments/ingest-routes.js';
+import wsIngestRoutes, { type WsIngestOptions } from '../modules/instruments/listeners/ws-listener.js';
 import instrumentRoutes from '../modules/instruments/routes.js';
 import { prisma } from '../lib/prisma.js';
 import { AppError } from '../lib/errors.js';
@@ -25,7 +27,14 @@ export const ADMIN_PASSWORD = 'Admin@123';
  * Build a Fastify instance for integration testing.
  * Uses app.inject() — no actual HTTP server is started.
  */
-export async function buildApp(): Promise<FastifyInstance> {
+export async function buildApp(
+  /**
+   * `wsIngest` lets a WebSocket test build an app whose auth deadline, frame
+   * cap or rate cap is short enough to trip on purpose. Left unset everywhere
+   * else, so no other suite's timings change.
+   */
+  opts: { wsIngest?: WsIngestOptions } = {},
+): Promise<FastifyInstance> {
   const app = Fastify({
     logger: false, // quiet during tests
     ajv: {
@@ -37,6 +46,11 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   await app.register(cors, { origin: true, credentials: true });
   await app.register(multipart, { limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
+  // Mirrors app.ts. `maxPayload` is the library's memory backstop on fragment
+  // reassembly, deliberately far ABOVE the listener's own 64 KB frame cap — set
+  // to the same value it would close the connection first and the handler's cap
+  // (the one the batch path depends on) would never be exercised.
+  await app.register(websocket, { options: { maxPayload: 1024 * 1024 } });
 
   // Plugins
   await app.register(authPlugin);
@@ -74,6 +88,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(backupRoutes, { prefix: '/api/backup' });
   await app.register(systemHealthRoutes, { prefix: '/api/system-health' });
   await app.register(ingestRoutes, { prefix: '/api/ingest/v1' });
+  await app.register(wsIngestRoutes, { ...opts.wsIngest, prefix: '/api/ingest/v1' });
   await app.register(instrumentRoutes, { prefix: '/api/instruments' });
 
   await app.ready();
