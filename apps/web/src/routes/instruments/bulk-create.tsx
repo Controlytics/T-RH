@@ -123,8 +123,10 @@ export function InstrumentBulkCreatePage() {
                     </p>
                     <p className="mt-1 text-xs text-amber-800">
                       Store it securely and delete it once the devices are configured.
-                      Tokens cannot be retrieved later — they exist only here and in
-                      whatever you save now.
+                      A single token can be revealed again from its instrument&apos;s
+                      Access token panel, but only one at a time, each needing your
+                      password and each recorded in the audit trail — this file is
+                      the only place all of them appear together.
                     </p>
                   </div>
                   <Button onClick={downloadResults}>Download results CSV (contains tokens)</Button>

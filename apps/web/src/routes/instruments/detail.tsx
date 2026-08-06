@@ -15,12 +15,20 @@ import { ReauthDialog } from '@/components/reauth-dialog';
 import { ConnectionInstructions } from './connection-instructions';
 import { TokenDialog } from './token-dialog';
 import { GatewayPanel } from './gateway-panel';
+import { TokenPanel } from './token-panel';
+import { AttributesPanel } from './attributes-panel';
 
 interface Instrument {
   id: string; name: string; code: string; isActive: boolean;
   instrumentType: string | null; manufacturer: string | null; model: string | null;
   serialNumber: string | null; description: string | null; expectedIntervalSec: number | null;
   tokenPrefix: string | null; lastSeenAt: string | null;
+  /**
+   * Whether `GET /:id/token` can actually return a value: the credential has
+   * ciphertext AND the server has a usable INSTRUMENT_TOKEN_KEY. False for
+   * anything issued before 2026-08-06. Says nothing about the value itself.
+   */
+  tokenRevealable: boolean;
   createdAt: string; createdBy: string | null;
   block: string | null; area: string | null; location: string | null;
   isGateway: boolean; gatewayId: string | null; lastSeenVia: string | null;
@@ -61,6 +69,21 @@ export function InstrumentDetailPage() {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Partial<Instrument>>({});
   const [newToken, setNewToken] = useState<string | null>(null);
+  /**
+   * The revealed token. Route-local `useState` ON PURPOSE — it unmounts when
+   * the operator navigates away, which IS the required re-hide. Putting it in
+   * SWR would keep it in the cache across unmount and redisplay a live device
+   * credential on return with no re-auth, which on a shared workstation is the
+   * failure this whole feature invites. Do not "lift" it into a fetch hook.
+   */
+  const [revealedToken, setRevealedToken] = useState<string | null>(null);
+  /**
+   * Which action the one shared ReauthDialog is currently challenging for. It
+   * used to be hardcoded to "Regenerate Instrument Token"; with reveal and set
+   * sharing the dialog that label would be a lie two times out of three, and a
+   * password prompt that misnames what it is authorising is worse than none.
+   */
+  const [reauthLabel, setReauthLabel] = useState('Instrument Token');
 
   if (!inst) return <div className="py-10 text-center text-slate-400">Loading…</div>;
 
@@ -90,16 +113,68 @@ export function InstrumentDetailPage() {
     }
   };
 
+  /**
+   * All three token actions go through `reauth.execute()`, and none of them is
+   * listed in `REAUTH_ACTIONS` any more — they use `enforceReauthAlways`
+   * server-side, so there is no per-role policy for `my-actions` to report.
+   * That means `needsReauth()` is always false here and the dialog does NOT
+   * pre-open: the first attempt goes out with no password, the backend answers
+   * 401 `REAUTH_REQUIRED`, and `execute` opens the dialog retroactively and
+   * replays the call with the password. That retroactive path already exists
+   * for stale-SWR cases and is tested; reusing it keeps one code path for every
+   * gated action on the page instead of a bespoke prompt for these three.
+   *
+   * The cost is one wasted round trip per action. Accepted: the alternative is
+   * a second prompt implementation that would drift from the shared one.
+   */
   const regenerate = async () => {
+    setReauthLabel('Regenerate Instrument Token');
     await reauth.execute('REGENERATE_INSTRUMENT_TOKEN', async (password?: string) => {
       const res = password
         ? await apiClient.postWithReauth<{ token: string }>(`/api/instruments/${inst.id}/regenerate-token`, {}, password)
         : await apiClient.post<{ token: string }>(`/api/instruments/${inst.id}/regenerate-token`, {});
+      // The old value is dead — clear it so the connection panel cannot keep
+      // showing a revoked credential in a command a technician might paste.
+      setRevealedToken(null);
       setNewToken(res.token);
       void mutate();
     }, {
       onError: (err: unknown) =>
         toast.error('Regeneration failed', (err as { message?: string })?.message ?? 'Could not regenerate the token.'),
+    });
+  };
+
+  const revealToken = async () => {
+    setReauthLabel('Reveal Instrument Token');
+    await reauth.execute('REVEAL_INSTRUMENT_TOKEN', async (password?: string) => {
+      const res = password
+        ? await apiClient.getWithReauth<{ token: string }>(`/api/instruments/${inst.id}/token`, password)
+        : await apiClient.get<{ token: string }>(`/api/instruments/${inst.id}/token`);
+      setRevealedToken(res.token);
+    }, {
+      // The backend distinguishes TOKEN_NOT_RECOVERABLE / TOKEN_KEY_MISSING /
+      // TOKEN_DECRYPT_FAILED because each has a different remedy, and its
+      // messages say which. Surface them verbatim rather than flattening all
+      // three into "could not reveal".
+      onError: (err: unknown) =>
+        toast.error('Could not reveal the token', (err as { message?: string })?.message ?? 'The token could not be shown.'),
+    });
+  };
+
+  const setToken = async (token: string) => {
+    setReauthLabel('Set Instrument Token');
+    await reauth.execute('SET_INSTRUMENT_TOKEN', async (password?: string) => {
+      if (password) await apiClient.putWithReauth(`/api/instruments/${inst.id}/token`, { token }, password);
+      else await apiClient.put(`/api/instruments/${inst.id}/token`, { token });
+      // The response returns only the prefix — the value is never echoed. Show
+      // the one the operator just typed: they already know it, and it is what
+      // the connection command below has to carry to be runnable.
+      setRevealedToken(token);
+      void mutate();
+      toast.success('Token replaced', `${inst.code} must be reconfigured with the new token.`);
+    }, {
+      onError: (err: unknown) =>
+        toast.error('Could not set the token', (err as { message?: string })?.message ?? 'The token was not changed.'),
     });
   };
 
@@ -221,19 +296,45 @@ export function InstrumentDetailPage() {
         <Card>
           <CardHeader><CardTitle>Connection</CardTitle></CardHeader>
           <CardContent>
+            {/* The revealed value flows all the way through: the labelled
+                Token / Username rows AND the paste-ready command. A command
+                showing <ACCESS_TOKEN> when the operator has just revealed the
+                real one is worse than showing none — it looks runnable. */}
             <ConnectionInstructions
               code={inst.code}
+              token={revealedToken ?? undefined}
               isGateway={inst.isGateway}
               childCodes={children?.data.map((c) => c.code)}
               gatewayCode={gatewayInst?.code}
             />
-            <p className="mt-3 text-xs text-slate-500">
-              The token is not shown here — it is stored hashed. Use
-              &ldquo;Regenerate token&rdquo; to issue a new one, which revokes the current one.
-            </p>
+            {!revealedToken && (
+              <p className="mt-3 text-xs text-slate-500">
+                <span className="font-mono">&lt;ACCESS_TOKEN&gt;</span> above is a
+                placeholder. Reveal the token in the panel below to fill it in.
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader><CardTitle>Access token</CardTitle></CardHeader>
+        <CardContent>
+          <TokenPanel
+            code={inst.code}
+            tokenPrefix={inst.tokenPrefix}
+            tokenRevealable={inst.tokenRevealable}
+            canEdit={can('instruments.edit')}
+            token={revealedToken}
+            onHide={() => setRevealedToken(null)}
+            onReveal={revealToken}
+            onSetToken={setToken}
+            onRegenerate={regenerate}
+          />
+        </CardContent>
+      </Card>
+
+      <AttributesPanel instrumentId={inst.id} canEdit={can('instruments.edit')} />
 
       {inst.isGateway && <GatewayPanel instrumentId={inst.id} canEdit={can('instruments.edit')} />}
 
@@ -308,7 +409,7 @@ export function InstrumentDetailPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={reauth.cancel}
-        actionLabel="Regenerate Instrument Token"
+        actionLabel={reauthLabel}
       />
     </div>
   );

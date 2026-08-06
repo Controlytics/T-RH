@@ -55,8 +55,10 @@ export function InstrumentCreatePage() {
       <div>
         <h1 className="text-2xl font-semibold text-slate-900">New Instrument</h1>
         <p className="text-sm text-slate-500">
-          Registering an instrument issues its access token. The token is shown
-          once, immediately after saving, and cannot be retrieved afterwards.
+          Registering an instrument issues its access token. It is shown
+          immediately after saving, and can be revealed again later from the
+          instrument&apos;s Access token panel — with your password, and recorded
+          in the audit trail.
         </p>
       </div>
 

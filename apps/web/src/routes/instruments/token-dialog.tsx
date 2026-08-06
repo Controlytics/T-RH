@@ -5,12 +5,17 @@ import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
 import { ConnectionInstructions } from './connection-instructions';
 
 /**
- * The one-time credential dialog.
+ * The just-issued credential dialog.
  *
- * The token is stored hashed, so this is the only moment it can be shown. That
- * makes the copy affordance and the "shown once" warning load-bearing UI, not
- * decoration — an operator who dismisses this without copying has to regenerate,
- * which revokes the credential the device may already have been given.
+ * It used to say the token could never be shown again — true until 2026-08-06,
+ * when spec D5 was reversed and `GET /:id/token` gained the ability to reveal
+ * it (encrypted at rest, INSTRUMENT_UPDATE, always-on password, one audit row
+ * per view). Leaving the old warning here would have taught operators to treat
+ * a lost token as unrecoverable and regenerate — needlessly killing a working
+ * field device — so the text now says what is actually true.
+ *
+ * The copy affordance stays load-bearing: copying now is still free, whereas
+ * getting it back later costs a password and leaves a record.
  */
 export function TokenDialog({
   open, title, code, token, onClose,
@@ -33,11 +38,12 @@ export function TokenDialog({
       <div className="space-y-4 px-6 py-4">
         <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
           <p className="text-sm font-semibold text-amber-900">
-            This is the only time this token will be shown.
+            Copy this token now.
           </p>
           <p className="mt-1 text-xs text-amber-800">
-            It is stored hashed and cannot be retrieved. If it is lost you must
-            regenerate it, which immediately stops the old one from working.
+            It can be revealed again later from this instrument&apos;s Access
+            token panel, but that needs your password and is recorded in the
+            audit trail against your user.
           </p>
         </div>
 
