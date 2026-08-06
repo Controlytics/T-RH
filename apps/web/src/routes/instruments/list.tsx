@@ -20,6 +20,11 @@ interface InstrumentRow {
   isActive: boolean;
   tokenPrefix: string | null;
   lastSeenAt: string | null;
+  lastSeenVia: string | null;
+  isGateway: boolean;
+  block: string | null;
+  area: string | null;
+  location: string | null;
 }
 interface ListResponse {
   data: InstrumentRow[];
@@ -37,17 +42,35 @@ export function InstrumentListPage() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [transport, setTransport] = useState('');
   const [active, setActive] = useState('');
+  const [block, setBlock] = useState('');
+  const [debouncedBlock, setDebouncedBlock] = useState('');
+  const [area, setArea] = useState('');
+  const [debouncedArea, setDebouncedArea] = useState('');
+  const [location, setLocation] = useState('');
+  const [debouncedLocation, setDebouncedLocation] = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const placementDebounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
     debounceRef.current = setTimeout(() => { setDebouncedSearch(search); setPage(1); }, 300);
     return () => clearTimeout(debounceRef.current);
   }, [search]);
 
+  useEffect(() => {
+    placementDebounceRef.current = setTimeout(() => {
+      setDebouncedBlock(block); setDebouncedArea(area); setDebouncedLocation(location);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(placementDebounceRef.current);
+  }, [block, area, location]);
+
   const params = new URLSearchParams({ page: String(page), limit: String(perPage) });
   if (debouncedSearch) params.set('search', debouncedSearch);
   if (transport) params.set('transport', transport);
   if (active) params.set('isActive', active);
+  if (debouncedBlock) params.set('block', debouncedBlock);
+  if (debouncedArea) params.set('area', debouncedArea);
+  if (debouncedLocation) params.set('location', debouncedLocation);
 
   const { data, isLoading } = useSWR<ListResponse>(`/api/instruments?${params}`);
   const rows = data?.data ?? [];
@@ -93,6 +116,9 @@ export function InstrumentListPage() {
           <option value="true">Active</option>
           <option value="false">Inactive</option>
         </Select>
+        <Input className="w-36" placeholder="Block" value={block} onChange={(e) => setBlock(e.target.value)} />
+        <Input className="w-36" placeholder="Area" value={area} onChange={(e) => setArea(e.target.value)} />
+        <Input className="w-36" placeholder="Location" value={location} onChange={(e) => setLocation(e.target.value)} />
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white">
@@ -123,7 +149,12 @@ export function InstrumentListPage() {
             )}
             {rows.map((r) => (
               <TableRow key={r.id}>
-                <TableCell className="font-medium text-slate-900">{r.name}</TableCell>
+                <TableCell className="font-medium text-slate-900">
+                  <span className="flex items-center gap-2">
+                    {r.name}
+                    {r.isGateway && <Badge variant="outline">Gateway</Badge>}
+                  </span>
+                </TableCell>
                 <TableCell className="font-mono text-xs">{r.code}</TableCell>
                 <TableCell><Badge variant="secondary">{r.transport}</Badge></TableCell>
                 <TableCell>
@@ -133,7 +164,14 @@ export function InstrumentListPage() {
                 </TableCell>
                 <TableCell className="text-sm text-slate-600">
                   {r.lastSeenAt
-                    ? `${formatDate(r.lastSeenAt)} ${formatTime(r.lastSeenAt)}`
+                    ? (
+                        <>
+                          {formatDate(r.lastSeenAt)} {formatTime(r.lastSeenAt)}
+                          {r.lastSeenVia === 'gateway' && (
+                            <span className="ml-1 text-xs text-slate-400">(via gateway)</span>
+                          )}
+                        </>
+                      )
                     : <span className="text-slate-400">Never</span>}
                 </TableCell>
                 <TableCell className="font-mono text-xs text-slate-500">

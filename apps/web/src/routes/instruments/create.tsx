@@ -20,7 +20,9 @@ export function InstrumentCreatePage() {
     name: '', code: '', transport: 'http',
     instrumentType: '', manufacturer: '', model: '', serialNumber: '',
     description: '', expectedIntervalSec: '',
+    block: '', area: '', location: '',
   });
+  const [isGateway, setIsGateway] = useState(false);
 
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -34,10 +36,11 @@ export function InstrumentCreatePage() {
       };
       // Send only what was filled. Posting '' for an optional field would store
       // an empty string where the schema means "not recorded".
-      for (const k of ['instrumentType', 'manufacturer', 'model', 'serialNumber', 'description'] as const) {
+      for (const k of ['instrumentType', 'manufacturer', 'model', 'serialNumber', 'description', 'block', 'area', 'location'] as const) {
         if (form[k].trim()) payload[k] = form[k].trim();
       }
       if (form.expectedIntervalSec.trim()) payload.expectedIntervalSec = Number(form.expectedIntervalSec);
+      if (isGateway) payload.isGateway = true;
 
       const res = await apiClient.post<CreatedInstrument>('/api/instruments', payload);
       setCreated(res);
@@ -68,7 +71,7 @@ export function InstrumentCreatePage() {
               <Input required value={form.name} onChange={set('name')} placeholder="Cleanroom probe A" />
             </label>
             <label className="space-y-1">
-              <span className="text-sm font-medium text-slate-700">Code *</span>
+              <span className="text-sm font-medium text-slate-700">Instrument ID *</span>
               <Input
                 required value={form.code} onChange={set('code')} placeholder="PROBE-A1"
                 pattern="[A-Za-z0-9._\-]+"
@@ -93,6 +96,38 @@ export function InstrumentCreatePage() {
                 type="number" min={1} value={form.expectedIntervalSec}
                 onChange={set('expectedIntervalSec')} placeholder="Leave blank to exempt"
               />
+            </label>
+            <label className="flex items-start gap-2 pt-6 text-sm text-slate-700 sm:col-span-2">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={isGateway}
+                onChange={(e) => setIsGateway(e.target.checked)}
+              />
+              <span>
+                <span className="font-medium">Is Gateway</span>
+                <span className="block text-xs text-slate-500">
+                  A gateway reports telemetry on behalf of the instruments linked to it.
+                </span>
+              </span>
+            </label>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader><CardTitle>Placement (optional)</CardTitle></CardHeader>
+          <CardContent className="grid gap-4 sm:grid-cols-3">
+            <label className="space-y-1">
+              <span className="text-sm font-medium text-slate-700">Block</span>
+              <Input value={form.block} onChange={set('block')} />
+            </label>
+            <label className="space-y-1">
+              <span className="text-sm font-medium text-slate-700">Area</span>
+              <Input value={form.area} onChange={set('area')} />
+            </label>
+            <label className="space-y-1">
+              <span className="text-sm font-medium text-slate-700">Location</span>
+              <Input value={form.location} onChange={set('location')} />
             </label>
           </CardContent>
         </Card>

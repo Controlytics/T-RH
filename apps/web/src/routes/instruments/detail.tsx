@@ -16,6 +16,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { ConnectionInstructions } from './connection-instructions';
 import { TokenDialog } from './token-dialog';
+import { GatewayPanel } from './gateway-panel';
 
 interface Instrument {
   id: string; name: string; code: string; transport: string; isActive: boolean;
@@ -23,7 +24,10 @@ interface Instrument {
   serialNumber: string | null; description: string | null; expectedIntervalSec: number | null;
   tokenPrefix: string | null; lastSeenAt: string | null;
   createdAt: string; createdBy: string | null;
+  block: string | null; area: string | null; location: string | null;
+  isGateway: boolean; gatewayId: string | null; lastSeenVia: string | null;
 }
+interface ChildInstrument { id: string; code: string; name: string; isActive: boolean }
 interface Reading { key: string; value: unknown; valueType: string; ts: string }
 interface DeadLetter { id: string; transport: string; reason: string; rawPayload: string | null; receivedAt: string }
 
@@ -42,6 +46,18 @@ export function InstrumentDetailPage() {
   );
   const { data: dead } = useSWR<{ data: DeadLetter[]; total: number }>(
     id ? `/api/instruments/${id}/dead-letters?limit=20` : null,
+  );
+  // Same key GatewayPanel uses below — SWR dedupes, so this doesn't double the
+  // request. Needed here too because the batch payload shown in the Connection
+  // card above the panel has to reflect the real linked children.
+  const { data: children } = useSWR<{ data: ChildInstrument[] }>(
+    id ? `/api/instruments/${id}/children` : null,
+  );
+  // A child instrument shows which gateway (if any) also reports it. The
+  // instrument record only carries `gatewayId`, so the parent's code needs
+  // its own lookup.
+  const { data: gatewayInst } = useSWR<Instrument>(
+    id && inst?.gatewayId ? `/api/instruments/${inst.gatewayId}` : null,
   );
 
   const [editing, setEditing] = useState(false);
@@ -62,11 +78,16 @@ export function InstrumentDetailPage() {
         model: draft.model || null, serialNumber: draft.serialNumber || null,
         description: draft.description || null,
         expectedIntervalSec: draft.expectedIntervalSec ? Number(draft.expectedIntervalSec) : null,
+        block: draft.block || null, area: draft.area || null, location: draft.location || null,
+        isGateway: draft.isGateway ?? false,
       });
       setEditing(false);
       void mutate();
       toast.success('Instrument updated', `"${inst.code}" saved.`);
     } catch (err: unknown) {
+      // D6: disabling Is Gateway while children remain is refused with a 409
+      // whose message already names the children — surface it verbatim rather
+      // than writing a generic one, it carries the detail the operator needs.
       toast.error('Update failed', (err as { message?: string })?.message ?? 'Could not save.');
     }
   };
@@ -105,6 +126,7 @@ export function InstrumentDetailPage() {
             <h1 className="text-2xl font-semibold text-slate-900">{inst.name}</h1>
             <Badge variant={inst.isActive ? 'success' : 'secondary'}>{inst.isActive ? 'Active' : 'Inactive'}</Badge>
             <Badge variant="secondary">{inst.transport}</Badge>
+            {inst.isGateway && <Badge variant="outline">Gateway</Badge>}
           </div>
           <p className="font-mono text-sm text-slate-500">{inst.code}</p>
         </div>
@@ -130,10 +152,17 @@ export function InstrumentDetailPage() {
                 <dd>{inst.expectedIntervalSec ? `${inst.expectedIntervalSec}s` : 'Exempt'}</dd>
                 <dt className="text-slate-500">Token prefix</dt>
                 <dd className="font-mono text-xs">{inst.tokenPrefix ? `${inst.tokenPrefix}…` : '—'}</dd>
-                <dt className="text-slate-500">Last seen</dt><dd>{stamp(inst.lastSeenAt)}</dd>
+                <dt className="text-slate-500">Last seen</dt>
+                <dd>
+                  {stamp(inst.lastSeenAt)}
+                  {inst.lastSeenVia === 'gateway' && <span className="ml-1 text-xs text-slate-400">(via gateway)</span>}
+                </dd>
                 <dt className="text-slate-500">Created</dt>
                 <dd>{stamp(inst.createdAt)}{inst.createdBy ? ` by ${inst.createdBy}` : ''}</dd>
                 <dt className="text-slate-500">Description</dt><dd>{inst.description || '—'}</dd>
+                <dt className="text-slate-500">Block</dt><dd>{inst.block || '—'}</dd>
+                <dt className="text-slate-500">Area</dt><dd>{inst.area || '—'}</dd>
+                <dt className="text-slate-500">Location</dt><dd>{inst.location || '—'}</dd>
               </dl>
             ) : (
               <div className="space-y-3">
@@ -167,6 +196,28 @@ export function InstrumentDetailPage() {
                   <span className="text-sm text-slate-600">Description</span>
                   <Input value={draft.description ?? ''} onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
                 </label>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <label className="block space-y-1">
+                    <span className="text-sm text-slate-600">Block</span>
+                    <Input value={draft.block ?? ''} onChange={(e) => setDraft({ ...draft, block: e.target.value })} />
+                  </label>
+                  <label className="block space-y-1">
+                    <span className="text-sm text-slate-600">Area</span>
+                    <Input value={draft.area ?? ''} onChange={(e) => setDraft({ ...draft, area: e.target.value })} />
+                  </label>
+                  <label className="block space-y-1">
+                    <span className="text-sm text-slate-600">Location</span>
+                    <Input value={draft.location ?? ''} onChange={(e) => setDraft({ ...draft, location: e.target.value })} />
+                  </label>
+                </div>
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={draft.isGateway ?? false}
+                    onChange={(e) => setDraft({ ...draft, isGateway: e.target.checked })}
+                  />
+                  Is Gateway — reports telemetry on behalf of the instruments linked to it
+                </label>
                 <div className="flex justify-end gap-2">
                   <Button variant="secondary" onClick={() => setEditing(false)}>Cancel</Button>
                   <Button onClick={save}>Save</Button>
@@ -179,7 +230,13 @@ export function InstrumentDetailPage() {
         <Card>
           <CardHeader><CardTitle>Connection</CardTitle></CardHeader>
           <CardContent>
-            <ConnectionInstructions transport={inst.transport} code={inst.code} />
+            <ConnectionInstructions
+              transport={inst.transport}
+              code={inst.code}
+              isGateway={inst.isGateway}
+              childCodes={children?.data.map((c) => c.code)}
+              gatewayCode={gatewayInst?.code}
+            />
             <p className="mt-3 text-xs text-slate-500">
               The token is not shown here — it is stored hashed. Use
               &ldquo;Regenerate token&rdquo; to issue a new one, which revokes the current one.
@@ -187,6 +244,8 @@ export function InstrumentDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      {inst.isGateway && <GatewayPanel instrumentId={inst.id} canEdit={can('instruments.edit')} />}
 
       <Card>
         <CardHeader><CardTitle>Latest readings</CardTitle></CardHeader>
