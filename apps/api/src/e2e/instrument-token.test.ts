@@ -51,10 +51,11 @@ async function newInstrument(prefix: string) {
 }
 
 /**
- * Re-auth on these two endpoints is ALWAYS ON (`enforceReauthAlways`) — not the
- * admin-managed `action-reauth` policy. Every request below therefore carries a
- * password, and the gate test at the bottom proves one is genuinely required
- * even when the policy row exists and does not list these actions.
+ * Re-auth on all three token endpoints (reveal / set / regenerate) is ALWAYS ON
+ * (`enforceReauthAlways`) — not the admin-managed `action-reauth` policy. Every
+ * request below therefore carries a password, and the gate test at the bottom
+ * proves one is genuinely required even when the policy row exists and does not
+ * cover the acting role.
  */
 const reauth = { 'x-reauth-password': 'Admin@123' };
 
@@ -63,6 +64,9 @@ const reveal = (id: string, headers = auth) =>
 
 const setToken = (id: string, token: string, headers = auth) =>
   app.inject({ method: 'PUT', url: `/api/instruments/${id}/token`, headers: { ...headers, ...reauth }, payload: { token } });
+
+const regenerate = (id: string, headers = auth) =>
+  app.inject({ method: 'POST', url: `/api/instruments/${id}/regenerate-token`, headers: { ...headers, ...reauth } });
 
 /** `audit_trail.chain_position` is a BigInt, which JSON.stringify throws on. */
 function serialise(row: unknown): string {
@@ -314,29 +318,38 @@ describe('Instrument token permission gate', () => {
   });
 
   // THE POINT OF THIS TEST: the password is required when the `action-reauth`
-  // policy does NOT list these actions — the state of a stock install, and the
-  // state this suite's other tests would otherwise run in without noticing.
+  // policy does NOT cover the acting role — the state of a stock install, and
+  // the state this suite's other tests would otherwise run in without noticing.
   //
-  // Until 2026-08-06 these endpoints used the admin-configurable `enforceReauth`,
-  // so an installation that never opened the policy page handed out live device
-  // credentials on INSTRUMENT_UPDATE alone. The D5 reversal was granted on three
-  // compensating controls (encrypted at rest, re-auth, audited); one of them
-  // being opt-in meant most installs had two. `enforceReauthAlways` is what makes
-  // it three everywhere, and this test is what keeps it that way — the policy row
-  // is DELETED here on purpose, so a regression back to `enforceReauth` turns
-  // these assertions red rather than passing on someone's configured dev box.
-  it('demands the password when the action-reauth policy does not list it — the gate is not opt-in', async () => {
+  // Until 2026-08-06 all three token endpoints used the admin-configurable
+  // `enforceReauth`, so an installation that never opened the policy page handed
+  // out live device credentials on INSTRUMENT_UPDATE alone. The D5 reversal was
+  // granted on three compensating controls (encrypted at rest, re-auth, audited);
+  // one of them being opt-in meant most installs had two. `enforceReauthAlways`
+  // is what makes it three everywhere, and this test is what keeps it that way:
+  // a regression to `enforceReauth` turns these assertions red rather than
+  // passing on someone's configured dev box.
+  it('demands the password when the action-reauth policy does not cover the role — the gate is not opt-in', async () => {
     const inst = await newInstrument('REAUTH');
     const before = await prisma.systemConfig.findUnique({ where: { configKey: 'action-reauth' } });
     const previous = (before?.configValue as Record<string, unknown>) ?? {};
 
-    // A policy row that EXISTS and deliberately omits these two actions —
-    // stronger than deleting the row, and non-destructive, which matters
-    // because `compliance_core_db_test` is shared: deleting a global config row
-    // mid-run would turn re-auth silently off for anything else executing at
-    // the same time, and a crash between the delete and the restore would leave
-    // it off permanently. The decoy entry is scoped to VIEWER so it enables no
-    // gate for the SUPER_ADMIN this suite runs as, and cannot bite another test.
+    // A policy row that EXISTS and deliberately does not enable these actions
+    // for this suite's role — stronger than deleting the row, and
+    // non-destructive, which matters because `compliance_core_db_test` is
+    // shared: deleting a global config row mid-run would turn re-auth silently
+    // off for anything else executing at the same time, and a crash between the
+    // delete and the restore would leave it off permanently.
+    //
+    // The `REGENERATE_INSTRUMENT_TOKEN: ['VIEWER']` entry is the sharpest part
+    // of the fixture and is deliberate, not leftover. Under the old
+    // `enforceReauth`, `isReauthRequired('REGENERATE_INSTRUMENT_TOKEN',
+    // 'SUPER_ADMIN')` reads that array, does not find this suite's role, and
+    // returns "no password needed" — so the pre-change code passes the
+    // regenerate assertions below with no password. Under
+    // `enforceReauthAlways` the config is never consulted and it 401s. (The key
+    // is also no longer in `REAUTH_ACTIONS`; it is written here as a raw string
+    // precisely to prove an orphaned policy row cannot re-open the gate.)
     const policy = { ...previous, REGENERATE_INSTRUMENT_TOKEN: ['VIEWER'] };
     delete (policy as Record<string, unknown>).REVEAL_INSTRUMENT_TOKEN;
     delete (policy as Record<string, unknown>).SET_INSTRUMENT_TOKEN;
@@ -382,13 +395,38 @@ describe('Instrument token permission gate', () => {
       expect(set.statusCode).toBe(401);
       expect(set.json().error).toBe('REAUTH_REQUIRED');
 
-      // Neither refusal touched the credential: the original token still works.
+      // Regenerate is gated the same way, and this is the assertion the old
+      // `enforceReauth` would have passed: the policy above names this action
+      // for VIEWER only, so the configurable gate would have waved a SUPER_ADMIN
+      // straight through and handed back a live plaintext credential.
+      const regen = await app.inject({
+        method: 'POST', url: `/api/instruments/${inst.id}/regenerate-token`, headers: auth,
+      });
+      expect(regen.statusCode).toBe(401);
+      expect(regen.json().error).toBe('REAUTH_REQUIRED');
+      expect(regen.json().action).toBe('REGENERATE_INSTRUMENT_TOKEN');
+      // The 200 body is what makes this endpoint the sharpest of the three.
+      expect(regen.json().token).toBeUndefined();
+
+      const regenWrong = await app.inject({
+        method: 'POST', url: `/api/instruments/${inst.id}/regenerate-token`,
+        headers: { ...auth, 'x-reauth-password': 'not-the-password' },
+      });
+      expect(regenWrong.statusCode).toBe(401);
+
+      // A refused regeneration revoked nothing.
+      expect(await prisma.auditTrail.count({
+        where: { action: 'INSTRUMENT_TOKEN_REGENERATED', targetId: inst.id },
+      })).toBe(0);
+
+      // No refusal touched the credential: the original token still works.
       expect((await ingest(inst.token)).statusCode).toBe(200);
 
-      // With the right password BOTH go through — the gate is a password check,
-      // not a blanket refusal.
+      // With the right password all three go through — the gate is a password
+      // check, not a blanket refusal.
       expect((await reveal(inst.id)).statusCode).toBe(200);
       expect((await setToken(inst.id, `PASSED-${'x'.repeat(30)}`)).statusCode).toBe(200);
+      expect((await regenerate(inst.id)).statusCode).toBe(200);
     } finally {
       // Put the original policy back byte-for-byte; if there was no row before,
       // remove the one this test created.

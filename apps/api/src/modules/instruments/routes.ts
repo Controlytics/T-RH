@@ -12,7 +12,7 @@ import {
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { buildContext } from '../../lib/build-context.js';
-import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
+import { enforceReauthAlways } from '../../lib/reauth-check.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { generateToken, hashToken, tokenPrefix, tokenMatches } from './token.js';
@@ -876,12 +876,28 @@ export default async function instrumentRoutes(app: FastifyInstance) {
   });
 
   // POST /api/instruments/:id/regenerate-token
+  //
+  // `enforceReauthAlways`, not the admin-configurable `enforceReauth` (changed
+  // 2026-08-06, after the same correction was applied to reveal/set). The
+  // argument is the one made for those two, and it is stronger here: this
+  // endpoint returns a live plaintext credential in its 200 body, and on a
+  // stock install `system_config['action-reauth']` lists nothing — so it needed
+  // INSTRUMENT_UPDATE and no password at all. It is also the most destructive
+  // of the three: it kills the field device's current credential, which reveal
+  // does not. Two hardened siblings and one opt-in was worse than either
+  // consistent state.
+  //
+  // `REGENERATE_INSTRUMENT_TOKEN` was removed from `REAUTH_ACTIONS` at the same
+  // time, for the same reason the other two were: every entry there is a
+  // per-role policy toggle, and an always-on gate has no policy — the toggle
+  // would render and change nothing. The action string still travels in the 401
+  // body so a client can name the action it is being challenged for.
   app.post('/:id/regenerate-token', {
     preHandler: [app.requirePermission('INSTRUMENT_UPDATE')],
     schema: {
       tags: ['Instruments'],
       summary: 'Regenerate instrument access token',
-      description: 'Revokes the current credential and issues a new one. The device stops authenticating until it is reconfigured. The new token is shown once.',
+      description: 'Revokes the current credential and issues a new one. The device stops authenticating until it is reconfigured. The new token is shown once. Requires INSTRUMENT_UPDATE and an ALWAYS-ON password re-auth (send it as the `x-reauth-password` header — it is not admin-configurable and cannot be turned off).',
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
       response: {
         200: { type: 'object', properties: { token: { type: 'string' }, tokenPrefix: { type: 'string' } } },
@@ -889,7 +905,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('REGENERATE_INSTRUMENT_TOKEN', req, reply);
+    const { ok } = await enforceReauthAlways('REGENERATE_INSTRUMENT_TOKEN', req, reply);
     if (!ok) return;
 
     const { id } = req.params as { id: string };

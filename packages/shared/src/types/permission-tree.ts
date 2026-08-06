@@ -301,10 +301,17 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   },
 
   // ---- Instruments ----
-  // The device registry. `instruments.edit` covers token regeneration too — the
-  // route pairs INSTRUMENT_UPDATE with the REGENERATE_INSTRUMENT_TOKEN reauth
-  // action, so the extra proof (not a separate permission) is what distinguishes
-  // issuing a credential from an ordinary field edit.
+  // The device registry. `instruments.edit` covers the three token actions
+  // (reveal / set / regenerate) too — they take INSTRUMENT_UPDATE rather than a
+  // permission of their own.
+  //
+  // No `reauthAction` on the edit node, deliberately (2026-08-06). It carried
+  // `REGENERATE_INSTRUMENT_TOKEN` until that endpoint moved to
+  // `enforceReauthAlways` and left `REAUTH_ACTIONS`. `reauthAction` is typed
+  // against that registry and drives a per-role policy badge in the permissions
+  // tab; an always-on gate has no policy to show. The password proof is still
+  // demanded on all three token endpoints — it is simply not configurable, so
+  // there is nothing here for an admin to manage.
   {
     sidebarId: 'instruments', label: 'Instruments', icon: '📡', description: 'Instrument registry and telemetry',
     visibilityPrivilegeIds: ['instruments.view', 'instruments.create', 'instruments.edit', 'instruments.delete'],
@@ -315,9 +322,9 @@ export const PERMISSION_TREE: SidebarGroup[] = [
       { id: 'instruments.create', label: 'Create Instruments', sidebarId: 'instruments', page: 'Instruments', action: 'Add',
         icon: 'plus', category: 'Instruments', permissions: ['INSTRUMENT_CREATE', 'INSTRUMENT_READ'], enforce: 'a',
         gate: ['INSTRUMENT_CREATE'], configurable: true },
-      { id: 'instruments.edit', label: 'Edit Instruments / Regenerate Token', sidebarId: 'instruments', page: 'Instruments', action: 'Edit',
+      { id: 'instruments.edit', label: 'Edit Instruments / Manage Token', sidebarId: 'instruments', page: 'Instruments', action: 'Edit',
         icon: 'edit', category: 'Instruments', permissions: ['INSTRUMENT_UPDATE', 'INSTRUMENT_READ'], enforce: 'a',
-        gate: ['INSTRUMENT_UPDATE'], reauthAction: 'REGENERATE_INSTRUMENT_TOKEN', configurable: true },
+        gate: ['INSTRUMENT_UPDATE'], configurable: true },
       { id: 'instruments.delete', label: 'Delete Instruments', sidebarId: 'instruments', page: 'Instruments', action: 'Delete',
         icon: 'trash', category: 'Instruments', permissions: ['INSTRUMENT_DELETE', 'INSTRUMENT_READ'], enforce: 'a',
         gate: ['INSTRUMENT_DELETE'], configurable: true },

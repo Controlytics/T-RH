@@ -99,23 +99,21 @@ export const REAUTH_ACTIONS = {
   // shared so operators can opt in / out via one reauth-policy entry.
   UPDATE_CONFIG_PAGE: { label: 'Update Configuration Page', category: 'Configuration' },
 
-  // Instruments — issuing a device credential is the same class of act as
-  // resetting a user's password: it mints a secret that authenticates against
-  // the ingest endpoint. Regeneration also immediately revokes the credential
-  // the field device is using, so it is disruptive as well as sensitive.
-  // Creating / editing / deleting an instrument carries no reauth — those are
-  // ordinary registry edits.
-  REGENERATE_INSTRUMENT_TOKEN: { label: 'Regenerate Instrument Token', category: 'Instruments' },
+  // Instruments — DELIBERATELY EMPTY. All THREE token actions
+  // (`REVEAL_INSTRUMENT_TOKEN`, `SET_INSTRUMENT_TOKEN`,
+  // `REGENERATE_INSTRUMENT_TOKEN`) were listed here on 2026-08-06 and all three
+  // were removed the same day. Everything in this registry is an admin-managed
+  // POLICY — the config page renders one per-role toggle per entry — and all
+  // three endpoints now use `enforceReauthAlways`, so their password proof is
+  // intrinsic and no toggle can switch it off. Listing them would render a
+  // control that does nothing, which is exactly the "reauth theater" the three
+  // `*_TEMPLATE_KIND` entries were deleted for.
+  // `TOGGLE_SUPER_ADMIN_API_ACCESS` — the other always-on gate — is absent for
+  // the same reason. The action strings still travel in the 401 bodies. See
+  // `apps/api/src/modules/instruments/routes.ts`.
   //
-  // DELIBERATELY ABSENT: `REVEAL_INSTRUMENT_TOKEN` / `SET_INSTRUMENT_TOKEN`.
-  // Both were listed here on 2026-08-06 and removed the same day. Everything in
-  // this registry is an admin-managed POLICY — the config page renders one
-  // per-role toggle per entry — and those two endpoints use
-  // `enforceReauthAlways`, so their password proof is intrinsic and no toggle can
-  // switch it off. Listing them would render a control that does nothing, which
-  // is exactly the "reauth theater" the three `*_TEMPLATE_KIND` entries were
-  // deleted for. `TOGGLE_SUPER_ADMIN_API_ACCESS` — the other always-on gate — is
-  // absent for the same reason. See `apps/api/src/modules/instruments/routes.ts`.
+  // Creating / editing / deleting an instrument carries no reauth at all —
+  // those are ordinary registry edits.
 } as const;
 
 export type ReauthAction = keyof typeof REAUTH_ACTIONS;
@@ -133,7 +131,10 @@ export const REAUTH_ACTION_CATEGORIES = [
   // SUPER_ADMIN_DATA_EDIT from both screens.
   'Notifications',
   'Super Admin',
-  'Instruments',
+  // 'Instruments' was here until 2026-08-06. Its only member,
+  // REGENERATE_INSTRUMENT_TOKEN, moved to an always-on gate and left the
+  // registry with the other two token actions, so the category had no members
+  // left and rendered as an empty heading on both editor screens.
 ] as const;
 
 export type ReauthActionCategory = (typeof REAUTH_ACTION_CATEGORIES)[number];

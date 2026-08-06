@@ -192,7 +192,7 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
   },
   {
     "id": "instruments.edit",
-    "label": "Edit Instruments / Regenerate Token",
+    "label": "Edit Instruments / Manage Token",
     "category": "Instruments",
     "icon": "edit"
   },

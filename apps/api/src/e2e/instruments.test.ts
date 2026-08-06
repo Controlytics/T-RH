@@ -167,7 +167,21 @@ describe('Instrument token lifecycle', () => {
     expect(before.statusCode).toBe(200);
     expect(before.json().accepted).toBe(1);
 
-    const regen = await app.inject({ method: 'POST', url: `/api/instruments/${id}/regenerate-token`, headers: auth });
+    // No password → 401, with NOTHING configured in `action-reauth`. This file
+    // never touches that config, so the state here is a stock install's: before
+    // 2026-08-06 the endpoint used the admin-configurable `enforceReauth` and
+    // this request returned 200 with a live plaintext credential in its body.
+    const bare = await app.inject({ method: 'POST', url: `/api/instruments/${id}/regenerate-token`, headers: auth });
+    expect(bare.statusCode).toBe(401);
+    expect(bare.json().error).toBe('REAUTH_REQUIRED');
+    expect(bare.json().token).toBeUndefined();
+    // The refusal revoked nothing — the device is still authenticating.
+    expect((await ingest(oldToken)).statusCode).toBe(200);
+
+    const regen = await app.inject({
+      method: 'POST', url: `/api/instruments/${id}/regenerate-token`,
+      headers: { ...auth, 'x-reauth-password': 'Admin@123' },
+    });
     expect(regen.statusCode).toBe(200);
     const newToken = regen.json().token;
     expect(newToken).not.toBe(oldToken);
