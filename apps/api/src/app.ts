@@ -48,6 +48,7 @@ import { dispatchNotification } from './modules/notification-delivery/notificati
 import adminRequestRoutes from './modules/admin-requests/routes.js';
 import ingestRoutes from './modules/instruments/ingest-routes.js';
 import instrumentRoutes from './modules/instruments/routes.js';
+import { startTcpListener, type TcpListenerHandle } from './modules/instruments/listeners/tcp-listener.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -460,6 +461,31 @@ try {
   process.exit(1);
 }
 
+// ─── Raw-TCP ingest listener ─────────────────────────────────────────────────
+// Opt-in ONLY. A telemetry port silently opening on an operator's machine
+// because they upgraded is a surprise, so an unset INGEST_TCP_PORT means no
+// listener at all — the gate lives here rather than inside startTcpListener so
+// tests can bind an ephemeral port without touching process.env.
+let tcpListener: TcpListenerHandle | null = null;
+const tcpPortEnv = process.env.INGEST_TCP_PORT;
+if (tcpPortEnv) {
+  const tcpPort = Number(tcpPortEnv);
+  if (!Number.isInteger(tcpPort) || tcpPort < 1 || tcpPort > 65535) {
+    app.log.error(`INGEST_TCP_PORT="${tcpPortEnv}" is not a valid port — TCP ingest not started.`);
+  } else {
+    try {
+      tcpListener = await startTcpListener(tcpPort, {
+        log: (msg, meta) => app.log.warn(meta ?? {}, msg),
+      });
+      app.log.info(`TCP ingest listener on tcp://0.0.0.0:${tcpListener.port}`);
+    } catch (tcpErr) {
+      // Not fatal: the HTTP ingest surface is unaffected, and killing the whole
+      // API over a busy port would be a worse outage than the one it reports.
+      app.log.error({ err: tcpErr }, 'TCP ingest listener FAILED to start — devices on that transport cannot report.');
+    }
+  }
+}
+
 // Graceful shutdown
 const shutdown = async (signal: string) => {
   app.log.info(`Received ${signal}, shutting down gracefully...`);
@@ -471,6 +497,17 @@ const shutdown = async (signal: string) => {
 
   try {
     await stopJobRunner();
+
+    // Before app.close(): net.Server.close() only stops ACCEPTING, so the
+    // listener destroys its open sockets itself — a long-lived telemetry
+    // connection would otherwise keep the process alive to the 15s force-exit.
+    if (tcpListener) {
+      try {
+        await tcpListener.close();
+      } catch (tcpErr) {
+        app.log.error({ err: tcpErr }, 'Shutdown: TCP ingest listener close failed');
+      }
+    }
 
     await app.close();
     // Close queue + tsdb in their own try blocks so one failure doesn't
