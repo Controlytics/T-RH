@@ -240,22 +240,27 @@ curl http://localhost:3000/api/health
 
 *(Numbered 9A rather than 10 so the section numbers below did not all shift.)*
 
-Instruments send telemetry over one of six live transports. All six land in the
-same `ingestPayload()` core — the same parsing, gateway fan-out, dead-lettering
-and last-seen stamping — so a listener only ever obtains bytes and a token.
+Instruments send telemetry over one of seven live transports. All seven land in
+the same `ingestPayload()` core — the same parsing, gateway fan-out,
+dead-lettering and last-seen stamping — so a listener only ever obtains bytes
+and a token.
 
 | Transport | Runs when | Where |
 |---|---|---|
 | HTTP / HTTPS | always | `POST /api/ingest/v1/telemetry` on the API port; TLS is `API_HTTPS=true` |
 | WS / WSS | always | `GET /api/ingest/v1/ws` on the API port; TLS is the same `API_HTTPS=true` listener |
 | TCP | `INGEST_TCP_PORT` is set | its own socket server, newline-delimited JSON |
-| MQTT | `MQTT_BROKER_URL` is set | an external EMQX broker; the API is a *subscriber*, not a broker |
+| MQTT | `MQTT_BROKER_URL` is set | an external EMQX broker on 1883; the API is a *subscriber*, not a broker |
+| MQTTS | broker has an `ssl` listener | the **same** EMQX broker on 8883 — see §9B; the API side is unchanged |
 
-**MQTTS is not live.** It is a separate EMQX TLS listener with its own
-certificates, and the authenticator below talks plain HTTP. Nobody has run a
-reading through it, so the Instruments UI still shows the "not accepting
-connections yet" banner for it. See the security note at the end of this
-section before you turn it on.
+> **THE UI'S "live" CLAIM IS COMPILE-TIME, NOT A PROBE.** `LIVE_TRANSPORTS` in
+> `apps/web/src/routes/instruments/live-transports.ts` is a constant, so the
+> Instruments page asserts all seven are live on **every** machine, including one
+> with no broker installed. It records that each was verified once, on the
+> developer's machine — it is not a health check of yours. MQTT and MQTTS in
+> particular are live only if **you** have done §9A.3 and §9B. Until then a
+> technician following the on-screen MQTTS example will get a connection refused
+> with no hint why.
 
 ### 9A.1 HTTP / HTTPS and WebSocket — nothing to configure
 
@@ -356,7 +361,10 @@ hook for devices.
 {
   "mechanism": "password_based", "backend": "http", "enable": true,
   "method": "post",
-  "url": "http://127.0.0.1:3000/api/ingest/v1/mqtt-auth",
+  // SUPERSEDED — use the HTTPS + verify_peer form in §9B.3. Shown here only so
+  // the chain's shape is readable in one place. The port must match API_PORT
+  // (3001 in this repo), and `localhost` does not work — see §9B.3.
+  "url": "http://127.0.0.1:3001/api/ingest/v1/mqtt-auth",
   "headers": { "content-type": "application/json" },
   "body": { "clientid": "${clientid}", "username": "${username}", "password": "${password}" },
   "pool_size": 8, "connect_timeout": "5s", "request_timeout": "5s"
@@ -394,9 +402,18 @@ either leg and the protection is gone with no error anywhere.
 ```bash
 # publish as a device (mosquitto_pub, or a node script using the `mqtt` package)
 mosquitto_pub -h 127.0.0.1 -p 1883 -i "<INSTRUMENT-CODE>" \
-  -t "instruments/<INSTRUMENT-CODE>/telemetry" -u "<DEVICE-TOKEN>" \
+  -t "instruments/<INSTRUMENT-CODE>/telemetry" -u "<DEVICE-TOKEN>" -P "" \
   -m '{"temperature": 27.5}'
 ```
+
+> **`-P ""` IS NOT OPTIONAL, EVEN THOUGH THE PASSWORD IS EMPTY.** `mosquitto_pub`
+> given `-u` without `-P` sends a CONNECT carrying a username and **no password
+> field at all**, and EMQX rejects that before it ever calls our hook — the HTTP
+> authenticator's `total` metric stays at 0. The client prints
+> `Connection Refused: bad user name or password`, which reads exactly like a bad
+> token and sends you off to regenerate a perfectly good one. Add `-P ""` and the
+> same token connects. This bit the MQTT examples in the UI too; they now carry
+> the flag.
 
 Then check the reading in the UI, or straight from the database:
 
@@ -415,14 +432,174 @@ either alone proves nothing:
 
 If either succeeds, re-read the stock-ACL warning above.
 
-> **THE AUTHENTICATOR CURRENTLY CALLS THE API OVER PLAIN HTTP.** The `url` in
-> the config above is `http://127.0.0.1:3000/...`, so with `API_HTTPS=true` the
-> hook will not connect at all, and even on loopback the device's token travels
-> unencrypted from broker to API. The HTTPS variant needs
-> `ssl { enable = true, verify = verify_none }` on the connector (the local
-> mkcert CA is not in EMQX's trust store) — **this has never been exercised**.
-> It is also the reason MQTTS is not marked live in the UI: securing the device
-> leg while the authenticator leg is plaintext would be theatre.
+> **THE AUTHENTICATOR'S OWN HOP CARRIES THE DEVICE TOKEN.** Whatever the device
+> uses to reach the broker, the broker then forwards that token to us in the
+> hook's request body. Over plain `http://` it crosses even loopback in the
+> clear, and with `API_HTTPS=true` it does not connect at all. §9B replaces this
+> with HTTPS and real certificate verification; do that before treating either
+> MQTT or MQTTS as secure.
+
+---
+
+## 9B. MQTTS — MQTT over TLS on 8883
+
+Verified end to end on 2026-08-06: a `mosquitto_pub` over 8883 validating the
+broker against a CA file landed a reading in `instrument_telemetry_latest`, and
+all three negative checks were re-run **over TLS** rather than carried over from
+port 1883 (a TLS listener is a different code path in the broker).
+
+MQTTS changes two things and nothing else. The API is untouched — the bridge
+still subscribes over loopback plaintext, because broker and API are the same
+host and that hop never reaches a network.
+
+### 9B.1 Which CA file — read this before anything else
+
+> **`certs/rootCA.pem` IN THIS REPO DID NOT SIGN `certs/server.crt`.** They are
+> two unrelated CAs: `server.crt` is issued by **mkcert's** CA, while
+> `certs/rootCA.pem` is a separate hand-rolled "DigiLog Root CA". Handing a
+> client `--cafile certs/rootCA.pem` therefore fails, and it fails in a way that
+> looks like a broken listener rather than a wrong CA. (Root `CLAUDE.md` still
+> describes the certs as "rooted by `certs/rootCA.pem`" — that sentence is
+> wrong.) Find the real one:
+>
+> ```bash
+> mkcert -CAROOT          # -> C:\Users\hello\AppData\Local\mkcert
+> openssl verify -CAfile "$(mkcert -CAROOT)/rootCA.pem" certs/server.crt
+> # -> certs/server.crt: OK
+> ```
+>
+> Everything below uses `C:/Users/hello/AppData/Local/mkcert/rootCA.pem`.
+>
+> A related trap when checking by hand on Windows: `curl` uses Schannel here and
+> returns exit 60 `revocation status is unknown` for a perfectly valid local
+> chain. Add `--ssl-revoke-best-effort` before concluding the chain is bad.
+
+### 9B.2 The broker's TLS listener
+
+EMQX 5.x already opens 8883 using a throwaway self-signed cert in `etc/certs/`
+that nothing trusts. Override it to the same mkcert pair the API serves HTTPS
+with, so **one** CA file lets a device validate both the broker and the API.
+Appended to `etc/emqx.conf` (stock preserved as `etc/emqx.conf.orig`):
+
+```hocon
+listeners.ssl.default {
+    bind = "0.0.0.0:8883"
+    ssl_options {
+        certfile = "C:/Users/hello/compliance-core/certs/server.crt"
+        keyfile  = "C:/Users/hello/compliance-core/certs/server.key"
+        verify = verify_none
+        fail_if_no_peer_cert = false
+    }
+}
+```
+
+`verify = verify_none` **here is about client certificates** (mutual TLS), which
+we do not use — a device authenticates with a token as its MQTT username, not a
+client cert. It says nothing about the device's verification of the broker, and
+it is not the same setting as the authenticator's `ssl.verify` below. Confirm
+the listener is serving the right certificate rather than EMQX's stock one:
+
+```bash
+echo | openssl s_client -connect 127.0.0.1:8883 -servername localhost \
+    -CAfile "$(mkcert -CAROOT)/rootCA.pem" 2>&1 | grep "Verify return code"
+# -> Verify return code: 0 (ok)
+```
+
+### 9B.3 The authenticator over HTTPS, verifying the certificate
+
+Replaces the plain-HTTP `url` from §9A.3. `PUT /api/v5/authentication/password_based:http`:
+
+```jsonc
+{
+  "mechanism": "password_based", "backend": "http", "enable": true,
+  "method": "post",
+  // 127.0.0.1, NOT localhost — see the note below
+  "url": "https://127.0.0.1:3001/api/ingest/v1/mqtt-auth",
+  "headers": { "content-type": "application/json" },
+  "body": { "clientid": "${clientid}", "username": "${username}", "password": "${password}" },
+  "pool_size": 8, "connect_timeout": "5s", "request_timeout": "5s",
+  "ssl": {
+    "enable": true,
+    "verify": "verify_peer",
+    "cacertfile": "C:/Users/hello/AppData/Local/mkcert/rootCA.pem",
+    "server_name_indication": "localhost"
+  }
+}
+```
+
+Three details, each of which cost a debugging round:
+
+- **The port must match `API_PORT`** (`3001` in this repo, not the `3000` used
+  elsewhere in this document).
+- **Use `127.0.0.1`, not `localhost`.** On Windows `localhost` resolves to `::1`
+  first and the API binds only `127.0.0.1` and the LAN address, so Erlang — which
+  does not fall back the way `curl` does — fails with `econnrefused`. The symptom
+  at the client is an ordinary CONNECT refusal with nothing in the API log.
+- **`server_name_indication` stays `localhost`** so hostname verification checks
+  against the cert's `DNS:localhost` SAN while the connection goes to the IPv4
+  literal.
+
+`verify_peer` against the real CA was chosen over `verify_none`, and it is not
+decorative — pointing `cacertfile` at the *other* (wrong) CA in `certs/` makes
+every CONNECT start failing, which is how it was proven to be enforcing rather
+than silently accepting. Check the connector before blaming a device:
+
+```bash
+curl -s -u '<api-key>:<secret>' \
+  http://127.0.0.1:18083/api/v5/authentication/password_based:http/status
+# -> "status":"connected", and `metrics.total` rises with each CONNECT
+```
+
+`metrics.total` staying at 0 while clients are refused means the hook is not
+being reached at all — look at the CONNECT itself (§9A.3's `-P ""` note), not at
+the token.
+
+### 9B.4 Publishing over MQTTS
+
+The paste-ready command an operator actually needs — this is what the
+Instruments page shows:
+
+```bash
+mosquitto_pub -h localhost -p 8883 \
+  --cafile "C:\Users\hello\AppData\Local\mkcert\rootCA.pem" \
+  -i "<INSTRUMENT-CODE>" \
+  -t "instruments/<INSTRUMENT-CODE>/telemetry" \
+  -u "<DEVICE-TOKEN>" \
+  -P "" \
+  -m '{"temperature": 21.5}'
+```
+
+Use `-h localhost` (or a hostname/IP in the cert's SAN list), not an arbitrary
+address — the client verifies the name against the certificate. Reach for the
+CA file, never `--insecure`, which discards the only thing TLS is buying.
+
+Then read the row **back out of the database** rather than trusting a silent
+exit — a QoS 0 publish to a forbidden topic exits 0 having been thrown away:
+
+```sql
+SELECT key, value, ts FROM instrument_telemetry_latest
+ WHERE instrument_id = (SELECT id FROM instruments WHERE code = '<INSTRUMENT-CODE>');
+```
+
+### 9B.5 The three negative checks, over TLS
+
+Re-run these against 8883 even if they passed on 1883. Publish at **QoS 1**
+(`-q 1`): at QoS 0 a denied publish still exits 0, so the test passes for the
+wrong reason.
+
+| Check | Expected |
+|---|---|
+| A publishes to B's topic | broker disconnects (`Error: The connection was lost`), `authorization_permission_denied` in `log/emqx.log.1`, and **nothing** lands against B |
+| A's token under B's client id | `Connection Refused: not authorised` at CONNECT |
+| revoked token | next CONNECT refused — after the 10 s `resolveInstrumentByToken` cache expires, or immediately via `POST /api/instruments/:id/regenerate-token`, which invalidates it |
+
+> **THE STOCK-`acl.conf` TRAP APPLIES TO TLS EXACTLY AS IT DOES TO PLAINTEXT.**
+> `acl.conf` is broker-wide, not per-listener, so the two stock allow-all rules
+> flagged in §9A.3 — `{allow, all}.` and
+> `{allow, {ipaddr, "127.0.0.1"}, all, [...]}` — void the topic ACL on 8883 too,
+> and every check in the table above becomes a false pass while looking green.
+> A TLS connection from this machine is still on loopback. If you reinstall or
+> upgrade EMQX, re-check `acl.conf` before trusting any result here.
 
 ---
 

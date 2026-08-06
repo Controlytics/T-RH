@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { TRANSPORTS as ALL_TRANSPORTS, type Transport } from '@digilog/shared';
 import { getApiBase } from '@/lib/api-base';
 import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
+import { isTransportLive } from './live-transports';
 
 /**
  * A protocol switcher over all seven transports, showing the connection
@@ -27,7 +28,7 @@ import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
  * the other six narrowed the display, not the behaviour.
  *
  * What actually prevents the failure now is the per-protocol
- * "<X> is not accepting connections yet" banner (see `LIVE_TRANSPORTS` below).
+ * "<X> is not accepting connections yet" banner (see `./live-transports`).
  * It is keyed to which listeners the server really runs, so it stops a
  * technician configuring a protocol that does not exist — a check on reality
  * rather than on a self-asserted field. Do not re-narrow this to one transport
@@ -35,25 +36,18 @@ import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
  */
 
 /**
- * The transports that have a listener behind them RIGHT NOW.
+ * Which transports are live is data, not UI, and lives in `./live-transports`.
  *
- * A member of this set is a claim that someone connected over that protocol
- * and watched a reading land in `instrument_telemetry_latest`. Each of the six
- * below was verified that way on 2026-08-06 against the real listeners:
- * HTTP/HTTPS on the ingest route, TCP on `INGEST_TCP_PORT`, WS/WSS on
- * `/api/ingest/v1/ws`, and MQTT through EMQX 5.3.2 into the ingest bridge.
- *
- * `mqtts` is deliberately absent. It is NOT the same listener as `mqtt` the
- * way `wss` is the same listener as `websocket` — it is a separate broker port
- * with its own TLS config, and the EMQX authenticator that binds a device
- * token to an instrument currently calls the API over plain HTTP. Nobody has
- * run a reading through it. Adding it here on the strength of "MQTT works"
- * would be exactly the guess this set exists to prevent.
+ * `mqtts` joined the set on 2026-08-06 and was NOT argued from `mqtt`: it is a
+ * separate EMQX listener on 8883 with its own certificate, so the three
+ * negative checks (cross-topic publish, borrowed client id, revoked token) were
+ * re-run over TLS rather than carried over from the plaintext port. With all
+ * seven live the banner below has no reachable subject left, which is exactly
+ * why the predicate is imported rather than inlined — see that module.
  *
  * Do not add a transport because a plan says the listener landed. Connect over
  * it and read the row back first.
  */
-const LIVE_TRANSPORTS = new Set(['http', 'https', 'tcp', 'websocket', 'wss', 'mqtt']);
 
 function CodeBlock({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -129,7 +123,7 @@ export function ConnectionInstructions({
   const httpUrl = `${base}/api/ingest/v1/telemetry`;
   const topic = `instruments/${code}/telemetry`;
   const wsUrl = `${base.replace(/^http/, 'ws')}/api/ingest/v1/ws`;
-  const notLive = !LIVE_TRANSPORTS.has(selected);
+  const notLive = !isTransportLive(selected);
 
   // A gateway sends ONE batch payload keyed by each child's code, not the
   // single-reading body an ordinary instrument sends. When there are no
@@ -183,9 +177,9 @@ export function ConnectionInstructions({
             <Row label="Topic" value={topic} />
             <Row label="Client ID" value={code} />
             <Row label="Username" value={tok} />
-            <Row label="Password" value="(leave empty)" />
+            <Row label="Password" value="(empty — but it must be sent)" />
             <CodeBlock
-              text={`mosquitto_pub -h <broker-host> -p ${selected === 'mqtts' ? '8883' : '1883'} \\\n  -i "${code}" \\\n  -t "${topic}" \\\n  -u "${tok}" \\\n  -m '${isGateway ? devicesPayload : '{"temperature": 21.5}'}'`}
+              text={`mosquitto_pub -h <broker-host> -p ${selected === 'mqtts' ? '8883' : '1883'} \\\n${selected === 'mqtts' ? '  --cafile "<ca-cert.pem>" \\\n' : ''}  -i "${code}" \\\n  -t "${topic}" \\\n  -u "${tok}" \\\n  -P "" \\\n  -m '${isGateway ? devicesPayload : '{"temperature": 21.5}'}'`}
             />
             <p className="text-xs text-slate-500">
               The client ID must be exactly this instrument&apos;s code. The broker
@@ -195,6 +189,25 @@ export function ConnectionInstructions({
               Omitting <span className="font-mono">-i</span> lets the client pick
               a random one, and the connection is denied.
             </p>
+            <p className="text-xs text-slate-500">
+              <span className="font-mono">-P &quot;&quot;</span> is required even
+              though the password is empty. The broker rejects a CONNECT that
+              carries a username with no password field at all, and it does so
+              before the token is ever looked up — so dropping the flag fails as{' '}
+              <span className="font-mono">bad user name or password</span>, which
+              reads like a bad token and is not one.
+            </p>
+            {selected === 'mqtts' && (
+              <p className="text-xs text-slate-500">
+                <span className="font-mono">--cafile</span> must point at the CA
+                certificate that signed the broker&apos;s certificate — the same
+                CA that signed the API&apos;s HTTPS certificate. Without it the
+                client cannot validate the broker and refuses to connect; the
+                fix is the CA file, never{' '}
+                <span className="font-mono">--insecure</span>, which throws away
+                the only thing TLS is buying here.
+              </p>
+            )}
           </>
         );
         break;
@@ -242,7 +255,7 @@ export function ConnectionInstructions({
       <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Protocol">
         {ALL_TRANSPORTS.map((t) => {
           const isSelected = t === selected;
-          const isLive = LIVE_TRANSPORTS.has(t);
+          const isLive = isTransportLive(t);
           return (
             <button
               key={t}

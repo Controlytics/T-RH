@@ -1,6 +1,23 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ConnectionInstructions } from '../connection-instructions';
+
+// With all seven transports live, the not-live banner has no reachable subject
+// through the component's public API — an unrecognised `transport` prop falls
+// back to `http`. Rather than let the banner's logic rot into dead code, the
+// liveness predicate is a separate module and this override can force a single
+// transport un-live, exactly as one would be on the day a listener is added
+// ahead of its verification. `vi.hoisted` because `vi.mock` is hoisted above
+// ordinary declarations.
+const forceNotLive = vi.hoisted(() => ({ transport: null as string | null }));
+vi.mock('../live-transports', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../live-transports')>();
+  return {
+    ...actual,
+    isTransportLive: (t: string) =>
+      forceNotLive.transport === t ? false : actual.isTransportLive(t),
+  };
+});
 
 describe('ConnectionInstructions', () => {
   it('shows a curl example for http', () => {
@@ -30,27 +47,54 @@ describe('ConnectionInstructions', () => {
     expect(screen.getAllByText(/https?:\/\/[^/\s]+\/api\/ingest\/v1\/telemetry/).length).toBeGreaterThan(0);
   });
 
-  it('marks the transports that have no listener yet', () => {
-    // MQTTS is the last one without a verified listener: unlike WSS, it is not
-    // the same listener as its plaintext form — it is a separate broker port,
-    // and the EMQX authenticator calls the API over plain HTTP. Showing
-    // paste-ready instructions for a listener that does not exist would send a
-    // technician to debug their device for an hour, which is the whole reason
-    // this banner exists.
-    render(<ConnectionInstructions transport="mqtts" code="T-1" token="TOK" />);
-    expect(screen.getByText(/not accepting connections yet/i)).toBeInTheDocument();
+  it('still warns for a transport whose listener is not verified', () => {
+    // MQTTS was this test's subject until 2026-08-06, when it was verified and
+    // the set became all seven. The banner is the whole reason a technician
+    // does not spend an hour debugging their device against a listener that is
+    // not there, so it keeps its coverage: force one transport un-live and the
+    // warning must still appear. Delete this and the next transport added ahead
+    // of its listener ships silently claiming to work.
+    forceNotLive.transport = 'mqtts';
+    try {
+      render(<ConnectionInstructions transport="mqtts" code="T-1" token="TOK" />);
+      expect(screen.getByText(/not accepting connections yet/i)).toBeInTheDocument();
+    } finally {
+      forceNotLive.transport = null;
+    }
   });
 
-  // The flip side of the banner. These pin the six transports verified live on
-  // 2026-08-06; a listener regressing out of the app must break a test here
+  // The flip side of the banner. These pin the seven transports verified live
+  // on 2026-08-06; a listener regressing out of the app must break a test here
   // rather than leaving the UI quietly promising something it cannot do.
-  it.each(['http', 'https', 'tcp', 'websocket', 'wss', 'mqtt'])(
+  it.each(['http', 'https', 'tcp', 'websocket', 'wss', 'mqtt', 'mqtts'])(
     'shows no not-live banner for %s — its listener is verified',
     (t) => {
       render(<ConnectionInstructions transport={t} code="T-1" token="TOK" />);
       expect(screen.queryByText(/not accepting connections yet/i)).not.toBeInTheDocument();
     },
   );
+
+  it('gives the MQTTS example a CA file, an empty password and the TLS port', () => {
+    // Every one of these is load-bearing, and each was found by running the
+    // command rather than reading it. Without --cafile the client cannot
+    // validate the broker; without -P "" the broker rejects the CONNECT before
+    // the token is looked up (a username with no password field at all), which
+    // surfaces as "bad user name or password" and reads like a bad token.
+    render(<ConnectionInstructions transport="mqtts" code="T-1" token="TOK" />);
+    expect(screen.getAllByText(/-p 8883/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/--cafile/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/-P ""/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/-i "T-1"/).length).toBeGreaterThan(0);
+  });
+
+  it('gives the plaintext MQTT example the empty password too, on port 1883', () => {
+    // The -P "" requirement is the broker's, not TLS's — it applies equally to
+    // the plaintext listener, whose example was already shipped without it.
+    render(<ConnectionInstructions transport="mqtt" code="T-1" token="TOK" />);
+    expect(screen.getAllByText(/-p 1883/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/-P ""/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/--cafile/)).not.toBeInTheDocument();
+  });
 
   it('gives the MQTT example the instrument code as the client id', () => {
     // Not cosmetic. The broker's topic ACL is written against ${clientid} and
@@ -100,13 +144,21 @@ describe('ConnectionInstructions — protocol switcher', () => {
     expect(screen.queryByText(/not accepting connections yet/i)).not.toBeInTheDocument();
   });
 
-  it('switching back to HTTP removes the warning', () => {
-    render(<ConnectionInstructions code="T-1" token="TOK" />);
-    fireEvent.click(screen.getByRole('tab', { name: /^MQTTS$/ }));
-    expect(screen.getByText(/not accepting connections yet/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('tab', { name: /^HTTP$/ }));
-    expect(screen.queryByText(/not accepting connections yet/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/curl/)).toBeInTheDocument();
+  it('switching away from a not-live transport removes the warning', () => {
+    // Pins that the banner tracks the SELECTED tab and is not a one-shot on
+    // mount — with the same override the earlier banner test uses, since no
+    // real transport can raise it any more.
+    forceNotLive.transport = 'mqtts';
+    try {
+      render(<ConnectionInstructions code="T-1" token="TOK" />);
+      fireEvent.click(screen.getByRole('tab', { name: /^MQTTS$/ }));
+      expect(screen.getByText(/not accepting connections yet/i)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('tab', { name: /^HTTP$/ }));
+      expect(screen.queryByText(/not accepting connections yet/i)).not.toBeInTheDocument();
+      expect(screen.getByText(/curl/)).toBeInTheDocument();
+    } finally {
+      forceNotLive.transport = null;
+    }
   });
 
   it('a gateway batch payload survives a protocol switch', () => {

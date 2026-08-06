@@ -16,7 +16,7 @@ any of them: the entire ingest pipeline — parse, gateway fan-out, dead-letter,
 batched write, last-seen stamp — was lifted out of the HTTP route handler into a
 transport-agnostic `ingestPayload()`. A listener's whole job is now to obtain
 bytes and obtain a token and hand both over. Nothing else about ingestion is
-duplicated anywhere, so a fix to fan-out or dead-lettering is a fix for all six
+duplicated anywhere, so a fix to fan-out or dead-lettering is a fix for all seven
 protocols at once, and the `transport` recorded on a dead-letter is stamped by
 whichever listener actually accepted the connection rather than claimed from a
 field the device asserted about itself.
@@ -73,17 +73,46 @@ from the same machine passes anyway, because every local test client is on
 loopback. That is a false pass that would read as proof of a protection that
 does not exist.
 
-**MQTTS is deliberately still marked not-live.** Unlike `wss`, it is not the
-same listener as its plaintext form: it is a separate broker port with its own
-certificates, and the authenticator hook currently calls the API over plain
-HTTP. The HTTPS variant needs `ssl { enable = true, verify = verify_none }` on
-the connector and has never been exercised, so the banner stays up for it. Six
-of seven transports were each verified by connecting over them and reading the
-row back out of `instrument_telemetry_latest`; the seventh was not, and the UI
-says so.
+**MQTTS now completes the set — and it was not argued from MQTT.** Unlike
+`wss`, it is not the same listener as its plaintext form: it is a separate EMQX
+port with its own certificate, which is a different code path in the broker. So
+it got its own TLS listener on 8883 serving the same mkcert certificate the API
+serves HTTPS with — one CA file now validates both — and all three negative
+checks were re-run over TLS rather than inherited: a cross-topic publish is
+disconnected with nothing written, a borrowed client ID is refused at CONNECT,
+and a revoked token is refused on its next connection. All seven transports have
+now been verified by connecting over them and reading the row back out of
+`instrument_telemetry_latest`.
+
+The authenticator's own hop was the honest objection to marking it live, and it
+is closed rather than waved through: EMQX calls the API over **HTTPS with
+`verify_peer`** against the CA that signed the API's certificate, not
+`verify_none`. Encrypting the device leg while the leg carrying that same token
+to us stayed plaintext would have been theatre. That the verification is real
+was established by pointing the connector at the wrong CA and watching every
+CONNECT start failing.
+
+Three findings came out of running the commands rather than reading them, and
+each was a trap a technician would have hit. **The documented `mosquitto_pub`
+line could not work** — given `-u` with no `-P`, the client sends a username and
+no password field at all, which EMQX rejects *before* consulting our hook; it
+surfaces as `bad user name or password`, which reads like a bad token and is
+not one. Both MQTT examples now carry `-P ""`. **The repo's `certs/rootCA.pem`
+does not sign `certs/server.crt`** — they are unrelated CAs, the real issuer
+being mkcert's, so every previous attempt to pin that file as the CA failed and
+was misread as a broken chain. And an authenticator URL of `localhost` fails on
+Windows, where it resolves to `::1` while the API binds only IPv4.
+
+One limitation is stated rather than hidden: `LIVE_TRANSPORTS` is a compile-time
+constant, so the UI claims all seven are live on any machine, whether or not
+that operator runs a broker. Its home moved to its own module for a related
+reason — with nothing left un-live, the banner had no reachable subject and its
+logic would have rotted into untested dead code; a test now substitutes the
+predicate to keep the warning path pinned for the next transport added ahead of
+its listener.
 
 Operator documentation, including the exact EMQX configuration, is in
-`LOCAL_SETUP_WINDOWS.md` §9A.
+`LOCAL_SETUP_WINDOWS.md` §9A (MQTT) and §9B (MQTTS).
 
 ## [Unreleased] — `Instrument.transport` removed (2026-08-06)
 
