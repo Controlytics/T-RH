@@ -16,6 +16,22 @@ import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
  * passes it any more; it is kept because a caller that knows the protocol its
  * reader speaks can land the operator on the right tab, and the tests use it
  * to address a specific tab directly.
+ *
+ * THIS IS A REVERSAL, AND IT WAS DELIBERATE (2026-08-06). The original design
+ * showed exactly ONE transport on purpose: the reasoning was that offering all
+ * seven and letting the technician pick is how you get a device publishing to
+ * the wrong topic — the commonest onboarding failure this component exists to
+ * prevent. That protection turned out to be a fiction. The single transport
+ * came from a stored `Instrument.transport` that nothing enforced, so a device
+ * shown an MQTT example could still publish over HTTP and be accepted; hiding
+ * the other six narrowed the display, not the behaviour.
+ *
+ * What actually prevents the failure now is the per-protocol
+ * "<X> is not accepting connections yet" banner (see `LIVE_TRANSPORTS` below).
+ * It is keyed to which listeners the server really runs, so it stops a
+ * technician configuring a protocol that does not exist — a check on reality
+ * rather than on a self-asserted field. Do not re-narrow this to one transport
+ * without first replacing that banner with something stronger.
  */
 
 /** P1 ships the HTTP listener only; the rest are catalogued but not yet served. */

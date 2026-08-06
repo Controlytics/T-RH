@@ -41,6 +41,25 @@ export async function gatewayInvariantError(
   const isGateway = next.isGateway ?? current?.isGateway ?? false;
   const gatewayId = next.gatewayId === undefined ? (current?.gatewayId ?? null) : next.gatewayId;
 
+  // NOTE FOR OPERATORS — this fires on PRE-EXISTING data, not just on the edit
+  // that would create the problem. Both values default from the current row, so
+  // a stored `is_gateway AND gateway_id IS NOT NULL` row (which the race the
+  // locked re-check now closes could have written before this shipped) refuses
+  // EVERY subsequent PUT — a rename, a deactivate, anything — with 400
+  // NESTED_GATEWAY, because the effective state is still nested whatever the
+  // request touches. That is intended: the row is in a state the model forbids
+  // and no other edit should be treated as normal until it is out of it.
+  //
+  // The fix is one request: PUT the instrument with `{"gatewayId": null}`
+  // (unlink it, keeping gateway mode) or `{"isGateway": false}` (demote it,
+  // keeping the link — this one 409s if it has children of its own). Editing
+  // anything else in the same request is fine; it just has to carry one of
+  // those two fields.
+  //
+  // Find any such rows:
+  //   SELECT id, code FROM instruments
+  //    WHERE is_gateway AND gateway_id IS NOT NULL;
+  // Expected to return zero rows on a healthy install.
   if (isGateway && gatewayId) {
     return { status: 400, body: { error: 'NESTED_GATEWAY', message: 'A gateway cannot itself be linked to another gateway. Unlink it first.' } };
   }
