@@ -448,9 +448,32 @@ broker against a CA file landed a reading in `instrument_telemetry_latest`, and
 all three negative checks were re-run **over TLS** rather than carried over from
 port 1883 (a TLS listener is a different code path in the broker).
 
-MQTTS changes two things and nothing else. The API is untouched — the bridge
-still subscribes over loopback plaintext, because broker and API are the same
-host and that hop never reaches a network.
+MQTTS changes two things and nothing else, both on the broker. The API side is
+untouched.
+
+#### Three hops, three different secrets — and only two get TLS
+
+This is the part worth reading slowly, because "is it encrypted?" has a
+different answer at each step and the reasons are not interchangeable.
+
+| Hop | What crosses it | Protection | Why |
+|---|---|---|---|
+| device → broker (8883) | the **device token** | TLS, client validates the broker against the CA file | leaves the machine, per-device secret |
+| broker → API hook | the **same device token**, forwarded in the hook body | HTTPS + `verify_peer` | same secret; encrypting the first hop and not this one would be theatre |
+| API bridge → broker (1883) | the **bridge's own static broker credential** | **plaintext, deliberately** | never leaves `127.0.0.1`, and carries no device secret |
+
+The third row is a decision, not an oversight. No device token is ever presented
+on it — the bridge is a *subscriber*, and a subscriber presents no credential
+belonging to any instrument. Anyone positioned to read loopback traffic already
+owns the host, where the TLS private key sits on disk regardless.
+
+> **REVISIT THIS IF THE BROKER EVER MOVES OFF LOOPBACK.** The moment
+> `MQTT_BROKER_URL` names another host, the bridge credential becomes a real wire
+> secret and this hop needs TLS. Budget for code, not config: `app.ts` forwards
+> only `username`/`password` into `mqtt.connect()`, so there is no CA option
+> today, and Node does not read the Windows certificate store — so an `mqtts://`
+> bridge means a new env var and a new client option, not just changing the
+> scheme.
 
 ### 9B.1 Which CA file — read this before anything else
 
