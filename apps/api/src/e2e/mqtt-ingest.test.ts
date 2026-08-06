@@ -60,6 +60,7 @@ const instrumentIds: string[] = [];
 let plainId: string;
 let gwId: string;
 let childId: string;
+let offId: string;
 
 let bridge: { close(): Promise<void> };
 const logs: Array<{ msg: string; meta?: Record<string, unknown> }> = [];
@@ -101,7 +102,7 @@ beforeAll(async () => {
   plainId = await mkInstrument(PLAIN_CODE);
   gwId = await mkInstrument(GW_CODE, { isGateway: true });
   childId = await mkInstrument(CHILD_CODE, { gatewayId: gwId });
-  await mkInstrument(OFF_CODE, { isActive: false });
+  offId = await mkInstrument(OFF_CODE, { isActive: false });
 
   bridge = await startMqttBridge('mqtt://127.0.0.1:1883', {
     maxMessageBytes: 4096,
@@ -179,6 +180,11 @@ describe('MQTT ingest bridge', () => {
     expect(await prisma.instrument.findUnique({ where: { code: `NO-SUCH-${S}` } })).toBeNull();
     expect(await prisma.deadLetter.count()).toBe(before);
     expect(logs.some((l) => l.msg.includes('no active instrument'))).toBe(true);
+    // Asserted separately from the log line: a DEACTIVATED instrument exists and
+    // resolves by code, so only the isActive half of the lookup stops its
+    // reading being written. Without this the whole test passes on the
+    // unknown-code half alone.
+    expect(await latestKeys(offId)).toEqual([]);
   });
 
   it('logs loudly when the connection drops — a silent dead bridge is the worst failure', async () => {
