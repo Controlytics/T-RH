@@ -119,6 +119,11 @@ export default async function wsIngestRoutes(
 
   app.get('/ws', {
     websocket: true,
+    // NOT in the OpenAPI document, and it cannot be: `@fastify/websocket`
+    // forces `schema.hide = true` on every websocket route (index.js), since an
+    // upgrade is not expressible in OpenAPI 3.0. This block is therefore
+    // in-source documentation only — the endpoint has to be written up by hand
+    // wherever the ingest transports are documented.
     schema: {
       tags: ['Ingest'],
       summary: 'Submit telemetry over WebSocket (device token auth)',

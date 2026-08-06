@@ -228,6 +228,12 @@ describe('WebSocket ingest listener', () => {
     await waitFor(async () => (await latestKeys(childId)).some((r) => r.key === 'pressure'));
     const row = await prisma.instrument.findUnique({ where: { id: childId } });
     expect(row?.lastSeenVia).toBe('gateway');
-    ws.close();
+
+    // Deliberately NOT closed. It leaves exactly one live, authenticated
+    // connection open when `afterAll` calls `app.close()` — the shutdown case
+    // the TCP listener needed explicit handling for (`server.close()` stops
+    // ACCEPTING but waits on open sockets, and a telemetry connection never
+    // ends on its own). If @fastify/websocket's preClose hook ever stops
+    // terminating them, this file hangs instead of silently passing.
   });
 });
