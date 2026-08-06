@@ -98,6 +98,17 @@ export default async function ingestRoutes(app: FastifyInstance) {
         await stampLastSeen([...new Set(readings.map((r) => r.instrumentId))], 'gateway');
       }
 
+      // The GATEWAY itself connected and authenticated directly — that is
+      // literally true of it even though the readings it carried belong to
+      // its children, so it gets 'direct' (not 'gateway', which on a child
+      // means "someone else reported for me"; reusing it here would make the
+      // column mean two different things). Stamped unconditionally once we
+      // reach this point, even if every block above was rejected: the
+      // gateway authenticated and delivered a well-formed payload, so it is
+      // demonstrably alive — its dead-letters are what shows the payload was
+      // wrong, not its last-seen column.
+      await stampLastSeen([identity.id], 'direct');
+
       // 200, not 207: the request was handled correctly and every accepted
       // reading is stored. `rejected` tells an integrator about partial
       // failure without making them read the dead-letter table.

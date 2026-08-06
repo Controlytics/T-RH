@@ -89,6 +89,22 @@ describe('gateway ingest', () => {
     expect(row.json().lastSeenVia).toBe('direct');
   });
 
+  it('stamps the gateway itself as direct when it relays a batch, distinct from its children', async () => {
+    const s = Date.now();
+    const gw = await mk({ name: 'GW5', code: `GW5-${s}`, transport: 'http', isGateway: true });
+    const e = await mk({ name: 'E', code: `E-${s}`, transport: 'http', gatewayId: gw.id });
+
+    const res = await ingest(gw.token, { devices: { [`E-${s}`]: { temperature: 7 } } });
+    expect(res.json()).toEqual({ accepted: 1, rejected: 0 });
+
+    const gwRow = await app.inject({ method: 'GET', url: `/api/instruments/${gw.id}`, headers: auth });
+    expect(gwRow.json().lastSeenVia).toBe('direct');
+    expect(gwRow.json().lastSeenAt).not.toBeNull();
+
+    const eRow = await app.inject({ method: 'GET', url: `/api/instruments/${e.id}`, headers: auth });
+    expect(eRow.json().lastSeenVia).toBe('gateway');
+  });
+
   it('stops writing a child the moment it is unlinked — no cache grace period', async () => {
     const s = Date.now();
     const gw = await mk({ name: 'GW4', code: `GW4-${s}`, transport: 'http', isGateway: true });
