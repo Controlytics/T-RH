@@ -595,6 +595,41 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       const before = await tx.instrument.findUnique({ where: { id } });
       if (!before) throw new GatewayInvariantViolation(404, { error: 'NOT_FOUND', message: 'Instrument not found.' });
 
+      // D2/self, re-checked on the EFFECTIVE state (locked row + this request's
+      // fields). `lockedGatewayRecheck` covers only the two cross-row rules; the
+      // same-row ones were left to the pre-flight, which computes them from a
+      // row read outside any transaction. Two ordinary UI actions defeat that,
+      // because neither request carries the other's field:
+      //
+      //   A: PUT /C {isGateway:true}   (detail Save — no gatewayId)
+      //   B: PUT /C {gatewayId:GW}     (gateway panel Link — no isGateway)
+      //
+      // B's pre-flight reads C before A commits, sees isGateway:false, allows
+      // it. Both serialise on C's row lock, but B's `parsed.data` has no
+      // `isGateway`, so nothing re-evaluates the rule and the commit lands
+      // `isGateway && gatewayId` — the nested chain D2 forbids, which no CHECK
+      // constraint catches (`instruments_gateway_not_self` covers self only).
+      //
+      // Both rows are already locked above, so this costs nothing. Mirrors
+      // `gatewayInvariantError`'s own defaulting EXACTLY — `??` would be wrong
+      // on `gatewayId`, turning an explicit `null` (unlink) back into the old
+      // parent. Keep the two in step.
+      const effIsGateway = parsed.data.isGateway ?? before.isGateway;
+      const effGatewayId = parsed.data.gatewayId === undefined
+        ? before.gatewayId
+        : (parsed.data.gatewayId ?? null);
+      if (effIsGateway && effGatewayId) {
+        throw new GatewayInvariantViolation(400, {
+          error: 'NESTED_GATEWAY',
+          message: 'A gateway cannot itself be linked to another gateway. Unlink it first.',
+        });
+      }
+      if (effGatewayId === id) {
+        throw new GatewayInvariantViolation(400, {
+          error: 'SELF_GATEWAY', message: 'An instrument cannot be its own gateway.',
+        });
+      }
+
       // Only a real transition is audited: a PUT that re-sends the current
       // gatewayId is not a link event, and a trail full of no-op links is a
       // trail nobody reads.

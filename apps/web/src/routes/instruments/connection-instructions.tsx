@@ -3,13 +3,18 @@ import { getApiBase } from '@/lib/api-base';
 import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
 
 /**
- * Exactly ONE connection example, for the instrument's own transport.
+ * A protocol switcher over all seven transports, showing the connection
+ * example for whichever one is selected.
  *
- * Each instrument has a single transport by design, so there is exactly one
- * correct answer to "where do I send data?". Showing all seven and letting the
- * technician pick is how you get a device publishing to the wrong topic — the
- * commonest onboarding failure this component exists to prevent.
+ * An instrument's token in fact works on any listener — ingest
+ * authentication never checks transport — so instruments are no longer
+ * pinned to one. The switcher opens on the instrument's stored `transport`
+ * when supplied (back-compat with callers that still pass it) and falls
+ * back to `http` once that field goes away.
  */
+
+const ALL_TRANSPORTS = ['http', 'https', 'mqtt', 'mqtts', 'websocket', 'wss', 'tcp'] as const;
+type Transport = (typeof ALL_TRANSPORTS)[number];
 
 /** P1 ships the HTTP listener only; the rest are catalogued but not yet served. */
 const LIVE_TRANSPORTS = new Set(['http', 'https']);
@@ -46,7 +51,8 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 export interface ConnectionInstructionsProps {
-  transport: string;
+  /** Optional — a stored transport just picks the switcher's initial tab. */
+  transport?: string;
   code: string;
   /** Plaintext token. Only ever available at creation / regeneration. */
   token?: string;
@@ -66,6 +72,15 @@ export function ConnectionInstructions({
   childCodes,
   gatewayCode,
 }: ConnectionInstructionsProps) {
+  // The switcher opens on the instrument's stored transport when one was
+  // supplied (existing callers still pass it), otherwise HTTP — the one
+  // listener that's actually live.
+  const initial: Transport =
+    transport && (ALL_TRANSPORTS as readonly string[]).includes(transport)
+      ? (transport as Transport)
+      : 'http';
+  const [selected, setSelected] = useState<Transport>(initial);
+
   // The token is knowable exactly once. When these instructions are shown on
   // the detail page (no token in hand) the example still has to be copyable, so
   // a placeholder stands in rather than an empty string that would paste as a
@@ -79,7 +94,7 @@ export function ConnectionInstructions({
   const httpUrl = `${base}/api/ingest/v1/telemetry`;
   const topic = `instruments/${code}/telemetry`;
   const wsUrl = `${base.replace(/^http/, 'ws')}/api/ingest/v1/ws`;
-  const notLive = !LIVE_TRANSPORTS.has(transport);
+  const notLive = !LIVE_TRANSPORTS.has(selected);
 
   // A gateway sends ONE batch payload keyed by each child's code, not the
   // single-reading body an ordinary instrument sends. When there are no
@@ -108,7 +123,7 @@ export function ConnectionInstructions({
       </p>
     );
   } else {
-    switch (transport) {
+    switch (selected) {
       case 'http':
       case 'https':
         body = (
@@ -134,7 +149,7 @@ export function ConnectionInstructions({
             <Row label="Username" value={tok} />
             <Row label="Password" value="(leave empty)" />
             <CodeBlock
-              text={`mosquitto_pub -h <broker-host> -p ${transport === 'mqtts' ? '8883' : '1883'} \\\n  -t "${topic}" \\\n  -u "${tok}" \\\n  -m '${isGateway ? devicesPayload : '{"temperature": 21.5}'}'`}
+              text={`mosquitto_pub -h <broker-host> -p ${selected === 'mqtts' ? '8883' : '1883'} \\\n  -t "${topic}" \\\n  -u "${tok}" \\\n  -m '${isGateway ? devicesPayload : '{"temperature": 21.5}'}'`}
             />
           </>
         );
@@ -174,12 +189,43 @@ export function ConnectionInstructions({
         break;
 
       default:
-        body = <p className="text-sm text-slate-500">No connection example for transport &quot;{transport}&quot;.</p>;
+        body = <p className="text-sm text-slate-500">No connection example for transport &quot;{selected}&quot;.</p>;
     }
   }
 
   return (
     <div className="space-y-2">
+      <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Protocol">
+        {ALL_TRANSPORTS.map((t) => {
+          const isSelected = t === selected;
+          const isLive = LIVE_TRANSPORTS.has(t);
+          return (
+            <button
+              key={t}
+              type="button"
+              role="tab"
+              aria-selected={isSelected}
+              onClick={() => setSelected(t)}
+              className={`rounded-md border px-2.5 py-1 text-xs font-medium ${
+                isSelected
+                  ? 'border-slate-800 bg-slate-800 text-white'
+                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              {t.toUpperCase()}
+              {!isLive && (
+                <span
+                  aria-hidden="true"
+                  className={`ml-1 inline-block h-1.5 w-1.5 rounded-full align-middle ${
+                    isSelected ? 'bg-amber-300' : 'bg-amber-500'
+                  }`}
+                  title="Not accepting connections yet"
+                />
+              )}
+            </button>
+          );
+        })}
+      </div>
       {gatewayCode && (
         <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
           This instrument is also reported by gateway <strong className="font-mono">{gatewayCode}</strong>.
@@ -188,10 +234,10 @@ export function ConnectionInstructions({
       )}
       {notLive && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          <strong>{transport.toUpperCase()} is not accepting connections yet.</strong>{' '}
+          <strong>{selected.toUpperCase()} is not accepting connections yet.</strong>{' '}
           The instrument and its token are valid, but only HTTP/HTTPS ingest is
           running in this release. The details below are what this device will
-          use once the {transport.toUpperCase()} listener ships.
+          use once the {selected.toUpperCase()} listener ships.
         </div>
       )}
       {body}

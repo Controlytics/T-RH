@@ -737,6 +737,104 @@ describe('Instrument gateway audit trail', () => {
     expect(still?.gatewayId).toBeNull();
   });
 
+  /**
+   * D2 (no nested gateways) is a SAME-row rule, so `lockedGatewayRecheck` never
+   * covered it — it was left to the pre-flight, which reads outside any
+   * transaction. Two ordinary UI actions defeat that, because neither request
+   * carries the other's field: the detail page Save sends `isGateway` with no
+   * `gatewayId`, and the gateway panel's Link sends `gatewayId` with no
+   * `isGateway`.
+   *
+   * Here the child is promoted to a gateway underneath an in-flight Link. The
+   * PUT's pre-flight already read `isGateway:false` and allowed it; only a
+   * re-check on the EFFECTIVE state (locked row merged with this request's
+   * fields) can refuse. Without it the commit lands `isGateway && gatewayId` —
+   * a two-level chain, which no CHECK constraint catches.
+   *
+   * The mover locks only the child row on purpose: the route locks GW first
+   * (uncontended) and then C, so C is the block point this test needs.
+   */
+  it('refuses a link that would nest, when the child was promoted mid-flight', async () => {
+    const s = Date.now();
+    const gw = await mk({ name: 'D2GW', code: `D2GW-${s}`, transport: 'http', isGateway: true });
+    const child = await mk({ name: 'D2C', code: `D2C-${s}`, transport: 'http' });
+    const gwId = gw.json().id;
+    const childId = child.json().id;
+
+    const mover = heldTx(async (tx) => {
+      await tx.instrument.update({ where: { id: childId }, data: { isGateway: true } });
+    });
+    const moverPid = await mover.pid;
+
+    const pending = app.inject({
+      method: 'PUT', url: `/api/instruments/${childId}`, headers: auth, payload: { gatewayId: gwId },
+    });
+    await waitUntilBlocking(moverPid);
+    mover.release();
+    await mover.done;
+
+    const res = await pending;
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('NESTED_GATEWAY');
+
+    // The invariant: never a gateway that is itself somebody's child.
+    const after = await prisma.instrument.findUnique({
+      where: { id: childId }, select: { isGateway: true, gatewayId: true },
+    });
+    expect(after?.isGateway).toBe(true);
+    expect(after?.gatewayId).toBeNull();
+  });
+
+  /** The mirror: the field this request omits is `gatewayId`, not `isGateway`. */
+  it('refuses enabling gateway mode on an instrument linked mid-flight', async () => {
+    const s = Date.now();
+    const gw = await mk({ name: 'D2MG', code: `D2MG-${s}`, transport: 'http', isGateway: true });
+    const child = await mk({ name: 'D2MC', code: `D2MC-${s}`, transport: 'http' });
+    const gwId = gw.json().id;
+    const childId = child.json().id;
+
+    const mover = heldTx(async (tx) => {
+      await tx.instrument.update({ where: { id: childId }, data: { gatewayId: gwId } });
+    });
+    const moverPid = await mover.pid;
+
+    const pending = app.inject({
+      method: 'PUT', url: `/api/instruments/${childId}`, headers: auth, payload: { isGateway: true },
+    });
+    await waitUntilBlocking(moverPid);
+    mover.release();
+    await mover.done;
+
+    const res = await pending;
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('NESTED_GATEWAY');
+
+    const after = await prisma.instrument.findUnique({
+      where: { id: childId }, select: { isGateway: true, gatewayId: true },
+    });
+    expect(after?.isGateway).toBe(false);
+    expect(after?.gatewayId).toBe(gwId);
+  });
+
+  /**
+   * An explicit `gatewayId: null` must still read as an unlink under the
+   * effective-state merge. `parsed.data.gatewayId ?? before.gatewayId` — the
+   * terse form — would resurrect the old parent and refuse a legal unlink of a
+   * child that is being promoted in the same request.
+   */
+  it('allows promoting an instrument that unlinks itself in the same request', async () => {
+    const s = Date.now();
+    const gw = await mk({ name: 'D2UG', code: `D2UG-${s}`, transport: 'http', isGateway: true });
+    const child = await mk({ name: 'D2UC', code: `D2UC-${s}`, transport: 'http', gatewayId: gw.json().id });
+
+    const res = await app.inject({
+      method: 'PUT', url: `/api/instruments/${child.json().id}`, headers: auth,
+      payload: { isGateway: true, gatewayId: null },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toMatchObject({ isGateway: true, gatewayId: null });
+  });
+
   it('the locked re-check refuses both violations when called directly', async () => {
     const s = Date.now();
     const gw = await mk({ name: 'LGW', code: `LGW-${s}`, transport: 'http', isGateway: true });

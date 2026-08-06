@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { ConnectionInstructions } from '../connection-instructions';
 
 describe('ConnectionInstructions', () => {
@@ -59,5 +59,40 @@ describe('ConnectionInstructions — gateway', () => {
     render(<ConnectionInstructions transport="http" code="SENSOR-A" token="TOK" gatewayCode="GW-1" />);
     expect(screen.getByText(/GW-1/)).toBeInTheDocument();
     expect(screen.getByText(/curl/)).toBeInTheDocument();   // direct path still shown (spec D4)
+  });
+});
+
+describe('ConnectionInstructions — protocol switcher', () => {
+  it('defaults to HTTP when no transport is supplied', () => {
+    render(<ConnectionInstructions code="T-1" token="TOK" />);
+    expect(screen.getByText(/curl/)).toBeInTheDocument();
+    expect(screen.queryByText(/mosquitto_pub/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/not accepting connections yet/i)).not.toBeInTheDocument();
+  });
+
+  it('selecting MQTT shows the MQTT topic and the not-live warning', () => {
+    render(<ConnectionInstructions code="T-1" token="TOK" />);
+    fireEvent.click(screen.getByRole('tab', { name: /MQTT$/ }));
+    expect(screen.getAllByText(/instruments\/T-1\/telemetry/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/not accepting connections yet/i)).toBeInTheDocument();
+  });
+
+  it('switching back to HTTP removes the warning', () => {
+    render(<ConnectionInstructions code="T-1" token="TOK" />);
+    fireEvent.click(screen.getByRole('tab', { name: /MQTT$/ }));
+    expect(screen.getByText(/not accepting connections yet/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: /^HTTP$/ }));
+    expect(screen.queryByText(/not accepting connections yet/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/curl/)).toBeInTheDocument();
+  });
+
+  it('a gateway batch payload survives a protocol switch', () => {
+    render(
+      <ConnectionInstructions code="GW-1" token="TOK" isGateway childCodes={['SENSOR-A', 'SENSOR-B']} />,
+    );
+    expect(screen.getAllByText(/"devices"/).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('tab', { name: /^TCP$/ }));
+    expect(screen.getAllByText(/SENSOR-A/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/SENSOR-B/).length).toBeGreaterThan(0);
   });
 });
