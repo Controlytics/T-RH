@@ -56,9 +56,34 @@ longer exists. The action strings still travel in the 401 bodies. **No new
 permissions** — all three reuse `INSTRUMENT_UPDATE`.
 
 `PUT /:id/token` sets an operator-chosen value, for the device whose credential
-is fixed in firmware or on an installer's config sheet. 32–128 chars,
-`[A-Za-z0-9._-]` only, so it survives an `Authorization` header, an MQTT
-username, a CSV cell and a JSON line unescaped. It **revokes and inserts**
+is fixed in firmware or on an installer's config sheet. `[A-Za-z0-9._-]` only,
+so it survives an `Authorization` header, an MQTT username, a CSV cell and a
+JSON line unescaped.
+
+**Any length is accepted above one bound, and that bound is not about strength.**
+This shipped with a 32–128 range, floored because `token_hash` is a fast SHA-256
+and a short hand-typed token is genuinely brute-forceable. The bounds were
+removed the same day at the operator's request: the endpoint exists for hardware
+that dictates its own credential, and a limit the hardware violates cannot be
+satisfied by arguing with the hardware. That reasoning was outweighed, not
+refuted, and nothing about issuance changed — `generateToken()` still mints 43
+base64url characters, so every token the system chooses for itself is still 256
+bits.
+
+What survives is a floor of `TOKEN_PREFIX_LEN + 1`, and it exists to keep a
+*different* control honest. `instrument_credentials.token_prefix` is the first 8
+characters, treated as non-secret: it is returned by the `INSTRUMENT_READ`-gated
+list and detail endpoints and rendered on both instrument pages. At 8 characters
+or fewer the prefix **is** the token — so a viewer who cannot reveal tokens would
+read a live credential straight off the screen, with no password and no
+`INSTRUMENT_TOKEN_VIEWED` row, bypassing all three controls above. The 32-char
+floor had been covering that hole incidentally; removing it without this would
+have opened it. `TOKEN_PREFIX_LEN` moved to `@digilog/shared` so the slice and
+the bound cannot drift apart — deriving the prefix from a hash instead would be
+the better fix, but `resolveInstrumentByToken` recomputes it on the presented
+token, so changing the derivation would stop every existing credential matching.
+
+It **revokes and inserts**
 rather than updating in place, exactly as regeneration does:
 `instrument_credentials` answers "which secret was live when this reading
 arrived?", and rewriting a hash in place would make past readings appear to have
