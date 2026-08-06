@@ -1,5 +1,61 @@
 # Changelog
 
+## [Unreleased] — Attribute downlink: the first platform → device path (2026-08-06)
+
+**This narrows a documented exclusion.** Spec
+`2026-08-04-instruments-inbound-ingestion-design.md` §10 listed "Commands *to*
+devices (downlink/RPC)" as out of scope for v1, and until now every transport
+was uplink only. Changing an instrument's attribute is now published to the
+device over MQTT. The exclusion is narrowed, not lifted: there is still no RPC,
+no command channel, and no device→platform acknowledgement — attributes are the
+only thing that travels this way. Recorded in a new spec §10.1.
+
+**One retained slot per instrument.** `instruments/<code>/attributes`, or
+`instruments/<gatewayCode>/attributes/<childCode>` for a child, which has no
+broker connection of its own and must be addressed through the gateway that fans
+out for it. Per-instrument topics are load-bearing: MQTT retains only the *last*
+message per topic, so one shared gateway topic would mean a reconnecting gateway
+receiving one child's state and losing the rest.
+
+**The payload carries state and delta together** — `attributes` is the complete
+current set (so a retained message alone is enough to reconstruct truth),
+`changed` is this operation's delta, and `changed[key] === null` means the
+attribute was *removed*: absent from `attributes`, null in `changed`, in the
+same message.
+
+**The database stays the source of truth.** QoS 1, retained, published only
+*after* the transaction commits — publishing first would let a rolled-back edit
+leave a device holding a change the platform does not have, and a retained one,
+so it would survive. A publish failure is logged loudly and never fails the
+attribute write. With `MQTT_BROKER_URL` unset there is no bridge and no
+downlink, and attribute edits behave exactly as before.
+
+**Devices gained their first subscribe permission.** `etc/acl.conf` previously
+granted them none at all. Two rules were added: the bridge may publish on
+`instruments/+/attributes` and `instruments/+/attributes/+`, and a device may
+subscribe to `instruments/${clientid}/attributes` and
+`instruments/${clientid}/attributes/#`. The `${clientid}` template is only
+meaningful because the auth hook already refuses any CONNECT whose client id is
+not the token's instrument code — the same binding that makes the telemetry
+publish rule real. A gateway's client id *is* the gateway code, so the wildcard
+form covers its children and nothing else. Verified live: a device reads its own
+slot and its children's, and is disconnected when it reaches for another
+instrument's.
+
+**Retention had to be moved to disc.** EMQX 5.x defaults to
+`retainer.backend.storage_type = ram`, which silently defeats the design — a
+broker restart erased every slot, and a device reconnecting afterwards received
+nothing at all until someone next edited an attribute on it. Verified, then
+fixed in `etc/emqx.conf`.
+
+**Known gap, not fixed:** a retained message outlives what it describes.
+Deleting an instrument, or unlinking/moving a child, strands a slot that nothing
+clears. No secret is exposed (only the instrument's own client id can read it),
+but the data is stale. Clearing requires a zero-byte retained publish.
+
+Full operator documentation, including a pasteable `mosquitto_sub` command:
+`LOCAL_SETUP_WINDOWS.md` §9B.6.
+
 ## [Unreleased] — Instrument access tokens can be read back, and instruments carry free-form attributes (2026-08-06)
 
 **This reverses a documented security decision.** Spec

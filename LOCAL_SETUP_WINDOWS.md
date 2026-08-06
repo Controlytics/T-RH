@@ -332,6 +332,11 @@ reloads it.
 %% a device may publish to ITS OWN topic only
 {allow, all, publish, ["instruments/${clientid}/telemetry"]}.
 
+%% DOWNLINK (see §9B.6). The bridge is the only publisher on the attribute
+%% tree; a device reads its own slot and, if it is a gateway, its children's.
+{allow, {username, "digilog-bridge"}, publish, ["instruments/+/attributes", "instruments/+/attributes/+"]}.
+{allow, all, subscribe, ["instruments/${clientid}/attributes", "instruments/${clientid}/attributes/#"]}.
+
 {deny, all, subscribe, ["$SYS/#", {eq, "#"}]}.
 {deny, all}.
 ```
@@ -623,6 +628,164 @@ wrong reason.
 > and every check in the table above becomes a false pass while looking green.
 > A TLS connection from this machine is still on loopback. If you reinstall or
 > upgrade EMQX, re-check `acl.conf` before trusting any result here.
+
+---
+
+### 9B.6 Attribute downlink — the one path that runs platform → device
+
+Everything above is **uplink**: a device publishes, we ingest. Changing an
+instrument's attribute in the UI goes the other way, and it is the only thing in
+this system that does. There is still no RPC and no command channel — a device
+cannot be told to *do* anything, only what its attributes now are.
+
+#### The topic scheme — one retained slot per instrument
+
+| Instrument | Topic |
+|---|---|
+| standalone | `instruments/<code>/attributes` |
+| child of a gateway | `instruments/<gatewayCode>/attributes/<childCode>` |
+
+A child has **no broker connection of its own**, so its change has to reach the
+gateway that fans out for it — addressed to the child, on the gateway's tree.
+The gateway subscribes `instruments/<gatewayCode>/attributes/#`, which covers
+every child *and* the gateway's own slot (MQTT's `#` matches its own parent
+level; verified against EMQX 5.3.2, not assumed).
+
+**Per-instrument topics are load-bearing, not cosmetic.** MQTT retains only the
+**last** message per topic. One shared `instruments/<gw>/attributes` slot would
+mean a gateway coming back from a power cut is handed whichever child changed
+most recently and silently loses every other child's state.
+
+#### The payload — state *and* delta, in one message
+
+```json
+{ "attributes": { "assetTag": "AT-99412" },
+  "changed":    { "calibrationDue": null },
+  "ts": "2026-08-06T11:40:00.000Z" }
+```
+
+`attributes` is that instrument's **complete current set** after the change, so a
+device that was offline can reconstruct the truth from the retained message
+alone. `changed` is the delta for this one operation. A value of **`null` means
+the attribute was removed** — the key is absent from `attributes` and present as
+`null` in `changed`, in the same message, and both halves are the point.
+
+Published at **QoS 1, `retain: true`**, and **after the database transaction
+commits, never inside it** — publishing first means a rolled-back edit can leave
+a device holding a change the platform does not have, and a retained one, so it
+survives. A publish failure is logged and **never fails the attribute write**:
+the database is the source of truth, the broker is a delivery mechanism. With
+`MQTT_BROKER_URL` unset there is no bridge, no downlink, and attribute edits
+behave exactly as they did before this path existed.
+
+#### Watching it — paste this
+
+Subscribe as the device itself (client id = instrument code, username = its
+token; the password is ignored). Then change an attribute in the UI.
+
+```bash
+# a standalone instrument
+"/c/Program Files/mosquitto/mosquitto_sub.exe" -h 127.0.0.1 -p 1883 \
+  -i TEMP-01 -u "<TEMP-01's device token>" -P x \
+  -t "instruments/TEMP-01/attributes" -v
+
+# a gateway — its own slot AND every child's, in one subscription
+"/c/Program Files/mosquitto/mosquitto_sub.exe" -h 127.0.0.1 -p 1883 \
+  -i GW-01 -u "<GW-01's device token>" -P x \
+  -t "instruments/GW-01/attributes/#" -v
+```
+
+Subscribing **after** the change works too — that is what `retain` buys. Add
+`-d` to see the `r1` flag on a retained delivery, which is how you tell a
+replayed message from a live one.
+
+#### Retention must be on DISC, or a broker restart wipes every slot
+
+EMQX 5.x defaults to `retainer.backend.storage_type = ram`, and that default
+**silently defeats this design**: the retained message is the only copy of an
+instrument's attribute set on the broker, so a restart erases it and a device
+reconnecting afterwards receives *nothing* — not stale state, no state — until
+someone happens to edit an attribute on that instrument again. Verified on this
+machine: a retained probe published before `emqx stop` was gone after
+`emqx start`. Appended to `etc/emqx.conf` (stock preserved as `emqx.conf.orig`):
+
+```hocon
+retainer {
+    enable = true
+    msg_expiry_interval = 0
+    backend {
+        type = built_in_database
+        storage_type = disc
+    }
+}
+```
+
+`msg_expiry_interval = 0` (never expire) is EMQX's own default and is what we
+want — an attribute set is current until it is replaced. It is stated explicitly
+because the shipped `etc/examples/retainer.conf.example` sets it to `5s`, and
+copying that example wholesale would expire every slot after five seconds.
+
+#### The ACL, and the one property that must hold
+
+Two rules, both in `etc/acl.conf` (full file listed in §9A.3):
+
+```erlang
+{allow, {username, "digilog-bridge"}, publish, ["instruments/+/attributes", "instruments/+/attributes/+"]}.
+{allow, all, subscribe, ["instruments/${clientid}/attributes", "instruments/${clientid}/attributes/#"]}.
+```
+
+Two publish patterns, not one: `+` is exactly one level, so
+`instruments/+/attributes` does **not** cover a child's three-segment topic.
+
+The subscribe rule templates on `${clientid}`, and that is only meaningful
+because `POST /api/ingest/v1/mqtt-auth` refuses any CONNECT whose client id is
+not the token's instrument code — the same binding that makes the telemetry
+publish rule real. A gateway's client id *is* the gateway code, so
+`instruments/${clientid}/attributes/#` covers its children and nothing else.
+
+> The exact-topic pattern is **redundant** — `instruments/${clientid}/attributes/#`
+> alone permits a subscribe to `instruments/<code>/attributes` and delivers on
+> it (confirmed by removing the exact pattern, restarting, and re-testing). It is
+> kept deliberately: the rule granting a device its own slot should not rest on a
+> subtlety of `#`, and a later edit narrowing the wildcard form must not take the
+> standalone case with it.
+
+Negative checks, all confirmed against the live broker — each ends with **no
+SUBACK** and a disconnect (`authorization.deny_action = disconnect`), which
+`mosquitto_sub` shows as an endless CONNECT/SUBSCRIBE retry loop:
+
+| Check | Expected |
+|---|---|
+| device A subscribes `instruments/<B>/attributes` | denied, disconnected |
+| device A subscribes `instruments/+/attributes` (wildcard fishing) | denied, disconnected |
+| device A subscribes `instruments/<GW>/attributes/<child>` where A is not GW | denied, disconnected |
+| device A subscribes **its own** topic | `SUBACK 0` — proves it is not blanket-deny |
+
+> **THE STOCK-`acl.conf` TRAP APPLIES HERE TOO.** With `{allow, all}.` or
+> `{allow, {ipaddr, "127.0.0.1"}, all, [...]}` restored, every row in that table
+> becomes a false pass while looking green — every test client on this machine is
+> on loopback. Check the file's final contents, not just that the test went green.
+> Also confirm `authorization.cache.enable = false` in
+> `data/configs/cluster.hocon`: a cached allow is the other way a negative check
+> passes for the wrong reason.
+
+#### Known gap: retained messages outlive what they describe
+
+A retained message is cleared only by publishing a **zero-byte payload with
+`retain: true`** to the same topic. Nothing does that today, so three cases
+strand a slot the platform will never revisit:
+
+- **deleting an instrument** — `instruments/<code>/attributes` keeps its last
+  message forever;
+- **unlinking a child from its gateway** — the old
+  `instruments/<gw>/attributes/<child>` slot is stranded, and the child's own
+  topic stays empty until its next attribute change;
+- **moving a child to a different gateway** — same, on the previous gateway.
+
+None leaks a secret (attributes are registry metadata, and only the instrument's
+own client id can read the slot; after a delete, no token resolves to that code
+at all, so nothing can even connect as it). It is stale data on the broker, not
+an exposure. `code` is immutable, so renaming is not a fourth case.
 
 ---
 

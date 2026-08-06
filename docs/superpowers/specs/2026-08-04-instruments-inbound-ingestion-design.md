@@ -357,8 +357,39 @@ login race. Baseline at time of writing: **14 pre-existing failures** in 4 files
 ## 10. Out of scope for v1
 
 Hierarchy, gateways, communication profiles. Alarms, thresholds, rule engine.
-Dashboards. Commands *to* devices (downlink/RPC). Durable ingest queue.
-Non-telemetry categories (dead-lettered). Certificate-based (X.509) device auth.
+Dashboards. ~~Commands *to* devices (downlink/RPC)~~ — **narrowed 2026-08-06,
+see below**. Durable ingest queue. Non-telemetry categories (dead-lettered).
+Certificate-based (X.509) device auth.
 
 Each is a real feature; none is required to create instruments and receive their
 data.
+
+### 10.1 Downlink — the exclusion, narrowed (2026-08-06)
+
+**This section is no longer accurate as written.** The first platform→device
+path now exists: when an operator changes an instrument's attribute, that change
+is published to the device over MQTT.
+
+What was added, and only this:
+
+- one **retained** message per instrument on `instruments/<code>/attributes`, or
+  `instruments/<gatewayCode>/attributes/<childCode>` for a child (which has no
+  broker connection of its own);
+- payload `{ attributes, changed, ts }` — the complete current set plus this
+  operation's delta, where `changed[key] === null` means the attribute was
+  removed;
+- QoS 1, published **after** the transaction commits, and a publish failure
+  never fails the attribute write.
+
+What is still out of scope, unchanged: **commands and RPC**. A device cannot be
+told to *do* anything — there is no request/response channel, no
+device→platform acknowledgement that a downlink was applied, and nothing but
+attributes travels this way. `MQTT_BROKER_URL` unset means no downlink at all.
+
+Implementation: `apps/api/src/modules/instruments/attribute-downlink.ts`.
+Broker configuration, ACL rules and an operator-pasteable `mosquitto_sub`
+command: `LOCAL_SETUP_WINDOWS.md` §9B.6.
+
+(Note that "hierarchy, gateways" in the list above is also already false — the
+gateway model shipped earlier. Left as-is; only the downlink clause was in
+scope here.)
