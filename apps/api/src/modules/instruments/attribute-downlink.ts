@@ -49,6 +49,23 @@ export interface AttributeDownlink {
  * subscribes `instruments/<gatewayCode>/attributes/#` and demultiplexes on the
  * last segment.
  *
+ * TWO INVARIANTS MAKE THE INTERPOLATION SAFE, and both live elsewhere:
+ *
+ *   1. `code` cannot contain `/`, `+` or `#`. `codeSchema` in
+ *      `packages/shared/src/schemas/instruments.ts` restricts it to
+ *      `[A-Za-z0-9._-]`, and `code` is IMMUTABLE (`updateInstrumentSchema`
+ *      deliberately omits it). Without that charset a code could forge a topic
+ *      shape — `A/B` would yield `instruments/A/B/attributes` — which is the
+ *      same class of bug `parseTelemetryTopic` guards on the uplink side.
+ *   2. There are no NESTED gateways, so the branch below is exhaustive. An
+ *      instrument that was BOTH `isGateway` and a child would publish its own
+ *      attributes to `instruments/<parent>/attributes/<itself>` while
+ *      subscribing `instruments/<itself>/attributes/#`, and would never receive
+ *      them. `gatewayInvariantError` refuses `isGateway && gatewayId` with 400
+ *      NESTED_GATEWAY on POST and on PUT (defaulting from the stored row, so a
+ *      pre-existing nested row is refused too), and the bulk-CSV path has no
+ *      gateway columns at all.
+ *
  * Pure: the gateway-vs-standalone branch is exactly where this goes wrong, and
  * it needs no broker to test.
  */
