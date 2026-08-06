@@ -183,6 +183,11 @@ const PUBLIC_PATHS = [
   // exemption the handshake fails with a 401 before ws-listener.ts ever sees
   // the token. Guarded by the same test.
   '/api/ingest/v1/ws',
+  // The hook EMQX calls on every MQTT CONNECT. The caller is the broker, not a
+  // logged-in user, and the credential it forwards is the device token — so it
+  // cannot present a JWT. Always answers 200 with allow/deny; deny is the
+  // default for anything unrecognised. Guarded by the same test.
+  '/api/ingest/v1/mqtt-auth',
   // 2026-07-03: removed 6 stale JWT-skip entries whose routes were deleted in the
   // Phase 7 data-ingestion + MQTT tear-out — no route is registered for any of
   // them, so the allowlist entries were dead cruft:

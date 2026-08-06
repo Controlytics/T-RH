@@ -20,6 +20,7 @@ describe('auth plugin public paths', () => {
       '/api/auth/login',
       '/api/guest/cleaning-request',
       '/api/health',
+      '/api/ingest/v1/mqtt-auth',
       '/api/ingest/v1/telemetry',
       '/api/ingest/v1/ws',
       '/api/notification-settings/email/oauth2/code',
@@ -28,11 +29,14 @@ describe('auth plugin public paths', () => {
     ]);
   });
 
-  it('exposes exactly the two device-token ingest paths', () => {
-    // Both authenticate on a per-instrument token instead of a user JWT: the
-    // HTTP POST and the WebSocket upgrade. Any third entry under /api/ingest/
+  it('exposes exactly the three device-token ingest paths', () => {
+    // All three turn on a per-instrument token instead of a user JWT: the HTTP
+    // POST, the WebSocket upgrade, and the hook EMQX calls at MQTT CONNECT
+    // (where the token arrives as the MQTT username and the caller is the
+    // broker, which has no JWT to present). Any FOURTH entry under /api/ingest/
     // is a new unauthenticated surface and belongs in a review, not a diff.
     expect(paths.filter((p) => p.startsWith('/api/ingest/'))).toEqual([
+      '/api/ingest/v1/mqtt-auth',
       '/api/ingest/v1/telemetry',
       '/api/ingest/v1/ws',
     ]);

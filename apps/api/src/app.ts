@@ -49,6 +49,7 @@ import { dispatchNotification } from './modules/notification-delivery/notificati
 import adminRequestRoutes from './modules/admin-requests/routes.js';
 import ingestRoutes from './modules/instruments/ingest-routes.js';
 import wsIngestRoutes from './modules/instruments/listeners/ws-listener.js';
+import mqttAuthRoutes from './modules/instruments/mqtt-auth-routes.js';
 import instrumentRoutes from './modules/instruments/routes.js';
 import { startTcpListener, type TcpListenerHandle } from './modules/instruments/listeners/tcp-listener.js';
 
@@ -359,6 +360,11 @@ await app.register(ingestRoutes, { prefix: '/api/ingest/v1' });
 // Also on the auth-hook allowlist (plugins/auth.ts) — the upgrade request runs
 // through the onRequest hook like any other GET.
 await app.register(wsIngestRoutes, { prefix: '/api/ingest/v1' });
+// The hook EMQX calls at MQTT CONNECT. Same device token, presented as the MQTT
+// username; also on the auth-hook allowlist, since the caller is the broker and
+// has no user JWT. See mqtt-auth-routes.ts for the clientid<->token binding it
+// enforces, which is what makes the broker's topic ACL meaningful.
+await app.register(mqttAuthRoutes, { prefix: '/api/ingest/v1' });
 // Operator-facing registry. Unlike /api/ingest/v1 above, this one is behind the
 // global auth hook and permission-gated — it is NOT on the public allowlist.
 await app.register(instrumentRoutes, { prefix: '/api/instruments' });
