@@ -23,7 +23,7 @@ export async function registerSwagger(app: FastifyInstance) {
 ## Roles & Permissions
 | Role | Level | Description |
 |------|-------|-------------|
-| SUPER_ADMIN | 6 | Full access, actions not audited |
+| SUPER_ADMIN | 6 | Full access. Audited like every other role — no role is exempt from the audit trail (§11.10(e)) |
 | ADMIN | 5 | User & config management |
 | SUPERVISOR | 4 | Approval workflows |
 | MAINTENANCE | 3 | Entity management |
