@@ -11,7 +11,7 @@ beforeAll(async () => {
   app = await buildApp();
   token = generateToken();
   const inst = await prisma.instrument.create({
-    data: { name: 'Ingest Probe', code: `ING-${Date.now()}`, transport: 'http' },
+    data: { name: 'Ingest Probe', code: `ING-${Date.now()}` },
   });
   instrumentId = inst.id;
   await prisma.instrumentCredential.create({

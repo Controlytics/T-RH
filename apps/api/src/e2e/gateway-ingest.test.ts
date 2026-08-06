@@ -29,9 +29,9 @@ const ingest = (token: string, body: unknown) => app.inject({
 describe('gateway ingest', () => {
   it('accepts a batch for its own children and attributes each block correctly', async () => {
     const s = Date.now();
-    const gw = await mk({ name: 'GW', code: `GW-${s}`, transport: 'http', isGateway: true });
-    const a = await mk({ name: 'A', code: `A-${s}`, transport: 'http', gatewayId: gw.id });
-    const b = await mk({ name: 'B', code: `B-${s}`, transport: 'http', gatewayId: gw.id });
+    const gw = await mk({ name: 'GW', code: `GW-${s}`, isGateway: true });
+    const a = await mk({ name: 'A', code: `A-${s}`, gatewayId: gw.id });
+    const b = await mk({ name: 'B', code: `B-${s}`, gatewayId: gw.id });
 
     const res = await ingest(gw.token, {
       devices: { [`A-${s}`]: { temperature: 21.5 }, [`B-${s}`]: { humidity: 47 } },
@@ -47,9 +47,9 @@ describe('gateway ingest', () => {
 
   it('dead-letters a code it does not own and still stores the rest', async () => {
     const s = Date.now();
-    const gw = await mk({ name: 'GW2', code: `GW2-${s}`, transport: 'http', isGateway: true });
-    const a = await mk({ name: 'A2', code: `A2-${s}`, transport: 'http', gatewayId: gw.id });
-    const orphan = await mk({ name: 'O', code: `O-${s}`, transport: 'http' });
+    const gw = await mk({ name: 'GW2', code: `GW2-${s}`, isGateway: true });
+    const a = await mk({ name: 'A2', code: `A2-${s}`, gatewayId: gw.id });
+    const orphan = await mk({ name: 'O', code: `O-${s}` });
 
     const res = await ingest(gw.token, {
       devices: { [`A2-${s}`]: { temperature: 1 }, [`O-${s}`]: { temperature: 2 } },
@@ -75,7 +75,7 @@ describe('gateway ingest', () => {
    */
   it('caps dead-letters per batch and stores the payload only once', async () => {
     const s = Date.now();
-    const gw = await mk({ name: 'GWC', code: `GWC-${s}`, transport: 'http', isGateway: true });
+    const gw = await mk({ name: 'GWC', code: `GWC-${s}`, isGateway: true });
 
     const devices: Record<string, unknown> = {};
     for (let i = 0; i < 25; i++) devices[`GHOST-${s}-${i}`] = { temperature: i };
@@ -105,7 +105,7 @@ describe('gateway ingest', () => {
 
   it('writes no summary row when the batch is under the cap', async () => {
     const s = Date.now();
-    const gw = await mk({ name: 'GWU', code: `GWU-${s}`, transport: 'http', isGateway: true });
+    const gw = await mk({ name: 'GWU', code: `GWU-${s}`, isGateway: true });
 
     const devices: Record<string, unknown> = {};
     for (let i = 0; i < 3; i++) devices[`GHOSTU-${s}-${i}`] = { temperature: i };
@@ -123,7 +123,7 @@ describe('gateway ingest', () => {
    */
   it('explains the self-code rejection instead of saying a gateway is not linked to itself', async () => {
     const s = Date.now();
-    const gw = await mk({ name: 'GWS', code: `GWS-${s}`, transport: 'http', isGateway: true });
+    const gw = await mk({ name: 'GWS', code: `GWS-${s}`, isGateway: true });
 
     const res = await ingest(gw.token, { devices: { [`GWS-${s}`]: { temperature: 1 } } });
     expect(res.json()).toEqual({ accepted: 0, rejected: 1 });
@@ -138,7 +138,7 @@ describe('gateway ingest', () => {
   /** ...and the remedy that reason names must actually work. */
   it('accepts the gateway\'s own readings on the flat path', async () => {
     const s = Date.now();
-    const gw = await mk({ name: 'GWF', code: `GWF-${s}`, transport: 'http', isGateway: true });
+    const gw = await mk({ name: 'GWF', code: `GWF-${s}`, isGateway: true });
 
     const res = await ingest(gw.token, { temperature: 42 });
     expect(res.statusCode).toBe(200);
@@ -150,7 +150,7 @@ describe('gateway ingest', () => {
 
   it('refuses a batch from an instrument that is not a gateway', async () => {
     const s = Date.now();
-    const plain = await mk({ name: 'P', code: `P-${s}`, transport: 'http' });
+    const plain = await mk({ name: 'P', code: `P-${s}` });
     const res = await ingest(plain.token, { devices: { [`P-${s}`]: { temperature: 1 } } });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toBe('NOT_A_GATEWAY');
@@ -158,8 +158,8 @@ describe('gateway ingest', () => {
 
   it('records the source: gateway for a relayed child, direct for its own post', async () => {
     const s = Date.now();
-    const gw = await mk({ name: 'GW3', code: `GW3-${s}`, transport: 'http', isGateway: true });
-    const c = await mk({ name: 'C', code: `C-${s}`, transport: 'http', gatewayId: gw.id });
+    const gw = await mk({ name: 'GW3', code: `GW3-${s}`, isGateway: true });
+    const c = await mk({ name: 'C', code: `C-${s}`, gatewayId: gw.id });
 
     await ingest(gw.token, { devices: { [`C-${s}`]: { temperature: 3 } } });
     let row = await app.inject({ method: 'GET', url: `/api/instruments/${c.id}`, headers: auth });
@@ -174,8 +174,8 @@ describe('gateway ingest', () => {
 
   it('stamps the gateway itself as direct when it relays a batch, distinct from its children', async () => {
     const s = Date.now();
-    const gw = await mk({ name: 'GW5', code: `GW5-${s}`, transport: 'http', isGateway: true });
-    const e = await mk({ name: 'E', code: `E-${s}`, transport: 'http', gatewayId: gw.id });
+    const gw = await mk({ name: 'GW5', code: `GW5-${s}`, isGateway: true });
+    const e = await mk({ name: 'E', code: `E-${s}`, gatewayId: gw.id });
 
     const res = await ingest(gw.token, { devices: { [`E-${s}`]: { temperature: 7 } } });
     expect(res.json()).toEqual({ accepted: 1, rejected: 0 });
@@ -190,8 +190,8 @@ describe('gateway ingest', () => {
 
   it('stops writing a child the moment it is unlinked — no cache grace period', async () => {
     const s = Date.now();
-    const gw = await mk({ name: 'GW4', code: `GW4-${s}`, transport: 'http', isGateway: true });
-    const d = await mk({ name: 'D', code: `D-${s}`, transport: 'http', gatewayId: gw.id });
+    const gw = await mk({ name: 'GW4', code: `GW4-${s}`, isGateway: true });
+    const d = await mk({ name: 'D', code: `D-${s}`, gatewayId: gw.id });
 
     expect((await ingest(gw.token, { devices: { [`D-${s}`]: { temperature: 5 } } })).json())
       .toEqual({ accepted: 1, rejected: 0 });

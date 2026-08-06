@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import useSWR from 'swr';
-import { TRANSPORTS } from '@digilog/shared';
 import { useCan } from '@/hooks/use-can';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
@@ -16,7 +15,6 @@ interface InstrumentRow {
   id: string;
   name: string;
   code: string;
-  transport: string;
   isActive: boolean;
   tokenPrefix: string | null;
   lastSeenAt: string | null;
@@ -40,7 +38,6 @@ export function InstrumentListPage() {
   const [perPage, setPerPage] = useState(paginationOptions[0]);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [transport, setTransport] = useState('');
   const [active, setActive] = useState('');
   const [block, setBlock] = useState('');
   const [debouncedBlock, setDebouncedBlock] = useState('');
@@ -66,7 +63,6 @@ export function InstrumentListPage() {
 
   const params = new URLSearchParams({ page: String(page), limit: String(perPage) });
   if (debouncedSearch) params.set('search', debouncedSearch);
-  if (transport) params.set('transport', transport);
   if (active) params.set('isActive', active);
   if (debouncedBlock) params.set('block', debouncedBlock);
   if (debouncedArea) params.set('area', debouncedArea);
@@ -100,14 +96,6 @@ export function InstrumentListPage() {
           onChange={(e) => setSearch(e.target.value)}
         />
         <Select
-          className="w-44"
-          value={transport}
-          onChange={(e) => { setTransport(e.target.value); setPage(1); }}
-        >
-          <option value="">All transports</option>
-          {TRANSPORTS.map((t) => <option key={t} value={t}>{t}</option>)}
-        </Select>
-        <Select
           className="w-40"
           value={active}
           onChange={(e) => { setActive(e.target.value); setPage(1); }}
@@ -127,7 +115,6 @@ export function InstrumentListPage() {
             <TableRow>
               <TableHead>Name</TableHead>
               <TableHead>Code</TableHead>
-              <TableHead>Transport</TableHead>
               <TableHead>Status</TableHead>
               {/* The at-a-glance answer to "is this device actually talking?" */}
               <TableHead>Last seen</TableHead>
@@ -137,11 +124,11 @@ export function InstrumentListPage() {
           </TableHeader>
           <TableBody>
             {isLoading && (
-              <TableRow><TableCell colSpan={7} className="py-8 text-center text-slate-400">Loading…</TableCell></TableRow>
+              <TableRow><TableCell colSpan={6} className="py-8 text-center text-slate-400">Loading…</TableCell></TableRow>
             )}
             {!isLoading && rows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="py-10 text-center text-slate-500">
+                <TableCell colSpan={6} className="py-10 text-center text-slate-500">
                   No instruments yet.
                   {can('instruments.create') && <> <Link to="/instruments/new" className="text-blue-600 hover:underline">Register the first one</Link>.</>}
                 </TableCell>
@@ -156,7 +143,6 @@ export function InstrumentListPage() {
                   </span>
                 </TableCell>
                 <TableCell className="font-mono text-xs">{r.code}</TableCell>
-                <TableCell><Badge variant="secondary">{r.transport}</Badge></TableCell>
                 <TableCell>
                   <Badge variant={r.isActive ? 'success' : 'secondary'}>
                     {r.isActive ? 'Active' : 'Inactive'}

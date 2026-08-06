@@ -751,7 +751,10 @@ model Instrument {
   id                  String   @id @default(uuid())
   name                String
   code                String   @unique
-  transport           String
+  // No `transport` column by design: a credential authenticates on any
+  // listener (`resolveInstrumentByToken` never checks protocol), so storing one
+  // asserted a constraint nothing enforced. `dead_letters.transport` — how a
+  // payload actually ARRIVED — is a different, observed fact and is retained.
   isActive            Boolean  @default(true) @map("is_active")
   instrumentType      String?  @map("instrument_type")
   manufacturer        String?

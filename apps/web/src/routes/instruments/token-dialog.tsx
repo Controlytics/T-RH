@@ -13,12 +13,11 @@ import { ConnectionInstructions } from './connection-instructions';
  * which revokes the credential the device may already have been given.
  */
 export function TokenDialog({
-  open, title, code, transport, token, onClose,
+  open, title, code, token, onClose,
 }: {
   open: boolean;
   title: string;
   code: string;
-  transport: string;
   token: string;
   onClose: () => void;
 }) {
@@ -63,7 +62,7 @@ export function TokenDialog({
 
         <div>
           <h4 className="mb-2 text-sm font-semibold text-slate-800">How this instrument connects</h4>
-          <ConnectionInstructions transport={transport} code={code} token={token} />
+          <ConnectionInstructions code={code} token={token} />
         </div>
 
         <label className="flex items-start gap-2 text-sm text-slate-700">

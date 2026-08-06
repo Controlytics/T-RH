@@ -2,14 +2,18 @@ import { z } from 'zod';
 
 /**
  * The seven transport values (four protocol families — http/https, mqtt/mqtts,
- * websocket/wss, tcp). Lives in shared, not in the API module, because the
- * create form (web) and the CSV parser (api) must agree on the exact list; a
- * duplicated literal here is how a device gets registered with a transport the
- * listener has never heard of.
+ * websocket/wss, tcp).
  *
- * P1 ships the HTTP/HTTPS listener only. The other five are accepted at
- * registration — an instrument can be catalogued before its listener exists —
- * but nothing will authenticate them until P2/P3 land.
+ * This is an enumeration of the protocols the platform speaks, NOT a property
+ * of any instrument. An instrument used to store one, chosen at creation; that
+ * was reversed because a credential authenticates on any listener
+ * (`resolveInstrumentByToken` never checks protocol), so the stored value
+ * asserted a constraint nothing enforced. The list survives because the
+ * connection-instructions switcher enumerates it to render one example per
+ * protocol.
+ *
+ * P1 ships the HTTP/HTTPS listener only; the switcher marks the other five as
+ * having no listener yet.
  */
 export const TRANSPORTS = ['http', 'https', 'mqtt', 'mqtts', 'websocket', 'wss', 'tcp'] as const;
 export type Transport = (typeof TRANSPORTS)[number];
@@ -27,7 +31,6 @@ const codeSchema = z.string()
 export const createInstrumentSchema = z.object({
   name: z.string().min(1, 'Name is required').max(120),
   code: codeSchema,
-  transport: z.enum(TRANSPORTS),
   isActive: z.boolean().default(true),
   instrumentType: z.string().max(80).optional(),
   manufacturer: z.string().max(120).optional(),
@@ -51,7 +54,6 @@ export const updateInstrumentSchema = z.object({
   // `code` is deliberately NOT updatable: it is baked into MQTT topics and into
   // whatever the technician configured on the device. Renaming it server-side
   // would silently break an instrument that is already publishing.
-  transport: z.enum(TRANSPORTS).optional(),
   isActive: z.boolean().optional(),
   instrumentType: z.string().max(80).nullish(),
   manufacturer: z.string().max(120).nullish(),
@@ -70,7 +72,6 @@ export const updateInstrumentSchema = z.object({
 
 export const instrumentQuerySchema = z.object({
   search: z.string().optional(),
-  transport: z.enum(TRANSPORTS).optional(),
   isActive: z.enum(['true', 'false']).optional(),
   block: z.string().optional(),
   area: z.string().optional(),

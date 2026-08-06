@@ -1,13 +1,25 @@
-// Single source of truth lives in @digilog/shared so the create form and this
-// parser cannot drift. Re-exported for the existing callers/tests in this module.
-import { TRANSPORTS } from '@digilog/shared';
-export { TRANSPORTS };
-
-const REQUIRED = ['name', 'code', 'transport'] as const;
+const REQUIRED = ['name', 'code'] as const;
 const OPTIONAL = ['instrumentType', 'manufacturer', 'model', 'serialNumber', 'description'] as const;
 
+/**
+ * Columns that were once meaningful and are now accepted-and-discarded.
+ *
+ * `transport` was REQUIRED until 2026-08-06, so every spreadsheet an operator
+ * has saved still carries it; making it an error row would break all of them
+ * at once. But a column that silently does nothing is its own trap — a typo
+ * like `htpp` used to fail the row loudly and would now "import fine", with
+ * nothing telling the operator the value is no longer read. So the column is
+ * tolerated and reported ONCE per import via `warnings`, which is deliberately
+ * separate from `errors`: that array drives the failed-row UI and the
+ * partial-success count, and a whole-file advisory is not a failed row.
+ */
+const IGNORED_COLUMNS: Record<string, string> = {
+  transport:
+    'The `transport` column is no longer used and was ignored — an instrument\'s token works on any listener. Remove it from your template.',
+};
+
 export interface InstrumentDraft {
-  name: string; code: string; transport: string;
+  name: string; code: string;
   instrumentType?: string; manufacturer?: string; model?: string;
   serialNumber?: string; description?: string;
 }
@@ -63,7 +75,7 @@ function parseCSVLine(line: string): string[] {
  * sidecar array rather than a field on the draft so the drafts stay
  * assignable straight to Prisma.
  */
-export function parseInstrumentCsv(text: string): { rows: InstrumentDraft[]; rowNumbers: number[]; errors: RowError[] } {
+export function parseInstrumentCsv(text: string): { rows: InstrumentDraft[]; rowNumbers: number[]; errors: RowError[]; warnings: string[] } {
   // Split into lines WITHOUT filtering to preserve source row numbers
   const allLines = text.split(/\r?\n/);
 
@@ -82,12 +94,18 @@ export function parseInstrumentCsv(text: string): { rows: InstrumentDraft[]; row
 
   // Check header validity
   if (headerRowIndex === -1) {
-    return { rows: [], rowNumbers: [], errors: [{ row: 1, message: 'Missing header row' }] };
+    return { rows: [], rowNumbers: [], errors: [{ row: 1, message: 'Missing header row' }], warnings: [] };
   }
+
+  // One advisory per retired column present, raised before the rows are walked
+  // so it is reported even for a file whose every row then fails.
+  const warnings = Object.entries(IGNORED_COLUMNS)
+    .filter(([col]) => header.includes(col))
+    .map(([, message]) => message);
 
   const missing = REQUIRED.filter((c) => !header.includes(c));
   if (missing.length > 0) {
-    return { rows: [], rowNumbers: [], errors: [{ row: headerRowIndex + 1, message: `Missing header column(s): ${missing.join(', ')}` }] };
+    return { rows: [], rowNumbers: [], errors: [{ row: headerRowIndex + 1, message: `Missing header column(s): ${missing.join(', ')}` }], warnings };
   }
 
   const rows: InstrumentDraft[] = [];
@@ -134,22 +152,20 @@ export function parseInstrumentCsv(text: string): { rows: InstrumentDraft[]; row
       return idx === -1 ? '' : (cells[idx] ?? '').trim();
     };
 
-    const name = get('name'), code = get('code'), transport = get('transport').toLowerCase();
+    const name = get('name'), code = get('code');
 
     if (!name) { errors.push({ row: rowNo, message: 'name is required' }); continue; }
     if (!code) { errors.push({ row: rowNo, message: 'code is required' }); continue; }
-    if (!TRANSPORTS.includes(transport as (typeof TRANSPORTS)[number])) {
-      errors.push({ row: rowNo, message: `transport must be one of: ${TRANSPORTS.join(', ')}` });
-      continue;
-    }
     if (seen.has(code)) { errors.push({ row: rowNo, message: `duplicate code "${code}" in this file` }); continue; }
     seen.add(code);
 
-    const draft: InstrumentDraft = { name, code, transport };
+    // A `transport` cell, valid or not, is read by nothing — the whole-file
+    // warning above is the only signal it gets.
+    const draft: InstrumentDraft = { name, code };
     for (const col of OPTIONAL) { const v = get(col); if (v) (draft as unknown as Record<string, string>)[col] = v; }
     rows.push(draft);
     rowNumbers.push(rowNo);
   }
 
-  return { rows, rowNumbers, errors };
+  return { rows, rowNumbers, errors, warnings };
 }

@@ -1,7 +1,11 @@
 import { prisma } from '../../lib/prisma.js';
 import { tokenMatches, tokenPrefix } from './token.js';
 
-export interface IngestIdentity { id: string; code: string; transport: string; isGateway: boolean }
+// No `transport`: this resolver authenticates on the credential alone and never
+// looked at protocol, which is why the instrument no longer stores one. The
+// listener that accepted the connection knows its own transport and stamps it
+// on a dead letter directly.
+export interface IngestIdentity { id: string; code: string; isGateway: boolean }
 
 // Short TTL, mirroring lib/reauth-check.ts. A device may post every second; a DB
 // round trip per reading is the difference between working and not. The TTL is
@@ -44,8 +48,7 @@ export async function resolveInstrumentByToken(token: string): Promise<IngestIde
     if (r.revokedAt) break;                  // revoked credential
     if (!r.instrument?.isActive) break;      // known token, disabled device
     identity = {
-      id: r.instrument.id, code: r.instrument.code,
-      transport: r.instrument.transport, isGateway: r.instrument.isGateway,
+      id: r.instrument.id, code: r.instrument.code, isGateway: r.instrument.isGateway,
     };
     matchedCredentialId = r.id;
     break;

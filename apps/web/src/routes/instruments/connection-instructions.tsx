@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { TRANSPORTS as ALL_TRANSPORTS, type Transport } from '@digilog/shared';
 import { getApiBase } from '@/lib/api-base';
 import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
 
@@ -6,15 +7,16 @@ import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
  * A protocol switcher over all seven transports, showing the connection
  * example for whichever one is selected.
  *
- * An instrument's token in fact works on any listener — ingest
- * authentication never checks transport — so instruments are no longer
- * pinned to one. The switcher opens on the instrument's stored `transport`
- * when supplied (back-compat with callers that still pass it) and falls
- * back to `http` once that field goes away.
+ * An instrument's token works on any listener — ingest authentication never
+ * checks protocol — so an instrument stores no transport at all (the column
+ * was dropped 2026-08-06). This switcher is the whole answer to "how do I
+ * connect this device?": every protocol, one example each.
+ *
+ * The `transport` prop only chooses which tab opens first. Nothing in the app
+ * passes it any more; it is kept because a caller that knows the protocol its
+ * reader speaks can land the operator on the right tab, and the tests use it
+ * to address a specific tab directly.
  */
-
-const ALL_TRANSPORTS = ['http', 'https', 'mqtt', 'mqtts', 'websocket', 'wss', 'tcp'] as const;
-type Transport = (typeof ALL_TRANSPORTS)[number];
 
 /** P1 ships the HTTP listener only; the rest are catalogued but not yet served. */
 const LIVE_TRANSPORTS = new Set(['http', 'https']);
@@ -51,7 +53,7 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 export interface ConnectionInstructionsProps {
-  /** Optional — a stored transport just picks the switcher's initial tab. */
+  /** Optional — picks the switcher's initial tab only. Not a stored fact. */
   transport?: string;
   code: string;
   /** Plaintext token. Only ever available at creation / regeneration. */
@@ -72,9 +74,8 @@ export function ConnectionInstructions({
   childCodes,
   gatewayCode,
 }: ConnectionInstructionsProps) {
-  // The switcher opens on the instrument's stored transport when one was
-  // supplied (existing callers still pass it), otherwise HTTP — the one
-  // listener that's actually live.
+  // No caller supplies one today, so this is HTTP in practice — the one
+  // listener that is actually live.
   const initial: Transport =
     transport && (ALL_TRANSPORTS as readonly string[]).includes(transport)
       ? (transport as Transport)

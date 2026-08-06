@@ -8,11 +8,14 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@
 
 interface CreatedRow { id: string; code: string; name: string; token: string }
 interface ErrorRow { row: number; message: string }
-interface BulkResult { created: CreatedRow[]; errors: ErrorRow[] }
+// `warnings` are whole-file advisories (a retired column that was ignored) —
+// they fail nothing, so they are rendered apart from the rejected-row table.
+// Optional so an older API build that omits the field still renders.
+interface BulkResult { created: CreatedRow[]; errors: ErrorRow[]; warnings?: string[] }
 
 const TEMPLATE =
-  'name,code,transport,instrumentType,manufacturer,model,serialNumber,description\n'
-  + 'Cleanroom probe A,PROBE-A1,http,Temperature,Vaisala,HMT330,SN-001,North wing\n';
+  'name,code,instrumentType,manufacturer,model,serialNumber,description\n'
+  + 'Cleanroom probe A,PROBE-A1,Temperature,Vaisala,HMT330,SN-001,North wing\n';
 
 function download(filename: string, text: string) {
   const url = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
@@ -78,8 +81,7 @@ export function InstrumentBulkCreatePage() {
         <CardContent className="space-y-3">
           <p className="text-sm text-slate-600">
             Required columns: <code className="font-mono text-xs">name</code>,{' '}
-            <code className="font-mono text-xs">code</code>,{' '}
-            <code className="font-mono text-xs">transport</code>. Optional:{' '}
+            <code className="font-mono text-xs">code</code>. Optional:{' '}
             <code className="font-mono text-xs">instrumentType, manufacturer, model, serialNumber, description</code>.
           </p>
           <Button variant="secondary" onClick={() => download('instrument-template.csv', TEMPLATE)}>
@@ -101,6 +103,14 @@ export function InstrumentBulkCreatePage() {
 
       {result && (
         <>
+          {(result.warnings?.length ?? 0) > 0 && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
+              <p className="text-sm font-semibold text-amber-900">Import notes</p>
+              <ul className="mt-1 list-disc space-y-1 pl-5 text-xs text-amber-800">
+                {result.warnings?.map((w) => <li key={w}>{w}</li>)}
+              </ul>
+            </div>
+          )}
           <Card>
             <CardHeader><CardTitle>Created ({result.created.length})</CardTitle></CardHeader>
             <CardContent className="space-y-3">

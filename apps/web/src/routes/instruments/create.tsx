@@ -1,15 +1,13 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { TRANSPORTS } from '@digilog/shared';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { TokenDialog } from './token-dialog';
 
-interface CreatedInstrument { id: string; code: string; transport: string; token: string }
+interface CreatedInstrument { id: string; code: string; token: string }
 
 export function InstrumentCreatePage() {
   const navigate = useNavigate();
@@ -17,7 +15,7 @@ export function InstrumentCreatePage() {
   const [saving, setSaving] = useState(false);
   const [created, setCreated] = useState<CreatedInstrument | null>(null);
   const [form, setForm] = useState({
-    name: '', code: '', transport: 'http',
+    name: '', code: '',
     instrumentType: '', manufacturer: '', model: '', serialNumber: '',
     description: '', expectedIntervalSec: '',
     block: '', area: '', location: '',
@@ -32,7 +30,7 @@ export function InstrumentCreatePage() {
     setSaving(true);
     try {
       const payload: Record<string, unknown> = {
-        name: form.name.trim(), code: form.code.trim(), transport: form.transport,
+        name: form.name.trim(), code: form.code.trim(),
       };
       // Send only what was filled. Posting '' for an optional field would store
       // an empty string where the schema means "not recorded".
@@ -79,15 +77,6 @@ export function InstrumentCreatePage() {
               />
               <span className="block text-xs text-slate-500">
                 Used in the MQTT topic and as the human reference. Cannot be changed later.
-              </span>
-            </label>
-            <label className="space-y-1">
-              <span className="text-sm font-medium text-slate-700">Transport *</span>
-              <Select value={form.transport} onChange={set('transport')}>
-                {TRANSPORTS.map((t) => <option key={t} value={t}>{t}</option>)}
-              </Select>
-              <span className="block text-xs text-slate-500">
-                One transport per instrument, so the connection instructions are unambiguous.
               </span>
             </label>
             <label className="space-y-1">
@@ -169,7 +158,6 @@ export function InstrumentCreatePage() {
           open
           title="Instrument created"
           code={created.code}
-          transport={created.transport}
           token={created.token}
           onClose={() => navigate(`/instruments/${created.id}`)}
         />

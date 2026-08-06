@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import useSWR from 'swr';
-import { TRANSPORTS } from '@digilog/shared';
 import { apiClient } from '@/lib/api-client';
 import { useCan } from '@/hooks/use-can';
 import { useReauth } from '@/hooks/use-reauth';
@@ -9,7 +8,6 @@ import { useToast } from '@/hooks/use-toast';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
@@ -19,7 +17,7 @@ import { TokenDialog } from './token-dialog';
 import { GatewayPanel } from './gateway-panel';
 
 interface Instrument {
-  id: string; name: string; code: string; transport: string; isActive: boolean;
+  id: string; name: string; code: string; isActive: boolean;
   instrumentType: string | null; manufacturer: string | null; model: string | null;
   serialNumber: string | null; description: string | null; expectedIntervalSec: number | null;
   tokenPrefix: string | null; lastSeenAt: string | null;
@@ -73,7 +71,7 @@ export function InstrumentDetailPage() {
       // `code` is intentionally absent: it is immutable server-side (it is baked
       // into the MQTT topic and the device's own configuration).
       await apiClient.put(`/api/instruments/${inst.id}`, {
-        name: draft.name, transport: draft.transport, isActive: draft.isActive,
+        name: draft.name, isActive: draft.isActive,
         instrumentType: draft.instrumentType || null, manufacturer: draft.manufacturer || null,
         model: draft.model || null, serialNumber: draft.serialNumber || null,
         description: draft.description || null,
@@ -125,7 +123,6 @@ export function InstrumentDetailPage() {
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-semibold text-slate-900">{inst.name}</h1>
             <Badge variant={inst.isActive ? 'success' : 'secondary'}>{inst.isActive ? 'Active' : 'Inactive'}</Badge>
-            <Badge variant="secondary">{inst.transport}</Badge>
             {inst.isGateway && <Badge variant="outline">Gateway</Badge>}
           </div>
           <p className="font-mono text-sm text-slate-500">{inst.code}</p>
@@ -169,12 +166,6 @@ export function InstrumentDetailPage() {
                 <label className="block space-y-1">
                   <span className="text-sm text-slate-600">Name</span>
                   <Input value={draft.name ?? ''} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
-                </label>
-                <label className="block space-y-1">
-                  <span className="text-sm text-slate-600">Transport</span>
-                  <Select value={draft.transport ?? ''} onChange={(e) => setDraft({ ...draft, transport: e.target.value })}>
-                    {TRANSPORTS.map((t) => <option key={t} value={t}>{t}</option>)}
-                  </Select>
                 </label>
                 <label className="flex items-center gap-2 text-sm text-slate-700">
                   <input
@@ -231,7 +222,6 @@ export function InstrumentDetailPage() {
           <CardHeader><CardTitle>Connection</CardTitle></CardHeader>
           <CardContent>
             <ConnectionInstructions
-              transport={inst.transport}
               code={inst.code}
               isGateway={inst.isGateway}
               childCodes={children?.data.map((c) => c.code)}
@@ -305,7 +295,6 @@ export function InstrumentDetailPage() {
           open
           title="New access token issued"
           code={inst.code}
-          transport={inst.transport}
           token={newToken}
           onClose={() => setNewToken(null)}
         />

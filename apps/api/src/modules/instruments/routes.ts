@@ -46,7 +46,6 @@ const instrumentProps = {
   id: { type: 'string' },
   name: { type: 'string' },
   code: { type: 'string' },
-  transport: { type: 'string' },
   isActive: { type: 'boolean' },
   instrumentType: { type: 'string', nullable: true },
   manufacturer: { type: 'string', nullable: true },
@@ -147,7 +146,7 @@ async function createWithCredential(
     });
     await auditLog({
       action: 'INSTRUMENT_CREATED', targetType: 'Instrument', targetId: instrument.id,
-      afterValue: { name: instrument.name, code: instrument.code, transport: instrument.transport },
+      afterValue: { name: instrument.name, code: instrument.code },
       signatureMeaning: `Instrument "${instrument.code}" registered and access token issued`,
       userId: ctx.userId, userRole: ctx.userRole,
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
@@ -195,13 +194,12 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Instruments'],
       summary: 'List instruments',
-      description: 'Paginated instrument registry with search and transport/status filters.',
+      description: 'Paginated instrument registry with search and status/placement filters.',
       querystring: {
         type: 'object',
         properties: {
           page: { type: 'integer', default: 1 },
           limit: { type: 'integer' },
-          transport: { type: 'string' },
           isActive: { type: 'string', enum: ['true', 'false'] },
           search: { type: 'string', description: 'Matches name, code or serial number' },
           block: { type: 'string' },
@@ -227,10 +225,9 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     if (!parsed.success) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
     }
-    const { page, limit, search, transport, isActive, block, area, location, isGateway } = parsed.data;
+    const { page, limit, search, isActive, block, area, location, isGateway } = parsed.data;
 
     const where: Prisma.InstrumentWhereInput = {
-      ...(transport ? { transport } : {}),
       ...(isActive !== undefined ? { isActive: isActive === 'true' } : {}),
       ...(block ? { block: { contains: block, mode: 'insensitive' as const } } : {}),
       ...(area ? { area: { contains: area, mode: 'insensitive' as const } } : {}),
@@ -432,10 +429,9 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       description: 'Creates an instrument and issues its access token. The token is returned ONCE and cannot be retrieved later.',
       body: {
         type: 'object',
-        required: ['name', 'code', 'transport'],
+        required: ['name', 'code'],
         properties: {
           name: { type: 'string' }, code: { type: 'string' },
-          transport: { type: 'string', description: 'http|https|mqtt|mqtts|websocket|wss|tcp' },
           isActive: { type: 'boolean' },
           instrumentType: { type: 'string' }, manufacturer: { type: 'string' },
           model: { type: 'string' }, serialNumber: { type: 'string' },
@@ -500,6 +496,9 @@ export default async function instrumentRoutes(app: FastifyInstance) {
               type: 'array',
               items: { type: 'object', properties: { row: { type: 'integer' }, message: { type: 'string' } } },
             },
+            // Whole-file advisories (e.g. a retired column that was ignored).
+            // Distinct from `errors`: these fail nothing and cost no rows.
+            warnings: { type: 'array', items: { type: 'string' } },
           },
         },
         ...errorResponses,
@@ -511,7 +510,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
     }
 
-    const { rows, rowNumbers, errors } = parseInstrumentCsv(parsed.data.csv);
+    const { rows, rowNumbers, errors, warnings } = parseInstrumentCsv(parsed.data.csv);
     const ctx = buildContext(req);
     const created: { id: string; code: string; name: string; token: string }[] = [];
     // Rows are created one transaction at a time, not one big one: a code that
@@ -535,7 +534,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     // operator reads one ascending list against their spreadsheet.
     errors.sort((a, b) => a.row - b.row);
 
-    return { created, errors };
+    return { created, errors, warnings };
   });
 
   // PUT /api/instruments/:id — update
@@ -549,7 +548,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       body: {
         type: 'object',
         properties: {
-          name: { type: 'string' }, transport: { type: 'string' }, isActive: { type: 'boolean' },
+          name: { type: 'string' }, isActive: { type: 'boolean' },
           instrumentType: { type: ['string', 'null'] }, manufacturer: { type: ['string', 'null'] },
           model: { type: ['string', 'null'] }, serialNumber: { type: ['string', 'null'] },
           description: { type: ['string', 'null'] }, expectedIntervalSec: { type: ['integer', 'null'] },
@@ -651,7 +650,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       // actions use) so the trail never has to fall back to a bare UUID.
       // Keep this list in step with the PUT body schema above.
       const audited = (i: typeof before) => ({
-        code: i.code, name: i.name, transport: i.transport, isActive: i.isActive,
+        code: i.code, name: i.name, isActive: i.isActive,
         instrumentType: i.instrumentType, manufacturer: i.manufacturer, model: i.model,
         serialNumber: i.serialNumber, description: i.description,
         expectedIntervalSec: i.expectedIntervalSec,
@@ -798,7 +797,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       }
       await auditLog({
         action: 'INSTRUMENT_DELETED', targetType: 'Instrument', targetId: id,
-        beforeValue: { name: existing.name, code: existing.code, transport: existing.transport },
+        beforeValue: { name: existing.name, code: existing.code },
         signatureMeaning: `Instrument "${existing.code}" deleted`,
         userId: ctx.userId, userRole: ctx.userRole,
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
