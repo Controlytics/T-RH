@@ -348,6 +348,86 @@ describe('Instrument gateway audit trail', () => {
     expect(after).toBe(before);
   });
 
+  /**
+   * INSTRUMENT_UPDATED is the most common instrument row and was the least
+   * useful: it carried neither `code` nor `instrument`, so the Audit Trail fell
+   * back to rendering a bare UUID, and its diff covered only 8 of the 13
+   * editable fields. Editing a description produced a row whose beforeValue and
+   * afterValue were IDENTICAL — a §11 record that something changed but not
+   * what.
+   */
+  it('INSTRUMENT_UPDATED carries the code and a diff over every editable field', async () => {
+    const s = Date.now();
+    const inst = await mk({
+      name: 'UD', code: `UD-${s}`, transport: 'http',
+      instrumentType: 'probe', manufacturer: 'Acme', model: 'A1',
+      serialNumber: 'SN-1', description: 'before text',
+    });
+    const id = inst.json().id;
+
+    // Only a previously-undiffed field changes. Before the fix this produced
+    // two identical JSON blobs.
+    const res = await app.inject({
+      method: 'PUT', url: `/api/instruments/${id}`, headers: auth,
+      payload: { description: 'after text' },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+
+    const row = await prisma.auditTrail.findFirst({
+      where: { targetId: id, action: 'INSTRUMENT_UPDATED' }, orderBy: { timestamp: 'desc' },
+    });
+    const before = row?.beforeValue as Record<string, unknown>;
+    const after = row?.afterValue as Record<string, unknown>;
+
+    // The code, so the trail never renders a bare UUID. `code` (not
+    // `instrument`) is the converged key — it matches the column.
+    expect(after.code).toBe(`UD-${s}`);
+    expect(before.code).toBe(`UD-${s}`);
+
+    // The change itself is legible.
+    expect(before.description).toBe('before text');
+    expect(after.description).toBe('after text');
+
+    // And every editable field is present on both sides, so no future edit can
+    // produce a row that says nothing.
+    for (const f of ['code', 'name', 'transport', 'isActive', 'instrumentType',
+      'manufacturer', 'model', 'serialNumber', 'description',
+      'expectedIntervalSec', 'location', 'area', 'block']) {
+      expect(before, `beforeValue missing ${f}`).toHaveProperty(f);
+      expect(after, `afterValue missing ${f}`).toHaveProperty(f);
+    }
+  });
+
+  /**
+   * Emitter-key convergence: the six gateway actions used to store the code
+   * under `instrument`, the other three under `code`. One key now, matching the
+   * column. (The web renderer still reads both — historic rows are immutable.)
+   */
+  it('the gateway actions store the code under `code`, like every other instrument action', async () => {
+    const s = Date.now();
+    const gw = await mk({ name: 'KGW', code: `KGW-${s}`, transport: 'http', isGateway: true });
+    const child = await mk({ name: 'KC', code: `KC-${s}`, transport: 'http' });
+    const gwId = gw.json().id;
+    const childId = child.json().id;
+
+    await app.inject({ method: 'PUT', url: `/api/instruments/${childId}`, headers: auth, payload: { gatewayId: gwId } });
+    await app.inject({ method: 'PUT', url: `/api/instruments/${childId}`, headers: auth, payload: { gatewayId: null } });
+
+    const rows = await prisma.auditTrail.findMany({
+      where: { targetId: { in: [gwId, childId] }, action: { startsWith: 'INSTRUMENT_' } },
+    });
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) {
+      for (const v of [r.beforeValue, r.afterValue]) {
+        if (!v || typeof v !== 'object') continue;
+        expect(v, `${r.action} still emits the legacy \`instrument\` key`).not.toHaveProperty('instrument');
+      }
+    }
+    // ...and the enable row, written at create, really does carry it.
+    const enabled = rows.find((r) => r.action === 'INSTRUMENT_GATEWAY_ENABLED');
+    expect(enabled?.afterValue).toMatchObject({ code: `KGW-${s}` });
+  });
+
   it('records gateway mode being enabled and disabled', async () => {
     const s = Date.now();
     const inst = await mk({ name: 'AM', code: `AM-${s}`, transport: 'http' });

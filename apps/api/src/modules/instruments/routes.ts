@@ -158,7 +158,7 @@ async function createWithCredential(
     if (instrument.isGateway) {
       await auditLog({
         action: 'INSTRUMENT_GATEWAY_ENABLED', targetType: 'Instrument', targetId: instrument.id,
-        afterValue: { instrument: instrument.code, isGateway: true },
+        afterValue: { code: instrument.code, isGateway: true },
         signatureMeaning: `Instrument "${instrument.code}" registered as a gateway`,
         userId: ctx.userId, userRole: ctx.userRole,
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
@@ -170,7 +170,7 @@ async function createWithCredential(
       }))?.code ?? instrument.gatewayId;
       await auditLog({
         action: 'INSTRUMENT_LINKED_TO_GATEWAY', targetType: 'Instrument', targetId: instrument.id,
-        afterValue: { instrument: instrument.code, gateway: parentCode, gatewayId: instrument.gatewayId },
+        afterValue: { code: instrument.code, gateway: parentCode, gatewayId: instrument.gatewayId },
         signatureMeaning: `Instrument "${instrument.code}" linked to gateway "${parentCode}"`,
         userId: ctx.userId, userRole: ctx.userRole,
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
@@ -642,10 +642,23 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         : [null, null];
 
       const row = await tx.instrument.update({ where: { id }, data: parsed.data as never });
+      // EVERY editable field, on both sides. An omission is not cosmetic: a PUT
+      // that changes only an omitted field produces a §11 row whose before and
+      // after are IDENTICAL — a record that something changed but not what.
+      // `code` is included (and is the emitter key the other INSTRUMENT_*
+      // actions use) so the trail never has to fall back to a bare UUID.
+      // Keep this list in step with the PUT body schema above.
+      const audited = (i: typeof before) => ({
+        code: i.code, name: i.name, transport: i.transport, isActive: i.isActive,
+        instrumentType: i.instrumentType, manufacturer: i.manufacturer, model: i.model,
+        serialNumber: i.serialNumber, description: i.description,
+        expectedIntervalSec: i.expectedIntervalSec,
+        location: i.location, area: i.area, block: i.block,
+      });
       await auditLog({
         action: 'INSTRUMENT_UPDATED', targetType: 'Instrument', targetId: id,
-        beforeValue: { name: before.name, transport: before.transport, isActive: before.isActive, expectedIntervalSec: before.expectedIntervalSec, location: before.location, area: before.area, block: before.block },
-        afterValue: { name: row.name, transport: row.transport, isActive: row.isActive, expectedIntervalSec: row.expectedIntervalSec, location: row.location, area: row.area, block: row.block },
+        beforeValue: audited(before),
+        afterValue: audited(row),
         signatureMeaning: `Instrument "${row.code}" updated`,
         userId: ctx.userId, userRole: ctx.userRole,
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
@@ -659,8 +672,8 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         await auditLog({
           action: parsed.data.isGateway ? 'INSTRUMENT_GATEWAY_ENABLED' : 'INSTRUMENT_GATEWAY_DISABLED',
           targetType: 'Instrument', targetId: id,
-          beforeValue: { instrument: before.code, isGateway: before.isGateway },
-          afterValue: { instrument: row.code, isGateway: row.isGateway },
+          beforeValue: { code: before.code, isGateway: before.isGateway },
+          afterValue: { code: row.code, isGateway: row.isGateway },
           signatureMeaning: parsed.data.isGateway
             ? `Gateway mode enabled on instrument "${row.code}"`
             : `Gateway mode disabled on instrument "${row.code}"`,
@@ -672,8 +685,8 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         await auditLog({
           action: parsed.data.gatewayId ? 'INSTRUMENT_LINKED_TO_GATEWAY' : 'INSTRUMENT_UNLINKED_FROM_GATEWAY',
           targetType: 'Instrument', targetId: id,
-          beforeValue: { instrument: before.code, gateway: oldGatewayCode, gatewayId: before.gatewayId },
-          afterValue: { instrument: row.code, gateway: newGatewayCode, gatewayId: row.gatewayId },
+          beforeValue: { code: before.code, gateway: oldGatewayCode, gatewayId: before.gatewayId },
+          afterValue: { code: row.code, gateway: newGatewayCode, gatewayId: row.gatewayId },
           signatureMeaning: parsed.data.gatewayId
             ? `Instrument "${row.code}" linked to gateway "${newGatewayCode}"`
             : `Instrument "${row.code}" unlinked from gateway "${oldGatewayCode}"`,
@@ -774,8 +787,8 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       for (const kid of kids) {
         await auditLog({
           action: 'INSTRUMENT_UNLINKED_FROM_GATEWAY', targetType: 'Instrument', targetId: kid.id,
-          beforeValue: { instrument: kid.code, gateway: existing.code, gatewayId: id },
-          afterValue: { instrument: kid.code, gateway: null, gatewayId: null },
+          beforeValue: { code: kid.code, gateway: existing.code, gatewayId: id },
+          afterValue: { code: kid.code, gateway: null, gatewayId: null },
           signatureMeaning: `Instrument "${kid.code}" unlinked from gateway "${existing.code}" because that gateway was deleted`,
           userId: ctx.userId, userRole: ctx.userRole,
           ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,

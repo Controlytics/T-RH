@@ -214,8 +214,24 @@ describe('audit-helpers — instrument/gateway rendering', () => {
     expect(getAuditSummary(row, T)).toBe('Instrument "PROBE-01" unlinked from gateway "GW-01" by EMP-004');
   });
 
-  it('INSTRUMENT_UPDATED (no code/instrument field on the row at all) falls back to the raw targetId, never the literal placeholder', () => {
-    // The instruments UPDATE route's auditLog() call carries only
+  it('INSTRUMENT_UPDATED reads the code from afterValue.code', () => {
+    const row = { action: 'INSTRUMENT_UPDATED', userId: 'EMP-004', targetId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+      beforeValue: { code: 'PROBE-01', description: 'old' },
+      afterValue: { code: 'PROBE-01', description: 'new' } };
+    expect(getAuditSummary(row, T)).toBe('Instrument "PROBE-01" updated by EMP-004');
+  });
+
+  // audit_trail is immutable: the gateway-wiring emitters wrote `instrument`
+  // before they were converged onto `code` (2026-08-06), so those rows exist
+  // forever and must keep rendering. This is the regression guard on that.
+  it('still renders historic gateway rows that carry `instrument` instead of `code`', () => {
+    const row = { action: 'INSTRUMENT_LINKED_TO_GATEWAY', userId: 'EMP-004',
+      afterValue: { instrument: 'PROBE-01', gateway: 'GW-01' } };
+    expect(getAuditSummary(row, T)).toBe('Instrument "PROBE-01" linked to gateway "GW-01" by EMP-004');
+  });
+
+  it('a historic INSTRUMENT_UPDATED with neither key falls back to the raw targetId, never the literal placeholder', () => {
+    // Pre-2026-08-06 shape: the UPDATE emitter carried only
     // name/transport/isActive/expectedIntervalSec/location/area/block — no
     // code, no "instrument" key. This is a row that genuinely lacks the data;
     // per the "raw UUID over guessing" rule the fallback is targetId.
