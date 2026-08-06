@@ -33,9 +33,17 @@ export function fanoutDevices(
   for (const [code, block] of Object.entries(devices)) {
     const child = childMap.get(code);
     if (!child) {
+      // The gateway's own code is never in its child map (a gateway is not its
+      // own child), so a gateway that folds its own diagnostics into the batch
+      // lands here — and the generic reason then tells the operator that "GW-1"
+      // is not linked to gateway "GW-1", which is true and useless. Name the
+      // actual situation and the actual remedy: the flat payload form is
+      // authenticated as the gateway itself and stores against it.
       rejected.push({
         code,
-        reason: `"${code}" is not linked to gateway "${gatewayCode}" (unknown or linked elsewhere)`,
+        reason: code === gatewayCode
+          ? `A gateway cannot report its own readings inside a batch. Send "${gatewayCode}"'s own readings as a flat payload on a separate request.`
+          : `"${code}" is not linked to gateway "${gatewayCode}" (unknown or linked elsewhere)`,
       });
       continue;
     }

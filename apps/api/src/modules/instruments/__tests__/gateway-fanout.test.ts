@@ -22,6 +22,18 @@ describe('fanoutDevices', () => {
     ]);
   });
 
+  it('gives the gateway\'s OWN code a reason that is not self-contradictory', () => {
+    // A gateway is never in its own child map, so its own diagnostics fall into
+    // the not-a-child branch — where the generic reason reads `"GW-1" is not
+    // linked to gateway "GW-1"`. True, and no help to whoever has to fix it.
+    const r = fanoutDevices({ 'GW-1': { rssi: -60 } }, map, TS, 'GW-1');
+    expect(r.readings).toEqual([]);
+    expect(r.rejected).toHaveLength(1);
+    expect(r.rejected[0].code).toBe('GW-1');
+    expect(r.rejected[0].reason).toContain('cannot report its own readings inside a batch');
+    expect(r.rejected[0].reason).not.toContain('is not linked to gateway');
+  });
+
   it('rejects a code this gateway does not own, and keeps the rest', () => {
     // Partial success (spec D5): one mistyped code must not discard a
     // 40-sensor payload.

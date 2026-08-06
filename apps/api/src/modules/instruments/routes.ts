@@ -86,7 +86,7 @@ const readingProps = {
   ts: { type: 'string', format: 'date-time' },
 } as const;
 
-type CredentialRow = { tokenPrefix: string; lastUsedAt: Date | null };
+type CredentialRow = { tokenPrefix: string };
 type InstrumentRow = Record<string, unknown> & { credentials?: CredentialRow[] };
 
 /**
@@ -106,7 +106,9 @@ function present(row: InstrumentRow) {
 
 const activeCredential = {
   where: { revokedAt: null },
-  select: { tokenPrefix: true, lastUsedAt: true },
+  // `lastUsedAt` is deliberately NOT selected: `present()` does not read it.
+  // Last-seen moved to the instrument's own columns (spec D9) — see present().
+  select: { tokenPrefix: true },
   orderBy: { createdAt: 'desc' },
   take: 1,
 } as const;

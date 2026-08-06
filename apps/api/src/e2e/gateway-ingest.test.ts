@@ -65,6 +65,89 @@ describe('gateway ingest', () => {
     expect(to.json().latest).toEqual([]);
   });
 
+  /**
+   * The batch path used to write one dead-letter row PER rejected code, each
+   * carrying its own copy of the up-to-4000-char raw payload. A misconfigured
+   * or hostile gateway posting a body of ~1000 unknown codes therefore turned
+   * one request into ~1000 rows x 4 KB, at a 600 req/min rate limit — and
+   * `GET /:id/dead-letters` caps at 200, so the operator could not even see the
+   * flood. The flat path has always written exactly one row per request.
+   */
+  it('caps dead-letters per batch and stores the payload only once', async () => {
+    const s = Date.now();
+    const gw = await mk({ name: 'GWC', code: `GWC-${s}`, transport: 'http', isGateway: true });
+
+    const devices: Record<string, unknown> = {};
+    for (let i = 0; i < 25; i++) devices[`GHOST-${s}-${i}`] = { temperature: i };
+    const res = await ingest(gw.token, { devices });
+    expect(res.statusCode).toBe(200);
+    // Every block is still REJECTED and reported — the cap is on rows written,
+    // not on what the caller is told.
+    expect(res.json()).toEqual({ accepted: 0, rejected: 25 });
+
+    const dl = await app.inject({
+      method: 'GET', url: `/api/instruments/${gw.id}/dead-letters?limit=200`, headers: auth,
+    });
+    // 20 individual rows + 1 summary.
+    expect(dl.json().total).toBe(21);
+
+    const rows = dl.json().data as { reason: string; rawPayload: string | null }[];
+    // The payload was identical on every row; keeping 21 copies was the bulk of
+    // the amplification.
+    expect(rows.filter((r) => r.rawPayload !== null)).toHaveLength(1);
+
+    // The summary names the real total, so the operator is not left believing
+    // only 20 blocks were bad.
+    const summary = rows.filter((r) => /only the first/.test(r.reason));
+    expect(summary).toHaveLength(1);
+    expect(summary[0].reason).toContain('25 rejected blocks');
+  });
+
+  it('writes no summary row when the batch is under the cap', async () => {
+    const s = Date.now();
+    const gw = await mk({ name: 'GWU', code: `GWU-${s}`, transport: 'http', isGateway: true });
+
+    const devices: Record<string, unknown> = {};
+    for (let i = 0; i < 3; i++) devices[`GHOSTU-${s}-${i}`] = { temperature: i };
+    await ingest(gw.token, { devices });
+
+    const dl = await app.inject({ method: 'GET', url: `/api/instruments/${gw.id}/dead-letters`, headers: auth });
+    expect(dl.json().total).toBe(3);
+    expect((dl.json().data as { reason: string }[]).some((r) => /only the first/.test(r.reason))).toBe(false);
+  });
+
+  /**
+   * A gateway's own code is never in its own child map, so folding its own
+   * diagnostics into a batch hit the generic "not linked to gateway" reason —
+   * which said `"GW-1" is not linked to gateway "GW-1"`. True, and useless.
+   */
+  it('explains the self-code rejection instead of saying a gateway is not linked to itself', async () => {
+    const s = Date.now();
+    const gw = await mk({ name: 'GWS', code: `GWS-${s}`, transport: 'http', isGateway: true });
+
+    const res = await ingest(gw.token, { devices: { [`GWS-${s}`]: { temperature: 1 } } });
+    expect(res.json()).toEqual({ accepted: 0, rejected: 1 });
+
+    const dl = await app.inject({ method: 'GET', url: `/api/instruments/${gw.id}/dead-letters`, headers: auth });
+    const reason = dl.json().data[0].reason as string;
+    expect(reason).toContain('cannot report its own readings inside a batch');
+    expect(reason).toContain('flat payload');
+    expect(reason).not.toContain('is not linked to gateway');
+  });
+
+  /** ...and the remedy that reason names must actually work. */
+  it('accepts the gateway\'s own readings on the flat path', async () => {
+    const s = Date.now();
+    const gw = await mk({ name: 'GWF', code: `GWF-${s}`, transport: 'http', isGateway: true });
+
+    const res = await ingest(gw.token, { temperature: 42 });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ accepted: 1 });
+
+    const t = await app.inject({ method: 'GET', url: `/api/instruments/${gw.id}/telemetry`, headers: auth });
+    expect(t.json().latest.map((r: { key: string }) => r.key)).toEqual(['temperature']);
+  });
+
   it('refuses a batch from an instrument that is not a gateway', async () => {
     const s = Date.now();
     const plain = await mk({ name: 'P', code: `P-${s}`, transport: 'http' });
