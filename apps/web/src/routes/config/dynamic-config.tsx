@@ -84,6 +84,20 @@ export function DynamicConfigPage() {
   );
 
   const [values, setValues] = useState<Record<string, any>>({});
+  /**
+   * The values as they stand on the server, serialised — the baseline the Save
+   * button compares against.
+   *
+   * Set in the same effect that seeds `values`, so it is exactly what was
+   * applied, and updated again after a successful save. Without the second
+   * update the button stayed lit after saving until the next keystroke, which
+   * reads as "it didn't save".
+   *
+   * It cannot be `savedValues` directly: that carries only the keys ever
+   * written, while `values` also holds the defaults for keys nobody has
+   * touched, so a first-load comparison would always report unsaved changes.
+   */
+  const [baseline, setBaseline] = useState<string>('');
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
@@ -127,12 +141,14 @@ export function DynamicConfigPage() {
   useEffect(() => {
     if (savedValues) {
       setValues(savedValues);
+      setBaseline(JSON.stringify(savedValues));
     } else if (moduleDef) {
       const defaults: Record<string, any> = {};
       for (const s of moduleDef.settings) {
         if (s.default !== undefined) defaults[s.key] = s.default;
       }
       setValues(defaults);
+      setBaseline(JSON.stringify(defaults));
     }
   }, [savedValues, moduleDef]);
 
@@ -218,6 +234,9 @@ export function DynamicConfigPage() {
         mutate();
       }, {
         onSuccess: () => {
+          // Before the revalidation lands, so the button goes quiet the moment
+          // the save succeeds rather than on the next keystroke.
+          setBaseline(JSON.stringify(values));
           setSuccess('Settings saved successfully');
           setSaving(false);
         },
@@ -233,6 +252,9 @@ export function DynamicConfigPage() {
   };
 
   const groups = groupSettings(moduleDef.settings);
+  // A real comparison, not a "touched" flag: undoing an edit by hand disables
+  // the button again, and re-saving an unchanged form is not offered.
+  const dirty = JSON.stringify(values) !== baseline;
 
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6">
@@ -414,8 +436,12 @@ export function DynamicConfigPage() {
 
       <div className="flex justify-end gap-3">
         <Button variant="outline" onClick={() => navigate('/config')}>Cancel</Button>
-        <Button onClick={handleSave} disabled={saving || !canWrite} title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}>
-          {saving ? 'Saving...' : 'Save Changes'}
+        <Button
+          onClick={handleSave}
+          disabled={saving || !canWrite || !dirty}
+          title={!canWrite ? 'CONFIG_UPDATE permission required' : !dirty ? 'No unsaved changes' : undefined}
+        >
+          {saving ? 'Saving...' : dirty ? 'Save Changes' : 'Saved'}
         </Button>
       </div>
 
