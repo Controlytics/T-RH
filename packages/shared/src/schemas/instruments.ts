@@ -148,12 +148,30 @@ export const updateInstrumentSchema = z.object({
  * derivation would stop every credential already in the database from matching.
  */
 export const setInstrumentTokenSchema = z.object({
+  // ANY characters, ANY length (2026-08-07, operator decision). The base64url
+  // charset and the TOKEN_PREFIX_LEN+1 floor are both gone.
+  //
+  // ── The ONE remaining rule, and why it is not policy ──
+  // No carriage return or line feed. This is not a preference that can be
+  // waived: the token travels as an `Authorization: Bearer` header value, as an
+  // MQTT username, and as a field in the newline-delimited TCP protocol. A
+  // token containing CR or LF cannot be transmitted over any of the three — the
+  // HTTP client rejects it (or, worse, it becomes header injection) and the TCP
+  // framing splits mid-credential. Accepting one would mint a credential that
+  // authenticates nowhere, which is a worse outcome than refusing it.
+  //
+  // ── What was given up, stated so nobody rediscovers it the hard way ──
+  // `instrument_credentials.token_prefix` is the first TOKEN_PREFIX_LEN
+  // characters, treated as NON-SECRET: it is returned by the INSTRUMENT_READ
+  // list and detail endpoints. A token of TOKEN_PREFIX_LEN characters or fewer
+  // is therefore FULLY DISCLOSED to anyone who can view the instrument — no
+  // password, no INSTRUMENT_TOKEN_VIEWED audit row, bypassing all three controls
+  // the reveal endpoint rests on. The old floor existed to prevent exactly that.
+  // Short tokens are now the operator's call; the UI says so at the point of
+  // entry rather than hiding it behind a validation error.
   token: z.string()
-    .min(
-      TOKEN_PREFIX_LEN + 1,
-      `Token must be more than ${TOKEN_PREFIX_LEN} characters — the first ${TOKEN_PREFIX_LEN} are shown as a non-secret prefix to anyone who can view this instrument`,
-    )
-    .regex(/^[A-Za-z0-9._-]+$/, 'Use letters, digits, dot, dash or underscore only'),
+    .min(1, 'A token is required')
+    .regex(/^[^\r\n]+$/, 'A token cannot contain a line break — it would not survive an HTTP header or the TCP line protocol'),
 });
 
 /**

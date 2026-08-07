@@ -260,67 +260,71 @@ describe('Instrument token set', () => {
     expect((await ingest(first)).statusCode).toBe(200);
   });
 
-  it('rejects tokens that would not survive a header, an MQTT username or a JSON line', async () => {
-    const inst = await newInstrument('BADTOK');
-    // The 32–128 length bounds were removed 2026-08-06, so the two former
-    // length cases here ('short', 129 chars) are now VALID and moved to the
-    // test below. Six malformed values remain, all of them format violations.
-    const bad = [
-      'has spaces in it aaaaaaaaaaaaaaaaaaaaaa', // space
-      'has:a:colon:aaaaaaaaaaaaaaaaaaaaaaaaaaa', // colon (our own blob separator)
-      'has/a/slash/aaaaaaaaaaaaaaaaaaaaaaaaaaa', // MQTT topic separator
-      'has+a+plus+aaaaaaaaaaaaaaaaaaaaaaaaaaaa', // base64 (not -url) — not in the class
-      '<script>aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</script>',
-      '',
+  /**
+   * The charset went 2026-08-07 at the operator's request. A credential fixed
+   * in a device's firmware is not negotiable, and a rule the hardware violates
+   * makes this endpoint useless — the values below were all refused before and
+   * are all accepted now, end to end.
+   */
+  it('accepts spaces, symbols and unicode the old charset refused', async () => {
+    const inst = await newInstrument('ANYTOK');
+    const good = [
+      'has spaces in it',
+      'has:a:colon',
+      'has/a/slash',
+      'has+a+plus',
+      '<b>markup</b>',
+      'ünïcode-ok',
+      'a',
     ];
-    for (const t of bad) {
+    for (const t of good) {
       const res = await setToken(inst.id, t);
-      expect(res.statusCode, `expected 400 for ${JSON.stringify(t)}`).toBe(400);
+      expect(res.statusCode, `expected 200 for ${JSON.stringify(t)}`).toBe(200);
     }
-    // Nothing was revoked by any of those.
-    expect((await ingest(inst.token)).statusCode).toBe(200);
+    // The last one set is live: prove the credential actually authenticates,
+    // not merely that the write returned 200.
+    invalidateIngestAuthCache(inst.id);
+    expect((await ingest(good[good.length - 1])).statusCode).toBe(200);
   });
 
   /**
-   * The length bounds were REMOVED at the operator's request (2026-08-06): a
-   * device whose credential is fixed in firmware cannot be argued with, and a
-   * bound the hardware violates makes this endpoint useless.
+   * ALL length bounds are gone (2026-08-07). The prefix-length floor that
+   * survived the 2026-08-06 removal went with them.
    *
-   * One length rule survives and it is NOT a strength bound. `token_prefix` is
-   * the first `TOKEN_PREFIX_LEN` characters, stored as non-secret and returned
-   * by the `INSTRUMENT_READ`-gated list and detail endpoints. At that length or
-   * shorter, the prefix IS the token — a viewer who cannot reveal tokens would
-   * read a live credential off the page with no password and no
-   * `INSTRUMENT_TOKEN_VIEWED` row. Asserted boundary-exact, because a floor set
-   * one character too low reopens exactly that and nothing else would catch it.
+   * The reason it existed has NOT gone away: `token_prefix` is the first
+   * `TOKEN_PREFIX_LEN` characters, stored as non-secret and returned by the
+   * `INSTRUMENT_READ`-gated list and detail endpoints, so a token that short is
+   * fully readable by any viewer with no password and no
+   * `INSTRUMENT_TOKEN_VIEWED` row. It is now the operator's call, warned at the
+   * point of entry in the UI. Asserted boundary-exact so the reversal stays
+   * deliberate.
    */
-  it('takes any length above the public prefix, and refuses anything at or below it', async () => {
+  it('takes any length, including one its public prefix fully exposes', async () => {
     const inst = await newInstrument('TOKLEN');
 
-    // Refused at the boundary and below.
-    for (const n of [1, TOKEN_PREFIX_LEN - 1, TOKEN_PREFIX_LEN]) {
-      const res = await setToken(inst.id, 'a'.repeat(n));
-      expect(res.statusCode, `expected 400 for a ${n}-char token`).toBe(400);
+    // Distinct characters per case: a token still in use by another live
+    // credential is refused with 409, so reusing 'a' here would collide with
+    // the charset test above and fail for a reason that has nothing to do with
+    // length.
+    for (const [n, ch] of [[1, 'q'], [TOKEN_PREFIX_LEN - 1, 'r'], [TOKEN_PREFIX_LEN, 's']] as const) {
+      const res = await setToken(inst.id, ch.repeat(n));
+      expect(res.statusCode, `expected 200 for a ${n}-char token`).toBe(200);
     }
-    // Every refusal left the live credential alone.
-    expect((await ingest(inst.token)).statusCode).toBe(200);
 
-    // The shortest legal token — one longer than the prefix — works end to end.
-    const shortest = `s${'b'.repeat(TOKEN_PREFIX_LEN)}`;
-    expect(shortest).toHaveLength(TOKEN_PREFIX_LEN + 1);
-    expect((await setToken(inst.id, shortest)).statusCode).toBe(200);
-    expect((await ingest(shortest)).statusCode).toBe(200);
+    // The last one set is live: a token exactly as long as the public prefix
+    // authenticates end to end — the write returning 200 is not that claim.
+    invalidateIngestAuthCache(inst.id);
+    expect((await ingest('s'.repeat(TOKEN_PREFIX_LEN))).statusCode).toBe(200);
 
     // And so does one well past the old 128 ceiling.
     const long = 'L'.repeat(512);
     expect((await setToken(inst.id, long)).statusCode).toBe(200);
     expect((await ingest(long)).statusCode).toBe(200);
     // The previous one is revoked, as any set does.
-    expect((await ingest(shortest)).statusCode).toBe(401);
+    expect((await ingest('s'.repeat(TOKEN_PREFIX_LEN))).statusCode).toBe(401);
 
-    // The stored prefix is still a STRICT prefix of the shortest legal token —
-    // this is the property the floor exists to guarantee, so assert it rather
-    // than trusting the arithmetic.
+    // The stored prefix is still exactly TOKEN_PREFIX_LEN characters and is not
+    // the whole token here — the property the UI's short-token warning is about.
     const cred = await prisma.instrumentCredential.findFirst({
       where: { instrumentId: inst.id, revokedAt: null }, select: { tokenPrefix: true },
     });

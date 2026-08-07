@@ -4,44 +4,39 @@ import { Input } from '@/components/ui/input';
 import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
 
 /**
- * The instrument's access token, as ONE ROW.
+ * The instrument's access token, as ONE ROW: show it, copy it, edit it.
  *
- * Rebuilt 2026-08-07 (operator request): the panel was a stack of buttons and
- * paragraphs taking a full card for a single value. It is now a masked field
- * with an eye toggle, which is what a credential field looks like everywhere
- * else, and reads at a glance.
+ * Rebuilt twice. 2026-08-07 removed the separate "Set a specific token" panel —
+ * a second field, its own rules and its own warning block, sitting under a row
+ * that already showed the token. There is one token; there is now one control
+ * for it. Editing is IN PLACE on the value you are looking at.
  *
- * ── The eye is not free, and that is not a UI choice ──
- * The FIRST unmasking calls `GET /:id/token`, which enforces `enforceReauthAlways`
- * server-side: it asks for the operator's password and writes an
+ * ── Editing requires showing first, and that is not a UI choice ──
+ * You cannot edit a mask. Revealing calls `GET /:id/token`, which enforces
+ * `enforceReauthAlways`: it asks for the operator's password and writes an
  * `INSTRUMENT_TOKEN_VIEWED` audit row. That is the control that makes a
- * retrievable credential acceptable at all (spec §3.1), so the password prompt
- * cannot be designed away here — only the button around it can change. Once the
- * value is in hand, the eye toggles the mask locally with no further round trip
- * and no further audit row: the view was already recorded.
+ * retrievable credential acceptable at all (spec §3.1). Saving a new value then
+ * asks again — `PUT /:id/token` is also `enforceReauthAlways`. Neither prompt
+ * can be designed away here; only the buttons around them can change.
  *
  * ── The revealed value is deliberately NOT owned here ──
- * It lives in the parent route's `useState`. The revealed token has to reach the
- * connection panel (its command is useless with a placeholder in it), and route
- * state unmounts on navigation — which is exactly the required re-hide. It must
- * never go in SWR: an SWR key survives unmount, so returning to the page would
+ * It lives in the parent route's `useState`. It has to reach the connection
+ * panel (whose command is useless with a placeholder in it), and route state
+ * unmounts on navigation — which is exactly the required re-hide. It must never
+ * go in SWR: an SWR key survives unmount, so returning to the page would
  * redisplay a live credential with no re-auth, on a shared workstation.
  */
 
 /**
- * The server's rule, from `setInstrumentTokenSchema` in @digilog/shared.
+ * How many leading characters of the token are stored as the NON-SECRET prefix
+ * and shown to anyone who can view this instrument.
  *
- * There is no maximum and no strength floor — the 32–128 bounds were removed
- * 2026-08-06 so a credential fixed in a device's firmware can be entered as it
- * is. The one remaining length rule is not about strength: the first
- * `TOKEN_PREFIX_LEN` characters are stored as a NON-SECRET prefix and shown to
- * anyone who can view this instrument, so a token that short would be fully
- * disclosed on this very page without a password or an audit row.
+ * Load-bearing for the warning below: a token this short or shorter is fully
+ * disclosed by the prefix alone — no password, no audit row. The operator asked
+ * for no length limit (2026-08-07), so the rule became a warning at the point
+ * of entry instead of a refusal after it.
  */
 const TOKEN_PREFIX_LEN = 8;
-const TOKEN_RULE = `Any length over ${TOKEN_PREFIX_LEN} characters. Letters, digits, dot, dash and underscore only.`;
-const TOKEN_PREFIX_NOTE = `The first ${TOKEN_PREFIX_LEN} characters are shown as a non-secret prefix to anyone who can view this instrument, so a shorter token would be fully visible without a password.`;
-const TOKEN_PATTERN = /^[A-Za-z0-9._-]+$/;
 
 export interface TokenPanelProps {
   code: string;
@@ -83,46 +78,58 @@ export function TokenPanel({
 }: TokenPanelProps) {
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [settingOpen, setSettingOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
-
-  // Mirror of the shared Zod rule, checked before the request so the operator
-  // sees the constraint as they type rather than as a 400 after a password
-  // prompt. The server still validates — this is a courtesy, not the gate.
-  const draftError = !draft
-    ? ''
-    : draft.length <= TOKEN_PREFIX_LEN
-      ? `Too short — more than ${TOKEN_PREFIX_LEN} characters, or the whole token shows in the prefix.`
-    : !TOKEN_PATTERN.test(draft) ? 'Only letters, digits, dot, dash and underscore.'
-    : '';
-
-  const run = async (fn: () => Promise<void> | void) => {
-    setBusy(true);
-    try { await fn(); } finally { setBusy(false); }
-  };
-
-  const submitToken = async () => {
-    if (draftError || !draft) return;
-    await run(async () => {
-      await onSetToken(draft);
-      setDraft('');
-      setSettingOpen(false);
-    });
-  };
 
   const shown = Boolean(token);
   // Masked form keeps the non-secret prefix visible: it is what an operator
   // matches against a device's config sheet without spending a password.
   const masked = tokenPrefix ? `${tokenPrefix}${'•'.repeat(24)}` : '—';
 
+  const run = async (fn: () => Promise<void> | void) => {
+    setBusy(true);
+    try { await fn(); } finally { setBusy(false); }
+  };
+
+  const startEdit = () => { setDraft(token ?? ''); setEditing(true); };
+
+  const submit = async () => {
+    const next = draft.trim();
+    if (!next || next === token) { setEditing(false); return; }
+    await run(async () => {
+      await onSetToken(next);
+      setEditing(false);
+    });
+  };
+
+  // The only rule left is a physical one: a token carrying a line break cannot
+  // survive an HTTP header or the newline-delimited TCP protocol, so it would
+  // authenticate nowhere. Everything else — length, symbols, spaces — is the
+  // operator's call.
+  const draftError = /[\r\n]/.test(draft) ? 'A token cannot contain a line break.' : '';
+  const shortWarning = draft.trim().length > 0 && draft.trim().length <= TOKEN_PREFIX_LEN;
+
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-        <code className="min-w-0 flex-1 truncate font-mono text-xs text-slate-800" title={shown ? token! : undefined}>
-          {shown ? token : masked}
-        </code>
+        {editing ? (
+          <Input
+            className="min-w-0 flex-1 font-mono text-xs"
+            value={draft}
+            autoComplete="off"
+            spellCheck={false}
+            aria-label="Access token"
+            placeholder="The device's credential"
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void submit(); } }}
+          />
+        ) : (
+          <code className="min-w-0 flex-1 truncate font-mono text-xs text-slate-800" title={shown ? token! : undefined}>
+            {shown ? token : masked}
+          </code>
+        )}
 
-        {canEdit && tokenRevealable && (
+        {!editing && canEdit && tokenRevealable && (
           <button
             type="button"
             disabled={busy}
@@ -135,7 +142,7 @@ export function TokenPanel({
           </button>
         )}
 
-        {shown && (
+        {!editing && shown && (
           <Button
             type="button" size="sm" variant="secondary"
             onClick={() => {
@@ -148,19 +155,53 @@ export function TokenPanel({
           </Button>
         )}
 
-        {canEdit && !settingOpen && (
-          <Button type="button" size="sm" variant="secondary" onClick={() => setSettingOpen(true)}>
-            Set token
+        {/* Editing is IN PLACE on the value shown, so it needs the value: with
+            the token still masked, Edit shows it first (password + audit row)
+            and then opens the field. */}
+        {!editing && canEdit && (
+          <Button
+            type="button" size="sm" variant="secondary" disabled={busy}
+            onClick={() => (shown ? startEdit() : void run(async () => { await onReveal(); }))}
+          >
+            {shown ? 'Edit' : 'Edit…'}
           </Button>
+        )}
+
+        {editing && (
+          <>
+            <Button type="button" size="sm" disabled={busy || !draft.trim()} onClick={() => void submit()}>
+              {busy ? 'Saving…' : 'Save token'}
+            </Button>
+            <Button type="button" size="sm" variant="secondary" disabled={busy} onClick={() => { setEditing(false); setDraft(''); }}>
+              Cancel
+            </Button>
+          </>
         )}
       </div>
 
-      {/* One line, and it stays. The panel was compacted at the operator's
-          request, but this disclosure is the control the reveal was granted on
-          (spec §3.1) — an operator asked to accept an attributable view has to
-          be able to SEE that it is attributable, so it cannot retreat into the
-          button's tooltip. */}
-      {canEdit && tokenRevealable && (
+      {/* The prefix leak, said where the value is typed rather than after it is
+          refused. There is no length rule any more — this is the consequence of
+          that, and the operator decides. */}
+      {shortWarning && (
+        <p className="text-xs text-amber-700">
+          {TOKEN_PREFIX_LEN} characters or fewer: the whole token will be visible
+          as the non-secret prefix to anyone who can view this instrument — no
+          password, and no audit record of the view.
+        </p>
+      )}
+
+      {editing && (
+        <p className="text-xs text-amber-800">
+          Saving revokes the current token. <strong>{code}</strong> stops sending
+          data until the device is reconfigured with the new value. Your password
+          is required.
+        </p>
+      )}
+
+      {/* One line, and it stays. The disclosure is the control the reveal was
+          granted on (spec §3.1) — an operator asked to accept an attributable
+          view has to be able to SEE that it is attributable. */}
+      {!editing && canEdit && tokenRevealable && (
         <p className="text-xs text-slate-500">
           {shown
             ? 'This view was recorded in the audit trail against your user. The token hides again when you leave this page.'
@@ -170,15 +211,14 @@ export function TokenPanel({
 
       {canEdit && !tokenRevealable && (
         // Not revealable: the credential predates the encryption, or the server
-        // has no INSTRUMENT_TOKEN_KEY. An eye here would spend the operator's
-        // password to reach an error, so the action that resolves it is offered
-        // instead.
+        // has no INSTRUMENT_TOKEN_KEY. It cannot be shown, so it cannot be
+        // edited in place either — regenerating is the way out.
         <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
           <p className="text-xs text-slate-600">
-            This token cannot be shown — it was issued before tokens were stored
-            recoverably, or the server has no token encryption key. Regenerating
-            issues one that can be shown; the device stops working until it is
-            reconfigured.
+            This token cannot be shown or edited — it was issued before tokens
+            were stored recoverably, or the server has no token encryption key.
+            Regenerating issues one that can be shown; the device stops working
+            until it is reconfigured.
           </p>
           <Button
             type="button" size="sm" variant="secondary" className="mt-2"
@@ -193,45 +233,6 @@ export function TokenPanel({
         <p className="text-xs text-slate-500">
           You do not have permission to view or change this instrument&apos;s token.
         </p>
-      )}
-
-      {canEdit && settingOpen && (
-        <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-3">
-          <div>
-            <span className="text-sm font-medium text-slate-700">Set a specific token</span>
-            {/* The rules are stated BEFORE the field: the value is usually
-                copied off a device's config sheet, and finding out afterwards
-                that it is unusable means going back to the device. */}
-            <p className="mt-0.5 text-xs text-slate-500">{TOKEN_RULE}</p>
-            <p className="mt-0.5 text-xs text-slate-500">{TOKEN_PREFIX_NOTE}</p>
-          </div>
-          <Input
-            value={draft}
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="e.g. a device credential fixed in firmware"
-            onChange={(e) => setDraft(e.target.value)}
-          />
-          {draftError && <p className="text-xs text-red-600">{draftError}</p>}
-          <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
-            <p className="text-xs text-amber-900">
-              The current token is revoked the moment this is saved.{' '}
-              <strong>{code} stops sending data</strong> until the device is
-              reconfigured with the new value. Your password is required.
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Button type="button" size="sm" disabled={busy || !draft || !!draftError} onClick={() => void submitToken()}>
-              {busy ? 'Saving…' : 'Save token'}
-            </Button>
-            <Button
-              type="button" size="sm" variant="secondary" disabled={busy}
-              onClick={() => { setDraft(''); setSettingOpen(false); }}
-            >
-              Cancel
-            </Button>
-          </div>
-        </div>
       )}
     </div>
   );

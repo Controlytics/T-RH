@@ -47,19 +47,50 @@ describe('setInstrumentTokenSchema', () => {
    * refused" would still pass with the floor set one too low, which is the
    * error that reopens the leak.
    */
-  it('refuses a token short enough that its public prefix is the whole value', () => {
-    expect(ok('a'.repeat(TOKEN_PREFIX_LEN))).toBe(false);       // prefix === token
-    expect(ok('a'.repeat(TOKEN_PREFIX_LEN - 1))).toBe(false);
-    expect(ok('a')).toBe(false);
+  /**
+   * REVERSED 2026-08-07 at the operator's request: no length floor at all.
+   *
+   * The floor existed for a real reason, which has NOT gone away —
+   * `instrument_credentials.token_prefix` is the first TOKEN_PREFIX_LEN
+   * characters, returned by the INSTRUMENT_READ list and detail endpoints, so a
+   * token that short is fully disclosed to any viewer with no password and no
+   * `INSTRUMENT_TOKEN_VIEWED` audit row. That is now the operator's call, warned
+   * at the point of entry in `token-panel.tsx` rather than refused after it.
+   *
+   * This test is kept, inverted, so the reversal is deliberate rather than
+   * something a future edit re-tightens by accident.
+   */
+  it('accepts a token short enough for its public prefix to expose it', () => {
+    expect(ok('a'.repeat(TOKEN_PREFIX_LEN))).toBe(true);
+    expect(ok('a')).toBe(true);
+  });
+
+  it('still refuses an empty token', () => {
     expect(ok('')).toBe(false);
   });
 
-  it('still refuses anything that would not survive a header, a topic or a JSON line', () => {
-    // Unchanged by the length removal: this is a FORMAT rule, not a limit. A
-    // space or colon would authenticate here and fail on the device — the worst
-    // kind of bug to debug from the field.
-    for (const bad of ['has spaces', 'has:colon', 'has/slash', '<script>xx</script>', 'ünïcode', 'plus+sign']) {
-      expect(ok(bad), bad).toBe(false);
+  /**
+   * The charset went with the length: a credential fixed in a device's firmware
+   * is not negotiable, and a rule the hardware violates makes the feature
+   * unusable.
+   */
+  it('accepts spaces, symbols and unicode the old charset refused', () => {
+    for (const good of ['has spaces', 'has:colon', 'has/slash', 'plus+sign', 'ünïcode', '<b>']) {
+      expect(ok(good), good).toBe(true);
+    }
+  });
+
+  /**
+   * The ONE rule left, and it is physics rather than policy. The token travels
+   * as an `Authorization: Bearer` header value, an MQTT username, and a field in
+   * the newline-delimited TCP protocol. A CR or LF survives none of the three —
+   * the HTTP client rejects it (or it becomes header injection) and the TCP
+   * framing splits mid-credential. Accepting one would mint a credential that
+   * authenticates nowhere.
+   */
+  it('refuses a line break, which no transport could carry', () => {
+    for (const bad of ['abc\ndef', 'abc\rdef', 'trailing\n']) {
+      expect(ok(bad), JSON.stringify(bad)).toBe(false);
     }
   });
 });
