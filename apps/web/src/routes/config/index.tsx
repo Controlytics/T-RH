@@ -68,6 +68,23 @@ const superAdminCards = [
     // it here also removes it from the auto-discovered section below — a
     // hardcoded card and a dynamic card for one module would be two doors to
     // the same setting.
+    // Promoted out of "Additional Modules" 2026-08-07, alongside Instrument
+    // Attributes: the two are read together (the keys a device is asked for,
+    // and when it counts as reporting) and an admin looking for one expects
+    // the other beside it. Listing it here also removes it from the
+    // auto-discovered section — `cardModuleKey` strips `/config/dynamic/`.
+    title: 'Instrument Activity',
+    description: 'How long an instrument may go without reporting before it shows as Inactive',
+    href: '/config/dynamic/instrument-activity',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+      </svg>
+    ),
+    gradient: 'from-emerald-500 to-teal-600',
+    shadowColor: 'shadow-emerald-500/25',
+  },
+  {
     title: 'Instrument Attributes',
     description: 'The attribute keys the New Instrument form asks for — one key per line',
     href: '/config/instrument-attributes',

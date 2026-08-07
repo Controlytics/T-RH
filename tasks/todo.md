@@ -1970,5 +1970,9 @@ Two decisions taken with the operator:
 - [x] detail: derived status chip, Disabled badge, Disable/Enable + confirm
 - [x] Tests: 10 for the activity rule, incl. a declared interval overriding the
       configured window
-- [ ] `signal.ts` / `signal-mast.tsx` are now UNUSED by both pages. Left in the
-      tree pending a decision — delete, or keep for a finer status later.
+- [x] `signal.ts` / `signal-mast.tsx` + test DELETED (300 lines) — operator
+      decision. No references outside the files themselves. The two-tier
+      interval reasoning survives in `isInstrumentReporting`; the finer
+      five-state taxonomy is in git history.
+- [x] Instrument Activity promoted to Super Admin Settings alongside
+      Instrument Attributes.

@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased] — Signal module removed; Instrument Activity promoted (2026-08-07)
+
+`routes/instruments/signal.ts`, `signal-mast.tsx` and their test (300 lines)
+are DELETED. The five-state freshness taxonomy they carried (live / due /
+silent / heard / never, with a three-bar mast) was replaced by the two-state
+Active/Inactive the operator asked for, and both pages had already stopped
+importing them. Checked for references before deleting: none outside the files
+themselves.
+
+What survives the deletion, in `isInstrumentReporting` (@digilog/shared): the
+per-instrument contract (judge against `expectedIntervalSec` where declared, a
+configured window otherwise) and the slack multiplier that stops jitter
+flipping a status. What is gone: the finer distinction between "overdue" and
+"long silent", and between "never reported" and "reported but declares no
+interval". If a finer status is wanted again the reasoning is in git history,
+not lost.
+
+`Instrument Activity` joins `Instrument Attributes` under Configuration →
+Super Admin Settings. Listing it as a hardcoded card also removes it from the
+auto-discovered "Additional Modules" section, so there is one door to it and
+not two.
+
 ## [Unreleased] — Instrument ID accepts anything; the wire moves to UUIDs (2026-08-07)
 
 **BREAKING for configured devices.** Every device must be reconfigured: the
