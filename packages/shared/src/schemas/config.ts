@@ -241,3 +241,55 @@ export function parseInstrumentAttributeKeys(raw: string | null | undefined): st
   }
   return keys;
 }
+
+// Instrument Activity Configuration (SUPER_ADMIN-only).
+//
+// When does an instrument count as ACTIVE? "It is sending telemetry" needs a
+// cut-off, and the cut-off is a site decision, not ours: a cleanroom probe
+// reporting every 30s and a calibration rig read once a shift are both healthy,
+// and a fixed window would libel one of them.
+//
+// Two-tier, deliberately. An instrument that declares `expectedIntervalSec` is
+// judged against ITS OWN contract (times the slack below) — that is the honest
+// measure and it needs no configuration. `activeWindowMinutes` is the fallback
+// for the instruments that declare nothing, which in practice is most of them.
+export const INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN = 1440; // 24 hours
+/**
+ * Slack on a declared interval before it counts as missed. A device reporting
+ * every 60s is not inactive at 61s — jitter, retries and clock skew all live in
+ * that gap, and a status that flickers on jitter is one people stop reading.
+ */
+export const INSTRUMENT_ACTIVE_INTERVAL_SLACK = 2;
+
+export const instrumentActivityConfigSchema = z.object({
+  activeWindowMinutes: z.coerce.number().int().min(1).max(525_600).default(INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN),
+});
+export type InstrumentActivityConfig = z.infer<typeof instrumentActivityConfigSchema>;
+
+/**
+ * Is this instrument currently receiving telemetry?
+ *
+ * `now` is injected, never read from a global: a status the whole page is
+ * coloured on cannot be tested at a fixed point otherwise.
+ *
+ * Says nothing about whether the instrument is ENABLED. A disabled instrument
+ * cannot report, so it will also read inactive here — but the two are different
+ * facts (nobody turned it off vs we turned it off) and the UI shows them
+ * separately.
+ */
+export function isInstrumentReporting(
+  lastSeenAt: string | Date | null | undefined,
+  expectedIntervalSec: number | null | undefined,
+  activeWindowMinutes: number = INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN,
+  now: Date = new Date(),
+): boolean {
+  if (!lastSeenAt) return false;
+  const age = now.getTime() - new Date(lastSeenAt).getTime();
+  // A device whose clock runs ahead reports a future timestamp. Treat it as
+  // fresh rather than as infinitely stale.
+  if (age <= 0) return true;
+  const limit = expectedIntervalSec
+    ? expectedIntervalSec * 1000 * INSTRUMENT_ACTIVE_INTERVAL_SLACK
+    : activeWindowMinutes * 60_000;
+  return age <= limit;
+}

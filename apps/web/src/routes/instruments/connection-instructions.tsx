@@ -100,11 +100,12 @@ function Row({ label, value }: { label: string; value: string }) {
  */
 function CredentialRows({
   token,
-  code,
+  clientId,
   showClientId,
 }: {
   token: string;
-  code: string;
+  /** The instrument's UUID — the broker binds the client id to it. */
+  clientId: string;
   showClientId: boolean;
 }) {
   return (
@@ -113,7 +114,7 @@ function CredentialRows({
       <Row label="Username" value={token} />
       <p className="text-xs text-slate-500">Username is the same as the token.</p>
       <Row label="Password" value="leave empty" />
-      {showClientId && <Row label="Client ID" value={code} />}
+      {showClientId && <Row label="Client ID" value={clientId} />}
     </div>
   );
 }
@@ -121,6 +122,14 @@ function CredentialRows({
 export interface ConnectionInstructionsProps {
   /** Optional — picks the switcher's initial tab only. Not a stored fact. */
   transport?: string;
+  /**
+   * The instrument's UUID. THIS is what the wire uses — the MQTT client id and
+   * every topic segment (2026-08-07): the code became free text, and a code
+   * containing `/`, `+` or `#` would forge a topic shape or match the broker's
+   * ACL against every instrument.
+   */
+  id: string;
+  /** The human reference. Shown, never sent. */
   code: string;
   /** Plaintext token. Only ever available at creation / regeneration. */
   token?: string;
@@ -130,15 +139,19 @@ export interface ConnectionInstructionsProps {
   childCodes?: string[];
   /** Set on a CHILD instrument that is (also) reported via a gateway. */
   gatewayCode?: string;
+  /** That gateway's UUID — the topic segment its children are addressed under. */
+  gatewayId?: string;
 }
 
 export function ConnectionInstructions({
   transport,
+  id,
   code,
   token,
   isGateway,
   childCodes,
   gatewayCode,
+  gatewayId,
 }: ConnectionInstructionsProps) {
   // No caller supplies one today, so this is HTTP in practice — the transport
   // most devices speak and the safest tab to open on.
@@ -159,7 +172,7 @@ export function ConnectionInstructions({
   // command at all. Always resolve to something absolute.
   const base = getApiBase() || window.location.origin;
   const httpUrl = `${base}/api/ingest/v1/telemetry`;
-  const topic = `instruments/${code}/telemetry`;
+  const topic = `instruments/${id}/telemetry`;
   const wsUrl = `${base.replace(/^http/, 'ws')}/api/ingest/v1/ws`;
   const notLive = !isTransportLive(selected);
 
@@ -178,12 +191,12 @@ export function ConnectionInstructions({
    * it is responsible for.
    */
   const attributeTopic = isGateway
-    ? `instruments/${code}/attributes/#`
-    : gatewayCode
-      ? `instruments/${gatewayCode}/attributes/${code}`
-      : `instruments/${code}/attributes`;
+    ? `instruments/${id}/attributes/#`
+    : gatewayId
+      ? `instruments/${gatewayId}/attributes/${id}`
+      : `instruments/${id}/attributes`;
   // Only a gateway has a roster, and only it may subscribe to one.
-  const rosterTopic = isGateway ? `instruments/${code}/children` : null;
+  const rosterTopic = isGateway ? `instruments/${id}/children` : null;
   // Subscribing is a BROKER capability. The WEBSOCKET/WSS tabs here are the
   // API's own /api/ingest/v1/ws ingest endpoint, not the broker's MQTT-over-WS
   // listener, and HTTP/TCP have no subscribe at all — showing a topic on any of
@@ -193,8 +206,8 @@ export function ConnectionInstructions({
   // it the client cannot validate the broker and simply refuses to connect.
   const brokerPort = selected === 'mqtts' ? '8883' : '1883';
   const cafile = selected === 'mqtts' ? ' --cafile "<ca-cert.pem>"' : '';
-  const pubPrefix = `mosquitto_pub -h <broker-host> -p ${brokerPort}${cafile} -i "${code}"`;
-  const subPrefix = `mosquitto_sub -h <broker-host> -p ${brokerPort}${cafile} -i "${code}"`;
+  const pubPrefix = `mosquitto_pub -h <broker-host> -p ${brokerPort}${cafile} -i "${id}"`;
+  const subPrefix = `mosquitto_sub -h <broker-host> -p ${brokerPort}${cafile} -i "${id}"`;
 
   // A gateway sends ONE batch payload keyed by each child's code, not the
   // single-reading body an ordinary instrument sends. When there are no
@@ -225,7 +238,7 @@ export function ConnectionInstructions({
     );
   } else {
     const showClientId = selected === 'mqtt' || selected === 'mqtts';
-    const credentialRows = <CredentialRows token={tok} code={code} showClientId={showClientId} />;
+    const credentialRows = <CredentialRows token={tok} clientId={id} showClientId={showClientId} />;
 
     switch (selected) {
       case 'http':

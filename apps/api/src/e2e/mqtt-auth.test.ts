@@ -21,6 +21,7 @@ let app: FastifyInstance;
 
 const instrumentIds: string[] = [];
 let goodCode: string;
+let goodId: string;
 let goodToken: string;
 let revokedCode: string;
 let revokedToken: string;
@@ -47,7 +48,11 @@ function ask(body: unknown) {
 
 beforeAll(async () => {
   goodCode = `MQA-${S}`;
-  goodToken = (await mkInstrument(goodCode)).token;
+  const good = await mkInstrument(goodCode);
+  goodToken = good.token;
+  // The client id is the instrument's UUID since 2026-08-07 — the code became
+  // free text, so a code is no longer safe to template an ACL on.
+  goodId = good.id;
 
   otherCode = `MQO-${S}`;
   await mkInstrument(otherCode);
@@ -75,13 +80,13 @@ afterAll(async () => {
 
 describe('EMQX auth hook', () => {
   it('allows a valid token presented as the username', async () => {
-    const res = await ask({ clientid: goodCode, username: goodToken, password: '' });
+    const res = await ask({ clientid: goodId, username: goodToken, password: '' });
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({ result: 'allow' });
   });
 
   it('denies an unknown token', async () => {
-    const res = await ask({ clientid: goodCode, username: generateToken(), password: '' });
+    const res = await ask({ clientid: goodId, username: generateToken(), password: '' });
     expect(JSON.parse(res.body)).toEqual({ result: 'deny' });
   });
 
@@ -99,14 +104,14 @@ describe('EMQX auth hook', () => {
   });
 
   it('denies when the username is missing entirely', async () => {
-    expect(JSON.parse((await ask({ clientid: goodCode, password: '' })).body))
+    expect(JSON.parse((await ask({ clientid: goodId, password: '' })).body))
       .toEqual({ result: 'deny' });
   });
 
   it('denies every unexpected body shape rather than erroring', async () => {
     // A non-2xx would read to EMQX as "the authenticator broke", not "denied".
     // Deny is the default for anything we do not recognise.
-    for (const body of [{}, [], { clientid: goodCode, username: 42 }, { username: goodToken }, '']) {
+    for (const body of [{}, [], { clientid: goodId, username: 42 }, { username: goodToken }, '']) {
       const res = await ask(body);
       expect(res.statusCode).toBe(200);
       expect(JSON.parse(res.body)).toEqual({ result: 'deny' });

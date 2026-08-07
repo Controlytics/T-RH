@@ -36,11 +36,23 @@ export function InstrumentAttributesConfigPage() {
   const { data, mutate } = useSWR<{ keys?: string }>('/api/config/dynamic/instrument-attributes');
   const [rows, setRows] = useState<Row[] | null>(null);
   const [saving, setSaving] = useState(false);
+  /**
+   * The list as it stands on the server, in the same normalised form the save
+   * sends. Comparing against it is what makes "Save changes" go quiet once
+   * there is nothing to save — after a successful save it is updated in place,
+   * so the button disables immediately instead of staying lit until the next
+   * keystroke.
+   */
+  const [saved, setSaved] = useState<string | null>(null);
 
   // Seed once from the server, then leave the operator's edits alone — a
   // revalidation mid-edit must not overwrite what they are typing.
   useEffect(() => {
-    if (data && rows === null) setRows(toRows(parseInstrumentAttributeKeys(data.keys)));
+    if (data && rows === null) {
+      const keys = parseInstrumentAttributeKeys(data.keys);
+      setRows(toRows(keys));
+      setSaved(keys.join('\n'));
+    }
   }, [data, rows]);
 
   if (rows === null) return <div className="py-10 text-center text-slate-400">Loading…</div>;
@@ -64,6 +76,11 @@ export function InstrumentAttributesConfigPage() {
   const blocked = dupIds.size > 0 || badCharIds.size > 0;
   const kept = trimmed.filter(Boolean).length;
 
+  // What a save would send. Blank rows and surrounding space are dropped here
+  // too, so adding an empty row — then removing it — does not read as a change.
+  const normalised = rows.map((r) => r.key.trim()).filter(Boolean).join('\n');
+  const dirty = saved === null || normalised !== saved;
+
   const update = (id: number, key: string) =>
     setRows((rs) => (rs ?? []).map((r) => (r.id === id ? { ...r, key } : r)));
   const remove = (id: number) => setRows((rs) => (rs ?? []).filter((r) => r.id !== id));
@@ -79,13 +96,19 @@ export function InstrumentAttributesConfigPage() {
     });
 
   const save = async () => {
-    if (blocked) return;
+    if (blocked || !dirty) return;
     setSaving(true);
     try {
       // Blank rows are dropped rather than refused: an operator who added a row
       // and changed their mind should not have to hunt for it to save.
-      const keys = rows.map((r) => r.key.trim()).filter(Boolean).join('\n');
+      // `normalised` is the SAME value the dirty check compares against — built
+      // once, so the button cannot disagree with what was sent.
+      const keys = normalised;
       await apiClient.put('/api/config/dynamic/instrument-attributes', { keys });
+      // Before the revalidation, not after: this is what makes the button go
+      // quiet the moment the save lands, instead of staying lit until the next
+      // keystroke.
+      setSaved(keys);
       await mutate();
       toast.success('Attribute keys saved', `The New Instrument form now asks for ${kept} attribute${kept === 1 ? '' : 's'}.`);
     } catch (err: unknown) {
@@ -202,8 +225,8 @@ export function InstrumentAttributesConfigPage() {
           recorded on existing instruments are untouched.
         </p>
         <Link to="/config"><Button variant="secondary">Cancel</Button></Link>
-        <Button type="button" disabled={saving || blocked} onClick={() => void save()}>
-          {saving ? 'Saving…' : 'Save changes'}
+        <Button type="button" disabled={saving || blocked || !dirty} onClick={() => void save()}>
+          {saving ? 'Saving…' : dirty ? 'Save changes' : 'Saved'}
         </Button>
       </div>
     </div>

@@ -103,12 +103,17 @@ export interface MqttBridgeHandle {
 }
 
 /**
- * `instruments/<code>/telemetry` -> `<code>`, or null.
+ * `instruments/<id>/telemetry` -> `<id>`, or null.
+ *
+ * The segment is the instrument's UUID, not its code, since 2026-08-07: the
+ * code became free text (any character, any length) and a code containing `/`,
+ * `+` or `#` would forge a topic shape or match the broker's ACL against every
+ * instrument. A platform-generated UUID cannot.
  *
  * Pure, and separately tested: a topic router that is loose about segment count
- * is how `instruments/A/B/telemetry` ends up filed against instrument "A". A
- * code containing `/` cannot survive the split into exactly three segments,
- * which is the property that keeps a code from forging a topic shape.
+ * is how `instruments/A/B/telemetry` ends up filed against instrument "A". The
+ * exact-three-segment split is what keeps a longer topic from being accepted as
+ * a shorter one.
  */
 export function parseTelemetryTopic(topic: string): string | null {
   const parts = topic.split('/');
@@ -293,19 +298,19 @@ export async function startMqttBridge(
       while (queue.length > 0 && !closing) {
         const { topic, payload } = queue.shift() as { topic: string; payload: Buffer };
 
-        const code = parseTelemetryTopic(topic);
-        if (!code) {
-          log('message dropped — topic does not match instruments/<code>/telemetry', { topic });
+        const instrumentId = parseTelemetryTopic(topic);
+        if (!instrumentId) {
+          log('message dropped — topic does not match instruments/<id>/telemetry', { topic });
           continue;
         }
 
-        const identity = await lookupByCode(code);
+        const identity = await lookupById(instrumentId);
         if (!identity) {
           // Dropped, not dead-lettered: a dead-letter is filed AGAINST an
           // instrument, and there is no instrument here to file it against.
           // Inventing one would be a fabricated record in a §11 system, and
           // auto-creating from a payload is forbidden on every transport.
-          log('message dropped — no active instrument with that code', { topic, code });
+          log('message dropped — no active instrument with that id', { topic, instrumentId });
           continue;
         }
 
@@ -367,11 +372,17 @@ export async function startMqttBridge(
  * readings for an instrument an operator has just deactivated, and the write
  * that follows costs far more than this lookup.
  */
-async function lookupByCode(code: string): Promise<IngestIdentity | null> {
+async function lookupById(id: string): Promise<IngestIdentity | null> {
+  // A malformed segment is a miss, not a 500: Prisma throws on a non-UUID for a
+  // uuid column, and a device publishing garbage must be dropped like any other
+  // unknown instrument rather than taking the drain loop down.
+  if (!UUID_RE.test(id)) return null;
   const inst = await prisma.instrument.findUnique({
-    where: { code },
+    where: { id },
     select: { id: true, code: true, isGateway: true, isActive: true },
   });
   if (!inst || !inst.isActive) return null;
   return { id: inst.id, code: inst.code, isGateway: inst.isGateway };
 }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

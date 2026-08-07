@@ -299,6 +299,23 @@ concurrent connections.
 
 ### 9A.3 MQTT via EMQX 5.3.2
 
+> **THE WIRE ADDRESSES INSTRUMENTS BY UUID, NOT BY CODE (2026-08-07).**
+> The MQTT client id and every topic segment are the instrument's `id`. The
+> `code` became free text — any character, any length — at the operator's
+> request, and a code is no longer safe in a topic: `/` forges a level, `+` and
+> `#` are wildcards, so an instrument coded `+` would have matched
+> `instruments/${clientid}/...` against EVERY instrument (read every attribute
+> downlink, publish telemetry attributed to any device). A platform-generated
+> UUID cannot contain a metacharacter.
+>
+> **`etc/acl.conf` is UNCHANGED and needs no restart** — `${clientid}` is
+> whatever the client presents, and `POST /api/ingest/v1/mqtt-auth` is what
+> binds it (now to `instrument.id`).
+>
+> **BREAKING for already-configured devices:** every device must be
+> reconfigured with its UUID as client id and in its topics. Retained messages
+> under the old code-based topics are abandoned.
+
 EMQX 5.3.2 is installed at `C:\Users\hello\emqx-5.3.2` (the last release with a
 Windows build). Start it with `bin\emqx.cmd start`.
 
@@ -357,12 +374,12 @@ the same rule as everywhere else, and the ACL admits nothing less:
 | Field | Value |
 |---|---|
 | Host / Port / Path | `localhost` / `8083` / `/mqtt` (the `ws:default` listener) |
-| **Client ID** | the instrument **code**, e.g. `DLSTD-1786017252` |
+| **Client ID** | the instrument's **UUID** (shown on its detail page's Connection card) |
 | **Username** | that instrument's **device token** (Reveal token on its page) |
 | Password | leave empty |
 
-Then **Subscribe** to `instruments/<code>/attributes` (or
-`instruments/<gwCode>/attributes/#` for a gateway). Verified 2026-08-06: the
+Then **Subscribe** to `instruments/<id>/attributes` (or
+`instruments/<gwId>/attributes/#` for a gateway). Verified 2026-08-06: the
 subscribe delivers the retained message immediately, tagged **Retain** in the
 table, and every subsequent add/modify/delete appears as a new row within a
 second, payload and all.
@@ -391,12 +408,12 @@ MQTT_PASSWORD=<the bridge's own broker password — NOT a device token>
 # MQTT_CLIENT_ID=digilog-ingest-bridge   # must stay stable across restarts
 ```
 
-Devices publish to `instruments/<code>/telemetry`; the bridge subscribes
+Devices publish to `instruments/<id>/telemetry`; the bridge subscribes
 `instruments/+/telemetry` at QoS 1 and hands each payload to the ingest core
 with `transport: 'mqtt'`.
 
 **A device connects as: username = its device token, client ID = its instrument
-code.** Both, or the broker refuses it.
+UUID.** Both, or the broker refuses it.
 
 #### The three pieces of EMQX configuration, and why each is load-bearing
 
@@ -723,12 +740,12 @@ cannot be told to *do* anything, only what its attributes now are.
 
 | Instrument | Topic |
 |---|---|
-| standalone | `instruments/<code>/attributes` |
-| child of a gateway | `instruments/<gatewayCode>/attributes/<childCode>` |
+| standalone | `instruments/<id>/attributes` |
+| child of a gateway | `instruments/<gatewayId>/attributes/<childId>` |
 
 A child has **no broker connection of its own**, so its change has to reach the
 gateway that fans out for it — addressed to the child, on the gateway's tree.
-The gateway subscribes `instruments/<gatewayCode>/attributes/#`, which covers
+The gateway subscribes `instruments/<gatewayId>/attributes/#`, which covers
 every child *and* the gateway's own slot (MQTT's `#` matches its own parent
 level; verified against EMQX 5.3.2, not assumed).
 
@@ -761,7 +778,7 @@ behave exactly as they did before this path existed.
 
 #### Watching it — paste this
 
-Subscribe as the device itself (client id = instrument code, username = its
+Subscribe as the device itself (client id = instrument UUID, username = its
 token; the password is ignored). Then change an attribute in the UI.
 
 ```bash
@@ -820,12 +837,12 @@ Two publish patterns, not one: `+` is exactly one level, so
 
 The subscribe rule templates on `${clientid}`, and that is only meaningful
 because `POST /api/ingest/v1/mqtt-auth` refuses any CONNECT whose client id is
-not the token's instrument code — the same binding that makes the telemetry
-publish rule real. A gateway's client id *is* the gateway code, so
+not the token's instrument UUID — the same binding that makes the telemetry
+publish rule real. A gateway's client id *is* its UUID, so
 `instruments/${clientid}/attributes/#` covers its children and nothing else.
 
 > The exact-topic pattern is **redundant** — `instruments/${clientid}/attributes/#`
-> alone permits a subscribe to `instruments/<code>/attributes` and delivers on
+> alone permits a subscribe to `instruments/<id>/attributes` and delivers on
 > it (confirmed by removing the exact pattern, restarting, and re-testing). It is
 > kept deliberately: the rule granting a device its own slot should not rest on a
 > subtlety of `#`, and a later edit narrowing the wildcard form must not take the
@@ -856,7 +873,7 @@ A retained message is cleared only by publishing a **zero-byte payload with
 `retain: true`** to the same topic. Nothing does that today, so three cases
 strand a slot the platform will never revisit:
 
-- **deleting an instrument** — `instruments/<code>/attributes` keeps its last
+- **deleting an instrument** — `instruments/<id>/attributes` keeps its last
   message forever;
 - **unlinking a child from its gateway** — the old
   `instruments/<gw>/attributes/<child>` slot is stranded, and the child's own
@@ -877,7 +894,7 @@ instruments am I responsible for" from the broker alone. One retained slot per
 gateway now carries the whole membership:
 
 ```
-instruments/<gatewayCode>/children
+instruments/<gatewayId>/children
 {"children":[{"code":"DLCH-1786017252","name":"DL child","isActive":true}],
  "ts":"2026-08-07T05:08:25.154Z"}
 ```
@@ -885,7 +902,7 @@ instruments/<gatewayCode>/children
 **A sibling topic, not a segment under `…/attributes/`.** Instrument codes allow
 `[A-Za-z0-9._-]`, so any reserved segment inside the attribute subtree could be
 collided with by a real code. The cost is one extra subscription on the device;
-`instruments/<gwCode>/attributes/#` does **not** cover it.
+`instruments/<gwId>/attributes/#` does **not** cover it.
 
 **Whole membership, never a delta**, for the same reason the attribute payload
 carries the complete set: the retained message is the only copy, and a gateway

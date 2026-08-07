@@ -1,5 +1,5 @@
 import { type FastifyInstance } from 'fastify';
-import { passwordPolicySchema, loginSecuritySchema, sessionConfigSchema, datetimeConfigSchema, paginationConfigSchema, exportLimitConfigSchema, instrumentAttributesConfigSchema } from '@digilog/shared';
+import { passwordPolicySchema, loginSecuritySchema, sessionConfigSchema, datetimeConfigSchema, paginationConfigSchema, exportLimitConfigSchema, instrumentAttributesConfigSchema, instrumentActivityConfigSchema } from '@digilog/shared';
 import { verifyPassword } from '../../lib/password.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { errorResponses } from '../../lib/error-schemas.js';
@@ -191,5 +191,19 @@ export default async function configRoutes(app: FastifyInstance) {
     },
   }, async () => {
     return configService.getConfig('instrument-attributes', instrumentAttributesConfigSchema);
+  });
+
+  // Public read — all authenticated users. Every instrument list computes
+  // Active/Inactive from this window, and the people reading that list are
+  // operators, not admins.
+  app.get('/instrument-activity/current', {
+    schema: {
+      tags: ['Config'],
+      summary: 'Get the instrument active-window setting',
+      description: 'How long an instrument may go without reporting before it is shown as Inactive. Available to all authenticated users.',
+      response: { 200: { type: 'object', additionalProperties: true } },
+    },
+  }, async () => {
+    return configService.getConfig('instrument-activity', instrumentActivityConfigSchema);
   });
 }

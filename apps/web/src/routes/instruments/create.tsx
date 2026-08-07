@@ -166,6 +166,7 @@ export function InstrumentCreatePage() {
         <TokenDialog
           open
           title="Instrument created"
+          id={created.id}
           code={created.code}
           token={created.token}
           onClose={() => navigate(`/instruments/${created.id}`)}

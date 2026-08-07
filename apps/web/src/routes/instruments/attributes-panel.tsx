@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import useSWR from 'swr';
+import { parseInstrumentAttributeKeys, placementColumnFor } from '@digilog/shared';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
@@ -27,11 +28,25 @@ interface Attribute { key: string; value: string; createdAt: string; updatedAt: 
  * Editing is inline rather than in a dialog: the common act is correcting one
  * value against a physical label, and a modal makes the operator lose sight of
  * the neighbouring rows they are checking it against.
+ *
+ * ── CONFIGURED KEYS THIS INSTRUMENT DOES NOT HAVE (2026-08-07) ──
+ * Adding a key in Configuration used to change the New Instrument form ONLY, so
+ * an admin who added "Calibration Due" saw nothing happen on the fifty
+ * instruments already registered — the key existed, and there was no way to
+ * reach it short of retyping it by hand on every one. Those keys are now listed
+ * here as empty rows, filled in in place.
+ *
+ * NOT back-filled: an unfilled key is left ABSENT rather than written as an
+ * empty attribute. An empty string is a recorded fact in a §11 trail ("this was
+ * measured and is blank"), and absent is the truth ("nobody has said yet").
  */
 export function AttributesPanel({ instrumentId, canEdit }: { instrumentId: string; canEdit: boolean }) {
   const { toast } = useToast();
   const key = `/api/instruments/${instrumentId}/attributes`;
   const { data, mutate } = useSWR<{ data: Attribute[] }>(key);
+  // The administered key list. A failure here must not break the panel — an
+  // unreachable config simply offers no suggestions.
+  const { data: attrConfig } = useSWR<{ keys?: string }>('/api/config/instrument-attributes/current');
 
   const [adding, setAdding] = useState(false);
   const [newKey, setNewKey] = useState('');
@@ -47,8 +62,37 @@ export function AttributesPanel({ instrumentId, canEdit }: { instrumentId: strin
   // confirmation is a themed dialog, and it blocks the JS thread, so nothing
   // else on the page can react while it is open.
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  /** In-progress values for configured keys this instrument does not have yet. */
+  const [fills, setFills] = useState<Record<string, string>>({});
 
   const rows = data?.data ?? [];
+  /**
+   * Configured keys this instrument has no value for.
+   *
+   * Placement keys (Block / Area / Location) are EXCLUDED: they are columns on
+   * the instrument, edited in Details, and offering them here would write a
+   * second copy as an attribute that nothing reads.
+   */
+  const have = new Set(rows.map((r) => r.key.trim().toLowerCase()));
+  const missingKeys = parseInstrumentAttributeKeys(attrConfig?.keys)
+    .filter((k) => !placementColumnFor(k))
+    .filter((k) => !have.has(k.trim().toLowerCase()));
+
+  const fill = async (k: string) => {
+    const value = (fills[k] ?? '').trim();
+    if (!value) return;
+    setBusy(true);
+    try {
+      await apiClient.post(key, { key: k, value });
+      setFills((f) => ({ ...f, [k]: '' }));
+      await mutate();
+      toast.success('Attribute saved', `"${k}" set on this instrument.`);
+    } catch (err) {
+      fail('Could not save attribute', err);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const fail = (what: string, err: unknown) =>
     toast.error(what, (err as { message?: string })?.message ?? 'The change was not saved.');
@@ -199,6 +243,40 @@ export function AttributesPanel({ instrumentId, canEdit }: { instrumentId: strin
               ))}
             </TableBody>
           </Table>
+        )}
+
+        {canEdit && missingKeys.length > 0 && (
+          <div className="space-y-2 rounded-lg border border-dashed border-slate-300 bg-slate-50/60 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+              Configured, not set on this instrument
+            </p>
+            {missingKeys.map((k) => (
+              <div key={k} className="flex flex-wrap items-center gap-2">
+                <span className="w-40 shrink-0 text-sm font-medium text-slate-700">{k}</span>
+                <Input
+                  className="max-w-xs flex-1"
+                  value={fills[k] ?? ''}
+                  autoComplete="off"
+                  aria-label={k}
+                  placeholder="Not set"
+                  onChange={(e) => setFills((f) => ({ ...f, [k]: e.target.value }))}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void fill(k); } }}
+                />
+                <Button
+                  type="button" size="sm" variant="secondary"
+                  disabled={busy || !(fills[k] ?? '').trim()}
+                  onClick={() => void fill(k)}
+                >
+                  Save
+                </Button>
+              </div>
+            ))}
+            <p className="text-xs text-slate-500">
+              These keys are configured in Configuration → Instrument Attributes.
+              Left blank they stay unset — an empty value would record that
+              someone checked and found nothing.
+            </p>
+          </div>
         )}
       </CardContent>
 

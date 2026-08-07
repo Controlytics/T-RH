@@ -1882,3 +1882,93 @@ interval, no Hardware section, placement moved under Attributes.
 - [x] Docs: CHANGELOG, config-def counts in CLAUDE.md / apps/api/CLAUDE.md
 - [x] Counts CORRECTED, not inherited: the docs claimed 36 defs / 34 pages;
       `ls` says 22 / 21. The 36 came from DigiLog and was never true here.
+
+
+# Unrestricted instrument code + UUID-addressed MQTT topics (2026-08-07)
+
+Operator decision: the Instrument ID must accept ANY text, number or symbol,
+with no length limit. Taken with the third option offered — the charset guard
+is not merely relaxed, the code stops being interpolated into MQTT topics at
+all. Devices are addressed by their UUID on the wire; the code becomes a
+display/reference field.
+
+## Why the guard existed, and what replaces it
+
+`code` was restricted to `[A-Za-z0-9._-]` because it was a topic SEGMENT.
+Without that, `/` forges a topic level and `+`/`#` are MQTT wildcards — an
+instrument coded `+` would match the ACL rule `instruments/${clientid}/...`
+against EVERY instrument: read every attribute downlink, publish telemetry
+attributed to any device. In a §11 system that is forged records that read as
+genuine.
+
+Replacement: the segment is a UUID, which cannot contain a metacharacter
+because the platform generates it. The ACL text does not change — `${clientid}`
+is whatever the client presents, and the auth hook is what binds it — so no
+`acl.conf` edit and no broker restart.
+
+## BREAKING
+
+Every configured device must be reconfigured: MQTT client id changes from the
+code to the UUID, and every topic with it. Retained slots under the old
+code-based topics are abandoned (cleared with a zero-byte retained publish
+where reachable).
+
+## Tasks
+
+- [x] `codeSchema`: any non-empty string, no max, no regex; relax `name` with it
+- [x] Exempt `code`/`name` from HTML sanitisation so `<` and `>` survive
+- [x] `mqtt-auth-routes.ts`: clientid must equal instrument **id**
+- [x] `mqtt-bridge.ts`: parse the id segment, look up by id
+- [x] `attributeDownlinkTopic` / `childRosterTopic` take ids
+- [x] `routes.ts`: announce helpers pass ids
+- [x] Rewrite the "TWO INVARIANTS" block — it argues for the guard just removed
+- [x] Frontend connection instructions: client id + topics use the UUID
+- [x] Docs: LOCAL_SETUP_WINDOWS §9A.3/§9C, CHANGELOG
+- [x] Negative check: register a code of `+`, prove it cannot reach another
+      instrument's topics — no SUBACK + `authorization_permission_denied`, and
+      `+` as a client id refused at CONNECT
+- [x] FOUND BY TESTING, not by reading: `audit_trail.signature_meaning` is
+      VarChar(255) and a long code overflowed it (22001 → 500 on a legal
+      create). Code truncated to 80 chars in the SENTENCE only; the full value
+      stays in the row's before/after JSON.
+- [ ] NOT DONE — old code-based retained slots are abandoned, not swept. They
+      are unreachable by any client (no token resolves a code to a client id
+      any more) and hold registry metadata, not secrets. A sweep would need the
+      pre-change topic list, which nothing recorded.
+
+## Scoped OUT, stated not silent
+
+- Bulk CSV: a code containing a comma or a quote still breaks the import. The
+  CSV parser is unchanged; codes for bulk upload keep the practical limits of
+  the format.
+- The gateway batch payload stays keyed by child CODE. A JSON object key
+  carries no metacharacter risk, and rekeying it would churn every device's
+  payload for no safety gain.
+
+
+# Instruments page simplified; Active is observed (2026-08-07)
+
+Operator request: Active/Inactive means telemetry is arriving, not the admin
+flag; tiles are Active / Inactive / Gateways only; Signal, Placement and Token
+columns removed; Block / Area / Location filters removed.
+
+Two decisions taken with the operator:
+
+- **The cut-off is configurable** — new `instrument-activity` config def, one
+  setting `activeWindowMinutes` (default 1440). It is the FALLBACK only: an
+  instrument declaring `expectedIntervalSec` is judged against its own contract
+  (x2 slack), because a probe reporting every 30s and a rig read once a shift
+  are both healthy and one fixed window would libel one of them.
+- **The admin flag stays, as its own action** — Disable / Enable button with its
+  own confirm, out of the edit form. It renders as a distinct "Disabled" badge
+  ALONGSIDE the telemetry status, so "we turned it off" is never mistaken for
+  "it died"; those need opposite responses.
+
+- [x] shared: `isInstrumentReporting` + `instrumentActivityConfigSchema`
+- [x] `instrument-activity.def.ts` + discovery + public `/current` endpoint
+- [x] list: three tiles, three columns, two filters
+- [x] detail: derived status chip, Disabled badge, Disable/Enable + confirm
+- [x] Tests: 10 for the activity rule, incl. a declared interval overriding the
+      configured window
+- [ ] `signal.ts` / `signal-mast.tsx` are now UNUSED by both pages. Left in the
+      tree pending a decision — delete, or keep for a finer status later.

@@ -145,6 +145,39 @@ async function codeOf(
 }
 
 /**
+ * A code, shortened for a §11 signature meaning.
+ *
+ * `audit_trail.signature_meaning` is `VarChar(255)`, and the code became FREE
+ * TEXT of any length on 2026-08-07. A 300-character code interpolated into
+ * "Instrument \"…\" registered" overflows the column, Postgres raises 22001,
+ * and the whole create transaction rolls back — the operator sees a 500 for a
+ * perfectly legal instrument.
+ *
+ * Truncating the SENTENCE loses nothing that the trail needs: the full code is
+ * recorded verbatim in the row's `afterValue` / `beforeValue` JSON, which is
+ * unbounded. The sentence is the human rendering, not the record.
+ */
+/**
+ * `code` and `name` are exempt from HTML stripping (2026-08-07).
+ *
+ * The operator asked for an Instrument ID that accepts any symbol, and the
+ * sanitiser DISCARDS anything tag-shaped: a code of `<b>` came back as the
+ * empty string, and `A<B` as `A`. Silently storing something other than what
+ * was typed is worse here than the XSS the stripper defends against, and that
+ * defence is not load-bearing for these two fields — React escapes on render,
+ * and neither value is ever interpolated into HTML or into a topic (the wire
+ * addresses instruments by UUID).
+ *
+ * Every other text field on these payloads is still stripped.
+ */
+const IDENTITY_FIELDS = ['code', 'name'];
+
+const SIGNATURE_CODE_MAX = 80;
+function codeLabel(code: string): string {
+  return code.length <= SIGNATURE_CODE_MAX ? code : `${code.slice(0, SIGNATURE_CODE_MAX)}…`;
+}
+
+/**
  * Tell a gateway who its children are. CALLED AFTER THE COMMIT.
  *
  * Reads the membership HERE rather than inside the transaction, for the reason
@@ -164,14 +197,18 @@ async function announceRoster(gatewayId: string | null | undefined): Promise<voi
   if (!gatewayId) return;
   try {
     const gw = await prisma.instrument.findUnique({
-      where: { id: gatewayId }, select: { code: true, isGateway: true },
+      where: { id: gatewayId }, select: { isGateway: true },
     });
     if (!gw?.isGateway) return;
     const children = await prisma.instrument.findMany({
       where: { gatewayId },
       select: { code: true, name: true, isActive: true },
     });
-    await publishChildRoster(gw.code, children, new Date());
+    // The TOPIC is the gateway's id; the PAYLOAD still names children by code.
+    // A JSON object key carries no metacharacter risk, and the code is what a
+    // person reads on the device — rekeying the payload to UUIDs would make
+    // every roster unreadable for no safety gain.
+    await publishChildRoster(gatewayId, children, new Date());
   } catch (e) {
     console.warn('[downlink:children] roster NOT DELIVERED — could not read the membership', {
       gatewayId, err: (e as Error).message,
@@ -212,7 +249,7 @@ async function createWithCredential(
     await auditLog({
       action: 'INSTRUMENT_CREATED', targetType: 'Instrument', targetId: instrument.id,
       afterValue: { name: instrument.name, code: instrument.code },
-      signatureMeaning: `Instrument "${instrument.code}" registered and access token issued`,
+      signatureMeaning: `Instrument "${codeLabel(instrument.code)}" registered and access token issued`,
       userId: ctx.userId, userRole: ctx.userRole,
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     }, tx);
@@ -225,7 +262,7 @@ async function createWithCredential(
       await auditLog({
         action: 'INSTRUMENT_GATEWAY_ENABLED', targetType: 'Instrument', targetId: instrument.id,
         afterValue: { code: instrument.code, isGateway: true },
-        signatureMeaning: `Instrument "${instrument.code}" registered as a gateway`,
+        signatureMeaning: `Instrument "${codeLabel(instrument.code)}" registered as a gateway`,
         userId: ctx.userId, userRole: ctx.userRole,
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
       }, tx);
@@ -237,7 +274,7 @@ async function createWithCredential(
       await auditLog({
         action: 'INSTRUMENT_LINKED_TO_GATEWAY', targetType: 'Instrument', targetId: instrument.id,
         afterValue: { code: instrument.code, gateway: parentCode, gatewayId: instrument.gatewayId },
-        signatureMeaning: `Instrument "${instrument.code}" linked to gateway "${parentCode}"`,
+        signatureMeaning: `Instrument "${codeLabel(instrument.code)}" linked to gateway "${parentCode}"`,
         userId: ctx.userId, userRole: ctx.userRole,
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
       }, tx);
@@ -530,7 +567,9 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const parsed = createInstrumentSchema.safeParse(sanitizeStrings((req.body ?? {}) as Record<string, unknown>));
+    const parsed = createInstrumentSchema.safeParse(
+      sanitizeStrings((req.body ?? {}) as Record<string, unknown>, IDENTITY_FIELDS),
+    );
     if (!parsed.success) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
     }
@@ -603,7 +642,9 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     for (let i = 0; i < rows.length; i++) {
       const draft: InstrumentDraft = rows[i];
       try {
-        created.push(await createWithCredential(sanitizeStrings(draft as unknown as Record<string, unknown>), ctx));
+        created.push(await createWithCredential(
+          sanitizeStrings(draft as unknown as Record<string, unknown>, IDENTITY_FIELDS), ctx,
+        ));
       } catch (err) {
         if (isDuplicateCode(err)) {
           errors.push({ row: rowNumbers[i], message: `code "${draft.code}" already exists` });
@@ -761,7 +802,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         action: 'INSTRUMENT_UPDATED', targetType: 'Instrument', targetId: id,
         beforeValue: audited(before),
         afterValue: audited(row),
-        signatureMeaning: `Instrument "${row.code}" updated`,
+        signatureMeaning: `Instrument "${codeLabel(row.code)}" updated`,
         userId: ctx.userId, userRole: ctx.userRole,
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
       }, tx);
@@ -777,8 +818,8 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           beforeValue: { code: before.code, isGateway: before.isGateway },
           afterValue: { code: row.code, isGateway: row.isGateway },
           signatureMeaning: parsed.data.isGateway
-            ? `Gateway mode enabled on instrument "${row.code}"`
-            : `Gateway mode disabled on instrument "${row.code}"`,
+            ? `Gateway mode enabled on instrument "${codeLabel(row.code)}"`
+            : `Gateway mode disabled on instrument "${codeLabel(row.code)}"`,
           userId: ctx.userId, userRole: ctx.userRole,
           ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
         }, tx);
@@ -790,8 +831,8 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           beforeValue: { code: before.code, gateway: oldGatewayCode, gatewayId: before.gatewayId },
           afterValue: { code: row.code, gateway: newGatewayCode, gatewayId: row.gatewayId },
           signatureMeaning: parsed.data.gatewayId
-            ? `Instrument "${row.code}" linked to gateway "${newGatewayCode}"`
-            : `Instrument "${row.code}" unlinked from gateway "${oldGatewayCode}"`,
+            ? `Instrument "${codeLabel(row.code)}" linked to gateway "${codeLabel(newGatewayCode ?? '')}"`
+            : `Instrument "${codeLabel(row.code)}" unlinked from gateway "${codeLabel(oldGatewayCode ?? '')}"`,
           userId: ctx.userId, userRole: ctx.userRole,
           ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
         }, tx);
@@ -857,8 +898,8 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     // one — but leaving it retained would leave a `children` slot on an
     // instrument that is no longer a gateway, which is exactly the kind of
     // stale-forever message the delete path below exists to avoid. `code` is
-    // immutable, so `existing.code` is still the right topic.
-    else if (existing.isGateway) await clearChildRoster(existing.code);
+    // The topic is keyed on the id, which never changes at all.
+    else if (existing.isGateway) await clearChildRoster(id);
 
     const row = await prisma.instrument.findUnique({ where: { id }, include: { credentials: activeCredential } });
     return present((row ?? updated) as unknown as InstrumentRow);
@@ -913,7 +954,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           action: 'INSTRUMENT_UNLINKED_FROM_GATEWAY', targetType: 'Instrument', targetId: kid.id,
           beforeValue: { code: kid.code, gateway: existing.code, gatewayId: id },
           afterValue: { code: kid.code, gateway: null, gatewayId: null },
-          signatureMeaning: `Instrument "${kid.code}" unlinked from gateway "${existing.code}" because that gateway was deleted`,
+          signatureMeaning: `Instrument "${codeLabel(kid.code)}" unlinked from gateway "${codeLabel(existing.code)}" because that gateway was deleted`,
           userId: ctx.userId, userRole: ctx.userRole,
           ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
         }, tx);
@@ -921,7 +962,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       await auditLog({
         action: 'INSTRUMENT_DELETED', targetType: 'Instrument', targetId: id,
         beforeValue: { name: existing.name, code: existing.code },
-        signatureMeaning: `Instrument "${existing.code}" deleted`,
+        signatureMeaning: `Instrument "${codeLabel(existing.code)}" deleted`,
         userId: ctx.userId, userRole: ctx.userRole,
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
       }, tx);
@@ -938,7 +979,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     // stranded attribute slot (stale metadata about a code nothing can even
     // connect as any more), a stranded roster NAMES INSTRUMENTS THAT ARE STILL
     // LIVE and have just been orphaned by this very delete.
-    if (existing.isGateway) await clearChildRoster(existing.code);
+    if (existing.isGateway) await clearChildRoster(id);
     // If it was itself a child, its former parent's roster still lists it.
     await announceRoster(existing.gatewayId);
     // Each orphaned child's ingest identity is cached too, and it no longer has
@@ -1004,7 +1045,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       await auditLog({
         action: 'INSTRUMENT_TOKEN_REGENERATED', targetType: 'Instrument', targetId: id,
         afterValue: { code: existing.code, tokenPrefix: tokenPrefix(token) },
-        signatureMeaning: `Access token for instrument "${existing.code}" regenerated; previous token revoked`,
+        signatureMeaning: `Access token for instrument "${codeLabel(existing.code)}" regenerated; previous token revoked`,
         userId: ctx.userId, userRole: ctx.userRole,
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
       }, tx);
@@ -1117,7 +1158,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         // secret into an immutable, widely-readable table — the exact opposite
         // of what the encryption is for.
         afterValue: { code: existing.code, tokenPrefix: credential.tokenPrefix },
-        signatureMeaning: `Access token for instrument "${existing.code}" revealed`,
+        signatureMeaning: `Access token for instrument "${codeLabel(existing.code)}" revealed`,
         userId: ctx.userId, userRole: ctx.userRole,
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
       }, tx);
@@ -1241,7 +1282,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           action: 'INSTRUMENT_TOKEN_SET', targetType: 'Instrument', targetId: id,
           // Prefix only — see the note on INSTRUMENT_TOKEN_VIEWED.
           afterValue: { code: existing.code, tokenPrefix: prefix },
-          signatureMeaning: `Access token for instrument "${existing.code}" replaced with an operator-supplied value; previous token revoked`,
+          signatureMeaning: `Access token for instrument "${codeLabel(existing.code)}" replaced with an operator-supplied value; previous token revoked`,
           userId: ctx.userId, userRole: ctx.userRole,
           ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
         }, tx);
@@ -1314,10 +1355,13 @@ export default async function instrumentRoutes(app: FastifyInstance) {
 
   /**
    * Everything the downlink needs, in the lookup each handler already does.
-   * `gateway.code` is what decides the topic. Read OUTSIDE any transaction, so
-   * the lock-order rule at the top of this file stays out of play.
+   * `gatewayId` is what decides the topic — the id, not the code, since
+   * 2026-08-07 (see `attributeDownlinkTopic`). `code` is still selected because
+   * the audit rows on these handlers name the instrument by it. Read OUTSIDE
+   * any transaction, so the lock-order rule at the top of this file stays out
+   * of play.
    */
-  const attributeOwnerSelect = { code: true, gateway: { select: { code: true } } } as const;
+  const attributeOwnerSelect = { code: true, gatewayId: true } as const;
 
   /**
    * Tell the device an attribute moved. CALLED AFTER THE COMMIT, never inside
@@ -1336,7 +1380,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
    */
   async function announceAttributeChange(
     instrumentId: string,
-    owner: { code: string; gateway: { code: string } | null },
+    owner: { gatewayId: string | null },
     changedKey: string,
     changedValue: string | null,
   ): Promise<void> {
@@ -1346,8 +1390,8 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       });
       await publishAttributeDownlink(
         {
-          code: owner.code,
-          gatewayCode: owner.gateway?.code ?? null,
+          id: instrumentId,
+          gatewayId: owner.gatewayId,
           attributes: Object.fromEntries(rows.map((r) => [r.key, r.value])),
           changedKey,
           changedValue,
@@ -1516,7 +1560,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           action: 'INSTRUMENT_ATTRIBUTE_SET', targetType: 'Instrument', targetId: id,
           beforeValue: { code: existing.code, attribute: key, value: before.value },
           afterValue: { code: existing.code, attribute: key, value },
-          signatureMeaning: `Attribute "${key}" on instrument "${existing.code}" changed`,
+          signatureMeaning: `Attribute "${key}" on instrument "${codeLabel(existing.code)}" changed`,
           userId: ctx.userId, userRole: ctx.userRole,
           ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
         }, tx);
@@ -1576,7 +1620,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         await auditLog({
           action: 'INSTRUMENT_ATTRIBUTE_REMOVED', targetType: 'Instrument', targetId: id,
           beforeValue: { code: existing.code, attribute: key, value: before.value },
-          signatureMeaning: `Attribute "${key}" removed from instrument "${existing.code}"`,
+          signatureMeaning: `Attribute "${key}" removed from instrument "${codeLabel(existing.code)}"`,
           userId: ctx.userId, userRole: ctx.userRole,
           ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
         }, tx);

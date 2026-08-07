@@ -1,5 +1,48 @@
 # Changelog
 
+## [Unreleased] — Instrument ID accepts anything; the wire moves to UUIDs (2026-08-07)
+
+**BREAKING for configured devices.** Every device must be reconfigured: the
+MQTT client id and every topic segment are now the instrument's UUID. Retained
+messages under the old code-based topics are abandoned.
+
+`code` was `[A-Za-z0-9._-]`, max 64. It is now ANY characters, ANY length —
+spaces, symbols, `<`, `>`, unicode, 200 characters if you like.
+
+**The guard was not merely relaxed, it was replaced.** The charset existed
+because the code WAS the topic segment: `/` forges a level, and `+`/`#` are
+MQTT wildcards, so an instrument coded `+` would have matched the broker's
+`instruments/${clientid}/...` ACL against EVERY instrument — read every
+attribute downlink, publish telemetry attributed to any device. In a §11 system
+that is forged records that read as genuine. So the code stopped being a topic
+segment: `mqtt-auth-routes.ts` binds the client id to `instrument.id`, and
+`attributeDownlinkTopic` / `childRosterTopic` / `parseTelemetryTopic` all carry
+UUIDs. Nothing an operator types reaches a topic.
+
+`etc/acl.conf` is UNCHANGED and needs no restart — `${clientid}` is whatever the
+client presents, and the auth hook is what binds it.
+
+Two consequences found by testing rather than by reading:
+
+- **`audit_trail.signature_meaning` is `VarChar(255)`**, and a long code
+  interpolated into "Instrument "…" registered" overflowed it — Postgres 22001,
+  the create transaction rolled back, and the operator got a 500 for a legal
+  instrument. The code is now truncated to 80 characters IN THE SENTENCE only;
+  the full value is still recorded verbatim in the row's before/after JSON.
+- **The HTML sanitiser was silently rewriting codes.** It strips anything
+  tag-shaped, so a code of `<b>` was stored as the empty string. `code` and
+  `name` are now exempt; every other text field is still stripped.
+
+Verified live against EMQX 5.3.2 with an instrument whose code is literally
+`+`: connecting with `+` as the client id is refused at CONNECT; connecting
+with its UUID and subscribing to ANOTHER instrument's attribute topic gets no
+SUBACK, a disconnect, and `authorization_permission_denied` in the broker log;
+subscribing to its own topic gets SUBACK and receives its attribute downlink.
+
+Still bounded, stated rather than hidden: the bulk-CSV importer splits on commas
+and quotes, so a code containing either cannot arrive that way; and `code`
+remains immutable after creation.
+
 ## [Unreleased] — Instrument attributes are collected at registration, from a configured key list (2026-08-07)
 
 **New config def `instrument-attributes`** — 22 defs now (`ls apps/api/src/modules/config/defs/*.def.ts`; the "36" in CLAUDE.md was inherited from DigiLog and has never been true in this repo — corrected in the same commit). One setting, `keys`: a

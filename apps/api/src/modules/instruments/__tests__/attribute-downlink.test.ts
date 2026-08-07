@@ -19,8 +19,8 @@ const TS = new Date('2026-08-06T11:40:00.000Z');
 
 function downlink(over: Partial<AttributeDownlink> = {}): AttributeDownlink {
   return {
-    code: 'TEMP-01',
-    gatewayCode: null,
+    id: 'TEMP-01',
+    gatewayId: null,
     attributes: { assetTag: 'AT-99412' },
     changedKey: 'assetTag',
     changedValue: 'AT-99412',
@@ -132,7 +132,7 @@ describe('publishAttributeDownlink', () => {
 
   it('sends the built payload on the built topic', async () => {
     capture();
-    await publishAttributeDownlink(downlink({ code: 'CHA-1', gatewayCode: 'GWV-1' }));
+    await publishAttributeDownlink(downlink({ id: 'CHA-1', gatewayId: 'GWV-1' }));
     expect(calls[0].topic).toBe('instruments/GWV-1/attributes/CHA-1');
     expect(JSON.parse(calls[0].payload)).toEqual({
       attributes: { assetTag: 'AT-99412' },

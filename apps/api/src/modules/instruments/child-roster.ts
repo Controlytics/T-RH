@@ -30,24 +30,25 @@ export interface RosterChild {
 }
 
 /**
- * A SEPARATE topic, deliberately not a segment under `…/attributes/`.
+ * A SEPARATE topic, deliberately not a segment under `…/attributes/`. The
+ * attribute subtree addresses children in its last segment, so a reserved word
+ * there would have to be one no id could ever equal — a sibling topic needs no
+ * such argument.
  *
- * The attribute subtree addresses children by code in the last segment, and
- * `codeSchema` permits anything in `[A-Za-z0-9._-]` — so a reserved segment
- * there (`…/attributes/$children`) could collide with a real instrument whose
- * code someone chose to be exactly that. A sibling topic cannot collide with
- * any code at all, which is worth the one extra subscription on the device.
+ * The segment is the gateway's UUID, not its code (2026-08-07): the code became
+ * free text, and a code containing `/`, `+` or `#` would forge a topic shape or
+ * match the ACL against every instrument.
  *
- * The gateway subscribes `instruments/<gatewayCode>/children`. Its own ACL rule
+ * The gateway subscribes `instruments/<gatewayId>/children`. Its ACL rule
  * (`{allow, all, subscribe, ["instruments/${clientid}/children"]}`) rests on the
  * same client-id binding as every other rule: the auth hook refuses a CONNECT
- * whose client id is not the token's instrument code, so `${clientid}` is a
+ * whose client id is not the token's instrument id, so `${clientid}` is a
  * proven identity, not a claim.
  *
- * Only a GATEWAY has a roster. Never call this with a standalone or child code.
+ * Only a GATEWAY has a roster. Never call this with a standalone or child id.
  */
-export function childRosterTopic(gatewayCode: string): string {
-  return `instruments/${gatewayCode}/children`;
+export function childRosterTopic(gatewayId: string): string {
+  return `instruments/${gatewayId}/children`;
 }
 
 /**
@@ -97,13 +98,13 @@ export function buildChildRosterPayload(children: RosterChild[], ts: Date): Chil
  * the same reason, as `announceAttributeChange`.
  */
 export async function publishChildRoster(
-  gatewayCode: string,
+  gatewayId: string,
   children: RosterChild[],
   ts: Date,
   log?: PublishLogger,
 ): Promise<void> {
   await publishRetained(
-    childRosterTopic(gatewayCode),
+    childRosterTopic(gatewayId),
     JSON.stringify(buildChildRosterPayload(children, ts)),
     'roster NOT DELIVERED — the gateway was not told about this membership change',
     log ?? rosterLog,
@@ -119,9 +120,9 @@ export async function publishChildRoster(
  * fourth — and a worse one, because a roster names instruments that are still
  * live and now belong to nobody. Deleting the gateway clears it here instead.
  */
-export async function clearChildRoster(gatewayCode: string, log?: PublishLogger): Promise<void> {
+export async function clearChildRoster(gatewayId: string, log?: PublishLogger): Promise<void> {
   await publishRetained(
-    childRosterTopic(gatewayCode),
+    childRosterTopic(gatewayId),
     '',
     'roster NOT CLEARED — the broker still holds a membership for a deleted gateway',
     log ?? rosterLog,

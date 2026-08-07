@@ -27,8 +27,15 @@ import { resolveInstrumentByToken } from './ingest-auth.js';
  * the binding has to run through the client id:
  *
  *   1. HERE: the presented `clientid` must equal the resolved instrument's
- *      `code`, otherwise deny. Without this a device simply lies about its
+ *      `id`, otherwise deny. Without this a device simply lies about its
  *      client id and the broker rule below is worthless.
+ *
+ *      It was the `code` until 2026-08-07. The code became free text — any
+ *      characters, any length — and a code is therefore no longer safe to put
+ *      in a topic: `/` forges a level, and `+`/`#` are MQTT wildcards, so an
+ *      instrument coded `+` would have matched the ACL rule against EVERY
+ *      instrument. The UUID is platform-generated and cannot contain a
+ *      metacharacter, so the binding holds no matter what an operator types.
  *   2. IN EMQX (`etc/acl.conf`): publish is allowed only to
  *      `instruments/${clientid}/telemetry`, with `authorization.no_match = deny`.
  *
@@ -61,7 +68,7 @@ export default async function mqttAuthRoutes(app: FastifyInstance) {
       summary: 'EMQX HTTP authenticator hook (device token as MQTT username)',
       description:
         'Called by EMQX on every MQTT CONNECT. The device token is presented as the MQTT '
-        + 'username and the instrument code as the MQTT client id; both must match the same '
+        + 'username and the instrument ID (UUID) as the MQTT client id; both must match the same '
         + 'instrument. Always answers 200 with {"result":"allow"|"deny"} — deny is the default '
         + 'for every unrecognised body.',
       response: {
@@ -85,10 +92,10 @@ export default async function mqttAuthRoutes(app: FastifyInstance) {
     // Leg 1 of the topic binding — see the header comment. A valid token
     // presented under another instrument's client id is a device trying to
     // publish as someone else, and is refused at CONNECT.
-    if (clientid !== identity.code) {
+    if (clientid !== identity.id) {
       req.log.warn(
-        { clientid, instrument: identity.code },
-        '[ingest:mqtt-auth] denied — client id does not match the token\'s instrument code',
+        { clientid, instrument: identity.id, code: identity.code },
+        '[ingest:mqtt-auth] denied — client id does not match the token\'s instrument id',
       );
       return reply.send(DENY);
     }

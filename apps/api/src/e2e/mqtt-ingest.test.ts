@@ -124,12 +124,12 @@ describe('MQTT ingest bridge', () => {
   });
 
   it('routes a message to the instrument named in the topic', async () => {
-    publish(`instruments/${PLAIN_CODE}/telemetry`, { mqtttemp: 21.5 });
+    publish(`instruments/${plainId}/telemetry`, { mqtttemp: 21.5 });
     await waitFor(async () => (await latestKeys(plainId)).some((r) => r.key === 'mqtttemp'));
   });
 
   it('records transport "mqtt" on a dead-letter', async () => {
-    publish(`instruments/${PLAIN_CODE}/telemetry`, '{not json');
+    publish(`instruments/${plainId}/telemetry`, '{not json');
     const row = await waitFor(async () =>
       (await prisma.deadLetter.findMany({
         where: { instrumentId: plainId }, orderBy: { receivedAt: 'desc' }, take: 1,
@@ -139,12 +139,12 @@ describe('MQTT ingest bridge', () => {
   });
 
   it('keeps working after a bad message — one device must not stall the shared subscription', async () => {
-    publish(`instruments/${PLAIN_CODE}/telemetry`, { mqttafterbad: 1 });
+    publish(`instruments/${plainId}/telemetry`, { mqttafterbad: 1 });
     await waitFor(async () => (await latestKeys(plainId)).some((r) => r.key === 'mqttafterbad'));
   });
 
   it('fans a gateway batch out to its children', async () => {
-    publish(`instruments/${GW_CODE}/telemetry`, { devices: { [CHILD_CODE]: { pressure: 4 } } });
+    publish(`instruments/${gwId}/telemetry`, { devices: { [CHILD_CODE]: { pressure: 4 } } });
     await waitFor(async () => (await latestKeys(childId)).some((r) => r.key === 'pressure'));
     const row = await prisma.instrument.findUnique({ where: { id: childId } });
     expect(row?.lastSeenVia).toBe('gateway');
@@ -154,7 +154,7 @@ describe('MQTT ingest bridge', () => {
     // Otherwise perfect: valid JSON, a resolvable code, a well-formed topic —
     // over-cap ONLY by padding. If the cap were deleted this payload would be
     // ingested happily, which is what makes the assertion below meaningful.
-    publish(`instruments/${PLAIN_CODE}/telemetry`, { overcapkey: 1, pad: 'x'.repeat(8000) });
+    publish(`instruments/${plainId}/telemetry`, { overcapkey: 1, pad: 'x'.repeat(8000) });
     await sleep(400);
     expect((await latestKeys(plainId)).some((r) => r.key === 'overcapkey')).toBe(false);
     expect(logs.some((l) => l.msg.includes('byte cap'))).toBe(true);
@@ -162,7 +162,7 @@ describe('MQTT ingest bridge', () => {
 
   it('drops a message on a topic that does not match the pattern', async () => {
     const before = await prisma.deadLetter.count();
-    publish(`instruments/${PLAIN_CODE}/attributes`, { wrongtopickey: 1 });
+    publish(`instruments/${plainId}/attributes`, { wrongtopickey: 1 });
     publish(`instruments/${PLAIN_CODE}/telemetry/extra`, { wrongtopickey2: 1 });
     await sleep(300);
     const keys = await latestKeys(plainId);

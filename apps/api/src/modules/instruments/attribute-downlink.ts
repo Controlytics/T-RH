@@ -17,10 +17,10 @@
 
 /** What a route hands over after a committed attribute change. */
 export interface AttributeDownlink {
-  /** The instrument the attribute belongs to. */
-  code: string;
-  /** Its gateway's code, when it has one. A child has no broker connection. */
-  gatewayCode?: string | null;
+  /** The instrument's UUID — what the wire addresses it by. */
+  id: string;
+  /** Its gateway's UUID, when it has one. A child has no broker connection. */
+  gatewayId?: string | null;
   /** The instrument's COMPLETE attribute set after the change. */
   attributes: Record<string, string>;
   /** The key this operation touched. */
@@ -35,8 +35,8 @@ export interface AttributeDownlink {
 /**
  * One RETAINED slot per instrument.
  *
- *   standalone            instruments/<code>/attributes
- *   child of a gateway    instruments/<gatewayCode>/attributes/<childCode>
+ *   standalone            instruments/<id>/attributes
+ *   child of a gateway    instruments/<gatewayId>/attributes/<childId>
  *
  * Per-instrument topics are load-bearing, not cosmetic. MQTT retains only the
  * LAST message per topic, so a single shared `instruments/<gw>/attributes` slot
@@ -44,35 +44,43 @@ export interface AttributeDownlink {
  * recently and silently loses every other child's state.
  *
  * A child is addressed UNDER ITS GATEWAY because it has no broker connection of
- * its own: nothing is subscribed to `instruments/<childCode>/attributes`, so
+ * its own: nothing is subscribed to `instruments/<childId>/attributes`, so
  * publishing there would retain a message no one will ever read. The gateway
- * subscribes `instruments/<gatewayCode>/attributes/#` and demultiplexes on the
+ * subscribes `instruments/<gatewayId>/attributes/#` and demultiplexes on the
  * last segment.
  *
- * TWO INVARIANTS MAKE THE INTERPOLATION SAFE, and both live elsewhere:
+ * ── WHY THE SEGMENT IS A UUID (2026-08-07) ──
+ * It used to be the instrument's `code`, and this comment used to argue that
+ * the interpolation was safe because `codeSchema` restricted a code to
+ * `[A-Za-z0-9._-]`. That guard is GONE — the code is now free text, any
+ * character, any length, at the operator's request. The argument had to be
+ * replaced rather than deleted: without it, `A/B` yields
+ * `instruments/A/B/attributes` (a forged child slot), and a code of `+` or `#`
+ * turns the broker's `instruments/${clientid}/...` ACL into a match on every
+ * instrument.
  *
- *   1. `code` cannot contain `/`, `+` or `#`. `codeSchema` in
- *      `packages/shared/src/schemas/instruments.ts` restricts it to
- *      `[A-Za-z0-9._-]`, and `code` is IMMUTABLE (`updateInstrumentSchema`
- *      deliberately omits it). Without that charset a code could forge a topic
- *      shape — `A/B` would yield `instruments/A/B/attributes` — which is the
- *      same class of bug `parseTelemetryTopic` guards on the uplink side.
- *   2. There are no NESTED gateways, so the branch below is exhaustive. An
- *      instrument that was BOTH `isGateway` and a child would publish its own
- *      attributes to `instruments/<parent>/attributes/<itself>` while
- *      subscribing `instruments/<itself>/attributes/#`, and would never receive
- *      them. `gatewayInvariantError` refuses `isGateway && gatewayId` with 400
- *      NESTED_GATEWAY on POST and on PUT (defaulting from the stored row, so a
- *      pre-existing nested row is refused too), and the bulk-CSV path has no
- *      gateway columns at all.
+ * The interpolation is safe now because the segment is a PLATFORM-GENERATED
+ * UUID. Nothing an operator types reaches a topic, so no charset rule has to
+ * hold for this to be correct. `mqtt-auth-routes.ts` binds the MQTT client id
+ * to the same id, which is what makes the ACL template real.
+ *
+ * The second invariant is unchanged: there are no NESTED gateways, so the
+ * branch below is exhaustive. An instrument that was BOTH `isGateway` and a
+ * child would publish its own attributes to
+ * `instruments/<parent>/attributes/<itself>` while subscribing
+ * `instruments/<itself>/attributes/#`, and would never receive them.
+ * `gatewayInvariantError` refuses `isGateway && gatewayId` with 400
+ * NESTED_GATEWAY on POST and on PUT (defaulting from the stored row, so a
+ * pre-existing nested row is refused too), and the bulk-CSV path has no gateway
+ * columns at all.
  *
  * Pure: the gateway-vs-standalone branch is exactly where this goes wrong, and
  * it needs no broker to test.
  */
-export function attributeDownlinkTopic(code: string, gatewayCode?: string | null): string {
-  return gatewayCode
-    ? `instruments/${gatewayCode}/attributes/${code}`
-    : `instruments/${code}/attributes`;
+export function attributeDownlinkTopic(id: string, gatewayId?: string | null): string {
+  return gatewayId
+    ? `instruments/${gatewayId}/attributes/${id}`
+    : `instruments/${id}/attributes`;
 }
 
 /** The wire shape. `changed[key] === null` means the attribute was removed. */
@@ -223,7 +231,7 @@ export async function publishAttributeDownlink(
   log?: PublishLogger,
 ): Promise<void> {
   await publishRetained(
-    attributeDownlinkTopic(d.code, d.gatewayCode),
+    attributeDownlinkTopic(d.id, d.gatewayId),
     JSON.stringify(buildAttributeDownlinkPayload(d)),
     // LOUD. The attribute is correct in the database and WRONG on the device,
     // and nothing will retry — a device that missed this stays stale until the

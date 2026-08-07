@@ -35,17 +35,35 @@ export type Transport = (typeof TRANSPORTS)[number];
 export const TOKEN_PREFIX_LEN = 8;
 
 /**
- * `code` is the human reference and doubles as the MQTT topic segment
- * (`instruments/<code>/telemetry`), so it is restricted to characters that need
- * no escaping in a topic, a URL or a CSV cell.
+ * `code` is the human reference. ANY characters, ANY length (2026-08-07).
+ *
+ * It used to be restricted to `[A-Za-z0-9._-]` and 64 characters, because it
+ * WAS the MQTT topic segment: `/` forges a topic level, and `+`/`#` are MQTT
+ * wildcards, so an instrument coded `+` matched the broker's
+ * `instruments/${clientid}/...` ACL against every instrument — read every
+ * attribute downlink, publish telemetry attributed to any device. In a §11
+ * system that is forged records that read as genuine.
+ *
+ * The guard is not merely relaxed. The code STOPPED BEING A TOPIC SEGMENT: the
+ * wire addresses instruments by their UUID (`mqtt-auth-routes.ts` binds the
+ * client id to `instrument.id`, `attributeDownlinkTopic` interpolates ids), and
+ * a platform-generated UUID cannot contain a metacharacter. The safety comes
+ * from what is in the topic now, not from what a person is allowed to type.
+ *
+ * Two limits that are NOT this schema's to lift, stated so the field's promise
+ * is honest:
+ *   - the bulk-CSV importer still splits on commas and quotes, so a code
+ *     containing either cannot arrive that way;
+ *   - `code` is IMMUTABLE after creation (`updateInstrumentSchema` omits it) —
+ *     a typo is fixed by re-registering, not by editing.
  */
-const codeSchema = z.string()
-  .min(1, 'Code is required')
-  .max(64, 'Maximum 64 characters')
-  .regex(/^[A-Za-z0-9._-]+$/, 'Use letters, digits, dot, dash or underscore only');
+const codeSchema = z.string().min(1, 'Instrument ID is required');
 
 export const createInstrumentSchema = z.object({
-  name: z.string().min(1, 'Name is required').max(120),
+  // No max: `name` is set to the code by the create form, and the code now has
+  // no length limit. A cap here would reject an instrument the code schema
+  // accepts, which is a rejection nobody could explain from the form.
+  name: z.string().min(1, 'Name is required'),
   code: codeSchema,
   isActive: z.boolean().default(true),
   instrumentType: z.string().max(80).optional(),

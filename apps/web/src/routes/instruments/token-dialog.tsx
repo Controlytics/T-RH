@@ -18,10 +18,12 @@ import { ConnectionInstructions } from './connection-instructions';
  * getting it back later costs a password and leaves a record.
  */
 export function TokenDialog({
-  open, title, code, token, onClose,
+  open, title, id, code, token, onClose,
 }: {
   open: boolean;
   title: string;
+  /** The instrument's UUID — what the connection example must use on the wire. */
+  id: string;
   code: string;
   token: string;
   onClose: () => void;
@@ -68,7 +70,7 @@ export function TokenDialog({
 
         <div>
           <h4 className="mb-2 text-sm font-semibold text-slate-800">How this instrument connects</h4>
-          <ConnectionInstructions code={code} token={token} />
+          <ConnectionInstructions id={id} code={code} token={token} />
         </div>
 
         <label className="flex items-start gap-2 text-sm text-slate-700">

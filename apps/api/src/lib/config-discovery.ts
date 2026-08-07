@@ -20,6 +20,7 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
     import('../modules/config/defs/pagination.def.js'),
     import('../modules/config/defs/export-limit.def.js'),
     import('../modules/config/defs/instrument-attributes.def.js'),
+    import('../modules/config/defs/instrument-activity.def.js'),
     import('../modules/config/defs/action-reauth.def.js'),
     import('../modules/config/defs/audit-templates.def.js'),
     import('../modules/config/defs/notification-email.def.js'),

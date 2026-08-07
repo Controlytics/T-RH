@@ -13,9 +13,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { isInstrumentReporting, INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN } from '@digilog/shared';
 import { themeGradient } from '@/lib/theme-styles';
-import { signalFor } from './signal';
-import { SignalChip } from './signal-mast';
 import { ConnectionInstructions } from './connection-instructions';
 import { TokenDialog } from './token-dialog';
 import { GatewayPanel } from './gateway-panel';
@@ -69,6 +68,9 @@ export function InstrumentDetailPage() {
   const { data: gatewayInst } = useSWR<Instrument>(
     id && inst?.gatewayId ? `/api/instruments/${inst.gatewayId}` : null,
   );
+  // The fallback window for an instrument that declares no expected interval.
+  const { data: activityConfig } = useSWR<{ activeWindowMinutes?: number }>('/api/config/instrument-activity/current');
+  const activeWindow = activityConfig?.activeWindowMinutes ?? INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN;
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Partial<Instrument>>({});
@@ -90,6 +92,14 @@ export function InstrumentDetailPage() {
   const [reauthLabel, setReauthLabel] = useState('Instrument Token');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  /**
+   * ENABLE/DISABLE is its own action, not a checkbox buried in the edit form
+   * (2026-08-07 request). Disabling stops the broker accepting this device's
+   * data immediately, which is an operational act with a consequence — it
+   * deserves its own confirm rather than riding along with a rename.
+   */
+  const [confirmToggle, setConfirmToggle] = useState(false);
+  const [toggling, setToggling] = useState(false);
 
   if (!inst) return <div className="py-10 text-center text-slate-400">Loading…</div>;
 
@@ -203,6 +213,26 @@ export function InstrumentDetailPage() {
     }
   };
 
+  const toggleEnabled = async () => {
+    setToggling(true);
+    try {
+      await apiClient.put(`/api/instruments/${inst.id}`, { isActive: !inst.isActive });
+      setConfirmToggle(false);
+      void mutate();
+      toast.success(
+        inst.isActive ? 'Instrument disabled' : 'Instrument enabled',
+        inst.isActive
+          ? `${inst.code} will no longer be accepted by the broker.`
+          : `${inst.code} may report again.`,
+      );
+    } catch (err: unknown) {
+      setConfirmToggle(false);
+      toast.error('Could not change this instrument', (err as { message?: string })?.message ?? 'Nothing was changed.');
+    } finally {
+      setToggling(false);
+    }
+  };
+
   const stamp = (v: string | null) => (v ? `${formatDate(v)} ${formatTime(v)}` : '—');
 
   /**
@@ -225,7 +255,7 @@ export function InstrumentDetailPage() {
     readings: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z',
   };
 
-  const signal = signalFor(inst.lastSeenAt, inst.expectedIntervalSec);
+  const reporting = isInstrumentReporting(inst.lastSeenAt, inst.expectedIntervalSec, activeWindow);
 
   return (
     <div className="space-y-6">
@@ -254,17 +284,28 @@ export function InstrumentDetailPage() {
             </div>
             <h1 className="mt-0.5 truncate font-mono text-2xl font-bold tracking-tight">{inst.code}</h1>
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <SignalChip signal={signal} />
+              {/* OBSERVED: is telemetry arriving? */}
               <span
                 className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
-                  inst.isActive ? 'bg-white/15 text-white ring-1 ring-white/30' : 'bg-white/10 text-white/70 ring-1 ring-white/20'
+                  reporting ? 'bg-emerald-50 text-emerald-700' : 'bg-white/15 text-white ring-1 ring-white/30'
                 }`}
               >
-                <span className={`h-1.5 w-1.5 rounded-full ${inst.isActive ? 'bg-emerald-300' : 'bg-white/50'}`} />
-                {inst.isActive ? 'Accepting data' : 'Not accepting data'}
+                <span className={`h-1.5 w-1.5 rounded-full ${reporting ? 'bg-emerald-500' : 'bg-white/60'}`} />
+                {reporting ? 'Active' : 'Inactive'}
+              </span>
+              {/* DECLARED: has an operator switched it off? A different fact. */}
+              {!inst.isActive && (
+                <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                  Disabled — not accepting data
+                </span>
+              )}
+              <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-white/80 ring-1 ring-white/20">
+                {inst.expectedIntervalSec
+                  ? `Expected every ${inst.expectedIntervalSec}s`
+                  : `Inactive after ${activeWindow} min without data`}
               </span>
               <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-white/80 ring-1 ring-white/20">
-                {inst.expectedIntervalSec ? `Expected every ${inst.expectedIntervalSec}s` : 'No expected interval'}
+                Last seen {stamp(inst.lastSeenAt)}
               </span>
             </div>
           </div>
@@ -272,6 +313,15 @@ export function InstrumentDetailPage() {
             <Link to="/instruments">
               <Button className="border border-white/30 bg-white/10 text-white hover:bg-white/20">Back</Button>
             </Link>
+            {can('instruments.edit') && (
+              <Button
+                className="border border-white/30 bg-white/10 text-white hover:bg-white/20"
+                disabled={toggling}
+                onClick={() => setConfirmToggle(true)}
+              >
+                {inst.isActive ? 'Disable' : 'Enable'}
+              </Button>
+            )}
             {can('instruments.delete') && (
               <Button variant="destructive" disabled={deleting} onClick={() => setConfirmDelete(true)}>Delete</Button>
             )}
@@ -392,11 +442,13 @@ export function InstrumentDetailPage() {
               showing <ACCESS_TOKEN> when the operator has just unmasked the
               real one is worse than showing none — it looks runnable. */}
           <ConnectionInstructions
+            id={inst.id}
             code={inst.code}
             token={revealedToken ?? undefined}
             isGateway={inst.isGateway}
             childCodes={children?.data.map((c) => c.code)}
             gatewayCode={gatewayInst?.code}
+            gatewayId={gatewayInst?.id}
           />
           {!revealedToken && (
             <p className="mt-3 text-xs text-slate-500">
@@ -466,11 +518,28 @@ export function InstrumentDetailPage() {
         <TokenDialog
           open
           title="New access token issued"
+          id={inst.id}
           code={inst.code}
           token={newToken}
           onClose={() => setNewToken(null)}
         />
       )}
+
+      <ConfirmDialog
+        open={confirmToggle}
+        title={inst.isActive ? 'Disable instrument' : 'Enable instrument'}
+        message={
+          inst.isActive
+            ? <>Stop accepting data from <span className="font-semibold text-red-700">{inst.code}</span>?</>
+            : <>Allow <span className="font-semibold text-red-700">{inst.code}</span> to report again?</>
+        }
+        warning={inst.isActive ? 'The broker refuses this device\u2019s telemetry from the moment this is saved. Readings it sends while disabled are lost, not queued.' : undefined}
+        confirmLabel={inst.isActive ? 'Disable instrument' : 'Enable instrument'}
+        busyLabel={inst.isActive ? 'Disabling…' : 'Enabling…'}
+        busy={toggling}
+        onConfirm={() => void toggleEnabled()}
+        onClose={() => setConfirmToggle(false)}
+      />
 
       <ConfirmDialog
         open={confirmDelete}

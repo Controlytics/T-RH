@@ -88,7 +88,7 @@ describe('attribute downlink — addressing', () => {
     expect((await set(inst.id, 'assetTag', 'AT-99412')).statusCode).toBe(201);
 
     expect(sent).toHaveLength(1);
-    expect(sent[0].topic).toBe(`instruments/${inst.code}/attributes`);
+    expect(sent[0].topic).toBe(`instruments/${inst.id}/attributes`);
     // Retain is what makes a device that was powered off during the change
     // correct on its next connect. Without it every other assertion here still
     // passes and the feature is broken for exactly the case it exists for.
@@ -104,8 +104,8 @@ describe('attribute downlink — addressing', () => {
     expect(sent).toHaveLength(1);
     // A child has no broker connection of its own — nothing is subscribed to
     // `instruments/<childCode>/attributes`.
-    expect(sent[0].topic).toBe(`instruments/${gw.code}/attributes/${child.code}`);
-    expect(sent[0].topic).not.toBe(`instruments/${child.code}/attributes`);
+    expect(sent[0].topic).toBe(`instruments/${gw.id}/attributes/${child.id}`);
+    expect(sent[0].topic).not.toBe(`instruments/${child.id}/attributes`);
   });
 
   it('gives two children of one gateway two DIFFERENT retained slots', async () => {
@@ -119,15 +119,15 @@ describe('attribute downlink — addressing', () => {
     // One shared topic would mean a reconnecting gateway is handed whichever
     // child changed last and silently loses the other.
     expect(sent.map((m) => m.topic)).toEqual([
-      `instruments/${gw.code}/attributes/${a.code}`,
-      `instruments/${gw.code}/attributes/${b.code}`,
+      `instruments/${gw.id}/attributes/${a.id}`,
+      `instruments/${gw.id}/attributes/${b.id}`,
     ]);
   });
 
   it('a gateway\'s OWN attributes go on its own topic, not under itself', async () => {
     const gw = await mk({ name: 'DLGW3', code: `DLGW3-${uniq()}`, isGateway: true });
     await set(gw.id, 'site', 'Plant 2');
-    expect(sent[0].topic).toBe(`instruments/${gw.code}/attributes`);
+    expect(sent[0].topic).toBe(`instruments/${gw.id}/attributes`);
   });
 });
 
