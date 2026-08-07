@@ -157,6 +157,53 @@ export function downlinkPublisherConfigured(): boolean {
  */
 const PUBLISH_TIMEOUT_MS = 2_000;
 
+export type PublishLogger = (msg: string, meta?: Record<string, unknown>) => void;
+
+const defaultLog: PublishLogger = (msg, meta) => console.warn(`[downlink:attributes] ${msg}`, meta ?? '');
+
+/**
+ * The one retained-publish primitive. NEVER THROWS, NEVER REJECTS.
+ *
+ * Shared with `child-roster.ts` rather than duplicated, so both paths hold the
+ * SAME publisher singleton. A second `setXPublisher` would have to be reset
+ * separately by `test-helper.ts`, and the one that got forgotten would stay
+ * live for the next app built in the same process — which is the leak
+ * `setDownlinkPublisher(null)` exists to prevent.
+ *
+ * `failureMsg` is the caller's, because "the device was not told about this
+ * change" and "the gateway still holds a membership for a deleted gateway"
+ * describe genuinely different consequences and an operator reading the log
+ * needs to know which happened.
+ */
+export async function publishRetained(
+  topic: string,
+  payload: string,
+  failureMsg: string,
+  log: PublishLogger = defaultLog,
+): Promise<void> {
+  const fn = publisher;
+  // Not a failure and not logged: no broker configured means no downlink, which
+  // is the documented behaviour of an install with MQTT_BROKER_URL unset.
+  if (!fn) return;
+
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      fn(topic, payload, DOWNLINK_PUBLISH_OPTIONS),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`no PUBACK within ${PUBLISH_TIMEOUT_MS}ms`)), PUBLISH_TIMEOUT_MS);
+        // The repo has been bitten twice by a stray handle holding the process
+        // open past shutdown (the bridge's boot promise, the bridge close).
+        timer.unref();
+      }),
+    ]);
+  } catch (e) {
+    log(failureMsg, { topic, err: (e as Error).message });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * Publish one attribute change. NEVER THROWS, NEVER REJECTS.
  *
@@ -173,36 +220,15 @@ const PUBLISH_TIMEOUT_MS = 2_000;
  */
 export async function publishAttributeDownlink(
   d: AttributeDownlink,
-  log: (msg: string, meta?: Record<string, unknown>) => void = (msg, meta) =>
-    console.warn(`[downlink:attributes] ${msg}`, meta ?? ''),
+  log?: PublishLogger,
 ): Promise<void> {
-  const fn = publisher;
-  // Not a failure and not logged: no broker configured means no downlink, which
-  // is the documented behaviour of an install with MQTT_BROKER_URL unset.
-  if (!fn) return;
-
-  const topic = attributeDownlinkTopic(d.code, d.gatewayCode);
-  const payload = JSON.stringify(buildAttributeDownlinkPayload(d));
-
-  let timer: NodeJS.Timeout | undefined;
-  try {
-    await Promise.race([
-      fn(topic, payload, DOWNLINK_PUBLISH_OPTIONS),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`no PUBACK within ${PUBLISH_TIMEOUT_MS}ms`)), PUBLISH_TIMEOUT_MS);
-        // The repo has been bitten twice by a stray handle holding the process
-        // open past shutdown (the bridge's boot promise, the bridge close).
-        timer.unref();
-      }),
-    ]);
-  } catch (e) {
+  await publishRetained(
+    attributeDownlinkTopic(d.code, d.gatewayCode),
+    JSON.stringify(buildAttributeDownlinkPayload(d)),
     // LOUD. The attribute is correct in the database and WRONG on the device,
     // and nothing will retry — a device that missed this stays stale until the
     // next change to the same instrument overwrites the retained slot.
-    log('DOWNLINK NOT DELIVERED — the device was not told about this change', {
-      topic, key: d.changedKey, err: (e as Error).message,
-    });
-  } finally {
-    clearTimeout(timer);
-  }
+    'DOWNLINK NOT DELIVERED — the device was not told about this change',
+    log,
+  );
 }

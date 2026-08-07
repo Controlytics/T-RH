@@ -38,7 +38,19 @@ beforeAll(async () => {
   app = await buildApp();
   auth = { authorization: `Bearer ${await loginAs(app)}` };
   setDownlinkPublisher(async (topic, payload, options) => {
-    sent.push({ topic, payload: JSON.parse(payload), options });
+    // ATTRIBUTE traffic only. `child-roster.ts` (2026-08-07) shares this one
+    // publisher singleton and publishes on `instruments/<gw>/children` when a
+    // gateway's membership changes — including from the `mk()` calls that set
+    // these fixtures up. Capturing those here would make every `sent[0]` /
+    // `toHaveLength(1)` assertion below depend on a subsystem this file does
+    // not test. Roster wiring has its own file, `instrument-child-roster.test.ts`.
+    //
+    // The filter is on the topic, so an attribute publish that went to a wrong
+    // topic would still be caught by the equality assertions below — it would
+    // simply be absent, and `toHaveLength(1)` fails on 0 as loudly as on 2.
+    if (topic.includes('/attributes')) {
+      sent.push({ topic, payload: JSON.parse(payload), options });
+    }
     if (publishError) throw new Error(publishError);
   });
 });

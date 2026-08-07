@@ -26,6 +26,7 @@ import {
 } from './gateway-invariants.js';
 import { getLatest, getHistory } from './telemetry.repository.js';
 import { publishAttributeDownlink } from './attribute-downlink.js';
+import { publishChildRoster, clearChildRoster } from './child-roster.js';
 
 /**
  * Registry (operator-facing, JWT + permission gated). The device-facing ingest
@@ -141,6 +142,41 @@ async function codeOf(
   if (!id) return null;
   const row = await client.instrument.findUnique({ where: { id }, select: { code: true } });
   return row?.code ?? null;
+}
+
+/**
+ * Tell a gateway who its children are. CALLED AFTER THE COMMIT.
+ *
+ * Reads the membership HERE rather than inside the transaction, for the reason
+ * `announceAttributeChange` re-reads: an in-transaction read cannot see a
+ * concurrent commit that linked or unlinked a DIFFERENT child, so it could
+ * retain a membership that was never true.
+ *
+ * Takes the gateway's id, not its code, because every caller has the id and
+ * only some have the code — and looking it up here also settles the two cases
+ * that must NOT publish: an id that is no longer a gateway (mode was just
+ * turned off), and one whose row is gone. Both leave silently.
+ *
+ * Never throws. A broker failure must not turn a committed link into an error
+ * the operator would retry.
+ */
+async function announceRoster(gatewayId: string | null | undefined): Promise<void> {
+  if (!gatewayId) return;
+  try {
+    const gw = await prisma.instrument.findUnique({
+      where: { id: gatewayId }, select: { code: true, isGateway: true },
+    });
+    if (!gw?.isGateway) return;
+    const children = await prisma.instrument.findMany({
+      where: { gatewayId },
+      select: { code: true, name: true, isActive: true },
+    });
+    await publishChildRoster(gw.code, children, new Date());
+  } catch (e) {
+    console.warn('[downlink:children] roster NOT DELIVERED — could not read the membership', {
+      gatewayId, err: (e as Error).message,
+    });
+  }
 }
 
 /**
@@ -507,6 +543,11 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       // An instrument born linked must be writable by its gateway at once, not
       // after the child-map TTL.
       if (parsed.data.gatewayId) invalidateChildMapCache(parsed.data.gatewayId);
+      // Born linked → its new parent's roster gained a member. Born a GATEWAY →
+      // publish its (empty) roster now, so a gateway that connects before it
+      // ever gains a child reads an explicit "no children" instead of an empty
+      // slot it cannot tell from a broker that lost the message.
+      await announceRoster(parsed.data.gatewayId ?? (parsed.data.isGateway ? id : null));
       const row = await prisma.instrument.findUnique({ where: { id }, include: { credentials: activeCredential } });
       return reply.code(201).send({ ...present(row as unknown as InstrumentRow), token });
     } catch (err) {
@@ -797,6 +838,28 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     if (existing.gatewayId) invalidateChildMapCache(existing.gatewayId);
     if (parsed.data.gatewayId) invalidateChildMapCache(parsed.data.gatewayId);
 
+    // BOTH sides of a move, for the same reason the cache invalidation above
+    // does both: the old gateway lost a member and the new one gained it, and a
+    // roster that still names a child someone else now owns is worse than none.
+    // `updated.gatewayId` is the COMMITTED value, not `parsed.data.gatewayId` —
+    // an update that omits `gatewayId` leaves the link untouched, and a rename
+    // or a deactivation has to republish its CURRENT parent (both fields are in
+    // the payload). Deduped, so the common single-gateway edit publishes once.
+    for (const gwId of new Set([existing.gatewayId, updated.gatewayId].filter(Boolean))) {
+      await announceRoster(gwId);
+    }
+    // The row itself is a gateway whose own membership can have changed here:
+    // gateway mode was just turned ON (publish its roster), or a child's edit
+    // has nothing to do with it. `announceRoster` no-ops when it is not one.
+    if (updated.isGateway) await announceRoster(id);
+    // Demoted. `gatewayInvariantError` refuses this while it still has children
+    // (400 GATEWAY_HAS_CHILDREN), so the roster being cleared is always an empty
+    // one — but leaving it retained would leave a `children` slot on an
+    // instrument that is no longer a gateway, which is exactly the kind of
+    // stale-forever message the delete path below exists to avoid. `code` is
+    // immutable, so `existing.code` is still the right topic.
+    else if (existing.isGateway) await clearChildRoster(existing.code);
+
     const row = await prisma.instrument.findUnique({ where: { id }, include: { credentials: activeCredential } });
     return present((row ?? updated) as unknown as InstrumentRow);
   });
@@ -870,6 +933,14 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     // former parent's, which still lists it.
     invalidateChildMapCache(id);
     if (existing.gatewayId) invalidateChildMapCache(existing.gatewayId);
+    // A deleted gateway's roster must not survive it. This is the one place in
+    // the codebase that clears a retained slot, and it is deliberate: unlike a
+    // stranded attribute slot (stale metadata about a code nothing can even
+    // connect as any more), a stranded roster NAMES INSTRUMENTS THAT ARE STILL
+    // LIVE and have just been orphaned by this very delete.
+    if (existing.isGateway) await clearChildRoster(existing.code);
+    // If it was itself a child, its former parent's roster still lists it.
+    await announceRoster(existing.gatewayId);
     // Each orphaned child's ingest identity is cached too, and it no longer has
     // a gateway that may write for it.
     for (const kid of orphaned) invalidateIngestAuthCache(kid.id);

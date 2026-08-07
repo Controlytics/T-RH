@@ -1,5 +1,51 @@
 # Changelog
 
+## [Unreleased] — Child roster: a gateway is told who its children are (2026-08-07)
+
+The attribute downlink announced a child only when that child *changed*. A
+linked-but-untouched child was therefore invisible to its gateway, and
+link/unlink published nothing at all — a gateway could not answer "which
+instruments am I responsible for" from the broker alone. It now can.
+
+**One retained slot per gateway**, `instruments/<gatewayCode>/children`, QoS 1,
+carrying the whole membership: `{children: [{code, name, isActive}], ts}`. Whole
+set, never a delta — the retained message is the only copy, and a gateway back
+from a power cut must reconstruct the truth from it alone. Sorted by code so an
+unchanged membership serialises identically. Inactive children are included and
+flagged: dropping them would make a deactivated child indistinguishable from an
+unlinked one, and those need opposite handling.
+
+**A sibling topic, not a segment under `…/attributes/`.** Instrument codes allow
+`[A-Za-z0-9._-]`, so a reserved segment inside that subtree could be collided
+with by a real code. Cost is one extra subscription on the device.
+
+**Republished on** link, unlink, move (both gateways), a child born linked, a
+child deleted, and a child renamed or (de)activated — `name`/`isActive` are in
+the payload, so an edit carrying no `gatewayId` still republishes its current
+parent. A gateway created or promoted publishes its own (possibly empty) roster
+at once, so "no children" is distinguishable from "the broker lost it".
+
+**Cleared, not stranded.** Deleting a gateway, or turning gateway mode off,
+publishes a zero-byte retained message. This is the only place in the codebase
+that clears a retained slot, and deliberately so: unlike a stranded attribute
+slot, a stranded roster names instruments that are still live and have just been
+orphaned by that very delete.
+
+The publish primitive was extracted from `attribute-downlink.ts` as
+`publishRetained` and is shared, so both paths hold the SAME publisher
+singleton — a second `setXPublisher` would need its own reset in
+`test-helper.ts`, and the forgotten one would leak into the next app built in
+the same process. Same guarantees as the attribute path: after commit never
+inside it, membership re-read post-commit, never throws, silent no-op with
+`MQTT_BROKER_URL` unset.
+
+Two ACL rules added to `etc/acl.conf` above the `{deny, all}.` catch-all (below
+it they match nothing, silently), and **the broker must be restarted** — EMQX
+reads that file only at boot. Verified live against EMQX 5.3.2: a gateway
+subscribing to its own `children` topic gets SUBACK and its roster; a different
+instrument's valid token gets no SUBACK, a disconnect, and
+`authorization_permission_denied` in the broker log.
+
 ## [Unreleased] — Destructive actions confirm in a themed dialog (2026-08-06)
 
 Five destructive actions asked for confirmation through `window.confirm`:

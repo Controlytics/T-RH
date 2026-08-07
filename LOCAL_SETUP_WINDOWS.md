@@ -302,6 +302,87 @@ concurrent connections.
 EMQX 5.3.2 is installed at `C:\Users\hello\emqx-5.3.2` (the last release with a
 Windows build). Start it with `bin\emqx.cmd start`.
 
+#### The dashboard — http://localhost:18083
+
+**`admin` / `DigiLog@2026`** on this machine (set 2026-08-06). The shipped
+`admin` / `public` does not work: EMQX forces a change at first login, and this
+password was reset with
+
+```bash
+C:\Users\hello\emqx-5.3.2\bin\emqx_ctl.cmd admins passwd admin '<new-password>'
+# → ok
+```
+
+That command is also the way back in when nobody remembers the password — it
+needs no old password, only a shell on this box, which is worth knowing in both
+directions.
+
+> **This is a real credential in a tracked file, and the listener is on
+> `0.0.0.0:18083`, not loopback.** Anyone who can reach this machine on the LAN
+> can reach the dashboard, and from there reconfigure the ACL, the authenticator
+> chain, and the retained store — i.e. everything §9A.3 and §9B rest on. It is
+> written down here at the operator's request, for a single-developer local
+> install. **A shared or plant-floor install must change it and must not carry
+> it in the repo** — and should bind the dashboard to `127.0.0.1` while it is at
+> it (`dashboard.listeners.http.bind` in `etc/emqx.conf`).
+
+Three pages carry the whole picture, all under **Monitoring** (verified against
+5.3.2's menu — Retained Messages is *not* under Management, where its config
+lives):
+
+- **Monitoring → Clients** — every connected device by client ID, with its
+  username (= its device token) and `delivered_msgs`, the honest answer to "did
+  that device actually receive the attribute downlink". `digilog-bridge` appears
+  here too.
+- **Monitoring → Subscriptions** — both directions on one screen:
+  `digilog-bridge → instruments/+/telemetry` (uplink) and each device →
+  `instruments/<its code>/attributes` (downlink).
+- **Monitoring → Retained Messages** — one row per instrument attribute slot,
+  QoS 1, published by `digilog-bridge`, with **Show Payload** revealing the
+  exact `{attributes, changed, ts}` JSON the device holds. This is the closest
+  thing to "what does that device currently believe its attributes are".
+
+#### Watching attribute messages ARRIVE, inside the dashboard
+
+**There is no message log.** EMQX does not record message bodies, so no page
+replays traffic after the fact — Retained Messages shows only the *last*
+message per topic, and a topic with no live subscriber shows nothing new. That
+is the usual reason "I can't see the attribute data in the dashboard": nothing
+is subscribed, so there is nothing to see.
+
+The fix is **Diagnose → WebSocket Client**, which connects as a real MQTT
+client and streams into a live **Received** table. Connect it *as the device* —
+the same rule as everywhere else, and the ACL admits nothing less:
+
+| Field | Value |
+|---|---|
+| Host / Port / Path | `localhost` / `8083` / `/mqtt` (the `ws:default` listener) |
+| **Client ID** | the instrument **code**, e.g. `DLSTD-1786017252` |
+| **Username** | that instrument's **device token** (Reveal token on its page) |
+| Password | leave empty |
+
+Then **Subscribe** to `instruments/<code>/attributes` (or
+`instruments/<gwCode>/attributes/#` for a gateway). Verified 2026-08-06: the
+subscribe delivers the retained message immediately, tagged **Retain** in the
+table, and every subsequent add/modify/delete appears as a new row within a
+second, payload and all.
+
+> A generic client id will NOT work here, and the failure is silent-ish — the
+> auth hook refuses any CONNECT whose client id is not the token's instrument
+> code, so the tool just fails to connect. That is the same binding the
+> telemetry and attribute ACL rules rest on, not a quirk of this page.
+
+The same facts are available without the dashboard:
+
+```bash
+emqx_ctl retainer info      # how many retained messages exist
+emqx_ctl retainer topics    # one line per instrument attribute slot
+emqx_ctl clients list       # per-device delivered_msgs
+emqx_ctl broker metrics     # messages.received / .sent / .dropped
+```
+
+#### The bridge's own connection
+
 ```bash
 # apps/api/.env
 MQTT_BROKER_URL=mqtt://127.0.0.1:1883
@@ -786,6 +867,69 @@ None leaks a secret (attributes are registry metadata, and only the instrument's
 own client id can read the slot; after a delete, no token resolves to that code
 at all, so nothing can even connect as it). It is stale data on the broker, not
 an exposure. `code` is immutable, so renaming is not a fourth case.
+
+### 9C. The CHILD ROSTER — telling a gateway who its children are
+
+Added 2026-08-07. The attribute downlink above announces a child only when that
+child *changes*, so a linked-but-untouched child was invisible to its gateway,
+and link/unlink published nothing at all. A gateway could not answer "which
+instruments am I responsible for" from the broker alone. One retained slot per
+gateway now carries the whole membership:
+
+```
+instruments/<gatewayCode>/children
+{"children":[{"code":"DLCH-1786017252","name":"DL child","isActive":true}],
+ "ts":"2026-08-07T05:08:25.154Z"}
+```
+
+**A sibling topic, not a segment under `…/attributes/`.** Instrument codes allow
+`[A-Za-z0-9._-]`, so any reserved segment inside the attribute subtree could be
+collided with by a real code. The cost is one extra subscription on the device;
+`instruments/<gwCode>/attributes/#` does **not** cover it.
+
+**Whole membership, never a delta**, for the same reason the attribute payload
+carries the complete set: the retained message is the only copy, and a gateway
+returning from a power cut must reconstruct the truth from it alone. Sorted by
+code, so an unchanged membership serialises identically and a gateway diffing
+two messages sees a difference only when one exists. **Inactive children are
+included, flagged `isActive: false`** — dropping them would make a deactivated
+child indistinguishable from an unlinked one, and those need opposite handling.
+
+**Republished on:** link, unlink, move (BOTH gateways), a child created already
+linked, a child deleted, and a child renamed or (de)activated — `name` and
+`isActive` are in the payload, so an edit carrying no `gatewayId` still
+republishes. A gateway created or promoted publishes its own (possibly empty)
+roster at once, so a gateway can tell "no children" from "the broker lost it".
+
+**Cleared, not stranded.** Deleting a gateway, or turning gateway mode off,
+publishes a **zero-byte retained** message to the slot. This is the only place
+in the codebase that clears a retained message, and it is deliberate: unlike a
+stranded attribute slot (stale metadata about a code nothing can connect as any
+more), a stranded roster **names instruments that are still live** and have just
+been orphaned.
+
+**It is not an authorisation surface.** The database decides which credential may
+write for which instrument (`gateway-children.ts`); a gateway acting on a stale
+roster still cannot write for an instrument that is no longer its child. Publish
+failures are logged (`[downlink:children]`) and swallowed — they never fail the
+operator's edit.
+
+Two ACL rules, both **above** the `{deny, all}.` catch-all (below it they match
+nothing, silently):
+
+```erlang
+{allow, {username, "digilog-bridge"}, publish, ["instruments/+/children"]}.
+{allow, all, subscribe, ["instruments/${clientid}/children"]}.
+```
+
+**`etc/acl.conf` is read at boot only — a broker restart is required** after
+editing it. Verified live on 2026-08-06 EMQX 5.3.2 after restarting:
+
+| Check | Result |
+|---|---|
+| gateway subscribes `instruments/<its own code>/children` | `SUBACK 0`, roster delivered |
+| a rename of its child, no `gatewayId` in the request | new roster arrives within a second |
+| a *different* instrument's valid token subscribes to that topic | no SUBACK, disconnect loop, `authorization_permission_denied` in `log/emqx.log.1` |
 
 ---
 
