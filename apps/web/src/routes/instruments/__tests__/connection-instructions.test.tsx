@@ -228,3 +228,88 @@ describe('ConnectionInstructions — protocol switcher', () => {
     expect(screen.getAllByText(/SENSOR-B/).length).toBeGreaterThan(0);
   });
 });
+
+/**
+ * The DOWNLINK half of "how do I connect this device?" (2026-08-07).
+ *
+ * Everything above tells a technician how to PUBLISH. The attribute topic is
+ * the other direction, and it is the one that cannot be guessed: a child's
+ * attributes are addressed under its GATEWAY, so the obvious
+ * `instruments/<own code>/attributes` is silently wrong for exactly the
+ * instruments a technician is most likely to be configuring.
+ */
+describe('ConnectionInstructions — attribute downlink', () => {
+  const subscribeTabs = ['MQTT', 'MQTTS'] as const;
+
+  // The card was stripped of prose on 2026-08-07 at the operator's request, so
+  // a pasted line is now the whole instruction. Both flags the removed
+  // paragraphs used to explain are load-bearing — the broker denies the CONNECT
+  // without either — and nothing on the page would tell a reader why. These two
+  // pin them into the command itself.
+  it.each(subscribeTabs)('keeps the client-id and empty-password flags in both commands (%s)', (tab) => {
+    render(
+      <ConnectionInstructions transport={tab.toLowerCase()} code="GW-9" token="TOK" isGateway childCodes={['C-1']} />,
+    );
+    for (const cmd of [screen.getByText(/mosquitto_pub/), ...screen.getAllByText(/mosquitto_sub/)]) {
+      expect(cmd.textContent).toContain('-i "GW-9"');
+      expect(cmd.textContent).toContain('-P ""');
+    }
+  });
+
+  it.each(subscribeTabs)('states each command on ONE line (%s)', (tab) => {
+    render(
+      <ConnectionInstructions transport={tab.toLowerCase()} code="GW-9" token="TOK" isGateway childCodes={['C-1', 'C-2']} />,
+    );
+    // Including the gateway's batch payload, which is compact for this reason.
+    for (const cmd of [screen.getByText(/mosquitto_pub/), ...screen.getAllByText(/mosquitto_sub/)]) {
+      expect(cmd.textContent).not.toContain('\n');
+      expect(cmd.textContent).not.toContain('\\');
+    }
+  });
+
+  it.each(subscribeTabs)('shows a standalone instrument its own attribute topic (%s)', (tab) => {
+    render(<ConnectionInstructions transport={tab.toLowerCase()} code="T-1" token="TOK" />);
+    expect(screen.getAllByText(/instruments\/T-1\/attributes/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/mosquitto_sub/).length).toBeGreaterThan(0);
+  });
+
+  // The whole reason this is in the UI: a child subscribing to its own code
+  // gets a valid, permitted, permanently silent subscription.
+  it('addresses a CHILD under its gateway, not under itself', () => {
+    render(<ConnectionInstructions transport="mqtt" code="CH-1" token="TOK" gatewayCode="GW-1" />);
+    // The subscribe command — the thing that actually gets pasted — must carry
+    // the gateway form and nothing else.
+    const cmd = screen.getByText(/mosquitto_sub/).textContent ?? '';
+    expect(cmd).toContain('-t "instruments/GW-1/attributes/CH-1"');
+    // The card carries no prose since 2026-08-07, so the command is the ONLY
+    // place the right topic is stated — the child's own code must not appear as
+    // a topic anywhere on it.
+    expect(cmd).not.toContain('instruments/CH-1/attributes');
+    expect(screen.queryByText('instruments/CH-1/attributes')).not.toBeInTheDocument();
+  });
+
+  it('gives a gateway the wildcard covering its own slot and every child', () => {
+    render(
+      <ConnectionInstructions transport="mqtt" code="GW-1" token="TOK" isGateway childCodes={['SENSOR-A']} />,
+    );
+    expect(screen.getAllByText(/instruments\/GW-1\/attributes\/#/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/instruments\/GW-1\/children/).length).toBeGreaterThan(0);
+  });
+
+  // A gateway with no children still has its own attribute slot and an (empty)
+  // roster. The batch-payload branch has nothing to show it; the downlink does.
+  it('shows the topics to a gateway that has no children yet', () => {
+    render(<ConnectionInstructions transport="mqtt" code="GW-2" token="TOK" isGateway />);
+    expect(screen.getByText(/no linked instruments yet/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/instruments\/GW-2\/attributes\/#/).length).toBeGreaterThan(0);
+  });
+
+  // Only the broker transports can subscribe. The WEBSOCKET tab here is the
+  // API's own /api/ingest/v1/ws endpoint, not the broker's MQTT-over-WS
+  // listener, so showing a subscribe topic there would be a lie.
+  it.each(['HTTP', 'HTTPS', 'WEBSOCKET', 'WSS', 'TCP'])('shows no subscribe topic on %s', (tab) => {
+    render(<ConnectionInstructions transport={tab.toLowerCase()} code="T-1" token="TOK" />);
+    expect(screen.queryByText(/mosquitto_sub/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/instruments\/T-1\/attributes/)).not.toBeInTheDocument();
+  });
+});

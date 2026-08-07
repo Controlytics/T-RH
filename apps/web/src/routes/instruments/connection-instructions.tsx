@@ -163,22 +163,56 @@ export function ConnectionInstructions({
   const wsUrl = `${base.replace(/^http/, 'ws')}/api/ingest/v1/ws`;
   const notLive = !isTransportLive(selected);
 
+  /**
+   * The DOWNLINK topic — the one a technician cannot guess.
+   *
+   * Everything else on this card tells a device how to PUBLISH. Attribute
+   * changes travel the other way, and a CHILD's are addressed under its
+   * GATEWAY: subscribing to `instruments/<own code>/attributes` is permitted by
+   * the ACL, succeeds, and is then silent forever. That is precisely the wrong
+   * answer a reasonable person arrives at unaided, which is why it is stated
+   * here rather than left to the docs.
+   *
+   * A GATEWAY gets the wildcard. `#` matches its own two-segment slot as well
+   * as every child's three-segment one, so one subscription covers everything
+   * it is responsible for.
+   */
+  const attributeTopic = isGateway
+    ? `instruments/${code}/attributes/#`
+    : gatewayCode
+      ? `instruments/${gatewayCode}/attributes/${code}`
+      : `instruments/${code}/attributes`;
+  // Only a gateway has a roster, and only it may subscribe to one.
+  const rosterTopic = isGateway ? `instruments/${code}/children` : null;
+  // Subscribing is a BROKER capability. The WEBSOCKET/WSS tabs here are the
+  // API's own /api/ingest/v1/ws ingest endpoint, not the broker's MQTT-over-WS
+  // listener, and HTTP/TCP have no subscribe at all — showing a topic on any of
+  // them would be a lie a technician could act on.
+  const canSubscribe = selected === 'mqtt' || selected === 'mqtts';
+  // Shared head of both one-line commands. `--cafile` stays on MQTTS: without
+  // it the client cannot validate the broker and simply refuses to connect.
+  const brokerPort = selected === 'mqtts' ? '8883' : '1883';
+  const cafile = selected === 'mqtts' ? ' --cafile "<ca-cert.pem>"' : '';
+  const pubPrefix = `mosquitto_pub -h <broker-host> -p ${brokerPort}${cafile} -i "${code}"`;
+  const subPrefix = `mosquitto_sub -h <broker-host> -p ${brokerPort}${cafile} -i "${code}"`;
+
   // A gateway sends ONE batch payload keyed by each child's code, not the
   // single-reading body an ordinary instrument sends. When there are no
   // linked children yet there is no correct payload to show — a placeholder
   // device map would be a lie a technician could paste and "succeed" with.
   const hasChildren = isGateway && (childCodes?.length ?? 0) > 0;
-  const devicesPayload = hasChildren
-    ? JSON.stringify(
-        {
-          devices: Object.fromEntries(
-            (childCodes as string[]).map((c) => [c, { temperature: 21.5, humidity: 47 }]),
-          ),
-        },
-        null,
-        2,
-      )
-    : '';
+  const devices = hasChildren
+    ? {
+        devices: Object.fromEntries(
+          (childCodes as string[]).map((c) => [c, { temperature: 21.5, humidity: 47 }]),
+        ),
+      }
+    : null;
+  // Indented for the HTTP / WS / TCP examples, which are already multi-line.
+  const devicesPayload = devices ? JSON.stringify(devices, null, 2) : '';
+  // Compact for the one-line broker commands — an indented payload would put
+  // the newlines straight back into the line this is meant to keep single.
+  const compactDevicesPayload = devices ? JSON.stringify(devices) : '';
 
   let body: React.ReactNode;
 
@@ -214,40 +248,19 @@ export function ConnectionInstructions({
 
       case 'mqtt':
       case 'mqtts':
+        // ONE LINE, and prose-free (2026-08-07, operator request). The flags
+        // that used to carry a paragraph each — `-i` must be the instrument
+        // code, `-P ""` must be present even though the password is empty —
+        // are still IN the command, so a pasted line stays correct. What was
+        // removed is the explanation of why, which now lives only in
+        // LOCAL_SETUP_WINDOWS.md §9A.3. Do not "tidy" either flag out of the
+        // command: the broker denies the CONNECT without them, and there is no
+        // longer any text on this card to tell the reader that.
         body = (
           <>
             {credentialRows}
             <Row label="Topic" value={topic} />
-            <CodeBlock
-              text={`mosquitto_pub -h <broker-host> -p ${selected === 'mqtts' ? '8883' : '1883'} \\\n${selected === 'mqtts' ? '  --cafile "<ca-cert.pem>" \\\n' : ''}  -i "${code}" \\\n  -t "${topic}" \\\n  -u "${tok}" \\\n  -P "" \\\n  -m '${isGateway ? devicesPayload : '{"temperature": 21.5}'}'`}
-            />
-            <p className="text-xs text-slate-500">
-              The client ID must be exactly this instrument&apos;s code. The broker
-              refuses the connection otherwise — that binding is what stops a
-              device with a valid token publishing another instrument&apos;s
-              telemetry, since the topic ACL is written against the client ID.
-              Omitting <span className="font-mono">-i</span> lets the client pick
-              a random one, and the connection is denied.
-            </p>
-            <p className="text-xs text-slate-500">
-              <span className="font-mono">-P &quot;&quot;</span> is required even
-              though the password is empty. The broker rejects a CONNECT that
-              carries a username with no password field at all, and it does so
-              before the token is ever looked up — so dropping the flag fails as{' '}
-              <span className="font-mono">bad user name or password</span>, which
-              reads like a bad token and is not one.
-            </p>
-            {selected === 'mqtts' && (
-              <p className="text-xs text-slate-500">
-                <span className="font-mono">--cafile</span> must point at the CA
-                certificate that signed the broker&apos;s certificate — the same
-                CA that signed the API&apos;s HTTPS certificate. Without it the
-                client cannot validate the broker and refuses to connect; the
-                fix is the CA file, never{' '}
-                <span className="font-mono">--insecure</span>, which throws away
-                the only thing TLS is buying here.
-              </p>
-            )}
+            <CodeBlock text={`${pubPrefix} -t "${topic}" -u "${tok}" -P "" -m '${isGateway ? compactDevicesPayload : '{"temperature": 21.5}'}'`} />
           </>
         );
         break;
@@ -342,6 +355,23 @@ export function ConnectionInstructions({
         </div>
       )}
       {body}
+
+      {/* Rendered OUTSIDE `body` on purpose: a gateway with no children takes
+          the early-return branch above (there is no honest batch payload to
+          show yet), but it still has its own attribute slot and an empty
+          roster, and it is exactly the instrument someone is configuring when
+          they most need this. */}
+      {canSubscribe && (
+        <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-3">
+          <p className="text-sm font-medium text-slate-700">Attribute updates (platform → device)</p>
+          <Row label="Attributes topic" value={attributeTopic} />
+          {rosterTopic && <Row label="Children topic" value={rosterTopic} />}
+          <CodeBlock text={`${subPrefix} -t "${attributeTopic}" -u "${tok}" -P "" -v`} />
+          {rosterTopic && (
+            <CodeBlock text={`${subPrefix} -t "${rosterTopic}" -u "${tok}" -P "" -v`} />
+          )}
+        </div>
+      )}
     </div>
   );
 }

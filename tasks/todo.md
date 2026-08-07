@@ -1838,3 +1838,47 @@ requests only (/api/block-change-requests), with an existing PENDING/APPROVED/RE
 (/api/stage-approvals, interlock QA) are NOT on the tablet. C3 = add them. Fork: (a) read-only status list+filter
 vs (b) full manage (approve/reject via enforceReauthAlways + /:id/approve|reject, mirrors desktop stage-approvals
 + the new bulk-decide). Awaiting user scope decision.
+
+
+# Configurable instrument attributes at creation (2026-08-07)
+
+Operator request: the New Instrument form should collect ATTRIBUTES, and which
+attribute keys it asks for must be configurable in Configuration — the admin
+defines the keys, the person registering a device fills in the values.
+
+Plus the form trim: Instrument ID only (no separate Name), no expected
+interval, no Hardware section, placement moved under Attributes.
+
+## Decisions taken
+
+- **Keys live in one config def** (`instrument-attributes`), stored as a
+  newline-separated list in a textarea. Chosen over a JSON setting (unreadable
+  to an admin) and over a bespoke custom page (a whole route + card for what is
+  a list of words). The dynamic config page renders it already, so touchpoints
+  3 and 4 of the 12-touchpoint rule do not apply.
+- **"Instrument ID" is the CODE**, not the name. The create form already
+  labelled it that way; the detail page was showing `name` under that label,
+  which would have made two different fields answer to one name. `name` is set
+  to the code on create so the column stays populated for the API's required
+  field.
+- **Placement stays real columns** (`block` / `area` / `location`), moved into
+  the Attributes card visually. They drive the list page's filters; turning
+  them into free-text attributes would break filtering for existing rows.
+- Attributes are written AFTER the instrument POST returns, one call per key
+  (`POST /api/instruments/:id/attributes`). There is no bulk endpoint, and a
+  failure there must not lose the instrument that was already created.
+
+## Tasks
+
+- [x] Config def `instrument-attributes.def.ts` (textarea, one key per line)
+- [x] Register in `config-discovery.ts`
+- [x] Seed default row in `prisma/seed.ts`
+- [x] Shared helper to parse the key list (trim, drop blanks, de-dupe, cap)
+- [x] Create page: drop Name, expected interval, Hardware card
+- [x] Create page: Attributes card = placement + configured keys
+- [x] Create page: POST attributes after create, report partial failure
+- [x] Detail page: Instrument ID shows the code; name row/field removed
+- [x] Tests: key parsing, create-form rendering + submission
+- [x] Docs: CHANGELOG, config-def counts in CLAUDE.md / apps/api/CLAUDE.md
+- [x] Counts CORRECTED, not inherited: the docs claimed 36 defs / 34 pages;
+      `ls` says 22 / 21. The 36 came from DigiLog and was never true here.

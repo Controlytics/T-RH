@@ -1,5 +1,5 @@
 import { type FastifyInstance } from 'fastify';
-import { passwordPolicySchema, loginSecuritySchema, sessionConfigSchema, datetimeConfigSchema, paginationConfigSchema, exportLimitConfigSchema } from '@digilog/shared';
+import { passwordPolicySchema, loginSecuritySchema, sessionConfigSchema, datetimeConfigSchema, paginationConfigSchema, exportLimitConfigSchema, instrumentAttributesConfigSchema } from '@digilog/shared';
 import { verifyPassword } from '../../lib/password.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { errorResponses } from '../../lib/error-schemas.js';
@@ -175,5 +175,21 @@ export default async function configRoutes(app: FastifyInstance) {
     },
   }, async () => {
     return configService.getConfig('export-limit', exportLimitConfigSchema);
+  });
+
+  // Public read — all authenticated users. The New Instrument form asks for
+  // these keys, and the people who register devices are operators, not admins:
+  // gating this on CONFIG_READ would make the form silently ask for nothing for
+  // exactly the role that fills it in. Only the KEY LIST is exposed, which is a
+  // form label, not a secret.
+  app.get('/instrument-attributes/current', {
+    schema: {
+      tags: ['Config'],
+      summary: 'Get the configured instrument attribute keys',
+      description: 'Retrieve the attribute keys offered on the New Instrument form. Available to all authenticated users.',
+      response: { 200: { type: 'object', additionalProperties: true } },
+    },
+  }, async () => {
+    return configService.getConfig('instrument-attributes', instrumentAttributesConfigSchema);
   });
 }

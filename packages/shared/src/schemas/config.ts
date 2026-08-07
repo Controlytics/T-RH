@@ -172,3 +172,72 @@ export type UserIdConfig = z.infer<typeof userIdConfigSchema>;
 export type AuditTemplatesConfig = z.infer<typeof auditTemplatesSchema>;
 export type PaginationConfig = z.infer<typeof paginationConfigSchema>;
 export type OfflineCacheConfig = z.infer<typeof offlineCacheConfigSchema>;
+
+// Instrument Attributes Configuration (SUPER_ADMIN-only).
+//
+// Which attribute KEYS the New Instrument form asks for. Values are entered per
+// instrument by whoever registers it; the keys are administered here so the
+// same idea does not end up stored as "Room", "room" and "Room No" across three
+// operators, which is what makes a free-form key/value store unfilterable.
+//
+// Stored as one key per line because an admin editing this is writing a list of
+// words — JSON punctuation would be a way for that to fail. `parseInstrument
+// AttributeKeys` is the single definition of what a line means, so the form and
+// any later consumer cannot disagree.
+export const INSTRUMENT_ATTRIBUTE_KEYS_DEFAULT = 'Block\nArea\nLocation\nRoom\nCalibration Due\nAsset Tag';
+
+/**
+ * Three keys that are NOT stored as attribute rows: they are real columns on
+ * the instrument (`block` / `area` / `location`), because the Instruments list
+ * filters on them and its Placement column reads them.
+ *
+ * They appear in the configured key list like any other key — the operator sees
+ * one Attributes section and no special-cased trio (2026-08-07 request) — and
+ * the create form routes them to their column instead of writing an attribute.
+ * Left as plain attributes they would look identical on screen while quietly
+ * emptying the placement filters for every instrument registered from then on.
+ *
+ * Matched case-insensitively, since the key list is free text.
+ */
+export const INSTRUMENT_PLACEMENT_COLUMNS: Record<string, 'block' | 'area' | 'location'> = {
+  block: 'block',
+  area: 'area',
+  location: 'location',
+};
+
+/** The instrument column a configured key writes to, or null for an attribute. */
+export function placementColumnFor(key: string): 'block' | 'area' | 'location' | null {
+  return INSTRUMENT_PLACEMENT_COLUMNS[key.trim().toLowerCase()] ?? null;
+}
+export const instrumentAttributesConfigSchema = z.object({
+  keys: z.string().max(2000).default(INSTRUMENT_ATTRIBUTE_KEYS_DEFAULT),
+});
+export type InstrumentAttributesConfig = z.infer<typeof instrumentAttributesConfigSchema>;
+
+/**
+ * One key per line. Trimmed, blanks dropped, duplicates removed
+ * CASE-INSENSITIVELY (the whole point is to stop "Room" and "room" both
+ * existing), first spelling wins.
+ *
+ * NOT capped (2026-08-07, operator decision — a 25-key ceiling was tried and
+ * removed). The only bound is the setting's own `max(2000)` characters, which
+ * is a storage guard on the stored string, not a judgement about how long a
+ * registration form ought to be. If the form ever gets unwieldy, fix it in the
+ * form's layout, not by silently discarding keys an admin deliberately added:
+ * dropping key 26 without saying so is the kind of quiet data loss that is
+ * found months later.
+ */
+export function parseInstrumentAttributeKeys(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  const seen = new Set<string>();
+  const keys: string[] = [];
+  for (const line of raw.split(/\r?\n/)) {
+    const key = line.trim();
+    if (!key) continue;
+    const fold = key.toLowerCase();
+    if (seen.has(fold)) continue;
+    seen.add(fold);
+    keys.push(key);
+  }
+  return keys;
+}

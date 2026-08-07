@@ -93,7 +93,7 @@ describe('instrument detail — token reveal', () => {
 
   it('flows the revealed token into the connection rows AND the pasteable command', async () => {
     renderAt('/instruments/i-1');
-    fireEvent.click(screen.getByRole('button', { name: /reveal token/i }));
+    fireEvent.click(screen.getByRole('button', { name: /show token/i }));
 
     await waitFor(() => expect(screen.getAllByText(/REVEALED-TOKEN-VALUE/).length).toBeGreaterThan(0));
     expect(apiGet).toHaveBeenCalledWith('/api/instruments/i-1/token');
@@ -108,7 +108,7 @@ describe('instrument detail — token reveal', () => {
 
   it('hides the token again when the operator navigates away', async () => {
     const { unmount } = renderAt('/instruments/i-1');
-    fireEvent.click(screen.getByRole('button', { name: /reveal token/i }));
+    fireEvent.click(screen.getByRole('button', { name: /show token/i }));
     await waitFor(() => expect(screen.getAllByText(/REVEALED-TOKEN-VALUE/).length).toBeGreaterThan(0));
 
     // Leaving the route unmounts the component. Remounting is a fresh visit —
@@ -117,6 +117,6 @@ describe('instrument detail — token reveal', () => {
     renderAt('/instruments/i-1');
     expect(screen.queryByText(/REVEALED-TOKEN-VALUE/)).not.toBeInTheDocument();
     expect(screen.getAllByText(/<ACCESS_TOKEN>/).length).toBeGreaterThan(0);
-    expect(screen.getByRole('button', { name: /reveal token/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /show token/i })).toBeInTheDocument();
   });
 });

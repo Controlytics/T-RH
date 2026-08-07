@@ -63,6 +63,23 @@ const configCards = [
 
 const superAdminCards = [
   {
+    // Promoted out of "Additional Modules" 2026-08-07 at the operator's
+    // request. `cardModuleKey` strips the `/config/dynamic/` prefix, so listing
+    // it here also removes it from the auto-discovered section below — a
+    // hardcoded card and a dynamic card for one module would be two doors to
+    // the same setting.
+    title: 'Instrument Attributes',
+    description: 'The attribute keys the New Instrument form asks for — one key per line',
+    href: '/config/instrument-attributes',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+      </svg>
+    ),
+    gradient: 'from-sky-500 to-cyan-600',
+    shadowColor: 'shadow-sky-500/25',
+  },
+  {
     title: 'Configuration Access',
     description: 'Assign config modules to roles — choose what each role can open',
     href: '/config/access-matrix',

@@ -1,5 +1,39 @@
 # Changelog
 
+## [Unreleased] — Instrument attributes are collected at registration, from a configured key list (2026-08-07)
+
+**New config def `instrument-attributes`** — 22 defs now (`ls apps/api/src/modules/config/defs/*.def.ts`; the "36" in CLAUDE.md was inherited from DigiLog and has never been true in this repo — corrected in the same commit). One setting, `keys`: a
+textarea, one attribute key per line. The New Instrument form renders a field
+per key and the person registering the device fills in the VALUES. Attributes
+are free-form key/value pairs, which is right for the data model and wrong for
+data entry — left alone, three operators store the same idea as "Room", "room"
+and "Room No", and the register stops being filterable. The list is a PROMPT,
+not a constraint: the detail page still accepts any key afterwards, and nothing
+is back-filled onto instruments created before a key was added.
+
+`parseInstrumentAttributeKeys` in `@digilog/shared` is the single definition of
+what a line means — trimmed, blanks dropped, duplicates removed
+case-insensitively (first spelling wins), capped at 25 so a runaway paste
+cannot produce a fifty-field form. `GET /api/config/instrument-attributes/current`
+is authenticated but not CONFIG_READ-gated: the people who register devices are
+operators, and gating it would make the form silently ask for nothing for
+exactly the role that fills it in.
+
+**The form was trimmed** at the operator's request: no separate Name (the code
+is sent as both — two identity fields is how half a register ends up named
+after the device and half after the room), no expected interval, no Hardware
+section. Block / Area / Location moved under the Attributes heading but remain
+real columns, because the list page filters on them.
+
+Attributes are written after the instrument POST returns, one call per key.
+A failed attribute write does NOT discard the instrument: it already exists,
+and its token is knowable only at that moment — the operator is told which keys
+failed and can add them from the Attributes panel.
+
+**"Instrument ID" now consistently means the CODE.** The detail page had been
+showing `name` under that label while the create form used it for `code`, so
+one name answered to two fields. The name field is gone from the edit form too.
+
 ## [Unreleased] — Child roster: a gateway is told who its children are (2026-08-07)
 
 The attribute downlink announced a child only when that child *changed*. A

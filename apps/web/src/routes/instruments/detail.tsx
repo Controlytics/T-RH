@@ -13,6 +13,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { themeGradient } from '@/lib/theme-styles';
+import { signalFor } from './signal';
+import { SignalChip } from './signal-mast';
 import { ConnectionInstructions } from './connection-instructions';
 import { TokenDialog } from './token-dialog';
 import { GatewayPanel } from './gateway-panel';
@@ -202,59 +205,114 @@ export function InstrumentDetailPage() {
 
   const stamp = (v: string | null) => (v ? `${formatDate(v)} ${formatTime(v)}` : '—');
 
+  /**
+   * A section heading with an icon chip. The chips are tinted per section
+   * rather than all brand-coloured, so the page reads as four distinct
+   * concerns — what it is, how to reach it, what its credential is, what it has
+   * said — instead of one long scroll of identical white cards.
+   */
+  const sectionIcon = (tint: string, path: string) => (
+    <span className={`flex h-7 w-7 items-center justify-center rounded-lg ${tint}`}>
+      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={path} />
+      </svg>
+    </span>
+  );
+  const ICON = {
+    details: 'M4 6h16M4 12h16M4 18h7',
+    connection: 'M13 10V3L4 14h7v7l9-11h-7z',
+    token: 'M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z',
+    readings: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z',
+  };
+
+  const signal = signalFor(inst.lastSeenAt, inst.expectedIntervalSec);
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-semibold text-slate-900">{inst.name}</h1>
-            <Badge variant={inst.isActive ? 'success' : 'secondary'}>{inst.isActive ? 'Active' : 'Inactive'}</Badge>
-            {inst.isGateway && <Badge variant="outline">Gateway</Badge>}
+      {/* The hero leads with the CODE, not the name: the code is what the device
+          authenticates as, what its topics are built from, and what a
+          technician is holding on a label. The name is for people; the code is
+          the identity everything else on this page is keyed to. */}
+      <div className="relative overflow-hidden rounded-2xl p-6 text-white shadow-lg" style={themeGradient}>
+        <div className="relative z-10 flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/70">Instrument ID</p>
+              {inst.isGateway && (
+                <span className="rounded-md border border-white/40 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide">
+                  Gateway
+                </span>
+              )}
+              {gatewayInst && (
+                <Link
+                  to={`/instruments/${gatewayInst.id}`}
+                  className="rounded-md border border-white/40 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide hover:bg-white/10"
+                >
+                  Child of {gatewayInst.code}
+                </Link>
+              )}
+            </div>
+            <h1 className="mt-0.5 truncate font-mono text-2xl font-bold tracking-tight">{inst.code}</h1>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <SignalChip signal={signal} />
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
+                  inst.isActive ? 'bg-white/15 text-white ring-1 ring-white/30' : 'bg-white/10 text-white/70 ring-1 ring-white/20'
+                }`}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${inst.isActive ? 'bg-emerald-300' : 'bg-white/50'}`} />
+                {inst.isActive ? 'Accepting data' : 'Not accepting data'}
+              </span>
+              <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-white/80 ring-1 ring-white/20">
+                {inst.expectedIntervalSec ? `Expected every ${inst.expectedIntervalSec}s` : 'No expected interval'}
+              </span>
+            </div>
           </div>
-          <p className="font-mono text-sm text-slate-500">{inst.code}</p>
+          <div className="flex flex-wrap gap-2">
+            <Link to="/instruments">
+              <Button className="border border-white/30 bg-white/10 text-white hover:bg-white/20">Back</Button>
+            </Link>
+            {can('instruments.delete') && (
+              <Button variant="destructive" disabled={deleting} onClick={() => setConfirmDelete(true)}>Delete</Button>
+            )}
+          </div>
         </div>
-        <div className="flex gap-2">
-          <Link to="/instruments"><Button variant="secondary">Back</Button></Link>
-          {can('instruments.edit') && !editing && <Button variant="secondary" onClick={startEdit}>Edit</Button>}
-          {can('instruments.edit') && <Button variant="secondary" onClick={regenerate}>Regenerate token</Button>}
-          {can('instruments.delete') && (
-            <Button variant="destructive" disabled={deleting} onClick={() => setConfirmDelete(true)}>Delete</Button>
-          )}
+        <div aria-hidden="true" className="pointer-events-none absolute -right-2 bottom-0 flex items-end gap-1.5 opacity-15">
+          {[18, 34, 52, 74].map((h) => (
+            <span key={h} className="w-3 rounded-t bg-white" style={{ height: h }} />
+          ))}
         </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle>Details</CardTitle></CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between gap-2">
+            <CardTitle className="flex items-center gap-2">{sectionIcon('bg-slate-100 text-slate-600', ICON.details)}Details</CardTitle>
+            {can('instruments.edit') && !editing && (
+              <Button size="sm" variant="secondary" onClick={startEdit}>Edit</Button>
+            )}
+          </CardHeader>
           <CardContent className="space-y-3">
             {!editing ? (
               <dl className="grid grid-cols-2 gap-y-2 text-sm">
+                {/* Trimmed 2026-08-07 (operator request) to the fields this
+                    install actually keeps: the identity, what kind of thing it
+                    is, where it sits, and who registered it. The removed rows
+                    (manufacturer / model / serial / description / expected
+                    interval / token prefix / last seen) are still stored and
+                    still editable — last seen now reads off the hero's signal
+                    chip, and the token prefix off the token field. */}
+                <dt className="text-slate-500">Instrument ID</dt>
+                <dd className="font-mono font-medium text-slate-800">{inst.code}</dd>
                 <dt className="text-slate-500">Type</dt><dd>{inst.instrumentType || '—'}</dd>
-                <dt className="text-slate-500">Manufacturer</dt><dd>{inst.manufacturer || '—'}</dd>
-                <dt className="text-slate-500">Model</dt><dd>{inst.model || '—'}</dd>
-                <dt className="text-slate-500">Serial</dt><dd>{inst.serialNumber || '—'}</dd>
-                <dt className="text-slate-500">Expected interval</dt>
-                <dd>{inst.expectedIntervalSec ? `${inst.expectedIntervalSec}s` : 'Exempt'}</dd>
-                <dt className="text-slate-500">Token prefix</dt>
-                <dd className="font-mono text-xs">{inst.tokenPrefix ? `${inst.tokenPrefix}…` : '—'}</dd>
-                <dt className="text-slate-500">Last seen</dt>
-                <dd>
-                  {stamp(inst.lastSeenAt)}
-                  {inst.lastSeenVia === 'gateway' && <span className="ml-1 text-xs text-slate-400">(via gateway)</span>}
-                </dd>
-                <dt className="text-slate-500">Created</dt>
-                <dd>{stamp(inst.createdAt)}{inst.createdBy ? ` by ${inst.createdBy}` : ''}</dd>
-                <dt className="text-slate-500">Description</dt><dd>{inst.description || '—'}</dd>
                 <dt className="text-slate-500">Block</dt><dd>{inst.block || '—'}</dd>
                 <dt className="text-slate-500">Area</dt><dd>{inst.area || '—'}</dd>
                 <dt className="text-slate-500">Location</dt><dd>{inst.location || '—'}</dd>
+                <dt className="text-slate-500">Created</dt>
+                <dd>{stamp(inst.createdAt)}{inst.createdBy ? ` by ${inst.createdBy}` : ''}</dd>
               </dl>
             ) : (
               <div className="space-y-3">
-                <label className="block space-y-1">
-                  <span className="text-sm text-slate-600">Name</span>
-                  <Input value={draft.name ?? ''} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
-                </label>
                 <label className="flex items-center gap-2 text-sm text-slate-700">
                   <input
                     type="checkbox"
@@ -306,32 +364,11 @@ export function InstrumentDetailPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader><CardTitle>Connection</CardTitle></CardHeader>
-          <CardContent>
-            {/* The revealed value flows all the way through: the labelled
-                Token / Username rows AND the paste-ready command. A command
-                showing <ACCESS_TOKEN> when the operator has just revealed the
-                real one is worse than showing none — it looks runnable. */}
-            <ConnectionInstructions
-              code={inst.code}
-              token={revealedToken ?? undefined}
-              isGateway={inst.isGateway}
-              childCodes={children?.data.map((c) => c.code)}
-              gatewayCode={gatewayInst?.code}
-            />
-            {!revealedToken && (
-              <p className="mt-3 text-xs text-slate-500">
-                <span className="font-mono">&lt;ACCESS_TOKEN&gt;</span> above is a
-                placeholder. Reveal the token in the panel below to fill it in.
-              </p>
-            )}
-          </CardContent>
-        </Card>
+        <AttributesPanel instrumentId={inst.id} canEdit={can('instruments.edit')} />
       </div>
 
       <Card>
-        <CardHeader><CardTitle>Access token</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="flex items-center gap-2">{sectionIcon('bg-amber-100 text-amber-600', ICON.token)}Access token</CardTitle></CardHeader>
         <CardContent>
           <TokenPanel
             code={inst.code}
@@ -347,12 +384,33 @@ export function InstrumentDetailPage() {
         </CardContent>
       </Card>
 
-      <AttributesPanel instrumentId={inst.id} canEdit={can('instruments.edit')} />
+      <Card>
+        <CardHeader><CardTitle className="flex items-center gap-2">{sectionIcon('bg-sky-100 text-sky-600', ICON.connection)}Connection</CardTitle></CardHeader>
+        <CardContent>
+          {/* The revealed value flows all the way through: the labelled
+              Token / Username rows AND the paste-ready command. A command
+              showing <ACCESS_TOKEN> when the operator has just unmasked the
+              real one is worse than showing none — it looks runnable. */}
+          <ConnectionInstructions
+            code={inst.code}
+            token={revealedToken ?? undefined}
+            isGateway={inst.isGateway}
+            childCodes={children?.data.map((c) => c.code)}
+            gatewayCode={gatewayInst?.code}
+          />
+          {!revealedToken && (
+            <p className="mt-3 text-xs text-slate-500">
+              <span className="font-mono">&lt;ACCESS_TOKEN&gt;</span> above is a
+              placeholder. Show the token above to fill it in.
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
       {inst.isGateway && <GatewayPanel instrumentId={inst.id} canEdit={can('instruments.edit')} />}
 
       <Card>
-        <CardHeader><CardTitle>Latest readings</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="flex items-center gap-2">{sectionIcon('bg-emerald-100 text-emerald-600', ICON.readings)}Latest readings</CardTitle></CardHeader>
         <CardContent>
           {!telemetry?.latest?.length ? (
             <p className="text-sm text-slate-500">No telemetry received yet.</p>
