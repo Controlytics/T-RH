@@ -186,6 +186,14 @@ export const AUDIT_ACTIONS = {
   // never is. Neither row ever carries the token value — only its prefix.
   INSTRUMENT_TOKEN_VIEWED: 'INSTRUMENT_TOKEN_VIEWED',
   INSTRUMENT_TOKEN_SET: 'INSTRUMENT_TOKEN_SET',
+  // Profiles are grouping only, but a RENAME changes what an inspector reads
+  // against every instrument inside the profile — so the change to the profile
+  // is itself an auditable event. MOVING an instrument between profiles is
+  // covered by the existing INSTRUMENT_UPDATED row, whose before/after already
+  // carries changed fields.
+  INSTRUMENT_PROFILE_CREATED: 'INSTRUMENT_PROFILE_CREATED',
+  INSTRUMENT_PROFILE_UPDATED: 'INSTRUMENT_PROFILE_UPDATED',
+  INSTRUMENT_PROFILE_DELETED: 'INSTRUMENT_PROFILE_DELETED',
   // Gateway wiring is an ACCESS-CONTROL change, not metadata: `gatewayId` is
   // the rule deciding which credential may write an instrument's telemetry, so
   // every link/unlink/enable/disable gets its own row rather than hiding inside

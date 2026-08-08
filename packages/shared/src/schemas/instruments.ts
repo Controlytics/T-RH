@@ -65,6 +65,10 @@ export const createInstrumentSchema = z.object({
   // accepts, which is a rejection nobody could explain from the form.
   name: z.string().min(1, 'Name is required'),
   code: codeSchema,
+  // Every instrument belongs to exactly one profile. Required: rows predating
+  // profiles were backfilled to "Default" by migration 20260808120000, so there
+  // is no unassigned state for any code path to handle.
+  profileId: z.string().uuid('A profile must be selected'),
   isActive: z.boolean().default(true),
   instrumentType: z.string().max(80).optional(),
   manufacturer: z.string().max(120).optional(),
@@ -85,6 +89,9 @@ export const createInstrumentSchema = z.object({
 
 export const updateInstrumentSchema = z.object({
   name: z.string().min(1).max(120).optional(),
+  // Moving an instrument to another profile. `.optional()` not `.nullish()`:
+  // there is no "no profile" to move to, so null is meaningless here.
+  profileId: z.string().uuid().optional(),
   // `code` is deliberately NOT updatable: it is baked into MQTT topics and into
   // whatever the technician configured on the device. Renaming it server-side
   // would silently break an instrument that is already publishing.
@@ -227,6 +234,10 @@ export const instrumentQuerySchema = z.object({
  */
 export const bulkCreateInstrumentsSchema = z.object({
   csv: z.string().min(1, 'CSV content is required').max(1_048_576, 'CSV must be under 1 MB'),
+  // Chosen ONCE for the whole upload, deliberately NOT a CSV column: adding a
+  // column would break every template file operators already have on disk, and
+  // a per-row profile is not a thing anyone asked for.
+  profileId: z.string().uuid('A profile must be selected'),
 });
 
 export type CreateInstrumentInput = z.infer<typeof createInstrumentSchema>;
