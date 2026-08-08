@@ -747,6 +747,32 @@ model NotificationRuleRecipient {
 // No Prisma relations (mirrors ReportReview) — cycleId/filterId stored as raw Uuid.
 
 // ─── Instruments (Data Injection P1) ───────────────────────────────────────
+
+/// A named container for instruments. GROUPING ONLY — a profile carries no
+/// settings and instruments inherit nothing from it, deliberately: adding
+/// inheritance later raises "what happens to existing members when the default
+/// changes?", which is a real design question and not this one.
+///
+/// Deleting a profile that still holds instruments is refused by the FOREIGN KEY
+/// on `Instrument.profileId` (onDelete: Restrict), not merely by the service
+/// check that produces the friendly message. A future code path that forgets the
+/// check therefore still cannot orphan an instrument or destroy a populated
+/// group.
+model InstrumentProfile {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdBy   String?  @map("created_by")
+  updatedBy   String?  @map("updated_by")
+
+  instruments Instrument[]
+
+  @@map("instrument_profiles")
+}
+
 model Instrument {
   id                  String   @id @default(uuid())
   name                String
@@ -784,6 +810,12 @@ model Instrument {
   lastSeenAt          DateTime? @map("last_seen_at") @db.Timestamptz(3)
   lastSeenVia         String?   @map("last_seen_via")
 
+  // Every instrument belongs to exactly one profile. NOT NULL: rows predating
+  // profiles were backfilled to "Default" by migration 20260808120000, so there
+  // is no "unassigned" state to handle anywhere in the code.
+  profileId String            @map("profile_id")
+  profile   InstrumentProfile @relation(fields: [profileId], references: [id], onDelete: Restrict)
+
   credentials InstrumentCredential[]
   attributes  InstrumentAttribute[]
 
@@ -791,6 +823,7 @@ model Instrument {
   children Instrument[] @relation("GatewayChildren")
 
   @@index([gatewayId])
+  @@index([profileId])
   @@index([block, area, location])
   @@map("instruments")
 }
