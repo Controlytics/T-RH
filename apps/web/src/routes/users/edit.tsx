@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -66,7 +66,7 @@ export function EditUserPage() {
 
   const { data: userData, mutate } = useSWR(id ? `/api/users/${id}` : null);
 
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<UpdateUserInput>({
+  const { register, handleSubmit, setValue, formState: { errors, isSubmitting } } = useForm<UpdateUserInput>({
     resolver: zodResolver(updateUserSchema),
     values: userData ? {
       fullName: userData.fullName,
@@ -83,6 +83,25 @@ export function EditUserPage() {
       // the users most likely to need editing.
     } : undefined,
   });
+
+  // Re-apply the user's role to the <select> once its options exist.
+  //
+  // react-hook-form pushes `values` into the DOM when `userData` arrives, but
+  // the options come from a SEPARATE SWR request (/roles/:role/creatable) that
+  // usually resolves later. Setting a <select>'s value to an option that isn't
+  // rendered yet is a no-op, and when the options do appear the browser falls
+  // back to the first one — so every user's edit page displayed "Super Admin"
+  // regardless of their actual role. Verified 2026-08-08 on both a directory
+  // and a local OPERATOR account.
+  //
+  // The SAVE was never wrong (RHF submits from its own state, which still held
+  // the real role — confirmed by saving a SUPERVISOR and re-reading the row),
+  // so this is a display defect, not an escalation. It is still worth fixing:
+  // an admin reading this page was told the wrong thing about who they were
+  // looking at, on the one screen where role is the point.
+  useEffect(() => {
+    if (userData?.role) setValue('role', userData.role);
+  }, [creatableRolesData, userData?.role, setValue]);
 
   const onSubmit = async (data: UpdateUserInput) => {
     setError('');
@@ -165,6 +184,13 @@ export function EditUserPage() {
   // Admin can only edit role and email, not fullName and department
   const isAdmin = currentUser?.role === 'ADMIN';
 
+  // Credential owned by the company directory, not by this application. Drives
+  // the header badge and suppresses the local-password actions the backend now
+  // refuses. `authSource` is served by GET /api/users/:id — if it ever reads
+  // undefined here, check the route's response schema: Fastify strips any
+  // property that isn't declared there.
+  const isDirectoryUser = userData.authSource === 'ldap';
+
   return (
     <div className="space-y-8 animate-fade-in">
       {/* Header */}
@@ -177,8 +203,17 @@ export function EditUserPage() {
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">{userData.fullName}</h1>
               <Badge className={`${status.bg} text-white border-0 shadow-sm`}>{userData.status}</Badge>
+              {isDirectoryUser && (
+                <Badge className="bg-gradient-to-r from-sky-500 to-blue-600 text-white border-0 shadow-sm gap-1">
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2" /></svg>
+                  Active Directory
+                </Badge>
+              )}
             </div>
             <p className="text-sm text-slate-500 mt-0.5 font-mono">@{userData.username}</p>
+            {isDirectoryUser && userData.ldapDn && (
+              <p className="text-xs text-slate-400 mt-0.5 font-mono break-all">{userData.ldapDn}</p>
+            )}
           </div>
         </div>
         <Link to="/users">
@@ -358,7 +393,15 @@ export function EditUserPage() {
 
           {/* Footer Actions — 2026-05-26 gated per-button */}
           <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between">
-            {canResetPassword ? (
+            {/* Directory accounts have no local password to generate. The
+                backend refuses the reset outright (userService.resetPassword),
+                so showing the button would only produce a 400 after two clicks
+                and a re-authentication prompt. */}
+            {isDirectoryUser ? (
+              <span className="text-xs text-slate-500 max-w-md">
+                Password is managed in Active Directory — reset it there, not here.
+              </span>
+            ) : canResetPassword ? (
               <Button
                 type="button"
                 variant="outline"
