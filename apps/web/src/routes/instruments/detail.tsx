@@ -35,6 +35,7 @@ interface Instrument {
   createdAt: string; createdBy: string | null;
   block: string | null; area: string | null; location: string | null;
   isGateway: boolean; gatewayId: string | null; lastSeenVia: string | null;
+  profileId: string; profileName: string | null;
 }
 interface ChildInstrument { id: string; code: string; name: string; isActive: boolean }
 interface Reading { key: string; value: unknown; valueType: string; ts: string }
@@ -70,6 +71,21 @@ export function InstrumentDetailPage() {
   );
   // The fallback window for an instrument that declares no expected interval.
   const { data: activityConfig } = useSWR<{ activeWindowMinutes?: number }>('/api/config/instrument-activity/current');
+  // Offered so an instrument can be MOVED between profiles from the one page
+  // that already owns every other edit to it.
+  const { data: profiles } = useSWR<{ data: { id: string; name: string }[] }>('/api/instrument-profiles');
+
+  const moveToProfile = async (nextProfileId: string) => {
+    if (!inst || nextProfileId === inst.profileId) return;
+    const name = profiles?.data?.find((p) => p.id === nextProfileId)?.name ?? 'the selected profile';
+    try {
+      await apiClient.put(`/api/instruments/${inst.id}`, { profileId: nextProfileId });
+      void mutate();
+      toast.success('Instrument moved', `"${inst.code}" is now in ${name}.`);
+    } catch (e) {
+      toast.error('Could not move instrument', (e as Error)?.message ?? 'Unknown error');
+    }
+  };
   const activeWindow = activityConfig?.activeWindowMinutes ?? INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN;
 
   const [editing, setEditing] = useState(false);
@@ -283,6 +299,14 @@ export function InstrumentDetailPage() {
               )}
             </div>
             <h1 className="mt-0.5 truncate font-mono text-2xl font-bold tracking-tight">{inst.code}</h1>
+            {inst.profileName && (
+              <Link
+                to={`/instruments/profiles/${inst.profileId}`}
+                className="mt-1 inline-block text-xs text-white/70 hover:text-white"
+              >
+                in {inst.profileName}
+              </Link>
+            )}
             <div className="mt-3 flex flex-wrap items-center gap-2">
               {/* OBSERVED: is telemetry arriving? */}
               <span
@@ -354,6 +378,24 @@ export function InstrumentDetailPage() {
                     chip, and the token prefix off the token field. */}
                 <dt className="text-slate-500">Instrument ID</dt>
                 <dd className="font-mono font-medium text-slate-800">{inst.code}</dd>
+                {/* Moving lives here rather than behind the Edit form: it is one
+                    choice with an immediate effect, and it is the only field on
+                    this page whose value is also a place you can navigate to. */}
+                <dt className="text-slate-500">Profile</dt>
+                <dd>
+                  {can('instruments.edit') ? (
+                    <select
+                      value={inst.profileId}
+                      onChange={(e) => void moveToProfile(e.target.value)}
+                      className="rounded-lg border border-slate-200 px-2 py-1 text-sm"
+                      aria-label="Move to another profile"
+                    >
+                      {profiles?.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  ) : (
+                    inst.profileName || '—'
+                  )}
+                </dd>
                 <dt className="text-slate-500">Type</dt><dd>{inst.instrumentType || '—'}</dd>
                 <dt className="text-slate-500">Block</dt><dd>{inst.block || '—'}</dd>
                 <dt className="text-slate-500">Area</dt><dd>{inst.area || '—'}</dd>

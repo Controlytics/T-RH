@@ -12,7 +12,19 @@ import { MemoryRouter } from 'react-router-dom';
  * set would defeat the whole point of administering them.
  */
 const config = { current: { keys: 'Room\nCalibration Due' } as { keys?: string } | undefined };
-vi.mock('swr', () => ({ default: () => ({ data: config.current }) }));
+/**
+ * URL-aware, because the page now reads TWO endpoints: the attribute-key config
+ * and the profile list. A mock answering both with the same object left the
+ * profile <select> with no options, so nothing could be selected, the submit
+ * button stayed disabled, and every "it posts …" test failed for a reason that
+ * had nothing to do with what it was testing.
+ */
+const PROFILES = { data: [{ id: 'p-1', name: 'Cleanroom-A' }, { id: 'p-2', name: 'Utility' }] };
+vi.mock('swr', () => ({
+  default: (key: string | null) => ({
+    data: typeof key === 'string' && key.includes('/api/instrument-profiles') ? PROFILES : config.current,
+  }),
+}));
 
 const post = vi.fn();
 vi.mock('@/lib/api-client', () => ({
@@ -35,8 +47,12 @@ beforeEach(() => {
   errorToast.mockReset();
 });
 
-const fillId = (code: string) =>
+const fillId = (code: string) => {
   fireEvent.change(screen.getByRole('textbox', { name: /instrument id/i }), { target: { value: code } });
+  // Every instrument belongs to a profile, so the form cannot submit without
+  // one. Chosen here rather than in each test, which are about other fields.
+  fireEvent.change(screen.getByRole('combobox', { name: /profile/i }), { target: { value: 'p-1' } });
+};
 const submit = () => fireEvent.click(screen.getByRole('button', { name: /create instrument/i }));
 
 describe('InstrumentCreatePage — the trimmed form', () => {

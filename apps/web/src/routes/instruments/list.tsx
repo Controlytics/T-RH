@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import useSWR from 'swr';
 import { useCan } from '@/hooks/use-can';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
@@ -47,6 +47,7 @@ interface InstrumentRow {
   block: string | null;
   area: string | null;
   location: string | null;
+  profileId: string;
 }
 interface ListResponse {
   data: InstrumentRow[];
@@ -119,10 +120,20 @@ export function InstrumentListPage() {
   if (active) params.set('isActive', active);
 
   const { data, isLoading } = useSWR<ListResponse>(`/api/instruments?${params}`);
+  // Scoped to one profile when reached via /instruments/profiles/:profileId.
+  const { profileId } = useParams<{ profileId: string }>();
+  const { data: profile } = useSWR<{ id: string; name: string; description: string | null }>(
+    profileId ? `/api/instrument-profiles/${profileId}` : null,
+  );
   // The fallback window for instruments that declare no expected interval.
   const { data: activityConfig } = useSWR<{ activeWindowMinutes?: number }>('/api/config/instrument-activity/current');
   const activeWindow = activityConfig?.activeWindowMinutes ?? INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN;
-  const rows = data?.data ?? [];
+  // Filtered client-side rather than server-side: the page already loads the
+  // whole page of rows, and the tiles/search/table below stay byte-identical to
+  // the unscoped version. If the register ever reaches thousands of instruments
+  // this wants a `profileId` query parameter on the list endpoint instead.
+  const allRows = data?.data ?? [];
+  const rows = profileId ? allRows.filter((r) => r.profileId === profileId) : allRows;
 
   const withStatus = rows.map((r) => ({
     row: r,
@@ -149,20 +160,27 @@ export function InstrumentListPage() {
       <div className="relative overflow-hidden rounded-2xl p-6 text-white shadow-lg" style={themeGradient}>
         <div className="relative z-10 flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/70">Register</p>
-            <h1 className="mt-1 text-3xl font-bold">Instruments</h1>
+            {profileId ? (
+              <Link to="/instruments" className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/70 hover:text-white">
+                ← All profiles
+              </Link>
+            ) : (
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/70">Register</p>
+            )}
+            <h1 className="mt-1 text-3xl font-bold">{profile?.name ?? 'Instruments'}</h1>
             <p className="mt-1 text-sm text-white/80">
-              Every device registered to report into this system — and whether it is reporting.
+              {profile?.description
+                ?? 'Every device registered to report into this system — and whether it is reporting.'}
             </p>
           </div>
           {can('instruments.create') && (
             <div className="flex flex-wrap gap-2">
-              <Link to="/instruments/bulk">
+              <Link to={profileId ? `/instruments/bulk?profileId=${profileId}` : '/instruments/bulk'}>
                 <Button className="border border-white/30 bg-white/10 text-white hover:bg-white/20">
                   Bulk upload
                 </Button>
               </Link>
-              <Link to="/instruments/new">
+              <Link to={profileId ? `/instruments/new?profileId=${profileId}` : '/instruments/new'}>
                 <Button className="bg-white text-slate-800 hover:bg-white/90">New instrument</Button>
               </Link>
             </div>
@@ -246,7 +264,7 @@ export function InstrumentListPage() {
                       : 'Register a device to give it a token and a topic to report on.'}
                   </p>
                   {!filtersActive && can('instruments.create') && (
-                    <Link to="/instruments/new" className="mt-4 inline-block">
+                    <Link to={profileId ? `/instruments/new?profileId=${profileId}` : '/instruments/new'} className="mt-4 inline-block">
                       <Button>Register the first instrument</Button>
                     </Link>
                   )}

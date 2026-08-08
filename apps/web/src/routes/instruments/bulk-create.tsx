@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import useSWR from 'swr';
 import { Link } from 'react-router-dom';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
@@ -32,6 +34,14 @@ export function InstrumentBulkCreatePage() {
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<BulkResult | null>(null);
 
+  // ONE profile for the whole upload — deliberately not a CSV column, so the
+  // template and any file an operator already has on disk are unchanged.
+  const [searchParams] = useSearchParams();
+  const presetProfileId = searchParams.get('profileId');
+  const { data: profiles } = useSWR<{ data: { id: string; name: string }[] }>('/api/instrument-profiles');
+  const [profileId, setProfileId] = useState(presetProfileId ?? '');
+  const presetProfileName = profiles?.data?.find((p) => p.id === presetProfileId)?.name;
+
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -45,7 +55,7 @@ export function InstrumentBulkCreatePage() {
     if (!csv.trim()) return;
     setUploading(true);
     try {
-      const res = await apiClient.post<BulkResult>('/api/instruments/bulk', { csv });
+      const res = await apiClient.post<BulkResult>('/api/instruments/bulk', { csv, profileId });
       setResult(res);
       if (res.created.length) {
         toast.success('Instruments created', `${res.created.length} created, ${res.errors.length} row(s) rejected.`);
@@ -84,6 +94,9 @@ export function InstrumentBulkCreatePage() {
             <code className="font-mono text-xs">code</code>. Optional:{' '}
             <code className="font-mono text-xs">instrumentType, manufacturer, model, serialNumber, description</code>.
           </p>
+          <p className="text-sm text-slate-600">
+            No profile column — every instrument in the file goes into the one profile you pick below.
+          </p>
           <Button variant="secondary" onClick={() => download('instrument-template.csv', TEMPLATE)}>
             Download template
           </Button>
@@ -91,11 +104,34 @@ export function InstrumentBulkCreatePage() {
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>2. Upload</CardTitle></CardHeader>
+        <CardHeader><CardTitle>2. Choose the profile</CardTitle></CardHeader>
+        <CardContent>
+          {presetProfileId ? (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <span className="text-xs text-slate-500">Profile</span>
+              <p className="text-sm font-medium text-slate-800">{presetProfileName ?? '…'}</p>
+            </div>
+          ) : (
+            <label className="block space-y-1">
+              <span className="text-sm font-medium text-slate-700">Profile *</span>
+              <select
+                value={profileId} onChange={(e) => setProfileId(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+              >
+                <option value="">Select a profile…</option>
+                {profiles?.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </label>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>3. Upload</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <input type="file" accept=".csv,text/csv" onChange={onFile} className="text-sm" />
           {fileName && <p className="text-xs text-slate-500">Selected: {fileName}</p>}
-          <Button onClick={upload} disabled={!csv.trim() || uploading}>
+          <Button onClick={upload} disabled={!csv.trim() || !profileId || uploading}>
             {uploading ? 'Uploading…' : 'Create instruments'}
           </Button>
         </CardContent>

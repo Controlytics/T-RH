@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import useSWR from 'swr';
 import { parseInstrumentAttributeKeys, placementColumnFor } from '@digilog/shared';
 import { apiClient } from '@/lib/api-client';
@@ -41,6 +41,15 @@ export function InstrumentCreatePage() {
   /** Values for the configured keys, keyed by the key itself. */
   const [attrs, setAttrs] = useState<Record<string, string>>({});
 
+  // Profiles. Arriving from inside a profile (the normal route) pre-selects it
+  // and shows it as a chip: the operator made that choice by opening the
+  // profile, and asking again would be a decision they have already taken.
+  const [searchParams] = useSearchParams();
+  const presetProfileId = searchParams.get('profileId');
+  const { data: profiles } = useSWR<{ data: { id: string; name: string }[] }>('/api/instrument-profiles');
+  const [profileId, setProfileId] = useState(presetProfileId ?? '');
+  const presetProfileName = profiles?.data?.find((p) => p.id === presetProfileId)?.name;
+
   // Public-ish config read: any authenticated user who may create an instrument
   // may see which keys to fill in. A failure here must not block registration,
   // so an unreachable config simply yields no attribute fields.
@@ -55,7 +64,7 @@ export function InstrumentCreatePage() {
     setSaving(true);
     try {
       const code = form.code.trim();
-      const payload: Record<string, unknown> = { name: code, code };
+      const payload: Record<string, unknown> = { name: code, code, profileId };
       if (isGateway) payload.isGateway = true;
 
       // Block / Area / Location are configured keys like any other, but they
@@ -112,6 +121,23 @@ export function InstrumentCreatePage() {
         <Card>
           <CardHeader><CardTitle>Identity</CardTitle></CardHeader>
           <CardContent className="space-y-4">
+            {presetProfileId ? (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <span className="text-xs text-slate-500">Profile</span>
+                <p className="text-sm font-medium text-slate-800">{presetProfileName ?? '…'}</p>
+              </div>
+            ) : (
+              <label className="block space-y-1">
+                <span className="text-sm font-medium text-slate-700">Profile *</span>
+                <select
+                  required value={profileId} onChange={(e) => setProfileId(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                >
+                  <option value="">Select a profile…</option>
+                  {profiles?.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </label>
+            )}
             <label className="block space-y-1">
               <span className="text-sm font-medium text-slate-700">Instrument ID *</span>
               <Input
@@ -157,8 +183,15 @@ export function InstrumentCreatePage() {
         </Card>
 
         <div className="flex justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={() => navigate('/instruments')}>Cancel</Button>
-          <Button type="submit" disabled={saving}>{saving ? 'Creating…' : 'Create Instrument'}</Button>
+          <Button
+            type="button" variant="secondary"
+            onClick={() => navigate(profileId ? `/instruments/profiles/${profileId}` : '/instruments')}
+          >
+            Cancel
+          </Button>
+          <Button type="submit" disabled={saving || !profileId}>
+            {saving ? 'Creating…' : 'Create Instrument'}
+          </Button>
         </div>
       </form>
 
