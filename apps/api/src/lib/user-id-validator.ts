@@ -1,6 +1,24 @@
 import { prisma } from './prisma.js';
 import { userIdConfigSchema } from '@digilog/shared';
 
+/**
+ * Validate a User ID against the configured format (Configuration → User ID Format).
+ *
+ * **Directory (LDAP/AD) users are exempt, by design.** The employee ID of an
+ * AD-provisioned account is whatever the directory says it is — typically
+ * `sAMAccountName` — and this application has no standing to dictate another
+ * organisation's naming convention. Enforcing the format would mean refusing to
+ * admit real employees whose company ID simply doesn't match a pattern an admin
+ * typed here, with no self-service fix available to them.
+ *
+ * The exemption is structural rather than a flag: `ldapService.provisionUser()`
+ * calls `prisma.user.create()` directly and never routes through
+ * `userService.create()`, the only caller of this function. That was previously
+ * true only by accident; it is now a documented contract, guarded by
+ * `modules/ldap/__tests__/user-id-exemption.test.ts`. If you ever add User-ID
+ * validation to the provisioning path, you are changing this decision — see
+ * `docs/LDAP-AD-INTEGRATION-GUIDE.md` § "Which settings apply to AD users".
+ */
 export async function validateUserId(userId: string): Promise<{ valid: boolean; errors: string[] }> {
   const config = await prisma.systemConfig.findUnique({ where: { configKey: 'user-id' } });
   const settings = userIdConfigSchema.safeParse(config?.configValue ?? {});

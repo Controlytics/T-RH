@@ -99,6 +99,12 @@ POST /api/users/:id/enable     Permission: USER_ENABLE_DISABLE, Reauth: ENABLE_U
 POST /api/users/:id/disable    Permission: USER_ENABLE_DISABLE, Reauth: DISABLE_USER
 POST /api/users/:id/unlock     Permission: USER_UNLOCK, Reauth: UNLOCK_USER
 ```
+`unlock` body: `{ newPassword }` — **required for local accounts, omitted for
+directory (LDAP/AD) accounts**, which have no local password to set (2026-08-08;
+was unconditionally required). The response carries `passwordIssued` so the
+caller can tell the admin whether a temporary password was actually created.
+`POST /api/users/:id/reset-password` is **refused** for directory accounts — see
+`docs/LDAP-AD-INTEGRATION-GUIDE.md` § 3.3.
 
 ### Password Reset Requests
 ```

@@ -5,6 +5,8 @@ import type { PasswordPolicyConfig } from '@digilog/shared';
 interface UnlockDialogData {
   userId: string;
   username: string;
+  /** Credential lives in Active Directory — no temporary password is issued. */
+  isDirectory: boolean;
 }
 
 interface UserUnlockDialogProps {
@@ -44,6 +46,28 @@ export function UserUnlockDialog({
         </DialogTitle>
       </DialogHeader>
       <div className="py-4 space-y-4">
+        {/* Directory accounts: unlocking clears this application's lock and
+            nothing else — there is no password to generate, copy, or hand over.
+            Rendering the temporary-password block for them would show an empty
+            field and instruct the admin to share a password that was never set. */}
+        {unlockDialog?.isDirectory ? (
+          <>
+            <p className="text-slate-600">
+              Unlock user <strong className="text-slate-800">@{unlockDialog.username}</strong>.
+              They sign in with their Active Directory account, so no temporary password is issued.
+            </p>
+            <div className="flex items-start gap-3 p-4 rounded-xl bg-sky-50 border border-sky-200">
+              <svg className="w-5 h-5 text-sky-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <p className="text-sm text-sky-700">
+                This clears the lock in this application only. If the account is also locked or
+                disabled in Active Directory, your IT team must clear it there as well.
+              </p>
+            </div>
+          </>
+        ) : (
+        <>
         <p className="text-slate-600">
           Unlock user <strong className="text-slate-800">@{unlockDialog?.username}</strong> with a temporary password. The user must change their password on next login.
         </p>
@@ -119,6 +143,8 @@ export function UserUnlockDialog({
             Please copy and share this temporary password with the user securely. They will be required to set a new password upon login.
           </p>
         </div>
+        </>
+        )}
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Cancel</Button>

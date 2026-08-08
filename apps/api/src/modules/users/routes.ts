@@ -216,6 +216,11 @@ export default async function userRoutes(app: FastifyInstance) {
                   id: { type: 'string' }, username: { type: 'string' }, fullName: { type: 'string' },
                   email: { type: 'string' }, department: { type: 'string', nullable: true },
                   role: { type: 'string' }, status: { type: 'string' },
+                  // 'local' | 'ldap'. The list page badges directory users and
+                  // hides the password controls that no longer apply to them —
+                  // omit it from this serializer and Fastify strips the field,
+                  // so the UI would silently treat every AD user as local.
+                  authSource: { type: 'string' },
                   lastLogin: { type: 'string', format: 'date-time', nullable: true },
                   createdAt: { type: 'string', format: 'date-time' }, createdBy: { type: 'string', nullable: true },
                 },
@@ -256,6 +261,10 @@ export default async function userRoutes(app: FastifyInstance) {
             role: { type: 'string' }, status: { type: 'string' },
             failedLoginAttempts: { type: 'integer' }, forcePasswordChange: { type: 'boolean' },
             isTemporaryPassword: { type: 'boolean' },
+            // See the list-route note: required by the detail/edit page to
+            // disable local-password actions for directory accounts.
+            authSource: { type: 'string' },
+            ldapDn: { type: 'string', nullable: true },
             lastLogin: { type: 'string', format: 'date-time', nullable: true },
             passwordChangedAt: { type: 'string', format: 'date-time', nullable: true },
             createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
@@ -369,18 +378,33 @@ export default async function userRoutes(app: FastifyInstance) {
     preHandler: [app.requirePermission('USER_UNLOCK')],
     schema: {
       tags: ['Users'], summary: 'Unlock user',
-      description: 'Unlock a locked user account with a temporary password. User must change password on next login.',
+      description:
+        'Unlock a locked user account with a temporary password. User must change password on next login. '
+        + 'For directory (LDAP/AD) accounts, omit newPassword — the lock is cleared and the credential '
+        + 'stays managed in the directory.',
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
-      body: { type: 'object', required: ['newPassword'], properties: { newPassword: { type: 'string', minLength: 8 } } },
-      response: { 200: { type: 'object', properties: { success: { type: 'boolean' }, message: { type: 'string' } } }, ...errorResponses },
+      // `newPassword` is no longer required at the schema level: a directory
+      // account has no local password to set, and demanding one would force the
+      // client to invent a secret that the service discards — sending an unused
+      // credential over the wire and telling the admin a temporary password was
+      // issued when none was. userService.unlock() enforces its presence for
+      // local accounts, where it IS required.
+      body: { type: 'object', properties: { newPassword: { type: 'string', minLength: 8 } } },
+      response: { 200: { type: 'object', properties: { success: { type: 'boolean' }, message: { type: 'string' }, passwordIssued: { type: 'boolean' } } }, ...errorResponses },
     },
   }, async (req, reply) => {
     const { ok } = await enforceReauth('UNLOCK_USER', req, reply);
     if (!ok) return;
     const { id } = req.params as { id: string };
-    const { newPassword } = req.body as { newPassword: string };
-    await userService.unlock(id, newPassword, buildContext(req));
-    return { success: true, message: 'Account unlocked with temporary password. User must change password on next login.' };
+    const { newPassword } = req.body as { newPassword?: string };
+    const { passwordIssued } = await userService.unlock(id, newPassword, buildContext(req));
+    return {
+      success: true,
+      passwordIssued,
+      message: passwordIssued
+        ? 'Account unlocked with temporary password. User must change password on next login.'
+        : 'Account unlocked. Password remains managed in Active Directory.',
+    };
   });
 
   // POST /api/users/:id/reset-password

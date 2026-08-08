@@ -1,6 +1,6 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from './prisma.js';
-import { verifyPassword } from './password.js';
+import { verifyCredential } from './ldap-identity.js';
 import { applyFailedPasswordAttempt } from '../modules/auth/auth.service.js';
 import type { ActionReauthConfig } from '@digilog/shared';
 
@@ -10,6 +10,13 @@ import type { ActionReauthConfig } from '@digilog/shared';
  * a valid-session attacker can't grind the password via reauth without locking.
  * Returns null on success (streak reset if any), or a REAUTH_FAILED reply payload
  * on failure (with a LOCKED code once the threshold trips).
+ *
+ * 2026-08-08: routed through `verifyCredential`. This path had the same defect
+ * as `authService.verify` — a straight bcrypt compare against a directory
+ * user's sentinel hash, which always fails — so every inline-password reauth
+ * was unreachable for AD-authenticated staff, and three attempts locked them
+ * out of the application entirely. Lockout is delegated to the directory for
+ * those users (see lib/ldap-identity.ts).
  */
 async function verifyReauthPassword(
   req: FastifyRequest,
@@ -17,8 +24,12 @@ async function verifyReauthPassword(
 ): Promise<{ error: string; message: string } | null> {
   const user = await prisma.user.findUnique({ where: { id: req.user.sub } });
   if (!user) return { error: 'REAUTH_FAILED', message: 'User not found.' };
-  const valid = await verifyPassword(password, user.passwordHash);
-  if (!valid) {
+  const { ok, lockoutDelegated, unavailableReason } = await verifyCredential(user, password);
+  if (!ok) {
+    if (unavailableReason) console.error(`[Reauth] ${user.username}: ${unavailableReason}`);
+    if (lockoutDelegated) {
+      return { error: 'REAUTH_FAILED', message: 'Incorrect password. Please try again.' };
+    }
     const { locked } = await applyFailedPasswordAttempt(user, req.ip, req.headers['user-agent']);
     return locked
       ? { error: 'ACCOUNT_LOCKED', message: 'Account locked due to multiple failed attempts. Contact administrator.' }

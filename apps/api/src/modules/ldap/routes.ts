@@ -16,6 +16,10 @@ const LDAP_AUDIT_SAFE_KEYS = [
   'departmentAttribute', 'groupAttribute', 'tlsRejectUnauthorized',
   'connectionTimeout', 'roleMappings', 'ldapGroup', 'role',
   'defaultRole', 'defaultOrganizationId', 'syncAttributes',
+  // Access-granting configuration — an inspector must be able to see who was
+  // allowed in and under which role, so these belong in the audit payload
+  // alongside roleMappings. Neither is a secret.
+  'requiredGroups', 'strictRoleMapping',
 ];
 
 export default async function ldapRoutes(app: FastifyInstance) {

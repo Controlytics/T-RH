@@ -44,7 +44,7 @@ export function UserListPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleteDialog, setBulkDeleteDialog] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
-  const [unlockDialog, setUnlockDialog] = useState<{ userId: string; username: string } | null>(null);
+  const [unlockDialog, setUnlockDialog] = useState<{ userId: string; username: string; isDirectory: boolean } | null>(null);
   const [unlockPassword, setUnlockPassword] = useState('');
   const [showUnlockPassword, setShowUnlockPassword] = useState(false);
   const [unlockCopied, setUnlockCopied] = useState(false);
@@ -193,18 +193,24 @@ export function UserListPage() {
     setSelectedIds(new Set());
   }, [page, search, roleFilter, statusFilter]);
 
-  const handleUnlockOpen = useCallback((userId: string, username: string) => {
-    const pwd = generatePassword(policy);
-    setUnlockPassword(pwd);
+  const handleUnlockOpen = useCallback((userId: string, username: string, authSource?: string) => {
+    // A directory account gets no temporary password — the backend clears the
+    // lock and leaves the credential in AD. Generating one here and showing it
+    // in the dialog would hand the admin a password that unlocks nothing, which
+    // they would then pass to the employee.
+    const isDirectory = authSource === 'ldap';
+    setUnlockPassword(isDirectory ? '' : generatePassword(policy));
     setShowUnlockPassword(false);
     setUnlockCopied(false);
-    setUnlockDialog({ userId, username });
+    setUnlockDialog({ userId, username, isDirectory });
   }, [policy]);
 
   const handleUnlockConfirm = useCallback(async () => {
     if (!unlockDialog) return;
-    const { userId, username } = unlockDialog;
-    const pwd = unlockPassword;
+    const { userId, username, isDirectory } = unlockDialog;
+    // Omit newPassword entirely for directory accounts — the route schema makes
+    // it optional precisely so we don't ship an unused secret.
+    const body = isDirectory ? {} : { newPassword: unlockPassword };
     setUnlockDialog(null);
 
     // This call site used to pass no options, unlike the other two reauth.execute
@@ -213,12 +219,17 @@ export function UserListPage() {
     // exactly like success — the admin would hand out a temp password for an
     // account that was still locked.
     await reauth.execute('UNLOCK_USER', async (password?) => {
-      if (password) await apiClient.postWithReauth(`/api/users/${userId}/unlock`, { newPassword: pwd }, password);
-      else await apiClient.post(`/api/users/${userId}/unlock`, { newPassword: pwd });
+      if (password) await apiClient.postWithReauth(`/api/users/${userId}/unlock`, body, password);
+      else await apiClient.post(`/api/users/${userId}/unlock`, body);
       setUnlockPassword('');
       mutate();
       mutateStats();
-      toast.success('Account unlocked', `User "${username}" can now sign in with the temporary password.`);
+      toast.success(
+        'Account unlocked',
+        isDirectory
+          ? `User "${username}" can now sign in with their Active Directory password.`
+          : `User "${username}" can now sign in with the temporary password.`,
+      );
     }, {
       onError: (err: any) => {
         toast.error('Unlock failed', err?.message || `Failed to unlock user "${username}".`);

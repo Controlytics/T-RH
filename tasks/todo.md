@@ -1976,3 +1976,149 @@ Two decisions taken with the operator:
       five-state taxonomy is in git history.
 - [x] Instrument Activity promoted to Super Admin Settings alongside
       Instrument Attributes.
+
+---
+
+## 2026-08-08 — Active Directory integration (client group→role structure)
+
+Client structure: one parent AD group holding five role sub-groups
+(Admin / Supervisor / Operator / QA / Maintenance), employee IDs inside each.
+
+**Decisions taken (operator, 2026-08-08):**
+- Failed AD binds do NOT increment the local lockout counter — AD owns lockout.
+  Counting in both places double-locks an employee whose AD credential is valid.
+  Failures are still audited; only the counter is delegated.
+- Admin "Reset Password" is REFUSED for directory accounts rather than allowed
+  as a break-glass conversion. Converting is exactly the silent failure mode
+  being fixed (AD disable stops revoking access).
+- User ID Format stays EXEMPT for AD users — we cannot dictate another
+  organisation's naming, and enforcing it locks out real employees with no
+  self-service fix.
+
+**Bugs found while implementing (none were in scope; all fixed):**
+- [x] CRITICAL — reauth impossible for AD users (both paths bcrypt-compared the
+      sentinel). Every e-signature surface was unreachable for AD staff.
+- [x] Password expiry force-locked AD users ~90 days after provisioning.
+- [x] `resetPassword` silently detached an AD account from the directory.
+- [x] A mapped role that doesn't exist produced a permission-less ghost user.
+- [x] Web config page's DEFAULTS re-disabled TLS verification on a fast Save.
+- [x] **Trap created by the expiry fix itself, caught in review:** exempting AD
+      users from COMPUTING expiry left `plugins/auth.ts` still enforcing the
+      STORED `forcePasswordChange` flag. Any AD row the old bug had already
+      flipped would 403 on every endpoint, and the only permitted screen
+      (change-password) now refuses directory accounts — a closed loop with no
+      UI exit, since Unlock only renders for status === 'LOCKED'. Before the fix
+      those users were annoyed; after it they'd have been bricked. Verified
+      `SELECT ... WHERE auth_source='ldap' AND force_password_change` = 0 rows
+      today, so nobody is affected, but the flag is settable by other paths.
+      Fixed both ways: the plugin skips the gate for directory users, AND a
+      successful bind clears the stale flag — needed because the login RESPONSE
+      carries it and the web client redirects on sight regardless of the plugin.
+
+**Work:**
+- [x] `lib/ldap-identity.ts` — single `isLdapUser` / `verifyCredential` used by
+      login, `authService.verify`, and `lib/reauth-check.ts`
+- [x] `requiredGroups` access gate + `strictRoleMapping` (config-only, no schema)
+- [x] `resolveMappedRole` validates against the Roles table, audits mismatches
+- [x] Expiry exemption: login, `plugins/auth.ts`, `password-expiry-sweep.ts`
+- [x] Refusals: resetPassword, changePassword, forgotPassword, reset-request
+      approve; `unlockWithoutPasswordChange` for the AD unlock path
+- [x] `authSource`/`ldapDn` surfaced through both users response schemas
+      (Fastify strips undeclared properties — the UI would have seen nothing)
+- [x] UI: AD badge on list + detail, password actions hidden, unlock dialog
+      variant that doesn't promise a password
+- [x] 30 new tests; `provision-audit.test.ts` mock updated for the role lookup
+- [x] `docs/LDAP-AD-INTEGRATION-GUIDE.md` — client requirements (Part 1, sendable
+      as-is), our configuration (Part 2), what changed (Part 3), which password
+      settings apply to AD employees (Part 4), operations (Part 5)
+- [x] CHANGELOG
+
+**Verification:** API `src/lib` + `src/modules/{ldap,auth,users}` = **338
+passing, 0 failed** (25 files). Both apps typecheck clean. Full API suite
+**1033 passed / 14 failed**; the 14 (5 e2e files) were confirmed PRE-EXISTING by
+`git stash` + re-run on the clean tree, which produced exactly the same 14 in
+the same 5 files. Web 541 passed / 5 failed, also confirmed pre-existing the
+same way (`url-utils`, `use-can` — neither touches a file in this change).
+**41 new tests** across 4 files.
+
+**Not done / open:**
+- Nothing enforces the parent-group `memberOf` clause in `searchFilter`; the new
+  Access Restriction list is the in-code backstop, but a scoped filter is still
+  the recommended primary control. Both are documented.
+- No background group sync. Role changes and group removals apply at NEXT LOGIN
+  only. Immediate revocation needs AD disable + Disable here (documented §5.2).
+- Not exercised against a real AD server — no directory available locally. All
+  cover is unit-level against a mocked `ldapts` client. **First real-AD connect
+  should follow the §2.4 test sequence, especially step 5 (an approval by an AD
+  Supervisor) and step 6 (a non-member being refused).**
+
+
+## 2026-08-08 (later) — A local AD to test against, and what it caught
+
+No directory available and none runnable here (Docker/WSL2 unavailable), so
+`apps/api/src/test-support/fake-ad-server.ts` stands in — ldapjs speaking the real
+LDAP protocol, with the customer's nested-group layout and, deliberately, AD's
+direct-vs-transitive `memberOf` distinction. `src/e2e/ldap-directory.e2e.test.ts`
+drives the real application against it: **28 tests, all passing.**
+
+**Bugs the real socket found that mocks could not:**
+- [x] **`ldap://` never worked.** ldapts sets `secure = isSecureProtocol ||
+      hasTlsOptions`, and all three client sites passed `tlsOptions`
+      unconditionally — so a plain `ldap://host:389` URL attempted a TLS
+      handshake against a cleartext port. The config page offers `ldap://`
+      explicitly. Centralised in `buildClient()`; TLS options only for `ldaps://`.
+- [x] **First login bound to the directory twice** (4 binds, 2 searches, password
+      sent twice) — provisioning authenticated, then the directory-user path
+      authenticated the same person again. Caught by asserting the exact bind log
+      a real server received.
+- [x] **My own e2e polluted the shared test DB.** It restored only 2 of the 4
+      `system_config` keys it wrote, leaving `password-policy` as
+      `{passwordExpiryDays: 90}` — which stripped minLength and every complexity
+      flag and broke 3 unrelated `user.service.test.ts` tests that deliberately
+      run the REAL validator. Now snapshots/restores all four via
+      `TOUCHED_CONFIG_KEYS`; the DB is verified clean after a full run.
+- [x] **Pre-existing flake fixed** (`tcp-ingest`, `ws-ingest`): each polled a
+      `findMany` snapshot against a SEPARATE `count()`, so a row landing between
+      the two queries returned the empty snapshot — and an empty array is truthy,
+      so the poll reported ready and `rows[0]` was undefined. A different ingest
+      file failed on each full run once the LDAP suite added load. Both now derive
+      readiness from the same rows.
+
+**Verification:** full API suite back to the exact pre-existing baseline —
+**1061 passed / 14 failed / 8 skipped**, the same 14 in the same 5 files as the
+clean-tree stash comparison. LDAP e2e 28/28. Typecheck clean.
+
+**Still NOT covered — verify on the first real-AD connect:**
+- TLS end to end. The stand-in listens on plain `ldap://`, so certificate trust
+  and `tlsRejectUnauthorized` remain unit-verified only.
+- AD's own lockout, password expiry, and disabled-account behaviour.
+- Paged / ranged `memberOf` retrieval on very large groups.
+
+**Browser pass (Playwright, real app + fake AD + `compliance_core_db`):**
+- [x] `EMP1002` signed in through the real login form; dashboard showed
+      "Priya Sharma / SUPERVISOR" with name, email and department from the
+      directory. Sidebar matched SUPERVISOR's RBAC.
+- [x] Users list showed the **AD** badge beside `@EMP1002`; detail page showed
+      the "Active Directory" badge, the full DN, and "Password is managed in
+      Active Directory — reset it there, not here." in place of Generate
+      Temporary Password.
+- [x] Console clean (the only errors were my own CORS misconfiguration before
+      restarting the API with the right ALLOWED_ORIGINS, plus one expected 409
+      session conflict).
+- [x] **Pre-existing bug found and fixed:** every user's Edit page showed
+      "Super Admin" in the Role dropdown regardless of actual role — the options
+      load after RHF applies the value, so the browser falls back to option 0.
+      Confirmed DISPLAY-ONLY by saving a SUPERVISOR and re-reading the row
+      (stayed SUPERVISOR), and reproduced on a local OPERATOR too, so it is
+      neither an escalation nor AD-specific. Fixed by re-applying the value once
+      the options exist.
+- [x] **Trap found and pinned:** `requiredGroups` matches DIRECT `memberOf` only,
+      so entering the PARENT group DN refuses every login. My own e2e test had
+      used the parent and asserted only the refusal — it passed while describing
+      a configuration that locks the company out. Test now also asserts a member
+      IS admitted, a second test pins the parent-group behaviour, and both the
+      config page and the guide warn about it explicitly.
+
+**Teardown verified:** LDAP config row deleted from `compliance_core_db` (it did
+not pre-exist), directory users purged from the dev DB, my API/Vite/fake-AD
+processes stopped, the user's own dev server on :3001 untouched.

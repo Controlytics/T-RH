@@ -4,6 +4,7 @@ import { auditLog } from '../../lib/audit.js';
 import { hashPassword } from '../../lib/password.js';
 import { validatePasswordPolicy } from '../../lib/password-validator.js';
 import { validateUserId } from '../../lib/user-id-validator.js';
+import { isLdapUser, LDAP_PASSWORD_MANAGED_MESSAGE } from '../../lib/ldap-identity.js';
 import { NotFoundError, ValidationError, ConflictError, ForbiddenError } from '../../lib/errors.js';
 import { userRepository } from './user.repository.js';
 import { prisma } from '../../lib/prisma.js';
@@ -354,10 +355,60 @@ export const userService = {
     });
   },
 
-  async unlock(id: string, newPassword: string, ctx: RequestContext) {
+  /**
+   * Clear an account lock.
+   *
+   * Returns `passwordIssued` so the caller can tell the admin the truth about
+   * what happened: local accounts get a temporary password they must hand over,
+   * directory accounts get their lock cleared and nothing else.
+   */
+  async unlock(id: string, newPassword: string | undefined, ctx: RequestContext): Promise<{ passwordIssued: boolean }> {
     const user = await userRepository.findByIdFull(id);
     if (!user) throw new NotFoundError('User not found');
     await assertCanManageTarget(ctx.userRole, (user as any).role);
+
+    // Directory accounts unlock WITHOUT a password being set.
+    //
+    // Unlock's normal job is "clear the lock and hand the user a temporary
+    // password"; for an AD user the second half is both impossible and harmful —
+    // it would overwrite the sentinel and detach them from the directory exactly
+    // like resetPassword did. Clearing the lock alone is the whole meaningful
+    // operation: their credential is already valid, it is only this application's
+    // lock that stands in the way.
+    //
+    // These rows can still exist even though LDAP lockout is now delegated —
+    // accounts locked before that change, or locked by a non-credential path.
+    if (isLdapUser(user as any)) {
+      await userRepository.unlockWithoutPasswordChange(id, ctx.userId);
+      await userRepository.terminateSessions(id, 'account_unlocked');
+      invalidateUserAuthCache(id);
+
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole, action: 'ACCOUNT_UNLOCKED',
+        targetType: 'user', targetId: id,
+        beforeValue: {
+          username: user.username, fullName: user.fullName,
+          status: user.status, failedLoginAttempts: user.failedLoginAttempts,
+        },
+        afterValue: {
+          username: user.username, fullName: user.fullName,
+          status: 'ENABLED', failedLoginAttempts: 0, authSource: 'ldap',
+          passwordUnchanged: true,
+        },
+        signatureMeaning:
+          'Directory-authenticated account unlocked by administrator '
+          + '(no password set — credential remains managed in Active Directory)',
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      });
+      return { passwordIssued: false };
+    }
+
+    // Local accounts: a temporary password is mandatory. The route schema no
+    // longer enforces it (directory accounts legitimately omit it), so the
+    // requirement is asserted here, where the account type is known.
+    if (!newPassword) {
+      throw new ValidationError('A temporary password is required to unlock a local account');
+    }
     // Administrator-set temporary passwords are held to the same configured
     // complexity policy as create()/self-service change. The route's minLength 8
     // is not the policy — it's a floor. (History reuse is deliberately not checked
@@ -381,12 +432,29 @@ export const userService = {
       signatureMeaning: 'User account unlocked by administrator with temporary password',
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
+
+    return { passwordIssued: true };
   },
 
   async resetPassword(id: string, newPassword: string, ctx: RequestContext) {
     const user = await userRepository.findByIdFull(id);
     if (!user) throw new NotFoundError('User not found');
     await assertCanManageTarget(ctx.userRole, (user as any).role);
+
+    // Refuse for directory accounts (operator decision, 2026-08-08).
+    //
+    // This used to "work": it hashed the new password over the LDAP sentinel,
+    // which silently detached the account from Active Directory. From that
+    // moment the employee's AD password no longer signed them in, and — far
+    // worse — disabling or deleting them in AD no longer revoked their access
+    // to this application, because the credential had quietly become local. An
+    // admin clicking a familiar button had no way to know they had done that.
+    if (isLdapUser(user as any)) {
+      throw new ValidationError(
+        `${LDAP_PASSWORD_MANAGED_MESSAGE} To reset it, use your directory tools `
+        + '(Active Directory Users and Computers), or ask your IT team.',
+      );
+    }
     // Same policy parity as unlock()/create() — see note in unlock().
     await validatePasswordPolicy(newPassword, user.username);
 
@@ -467,6 +535,17 @@ export const userService = {
     await assertCanManageTarget(ctx.userRole, (user as any).role);
 
     if (action === 'approve') {
+      // Same conversion hazard as resetPassword() — approving would write a
+      // local bcrypt hash over the directory sentinel and detach the account
+      // from AD. `forgotPassword` no longer files requests for directory users,
+      // so this only fires on requests raised before that guard existed; reject
+      // them instead, with a message that tells the admin where to actually go.
+      if (isLdapUser(user as any)) {
+        throw new ValidationError(
+          `${LDAP_PASSWORD_MANAGED_MESSAGE} Reject this request and reset the password in `
+          + 'Active Directory instead.',
+        );
+      }
       if (!newPassword) throw new ValidationError('New password is required');
       // Was a bare `length < 8` check, which ignored the configured policy —
       // same parity fix as unlock()/resetPassword().

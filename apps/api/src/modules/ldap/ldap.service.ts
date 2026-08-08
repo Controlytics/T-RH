@@ -4,6 +4,19 @@ import { auditLog } from '../../lib/audit.js';
 import { invalidateUserAuthCache } from '../../plugins/auth.js';
 
 /**
+ * Placeholder written to `users.password_hash` for directory-authenticated
+ * accounts. Deliberately NOT a valid bcrypt hash: `bcrypt.compare()` against it
+ * always returns false, so any credential path that forgets to consult
+ * `authSource` fails closed rather than open.
+ *
+ * Declared here — the leaf that actually writes it — and re-exported by
+ * `lib/ldap-identity.ts`, which reads it. The dependency runs one way only
+ * (ldap-identity → ldap.service); declaring it in ldap-identity instead would
+ * close the loop into an import cycle.
+ */
+export const LDAP_SENTINEL_HASH = 'LDAP_EXTERNAL_AUTH';
+
+/**
  * Escape a string for safe use as an LDAP search-filter assertion value.
  *
  * Per RFC 4515 §3, the following characters MUST be escaped in filter
@@ -46,6 +59,39 @@ export interface LdapConfig {
   defaultRole: string;
   defaultOrganizationId?: string;
   syncAttributes: boolean;
+  /**
+   * Groups a directory user MUST belong to before they are allowed in at all
+   * (checked in code, after the bind, against the resolved group list).
+   *
+   * Until this existed, access restriction lived ENTIRELY in whether the
+   * administrator happened to type a `memberOf` clause into `searchFilter`.
+   * With the default filter — `(sAMAccountName={{username}})` — every employee
+   * in the whole directory could log in and be auto-provisioned onto
+   * `defaultRole`. That is a silent, one-typo-wide door, and nothing in the
+   * product enforced or even warned about it.
+   *
+   * Empty array = no restriction (previous behaviour, preserved for existing
+   * installs). Matching uses the same whole-value-or-exact-RDN rule as
+   * `roleMappings`, so an operator can enter either the full group DN or just
+   * its CN.
+   *
+   * This is defence in depth, not a replacement for a scoped `searchFilter`:
+   * the filter keeps non-members from being looked up at all, this keeps them
+   * out if the filter is wrong.
+   */
+  requiredGroups: string[];
+  /**
+   * Refuse the login when a `roleMappings` entry names a role that does not
+   * exist (or is inactive) in the Roles table, instead of falling back to
+   * `defaultRole`.
+   *
+   * Default false — fall back and audit — because the failure mode this guards
+   * is a *typo in configuration*, and locking every matching employee out of
+   * the application is a worse first response than admitting them at the
+   * default (usually least-privileged) role with a loud audit row. Sites that
+   * would rather fail closed can flip it.
+   */
+  strictRoleMapping: boolean;
 }
 
 export interface LdapAuthResult {
@@ -81,6 +127,8 @@ const DEFAULT_CONFIG: LdapConfig = {
   defaultRole: 'OPERATOR',
   defaultOrganizationId: '',
   syncAttributes: true,
+  requiredGroups: [],
+  strictRoleMapping: false,
 };
 
 /**
@@ -104,6 +152,38 @@ function matchesLdapGroup(group: string, ldapGroupLower: string): boolean {
     const eq = rdn.indexOf('=');
     const value = (eq === -1 ? rdn : rdn.slice(eq + 1)).trim();
     return value === ldapGroupLower;
+  });
+}
+
+/**
+ * Build an LDAP client for this configuration.
+ *
+ * **`tlsOptions` is passed ONLY for `ldaps://`.** ldapts decides whether to run
+ * a TLS handshake with
+ *   `secure = isSecureProtocol || hasTlsOptions`
+ * — so merely *supplying* `tlsOptions` forces TLS regardless of the URL scheme.
+ * All three call sites used to pass it unconditionally, which meant a plain
+ * `ldap://host:389` connection attempted a TLS handshake against a cleartext
+ * port and died with
+ *   "Client network socket disconnected before secure TLS connection was established"
+ * — an error that points an operator at their certificates when the real
+ * problem is that we asked for TLS on a non-TLS port. The config page offers
+ * `ldap://` in as many words ("or ldap:// for plain (port 389)"), so this made a
+ * documented, offered option silently impossible. Found 2026-08-08 the first
+ * time the code was pointed at a real LDAP server rather than a mock.
+ *
+ * Security is unaffected: `ldaps://` still gets `rejectUnauthorized`, still
+ * defaulting to true. An operator choosing `ldap://` has chosen cleartext, and
+ * a TLS setting was never going to protect them.
+ */
+function buildClient(cfg: Pick<LdapConfig, 'serverUrl' | 'connectionTimeout' | 'tlsRejectUnauthorized'>): Client {
+  const isSecure = cfg.serverUrl.trim().toLowerCase().startsWith('ldaps:');
+  return new Client({
+    url: cfg.serverUrl,
+    connectTimeout: cfg.connectionTimeout || 5000,
+    ...(isSecure
+      ? { tlsOptions: { rejectUnauthorized: cfg.tlsRejectUnauthorized ?? true } }
+      : {}),
   });
 }
 
@@ -137,11 +217,7 @@ export const ldapService = {
       return { success: false, message: 'Server URL, Bind DN, and Bind Password are required' };
     }
 
-    const client = new Client({
-      url: cfg.serverUrl,
-      connectTimeout: cfg.connectionTimeout || 5000,
-      tlsOptions: { rejectUnauthorized: cfg.tlsRejectUnauthorized ?? true },
-    });
+    const client = buildClient(cfg);
 
     try {
       await client.bind(cfg.bindDN, cfg.bindPassword);
@@ -156,11 +232,7 @@ export const ldapService = {
     const cfg = await this.getConfig();
     if (!cfg.enabled) return null;
 
-    const client = new Client({
-      url: cfg.serverUrl,
-      connectTimeout: cfg.connectionTimeout || 5000,
-      tlsOptions: { rejectUnauthorized: cfg.tlsRejectUnauthorized ?? true },
-    });
+    const client = buildClient(cfg);
 
     try {
       // Step 1: Bind as service account
@@ -220,17 +292,32 @@ export const ldapService = {
       await client.unbind();
 
       // Step 3: Verify user's password by binding as the user
-      const userClient = new Client({
-        url: cfg.serverUrl,
-        connectTimeout: cfg.connectionTimeout || 5000,
-        tlsOptions: { rejectUnauthorized: cfg.tlsRejectUnauthorized ?? true },
-      });
+      const userClient = buildClient(cfg);
 
       try {
         await userClient.bind(userDn, password);
         await userClient.unbind();
       } catch {
         return null; // Invalid password
+      }
+
+      // Access gate — checked AFTER the user's own bind succeeds, deliberately.
+      // Checking it earlier would let an unauthenticated caller probe group
+      // membership by watching which usernames fail fast; checking it here
+      // means only the account holder learns they lack access. See the
+      // `requiredGroups` doc comment for why this exists at all.
+      if (cfg.requiredGroups?.length) {
+        const permitted = cfg.requiredGroups.some((required) => {
+          const wanted = required.toLowerCase().trim();
+          return wanted !== '' && groups.some((g) => matchesLdapGroup(g, wanted));
+        });
+        if (!permitted) {
+          console.warn(
+            `[LDAP] "${username}" authenticated but is not a member of any required group `
+            + `(${cfg.requiredGroups.join(', ')}) — access refused.`,
+          );
+          return null;
+        }
       }
 
       return {
@@ -278,15 +365,64 @@ export const ldapService = {
     return config.defaultRole || 'OPERATOR';
   },
 
+  /**
+   * `mapGroupsToRole` + a existence check against the Roles table.
+   *
+   * `provisionUser`/`syncUserAttributes` write the mapped name straight into
+   * `users.role`, which is a plain VarChar with no FK to `roles.name`. A typo in
+   * a mapping — or mapping to a role an admin later deleted or deactivated —
+   * therefore produced a user with a dangling role: every permission lookup
+   * missed, so they logged in successfully to an application with nothing in it
+   * and no error anywhere explaining why. This is the likely first-run
+   * experience for a client mapping a role like "QA" that they have not created
+   * in Roles & Access yet.
+   *
+   * Returns the role to use plus whether a fallback happened, so the caller can
+   * record the mismatch in the audit trail rather than swallowing it.
+   */
+  async resolveMappedRole(
+    groups: string[],
+    config: LdapConfig,
+  ): Promise<{ role: string; mappedRole: string; fellBack: boolean }> {
+    const mappedRole = this.mapGroupsToRole(groups, config);
+    const exists = await prisma.role.findFirst({
+      where: { name: mappedRole, isActive: true },
+      select: { name: true },
+    });
+    if (exists) return { role: mappedRole, mappedRole, fellBack: false };
+
+    if (config.strictRoleMapping) {
+      throw new Error(
+        `LDAP role mapping resolved to "${mappedRole}", which is not an active role in this application. `
+        + 'Create it under Configuration → Roles & Access, or correct the mapping.',
+      );
+    }
+
+    // Fall back to the configured default — but only if THAT exists, otherwise
+    // we would just swap one dangling role for another.
+    const fallback = config.defaultRole || 'OPERATOR';
+    const fallbackExists = await prisma.role.findFirst({
+      where: { name: fallback, isActive: true },
+      select: { name: true },
+    });
+    console.error(
+      `[LDAP] Mapped role "${mappedRole}" does not exist or is inactive. `
+      + (fallbackExists
+        ? `Falling back to default role "${fallback}".`
+        : `Default role "${fallback}" is ALSO missing — the user will have no permissions.`),
+    );
+    return { role: fallbackExists ? fallback : mappedRole, mappedRole, fellBack: true };
+  },
+
   async provisionUser(username: string, ldapResult: LdapAuthResult, config: LdapConfig) {
-    const role = this.mapGroupsToRole(ldapResult.groups, config);
+    const { role, mappedRole, fellBack } = await this.resolveMappedRole(ldapResult.groups, config);
 
     const user = await prisma.user.create({
       data: {
         username,
         fullName: ldapResult.attributes.fullName || username,
         email: ldapResult.attributes.email || `${username}@ldap.local`,
-        passwordHash: 'LDAP_EXTERNAL_AUTH',
+        passwordHash: LDAP_SENTINEL_HASH,
         role,
         authSource: 'ldap',
         ldapDn: ldapResult.userDn,
@@ -294,6 +430,12 @@ export const ldapService = {
         status: 'ENABLED',
         forcePasswordChange: false,
         isTemporaryPassword: false,
+        // Anchor the expiry clock at provisioning even though directory users
+        // are exempt from password expiry (lib/password-expiry consumers skip
+        // them). Leaving it null made the row indistinguishable from a legacy
+        // local user whose column predates the feature, which is exactly the
+        // ambiguity that let the expiry sweep force-expire AD accounts.
+        passwordChangedAt: new Date(),
       },
     });
 
@@ -309,9 +451,16 @@ export const ldapService = {
         afterValue: {
           username, role, authSource: 'ldap', ldapDn: ldapResult.userDn,
           status: 'ENABLED', ldapGroups: ldapResult.groups,
+          // Only present when the group mapping named a role this application
+          // does not have — an inspector reading the row needs to see that the
+          // role granted is NOT the role the directory mapping asked for.
+          ...(fellBack ? { mappedRoleNotFound: mappedRole } : {}),
         },
         reason: 'LDAP auto-provisioning on first successful directory login',
-        signatureMeaning: `User "${username}" auto-provisioned from LDAP with role "${role}"`,
+        signatureMeaning: fellBack
+          ? `User "${username}" auto-provisioned from LDAP with fallback role "${role}" `
+            + `(mapped role "${mappedRole}" does not exist)`
+          : `User "${username}" auto-provisioned from LDAP with role "${role}"`,
       });
     } catch (auditErr: any) {
       console.error('[LDAP] Audit write failed for auto-provisioned user:', auditErr?.message ?? auditErr);
@@ -329,8 +478,10 @@ export const ldapService = {
     if (ldapResult.attributes.department) updates.department = ldapResult.attributes.department;
     updates.ldapDn = ldapResult.userDn;
 
-    // Update role if group mapping changed
-    const newRole = this.mapGroupsToRole(ldapResult.groups, config);
+    // Update role if group mapping changed. Validated against the Roles table —
+    // an admin deactivating a role must not turn every AD user mapped to it
+    // into a permission-less ghost on their next login.
+    const { role: newRole } = await this.resolveMappedRole(ldapResult.groups, config);
     if (newRole) updates.role = newRole;
 
     if (Object.keys(updates).length > 0) {

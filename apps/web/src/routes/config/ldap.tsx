@@ -28,6 +28,8 @@ interface LdapConfig {
   roleMappings: RoleMappingRow[];
   defaultRole: string;
   syncAttributes: boolean;
+  requiredGroups: string[];
+  strictRoleMapping: boolean;
 }
 
 const DEFAULTS: LdapConfig = {
@@ -42,11 +44,22 @@ const DEFAULTS: LdapConfig = {
   fullNameAttribute: 'displayName',
   departmentAttribute: 'department',
   groupAttribute: 'memberOf',
-  tlsRejectUnauthorized: false,
+  // MUST match the backend DEFAULT_CONFIG (ldap.service.ts). This was `false`
+  // while the backend used `true`: the form seeds from these DEFAULTS before
+  // SWR resolves the saved config, so an admin who opened the page and hit Save
+  // quickly wrote `tlsRejectUnauthorized: false` — silently disabling
+  // certificate verification on an ldaps:// bind, which lets an on-path attacker
+  // present any self-signed certificate and harvest the service-account
+  // password plus every user's password in cleartext. That is the exact finding
+  // the backend default was changed to fix; the stale copy here reintroduced it
+  // through the UI.
+  tlsRejectUnauthorized: true,
   connectionTimeout: 5000,
   roleMappings: [],
   defaultRole: 'OPERATOR',
   syncAttributes: true,
+  requiredGroups: [],
+  strictRoleMapping: false,
 };
 
 export default function LdapConfigPage() {
@@ -66,7 +79,15 @@ export default function LdapConfigPage() {
   const [saveMsg, setSaveMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
-    if (savedConfig) setConfig({ ...DEFAULTS, ...savedConfig });
+    // Array fields are re-defaulted explicitly: a config row saved before these
+    // fields existed spreads them in as undefined, and the render path calls
+    // .map/.length on them.
+    if (savedConfig) setConfig({
+      ...DEFAULTS,
+      ...savedConfig,
+      roleMappings: savedConfig.roleMappings ?? [],
+      requiredGroups: savedConfig.requiredGroups ?? [],
+    });
   }, [savedConfig]);
 
   const updateField = (key: keyof LdapConfig, value: any) => {
@@ -126,6 +147,18 @@ export default function LdapConfigPage() {
 
   const removeRoleMapping = (index: number) => {
     updateField('roleMappings', config.roleMappings.filter((_, i) => i !== index));
+  };
+
+  const addRequiredGroup = () => updateField('requiredGroups', [...config.requiredGroups, '']);
+
+  const updateRequiredGroup = (index: number, value: string) => {
+    const updated = [...config.requiredGroups];
+    updated[index] = value;
+    updateField('requiredGroups', updated);
+  };
+
+  const removeRequiredGroup = (index: number) => {
+    updateField('requiredGroups', config.requiredGroups.filter((_, i) => i !== index));
   };
 
   return (
@@ -255,6 +288,16 @@ export default function LdapConfigPage() {
             <input value={config.searchFilter} onChange={e => updateField('searchFilter', e.target.value)} placeholder="(sAMAccountName={{username}})"
               className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500/30" />
             <p className="text-xs text-slate-400 mt-1">Use {'{{username}}'} as placeholder for the login username</p>
+            <p className="text-xs text-slate-500 mt-1.5">
+              To restrict sign-in to one Active Directory group, add a <span className="font-mono">memberOf</span> clause:
+            </p>
+            <code className="mt-1 block text-[11px] bg-slate-50 border border-slate-200 rounded-lg p-2 text-slate-600 break-all">
+              (&amp;(sAMAccountName={'{{username}}'})(memberOf:1.2.840.113556.1.4.1941:=CN=DigiLog-Users,OU=Groups,DC=company,DC=com))
+            </code>
+            <p className="text-xs text-slate-400 mt-1">
+              The <span className="font-mono">1.2.840.113556.1.4.1941</span> rule makes AD follow nested groups —
+              required when employees are members of role sub-groups rather than the parent group directly.
+            </p>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -303,6 +346,69 @@ export default function LdapConfigPage() {
               <input type="checkbox" checked={config.syncAttributes} onChange={e => updateField('syncAttributes', e.target.checked)}
                 className="w-4 h-4 rounded border-slate-300 text-green-600 focus:ring-green-500" />
               <span className="text-sm text-slate-700">Sync attributes on every login</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      {/* Access Restriction */}
+      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-slate-800 flex items-center gap-2">
+              <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+              Access Restriction
+            </h3>
+            <button onClick={addRequiredGroup} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-green-50 text-green-700 rounded-lg hover:bg-green-100">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+              Add Group
+            </button>
+          </div>
+        </div>
+        <div className="p-6 space-y-3">
+          <p className="text-sm text-slate-600">
+            Only directory users who belong to at least one of these groups may sign in.
+            Enter the full group DN or just its name.
+          </p>
+          <div className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-800">
+            <span className="font-medium">List the groups your employees are actually in.</span>{' '}
+            This check reads <span className="font-mono text-xs">memberOf</span>, which reports only
+            direct membership — it does not follow nesting. If your staff sit in role sub-groups
+            (Admin, Supervisor, QA…) inside a parent group, list the <em>sub-groups</em>. Entering
+            the parent group here matches nobody and refuses every login.
+            Nesting belongs in the Search Filter above, via the matching rule.
+          </div>
+          {config.requiredGroups.length === 0 ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              <p className="font-medium">No restriction configured — every user in the directory can sign in.</p>
+              <p className="mt-1 text-amber-700">
+                Anyone your directory can authenticate will be created here automatically with the
+                default role below. Add the group your company uses for this application, or scope
+                the Search Filter above, or both.
+              </p>
+            </div>
+          ) : (
+            config.requiredGroups.map((group, i) => (
+              <div key={i} className="flex items-center gap-3">
+                <input value={group} onChange={e => updateRequiredGroup(i, e.target.value)} placeholder="CN=DigiLog-Users,OU=Groups,DC=company,DC=com"
+                  className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500/30" />
+                <button onClick={() => removeRequiredGroup(i)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+            ))
+          )}
+          <div className="pt-2 border-t border-slate-100">
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input type="checkbox" checked={config.strictRoleMapping} onChange={e => updateField('strictRoleMapping', e.target.checked)}
+                className="w-4 h-4 mt-0.5 rounded border-slate-300 text-green-600 focus:ring-green-500" />
+              <span className="text-sm text-slate-700">
+                Refuse login when a mapped role does not exist
+                <span className="block text-xs text-slate-400 mt-0.5">
+                  Off (recommended): admit the user at the default role and record the mismatch in the audit trail.
+                  On: a typo in a mapping locks out everyone in that group.
+                </span>
+              </span>
             </label>
           </div>
         </div>

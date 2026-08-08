@@ -1,5 +1,140 @@
 # Changelog
 
+## [Unreleased] — A local Active Directory to develop against, and two bugs it caught (2026-08-08)
+
+There is no directory to develop against on this machine and none can be run —
+Docker/WSL2 are unavailable here, ruling out samba-ad-dc or an OpenLDAP
+container. `apps/api/src/test-support/fake-ad-server.ts` is an Active Directory
+stand-in that speaks the real LDAP wire protocol (ldapjs, a new devDependency),
+so the application talks to it through the unmodified `ldapts` client over a TCP
+socket. It models the customer's layout: one parent group, five role sub-groups,
+employees inside the sub-groups — and, crucially, the direct-vs-transitive
+`memberOf` distinction, so the nested-group filter we recommend is genuinely
+exercised rather than assumed. Run it standalone with
+`npx tsx src/test-support/fake-ad-server.ts` to drive the real app in a browser.
+
+`src/e2e/ldap-directory.e2e.test.ts` — **28 end-to-end tests** over that server:
+auto-provisioning, all five group→role mappings, the two-bind flow, an
+authenticated non-member being refused, `/api/auth/verify` succeeding with an AD
+password, `enforceReauth` on a real endpoint, every refused password operation,
+expiry exemption, the stranded-flag heal, role-mapping fallback, attribute sync,
+and the failure modes (LDAP off, wrong service password, unreachable server).
+
+Pointing the code at a real server immediately found two things mocks could not:
+
+**`ldap://` never worked at all.** ldapts decides on TLS with
+`secure = isSecureProtocol || hasTlsOptions`, so merely *passing* `tlsOptions`
+forced a TLS handshake regardless of scheme. All three client sites passed it
+unconditionally, so a plain `ldap://host:389` connection attempted TLS against a
+cleartext port and failed with "Client network socket disconnected before secure
+TLS connection was established" — an error pointing the operator at their
+certificates when the real fault was ours. The config page offers `ldap://` in as
+many words. Client construction is now centralised in `buildClient()`, which
+passes `tlsOptions` only for `ldaps://`; `rejectUnauthorized` still defaults to
+true there.
+
+**Every first login bound to the directory twice.** The auto-provisioning path
+authenticated and created the row, then the directory-user path authenticated the
+same person again — four binds and two searches for one login, with the user's
+password transmitted twice, and double the surface on which a flaky DC could fail
+the login that provisions someone. `login()` now records that it provisioned this
+request and skips the second round trip. Caught by asserting the exact bind log a
+real server received.
+
+Also fixed, found while driving the real UI: **every user's Edit page displayed
+"Super Admin" as their role**, whoever they were. react-hook-form pushes the
+user's role into the `<select>` when the user loads, but the options come from a
+separate request that resolves later — setting a value for an option that isn't
+rendered yet is a no-op, and the browser then falls back to the first option.
+The save was never affected (RHF submits from its own state, verified by saving
+a SUPERVISOR and re-reading the row), so this was a display defect rather than a
+privilege escalation — but it told an admin the wrong thing on the one screen
+where role is the point. Reproduced on both a directory and a local account.
+
+Also fixed, found while stabilising the suite: `tcp-ingest` and `ws-ingest` each
+polled with a `findMany` snapshot compared against a SEPARATE `count()`, so a row
+landing between the two queries returned the empty snapshot — and since an empty
+array is truthy, the poll reported ready and the next line dereferenced
+`rows[0]` of nothing. Intermittent by construction; it surfaced as a different
+ingest file failing on each full-suite run once the LDAP suite added load. Both
+now derive readiness from the same rows.
+
+## [Unreleased] — Active Directory integration made usable and safe (2026-08-08)
+
+Written for a client who keeps one parent AD group containing five role
+sub-groups (Admin / Supervisor / Operator / QA / Maintenance) with employee IDs
+inside. Configuring that revealed the directory path had been carrying five
+defects, three of them severe. LDAP login itself worked; **every other
+credential surface had no idea directory users existed** and treated the
+`LDAP_EXTERNAL_AUTH` sentinel as though it were a bcrypt hash.
+
+**Re-authentication could never succeed for a directory user — critical.**
+`authService.verify` and `lib/reauth-check.ts` both bcrypt-compared against the
+sentinel, which never matches. An AD-authenticated Supervisor or QA could log in
+but could not approve, sign, bypass, terminate, or save any reauth-gated
+configuration — every 21 CFR §11.200 electronic-signature surface in the
+product. Three attempts also locked the account. Both paths now re-bind to the
+directory through the new `lib/ldap-identity.ts`, which is the single definition
+of "is this credential ours?" that they share.
+
+**Password expiry locked out every AD user after 90 days.** The expiry clock ran
+on accounts whose password this application never changes, so `passwordChangedAt`
+never advanced. At `passwordExpiryDays` after provisioning they were flagged
+"must change password" — and the change-password screen cannot serve an account
+with no local password. Exempted at login, in the per-request plugin gate, and in
+the nightly notification sweep.
+
+**"Reset Password" silently converted an AD account to local.** It hashed the new
+password over the sentinel. The employee's AD password stopped working and —
+worse — disabling them in AD no longer revoked their access here. Now refused,
+along with self-service change, forgot-password (silently, to avoid a
+user-enumeration oracle on a public endpoint), and approval of pending reset
+requests. `unlock()` gained a password-free path so a locked AD account can still
+be released without inventing a credential.
+
+**A mapped role that did not exist created a permission-less ghost.**
+`users.role` has no FK, so a mapping naming a role the application lacks — a
+typo, or `QA` before anyone created it — produced a user who logged in
+successfully to an empty application with no error anywhere. `resolveMappedRole`
+validates against the Roles table, falls back to the default, and records both
+names on the audit row (`mappedRoleNotFound`). `strictRoleMapping` opts into
+failing closed instead.
+
+**The config page silently disabled TLS verification.** Its `DEFAULTS` said
+`tlsRejectUnauthorized: false` while the backend said `true`; the form seeds from
+its own defaults before SWR resolves, so an admin who saved quickly wrote `false`
+and re-introduced the on-path credential-harvesting exposure the backend default
+exists to prevent.
+
+**New — Access Restriction (`requiredGroups`).** Until now, restricting who could
+sign in lived entirely in whether an administrator remembered to type a
+`memberOf` clause into `searchFilter`; with the shipped default filter the whole
+directory was admitted and auto-provisioned onto `defaultRole`, with no warning
+anywhere. Now checked in code after the bind, using the same
+whole-value-or-exact-RDN matching as `roleMappings`. Empty = unrestricted
+(existing installs unchanged), and the page warns when it is.
+
+Lockout for directory users is **delegated to AD** (operator decision): counting
+locally as well produces double lockout, stranding an employee whose AD
+credential is perfectly valid. Failures are still audited in full — only the
+counter is delegated. The **User ID Format** config stays exempt for AD users, now
+deliberately and test-guarded rather than by accident.
+
+Users list and detail badge directory accounts and hide the local-password
+actions the backend refuses; the unlock dialog no longer offers a temporary
+password that would never be set.
+
+Client-facing setup guide, including exactly what to request from the customer's
+AD administrator and the PowerShell that produces it:
+`docs/LDAP-AD-INTEGRATION-GUIDE.md`.
+
+No schema change, no new permissions, no new reauth actions — all configuration
+lives in the existing `system_config['ldap']` JSON.
+
+New tests (30): `lib/__tests__/ldap-identity.test.ts`,
+`modules/ldap/__tests__/required-groups.test.ts`,
+`modules/ldap/__tests__/role-validation.test.ts`.
+
 ## [Unreleased] — Signal module removed; Instrument Activity promoted (2026-08-07)
 
 `routes/instruments/signal.ts`, `signal-mast.tsx` and their test (300 lines)

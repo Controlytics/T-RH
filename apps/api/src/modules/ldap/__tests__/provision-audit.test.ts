@@ -14,6 +14,12 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 const { mockPrisma, mockAuditLog, mockInvalidateCache } = vi.hoisted(() => ({
   mockPrisma: {
     user: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn() },
+    // Added 2026-08-08: resolveMappedRole() now verifies the group-mapped role
+    // actually exists in the Roles table before writing it to users.role, which
+    // has no FK. Default this to "the role exists" so these audit tests keep
+    // exercising the happy path; the fallback path has its own cover in
+    // role-validation.test.ts.
+    role: { findFirst: vi.fn() },
   },
   mockAuditLog: vi.fn(),
   mockInvalidateCache: vi.fn(),
@@ -42,6 +48,7 @@ const config: any = {
 describe('ldapService.provisionUser — audit', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockPrisma.role.findFirst.mockResolvedValue({ name: 'ADMIN' });
     mockPrisma.user.create.mockResolvedValue({ id: 'u-new', username: 'jdoe', role: 'ADMIN' });
   });
 
@@ -74,6 +81,7 @@ describe('ldapService.provisionUser — audit', () => {
 describe('ldapService.syncUserAttributes — audit', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockPrisma.role.findFirst.mockResolvedValue({ name: 'ADMIN' });
     mockPrisma.user.update.mockResolvedValue({});
   });
 

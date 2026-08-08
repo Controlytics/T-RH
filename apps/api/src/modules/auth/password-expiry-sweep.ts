@@ -42,8 +42,18 @@ export async function sweepPasswordExpiryNotifications(): Promise<{ warned: numb
   if (!(expiryDays > 0) || !(notifDays > 0)) return { warned: 0, expired: 0 };
   const policyUpdatedAt = policyRow?.updatedAt ?? null;
 
+  // Directory (LDAP/AD) users are excluded alongside SUPER_ADMIN. Their password
+  // lives in the directory, so nothing here can expire or rotate it — including
+  // them produced a daily "your password expires in N days" notice for an event
+  // that would never arrive, addressed to people who have no way to act on it,
+  // plus a matching nag to every ADMIN. Credential ageing for these accounts is
+  // the directory's responsibility (§11.300(b)). See lib/ldap-identity.ts.
   const users = await prisma.user.findMany({
-    where: { status: 'ENABLED', role: { not: 'SUPER_ADMIN' } },
+    where: {
+      status: 'ENABLED',
+      role: { not: 'SUPER_ADMIN' },
+      NOT: { authSource: 'ldap' },
+    },
     select: { username: true, fullName: true, passwordChangedAt: true, createdAt: true },
   });
 

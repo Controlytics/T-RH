@@ -31,6 +31,7 @@ export const userRepository = {
         select: {
           id: true, username: true, fullName: true, email: true, department: true,
           role: true, status: true, lastLogin: true, createdAt: true, createdBy: true,
+          authSource: true,
         },
         orderBy: { createdAt: 'desc' },
         ...(limit ? { skip: (page - 1) * limit, take: limit } : {}),
@@ -48,6 +49,9 @@ export const userRepository = {
         role: true, status: true, failedLoginAttempts: true, forcePasswordChange: true,
         isTemporaryPassword: true, lastLogin: true, passwordChangedAt: true,
         createdAt: true, updatedAt: true, createdBy: true, updatedBy: true,
+        // Identity origin — drives the "Active Directory" badge and the
+        // disabling of local-password controls on the user detail/edit page.
+        authSource: true, ldapDn: true,
       },
     });
   },
@@ -164,6 +168,32 @@ export const userRepository = {
     const days = policy?.passwordExpiryDays ?? 90;
     if (days <= 0) return null;
     return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+  },
+
+  /**
+   * Clear an account lock without touching the credential.
+   *
+   * Used for directory (LDAP/AD) accounts, whose password this application does
+   * not own — see userService.unlock(). Deliberately writes NO passwordHash, NO
+   * passwordHistory row, and does NOT set forcePasswordChange/isTemporaryPassword:
+   * there is no local password to change, so flagging one would strand the user
+   * at a change-password screen that refuses directory accounts.
+   */
+  async unlockWithoutPasswordChange(id: string, updatedBy: string) {
+    const result = await prisma.user.update({
+      where: { id },
+      data: {
+        status: 'ENABLED',
+        failedLoginAttempts: 0,
+        lockedAt: null,
+        lockoutUntil: null,
+        forcePasswordChange: false,
+        isTemporaryPassword: false,
+        updatedBy,
+      },
+    });
+    invalidateUserAuthCache(id);
+    return result;
   },
 
   async unlockUser(id: string, newHash: string, passwordExpiresAt: Date | null, updatedBy: string) {

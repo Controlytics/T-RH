@@ -61,6 +61,15 @@ admin-requests, assets, audit, auth, backup, block-change-requests, checklist-pr
   `AUDIT_CHAIN_KEY` is set it writes a keyed HMAC-SHA256 (V3, `audit_trail.checksum_version=3`)
   so a DB-level actor can't forge the chain. Verifier requires the key for v3 rows; legacy rows
   keep the unkeyed fallback. See `lib/hash-chain.ts`.
+- `ldap-identity.ts` — the single definition of "is this credential ours?".
+  `isLdapUser()` + `verifyCredential()`, shared by `auth.service.login`,
+  `authService.verify`, and `lib/reauth-check.ts` so a directory user's password
+  is checked by an LDAP bind rather than bcrypt-compared against the
+  `LDAP_EXTERNAL_AUTH` sentinel (which always fails). Added 2026-08-08 after
+  that defect was found to make re-authentication — every 21 CFR §11.200
+  e-signature — impossible for AD-authenticated users. Also exports
+  `LDAP_PASSWORD_MANAGED_MESSAGE`, the one wording used wherever a local-password
+  operation is refused. See `docs/LDAP-AD-INTEGRATION-GUIDE.md`.
 - `sanitize.ts` — HTML stripping on all text inputs
 - `config-discovery.ts` — Auto-discover config definitions at startup
 - `config-registry.ts` — Self-registering config module pattern
@@ -72,6 +81,33 @@ admin-requests, assets, audit, auth, backup, block-change-requests, checklist-pr
 ```bash
 cd apps/api && npm test    # Stable single-fork run (see below for why)
 ```
+
+### Local Active Directory stand-in (2026-08-08)
+
+`src/test-support/fake-ad-server.ts` is an AD stand-in speaking the real LDAP
+wire protocol (`ldapjs`, devDependency). There is no directory to develop
+against on this machine and none can be run — Docker/WSL2 are unavailable — so
+this is how the LDAP code is exercised through the unmodified `ldapts` client
+over a TCP socket rather than through a mock. It reproduces the customer's
+layout (parent group → five role sub-groups → employees) and AD's
+direct-vs-transitive `memberOf` distinction.
+
+- `npx tsx src/test-support/fake-ad-server.ts` — run standalone on `:1389` and
+  drive the real app in a browser; it prints every value to paste into the
+  config page.
+- `npx vitest run src/e2e/ldap-directory.e2e.test.ts` — 28 e2e tests over it.
+
+It found two bugs no mock could: `ldap://` never worked (ldapts turns on TLS
+whenever `tlsOptions` is present, and we always passed them), and every first
+login bound to the directory twice. Does NOT cover TLS, AD's own
+lockout/expiry, or paged `memberOf` — see `docs/LDAP-AD-INTEGRATION-GUIDE.md`
+§2.4.
+
+**If you add a `system_config` key to that e2e file, add it to
+`TOUCHED_CONFIG_KEYS` in the same commit.** The suite shares
+`compliance_core_db_test`; an earlier version restored only 2 of the 4 keys it
+wrote and left `password-policy` stripped of its complexity flags, silently
+breaking three unrelated `user.service.test.ts` tests.
 
 ### Single-fork requirement (read before running the suite)
 

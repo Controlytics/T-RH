@@ -5,6 +5,9 @@ import { auditLog } from '../../lib/audit.js';
 import { hashPassword, verifyPassword } from '../../lib/password.js';
 import { isPasswordExpired } from '../../lib/password-expiry.js';
 import { ldapService } from '../ldap/ldap.service.js';
+import {
+  isLdapUser, verifyCredential, LDAP_SENTINEL_HASH, LDAP_PASSWORD_MANAGED_MESSAGE,
+} from '../../lib/ldap-identity.js';
 import { signToken, signVerificationToken, verifyToken } from '../../lib/jwt.js';
 import { AppError, NotFoundError, ValidationError, ConflictError } from '../../lib/errors.js';
 import { authRepository } from './auth.repository.js';
@@ -85,6 +88,20 @@ export async function applyFailedPasswordAttempt(
 export const authService = {
   async login(username: string, password: string, ip: string, userAgent: string | undefined, force?: boolean) {
     let user = await authRepository.findUserByUsername(username);
+    /**
+     * Set when THIS request auto-provisioned the account, so the directory
+     * branch below knows the bind has already happened.
+     *
+     * Without it, a first login hit the directory twice: once here to
+     * authenticate-and-provision, then again a few lines down because the row it
+     * had just created is (correctly) a directory user. Two full round trips —
+     * four binds and two searches — and the user's password transmitted twice,
+     * for one login. Harmless in a test, not harmless at shift change on a
+     * tablet fleet, and it doubled the surface on which a flaky DC could fail
+     * the very login that provisions someone. Found 2026-08-08 by counting the
+     * binds a real LDAP server actually received.
+     */
+    let provisionedThisRequest = false;
     if (!user) {
       // Try LDAP auto-provisioning if enabled
       try {
@@ -93,8 +110,10 @@ export const authService = {
           const ldapResult = await ldapService.authenticateUser(username, password);
           if (ldapResult) {
             user = await ldapService.provisionUser(username, ldapResult, ldapConfig) as any;
-            // LDAP user auto-provisioned
-            // Skip to session creation (user is already authenticated via LDAP bind)
+            // Authenticated by the bind above, and the row was just written FROM
+            // that same directory record — so there is nothing left to verify and
+            // nothing to sync.
+            provisionedThisRequest = true;
           }
         }
       } catch (ldapErr: any) {
@@ -135,9 +154,15 @@ export const authService = {
       }
     }
 
-    // LDAP authentication for LDAP-sourced users
-    let skipPasswordCheck = false;
-    if ((user as any).authSource === 'ldap' && user.role !== 'SUPER_ADMIN') {
+    // LDAP authentication for LDAP-sourced users.
+    //
+    // `isLdapUser` (lib/ldap-identity.ts) replaces the previous raw
+    // `authSource === 'ldap' && role !== 'SUPER_ADMIN'` test so this branch and
+    // the sentinel guard below agree on one definition — and so the reauth
+    // surfaces, which had no such branch at all, can share it.
+    let skipPasswordCheck = provisionedThisRequest;
+    const directoryUser = isLdapUser(user as any);
+    if (directoryUser && !provisionedThisRequest) {
       try {
         const ldapConfig = await ldapService.getConfig();
         if (ldapConfig.enabled) {
@@ -146,8 +171,46 @@ export const authService = {
             skipPasswordCheck = true;
             // Sync attributes from LDAP
             await ldapService.syncUserAttributes(user.id, ldapResult, ldapConfig);
+
+            // Heal a stranded forcePasswordChange flag.
+            //
+            // The pre-2026-08-08 expiry bug set this on every directory user
+            // ~90 days after provisioning. The flag is a dead end for them: the
+            // only screen it permits is change-password, which now refuses
+            // directory accounts. `plugins/auth.ts` ignores the flag for these
+            // users, but the LOGIN RESPONSE still carries it and the web client
+            // redirects to /change-password on sight — so ignoring it server-side
+            // is not enough; the row has to be corrected. A successful directory
+            // bind is proof the credential is fine, which is exactly when it is
+            // safe to clear.
+            if (user.forcePasswordChange || user.isTemporaryPassword) {
+              await authRepository.updateUser(user.id, {
+                forcePasswordChange: false, isTemporaryPassword: false,
+              });
+              user.forcePasswordChange = false;
+              user.isTemporaryPassword = false;
+            }
           } else {
-            // Audit API-1: unified error — do not distinguish LDAP vs local credential failure
+            // Audit API-1: unified error — do not distinguish LDAP vs local credential failure.
+            //
+            // LOCKOUT IS DELEGATED (operator decision, 2026-08-08): throwing here
+            // deliberately bypasses `applyFailedPasswordAttempt` below, because
+            // the directory runs its own lockout policy. Counting here too would
+            // lock the account in DigiLog at `maxFailedAttempts` while AD still
+            // regards it as healthy, stranding a user who holds perfectly valid
+            // credentials until an admin unlocks them here. The LOGIN_FAILED
+            // audit row below is emitted either way — only the counter is
+            // delegated, never the record.
+            await auditLog({
+              userId: user.username, userRole: user.role, action: 'LOGIN_FAILED',
+              targetType: 'user', targetId: user.id,
+              afterValue: {
+                username: user.username, fullName: user.fullName,
+                authSource: 'ldap', lockoutDelegatedToDirectory: true,
+              },
+              signatureMeaning: 'Directory (LDAP/AD) rejected the supplied credentials',
+              ipAddress: ip, userAgent,
+            });
             throw new AppError(401, 'INVALID_CREDENTIALS', 'Username or password is incorrect.');
           }
         }
@@ -166,7 +229,7 @@ export const authService = {
     // deny, because otherwise `verifyPassword(anything, sentinel)` combined with a
     // stale sentinel would let ANY password log them in. Previously this block
     // unconditionally set skipPasswordCheck = true, which was the bypass.
-    if (user.passwordHash === 'LDAP_EXTERNAL_AUTH' && !skipPasswordCheck) {
+    if (user.passwordHash === LDAP_SENTINEL_HASH && !skipPasswordCheck) {
       await verifyPassword(password, DUMMY_HASH); // keep timing shape constant
       throw new AppError(401, 'INVALID_CREDENTIALS', 'Username or password is incorrect.');
     }
@@ -211,11 +274,21 @@ export const authService = {
     // weakens 21 CFR Part 11 §11.10(g) for privileged accounts; documented
     // trade-off per user request 2026-05-25. The legacy `passwordExpiresAt`
     // column is a frozen-at-write snapshot and is no longer authoritative.
-    const policyRow = user.role === 'SUPER_ADMIN'
-      ? null
-      : await authRepository.getPasswordPolicyRow();
+    //
+    // DIRECTORY USERS ARE EXEMPT (2026-08-08). The application does not own
+    // their credential, so it has nothing to expire: `passwordChangedAt` never
+    // advances for them (nothing here ever changes their password) and
+    // `forcePasswordChange` is a dead end — `changePassword` now refuses them,
+    // and the sentinel hash means there is no password to rotate. Left
+    // unexempted, every AD user was force-expired `passwordExpiryDays` (default
+    // 90) after provisioning and then bounced between a login that succeeded
+    // and a change-password screen that could not, locking them out of the
+    // application while their AD account was perfectly healthy. Credential
+    // ageing for these accounts is the directory's job (§11.300(b)).
+    const expiryExempt = user.role === 'SUPER_ADMIN' || directoryUser;
+    const policyRow = expiryExempt ? null : await authRepository.getPasswordPolicyRow();
     const expiryDays = (policyRow?.configValue as { passwordExpiryDays?: number } | null)?.passwordExpiryDays;
-    if (user.role !== 'SUPER_ADMIN'
+    if (!expiryExempt
         && isPasswordExpired(user.passwordChangedAt, user.createdAt, expiryDays, policyRow?.updatedAt ?? null)
         && !user.forcePasswordChange) {
       await authRepository.updateUser(user.id, { forcePasswordChange: true });
@@ -378,6 +451,15 @@ export const authService = {
     const user = await authRepository.findUserById(userId);
     if (!user) throw new NotFoundError('User not found');
 
+    // A directory account has no local password to change. Without this guard
+    // the flow "succeeded": it bcrypt-hashed the new password over the sentinel,
+    // which silently converted the account to local authentication and cut it
+    // loose from the directory — the user's AD password would then no longer
+    // work, and disabling them in AD would no longer remove their access here.
+    if (isLdapUser(user as any)) {
+      throw new AppError(400, 'LDAP_MANAGED_PASSWORD', LDAP_PASSWORD_MANAGED_MESSAGE);
+    }
+
     if (!user.isTemporaryPassword) {
       if (!currentPassword) throw new AppError(400, 'INVALID_PASSWORD', 'Current password is required');
       const valid = await verifyPassword(currentPassword, user.passwordHash);
@@ -446,14 +528,46 @@ export const authService = {
     });
   },
 
+  /**
+   * Re-authentication for sensitive operations (21 CFR §11.200 — the second
+   * component of an electronic signature). Returns a 5-minute verification token.
+   *
+   * BUG FIXED 2026-08-08: this used to call `verifyPassword(password,
+   * user.passwordHash)` unconditionally. For a directory user that hash is the
+   * literal sentinel string, so bcrypt always returned false and reauth could
+   * NEVER succeed — an AD-authenticated Supervisor or QA could log in but was
+   * unable to approve, sign, bypass, terminate, or save any reauth-gated
+   * configuration. That is every e-signature surface in the product. The failure
+   * also fed `applyFailedPasswordAttempt`, so trying twice more locked the
+   * account outright. Routing through `verifyCredential` re-binds to the
+   * directory instead, which is the correct proof of identity for these users.
+   */
   async verify(userId: string, password: string, ip: string, userAgent: string | undefined) {
     const user = await authRepository.findUserById(userId);
     if (!user) throw new NotFoundError('User not found');
-    const valid = await verifyPassword(password, user.passwordHash);
-    if (!valid) {
-      // Reauth password guesses count toward the SAME lockout as login.
-      const { locked } = await applyFailedPasswordAttempt(user, ip, userAgent);
-      if (locked) throw new AppError(403, 'ACCOUNT_LOCKED', 'Account locked due to multiple failed attempts. Contact administrator.');
+    const { ok, lockoutDelegated, unavailableReason } = await verifyCredential(user as any, password);
+    if (!ok) {
+      if (unavailableReason) console.error(`[Reauth] ${user.username}: ${unavailableReason}`);
+      // Reauth password guesses count toward the SAME lockout as login — except
+      // for directory users, whose lockout the directory owns (see the login
+      // branch above for the double-lockout rationale). The audit record is
+      // written in both cases by applyFailedPasswordAttempt / the caller.
+      if (!lockoutDelegated) {
+        const { locked } = await applyFailedPasswordAttempt(user, ip, userAgent);
+        if (locked) throw new AppError(403, 'ACCOUNT_LOCKED', 'Account locked due to multiple failed attempts. Contact administrator.');
+      } else {
+        await auditLog({
+          userId: user.username, userRole: user.role, action: 'LOGIN_FAILED',
+          targetType: 'user', targetId: user.id,
+          afterValue: {
+            username: user.username, fullName: user.fullName,
+            authSource: 'ldap', context: 'reauthentication',
+            lockoutDelegatedToDirectory: true,
+          },
+          signatureMeaning: 'Directory (LDAP/AD) rejected the re-authentication password',
+          ipAddress: ip, userAgent,
+        });
+      }
       throw new AppError(401, 'INVALID_PASSWORD', 'Password is incorrect');
     }
     // Successful password proof clears the consecutive-failure streak (guarded
@@ -467,6 +581,20 @@ export const authService = {
   async forgotPassword(username: string, ip: string, userAgent: string | undefined) {
     const user = await authRepository.findUserByUsername(username);
     if (!user) return;
+
+    // Directory accounts: return the same silent success as an unknown username.
+    //
+    // Raising a reset request here would put a ticket in the admin queue that
+    // NOTHING can action — `userService.resetPassword` now refuses these users —
+    // so the request would sit pending forever while the employee waits. Telling
+    // the caller "that user is AD-managed" instead would be a user-enumeration
+    // oracle on an unauthenticated, public endpoint, so the silence is
+    // deliberate. The AD-specific guidance belongs on the login screen, where it
+    // reaches the right person without answering questions for an attacker.
+    if (isLdapUser(user as any)) {
+      console.info(`[Auth] Ignoring forgot-password for directory-managed account "${user.username}".`);
+      return;
+    }
 
     const existingRequest = await authRepository.findPendingResetRequest(user.id);
     if (existingRequest) return 'pending';

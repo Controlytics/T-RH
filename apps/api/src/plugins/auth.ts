@@ -86,6 +86,10 @@ type CachedUser = {
    * derives from passwordChangedAt + live policy). Retained for back-compat
    * with any caller that still reads from req-attached user. */
   passwordExpiresAt: Date | null;
+  /** 'local' | 'ldap' — gates the password-expiry check below. Deliberately the
+   * only identity signal cached here: the sentinel test needs `passwordHash`,
+   * and a password hash has no business sitting in a long-lived in-memory map. */
+  authSource: string;
 };
 
 const userAuthCache = new Map<string, { user: CachedUser; cachedAt: number }>();
@@ -121,6 +125,7 @@ async function getCachedUser(userId: string): Promise<CachedUser | null> {
     select: {
       role: true, username: true, status: true, forcePasswordChange: true,
       passwordChangedAt: true, createdAt: true, passwordExpiresAt: true,
+      authSource: true,
     },
   });
   if (!user) return user;
@@ -311,8 +316,18 @@ async function authPlugin(app: FastifyInstance) {
     // SUPER_ADMIN is exempt — same posture as the LOCKED / EXPIRED auto-
     // recovery in auth.service.login(). Weakens 21 CFR §11.10(g) for
     // privileged accounts; documented trade-off per user request 2026-05-25.
+    //
+    // Directory (LDAP/AD) users are exempt for the same reason as in
+    // auth.service.login(): the application does not own their credential, so
+    // `passwordChangedAt` never advances and `forcePasswordChange` has no exit —
+    // changePassword refuses them. Without this, every AD user was 403'd off
+    // every endpoint `passwordExpiryDays` after provisioning, permanently.
+    // Inlined rather than importing `isLdapUser` because this plugin is the
+    // module `ldap.service.ts` imports `invalidateUserAuthCache` FROM; importing
+    // back would close an import cycle.
     let passwordExpired = false;
-    if (user.role !== 'SUPER_ADMIN') {
+    const directoryUser = user.role !== 'SUPER_ADMIN' && user.authSource === 'ldap';
+    if (user.role !== 'SUPER_ADMIN' && !directoryUser) {
       const policy = await getPasswordPolicy();
       passwordExpired = isPasswordExpired(
         user.passwordChangedAt,
@@ -333,8 +348,23 @@ async function authPlugin(app: FastifyInstance) {
       invalidateUserAuthCache(payload.sub);
     }
 
-    // Enforce forcePasswordChange server-side (§11.10(f))
-    if (user.forcePasswordChange) {
+    // Enforce forcePasswordChange server-side (§11.10(f)).
+    //
+    // Directory users are exempt, and the exemption is NOT redundant with the
+    // expiry exemption above: this gate reads the stored flag, which other paths
+    // can set independently of expiry. For a directory account that flag is a
+    // trap with no exit — the only endpoints it permits are the change-password
+    // ones, and `authService.changePassword` refuses directory accounts outright
+    // (LDAP_MANAGED_PASSWORD). The user would be 403'd off every endpoint in the
+    // application with no way, through any screen, to clear it. `unlock()` can,
+    // but the Unlock button only appears for status === 'LOCKED'.
+    //
+    // Rows in that state are reachable: the pre-2026-08-08 expiry bug set the
+    // flag on every AD user ~90 days after provisioning, and any future code
+    // path that flips it would do the same. Skipping the gate here is safe
+    // because the flag has no meaning for an account whose password this
+    // application neither holds nor can change.
+    if (user.forcePasswordChange && !directoryUser) {
       const isAllowed = PASSWORD_CHANGE_ALLOWED.some((p) => req.url.startsWith(p));
       if (!isAllowed) {
         const errorCode = passwordExpired ? 'PASSWORD_EXPIRED' : 'FORCE_PASSWORD_CHANGE';
