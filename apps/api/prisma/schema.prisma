@@ -748,10 +748,14 @@ model NotificationRuleRecipient {
 
 // ─── Instruments (Data Injection P1) ───────────────────────────────────────
 
-/// A named container for instruments. GROUPING ONLY — a profile carries no
-/// settings and instruments inherit nothing from it, deliberately: adding
-/// inheritance later raises "what happens to existing members when the default
-/// changes?", which is a real design question and not this one.
+/// A named container for instruments.
+///
+/// A profile carries ONE inherited setting: `attributeKeys`, the list of
+/// attribute keys the New Instrument form asks for in this profile. Profiles
+/// inherit PROMPTS, never VALUES — nothing is ever back-filled onto an
+/// instrument that already exists, and moving an instrument between profiles
+/// changes only which keys are suggested, never its recorded attributes. See
+/// `docs/superpowers/specs/2026-08-08-per-profile-instrument-attributes-design.md`.
 ///
 /// Deleting a profile that still holds instruments is refused by the FOREIGN KEY
 /// on `Instrument.profileId` (onDelete: Restrict), not merely by the service
@@ -763,6 +767,16 @@ model InstrumentProfile {
   name        String   @unique
   description String?
   isActive    Boolean  @default(true) @map("is_active")
+  /// Newline-separated attribute keys, the same wire format as the global
+  /// default template, so `parseInstrumentAttributeKeys` stays the one
+  /// definition of what a line means.
+  ///
+  /// Three states: a non-empty string is this profile's own list; `''` means it
+  /// asks for no attributes; NULL means never customised and falls back to the
+  /// default template. NULL is a read-side safety net for a code path that
+  /// forgets to seed — the migration backfills every existing row and POST
+  /// seeds every new one, so it should not occur.
+  attributeKeys String? @map("attribute_keys")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
   createdBy   String?  @map("created_by")
