@@ -50,6 +50,7 @@ import adminRequestRoutes from './modules/admin-requests/routes.js';
 import ingestRoutes from './modules/instruments/ingest-routes.js';
 import wsIngestRoutes from './modules/instruments/listeners/ws-listener.js';
 import mqttAuthRoutes from './modules/instruments/mqtt-auth-routes.js';
+import instrumentProfileRoutes from './modules/instrument-profiles/routes.js';
 import instrumentRoutes from './modules/instruments/routes.js';
 import { startTcpListener, type TcpListenerHandle } from './modules/instruments/listeners/tcp-listener.js';
 import { startMqttBridge, plaintextRemoteBrokerWarning, type MqttBridgeHandle } from './modules/instruments/listeners/mqtt-bridge.js';
@@ -369,6 +370,7 @@ await app.register(wsIngestRoutes, { prefix: '/api/ingest/v1' });
 await app.register(mqttAuthRoutes, { prefix: '/api/ingest/v1' });
 // Operator-facing registry. Unlike /api/ingest/v1 above, this one is behind the
 // global auth hook and permission-gated — it is NOT on the public allowlist.
+await app.register(instrumentProfileRoutes, { prefix: '/api/instrument-profiles' });
 await app.register(instrumentRoutes, { prefix: '/api/instruments' });
 
 
