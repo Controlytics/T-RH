@@ -45,3 +45,55 @@ describe('updateInstrumentProfileSchema', () => {
     expect(updateInstrumentProfileSchema.safeParse({ description: null }).success).toBe(true);
   });
 });
+
+describe('createInstrumentProfileSchema attributeKeys', () => {
+  it('accepts a newline-separated key list', () => {
+    const out = createInstrumentProfileSchema.parse({
+      name: 'Cleanroom-A',
+      attributeKeys: 'Block\nArea\nSlave ID',
+    });
+    expect(out.attributeKeys).toBe('Block\nArea\nSlave ID');
+  });
+
+  it('leaves attributeKeys ABSENT when not sent, so the server can seed the default template', () => {
+    // Not `''` and not a default: the route distinguishes "omitted" (seed me)
+    // from "empty" (this profile asks for nothing), and a Zod default here
+    // would destroy that distinction before the route ever sees it.
+    const out = createInstrumentProfileSchema.parse({ name: 'Cleanroom-A' });
+    expect('attributeKeys' in out).toBe(false);
+  });
+
+  it('accepts an empty string — a profile that deliberately asks for nothing', () => {
+    expect(createInstrumentProfileSchema.parse({ name: 'A', attributeKeys: '' }).attributeKeys).toBe('');
+  });
+
+  it('does NOT trim, so the stored string matches what the config path stores', () => {
+    // The dynamic-config PUT stores its value verbatim. If this trimmed, the
+    // same list would round-trip differently depending on which page saved it.
+    expect(createInstrumentProfileSchema.parse({ name: 'A', attributeKeys: 'Block\n' }).attributeKeys)
+      .toBe('Block\n');
+  });
+
+  it('rejects more than 2000 characters, matching instrumentAttributesConfigSchema', () => {
+    const tooLong = 'k'.repeat(2001);
+    expect(createInstrumentProfileSchema.safeParse({ name: 'A', attributeKeys: tooLong }).success).toBe(false);
+  });
+});
+
+describe('updateInstrumentProfileSchema attributeKeys', () => {
+  it('accepts a replacement list', () => {
+    expect(updateInstrumentProfileSchema.parse({ attributeKeys: 'Room' }).attributeKeys).toBe('Room');
+  });
+
+  it('accepts null, which re-arms the default-template fallback', () => {
+    expect(updateInstrumentProfileSchema.parse({ attributeKeys: null }).attributeKeys).toBeNull();
+  });
+
+  it('accepts an empty string, which is NOT the same as null', () => {
+    expect(updateInstrumentProfileSchema.parse({ attributeKeys: '' }).attributeKeys).toBe('');
+  });
+
+  it('rejects more than 2000 characters', () => {
+    expect(updateInstrumentProfileSchema.safeParse({ attributeKeys: 'k'.repeat(2001) }).success).toBe(false);
+  });
+});
