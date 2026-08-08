@@ -271,3 +271,91 @@ describe('GET /api/instruments?profileId', () => {
     expect(JSON.parse(res.body).data).toEqual([]);
   });
 });
+
+const updateProfile = (id: string, payload: Record<string, unknown>) =>
+  app.inject({ method: 'PUT', url: `/api/instrument-profiles/${id}`, headers: auth(), payload });
+
+/** The list that is global today — what a new profile must be seeded from. */
+async function globalKeys(): Promise<string> {
+  const row = await prisma.systemConfig.findUnique({ where: { configKey: 'instrument-attributes' } });
+  return (row?.configValue as { keys?: string } | null)?.keys ?? '';
+}
+
+describe('instrument profile attributeKeys', () => {
+  it('seeds a new profile from the LIVE default template when attributeKeys is omitted', async () => {
+    // Not from INSTRUMENT_ATTRIBUTE_KEYS_DEFAULT: the constant and this
+    // install's configured list are different, and seeding from the constant
+    // would hand every new profile a list nobody configured.
+    const res = await createProfile({ name: 'IPT Seeded' });
+    expect(res.statusCode).toBe(201);
+    expect(JSON.parse(res.body).attributeKeys).toBe(await globalKeys());
+  });
+
+  it('stores an explicit list verbatim instead of seeding', async () => {
+    const res = await createProfile({ name: 'IPT Explicit', attributeKeys: 'Room\nSlave ID' });
+    expect(JSON.parse(res.body).attributeKeys).toBe('Room\nSlave ID');
+  });
+
+  it('stores a key containing "<" VERBATIM', async () => {
+    // REGRESSION GUARD for the sanitizeStrings skip. stripHtml DISCARDS
+    // tag-shaped content, so without ['attributeKeys'] in skipKeys this key
+    // becomes "Temp" — while the dynamic-config PUT, which does not strip,
+    // would have stored it intact. The two write paths must agree.
+    const res = await createProfile({ name: 'IPT Angle', attributeKeys: 'Temp <5C\nRoom' });
+    expect(JSON.parse(res.body).attributeKeys).toBe('Temp <5C\nRoom');
+  });
+
+  it('accepts an empty list, and it reads back as empty rather than null', async () => {
+    const id = JSON.parse((await createProfile({ name: 'IPT Empty' })).body).id;
+    const res = await updateProfile(id, { attributeKeys: '' });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).attributeKeys).toBe('');
+  });
+
+  it('accepts null, which re-arms the default-template fallback', async () => {
+    const id = JSON.parse((await createProfile({ name: 'IPT Null' })).body).id;
+    const res = await updateProfile(id, { attributeKeys: null });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).attributeKeys).toBeNull();
+  });
+
+  it('returns attributeKeys for every profile in the list, so one fetch serves the config page', async () => {
+    await createProfile({ name: 'IPT List A', attributeKeys: 'Room' });
+    await createProfile({ name: 'IPT List B', attributeKeys: '' });
+    const rows = JSON.parse((await app.inject({
+      method: 'GET', url: '/api/instrument-profiles', headers: auth(),
+    })).body).data as { name: string; attributeKeys: string | null }[];
+    const mine = rows.filter((r) => r.name.startsWith('IPT List '));
+    expect(mine).toHaveLength(2);
+    expect(mine.every((r) => 'attributeKeys' in r)).toBe(true);
+  });
+
+  it('audits a key change with the PARSED arrays and a count in the signature', async () => {
+    const id = JSON.parse((await createProfile({
+      name: 'IPT Audited', attributeKeys: 'Block\nArea\nRoom',
+    })).body).id;
+    await updateProfile(id, { attributeKeys: 'Room' });
+
+    const row = await prisma.auditTrail.findFirst({
+      where: { action: 'INSTRUMENT_PROFILE_UPDATED', targetId: id },
+      orderBy: { timestamp: 'desc' },
+    });
+    expect(row).not.toBeNull();
+    // Arrays, not the raw newline string: an inspector reads keys, and the
+    // audit UI already diffs keyed arrays.
+    expect((row!.beforeValue as { attributeKeys: string[] }).attributeKeys)
+      .toEqual(['Block', 'Area', 'Room']);
+    expect((row!.afterValue as { attributeKeys: string[] }).attributeKeys).toEqual(['Room']);
+    expect(row!.signatureMeaning).toBe('Instrument profile "IPT Audited" attribute keys changed (3 → 1)');
+  });
+
+  it('still reports a rename rather than the key change when both happen', async () => {
+    const id = JSON.parse((await createProfile({ name: 'IPT Before', attributeKeys: 'Room' })).body).id;
+    await updateProfile(id, { name: 'IPT After', attributeKeys: 'Block' });
+    const row = await prisma.auditTrail.findFirst({
+      where: { action: 'INSTRUMENT_PROFILE_UPDATED', targetId: id },
+      orderBy: { timestamp: 'desc' },
+    });
+    expect(row!.signatureMeaning).toBe('Instrument profile renamed "IPT Before" → "IPT After"');
+  });
+});

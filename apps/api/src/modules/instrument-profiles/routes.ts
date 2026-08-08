@@ -1,17 +1,26 @@
 import { type FastifyInstance } from 'fastify';
-import { createInstrumentProfileSchema, updateInstrumentProfileSchema } from '@digilog/shared';
+import {
+  createInstrumentProfileSchema,
+  updateInstrumentProfileSchema,
+  instrumentAttributesConfigSchema,
+  parseInstrumentAttributeKeys,
+} from '@digilog/shared';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { buildContext } from '../../lib/build-context.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { errorResponses } from '../../lib/error-schemas.js';
+import { configService } from '../config/config.service.js';
 
 /**
  * Instrument profiles — a named container for instruments.
  *
- * GROUPING ONLY. A profile carries no settings and instruments inherit nothing
- * from it; see `docs/superpowers/specs/2026-08-08-instrument-profiles-design.md`
- * for why inheritance was left out.
+ * A profile carries ONE inherited setting: `attributeKeys`, the attribute keys
+ * the New Instrument form asks for in this profile. Profiles inherit PROMPTS,
+ * never VALUES — nothing is ever back-filled onto an instrument that already
+ * exists, and moving an instrument between profiles changes only which keys are
+ * suggested. See
+ * `docs/superpowers/specs/2026-08-08-per-profile-instrument-attributes-design.md`.
  *
  * PERMISSIONS reuse `INSTRUMENT_*` deliberately. A profile is not a capability
  * boundary of its own — anyone who may register an instrument may create the
@@ -24,6 +33,7 @@ const profileProps = {
   name: { type: 'string' },
   description: { type: 'string', nullable: true },
   isActive: { type: 'boolean' },
+  attributeKeys: { type: 'string', nullable: true },
   instrumentCount: { type: 'integer' },
   activeCount: { type: 'integer' },
   createdAt: { type: 'string', format: 'date-time' },
@@ -36,6 +46,7 @@ type ProfileRow = {
   name: string;
   description: string | null;
   isActive: boolean;
+  attributeKeys: string | null;
   createdAt: Date;
   updatedAt: Date;
   createdBy: string | null;
@@ -121,22 +132,38 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
           name: { type: 'string' },
           description: { type: 'string' },
           isActive: { type: 'boolean' },
+          attributeKeys: { type: 'string' },
         },
       },
       response: { 201: { type: 'object', properties: profileProps }, ...errorResponses },
     },
   }, async (req, reply) => {
     const parsed = createInstrumentProfileSchema.safeParse(
-      sanitizeStrings((req.body ?? {}) as Record<string, unknown>, []),
+      // `attributeKeys` is EXEMPT from HTML stripping so that the two write
+      // paths for this same data agree. The dynamic-config PUT does not strip
+      // (config.service.ts:87-93), and stripHtml DISCARDS tag-shaped content
+      // rather than escaping it — so without this exemption a key like
+      // "Temp <5C" would survive on the Configuration page and be silently
+      // truncated to "Temp" here. Not a new exposure: the SPA escapes on
+      // output, and this is the same value the config endpoint already stores
+      // unstripped.
+      sanitizeStrings((req.body ?? {}) as Record<string, unknown>, ['attributeKeys']),
     );
     if (!parsed.success) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
     }
     const ctx = buildContext(req);
 
+    // An ABSENT attributeKeys means "seed me from the default template"; an
+    // empty string means "this profile asks for nothing". Only the first is
+    // filled in here, which is why the schema carries no Zod default.
+    const attributeKeys = parsed.data.attributeKeys === undefined
+      ? (await configService.getConfig('instrument-attributes', instrumentAttributesConfigSchema)).keys
+      : parsed.data.attributeKeys;
+
     try {
       const row = await prisma.instrumentProfile.create({
-        data: { ...parsed.data, createdBy: ctx.userId },
+        data: { ...parsed.data, attributeKeys, createdBy: ctx.userId },
         include: withInstruments,
       });
 
@@ -144,7 +171,10 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
         userId: ctx.userId, userRole: ctx.userRole,
         action: 'INSTRUMENT_PROFILE_CREATED',
         targetType: 'instrument_profile', targetId: row.id,
-        afterValue: { name: row.name, description: row.description, isActive: row.isActive },
+        afterValue: {
+          name: row.name, description: row.description, isActive: row.isActive,
+          attributeKeys: parseInstrumentAttributeKeys(row.attributeKeys),
+        },
         signatureMeaning: `Instrument profile "${row.name}" created`,
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
       });
@@ -177,6 +207,7 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
           name: { type: 'string' },
           description: { type: ['string', 'null'] },
           isActive: { type: 'boolean' },
+          attributeKeys: { type: ['string', 'null'] },
         },
       },
       response: { 200: { type: 'object', properties: profileProps }, ...errorResponses },
@@ -184,7 +215,8 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const parsed = updateInstrumentProfileSchema.safeParse(
-      sanitizeStrings((req.body ?? {}) as Record<string, unknown>, []),
+      // Exempt for the same reason as POST — see the comment there.
+      sanitizeStrings((req.body ?? {}) as Record<string, unknown>, ['attributeKeys']),
     );
     if (!parsed.success) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
@@ -201,18 +233,35 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
         include: withInstruments,
       });
 
+      const keysBefore = parseInstrumentAttributeKeys(before.attributeKeys);
+      const keysAfter = parseInstrumentAttributeKeys(row.attributeKeys);
+      // Compared as PARSED lists, so a whitespace-only edit that changes no key
+      // does not claim the keys changed.
+      const keysChanged = keysBefore.join('\n') !== keysAfter.join('\n');
+
       await auditLog({
         userId: ctx.userId, userRole: ctx.userRole,
         action: 'INSTRUMENT_PROFILE_UPDATED',
         targetType: 'instrument_profile', targetId: id,
-        beforeValue: { name: before.name, description: before.description, isActive: before.isActive },
-        afterValue: { name: row.name, description: row.description, isActive: row.isActive },
-        // A rename is called out explicitly: it changes what an inspector reads
+        beforeValue: {
+          name: before.name, description: before.description, isActive: before.isActive,
+          attributeKeys: keysBefore,
+        },
+        afterValue: {
+          name: row.name, description: row.description, isActive: row.isActive,
+          attributeKeys: keysAfter,
+        },
+        // A rename is called out first: it changes what an inspector reads
         // against every instrument in the profile, so "updated" alone would
-        // understate it.
-        signatureMeaning: before.name === row.name
-          ? `Instrument profile "${row.name}" updated`
-          : `Instrument profile renamed "${before.name}" → "${row.name}"`,
+        // understate it. A key change is named next, with the counts, because it
+        // changes what every future registration is asked. Both fit
+        // audit_trail.signature_meaning's varchar(255): ~50 fixed characters
+        // plus a name capped at 120.
+        signatureMeaning: before.name !== row.name
+          ? `Instrument profile renamed "${before.name}" → "${row.name}"`
+          : keysChanged
+            ? `Instrument profile "${row.name}" attribute keys changed (${keysBefore.length} → ${keysAfter.length})`
+            : `Instrument profile "${row.name}" updated`,
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
       });
 
