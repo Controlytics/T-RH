@@ -456,7 +456,7 @@ export function InstrumentDetailPage() {
           </CardContent>
         </Card>
 
-        <AttributesPanel instrumentId={inst.id} canEdit={can('instruments.edit')} />
+        <AttributesPanel instrumentId={inst.id} profileId={inst.profileId} canEdit={can('instruments.edit')} />
       </div>
 
       <Card>

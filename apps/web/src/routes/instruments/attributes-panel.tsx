@@ -40,13 +40,20 @@ interface Attribute { key: string; value: string; createdAt: string; updatedAt: 
  * empty attribute. An empty string is a recorded fact in a §11 trail ("this was
  * measured and is blank"), and absent is the truth ("nobody has said yet").
  */
-export function AttributesPanel({ instrumentId, canEdit }: { instrumentId: string; canEdit: boolean }) {
+export function AttributesPanel(
+  { instrumentId, profileId, canEdit }:
+  { instrumentId: string; profileId: string; canEdit: boolean },
+) {
   const { toast } = useToast();
   const key = `/api/instruments/${instrumentId}/attributes`;
   const { data, mutate } = useSWR<{ data: Attribute[] }>(key);
-  // The administered key list. A failure here must not break the panel — an
-  // unreachable config simply offers no suggestions.
-  const { data: attrConfig } = useSWR<{ keys?: string }>('/api/config/instrument-attributes/current');
+  // The administered key list for THIS instrument's profile (per-profile since
+  // 2026-08-08). A failure here must not break the panel — an unreachable
+  // profile simply offers no suggestions, which is safe because every attribute
+  // already RECORDED still renders below regardless.
+  const { data: profile } = useSWR<{ attributeKeys: string | null }>(
+    profileId ? `/api/instrument-profiles/${profileId}` : null,
+  );
 
   const [adding, setAdding] = useState(false);
   const [newKey, setNewKey] = useState('');
@@ -74,7 +81,7 @@ export function AttributesPanel({ instrumentId, canEdit }: { instrumentId: strin
    * second copy as an attribute that nothing reads.
    */
   const have = new Set(rows.map((r) => r.key.trim().toLowerCase()));
-  const missingKeys = parseInstrumentAttributeKeys(attrConfig?.keys)
+  const missingKeys = parseInstrumentAttributeKeys(profile?.attributeKeys)
     .filter((k) => !placementColumnFor(k))
     .filter((k) => !have.has(k.trim().toLowerCase()));
 
