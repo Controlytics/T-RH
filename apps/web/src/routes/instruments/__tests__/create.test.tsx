@@ -3,27 +3,44 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 /**
- * Registering an instrument, after the 2026-08-07 trim.
+ * Registering an instrument, after the 2026-08-07 trim and the 2026-08-08
+ * per-profile attributes change.
  *
- * Two properties are worth protecting here. The form no longer asks for a
+ * Three properties are worth protecting here. The form no longer asks for a
  * NAME — the API still requires one, so the code is sent as both, and a
- * regression would be a 400 at the only moment a token is issuable. And the
- * attribute keys come from CONFIG: a form that silently asked for a hardcoded
- * set would defeat the whole point of administering them.
- */
-const config = { current: { keys: 'Room\nCalibration Due' } as { keys?: string } | undefined };
-/**
- * URL-aware, because the page now reads TWO endpoints: the attribute-key config
- * and the profile list. A mock answering both with the same object left the
- * profile <select> with no options, so nothing could be selected, the submit
- * button stayed disabled, and every "it posts …" test failed for a reason that
- * had nothing to do with what it was testing.
+ * regression would be a 400 at the only moment a token is issuable. The
+ * attribute keys come from the PROFILE, not from a global config and certainly
+ * not from a hardcoded set, which is the whole point of administering them per
+ * profile. And the Attributes section must tell its four states apart —
+ * no-profile / loading / empty / failed — because collapsing any of them into
+ * "no attributes" lets an operator register a device with every attribute
+ * missing and no signal that anything went wrong.
  */
 const PROFILES = { data: [{ id: 'p-1', name: 'Cleanroom-A' }, { id: 'p-2', name: 'Utility' }] };
+
+/** p-1's key list. p-2 always asks for nothing, so the empty state is reachable. */
+const PROFILE_KEYS = { current: 'Block\nRoom\nCalibration Due' as string | null };
+/** Drives the single-profile fetch so the loading and failure states are reachable. */
+const PROFILE_FETCH = { loading: false, error: false };
+
+/**
+ * URL-PRECISE. The page reads the profile LIST (`/api/instrument-profiles`) and
+ * one PROFILE (`/api/instrument-profiles/:id`); a mock matching both with
+ * `.includes()` would answer the list with a single profile, leaving the
+ * <select> with no options so nothing could be chosen and every "it posts …"
+ * test failed for a reason unrelated to what it tested.
+ */
 vi.mock('swr', () => ({
-  default: (key: string | null) => ({
-    data: typeof key === 'string' && key.includes('/api/instrument-profiles') ? PROFILES : config.current,
-  }),
+  default: (key: string | null) => {
+    if (key === '/api/instrument-profiles') return { data: PROFILES };
+    if (typeof key === 'string' && key.startsWith('/api/instrument-profiles/')) {
+      if (PROFILE_FETCH.loading) return { data: undefined, isLoading: true };
+      if (PROFILE_FETCH.error) return { data: undefined, error: new Error('unreachable') };
+      const id = key.slice('/api/instrument-profiles/'.length);
+      return { data: { id, attributeKeys: id === 'p-2' ? '' : PROFILE_KEYS.current } };
+    }
+    return { data: undefined };
+  },
 }));
 
 const post = vi.fn();
@@ -42,16 +59,25 @@ const renderPage = () => render(<MemoryRouter><InstrumentCreatePage /></MemoryRo
 const created = { id: 'i-1', code: 'PROBE-A1', token: 'TOK' };
 
 beforeEach(() => {
-  config.current = { keys: 'Block\nRoom\nCalibration Due' };
+  PROFILE_KEYS.current = 'Block\nRoom\nCalibration Due';
+  PROFILE_FETCH.loading = false;
+  PROFILE_FETCH.error = false;
   post.mockReset().mockResolvedValue(created);
   errorToast.mockReset();
 });
+
+/**
+ * Choose a profile. Attribute fields do not exist until one is chosen, so almost
+ * every test needs this — and choosing it is what decides which fields appear.
+ */
+const choose = (id = 'p-1') =>
+  fireEvent.change(screen.getByRole('combobox', { name: /profile/i }), { target: { value: id } });
 
 const fillId = (code: string) => {
   fireEvent.change(screen.getByRole('textbox', { name: /instrument id/i }), { target: { value: code } });
   // Every instrument belongs to a profile, so the form cannot submit without
   // one. Chosen here rather than in each test, which are about other fields.
-  fireEvent.change(screen.getByRole('combobox', { name: /profile/i }), { target: { value: 'p-1' } });
+  choose('p-1');
 };
 const submit = () => fireEvent.click(screen.getByRole('button', { name: /create instrument/i }));
 
@@ -94,20 +120,57 @@ describe('InstrumentCreatePage — the trimmed form', () => {
     );
   });
 
-  it('has no placement inputs of its own — they come from the key list', () => {
-    config.current = { keys: 'Room' };
+  it('has no placement inputs of its own — they come from the profile key list', () => {
+    PROFILE_KEYS.current = 'Room';
     renderPage();
+    choose('p-1');
+    // The profile asks only for Room, so the placement trio must be absent even
+    // though the page knows how to route them.
+    expect(screen.getByRole('textbox', { name: /^room$/i })).toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: /^block$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: /^area$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: /^location$/i })).not.toBeInTheDocument();
   });
 });
 
-describe('InstrumentCreatePage — configured attributes', () => {
-  it('renders one field per configured key, in order', () => {
+describe('InstrumentCreatePage — attributes come from the profile', () => {
+  it('renders one field per key of the CHOSEN profile, in order', () => {
     renderPage();
+    choose('p-1');
     expect(screen.getByRole('textbox', { name: /^room$/i })).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: /calibration due/i })).toBeInTheDocument();
+  });
+
+  it('asks for nothing, and says why, before a profile is chosen', () => {
+    renderPage();
+    expect(screen.getByText(/choose a profile to see the attributes/i)).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: /^room$/i })).not.toBeInTheDocument();
+  });
+
+  it('asks a different profile for its own keys', () => {
+    renderPage();
+    choose('p-2');  // asks for nothing
+    expect(screen.getByText(/asks for no attributes/i)).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: /^room$/i })).not.toBeInTheDocument();
+  });
+
+  it('shows a LOADING line, never "no attributes", while the profile is in flight', () => {
+    // The distinction that matters: rendering nothing here is
+    // indistinguishable from "this profile asks for nothing", and an operator
+    // would submit an instrument with every attribute missing.
+    PROFILE_FETCH.loading = true;
+    renderPage();
+    choose('p-1');
+    expect(screen.getByText(/loading the attributes/i)).toBeInTheDocument();
+    expect(screen.queryByText(/asks for no attributes/i)).not.toBeInTheDocument();
+  });
+
+  it('warns explicitly when the profile list cannot be loaded', () => {
+    PROFILE_FETCH.error = true;
+    renderPage();
+    choose('p-1');
+    expect(screen.getByText(/could not load the attributes/i)).toBeInTheDocument();
+    expect(screen.queryByText(/asks for no attributes/i)).not.toBeInTheDocument();
   });
 
   it('writes only the attributes that were filled in', async () => {
@@ -142,19 +205,52 @@ describe('InstrumentCreatePage — configured attributes', () => {
     expect(await screen.findByText(/PROBE-A1/)).toBeInTheDocument();
   });
 
-  it('explains where to configure keys when none are set', () => {
-    config.current = { keys: '' };
+  it('explains where to configure keys when the profile asks for none', () => {
     renderPage();
-    expect(screen.getByText(/no attribute keys are configured/i)).toBeInTheDocument();
+    choose('p-2');
+    expect(screen.getByText(/asks for no attributes/i)).toBeInTheDocument();
     expect(screen.getByText(/Configuration/)).toBeInTheDocument();
   });
 
-  // An unreachable config must not block registering a device.
-  it('still registers when the config cannot be read', async () => {
-    config.current = undefined;
+  // An unreachable profile must not block registering a device — the same
+  // non-blocking posture the global config read had.
+  it('still registers when the profile cannot be read', async () => {
+    PROFILE_FETCH.error = true;
     renderPage();
     fillId('P-5');
     submit();
     await waitFor(() => expect(post).toHaveBeenCalledWith('/api/instruments', expect.objectContaining({ code: 'P-5' })));
+  });
+});
+
+describe('InstrumentCreatePage — switching profile', () => {
+  it('confirms before discarding typed values, and keeps them when declined', () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    renderPage();
+    choose('p-1');
+    fireEvent.change(screen.getByRole('textbox', { name: /^room$/i }), { target: { value: '214' } });
+    choose('p-2');
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(screen.getByRole('textbox', { name: /^room$/i })).toHaveValue('214');
+    confirmSpy.mockRestore();
+  });
+
+  it('clears the values when the discard is accepted', () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderPage();
+    choose('p-1');
+    fireEvent.change(screen.getByRole('textbox', { name: /^room$/i }), { target: { value: '214' } });
+    choose('p-2');
+    expect(screen.getByText(/asks for no attributes/i)).toBeInTheDocument();
+    confirmSpy.mockRestore();
+  });
+
+  it('does not prompt when nothing was typed', () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderPage();
+    choose('p-1');
+    choose('p-2');
+    expect(confirmSpy).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
   });
 });

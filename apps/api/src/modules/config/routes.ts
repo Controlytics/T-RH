@@ -177,11 +177,19 @@ export default async function configRoutes(app: FastifyInstance) {
     return configService.getConfig('export-limit', exportLimitConfigSchema);
   });
 
-  // Public read — all authenticated users. The New Instrument form asks for
-  // these keys, and the people who register devices are operators, not admins:
-  // gating this on CONFIG_READ would make the form silently ask for nothing for
-  // exactly the role that fills it in. Only the KEY LIST is exposed, which is a
-  // form label, not a secret.
+  // Public read — all authenticated users, so a form can never silently ask for
+  // nothing for exactly the role that fills it in. Only the KEY LIST is exposed,
+  // which is a form label, not a secret.
+  //
+  // CURRENTLY UNCALLED (2026-08-08). Its two callers were the New Instrument
+  // form and the detail-page Attributes panel; both now read the owning
+  // PROFILE's `attributeKeys` instead, and the Configuration page reads the
+  // default through /api/config/dynamic/instrument-attributes. KEPT
+  // deliberately — it is the documented public read of the default template,
+  // and deleting a live endpoint is a separate decision with its own
+  // API_REFERENCE churn. Do not add callers without deciding which list they
+  // actually want: this one is the template for NEW profiles, not what any form
+  // asks for.
   app.get('/instrument-attributes/current', {
     schema: {
       tags: ['Config'],

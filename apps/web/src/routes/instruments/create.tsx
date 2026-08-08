@@ -25,11 +25,12 @@ interface CreatedInstrument { id: string; code: string; token: string }
  * after the device and half after the room.
  *
  * ── Attributes ──
- * Which keys are asked for is administered in Configuration → Instrument
- * Attributes, so the same idea does not get stored as "Room", "room" and
- * "Room No" by three different operators. This form only collects VALUES.
- * The list is a prompt, not a constraint: the detail page still accepts any
- * key afterwards.
+ * Which keys are asked for is administered PER PROFILE, in Configuration →
+ * Instrument Attributes, so the same idea does not get stored as "Room", "room"
+ * and "Room No" by three different operators, and so a Modbus sensor is not
+ * asked for cleanroom humidity limits. This form only collects VALUES. The list
+ * is a prompt, not a constraint: the detail page still accepts any key
+ * afterwards.
  */
 export function InstrumentCreatePage() {
   const navigate = useNavigate();
@@ -50,11 +51,40 @@ export function InstrumentCreatePage() {
   const [profileId, setProfileId] = useState(presetProfileId ?? '');
   const presetProfileName = profiles?.data?.find((p) => p.id === presetProfileId)?.name;
 
-  // Public-ish config read: any authenticated user who may create an instrument
-  // may see which keys to fill in. A failure here must not block registration,
-  // so an unreachable config simply yields no attribute fields.
-  const { data: attrConfig } = useSWR<{ keys?: string }>('/api/config/instrument-attributes/current');
-  const attributeKeys = parseInstrumentAttributeKeys(attrConfig?.keys);
+  /**
+   * The keys THIS PROFILE asks for. Read from the profile rather than the global
+   * config since 2026-08-08 — each profile owns its own list.
+   *
+   * `INSTRUMENT_CREATE`'s grant set includes `INSTRUMENT_READ`
+   * (permission-tree.ts:323), so anyone who can reach this form can read the
+   * profile. That matters: the config endpoint this replaced was deliberately
+   * left ungated so the form would not silently ask for nothing for exactly the
+   * role that fills it in.
+   *
+   * A failure here must not block registration — see the four states rendered
+   * below, which keep "failed" distinct from "asks for nothing".
+   */
+  const { data: profile, error: profileError, isLoading: profileLoading } =
+    useSWR<{ attributeKeys: string | null }>(
+      profileId ? `/api/instrument-profiles/${profileId}` : null,
+    );
+  const attributeKeys = parseInstrumentAttributeKeys(profile?.attributeKeys);
+
+  /**
+   * Values are not carried across profiles — a different profile asks different
+   * questions — so a switch clears them. Confirmed rather than silent: the
+   * operator typed those values. Unreachable on the normal route, which arrives
+   * with `?profileId=` and shows a chip instead of this selector.
+   */
+  const changeProfile = (next: string) => {
+    if (next === profileId) return;
+    const typed = Object.values(attrs).some((v) => v.trim() !== '');
+    if (typed && !window.confirm(
+      'The attributes you have filled in do not apply to a different profile and will be cleared. Continue?',
+    )) return;
+    setAttrs({});
+    setProfileId(next);
+  };
 
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -130,7 +160,7 @@ export function InstrumentCreatePage() {
               <label className="block space-y-1">
                 <span className="text-sm font-medium text-slate-700">Profile *</span>
                 <select
-                  required value={profileId} onChange={(e) => setProfileId(e.target.value)}
+                  required value={profileId} onChange={(e) => changeProfile(e.target.value)}
                   className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
                 >
                   <option value="">Select a profile…</option>
@@ -161,7 +191,26 @@ export function InstrumentCreatePage() {
         <Card>
           <CardHeader><CardTitle>Attributes</CardTitle></CardHeader>
           <CardContent className="space-y-4">
-            {attributeKeys.length > 0 ? (
+            {/*
+              Four states, deliberately distinguishable. Collapsing "loading" or
+              "failed" into "asks for nothing" lets an operator register an
+              instrument with every attribute missing and no signal that
+              anything went wrong.
+            */}
+            {!profileId ? (
+              <p className="text-xs text-slate-500">
+                Choose a profile to see the attributes it asks for.
+              </p>
+            ) : profileLoading ? (
+              <p className="text-xs text-slate-500">
+                Loading the attributes this profile asks for…
+              </p>
+            ) : profileError ? (
+              <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                Could not load the attributes this profile asks for. You can still
+                register the instrument and add them from its Attributes panel.
+              </p>
+            ) : attributeKeys.length > 0 ? (
               <div className="grid gap-4 sm:grid-cols-2">
                 {attributeKeys.map((key) => (
                   <label key={key} className="space-y-1">
@@ -175,8 +224,8 @@ export function InstrumentCreatePage() {
               </div>
             ) : (
               <p className="text-xs text-slate-500">
-                No attribute keys are configured. Add them in Configuration →
-                Instrument Attributes to have them asked for here.
+                This profile asks for no attributes. Add keys for it in
+                Configuration → Instrument Attributes.
               </p>
             )}
           </CardContent>
