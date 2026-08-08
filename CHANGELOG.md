@@ -1,5 +1,80 @@
 # Changelog
 
+## [Unreleased] — Per-profile instrument attributes (2026-08-08)
+
+Each instrument profile now owns the list of attribute keys its New Instrument
+form asks for. The global list at Configuration → Instrument Attributes became
+the template a new profile is seeded from and is asked for on no form by itself.
+
+This **reverses the "grouping only, nothing inherited" decision** recorded in the
+entry below, taken the same day, and answers the question that decision deferred:
+profiles inherit **prompts, never values**. No attribute on an existing
+instrument is ever back-filled, rewritten or deleted because a profile's list
+changed, and moving an instrument between profiles changes only which keys are
+suggested — everything it has recorded stays and still renders.
+
+The motivating case is concrete. This install's single global list held twelve
+keys, of which seven were temperature/humidity limits and one a Modbus slave
+address. No device needed all twelve, so every registration form was mostly
+fields the operator tabbed past — and blank-but-asked-for is worse data than
+never asked.
+
+**`InstrumentProfile.attributeKeys`** (nullable `attribute_keys TEXT`), migration
+`20260808163000_instrument_profile_attribute_keys`. The backfill copies the
+**live** `system_config['instrument-attributes']` value rather than the
+`INSTRUMENT_ATTRIBUTE_KEYS_DEFAULT` constant — this install's list is 12 keys and
+the constant is 6, so seeding from the constant would have quietly reset every
+profile to a list nobody configured. Day-one behaviour was therefore identical.
+Drift guard PASS.
+
+**Three distinguishable states:** a non-empty string is the profile's own list,
+`''` means it asks for no attributes, and `NULL` falls back to the default
+template. `NULL` is a read-side safety net for a code path that forgets to seed,
+not a state the UI maintains — the editor cannot tell `''` from `NULL`, so any
+save on a `NULL` profile writes `''`.
+
+**Configuration → Instrument Attributes gained a target picker.** Saves route by
+target; sending a profile's list to the config endpoint would have silently
+rewritten the template for every future profile. Switching target while dirty
+prompts before discarding, because the editor deliberately ignores server
+revalidations mid-edit and an unsaved list has nowhere else to come back from.
+
+**A profile omitting Block / Area / Location now says so on screen.** Those three
+are real placement columns, so instruments registered there get them empty and
+the Instruments list Placement column and filters are blank for them. Advisory,
+not a block — an accepted trade-off, chosen deliberately over pinning the
+placement keys.
+
+**The New Instrument form asks nothing until a profile is chosen**, and now tells
+four states apart: no profile, loading, asks-for-none, and failed-to-load.
+Previously a failed config read "simply yielded no attribute fields", which was
+tolerable for a global blip and is not per-profile — it is indistinguishable from
+a profile that asks for nothing, and the operator would register a device with
+every attribute missing and no signal. A failure now says so and still does not
+block registration.
+
+**`attributeKeys` is exempt from `sanitizeStrings` on the profile routes.** The
+two write paths for this same data disagreed: the dynamic-config `PUT` never
+stripped HTML, while `stripHtml` *discards* tag-shaped content, so a key like
+`Temp <5C` would have been kept by the Configuration page and truncated to `Temp`
+by the profile page. An e2e test asserting a `<`-bearing key round-trips verbatim
+is the guard.
+
+**`GET /api/config/instrument-attributes/current` now has zero callers** — its two
+consumers both read the owning profile instead. Kept deliberately and documented
+as uncalled at the route, rather than left an undocumented orphan.
+
+Audit records the **parsed key arrays** on before/after and names the count change
+in `signature_meaning` (`… attribute keys changed (12 → 5)`), which fits its
+`varchar(255)`.
+
+**No count changed:** 29 models, 6 enums, 22 config defs, 102 permissions, 83
+feature privileges, 92 reauth actions, 27 sidebar items. A nullable column is not
+a model.
+
+Spec: `docs/superpowers/specs/2026-08-08-per-profile-instrument-attributes-design.md`.
+Plan: `docs/superpowers/plans/2026-08-08-per-profile-instrument-attributes.md`.
+
 ## [Unreleased] — Instrument Profiles (2026-08-08)
 
 Instruments are now grouped under named profiles: create a profile, then
@@ -11,6 +86,10 @@ A profile is GROUPING ONLY — name and description, no settings, nothing
 inherited. Adding inheritance later would raise "what happens to existing
 members when the default changes?", which is a separate design question and was
 deliberately left out.
+
+> **Superseded later the same day** by the per-profile attributes entry above: a
+> profile now carries one inherited setting, `attributeKeys`. The deferred
+> question is answered there — profiles inherit prompts, never values.
 
 **Membership is required, and existing instruments were backfilled.** Migration
 `20260808120000_add_instrument_profiles` creates a `Default` profile and moves

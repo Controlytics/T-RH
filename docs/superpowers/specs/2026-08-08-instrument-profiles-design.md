@@ -25,7 +25,7 @@ Each of these was chosen explicitly by the operator on 2026-08-08.
 |---|---|---|
 | Membership | **Exactly one profile per instrument** (a folder, not tags) | One `profileId` column, no join table |
 | Required? | **Required for every instrument**, existing rows backfilled | `NOT NULL` column + data migration |
-| Profile contents | **Name + description only** | No inherited settings, no behaviour |
+| Profile contents | **Name + description only** — *and since 2026-08-08 an attribute-key list* | See `2026-08-08-per-profile-instrument-attributes-design.md` |
 | Delete a non-empty profile | **Blocked — must be empty first** | `ON DELETE RESTRICT` + a 409 with the count |
 | Navigation | **Profiles first, drill in to instruments** | `/instruments` becomes the profile list |
 
@@ -144,9 +144,15 @@ so no `SIDEBAR_ITEMS` count change and no role-config backfill.
 
 ## 6. Explicitly out of scope
 
-- **Profiles do not inherit anything.** No default placement, no shared reporting
-  interval. Adding inheritance later raises "what happens to existing members when
-  the default changes?", which is a real design question and not this one.
+- **Profiles inherit PROMPTS but never VALUES.** ~~Profiles do not inherit
+  anything. No default placement, no shared reporting interval.~~ **Superseded
+  2026-08-08** by `2026-08-08-per-profile-instrument-attributes-design.md`: a
+  profile now owns the attribute-key list its New Instrument form asks for. The
+  question this section deferred — *"what happens to existing members when the
+  default changes?"* — is answered there: **nothing**. No value is ever
+  back-filled, rewritten or deleted on an instrument that already exists, and
+  moving an instrument between profiles changes only which keys are suggested.
+  Still out of scope: default placement values and a shared reporting interval.
 - **Gateways and profiles stay independent.** A gateway may have children in other
   profiles. The gateway relation is an authorisation rule
   (`child.gatewayId = gateway.id`); entangling it with grouping would change who

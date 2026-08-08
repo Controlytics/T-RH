@@ -183,6 +183,14 @@ DELETE /api/instrument-profiles/:id   Permission: INSTRUMENT_DELETE — 409 PROF
 List items carry `instrumentCount` and `activeCount` (the ENABLED flag, not
 telemetry freshness).
 
+`POST` and `PUT` additionally accept **`attributeKeys`** (newline-separated, one
+key per line, max 2000 chars) — the attribute keys the New Instrument form asks
+for in that profile. Every read returns it. Omitted on `POST`, it is seeded from
+`system_config['instrument-attributes']` (the default template for new profiles);
+`''` means the profile asks for no attributes; `null` on `PUT` re-arms the
+template fallback. Changing it never alters attributes already recorded on
+existing instruments — profiles inherit prompts, never values.
+
 Every instrument belongs to exactly one profile. `POST /api/instruments` and
 `PUT /api/instruments/:id` take `profileId`; reads return `profileId` and
 `profileName`; `GET /api/instruments?profileId=…` scopes the list AND its
