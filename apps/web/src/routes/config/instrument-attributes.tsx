@@ -9,15 +9,20 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 /**
- * The attribute keys the New Instrument form asks for — one field per key,
- * added / renamed / removed individually.
+ * The attribute keys the New Instrument form asks for — PER PROFILE, one field
+ * per key, added / renamed / removed individually.
  *
- * Replaces the shared textarea (2026-08-07, operator request). The STORAGE is
- * unchanged — still one newline-separated string behind
- * `/api/config/dynamic/instrument-attributes` — because the create form and
- * `parseInstrumentAttributeKeys` already agree on that shape, and changing the
- * wire format to make an editor nicer would be the tail wagging the dog. This
- * page is a view over the same string: split on load, joined on save.
+ * Each instrument profile owns its own list (2026-08-08, operator request); the
+ * global config key is now only the template a newly created profile is seeded
+ * from and is asked for on no form by itself. One page with a picker rather than
+ * an editor on each profile, so the lists can be compared side by side.
+ *
+ * The STORAGE is unchanged on both targets — still one newline-separated string,
+ * for the default under `/api/config/dynamic/instrument-attributes` and for a
+ * profile under `attributeKeys` on the profile itself — because the create form
+ * and `parseInstrumentAttributeKeys` already agree on that shape, and changing
+ * the wire format to make an editor nicer would be the tail wagging the dog.
+ * This page is a view over one of those strings: split on load, joined on save.
  *
  * Rows are keyed by a STABLE id, not by array index and not by the key text.
  * Index keys make React reuse the wrong input when a row is deleted from the
@@ -27,33 +32,59 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
  */
 
 interface Row { id: number; key: string }
+interface Profile { id: string; name: string; instrumentCount: number; attributeKeys: string | null }
+
+/** The default template, as a target id that cannot collide with a profile uuid. */
+const DEFAULT_TARGET = '__default__';
+
+/**
+ * The three keys that are NOT attributes — they are real columns the Instruments
+ * list filters and displays on. A profile may omit them; the advisory says what
+ * that costs.
+ */
+const PLACEMENT_KEYS = ['Block', 'Area', 'Location'];
 
 let nextId = 1;
 const toRows = (keys: string[]): Row[] => keys.map((key) => ({ id: nextId++, key }));
 
 export function InstrumentAttributesConfigPage() {
   const { toast } = useToast();
+  const { data: profileList, mutate: mutateProfiles } = useSWR<{ data: Profile[] }>('/api/instrument-profiles');
   const { data, mutate } = useSWR<{ keys?: string }>('/api/config/dynamic/instrument-attributes');
+
+  const [target, setTarget] = useState<string>(DEFAULT_TARGET);
   const [rows, setRows] = useState<Row[] | null>(null);
   const [saving, setSaving] = useState(false);
   /**
-   * The list as it stands on the server, in the same normalised form the save
-   * sends. Comparing against it is what makes "Save changes" go quiet once
-   * there is nothing to save — after a successful save it is updated in place,
-   * so the button disables immediately instead of staying lit until the next
-   * keystroke.
+   * The list as it stands on the server for the CURRENT target, in the same
+   * normalised form the save sends. Comparing against it is what makes "Save
+   * changes" go quiet once there is nothing to save — after a successful save it
+   * is updated in place, so the button disables immediately instead of staying
+   * lit until the next keystroke.
    */
   const [saved, setSaved] = useState<string | null>(null);
+  /**
+   * Which target `rows` / `saved` were seeded from. Without this the dirty check
+   * would compare one target's edits against another target's baseline.
+   */
+  const [seededFor, setSeededFor] = useState<string | null>(null);
 
-  // Seed once from the server, then leave the operator's edits alone — a
-  // revalidation mid-edit must not overwrite what they are typing.
+  const profiles = profileList?.data ?? [];
+  const selectedProfile = profiles.find((p) => p.id === target) ?? null;
+  const isDefaultTarget = target === DEFAULT_TARGET;
+  const serverKeys = isDefaultTarget ? data?.keys : selectedProfile?.attributeKeys;
+  const ready = isDefaultTarget ? data !== undefined : selectedProfile !== null;
+
+  // Seed once per target, then leave the operator's edits alone — a revalidation
+  // mid-edit must not overwrite what they are typing.
   useEffect(() => {
-    if (data && rows === null) {
-      const keys = parseInstrumentAttributeKeys(data.keys);
+    if (ready && seededFor !== target) {
+      const keys = parseInstrumentAttributeKeys(serverKeys);
       setRows(toRows(keys));
       setSaved(keys.join('\n'));
+      setSeededFor(target);
     }
-  }, [data, rows]);
+  }, [ready, seededFor, target, serverKeys]);
 
   if (rows === null) return <div className="py-10 text-center text-slate-400">Loading…</div>;
 
@@ -95,6 +126,28 @@ export function InstrumentAttributesConfigPage() {
       return list;
     });
 
+  /**
+   * Switching target is a second way to lose work: the editor deliberately
+   * ignores server revalidations mid-edit, so an unsaved list has nowhere else to
+   * come back from. Confirm, and leave the selector where it was when declined.
+   */
+  const changeTarget = (next: string) => {
+    if (next === target) return;
+    if (dirty && !window.confirm(
+      'You have unsaved changes to this list. Discard them and switch?',
+    )) return;
+    setTarget(next);
+  };
+
+  /**
+   * Block / Area / Location are real placement columns, not attributes. A profile
+   * MAY omit them (2026-08-08 operator decision) and this says what it costs.
+   * Advice, not a block — the same posture as the long-form note below. Not shown
+   * for the default template, which is asked for on no form by itself.
+   */
+  const missingPlacement = isDefaultTarget ? [] : PLACEMENT_KEYS
+    .filter((p) => !trimmed.some((k) => k.toLowerCase() === p.toLowerCase()));
+
   const save = async () => {
     if (blocked || !dirty) return;
     setSaving(true);
@@ -104,13 +157,25 @@ export function InstrumentAttributesConfigPage() {
       // `normalised` is the SAME value the dirty check compares against — built
       // once, so the button cannot disagree with what was sent.
       const keys = normalised;
-      await apiClient.put('/api/config/dynamic/instrument-attributes', { keys });
+      // Routed by target. Sending a profile's list to the config endpoint would
+      // silently rewrite the template every FUTURE profile is seeded from.
+      if (isDefaultTarget) {
+        await apiClient.put('/api/config/dynamic/instrument-attributes', { keys });
+      } else {
+        await apiClient.put(`/api/instrument-profiles/${target}`, { attributeKeys: keys });
+      }
       // Before the revalidation, not after: this is what makes the button go
       // quiet the moment the save lands, instead of staying lit until the next
       // keystroke.
       setSaved(keys);
-      await mutate();
-      toast.success('Attribute keys saved', `The New Instrument form now asks for ${kept} attribute${kept === 1 ? '' : 's'}.`);
+      if (isDefaultTarget) await mutate();
+      else await mutateProfiles();
+      toast.success(
+        'Attribute keys saved',
+        isDefaultTarget
+          ? `New profiles now start with ${kept} attribute${kept === 1 ? '' : 's'}.`
+          : `The ${selectedProfile?.name} form now asks for ${kept} attribute${kept === 1 ? '' : 's'}.`,
+      );
     } catch (err: unknown) {
       toast.error('Could not save', (err as { message?: string })?.message ?? 'The attribute keys were not changed.');
     } finally {
@@ -124,12 +189,38 @@ export function InstrumentAttributesConfigPage() {
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">Instrument Attributes</h1>
           <p className="text-sm text-slate-500">
-            The attributes the New Instrument form asks for. You set the keys here;
-            whoever registers a device fills in the values.
+            The attributes the New Instrument form asks for, per profile. You set
+            the keys here; whoever registers a device fills in the values.
           </p>
         </div>
         <Link to="/config"><Button variant="secondary">Back to Settings</Button></Link>
       </div>
+
+      <Card>
+        <CardContent className="py-4">
+          <label className="block space-y-1">
+            <span className="text-sm font-medium text-slate-700">Editing</span>
+            <select
+              aria-label="Editing"
+              value={target}
+              onChange={(e) => changeTarget(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+            >
+              <option value={DEFAULT_TARGET}>Default for new profiles</option>
+              {profiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({p.instrumentCount} instrument{p.instrumentCount === 1 ? '' : 's'})
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="mt-2 text-xs text-slate-500">
+            {isDefaultTarget
+              ? 'This list is copied into each new profile. It is not asked for on its own.'
+              : 'This list is what the New Instrument form asks for in this profile only.'}
+          </p>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2">
@@ -142,7 +233,9 @@ export function InstrumentAttributesConfigPage() {
         <CardContent className="space-y-3">
           {rows.length === 0 && (
             <p className="rounded-lg border border-dashed border-slate-300 px-3 py-6 text-center text-sm text-slate-500">
-              No attribute keys. The New Instrument form will ask for none — add one below.
+              {isDefaultTarget
+                ? 'No attribute keys. New profiles will start with none — add one below.'
+                : 'This profile will ask for no attributes. Add one below.'}
             </p>
           )}
 
@@ -199,6 +292,15 @@ export function InstrumentAttributesConfigPage() {
             </div>
           ))}
 
+          {missingPlacement.length > 0 && (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              This profile does not ask for {missingPlacement.join(', ')}. Those are
+              real placement columns — instruments registered here will have them
+              empty, and the Instruments list Placement column and its filters will
+              be blank for them.
+            </p>
+          )}
+
           <div className="flex items-center justify-between gap-2 pt-1">
             <Button type="button" variant="secondary" size="sm" onClick={add}>
               Add attribute key
@@ -221,8 +323,9 @@ export function InstrumentAttributesConfigPage() {
             here because "delete" on a config screen reasonably reads as
             destructive, and this one is not. */}
         <p className="mr-auto text-xs text-slate-500">
-          Changes apply to the next instrument registered. Attributes already
-          recorded on existing instruments are untouched.
+          {isDefaultTarget
+            ? 'Applies to profiles created from now on. Existing profiles keep their own lists.'
+            : `Applies to the next instrument registered in ${selectedProfile?.name}. Attributes already recorded are untouched.`}
         </p>
         <Link to="/config"><Button variant="secondary">Cancel</Button></Link>
         <Button type="button" disabled={saving || blocked || !dirty} onClick={() => void save()}>
