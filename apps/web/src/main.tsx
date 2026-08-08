@@ -55,6 +55,7 @@ const NotificationRulesPage = lazy(() => import('./routes/config/notification-ru
 const NotificationLogsPage = lazy(() => import('./routes/config/notification-settings/notification-logs').then(m => ({ default: m.NotificationLogsPage })));
 
 const AdminRequestsPage = lazy(() => import("./routes/admin-requests/index").then(m => ({ default: m.AdminRequestsPage })));
+const InstrumentProfileListPage = lazy(() => import('./routes/instruments/profile-list').then(m => ({ default: m.InstrumentProfileListPage })));
 const InstrumentListPage = lazy(() => import('./routes/instruments/list').then(m => ({ default: m.InstrumentListPage })));
 const InstrumentCreatePage = lazy(() => import('./routes/instruments/create').then(m => ({ default: m.InstrumentCreatePage })));
 const InstrumentBulkCreatePage = lazy(() => import('./routes/instruments/bulk-create').then(m => ({ default: m.InstrumentBulkCreatePage })));
@@ -144,7 +145,11 @@ createRoot(document.getElementById('root')!).render(
             {/* Instruments. `/new` and `/bulk` are declared BEFORE `/:id` for
                 readability; React Router ranks static segments above dynamic
                 ones regardless of order. */}
-            <Route path="/instruments" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_READ]}><Suspense fallback={<LazyFallback />}><InstrumentListPage /></Suspense></RequireRole>} />
+            {/* Profiles are the landing page; the instrument list lives inside one.
+                `/instruments/profiles/:profileId` MUST precede `/instruments/:id`
+                below, or "profiles" is captured as an instrument id. */}
+            <Route path="/instruments" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_READ]}><Suspense fallback={<LazyFallback />}><InstrumentProfileListPage /></Suspense></RequireRole>} />
+            <Route path="/instruments/profiles/:profileId" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_READ]}><Suspense fallback={<LazyFallback />}><InstrumentListPage /></Suspense></RequireRole>} />
             <Route path="/instruments/new" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_CREATE]}><Suspense fallback={<LazyFallback />}><InstrumentCreatePage /></Suspense></RequireRole>} />
             <Route path="/instruments/bulk" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_CREATE]}><Suspense fallback={<LazyFallback />}><InstrumentBulkCreatePage /></Suspense></RequireRole>} />
             <Route path="/instruments/:id" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_READ]}><Suspense fallback={<LazyFallback />}><InstrumentDetailPage /></Suspense></RequireRole>} />
