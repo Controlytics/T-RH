@@ -242,3 +242,32 @@ describe('instruments carry their profile', () => {
     expect(rows.every((r) => r.profileId === p.id)).toBe(true);
   });
 });
+
+describe('GET /api/instruments?profileId', () => {
+  it('scopes the list AND its total to one profile', async () => {
+    // The total is the point. Filtering in the browser left `total` counting
+    // every instrument, so an empty profile's footer read "Showing 1-10 of 15"
+    // over an empty table — visible the first time this was opened for real.
+    const mine = JSON.parse((await createProfile({ name: 'IPT Scoped' })).body);
+    const other = JSON.parse((await createProfile({ name: 'IPT Other' })).body);
+    await prisma.instrument.create({ data: { name: 'IPT-L', code: 'IPT-L', profileId: mine.id } });
+    await prisma.instrument.create({ data: { name: 'IPT-M', code: 'IPT-M', profileId: other.id } });
+
+    const res = await app.inject({
+      method: 'GET', url: `/api/instruments?profileId=${mine.id}`, headers: auth(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.total).toBe(1);
+    expect(body.data.map((r: { code: string }) => r.code)).toEqual(['IPT-L']);
+  });
+
+  it('reports total 0 for an empty profile', async () => {
+    const empty = JSON.parse((await createProfile({ name: 'IPT NoneHere' })).body);
+    const res = await app.inject({
+      method: 'GET', url: `/api/instruments?profileId=${empty.id}`, headers: auth(),
+    });
+    expect(JSON.parse(res.body).total).toBe(0);
+    expect(JSON.parse(res.body).data).toEqual([]);
+  });
+});

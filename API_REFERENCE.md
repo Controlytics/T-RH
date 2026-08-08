@@ -99,6 +99,7 @@ POST /api/users/:id/enable     Permission: USER_ENABLE_DISABLE, Reauth: ENABLE_U
 POST /api/users/:id/disable    Permission: USER_ENABLE_DISABLE, Reauth: DISABLE_USER
 POST /api/users/:id/unlock     Permission: USER_UNLOCK, Reauth: UNLOCK_USER
 ```
+
 `unlock` body: `{ newPassword }` — **required for local accounts, omitted for
 directory (LDAP/AD) accounts**, which have no local password to set (2026-08-08;
 was unconditionally required). The response carries `passwordIssued` so the
@@ -166,6 +167,32 @@ GET /api/config/users/:userId          Permission: CONFIG_READ
 PUT /api/config/users/:userId          Permission: CONFIG_UPDATE
 GET /api/config/my-config              Public
 ```
+
+---
+
+## Instrument Profiles & Instruments
+
+### Profiles
+```
+GET    /api/instrument-profiles       Permission: INSTRUMENT_READ
+GET    /api/instrument-profiles/:id   Permission: INSTRUMENT_READ
+POST   /api/instrument-profiles       Permission: INSTRUMENT_CREATE — 409 DUPLICATE_NAME
+PUT    /api/instrument-profiles/:id   Permission: INSTRUMENT_UPDATE — 409 DUPLICATE_NAME
+DELETE /api/instrument-profiles/:id   Permission: INSTRUMENT_DELETE — 409 PROFILE_NOT_EMPTY while it holds instruments
+```
+List items carry `instrumentCount` and `activeCount` (the ENABLED flag, not
+telemetry freshness).
+
+Every instrument belongs to exactly one profile. `POST /api/instruments` and
+`PUT /api/instruments/:id` take `profileId`; reads return `profileId` and
+`profileName`; `GET /api/instruments?profileId=…` scopes the list AND its
+`total`. `POST /api/instruments/bulk` takes `profileId` as a **sibling of
+`csv`** — the CSV format is unchanged and has no profile column. An unknown
+profile returns 400 `PROFILE_NOT_FOUND`.
+
+Deleting a populated profile is refused by the FOREIGN KEY
+(`ON DELETE RESTRICT`), not only by the service check — the 409 exists to give
+the operator the count and a next step.
 
 ---
 

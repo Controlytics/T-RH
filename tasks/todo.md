@@ -2122,3 +2122,67 @@ clean-tree stash comparison. LDAP e2e 28/28. Typecheck clean.
 **Teardown verified:** LDAP config row deleted from `compliance_core_db` (it did
 not pre-exist), directory users purged from the dev DB, my API/Vite/fake-AD
 processes stopped, the user's own dev server on :3001 untouched.
+
+---
+
+## 2026-08-08 — Instrument Profiles
+
+Group instruments under named profiles; create the profile first, then register
+instruments inside it. Design + plan:
+`docs/superpowers/specs/2026-08-08-instrument-profiles-design.md`,
+`docs/superpowers/plans/2026-08-08-instrument-profiles.md`.
+
+**Decisions (operator, 2026-08-08):** one profile per instrument (folder, not
+tags); required everywhere with existing rows backfilled to `Default`; name +
+description only, nothing inherited; a populated profile cannot be deleted;
+`/instruments` becomes the profile list.
+
+- [x] Task 1 — `InstrumentProfile` + `instruments.profile_id NOT NULL` with
+      `ON DELETE RESTRICT`. Hand-authored migration; drift guard PASS; 15
+      instruments backfilled, 0 orphans; the FK refusal verified by hand.
+- [x] Task 2 — Zod schemas (name trimmed, because the unique index is exact
+      match) + 3 audit actions. No permission constants added.
+- [x] Task 3 — `/api/instrument-profiles` CRUD; 409 with the instrument count.
+- [x] Task 4 — `profileId` through create / bulk / update / read.
+- [x] Task 5 — fixtures repaired.
+- [x] Task 6 — profile landing page.
+- [x] Task 7 — scoped list, create/bulk/detail wiring.
+- [x] Task 8 — docs + verification.
+
+**Found and fixed while building (none were in scope):**
+- [x] `INSTRUMENT_UPDATED`'s audit diff omitted `profileId` — a move would have
+      been unaudited. Caught by the existing guard that derives its key set from
+      `updateInstrumentSchema.shape`.
+- [x] Client-side list filtering left the footer counting the UNFILTERED set:
+      an empty profile read "Showing 1–10 of 15" over an empty table. Seen the
+      first time the page was opened for real. Replaced with a server-side
+      `profileId` filter, which also scales.
+- [x] `profiles?.data.find(...)` stops guarding at `profiles`; a body without
+      `data` crashed the page. Hardened in 3 files.
+- [x] `instruments.test.ts` "refuses a non-privileged role" posted an incomplete
+      body, so Fastify's validation answered 400 and the assertion passed
+      without the permission gate ever being consulted.
+- [x] Root docs claimed **61 models / 23 enums**; the real counts were 28 / 6
+      (now 29 / 6). Stale DigiLog inheritance, corrected to verified numbers in
+      all three CLAUDE.md files rather than incremented from the wrong ones.
+
+**Estimate that was wrong:** the plan predicted 5 test files needing fixtures.
+It was 11 — the survey grepped `prisma.instrument.create` and missed six files
+that register instruments through the API instead.
+
+**Environment gotcha:** `npx vite` proxies `/api` to `https://localhost:3000` —
+the SIBLING DigiLog install, not this fork on :3001. Run
+`API_PROXY_TARGET=https://localhost:3001 npx vite` or logins fail against the
+wrong database.
+
+**Deliberately out of scope:** no inheritance from profiles; gateways and
+profiles stay independent (a gateway may have children in other profiles); no
+nesting; no bulk move.
+
+**Verification:** API 1081 passing, 14 failures across the same 5 pre-existing
+files. Web 541 passing, 5 pre-existing failures. Both typecheck clean. Browser:
+created a profile, registered an instrument inside it (profile shown as a chip,
+not re-asked), and confirmed the delete refusal reaches the operator with the
+count — "Cleanroom-A still contains 1 instrument. Move or delete them before
+deleting the profile." Test data removed afterwards; `Default(15)` is the only
+profile left in the dev DB.

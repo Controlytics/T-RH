@@ -1,5 +1,64 @@
 # Changelog
 
+## [Unreleased] — Instrument Profiles (2026-08-08)
+
+Instruments are now grouped under named profiles: create a profile, then
+register instruments inside it. `/instruments` is the profile list; the register
+lives at `/instruments/profiles/:profileId` with its tiles, search and table
+unchanged.
+
+A profile is GROUPING ONLY — name and description, no settings, nothing
+inherited. Adding inheritance later would raise "what happens to existing
+members when the default changes?", which is a separate design question and was
+deliberately left out.
+
+**Membership is required, and existing instruments were backfilled.** Migration
+`20260808120000_add_instrument_profiles` creates a `Default` profile and moves
+every existing instrument into it, then makes the column `NOT NULL`. There is no
+"unassigned" state for any code path to handle. Hand-authored, because
+`prisma migrate diff` proposed an `ADD COLUMN NOT NULL` that fails outright on a
+populated table — plus three unrelated changes it would have shipped: dropping
+`audit_trail.chain_position`'s NOT NULL (weakening the tamper-evident chain),
+`DROP TABLE instrument_telemetry_history` (32 rows, migration-managed but absent
+from the datamodel), and churn on an unrelated FK. Drift guard PASS.
+
+**A populated profile cannot be deleted, and the database enforces that.**
+`ON DELETE RESTRICT` means no future code path can orphan an instrument or
+destroy a group by accident; the endpoint's 409 exists to give the operator the
+count and a next step, not to provide the safety. A test asserts both levels.
+
+**The bulk CSV format did not change.** The profile is chosen once for the whole
+upload, as a sibling field to `csv`, so template files already on disk keep
+working.
+
+No new permissions and no new reauth actions — profiles reuse `INSTRUMENT_*`.
+Three audit actions were added: a profile RENAME changes what an inspector reads
+against every instrument inside it. Moving an instrument between profiles rides
+the existing `INSTRUMENT_UPDATED` row.
+
+Found while building it, and fixed:
+
+  * `INSTRUMENT_UPDATED`'s audit diff omitted `profileId`, so a move would have
+    gone unrecorded. The existing test derives its key set from
+    `updateInstrumentSchema.shape` precisely so that this fails — it did.
+  * The instruments list was briefly filtered in the browser, which left the
+    footer counting the unfiltered set: an empty profile announced "Showing
+    1–10 of 15" over an empty table. Now a server-side `profileId` filter, so
+    `total` is right and it scales.
+  * `profiles?.data.find(...)` stops guarding at `profiles` — a body without
+    `data` crashed the page. Hardened in three files.
+  * "refuses a non-privileged role" posted an incomplete body, so Fastify's
+    validation answered 400 and the assertion passed without the permission gate
+    ever being consulted.
+
+Prisma model count is now **29** (6 enums). The three CLAUDE.md files claimed
+"61 models, 23 enums" — inherited from upstream DigiLog and never true in this
+fork; the real count beforehand was 28 / 6. Corrected to verified numbers rather
+than incremented from the stale ones.
+
+Design + plan: `docs/superpowers/specs/2026-08-08-instrument-profiles-design.md`,
+`docs/superpowers/plans/2026-08-08-instrument-profiles.md`.
+
 ## [Unreleased] — A local Active Directory to develop against, and two bugs it caught (2026-08-08)
 
 There is no directory to develop against on this machine and none can be run —

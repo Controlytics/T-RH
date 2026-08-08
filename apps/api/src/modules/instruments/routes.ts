@@ -353,6 +353,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           area: { type: 'string' },
           location: { type: 'string' },
           isGateway: { type: 'string', enum: ['true', 'false'] },
+          profileId: { type: 'string', format: 'uuid', description: 'Scope to one instrument profile' },
         },
       },
       response: {
@@ -372,7 +373,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     if (!parsed.success) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
     }
-    const { page, limit, search, isActive, block, area, location, isGateway } = parsed.data;
+    const { page, limit, search, isActive, block, area, location, isGateway, profileId } = parsed.data;
 
     const where: Prisma.InstrumentWhereInput = {
       ...(isActive !== undefined ? { isActive: isActive === 'true' } : {}),
@@ -380,6 +381,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       ...(area ? { area: { contains: area, mode: 'insensitive' as const } } : {}),
       ...(location ? { location: { contains: location, mode: 'insensitive' as const } } : {}),
       ...(isGateway !== undefined ? { isGateway: isGateway === 'true' } : {}),
+      ...(profileId ? { profileId } : {}),
       ...(search
         ? {
             OR: [

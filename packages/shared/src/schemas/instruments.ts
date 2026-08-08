@@ -222,6 +222,10 @@ export const instrumentQuerySchema = z.object({
   area: z.string().optional(),
   location: z.string().optional(),
   isGateway: z.enum(['true', 'false']).optional(),
+  // Scopes the list to one profile. Filtered SERVER-side on purpose: doing it
+  // in the browser left the pagination footer counting the unfiltered set, so
+  // an empty profile announced "Showing 1–10 of 15".
+  profileId: z.string().uuid().optional(),
   page: z.coerce.number().min(1).default(1),
   limit: z.coerce.number().min(1).max(500).default(20),
 });

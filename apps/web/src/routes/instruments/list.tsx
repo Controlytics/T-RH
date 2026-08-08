@@ -115,25 +115,25 @@ export function InstrumentListPage() {
     return () => clearTimeout(debounceRef.current);
   }, [search]);
 
+  // Scoped to one profile when reached via /instruments/profiles/:profileId.
+  const { profileId } = useParams<{ profileId: string }>();
+
   const params = new URLSearchParams({ page: String(page), limit: String(perPage) });
   if (debouncedSearch) params.set('search', debouncedSearch);
   if (active) params.set('isActive', active);
+  // Sent to the SERVER, not applied to the rows here: filtering client-side left
+  // `total` counting every instrument, so an empty profile's footer read
+  // "Showing 1–10 of 15" over an empty table.
+  if (profileId) params.set('profileId', profileId);
 
   const { data, isLoading } = useSWR<ListResponse>(`/api/instruments?${params}`);
-  // Scoped to one profile when reached via /instruments/profiles/:profileId.
-  const { profileId } = useParams<{ profileId: string }>();
   const { data: profile } = useSWR<{ id: string; name: string; description: string | null }>(
     profileId ? `/api/instrument-profiles/${profileId}` : null,
   );
   // The fallback window for instruments that declare no expected interval.
   const { data: activityConfig } = useSWR<{ activeWindowMinutes?: number }>('/api/config/instrument-activity/current');
   const activeWindow = activityConfig?.activeWindowMinutes ?? INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN;
-  // Filtered client-side rather than server-side: the page already loads the
-  // whole page of rows, and the tiles/search/table below stay byte-identical to
-  // the unscoped version. If the register ever reaches thousands of instruments
-  // this wants a `profileId` query parameter on the list endpoint instead.
-  const allRows = data?.data ?? [];
-  const rows = profileId ? allRows.filter((r) => r.profileId === profileId) : allRows;
+  const rows = data?.data ?? [];
 
   const withStatus = rows.map((r) => ({
     row: r,
