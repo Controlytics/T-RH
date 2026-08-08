@@ -117,6 +117,15 @@ Attributes section. A `NOT NULL DEFAULT ''` would turn that same mistake into
 deliberately asks for nothing" is a legitimate configuration the current page
 already supports.
 
+**`NULL` collapses to `''` on any save, by design.** The distinction is invisible
+in the editor — `parseInstrumentAttributeKeys` returns `[]` for both `''` and
+`NULL` (`config.ts:230-231`), so a `NULL` profile and an empty-list profile both
+render as zero rows, and saving writes `''`. That is accepted rather than worked
+around: post-migration no profile is `NULL`, so the only way to reach this is a
+code path that skipped seeding, and having an admin's explicit save win over an
+unintended `NULL` is the right outcome. `NULL` is a read-side safety net, not a
+state the UI maintains.
+
 **Length guard:** `max(2000)` on the Zod schema, matching
 `instrumentAttributesConfigSchema` (`config.ts:212-215`), so a per-profile list
 cannot exceed what the default template could hold.
@@ -174,9 +183,11 @@ No new endpoints, no new permission constants, no new reauth actions.
 - **`PUT`** accepts `attributeKeys` as a nullable string.
 - **Audit** records the **parsed key array**, not the raw string:
   `attributeKeys: ['Block','Area',…]`. An inspector reads keys, not newlines,
-  and the audit UI already diffs keyed arrays. `signatureMeaning` stays short
-  for its narrow varchar column:
-  `Instrument profile "Cleanroom AHU" attribute keys changed (12 → 5)`.
+  and the audit UI already diffs keyed arrays. `signatureMeaning`:
+  `Instrument profile "Cleanroom AHU" attribute keys changed (12 → 5)`. This
+  fits: `audit_trail.signature_meaning` is `varchar(255)` (verified via `\d
+  audit_trail`), the fixed text is ~50 characters, and the profile name is capped
+  at 120 by `createInstrumentProfileSchema`, so the worst case is ~170.
 
 ### The sanitiser divergence — and the fix
 
@@ -204,10 +215,26 @@ The e2e test asserting a `<`-bearing key round-trips verbatim is the regression
 guard for this skip. It is the thing most likely to rot if someone later "tidies"
 the skip list away.
 
+### `GET /api/config/instrument-attributes/current` becomes orphaned
+
+Its only two callers anywhere are `create.tsx:56` and `attributes-panel.tsx:49`
+(verified by grep across `apps/web/src` and `apps/api/src`), and this change
+removes both. The config page reads the default through
+`/api/config/dynamic/instrument-attributes` instead (`instrument-attributes.tsx:36`),
+and the `POST` seed calls `configService.getConfig()` in-process, not over HTTP.
+So after this change the endpoint has **zero callers**.
+
+Recommendation: **keep it**, with a comment recording that it is currently
+uncalled and what it means now ("the default template for new profiles").
+Deleting a live endpoint is a public-surface change with its own
+`API_REFERENCE.md` churn and belongs to a separate decision, and this repo's
+pre-deletion rule wants receipts before removal. Flagged here so it does not rot
+unnoticed — an endpoint nobody calls and nobody documents is how the orphans this
+project has spent months deleting got created.
+
 ### Unchanged
 
-`GET /api/config/instrument-attributes/current` (`config/routes.ts:185`) stays,
-now meaning "the default template for new profiles". The create form reads the
+The create form reads the
 selected profile through the existing `GET /api/instrument-profiles/:id`;
 `INSTRUMENT_CREATE`'s grant set already includes `INSTRUMENT_READ`
 (`permission-tree.ts:323`), so anyone who can reach the create form can read the
@@ -340,7 +367,9 @@ unchanged; confirm it passes untouched.
 Web
 - `create.test.tsx` — all four Attributes states, plus confirm-on-profile-switch
 - `attributes-panel.test.tsx` — suggestions come from the profile
-- new test for the config page's target switch and dirty guard
+- `apps/web/src/routes/config/__tests__/instrument-attributes.test.tsx` — new
+  file in a new directory (`routes/config/__tests__/` does not exist yet):
+  target switch, the dirty guard, and the placement advisory
 
 ### Verification — tests alone are not it
 
