@@ -186,10 +186,19 @@ describe('WebSocket ingest listener', () => {
     ws.send('{not json');
 
     const rows = await waitFor(async () => {
+      // ONE query, not two. This used to snapshot `findMany` and then compare a
+      // SEPARATE `count()` against `before` — so when the row landed between the
+      // two queries, the count said "ready" while `r` was still the empty
+      // snapshot. `waitFor` treats any non-null value as ready and an empty
+      // array is truthy, so it returned `[]` and the next line read
+      // `rows[0].transport` off undefined. Intermittent by construction, and it
+      // surfaced whenever the suite ran under load (a different ingest file
+      // failing each run). Deriving readiness from the SAME rows removes the
+      // window entirely.
       const r = await prisma.deadLetter.findMany({
-        where: { instrumentId: plainId }, orderBy: { receivedAt: 'desc' }, take: 1,
+        where: { instrumentId: plainId }, orderBy: { receivedAt: 'desc' },
       });
-      return (await prisma.deadLetter.count({ where: { instrumentId: plainId } })) > before ? r : null;
+      return r.length > before ? r : null;
     });
     expect(rows[0].transport).toBe('ws');
     expect(rows[0].reason).toContain('Invalid JSON');
