@@ -856,6 +856,10 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         expectedIntervalSec: i.expectedIntervalSec,
         location: i.location, area: i.area, block: i.block,
         isGateway: i.isGateway, gatewayId: i.gatewayId,
+        // Moving an instrument between profiles changes which group an
+        // inspector finds it under; the design records that through this row
+        // rather than a dedicated action.
+        profileId: i.profileId,
       });
       await auditLog({
         action: 'INSTRUMENT_UPDATED', targetType: 'Instrument', targetId: id,

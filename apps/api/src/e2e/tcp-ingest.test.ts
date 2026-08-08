@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import net from 'node:net';
 import { prisma } from '../lib/prisma.js';
+import { fixtureProfileId } from '../test-support/fixture-profile.js';
 import { generateToken, hashToken, tokenPrefix } from '../modules/instruments/token.js';
 import { startTcpListener } from '../modules/instruments/listeners/tcp-listener.js';
 import { invalidateIngestAuthCache } from '../modules/instruments/ingest-auth.js';
@@ -39,7 +40,9 @@ async function mkInstrument(
   code: string,
   extra: { isGateway?: boolean; gatewayId?: string } = {},
 ): Promise<{ id: string; token: string }> {
-  const inst = await prisma.instrument.create({ data: { name: code, code, ...extra } });
+  const inst = await prisma.instrument.create({
+    data: { name: code, code, profileId: await fixtureProfileId('fixture:tcp-ingest'), ...extra },
+  });
   instrumentIds.push(inst.id);
   const token = generateToken();
   await prisma.instrumentCredential.create({

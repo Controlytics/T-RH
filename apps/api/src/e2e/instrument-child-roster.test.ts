@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp, loginAs } from './test-helper.js';
 import { setDownlinkPublisher } from '../modules/instruments/attribute-downlink.js';
+import { fixtureProfileId } from '../test-support/fixture-profile.js';
 
 /**
  * Child ROSTER wiring — which route publishes a gateway's membership.
@@ -60,7 +61,10 @@ beforeEach(() => { sent = []; });
 const uniq = () => `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 
 async function mk(payload: Record<string, unknown>) {
-  const res = await app.inject({ method: 'POST', url: '/api/instruments', headers: auth, payload });
+  const res = await app.inject({
+    method: 'POST', url: '/api/instruments', headers: auth,
+    payload: { profileId: await fixtureProfileId('fixture:instrument-child-roster'), ...payload },
+  });
   expect(res.statusCode).toBe(201);
   const body = res.json() as { id: string; code: string };
   created.push(body.id);

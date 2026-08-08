@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp, loginAs } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
 import { setDownlinkPublisher } from '../modules/instruments/attribute-downlink.js';
+import { fixtureProfileId } from '../test-support/fixture-profile.js';
 
 /**
  * Attribute DOWNLINK wiring — the first platform→device path in this codebase.
@@ -68,7 +69,10 @@ afterAll(async () => {
 beforeEach(() => { sent = []; publishError = null; });
 
 async function mk(payload: Record<string, unknown>) {
-  const res = await app.inject({ method: 'POST', url: '/api/instruments', headers: auth, payload });
+  const res = await app.inject({
+    method: 'POST', url: '/api/instruments', headers: auth,
+    payload: { profileId: await fixtureProfileId('fixture:instrument-attribute-downlink'), ...payload },
+  });
   expect(res.statusCode).toBe(201);
   created.push(res.json().id);
   return res.json() as { id: string; code: string };

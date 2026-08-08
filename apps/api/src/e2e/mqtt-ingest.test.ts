@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { prisma } from '../lib/prisma.js';
+import { fixtureProfileId } from '../test-support/fixture-profile.js';
 
 /**
  * The MQTT bridge against the REAL ingest core and the REAL database, with only
@@ -69,7 +70,9 @@ async function mkInstrument(
   code: string,
   extra: { isGateway?: boolean; gatewayId?: string; isActive?: boolean } = {},
 ): Promise<string> {
-  const inst = await prisma.instrument.create({ data: { name: code, code, ...extra } });
+  const inst = await prisma.instrument.create({
+    data: { name: code, code, profileId: await fixtureProfileId('fixture:mqtt-ingest'), ...extra },
+  });
   instrumentIds.push(inst.id);
   return inst.id;
 }

@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp, loginAs } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
 import { invalidateRolePermsCache } from '../plugins/rbac.js';
+import { fixtureProfileId } from '../test-support/fixture-profile.js';
 
 /**
  * Free-form per-instrument attributes.
@@ -38,7 +39,10 @@ afterAll(async () => {
 async function newInstrument(prefix: string) {
   const res = await app.inject({
     method: 'POST', url: '/api/instruments', headers: auth,
-    payload: { name: prefix, code: `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e6)}` },
+    payload: {
+      name: prefix, code: `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+      profileId: await fixtureProfileId('fixture:instrument-attributes'),
+    },
   });
   expect(res.statusCode).toBe(201);
   const body = res.json();

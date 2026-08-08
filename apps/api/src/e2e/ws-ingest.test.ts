@@ -3,6 +3,7 @@ import WebSocket from 'ws';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
+import { fixtureProfileId } from '../test-support/fixture-profile.js';
 import { generateToken, hashToken, tokenPrefix } from '../modules/instruments/token.js';
 import { invalidateIngestAuthCache } from '../modules/instruments/ingest-auth.js';
 
@@ -41,7 +42,9 @@ async function mkInstrument(
   code: string,
   extra: { isGateway?: boolean; gatewayId?: string } = {},
 ): Promise<{ id: string; token: string }> {
-  const inst = await prisma.instrument.create({ data: { name: code, code, ...extra } });
+  const inst = await prisma.instrument.create({
+    data: { name: code, code, profileId: await fixtureProfileId('fixture:ws-ingest'), ...extra },
+  });
   instrumentIds.push(inst.id);
   const token = generateToken();
   await prisma.instrumentCredential.create({

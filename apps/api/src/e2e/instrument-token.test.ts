@@ -7,6 +7,7 @@ import { resetTokenKeyCache } from '../modules/instruments/token-crypto.js';
 import { TOKEN_PREFIX_LEN } from '../modules/instruments/token.js';
 import { invalidateIngestAuthCache } from '../modules/instruments/ingest-auth.js';
 import { invalidateReauthCache, getActionReauthConfig } from '../lib/reauth-check.js';
+import { fixtureProfileId } from '../test-support/fixture-profile.js';
 
 /**
  * Reveal / set of a device access token — the 2026-08-06 reversal of spec D5.
@@ -43,7 +44,10 @@ afterAll(async () => {
 async function newInstrument(prefix: string) {
   const res = await app.inject({
     method: 'POST', url: '/api/instruments', headers: auth,
-    payload: { name: prefix, code: `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e6)}` },
+    payload: {
+      name: prefix, code: `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+      profileId: await fixtureProfileId('fixture:instrument-token'),
+    },
   });
   expect(res.statusCode).toBe(201);
   const body = res.json();

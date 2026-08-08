@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { buildApp, loginAs } from './test-helper.js';
 import type { FastifyInstance } from 'fastify';
+import { fixtureProfileId } from '../test-support/fixture-profile.js';
 
 let app: FastifyInstance;
 let auth: Record<string, string>;
@@ -16,7 +17,10 @@ afterAll(async () => {
 });
 
 async function mk(payload: Record<string, unknown>) {
-  const res = await app.inject({ method: 'POST', url: '/api/instruments', headers: auth, payload });
+  const res = await app.inject({
+    method: 'POST', url: '/api/instruments', headers: auth,
+    payload: { profileId: await fixtureProfileId('fixture:gateway-ingest'), ...payload },
+  });
   expect(res.statusCode).toBe(201);
   created.push(res.json().id);
   return res.json() as { id: string; code: string; token: string };

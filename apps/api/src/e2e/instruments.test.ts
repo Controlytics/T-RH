@@ -5,6 +5,7 @@ import type { Prisma } from '@prisma/client';
 import { updateInstrumentSchema } from '@digilog/shared';
 import { prisma } from '../lib/prisma.js';
 import { lockedGatewayRecheck, GatewayInvariantViolation } from '../modules/instruments/gateway-invariants.js';
+import { fixtureProfileId } from '../test-support/fixture-profile.js';
 
 let app: FastifyInstance;
 let auth: Record<string, string>;
@@ -22,7 +23,12 @@ afterAll(async () => {
 });
 
 async function create(payload: Record<string, unknown>) {
-  return app.inject({ method: 'POST', url: '/api/instruments', headers: auth, payload });
+  return app.inject({
+    method: 'POST', url: '/api/instruments', headers: auth,
+    // Default profile so each test states only the fields it is about; a test
+    // that cares about the profile passes its own and wins the spread.
+    payload: { profileId: await fixtureProfileId('fixture:instruments'), ...payload },
+  });
 }
 
 describe('Instruments registry', () => {
@@ -56,7 +62,10 @@ describe('Instruments registry', () => {
   it('bulk-creates with partial success and returns one token per created row', async () => {
     const stamp = Date.now();
     const csv = `name,code\nBulk A,BA-${stamp}\n,BB-${stamp}`;
-    const res = await app.inject({ method: 'POST', url: '/api/instruments/bulk', headers: auth, payload: { csv } });
+    const res = await app.inject({
+      method: 'POST', url: '/api/instruments/bulk', headers: auth,
+      payload: { csv, profileId: await fixtureProfileId('fixture:instruments') },
+    });
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.created).toHaveLength(1);
@@ -71,7 +80,10 @@ describe('Instruments registry', () => {
   it('still imports a legacy CSV that carries the retired `transport` column, warning once', async () => {
     const stamp = Date.now();
     const csv = `name,code,transport\nLegacy A,LA-${stamp},http\nLegacy B,LB-${stamp},carrier-pigeon`;
-    const res = await app.inject({ method: 'POST', url: '/api/instruments/bulk', headers: auth, payload: { csv } });
+    const res = await app.inject({
+      method: 'POST', url: '/api/instruments/bulk', headers: auth,
+      payload: { csv, profileId: await fixtureProfileId('fixture:instruments') },
+    });
     expect(res.statusCode).toBe(200);
     const body = res.json();
     for (const c of body.created) created.push(c.id);
@@ -97,7 +109,10 @@ describe('Instruments registry', () => {
 
     // Row 2 collides with the instrument above; rows 3 and 4 must still land.
     const csv = `name,code\nDup,${taken}\nFresh 1,F1-${stamp}\nFresh 2,F2-${stamp}`;
-    const res = await app.inject({ method: 'POST', url: '/api/instruments/bulk', headers: auth, payload: { csv } });
+    const res = await app.inject({
+      method: 'POST', url: '/api/instruments/bulk', headers: auth,
+      payload: { csv, profileId: await fixtureProfileId('fixture:instruments') },
+    });
     expect(res.statusCode).toBe(200);
     const body = res.json();
     for (const c of body.created) created.push(c.id);
@@ -140,9 +155,16 @@ describe('Instruments registry', () => {
     const operator = { authorization: `Bearer ${await loginAs(app, 'RB0001', 'Test@1234')}` };
     const read = await app.inject({ method: 'GET', url: '/api/instruments', headers: operator });
     expect(read.statusCode).toBe(403);
+    // The payload must be otherwise VALID. Fastify validates the body before it
+    // runs preHandler, so an incomplete payload answers 400 and this assertion
+    // would pass without the permission gate ever being consulted — the exact
+    // false green this test exists to prevent.
     const write = await app.inject({
       method: 'POST', url: '/api/instruments', headers: operator,
-      payload: { name: 'Nope', code: `NO-${Date.now()}` },
+      payload: {
+        name: 'Nope', code: `NO-${Date.now()}`,
+        profileId: await fixtureProfileId('fixture:instruments'),
+      },
     });
     expect(write.statusCode).toBe(403);
 
@@ -232,7 +254,10 @@ describe('Instrument token lifecycle', () => {
 
 describe('Instrument gateway links', () => {
   const mk = async (payload: Record<string, unknown>) => {
-    const res = await app.inject({ method: 'POST', url: '/api/instruments', headers: auth, payload });
+    const res = await app.inject({
+      method: 'POST', url: '/api/instruments', headers: auth,
+      payload: { profileId: await fixtureProfileId('fixture:instruments'), ...payload },
+    });
     if (res.statusCode === 201) created.push(res.json().id);
     return res;
   };
@@ -345,7 +370,10 @@ describe('Instrument gateway links', () => {
  */
 describe('Instrument gateway audit trail', () => {
   const mk = async (payload: Record<string, unknown>) => {
-    const res = await app.inject({ method: 'POST', url: '/api/instruments', headers: auth, payload });
+    const res = await app.inject({
+      method: 'POST', url: '/api/instruments', headers: auth,
+      payload: { profileId: await fixtureProfileId('fixture:instruments'), ...payload },
+    });
     if (res.statusCode === 201) created.push(res.json().id);
     return res;
   };

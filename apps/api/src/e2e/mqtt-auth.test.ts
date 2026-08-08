@@ -3,6 +3,7 @@ import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
+import { fixtureProfileId } from '../test-support/fixture-profile.js';
 import { generateToken, hashToken, tokenPrefix } from '../modules/instruments/token.js';
 import { invalidateIngestAuthCache } from '../modules/instruments/ingest-auth.js';
 import mqttAuthRoutes from '../modules/instruments/mqtt-auth-routes.js';
@@ -33,7 +34,9 @@ async function mkInstrument(
   code: string,
   extra: { isActive?: boolean } = {},
 ): Promise<{ id: string; token: string; credentialId: string }> {
-  const inst = await prisma.instrument.create({ data: { name: code, code, ...extra } });
+  const inst = await prisma.instrument.create({
+    data: { name: code, code, profileId: await fixtureProfileId('fixture:mqtt-auth'), ...extra },
+  });
   instrumentIds.push(inst.id);
   const token = generateToken();
   const cred = await prisma.instrumentCredential.create({

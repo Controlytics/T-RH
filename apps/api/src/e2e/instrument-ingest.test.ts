@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { buildApp } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
+import { fixtureProfileId } from '../test-support/fixture-profile.js';
 import { generateToken, hashToken, tokenPrefix } from '../modules/instruments/token.js';
 
 let app: Awaited<ReturnType<typeof buildApp>>;
@@ -11,7 +12,10 @@ beforeAll(async () => {
   app = await buildApp();
   token = generateToken();
   const inst = await prisma.instrument.create({
-    data: { name: 'Ingest Probe', code: `ING-${Date.now()}` },
+    data: {
+      name: 'Ingest Probe', code: `ING-${Date.now()}`,
+      profileId: await fixtureProfileId('fixture:instrument-ingest'),
+    },
   });
   instrumentId = inst.id;
   await prisma.instrumentCredential.create({
