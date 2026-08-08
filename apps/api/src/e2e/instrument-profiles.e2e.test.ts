@@ -160,3 +160,85 @@ describe('DELETE /api/instrument-profiles/:id', () => {
     await expect(prisma.instrumentProfile.delete({ where: { id: p.id } })).rejects.toThrow();
   });
 });
+
+describe('instruments carry their profile', () => {
+  it('POST /api/instruments requires a profile', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/instruments', headers: auth(),
+      payload: { name: 'IPT-E', code: 'IPT-E' },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('creates an instrument inside a profile and reads it back with the name', async () => {
+    const p = JSON.parse((await createProfile({ name: 'IPT Wire' })).body);
+    const created = await app.inject({
+      method: 'POST', url: '/api/instruments', headers: auth(),
+      payload: { name: 'IPT-F', code: 'IPT-F', profileId: p.id },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(JSON.parse(created.body).profileId).toBe(p.id);
+
+    // profileName must survive Fastify's response serializer — it strips any
+    // property the schema does not declare, so the UI would silently see
+    // nothing however correct the query is.
+    const read = await app.inject({
+      method: 'GET', url: `/api/instruments/${JSON.parse(created.body).id}`, headers: auth(),
+    });
+    expect(JSON.parse(read.body)).toMatchObject({ profileId: p.id, profileName: 'IPT Wire' });
+  });
+
+  it('carries the profile through the LIST endpoint too', async () => {
+    const p = JSON.parse((await createProfile({ name: 'IPT Listed' })).body);
+    await app.inject({
+      method: 'POST', url: '/api/instruments', headers: auth(),
+      payload: { name: 'IPT-K', code: 'IPT-K', profileId: p.id },
+    });
+
+    const res = await app.inject({ method: 'GET', url: '/api/instruments?limit=200', headers: auth() });
+    const row = JSON.parse(res.body).data.find((r: { code: string }) => r.code === 'IPT-K');
+    expect(row).toMatchObject({ profileId: p.id, profileName: 'IPT Listed' });
+  });
+
+  it('rejects a profileId that names no profile, with 400 not a raw FK 500', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/instruments', headers: auth(),
+      payload: { name: 'IPT-G', code: 'IPT-G', profileId: '00000000-0000-4000-8000-000000000000' },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).error).toBe('PROFILE_NOT_FOUND');
+  });
+
+  it('moves an instrument between profiles', async () => {
+    const from = JSON.parse((await createProfile({ name: 'IPT From' })).body);
+    const to = JSON.parse((await createProfile({ name: 'IPT To' })).body);
+    const created = JSON.parse((await app.inject({
+      method: 'POST', url: '/api/instruments', headers: auth(),
+      payload: { name: 'IPT-H', code: 'IPT-H', profileId: from.id },
+    })).body);
+
+    const res = await app.inject({
+      method: 'PUT', url: `/api/instruments/${created.id}`, headers: auth(),
+      payload: { profileId: to.id },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).profileId).toBe(to.id);
+  });
+
+  it('applies ONE profile to every row of a bulk upload, with no CSV column', async () => {
+    const p = JSON.parse((await createProfile({ name: 'IPT Bulk' })).body);
+    // The CSV is exactly the format operators already have on disk — no profile
+    // column. That is the whole point of taking it as a sibling field.
+    const csv = 'code,name\nIPT-I,IPT-I\nIPT-J,IPT-J\n';
+
+    const res = await app.inject({
+      method: 'POST', url: '/api/instruments/bulk', headers: auth(),
+      payload: { csv, profileId: p.id },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const rows = await prisma.instrument.findMany({ where: { code: { in: ['IPT-I', 'IPT-J'] } } });
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.profileId === p.id)).toBe(true);
+  });
+});

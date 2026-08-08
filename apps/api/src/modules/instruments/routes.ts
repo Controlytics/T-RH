@@ -53,6 +53,10 @@ const instrumentProps = {
   name: { type: 'string' },
   code: { type: 'string' },
   isActive: { type: 'boolean' },
+  // Fastify strips response properties this schema does not declare. Omit
+  // these and the UI sees no profile at all, however correct the query is.
+  profileId: { type: 'string' },
+  profileName: { type: 'string', nullable: true },
   instrumentType: { type: 'string', nullable: true },
   manufacturer: { type: 'string', nullable: true },
   model: { type: 'string', nullable: true },
@@ -113,10 +117,15 @@ type InstrumentRow = Record<string, unknown> & { credentials?: CredentialRow[] }
  * `tokenPrefix` stays credential-derived — it IS a property of the credential.
  */
 function present(row: InstrumentRow) {
-  const { credentials, ...rest } = row;
+  const { credentials, profile, ...rest } =
+    row as InstrumentRow & { profile?: { name: string } | null };
   const active = credentials?.[0];
   return {
     ...rest,
+    // The profile is joined purely for its NAME — every screen shows a label,
+    // never the id. Destructured away so the nested object never reaches the
+    // client alongside the flat field.
+    profileName: profile?.name ?? null,
     tokenPrefix: active?.tokenPrefix ?? null,
     // The CIPHERTEXT ITSELF is destructured away with `credentials` and never
     // reaches the client — only the boolean derived from it. Selecting it here
@@ -124,6 +133,9 @@ function present(row: InstrumentRow) {
     tokenRevealable: Boolean(active?.tokenEncrypted) && tokenKeyConfigured(),
   };
 }
+
+/** Reads join the profile only for its name (see `present`). */
+const withProfileName = { profile: { select: { name: true } } };
 
 const activeCredential = {
   where: { revokedAt: null },
@@ -171,6 +183,26 @@ async function codeOf(
  * Every other text field on these payloads is still stripped.
  */
 const IDENTITY_FIELDS = ['code', 'name'];
+
+/**
+ * A profileId naming no profile would otherwise surface as a raw foreign-key
+ * error — a 500 that tells the operator nothing about which field is wrong.
+ *
+ * There is a benign race (the profile could be deleted between this check and
+ * the insert), but a POPULATED profile cannot be deleted and this insert is what
+ * populates it, so the window closes itself.
+ */
+async function profileMissing(profileId: string | undefined): Promise<boolean> {
+  if (!profileId) return false;
+  return !(await prisma.instrumentProfile.findUnique({
+    where: { id: profileId }, select: { id: true },
+  }));
+}
+
+const PROFILE_NOT_FOUND = {
+  error: 'PROFILE_NOT_FOUND',
+  message: 'The selected profile no longer exists.',
+};
 
 const SIGNATURE_CODE_MAX = 80;
 function codeLabel(code: string): string {
@@ -362,7 +394,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const [rows, total] = await Promise.all([
       prisma.instrument.findMany({
         where,
-        include: { credentials: activeCredential },
+        include: { credentials: activeCredential, ...withProfileName },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
@@ -442,7 +474,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const row = await prisma.instrument.findUnique({ where: { id }, include: { credentials: activeCredential } });
+    const row = await prisma.instrument.findUnique({ where: { id }, include: { credentials: activeCredential, ...withProfileName } });
     if (!row) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
     return present(row as unknown as InstrumentRow);
   });
@@ -544,9 +576,10 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       description: 'Creates an instrument and issues its access token. The token is returned ONCE and cannot be retrieved later.',
       body: {
         type: 'object',
-        required: ['name', 'code'],
+        required: ['name', 'code', 'profileId'],
         properties: {
           name: { type: 'string' }, code: { type: 'string' },
+          profileId: { type: 'string', format: 'uuid' },
           isActive: { type: 'boolean' },
           instrumentType: { type: 'string' }, manufacturer: { type: 'string' },
           model: { type: 'string' }, serialNumber: { type: 'string' },
@@ -577,6 +610,10 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const invalid = await gatewayInvariantError(parsed.data, null);
     if (invalid) return reply.code(invalid.status).send(invalid.body);
 
+    if (await profileMissing(parsed.data.profileId)) {
+      return reply.code(400).send(PROFILE_NOT_FOUND);
+    }
+
     try {
       const { id, token } = await createWithCredential(parsed.data as Record<string, unknown>, buildContext(req));
       // An instrument born linked must be writable by its gateway at once, not
@@ -587,7 +624,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       // ever gains a child reads an explicit "no children" instead of an empty
       // slot it cannot tell from a broker that lost the message.
       await announceRoster(parsed.data.gatewayId ?? (parsed.data.isGateway ? id : null));
-      const row = await prisma.instrument.findUnique({ where: { id }, include: { credentials: activeCredential } });
+      const row = await prisma.instrument.findUnique({ where: { id }, include: { credentials: activeCredential, ...withProfileName } });
       return reply.code(201).send({ ...present(row as unknown as InstrumentRow), token });
     } catch (err) {
       if (err instanceof GatewayInvariantViolation) return reply.code(err.status).send(err.body);
@@ -605,7 +642,12 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       tags: ['Instruments'],
       summary: 'Bulk-create instruments from CSV',
       description: 'Per-row validation with partial success: valid rows are created, invalid rows are reported with their source row number. The response carries one plaintext token per created instrument — it is a live credential file.',
-      body: { type: 'object', required: ['csv'], properties: { csv: { type: 'string' } } },
+      // profileId is a SIBLING of csv, not a column: the CSV format operators
+      // already have on disk stays exactly as it was.
+      body: {
+        type: 'object', required: ['csv', 'profileId'],
+        properties: { csv: { type: 'string' }, profileId: { type: 'string', format: 'uuid' } },
+      },
       response: {
         200: {
           type: 'object',
@@ -632,6 +674,12 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
     }
 
+    // Checked BEFORE parsing so a bad profile fails the whole upload cleanly,
+    // rather than after some rows have already been created against it.
+    if (await profileMissing(parsed.data.profileId)) {
+      return reply.code(400).send(PROFILE_NOT_FOUND);
+    }
+
     const { rows, rowNumbers, errors, warnings } = parseInstrumentCsv(parsed.data.csv);
     const ctx = buildContext(req);
     const created: { id: string; code: string; name: string; token: string }[] = [];
@@ -643,7 +691,12 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       const draft: InstrumentDraft = rows[i];
       try {
         created.push(await createWithCredential(
-          sanitizeStrings(draft as unknown as Record<string, unknown>, IDENTITY_FIELDS), ctx,
+          {
+            ...sanitizeStrings(draft as unknown as Record<string, unknown>, IDENTITY_FIELDS),
+            // One profile for the whole upload — see the body schema.
+            profileId: parsed.data.profileId,
+          },
+          ctx,
         ));
       } catch (err) {
         if (isDuplicateCode(err)) {
@@ -673,6 +726,8 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         type: 'object',
         properties: {
           name: { type: 'string' }, isActive: { type: 'boolean' },
+          // Moving the instrument to another profile.
+          profileId: { type: 'string', format: 'uuid' },
           instrumentType: { type: ['string', 'null'] }, manufacturer: { type: ['string', 'null'] },
           model: { type: ['string', 'null'] }, serialNumber: { type: ['string', 'null'] },
           description: { type: ['string', 'null'] }, expectedIntervalSec: { type: ['integer', 'null'] },
@@ -693,6 +748,10 @@ export default async function instrumentRoutes(app: FastifyInstance) {
 
     const existing = await prisma.instrument.findUnique({ where: { id } });
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
+
+    if (await profileMissing((parsed.data as { profileId?: string }).profileId)) {
+      return reply.code(400).send(PROFILE_NOT_FOUND);
+    }
 
     const invalid = await gatewayInvariantError(parsed.data, existing);
     if (invalid) return reply.code(invalid.status).send(invalid.body);
@@ -901,7 +960,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     // The topic is keyed on the id, which never changes at all.
     else if (existing.isGateway) await clearChildRoster(id);
 
-    const row = await prisma.instrument.findUnique({ where: { id }, include: { credentials: activeCredential } });
+    const row = await prisma.instrument.findUnique({ where: { id }, include: { credentials: activeCredential, ...withProfileName } });
     return present((row ?? updated) as unknown as InstrumentRow);
   });
 
