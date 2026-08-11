@@ -944,6 +944,42 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'Attribute "{attribute}" removed from instrument "{instrument}" by {actor}',
     placeholders: ['actor', 'instrument', 'attribute'],
   },
+  FLOORPLAN_CREATED: {
+    label: 'Floorplan Created',
+    category: 'Instruments',
+    template: 'Floorplan "{floorplan}" created by {actor}',
+    placeholders: ['actor', 'floorplan'],
+  },
+  FLOORPLAN_UPDATED: {
+    label: 'Floorplan Updated',
+    category: 'Instruments',
+    template: 'Floorplan "{floorplan}" updated by {actor}',
+    placeholders: ['actor', 'floorplan'],
+  },
+  FLOORPLAN_DELETED: {
+    label: 'Floorplan Deleted',
+    category: 'Instruments',
+    template: 'Floorplan "{floorplan}" deleted by {actor}',
+    placeholders: ['actor', 'floorplan'],
+  },
+  FLOORPLAN_ROOM_CREATED: {
+    label: 'Room Created',
+    category: 'Instruments',
+    template: 'Room "{room}" added to floorplan "{floorplan}" by {actor}',
+    placeholders: ['actor', 'room', 'floorplan'],
+  },
+  FLOORPLAN_ROOM_UPDATED: {
+    label: 'Room Updated',
+    category: 'Instruments',
+    template: 'Room "{room}" updated by {actor}',
+    placeholders: ['actor', 'room'],
+  },
+  FLOORPLAN_ROOM_DELETED: {
+    label: 'Room Deleted',
+    category: 'Instruments',
+    template: 'Room "{room}" deleted by {actor}',
+    placeholders: ['actor', 'room'],
+  },
 };
 
 /** Extract just the template strings as defaults for the config schema */

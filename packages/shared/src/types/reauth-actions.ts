@@ -99,6 +99,13 @@ export const REAUTH_ACTIONS = {
   // shared so operators can opt in / out via one reauth-policy entry.
   UPDATE_CONFIG_PAGE: { label: 'Update Configuration Page', category: 'Configuration' },
 
+  // Floorplans. Separate from UPDATE_CONFIG_PAGE because a room's temperature
+  // and humidity limits ARE the quality specification for a space — a site may
+  // reasonably want re-authentication on that while leaving the general config
+  // pages alone.
+  UPDATE_FLOORPLAN: { label: 'Create / Update / Delete Floorplan', category: 'Configuration' },
+  UPDATE_FLOORPLAN_ROOM: { label: 'Create / Update / Delete Room', category: 'Configuration' },
+
   // Instruments — DELIBERATELY EMPTY. All THREE token actions
   // (`REVEAL_INSTRUMENT_TOKEN`, `SET_INSTRUMENT_TOKEN`,
   // `REGENERATE_INSTRUMENT_TOKEN`) were listed here on 2026-08-06 and all three

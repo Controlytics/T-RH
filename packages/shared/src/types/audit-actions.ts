@@ -209,6 +209,17 @@ export const AUDIT_ACTIONS = {
   // trail rather than by diffing two blobs.
   INSTRUMENT_ATTRIBUTE_SET: 'INSTRUMENT_ATTRIBUTE_SET',
   INSTRUMENT_ATTRIBUTE_REMOVED: 'INSTRUMENT_ATTRIBUTE_REMOVED',
+
+  // Floorplans and their rooms. A room carries the environmental SPECIFICATION
+  // for a space, so "who changed this temperature limit, from what, to what"
+  // must be answerable. This is the opposite of telemetry itself, which stays
+  // deliberately unaudited as process data (see telemetry.repository.ts).
+  FLOORPLAN_CREATED: 'FLOORPLAN_CREATED',
+  FLOORPLAN_UPDATED: 'FLOORPLAN_UPDATED',
+  FLOORPLAN_DELETED: 'FLOORPLAN_DELETED',
+  FLOORPLAN_ROOM_CREATED: 'FLOORPLAN_ROOM_CREATED',
+  FLOORPLAN_ROOM_UPDATED: 'FLOORPLAN_ROOM_UPDATED',
+  FLOORPLAN_ROOM_DELETED: 'FLOORPLAN_ROOM_DELETED',
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
