@@ -2188,3 +2188,105 @@ not re-asked), and confirmed the delete refusal reaches the operator with the
 count — "Cleanroom-A still contains 1 instrument. Move or delete them before
 deleting the profile." Test data removed afterwards; `Default(15)` is the only
 profile left in the dev DB.
+
+---
+
+## 2026-08-08 — New instrument profiles start EMPTY (per-profile attributes, amendment)
+
+**Why:** the feature shipped earlier the same day seeded each new profile from
+the global "Default for new profiles" template. In use that defeated it — the
+operator created a second profile, saw the first profile's twelve keys, and
+concluded per-profile attributes did not exist. Operator chose "start empty".
+
+**Changed:**
+- `instrument-profiles/routes.ts` POST — `attributeKeys ?? ''`; the
+  `configService.getConfig('instrument-attributes', …)` seed is gone (with its
+  two now-unused imports).
+- `config/instrument-attributes.tsx` — the `__default__` target, its SWR read
+  and its config PUT branch removed; the picker lists profiles only and opens on
+  the first; new empty state links to Instrument Profiles when none exist; the
+  placement advisory now applies to every profile (it used to be suppressed for
+  the template).
+- `defs/instrument-attributes.def.ts` — marked inert; def, config key and
+  `GET /api/config/instrument-attributes/current` KEPT. **Deleting the config
+  module is a separate decision** and must first confirm the per-profile editor
+  page keeps its discoverability via config auto-discovery / Configuration
+  Access. Verified today: no `system_config` row (including `access-matrix`)
+  references the module key.
+- Tests: e2e "seeds from the LIVE template" → "starts EMPTY" + a named
+  regression guard that the global config is not copied; web suite reworked for
+  a profiles-only picker (13 tests) incl. the no-profiles state.
+- Docs: `CHANGELOG.md`, the design spec (§ states table + § POST amended in
+  place, with the amendment called out rather than rewritten silently).
+
+**Doc corrections found on the way:** the "three distinguishable states" claim
+(`NULL` falls back to the default template) was never true —
+`parseInstrumentAttributeKeys` returns `[]` for `NULL` and `''` alike and no
+consumer read the config key as a fallback. Corrected in both CHANGELOG and spec.
+The Configuration card copy still said "one key per line" (pre-per-profile).
+
+**Verification:** api + web typecheck clean. `instrument-profiles.e2e` +
+`instrument-attributes` + `instrument-attribute-downlink` = 64 passing; web
+`routes/config` + `routes/instruments` = 131 passing. `packages/shared` has 3
+failures in `audit-templates` / `permission-tree` — confirmed pre-existing by
+re-running on a stashed tree. Browser (5176): created a profile, confirmed it
+stored `''`, saw the picker list profiles only, the empty-state copy and the
+Block/Area/Location advisory on it; test profile deleted through the UI so the
+audit trail closes.
+
+---
+
+## 2026-08-11 — Instrument dashboard: table + drawn floorplan
+
+Spec `docs/superpowers/specs/2026-08-11-instrument-dashboard-floorplan-design.md`,
+plan `docs/superpowers/plans/2026-08-11-instrument-dashboard-floorplan.md`.
+15 tasks, TDD, one commit each.
+
+**Built.** Shared slot/status logic; `telemetry-slots` config def; fleet-wide
+`GET /api/instruments/telemetry-overview`; demo publisher; dashboard split into
+`routes/dashboard/` with a Table|Graphical toggle; `Floorplan` +
+`FloorplanRoom` models; 6 audit + 2 reauth actions; `floorplans` module with
+audited reauth-gated CRUD; plan-image upload; placement editor; bucketed
+per-room history; hand-rolled SVG chart; drawn floorplan view + room detail;
+limit-attribute retirement.
+
+**Mid-flight change of direction (operator).** The graphical view first showed
+the uploaded plan image with transparent hotspots over it. Rejected on sight —
+it reads as a scan with rectangles stuck on top. The dashboard now DRAWS the
+floor as SVG and never renders the image; the image is a faded tracing guide in
+the editor only. Renderer swap only: rooms already stored proportional
+coordinates. 2.5D isometric and true 3D were considered and rejected (spec §7).
+
+**Bugs found and fixed that predate this work.**
+- Profile photo upload read its token from `localStorage.getItem('access_token')`,
+  a key nothing in the app writes (session token is in sessionStorage under the
+  same name). It sent `Bearer null` and could never have worked. Both uploaders
+  now use `apiClient.postFormData()`.
+- `prisma migrate diff` wanted to `DROP TABLE instrument_telemetry_history`
+  (1180 rows; partitioned, so invisible to the datamodel) and to drop `NOT NULL`
+  from `audit_trail.chain_position`. Stripped from the hand-authored migration.
+- A non-numeric telemetry reading (`"hello"`) exists in history. The jsonb→float
+  cast is now inside a `CASE`, because a `WHERE jsonb_typeof = 'number'` filter
+  is not guaranteed to run before the projection.
+
+**Bug of my own, caught by the operator testing.** The placement editor
+pre-checked instrument boxes against `roomId`, which `GET /api/instruments` does
+not return — so every save blindly overwrote room membership. It had already
+scrambled the live demo assignments. Membership now comes from the plan-detail
+response, and the picker labels instruments already in another room.
+
+**Documentation drift found.** Counts across the active doc set were badly
+stale before this work: root `CLAUDE.md` claimed 33 API modules (actual 21),
+`apps/web/CLAUDE.md` claimed 77 `<Route>` definitions (actual 45), and
+`permissions.ts` holds 34 constants against a claimed 102. Corrected the counts
+this feature touches and flagged the rest inline as unreconciled — a full audit
+of this fork's stripped surface is a separate job and is NOT done.
+
+**Verification.** Drift guard PASS on both databases. API: floorplans 18,
+room-history 12, telemetry-overview 12, limit-retirement 4, validation 21.
+Web: 19 dashboard tests. Both typechecks + `vite build` clean. Live: plan
+created, bad geometry 400s with a usable message, `CWH-I/142` survives HTML
+sanitisation, a probe at 27 C in a 25 C room reads OUT_OF_SPEC, 594 raw history
+points bucket to 18 at 24h and 4 at 7d. **Not verified by me: the rendered UI** —
+Playwright cannot reach the API through the self-signed cert, so every browser
+check was handed to the operator.

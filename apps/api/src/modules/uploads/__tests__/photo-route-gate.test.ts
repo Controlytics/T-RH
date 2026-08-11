@@ -35,9 +35,29 @@ describe('POST /api/uploads/photo — permission gate', () => {
     expect(photo!.opts.preHandler).toBeUndefined();
   });
 
-  it('never asks for a permission gate at all', () => {
-    expect(app.requirePermission).not.toHaveBeenCalled();
+  it('never gates /photo on a permission', () => {
+    // Narrowed 2026-08-11. This used to assert the WHOLE module called
+    // requirePermission zero times, which held only while /photo was the only
+    // route here. /floorplan is deliberately gated on CONFIG_UPDATE (it writes
+    // a shared asset, unlike a self-service profile photo), so the module-wide
+    // form now fails for the right reason. The INTENT — /photo must stay
+    // ungated, because gating it on USER_UPDATE once 403'd every non-admin
+    // setting their own photo — is unchanged and asserted precisely.
+    const photo = routes.find((r) => r.url === '/photo');
+    expect(photo!.opts.preHandler).toBeUndefined();
     expect(app.requireAnyPermission).not.toHaveBeenCalled();
+  });
+
+  it('DOES gate /floorplan — it writes a shared asset, not the caller’s own', () => {
+    const floorplan = routes.find((r) => r.url === '/floorplan');
+    expect(floorplan).toBeDefined();
+    expect(floorplan!.opts.preHandler).toBeDefined();
+    expect(app.requirePermission).toHaveBeenCalledWith('CONFIG_UPDATE');
+  });
+
+  it('bounds floorplan upload frequency too', () => {
+    const floorplan = routes.find((r) => r.url === '/floorplan');
+    expect(floorplan!.opts.config?.rateLimit).toMatchObject({ max: 20, timeWindow: '1 hour' });
   });
 
   // Auth-only widened who can spend disk on a route that never unlinks and has

@@ -43,10 +43,37 @@ cd apps/web && npx vitest run src/routes/version-history/__tests__/diff.test.ts
 ## Key Paths
 - Source: `apps/web/src/`
 - Entry: `apps/web/src/main.tsx`
-- Routes: `apps/web/src/routes/` (23 route folders/files; ~84 pages; **77 `<Route>` definitions** in `main.tsx`)
+- Routes: `apps/web/src/routes/` (12 route folders/files; **45 `<Route>` definitions** in `main.tsx` — both verified 2026-08-11; the previous "23 folders / ~84 pages / 77 Routes" was stale before this change and the shortfall has NOT been reconciled)
 - Hooks: `apps/web/src/hooks/` (auth, branding, datetime, pagination, reauth, session, single-tab, toast, field-labels)
 - Components: `apps/web/src/components/` (layout, UI primitives, dialogs)
 - API Client: `apps/web/src/lib/api-client.ts`
+
+## Instrument dashboard (2026-08-11)
+
+`routes/dashboard.tsx` became `routes/dashboard/` — `index.tsx` (stat cards +
+Table|Graphical toggle), `telemetry-table.tsx`, `floorplan-view.tsx`,
+`room-detail.tsx`, `time-series-chart.tsx`, `status.ts`, `use-telemetry.ts`.
+Plus `routes/config/floorplans.tsx`, the placement editor.
+
+**The graphical view DRAWS the floor as SVG and never renders the uploaded plan
+image.** The first cut showed the image with transparent hotspots over it and
+read as a scan with rectangles stuck on top. The image now appears only in the
+editor, faded, as a tracing guide. Rooms store proportional `x/y/w/h`, so the
+drawn layout is resolution-independent.
+
+**"Live" is polling.** There is no browser-facing WebSocket or SSE channel here
+(the `@fastify/websocket` registration is INBOUND device ingest), so every live
+surface is an SWR `refreshInterval` and the UI says "updates every Ns".
+
+The chart is hand-rolled SVG — no dependency, consistent with this app having
+dropped `chartjs-node-canvas`, `reactflow` and `@monaco-editor/react`. Series
+colours come from a fixed validated categorical order; status colour never
+carries meaning alone (always a glyph + word).
+
+`apiClient.postFormData()` is the ONE way to upload multipart — it reuses the
+single definition of where the session token lives (`sessionStorage`). A
+hand-rolled `fetch` reading `localStorage.getItem('access_token')` is why
+profile photo upload silently 401'd until 2026-08-11.
 
 ## Architecture
 - React Router v6 with AppLayout wrapper for auth + session management

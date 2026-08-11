@@ -1,10 +1,90 @@
 # Changelog
 
+## [Unreleased] — Instrument dashboard: table + drawn floorplan (2026-08-11)
+
+Two dashboard views over the telemetry that was already being collected but had
+nowhere to be looked at.
+
+**Table view** — every instrument's current temperature and humidity, its room,
+reading age and status, sortable and filterable. Fed by one new endpoint,
+`GET /api/instruments/telemetry-overview`, which returns the whole fleet in a
+single request rather than one call per instrument.
+
+**Graphical view** — the floor DRAWN as SVG: each room a shape with walls, its
+code, label, live readings and a status fill. Click a room for its instruments
+and their live time-series, with the room's limits shown as an in-spec band and
+a 15m/1h/6h/24h/7d window selector.
+
+**The first cut showed the uploaded plan image with transparent hotspots over
+it, and that was wrong.** On screen it read as a scan with rectangles stuck on
+top — the rooms were invisible until hovered and the drawing's own ink competed
+with the status colours it was meant to carry. The dashboard now draws the
+layout and never renders the image; the image survives only in the editor, faded
+behind the shapes being traced. Nothing behind the view had to change, because
+rooms already stored proportional coordinates.
+
+**Limits moved from the instrument to the room** — a documented reversal of the
+2026-08-08 per-profile attribute keys. `Low/High Temperature Limit` and
+`Low/High Humidity Limit` are retired from every profile's registration prompts.
+A cleanroom's specification belongs to the room: replacing the probe on its wall
+must not discard the spec, and two probes in one room must not be able to assert
+two different specs. The `* Range` keys survive — those describe the device's
+measurement capability, which genuinely is per-instrument.
+
+**New:** 2 Prisma models (`Floorplan`, `FloorplanRoom`) + `Instrument.roomId`;
+1 API module (`floorplans`); 1 config def (`telemetry-slots` — which telemetry
+keys count as temperature and humidity, since ingest accepts whatever a device
+sends); 1 config page (Floorplans placement editor); 6 audit actions and 2
+reauth actions; `POST /api/uploads/floorplan`.
+
+**"Live" is polling, not push.** This repo has no browser-facing WebSocket or
+SSE channel, and the UI says "updates every Ns" rather than implying a stream.
+
+**Two pre-existing bugs fixed on the way.** Profile photo upload read its token
+from `localStorage.getItem('access_token')` — a key nothing in the app ever
+writes, since the session token lives in sessionStorage under that name — so it
+sent `Bearer null` and could never have worked; both uploaders now go through a
+new `apiClient.postFormData()`. And the placement editor's own first version
+pre-checked instrument boxes against a `roomId` field that `GET /api/instruments`
+does not return, making every save a blind overwrite of the room's membership;
+membership now comes from the plan-detail response.
+
+**Migration notes.** `prisma migrate diff` wanted to `DROP TABLE
+instrument_telemetry_history` (Prisma cannot express `PARTITION BY`, so it reads
+the partitioned table as stray — it held 1180 rows) and to drop `NOT NULL` from
+`audit_trail.chain_position`. Both were stripped from the hand-authored
+migration; the reasoning is written into the SQL. Drift guard PASS.
+
+The limit retirement is split: the migration edits only the registration
+prompts, and `scripts/retire-limit-attributes.ts` does the audited move of
+recorded values onto rooms. Deleting an attribute is a §11 record change needing
+an attributable audit row, which raw SQL cannot write.
+
+Spec: `docs/superpowers/specs/2026-08-11-instrument-dashboard-floorplan-design.md`
+Plan: `docs/superpowers/plans/2026-08-11-instrument-dashboard-floorplan.md`
+
 ## [Unreleased] — Per-profile instrument attributes (2026-08-08)
 
 Each instrument profile now owns the list of attribute keys its New Instrument
-form asks for. The global list at Configuration → Instrument Attributes became
-the template a new profile is seeded from and is asked for on no form by itself.
+form asks for. Nothing is shared between profiles.
+
+**Amended the same day — a new profile starts EMPTY.** The first cut seeded a
+new profile from the global list at Configuration → Instrument Attributes. In
+use that failed the very purpose of the feature: the operator created a second
+profile, saw the same twelve keys the first one had, and read the list as still
+being global. Seeding is gone (`POST /api/instrument-profiles` now stores `''`
+when `attributeKeys` is omitted), the "Default for new profiles" entry was
+removed from the page's picker, and the `instrument-attributes` config key is
+now **inert** — it seeds nothing and is asked for on no form. The key, its def
+and its `GET /api/config/instrument-attributes/current` route were KEPT rather
+than deleted: removing the config module is a separate decision that first has
+to confirm the per-profile editor page does not lose its discoverability
+through config auto-discovery / Configuration Access.
+
+The cost is deliberate: Block / Area / Location are real placement columns, and
+a brand-new profile does not ask for them until an admin adds them. The page
+shows a per-profile amber advisory naming exactly which placement keys are
+missing, which now fires on every new profile until its list is built.
 
 This **reverses the "grouping only, nothing inherited" decision** recorded in the
 entry below, taken the same day, and answers the question that decision deferred:
@@ -27,17 +107,20 @@ the constant is 6, so seeding from the constant would have quietly reset every
 profile to a list nobody configured. Day-one behaviour was therefore identical.
 Drift guard PASS.
 
-**Three distinguishable states:** a non-empty string is the profile's own list,
-`''` means it asks for no attributes, and `NULL` falls back to the default
-template. `NULL` is a read-side safety net for a code path that forgets to seed,
-not a state the UI maintains — the editor cannot tell `''` from `NULL`, so any
-save on a `NULL` profile writes `''`.
+**Two states, not three.** A non-empty string is the profile's own list; `''`
+*and* `NULL` both mean "asks for no attributes" — `parseInstrumentAttributeKeys`
+returns `[]` for either, and no consumer falls back to the config key. (An
+earlier draft of this entry claimed `NULL` fell back to the global template; it
+never did, and with seeding removed there is nothing to fall back to.) The
+editor cannot tell `''` from `NULL`, so any save on a `NULL` profile writes `''`.
 
-**Configuration → Instrument Attributes gained a target picker.** Saves route by
-target; sending a profile's list to the config endpoint would have silently
-rewritten the template for every future profile. Switching target while dirty
-prompts before discarding, because the editor deliberately ignores server
-revalidations mid-edit and an unsaved list has nowhere else to come back from.
+**Configuration → Instrument Attributes has a profile picker.** It lists
+profiles only and opens on the first one; every save is a `PUT` on the selected
+profile. With no profiles at all the page says so and links to Instrument
+Profiles instead of showing an editor with nothing to save. Switching profile
+while dirty prompts before discarding, because the editor deliberately ignores
+server revalidations mid-edit and an unsaved list has nowhere else to come back
+from.
 
 **A profile omitting Block / Area / Location now says so on screen.** Those three
 are real placement columns, so instruments registered there get them empty and
