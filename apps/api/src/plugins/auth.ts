@@ -203,11 +203,19 @@ const PUBLIC_PATHS = [
 // Paths that are public only for GET requests.
 //
 // `/uploads/floorplans/` joins photos and branding for the same reason: an
-// <img> tag cannot send an Authorization header, so a floorplan rendered on the
-// dashboard would otherwise 401 and show as a broken image. Filenames are
-// random UUIDs, no directory listing is served, and UPLOAD of a plan still
-// requires CONFIG_UPDATE. A site that considers a floor layout sensitive should
-// fetch it as an authenticated blob instead and drop this entry.
+// <img> tag cannot send an Authorization header, so a floor layout would
+// otherwise 401 and render as a broken image in the placement editor.
+//
+// EXPLICIT OPERATOR DECISION, 2026-08-11 — raised as a yes/no and kept public,
+// matching the posture photos and branding already have. The accepted exposure:
+// anyone who can reach the server and knows the URL can fetch a floor layout.
+// The mitigations are that filenames are random UUIDs, no directory listing is
+// served, and UPLOAD still requires CONFIG_UPDATE.
+//
+// To reverse it: drop this entry and have the editor fetch the image as an
+// authenticated blob into an object URL. The editor is the only place a plan
+// image renders — the dashboard DRAWS rooms and never loads it — so the change
+// stays contained to one component.
 const PUBLIC_GET_PATHS = ['/api/config/branding', '/api/config/datetime/current', '/uploads/photos/', '/uploads/branding/', '/uploads/floorplans/', '/api/roles/active', '/api/admin-requests/user-lookup'];
 
 async function authPlugin(app: FastifyInstance) {
