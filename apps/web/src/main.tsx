@@ -24,6 +24,7 @@ import { ResetRequestsPage } from './routes/users/reset-requests';
 import { ConfigIndexPage } from './routes/config/index';
 import { PasswordPolicyPage } from './routes/config/password-policy';
 import { InstrumentAttributesConfigPage } from './routes/config/instrument-attributes';
+import { FloorplansConfigPage } from './routes/config/floorplans';
 import { DatetimeConfigPage } from './routes/config/datetime';
 const ReportPageTitlesPage = lazy(() => import('./routes/config/report-page-titles').then(m => ({ default: m.ReportPageTitlesPage })));
 const AppearanceConfigPage = lazy(() => import("./routes/config/appearance").then(m => ({ default: m.AppearanceConfigPage })));
@@ -109,6 +110,7 @@ createRoot(document.getElementById('root')!).render(
             {/* SUPER_ADMIN, matching the def's requiredRole — the key list drives
                 what every operator is asked for at registration. */}
             <Route path="/config/instrument-attributes" element={<RequireRole roles={['SUPER_ADMIN']}><InstrumentAttributesConfigPage /></RequireRole>} />
+            <Route path="/config/floorplans" element={<RequireRole roles={['SUPER_ADMIN']}><FloorplansConfigPage /></RequireRole>} />
             <Route path="/config/report-page-titles" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><ReportPageTitlesPage /></Suspense></RequireRole>} />
             <Route path="/config/ldap" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><LdapConfigPage /></Suspense></RequireRole>} />
             <Route path="/config/datetime" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><DatetimeConfigPage /></RequireRole>} />

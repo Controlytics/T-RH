@@ -11,7 +11,6 @@ import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/componen
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { getPhotoUrl } from '../../lib/url-utils';
-import { getApiBase } from '@/lib/api-base';
 
 const roleColors: Record<string, string> = {
   SUPER_ADMIN: 'bg-gradient-to-r from-red-500 to-pink-500 text-white border-0',
@@ -110,21 +109,15 @@ export function ProfilePage() {
       const formDataUpload = new FormData();
       formDataUpload.append('file', file);
 
-      const token = localStorage.getItem('access_token');
-      const response = await fetch(`${getApiBase()}/api/uploads/photo`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-        body: formDataUpload,
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.message || 'Upload failed');
-      }
-
-      const data = await response.json();
+      // Was a hand-rolled fetch reading the token from `localStorage` — a key
+      // nothing in this app ever writes (the session token lives in
+      // sessionStorage under the same name). It therefore sent
+      // `Authorization: Bearer null` and every photo upload 401'd. Routed
+      // through apiClient so there is one definition of where the token lives.
+      const data = await apiClient.postFormData<{ photoUrl: string }>(
+        '/api/uploads/photo',
+        formDataUpload,
+      );
       setFormData(prev => ({ ...prev, photoUrl: data.photoUrl }));
     } catch (err: any) {
       setError(err.message || 'Failed to upload photo');

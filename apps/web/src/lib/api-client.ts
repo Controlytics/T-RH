@@ -12,8 +12,13 @@ class ApiClient {
     const headers: Record<string, string> = {
       ...(token && { Authorization: `Bearer ${token}` }),
     };
-    // Only set Content-Type for requests with a body
-    if (options.body) {
+    // Only set Content-Type for requests with a body.
+    //
+    // NEVER for FormData: the browser must set it itself so it can append the
+    // multipart boundary. Forcing `application/json` here makes the server
+    // unable to find any parts, which surfaces as a confusing 400 about the
+    // request not being multipart.
+    if (options.body && !(options.body instanceof FormData)) {
       headers['Content-Type'] = 'application/json';
     }
     const res = await fetch(`${getApiBase()}${url}`, {
@@ -119,6 +124,18 @@ class ApiClient {
   post<T>(url: string, body: unknown, headers?: Record<string, string>) { return this.request<T>(url, { method: 'POST', body: JSON.stringify(body), ...(headers && { headers }) }); }
   put<T>(url: string, body: unknown, headers?: Record<string, string>) { return this.request<T>(url, { method: 'PUT', body: JSON.stringify(body), ...(headers && { headers }) }); }
   patch<T>(url: string, body: unknown) { return this.request<T>(url, { method: 'PATCH', body: JSON.stringify(body) }); }
+  /**
+   * Multipart upload.
+   *
+   * Goes through `request()` so it picks up the ONE definition of where the
+   * token lives, the server-contact tracking, and the shared error handling.
+   * Hand-rolled `fetch` calls for uploads have already gone wrong once here:
+   * the profile photo uploader read the token from `localStorage`, a key
+   * nothing in the app ever writes, so it sent `Bearer null` and always 401'd.
+   */
+  postFormData<T>(url: string, form: FormData) {
+    return this.request<T>(url, { method: 'POST', body: form });
+  }
   // 2026-05-21 fix: DELETE must carry an explicit Content-Type + body, even
   // when the route doesn't need a body. On Android, CapacitorHttp's native
   // path uses HttpURLConnection which defaults Content-Type to
