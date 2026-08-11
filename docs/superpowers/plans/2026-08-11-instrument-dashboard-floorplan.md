@@ -546,7 +546,9 @@ In `apps/web/src/routes/config/index.tsx`, add an entry to the card array immedi
   {
     title: 'Telemetry Keys',
     description: 'Which telemetry keys the dashboard reads as temperature and humidity',
-    href: '/config/telemetry-slots',
+    // A def with hasCustomPage:false renders through DynamicConfigPage, whose
+    // route is /config/dynamic/:moduleKey — NOT /config/<key>.
+    href: '/config/dynamic/telemetry-slots',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 12h4l3-9 4 18 3-9h4" />
@@ -566,15 +568,19 @@ cd apps/api && npx tsx watch src/app.ts
 Then in another shell:
 
 ```bash
-curl -sk https://localhost:3000/api/config/modules --ssl-revoke-best-effort \
-  -H "Authorization: Bearer $TOKEN" | grep telemetry-slots
+TOKEN=$(curl -sk --ssl-revoke-best-effort -X POST https://localhost:3001/api/auth/login \
+  -H "content-type: application/json" \
+  -d '{"username":"superadmin","password":"Admin@123","force":true}' \
+  | python -c "import sys,json; print(json.load(sys.stdin)['token'])")
+curl -sk --ssl-revoke-best-effort https://localhost:3001/api/config/dynamic/telemetry-slots \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
-Expected: the module appears. (`--ssl-revoke-best-effort` is required — Windows `curl` uses Schannel and returns exit 60 on valid local chains without it. That is not a broken cert.)
+Expected: the six defaults come back seeded. (This repo's API is on **:3001**, not :3000 — :3000 is the sibling DigiLog checkout. `--ssl-revoke-best-effort` is required: Windows `curl` uses Schannel and returns exit 60 on valid local chains without it. That is not a broken cert.)
 
 - [ ] **Step 5: Verify the page renders**
 
-Open `http://localhost:5175/config`, click **Telemetry Keys**, confirm six settings render in three groups and Save persists. Check the browser console is clean.
+Open `http://localhost:5176/config`, click **Telemetry Keys**, confirm six settings render in three groups and Save persists. Check the browser console is clean.
 
 - [ ] **Step 6: Commit**
 
@@ -1043,7 +1049,7 @@ Create `scripts/publish-demo-telemetry.ts`:
  *   npx tsx scripts/publish-demo-telemetry.ts --seed        # create instruments, print tokens
  *   npx tsx scripts/publish-demo-telemetry.ts --publish     # publish every 5s until Ctrl-C
  */
-const API = process.env.DEMO_API ?? 'https://localhost:3000';
+const API = process.env.DEMO_API ?? 'https://localhost:3001';
 const USER = process.env.DEMO_USER ?? 'superadmin';
 const PASS = process.env.DEMO_PASS ?? 'Admin@123';
 
@@ -1355,11 +1361,15 @@ const SETTINGS_DEFAULT: TelemetrySettings = {
 };
 
 export function useTelemetrySettings(): TelemetrySettings {
-  const { data } = useSWR<any>('/api/config/telemetry-slots/current', {
+  // VERIFIED path and shape: a def with `hasCustomPage: false` is served by
+  // dynamic-routes.ts at /api/config/dynamic/<moduleKey>, and returns the BARE
+  // value object — not `{value: …}`, and NOT the `/<key>/current` path, which
+  // only exists for defs that hand-wrote a static route.
+  const { data } = useSWR<any>('/api/config/dynamic/telemetry-slots', {
     revalidateOnFocus: false,
     dedupingInterval: 60000,
   });
-  const v = data?.value ?? data ?? {};
+  const v = data ?? {};
   return {
     temperatureDecimals: v.temperatureDecimals ?? SETTINGS_DEFAULT.temperatureDecimals,
     humidityDecimals: v.humidityDecimals ?? SETTINGS_DEFAULT.humidityDecimals,
@@ -1394,7 +1404,7 @@ export function formatSlot(v: SlotValue | null, decimals: number, unit: string):
 export { TELEMETRY_SLOT_ALIASES_DEFAULT };
 ```
 
-> Verify the shape returned by `GET /api/config/<key>/current` against an existing consumer (`apps/web/src/hooks/use-report-page-titles.ts` or the `dashboard-cards` fetch in the old `dashboard.tsx`) and make `useTelemetrySettings` unwrap it the same way. Do not leave the `data?.value ?? data` guess in place.
+> Already verified against the running server — `GET /api/config/dynamic/telemetry-slots` returns `{"humidityKeys":"humidity\nrh\nhum","temperatureKeys":"temperature\ntemp\nt","humidityDecimals":1,"chartRefreshSeconds":10,"temperatureDecimals":1,"overviewRefreshSeconds":5}`. No unwrapping needed.
 
 - [ ] **Step 6: Write the table view**
 
@@ -1629,7 +1639,7 @@ Expected: all tests pass, typecheck exits 0.
 
 - [ ] **Step 11: Verify in the browser**
 
-With the API, Vite and the publisher from Task 4 running, open `http://localhost:5175/`:
+With the API, Vite and the publisher from Task 4 running, open `http://localhost:5176/`:
 
 - The Table/Graphical toggle renders and Table is selected.
 - The DEMO instruments appear with live temperature and humidity, updating every ~5 seconds.
@@ -2713,7 +2723,7 @@ In `apps/api/src/app.ts`, find the `@fastify/static` registration serving `/uplo
 - [ ] **Step 4: Manual verification**
 
 ```bash
-curl -sk -X POST https://localhost:3000/api/uploads/floorplan \
+curl -sk -X POST https://localhost:3001/api/uploads/floorplan \
   --ssl-revoke-best-effort \
   -H "Authorization: Bearer $TOKEN" \
   -F "file=@/c/Users/hello/compliance-core/plan.png"
@@ -2799,7 +2809,7 @@ In `apps/web/src/main.tsx`, add a lazy route beside the other config routes, wra
 
 - [ ] **Step 5: Verify in the browser**
 
-Open `http://localhost:5175/config/floorplans`:
+Open `http://localhost:5176/config/floorplans`:
 
 - Upload `cwh-3rd-floor.png`, name it "CWH — 3rd Floor". It appears in the list and renders.
 - Drag a box over the WET LAB area, code it `CWH-I/142`, label it `WET LAB`, set temperature 18–25 and humidity 40–60, tick `DEMO-TH-142`. Save.
@@ -3316,7 +3326,7 @@ Expected: no output.
 
 - [ ] **Step 5: Verify in the browser**
 
-With the API, Vite and the Task 4 publisher running, open `http://localhost:5175/` → **Graphical view**:
+With the API, Vite and the Task 4 publisher running, open `http://localhost:5176/` → **Graphical view**:
 
 - The CWH plan renders with the three placed room boxes at the right positions.
 - `CWH-I/142` and `CWH-I/220` are green; readings update every ~5s.

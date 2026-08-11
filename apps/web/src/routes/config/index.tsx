@@ -86,7 +86,7 @@ const superAdminCards = [
   },
   {
     title: 'Instrument Attributes',
-    description: 'The attribute keys the New Instrument form asks for — one key per line',
+    description: 'The attribute keys the New Instrument form asks for, per instrument profile',
     href: '/config/instrument-attributes',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -95,6 +95,18 @@ const superAdminCards = [
     ),
     gradient: 'from-sky-500 to-cyan-600',
     shadowColor: 'shadow-sky-500/25',
+  },
+  {
+    title: 'Telemetry Keys',
+    description: 'Which telemetry keys the dashboard reads as temperature and humidity',
+    href: '/config/dynamic/telemetry-slots',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 12h4l3-9 4 18 3-9h4" />
+      </svg>
+    ),
+    gradient: 'from-teal-500 to-cyan-600',
+    shadowColor: 'shadow-teal-500/25',
   },
   {
     title: 'Configuration Access',
