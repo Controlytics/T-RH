@@ -112,3 +112,9 @@ old/db-backups/*
 # DigiLog-era debug artifacts (compliance-core strip)
 /*.png
 /*.log
+
+# Uploaded content — profile photos, branding, floorplan images. Written at
+# runtime under UPLOADS_ROOT (apps/api/uploads by default, UPLOAD_DIR on a
+# customer install). Operator data, not source; a floor layout in particular
+# should not end up in the repo.
+apps/api/uploads/
