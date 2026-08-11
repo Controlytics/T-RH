@@ -1085,6 +1085,11 @@ async function seed() {
   for (const d of DEVICES) {
     const res = await fetch(`${API}/api/instruments`, {
       method: 'POST', headers: auth,
+      // `location` is COSMETIC here — this feature places instruments by
+      // `roomId`, set in the Task 10 editor, never by matching this text. It is
+      // seeded only so the instrument list reads sensibly before Task 10 exists.
+      // Until then every instrument correctly shows "Not placed" on the
+      // dashboard; that is not a bug.
       body: JSON.stringify({ name: d.name, code: d.code, profileId, location: d.room }),
     });
     if (res.status === 409) {
@@ -2275,6 +2280,16 @@ import { sanitizeStrings } from '../../lib/sanitize.js';
 import { validateRoomPayload, floorplanSchema, floorplanUpdateSchema } from './validation.js';
 
 /**
+ * Exempt from HTML stripping, mirroring instruments/routes.ts.
+ *
+ * `sanitizeStrings` strips anything tag-shaped and decodes entities — correct
+ * for prose, wrong for identifiers. A room code is drafting-office text like
+ * `CWH-I/142` that must round-trip byte-identical, because it is what the
+ * operator matches against the printed drawing.
+ */
+const IDENTITY_FIELDS = ['code', 'name', 'label'];
+
+/**
  * Floorplans, their rooms, and which instruments sit in each.
  *
  * Reads gate on CONFIG_READ, writes on CONFIG_UPDATE with reauth. Every write is
@@ -2337,7 +2352,7 @@ export default async function floorplanRoutes(app: FastifyInstance) {
     if (!ok) return;
 
     const parsed = floorplanSchema.safeParse(
-      sanitizeStrings((req.body ?? {}) as Record<string, unknown>, []),
+      sanitizeStrings((req.body ?? {}) as Record<string, unknown>, IDENTITY_FIELDS),
     );
     if (!parsed.success) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
@@ -2375,7 +2390,7 @@ export default async function floorplanRoutes(app: FastifyInstance) {
     if (!before) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Floorplan not found.' });
 
     const parsed = floorplanUpdateSchema.safeParse(
-      sanitizeStrings((req.body ?? {}) as Record<string, unknown>, []),
+      sanitizeStrings((req.body ?? {}) as Record<string, unknown>, IDENTITY_FIELDS),
     );
     if (!parsed.success) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
@@ -2434,7 +2449,7 @@ export default async function floorplanRoutes(app: FastifyInstance) {
     const plan = await prisma.floorplan.findUnique({ where: { id }, select: { id: true } });
     if (!plan) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Floorplan not found.' });
 
-    const result = validateRoomPayload(sanitizeStrings((req.body ?? {}) as Record<string, unknown>, []));
+    const result = validateRoomPayload(sanitizeStrings((req.body ?? {}) as Record<string, unknown>, IDENTITY_FIELDS));
     if (!result.ok) return reply.code(400).send({ error: 'VALIDATION_ERROR', message: result.error });
 
     try {
@@ -2468,7 +2483,7 @@ export default async function floorplanRoutes(app: FastifyInstance) {
     const before = await prisma.floorplanRoom.findFirst({ where: { id: roomId, floorplanId: id } });
     if (!before) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Room not found on this floorplan.' });
 
-    const result = validateRoomPayload(sanitizeStrings((req.body ?? {}) as Record<string, unknown>, []));
+    const result = validateRoomPayload(sanitizeStrings((req.body ?? {}) as Record<string, unknown>, IDENTITY_FIELDS));
     if (!result.ok) return reply.code(400).send({ error: 'VALIDATION_ERROR', message: result.error });
 
     const after = await prisma.floorplanRoom.update({
@@ -2994,7 +3009,9 @@ export async function getRoomHistory(roomId: string, window: HistoryWindow) {
 }
 ```
 
-> Verify the jsonb-to-float cast against how `telemetry.repository.ts` writes values (`JSON.stringify(value)::jsonb`). If `value #>> '{}'` does not cast cleanly for numbers, use `(value)::text::float8` — test it in `psql` before committing, do not guess.
+> The jsonb-to-float cast is **verified against the live table**, not assumed:
+> `SELECT key, value, jsonb_typeof(value), (value #>> '{}')::float8 FROM instrument_telemetry_latest LIMIT 5;`
+> returns `temperature | 21.5 | number | 21.5`. Use it as written.
 
 - [ ] **Step 4: Mount the route**
 
