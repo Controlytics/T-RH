@@ -37,6 +37,17 @@ export type { ReauthAction, ReauthActionCategory } from './types/reauth-actions.
 export { AUDIT_TEMPLATE_DEFAULTS, AUDIT_TEMPLATE_CATEGORIES, getDefaultTemplates } from './types/audit-templates.js';
 export type { AuditTemplateDefinition, AuditTemplateCategory } from './types/audit-templates.js';
 
+export {
+  TELEMETRY_SLOTS,
+  TELEMETRY_SLOT_ALIASES_DEFAULT,
+  STATUS_RANK,
+  parseTelemetryAliases,
+  resolveSlot,
+  computeInstrumentStatus,
+  worstStatus,
+} from './types/telemetry-slots.js';
+export type { TelemetrySlot, InstrumentStatus, RoomLimits } from './types/telemetry-slots.js';
+
 export type {
   TapeQuestion,
   TapeStage,
