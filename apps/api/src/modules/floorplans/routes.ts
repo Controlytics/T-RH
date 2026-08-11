@@ -6,6 +6,7 @@ import { enforceReauth } from '../../lib/reauth-check.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { validateRoomPayload, floorplanSchema, floorplanUpdateSchema } from './validation.js';
+import { getRoomHistory, HISTORY_WINDOWS, type HistoryWindow } from './room-history.js';
 
 /**
  * Floorplans, their rooms, and which instruments sit in each.
@@ -407,6 +408,56 @@ export default async function floorplanRoutes(app: FastifyInstance) {
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
     return reply.code(204).send();
+  });
+
+  // GET /:id/rooms/:roomId/history — time-series for the whole room.
+  //
+  // Gated on INSTRUMENT_READ, not CONFIG_READ: this returns telemetry, and
+  // anyone who may see the dashboard may see it. Only the geometry and limit
+  // WRITES are a configuration capability.
+  app.get('/:id/rooms/:roomId/history', {
+    preHandler: [app.requirePermission('INSTRUMENT_READ')],
+    schema: {
+      tags: ['Floorplans'],
+      summary: 'Time-series for every instrument in one room',
+      params: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          roomId: { type: 'string', format: 'uuid' },
+        },
+      },
+      querystring: {
+        type: 'object',
+        properties: { window: { type: 'string', enum: HISTORY_WINDOWS, default: '1h' } },
+      },
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req, reply) => {
+    const { id, roomId } = req.params as { id: string; roomId: string };
+    const q = req.query as { window?: string };
+    const window = (q.window ?? '1h') as HistoryWindow;
+    if (!HISTORY_WINDOWS.includes(window)) {
+      return reply.code(400).send({
+        error: 'VALIDATION_ERROR',
+        message: `window must be one of: ${HISTORY_WINDOWS.join(', ')}`,
+      });
+    }
+
+    const room = await prisma.floorplanRoom.findFirst({
+      where: { id: roomId, floorplanId: id },
+      select: {
+        id: true, code: true, label: true,
+        tempMin: true, tempMax: true, rhMin: true, rhMax: true,
+      },
+    });
+    if (!room) {
+      return reply.code(404).send({ error: 'NOT_FOUND', message: 'Room not found on this floorplan.' });
+    }
+
+    // Room limits ride along so the chart can draw its in-spec band without a
+    // second request.
+    return { room, ...(await getRoomHistory(roomId, window)) };
   });
 
   // PUT /:id/rooms/:roomId/instruments — set the room's membership wholesale.

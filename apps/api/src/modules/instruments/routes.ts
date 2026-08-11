@@ -568,6 +568,10 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         properties: {
           key: { type: 'string' },
           limit: { type: 'integer', default: 100 },
+          // Additive: getHistory() has always accepted a time range, the route
+          // simply never surfaced it. Callers passing neither are unaffected.
+          from: { type: 'string', format: 'date-time' },
+          to: { type: 'string', format: 'date-time' },
         },
       },
       response: {
@@ -584,7 +588,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const q = req.query as { key?: string; limit?: number };
+    const q = req.query as { key?: string; limit?: number; from?: string; to?: string };
     const exists = await prisma.instrument.findUnique({ where: { id }, select: { id: true } });
     if (!exists) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
 
@@ -593,7 +597,13 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const limit = Math.min(Math.max(Number(q.limit ?? 100), 1), 500);
     const [latest, history] = await Promise.all([
       getLatest(id),
-      getHistory({ instrumentId: id, key: q.key, limit }),
+      getHistory({
+        instrumentId: id,
+        key: q.key,
+        limit,
+        from: q.from ? new Date(q.from) : undefined,
+        to: q.to ? new Date(q.to) : undefined,
+      }),
     ]);
     return { latest, history: history.rows, historyTotal: history.total };
   });

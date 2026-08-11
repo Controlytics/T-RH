@@ -44,11 +44,15 @@ interface Plan {
   rooms: Room[];
 }
 
+/**
+ * NOTE: `GET /api/instruments` returns no room information. Which room an
+ * instrument belongs to comes from the plan detail response only — see
+ * `planDetail` below.
+ */
 interface InstrumentRow {
   id: string;
   code: string;
   name: string;
-  roomId?: string | null;
 }
 
 /** A box being drawn or edited, in normalized units. */
@@ -102,9 +106,32 @@ export function FloorplansConfigPage() {
   const [planId, setPlanId] = useState<string>('');
   const plan = plans.find((p) => p.id === planId) ?? null;
 
+  /**
+   * The plan DETAIL response, which is the only place that says which
+   * instruments are in which room.
+   *
+   * `GET /api/instruments` does NOT return `roomId` — an earlier version of
+   * this page filtered on it, so every checkbox rendered unchecked no matter
+   * what was actually assigned, and each save silently overwrote the room's
+   * membership with whatever happened to be ticked. Read membership from the
+   * server's own answer instead of inferring it.
+   */
+  const { data: planDetail, mutate: mutateDetail } = useSWR<Plan>(
+    planId ? `/api/floorplans/${planId}` : null,
+  );
+
   useEffect(() => {
     if (!planId && plans.length > 0) setPlanId(plans[0].id);
   }, [plans, planId]);
+
+  /** instrumentId → the room it currently sits in, on this plan. */
+  const roomOfInstrument = useMemo(() => {
+    const map = new Map<string, { id: string; code: string }>();
+    for (const room of planDetail?.rooms ?? []) {
+      for (const i of room.instruments ?? []) map.set(i.id, { id: room.id, code: room.code });
+    }
+    return map;
+  }, [planDetail]);
 
   // ── Room selection + form state ──────────────────────────────────────────
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
@@ -120,6 +147,8 @@ export function FloorplansConfigPage() {
 
   useEffect(() => {
     if (!selectedRoom) return;
+    // Membership comes from the plan detail, never from the instruments list.
+    const assigned = planDetail?.rooms.find((r) => r.id === selectedRoom.id)?.instruments ?? [];
     setForm({
       code: selectedRoom.code,
       label: selectedRoom.label ?? '',
@@ -127,10 +156,10 @@ export function FloorplansConfigPage() {
       tempMax: selectedRoom.tempMax?.toString() ?? '',
       rhMin: selectedRoom.rhMin?.toString() ?? '',
       rhMax: selectedRoom.rhMax?.toString() ?? '',
-      instrumentIds: instruments.filter((i) => i.roomId === selectedRoom.id).map((i) => i.id),
+      instrumentIds: assigned.map((i) => i.id),
     });
     setDraft({ x: selectedRoom.x, y: selectedRoom.y, w: selectedRoom.w, h: selectedRoom.h });
-  }, [selectedRoomId, plan, instruments]);
+  }, [selectedRoomId, plan, planDetail]);
 
   // ── Dragging ─────────────────────────────────────────────────────────────
   const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -236,7 +265,7 @@ export function FloorplansConfigPage() {
       await api.post('/api/floorplans', {
         name, imagePath: up.url, imageWidth: dims.w, imageHeight: dims.h,
       });
-      await mutatePlans();
+      await Promise.all([mutatePlans(), mutateDetail()]);
       toast.success('Floorplan added', `"${name}" uploaded. Drag on it to place a room.`);
     } catch (err) {
       toast.error('Upload failed', err instanceof Error ? err.message : 'Could not upload that image.');
@@ -294,7 +323,7 @@ export function FloorplansConfigPage() {
       },
       {
         onSuccess: async () => {
-          await mutatePlans();
+          await Promise.all([mutatePlans(), mutateDetail()]);
           setSaving(false);
           toast.success('Room saved', `"${body.code}" saved on ${plan.name}.`);
         },
@@ -321,7 +350,7 @@ export function FloorplansConfigPage() {
       },
       {
         onSuccess: async () => {
-          await mutatePlans();
+          await Promise.all([mutatePlans(), mutateDetail()]);
           setSelectedRoomId(null);
           setDraft(null);
           setSaving(false);
@@ -518,17 +547,28 @@ export function FloorplansConfigPage() {
                 {instruments.length === 0 && (
                   <p className="p-2 text-sm text-slate-500">No instruments registered.</p>
                 )}
-                {instruments.map((i) => (
-                  <label key={i.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-slate-50">
-                    <input
-                      type="checkbox"
-                      checked={form.instrumentIds.includes(i.id)}
-                      onChange={() => toggleInstrument(i.id)}
-                    />
-                    <span className="text-sm font-medium text-slate-800">{i.code}</span>
-                    <span className="text-xs text-slate-500">{i.name}</span>
-                  </label>
-                ))}
+                {instruments.map((i) => {
+                  const elsewhere = roomOfInstrument.get(i.id);
+                  const isHere = elsewhere?.id === selectedRoom?.id;
+                  return (
+                    <label key={i.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-slate-50">
+                      <input
+                        type="checkbox"
+                        checked={form.instrumentIds.includes(i.id)}
+                        onChange={() => toggleInstrument(i.id)}
+                      />
+                      <span className="text-sm font-medium text-slate-800">{i.code}</span>
+                      <span className="text-xs text-slate-500">{i.name}</span>
+                      {/* Say where it already is, so a move is visible BEFORE
+                          saving rather than discovered afterwards. */}
+                      {elsewhere && !isHere && (
+                        <span className="ml-auto rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-700">
+                          in {elsewhere.code}
+                        </span>
+                      )}
+                    </label>
+                  );
+                })}
               </div>
             </div>
 
