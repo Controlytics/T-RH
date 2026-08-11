@@ -4,7 +4,8 @@ import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { Card, CardContent } from '@/components/ui/card';
 import { Link } from 'react-router-dom';
 import useSWR from 'swr';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import { TelemetryTable } from './telemetry-table';
 
 const statCardIcons = {
   users: (
@@ -90,6 +91,8 @@ export function DashboardPage() {
   }, [cardConfig, user?.role]);
   const showCard = (key: string) => visibleCards === null || visibleCards.includes(key);
 
+  const [view, setView] = useState<'table' | 'graphical'>('table');
+
   return (
     <div className="space-y-8 animate-fade-in">
       {/* Welcome Section */}
@@ -164,6 +167,48 @@ export function DashboardPage() {
           )}
         </div>
       </div>
+
+      {/* Instrument Readings — table and floorplan views over live telemetry.
+          Both slot into the existing per-role dashboard-cards config, so they
+          are hidden per role by the same mechanism as every other card. */}
+      {(showCard('telemetry_table') || showCard('telemetry_floorplan')) && (
+        <div>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-slate-800">Instrument Readings</h2>
+            <div className="inline-flex rounded-lg border border-slate-200 bg-white p-1">
+              {showCard('telemetry_table') && (
+                <button
+                  onClick={() => setView('table')}
+                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                    view === 'table' ? 'text-white' : 'text-slate-600 hover:text-slate-800'
+                  }`}
+                  style={view === 'table' ? { backgroundImage: themeGradient } : undefined}
+                >
+                  Table view
+                </button>
+              )}
+              {showCard('telemetry_floorplan') && (
+                <button
+                  onClick={() => setView('graphical')}
+                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                    view === 'graphical' ? 'text-white' : 'text-slate-600 hover:text-slate-800'
+                  }`}
+                  style={view === 'graphical' ? { backgroundImage: themeGradient } : undefined}
+                >
+                  Graphical view
+                </button>
+              )}
+            </div>
+          </div>
+
+          {view === 'table' && showCard('telemetry_table') && <TelemetryTable />}
+          {view === 'graphical' && showCard('telemetry_floorplan') && (
+            <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
+              Floorplan view arrives in Task 13.
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Quick Actions */}
       {showCard('quick_actions') && <div>

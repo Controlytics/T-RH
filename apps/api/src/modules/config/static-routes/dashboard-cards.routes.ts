@@ -7,6 +7,7 @@ import { enforceReauth } from '../../../lib/reauth-check.js';
 // Keep in sync with ALL_CARDS in apps/web/src/routes/config/dashboard-cards.tsx
 const VALID_CARD_KEYS = new Set([
   'total_users', 'audit_trail', 'notifications', 'quick_actions',
+  'telemetry_table', 'telemetry_floorplan',
 ]);
 
 export async function dashboardCardsRoutes(app: FastifyInstance) {

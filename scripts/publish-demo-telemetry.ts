@@ -122,13 +122,22 @@ async function publish(): Promise<void> {
         ? { temperature }
         : { temperature, humidity };
 
-      const res = await fetch(`${API}/api/ingest/v1/telemetry`, {
-        method: 'POST',
-        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
       const shown = d.tempOnly ? `${temperature} °C` : `${temperature} °C  ${humidity} %RH`;
-      console.log(`${new Date().toISOString().slice(11, 19)}  ${d.code}  ${shown}  → ${res.status}`);
+      const stamp = new Date().toISOString().slice(11, 19);
+
+      // Survive an API restart. The dev server runs under `tsx watch`, so it
+      // goes down and up again on every backend edit — a publisher that exits
+      // on the first ECONNREFUSED has to be babysat, and then nobody runs it.
+      try {
+        const res = await fetch(`${API}/api/ingest/v1/telemetry`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        console.log(`${stamp}  ${d.code}  ${shown}  → ${res.status}`);
+      } catch {
+        console.log(`${stamp}  ${d.code}  ${shown}  → API unreachable, retrying next tick`);
+      }
     }
   };
 
