@@ -87,6 +87,28 @@ and leaves unparseable values and unplaced instruments' values in place for
 manual review rather than discarding them. The four keys are then stripped from
 every profile's `attributeKeys`.
 
+**The existing `instrument_attributes` rows are deleted, each with its own audit
+row** naming the key and the removed value. Keeping them would leave
+`attributes-panel.tsx` rendering "High Temperature Limit: 25" on the instrument
+detail page forever — which is precisely the second source of truth this section
+exists to eliminate — and hiding them instead would need a suppression list,
+i.e. a fourth mechanism. Deletion is audited per the `InstrumentAttribute`
+model's own contract ("each change is audited individually, naming the key and
+both values"), so the value survives in the audit trail even where it could not
+be migrated.
+
+**Collision rule.** Where two instruments in one room carry different values for
+the same retired key, the room's limit is left **unset** and both values are
+reported in the migration output for manual resolution. Silently picking one
+would invent a specification nobody wrote. This cannot occur on this install
+(one matching row exists) but the migration ships to customer installs.
+
+**Verified data-only.** A grep across `packages/` and `apps/` finds no code
+reference to any of the four key strings — they are not in
+`INSTRUMENT_ATTRIBUTE_KEYS_DEFAULT`, not in `instrument-attributes.def.ts`, and
+not in any frozen-snapshot test. Retirement touches data and the migration
+only.
+
 ## 4. Data model
 
 Two new models plus one nullable column:
@@ -203,9 +225,20 @@ config window) and stale otherwise.
 
 ## 6. Backend endpoints
 
-### `GET /api/dashboard/telemetry-overview`
+### Prefix note
 
-Gate: `INSTRUMENT_READ`. One row per instrument:
+`/api/dashboards` (plural) is **already taken** by the existing widget-dashboard
+module (`apps/api/src/modules/dashboards/routes.ts`, 494 lines). Mounting a
+second, unrelated `/api/dashboard` (singular) beside it would be a trap for the
+next reader. These endpoints therefore live with the resources they read:
+telemetry under `/api/instruments`, room history under `/api/floorplans`. The
+existing `dashboards` module is not touched.
+
+### `GET /api/instruments/telemetry-overview`
+
+Gate: `INSTRUMENT_READ`. Sits beside the existing `/:id/telemetry` route and
+matches ahead of `/:id` the same way `/eligible-children` already does. One row
+per instrument:
 
 ```
 { instrumentId, code, name, isActive,
@@ -213,8 +246,28 @@ Gate: `INSTRUMENT_READ`. One row per instrument:
   temperature: { key, value, ts } | null,
   humidity:    { key, value, ts } | null,
   reporting: boolean,                     // per §5 staleness rule
-  status: 'OK' | 'OUT_OF_SPEC' | 'NO_DATA' | 'STALE' }
+  status: InstrumentStatus }
 ```
+
+**`InstrumentStatus`**, in strict precedence order — the first condition that
+holds wins, and this same order defines "worst" wherever statuses are compared:
+
+| Rank | Status | Condition |
+|---|---|---|
+| 1 | `OUT_OF_SPEC` | A resolved value breaches a limit its room sets |
+| 2 | `STALE` | Not reporting per the §5 staleness rule |
+| 3 | `NO_DATA` | No reading at all for either slot |
+| 4 | `PARTIAL` | Reporting, in spec, but one slot has no reading while its room sets a limit for that slot |
+| 5 | `OK` | Reporting, both required slots present, all within limits |
+
+`OUT_OF_SPEC` deliberately outranks `STALE`: a probe last seen four hours ago
+reading 27 °C in a 25 °C room is a breach that happens to also be stale, and
+showing it amber would understate it. The staleness is still visible — the row
+and the room box both show the reading age regardless of status.
+
+`PARTIAL` exists because a room with both temperature and RH limits whose probe
+reports only temperature is a real and common state, and it is neither `OK` nor
+a breach.
 
 One query joining `instruments` × `instrument_telemetry_latest` ×
 `floorplan_rooms`. It feeds **both** views — the table renders rows directly, the
@@ -223,7 +276,7 @@ guarantee the two views eventually disagree.
 
 Optional `?floorplanId=` narrows to one plan.
 
-### `GET /api/dashboard/rooms/:id/history?window=15m|1h|6h|24h|7d`
+### `GET /api/floorplans/:planId/rooms/:roomId/history?window=15m|1h|6h|24h|7d`
 
 Gate: `INSTRUMENT_READ`. Every instrument in the room × both slots, in one call.
 A 3-instrument room would otherwise poll 6 endpoints every few seconds.
@@ -281,9 +334,16 @@ flagged in the row. Instruments with no room show "Not placed".
 
 Plan picker → plan image at natural aspect ratio → one absolutely-positioned box
 per room, at its normalized coordinates. Each box shows room code, current
-temperature, current RH, and takes its colour from the room's aggregate status
-(worst status among its instruments): green in spec, amber stale or partial data,
-red out of spec, grey no instruments reporting.
+temperature, current RH, and takes its colour from the room's aggregate status —
+the worst status among its instruments by the §6 precedence table:
+
+| Room status | Colour |
+|---|---|
+| `OUT_OF_SPEC` | red |
+| `STALE` | amber |
+| `NO_DATA` (or no instruments placed) | grey |
+| `PARTIAL` | amber |
+| `OK` | green |
 
 Below the plan, a **"Not placed on any plan"** tray lists instruments with
 `roomId = null` alongside their readings. Instruments must never be silently
@@ -404,3 +464,8 @@ time of the change:
 - `tasks/todo.md` — audit-log entry.
 - `2026-08-08-per-profile-instrument-attributes-design.md` — note the §3
   reversal of the four limit keys.
+
+The §3 retirement itself has **no code touchpoints** — verified by grep across
+`packages/` and `apps/`, no source file names any of the four key strings. It is
+a migration plus the audited deletion of the matching `instrument_attributes`
+rows.

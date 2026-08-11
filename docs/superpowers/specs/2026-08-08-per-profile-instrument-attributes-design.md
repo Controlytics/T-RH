@@ -105,13 +105,16 @@ right.
 |---|---|---|
 | non-empty string | this profile's own list | an admin edited it |
 | `''` | asks for **no** attributes | an admin deleted every row |
-| `NULL` | never customised → falls back to the default template | safety net only |
+| `NULL` | asks for **no** attributes (same as `''`) | a profile created out-of-band |
 
-`NULL` should not occur in practice — the migration backfills every existing
-profile and `POST` seeds every new one. The fallback exists so a future code path
-that forgets to seed produces a working form rather than a silently empty
-Attributes section. A `NOT NULL DEFAULT ''` would turn that same mistake into
-"this form asks nothing" with no signal, which is the worse failure.
+> **AMENDED 2026-08-08, same day.** This table originally read `NULL` → "falls
+> back to the default template". There was never such a fallback in code —
+> `parseInstrumentAttributeKeys` returns `[]` for `NULL` and `''` alike — and
+> with seeding removed there is nothing to fall back TO. Two states, not three.
+
+`NULL` should not occur in practice: the migration backfilled every existing
+profile and `POST` writes `''`. Keeping the column nullable (rather than
+`NOT NULL DEFAULT ''`) costs nothing now that both values mean the same thing.
 
 `''` must be storable and distinct from `NULL`, because "this profile
 deliberately asks for nothing" is a legitimate configuration the current page
@@ -175,11 +178,18 @@ No new endpoints, no new permission constants, no new reauth actions.
 - `profileProps` and `ProfileRow` gain `attributeKeys: string | null`;
   `present()` passes it through. `GET /` therefore returns every profile's list
   in one fetch, which is all the config page's picker needs.
-- **`POST`** accepts an optional `attributeKeys`. Omitted, it seeds from the live
-  default template via the existing
-  `configService.getConfig('instrument-attributes', instrumentAttributesConfigSchema)`
-  — the same call `config/routes.ts:193` makes. A new profile is never born
-  empty.
+- **`POST`** accepts an optional `attributeKeys`. Omitted, it stores `''` — a new
+  profile IS born empty.
+
+  > **AMENDED 2026-08-08, same day (operator decision).** This originally seeded
+  > from the live global template via
+  > `configService.getConfig('instrument-attributes', …)`. In use that defeated
+  > the feature: the second profile opened showing the first profile's twelve
+  > keys, so the list still read as global. Seeding is gone, the config key is
+  > inert, and the "Default for new profiles" entry was dropped from the page's
+  > picker. Regression guard:
+  > `instrument-profiles.e2e.test.ts` → "does NOT copy the global
+  > instrument-attributes config into a new profile".
 - **`PUT`** accepts `attributeKeys` as a nullable string.
 - **Audit** records the **parsed key array**, not the raw string:
   `attributeKeys: ['Block','Area',…]`. An inspector reads keys, not newlines,
@@ -219,10 +229,13 @@ the skip list away.
 
 Its only two callers anywhere are `create.tsx:56` and `attributes-panel.tsx:49`
 (verified by grep across `apps/web/src` and `apps/api/src`), and this change
-removes both. The config page reads the default through
-`/api/config/dynamic/instrument-attributes` instead (`instrument-attributes.tsx:36`),
-and the `POST` seed calls `configService.getConfig()` in-process, not over HTTP.
-So after this change the endpoint has **zero callers**.
+removes both. So after this change the endpoint has **zero callers** —
+and after the same-day seeding amendment (§7) so does the config key itself: the
+config page reads only `/api/instrument-profiles`, and `POST` no longer calls
+`configService.getConfig()`. The def and route were kept anyway; deleting the
+config module is a separate decision that must first confirm the per-profile
+editor page keeps its discoverability through config auto-discovery and the
+Configuration Access matrix.
 
 Recommendation: **keep it**, with a comment recording that it is currently
 uncalled and what it means now ("the default template for new profiles").
@@ -351,8 +364,9 @@ All target test files already exist; this extends them.
 - over 2000 characters rejected
 
 `apps/api/src/e2e/instrument-profiles.e2e.test.ts`
-- `POST` without `attributeKeys` seeds from the **live** config value, not the
-  code constant
+- `POST` without `attributeKeys` starts the profile **empty**, and specifically
+  does NOT copy the global `instrument-attributes` config value (amended
+  2026-08-08 — see §7)
 - `POST`/`PUT` store a key containing `<` **verbatim** — the regression guard for
   the `sanitizeStrings` skip
 - `PUT ''` reads back as "asks nothing", not as `NULL`
@@ -392,9 +406,9 @@ Green vitest does not mean it compiles (`verification-gaps`).
 | `apps/api/prisma/schema.prisma` | `attributeKeys` column; **rewrite the GROUPING-ONLY comment at 751-760** |
 | `prisma/migrations/<ts>_instrument_profile_attribute_keys/` | new, hand-authored |
 | `packages/shared/src/schemas/instrument-profiles.ts` | field on both schemas |
-| `apps/api/src/modules/instrument-profiles/routes.ts` | props, `present()`, POST seed, PUT, audit, `skipKeys`; **header comment at 12-14 repeats the same false claim** |
-| `apps/api/src/modules/config/defs/instrument-attributes.def.ts` | now "the default for new profiles" |
-| `apps/web/src/routes/config/instrument-attributes.tsx` | target selector, dirty guard, placement advisory, copy |
+| `apps/api/src/modules/instrument-profiles/routes.ts` | props, `present()`, POST starts empty (no seed), PUT, audit, `skipKeys`; **header comment at 12-14 repeats the same false claim** |
+| `apps/api/src/modules/config/defs/instrument-attributes.def.ts` | inert — seeds nothing, asked for on no form |
+| `apps/web/src/routes/config/instrument-attributes.tsx` | profile selector (profiles only), no-profiles empty state, dirty guard, placement advisory, copy |
 | `apps/web/src/routes/instruments/create.tsx` | per-profile keys, four states, switch confirm |
 | `apps/web/src/routes/instruments/attributes-panel.tsx` | keys from the profile |
 | `apps/web/src/routes/instruments/detail.tsx` | pass `profileId` down |
@@ -427,5 +441,7 @@ No count changes anywhere (see §4).
 - **No change to the bulk CSV import.** It does not handle attributes at all
   (verified: no attribute references in `bulk-create.tsx` or `bulk-csv.ts`), so
   it is untouched.
-- **No "revert this profile to the default" button.** Once seeded, a profile's
-  list is its own; nobody has asked to re-sync one.
+- **No "copy keys from another profile" button.** Each profile's list is built
+  on its own. With seeding removed this is the only way to populate a new
+  profile, which is accepted — nobody has asked to clone one, and cloning is
+  what made the lists read as global in the first place.
