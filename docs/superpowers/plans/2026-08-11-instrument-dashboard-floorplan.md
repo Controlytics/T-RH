@@ -3289,7 +3289,7 @@ import { FloorplanView } from './floorplan-view';
           {view === 'graphical' && showCard('telemetry_floorplan') && <FloorplanView />}
 ```
 
-`FloorplanView` owns the selected-room state and renders `<RoomDetail>` in place of the plan when a room is open. **Confirm the `Floorplan view arrives in Task 12` placeholder string no longer exists anywhere:**
+`FloorplanView` owns the selected-room state and renders `<RoomDetail>` in place of the plan when a room is open. **Confirm the Task 5 placeholder string no longer exists anywhere:**
 
 ```bash
 grep -rn "arrives in Task" apps/web/src
