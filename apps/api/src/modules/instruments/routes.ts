@@ -18,6 +18,7 @@ import { sanitizeStrings } from '../../lib/sanitize.js';
 import { generateToken, hashToken, tokenPrefix, tokenMatches } from './token.js';
 import { encryptToken, decryptToken, tokenKeyConfigured } from './token-crypto.js';
 import { parseInstrumentCsv, type InstrumentDraft } from './bulk-csv.js';
+import { buildTelemetryOverview } from './telemetry-overview.js';
 import { invalidateIngestAuthCache } from './ingest-auth.js';
 import { invalidateChildMapCache } from './gateway-children.js';
 import {
@@ -462,6 +463,78 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       orderBy: { code: 'asc' },
     });
     return { data };
+  });
+
+  // GET /api/instruments/telemetry-overview — every instrument's current
+  // temperature and humidity, in one request.
+  //
+  // Registered BEFORE '/:id' so the static path wins the match, exactly as
+  // '/eligible-children' does. Without that ordering the param route claims it
+  // and rejects "telemetry-overview" as a malformed uuid — a 400, not a 404,
+  // which is a confusing way to discover a routing bug. There is a test for it.
+  //
+  // Feeds BOTH dashboard views; see telemetry-overview.ts for why there is only
+  // one such endpoint.
+  app.get('/telemetry-overview', {
+    preHandler: [app.requirePermission('INSTRUMENT_READ')],
+    schema: {
+      tags: ['Instruments'],
+      summary: 'Current temperature and humidity for every instrument',
+      querystring: {
+        type: 'object',
+        properties: { floorplanId: { type: 'string', format: 'uuid' } },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            data: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  instrumentId: { type: 'string' },
+                  code: { type: 'string' },
+                  name: { type: 'string' },
+                  isActive: { type: 'boolean' },
+                  room: {
+                    type: 'object', nullable: true,
+                    properties: {
+                      id: { type: 'string' },
+                      code: { type: 'string' },
+                      label: { type: 'string', nullable: true },
+                      floorplanId: { type: 'string' },
+                    },
+                  },
+                  temperature: {
+                    type: 'object', nullable: true,
+                    properties: {
+                      key: { type: 'string' },
+                      value: { type: 'number' },
+                      ts: { type: 'string', format: 'date-time' },
+                    },
+                  },
+                  humidity: {
+                    type: 'object', nullable: true,
+                    properties: {
+                      key: { type: 'string' },
+                      value: { type: 'number' },
+                      ts: { type: 'string', format: 'date-time' },
+                    },
+                  },
+                  reporting: { type: 'boolean' },
+                  status: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req) => {
+    const q = req.query as { floorplanId?: string };
+    return { data: await buildTelemetryOverview({ floorplanId: q.floorplanId }) };
   });
 
   // GET /api/instruments/:id — detail
