@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { buildApp, loginAs } from './test-helper.js';
 import type { FastifyInstance } from 'fastify';
+import { prisma } from '../lib/prisma.js';
 import { fixtureProfileId } from '../test-support/fixture-profile.js';
 
 let app: FastifyInstance;
@@ -124,5 +125,61 @@ describe('GET /api/instruments/telemetry-overview', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().id).toBe(inst.id);
+  });
+});
+
+describe('telemetry-overview with rooms', () => {
+  async function makeRoom(
+    code: string,
+    limits: Partial<Record<'tempMin' | 'tempMax' | 'rhMin' | 'rhMax', number>>,
+  ) {
+    const plan = await prisma.floorplan.create({
+      data: {
+        name: `Plan ${code}`,
+        imagePath: '/uploads/floorplans/x.png',
+        imageWidth: 1000,
+        imageHeight: 700,
+      },
+    });
+    return prisma.floorplanRoom.create({
+      data: { floorplanId: plan.id, code, x: 0.1, y: 0.1, w: 0.1, h: 0.1, ...limits },
+    });
+  }
+
+  it('reports OUT_OF_SPEC against the room limits', async () => {
+    const room = await makeRoom(`R-HOT-${s}`, { tempMin: 18, tempMax: 25 });
+    const inst = await createInstrument(`TOV-HOT-${s}`);
+    await prisma.instrument.update({ where: { id: inst.id }, data: { roomId: room.id } });
+    await ingest(inst.token, { temperature: 27.5 });
+    const row = rowFor(await overview(), inst.id)!;
+    expect(row.room).toMatchObject({ code: `R-HOT-${s}` });
+    expect(row.status).toBe('OUT_OF_SPEC');
+  });
+
+  it('reports PARTIAL when a limited slot has no reading', async () => {
+    const room = await makeRoom(`R-PART-${s}`, { tempMin: 18, tempMax: 25, rhMin: 40, rhMax: 60 });
+    const inst = await createInstrument(`TOV-PART-${s}`);
+    await prisma.instrument.update({ where: { id: inst.id }, data: { roomId: room.id } });
+    await ingest(inst.token, { temperature: 22 });
+    const row = rowFor(await overview(), inst.id)!;
+    expect(row.status).toBe('PARTIAL');
+  });
+
+  it('unlinks rather than deletes when its room is deleted', async () => {
+    const room = await makeRoom(`R-GONE-${s}`, {});
+    const inst = await createInstrument(`TOV-GONE-${s}`);
+    await prisma.instrument.update({ where: { id: inst.id }, data: { roomId: room.id } });
+    await prisma.floorplanRoom.delete({ where: { id: room.id } });
+    const still = await prisma.instrument.findUnique({ where: { id: inst.id } });
+    expect(still).not.toBeNull();
+    expect(still!.roomId).toBeNull();
+  });
+
+  it('narrows to one plan with ?floorplanId=', async () => {
+    const room = await makeRoom(`R-PLAN-${s}`, {});
+    const inst = await createInstrument(`TOV-PLAN-${s}`);
+    await prisma.instrument.update({ where: { id: inst.id }, data: { roomId: room.id } });
+    const rows = await overview(`?floorplanId=${room.floorplanId}`);
+    expect(rows.map((r) => r.instrumentId)).toEqual([inst.id]);
   });
 });

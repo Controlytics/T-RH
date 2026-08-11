@@ -836,9 +836,20 @@ model Instrument {
   gateway  Instrument?  @relation("GatewayChildren", fields: [gatewayId], references: [id], onDelete: SetNull)
   children Instrument[] @relation("GatewayChildren")
 
+  // Which room this instrument physically sits in.
+  //
+  // NULLABLE by design — an unplaced instrument is a normal state, and the
+  // dashboard shows those in an explicit "not placed" tray rather than dropping
+  // them silently. A real FK rather than matching the free-text `location`
+  // column above, because room membership must not be breakable by a typo or a
+  // trailing space. `location` stays exactly what it was: descriptive text.
+  roomId String?        @map("room_id")
+  room   FloorplanRoom? @relation(fields: [roomId], references: [id], onDelete: SetNull)
+
   @@index([gatewayId])
   @@index([profileId])
   @@index([block, area, location])
+  @@index([roomId])
   @@map("instruments")
 }
 
@@ -916,3 +927,73 @@ model DeadLetter {
   @@map("dead_letters")
 }
 
+
+/// A floor layout image with clickable rooms drawn on it.
+///
+/// Several plans coexist — one per floor or block — and the dashboard shows one
+/// at a time. The image is uploaded through the normal uploads module; nothing
+/// here parses a PDF or extracts geometry. The rooms that matter are the ones
+/// with instruments in them, and those are placed by hand in the editor.
+model Floorplan {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  imagePath   String   @map("image_path")
+  imageWidth  Int      @map("image_width")
+  imageHeight Int      @map("image_height")
+  isActive    Boolean  @default(true) @map("is_active")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdBy   String?  @map("created_by")
+  updatedBy   String?  @map("updated_by")
+
+  rooms FloorplanRoom[]
+
+  @@map("floorplans")
+}
+
+/// One clickable region of a plan, and the environmental specification that
+/// region must hold.
+///
+/// LIMITS LIVE HERE, NOT ON THE INSTRUMENT. A cleanroom's specification belongs
+/// to the room: replacing the probe on its wall must not discard the spec, and
+/// two probes in one room must not be able to assert two different specs. This
+/// reverses the four `* Temperature/Humidity Limit` instrument-attribute keys
+/// introduced 2026-08-08 — see
+/// docs/superpowers/specs/2026-08-11-instrument-dashboard-floorplan-design.md §3.
+model FloorplanRoom {
+  id          String  @id @default(uuid())
+  floorplanId String  @map("floorplan_id")
+  /// The room code as it appears on the drawing, e.g. "CWH-I/142".
+  code        String
+  label       String?
+
+  /// Normalized 0..1 against the plan image, NOT pixels: the hotspot then holds
+  /// at any zoom and any screen size, and survives re-exporting the drawing at a
+  /// different DPI. Bounds are enforced in floorplans/validation.ts rather than
+  /// by CHECK constraints, so a bad payload returns a 400 naming the offending
+  /// field instead of an opaque constraint error the UI cannot explain.
+  x Float
+  y Float
+  w Float
+  h Float
+
+  /// NULL = that bound is not checked. All four NULL is legitimate — a corridor
+  /// or an office has no environmental specification.
+  tempMin Float? @map("temp_min")
+  tempMax Float? @map("temp_max")
+  rhMin   Float? @map("rh_min")
+  rhMax   Float? @map("rh_max")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdBy String?  @map("created_by")
+  updatedBy String?  @map("updated_by")
+
+  floorplan   Floorplan    @relation(fields: [floorplanId], references: [id], onDelete: Cascade)
+  instruments Instrument[]
+
+  @@unique([floorplanId, code])
+  @@index([floorplanId])
+  @@map("floorplan_rooms")
+}

@@ -21,6 +21,8 @@ const API = process.env.DEMO_API ?? 'https://localhost:3001';
 const USER = process.env.DEMO_USER ?? 'superadmin';
 const PASS = process.env.DEMO_PASS ?? 'Admin@123';
 const INTERVAL_MS = Number(process.env.DEMO_INTERVAL_MS ?? 5000);
+/** Most a drifting probe may climb above its starting temperature. */
+const DRIFT_CAP_C = 3;
 
 // Local mkcert cert; this script only ever talks to localhost.
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
@@ -115,7 +117,11 @@ async function publish(): Promise<void> {
       const token = tokens[d.code];
       if (!token) continue;
 
-      drift[d.code] = (drift[d.code] ?? 0) + (d.drift ?? 0);
+      // Cap the drift a few degrees past the limit it is meant to breach. Left
+      // unbounded it walks to 200 °C, which reads as a broken sensor rather
+      // than an out-of-spec room, and the point of this probe is to show the
+      // colour change — not to test the axis.
+      drift[d.code] = Math.min((drift[d.code] ?? 0) + (d.drift ?? 0), DRIFT_CAP_C);
       const temperature = +(d.temp + drift[d.code] + (Math.random() - 0.5) * 0.3).toFixed(2);
       const humidity = +(d.rh + (Math.random() - 0.5) * 2).toFixed(2);
       const payload: Record<string, number> = d.tempOnly

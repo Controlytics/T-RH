@@ -101,9 +101,16 @@ export async function buildTelemetryOverview(
   ]);
 
   const instruments = await prisma.instrument.findMany({
+    where: opts.floorplanId ? { room: { floorplanId: opts.floorplanId } } : undefined,
     select: {
       id: true, code: true, name: true, isActive: true,
       expectedIntervalSec: true, lastSeenAt: true,
+      room: {
+        select: {
+          id: true, code: true, label: true, floorplanId: true,
+          tempMin: true, tempMax: true, rhMin: true, rhMax: true,
+        },
+      },
     },
     orderBy: { code: 'asc' },
   });
@@ -138,10 +145,23 @@ export async function buildTelemetryOverview(
       inst.lastSeenAt, inst.expectedIntervalSec, activeWindowMinutes, now,
     );
 
-    // Rooms arrive in Task 6. Until then every instrument is unplaced, which is
-    // an honest answer rather than a stub: nothing has been placed yet.
-    const room: OverviewRow['room'] = null;
-    const limits: RoomLimits | null = null;
+    // An unplaced instrument has no room and therefore no specification to
+    // breach: it can be STALE or NO_DATA, never OUT_OF_SPEC. That is correct —
+    // nobody has said what this space is supposed to hold.
+    const room: OverviewRow['room'] = inst.room
+      ? {
+          id: inst.room.id,
+          code: inst.room.code,
+          label: inst.room.label,
+          floorplanId: inst.room.floorplanId,
+        }
+      : null;
+    const limits: RoomLimits | null = inst.room
+      ? {
+          tempMin: inst.room.tempMin, tempMax: inst.room.tempMax,
+          rhMin: inst.room.rhMin, rhMax: inst.room.rhMax,
+        }
+      : null;
 
     return {
       instrumentId: inst.id,
