@@ -142,6 +142,8 @@ export function FloorplansConfigPage() {
     instrumentIds: [] as string[],
   });
   const [saving, setSaving] = useState(false);
+  /** How strongly the plan image shows through while tracing. */
+  const [guideOpacity, setGuideOpacity] = useState(0.35);
 
   const selectedRoom = plan?.rooms.find((r) => r.id === selectedRoomId) ?? null;
 
@@ -431,10 +433,14 @@ export function FloorplansConfigPage() {
               // does not jump once the image finishes loading.
               style={{ aspectRatio: `${plan.imageWidth} / ${plan.imageHeight}`, cursor: 'crosshair' }}
             >
+              {/* TRACING GUIDE ONLY. The dashboard draws the rooms and never
+                  shows this image, so it is faded here to sit behind the shapes
+                  being drawn rather than compete with them. */}
               <img
                 src={imageSrc}
-                alt={`${plan.name} layout`}
+                alt={`${plan.name} layout, tracing guide`}
                 className="pointer-events-none absolute inset-0 h-full w-full object-contain"
+                style={{ opacity: guideOpacity }}
                 draggable={false}
               />
 
@@ -445,17 +451,25 @@ export function FloorplansConfigPage() {
                   <div
                     key={room.id}
                     onPointerDown={(e) => beginMove(e, room)}
-                    className={`absolute border-2 ${
+                    // Drawn the way the dashboard draws it — solid fill and a
+                    // wall stroke — so tracing shows what the operator will
+                    // actually get, not a transparent hotspot.
+                    className={`absolute flex flex-col items-center justify-center overflow-hidden border-[2.5px] ${
                       isSelected
-                        ? 'border-sky-500 bg-sky-500/25'
-                        : 'border-emerald-500 bg-emerald-500/15 hover:bg-emerald-500/25'
+                        ? 'border-sky-600 bg-sky-100'
+                        : 'border-slate-500 bg-slate-100 hover:bg-slate-200'
                     }`}
                     style={{ left: pct(box.x), top: pct(box.y), width: pct(box.w), height: pct(box.h), cursor: 'move' }}
                     title={`${room.code}${room.label ? ` — ${room.label}` : ''}`}
                   >
-                    <span className="absolute left-0 top-0 max-w-full truncate bg-white/85 px-1 text-[10px] font-semibold text-slate-700">
+                    <span className="max-w-full truncate px-1 text-[10px] font-bold leading-tight text-slate-800">
                       {room.code}
                     </span>
+                    {room.label && (
+                      <span className="max-w-full truncate px-1 text-[9px] leading-tight text-slate-500">
+                        {room.label}
+                      </span>
+                    )}
                     {isSelected && (
                       <span
                         onPointerDown={(e) => beginResize(e, room)}
@@ -478,10 +492,23 @@ export function FloorplansConfigPage() {
           )}
 
           {plan && (
-            <p className="mt-3 text-xs text-slate-500">
-              Drag on an empty area to draw a new room. Drag a box to move it, or its corner handle to resize.
-              {plan.rooms.length > 0 && ` ${plan.rooms.length} room${plan.rooms.length === 1 ? '' : 's'} placed.`}
-            </p>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs text-slate-500">
+                Drag on an empty area to draw a new room. Drag a box to move it, or its corner handle to resize.
+                {plan.rooms.length > 0 && ` ${plan.rooms.length} room${plan.rooms.length === 1 ? '' : 's'} drawn.`}
+              </p>
+              <label className="flex items-center gap-2 text-xs text-slate-500">
+                Guide
+                <input
+                  type="range"
+                  min={0} max={1} step={0.05}
+                  value={guideOpacity}
+                  onChange={(e) => setGuideOpacity(Number(e.target.value))}
+                  className="w-28"
+                  aria-label="Tracing guide opacity"
+                />
+              </label>
+            </div>
           )}
         </CardContent>
       </Card>

@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom';
 import useSWR from 'swr';
 import { useMemo, useState } from 'react';
 import { TelemetryTable } from './telemetry-table';
+import { FloorplanView } from './floorplan-view';
 
 const statCardIcons = {
   users: (
@@ -202,11 +203,7 @@ export function DashboardPage() {
           </div>
 
           {view === 'table' && showCard('telemetry_table') && <TelemetryTable />}
-          {view === 'graphical' && showCard('telemetry_floorplan') && (
-            <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
-              Floorplan view arrives in Task 13.
-            </div>
-          )}
+          {view === 'graphical' && showCard('telemetry_floorplan') && <FloorplanView />}
         </div>
       )}
 

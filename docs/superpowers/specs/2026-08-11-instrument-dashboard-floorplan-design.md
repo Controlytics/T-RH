@@ -332,10 +332,30 @@ flagged in the row. Instruments with no room show "Not placed".
 
 ### Graphical view
 
-Plan picker → plan image at natural aspect ratio → one absolutely-positioned box
-per room, at its normalized coordinates. Each box shows room code, current
-temperature, current RH, and takes its colour from the room's aggregate status —
-the worst status among its instruments by the §6 precedence table:
+**REVISED 2026-08-11, after seeing it.** The first version showed the uploaded
+plan image with transparent hotspots over it. On screen that reads as a scan
+with rectangles stuck on top — the rooms are invisible until you hover, and the
+drawing's own ink competes with the status colours it is supposed to carry.
+
+The dashboard now **draws** the layout: each room is a real shape with walls, its
+code and label, its current readings, and a status colour filling it. **The plan
+image is not shown on the dashboard at all.** It appears only in the editor, as a
+faded tracing guide underneath the shapes being drawn.
+
+Nothing behind the view changed. Rooms already store `x/y/w/h` as proportions,
+which is exactly what a drawn layout needs, so limits, placement, telemetry,
+history and the audit trail are all untouched. This is a renderer swap.
+
+Rejected alongside it: **2.5D isometric** (still dependency-free, but labels and
+readings are harder to place and comparing two rooms' values is slower than a
+flat plan) and **true 3D** (needs three.js in a repo that has deliberately
+removed every rendering dependency it ever had; only worth it if walking the
+building is the actual goal, which it is not — the goal is reading numbers).
+
+Plan picker → drawn floor at the plan's aspect ratio → one shape per room at its
+normalized coordinates. Each shows room code, label, current temperature and RH,
+and takes its colour from the room's aggregate status — the worst status among
+its instruments by the §6 precedence table:
 
 | Room status | Colour |
 |---|---|

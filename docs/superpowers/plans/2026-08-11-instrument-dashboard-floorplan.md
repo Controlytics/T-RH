@@ -3286,9 +3286,12 @@ export function useRoomHistory(floorplanId: string, roomId: string, window: Hist
 
 Create `apps/web/src/routes/dashboard/floorplan-view.tsx`:
 
+> **REVISED 2026-08-11 (operator feedback): the dashboard DRAWS the layout; it does not show the plan image.** Showing the scan with transparent hotspots over it reads as a photo with rectangles stuck on top — rooms are invisible until hovered, and the drawing's own ink fights the status colours. The image now appears only in the editor, faded, as a tracing guide. Nothing behind the view changes: rooms already store proportional `x/y/w/h`, which is what a drawn layout needs. See the spec §7 for the isometric and true-3D options that were rejected.
+
 - Plan picker (`<select>`) over `useFloorplans()`, defaulting to the lowest `sortOrder`. Render nothing but a call-to-action linking to `/config/floorplans` when there are no plans.
-- The plan image inside a `position: relative` container at `width: 100%`, with `aspectRatio: imageWidth / imageHeight` so the box overlay never drifts while the image loads.
-- For each room, an absolutely-positioned button at `left: x*100%, top: y*100%, width: w*100%, height: h*100%`, showing room code, temperature and RH, styled from `statusClasses(worstStatus(statusesOfItsInstruments))` — group `useTelemetryOverview()` rows by `row.room?.id`.
+- A drawn floor at the plan's aspect ratio — an SVG `viewBox="0 0 1000 <1000/ratio>"` so room proportions map straight onto it. **No `<img>`.**
+- For each room, a `<rect>` at its normalized coordinates scaled into the viewBox, with a visible wall stroke, filled from `statusClasses(worstStatus(...))`, carrying the room code, label, temperature and RH as `<text>` — group `useTelemetryOverview()` rows by `row.room?.id`.
+- Text must degrade: a small room cannot fit four lines, so drop the label, then the readings, then the code as the box shrinks.
 - A room with no instruments renders grey and is still clickable (it shows its limits and an empty state).
 - **The unplaced tray** below the plan: every row with `room === null`, as compact cards with the same status treatment. Never omit these.
 - A "Readings update every Ns" line so polling is stated, not implied.
