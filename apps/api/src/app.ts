@@ -47,6 +47,7 @@ import { startJobRunner, stopJobRunner } from '@digilog/queue';
 import { AppError } from './lib/errors.js';
 import { dispatchNotification } from './modules/notification-delivery/notification-dispatcher.js';
 import adminRequestRoutes from './modules/admin-requests/routes.js';
+import floorplanRoutes from './modules/floorplans/routes.js';
 import ingestRoutes from './modules/instruments/ingest-routes.js';
 import wsIngestRoutes from './modules/instruments/listeners/ws-listener.js';
 import mqttAuthRoutes from './modules/instruments/mqtt-auth-routes.js';
@@ -358,6 +359,10 @@ await app.register(debugTraceRoutes, { prefix: "/api/debug/traces" });
 await app.register(ldapRoutes, { prefix: "/api/ldap" });
 await app.register(dashboardRoutes, { prefix: "/api/dashboards" });
 await app.register(adminRequestRoutes, { prefix: '/api/admin-requests' });
+// Floorplans + rooms. NOT under /api/dashboards — that prefix is the widget
+// dashboard module, and a second unrelated dashboard route tree there would be
+// a trap for the next reader.
+await app.register(floorplanRoutes, { prefix: '/api/floorplans' });
 await app.register(ingestRoutes, { prefix: '/api/ingest/v1' });
 // Same device-token credential, over a WebSocket upgrade instead of a POST.
 // Also on the auth-hook allowlist (plugins/auth.ts) — the upgrade request runs

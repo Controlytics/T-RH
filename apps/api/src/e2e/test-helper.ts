@@ -19,6 +19,7 @@ import wsIngestRoutes, { type WsIngestOptions } from '../modules/instruments/lis
 import mqttAuthRoutes from '../modules/instruments/mqtt-auth-routes.js';
 import instrumentProfileRoutes from '../modules/instrument-profiles/routes.js';
 import instrumentRoutes from '../modules/instruments/routes.js';
+import floorplanRoutes from '../modules/floorplans/routes.js';
 import { prisma } from '../lib/prisma.js';
 import { AppError } from '../lib/errors.js';
 
@@ -94,6 +95,7 @@ export async function buildApp(
   await app.register(mqttAuthRoutes, { prefix: '/api/ingest/v1' });
   await app.register(instrumentProfileRoutes, { prefix: '/api/instrument-profiles' });
   await app.register(instrumentRoutes, { prefix: '/api/instruments' });
+  await app.register(floorplanRoutes, { prefix: '/api/floorplans' });
 
   await app.ready();
   return app;
