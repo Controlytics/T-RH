@@ -253,10 +253,22 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
   // {gateway} above. A template placeholder with no substitution here renders as
   // the literal "{attribute}", which is the bug this line exists to avoid.
   const attribute = (after.attribute as string) || (before.attribute as string) || '';
+  // {floorplan}: the plan's NAME. It sits in two different fields depending on
+  // the row — FLOORPLAN_* writes it as `name` (the record is the plan itself),
+  // while FLOORPLAN_ROOM_CREATED writes it as `floorplan` (the record is the
+  // room, and the plan is context). Both are tried; a DELETED row carries it
+  // only in beforeValue, so both sides are read, same shape as {gateway} above.
+  const floorplan = (after.floorplan as string) || (before.floorplan as string)
+    || (after.name as string) || (before.name as string) || '';
+  // {room}: the room CODE as it appears on the drawing, e.g. "CWH-I/142".
+  // Falls back to the raw id rather than guessing — a UUID is truthful.
+  const room = (after.code as string) || (before.code as string) || record.targetId || '';
 
   const replacePlaceholders = (tpl: string) => {
     const filled = tpl
       .replace(/\{actor\}/g, actor)
+      .replace(/\{floorplan\}/g, floorplan)
+      .replace(/\{room\}/g, room)
       .replace(/\{targetUser\}/g, targetUser || actor)
       .replace(/\{targetName\}/g, targetName)
       .replace(/\{configKey\}/g, configKey)
