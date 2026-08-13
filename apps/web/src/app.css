@@ -43,6 +43,18 @@
   --color-sidebar-accent: #2d4a6f;
   --color-sidebar-muted: #94a3b8;
 
+  /* Module-scoped surfaces — the PAGE half of the colour system.
+     Derived from --mod-from, which use-module-palette writes at runtime per
+     route. Defined once here so eleven palettes x four surfaces are not 44
+     hand-picked values, and so changing the tint depth is one edit.
+     NOTE: the percentages here are asserted in lib/__tests__/module-palettes.test.ts
+     (SURFACE_PCT / SURFACE_ALT_PCT). Change both together or the test measures a
+     colour the browser no longer paints. */
+  --color-surface: color-mix(in srgb, var(--mod-from) 6%, white);
+  --color-surface-alt: color-mix(in srgb, var(--mod-from) 12%, white);
+  --color-surface-raised: #ffffff;
+  --color-border-tint: color-mix(in srgb, var(--mod-from) 25%, white);
+
   /* Border radius */
   --radius-sm: 0.375rem;
   --radius-md: 0.5rem;
@@ -71,6 +83,23 @@
 
 *::-webkit-scrollbar-thumb:hover {
   background-color: #94a3b8;
+}
+
+/* Module palette DEFAULTS — load-bearing, do not delete.
+   use-module-palette only mounts inside AppLayout, so the unauthenticated screens
+   (/login, /change-password, /forgot-password, /contact-admin) and the error
+   boundaries never get --mod-*. Without a default here, every surface token is
+   `color-mix(in srgb, var(--mod-from) 6%, white)` with an EMPTY var — invalid at
+   computed-value time — and every bg-white card renders TRANSPARENT rather than
+   white. These values are the neutral FALLBACK_PALETTE in lib/module-palettes.ts;
+   keep them in step. */
+:root {
+  --mod-id: fallback;
+  --mod-from: #475569;
+  --mod-to: #334155;
+  --mod-table-head: #334155;
+  --mod-text: #0f172a;
+  --mod-muted: #334155;
 }
 
 /* 2026-05-21 UI refresh font stack */
@@ -158,3 +187,130 @@ table {
 
 /* Theme utility class — replaces inline style={{ color: 'var(--theme-primary)' }} */
 .text-theme-primary { color: var(--theme-primary); }
+
+/* ===========================================================================
+   MODULE COLOUR — PAGE CANVAS
+   Each route gets its own hue via --mod-* (hooks/use-module-palette.ts).
+   18/14/10% against the 6% card surface keeps ~8-12% separation, so a tinted
+   card still reads as raised. Past roughly 20% the cards stop separating and
+   need more shadow to compensate — that separation is the constraint, not these
+   exact numbers.
+   =========================================================================== */
+.bg-module-canvas {
+  background:
+    linear-gradient(140deg,
+      color-mix(in srgb, var(--mod-from) 18%, white) 0%,
+      color-mix(in srgb, var(--mod-to) 14%, white) 55%,
+      color-mix(in srgb, var(--mod-from) 10%, white) 100%);
+}
+
+/* ===========================================================================
+   COMPATIBILITY LAYER — READ BEFORE EDITING A COMPONENT'S bg-white
+   ---------------------------------------------------------------------------
+   `bg-white` IN THIS APP NO LONGER PAINTS WHITE. It resolves to --color-surface,
+   a 6% tint of the current module's colour (lib/module-palettes.ts).
+
+   Why this exists: ~57 route files paint raw bg-white themselves, and the
+   authenticated UI cannot be opened in a browser from the dev environment here
+   (the mkcert cert blocks Playwright's XHR, so it never gets past login). Editing
+   57 files blind, with zero tests asserting styling, would have been worse than
+   one documented override.
+
+   Need real white? Add the `surface-plain` class.
+
+   NO !important ANYWHERE IN THIS BLOCK. These rules win on cascade order alone —
+   they are emitted after Tailwind's own at equal specificity (verified in
+   __tests__/compat-layer.test.ts). !important would beat the inline
+   style={{ background: themeGradient }} this app puts on buttons and would kill
+   every gradient button in the product.
+
+   This layer is meant to SHRINK: each wave replaces bg-white with bg-surface in
+   the files it touches. It is not a permanent fixture.
+   =========================================================================== */
+@layer utilities {
+  /* --- card surfaces ---------------------------------------------------- */
+  .bg-white { background-color: var(--color-surface); }
+  /* The /NN variants compile to a literal #fff and are NOT reached by the rule
+     above, so the ones used as card surfaces need their own. */
+  .bg-white\/95 { background-color: color-mix(in srgb, var(--color-surface) 95%, transparent); }
+  .bg-white\/70 { background-color: color-mix(in srgb, var(--color-surface) 70%, transparent); }
+  .bg-white\/60 { background-color: color-mix(in srgb, var(--color-surface) 60%, transparent); }
+
+  /* --- section surfaces ------------------------------------------------- */
+  .bg-slate-50,
+  .bg-slate-100 { background-color: var(--color-surface-alt); }
+  .bg-slate-50\/80 { background-color: color-mix(in srgb, var(--color-surface-alt) 80%, transparent); }
+  .bg-slate-50\/60 { background-color: color-mix(in srgb, var(--color-surface-alt) 60%, transparent); }
+  .bg-slate-50\/50 { background-color: color-mix(in srgb, var(--color-surface-alt) 50%, transparent); }
+  .bg-slate-50\/30 { background-color: color-mix(in srgb, var(--color-surface-alt) 30%, transparent); }
+
+  /* --- heavier fills ---------------------------------------------------- */
+  .bg-slate-200 { background-color: var(--color-border-tint); }
+  .bg-slate-200\/30 { background-color: color-mix(in srgb, var(--color-border-tint) 30%, transparent); }
+
+  /* --- HOVER STATES ----------------------------------------------------- */
+  /* Not optional. hover:bg-slate-100 (36 uses), hover:bg-slate-50 (32) and
+     hover:bg-slate-200 (8) are SEPARATE rules; omitting them leaves every
+     un-tuned tinted row flashing white on hover — a defect invisible to a test
+     suite with no styling assertions. */
+  .hover\:bg-slate-50:hover,
+  .hover\:bg-slate-100:hover { background-color: var(--color-surface-alt); }
+  .hover\:bg-slate-50\/80:hover { background-color: color-mix(in srgb, var(--color-surface-alt) 80%, transparent); }
+  .hover\:bg-slate-50\/70:hover { background-color: color-mix(in srgb, var(--color-surface-alt) 70%, transparent); }
+  .hover\:bg-slate-50\/50:hover { background-color: color-mix(in srgb, var(--color-surface-alt) 50%, transparent); }
+  .hover\:bg-slate-50\/40:hover { background-color: color-mix(in srgb, var(--color-surface-alt) 40%, transparent); }
+  .hover\:bg-slate-200:hover { background-color: var(--color-border-tint); }
+  .hover\:bg-slate-200\/70:hover { background-color: color-mix(in srgb, var(--color-border-tint) 70%, transparent); }
+  .group:hover .group-hover\:bg-slate-200 { background-color: var(--color-border-tint); }
+
+  /* --- other states ----------------------------------------------------- */
+  .focus\:bg-white:focus { background-color: var(--color-surface); }
+  .disabled\:bg-slate-50:disabled { background-color: var(--color-surface-alt); }
+  .disabled\:bg-slate-100:disabled { background-color: var(--color-surface-alt); }
+
+  /* --- borders + dividers ----------------------------------------------- */
+  .border-slate-50,
+  .border-slate-100,
+  .border-slate-200 { border-color: var(--color-border-tint); }
+  .border-slate-200\/60 { border-color: color-mix(in srgb, var(--color-border-tint) 60%, transparent); }
+  .border-slate-200\/50 { border-color: color-mix(in srgb, var(--color-border-tint) 50%, transparent); }
+  .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+  .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-color: var(--color-border-tint); }
+  .ring-slate-200 { --tw-ring-color: var(--color-border-tint); }
+
+  /* DELIBERATELY NOT OVERRIDDEN:
+     - bg-white/5 /10 /15 /20, hover:bg-white/*, border-white*, ring-white*,
+       after:bg-white, peer-checked:after:border-white, via-white.
+       Those are translucent highlights on the DARK sidebar and login screens,
+       which --theme-* owns. Recolouring them damages the chrome.
+     - Gradient stops (from-/to-/via-slate-*, from-/to-white; ~85 uses).
+       Whether a stop should tint depends on that gradient's intent, so they are
+       read individually as the waves reach them. */
+}
+
+/* ---------------------------------------------------------------------------
+   SECONDARY TEXT — the one text exception, and it is an ACCESSIBILITY fix.
+   text-slate-500 (459 uses, incl. CardDescription) measures 3.97-4.49:1 on the
+   tinted surfaces, under the 4.50 WCAG AA floor. It only passes today because
+   the surface is pure white (4.76:1) — almost no headroom, and a 6% tint eats
+   it. text-slate-400 (279 uses) is worse and already fails on white.
+   slate-600 clears AA on every palette (worst 6.32:1).
+
+   SCOPED TO THE CANVAS ON PURPOSE. A global override would be wrong:
+   text-slate-400 is ALSO the sidebar's muted text on a DARK background, where
+   darkening it makes contrast worse. Two classes beat Tailwind's one on
+   specificity, so no !important is needed.
+   --------------------------------------------------------------------------- */
+.bg-module-canvas .text-slate-500,
+.bg-module-canvas .text-slate-400 { color: #475569; }
+
+/* Opt out per element when a lighter grey is genuinely wanted on a light
+   surface and the contrast has been checked. */
+.bg-module-canvas .text-keep-muted { color: #64748b; }
+
+/* ---------------------------------------------------------------------------
+   The documented opt-out. Restores true white where white is required:
+   PDF-facing report chrome, the login card, toasts.
+   --------------------------------------------------------------------------- */
+.surface-plain,
+.surface-plain.bg-white { background-color: #ffffff; }
