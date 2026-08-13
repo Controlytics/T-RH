@@ -201,6 +201,19 @@ owns; recolouring them damages the chrome. Also the ~85 gradient stops
 (`from-slate-50`, `to-white`, …), because whether a stop should tint depends on
 that gradient's intent.
 
+**Correction on the `@theme` fallback (an earlier note here got this wrong).**
+Tailwind compiles each `color-mix` token to a static declaration plus an
+`@supports (color: color-mix(in lab, red, red))` block holding the real value. The
+later declaration therefore wins **only where lab `color-mix` is supported** — it
+is not an unconditional override. Without support, `--color-surface` falls back to
+`var(--mod-from)` at **100%**, i.e. a fully saturated 600-level card. The canvas
+gradient had no fallback at all, so an unsupported `color-mix` invalidated the
+whole `background` declaration and the canvas would have disappeared; it now
+carries a static slate gradient outside an `@supports` guard. Real-world risk is
+low (Chrome/Edge 111+, which is what this app targets), but the precedent of
+"we already ship `color-mix` in `theme-styles.ts`" is weaker than it looks — there
+it colours a box-shadow, where failure degrades to no shadow.
+
 **`--mod-*` `:root` defaults are load-bearing too.** `use-module-palette` only
 mounts inside `AppLayout`, so `/login`, `/change-password`, `/forgot-password`,
 `/contact-admin` and the error boundaries never receive it. With an empty

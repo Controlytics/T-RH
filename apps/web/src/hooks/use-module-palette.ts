@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useLayoutEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { resolveModulePalette, type ModulePalette } from '@/lib/module-palettes';
 
@@ -17,7 +17,10 @@ export function useModulePalette(): ModulePalette {
   const { pathname } = useLocation();
   const palette = resolveModulePalette(pathname);
 
-  useEffect(() => {
+  // useLayoutEffect, not useEffect: an effect runs AFTER commit, so navigating
+  // Audit -> Users would paint the Users page with amber still set for one frame
+  // before flipping to rose. A hue flash on every click reads as a bug.
+  useLayoutEffect(() => {
     const root = document.documentElement;
     root.style.setProperty('--mod-id', palette.id);
     root.style.setProperty('--mod-from', palette.from);

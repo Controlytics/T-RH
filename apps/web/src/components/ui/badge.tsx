@@ -15,8 +15,13 @@ import { cn } from '@/lib/cn';
  * badge. Don't remove those on the grounds that the colour says it already.
  */
 const variants = {
-  default: 'bg-slate-100 text-slate-700 border border-border-tint',
-  secondary: 'bg-slate-100 text-slate-700 border border-border-tint',
+  // NOT bg-slate-100: the compatibility layer maps that to --color-surface-alt,
+  // which is exactly TableRow's even-row tint — a neutral badge in an even row
+  // would lose its fill entirely and show only its outline. Badges live in tables
+  // more than anywhere else. 25% is distinct from both row tints; slate-700 on it
+  // measures 6.97-7.90:1 across the palette set.
+  default: 'bg-[var(--color-border-tint)] text-slate-700 border border-[var(--mod-from)]/30',
+  secondary: 'bg-[var(--color-border-tint)] text-slate-700 border border-[var(--mod-from)]/30',
   outline: 'text-slate-700 border-2 border-slate-300 bg-surface-raised',
   destructive: 'bg-red-700 text-white border border-red-800',
   success: 'bg-emerald-700 text-white border border-emerald-800',

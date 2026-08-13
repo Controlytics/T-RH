@@ -197,11 +197,19 @@ table {
    exact numbers.
    =========================================================================== */
 .bg-module-canvas {
-  background:
-    linear-gradient(140deg,
-      color-mix(in srgb, var(--mod-from) 18%, white) 0%,
-      color-mix(in srgb, var(--mod-to) 14%, white) 55%,
-      color-mix(in srgb, var(--mod-from) 10%, white) 100%);
+  /* Static fallback FIRST. An unsupported color-mix invalidates the whole
+     `background` declaration, which would leave the canvas with no background at
+     all rather than a duller one. */
+  background: linear-gradient(140deg, #f8fafc 0%, #f1f5f9 55%, #f8fafc 100%);
+}
+@supports (color: color-mix(in srgb, red, red)) {
+  .bg-module-canvas {
+    background:
+      linear-gradient(140deg,
+        color-mix(in srgb, var(--mod-from) 18%, white) 0%,
+        color-mix(in srgb, var(--mod-to) 14%, white) 55%,
+        color-mix(in srgb, var(--mod-from) 10%, white) 100%);
+  }
 }
 
 /* ===========================================================================
@@ -274,6 +282,12 @@ table {
   .border-slate-200 { border-color: var(--color-border-tint); }
   .border-slate-200\/60 { border-color: color-mix(in srgb, var(--color-border-tint) 60%, transparent); }
   .border-slate-200\/50 { border-color: color-mix(in srgb, var(--color-border-tint) 50%, transparent); }
+  /* Both selector shapes on purpose: Tailwind v4 emits `> :not(:last-child)`
+     while v3 emitted `> :not([hidden]) ~ :not([hidden])`. Those target different
+     EDGES, so matching only one leaves the first (or last) child with an
+     untinted border. */
+  .divide-slate-100 > :not(:last-child),
+  .divide-slate-200 > :not(:last-child),
   .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
   .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-color: var(--color-border-tint); }
   .ring-slate-200 { --tw-ring-color: var(--color-border-tint); }
@@ -302,7 +316,11 @@ table {
    specificity, so no !important is needed.
    --------------------------------------------------------------------------- */
 .bg-module-canvas .text-slate-500,
-.bg-module-canvas .text-slate-400 { color: #475569; }
+.bg-module-canvas .text-slate-400,
+.bg-surface .text-slate-500,
+.bg-surface .text-slate-400,
+.bg-surface-alt .text-slate-500,
+.bg-surface-alt .text-slate-400 { color: #475569; }
 
 /* Opt out per element when a lighter grey is genuinely wanted on a light
    surface and the contrast has been checked. */
