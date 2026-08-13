@@ -201,7 +201,7 @@ export function InstrumentListPage() {
         <SummaryTile label="Inactive" value={counts.inactive} tone="inactive" active={tileFilter === 'inactive'} onClick={() => toggle('inactive')} />
         <SummaryTile label="Gateways" value={counts.gateway} tone="brand" active={tileFilter === 'gateway'} onClick={() => toggle('gateway')} />
       </div>
-      <p className="-mt-4 text-xs text-slate-600">
+      <p className="-mt-4 text-xs text-slate-700">
         Counts describe the {rows.length} instrument{rows.length === 1 ? '' : 's'} on this page.
         Active means telemetry arrived within the instrument’s expected interval, or within{' '}
         {activeWindow} minute{activeWindow === 1 ? '' : 's'} when it declares none.
@@ -224,7 +224,7 @@ export function InstrumentListPage() {
             <button
               type="button"
               onClick={() => setTileFilter(null)}
-              className="rounded-lg border border-border-tint bg-surface-raised px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-surface-alt"
+              className="rounded-lg border border-border-tint bg-surface-raised px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-surface-alt"
             >
               Clear {tileFilter} filter
             </button>
@@ -243,7 +243,7 @@ export function InstrumentListPage() {
           </thead>
           <tbody className="divide-y divide-border-tint">
             {isLoading && (
-              <tr><td colSpan={3} className="py-10 text-center text-slate-600">Loading…</td></tr>
+              <tr><td colSpan={3} className="py-10 text-center text-slate-700">Loading…</td></tr>
             )}
 
             {!isLoading && rows.length === 0 && (
@@ -259,7 +259,7 @@ export function InstrumentListPage() {
                   <p className="font-semibold text-slate-700">
                     {filtersActive ? 'No instruments match these filters' : 'No instruments registered yet'}
                   </p>
-                  <p className="mt-1 text-sm text-slate-600">
+                  <p className="mt-1 text-sm text-slate-700">
                     {filtersActive
                       ? 'Clear a filter to widen the search.'
                       : 'Register a device to give it a token and a topic to report on.'}
@@ -275,7 +275,7 @@ export function InstrumentListPage() {
 
             {!isLoading && rows.length > 0 && shown.length === 0 && (
               <tr>
-                <td colSpan={3} className="px-4 py-12 text-center text-sm text-slate-600">
+                <td colSpan={3} className="px-4 py-12 text-center text-sm text-slate-700">
                   Nothing on this page is {tileFilter === 'gateway' ? 'a gateway' : tileFilter}.
                 </td>
               </tr>
@@ -295,7 +295,7 @@ export function InstrumentListPage() {
                         </span>
                       )}
                     </span>
-                    <span className="font-mono text-xs text-slate-600">{r.code}</span>
+                    <span className="font-mono text-xs text-slate-700">{r.code}</span>
                   </Link>
                 </td>
                 <td className="px-4 py-3">

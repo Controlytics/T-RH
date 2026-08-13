@@ -7,15 +7,15 @@ import { contrastRatio, mixWithWhite } from '../contrast';
  * definitions in app.css. If a tint depth changes there and not here, the test
  * keeps passing while the screen goes out of compliance.
  */
-const SURFACE_PCT = 6;
-const SURFACE_ALT_PCT = 12;
+const SURFACE_PCT = 26;
+const SURFACE_ALT_PCT = 36;
 
 const AA_BODY = 4.5;
 const AA_LARGE = 3.0;
 
 /** What the app actually paints body text with, on the page canvas. */
 const BODY_SLATE = '#1e293b';   // text-slate-800
-const SECONDARY_SLATE = '#475569'; // slate-600 — see the note in the secondary-text case
+const SECONDARY_SLATE = '#334155'; // slate-700 — slate-600's ceiling is a 32% tint
 
 const cases = MODULE_PALETTES.map((p) => [p.id, p] as const);
 
@@ -84,15 +84,32 @@ describe('palette contrast (WCAG AA)', () => {
     }
   });
 
-  it('slate-500 is documented as UNUSABLE on tinted surfaces', () => {
-    // The reason app.css remaps secondary text to slate-600 inside the canvas.
-    // text-slate-500 has 459 uses and passes on pure white by only 4.76:1, so a
-    // 6% tint pushes it under AA. If this ever starts passing, the tint got
-    // lighter and the remap can be reconsidered — it is not a free win.
+  it.each([
+    ['slate-400', '#94a3b8'],
+    ['slate-500', '#64748b'],
+    ['slate-600', '#475569'],
+  ])('%s is UNUSABLE on the tinted surfaces — this is why app.css remaps it', (_name, hex) => {
+    // Documents WHY the remap exists, and fails loudly if a future tint change
+    // makes one of these safe again — at which point the remap can be narrowed,
+    // deliberately, rather than left in place by inertia. slate-600 was fine at
+    // the original 6%/12% depths and was pulled in by deepening to 22%/34%.
     const worst = Math.min(
       ...MODULE_PALETTES.flatMap((p) => [SURFACE_PCT, SURFACE_ALT_PCT]
-        .map((pct) => contrastRatio('#64748b', mixWithWhite(p.from, pct)))),
+        .map((pct) => contrastRatio(hex, mixWithWhite(p.from, pct)))),
     );
     expect(worst).toBeLessThan(AA_BODY);
+  });
+
+  it('the canvas gradient keeps body text and headings above AA', () => {
+    // The canvas is the most saturated surface (46/40/34%). Page-level text sits
+    // directly on it, so it needs checking separately from the cards.
+    const CANVAS_DARKEST_PCT = 46;
+    for (const p of MODULE_PALETTES) {
+      const canvas = mixWithWhite(p.from, CANVAS_DARKEST_PCT);
+      expect(contrastRatio('#1e293b', canvas), `${p.id} slate-800 on canvas`)
+        .toBeGreaterThanOrEqual(AA_BODY);
+      expect(contrastRatio(p.text, canvas), `${p.id} heading on canvas`)
+        .toBeGreaterThanOrEqual(AA_BODY);
+    }
   });
 });

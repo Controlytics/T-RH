@@ -46,13 +46,13 @@ export function CardTitle({ className, ...props }: React.HTMLAttributes<HTMLHead
 }
 
 /**
- * text-slate-600, not slate-500. slate-500 measures 3.97-4.49:1 on the tinted
- * card surface, under the 4.50 WCAG AA floor — it only passed when this card was
- * pure white. app.css also remaps slate-500 inside the canvas as a safety net,
- * but stating it here means this component is correct on its own.
+ * text-slate-700, not slate-500 or slate-600. On the 22% tinted card surface both
+ * of those fall under the 4.50 WCAG AA floor (slate-600's ceiling is a 32% tint).
+ * app.css remaps all three as a safety net, but stating it here means this
+ * component is correct on its own.
  */
 export function CardDescription({ className, ...props }: React.HTMLAttributes<HTMLParagraphElement>) {
-  return <p className={cn('text-sm text-slate-600', className)} {...props} />;
+  return <p className={cn('text-sm text-slate-700', className)} {...props} />;
 }
 
 export function CardContent({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {

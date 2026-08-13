@@ -50,10 +50,10 @@
      NOTE: the percentages here are asserted in lib/__tests__/module-palettes.test.ts
      (SURFACE_PCT / SURFACE_ALT_PCT). Change both together or the test measures a
      colour the browser no longer paints. */
-  --color-surface: color-mix(in srgb, var(--mod-from) 6%, white);
-  --color-surface-alt: color-mix(in srgb, var(--mod-from) 12%, white);
+  --color-surface: color-mix(in srgb, var(--mod-from) 26%, white);
+  --color-surface-alt: color-mix(in srgb, var(--mod-from) 36%, white);
   --color-surface-raised: #ffffff;
-  --color-border-tint: color-mix(in srgb, var(--mod-from) 25%, white);
+  --color-border-tint: color-mix(in srgb, var(--mod-from) 55%, white);
 
   /* Border radius */
   --radius-sm: 0.375rem;
@@ -191,10 +191,13 @@ table {
 /* ===========================================================================
    MODULE COLOUR — PAGE CANVAS
    Each route gets its own hue via --mod-* (hooks/use-module-palette.ts).
-   18/14/10% against the 6% card surface keeps ~8-12% separation, so a tinted
-   card still reads as raised. Past roughly 20% the cards stop separating and
-   need more shadow to compensate — that separation is the constraint, not these
-   exact numbers.
+   46/40/34% against the 26% card surface — a 20-POINT GAP. Tuned twice: 18/14/10
+   over a 6% card read as washed out, then 58/50/44 over 22% made the cards read
+   as pale islands that did not match the background. ~20 points is the value that
+   keeps a card both raised AND obviously the same hue family. Keep that gap if you
+   tune the depth. The CEILING is not taste: slate-800 body text fails WCAG AA
+   past 65% tint and slate-600 past 32%, which is why secondary text is
+   slate-700 here. lib/__tests__/module-palettes.test.ts enforces it.
    =========================================================================== */
 .bg-module-canvas {
   /* Static fallback FIRST. An unsupported color-mix invalidates the whole
@@ -206,9 +209,9 @@ table {
   .bg-module-canvas {
     background:
       linear-gradient(140deg,
-        color-mix(in srgb, var(--mod-from) 18%, white) 0%,
-        color-mix(in srgb, var(--mod-to) 14%, white) 55%,
-        color-mix(in srgb, var(--mod-from) 10%, white) 100%);
+        color-mix(in srgb, var(--mod-from) 46%, white) 0%,
+        color-mix(in srgb, var(--mod-to) 40%, white) 55%,
+        color-mix(in srgb, var(--mod-from) 34%, white) 100%);
   }
 }
 
@@ -302,13 +305,69 @@ table {
        read individually as the waves reach them. */
 }
 
+/* ===========================================================================
+   HARMONISATION — why cards stopped matching their background
+   ---------------------------------------------------------------------------
+   Colouring the canvas exposed ~546 surfaces that did NOT follow the module
+   colour, so on a teal Instruments page you got blue and violet panels sitting
+   on teal, and cards whose gradients were still white. The tint depth was never
+   the problem; the INCONSISTENCY was.
+
+   Two families are neutralised here.
+
+   1. DECORATIVE foreign hues (~150 uses). bg-blue-50, bg-indigo-50,
+      bg-violet-50, bg-purple-50, bg-cyan-50, bg-teal-50, bg-sky-50 and friends
+      were picked to make a panel "a bit coloured". They now follow the module
+      instead of fighting it.
+
+   2. Gradient stops (86 uses). from-slate-50 / to-white / … kept cards white on
+      a coloured canvas. Only the --tw-gradient-* custom property needs
+      redefining; the stops chain from Tailwind's own rule still applies.
+
+   DELIBERATELY LEFT ALONE — red, rose, amber, orange, yellow, emerald and green
+   at every level. Those carry MEANING in this app (error, warning, success,
+   in-spec). Neutralising them would be destroying information to make the page
+   prettier, which is not a trade this product gets to make. On the Audit page
+   the module hue IS amber, so warnings there sit in-family by coincidence, not
+   by design.
+   =========================================================================== */
+@layer utilities {
+  /* --- 1. decorative foreign hues follow the module -------------------- */
+  .bg-blue-50, .bg-indigo-50, .bg-violet-50, .bg-purple-50,
+  .bg-cyan-50, .bg-teal-50, .bg-sky-50, .bg-fuchsia-50, .bg-lime-50 {
+    background-color: var(--color-surface);
+  }
+  .bg-blue-100, .bg-indigo-100, .bg-violet-100, .bg-purple-100,
+  .bg-cyan-100, .bg-teal-100, .bg-sky-100, .bg-fuchsia-100, .bg-lime-100 {
+    background-color: var(--color-surface-alt);
+  }
+  .border-blue-100, .border-indigo-100, .border-violet-100, .border-purple-100,
+  .border-cyan-100, .border-teal-100, .border-sky-100,
+  .border-blue-200, .border-indigo-200, .border-violet-200, .border-purple-200,
+  .border-cyan-200, .border-teal-200, .border-sky-200 {
+    border-color: var(--color-border-tint);
+  }
+
+  /* --- 2. gradient stops stop being white ------------------------------ */
+  .from-white, .from-slate-50 { --tw-gradient-from: var(--color-surface); }
+  .from-slate-100 { --tw-gradient-from: var(--color-surface-alt); }
+  .from-slate-200 { --tw-gradient-from: var(--color-border-tint); }
+  .via-white, .via-slate-50 { --tw-gradient-via: var(--color-surface); }
+  .to-white, .to-slate-50 { --tw-gradient-to: var(--color-surface); }
+  .to-slate-50\/50 { --tw-gradient-to: color-mix(in srgb, var(--color-surface) 50%, transparent); }
+  .to-slate-100 { --tw-gradient-to: var(--color-surface-alt); }
+  .to-slate-100\/50 { --tw-gradient-to: color-mix(in srgb, var(--color-surface-alt) 50%, transparent); }
+  .to-slate-100\/80 { --tw-gradient-to: color-mix(in srgb, var(--color-surface-alt) 80%, transparent); }
+  .to-slate-200 { --tw-gradient-to: var(--color-border-tint); }
+}
+
 /* ---------------------------------------------------------------------------
    SECONDARY TEXT — the one text exception, and it is an ACCESSIBILITY fix.
-   text-slate-500 (459 uses, incl. CardDescription) measures 3.97-4.49:1 on the
-   tinted surfaces, under the 4.50 WCAG AA floor. It only passes today because
-   the surface is pure white (4.76:1) — almost no headroom, and a 6% tint eats
-   it. text-slate-400 (279 uses) is worse and already fails on white.
-   slate-600 clears AA on every palette (worst 6.32:1).
+   At the 22%/34% tint depths, slate-500 (459 uses, incl. CardDescription),
+   slate-400 (279 uses) AND slate-600 (240 uses) all fall under the 4.50 WCAG AA
+   floor — slate-600's measured ceiling is 32% tint. All three remap to
+   slate-700, which clears AA on every palette (worst 5.97:1).
+   Deepening the tints is what pulled slate-600 in: at 6%/12% it was still fine.
 
    SCOPED TO THE CANVAS ON PURPOSE. A global override would be wrong:
    text-slate-400 is ALSO the sidebar's muted text on a DARK background, where
@@ -317,10 +376,13 @@ table {
    --------------------------------------------------------------------------- */
 .bg-module-canvas .text-slate-500,
 .bg-module-canvas .text-slate-400,
+.bg-module-canvas .text-slate-600,
 .bg-surface .text-slate-500,
 .bg-surface .text-slate-400,
+.bg-surface .text-slate-600,
 .bg-surface-alt .text-slate-500,
-.bg-surface-alt .text-slate-400 { color: #475569; }
+.bg-surface-alt .text-slate-400,
+.bg-surface-alt .text-slate-600 { color: #334155; }
 
 /* Opt out per element when a lighter grey is genuinely wanted on a light
    surface and the contrast has been checked. */
