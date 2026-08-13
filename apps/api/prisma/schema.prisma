@@ -787,6 +787,45 @@ model InstrumentProfile {
   @@map("instrument_profiles")
 }
 
+/// A logical grouping of instruments: a two-level BLOCK > AREA tree.
+///
+/// AUTHORITATIVE grouping since 2026-08-13, replacing the free-text
+/// `Instrument.block` / `.area` columns (which are kept for now but no longer read
+/// for grouping). Each of the three groupings has one job and they must not be
+/// confused: FunctionalLocation = logical grouping, `roomId` = geometry on a
+/// drawn floorplan, `profileId` = device type.
+///
+/// Depth is capped at 2 and enforced in `functional-locations/validation.ts`: only
+/// an AREA may carry a parent, and that parent must be a BLOCK.
+model FunctionalLocation {
+  id       String                 @id @default(uuid())
+  name     String
+  type     FunctionalLocationType
+  /// NULL for a BLOCK, required for an AREA.
+  parentId String?                @map("parent_id")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdBy String?  @map("created_by")
+  updatedBy String?  @map("updated_by")
+
+  parent      FunctionalLocation?  @relation("FlTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children    FunctionalLocation[] @relation("FlTree")
+  instruments Instrument[]
+
+  /// Unique per parent, so two Blocks may each own an "QC" area. NOTE: Postgres
+  /// treats NULLs as DISTINCT, so this does NOT make top-level Block names
+  /// unique — that check lives in the service layer.
+  @@unique([parentId, name])
+  @@index([type])
+  @@map("functional_locations")
+}
+
+enum FunctionalLocationType {
+  BLOCK
+  AREA
+}
+
 model Instrument {
   id                  String   @id @default(uuid())
   name                String
@@ -846,10 +885,19 @@ model Instrument {
   roomId String?        @map("room_id")
   room   FloorplanRoom? @relation(fields: [roomId], references: [id], onDelete: SetNull)
 
+  /// The instrument's functional location. ONE nullable FK on purpose: "an
+  /// instrument in one functional location cannot be linked to another" is a
+  /// one-to-many, so two locations is unrepresentable rather than forbidden by a
+  /// rule someone has to remember. Restrict, so deleting a location with
+  /// instruments fails loudly instead of orphaning them.
+  functionalLocationId String?             @map("functional_location_id")
+  functionalLocation   FunctionalLocation? @relation(fields: [functionalLocationId], references: [id], onDelete: Restrict)
+
   @@index([gatewayId])
   @@index([profileId])
   @@index([block, area, location])
   @@index([roomId])
+  @@index([functionalLocationId])
   @@map("instruments")
 }
 
