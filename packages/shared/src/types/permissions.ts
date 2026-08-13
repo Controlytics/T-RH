@@ -82,6 +82,15 @@ export const PERMISSIONS = {
   FUNCTIONAL_LOCATION_UPDATE: 'FUNCTIONAL_LOCATION_UPDATE',
   FUNCTIONAL_LOCATION_DELETE: 'FUNCTIONAL_LOCATION_DELETE',
 
+  // Alarms (2026-08-13). Rule authoring and alarm acknowledgement are separate
+  // authorities on purpose: deciding what constitutes an excursion is an
+  // engineering decision, accepting one is a quality decision, and the same person
+  // should not necessarily hold both.
+  ALARM_RULE_READ: 'ALARM_RULE_READ',
+  ALARM_RULE_MANAGE: 'ALARM_RULE_MANAGE',
+  ALARM_READ: 'ALARM_READ',
+  ALARM_ACKNOWLEDGE: 'ALARM_ACKNOWLEDGE',
+
   // VERSION_HISTORY_VIEW was removed with the Version History page — all four
   // versioned entities it browsed (CleaningProfile, FilterProfile,
   // ChecklistProfile, EquipmentGroup) went in the Phase 0 domain strip, so the

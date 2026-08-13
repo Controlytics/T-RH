@@ -50,6 +50,7 @@ import adminRequestRoutes from './modules/admin-requests/routes.js';
 import floorplanRoutes from './modules/floorplans/routes.js';
 import { alarmEvaluationTask } from './workers/alarm-evaluation.worker.js';
 import functionalLocationRoutes from './modules/functional-locations/routes.js';
+import alarmRoutes from './modules/alarms/routes.js';
 import ingestRoutes from './modules/instruments/ingest-routes.js';
 import wsIngestRoutes from './modules/instruments/listeners/ws-listener.js';
 import mqttAuthRoutes from './modules/instruments/mqtt-auth-routes.js';
@@ -366,6 +367,7 @@ await app.register(adminRequestRoutes, { prefix: '/api/admin-requests' });
 // a trap for the next reader.
 await app.register(floorplanRoutes, { prefix: '/api/floorplans' });
 await app.register(functionalLocationRoutes, { prefix: '/api/functional-locations' });
+await app.register(alarmRoutes, { prefix: '/api/alarms' });
 await app.register(ingestRoutes, { prefix: '/api/ingest/v1' });
 // Same device-token credential, over a WebSocket upgrade instead of a POST.
 // Also on the auth-hook allowlist (plugins/auth.ts) — the upgrade request runs

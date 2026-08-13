@@ -108,6 +108,8 @@ export const REAUTH_ACTIONS = {
   CREATE_FUNCTIONAL_LOCATION: { label: 'Create Functional Location', category: 'Configuration' },
   UPDATE_FUNCTIONAL_LOCATION: { label: 'Update Functional Location / Instrument Links', category: 'Configuration' },
   DELETE_FUNCTIONAL_LOCATION: { label: 'Delete Functional Location', category: 'Configuration' },
+  MANAGE_ALARM_RULE: { label: 'Create / Update / Delete Alarm Rule', category: 'Configuration' },
+  ACKNOWLEDGE_ALARM: { label: 'Acknowledge Alarm', category: 'Configuration' },
 
   // Instruments — DELIBERATELY EMPTY. All THREE token actions
   // (`REVEAL_INSTRUMENT_TOKEN`, `SET_INSTRUMENT_TOKEN`,
