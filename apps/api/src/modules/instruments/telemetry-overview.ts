@@ -35,6 +35,14 @@ export interface OverviewRow {
   name: string;
   isActive: boolean;
   room: { id: string; code: string; label: string | null; floorplanId: string } | null;
+  /**
+   * The ROOM's environmental specification, i.e. the "set point" the dashboard
+   * table shows beside each actual reading. Already loaded to compute `status`,
+   * so returning it costs nothing and saves the client a second request plus a
+   * client-side join it could get wrong. NULL when the instrument is unplaced —
+   * an unplaced instrument has no specification to meet.
+   */
+  limits: RoomLimits | null;
   temperature: SlotValue | null;
   humidity: SlotValue | null;
   reporting: boolean;
@@ -169,6 +177,7 @@ export async function buildTelemetryOverview(
       name: inst.name,
       isActive: inst.isActive,
       room,
+      limits,
       temperature,
       humidity,
       reporting,

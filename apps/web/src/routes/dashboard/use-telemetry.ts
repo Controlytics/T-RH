@@ -13,6 +13,8 @@ export interface OverviewRow {
   name: string;
   isActive: boolean;
   room: { id: string; code: string; label: string | null; floorplanId: string } | null;
+  /** The room's spec — the "set point" beside each actual reading. NULL if unplaced. */
+  limits: { tempMin: number | null; tempMax: number | null; rhMin: number | null; rhMax: number | null } | null;
   temperature: SlotValue | null;
   humidity: SlotValue | null;
   reporting: boolean;

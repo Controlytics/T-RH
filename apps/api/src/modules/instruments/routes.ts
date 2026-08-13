@@ -506,6 +506,18 @@ export default async function instrumentRoutes(app: FastifyInstance) {
                       floorplanId: { type: 'string' },
                     },
                   },
+                  // Fastify STRIPS anything absent from this schema, so a field
+                  // added to OverviewRow but not declared here silently never
+                  // reaches the client. That is why limits is listed.
+                  limits: {
+                    type: 'object', nullable: true,
+                    properties: {
+                      tempMin: { type: 'number', nullable: true },
+                      tempMax: { type: 'number', nullable: true },
+                      rhMin: { type: 'number', nullable: true },
+                      rhMax: { type: 'number', nullable: true },
+                    },
+                  },
                   temperature: {
                     type: 'object', nullable: true,
                     properties: {
