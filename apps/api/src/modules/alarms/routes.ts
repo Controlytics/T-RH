@@ -5,7 +5,7 @@ import { buildContext } from '../../lib/build-context.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
-import { resolveVisibility, withVisibility } from '../instruments/visibility.js';
+import { resolveVisibility } from '../instruments/visibility.js';
 import { describeRule } from './decide.js';
 import { validateRuleDraft, validateAcknowledgement, clampSignature, type RuleDraft } from './validation.js';
 
@@ -66,6 +66,19 @@ function draftFrom(body: Record<string, unknown>): RuleDraft {
     thresholdHigh: body.thresholdHigh === undefined ? null : num(body.thresholdHigh),
     delaySeconds: typeof body.delaySeconds === 'number' ? body.delaySeconds : 0,
   };
+}
+
+/**
+ * Visibility is a filter on the INSTRUMENT, so on an alarm query it nests under the
+ * relation — withVisibility() cannot be used, since that ANDs at the instrument level.
+ * Its rule still applies though: AND, never spread. A spread would let a later
+ * `instrument` filter key silently replace the visibility filter and widen the result.
+ */
+function scopedToVisible(
+  filters: Record<string, unknown>,
+  visibility: Awaited<ReturnType<typeof resolveVisibility>>['where'],
+): Record<string, unknown> {
+  return visibility ? { AND: [filters, { instrument: visibility }] } : filters;
 }
 
 export default async function alarmRoutes(app: FastifyInstance) {
@@ -247,8 +260,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
     if (q.acknowledged === 'true') filters.acknowledgedAt = { not: null };
     if (q.acknowledged === 'false') filters.acknowledgedAt = null;
     if (q.instrumentId) filters.instrumentId = q.instrumentId;
-    // Visibility is on the INSTRUMENT, so it nests under the relation.
-    const where = visibility ? { ...filters, instrument: visibility } : filters;
+    const where = scopedToVisible(filters, visibility);
 
     const rows = await prisma.alarm.findMany({
       where,
@@ -297,7 +309,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
     // than forbidden — a 403 would confirm that an instrument they may not see exists.
     const { where: visibility } = await resolveVisibility(ctx);
     const alarm = await prisma.alarm.findFirst({
-      where: visibility ? { id, instrument: visibility } : { id },
+      where: scopedToVisible({ id }, visibility) as { id: string },
       include: { instrument: { select: { code: true } } },
     });
     if (!alarm) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Alarm not found.' });
@@ -381,8 +393,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const { where: visibility } = await resolveVisibility(buildContext(req));
-    const scoped = (extra: Record<string, unknown>) =>
-      (visibility ? { ...extra, instrument: visibility } : extra) as never;
+    const scoped = (extra: Record<string, unknown>) => scopedToVisible(extra, visibility) as never;
 
     // Counted with the SAME visibility filter as the list, so the card cannot claim
     // more alarms than the page will show.
