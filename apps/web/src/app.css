@@ -178,8 +178,15 @@ table {
   color: #fff;
 }
 .tv-subhead {
-  background: color-mix(in srgb, var(--theme-primary-dark) 55%, #0f172a);
-  color: #e2e8f0;
+  /* A LIGHT band, deliberately. The first attempt mixed toward slate-950, i.e.
+     DARKER than the gradient band above it — measured luminance separation was as
+     low as 0.001 for some presets, so the two header rows read as one and the
+     ACTUAL/SET POINT grouping was lost.
+     Light gives 0.45+ separation from BOTH the band above and the dark rows below
+     on every preset. Text is near-black rather than the theme colour: theme-dark
+     ink on this tint measures only 3.29-6.04:1, which fails AA at 11px. */
+  background: color-mix(in srgb, var(--theme-primary-dark) 30%, white);
+  color: #0f172a;
 }
 .tv-row:nth-child(odd) { background: #334155; }   /* slate-700 */
 .tv-row:nth-child(even) { background: #475569; }  /* slate-600 */

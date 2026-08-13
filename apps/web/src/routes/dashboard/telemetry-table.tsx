@@ -47,12 +47,21 @@ import {
 const CELL = 'px-3 py-2.5 text-center text-[13px] whitespace-nowrap';
 const HEAD = 'px-3 py-2.5 text-[11px] font-bold uppercase tracking-wider';
 
+/**
+ * `width` is per COLUMN (so a group with two subs occupies 2 x width). Declared
+ * here beside the labels so the <colgroup> below cannot drift out of step with
+ * the header.
+ *
+ * Without explicit widths the browser sizes columns to content, and the
+ * instrument sub-line ("Child A · not placed") stretched the ID column to roughly
+ * 400px while squeezing the readings the table exists to show.
+ */
 const COLUMN_GROUPS = [
-  { key: 'code', label: 'Instrument ID', align: 'left' as const },
-  { key: 'temp', label: 'Temp. (°C)', sub: ['Actual', 'Set Point'] },
-  { key: 'rh', label: 'RH (%)', sub: ['Actual', 'Set Point'] },
-  { key: 'status', label: 'Status' },
-  { key: 'trend', label: 'Mimic / Trend' },
+  { key: 'code', label: 'Instrument ID', align: 'left' as const, width: '24%' },
+  { key: 'temp', label: 'Temp. (°C)', sub: ['Actual', 'Set Point'], width: '13%' },
+  { key: 'rh', label: 'RH (%)', sub: ['Actual', 'Set Point'], width: '13%' },
+  { key: 'status', label: 'Status', width: '12%' },
+  { key: 'trend', label: 'Mimic / Trend', width: '12%' },
 ];
 
 const COLSPAN = COLUMN_GROUPS.reduce((n, g) => n + (g.sub ? g.sub.length : 1), 0);
@@ -139,7 +148,14 @@ export function TelemetryTable() {
         className="overflow-hidden overflow-x-auto rounded-xl bg-slate-700 shadow-elevated"
         style={{ border: '1px solid color-mix(in srgb, var(--theme-primary) 30%, white)' }}
       >
-        <table className="min-w-full border-collapse">
+        <table className="min-w-full table-fixed border-collapse">
+          <colgroup>
+            {COLUMN_GROUPS.flatMap((g) =>
+              Array.from({ length: g.sub ? g.sub.length : 1 }, (_, i) => (
+                <col key={`${g.key}-${i}`} style={{ width: g.width }} />
+              )),
+            )}
+          </colgroup>
           <thead>
             {/* Row 1 — measurement groups. */}
             <tr>
@@ -213,7 +229,7 @@ export function TelemetryTable() {
 
               return (
                 <tr key={r.instrumentId} className="tv-row transition-colors">
-                  <td className={`${CELL} border border-slate-500 text-left`}>
+                  <td className={`${CELL} border border-slate-500 text-left !whitespace-normal`}>
                     <Link
                       to={`/instruments/${r.instrumentId}`}
                       className="font-semibold text-white hover:underline"
@@ -223,7 +239,7 @@ export function TelemetryTable() {
                     {/* Name, and the room the SET POINT comes from. Without the
                         room here, "18.0 - 25.0" has no visible source and an
                         unplaced instrument looks identical to one with no spec. */}
-                    <div className="text-[11px] text-slate-300">
+                    <div className="truncate text-[11px] text-slate-300">
                       {r.name}
                       {r.room
                         ? <> &middot; {r.room.code}{r.room.label ? ` (${r.room.label})` : ''}</>

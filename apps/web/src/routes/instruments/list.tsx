@@ -234,7 +234,7 @@ export function InstrumentListPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50/80 text-left">
-              <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Instrument</th>
+              <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Instrument ID</th>
               <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Status</th>
               <th className="px-4 py-3" />
             </tr>
@@ -283,19 +283,27 @@ export function InstrumentListPage() {
             {shown.map(({ row: r, reporting }) => (
               <tr key={r.id} className="group transition-colors hover:bg-slate-50/70">
                 <td className="px-4 py-3">
+                  {/* The INSTRUMENT ID leads, with the name beneath.
+                      `code` is the Instrument ID throughout this product — the
+                      create form labels that field "Instrument ID *", the detail
+                      page prints it under an "Instrument ID" heading, and the
+                      Dashboard table column is headed the same. This list used to
+                      lead with `name`, so the same instrument appeared as
+                      "Instrument-1" here and "CWH-01" on the Dashboard, which read
+                      as two different records. Keep these in step. */}
                   <Link to={`/instruments/${r.id}`} className="flex flex-col leading-tight">
-                    <span className="flex items-center gap-2 font-semibold text-slate-800 group-hover:text-slate-900">
-                      {r.name}
+                    <span className="flex items-center gap-2 font-mono font-semibold text-slate-800 group-hover:text-slate-900">
+                      {r.code}
                       {r.isGateway && (
                         <span
-                          className="rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white"
+                          className="rounded-md px-1.5 py-0.5 font-sans text-[10px] font-bold uppercase tracking-wide text-white"
                           style={themeGradient}
                         >
                           Gateway
                         </span>
                       )}
                     </span>
-                    <span className="font-mono text-xs text-slate-500">{r.code}</span>
+                    <span className="text-xs text-slate-500">{r.name}</span>
                   </Link>
                 </td>
                 <td className="px-4 py-3">
