@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { readingAge } from './status';
-import { formatSetPoint, NOT_AVAILABLE } from './set-point';
+import { formatSetPoint, outOfSpec, NOT_AVAILABLE } from './set-point';
 import {
   useTelemetryOverview,
   useTelemetrySettings,
@@ -72,18 +72,6 @@ function sortValue(row: OverviewRow, key: SortKey): string | number {
 /** An actual reading, or NA — never a dash, so the table reads consistently. */
 function actual(v: { value: number } | null | undefined, decimals: number): string {
   return v ? v.value.toFixed(decimals) : NOT_AVAILABLE;
-}
-
-/** True when this reading is outside the room's specification. */
-function breaches(
-  value: number | null | undefined,
-  min: number | null | undefined,
-  max: number | null | undefined,
-): boolean {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return false;
-  if (typeof min === 'number' && Number.isFinite(min) && value < min) return true;
-  if (typeof max === 'number' && Number.isFinite(max) && value > max) return true;
-  return false;
 }
 
 export function TelemetryTable() {
@@ -213,8 +201,8 @@ export function TelemetryTable() {
               const latest = [r.temperature?.ts, r.humidity?.ts].filter(Boolean).sort().pop() ?? null;
               // The limit breach lives HERE now that the status cell is
               // online/offline. Losing this styling loses the compliance signal.
-              const tempBad = breaches(r.temperature?.value, r.limits?.tempMin, r.limits?.tempMax);
-              const rhBad = breaches(r.humidity?.value, r.limits?.rhMin, r.limits?.rhMax);
+              const tempBad = outOfSpec(r.temperature?.value, r.limits?.tempMin, r.limits?.tempMax);
+              const rhBad = outOfSpec(r.humidity?.value, r.limits?.rhMin, r.limits?.rhMax);
               // ACTUAL is the number people read; SET POINT is reference. Weight
               // and size carry that, so the eye lands on the reading first.
               const val = (bad: boolean) =>

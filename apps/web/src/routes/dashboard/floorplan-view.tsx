@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { worstStatus, type InstrumentStatus } from '@digilog/shared';
 import { statusClasses, readingAge } from './status';
+import { outOfSpec } from './set-point';
 import {
   useFloorplans,
   useTelemetryOverview,
@@ -31,15 +32,31 @@ import { RoomDetail } from './room-detail';
 /** viewBox width. Height follows the plan's aspect ratio. */
 const VB_W = 1000;
 
-/** Fill and stroke per status. Deliberately not the theme colours — a site that
- *  themes the app purple must not end up with a purple "out of spec". */
-const ROOM_PAINT: Record<InstrumentStatus, { fill: string; stroke: string; ink: string; glyph: string }> = {
-  OUT_OF_SPEC: { fill: '#fee2e2', stroke: '#dc2626', ink: '#991b1b', glyph: '▲' },
-  STALE: { fill: '#fef3c7', stroke: '#d97706', ink: '#92400e', glyph: '◷' },
-  PARTIAL: { fill: '#fef3c7', stroke: '#d97706', ink: '#92400e', glyph: '◑' },
-  NO_DATA: { fill: '#f1f5f9', stroke: '#94a3b8', ink: '#475569', glyph: '·' },
-  OK: { fill: '#dcfce7', stroke: '#16a34a', ink: '#166534', glyph: '●' },
+/**
+ * ARCHITECTURAL DRAWING (operator reference `graphical.png`, 2026-08-13).
+ *
+ * Rooms are WHITE with dark walls, like a plan. Status colour lives in the value
+ * CHIPS, not in the room fill. That is the whole point of the change: a floor of
+ * pastel-tinted tiles cannot show two readings disagreeing — one room, one
+ * colour — whereas a green temperature chip beside a red humidity chip says
+ * exactly what is wrong. It also keeps a dense floor readable, because most of
+ * the drawing stays white.
+ *
+ * Chip colours are SEMANTIC and deliberately not theme colours: a site that
+ * themes the app purple must not end up with a purple "out of spec".
+ */
+const CHIP: Record<InstrumentStatus, { bg: string; glyph: string }> = {
+  OUT_OF_SPEC: { bg: '#dc2626', glyph: '▲' },
+  STALE: { bg: '#d97706', glyph: '◷' },
+  PARTIAL: { bg: '#d97706', glyph: '◑' },
+  NO_DATA: { bg: '#64748b', glyph: '·' },
+  OK: { bg: '#15803d', glyph: '' },
 };
+
+/** Wall + label ink. Uniform across every room — the walls carry no status. */
+const WALL = '#1f2937';
+const INK = '#111827';
+const INK_SOFT = '#374151';
 
 interface RoomView {
   room: FloorplanRoomShape;
@@ -109,17 +126,29 @@ export function FloorplanView() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <select
-          value={plan?.id ?? ''}
-          onChange={(e) => setPlanId(e.target.value)}
-          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
-        >
-          {plans.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-        <p className="text-xs text-slate-500">
-          Updates every {Math.round(refreshMs / 1000)}s
-        </p>
+      {/* Dark title bar: current plan on the left, the others as links on the
+          right — the reference drawing's chrome. A <select> hid which other plans
+          existed behind a click; these are visible at a glance. */}
+      <div
+        className="flex flex-wrap items-center justify-between gap-3 rounded-t-2xl px-4 py-2.5"
+        style={{ background: 'linear-gradient(135deg, var(--theme-sidebar-bg), var(--theme-primary-dark))' }}
+      >
+        <h3 className="text-sm font-bold tracking-wide text-white">{plan?.name ?? 'Floor plan'}</h3>
+        <div className="flex flex-wrap items-center gap-1">
+          {plans.filter((p) => p.id !== plan?.id).map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setPlanId(p.id)}
+              className="rounded px-2 py-1 text-xs font-semibold text-white/80 hover:bg-white/15 hover:text-white"
+            >
+              {p.name}
+            </button>
+          ))}
+          <span className="ml-2 text-[11px] text-white/70">
+            updates every {Math.round(refreshMs / 1000)}s
+          </span>
+        </div>
       </div>
 
       {plan && plan.rooms.length === 0 ? (
@@ -133,38 +162,48 @@ export function FloorplanView() {
           </p>
         </div>
       ) : plan && (
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-3 shadow-soft">
+        <div className="overflow-hidden rounded-b-2xl border border-slate-300 bg-white p-3 shadow-soft">
           <svg
             viewBox={`0 0 ${VB_W} ${vbH}`}
             className="h-auto w-full"
             role="img"
             aria-label={`${plan.name}: ${roomViews.length} rooms with current temperature and humidity`}
           >
-            {/* Floor slab, so drawn rooms read as sitting inside a building
-                rather than floating on the page background. */}
-            <rect x={0} y={0} width={VB_W} height={vbH} fill="#f8fafc" stroke="#cbd5e1" strokeWidth={2} />
+            {/* Building outline. White, not a grey slab: on a plan the paper is
+                white and the ink is the information. */}
+            <rect x={0} y={0} width={VB_W} height={vbH} fill="#ffffff" stroke={WALL} strokeWidth={3} />
 
             {roomViews.map(({ room, rows: roomRows, status }) => {
               const x = room.x * VB_W;
               const y = room.y * vbH;
               const w = room.w * VB_W;
               const h = room.h * vbH;
-              const paint = ROOM_PAINT[status];
               const cx = x + w / 2;
 
               const first = roomRows[0];
-              const temp = formatSlot(first?.temperature ?? null, temperatureDecimals, '°C');
-              const rh = formatSlot(first?.humidity ?? null, humidityDecimals, '%RH');
+              const tempV = first?.temperature?.value ?? null;
+              const rhV = first?.humidity?.value ?? null;
+              const tempBad = outOfSpec(tempV, room.tempMin, room.tempMax);
+              const rhBad = outOfSpec(rhV, room.rhMin, room.rhMax);
+
+              // A reading's own chip colour: red when IT breaches, otherwise the
+              // room's overall status (stale / no data / ok). This is what lets a
+              // green temperature sit beside a red humidity in the same room.
+              const chipFor = (bad: boolean): InstrumentStatus =>
+                bad ? 'OUT_OF_SPEC' : status === 'OUT_OF_SPEC' ? 'OK' : status;
 
               // Text degrades as the box shrinks: a small room cannot hold four
               // lines, and overlapping text is worse than absent text.
-              const fs = Math.max(9, Math.min(18, w / 9, h / 5));
-              const showLabel = h > fs * 5.5 && room.label;
-              const showReadings = h > fs * 3.5 && roomRows.length > 0;
-              const showStatus = h > fs * 7;
-              const lines = 1 + (showLabel ? 1 : 0) + (showReadings ? 2 : 0) + (showStatus ? 1 : 0);
-              let cursor = y + h / 2 - ((lines - 1) * fs * 1.15) / 2 + fs * 0.35;
-              const nextY = () => { const v = cursor; cursor += fs * 1.15; return v; };
+              const fs = Math.max(8, Math.min(15, w / 10, h / 6));
+              const showLabel = room.label && h > fs * 4.5 && w > fs * 6;
+              const chips: { text: string; st: InstrumentStatus }[] = [];
+              if (tempV !== null) chips.push({ text: `${tempV.toFixed(temperatureDecimals)} °C`, st: chipFor(tempBad) });
+              if (rhV !== null) chips.push({ text: `${rhV.toFixed(humidityDecimals)} %`, st: chipFor(rhBad) });
+              const showChips = chips.length > 0 && h > fs * 3.2;
+
+              const chipH = fs * 1.5;
+              const blockH = (showChips ? chips.length * (chipH + 2) : 0) + fs * 1.2 + (showLabel ? fs * 1.15 : 0);
+              let cursor = y + h / 2 - blockH / 2 + fs;
 
               return (
                 <g
@@ -174,45 +213,55 @@ export function FloorplanView() {
                   role="button"
                   tabIndex={0}
                   onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setOpenRoomId(room.id); }}
-                  aria-label={`${room.code}${room.label ? ` ${room.label}` : ''}, ${statusClasses(status).label}, ${temp}, ${rh}`}
+                  aria-label={`${room.code}${room.label ? ` ${room.label}` : ''}, ${statusClasses(status).label}${
+                    tempV !== null ? `, ${tempV.toFixed(temperatureDecimals)} degrees${tempBad ? ' out of spec' : ''}` : ''
+                  }${rhV !== null ? `, ${rhV.toFixed(humidityDecimals)} percent humidity${rhBad ? ' out of spec' : ''}` : ''}`}
                 >
-                  {/* Wall. Thick stroke is what makes this read as a room
-                      rather than a coloured tile. */}
+                  {/* Wall only — no status fill. The room is white like paper. */}
                   <rect
                     x={x} y={y} width={w} height={h}
-                    fill={paint.fill}
-                    stroke={paint.stroke}
+                    fill="#ffffff"
+                    stroke={WALL}
                     strokeWidth={2.5}
-                    className="transition-opacity hover:opacity-80"
+                    className="transition-colors hover:fill-slate-100"
                   />
+
                   <text
-                    x={cx} y={nextY()} textAnchor="middle"
-                    fontSize={fs} fontWeight={700} fill={paint.ink}
+                    x={cx} y={cursor} textAnchor="middle"
+                    fontSize={fs * 0.86} fontWeight={700} fill={INK}
                   >
                     {room.code}
                   </text>
                   {showLabel && (
-                    <text x={cx} y={nextY()} textAnchor="middle" fontSize={fs * 0.82} fill="#475569">
+                    <text
+                      x={cx} y={(cursor += fs * 1.15)} textAnchor="middle"
+                      fontSize={fs * 0.8} fill={INK_SOFT}
+                    >
                       {room.label}
                     </text>
                   )}
-                  {showReadings && (
-                    <>
-                      <text x={cx} y={nextY()} textAnchor="middle" fontSize={fs * 0.95} fontWeight={600} fill="#0f172a">
-                        {temp}
-                      </text>
-                      <text x={cx} y={nextY()} textAnchor="middle" fontSize={fs * 0.95} fontWeight={600} fill="#0f172a">
-                        {rh}
-                      </text>
-                    </>
-                  )}
-                  {/* Glyph + word, so the fill colour is never the only carrier
-                      of the status. */}
-                  {showStatus && (
-                    <text x={cx} y={nextY()} textAnchor="middle" fontSize={fs * 0.8} fill={paint.ink}>
-                      {paint.glyph} {statusClasses(status).label}
-                    </text>
-                  )}
+
+                  {/* Solid value chips — the colour belongs to the READING. */}
+                  {showChips && chips.map((chip, ci) => {
+                    const paint = CHIP[chip.st];
+                    const label = paint.glyph ? `${paint.glyph} ${chip.text}` : chip.text;
+                    const cw = Math.min(w - 6, label.length * fs * 0.62 + fs * 0.7);
+                    const cyTop = (cursor += ci === 0 ? fs * 0.6 : chipH + 2);
+                    return (
+                      <g key={chip.text}>
+                        <rect
+                          x={cx - cw / 2} y={cyTop} width={cw} height={chipH}
+                          rx={2} fill={paint.bg}
+                        />
+                        <text
+                          x={cx} y={cyTop + chipH * 0.72} textAnchor="middle"
+                          fontSize={fs * 0.82} fontWeight={700} fill="#ffffff"
+                        >
+                          {label}
+                        </text>
+                      </g>
+                    );
+                  })}
                 </g>
               );
             })}
@@ -222,13 +271,15 @@ export function FloorplanView() {
 
       {/* Legend — status is never colour alone. */}
       <div className="flex flex-wrap items-center gap-4 rounded-xl border border-slate-200 bg-white px-4 py-3">
+        <span className="text-xs font-semibold text-slate-700">Reading colour:</span>
         {(['OK', 'OUT_OF_SPEC', 'STALE', 'PARTIAL', 'NO_DATA'] as InstrumentStatus[]).map((s) => (
           <span key={s} className="flex items-center gap-1.5 text-xs text-slate-600">
             <span
-              className="inline-block h-3 w-3 rounded-sm border"
-              style={{ backgroundColor: ROOM_PAINT[s].fill, borderColor: ROOM_PAINT[s].stroke }}
-            />
-            <span style={{ color: ROOM_PAINT[s].ink }}>{ROOM_PAINT[s].glyph}</span>
+              className="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10px] font-bold text-white"
+              style={{ backgroundColor: CHIP[s].bg }}
+            >
+              {CHIP[s].glyph || '21.7'}
+            </span>
             {statusClasses(s).label}
           </span>
         ))}
