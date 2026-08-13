@@ -201,6 +201,30 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
     "label": "Delete Instruments",
     "category": "Instruments",
     "icon": "trash"
+  },
+  {
+    "id": "functional_locations.view",
+    "label": "View Functional Locations",
+    "category": "Functional Locations",
+    "icon": "map"
+  },
+  {
+    "id": "functional_locations.create",
+    "label": "Create Functional Locations",
+    "category": "Functional Locations",
+    "icon": "plus"
+  },
+  {
+    "id": "functional_locations.edit",
+    "label": "Edit Functional Locations / Link Instruments",
+    "category": "Functional Locations",
+    "icon": "edit"
+  },
+  {
+    "id": "functional_locations.delete",
+    "label": "Delete Functional Locations",
+    "category": "Functional Locations",
+    "icon": "trash"
   }
 ];
 
@@ -310,6 +334,21 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   "instruments.delete": [
     "INSTRUMENT_DELETE",
     "INSTRUMENT_READ"
+  ],
+  "functional_locations.view": [
+    "FUNCTIONAL_LOCATION_READ"
+  ],
+  "functional_locations.create": [
+    "FUNCTIONAL_LOCATION_CREATE",
+    "FUNCTIONAL_LOCATION_READ"
+  ],
+  "functional_locations.edit": [
+    "FUNCTIONAL_LOCATION_UPDATE",
+    "FUNCTIONAL_LOCATION_READ"
+  ],
+  "functional_locations.delete": [
+    "FUNCTIONAL_LOCATION_DELETE",
+    "FUNCTIONAL_LOCATION_READ"
   ]
 };
 
@@ -404,6 +443,18 @@ export const SIDEBAR_PRIVILEGE_MAP_SNAPSHOT: SidebarSectionSnapshot[] = [
       "instruments.create",
       "instruments.edit",
       "instruments.delete"
+    ]
+  },
+  {
+    "sidebarId": "functional-locations",
+    "label": "Functional Locations",
+    "icon": "🗺️",
+    "description": "Block and Area grouping for instruments",
+    "privilegeIds": [
+      "functional_locations.view",
+      "functional_locations.create",
+      "functional_locations.edit",
+      "functional_locations.delete"
     ]
   }
 ];

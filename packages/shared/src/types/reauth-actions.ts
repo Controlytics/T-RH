@@ -105,6 +105,9 @@ export const REAUTH_ACTIONS = {
   // pages alone.
   UPDATE_FLOORPLAN: { label: 'Create / Update / Delete Floorplan', category: 'Configuration' },
   UPDATE_FLOORPLAN_ROOM: { label: 'Create / Update / Delete Room', category: 'Configuration' },
+  CREATE_FUNCTIONAL_LOCATION: { label: 'Create Functional Location', category: 'Configuration' },
+  UPDATE_FUNCTIONAL_LOCATION: { label: 'Update Functional Location / Instrument Links', category: 'Configuration' },
+  DELETE_FUNCTIONAL_LOCATION: { label: 'Delete Functional Location', category: 'Configuration' },
 
   // Instruments — DELIBERATELY EMPTY. All THREE token actions
   // (`REVEAL_INSTRUMENT_TOKEN`, `SET_INSTRUMENT_TOKEN`,

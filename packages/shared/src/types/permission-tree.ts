@@ -331,6 +331,35 @@ export const PERMISSION_TREE: SidebarGroup[] = [
     ],
   },
 
+  // Functional Locations — the authoritative Block > Area grouping (2026-08-13).
+  //
+  // Every node grants FUNCTIONAL_LOCATION_READ alongside its own permission: a page
+  // you may write but not read is unusable. Mirrors the instruments group above.
+  //
+  // `functional_locations.edit` covers instrument LINKING as well as renaming. Both
+  // are UPDATE on the location, and splitting them would imply an authority boundary
+  // the API does not actually enforce — a grant set must describe what the backend
+  // checks, not what reads nicely in the admin tree.
+  {
+    sidebarId: 'functional-locations', label: 'Functional Locations', icon: '🗺️',
+    description: 'Block and Area grouping for instruments',
+    visibilityPrivilegeIds: ['functional_locations.view', 'functional_locations.create', 'functional_locations.edit', 'functional_locations.delete'],
+    nodes: [
+      { id: 'functional_locations.view', label: 'View Functional Locations', sidebarId: 'functional-locations', page: 'Functional Locations', action: 'View',
+        icon: 'map', category: 'Functional Locations', permissions: ['FUNCTIONAL_LOCATION_READ'], enforce: 'a',
+        gate: ['FUNCTIONAL_LOCATION_READ'], configurable: true },
+      { id: 'functional_locations.create', label: 'Create Functional Locations', sidebarId: 'functional-locations', page: 'Functional Locations', action: 'Add',
+        icon: 'plus', category: 'Functional Locations', permissions: ['FUNCTIONAL_LOCATION_CREATE', 'FUNCTIONAL_LOCATION_READ'], enforce: 'a',
+        gate: ['FUNCTIONAL_LOCATION_CREATE'], reauthAction: 'CREATE_FUNCTIONAL_LOCATION', configurable: true },
+      { id: 'functional_locations.edit', label: 'Edit Functional Locations / Link Instruments', sidebarId: 'functional-locations', page: 'Functional Locations', action: 'Edit',
+        icon: 'edit', category: 'Functional Locations', permissions: ['FUNCTIONAL_LOCATION_UPDATE', 'FUNCTIONAL_LOCATION_READ'], enforce: 'a',
+        gate: ['FUNCTIONAL_LOCATION_UPDATE'], reauthAction: 'UPDATE_FUNCTIONAL_LOCATION', configurable: true },
+      { id: 'functional_locations.delete', label: 'Delete Functional Locations', sidebarId: 'functional-locations', page: 'Functional Locations', action: 'Delete',
+        icon: 'trash', category: 'Functional Locations', permissions: ['FUNCTIONAL_LOCATION_DELETE', 'FUNCTIONAL_LOCATION_READ'], enforce: 'a',
+        gate: ['FUNCTIONAL_LOCATION_DELETE'], reauthAction: 'DELETE_FUNCTIONAL_LOCATION', configurable: true },
+    ],
+  },
+
 ];
 
 // ─── Phase 5E: Canonical ordering for derived maps ───────────────────────────
@@ -347,6 +376,7 @@ const CONFIGURABLE_PRIVILEGE_ORDER: readonly string[] = [
   'debug.view', 'debug.manage',
   'backup.export', 'backup.restore',
   'instruments.view', 'instruments.create', 'instruments.edit', 'instruments.delete',
+  'functional_locations.view', 'functional_locations.create', 'functional_locations.edit', 'functional_locations.delete',
 ] as const;
 
 // ─── Derive Functions ────────────────────────────────────────────────────────

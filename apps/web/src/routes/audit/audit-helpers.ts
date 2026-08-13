@@ -263,12 +263,19 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
   // {room}: the room CODE as it appears on the drawing, e.g. "CWH-I/142".
   // Falls back to the raw id rather than guessing — a UUID is truthful.
   const room = (after.code as string) || (before.code as string) || record.targetId || '';
+  // {location}: a functional location's NAME. A DELETED row carries it only in
+  // beforeValue, so both sides are read — same shape as {gateway} above. Adding a
+  // template without adding a substitution here is what makes the placeholder
+  // render as the literal "{location}" in the Audit Trail AND in the exported
+  // 21 CFR §11 record; template-placeholders.test.ts exists to catch it.
+  const location = (after.location as string) || (before.location as string) || '';
 
   const replacePlaceholders = (tpl: string) => {
     const filled = tpl
       .replace(/\{actor\}/g, actor)
       .replace(/\{floorplan\}/g, floorplan)
       .replace(/\{room\}/g, room)
+      .replace(/\{location\}/g, location)
       .replace(/\{targetUser\}/g, targetUser || actor)
       .replace(/\{targetName\}/g, targetName)
       .replace(/\{configKey\}/g, configKey)

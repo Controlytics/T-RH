@@ -74,6 +74,14 @@ export const PERMISSIONS = {
   INSTRUMENT_UPDATE: 'INSTRUMENT_UPDATE',
   INSTRUMENT_DELETE: 'INSTRUMENT_DELETE',
 
+  // Functional Locations — the authoritative Block > Area grouping of
+  // instruments (2026-08-13). Separate from INSTRUMENT_* on purpose: deciding
+  // how the estate is organised is a different authority from editing a device.
+  FUNCTIONAL_LOCATION_READ: 'FUNCTIONAL_LOCATION_READ',
+  FUNCTIONAL_LOCATION_CREATE: 'FUNCTIONAL_LOCATION_CREATE',
+  FUNCTIONAL_LOCATION_UPDATE: 'FUNCTIONAL_LOCATION_UPDATE',
+  FUNCTIONAL_LOCATION_DELETE: 'FUNCTIONAL_LOCATION_DELETE',
+
   // VERSION_HISTORY_VIEW was removed with the Version History page — all four
   // versioned entities it browsed (CleaningProfile, FilterProfile,
   // ChecklistProfile, EquipmentGroup) went in the Phase 0 domain strip, so the

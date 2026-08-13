@@ -18,6 +18,7 @@ export interface SidebarItem {
 export const SIDEBAR_ITEMS: SidebarItem[] = [
   { id: 'home', label: 'Home', icon: '\u{1F3E0}', description: 'Module Guide — how each module works, step by step' },
   { id: 'dashboard', label: 'Dashboard', icon: '\u{1F3E0}', description: 'Main dashboard view' },
+  { id: 'functional-locations', label: 'Functional Locations', icon: '\u{1F5FA}', description: 'Block and Area grouping for instruments' },
   { id: 'users', label: 'Users', icon: '\u{1F465}', description: 'User management' },
   { id: 'admin-requests', label: 'Admin Requests', icon: '\u{1F4CB}', description: 'Review and process user requests' },
   { id: 'configuration', label: 'Configuration', icon: '⚙️', description: 'System settings' },

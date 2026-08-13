@@ -944,6 +944,30 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'Attribute "{attribute}" removed from instrument "{instrument}" by {actor}',
     placeholders: ['actor', 'instrument', 'attribute'],
   },
+  FUNCTIONAL_LOCATION_CREATED: {
+    label: 'Functional Location Created',
+    category: 'Instruments',
+    template: 'Functional location "{location}" created by {actor}',
+    placeholders: ['actor', 'location'],
+  },
+  FUNCTIONAL_LOCATION_UPDATED: {
+    label: 'Functional Location Updated',
+    category: 'Instruments',
+    template: 'Functional location "{location}" updated by {actor}',
+    placeholders: ['actor', 'location'],
+  },
+  FUNCTIONAL_LOCATION_DELETED: {
+    label: 'Functional Location Deleted',
+    category: 'Instruments',
+    template: 'Functional location "{location}" deleted by {actor}',
+    placeholders: ['actor', 'location'],
+  },
+  FUNCTIONAL_LOCATION_INSTRUMENTS_CHANGED: {
+    label: 'Functional Location Instruments Changed',
+    category: 'Instruments',
+    template: 'Instruments linked to functional location "{location}" changed by {actor}',
+    placeholders: ['actor', 'location'],
+  },
   FLOORPLAN_CREATED: {
     label: 'Floorplan Created',
     category: 'Instruments',
