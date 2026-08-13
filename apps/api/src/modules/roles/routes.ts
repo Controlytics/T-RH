@@ -4,6 +4,9 @@ import { buildContext } from '../../lib/build-context.js';
 import { AppError } from '../../lib/errors.js';
 import { verifyToken } from '../../lib/jwt.js';
 import { roleService } from './role.service.js';
+import { Prisma } from '@prisma/client';
+import { prisma } from '../../lib/prisma.js';
+import { auditLog } from '../../lib/audit.js';
 
 /**
  * Best-effort caller role for the PUBLIC /active endpoint (auth hook skips it,
@@ -399,4 +402,156 @@ export default async function roleRoutes(app: FastifyInstance) {
     const roleName = req.user.role;
     return roleService.getCreatableRoles(roleName);
   });
+
+  // ─── Instrument visibility scope (project D) ──────────────────────────────
+  //
+  // Reads and writes role/user instrument scope. Kept on the roles module rather
+  // than instruments: this is an ADMINISTRATIVE surface about who may see what,
+  // gated on ROLE_MANAGE, not an instrument read.
+  //
+  // NULL vs [] is preserved end to end. `scope: null` means inherit; `scope: []`
+  // means SEE NOTHING. Collapsing them anywhere turns a deny into a grant — see
+  // modules/instruments/visibility.ts.
+
+  const scopeItem = {
+    type: 'object',
+    properties: {
+      role: { type: 'string' },
+      scope: { type: 'array', items: { type: 'string' }, nullable: true },
+    },
+  } as const;
+
+  app.get('/instrument-scope', {
+    preHandler: [app.requirePermission('ROLE_MANAGE')],
+    schema: {
+      tags: ['Roles'],
+      summary: 'Instrument visibility scope for every role and every user override',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            roles: { type: 'array', items: { type: 'object', properties: scopeItem.properties } },
+            users: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  userId: { type: 'string' },
+                  username: { type: 'string' },
+                  fullName: { type: 'string', nullable: true },
+                  role: { type: 'string' },
+                  scope: { type: 'array', items: { type: 'string' }, nullable: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  }, async () => {
+    const [roles, roleCfgs, users, userCfgs] = await Promise.all([
+      prisma.role.findMany({ where: { isActive: true }, select: { name: true }, orderBy: { name: 'asc' } }),
+      prisma.roleConfig.findMany({ select: { role: true, instrumentScope: true } }),
+      prisma.user.findMany({ select: { id: true, username: true, fullName: true, role: true }, orderBy: { username: 'asc' } }),
+      prisma.userConfig.findMany({ select: { userId: true, instrumentScope: true } }),
+    ]);
+    const byRole = new Map(roleCfgs.map((c) => [c.role, c.instrumentScope]));
+    const byUser = new Map(userCfgs.map((c) => [c.userId, c.instrumentScope]));
+    const asScope = (v: unknown) => (Array.isArray(v) ? (v as string[]) : null);
+    return {
+      roles: roles.map((r) => ({ role: r.name, scope: asScope(byRole.get(r.name)) })),
+      users: users.map((u) => ({
+        userId: u.id, username: u.username, fullName: u.fullName, role: u.role,
+        scope: asScope(byUser.get(u.id)),
+      })),
+    };
+  });
+
+  app.put('/instrument-scope/role/:name', {
+    preHandler: [app.requirePermission('ROLE_MANAGE')],
+    schema: {
+      tags: ['Roles'],
+      summary: 'Set a role\'s instrument visibility scope',
+      params: { type: 'object', properties: { name: { type: 'string' } } },
+      body: {
+        type: 'object',
+        properties: { scope: { type: 'array', items: { type: 'string' }, nullable: true } },
+      },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('UPDATE_ROLE_CONFIG', req, reply);
+    if (!ok) return;
+    const { name } = req.params as { name: string };
+    const { scope } = req.body as { scope: string[] | null };
+    const ctx = buildContext(req);
+
+    const before = await prisma.roleConfig.findUnique({ where: { role: name }, select: { instrumentScope: true } });
+    // upsert: a role may have no config row yet, and setting a scope must not
+    // require someone to have visited another tab first.
+    await prisma.roleConfig.upsert({
+      where: { role: name },
+      // Prisma.DbNull writes a real SQL NULL. Prisma.JsonNull would store the JSON
+      // value `null`, a DIFFERENT thing — and this feature's contract rests on NULL
+      // (inherit) being distinguishable from [] (see nothing).
+      create: { role: name, instrumentScope: scope ?? Prisma.DbNull, updatedBy: ctx.userId },
+      update: { instrumentScope: scope ?? Prisma.DbNull, updatedBy: ctx.userId },
+    });
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole,
+      action: 'CONFIG_CHANGED',
+      targetType: 'role_config', targetId: name,
+      beforeValue: { instrumentScope: before?.instrumentScope ?? null },
+      afterValue: { instrumentScope: scope },
+      signatureMeaning: scope === null
+        ? `Role "${name}" instrument visibility set to ALL instruments`
+        : `Role "${name}" instrument visibility set to ${scope.length} functional location(s)`,
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    });
+    return { role: name, scope };
+  });
+
+  app.put('/instrument-scope/user/:userId', {
+    preHandler: [app.requirePermission('ROLE_MANAGE')],
+    schema: {
+      tags: ['Roles'],
+      summary: 'Set one user\'s instrument visibility scope, overriding their role',
+      params: { type: 'object', properties: { userId: { type: 'string' } } },
+      body: {
+        type: 'object',
+        properties: { scope: { type: 'array', items: { type: 'string' }, nullable: true } },
+      },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('UPDATE_ROLE_CONFIG', req, reply);
+    if (!ok) return;
+    const { userId } = req.params as { userId: string };
+    const { scope } = req.body as { scope: string[] | null };
+    const ctx = buildContext(req);
+
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { username: true, role: true } });
+    if (!user) return reply.code(404).send({ error: 'NOT_FOUND', message: 'User not found.' });
+
+    const before = await prisma.userConfig.findUnique({ where: { userId }, select: { instrumentScope: true } });
+    await prisma.userConfig.upsert({
+      where: { userId },
+      // See the role endpoint above: DbNull, not JsonNull.
+      create: { userId, instrumentScope: scope ?? Prisma.DbNull, updatedBy: ctx.userId },
+      update: { instrumentScope: scope ?? Prisma.DbNull, updatedBy: ctx.userId },
+    });
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole,
+      action: 'CONFIG_CHANGED',
+      targetType: 'user_config', targetId: userId,
+      beforeValue: { instrumentScope: before?.instrumentScope ?? null },
+      afterValue: { instrumentScope: scope },
+      // An override REPLACES the role scope and can therefore WIDEN it, so the
+      // signature says which user and how many locations rather than just "changed".
+      signatureMeaning: scope === null
+        ? `User "${user.username}" instrument visibility reset to inherit role "${user.role}"`
+        : `User "${user.username}" instrument visibility overridden to ${scope.length} functional location(s)`,
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    });
+    return { userId, scope };
+  });
+
 }

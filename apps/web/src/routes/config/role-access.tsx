@@ -17,9 +17,10 @@ import type { PermissionsTabHandle } from './roles-components/permissions-tab';
 import { SidebarTab } from './roles-components/sidebar-tab';
 import type { SidebarTabHandle } from './roles-components/sidebar-tab';
 import { ReauthTab } from './roles-components/reauth-tab';
+import { InstrumentScopeTab } from './roles-components/instrument-scope-tab';
 import type { ReauthTabHandle } from './roles-components/reauth-tab';
 
-type TabId = 'roles' | 'permissions' | 'sidebar' | 'reauth';
+type TabId = 'roles' | 'permissions' | 'sidebar' | 'reauth' | 'instrument-scope';
 
 export function RoleAccessPage() {
   const { user } = useAuth();
@@ -126,6 +127,7 @@ export function RoleAccessPage() {
     { id: 'permissions', label: 'Permissions', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
     { id: 'sidebar', label: 'Sidebar', icon: 'M4 6h16M4 12h16M4 18h7' },
     { id: 'reauth', label: 'Re-auth', icon: 'M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z' },
+    { id: 'instrument-scope', label: 'Instrument Scope', icon: 'M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7' },
   ];
 
   // ── Header save button helpers ──
@@ -269,6 +271,13 @@ export function RoleAccessPage() {
       {activeTab === 'reauth' && (
         <ReauthTab ref={reauthRef} selectableRoles={selectableRoles} onStateChange={setReauthState} />
       )}
+
+      {/* Instrument Scope saves per row through its own endpoints (each save is
+          reauth-gated and audited server-side), so it deliberately does NOT
+          participate in this page's shared save/reset bar — a single Save covering
+          every role and user at once would make one careless click a mass
+          visibility change. */}
+      {activeTab === 'instrument-scope' && <InstrumentScopeTab />}
 
       {/* Reauth Dialog */}
       <ReauthDialog
