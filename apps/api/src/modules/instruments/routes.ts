@@ -90,11 +90,30 @@ const instrumentProps = {
 } as const;
 
 /** The narrow shape both gateway-link pickers render: no secrets, no telemetry. */
+/**
+ * Flattens Prisma's nested `profile` onto `profileName`, which is what
+ * `childProps` declares. Fastify STRIPS anything absent from the response schema,
+ * so returning the nested object would have sent no profile at all — the field
+ * would simply be missing and the UI would show blanks with nothing to debug.
+ */
+function asChild(row: { id: string; code: string; name: string; isActive: boolean; profile: { name: string } | null }) {
+  return { id: row.id, code: row.code, name: row.name, isActive: row.isActive, profileName: row.profile?.name ?? null };
+}
+
 const childProps = {
   id: { type: 'string' },
   code: { type: 'string' },
   name: { type: 'string' },
   isActive: { type: 'boolean' },
+  /**
+   * The child's OWN profile, which need not be the gateway's. Gateways and the
+   * instruments reporting through them are routinely created under different
+   * profiles, and a link across profiles is legitimate — nothing here or in
+   * `eligible-children` filters on profile. Surfacing it means the operator can
+   * see which profile a child came from before linking it, instead of guessing
+   * from the code.
+   */
+  profileName: { type: 'string', nullable: true },
 } as const;
 
 /** One telemetry reading as the UI renders it. `value` is free-form JSON. */
@@ -431,10 +450,10 @@ export default async function instrumentRoutes(app: FastifyInstance) {
   }, async () => {
     const data = await prisma.instrument.findMany({
       where: { isGateway: false, gatewayId: null, isActive: true },
-      select: { id: true, code: true, name: true, isActive: true },
+      select: { id: true, code: true, name: true, isActive: true, profile: { select: { name: true } } },
       orderBy: { code: 'asc' },
     });
-    return { data };
+    return { data: data.map(asChild) };
   });
 
   // GET /api/instruments/:id/children — what this gateway currently reports for
@@ -459,10 +478,10 @@ export default async function instrumentRoutes(app: FastifyInstance) {
 
     const data = await prisma.instrument.findMany({
       where: { gatewayId: id },
-      select: { id: true, code: true, name: true, isActive: true },
+      select: { id: true, code: true, name: true, isActive: true, profile: { select: { name: true } } },
       orderBy: { code: 'asc' },
     });
-    return { data };
+    return { data: data.map(asChild) };
   });
 
   // GET /api/instruments/telemetry-overview — every instrument's current

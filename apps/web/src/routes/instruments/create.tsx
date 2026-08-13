@@ -39,6 +39,21 @@ export function InstrumentCreatePage() {
   const [created, setCreated] = useState<CreatedInstrument | null>(null);
   const [form, setForm] = useState({ code: '' });
   const [isGateway, setIsGateway] = useState(false);
+  /**
+   * Which gateway this instrument reports through. Optional — most instruments
+   * report directly.
+   *
+   * The list is EVERY gateway, across ALL profiles, on purpose: gateways are
+   * routinely created under one profile and the instruments behind them under
+   * another, and the backend has never restricted the pairing
+   * (`eligible-children` filters on isGateway/gatewayId/isActive, never profile).
+   * Each option names the gateway's own profile so a cross-profile link is a
+   * visible choice rather than an accident.
+   */
+  const [gatewayId, setGatewayId] = useState('');
+  const { data: gateways } = useSWR<{ data: { id: string; code: string; name: string; profileName: string | null }[] }>(
+    '/api/instruments?isGateway=true&limit=200',
+  );
   /** Values for the configured keys, keyed by the key itself. */
   const [attrs, setAttrs] = useState<Record<string, string>>({});
 
@@ -96,6 +111,10 @@ export function InstrumentCreatePage() {
       const code = form.code.trim();
       const payload: Record<string, unknown> = { name: code, code, profileId };
       if (isGateway) payload.isGateway = true;
+      // A gateway cannot itself sit behind a gateway — the backend rejects that
+      // as NESTED_GATEWAY — so the picker is hidden in gateway mode and the value
+      // is not sent even if one was chosen before the checkbox was ticked.
+      if (!isGateway && gatewayId) payload.gatewayId = gatewayId;
 
       // Block / Area / Location are configured keys like any other, but they
       // are real COLUMNS on the instrument — the Instruments list filters on
@@ -185,6 +204,28 @@ export function InstrumentCreatePage() {
               />
               <span className="font-medium">Is Gateway</span>
             </label>
+
+            {/* Hidden in gateway mode: a gateway behind a gateway is rejected
+                server-side (NESTED_GATEWAY), so offering the control would be
+                offering a guaranteed error. */}
+            {!isGateway && (
+              <label className="block space-y-1">
+                <span className="text-sm font-medium text-slate-700">Reports through gateway</span>
+                <select
+                  value={gatewayId}
+                  onChange={(e) => setGatewayId(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                >
+                  <option value="">None — reports directly</option>
+                  {gateways?.data?.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.code}{g.name && g.name !== g.code ? ` — ${g.name}` : ''}
+                      {g.profileName ? ` (${g.profileName})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
           </CardContent>
         </Card>
 

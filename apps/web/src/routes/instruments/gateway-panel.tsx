@@ -9,7 +9,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
-interface ChildInstrument { id: string; code: string; name: string; isActive: boolean }
+interface ChildInstrument { id: string; code: string; name: string; isActive: boolean; profileName: string | null }
 
 /**
  * Linked-instruments panel for a gateway's detail page. Only rendered by the
@@ -137,6 +137,10 @@ export function GatewayPanel({ instrumentId, canEdit }: { instrumentId: string; 
                   <div>
                     <p className="text-sm font-medium text-slate-900">{c.name}</p>
                     <p className="font-mono text-xs text-slate-500">{c.code}</p>
+                    {/* The child's OWN profile, which need not be this gateway's.
+                        Linking across profiles is legitimate and unrestricted;
+                        naming it here makes the choice deliberate. */}
+                    {c.profileName && <p className="text-[11px] text-slate-400">{c.profileName}</p>}
                   </div>
                   <Button
                     disabled={linkingId === c.id}
