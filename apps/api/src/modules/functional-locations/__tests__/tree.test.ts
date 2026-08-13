@@ -1,0 +1,74 @@
+import { describe, it, expect } from 'vitest';
+import { resolveLocationIds, buildTree, locationPath, type FlNode } from '../tree.js';
+
+const all: FlNode[] = [
+  { id: 'cwh', name: 'CWH', type: 'BLOCK', parentId: null },
+  { id: 'me', name: 'Module-E', type: 'AREA', parentId: 'cwh' },
+  { id: 'mf', name: 'Module-F', type: 'AREA', parentId: 'cwh' },
+  { id: 'bc', name: 'Block C', type: 'BLOCK', parentId: null },
+];
+
+describe('resolveLocationIds', () => {
+  it('returns a Block plus all its Areas', () => {
+    // THE bug this feature is most likely to ship: a Block view showing only the
+    // instruments linked directly to the Block and silently omitting its Areas'.
+    expect(resolveLocationIds('cwh', all).sort()).toEqual(['cwh', 'me', 'mf']);
+  });
+
+  it('returns only itself for an Area', () => {
+    expect(resolveLocationIds('me', all)).toEqual(['me']);
+  });
+
+  it('returns only itself for a Block with no Areas', () => {
+    expect(resolveLocationIds('bc', all)).toEqual(['bc']);
+  });
+
+  it('returns an empty list for an unknown id, rather than everything', () => {
+    // An unknown id must not degrade to "no filter" — that would silently show
+    // every instrument to a caller who asked for one location.
+    expect(resolveLocationIds('nope', all)).toEqual([]);
+  });
+});
+
+describe('buildTree', () => {
+  it('nests Areas under their Block, sorted by name', () => {
+    const tree = buildTree(all, new Map([['cwh', 1], ['me', 3], ['mf', 0]]));
+    expect(tree.map((n) => n.id)).toEqual(['bc', 'cwh']);
+    expect(tree.find((n) => n.id === 'cwh')!.children.map((c) => c.id)).toEqual(['me', 'mf']);
+  });
+
+  it('rolls counts up: a Block total is its own plus its Areas', () => {
+    const cwh = buildTree(all, new Map([['cwh', 1], ['me', 3], ['mf', 0]])).find((n) => n.id === 'cwh')!;
+    expect(cwh.ownCount).toBe(1);
+    expect(cwh.totalCount).toBe(4);
+  });
+
+  it('gives a location with no counts zero, not undefined', () => {
+    const bc = buildTree(all, new Map()).find((n) => n.id === 'bc')!;
+    expect(bc.ownCount).toBe(0);
+    expect(bc.totalCount).toBe(0);
+  });
+
+  it('drops an Area whose parent is missing rather than losing it silently at the top level', () => {
+    // An orphan cannot happen while the FK is RESTRICT, but rendering it as a
+    // top-level Block would misrepresent the tree.
+    const orphaned: FlNode[] = [...all, { id: 'x', name: 'Ghost', type: 'AREA', parentId: 'gone' }];
+    const tree = buildTree(orphaned, new Map());
+    expect(tree.map((n) => n.id)).toEqual(['bc', 'cwh']);
+  });
+});
+
+describe('locationPath', () => {
+  it('renders an Area as "Block > Area"', () => {
+    expect(locationPath('me', all)).toBe('CWH > Module-E');
+  });
+
+  it('renders a Block as just its name', () => {
+    expect(locationPath('cwh', all)).toBe('CWH');
+  });
+
+  it('returns null for no location and for an unknown one', () => {
+    expect(locationPath(null, all)).toBeNull();
+    expect(locationPath('nope', all)).toBeNull();
+  });
+});
