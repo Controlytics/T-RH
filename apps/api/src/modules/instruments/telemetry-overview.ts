@@ -114,7 +114,7 @@ function toSlot(reading: RawReading | null): SlotValue | null {
  * filter": a stale bookmark would then quietly show the whole estate, and project D
  * enforces visibility on this same query.
  */
-async function scopeWhere(
+async function selectionWhere(
   opts: { floorplanId?: string; functionalLocationId?: string; functionalLocationDirect?: boolean },
 ) {
   if (opts.functionalLocationId) {
@@ -139,15 +139,30 @@ async function scopeWhere(
 }
 
 export async function buildTelemetryOverview(
-  opts: { floorplanId?: string; functionalLocationId?: string; functionalLocationDirect?: boolean } = {},
+  opts: {
+    floorplanId?: string;
+    functionalLocationId?: string;
+    functionalLocationDirect?: boolean;
+    /** Role/user visibility filter. ANDed with any selection filter — a caller must
+     *  never widen their own scope by selecting a location outside it. */
+    visibilityWhere?: object;
+  } = {},
 ): Promise<OverviewRow[]> {
   const [aliases, activeWindowMinutes] = await Promise.all([
     loadAliases(),
     loadActiveWindowMinutes(),
   ]);
 
+  // SELECTION filter (what the caller asked for) AND VISIBILITY filter (what their
+  // role/user scope permits), combined with AND — never merged by spread. Selecting a
+  // location outside your scope must return nothing rather than override the scope.
+  const selection = await selectionWhere(opts);
+  const effectiveWhere = opts.visibilityWhere
+    ? (selection ? { AND: [selection, opts.visibilityWhere] } : opts.visibilityWhere)
+    : selection;
+
   const instruments = await prisma.instrument.findMany({
-    where: await scopeWhere(opts),
+    where: effectiveWhere,
     select: {
       id: true, code: true, name: true, isActive: true,
       expectedIntervalSec: true, lastSeenAt: true,

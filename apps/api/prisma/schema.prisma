@@ -354,6 +354,10 @@ model UserConfig {
   sidebarItems Json     @default("[]") @map("sidebar_items") @db.JsonB // Array of enabled sidebar items
   homeWidgets  Json     @default("[]") @map("home_widgets") @db.JsonB // Array of enabled home widgets
   permissions  Json     @default("{}") @map("permissions") @db.JsonB // Feature-level permissions
+  /// Instrument visibility by functional location. NULL = inherit (user -> role ->
+  /// unrestricted); [] = SEE NOTHING; [ids] = these locations, Blocks expanding to
+  /// their Areas. Nullable with NO default so this cannot blind existing roles.
+  instrumentScope Json? @map("instrument_scope") @db.JsonB
   updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz
   updatedBy    String?  @map("updated_by") @db.VarChar(50)
 
@@ -367,6 +371,10 @@ model RoleConfig {
   sidebarItems Json     @default("[]") @map("sidebar_items") @db.JsonB
   homeWidgets  Json     @default("[]") @map("home_widgets") @db.JsonB
   permissions  Json     @default("{}") @map("permissions") @db.JsonB
+  /// Instrument visibility by functional location. NULL = inherit (user -> role ->
+  /// unrestricted); [] = SEE NOTHING; [ids] = these locations, Blocks expanding to
+  /// their Areas. Nullable with NO default so this cannot blind existing roles.
+  instrumentScope Json? @map("instrument_scope") @db.JsonB
   updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz
   updatedBy    String?  @map("updated_by") @db.VarChar(50)
 

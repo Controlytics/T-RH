@@ -10,6 +10,7 @@ import {
   updateInstrumentAttributeSchema,
 } from '@digilog/shared';
 import { prisma } from '../../lib/prisma.js';
+import { resolveVisibility, withVisibility } from './visibility.js';
 import { auditLog } from '../../lib/audit.js';
 import { buildContext } from '../../lib/build-context.js';
 import { enforceReauthAlways } from '../../lib/reauth-check.js';
@@ -413,15 +414,20 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         : {}),
     };
 
+    // Visibility is merged into the SAME where the count uses, so `total` cannot
+    // claim more instruments than the caller is shown.
+    const { where: visibility } = await resolveVisibility(buildContext(req));
+    const scopedWhere = withVisibility(where, visibility) as typeof where;
+
     const [rows, total] = await Promise.all([
       prisma.instrument.findMany({
-        where,
+        where: scopedWhere,
         include: { credentials: activeCredential, ...withProfileName },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
       }),
-      prisma.instrument.count({ where }),
+      prisma.instrument.count({ where: scopedWhere }),
     ]);
 
     return {
@@ -569,10 +575,12 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const q = req.query as { floorplanId?: string; functionalLocationId?: string; functionalLocationDirect?: string };
+    const { where: visibility } = await resolveVisibility(buildContext(req));
     return { data: await buildTelemetryOverview({
       floorplanId: q.floorplanId,
       functionalLocationId: q.functionalLocationId,
       functionalLocationDirect: q.functionalLocationDirect === 'true',
+      visibilityWhere: visibility,
     }) };
   });
 
@@ -588,7 +596,15 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const row = await prisma.instrument.findUnique({ where: { id }, include: { credentials: activeCredential, ...withProfileName } });
+    // Visibility is applied as part of the LOOKUP, not checked after it, so an
+    // out-of-scope instrument is indistinguishable from a non-existent one. 404, not
+    // 403: a 403 would confirm the instrument exists, which is the fact being
+    // withheld.
+    const { where: visibility } = await resolveVisibility(buildContext(req));
+    const row = await prisma.instrument.findFirst({
+      where: withVisibility({ id }, visibility) as { id: string },
+      include: { credentials: activeCredential, ...withProfileName },
+    });
     if (!row) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
     return present(row as unknown as InstrumentRow);
   });
