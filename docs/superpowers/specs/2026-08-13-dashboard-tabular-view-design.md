@@ -40,19 +40,21 @@ reference's hardcoded dark grey.
 | STATUS | `reporting` → Online / Offline | exists |
 | MIMIC / TREND | instrument link + trend glyph | exists |
 
-**DP has no source.** There is no differential-pressure field in the schema and no
-AHU concept in this fork. The column is rendered with `NA` in every row so the
-layout matches the reference and so adding DP later is a data change rather than a
-re-layout. `NA` is authentic to the reference, which shows `NA` on most of its own
-rows.
+**DP has no source and the column was removed.** There is no differential-pressure
+field in the schema and no AHU concept in this fork, so the column only ever showed
+`NA` and the operator dropped it. Re-adding it means adding the data first, not
+adding a column.
 
 ## Decisions
 
-**Rows are instruments, not rooms**, even though ROOM NAME leads the table. A
-room-per-row table hides every unplaced instrument, and "this probe is not
-assigned to a room" is exactly the gap this screen should surface. Each row also
-prints its instrument code beneath the room name, so two probes in one room stay
-distinguishable. Unplaced rows read `Not placed`.
+**Rows are instruments, and INSTRUMENT ID leads.** A room-per-row table hides every
+unplaced instrument, and "this probe is not assigned to a room" is exactly the gap
+this screen should surface.
+
+**The room stays as a sub-line beneath the ID, deliberately.** The SET POINT columns
+come FROM the room; without it, a spec of `18.0 - 25.0` has no visible source, and
+an unplaced instrument looks identical to one whose room simply has no
+specification. Unplaced rows read `not placed`.
 
 **Set points use the reference's vocabulary**, derived from the room bounds:
 
@@ -64,14 +66,23 @@ distinguishable. Unplaced rows read `Not placed`.
 All four bounds NULL is legitimate — a corridor has no specification — so `NA` is
 a real answer, not an error state.
 
-**Dark, dense styling scoped to this table.** Dark grouped header, rows in two
-alternating greys, white values, as pictured. The rest of the application stays
-light; nothing outside `telemetry-table.tsx` changes appearance.
+**Colours follow the app theme**, not the reference's hardcoded dark grey. Header
+bands use `--theme-primary-dark` — the 700-level tone in every preset, which keeps
+white 11px header text above 4.5:1. `--theme-primary` is deliberately NOT used
+behind white text: several presets measure near 3.7:1 there, which fails at that
+size. Rows are white / slate-50, so the table matches the rest of the application
+and the PDF export.
 
-**Status stays a 5-state semantic cell**, solid-filled like the reference's green
-`ON`: in spec (emerald) / out of spec (red) / not reporting and partial data
-(amber) / no data (slate). The word is in the cell — colour never carries meaning
-alone, which is this repo's existing rule.
+**Status is ONLINE / OFFLINE**, solid-filled like the reference's green `ON`, driven
+by `reporting`. Offline sorts first so the rows needing attention surface in one
+click, and the header line counts them.
+
+**⚠ The limit-breach signal moved to the value cells.** Dropping the five-state
+status removed the only place OUT_OF_SPEC was displayed, so a reading outside its
+room's limits now renders red and bold in its own cell. An instrument can
+legitimately read ONLINE with a red temperature cell — the probe is healthy, the
+room is not. That styling is load-bearing, not decoration; the file header says so
+because it does not look load-bearing.
 
 ## Backend change
 
@@ -98,7 +109,7 @@ unseen, and that is stated rather than implied.
 
 ## Out of scope
 
-- Building DP for real (needs a telemetry key, per-room `dpMin/dpMax`, a migration
+- Building DP for real, now that the column is gone (needs a telemetry key, per-room `dpMin/dpMax`, a migration
   — and `prisma migrate diff` in this repo emits destructive statements that must
   be stripped by hand).
 - The reference's blue title bar, round icon buttons and HOME / WAREHOUSE / MORE
