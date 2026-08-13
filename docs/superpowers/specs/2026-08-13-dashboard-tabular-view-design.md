@@ -66,12 +66,19 @@ specification. Unplaced rows read `not placed`.
 All four bounds NULL is legitimate — a corridor has no specification — so `NA` is
 a real answer, not an error state.
 
-**Colours follow the app theme**, not the reference's hardcoded dark grey. Header
-bands use `--theme-primary-dark` — the 700-level tone in every preset, which keeps
-white 11px header text above 4.5:1. `--theme-primary` is deliberately NOT used
-behind white text: several presets measure near 3.7:1 there, which fails at that
-size. Rows are white / slate-50, so the table matches the rest of the application
-and the PDF export.
+**Dark table, on operator preference.** A light themed version was built and the
+dark one was preferred on sight. Dark rows (slate-700 / slate-600) keep this dense
+table readable at a glance, which is the point of the layout.
+
+**The header still follows the app theme**, using its two DARK tones — sidebar-bg
+and primary-dark as a gradient — so the table carries the app's colour without
+losing contrast. `--theme-primary` is deliberately NOT used behind white text:
+several presets measure near 3.7:1 there, which fails at 11px.
+
+**Measured across all 10 presets**, not chosen by eye: white on the header gradient
+worst **5.02:1**; white values on the slate rows **10.35:1**. Styling lives in a
+scoped `.tv-*` block at the end of `app.css`, so the palette is one edit and
+nothing else in the app can be affected by it.
 
 **Status is ONLINE / OFFLINE**, solid-filled like the reference's green `ON`, driven
 by `reporting`. Offline sorts first so the rows needing attention surface in one

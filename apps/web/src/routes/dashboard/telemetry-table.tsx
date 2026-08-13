@@ -33,18 +33,19 @@ import {
  * system produces differential pressure — no schema field, no AHU concept — so the
  * column only ever showed NA. Re-adding it means adding the data first.
  *
- * COLOURS FOLLOW THE APP THEME (`--theme-*`, set by Config → Branding) rather
- * than being hardcoded. Header bands use `--theme-primary-dark`, which is the
- * 700-level tone in every preset and so keeps white header text above 4.5:1;
- * `--theme-primary` is NOT used behind white text — several presets sit near
- * 3.7:1 there, which fails for 11px type.
+ * DARK TABLE, on operator preference — a light themed version was tried and this
+ * was preferred. The styling lives in the `.tv-*` block at the end of app.css, not
+ * here, so the palette is one edit. The HEADER follows the app theme using its two
+ * DARK tones (sidebar-bg, primary-dark), measured at worst 5.02:1 for white across
+ * all 10 presets. Never put white text on `--theme-primary`: several presets
+ * measure ~3.7:1, which fails at 11px.
  *
  * The column set is declared once in COLUMN_GROUPS; the operator is defining the
  * final content separately, so changing columns should be an edit to that list.
  */
 
-const CELL = 'px-3 py-2 text-center text-[13px] whitespace-nowrap';
-const HEAD = 'px-3 py-2 text-[11px] font-bold uppercase tracking-wide';
+const CELL = 'px-3 py-2.5 text-center text-[13px] whitespace-nowrap';
+const HEAD = 'px-3 py-2.5 text-[11px] font-bold uppercase tracking-wider';
 
 const COLUMN_GROUPS = [
   { key: 'code', label: 'Instrument ID', align: 'left' as const },
@@ -124,8 +125,6 @@ export function TelemetryTable() {
 
   const arrow = (k: SortKey) => (sort === k ? (asc ? ' ↑' : ' ↓') : '');
   const sortable = 'cursor-pointer select-none';
-  const bandTop = { background: 'var(--theme-primary-dark)', color: '#ffffff' };
-  const bandSub = { background: 'var(--theme-primary-light)', color: 'var(--theme-primary-dark)' };
   const offlineCount = shown.filter((r) => !r.reporting).length;
 
   return (
@@ -135,7 +134,7 @@ export function TelemetryTable() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Filter by instrument, name or room&hellip;"
-          className="w-full max-w-sm rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2"
+          className="w-full max-w-sm rounded-lg border border-slate-500 px-3 py-2 text-sm focus:outline-none focus:ring-2"
           style={{ ['--tw-ring-color' as string]: 'var(--theme-primary)' } as React.CSSProperties}
         />
         {/* Stated, not implied: this is a poll, not a live stream. */}
@@ -148,7 +147,10 @@ export function TelemetryTable() {
         </p>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-slate-300 bg-white shadow-soft">
+      <div
+        className="overflow-hidden overflow-x-auto rounded-xl bg-slate-700 shadow-elevated"
+        style={{ border: '1px solid color-mix(in srgb, var(--theme-primary) 30%, white)' }}
+      >
         <table className="min-w-full border-collapse">
           <thead>
             {/* Row 1 — measurement groups. */}
@@ -158,9 +160,8 @@ export function TelemetryTable() {
                   key={g.key}
                   colSpan={g.sub ? g.sub.length : 1}
                   rowSpan={g.sub ? 1 : 2}
-                  style={bandTop}
                   onClick={g.key === 'code' ? () => toggle('code') : undefined}
-                  className={`${HEAD} border border-white/25 ${
+                  className={`tv-head ${HEAD} border border-white/20 ${
                     g.align === 'left' ? 'text-left' : 'text-center'
                   } ${g.key === 'code' ? sortable : ''}`}
                 >
@@ -179,9 +180,10 @@ export function TelemetryTable() {
                   return (
                     <th
                       key={`${g.key}-${label}`}
-                      style={bandSub}
                       onClick={key ? () => toggle(key) : undefined}
-                      className={`${HEAD} border border-slate-300 text-center ${key ? sortable : ''}`}
+                      className={`tv-subhead ${HEAD} border border-white/40 text-center ${
+                        label === 'Actual' ? 'tv-group' : ''
+                      } ${key ? sortable : ''}`}
                     >
                       {label}{key ? arrow(key) : ''}
                     </th>
@@ -193,46 +195,47 @@ export function TelemetryTable() {
           <tbody>
             {isLoading && rows.length === 0 && (
               <tr>
-                <td colSpan={COLSPAN} className="px-4 py-8 text-center text-sm text-slate-500">
+                <td colSpan={COLSPAN} className="bg-slate-700 px-4 py-8 text-center text-sm text-slate-200">
                   Loading&hellip;
                 </td>
               </tr>
             )}
             {!isLoading && shown.length === 0 && (
               <tr>
-                <td colSpan={COLSPAN} className="px-4 py-8 text-center text-sm text-slate-500">
+                <td colSpan={COLSPAN} className="bg-slate-700 px-4 py-8 text-center text-sm text-slate-200">
                   {rows.length === 0
                     ? 'No instruments registered yet.'
                     : 'No instruments match that filter.'}
                 </td>
               </tr>
             )}
-            {shown.map((r, i) => {
+            {shown.map((r) => {
               const latest = [r.temperature?.ts, r.humidity?.ts].filter(Boolean).sort().pop() ?? null;
-              const band = i % 2 === 0 ? 'bg-white' : 'bg-slate-50';
               // The limit breach lives HERE now that the status cell is
               // online/offline. Losing this styling loses the compliance signal.
               const tempBad = breaches(r.temperature?.value, r.limits?.tempMin, r.limits?.tempMax);
               const rhBad = breaches(r.humidity?.value, r.limits?.rhMin, r.limits?.rhMax);
+              // ACTUAL is the number people read; SET POINT is reference. Weight
+              // and size carry that, so the eye lands on the reading first.
               const val = (bad: boolean) =>
-                `${CELL} tabular-nums border border-slate-300 ${
-                  bad ? 'bg-red-100 font-bold text-red-800' : 'text-slate-800'
+                `tv-group ${CELL} tabular-nums border border-slate-500 text-[15px] font-semibold ${
+                  bad ? 'bg-red-900/60 text-rose-100' : 'text-white'
                 }`;
-              const spec = `${CELL} tabular-nums border border-slate-300 text-slate-600`;
+              const spec = `${CELL} tabular-nums border border-slate-500 text-[12px] text-slate-200`;
 
               return (
-                <tr key={r.instrumentId} className={`${band} hover:bg-slate-100`}>
-                  <td className={`${CELL} border border-slate-300 text-left`}>
+                <tr key={r.instrumentId} className="tv-row transition-colors">
+                  <td className={`${CELL} border border-slate-500 text-left`}>
                     <Link
                       to={`/instruments/${r.instrumentId}`}
-                      className="font-semibold text-slate-900 hover:underline"
+                      className="font-semibold text-white hover:underline"
                     >
                       {r.code}
                     </Link>
                     {/* Name, and the room the SET POINT comes from. Without the
                         room here, "18.0 - 25.0" has no visible source and an
                         unplaced instrument looks identical to one with no spec. */}
-                    <div className="text-[11px] text-slate-500">
+                    <div className="text-[11px] text-slate-300">
                       {r.name}
                       {r.room
                         ? <> &middot; {r.room.code}{r.room.label ? ` (${r.room.label})` : ''}</>
@@ -240,37 +243,51 @@ export function TelemetryTable() {
                     </div>
                   </td>
 
-                  <td className={val(tempBad)}>{actual(r.temperature, temperatureDecimals)}</td>
+                  <td
+                    className={val(tempBad)}
+                    style={tempBad ? { boxShadow: 'inset 3px 0 0 #fca5a5' } : undefined}
+                    title={tempBad ? 'Outside the room specification' : undefined}
+                  >
+                    {actual(r.temperature, temperatureDecimals)}
+                  </td>
                   <td className={spec}>
                     {formatSetPoint(r.limits?.tempMin, r.limits?.tempMax, temperatureDecimals)}
                   </td>
 
-                  <td className={val(rhBad)}>{actual(r.humidity, humidityDecimals)}</td>
+                  <td
+                    className={val(rhBad)}
+                    style={rhBad ? { boxShadow: 'inset 3px 0 0 #fca5a5' } : undefined}
+                    title={rhBad ? 'Outside the room specification' : undefined}
+                  >
+                    {actual(r.humidity, humidityDecimals)}
+                  </td>
                   <td className={spec}>
                     {formatSetPoint(r.limits?.rhMin, r.limits?.rhMax, humidityDecimals)}
                   </td>
 
                   {/* ONLINE / OFFLINE — solid cell, as the reference table does it.
                       The word carries the meaning; the colour only reinforces it. */}
-                  <td className="border border-slate-300 p-0">
+                  <td className="tv-group border border-slate-500 p-0">
                     <div
-                      className={`flex items-center justify-center gap-1.5 px-3 py-2 text-[12px] font-bold uppercase tracking-wide text-white ${
-                        r.reporting ? 'bg-emerald-600' : 'bg-red-600'
+                      className={`flex items-center justify-center gap-1.5 px-3 py-2.5 text-[12px] font-bold uppercase tracking-wider text-white ${
+                        r.reporting
+                          ? 'bg-gradient-to-b from-emerald-500 to-emerald-700'
+                          : 'bg-gradient-to-b from-red-500 to-red-700'
                       }`}
                       title={r.reporting
                         ? `Reporting — last reading ${readingAge(latest)}`
                         : `No telemetry within the expected interval — last reading ${readingAge(latest)}`}
                     >
+                      <span className={`h-1.5 w-1.5 rounded-full ${r.reporting ? 'bg-emerald-200' : 'bg-red-200'}`} />
                       {r.reporting ? 'Online' : 'Offline'}
                     </div>
                   </td>
 
-                  <td className={`${CELL} border border-slate-300`}>
+                  <td className={`tv-group ${CELL} border border-slate-500`}>
                     <div className="flex items-center justify-center gap-2">
                       <Link
                         to={`/instruments/${r.instrumentId}`}
-                        className="font-semibold hover:underline"
-                        style={{ color: 'var(--theme-primary-dark)' }}
+                        className="font-semibold text-sky-200 hover:text-white hover:underline"
                       >
                         {r.code}
                       </Link>
@@ -279,7 +296,7 @@ export function TelemetryTable() {
                           to={`/instruments/${r.instrumentId}`}
                           title={`Trend — last reading ${readingAge(latest)}`}
                           aria-label={`Trend for ${r.code}`}
-                          className="text-slate-500 hover:text-slate-800"
+                          className="text-slate-200 hover:text-white"
                         >
                           <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 17l4-6 4 3 5-8 5 6" />

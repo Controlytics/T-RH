@@ -158,3 +158,31 @@ table {
 
 /* Theme utility class — replaces inline style={{ color: 'var(--theme-primary)' }} */
 .text-theme-primary { color: var(--theme-primary); }
+
+/* ===========================================================================
+   TABULAR VIEW (Dashboard -> Table view) — scoped styling for the room-condition
+   table in routes/dashboard/telemetry-table.tsx. Nothing else uses `.tv-*`.
+
+   DARK, on operator preference (2026-08-13): a light themed version was tried and
+   the dark one was preferred. Dark rows keep this dense table readable at a
+   glance, which is the point of the layout.
+
+   The HEADER still follows the theme (Config -> Branding), using the two DARK tones
+   — sidebar-bg and primary-dark — so the table carries the app's colour without
+   losing contrast. MEASURED across all 10 presets: white on that gradient is worst
+   5.02:1, and white on the slate rows is 10.35:1. Do NOT swap the header to
+   --theme-primary: several presets measure ~3.7:1 there, which fails for 11px type.
+   =========================================================================== */
+.tv-head {
+  background: linear-gradient(135deg, var(--theme-sidebar-bg), var(--theme-primary-dark));
+  color: #fff;
+}
+.tv-subhead {
+  background: color-mix(in srgb, var(--theme-primary-dark) 55%, #0f172a);
+  color: #e2e8f0;
+}
+.tv-row:nth-child(odd) { background: #334155; }   /* slate-700 */
+.tv-row:nth-child(even) { background: #475569; }  /* slate-600 */
+.tv-row:hover { background: color-mix(in srgb, var(--theme-primary) 30%, #334155); }
+/* Group separator — reinforces which ACTUAL belongs to which SET POINT. */
+.tv-group { border-left: 2px solid color-mix(in srgb, var(--theme-primary) 45%, #334155); }
