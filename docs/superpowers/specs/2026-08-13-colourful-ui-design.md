@@ -59,10 +59,19 @@ interface ModulePalette {
   from: string;        // gradient start, 600-level
   to: string;          // gradient end, 600-level
   tableHead: string;   // 700-level — NOT `from`. See Contrast below.
-  text: string;        // primary body text on tinted surfaces (950-level)
-  muted: string;       // secondary text (800-level)
+  text: string;        // heading text on hand-tuned pages (950-level)
+  muted: string;       // secondary heading text (800-level)
 }
 ```
+
+**`text` and `muted` are scoped to hand-tuned pages only** — headings, page
+subtitles and header bands. Body text stays the existing hardcoded
+`text-slate-800` / `text-slate-500` app-wide. The safety net covers backgrounds and
+borders; it deliberately does **not** override text utilities, because text colour
+interacts with pills, gradient bands and white-on-colour cases where a blind
+override would be genuinely dangerous. Contrast is unaffected — slate-800 on the
+tinted surfaces measures 12.4–16.4:1 (see Contrast below). Anyone reading this spec
+should not expect palette text colour on a page the waves have not reached.
 
 Surfaces are **not** stored. They are derived in CSS (§2) so that a palette is six
 colours rather than ten, and the tint relationship is defined once instead of
@@ -105,14 +114,56 @@ One definition; every module derives its own tints from its own `from`. This is 
 
 ### 3. The compatibility layer (the safety net)
 
-Also in `app.css`, these legacy utilities are redefined to resolve to the tokens:
+Tailwind emits a **separate rule for every opacity modifier and every variant
+prefix**. Overriding a bare class touches none of them, so the selector list must
+be enumerated from the codebase, never sampled. Enumeration command:
 
-| Utility | Resolves to |
-|---|---|
-| `.bg-white` | `var(--surface)` |
-| `.bg-slate-50` | `var(--surface-alt)` |
-| `.bg-slate-100` | `var(--surface-alt)` |
-| `.border-slate-200`, `.border-slate-200\/60` | `var(--border-tint)` |
+```bash
+grep -rhoE '([a-z-]+:)*(bg|border|divide|from|to|via|ring)-(white|slate-(50|100|200))(/[0-9]+)?' \
+  --include=*.tsx apps/web/src | sort | uniq -c | sort -rn
+```
+
+Result at time of writing: **64 distinct utilities, ~1,220 occurrences.**
+
+**Include — the safety net redefines these** (opaque surfaces on light backgrounds):
+
+| Group | Selectors | Resolves to |
+|---|---|---|
+| Card surface | `bg-white`, `bg-white/95`, `bg-white/70`, `bg-white/60` | `--surface` |
+| Section surface | `bg-slate-50` + `/80` `/60` `/50` `/30`, `bg-slate-100` | `--surface-alt` |
+| Heavier fill | `bg-slate-200`, `bg-slate-200/30` | `--border-tint` |
+| Hover states | `hover:bg-slate-50` + `/80` `/70` `/50` `/40`, `hover:bg-slate-100`, `hover:bg-slate-200` + `/70`, `group-hover:bg-slate-200` | `--surface-alt` / `--border-tint` |
+| Other states | `focus:bg-white`, `disabled:bg-slate-50`, `disabled:bg-slate-100`, `check:bg-slate-50` | matching token |
+| Borders | `border-slate-200` + `/60` `/50`, `border-slate-100`, `border-slate-50`, `divide-slate-100`, `divide-slate-200`, `ring-slate-200` | `--border-tint` |
+
+**The hover variants are not optional.** `hover:bg-slate-100` (36 uses),
+`hover:bg-slate-50` (32) and `hover:bg-slate-200` (8) are separate rules; omitting
+them leaves every un-tuned tinted row **flashing white on hover** — a defect
+invisible to the test suite and to an implementer with no browser.
+
+**Exclude — these stay true white, deliberately:**
+
+`bg-white/5`, `/10`, `/15`, `/20`, `hover:bg-white/10`, `/20`, `/90`,
+`border-white` + `/10` `/20` `/30` `/40`, `ring-white` + `/20` `/30`,
+`after:bg-white`, `peer-checked:after:border-white`, `via-white`.
+
+These are **translucent highlights on the dark sidebar and login screens**.
+Recolouring them would damage the chrome, which `--theme-*` owns (§6). The layer
+is written as an explicit include list precisely so these are never caught by a
+broad match.
+
+**Defer to per-file work in the waves:** gradient stops — `from-slate-50` (33),
+`to-white` (22), `from-white`, `to-slate-50`, `from-slate-100`, `from-slate-200`,
+`to-slate-100`, `to-slate-200`, `via-slate-50` (~85 occurrences). Whether a
+gradient stop should become a tint depends on that gradient's intent, so these are
+read individually rather than swept. `to-slate-100/50` on `<main>` is replaced
+explicitly by §4.
+
+**Coverage, stated honestly:** the include list covers the static and stateful
+opaque surfaces — the large majority of the ~1,220. It does **not** cover the ~85
+gradient stops. Until the waves reach them, a handful of gradients remain
+white-ish. The claim is "no page keeps a white background", **not** "no white pixel
+survives anywhere".
 
 This is what makes the 57 untouched route files stop being white without editing
 57 files blind.
@@ -222,11 +273,34 @@ danger.
 
 ## Waves
 
-**Wave 1 — foundation + the six most-used pages.**
-`module-palettes.ts`, `use-module-palette.ts`, the `app.css` token + safety-net
-layer, the `<main>` canvas, all primitives from §5, `StatTile`, sidebar + header.
-Then hand-tuned: `/`, `/instruments`, `/instruments/:id`, `/audit`, `/config`,
-`/users`. **Hard stop — operator reviews in the browser before wave 2 begins.**
+**Wave 0 — mechanism spike, before any palette is authored.** A single throwaway
+page proving four things work in Tailwind v4 as assumed:
+
+1. a bare-class override in a later layer actually beats Tailwind's own rule;
+2. a variant override (`hover:bg-slate-50`) can be redefined the same way;
+3. `bg-surface` is generated from an `@theme` token whose value is
+   `color-mix(in srgb, var(--mod-from) 6%, white)` where `--mod-from` is written at
+   **runtime by JS**, not at build time;
+4. an opacity modifier on that utility (`bg-surface/50`) nests `color-mix` inside
+   `color-mix` without breaking.
+
+Costs minutes. If any of the four fails, the layer design changes — and finding
+that out after twelve palettes and six pages is the expensive version.
+
+**Wave 1 — foundation + ONE page.** `module-palettes.ts`,
+`use-module-palette.ts`, the `app.css` token + safety-net layer, the `<main>`
+canvas, all primitives from §5, `StatTile`, sidebar + header. Then hand-tune
+**`/instruments` only** — the table-heavy page that decided treatment B, and the
+one where tint depth and the coloured header band are hardest to get right.
+**Hard stop — operator reviews in the browser.**
+
+One page rather than six, because the gate has to actually gate: if the tint depth
+or the table treatment is wrong, the rework is one page instead of six. This is the
+lesson from the floorplan rejection — get it in front of the operator early and
+cheaply.
+
+**Wave 1b — the other five high-traffic pages**, once wave 1 is accepted: `/`,
+`/instruments/:id`, `/audit`, `/config`, `/users`.
 
 **Wave 2** — `/instruments/new`, `/instruments/bulk`,
 `/instruments/profiles/:profileId`, `/notifications`, `/admin-requests`, `/home`,
@@ -315,4 +389,6 @@ Per the repo's documentation sync rule:
 | The safety net recolours somewhere white was deliberate | `.surface-plain` opt-out; wave 4 sweep specifically hunts these |
 | No test protection, no browser access for the implementer | Review gate after wave 1; operator is named as the sole visual verifier throughout |
 | `color-mix` browser support | Chrome/Edge 111+, and the app already ships `color-mix` in `lib/theme-styles.ts`, so this adds no new requirement |
+| Tailwind v4 does not permit the override or the runtime-valued `@theme` token | Wave 0 spike proves all four mechanics before any palette is authored |
+| A variant or utility family missed in the enumeration | The enumeration command is in this spec and is re-run at the start of each wave, since new files add new utilities |
 | Twelve palettes drift out of contrast compliance as they are tweaked | The contrast script is re-run every wave, not once |
