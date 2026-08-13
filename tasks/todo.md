@@ -2341,6 +2341,40 @@ apps/api/scripts/probe-visibility.ts, which restores the role's scope in a final
 history, notifications. The previous one in this lineage was 5 models and 22 files. Needs
 its own spec. The dashboard's Alarms card waits on it.
 
+### 2026-08-13 later still - C1 + C2 done, and two pieces of test infrastructure were
+### found broken by them
+
+C1: AlarmRule + Alarm models, pure decide()/validation logic, the per-minute
+alarm_evaluation worker (registered in BOTH app.ts and crontab.txt in one commit -
+an identifier without a handler leaks jobs forever), rule CRUD.
+
+C2: POST /api/alarms/:id/acknowledge. Reason (>= 5 chars) + ACKNOWLEDGE_ALARM reauth,
+ALARM_ACKNOWLEDGED audit row carrying the reason in both the reason column and the
+signature meaning, 409 on a second acknowledgement so the first signature stands, and
+a visibility-scoped lookup so an out-of-scope alarm is 404 rather than 403.
+
+**No shared-package edit was needed.** ALARM_ACKNOWLEDGED and its template were already
+in audit-actions.ts / audit-templates.ts - deliberately RETAINED per 21 CFR when the
+alarm subsystem was torn out in Phase 6. Adding them again was a duplicate-key tsc
+error. The existing template reads {targetName} from after_value.name, so the endpoint
+writes "<code> / <metric>" there, matching the one legacy row (2026-08-03, from the
+removed Data Injection programme) that still renders through it.
+
+**Two infrastructure faults found by writing the first e2e test to touch this work:**
+
+1. `compliance_core_db_test` was THREE migrations behind - functional_locations,
+   instrument_scope and alarm_subsystem had never been applied to it. Any e2e test
+   touching an instrument 500'd on a missing column. Fixed with `migrate deploy`
+   against the test URL. **Applying a migration to the dev DB does not apply it to
+   the test DB; do both.**
+2. `src/e2e/test-helper.ts` registers route modules independently of `app.ts`, and
+   neither `functional-locations` nor `alarms` was in it. Both projects A and C
+   therefore shipped with HTTP-level coverage that was IMPOSSIBLE to write - a 404 on
+   every request. Both are registered now, with a comment saying why.
+
+Together these mean A, B and D were verified only by unit tests plus live probe
+scripts, never through the HTTP layer. That gap is now open to be closed.
+
 **Also still open:** the 4 gateways in the dashboard readings table (they can never
 report a value); the Instrument ID charset pattern on the create form that would reject
 CWH-I/142; and the four inert dashboard-cards config keys.

@@ -7,7 +7,7 @@ import { errorResponses } from '../../lib/error-schemas.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { resolveVisibility, withVisibility } from '../instruments/visibility.js';
 import { describeRule } from './decide.js';
-import { validateRuleDraft, type RuleDraft } from './validation.js';
+import { validateRuleDraft, validateAcknowledgement, clampSignature, type RuleDraft } from './validation.js';
 
 /**
  * Alarm rules and the alarms they raise.
@@ -127,7 +127,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
       action: 'CONFIG_CHANGED',
       targetType: 'alarm_rule', targetId: created.id,
       afterValue: { name: created.name, condition: describeRule(created), delaySeconds: created.delaySeconds },
-      signatureMeaning: `Alarm rule "${created.name}" created — ${describeRule(created)}`,
+      signatureMeaning: clampSignature(`Alarm rule "${created.name}" created — ${describeRule(created)}`),
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
     return reply.code(201).send({ ...created, description: describeRule(created), targetLabel: null, alarmCount: 0 });
@@ -174,7 +174,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
       afterValue: { name: updated.name, condition: describeRule(updated), isActive: updated.isActive },
       // Naming the OLD and NEW condition matters: alarms raised before this edit carry
       // their own snapshot, and this row is what ties the two together.
-      signatureMeaning: `Alarm rule "${updated.name}" changed from "${describeRule(current)}" to "${describeRule(updated)}"`,
+      signatureMeaning: clampSignature(`Alarm rule "${updated.name}" changed from "${describeRule(current)}" to "${describeRule(updated)}"`),
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
     return { ...updated, description: describeRule(updated), targetLabel: null, alarmCount: 0 };
@@ -211,7 +211,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
       action: 'CONFIG_CHANGED',
       targetType: 'alarm_rule', targetId: id,
       beforeValue: { name: current.name, condition: describeRule(current) },
-      signatureMeaning: `Alarm rule "${current.name}" deleted`,
+      signatureMeaning: clampSignature(`Alarm rule "${current.name}" deleted`),
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
     return reply.code(204).send();
@@ -264,6 +264,101 @@ export default async function alarmRoutes(app: FastifyInstance) {
         clearedAt: a.clearedAt?.toISOString() ?? null,
         acknowledgedAt: a.acknowledgedAt?.toISOString() ?? null,
       })),
+    };
+  });
+
+  app.post('/:id/acknowledge', {
+    preHandler: [app.requirePermission('ALARM_ACKNOWLEDGE')],
+    schema: {
+      tags: ['Alarms'],
+      summary: 'Acknowledge an alarm (e-signature: reason + re-authentication)',
+      params: { type: 'object', properties: { id: { type: 'string' } } },
+      body: {
+        type: 'object',
+        required: ['reason'],
+        // Bounded on purpose. `audit_trail.reason` is TEXT, but `signature_meaning` is
+        // VARCHAR(255) — an over-long reason would acknowledge the alarm and THEN throw
+        // inside auditLog, leaving an acknowledged alarm with no audit row, which is the
+        // one outcome §11 cannot tolerate here. Refuse before the write instead. The
+        // signature line is also clamped below, since the instrument code varies.
+        properties: { reason: { type: 'string', maxLength: 500 } },
+      },
+      response: { 200: { type: 'object', properties: alarmProps }, ...errorResponses },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('ACKNOWLEDGE_ALARM', req, reply);
+    if (!ok) return;
+    const { id } = req.params as { id: string };
+    const ctx = buildContext(req);
+    const body = sanitizeStrings((req.body ?? {}) as Record<string, unknown>, ['reason']);
+    const reason = String(body.reason ?? '');
+
+    // Visibility-scoped lookup, so an alarm outside this user's scope is NOT FOUND rather
+    // than forbidden — a 403 would confirm that an instrument they may not see exists.
+    const { where: visibility } = await resolveVisibility(ctx);
+    const alarm = await prisma.alarm.findFirst({
+      where: visibility ? { id, instrument: visibility } : { id },
+      include: { instrument: { select: { code: true } } },
+    });
+    if (!alarm) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Alarm not found.' });
+
+    // `acknowledgedBy` holds a USERNAME, because buildContext's userId is req.user.username
+    // (not a UUID) — so the 409 already names a person and needs no user lookup. Querying
+    // prisma.user by id with it raises a Postgres invalid-uuid error, which is a 500.
+    const refusal = validateAcknowledgement(alarm, reason);
+    if (refusal) {
+      return refusal.code === 'ALREADY_ACKNOWLEDGED'
+        ? reply.code(409).send({ error: refusal.code, message: refusal.message })
+        : reply.code(400).send({ error: refusal.code, message: refusal.message, field: refusal.field });
+    }
+
+    // Claimed with `acknowledgedAt: null` IN THE WHERE, so two simultaneous requests cannot
+    // both pass the check above and have the second overwrite the first signature. The
+    // check above still runs first, because it produces the message that names who signed.
+    const claim = await prisma.alarm.updateMany({
+      where: { id, acknowledgedAt: null },
+      data: { acknowledgedAt: new Date(), acknowledgedBy: ctx.userId, acknowledgeReason: reason.trim() },
+    });
+    if (claim.count === 0) {
+      const won = await prisma.alarm.findUnique({ where: { id }, select: { acknowledgedAt: true, acknowledgedBy: true } });
+      if (!won?.acknowledgedAt) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Alarm not found.' });
+      return reply.code(409).send({
+        error: 'ALREADY_ACKNOWLEDGED',
+        message: (validateAcknowledgement(won, reason) as { message: string }).message,
+      });
+    }
+    const updated = await prisma.alarm.findUniqueOrThrow({
+      where: { id },
+      include: { instrument: { select: { code: true } } },
+    });
+
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole,
+      action: 'ALARM_ACKNOWLEDGED',
+      targetType: 'Alarm', targetId: id,
+      // `name` is what the audit trail's {targetName} placeholder reads, and the
+      // "<code> / <metric>" shape matches the rows already in the trail.
+      afterValue: {
+        name: `${updated.instrument?.code ?? updated.instrumentId} / ${updated.metric}`,
+        instrumentId: updated.instrumentId,
+        state: updated.state,
+        severity: updated.severity,
+        triggeredValue: updated.triggeredValue,
+        raisedAt: updated.raisedAt.toISOString(),
+      },
+      // Reason goes in BOTH: the column is what the audit detail view shows, and the
+      // signature meaning is the §11.50 statement of what was signed.
+      reason: reason.trim(),
+      signatureMeaning: clampSignature(`Acknowledged alarm on ${updated.instrument?.code ?? updated.instrumentId} (${updated.metric}) — ${reason.trim()}`),
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    });
+
+    return {
+      ...updated,
+      instrumentCode: updated.instrument?.code ?? null,
+      raisedAt: updated.raisedAt.toISOString(),
+      clearedAt: updated.clearedAt?.toISOString() ?? null,
+      acknowledgedAt: updated.acknowledgedAt?.toISOString() ?? null,
     };
   });
 

@@ -19,6 +19,8 @@ import wsIngestRoutes, { type WsIngestOptions } from '../modules/instruments/lis
 import mqttAuthRoutes from '../modules/instruments/mqtt-auth-routes.js';
 import instrumentProfileRoutes from '../modules/instrument-profiles/routes.js';
 import instrumentRoutes from '../modules/instruments/routes.js';
+import functionalLocationRoutes from '../modules/functional-locations/routes.js';
+import alarmRoutes from '../modules/alarms/routes.js';
 import floorplanRoutes from '../modules/floorplans/routes.js';
 import { prisma } from '../lib/prisma.js';
 import { AppError } from '../lib/errors.js';
@@ -96,6 +98,11 @@ export async function buildApp(
   await app.register(instrumentProfileRoutes, { prefix: '/api/instrument-profiles' });
   await app.register(instrumentRoutes, { prefix: '/api/instruments' });
   await app.register(floorplanRoutes, { prefix: '/api/floorplans' });
+  // Registered here as well as in app.ts — a module missing from this helper is
+  // UNREACHABLE from every e2e test, which is how functional locations and alarms
+  // both shipped with no HTTP-level coverage until 2026-08-13.
+  await app.register(functionalLocationRoutes, { prefix: '/api/functional-locations' });
+  await app.register(alarmRoutes, { prefix: '/api/alarms' });
 
   await app.ready();
   return app;
