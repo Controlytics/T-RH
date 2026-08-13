@@ -17,7 +17,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
 
     const variantClasses = {
       default: [
-        'border-2 border-slate-200 bg-white',
+        'border-2 border-border-tint bg-surface-raised',
         'hover:border-slate-300 hover:bg-slate-50/50',
         'focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 focus:bg-white',
       ].join(' '),
