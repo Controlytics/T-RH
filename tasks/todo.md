@@ -2307,14 +2307,14 @@ dashboard. Decomposed into four projects; **A is complete**, B/C/D not started.
       actions, hand-authored migration seeding 2 Blocks + 2 Areas + 5 links from the
       free-text block/area values. Drift guard PASS. Verified in a real browser,
       zero console errors.
-- [ ] **B — Dashboard drill-down.** 3 entry cards (All Instruments / CWH Block /
+- [x] **B — Dashboard drill-down.** DONE. 3 entry cards (All Instruments / CWH Block /
       Alarms), Block -> Area drill-down, functional-location filter, and only the
       Tabular + Graphical views on the page. Depends on A; the Alarms card needs C.
 - [ ] **C — Alarm subsystem.** Rules, evaluation, acknowledgement, history,
       notifications. LARGE — the previous one in this lineage was 5 models and 22
       files. Operator explicitly chose to build it rather than substitute an
       out-of-spec count. Own spec required.
-- [ ] **D — Role/user instrument visibility, keyed to functional locations.**
+- [x] **D — Role/user instrument visibility, keyed to functional locations.** DONE.
       Supersedes an earlier design that scoped by the free-text block/area fields;
       scoping by FL removes the typo and rename fragility. Two levels: role default
       plus per-user override (the operator needs different users in the SAME role to
@@ -2326,3 +2326,21 @@ dashboard. Decomposed into four projects; **A is complete**, B/C/D not started.
 readings table (they can never report a value); and the instrument create form still
 enforces a charset pattern on Instrument ID that would reject `CWH-I/142` — a code
 the operator's own floorplan already uses.
+
+### 2026-08-13 later - B and D complete; C is the only project left
+
+B: dashboard drill-down (3 levels, FL filter, URL-held selection). Two bugs found by
+looking rather than by tests - All Instruments counted only placed instruments (5 vs 20),
+and the "direct" card's flag never reached the query (1 vs 4). Both pinned by tests now.
+
+D: instrument_scope on role_configs AND user_configs; Instrument Scope tab; enforcement
+on the query with 404-not-403 on single reads. Every rule proven against live data via
+apps/api/scripts/probe-visibility.ts, which restores the role's scope in a finally.
+
+**C - alarm subsystem - NOT started.** Large: rules, evaluation, acknowledgement,
+history, notifications. The previous one in this lineage was 5 models and 22 files. Needs
+its own spec. The dashboard's Alarms card waits on it.
+
+**Also still open:** the 4 gateways in the dashboard readings table (they can never
+report a value); the Instrument ID charset pattern on the create form that would reject
+CWH-I/142; and the four inert dashboard-cards config keys.

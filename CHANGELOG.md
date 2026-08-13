@@ -1,5 +1,67 @@
 # Changelog
 
+## [Unreleased] - Dashboard drill-down + instrument visibility (2026-08-13, projects B and D)
+
+### B - Dashboard drill-down by functional location
+
+Three levels: entry cards (All Instruments + one per Block) -> a Block's Areas -> the
+Tabular / Graphical views scoped to the selection. Location dropdown in the header,
+breadcrumbs back up, selection held in the URL (`?fl=`, `?view=`) so a scoped view is
+linkable and Back walks up the tree.
+
+- Cards are **data-driven**, not the eight names listed in the request - creating a
+  location makes its card appear with no code change.
+- Scoping is server-side through `resolveLocationIds()`, so a Block returns its own
+  instruments **plus** its Areas'. `functionalLocationDirect` skips that expansion for
+  the "direct" card.
+- Welcome hero, Quick Overview and Quick Actions removed. **Four `dashboard-cards` keys
+  are now inert** - `total_users`, `audit_trail`, `notifications`, `quick_actions`.
+  They still appear on the config page and toggle nothing; removing them is a follow-up.
+- **No Alarms card.** No alarm subsystem exists in this fork; it arrives with C.
+
+Two bugs found only by looking, both now pinned by tests: the All Instruments card read
+5 while its own view showed 20 (the tree counts only *placed* instruments - 15 of 20 are
+unplaced), and "CWH - direct" said 1 instrument while showing 4 (the directOnly flag
+never reached the query).
+
+### D - Role and user instrument visibility
+
+`instrument_scope` JSONB on **both** `role_configs` and `user_configs`, nullable with no
+default so nothing is blinded when the migration runs. New Instrument Scope tab on
+Config -> Roles & Access.
+
+Proven against the live database (`apps/api/scripts/probe-visibility.ts`):
+
+```
+NULL unrestricted -> 20    [CWH] block+areas -> 4    [Module-E] -> 3
+[Block C] -> 1             [CWH, Block C] -> 5       [] sees nothing -> 0
+[stale id] -> 0            SUPER_ADMIN -> 20
+```
+
+- **`NULL` is not `[]`.** NULL inherits; `[]` means see nothing. Deliberately NOT the
+  `length > 0` test `getMyConfig` uses - with three states, an emptiness test lets `[]`
+  fall through to the role and turns a deny into a **grant**.
+- **A user scope replaces the role's**, which is what "same role, different users,
+  different instruments" requires. It can therefore widen as well as narrow; the role
+  default is shown beside every override and each save is reauth-gated and audited.
+- **A stale id contributes nothing** - a deleted location in a saved scope must never
+  act as a wildcard.
+- **Malformed JSON means inherit, not deny** - silently blinding a user is an outage
+  disguised as a permission change.
+- **Unassigned instruments are excluded** whenever a scope is active (SQL `IN` never
+  matches NULL). Today that is 15 of 20.
+- **`Prisma.DbNull`, not `JsonNull`** - the latter stores the JSON value `null`, a
+  different thing, and the whole contract rests on the distinction.
+
+Enforcement is on the query: the list merges visibility into the same `where` the count
+uses so `total` cannot overstate; `GET /:id` applies it in the lookup and returns
+**404, not 403**, because a 403 confirms the instrument exists; the overview **ANDs**
+selection with visibility so picking a location outside your scope returns nothing
+rather than overriding it. Administrative pickers are deliberately unscoped - organising
+the estate is a different authority from viewing a subset.
+
+Migration `20260813161500_instrument_scope`, hand-authored. Drift guard PASS.
+
 ## [Unreleased] — Functional Locations (2026-08-13, project A of four)
 
 A sidebar feature for grouping instruments into a two-level **Block → Area** tree.
