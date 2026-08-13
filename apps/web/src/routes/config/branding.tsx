@@ -189,7 +189,11 @@ export function BrandingConfigPage() {
                   </div>
                   <div>
                     <h3 className="font-bold text-slate-800">Color Theme</h3>
-                    <p className="text-xs text-slate-500">Select a preset theme for the entire application</p>
+                    {/* Was "for the entire application", which was not true even before
+                        2026-08-13: these presets only ever drove the sidebar, login screen
+                        and buttons. Page colour comes from the per-module palettes in
+                        lib/module-palettes.ts. Kept to one line per the UI-copy density rule. */}
+                    <p className="text-xs text-slate-600">Sidebar, login screen and buttons. Page colours come from each module.</p>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">

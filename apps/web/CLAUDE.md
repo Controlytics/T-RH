@@ -136,9 +136,24 @@ profile photo upload silently 401'd until 2026-08-11.
   static `default-roles` map + drift-guard were retired for the live matrix.
 
 ## Theme
-- Unified light theme: bg-white cards, bg-slate-50 sections, border-slate-200
-- Gradient dialog headers are acceptable
-- No dark theme anywhere in the application
+**Per-module colour since 2026-08-13.** The previous line here — "unified light theme:
+bg-white cards, bg-slate-50 sections" — is no longer true.
+
+- `--theme-*` (`lib/themes.ts`) owns CHROME: sidebar, login, primary buttons.
+- `--mod-*` (`lib/module-palettes.ts` + `hooks/use-module-palette.ts`) owns PAGE:
+  canvas (`bg-module-canvas` on `<main>`), cards, tables, stat tiles, header bands.
+- Surface tokens `bg-surface` / `bg-surface-alt` / `bg-surface-raised` /
+  `border-border-tint` are `color-mix` derivations of `--mod-from`, defined once in
+  `app.css`. Use these in new code; `bg-surface-raised` is true white and is what form
+  fields use so they still read as enterable on a tinted card.
+- **`bg-white` resolves to `bg-surface`** via the compatibility layer at the end of
+  `app.css`. `surface-plain` opts out. See `DECISIONS.md`.
+- Status colour is unchanged and still never carries meaning alone: status Badge
+  variants are solid-filled (so they read on a tinted row) and always accompanied by a
+  glyph and a word.
+- Gradient dialog headers are acceptable.
+- No dark theme anywhere in the application (the frosted-glass-on-dark option was
+  considered at design time and rejected).
 
 ## Frontend Pages
 admin-requests, assets (dialogs/tabs/hooks), audit, auth, checklists, cleaning-cycles (history/timeline), config (branding/notification-rules/notification-settings/roles), debug, filter-management (operations/profiles/status/scan/traceability/AHU-dashboard/cleaning-profile-editor/retirement/replacement/bulk-upload/equipment), mobile, notifications, pm-schedules, profile, system-health, tenant, users (alarms + rule-chains route folders removed 2026-05-17)

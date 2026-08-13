@@ -2324,11 +2324,11 @@ data); curated palette map in code; delivered in waves with a review gate.
 - [x] **Task 4** — hook mounted in `AppLayout` above the early returns; `<main>`
       switched to `bg-module-canvas`; `report-page-wrapper` given
       `surface-plain` so printed records stay white.
-- [ ] **Task 5** — primitives: `Card` banded variant, `Table` solid header band +
+- [x] **Task 5** — primitives: `Card` banded variant, `Table` solid header band +
       alternating tinted rows, solid-filled `Badge`, `Input`/`Select`,
       `Dialog`/`Pagination`, new `StatTile`.
-- [ ] **Task 6** — hand-tune `/instruments` (the review gate page).
-- [ ] **Task 7** — docs: root `CLAUDE.md` "Light theme only" rule is now reversed;
+- [x] **Task 6** — hand-tune `/instruments` (the review gate page).
+- [x] **Task 7** — docs: root `CLAUDE.md` "Light theme only" rule is now reversed;
       `apps/web/CLAUDE.md` Theme section; `apps/web/DECISIONS.md` for the
       override; `CHANGELOG.md`; relabel the Branding theme picker, which claims to
       set the app's colours while only controlling chrome.

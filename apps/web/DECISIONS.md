@@ -157,3 +157,70 @@
 - `/api/roles/active` public endpoint for contact-admin page
 
 See `CHANGELOG.md` for full details.
+
+---
+
+## 2026-08-13 — `bg-white` no longer paints white (per-module colour)
+
+**Decision.** A compatibility layer at the end of `apps/web/src/app.css` redefines
+the legacy white/slate utilities to resolve to module-tinted tokens. `bg-white`
+resolves to `--color-surface`, a 6% tint of the current module's colour.
+
+**Why, rather than editing the files.** 57 route files paint raw `bg-white`
+themselves; enumerating the codebase found **64 distinct white/slate utilities
+across ~1220 occurrences**. Two constraints made a hand migration the worse
+option: **zero tests in `apps/web` assert a CSS class** (verified by grep), and the
+authenticated UI cannot be opened in a browser from this dev environment — the
+mkcert certificate blocks Playwright's XHR, so it never gets past `/login`. Editing
+57 files blind with no test protection and no way to look at the result would have
+produced silent, scattered breakage. One documented override was the smaller risk.
+
+**Opt out with `surface-plain`.** Applied to `report-page-wrapper` (PDF and printed
+report chrome), and to the two `bg-white` uses that sit ON the Instruments hero
+gradient, where white is deliberate.
+
+**No `!important`, and this is load-bearing.** The overrides win on cascade order —
+Tailwind emits them after its own rules at equal specificity, verified against the
+compiled CSS in `src/__tests__/compat-layer.test.ts`. A stylesheet `!important`
+beats an inline style, and this app puts `style={{ background: themeGradient }}` on
+buttons throughout; `!important` would have silently killed every gradient button.
+The original plan said to use it. The wave 0 spike is why it doesn't.
+
+**Enumerate, never sample.** Tailwind emits a separate rule per opacity modifier
+and per variant prefix, so overriding a bare class reaches none of them. The first
+draft listed five selectors and covered 63%. The misses included
+`hover:bg-slate-100` (36 uses), `hover:bg-slate-50` (32) and `hover:bg-slate-200`
+(8) — omitting those leaves every un-tuned tinted row **flashing white on hover**,
+a defect no test here can see. Re-run the enumeration in the spec before extending
+the layer.
+
+**What is deliberately NOT overridden.** `bg-white/5`..`/20`, `hover:bg-white/*`,
+`border-white/*`, `ring-white/*`, `after:bg-white`, `via-white` — these are
+translucent highlights on the **dark** sidebar and login screens, which `--theme-*`
+owns; recolouring them damages the chrome. Also the ~85 gradient stops
+(`from-slate-50`, `to-white`, …), because whether a stop should tint depends on
+that gradient's intent.
+
+**`--mod-*` `:root` defaults are load-bearing too.** `use-module-palette` only
+mounts inside `AppLayout`, so `/login`, `/change-password`, `/forgot-password`,
+`/contact-admin` and the error boundaries never receive it. With an empty
+`--mod-from`, `color-mix(in srgb, var(--mod-from) 6%, white)` is invalid at
+computed-value time and every `bg-white` card renders **transparent**, not white.
+
+**One text exception, scoped to `.bg-module-canvas`.** `text-slate-500` (459 uses,
+including `CardDescription`) measures **3.97–4.49:1** on the tinted surfaces,
+under the WCAG AA floor of 4.50. It clears AA today only because the surface is
+pure white, at 4.76:1 — no headroom, and a 6% tint consumes it. `text-slate-400`
+(279 uses) is worse and already failed on white. Both remap to slate-600 (worst
+6.32:1). **The scoping is the point:** `text-slate-400` is also the sidebar's muted
+text on a dark background, where darkening it makes contrast *worse*. A global
+override is simpler and wrong.
+
+**The layer is meant to shrink.** Each wave replaces `bg-white` with `bg-surface`
+in the files it touches. It will not reach zero in wave 1, and no claim is made
+that it has.
+
+**Verification honesty.** Everything above was verified by typecheck, `vite build`,
+the test suite (baseline of 5 pre-existing failures held), and greps against the
+compiled `dist/assets/*.css`. **None of it was verified by looking at the rendered
+UI** — that was handed to the operator.
