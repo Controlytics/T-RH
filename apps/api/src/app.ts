@@ -48,6 +48,7 @@ import { AppError } from './lib/errors.js';
 import { dispatchNotification } from './modules/notification-delivery/notification-dispatcher.js';
 import adminRequestRoutes from './modules/admin-requests/routes.js';
 import floorplanRoutes from './modules/floorplans/routes.js';
+import { alarmEvaluationTask } from './workers/alarm-evaluation.worker.js';
 import functionalLocationRoutes from './modules/functional-locations/routes.js';
 import ingestRoutes from './modules/instruments/ingest-routes.js';
 import wsIngestRoutes from './modules/instruments/listeners/ws-listener.js';
@@ -470,6 +471,12 @@ try {
         // stops dead at 00:00 on the 1st. Runs ahead by several months so one
         // missed run cannot cause that.
         telemetry_partition_maintenance: telemetryPartitionTask,
+
+        // Alarm evaluation — every minute. Raises and clears alarms from the
+        // configurable rules. Registered HERE and in packages/queue/crontab.txt
+        // together: that file warns that an identifier with no handler is enqueued
+        // and never completed, which once left 51,798 orphan jobs.
+        alarm_evaluation: alarmEvaluationTask,
       },
       crontabPath,
     });

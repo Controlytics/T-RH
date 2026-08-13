@@ -805,6 +805,113 @@ model InstrumentProfile {
 ///
 /// Depth is capped at 2 and enforced in `functional-locations/validation.ts`: only
 /// an AREA may carry a parent, and that parent must be a BLOCK.
+/// A configurable alarm condition over instrument telemetry.
+///
+/// Rules are a SECOND definition of "out of spec", alongside the room limits that
+/// drive the dashboard table and the floor plan. A rule may alarm at 24 while the
+/// room's spec permits 25 — legitimate as an early warning, but it means the table can
+/// show green while an alarm is active. Every Alarm therefore snapshots its rule, and
+/// the UI names the rule that fired. See the design spec before changing this.
+model AlarmRule {
+  id   String @id @default(uuid())
+  name String
+
+  /// EXACTLY ONE of these is set. Enforced in alarms/validation.ts rather than by a
+  /// constraint, so the error names the offending field instead of surfacing as an
+  /// opaque check violation.
+  instrumentId         String? @map("instrument_id")
+  functionalLocationId String? @map("functional_location_id")
+
+  metric     AlarmMetric
+  comparison AlarmComparison
+  /// ABOVE uses thresholdHigh; BELOW uses thresholdLow; OUTSIDE_RANGE uses both.
+  /// A missing threshold makes the rule NEVER fire — a rule that fires on every
+  /// reading is worse than one that never does.
+  thresholdLow  Float? @map("threshold_low")
+  thresholdHigh Float? @map("threshold_high")
+
+  /// Seconds the condition must persist before raising. 0 = immediately. Guards
+  /// against a one-sample telemetry spike producing an alarm nobody can act on.
+  delaySeconds Int           @default(0) @map("delay_seconds")
+  severity     AlarmSeverity @default(MAJOR)
+  isActive     Boolean       @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdBy String?  @map("created_by")
+  updatedBy String?  @map("updated_by")
+
+  instrument         Instrument?         @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+  functionalLocation FunctionalLocation? @relation(fields: [functionalLocationId], references: [id], onDelete: Cascade)
+  alarms             Alarm[]
+
+  @@index([isActive])
+  @@index([instrumentId])
+  @@index([functionalLocationId])
+  @@map("alarm_rules")
+}
+
+/// One raised alarm. A REGULATED RECORD: never edited beyond clearedAt and the three
+/// acknowledgement fields, and never deleted.
+model Alarm {
+  id     String @id @default(uuid())
+  ruleId String @map("rule_id")
+
+  /// The rule AS IT WAS when this fired. Editing or deleting the rule must not change
+  /// what a historical alarm says about itself — an inspector asking "why did this fire
+  /// at 24.0 when the spec is 25.0?" is answered from here, not from the live rule.
+  ruleSnapshot Json @map("rule_snapshot") @db.JsonB
+
+  instrumentId String      @map("instrument_id")
+  metric       AlarmMetric
+  /// The reading that tripped it. NULL for OFFLINE, which has no value.
+  triggeredValue Float?        @map("triggered_value")
+  severity       AlarmSeverity
+  state          AlarmState    @default(ACTIVE)
+
+  raisedAt  DateTime  @default(now()) @map("raised_at") @db.Timestamptz(3)
+  clearedAt DateTime? @map("cleared_at") @db.Timestamptz(3)
+
+  /// Acknowledgement is independent of clearing: a cleared-but-unacknowledged alarm is
+  /// exactly the overnight excursion someone must still answer for in the morning.
+  acknowledgedAt    DateTime? @map("acknowledged_at") @db.Timestamptz(3)
+  acknowledgedBy    String?   @map("acknowledged_by")
+  acknowledgeReason String?   @map("acknowledge_reason")
+
+  /// Restrict on BOTH: an alarm is a regulated record, so deleting an instrument or a
+  /// rule must not erase the history of what it did.
+  rule       AlarmRule  @relation(fields: [ruleId], references: [id], onDelete: Restrict)
+  instrument Instrument @relation(fields: [instrumentId], references: [id], onDelete: Restrict)
+
+  @@index([state, raisedAt(sort: Desc)])
+  @@index([instrumentId, raisedAt(sort: Desc)])
+  @@index([acknowledgedAt])
+  @@map("alarms")
+}
+
+enum AlarmMetric {
+  TEMPERATURE
+  HUMIDITY
+  OFFLINE
+}
+
+enum AlarmComparison {
+  ABOVE
+  BELOW
+  OUTSIDE_RANGE
+}
+
+enum AlarmSeverity {
+  CRITICAL
+  MAJOR
+  MINOR
+}
+
+enum AlarmState {
+  ACTIVE
+  CLEARED
+}
+
 model FunctionalLocation {
   id       String                 @id @default(uuid())
   name     String
@@ -820,6 +927,7 @@ model FunctionalLocation {
   parent      FunctionalLocation?  @relation("FlTree", fields: [parentId], references: [id], onDelete: Restrict)
   children    FunctionalLocation[] @relation("FlTree")
   instruments Instrument[]
+  alarmRules  AlarmRule[]
 
   /// Unique per parent, so two Blocks may each own an "QC" area. NOTE: Postgres
   /// treats NULLs as DISTINCT, so this does NOT make top-level Block names
@@ -900,6 +1008,9 @@ model Instrument {
   /// instruments fails loudly instead of orphaning them.
   functionalLocationId String?             @map("functional_location_id")
   functionalLocation   FunctionalLocation? @relation(fields: [functionalLocationId], references: [id], onDelete: Restrict)
+
+  alarmRules AlarmRule[]
+  alarms     Alarm[]
 
   @@index([gatewayId])
   @@index([profileId])
