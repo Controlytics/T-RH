@@ -118,3 +118,6 @@ old/db-backups/*
 # customer install). Operator data, not source; a floor layout in particular
 # should not end up in the repo.
 apps/api/uploads/
+
+# Superpowers brainstorming visual companion (local mockups)
+.superpowers/
