@@ -2290,3 +2290,39 @@ sanitisation, a probe at 27 C in a 25 C room reads OUT_OF_SPEC, 594 raw history
 points bucket to 18 at 24h and 4 at 7d. **Not verified by me: the rendered UI** —
 Playwright cannot reach the API through the self-signed cert, so every browser
 check was handed to the operator.
+
+---
+
+## 2026-08-13 — Functional Locations (project A of four) — DONE
+
+Spec: `docs/superpowers/specs/2026-08-13-functional-locations-design.md`
+Plan: `docs/superpowers/plans/2026-08-13-functional-locations.md`
+
+Operator asked for a Functional Locations sidebar feature plus a ThingsBoard-style
+dashboard. Decomposed into four projects; **A is complete**, B/C/D not started.
+
+- [x] **A — Functional Locations.** Block > Area tree, ONE nullable FK for
+      exclusivity, 7 endpoints, page with tree + create dialog + instrument linking,
+      4 permissions / 3 reauth actions / 1 sidebar item / 10th tree group / 4 audit
+      actions, hand-authored migration seeding 2 Blocks + 2 Areas + 5 links from the
+      free-text block/area values. Drift guard PASS. Verified in a real browser,
+      zero console errors.
+- [ ] **B — Dashboard drill-down.** 3 entry cards (All Instruments / CWH Block /
+      Alarms), Block -> Area drill-down, functional-location filter, and only the
+      Tabular + Graphical views on the page. Depends on A; the Alarms card needs C.
+- [ ] **C — Alarm subsystem.** Rules, evaluation, acknowledgement, history,
+      notifications. LARGE — the previous one in this lineage was 5 models and 22
+      files. Operator explicitly chose to build it rather than substitute an
+      out-of-spec count. Own spec required.
+- [ ] **D — Role/user instrument visibility, keyed to functional locations.**
+      Supersedes an earlier design that scoped by the free-text block/area fields;
+      scoping by FL removes the typo and rename fragility. Two levels: role default
+      plus per-user override (the operator needs different users in the SAME role to
+      see different instruments), following the existing user_configs / role_configs
+      precedent, with NULL = inherit and [] = see nothing. Must be enforced
+      SERVER-SIDE on all eight instrument read paths, not hidden in the UI.
+
+**Still open from earlier the same day:** drop the 4 gateways from the dashboard
+readings table (they can never report a value); and the instrument create form still
+enforces a charset pattern on Instrument ID that would reject `CWH-I/142` — a code
+the operator's own floorplan already uses.

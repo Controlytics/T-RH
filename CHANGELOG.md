@@ -1,5 +1,75 @@
 # Changelog
 
+## [Unreleased] — Functional Locations (2026-08-13, project A of four)
+
+A sidebar feature for grouping instruments into a two-level **Block → Area** tree.
+An instrument belongs to **at most one** functional location. This becomes the
+authoritative logical grouping, superseding the free-text `block`/`area` columns.
+
+Operator request covered four projects; this is **A only**. B (dashboard drill-down
+with 3 entry cards and an FL filter), C (alarm subsystem), D (role/user instrument
+visibility keyed to functional locations) each get their own spec. Spec:
+`docs/superpowers/specs/2026-08-13-functional-locations-design.md`; plan:
+`docs/superpowers/plans/2026-08-13-functional-locations.md`.
+
+### Added
+- **Model `FunctionalLocation`** + enum `FunctionalLocationType` (BLOCK / AREA),
+  self-relation for the tree, and `Instrument.functionalLocationId`.
+  **31 → 32 models, 6 → 7 enums.**
+- **Module `functional-locations`** (21 → 22) with 7 endpoints at
+  `/api/functional-locations`: tree, one location, create, update, delete,
+  `PUT /:id/instruments`, and `GET /linkable-instruments`.
+- **Page `/functional-locations`** (45 → 46 routes): the tree with instrument
+  counts, a create/rename dialog, and the Relation panel for linking instruments.
+- **4 permissions** (38), **3 reauth actions** (44), **1 sidebar item** (12), a
+  **10th PERMISSION_TREE group** with 4 configurable nodes (30 → 34), and 4 audit
+  actions with templates.
+- Migration `20260813154500_functional_locations`, hand-authored.
+
+### Changed
+- The free-text `Instrument.block` / `.area` columns are **superseded** — no longer
+  read for grouping. **The columns are kept**, deliberately: a bad migration
+  mapping must stay comparable and correctable. Dropping them is a follow-up once
+  the tree is confirmed. `location` survives as descriptive text.
+
+### Design notes worth keeping
+- **Exclusivity is structural.** "An instrument in one location cannot be in
+  another" is one-to-many, so it is a single nullable FK — the illegal state is
+  unrepresentable rather than forbidden by a rule someone must remember. A join
+  table would have permitted it and then needed a partial unique index to ban it.
+- **Instruments may attach to a Block directly**, not only to an Area. The live data
+  required it: `IOTGW_01` has `block = CWH` with no area, so an Area-only model had
+  nowhere to put it. Consequently a Block's instruments are its own **plus** all its
+  Areas', resolved by the single `resolveLocationIds()`. Querying
+  `functionalLocationId = :id` directly silently omits the Areas — the likeliest bug
+  in this feature, and why that helper exists.
+- **Depth is capped at 2** and enforced server-side in `validation.ts`, not just in
+  the form. An unknown id resolves to `[]`, never to every id, so a stale id cannot
+  degrade into "no filter".
+- **Delete is refused (409) while a location holds instruments or areas**, naming
+  the counts. The FK is RESTRICT so the database would refuse anyway, but a
+  constraint error is not something an operator can act on.
+- **`@@unique([parentId, name])` does not make Block names unique** — Postgres
+  treats NULLs as distinct. Service-layer check covers it; the SQL says so at the
+  index rather than leaving a reader to assume.
+
+### Migration result, verified against the live database
+2 Blocks (`CWH`, `Block C`), 2 Areas (`Module-E`, `Sterile Core`), **5 instruments
+linked, 15 left unlinked**:
+
+```
+CWH-01/02/03    [CWH/Module-E]         → Module-E
+GWV-1785990849  [Block C/Sterile Core] → Sterile Core
+IOTGW_01        [CWH/-]                → CWH   (Block, directly)
+```
+
+### Verification
+api + web `tsc` clean, `vite build` clean, migration drift guard **PASS**, shared
+suite at its 3-failure baseline, web suite at its 5-failure baseline (2 `use-can` +
+3 `url-utils`, both pre-existing). Endpoints and the page were exercised in a real
+browser: tree, counts, create, rename, delete-refusal, link, move and unlink all
+confirmed with **zero console errors**.
+
 ## [Unreleased] — Instrument dashboard: table + drawn floorplan (2026-08-11)
 
 Two dashboard views over the telemetry that was already being collected but had
