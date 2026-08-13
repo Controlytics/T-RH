@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { statusClasses, readingAge } from './status';
+import { readingAge } from './status';
 import { formatSetPoint, NOT_AVAILABLE } from './set-point';
 import {
   useTelemetryOverview,
@@ -14,50 +14,57 @@ import {
  * measurement is split into ACTUAL and SET POINT, a solid status cell, and a
  * trend link per row.
  *
- * ROWS ARE INSTRUMENTS, not rooms, even though ROOM NAME leads. A room-per-row
- * table would hide every unplaced instrument, and "this probe is not assigned to
- * a room" is exactly the kind of gap this screen exists to surface.
+ * ROWS ARE INSTRUMENTS and INSTRUMENT ID leads (operator request). The room still
+ * appears beneath the ID because the SET POINT columns come FROM the room — remove
+ * it and a spec of "18.0 - 25.0" has no visible source, and an unplaced instrument
+ * becomes indistinguishable from one whose room simply has no specification.
  *
- * DP (mmWc) IS PRESENT AND ALWAYS "NA". Nothing in this system produces
- * differential pressure — there is no field for it in the schema and no AHU
- * concept. The column is here so the layout matches the reference and so adding
- * DP later is a data change rather than a re-layout. Do not mistake it for a
- * broken reading.
+ * STATUS IS ONLINE / OFFLINE ONLY (operator request, 2026-08-13), replacing the
+ * five-state in-spec/out-of-spec/not-reporting/partial/no-data cell. It reports
+ * `reporting`: is telemetry arriving within this instrument's expected interval.
  *
- * The column set is declared once in COLUMN_GROUPS below; the operator is
- * defining the final content separately, so changing the columns should be an
- * edit to that list, not a rewrite of the markup.
+ * ⚠ The out-of-spec signal did NOT disappear with it — it moved to the value
+ * cells, which render red and bold when a reading breaches its room's limits. An
+ * instrument can legitimately read ONLINE while its temperature cell is red: the
+ * probe is healthy, the room is not. Do not "tidy up" that red styling; it is now
+ * the only place a limit breach is visible on this screen.
+ *
+ * DP (mmWc) WAS REMOVED at the operator's request (2026-08-13). Nothing in this
+ * system produces differential pressure — no schema field, no AHU concept — so the
+ * column only ever showed NA. Re-adding it means adding the data first.
+ *
+ * COLOURS FOLLOW THE APP THEME (`--theme-*`, set by Config → Branding) rather
+ * than being hardcoded. Header bands use `--theme-primary-dark`, which is the
+ * 700-level tone in every preset and so keeps white header text above 4.5:1;
+ * `--theme-primary` is NOT used behind white text — several presets sit near
+ * 3.7:1 there, which fails for 11px type.
+ *
+ * The column set is declared once in COLUMN_GROUPS; the operator is defining the
+ * final content separately, so changing columns should be an edit to that list.
  */
 
-/** Dark, dense styling — scoped to this table. The rest of the app is light. */
 const CELL = 'px-3 py-2 text-center text-[13px] whitespace-nowrap';
-const HEAD = 'px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-100';
+const HEAD = 'px-3 py-2 text-[11px] font-bold uppercase tracking-wide';
 
-/**
- * Header layout. `sub` = the ACTUAL / SET POINT pair under a measurement group;
- * a group with no `sub` spans both header rows.
- */
 const COLUMN_GROUPS = [
-  { key: 'room', label: 'Room Name', align: 'left' as const },
+  { key: 'code', label: 'Instrument ID', align: 'left' as const },
   { key: 'temp', label: 'Temp. (°C)', sub: ['Actual', 'Set Point'] },
   { key: 'rh', label: 'RH (%)', sub: ['Actual', 'Set Point'] },
-  { key: 'dp', label: 'DP (mmWc)', sub: ['Actual', 'Set Point'] },
   { key: 'status', label: 'Status' },
   { key: 'trend', label: 'Mimic / Trend' },
 ];
 
 const COLSPAN = COLUMN_GROUPS.reduce((n, g) => n + (g.sub ? g.sub.length : 1), 0);
 
-type SortKey = 'room' | 'temperature' | 'humidity' | 'status';
+type SortKey = 'code' | 'temperature' | 'humidity' | 'status';
 
 function sortValue(row: OverviewRow, key: SortKey): string | number {
   switch (key) {
-    // Unplaced instruments sort last ascending, rather than clustering at the top
-    // under an empty string and burying the placed ones.
-    case 'room': return row.room?.code.toLowerCase() ?? '￿';
+    case 'code': return row.code.toLowerCase();
     case 'temperature': return row.temperature?.value ?? Number.NEGATIVE_INFINITY;
     case 'humidity': return row.humidity?.value ?? Number.NEGATIVE_INFINITY;
-    case 'status': return row.status;
+    // Offline first, so the rows that need attention surface under one click.
+    case 'status': return row.reporting ? 1 : 0;
   }
 }
 
@@ -66,10 +73,22 @@ function actual(v: { value: number } | null | undefined, decimals: number): stri
   return v ? v.value.toFixed(decimals) : NOT_AVAILABLE;
 }
 
+/** True when this reading is outside the room's specification. */
+function breaches(
+  value: number | null | undefined,
+  min: number | null | undefined,
+  max: number | null | undefined,
+): boolean {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return false;
+  if (typeof min === 'number' && Number.isFinite(min) && value < min) return true;
+  if (typeof max === 'number' && Number.isFinite(max) && value > max) return true;
+  return false;
+}
+
 export function TelemetryTable() {
   const { rows, isLoading, error, refreshMs } = useTelemetryOverview();
   const { temperatureDecimals, humidityDecimals } = useTelemetrySettings();
-  const [sort, setSort] = useState<SortKey>('room');
+  const [sort, setSort] = useState<SortKey>('code');
   const [asc, setAsc] = useState(true);
   const [query, setQuery] = useState('');
 
@@ -104,7 +123,10 @@ export function TelemetryTable() {
   }
 
   const arrow = (k: SortKey) => (sort === k ? (asc ? ' ↑' : ' ↓') : '');
-  const sortable = 'cursor-pointer select-none hover:text-white';
+  const sortable = 'cursor-pointer select-none';
+  const bandTop = { background: 'var(--theme-primary-dark)', color: '#ffffff' };
+  const bandSub = { background: 'var(--theme-primary-light)', color: 'var(--theme-primary-dark)' };
+  const offlineCount = shown.filter((r) => !r.reporting).length;
 
   return (
     <div className="space-y-3">
@@ -118,31 +140,36 @@ export function TelemetryTable() {
         />
         {/* Stated, not implied: this is a poll, not a live stream. */}
         <p className="text-xs text-slate-500">
-          {shown.length} of {rows.length} instruments &middot; updates every {Math.round(refreshMs / 1000)}s
+          {shown.length} of {rows.length} instruments
+          {offlineCount > 0 && (
+            <> &middot; <span className="font-semibold text-red-700">{offlineCount} offline</span></>
+          )}
+          {' '}&middot; updates every {Math.round(refreshMs / 1000)}s
         </p>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-slate-700 shadow-soft">
-        <table className="min-w-full border-collapse bg-slate-700">
+      <div className="overflow-x-auto rounded-xl border border-slate-300 bg-white shadow-soft">
+        <table className="min-w-full border-collapse">
           <thead>
             {/* Row 1 — measurement groups. */}
-            <tr className="bg-slate-900">
+            <tr>
               {COLUMN_GROUPS.map((g) => (
                 <th
                   key={g.key}
                   colSpan={g.sub ? g.sub.length : 1}
                   rowSpan={g.sub ? 1 : 2}
-                  onClick={g.key === 'room' ? () => toggle('room') : undefined}
-                  className={`${HEAD} border border-slate-600 ${
+                  style={bandTop}
+                  onClick={g.key === 'code' ? () => toggle('code') : undefined}
+                  className={`${HEAD} border border-white/25 ${
                     g.align === 'left' ? 'text-left' : 'text-center'
-                  } ${g.key === 'room' ? sortable : ''}`}
+                  } ${g.key === 'code' ? sortable : ''}`}
                 >
-                  {g.label}{g.key === 'room' ? arrow('room') : ''}
+                  {g.label}{g.key === 'code' ? arrow('code') : ''}
                 </th>
               ))}
             </tr>
             {/* Row 2 — the ACTUAL / SET POINT pairs. */}
-            <tr className="bg-slate-800">
+            <tr>
               {COLUMN_GROUPS.filter((g) => g.sub).flatMap((g) =>
                 g.sub!.map((label) => {
                   const key: SortKey | null =
@@ -152,8 +179,9 @@ export function TelemetryTable() {
                   return (
                     <th
                       key={`${g.key}-${label}`}
+                      style={bandSub}
                       onClick={key ? () => toggle(key) : undefined}
-                      className={`${HEAD} border border-slate-600 text-center ${key ? sortable : ''}`}
+                      className={`${HEAD} border border-slate-300 text-center ${key ? sortable : ''}`}
                     >
                       {label}{key ? arrow(key) : ''}
                     </th>
@@ -165,14 +193,14 @@ export function TelemetryTable() {
           <tbody>
             {isLoading && rows.length === 0 && (
               <tr>
-                <td colSpan={COLSPAN} className="px-4 py-8 text-center text-sm text-slate-300">
+                <td colSpan={COLSPAN} className="px-4 py-8 text-center text-sm text-slate-500">
                   Loading&hellip;
                 </td>
               </tr>
             )}
             {!isLoading && shown.length === 0 && (
               <tr>
-                <td colSpan={COLSPAN} className="px-4 py-8 text-center text-sm text-slate-300">
+                <td colSpan={COLSPAN} className="px-4 py-8 text-center text-sm text-slate-500">
                   {rows.length === 0
                     ? 'No instruments registered yet.'
                     : 'No instruments match that filter.'}
@@ -180,80 +208,78 @@ export function TelemetryTable() {
               </tr>
             )}
             {shown.map((r, i) => {
-              const c = statusClasses(r.status);
-              const breach = r.status === 'OUT_OF_SPEC';
-              // Whichever slot reported most recently — a probe sending only
-              // temperature must still show a real age, not "Never".
               const latest = [r.temperature?.ts, r.humidity?.ts].filter(Boolean).sort().pop() ?? null;
-              const band = i % 2 === 0 ? 'bg-slate-700' : 'bg-slate-600';
-              const value = `${CELL} tabular-nums ${breach ? 'font-bold text-rose-200' : 'text-white'}`;
-              const spec = `${CELL} tabular-nums text-slate-200`;
+              const band = i % 2 === 0 ? 'bg-white' : 'bg-slate-50';
+              // The limit breach lives HERE now that the status cell is
+              // online/offline. Losing this styling loses the compliance signal.
+              const tempBad = breaches(r.temperature?.value, r.limits?.tempMin, r.limits?.tempMax);
+              const rhBad = breaches(r.humidity?.value, r.limits?.rhMin, r.limits?.rhMax);
+              const val = (bad: boolean) =>
+                `${CELL} tabular-nums border border-slate-300 ${
+                  bad ? 'bg-red-100 font-bold text-red-800' : 'text-slate-800'
+                }`;
+              const spec = `${CELL} tabular-nums border border-slate-300 text-slate-600`;
 
               return (
-                <tr key={r.instrumentId} className={`${band} hover:bg-slate-500`}>
-                  <td className={`${CELL} border border-slate-600 text-left`}>
-                    {r.room ? (
-                      <>
-                        <span className="font-semibold text-white">{r.room.code}</span>
-                        {r.room.label && <span className="text-slate-200"> ({r.room.label})</span>}
-                      </>
-                    ) : (
-                      <span className="text-slate-300 italic">Not placed</span>
-                    )}
-                    {/* The instrument is still identified — this is an instrument
-                        row, and two probes in one room must be distinguishable. */}
-                    <div className="text-[11px] text-slate-300">{r.code}</div>
-                  </td>
-
-                  <td className={`${value} border border-slate-600`}>
-                    {actual(r.temperature, temperatureDecimals)}
-                  </td>
-                  <td className={`${spec} border border-slate-600`}>
-                    {formatSetPoint(r.limits?.tempMin, r.limits?.tempMax, temperatureDecimals)}
-                  </td>
-
-                  <td className={`${value} border border-slate-600`}>
-                    {actual(r.humidity, humidityDecimals)}
-                  </td>
-                  <td className={`${spec} border border-slate-600`}>
-                    {formatSetPoint(r.limits?.rhMin, r.limits?.rhMax, humidityDecimals)}
-                  </td>
-
-                  {/* DP: no source in this system. See the file header. */}
-                  <td className={`${spec} border border-slate-600`}>{NOT_AVAILABLE}</td>
-                  <td className={`${spec} border border-slate-600`}>{NOT_AVAILABLE}</td>
-
-                  {/* Solid status cell, as in the reference table. The WORD is in
-                      the cell — colour is never the only signal. */}
-                  <td className={`border border-slate-600 p-0`}>
-                    <div
-                      className={`flex h-full items-center justify-center gap-1.5 px-3 py-2 text-[12px] font-bold uppercase tracking-wide text-white ${
-                        r.status === 'OK' ? 'bg-emerald-700'
-                        : r.status === 'OUT_OF_SPEC' ? 'bg-red-700'
-                        : r.status === 'NO_DATA' ? 'bg-slate-500'
-                        : 'bg-amber-700'
-                      }`}
+                <tr key={r.instrumentId} className={`${band} hover:bg-slate-100`}>
+                  <td className={`${CELL} border border-slate-300 text-left`}>
+                    <Link
+                      to={`/instruments/${r.instrumentId}`}
+                      className="font-semibold text-slate-900 hover:underline"
                     >
-                      <span className={`h-1.5 w-1.5 rounded-full ${c.dot}`} />
-                      {c.label}
+                      {r.code}
+                    </Link>
+                    {/* Name, and the room the SET POINT comes from. Without the
+                        room here, "18.0 - 25.0" has no visible source and an
+                        unplaced instrument looks identical to one with no spec. */}
+                    <div className="text-[11px] text-slate-500">
+                      {r.name}
+                      {r.room
+                        ? <> &middot; {r.room.code}{r.room.label ? ` (${r.room.label})` : ''}</>
+                        : <span className="italic"> &middot; not placed</span>}
                     </div>
                   </td>
 
-                  <td className={`${CELL} border border-slate-600`}>
+                  <td className={val(tempBad)}>{actual(r.temperature, temperatureDecimals)}</td>
+                  <td className={spec}>
+                    {formatSetPoint(r.limits?.tempMin, r.limits?.tempMax, temperatureDecimals)}
+                  </td>
+
+                  <td className={val(rhBad)}>{actual(r.humidity, humidityDecimals)}</td>
+                  <td className={spec}>
+                    {formatSetPoint(r.limits?.rhMin, r.limits?.rhMax, humidityDecimals)}
+                  </td>
+
+                  {/* ONLINE / OFFLINE — solid cell, as the reference table does it.
+                      The word carries the meaning; the colour only reinforces it. */}
+                  <td className="border border-slate-300 p-0">
+                    <div
+                      className={`flex items-center justify-center gap-1.5 px-3 py-2 text-[12px] font-bold uppercase tracking-wide text-white ${
+                        r.reporting ? 'bg-emerald-600' : 'bg-red-600'
+                      }`}
+                      title={r.reporting
+                        ? `Reporting — last reading ${readingAge(latest)}`
+                        : `No telemetry within the expected interval — last reading ${readingAge(latest)}`}
+                    >
+                      {r.reporting ? 'Online' : 'Offline'}
+                    </div>
+                  </td>
+
+                  <td className={`${CELL} border border-slate-300`}>
                     <div className="flex items-center justify-center gap-2">
                       <Link
                         to={`/instruments/${r.instrumentId}`}
-                        className="font-semibold text-sky-200 hover:text-white hover:underline"
+                        className="font-semibold hover:underline"
+                        style={{ color: 'var(--theme-primary-dark)' }}
                       >
                         {r.code}
                       </Link>
-                      {/* Trend only where there is a room to chart. */}
                       {r.room && (
                         <Link
                           to={`/instruments/${r.instrumentId}`}
                           title={`Trend — last reading ${readingAge(latest)}`}
                           aria-label={`Trend for ${r.code}`}
-                          className="text-slate-200 hover:text-white"
+                          className="text-slate-500 hover:text-slate-800"
                         >
                           <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 17l4-6 4 3 5-8 5 6" />

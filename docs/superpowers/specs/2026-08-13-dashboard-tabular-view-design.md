@@ -22,6 +22,13 @@ existing tabular view.
 
 ## What the reference asks for, and what this system has
 
+**Amended 2026-08-13 after seeing it:** the first column is **Instrument ID**, not
+Room Name; the **DP group was removed**; and the STATUS cell is **Online / Offline**
+only. The limit-breach signal moved into the value cells (red, bold) — an
+instrument can read ONLINE while its temperature cell is red, because the probe is
+healthy and the room is not. Table colours follow the app theme rather than the
+reference's hardcoded dark grey.
+
 | Reference column | Source here | Status |
 |---|---|---|
 | ROOM NAME | `FloorplanRoom.code` + `label` | exists |
@@ -29,8 +36,8 @@ existing tabular view.
 | TEMP. (°C) — SET POINT | `FloorplanRoom.tempMin/tempMax` | exists, newly exposed |
 | RH (%) — ACTUAL | same overview endpoint | exists |
 | RH (%) — SET POINT | `FloorplanRoom.rhMin/rhMax` | exists, newly exposed |
-| DP (mmWc) — ACTUAL / SET POINT | **nothing** | always `NA` |
-| STATUS | `computeInstrumentStatus` (5 states) | exists |
+| DP (mmWc) — ACTUAL / SET POINT | **nothing** | REMOVED on request |
+| STATUS | `reporting` → Online / Offline | exists |
 | MIMIC / TREND | instrument link + trend glyph | exists |
 
 **DP has no source.** There is no differential-pressure field in the schema and no
