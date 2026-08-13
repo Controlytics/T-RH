@@ -1,6 +1,32 @@
 # Changelog
 
-## [Unreleased] — Colourful UI: per-module palettes (2026-08-13, wave 1)
+## [Unreleased] — Colourful UI: theme-wide colour (2026-08-13, wave 1)
+
+**Superseded the per-module palette design the same day.** Per-module hues were
+chosen from rendered mock-ups and rejected on sight — "each page background is each
+color i want one color based or themed base". Eleven hues read as eleven unrelated
+apps. The whole application now takes ONE hue, from the theme selected on
+Config → Branding.
+
+- `lib/theme-surfaces.ts` derives the page surfaces from the active theme;
+  `applyTheme()` writes `--theme-*` (chrome) and `--ui-*` (page) in one call so they
+  cannot disagree. `text`/`muted` are darkened until they measurably clear AA against
+  the exact tint they sit on, rather than being hand-picked for 10 presets.
+- `lib/__tests__/theme-surfaces.test.ts` (55 tests) asserts all 10 presets clear AA
+  on cards, alt rows, canvas and the table band — plus that headings stay darker than
+  secondary text, so the hierarchy cannot silently collapse.
+- Removed: `lib/module-palettes.ts`, `hooks/use-module-palette.ts` and both test
+  files. `--mod-*` → `--ui-*`; `.bg-module-canvas` → `.bg-app-canvas`.
+- Everything else — surface tokens, compatibility layer, harmonisation layer,
+  primitives, tint depths — is unchanged. Only the SOURCE of the hue moved, which is
+  a property of having put it behind CSS custom properties rather than recolouring
+  pages directly.
+- Measured ceiling across all presets: slate-700 stops clearing AA past a 43% tint.
+  Cards 26%, alt rows 36%, canvas 46/40/34%.
+
+Detail of the original wave-1 work below (mechanism unchanged).
+
+## [Unreleased] — Colourful UI: per-module palettes, superseded (2026-08-13, wave 1)
 
 Every page takes its module's colour. Operator brief was "each and every page
 should be colorful, i dont want white background to all pages". Direction chosen

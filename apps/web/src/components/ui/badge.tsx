@@ -22,8 +22,8 @@ const variants = {
   // measured 6.97-7.90:1. Now a WHITE face: once the tints deepened to 22%/34%
   // the 55% border-tint was too dark to leave unvalidated, and white is distinct
   // from both row tints at ANY depth (slate-700 on white = 10.35:1).
-  default: 'bg-surface-raised text-slate-700 border border-[var(--mod-from)]/40',
-  secondary: 'bg-surface-raised text-slate-700 border border-[var(--mod-from)]/40',
+  default: 'bg-surface-raised text-slate-700 border border-[var(--ui-from)]/40',
+  secondary: 'bg-surface-raised text-slate-700 border border-[var(--ui-from)]/40',
   outline: 'text-slate-700 border-2 border-slate-300 bg-surface-raised',
   destructive: 'bg-red-700 text-white border border-red-800',
   success: 'bg-emerald-700 text-white border border-emerald-800',

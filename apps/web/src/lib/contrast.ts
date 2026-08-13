@@ -1,12 +1,12 @@
 /**
  * sRGB relative luminance + WCAG contrast ratios.
  *
- * Exists so the module palettes in `module-palettes.ts` are MEASURED rather than
- * eyeballed. The first draft of that file reused each palette's gradient start as
- * its table-header band; white body text on those 600-level mid-tones measured
- * 2.94-3.77:1 and failed WCAG AA on five of eleven palettes. Nothing about that
- * is visible by looking at a swatch, and this repo has no browser-based
- * verification path, so it is asserted in `module-palettes.test.ts` instead.
+ * Exists so the theme-derived page surfaces in `theme-surfaces.ts` are MEASURED
+ * rather than eyeballed. An early draft reused a theme's gradient start as its
+ * table-header band; white body text on those 600-level mid-tones measures
+ * 2.94-3.77:1 and failed WCAG AA on most presets. Nothing about that is visible
+ * by looking at a swatch, and this repo has no browser-based verification path,
+ * so it is asserted in `theme-surfaces.test.ts` instead.
  */
 
 function toRgb(hex: string): [number, number, number] {

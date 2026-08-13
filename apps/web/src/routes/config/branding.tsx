@@ -189,11 +189,10 @@ export function BrandingConfigPage() {
                   </div>
                   <div>
                     <h3 className="font-bold text-slate-800">Color Theme</h3>
-                    {/* Was "for the entire application", which was not true even before
-                        2026-08-13: these presets only ever drove the sidebar, login screen
-                        and buttons. Page colour comes from the per-module palettes in
-                        lib/module-palettes.ts. Kept to one line per the UI-copy density rule. */}
-                    <p className="text-xs text-slate-600">Sidebar, login screen and buttons. Page colours come from each module.</p>
+                    {/* This picker really does drive the whole application again as of
+                        2026-08-13: applyTheme() writes the chrome vars AND the derived page
+                        surfaces (lib/theme-surfaces.ts). One line, per the UI-copy density rule. */}
+                    <p className="text-xs text-slate-700">Sets the colour of the whole application.</p>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">

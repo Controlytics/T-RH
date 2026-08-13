@@ -2333,6 +2333,23 @@ data); curated palette map in code; delivered in waves with a review gate.
       override; `CHANGELOG.md`; relabel the Branding theme picker, which claims to
       set the app's colours while only controlling chrome.
 
+**REVERSED 2026-08-13, same day, on sight of the rendering:** per-module palettes
+are gone. The operator asked for "one color based or themed base" — eleven hues read
+as eleven unrelated apps. `lib/theme-surfaces.ts` now DERIVES the page surfaces from
+the theme selected on Config → Branding, and `applyTheme()` writes chrome + page
+together. `module-palettes.ts` and `use-module-palette.ts` deleted; `--mod-*` →
+`--ui-*`; `.bg-module-canvas` → `.bg-app-canvas`. All 10 presets contrast-asserted
+(55 tests). Every other layer — tokens, compatibility layer, harmonisation,
+primitives, depths — survived untouched, because the hue was behind CSS custom
+properties rather than painted into pages.
+
+**Also tuned twice on operator feedback:** "not good" → tints were too pale (6% cards
+under an 18% canvas); then "above cards ... not matching with background" → the real
+fault was ~546 surfaces that never followed the hue at all (460 hardcoded foreign-hue
+panels + 86 deferred gradient stops), now neutralised centrally, plus a tighter
+20-point canvas-to-card gap (26% cards under 46/40/34% canvas). Semantic red / amber /
+emerald / green left alone — they carry meaning.
+
 **Two accessibility regressions caught by measurement, before any of it shipped:**
 five of eleven palettes failed AA when the table-header band reused the gradient
 start (2.94–3.77:1), and `text-slate-500` (459 uses, incl. `CardDescription`)

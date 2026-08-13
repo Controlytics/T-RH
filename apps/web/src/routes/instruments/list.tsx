@@ -71,14 +71,14 @@ function SummaryTile({
   // These tiles are FILTER TOGGLES, so StatTile is composed inside the button
   // rather than used in place of it — the pressed state must stay legible, and a
   // gradient alone cannot carry it. Pressed = ring + lift; unpressed = flat.
-  const toneFor = tone === 'active' ? 'positive' : tone === 'inactive' ? 'warning' : 'module';
+  const toneFor = tone === 'active' ? 'positive' : tone === 'inactive' ? 'warning' : 'themed';
   return (
     <button
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`block w-full rounded-2xl text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[var(--mod-from)] ${
-        active ? 'ring-4 ring-[var(--mod-from)]/40 ring-offset-2 -translate-y-0.5' : ''
+      className={`block w-full rounded-2xl text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[var(--ui-from)] ${
+        active ? 'ring-4 ring-[var(--ui-from)]/40 ring-offset-2 -translate-y-0.5' : ''
       }`}
     >
       <StatTile
@@ -159,7 +159,7 @@ export function InstrumentListPage() {
   return (
     <div className="space-y-6">
       {/* The one place the brand gradient is spent on this page. */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[var(--mod-from)] to-[var(--mod-to)] p-6 text-white shadow-lg">
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[var(--ui-from)] to-[var(--ui-to)] p-6 text-white shadow-lg">
         <div className="relative z-10 flex flex-wrap items-start justify-between gap-4">
           <div>
             {profileId ? (
@@ -235,7 +235,7 @@ export function InstrumentListPage() {
       <div className="overflow-hidden rounded-2xl border border-border-tint bg-surface shadow-soft">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-[var(--mod-table-head)] text-left">
+            <tr className="bg-[var(--ui-table-head)] text-left">
               <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-white">Instrument</th>
               <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-white">Status</th>
               <th className="px-4 py-3" />
@@ -250,7 +250,7 @@ export function InstrumentListPage() {
               <tr>
                 <td colSpan={3} className="px-4 py-14 text-center">
                   <div
-                    className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[var(--mod-from)] to-[var(--mod-to)] text-white shadow-md"
+                    className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[var(--ui-from)] to-[var(--ui-to)] text-white shadow-md"
                   >
                     <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
@@ -289,7 +289,7 @@ export function InstrumentListPage() {
                       {r.name}
                       {r.isGateway && (
                         <span
-                          className="rounded-md bg-gradient-to-r from-[var(--mod-from)] to-[var(--mod-to)] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white"
+                          className="rounded-md bg-gradient-to-r from-[var(--ui-from)] to-[var(--ui-to)] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white"
                         >
                           Gateway
                         </span>
@@ -324,7 +324,7 @@ export function InstrumentListPage() {
                 <td className="px-4 py-3 text-right">
                   <Link
                     to={`/instruments/${r.id}`}
-                    className="inline-flex items-center gap-1 rounded-lg border border-border-tint bg-surface-raised px-2.5 py-1.5 text-xs font-semibold text-[var(--mod-muted)] transition-colors hover:border-[var(--mod-from)] hover:bg-surface-alt"
+                    className="inline-flex items-center gap-1 rounded-lg border border-border-tint bg-surface-raised px-2.5 py-1.5 text-xs font-semibold text-[var(--ui-muted)] transition-colors hover:border-[var(--ui-from)] hover:bg-surface-alt"
                   >
                     Open
                     <svg className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

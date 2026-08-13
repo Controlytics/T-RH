@@ -11,12 +11,12 @@ export function Table({ className, ...props }: React.HTMLAttributes<HTMLTableEle
 }
 
 /**
- * Solid module-coloured band. --mod-table-head is a 700-level colour precisely so
- * white header text clears 4.5:1 — the 600-level gradient start does NOT
- * (2.94-3.77:1 across the palette set). See lib/module-palettes.ts.
+ * Solid themed band. --ui-table-head is derived to clear 4.5:1 against white; the
+ * 600-level gradient start does NOT (2.94-3.77:1 across the presets), which is why
+ * it is a separate token. See lib/theme-surfaces.ts.
  */
 export function TableHeader({ className, ...props }: React.HTMLAttributes<HTMLTableSectionElement>) {
-  return <thead className={cn('bg-[var(--mod-table-head)]', className)} {...props} />;
+  return <thead className={cn('bg-[var(--ui-table-head)]', className)} {...props} />;
 }
 
 export function TableBody({ className, ...props }: React.HTMLAttributes<HTMLTableSectionElement>) {
@@ -24,7 +24,7 @@ export function TableBody({ className, ...props }: React.HTMLAttributes<HTMLTabl
 }
 
 /**
- * Rows alternate between the two module tints. Hover lands on the heavier tint so
+ * Rows alternate between the two theme tints. Hover lands on the heavier tint so
  * the pointer still gives feedback — a row that hovered to white would break the
  * tinted surface (and is exactly what the app.css hover overrides prevent on the
  * pages that don't use this primitive).

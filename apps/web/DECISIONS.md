@@ -237,3 +237,48 @@ that it has.
 the test suite (baseline of 5 pre-existing failures held), and greps against the
 compiled `dist/assets/*.css`. **None of it was verified by looking at the rendered
 UI** — that was handed to the operator.
+
+---
+
+## 2026-08-13 (later the same day) — per-module palettes REPLACED by one theme-wide hue
+
+**Decision.** The page hue comes from the theme selected on Config → Branding, not
+from the route. `applyTheme()` writes `--theme-*` (chrome) **and** `--ui-*` (page
+surfaces, derived by `lib/theme-surfaces.ts`) in one call, so the two halves cannot
+disagree about which theme is active.
+
+**Why the reversal.** The per-module design (a hue per module: Dashboard indigo,
+Instruments teal, Audit amber…) was chosen from rendered mock-ups and rejected once
+it was on screen: *"each page background is each color i want one color based or
+themed base."* On a real screen, eleven hues read as eleven unrelated apps rather
+than one product. The mock-up showed two modules side by side, which is exactly the
+comparison that makes per-module colour look appealing and hides the incoherence.
+
+**Deleted:** `lib/module-palettes.ts`, `hooks/use-module-palette.ts` and both their
+test files. `AppLayout` no longer mounts a palette hook. `.bg-module-canvas` became
+`.bg-app-canvas`; `--mod-*` became `--ui-*`.
+
+**Kept, unchanged in substance:** every surface token, the compatibility layer, the
+harmonisation layer, the primitives and the tint depths. Only the SOURCE of the hue
+changed. That the swap was a small diff is a property of having put the hue behind
+CSS custom properties in the first place — if pages had been recoloured directly,
+this reversal would have been a rewrite.
+
+**Derived, not declared.** There are 10 presets. Hand-picking four page surfaces for
+each is 40 values and is how contrast failures get in — the earlier per-module set
+shipped two AA failures that only measurement caught. So `text` and `muted` are
+produced by darkening the theme's own `primary` in 4% steps until they measurably
+clear their target against the exact tint they will sit on (7:1 for headings, 4.5:1
+for secondary), and `tableHead` is guarded the same way against white.
+`theme-surfaces.test.ts` asserts all 10 presets, including that headings stay darker
+than secondary text — otherwise the hierarchy the 7:1 target exists to create can
+silently collapse.
+
+**Measured ceiling.** Across all 10 presets, slate-700 stops clearing AA past a
+**43%** tint. Cards sit at 26% and alt rows at 36%, so there is real headroom; the
+canvas at 46% is above that line, which is why text on the canvas must be slate-800
+or `--ui-text`, both of which are checked.
+
+**The Branding label is honest again.** It briefly read "Sidebar, login screen and
+buttons" — correct while the presets only drove chrome. It now reads "Sets the
+colour of the whole application", which is true again.

@@ -2,7 +2,7 @@ import { cn } from '@/lib/cn';
 
 interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   /**
-   * Adds the module-coloured gradient strip along the top edge. Use on the main
+   * Adds the themed gradient strip along the top edge. Use on the main
    * card of a page; using it on every card on a screen reads as stripes.
    */
   banded?: boolean;
@@ -20,7 +20,7 @@ export function Card({ className, banded, children, ...props }: CardProps) {
     >
       {banded ? (
         <div
-          className="h-1.5 bg-gradient-to-r from-[var(--mod-from)] to-[var(--mod-to)]"
+          className="h-1.5 bg-gradient-to-r from-[var(--ui-from)] to-[var(--ui-to)]"
           aria-hidden="true"
         />
       ) : null}
@@ -37,7 +37,7 @@ export function CardTitle({ className, ...props }: React.HTMLAttributes<HTMLHead
   return (
     <h3
       className={cn(
-        'text-xl font-semibold leading-none tracking-tight text-[var(--mod-text)]',
+        'text-xl font-semibold leading-none tracking-tight text-[var(--ui-text)]',
         className,
       )}
       {...props}

@@ -136,14 +136,20 @@ profile photo upload silently 401'd until 2026-08-11.
   static `default-roles` map + drift-guard were retired for the live matrix.
 
 ## Theme
-**Per-module colour since 2026-08-13.** The previous line here — "unified light theme:
+**Theme-wide colour since 2026-08-13.** The previous line here — "unified light theme:
 bg-white cards, bg-slate-50 sections" — is no longer true.
 
-- `--theme-*` (`lib/themes.ts`) owns CHROME: sidebar, login, primary buttons.
-- `--mod-*` (`lib/module-palettes.ts` + `hooks/use-module-palette.ts`) owns PAGE:
-  canvas (`bg-module-canvas` on `<main>`), cards, tables, stat tiles, header bands.
+- ONE hue for the whole app, from the theme picked on Config → Branding.
+- `applyTheme()` (`lib/themes.ts`) writes BOTH halves, so they cannot disagree:
+  `--theme-*` for CHROME (sidebar, login, primary buttons) and `--ui-*` for PAGE
+  (canvas `bg-app-canvas` on `<main>`, cards, tables, stat tiles, bands).
+- `--ui-*` is **derived** from the theme by `lib/theme-surfaces.ts` — `text` and
+  `muted` are darkened until they measurably clear AA on the tint they will sit on.
+  All 10 presets are asserted in `lib/__tests__/theme-surfaces.test.ts`.
+- A per-module palette set (a hue per module) was built first and **rejected on
+  sight** — it read as eleven unrelated apps. Don't reintroduce it.
 - Surface tokens `bg-surface` / `bg-surface-alt` / `bg-surface-raised` /
-  `border-border-tint` are `color-mix` derivations of `--mod-from`, defined once in
+  `border-border-tint` are `color-mix` derivations of `--ui-from`, defined once in
   `app.css`. Use these in new code; `bg-surface-raised` is true white and is what form
   fields use so they still read as enterable on a tinted card.
 - **`bg-white` resolves to `bg-surface`** via the compatibility layer at the end of

@@ -5,7 +5,6 @@ import { useSession } from '@/hooks/use-session';
 import { useSingleTab } from '@/hooks/use-single-tab';
 import { useBranding } from '@/hooks/use-branding';
 import { useDragScroll } from '@/hooks/use-drag-scroll';
-import { useModulePalette } from '@/hooks/use-module-palette';
 import { SuperAdminLockdownScreen } from '@/components/super-admin-api-access';
 import { useSuperAdminLock } from '@/hooks/use-super-admin-lock';
 import { Sidebar } from './sidebar';
@@ -16,10 +15,6 @@ import useSWR from 'swr';
 
 export function AppLayout() {
   useDragScroll(); // App-wide click-drag horizontal panning for wide tables/grids
-  // Writes --mod-* for the current route; every surface tint in app.css derives
-  // from it. MUST stay above the early returns below — below them it would run
-  // conditionally and React would throw.
-  useModulePalette();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { user, isAuthenticated, isLoading, logout } = useAuth();
   // Super Admin API kill-switch. When OFF and the current user is a SUPER_ADMIN,
@@ -174,7 +169,7 @@ export function AppLayout() {
       <Sidebar userRole={user?.role ?? ''} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header user={user} onLogout={logout} onMenuToggle={() => setSidebarOpen(o => !o)} />
-        <main className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6 bg-module-canvas">
+        <main className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6 bg-app-canvas">
           <Outlet />
         </main>
       </div>

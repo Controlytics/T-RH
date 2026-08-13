@@ -1,12 +1,12 @@
 import { cn } from '@/lib/cn';
 
 /**
- * Tone drives the gradient. `module` follows the current page's palette; the
- * other three carry MEANING and so are fixed hues — a status must not change
- * colour because the user navigated to a different module.
+ * Tone drives the gradient. `themed` follows the selected theme; the other three
+ * carry MEANING and so are FIXED hues — success must not turn amber because
+ * someone picked the Sunset theme.
  */
 const TONES = {
-  module: 'from-[var(--mod-from)] to-[var(--mod-to)]',
+  themed: 'from-[var(--ui-from)] to-[var(--ui-to)]',
   positive: 'from-emerald-600 to-teal-600',
   warning: 'from-amber-600 to-orange-600',
   danger: 'from-rose-600 to-red-600',
@@ -27,7 +27,7 @@ export interface StatTileProps extends React.HTMLAttributes<HTMLDivElement> {
  * label is uppercase/tracked at 90% opacity. Do not put body-size prose on this
  * surface; put it under the tile.
  */
-export function StatTile({ label, value, tone = 'module', icon, className, ...rest }: StatTileProps) {
+export function StatTile({ label, value, tone = 'themed', icon, className, ...rest }: StatTileProps) {
   return (
     <div
       className={cn(

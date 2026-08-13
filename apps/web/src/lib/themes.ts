@@ -1,3 +1,5 @@
+import { applySurfacePalette } from './theme-surfaces';
+
 export interface ThemeColors {
   // Primary action colors (buttons, links, active states)
   primary: string;
@@ -225,7 +227,16 @@ export function getThemeById(id: string): Theme {
   return THEMES.find(t => t.id === id) ?? THEMES[0];
 }
 
-/** Apply theme colors as CSS custom properties on :root */
+/**
+ * Apply theme colors as CSS custom properties on :root.
+ *
+ * Writes BOTH halves of the colour system:
+ *   --theme-*  chrome (sidebar, login, primary buttons) — declared below.
+ *   --ui-*     page   (canvas, cards, tables, tiles)    — DERIVED from these
+ *              colours by lib/theme-surfaces.ts.
+ * Deriving rather than declaring is deliberate: there are 10 presets, and
+ * hand-picking page surfaces for each is how contrast failures get in.
+ */
 export function applyTheme(colors: ThemeColors): void {
   const root = document.documentElement;
   root.style.setProperty('--theme-primary', colors.primary);
@@ -240,4 +251,7 @@ export function applyTheme(colors: ThemeColors): void {
   root.style.setProperty('--theme-login-bg-start', colors.loginBgStart);
   root.style.setProperty('--theme-login-bg-end', colors.loginBgEnd);
   root.style.setProperty('--theme-focus-ring', colors.focusRing);
+  // Page surfaces, derived and contrast-checked. Imported lazily-at-module-scope
+  // (see import below) rather than inlined so the maths stays testable.
+  applySurfacePalette(colors);
 }

@@ -44,16 +44,16 @@
   --color-sidebar-muted: #94a3b8;
 
   /* Module-scoped surfaces — the PAGE half of the colour system.
-     Derived from --mod-from, which use-module-palette writes at runtime per
+     Derived from --ui-from, which use-module-palette writes at runtime per
      route. Defined once here so eleven palettes x four surfaces are not 44
      hand-picked values, and so changing the tint depth is one edit.
-     NOTE: the percentages here are asserted in lib/__tests__/module-palettes.test.ts
+     NOTE: the percentages here are asserted in lib/__tests__/theme-surfaces.test.ts
      (SURFACE_PCT / SURFACE_ALT_PCT). Change both together or the test measures a
      colour the browser no longer paints. */
-  --color-surface: color-mix(in srgb, var(--mod-from) 26%, white);
-  --color-surface-alt: color-mix(in srgb, var(--mod-from) 36%, white);
+  --color-surface: color-mix(in srgb, var(--ui-from) 26%, white);
+  --color-surface-alt: color-mix(in srgb, var(--ui-from) 36%, white);
   --color-surface-raised: #ffffff;
-  --color-border-tint: color-mix(in srgb, var(--mod-from) 55%, white);
+  --color-border-tint: color-mix(in srgb, var(--ui-from) 55%, white);
 
   /* Border radius */
   --radius-sm: 0.375rem;
@@ -85,21 +85,20 @@
   background-color: #94a3b8;
 }
 
-/* Module palette DEFAULTS — load-bearing, do not delete.
-   use-module-palette only mounts inside AppLayout, so the unauthenticated screens
-   (/login, /change-password, /forgot-password, /contact-admin) and the error
-   boundaries never get --mod-*. Without a default here, every surface token is
-   `color-mix(in srgb, var(--mod-from) 6%, white)` with an EMPTY var — invalid at
+/* Theme surface DEFAULTS — load-bearing, do not delete.
+   applyTheme() writes --ui-* from lib/theme-surfaces.ts, but only once branding
+   has loaded. Before that there is no --ui-from, and every surface token is
+   `color-mix(in srgb, var(--ui-from) 6%, white)` with an EMPTY var — invalid at
    computed-value time — and every bg-white card renders TRANSPARENT rather than
-   white. These values are the neutral FALLBACK_PALETTE in lib/module-palettes.ts;
-   keep them in step. */
+   white. Neutral slate on purpose: an un-themed flash should look like the old
+   app, not like a random hue. */
 :root {
-  --mod-id: fallback;
-  --mod-from: #475569;
-  --mod-to: #334155;
-  --mod-table-head: #334155;
-  --mod-text: #0f172a;
-  --mod-muted: #334155;
+  --ui-id: fallback;
+  --ui-from: #475569;
+  --ui-to: #334155;
+  --ui-table-head: #334155;
+  --ui-text: #0f172a;
+  --ui-muted: #334155;
 }
 
 /* 2026-05-21 UI refresh font stack */
@@ -189,29 +188,30 @@ table {
 .text-theme-primary { color: var(--theme-primary); }
 
 /* ===========================================================================
-   MODULE COLOUR — PAGE CANVAS
-   Each route gets its own hue via --mod-* (hooks/use-module-palette.ts).
+   THEME COLOUR — PAGE CANVAS
+   ONE hue for the whole app, from the theme selected on Config → Branding.
+   --ui-* is derived and written by applyTheme() (lib/theme-surfaces.ts).
    46/40/34% against the 26% card surface — a 20-POINT GAP. Tuned twice: 18/14/10
    over a 6% card read as washed out, then 58/50/44 over 22% made the cards read
    as pale islands that did not match the background. ~20 points is the value that
    keeps a card both raised AND obviously the same hue family. Keep that gap if you
    tune the depth. The CEILING is not taste: slate-800 body text fails WCAG AA
    past 65% tint and slate-600 past 32%, which is why secondary text is
-   slate-700 here. lib/__tests__/module-palettes.test.ts enforces it.
+   slate-700 here. lib/__tests__/theme-surfaces.test.ts enforces it.
    =========================================================================== */
-.bg-module-canvas {
+.bg-app-canvas {
   /* Static fallback FIRST. An unsupported color-mix invalidates the whole
      `background` declaration, which would leave the canvas with no background at
      all rather than a duller one. */
   background: linear-gradient(140deg, #f8fafc 0%, #f1f5f9 55%, #f8fafc 100%);
 }
 @supports (color: color-mix(in srgb, red, red)) {
-  .bg-module-canvas {
+  .bg-app-canvas {
     background:
       linear-gradient(140deg,
-        color-mix(in srgb, var(--mod-from) 46%, white) 0%,
-        color-mix(in srgb, var(--mod-to) 40%, white) 55%,
-        color-mix(in srgb, var(--mod-from) 34%, white) 100%);
+        color-mix(in srgb, var(--ui-from) 46%, white) 0%,
+        color-mix(in srgb, var(--ui-to) 40%, white) 55%,
+        color-mix(in srgb, var(--ui-from) 34%, white) 100%);
   }
 }
 
@@ -219,7 +219,7 @@ table {
    COMPATIBILITY LAYER — READ BEFORE EDITING A COMPONENT'S bg-white
    ---------------------------------------------------------------------------
    `bg-white` IN THIS APP NO LONGER PAINTS WHITE. It resolves to --color-surface,
-   a 6% tint of the current module's colour (lib/module-palettes.ts).
+   a 26% tint of the active theme's colour (lib/theme-surfaces.ts).
 
    Why this exists: ~57 route files paint raw bg-white themselves, and the
    authenticated UI cannot be opened in a browser from the dev environment here
@@ -308,16 +308,15 @@ table {
 /* ===========================================================================
    HARMONISATION — why cards stopped matching their background
    ---------------------------------------------------------------------------
-   Colouring the canvas exposed ~546 surfaces that did NOT follow the module
-   colour, so on a teal Instruments page you got blue and violet panels sitting
-   on teal, and cards whose gradients were still white. The tint depth was never
+   Colouring the canvas exposed ~546 surfaces that did NOT follow the theme
+   colour — blue and violet panels sitting on a teal page, and cards whose gradients were still white. The tint depth was never
    the problem; the INCONSISTENCY was.
 
    Two families are neutralised here.
 
    1. DECORATIVE foreign hues (~150 uses). bg-blue-50, bg-indigo-50,
       bg-violet-50, bg-purple-50, bg-cyan-50, bg-teal-50, bg-sky-50 and friends
-      were picked to make a panel "a bit coloured". They now follow the module
+      were picked to make a panel "a bit coloured". They now follow the theme
       instead of fighting it.
 
    2. Gradient stops (86 uses). from-slate-50 / to-white / … kept cards white on
@@ -327,9 +326,8 @@ table {
    DELIBERATELY LEFT ALONE — red, rose, amber, orange, yellow, emerald and green
    at every level. Those carry MEANING in this app (error, warning, success,
    in-spec). Neutralising them would be destroying information to make the page
-   prettier, which is not a trade this product gets to make. On the Audit page
-   the module hue IS amber, so warnings there sit in-family by coincidence, not
-   by design.
+   prettier, which is not a trade this product gets to make. Under the Sunset theme, warnings sit
+   in-family by coincidence, not by design.
    =========================================================================== */
 @layer utilities {
   /* --- 1. decorative foreign hues follow the module -------------------- */
@@ -374,9 +372,9 @@ table {
    darkening it makes contrast worse. Two classes beat Tailwind's one on
    specificity, so no !important is needed.
    --------------------------------------------------------------------------- */
-.bg-module-canvas .text-slate-500,
-.bg-module-canvas .text-slate-400,
-.bg-module-canvas .text-slate-600,
+.bg-app-canvas .text-slate-500,
+.bg-app-canvas .text-slate-400,
+.bg-app-canvas .text-slate-600,
 .bg-surface .text-slate-500,
 .bg-surface .text-slate-400,
 .bg-surface .text-slate-600,
@@ -386,7 +384,7 @@ table {
 
 /* Opt out per element when a lighter grey is genuinely wanted on a light
    surface and the contrast has been checked. */
-.bg-module-canvas .text-keep-muted { color: #64748b; }
+.bg-app-canvas .text-keep-muted { color: #64748b; }
 
 /* ---------------------------------------------------------------------------
    The documented opt-out. Restores true white where white is required:

@@ -65,20 +65,20 @@ describe('compatibility layer', () => {
     // The remap must be a DESCENDANT rule. A bare `.text-slate-400 { #475569 }`
     // would darken the sidebar's muted text, which sits on a dark background and
     // gets WORSE contrast that way.
-    expect(out).toMatch(/\.bg-module-canvas\s+\.text-slate-400/);
-    expect(out).toMatch(/\.bg-module-canvas\s+\.text-slate-500/);
+    expect(out).toMatch(/\.bg-app-canvas\s+\.text-slate-400/);
+    expect(out).toMatch(/\.bg-app-canvas\s+\.text-slate-500/);
     expect(out).not.toMatch(/^\.text-slate-400\s*\{\s*color:\s*#475569/m);
   });
 
-  it('defines --mod-* defaults on :root so unauthenticated screens are not transparent', async () => {
-    // use-module-palette only mounts inside AppLayout. On /login, /change-password
-    // and the error boundaries there is no --mod-from, and an empty var makes
+  it('defines --ui-* defaults on :root so pre-theme paint is not transparent', async () => {
+    // applyTheme() only runs once branding loads. Before that there is no
+    // --ui-from, and an empty var makes
     // color-mix invalid at computed-value time -> bg-white cards render
     // TRANSPARENT, not white. The defaults in app.css are what prevent that.
     const out = await build(['bg-white']);
-    expect(out).toMatch(/--mod-from:\s*#475569/);
-    expect(out).toMatch(/--mod-to:\s*#334155/);
-    expect(out).toMatch(/--mod-table-head:\s*#334155/);
+    expect(out).toMatch(/--ui-from:\s*#475569/);
+    expect(out).toMatch(/--ui-to:\s*#334155/);
+    expect(out).toMatch(/--ui-table-head:\s*#334155/);
   });
 
   it('keeps the surface-plain opt-out available', async () => {
