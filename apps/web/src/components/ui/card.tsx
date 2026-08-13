@@ -1,31 +1,15 @@
 import { cn } from '@/lib/cn';
 
-interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
-  /**
-   * Adds the themed gradient strip along the top edge. Use on the main
-   * card of a page; using it on every card on a screen reads as stripes.
-   */
-  banded?: boolean;
-}
-
-export function Card({ className, banded, children, ...props }: CardProps) {
+export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       className={cn(
-        'rounded-2xl border border-border-tint bg-surface text-card-foreground overflow-hidden',
+        'rounded-2xl border border-slate-200/60 bg-white text-card-foreground',
         'shadow-soft hover:shadow-elevated transition-all duration-300',
-        className,
+        className
       )}
       {...props}
-    >
-      {banded ? (
-        <div
-          className="h-1.5 bg-gradient-to-r from-[var(--ui-from)] to-[var(--ui-to)]"
-          aria-hidden="true"
-        />
-      ) : null}
-      {children}
-    </div>
+    />
   );
 }
 
@@ -37,22 +21,16 @@ export function CardTitle({ className, ...props }: React.HTMLAttributes<HTMLHead
   return (
     <h3
       className={cn(
-        'text-xl font-semibold leading-none tracking-tight text-[var(--ui-text)]',
-        className,
+        'text-xl font-semibold leading-none tracking-tight text-slate-800',
+        className
       )}
       {...props}
     />
   );
 }
 
-/**
- * text-slate-700, not slate-500 or slate-600. On the 22% tinted card surface both
- * of those fall under the 4.50 WCAG AA floor (slate-600's ceiling is a 32% tint).
- * app.css remaps all three as a safety net, but stating it here means this
- * component is correct on its own.
- */
 export function CardDescription({ className, ...props }: React.HTMLAttributes<HTMLParagraphElement>) {
-  return <p className={cn('text-sm text-slate-700', className)} {...props} />;
+  return <p className={cn('text-sm text-slate-500', className)} {...props} />;
 }
 
 export function CardContent({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {

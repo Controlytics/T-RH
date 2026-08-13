@@ -189,10 +189,7 @@ export function BrandingConfigPage() {
                   </div>
                   <div>
                     <h3 className="font-bold text-slate-800">Color Theme</h3>
-                    {/* This picker really does drive the whole application again as of
-                        2026-08-13: applyTheme() writes the chrome vars AND the derived page
-                        surfaces (lib/theme-surfaces.ts). One line, per the UI-copy density rule. */}
-                    <p className="text-xs text-slate-700">Sets the colour of the whole application.</p>
+                    <p className="text-xs text-slate-500">Select a preset theme for the entire application</p>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">

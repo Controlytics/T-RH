@@ -12,23 +12,17 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
  * The attribute keys the New Instrument form asks for — PER PROFILE, one field
  * per key, added / renamed / removed individually.
  *
- * Each instrument profile owns its own list (2026-08-08, operator request), and
- * NOTHING is shared between them. A newly created profile starts EMPTY: the
- * "Default for new profiles" template that once seeded it was dropped the same
- * day, because a new profile opening as an identical copy of the last one is
- * exactly what makes the list read as global — the confusion per-profile keys
- * exist to remove. The global config key `instrument-attributes` still exists
- * but now seeds nothing and is asked for on no form; see the note in
- * `defs/instrument-attributes.def.ts`.
+ * Each instrument profile owns its own list (2026-08-08, operator request); the
+ * global config key is now only the template a newly created profile is seeded
+ * from and is asked for on no form by itself. One page with a picker rather than
+ * an editor on each profile, so the lists can be compared side by side.
  *
- * One page with a profile picker rather than an editor on each profile, so the
- * lists can be compared side by side.
- *
- * The STORAGE is a newline-separated string under `attributeKeys` on the profile
- * itself, because the create form and `parseInstrumentAttributeKeys` already
- * agree on that shape, and changing the wire format to make an editor nicer
- * would be the tail wagging the dog. This page is a view over that string: split
- * on load, joined on save.
+ * The STORAGE is unchanged on both targets — still one newline-separated string,
+ * for the default under `/api/config/dynamic/instrument-attributes` and for a
+ * profile under `attributeKeys` on the profile itself — because the create form
+ * and `parseInstrumentAttributeKeys` already agree on that shape, and changing
+ * the wire format to make an editor nicer would be the tail wagging the dog.
+ * This page is a view over one of those strings: split on load, joined on save.
  *
  * Rows are keyed by a STABLE id, not by array index and not by the key text.
  * Index keys make React reuse the wrong input when a row is deleted from the
@@ -39,6 +33,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 interface Row { id: number; key: string }
 interface Profile { id: string; name: string; instrumentCount: number; attributeKeys: string | null }
+
+/** The default template, as a target id that cannot collide with a profile uuid. */
+const DEFAULT_TARGET = '__default__';
 
 /**
  * The three keys that are NOT attributes — they are real columns the Instruments
@@ -53,9 +50,9 @@ const toRows = (keys: string[]): Row[] => keys.map((key) => ({ id: nextId++, key
 export function InstrumentAttributesConfigPage() {
   const { toast } = useToast();
   const { data: profileList, mutate: mutateProfiles } = useSWR<{ data: Profile[] }>('/api/instrument-profiles');
+  const { data, mutate } = useSWR<{ keys?: string }>('/api/config/dynamic/instrument-attributes');
 
-  /** Empty until the profile list arrives — there is nothing else to edit. */
-  const [target, setTarget] = useState<string>('');
+  const [target, setTarget] = useState<string>(DEFAULT_TARGET);
   const [rows, setRows] = useState<Row[] | null>(null);
   const [saving, setSaving] = useState(false);
   /**
@@ -74,15 +71,9 @@ export function InstrumentAttributesConfigPage() {
 
   const profiles = profileList?.data ?? [];
   const selectedProfile = profiles.find((p) => p.id === target) ?? null;
-  const serverKeys = selectedProfile?.attributeKeys;
-  const ready = selectedProfile !== null;
-
-  // Land on the first profile once the list arrives. Deliberately only when
-  // nothing is selected, so a revalidation cannot yank the operator off the
-  // profile they are editing.
-  useEffect(() => {
-    if (!target && profiles.length > 0) setTarget(profiles[0].id);
-  }, [target, profiles]);
+  const isDefaultTarget = target === DEFAULT_TARGET;
+  const serverKeys = isDefaultTarget ? data?.keys : selectedProfile?.attributeKeys;
+  const ready = isDefaultTarget ? data !== undefined : selectedProfile !== null;
 
   // Seed once per target, then leave the operator's edits alone — a revalidation
   // mid-edit must not overwrite what they are typing.
@@ -94,21 +85,6 @@ export function InstrumentAttributesConfigPage() {
       setSeededFor(target);
     }
   }, [ready, seededFor, target, serverKeys]);
-
-  // Nothing to edit until a profile exists — the keys live ON a profile now, so
-  // this page has no meaning without one. Says where to go rather than showing
-  // an editor that could not save.
-  if (profileList && profiles.length === 0) {
-    return (
-      <div className="mx-auto max-w-3xl space-y-4 py-10 text-center">
-        <p className="text-slate-600">
-          There are no instrument profiles yet. Attribute keys belong to a profile,
-          so create one first — it starts with no attributes, and you add them here.
-        </p>
-        <Link to="/instruments"><Button>Go to Instrument Profiles</Button></Link>
-      </div>
-    );
-  }
 
   if (rows === null) return <div className="py-10 text-center text-slate-400">Loading…</div>;
 
@@ -166,12 +142,10 @@ export function InstrumentAttributesConfigPage() {
   /**
    * Block / Area / Location are real placement columns, not attributes. A profile
    * MAY omit them (2026-08-08 operator decision) and this says what it costs.
-   * Advice, not a block — the same posture as the long-form note below. Since a
-   * new profile now starts empty, this fires on every one of them until the keys
-   * are added, which is the point: it is the only thing standing between a fresh
-   * profile and a blank Placement column on the Instruments list.
+   * Advice, not a block — the same posture as the long-form note below. Not shown
+   * for the default template, which is asked for on no form by itself.
    */
-  const missingPlacement = PLACEMENT_KEYS
+  const missingPlacement = isDefaultTarget ? [] : PLACEMENT_KEYS
     .filter((p) => !trimmed.some((k) => k.toLowerCase() === p.toLowerCase()));
 
   const save = async () => {
@@ -183,16 +157,24 @@ export function InstrumentAttributesConfigPage() {
       // `normalised` is the SAME value the dirty check compares against — built
       // once, so the button cannot disagree with what was sent.
       const keys = normalised;
-      // The list is written ON the profile. There is no shared list to write to.
-      await apiClient.put(`/api/instrument-profiles/${target}`, { attributeKeys: keys });
+      // Routed by target. Sending a profile's list to the config endpoint would
+      // silently rewrite the template every FUTURE profile is seeded from.
+      if (isDefaultTarget) {
+        await apiClient.put('/api/config/dynamic/instrument-attributes', { keys });
+      } else {
+        await apiClient.put(`/api/instrument-profiles/${target}`, { attributeKeys: keys });
+      }
       // Before the revalidation, not after: this is what makes the button go
       // quiet the moment the save lands, instead of staying lit until the next
       // keystroke.
       setSaved(keys);
-      await mutateProfiles();
+      if (isDefaultTarget) await mutate();
+      else await mutateProfiles();
       toast.success(
         'Attribute keys saved',
-        `The ${selectedProfile?.name} form now asks for ${kept} attribute${kept === 1 ? '' : 's'}.`,
+        isDefaultTarget
+          ? `New profiles now start with ${kept} attribute${kept === 1 ? '' : 's'}.`
+          : `The ${selectedProfile?.name} form now asks for ${kept} attribute${kept === 1 ? '' : 's'}.`,
       );
     } catch (err: unknown) {
       toast.error('Could not save', (err as { message?: string })?.message ?? 'The attribute keys were not changed.');
@@ -224,6 +206,7 @@ export function InstrumentAttributesConfigPage() {
               onChange={(e) => changeTarget(e.target.value)}
               className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
             >
+              <option value={DEFAULT_TARGET}>Default for new profiles</option>
               {profiles.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name} ({p.instrumentCount} instrument{p.instrumentCount === 1 ? '' : 's'})
@@ -232,8 +215,9 @@ export function InstrumentAttributesConfigPage() {
             </select>
           </label>
           <p className="mt-2 text-xs text-slate-500">
-            This list is what the New Instrument form asks for in this profile only.
-            Every profile has its own; a new one starts empty.
+            {isDefaultTarget
+              ? 'This list is copied into each new profile. It is not asked for on its own.'
+              : 'This list is what the New Instrument form asks for in this profile only.'}
           </p>
         </CardContent>
       </Card>
@@ -249,7 +233,9 @@ export function InstrumentAttributesConfigPage() {
         <CardContent className="space-y-3">
           {rows.length === 0 && (
             <p className="rounded-lg border border-dashed border-slate-300 px-3 py-6 text-center text-sm text-slate-500">
-              This profile asks for no attributes yet. Add one below.
+              {isDefaultTarget
+                ? 'No attribute keys. New profiles will start with none — add one below.'
+                : 'This profile will ask for no attributes. Add one below.'}
             </p>
           )}
 
@@ -337,7 +323,9 @@ export function InstrumentAttributesConfigPage() {
             here because "delete" on a config screen reasonably reads as
             destructive, and this one is not. */}
         <p className="mr-auto text-xs text-slate-500">
-          Applies to the next instrument registered in {selectedProfile?.name}. Attributes already recorded are untouched.
+          {isDefaultTarget
+            ? 'Applies to profiles created from now on. Existing profiles keep their own lists.'
+            : `Applies to the next instrument registered in ${selectedProfile?.name}. Attributes already recorded are untouched.`}
         </p>
         <Link to="/config"><Button variant="secondary">Cancel</Button></Link>
         <Button type="button" disabled={saving || blocked || !dirty} onClick={() => void save()}>

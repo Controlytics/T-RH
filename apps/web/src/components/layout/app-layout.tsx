@@ -169,7 +169,7 @@ export function AppLayout() {
       <Sidebar userRole={user?.role ?? ''} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header user={user} onLogout={logout} onMenuToggle={() => setSidebarOpen(o => !o)} />
-        <main className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6 bg-app-canvas">
+        <main className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6 bg-gradient-to-br from-slate-50 to-slate-100/50">
           <Outlet />
         </main>
       </div>

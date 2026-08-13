@@ -49,9 +49,9 @@ export function Dialog({ open, onClose, children, className, priority }: DialogP
       />
       <div
         className={cn(
-          `relative w-full max-w-lg rounded-2xl bg-surface p-6`,
+          `relative w-full max-w-lg rounded-2xl bg-white p-6`,
           zContent,
-          'shadow-2xl border border-border-tint',
+          'shadow-2xl border border-slate-200/60',
           'animate-fade-in',
           'max-h-[90vh] overflow-y-auto',
           className

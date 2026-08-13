@@ -4,11 +4,11 @@ import useSWR from 'swr';
 import { useCan } from '@/hooks/use-can';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
 import { isInstrumentReporting, INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN } from '@digilog/shared';
+import { themeGradient, themeGradientBr } from '@/lib/theme-styles';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Pagination } from '@/components/ui/pagination';
-import { StatTile } from '@/components/ui/stat-tile';
 
 /**
  * The instruments register, laid out around the question it is actually opened
@@ -68,27 +68,25 @@ function SummaryTile({
   active: boolean;
   onClick: () => void;
 }) {
-  // These tiles are FILTER TOGGLES, so StatTile is composed inside the button
-  // rather than used in place of it — the pressed state must stay legible, and a
-  // gradient alone cannot carry it. Pressed = ring + lift; unpressed = flat.
-  const toneFor = tone === 'active' ? 'positive' : tone === 'inactive' ? 'warning' : 'themed';
+  const bar = tone === 'active' ? 'bg-emerald-500' : tone === 'inactive' ? 'bg-slate-400' : '';
+  const dot = tone === 'active' ? 'bg-emerald-500' : tone === 'inactive' ? 'bg-slate-400' : '';
   return (
     <button
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`block w-full rounded-2xl text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[var(--ui-from)] ${
-        active ? 'ring-4 ring-[var(--ui-from)]/40 ring-offset-2 -translate-y-0.5' : ''
+      className={`group relative overflow-hidden rounded-2xl border bg-white p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 ${
+        active ? 'border-slate-400 shadow-md' : 'border-slate-200'
       }`}
     >
-      <StatTile
-        label={label}
-        value={<span className="tabular-nums">{value}</span>}
-        tone={toneFor}
-        // The filter state is also stated in words, because a ring is a weak
-        // signal and colour on its own is never allowed to carry meaning here.
-        icon={active ? <span className="text-[10px] font-bold uppercase tracking-wider">Filtered</span> : null}
-      />
+      {tone === 'brand'
+        ? <span className="absolute inset-x-0 top-0 h-1" style={themeGradient} />
+        : <span className={`absolute inset-x-0 top-0 h-1 ${bar}`} />}
+      <div className="flex items-center gap-2">
+        {dot && <span className={`h-2 w-2 rounded-full ${dot}`} />}
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{label}</span>
+      </div>
+      <p className="mt-1 text-3xl font-bold tabular-nums text-slate-800">{value}</p>
     </button>
   );
 }
@@ -159,7 +157,7 @@ export function InstrumentListPage() {
   return (
     <div className="space-y-6">
       {/* The one place the brand gradient is spent on this page. */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[var(--ui-from)] to-[var(--ui-to)] p-6 text-white shadow-lg">
+      <div className="relative overflow-hidden rounded-2xl p-6 text-white shadow-lg" style={themeGradient}>
         <div className="relative z-10 flex flex-wrap items-start justify-between gap-4">
           <div>
             {profileId ? (
@@ -183,7 +181,7 @@ export function InstrumentListPage() {
                 </Button>
               </Link>
               <Link to={profileId ? `/instruments/new?profileId=${profileId}` : '/instruments/new'}>
-                <Button className="surface-plain bg-white text-slate-800 hover:bg-white/90">New instrument</Button>
+                <Button className="bg-white text-slate-800 hover:bg-white/90">New instrument</Button>
               </Link>
             </div>
           )}
@@ -191,7 +189,7 @@ export function InstrumentListPage() {
         {/* Ambient mast motif — the page's own vocabulary, not generic blobs. */}
         <div aria-hidden="true" className="pointer-events-none absolute -right-4 bottom-0 flex items-end gap-2 opacity-15">
           {[24, 44, 68, 96, 120].map((h) => (
-            <span key={h} className="surface-plain w-4 rounded-t-md bg-white" style={{ height: h }} />
+            <span key={h} className="w-4 rounded-t-md bg-white" style={{ height: h }} />
           ))}
         </div>
       </div>
@@ -201,13 +199,13 @@ export function InstrumentListPage() {
         <SummaryTile label="Inactive" value={counts.inactive} tone="inactive" active={tileFilter === 'inactive'} onClick={() => toggle('inactive')} />
         <SummaryTile label="Gateways" value={counts.gateway} tone="brand" active={tileFilter === 'gateway'} onClick={() => toggle('gateway')} />
       </div>
-      <p className="-mt-4 text-xs text-slate-700">
+      <p className="-mt-4 text-xs text-slate-400">
         Counts describe the {rows.length} instrument{rows.length === 1 ? '' : 's'} on this page.
         Active means telemetry arrived within the instrument’s expected interval, or within{' '}
         {activeWindow} minute{activeWindow === 1 ? '' : 's'} when it declares none.
       </p>
 
-      <div className="rounded-2xl border border-border-tint bg-surface p-4">
+      <div className="rounded-2xl border border-slate-200 bg-white p-4">
         <div className="flex flex-wrap gap-3">
           <Input
             className="w-64"
@@ -224,7 +222,7 @@ export function InstrumentListPage() {
             <button
               type="button"
               onClick={() => setTileFilter(null)}
-              className="rounded-lg border border-border-tint bg-surface-raised px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-surface-alt"
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
             >
               Clear {tileFilter} filter
             </button>
@@ -232,25 +230,26 @@ export function InstrumentListPage() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-border-tint bg-surface shadow-soft">
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-[var(--ui-table-head)] text-left">
-              <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-white">Instrument</th>
-              <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-white">Status</th>
+            <tr className="border-b border-slate-200 bg-slate-50/80 text-left">
+              <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Instrument</th>
+              <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Status</th>
               <th className="px-4 py-3" />
             </tr>
           </thead>
-          <tbody className="divide-y divide-border-tint">
+          <tbody className="divide-y divide-slate-100">
             {isLoading && (
-              <tr><td colSpan={3} className="py-10 text-center text-slate-700">Loading…</td></tr>
+              <tr><td colSpan={3} className="py-10 text-center text-slate-400">Loading…</td></tr>
             )}
 
             {!isLoading && rows.length === 0 && (
               <tr>
                 <td colSpan={3} className="px-4 py-14 text-center">
                   <div
-                    className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[var(--ui-from)] to-[var(--ui-to)] text-white shadow-md"
+                    className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl text-white shadow-md"
+                    style={themeGradientBr}
                   >
                     <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
@@ -259,7 +258,7 @@ export function InstrumentListPage() {
                   <p className="font-semibold text-slate-700">
                     {filtersActive ? 'No instruments match these filters' : 'No instruments registered yet'}
                   </p>
-                  <p className="mt-1 text-sm text-slate-700">
+                  <p className="mt-1 text-sm text-slate-500">
                     {filtersActive
                       ? 'Clear a filter to widen the search.'
                       : 'Register a device to give it a token and a topic to report on.'}
@@ -275,27 +274,28 @@ export function InstrumentListPage() {
 
             {!isLoading && rows.length > 0 && shown.length === 0 && (
               <tr>
-                <td colSpan={3} className="px-4 py-12 text-center text-sm text-slate-700">
+                <td colSpan={3} className="px-4 py-12 text-center text-sm text-slate-500">
                   Nothing on this page is {tileFilter === 'gateway' ? 'a gateway' : tileFilter}.
                 </td>
               </tr>
             )}
 
             {shown.map(({ row: r, reporting }) => (
-              <tr key={r.id} className="group odd:bg-surface even:bg-surface-alt transition-colors hover:bg-surface-alt">
+              <tr key={r.id} className="group transition-colors hover:bg-slate-50/70">
                 <td className="px-4 py-3">
                   <Link to={`/instruments/${r.id}`} className="flex flex-col leading-tight">
                     <span className="flex items-center gap-2 font-semibold text-slate-800 group-hover:text-slate-900">
                       {r.name}
                       {r.isGateway && (
                         <span
-                          className="rounded-md bg-gradient-to-r from-[var(--ui-from)] to-[var(--ui-to)] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white"
+                          className="rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white"
+                          style={themeGradient}
                         >
                           Gateway
                         </span>
                       )}
                     </span>
-                    <span className="font-mono text-xs text-slate-700">{r.code}</span>
+                    <span className="font-mono text-xs text-slate-500">{r.code}</span>
                   </Link>
                 </td>
                 <td className="px-4 py-3">
@@ -303,11 +303,11 @@ export function InstrumentListPage() {
                     <span
                       className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
                         reporting
-                          ? 'bg-emerald-700 text-white'
-                          : 'bg-slate-600 text-white'
+                          ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
+                          : 'bg-slate-100 text-slate-500 ring-1 ring-slate-200'
                       }`}
                     >
-                      <span className={`h-1.5 w-1.5 rounded-full ${reporting ? 'bg-emerald-200' : 'bg-slate-300'}`} />
+                      <span className={`h-1.5 w-1.5 rounded-full ${reporting ? 'bg-emerald-500' : 'bg-slate-400'}`} />
                       {reporting ? 'Active' : 'Inactive'}
                     </span>
                     {/* The ADMIN flag, which is a different fact: this device is
@@ -315,7 +315,7 @@ export function InstrumentListPage() {
                         Shown separately so a deliberate shutdown is never
                         mistaken for a dead device. */}
                     {!r.isActive && (
-                      <span className="inline-flex items-center rounded-full bg-amber-700 px-2 py-0.5 text-[11px] font-semibold text-white">
+                      <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 ring-1 ring-amber-200">
                         Disabled
                       </span>
                     )}
@@ -324,7 +324,7 @@ export function InstrumentListPage() {
                 <td className="px-4 py-3 text-right">
                   <Link
                     to={`/instruments/${r.id}`}
-                    className="inline-flex items-center gap-1 rounded-lg border border-border-tint bg-surface-raised px-2.5 py-1.5 text-xs font-semibold text-[var(--ui-muted)] transition-colors hover:border-[var(--ui-from)] hover:bg-surface-alt"
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50"
                   >
                     Open
                     <svg className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

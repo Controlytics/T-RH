@@ -51,7 +51,7 @@ export function MessageDialog({ item, onDismiss }: { item: DialogMessage; onDism
       aria-modal="true"
     >
       <div
-        className="bg-surface border border-border-tint rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl"
+        className="bg-white border border-slate-200 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-6 py-4 flex items-center gap-3" style={{ background: v.header }}>

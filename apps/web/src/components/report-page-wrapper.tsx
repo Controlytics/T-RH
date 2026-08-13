@@ -49,7 +49,7 @@ export function ReportPageWrapper({ title, totalRecords, page, totalPages, child
   return (
     <div className="space-y-0">
       {/* ── Report Header ── */}
-      <div className="surface-plain bg-white border border-slate-200 rounded-t-xl px-6 py-4 print:border-0">
+      <div className="bg-white border border-slate-200 rounded-t-xl px-6 py-4 print:border-0">
         <div className="flex items-center justify-between gap-4">
           {/* Left: logo */}
           <div className="flex items-center gap-3 shrink-0"><Logo size="lg" /></div>
@@ -75,7 +75,7 @@ export function ReportPageWrapper({ title, totalRecords, page, totalPages, child
           `hideFooterStats` drops the count/page row (identity stays);
           `hideFooter` drops the whole footer. */}
       {!hideFooter && (
-      <div className={`surface-plain bg-white border border-slate-200 border-t-0 rounded-b-xl px-6 py-3 print:border-0 ${hideFooterStats ? '' : 'space-y-2'}`}>
+      <div className={`bg-white border border-slate-200 border-t-0 rounded-b-xl px-6 py-3 print:border-0 ${hideFooterStats ? '' : 'space-y-2'}`}>
         <div className={`flex items-center justify-center gap-2 text-[11px] text-slate-400 ${hideFooterStats ? '' : 'pb-2 border-b border-slate-100'}`}>
           <Logo size="sm" />
           <span className="font-medium text-slate-500">{companyName}</span>
