@@ -56,6 +56,7 @@ const NotificationRulesPage = lazy(() => import('./routes/config/notification-ru
 const NotificationLogsPage = lazy(() => import('./routes/config/notification-settings/notification-logs').then(m => ({ default: m.NotificationLogsPage })));
 
 const AdminRequestsPage = lazy(() => import("./routes/admin-requests/index").then(m => ({ default: m.AdminRequestsPage })));
+const FunctionalLocationsPage = lazy(() => import('./routes/functional-locations'));
 const InstrumentProfileListPage = lazy(() => import('./routes/instruments/profile-list').then(m => ({ default: m.InstrumentProfileListPage })));
 const InstrumentListPage = lazy(() => import('./routes/instruments/list').then(m => ({ default: m.InstrumentListPage })));
 const InstrumentCreatePage = lazy(() => import('./routes/instruments/create').then(m => ({ default: m.InstrumentCreatePage })));
@@ -150,6 +151,7 @@ createRoot(document.getElementById('root')!).render(
             {/* Profiles are the landing page; the instrument list lives inside one.
                 `/instruments/profiles/:profileId` MUST precede `/instruments/:id`
                 below, or "profiles" is captured as an instrument id. */}
+            <Route path="/functional-locations" element={<RequireRole permissions={[PERMISSIONS.FUNCTIONAL_LOCATION_READ]}><Suspense fallback={<LazyFallback />}><FunctionalLocationsPage /></Suspense></RequireRole>} />
             <Route path="/instruments" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_READ]}><Suspense fallback={<LazyFallback />}><InstrumentProfileListPage /></Suspense></RequireRole>} />
             <Route path="/instruments/profiles/:profileId" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_READ]}><Suspense fallback={<LazyFallback />}><InstrumentListPage /></Suspense></RequireRole>} />
             <Route path="/instruments/new" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_CREATE]}><Suspense fallback={<LazyFallback />}><InstrumentCreatePage /></Suspense></RequireRole>} />
