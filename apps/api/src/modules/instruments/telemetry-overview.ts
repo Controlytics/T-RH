@@ -12,6 +12,8 @@
  * Design: docs/superpowers/specs/2026-08-11-instrument-dashboard-floorplan-design.md
  */
 import { prisma } from '../../lib/prisma.js';
+import { resolveLocationIds } from '../functional-locations/tree.js';
+import type { FlType } from '../functional-locations/validation.js';
 import {
   parseTelemetryAliases,
   resolveSlot,
@@ -100,8 +102,44 @@ function toSlot(reading: RawReading | null): SlotValue | null {
   return { key: reading.key, value: n, ts: reading.ts.toISOString() };
 }
 
+/**
+ * Translates the optional filters into a Prisma `where`.
+ *
+ * A FUNCTIONAL LOCATION resolves through resolveLocationIds(), so selecting a BLOCK
+ * returns its own instruments PLUS all its Areas'. Filtering on
+ * `functionalLocationId = :id` directly would return only the directly-pinned ones —
+ * a Block view that looks emptier than it is, with nothing on screen to explain why.
+ *
+ * An unknown id yields `{ in: [] }`, i.e. NO rows. It must never degrade to "no
+ * filter": a stale bookmark would then quietly show the whole estate, and project D
+ * enforces visibility on this same query.
+ */
+async function scopeWhere(
+  opts: { floorplanId?: string; functionalLocationId?: string; functionalLocationDirect?: boolean },
+) {
+  if (opts.functionalLocationId) {
+    // DIRECT: instruments pinned to this location itself, WITHOUT the Area
+    // expansion. The dashboard's "— direct" card exists to answer "what is pinned
+    // to the Block rather than to one of its Areas", and resolving the scope here
+    // would return the Areas too — the card would say 1 and the table show 4.
+    if (opts.functionalLocationDirect) {
+      return { functionalLocationId: opts.functionalLocationId };
+    }
+    const rows = await prisma.functionalLocation.findMany({
+      select: { id: true, name: true, type: true, parentId: true },
+    });
+    const ids = resolveLocationIds(
+      opts.functionalLocationId,
+      rows.map((r) => ({ ...r, type: r.type as FlType })),
+    );
+    return { functionalLocationId: { in: ids } };
+  }
+  if (opts.floorplanId) return { room: { floorplanId: opts.floorplanId } };
+  return undefined;
+}
+
 export async function buildTelemetryOverview(
-  opts: { floorplanId?: string } = {},
+  opts: { floorplanId?: string; functionalLocationId?: string; functionalLocationDirect?: boolean } = {},
 ): Promise<OverviewRow[]> {
   const [aliases, activeWindowMinutes] = await Promise.all([
     loadAliases(),
@@ -109,7 +147,7 @@ export async function buildTelemetryOverview(
   ]);
 
   const instruments = await prisma.instrument.findMany({
-    where: opts.floorplanId ? { room: { floorplanId: opts.floorplanId } } : undefined,
+    where: await scopeWhere(opts),
     select: {
       id: true, code: true, name: true, isActive: true,
       expectedIntervalSec: true, lastSeenAt: true,

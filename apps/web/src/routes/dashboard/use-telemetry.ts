@@ -62,10 +62,22 @@ export function useTelemetrySettings(): TelemetrySettings {
  * ingest. Every "live" surface in this feature is an interval, and the UI says
  * so rather than implying a stream.
  */
-export function useTelemetryOverview(floorplanId?: string) {
+export function useTelemetryOverview(opts?: string | { floorplanId?: string; functionalLocationId?: string; directOnly?: boolean }) {
   const { overviewRefreshMs } = useTelemetrySettings();
-  const url = floorplanId
-    ? `/api/instruments/telemetry-overview?floorplanId=${floorplanId}`
+  // A bare string stays supported so existing callers (floorplan-view) are
+  // unchanged; the object form adds the functional-location scope.
+  const o = typeof opts === 'string' ? { floorplanId: opts } : (opts ?? {});
+  const qs = new URLSearchParams();
+  if (o.floorplanId) qs.set('floorplanId', o.floorplanId);
+  // The scope goes to the SERVER, not applied to rows here: the payload would
+  // otherwise be the whole estate, and project D enforces visibility on this same
+  // query. A client-side filter would have to be rewritten then.
+  if (o.functionalLocationId) qs.set('functionalLocationId', o.functionalLocationId);
+  // Direct-only: this location itself, WITHOUT its Areas. Without this flag the
+  // "— direct" card said 1 instrument while its table showed all 4 in the Block.
+  if (o.functionalLocationId && o.directOnly) qs.set('functionalLocationDirect', 'true');
+  const url = qs.size
+    ? `/api/instruments/telemetry-overview?${qs.toString()}`
     : '/api/instruments/telemetry-overview';
 
   const { data, error, isLoading } = useSWR<{ data: OverviewRow[] }>(url, {

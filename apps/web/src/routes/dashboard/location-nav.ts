@@ -1,0 +1,168 @@
+/**
+ * Which cards, breadcrumb and scope the dashboard should render for a selection.
+ *
+ * Pure on purpose: the navigation shape is the part of the drill-down that can
+ * actually be tested, and getting it wrong is invisible — a Block that quietly
+ * lists no Areas looks like a Block with no Areas.
+ */
+
+export type NavType = 'BLOCK' | 'AREA';
+
+export interface NavNode {
+  id: string;
+  name: string;
+  type: NavType;
+  /** Instruments linked directly to this node. */
+  ownCount: number;
+  /** This node's instruments plus every descendant's. */
+  totalCount: number;
+  children: NavNode[];
+}
+
+/**
+ * Sentinel for the "everything" card. Deliberately not a real id and deliberately
+ * never sent to the API — `functionalLocationId` is left undefined for it, because
+ * the API would resolve an unknown id to NO rows and the page would look broken.
+ */
+export const ALL_INSTRUMENTS = '__all__';
+
+/** Suffix marking a Block's own directly-linked instruments. */
+const DIRECT = ':direct';
+
+export interface NavCard {
+  id: string;
+  label: string;
+  sublabel: string;
+  count: number;
+}
+
+export interface NavCrumb {
+  label: string;
+  /** null = the top level. */
+  id: string | null;
+}
+
+export interface Nav {
+  level: 0 | 1 | 2;
+  cards: NavCard[];
+  breadcrumb: NavCrumb[];
+  showViews: boolean;
+  /** Passed to the API. Undefined means unscoped. */
+  functionalLocationId?: string;
+  /** True for a Block's "directly linked" view. */
+  directOnly: boolean;
+}
+
+const flatten = (tree: NavNode[]): NavNode[] => tree.flatMap((b) => [b, ...b.children]);
+
+/**
+ * @param totalInstruments every registered instrument, INCLUDING those in no
+ *   location. Must be supplied: summing the tree counts only placed instruments, so
+ *   the "All Instruments" card would read 5 while its own view showed 20. Omitted,
+ *   it falls back to the tree sum and is explicitly wrong for unplaced instruments.
+ */
+export function resolveNav(selected: string | null, tree: NavNode[], totalInstruments?: number): Nav {
+  const topLevel = (): Nav => ({
+    level: 0,
+    cards: [
+      {
+        id: ALL_INSTRUMENTS,
+        label: 'All Instruments',
+        sublabel: 'Every registered instrument',
+        count: totalInstruments ?? tree.reduce((sum, b) => sum + b.totalCount, 0),
+      },
+      ...tree.map((b) => ({
+        id: b.id,
+        label: b.name,
+        sublabel: 'Block',
+        // ROLLED-UP, not own: a card reading "1" for a Block holding 4 would
+        // understate it and make the drill-down look pointless.
+        count: b.totalCount,
+      })),
+    ],
+    breadcrumb: [],
+    showViews: false,
+    directOnly: false,
+  });
+
+  if (!selected) return topLevel();
+
+  if (selected === ALL_INSTRUMENTS) {
+    return {
+      level: 2,
+      cards: [],
+      breadcrumb: [{ label: 'Dashboard', id: null }, { label: 'All Instruments', id: ALL_INSTRUMENTS }],
+      showViews: true,
+      functionalLocationId: undefined,
+      directOnly: false,
+    };
+  }
+
+  const directOnly = selected.endsWith(DIRECT);
+  const id = directOnly ? selected.slice(0, -DIRECT.length) : selected;
+  const node = flatten(tree).find((n) => n.id === id);
+
+  // Unknown id — a stale bookmark or a deleted location. Land somewhere usable
+  // rather than rendering an empty page.
+  if (!node) return topLevel();
+
+  if (node.type === 'AREA') {
+    const parent = tree.find((b) => b.children.some((c) => c.id === node.id));
+    return {
+      level: 2,
+      cards: [],
+      breadcrumb: [
+        { label: 'Dashboard', id: null },
+        ...(parent ? [{ label: parent.name, id: parent.id }] : []),
+        { label: node.name, id: node.id },
+      ],
+      showViews: true,
+      functionalLocationId: node.id,
+      directOnly: false,
+    };
+  }
+
+  // A BLOCK.
+  if (directOnly) {
+    return {
+      level: 2,
+      cards: [],
+      breadcrumb: [
+        { label: 'Dashboard', id: null },
+        { label: node.name, id: node.id },
+        { label: 'Directly linked', id: selected },
+      ],
+      showViews: true,
+      functionalLocationId: node.id,
+      directOnly: true,
+    };
+  }
+
+  return {
+    level: 1,
+    cards: [
+      // Only when the Block pins instruments to itself. Offering this card on a
+      // Block with none would be a dead end.
+      ...(node.ownCount > 0
+        ? [{
+            id: `${node.id}${DIRECT}`,
+            label: `${node.name} — direct`,
+            sublabel: 'Linked to the Block itself',
+            count: node.ownCount,
+          }]
+        : []),
+      ...node.children.map((a) => ({
+        id: a.id,
+        label: a.name,
+        sublabel: 'Area',
+        count: a.totalCount,
+      })),
+    ],
+    breadcrumb: [{ label: 'Dashboard', id: null }, { label: node.name, id: node.id }],
+    // Cards AND views: clicking a Block should answer "how is this Block doing?"
+    // straight away rather than forcing a second click into an Area.
+    showViews: true,
+    functionalLocationId: node.id,
+    directOnly: false,
+  };
+}

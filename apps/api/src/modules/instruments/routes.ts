@@ -501,7 +501,11 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       summary: 'Current temperature and humidity for every instrument',
       querystring: {
         type: 'object',
-        properties: { floorplanId: { type: 'string', format: 'uuid' } },
+        properties: {
+          floorplanId: { type: 'string', format: 'uuid' },
+          functionalLocationId: { type: 'string' },
+          functionalLocationDirect: { type: 'string', enum: ['true', 'false'] },
+        },
       },
       response: {
         200: {
@@ -564,8 +568,12 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       },
     },
   }, async (req) => {
-    const q = req.query as { floorplanId?: string };
-    return { data: await buildTelemetryOverview({ floorplanId: q.floorplanId }) };
+    const q = req.query as { floorplanId?: string; functionalLocationId?: string; functionalLocationDirect?: string };
+    return { data: await buildTelemetryOverview({
+      floorplanId: q.floorplanId,
+      functionalLocationId: q.functionalLocationId,
+      functionalLocationDirect: q.functionalLocationDirect === 'true',
+    }) };
   });
 
   // GET /api/instruments/:id — detail

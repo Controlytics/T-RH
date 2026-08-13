@@ -64,9 +64,11 @@ interface RoomView {
   status: InstrumentStatus;
 }
 
-export function FloorplanView() {
+export function FloorplanView({ functionalLocationId, directOnly }: { functionalLocationId?: string; directOnly?: boolean } = {}) {
   const { plans, isLoading: plansLoading } = useFloorplans();
-  const { rows, refreshMs } = useTelemetryOverview();
+  // Scoped server-side. When a functional location is selected the rows are only
+  // that location's instruments, so the rooms drawn below narrow with it.
+  const { rows, refreshMs } = useTelemetryOverview({ functionalLocationId, directOnly });
   const { temperatureDecimals, humidityDecimals } = useTelemetrySettings();
 
   const [planId, setPlanId] = useState<string>('');
@@ -87,11 +89,16 @@ export function FloorplanView() {
 
   const roomViews: RoomView[] = useMemo(() => {
     if (!plan) return [];
-    return plan.rooms.map((room) => {
+    const all = plan.rooms.map((room) => {
       const roomRows = byRoom.get(room.id) ?? [];
       return { room, rows: roomRows, status: worstStatus(roomRows.map((r) => r.status)) };
     });
-  }, [plan, byRoom]);
+    // Unscoped: draw the whole floor, empty rooms included — that is the plan.
+    // Scoped to a functional location: draw ONLY rooms holding one of its
+    // instruments, otherwise selecting "Module-E" still renders the entire
+    // building and the filter appears to have done nothing.
+    return functionalLocationId ? all.filter((r) => r.rows.length > 0) : all;
+  }, [plan, byRoom, functionalLocationId]);
 
   // Instruments nobody has placed. NEVER omitted — an instrument silently
   // absent from the dashboard is the failure this tray exists to prevent.
@@ -151,7 +158,23 @@ export function FloorplanView() {
         </div>
       </div>
 
-      {plan && plan.rooms.length === 0 ? (
+      {/* Scoped, but none of this location's instruments sit in a room on this
+          plan. Drawing the building with no rooms would read as "the plan is
+          broken"; naming the actual fix is more useful than an empty rectangle. */}
+      {plan && functionalLocationId && plan.rooms.length > 0 && roomViews.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
+          <p className="text-sm font-medium text-slate-700">
+            No instruments in this functional location are placed on {plan.name}.
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            Place them on{' '}
+            <Link to="/config/floorplans" className="font-medium underline" style={{ color: 'var(--theme-primary)' }}>
+              Configuration → Floorplans
+            </Link>
+            , or switch to the Tabular view, which does not need geometry.
+          </p>
+        </div>
+      ) : plan && plan.rooms.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
           <p className="text-sm font-medium text-slate-700">{plan.name} has no rooms drawn yet.</p>
           <p className="mt-1 text-xs text-slate-500">

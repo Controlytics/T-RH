@@ -83,8 +83,8 @@ function actual(v: { value: number } | null | undefined, decimals: number): stri
   return v ? v.value.toFixed(decimals) : NOT_AVAILABLE;
 }
 
-export function TelemetryTable() {
-  const { rows, isLoading, error, refreshMs } = useTelemetryOverview();
+export function TelemetryTable({ functionalLocationId, directOnly }: { functionalLocationId?: string; directOnly?: boolean } = {}) {
+  const { rows, isLoading, error, refreshMs } = useTelemetryOverview({ functionalLocationId, directOnly });
   const { temperatureDecimals, humidityDecimals } = useTelemetrySettings();
   const [sort, setSort] = useState<SortKey>('code');
   const [asc, setAsc] = useState(true);
