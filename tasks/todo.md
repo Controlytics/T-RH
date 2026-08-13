@@ -2290,3 +2290,56 @@ sanitisation, a probe at 27 C in a 25 C room reads OUT_OF_SPEC, 594 raw history
 points bucket to 18 at 24h and 4 at 7d. **Not verified by me: the rendered UI** —
 Playwright cannot reach the API through the self-signed cert, so every browser
 check was handed to the operator.
+
+---
+
+## 2026-08-13 — Colourful UI, per-module palettes (wave 1 in progress)
+
+Spec: `docs/superpowers/specs/2026-08-13-colourful-ui-design.md`
+Plan: `docs/superpowers/plans/2026-08-13-colourful-ui-wave-1.md`
+
+Operator decisions: vivid + per-module palettes; treatment B (colour under the
+data); curated palette map in code; delivered in waves with a review gate.
+
+- [x] **Wave 0** — Tailwind v4 mechanism spike via `@tailwindcss/node`. All four
+      mechanics hold. Findings: the override wins on **cascade order, so no
+      `!important`** (which would have beaten the inline `style={{ background:
+      themeGradient }}` on buttons and killed every gradient button); and
+      `bg-white/95` `/70` `/60` compile to literal `#fff`, so they need their own
+      rules while the excluded `/5`–`/20` dark-chrome overlays are safe.
+- [x] **Task 0** — baseline recorded by running the suite BEFORE any edit:
+      **5 failed / 589 passed**. Matches the noted figure of 5; the failures are
+      the stale `url-utils` cases referencing `routes/pm-schedules/*`, which never
+      existed in this fork. 5 is the ratchet.
+- [x] **Task 1** — `lib/module-palettes.ts` + `lib/contrast.ts` + 41 tests.
+      Contrast is an assertion, not a script. It immediately caught
+      `admin-requests` using yellow-600 as its gradient start — white on it is
+      **2.94:1**, failing even the 3:1 large-text floor — moved to yellow-700.
+- [x] **Task 2** — `hooks/use-module-palette.ts` + 5 tests. Writes the six
+      `--mod-*` properties per route.
+- [x] **Task 3** — `app.css`: 4 surface tokens, the canvas gradient, the
+      enumerated compatibility layer (64 utilities / ~1220 occurrences), the
+      canvas-scoped secondary-text remap, and `--mod-*` `:root` defaults.
+      8 regression tests.
+- [x] **Task 4** — hook mounted in `AppLayout` above the early returns; `<main>`
+      switched to `bg-module-canvas`; `report-page-wrapper` given
+      `surface-plain` so printed records stay white.
+- [ ] **Task 5** — primitives: `Card` banded variant, `Table` solid header band +
+      alternating tinted rows, solid-filled `Badge`, `Input`/`Select`,
+      `Dialog`/`Pagination`, new `StatTile`.
+- [ ] **Task 6** — hand-tune `/instruments` (the review gate page).
+- [ ] **Task 7** — docs: root `CLAUDE.md` "Light theme only" rule is now reversed;
+      `apps/web/CLAUDE.md` Theme section; `apps/web/DECISIONS.md` for the
+      override; `CHANGELOG.md`; relabel the Branding theme picker, which claims to
+      set the app's colours while only controlling chrome.
+
+**Two accessibility regressions caught by measurement, before any of it shipped:**
+five of eleven palettes failed AA when the table-header band reused the gradient
+start (2.94–3.77:1), and `text-slate-500` (459 uses, incl. `CardDescription`)
+drops to **3.97–4.49:1** on a tinted surface — it clears AA today only because
+the surface is pure white, at 4.76:1, with no headroom.
+
+State after Task 4: `tsc` clean, `vite build` clean, suite at **5 failed / 643
+passed** (baseline 5 held, +54 new tests). **Not verified by me: how any of it
+looks.** Playwright cannot get past login here, so the rendered result is unseen
+and was handed to the operator at `https://localhost:5176`.
