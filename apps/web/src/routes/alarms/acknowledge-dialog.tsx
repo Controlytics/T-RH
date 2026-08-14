@@ -72,7 +72,12 @@ export function AcknowledgeDialog({
             <p className="mt-1 text-xs text-slate-500">
               Recorded permanently in the audit trail against your name.
             </p>
-            {touched && reasonError && <p className="mt-1 text-xs text-red-600">{reasonError}</p>}
+            {/* Shown as soon as anything has been typed, not only after blur: the submit
+                button is disabled while the reason is too short, so waiting for blur left
+                a dead end — a greyed-out button with nothing saying why. */}
+            {(touched || reason.length > 0) && reasonError && (
+              <p className="mt-1 text-xs text-red-600">{reasonError}</p>
+            )}
           </div>
 
           <div>
