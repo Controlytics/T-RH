@@ -212,3 +212,43 @@
 - `/api/roles/active` public endpoint for contact-admin page
 
 See `CHANGELOG.md` for full details.
+
+---
+
+## Salvaged from deleted domain tests (2026-08-14)
+
+Five e2e files had been failing since the 2026-07-18 fork commit because they
+covered the DigiLog filter/asset domain that the Phase 0 strip removed. They were
+deleted rather than repaired — the features are gone by design, and a test that
+cannot pass is worse than no test because it hides real regressions in the noise.
+Two of them carried general lessons that outlive their subject, recorded here so
+the knowledge does not go with the files.
+
+### Destructive handlers: resolve reads first, and never delete audit rows
+
+**From** `e2e/super-admin-unretire.test.ts` (the 2026-07-15 transactionality fix).
+
+An unretire endpoint ran ~10 sequential destructive writes with **no transaction**
+and finished with an `auditTrail.deleteMany` that the `audit_trail_no_delete`
+immutability trigger always rejects. The result was a raw 500 raised *after* the
+destruction had already committed — the worst possible ordering, since the caller
+sees a failure while the data is already gone.
+
+**The shape of the fix generalises:** resolve every read BEFORE `prisma.$transaction`
+opens, perform every write through `tx.`, and never attempt to delete audit rows —
+the §11 record is the point, and the trigger will refuse. Any new multi-write
+destructive path in this codebase should be read against this.
+
+### Read-side audit enrichment must not mutate the stored row
+
+**From** `e2e/replacement-audit-enrichment.test.ts`.
+
+Audit rows written before a descriptor fix stored only a comment in `afterValue`,
+with no human-readable subject. `GET /api/audit` resolves the missing detail at
+READ time and stamps it onto the response **without writing back** — because the
+stored bytes are inside the tamper-evidence envelope and rewriting them would
+invalidate the hash chain for every row after it.
+
+This is still how the live audit surface behaves (`apps/web/src/routes/audit/
+audit-helpers.ts` substitutes placeholders at render time). Enrichment is a
+presentation concern; the stored row is evidence and is immutable.

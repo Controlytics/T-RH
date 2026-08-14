@@ -2409,6 +2409,30 @@ so the app must be stopped first.
 alarms/functional-locations gap), so the `/event-types` endpoint has no HTTP coverage;
 the registry is unit-tested through the now-exported `EVENT_TYPE_META` instead.
 
+### 2026-08-14 - the api suite is GREEN (was 14 failures in 5 files since 2026-07-18)
+
+All five covered the DigiLog filter/asset domain the Phase 0 strip removed. Deleted
+rather than repaired - `assetTemplate`, `assetInstance`, `filterDetails`,
+`cleaningCycle`, `replacementSchedule` and `/api/assets/*` do not exist in this fork,
+and the `block-change-approval` config def is gone too. A test that cannot pass hides
+real regressions in the noise.
+
+- `e2e/entities.test.ts`, `e2e/super-admin-unretire.test.ts`,
+  `e2e/replacement-audit-enrichment.test.ts`,
+  `modules/config/__tests__/block-change-approval-current.e2e.test.ts` - DELETED.
+- `e2e/auth-profile-reauth.test.ts` - KEPT and repaired. Only its offline-grant tests
+  were dead (the endpoint 404s). The "an x-offline-replay header must not bypass
+  re-auth" assertion describes a property that is still true and still worth pinning,
+  so it was rewritten to the current rejection code, and a second test now pins the
+  endpoint's absence so a re-added bypass cannot slip in unnoticed.
+- Two general lessons salvaged into `apps/api/DECISIONS.md` before deleting their only
+  home: destructive handlers must resolve reads before opening the transaction and must
+  never delete audit rows; read-side audit enrichment must not mutate the stored row.
+
+**api: 1278 passing / 0 failing / 0 skipped across 102 files.** Still open: web 5
+(2 use-can + 3 url-utils) and shared 3 (audit-templates placeholder, the OR-gated gate
+case, checklists.submit).
+
 **Also still open:** the 403-path and out-of-scope-404 tests for the alarm endpoints
 (`loginAs` is SUPER_ADMIN, so no e2e exercises a denied caller - a gap shared with the
 existing list/summary endpoints); registering `super-admin` in `e2e/test-helper.ts`;

@@ -247,11 +247,22 @@ describe('H1 — PUT /api/auth/profile reauth gate', () => {
     expect(restoreRes.statusCode).toBe(200);
   });
 
-  // Audit 2026-05-04 fix C1: bare `x-offline-replay: true` header is no
-  // longer a reauth bypass. Tablets must obtain a signed grant token from
-  // POST /api/auth/offline-grant and send it as `x-offline-replay-token`.
-
-  it('rejects bare x-offline-replay: true header (deprecated bypass)', async () => {
+  /**
+   * The offline-replay GRANT feature is gone: `POST /api/auth/offline-grant` and the
+   * `x-offline-replay-token` header were removed with the offline/tablet surface in the
+   * Phase 0 domain strip (no non-test reference survives in src/). Three tests that
+   * exercised minting and spending a grant were deleted on 2026-08-14 — they asserted
+   * 200/401 against an endpoint that now 404s, which is not a bug to fix but a feature
+   * that no longer exists.
+   *
+   * This one is KEPT, because its subject outlived the feature. `x-offline-replay: true`
+   * was once a straight re-auth bypass; the 2026-05-04 audit (fix C1) closed that hole.
+   * The header is now simply unrecognised, so the request falls through to the ordinary
+   * re-auth gate — a different rejection code, the same security property. Asserting it
+   * still holds is what stops the bypass being reintroduced by accident, e.g. by someone
+   * re-adding offline support and wiring the header back up without a signed grant.
+   */
+  it('an x-offline-replay header does NOT bypass the re-auth gate', async () => {
     const res = await app.inject({
       method: 'PUT',
       url: '/api/auth/profile',
@@ -262,69 +273,20 @@ describe('H1 — PUT /api/auth/profile reauth gate', () => {
       payload: { fullName: 'H1 Should Be Rejected' },
     });
     expect(res.statusCode).toBe(401);
-    const body = JSON.parse(res.body);
-    expect(body.error).toBe('OFFLINE_REPLAY_HEADER_DEPRECATED');
+    // REAUTH_REQUIRED, not OFFLINE_REPLAY_HEADER_DEPRECATED: the header is no longer
+    // special-cased at all. What matters is that it is refused, not which code says so.
+    expect(JSON.parse(res.body).error).toBe('REAUTH_REQUIRED');
   });
 
-  it('skips reauth on offline replay when a valid grant token is supplied', async () => {
-    // Mint a grant via the new endpoint (requires password).
-    const grantRes = await app.inject({
+  it('the offline-grant endpoint no longer exists', async () => {
+    // Pins the removal. If this starts returning anything but 404, an offline bypass
+    // path has come back and the test above needs to be re-examined with it.
+    const res = await app.inject({
       method: 'POST',
       url: '/api/auth/offline-grant',
       headers: { authorization: `Bearer ${token}` },
       payload: { _currentPassword: TEST_PASSWORD },
     });
-    expect(grantRes.statusCode).toBe(200);
-    const grantBody = JSON.parse(grantRes.body);
-    expect(grantBody.token).toBeTruthy();
-
-    // Use the grant on a profile update — should succeed without _currentPassword.
-    const res = await app.inject({
-      method: 'PUT',
-      url: '/api/auth/profile',
-      headers: {
-        authorization: `Bearer ${token}`,
-        'x-offline-replay-token': grantBody.token,
-      },
-      payload: { fullName: 'H1 Offline Replay' },
-    });
-    expect(res.statusCode).toBe(200);
-    const body = JSON.parse(res.body);
-    expect(body.fullName).toBe('H1 Offline Replay');
-
-    // Restore.
-    await app.inject({
-      method: 'PUT',
-      url: '/api/auth/profile',
-      headers: {
-        authorization: `Bearer ${token}`,
-        'x-offline-replay-token': grantBody.token,
-      },
-      payload: { fullName: 'H1 Profile Test Admin' },
-    });
-  });
-
-  it('rejects offline-grant issuance without password', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/auth/offline-grant',
-      headers: { authorization: `Bearer ${token}` },
-      payload: {},
-    });
-    expect(res.statusCode).toBe(401);
-    const body = JSON.parse(res.body);
-    expect(body.error).toBe('PASSWORD_REQUIRED');
-  });
-
-  it('rejects offline-grant issuance with wrong password', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/auth/offline-grant',
-      headers: { authorization: `Bearer ${token}` },
-      payload: { _currentPassword: 'WrongPassword123!' },
-    });
-    expect(res.statusCode).toBe(401);
-    const body = JSON.parse(res.body);
-    expect(body.error).toBe('REAUTH_FAILED');
+    expect(res.statusCode).toBe(404);
   });
 });
