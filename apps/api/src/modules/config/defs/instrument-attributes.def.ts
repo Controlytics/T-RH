@@ -2,7 +2,17 @@ import type { ModuleConfigDefinition } from '../../../lib/config-registry.js';
 import { INSTRUMENT_ATTRIBUTE_KEYS_DEFAULT } from '@digilog/shared';
 
 /**
- * The DEFAULT attribute keys a newly created instrument profile starts with.
+ * VESTIGIAL as of 2026-08-08 — this key seeds NOTHING and is asked for on no
+ * form. A newly created instrument profile now starts with an EMPTY attribute
+ * list (operator decision; see `instrument-profiles/routes.ts` POST), because a
+ * new profile opening as an identical copy of the last one is what made the
+ * per-profile lists read as one global list. The module is kept only so the
+ * `/config/instrument-attributes` page — the PER-PROFILE editor — stays
+ * discoverable through config auto-discovery and the Configuration Access
+ * matrix; deleting it is a separate decision that must first confirm the page
+ * does not lose its role gating. Its stored value is inert.
+ *
+ * What it used to be: the default attribute keys a new profile started with.
  *
  * Instrument attributes are free-form key/value pairs, which is right for the
  * data model and wrong for data entry: left to itself every operator invents
@@ -11,10 +21,8 @@ import { INSTRUMENT_ATTRIBUTE_KEYS_DEFAULT } from '@digilog/shared';
  * administered list while leaving the VALUES to whoever registers the device.
  *
  * Since 2026-08-08 the list a registration form actually asks for lives on the
- * PROFILE (`InstrumentProfile.attributeKeys`). This key is only the template a
- * new profile is seeded from, and is asked for on no form by itself. Both are
- * edited on the same page, Configuration → Instrument Attributes, chosen with a
- * picker. See
+ * PROFILE (`InstrumentProfile.attributeKeys`), edited per profile on
+ * Configuration → Instrument Attributes with a profile picker. See
  * `docs/superpowers/specs/2026-08-08-per-profile-instrument-attributes-design.md`.
  *
  * A newline-separated textarea rather than a JSON setting: an admin editing
@@ -29,7 +37,7 @@ import { INSTRUMENT_ATTRIBUTE_KEYS_DEFAULT } from '@digilog/shared';
 export const instrumentAttributesDef: ModuleConfigDefinition = {
   moduleKey: 'instrument-attributes',
   moduleName: 'Instrument Attributes',
-  description: 'The attribute keys a new instrument profile starts with. Each profile\'s own list is edited on the same page.',
+  description: 'Inert since 2026-08-08 — attribute keys live on each instrument profile and are edited on the Instrument Attributes page.',
   icon: 'tag',
   category: 'system',
   sortOrder: 14,
@@ -42,7 +50,7 @@ export const instrumentAttributesDef: ModuleConfigDefinition = {
       key: 'keys',
       type: 'textarea',
       label: 'Attribute keys',
-      description: 'One key per line, in the order they should appear on the form. Blank lines and duplicates are ignored. Copied into each new profile; leave empty for new profiles to start with none.',
+      description: 'Not used. New profiles start with no attributes, and each profile has its own list, edited on Configuration → Instrument Attributes.',
       default: INSTRUMENT_ATTRIBUTE_KEYS_DEFAULT,
       maxLength: 2000,
       group: 'Instrument Attributes',

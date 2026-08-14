@@ -275,23 +275,30 @@ describe('GET /api/instruments?profileId', () => {
 const updateProfile = (id: string, payload: Record<string, unknown>) =>
   app.inject({ method: 'PUT', url: `/api/instrument-profiles/${id}`, headers: auth(), payload });
 
-/** The list that is global today — what a new profile must be seeded from. */
-async function globalKeys(): Promise<string> {
-  const row = await prisma.systemConfig.findUnique({ where: { configKey: 'instrument-attributes' } });
-  return (row?.configValue as { keys?: string } | null)?.keys ?? '';
-}
-
 describe('instrument profile attributeKeys', () => {
-  it('seeds a new profile from the LIVE default template when attributeKeys is omitted', async () => {
-    // Not from INSTRUMENT_ATTRIBUTE_KEYS_DEFAULT: the constant and this
-    // install's configured list are different, and seeding from the constant
-    // would hand every new profile a list nobody configured.
+  it('starts a new profile EMPTY when attributeKeys is omitted', async () => {
+    // 2026-08-08: a new profile used to be seeded from the global
+    // `instrument-attributes` template. It no longer is — every new profile
+    // opening as an identical copy of the last one is what made the per-profile
+    // list read as global. Nothing is inherited; the admin adds the keys.
     const res = await createProfile({ name: 'IPT Seeded' });
     expect(res.statusCode).toBe(201);
-    expect(JSON.parse(res.body).attributeKeys).toBe(await globalKeys());
+    expect(JSON.parse(res.body).attributeKeys).toBe('');
   });
 
-  it('stores an explicit list verbatim instead of seeding', async () => {
+  it('does NOT copy the global instrument-attributes config into a new profile', async () => {
+    // REGRESSION GUARD for the rule above: the config key still exists (it
+    // seeds nothing now), so a re-introduced getConfig() call would go
+    // unnoticed without an assertion that names it.
+    const row = await prisma.systemConfig.findUnique({ where: { configKey: 'instrument-attributes' } });
+    const configured = (row?.configValue as { keys?: string } | null)?.keys ?? '';
+    const res = await createProfile({ name: 'IPT Not Seeded' });
+    const stored = JSON.parse(res.body).attributeKeys;
+    expect(stored).toBe('');
+    if (configured) expect(stored).not.toBe(configured);
+  });
+
+  it('stores an explicit list verbatim', async () => {
     const res = await createProfile({ name: 'IPT Explicit', attributeKeys: 'Room\nSlave ID' });
     expect(JSON.parse(res.body).attributeKeys).toBe('Room\nSlave ID');
   });

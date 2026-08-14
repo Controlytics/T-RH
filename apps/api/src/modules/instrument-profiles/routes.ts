@@ -2,7 +2,6 @@ import { type FastifyInstance } from 'fastify';
 import {
   createInstrumentProfileSchema,
   updateInstrumentProfileSchema,
-  instrumentAttributesConfigSchema,
   parseInstrumentAttributeKeys,
 } from '@digilog/shared';
 import { prisma } from '../../lib/prisma.js';
@@ -10,7 +9,6 @@ import { auditLog } from '../../lib/audit.js';
 import { buildContext } from '../../lib/build-context.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { errorResponses } from '../../lib/error-schemas.js';
-import { configService } from '../config/config.service.js';
 
 /**
  * Instrument profiles — a named container for instruments.
@@ -154,12 +152,15 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
     }
     const ctx = buildContext(req);
 
-    // An ABSENT attributeKeys means "seed me from the default template"; an
-    // empty string means "this profile asks for nothing". Only the first is
-    // filled in here, which is why the schema carries no Zod default.
-    const attributeKeys = parsed.data.attributeKeys === undefined
-      ? (await configService.getConfig('instrument-attributes', instrumentAttributesConfigSchema)).keys
-      : parsed.data.attributeKeys;
+    // A new profile starts EMPTY — it asks for no attributes until an admin
+    // adds them on Configuration → Instrument Attributes (2026-08-08 operator
+    // decision, reversing the seed-from-the-global-template rule that shipped
+    // earlier the same day). Seeding made every new profile open as an
+    // identical copy of the last one, which reads as "the list is global" —
+    // the exact confusion per-profile keys exist to remove. The cost is that
+    // Block / Area / Location are not asked for until they are added; the
+    // config page warns about that per profile.
+    const attributeKeys = parsed.data.attributeKeys ?? '';
 
     try {
       const row = await prisma.instrumentProfile.create({

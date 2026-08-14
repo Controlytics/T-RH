@@ -5,14 +5,14 @@ import { MemoryRouter } from 'react-router-dom';
 /**
  * Editing attribute keys PER PROFILE.
  *
- * Three properties are worth protecting. A save must go to the right place —
- * the config key for the default template, the profile itself for a profile —
- * because sending a profile's list to the config endpoint would silently
- * rewrite the template for every future profile. Switching target must not
- * discard unsaved edits, since the editor deliberately ignores server
+ * Three properties are worth protecting. A save must land on the SELECTED
+ * profile — there is no shared list any more, so writing to the wrong id
+ * silently reshapes another profile's registration form. Switching profile must
+ * not discard unsaved edits, since the editor deliberately ignores server
  * revalidations mid-edit and there is nothing else to recover them from. And a
  * profile that omits Block / Area / Location must say so: those are real
- * placement columns, and instruments registered there get them empty.
+ * placement columns, and instruments registered there get them empty — which is
+ * now every brand-new profile, because a new one starts with no keys at all.
  *
  * `swr` is mocked module-wide rather than driven through SWRConfig, matching
  * the convention in routes/instruments/__tests__.
@@ -22,19 +22,15 @@ const PROFILES = {
     { id: 'p1', name: 'Cleanroom AHU', instrumentCount: 12, attributeKeys: 'Block\nArea\nRoom' },
     { id: 'p2', name: 'Warehouse Sensors', instrumentCount: 3, attributeKeys: 'Asset Tag' },
     { id: 'p3', name: 'Full Placement', instrumentCount: 1, attributeKeys: 'Block\nArea\nLocation' },
+    { id: 'p4', name: 'Brand New', instrumentCount: 0, attributeKeys: '' },
   ],
-  total: 3,
+  total: 4,
 };
-const DEFAULT_CONFIG = { keys: 'Block\nArea\nLocation' };
 
 const mutateProfiles = vi.fn();
-const mutateDefault = vi.fn();
+let profilesResponse: unknown = PROFILES;
 vi.mock('swr', () => ({
-  default: (key: string | null) => (
-    typeof key === 'string' && key.includes('/api/instrument-profiles')
-      ? { data: PROFILES, mutate: mutateProfiles }
-      : { data: DEFAULT_CONFIG, mutate: mutateDefault }
-  ),
+  default: () => ({ data: profilesResponse, mutate: mutateProfiles }),
 }));
 
 const put = vi.fn();
@@ -59,28 +55,35 @@ const keyField = (n: number) => screen.getByRole('textbox', { name: `Attribute k
 const save = () => fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
 
 beforeEach(() => {
+  profilesResponse = PROFILES;
   put.mockReset().mockResolvedValue({});
   mutateProfiles.mockReset();
-  mutateDefault.mockReset();
 });
 
-describe('InstrumentAttributesConfigPage — target picker', () => {
-  it('opens on the default template and shows its keys', () => {
+describe('InstrumentAttributesConfigPage — profile picker', () => {
+  it('opens on the first profile and shows its keys', () => {
     renderPage();
     expect(keyField(1)).toHaveValue('Block');
-    expect(keyField(3)).toHaveValue('Location');
+    expect(keyField(3)).toHaveValue('Room');
   });
 
-  it('shows the selected profile keys, not the default, after switching', () => {
+  it('offers no shared or default target — only profiles', () => {
+    renderPage();
+    const options = screen.getAllByRole('option').map((o) => o.textContent);
+    expect(options).toHaveLength(PROFILES.data.length);
+    expect(options.some((o) => /default/i.test(o ?? ''))).toBe(false);
+  });
+
+  it('shows the selected profile keys, not the previous one, after switching', () => {
     renderPage();
     selectTarget('p2');
     expect(keyField(1)).toHaveValue('Asset Tag');
-    // The default's third key must be gone — a stale row here would mean the
-    // editor kept one target's list while claiming to show another's.
+    // A stale row here would mean the editor kept one profile's list while
+    // claiming to show another's.
     expect(screen.queryByRole('textbox', { name: 'Attribute key 2' })).not.toBeInTheDocument();
   });
 
-  it('saves a profile through the profile PUT, not the config PUT', async () => {
+  it('saves to the SELECTED profile', async () => {
     renderPage();
     selectTarget('p2');
     fireEvent.change(keyField(1), { target: { value: 'Firmware Rev' } });
@@ -90,22 +93,23 @@ describe('InstrumentAttributesConfigPage — target picker', () => {
     ));
   });
 
-  it('saves the default through the config PUT', async () => {
+  it('never writes to the global config key', async () => {
+    // REGRESSION GUARD: the `instrument-attributes` config key still exists but
+    // seeds nothing. A save that reached it would edit a list no form asks for.
     renderPage();
     fireEvent.change(keyField(1), { target: { value: 'Block X' } });
     save();
-    await waitFor(() => expect(put).toHaveBeenCalledWith(
-      '/api/config/dynamic/instrument-attributes', { keys: 'Block X\nArea\nLocation' },
-    ));
+    await waitFor(() => expect(put).toHaveBeenCalled());
+    expect(put.mock.calls.every(([url]) => !String(url).includes('/api/config/'))).toBe(true);
   });
 
-  it('refuses to switch target while dirty unless the discard is confirmed', () => {
+  it('refuses to switch profile while dirty unless the discard is confirmed', () => {
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
     renderPage();
     fireEvent.change(keyField(1), { target: { value: 'Block X' } });
     selectTarget('p2');
     expect(confirmSpy).toHaveBeenCalled();
-    // Still editing the default: the edit survived and the switch did not happen.
+    // Still on p1: the edit survived and the switch did not happen.
     expect(keyField(1)).toHaveValue('Block X');
     confirmSpy.mockRestore();
   });
@@ -128,6 +132,17 @@ describe('InstrumentAttributesConfigPage — target picker', () => {
   });
 });
 
+describe('InstrumentAttributesConfigPage — no profiles', () => {
+  it('sends the admin to create a profile instead of showing an editor', () => {
+    // The keys live ON a profile, so with none there is nothing this page could
+    // save. Showing the editor anyway would give a Save button with no target.
+    profilesResponse = { data: [], total: 0 };
+    renderPage();
+    expect(screen.getByRole('link', { name: /instrument profiles/i })).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: /editing/i })).not.toBeInTheDocument();
+  });
+});
+
 describe('InstrumentAttributesConfigPage — placement advisory', () => {
   it('warns when a profile omits placement keys', () => {
     renderPage();
@@ -137,8 +152,7 @@ describe('InstrumentAttributesConfigPage — placement advisory', () => {
   });
 
   it('names only the placement keys actually missing', () => {
-    renderPage();
-    selectTarget('p1');  // has Block + Area, missing Location
+    renderPage();  // p1 has Block + Area, missing Location
     expect(screen.getByText(/does not ask for Location/)).toBeInTheDocument();
   });
 
@@ -148,9 +162,11 @@ describe('InstrumentAttributesConfigPage — placement advisory', () => {
     expect(screen.queryByText(/placement columns/i)).not.toBeInTheDocument();
   });
 
-  it('does not warn on the default template, which is asked for on no form', () => {
+  it('warns on a brand-new empty profile, which asks for no placement at all', () => {
+    // A new profile starts empty since 2026-08-08, so this advisory is the only
+    // thing standing between it and a blank Placement column.
     renderPage();
-    fireEvent.change(keyField(3), { target: { value: '' } });  // drop Location
-    expect(screen.queryByText(/placement columns/i)).not.toBeInTheDocument();
+    selectTarget('p4');
+    expect(screen.getByText(/Block, Area, Location/)).toBeInTheDocument();
   });
 });
