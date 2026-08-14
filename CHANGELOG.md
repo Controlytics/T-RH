@@ -55,6 +55,30 @@ an instrument the caller may not see is 404, never 403.
   light up the Alarms sidebar item. New ids must also join
   `CONFIGURABLE_PRIVILEGE_ORDER`, which drives membership of `FEATURE_TO_PERMISSION_MAP`.
 
+### C4 - notifications
+
+`ALARM_RAISED` and `ALARM_CLEARED` added to the `NotificationEventType` enum (migration
+`20260814090000_alarm_notification_events`, hand-authored - `migrate diff` again emitted
+the same three destructive statements, all stripped; drift guard PASS). The evaluator
+enqueues a `notification` job on every raise and clear.
+
+- **The `notification` queue handler was a STUB that discarded payloads.** Since the
+  2026-05-17 rule-chain/alarm removal it logged whatever arrived and acknowledged it, and
+  its own docstring asked for a real dispatcher mapping if a producer was ever wired back
+  up. C4 is that feature, so the handler now dispatches. The drain behaviour is KEPT for
+  non-event payloads: stale rows from before that removal may still be queued, and
+  failing them would retry three times and park them forever.
+- **Enqueued, not dispatched inline.** The evaluator runs every minute; a slow SMTP send
+  inside the loop would delay detecting the next excursion. Producer-side failures are
+  swallowed - the alarm is the regulated record and must not roll back because nobody
+  could be told about it - while the CONSUMER lets failures throw so graphile-worker
+  retries the delivery.
+- An event type is described in **six** places (the Prisma enum, `EVENT_TYPE_META`, and
+  `EVENT_LABELS` / `EVENT_FIELDS` / default email templates / default in-app messages in
+  the dispatcher). All six are updated, and a test now holds `EVENT_TYPE_META`'s promised
+  variables against what the payload actually produces - a variable advertised but never
+  produced renders as an empty cell in the email an inspector reads.
+
 ### Test infrastructure fixed along the way
 
 - `compliance_core_db_test` was **three migrations behind**; any e2e touching an

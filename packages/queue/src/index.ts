@@ -6,9 +6,11 @@ export type { JobPriority } from './priorities.js';
 
 export {
   notificationJobSchema,
+  notificationEventJobSchema,
 } from './schemas.js';
 export type {
   NotificationJob,
+  NotificationEventJob,
 } from './schemas.js';
 
 export { getProducer, getRunnerOptions, closeProducer } from './connection.js';

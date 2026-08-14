@@ -10,6 +10,7 @@ import {
   type RuleShape,
   type Sample,
 } from '../modules/alarms/decide.js';
+import { enqueueAlarmNotification } from '../modules/alarms/enqueue-notification.js';
 
 /**
  * Alarm evaluation. graphile-worker task, registered as `alarm_evaluation`.
@@ -150,7 +151,7 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
       const decision = decide(shape, sample, Boolean(existing), now);
 
       if (decision.action === 'raise') {
-        await prisma.alarm.create({
+        const created = await prisma.alarm.create({
           data: {
             ruleId: rule.id,
             // Frozen here, on purpose: editing or deleting the rule must not change
@@ -169,14 +170,41 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
           },
         });
         raised += 1;
+        // After the commit, and deliberately not awaited into the alarm's fate: the
+        // alarm is the regulated record, the notification is a courtesy on top of it.
+        await enqueueAlarmNotification('raised', {
+          alarmId: created.id,
+          instrumentId,
+          instrumentCode: row.code,
+          instrumentName: row.name,
+          metric: rule.metric,
+          severity: rule.severity,
+          ruleName: rule.name,
+          condition: describeRule(shape),
+          triggeredValue: created.triggeredValue,
+          raisedAt: created.raisedAt,
+        });
       } else if (decision.action === 'clear' && existing) {
         // Acknowledgement fields are untouched: a cleared-but-unacknowledged alarm is
         // the overnight excursion someone must still answer for in the morning.
-        await prisma.alarm.update({
+        const closed = await prisma.alarm.update({
           where: { id: existing },
           data: { state: 'CLEARED', clearedAt: now },
         });
         cleared += 1;
+        await enqueueAlarmNotification('cleared', {
+          alarmId: closed.id,
+          instrumentId,
+          instrumentCode: row.code,
+          instrumentName: row.name,
+          metric: closed.metric,
+          severity: closed.severity,
+          ruleName: rule.name,
+          condition: describeRule(shape),
+          triggeredValue: closed.triggeredValue,
+          raisedAt: closed.raisedAt,
+          clearedAt: closed.clearedAt,
+        });
       }
     }
   }

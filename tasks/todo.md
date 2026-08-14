@@ -2393,8 +2393,21 @@ node alone produced a map of 34 against a privilege list of 38.
 Verified: web 656 passing / 5 failed (the known baseline: 2 use-can + 3 url-utils),
 shared 344 passing / 3 failed (known baseline), api + web tsc clean.
 
-**C4 remains:** two `NotificationEventType` values (`ALARM_RAISED`, `ALARM_CLEARED`) and
-the enqueue on raise/clear.
+**C4 done 2026-08-14.** Both enum values (migration `20260814090000`, drift guard PASS,
+applied to dev AND test DBs), all six event-type registries, and the enqueue on
+raise/clear. The `notification` queue handler had been a stub discarding payloads since
+2026-05-17; it now dispatches, keeping the drain for legacy rows.
+
+**Project C (alarms) is COMPLETE: C1-C4.**
+
+**REQUIRES `npx prisma generate`** before the new enum values work at runtime - the
+generated client validates enum values, so a rule targeting ALARM_RAISED would be
+rejected by a stale client. It EPERMs while the API on :3001 holds the query-engine DLL,
+so the app must be stopped first.
+
+**`notification-rules` is also missing from `e2e/test-helper.ts`** (same class as the
+alarms/functional-locations gap), so the `/event-types` endpoint has no HTTP coverage;
+the registry is unit-tested through the now-exported `EVENT_TYPE_META` instead.
 
 **Also still open:** the 403-path and out-of-scope-404 tests for the alarm endpoints
 (`loginAs` is SUPER_ADMIN, so no e2e exercises a denied caller - a gap shared with the

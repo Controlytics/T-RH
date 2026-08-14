@@ -560,6 +560,10 @@ enum NotificationEventType {
   CHECKLIST_APPROVED
   CHECKLIST_REJECTED
   SYSTEM_ERROR
+  // 2026-08-14 (project C4). An excursion is not a device going offline: DEVICE_OFFLINE
+  // says the instrument stopped talking, these say it reported a value outside its limit.
+  ALARM_RAISED
+  ALARM_CLEARED
 }
 
 // ─── User Groups ──────────────────────────────────────────────────────

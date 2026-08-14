@@ -9,7 +9,7 @@ import { auditLog } from '../../lib/audit.js';
 import { NotFoundError } from '../../lib/errors.js';
 import { dispatchNotification } from '../notification-delivery/notification-dispatcher.js';
 
-const EVENT_TYPE_META: Record<string, { label: string; module: string; variables: string[] }> = {
+export const EVENT_TYPE_META: Record<string, { label: string; module: string; variables: string[] }> = {
   DEVICE_ONLINE:        { label: 'Device Online',         module: 'devices',    variables: ['deviceName', 'deviceId', 'timestamp'] },
   DEVICE_OFFLINE:       { label: 'Device Offline',        module: 'devices',    variables: ['deviceName', 'deviceId', 'lastSeen', 'timestamp'] },
   DEVICE_INACTIVITY:    { label: 'Device Inactivity',     module: 'devices',    variables: ['deviceName', 'deviceId', 'inactiveSince', 'timestamp'] },
@@ -20,6 +20,10 @@ const EVENT_TYPE_META: Record<string, { label: string; module: string; variables
   CHECKLIST_APPROVED:   { label: 'Checklist Approved',    module: 'checklists', variables: ['checklistName', 'approvedBy', 'timestamp'] },
   CHECKLIST_REJECTED:   { label: 'Checklist Rejected',    module: 'checklists', variables: ['checklistName', 'rejectedBy', 'reason', 'timestamp'] },
   SYSTEM_ERROR:         { label: 'System Error',          module: 'system',     variables: ['errorType', 'errorMessage', 'timestamp'] },
+  // Project C4. The variable lists are held against alarms/notify.ts by a test — a
+  // variable promised here but not produced there renders as an empty cell in the email.
+  ALARM_RAISED:         { label: 'Alarm Raised',          module: 'alarms',     variables: ['instrument', 'metric', 'value', 'condition', 'severity', 'ruleName', 'timestamp'] },
+  ALARM_CLEARED:        { label: 'Alarm Cleared',         module: 'alarms',     variables: ['instrument', 'metric', 'condition', 'severity', 'ruleName', 'raisedAt', 'duration', 'timestamp'] },
 };
 
 export default async function notificationRulesRoutes(app: FastifyInstance) {

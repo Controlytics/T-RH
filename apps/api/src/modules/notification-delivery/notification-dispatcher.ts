@@ -39,6 +39,7 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
     USER_LOGIN: 'User Login', USER_CREATED: 'User Created', USER_LOCKED: 'User Locked',
     CHECKLIST_SUBMITTED: 'Checklist Submitted',
     CHECKLIST_APPROVED: 'Checklist Approved', CHECKLIST_REJECTED: 'Checklist Rejected', SYSTEM_ERROR: 'System Error',
+    ALARM_RAISED: 'Alarm Raised', ALARM_CLEARED: 'Alarm Cleared',
   };
   // Which fields to show per event type (label -> variable key)
   const EVENT_FIELDS: Record<string, [string, string][]> = {
@@ -52,9 +53,11 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
     CHECKLIST_APPROVED: [['Checklist','checklistName'],['Approved By','approvedBy'],['Time','timestamp']],
     CHECKLIST_REJECTED: [['Checklist','checklistName'],['Rejected By','rejectedBy'],['Reason','reason'],['Time','timestamp']],
     SYSTEM_ERROR: [['Error Type','errorType'],['Message','errorMessage'],['URL','url'],['Time','timestamp']],
+    ALARM_RAISED: [['Instrument','instrument'],['Metric','metric'],['Reading','value'],['Condition','condition'],['Severity','severity'],['Rule','ruleName'],['Time','timestamp']],
+    ALARM_CLEARED: [['Instrument','instrument'],['Metric','metric'],['Condition','condition'],['Severity','severity'],['Rule','ruleName'],['Raised At','raisedAt'],['Duration','duration'],['Time','timestamp']],
   };
   variables.eventLabel = EVENT_LABELS[eventType] ?? eventType;
-  variables.summary = variables.message ?? variables.username ?? variables.deviceName ?? variables.checklistName ?? variables.errorType ?? eventType;
+  variables.summary = variables.message ?? variables.username ?? variables.deviceName ?? variables.checklistName ?? variables.errorType ?? variables.instrument ?? eventType;
 
   // Build details HTML table with actual values for this event type
   const fields = EVENT_FIELDS[eventType] ?? [['Time','timestamp']];
@@ -311,6 +314,31 @@ function getDefaultEmailTemplate(eventType: string): { subject: string; bodyTemp
 <tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Time</td><td style="padding:6px 12px;border:1px solid #ddd">\${timestamp}</td></tr>
 </table>`,
     },
+    ALARM_RAISED: {
+      subject: '[DigiLog] Alarm Raised: ${instrument}',
+      body: `<h2>Alarm Raised</h2>
+<table style="border-collapse:collapse;width:100%">
+<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Instrument</td><td style="padding:6px 12px;border:1px solid #ddd">\${instrument}</td></tr>
+<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Condition</td><td style="padding:6px 12px;border:1px solid #ddd">\${condition}</td></tr>
+<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Reading</td><td style="padding:6px 12px;border:1px solid #ddd">\${value}</td></tr>
+<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Severity</td><td style="padding:6px 12px;border:1px solid #ddd">\${severity}</td></tr>
+<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Rule</td><td style="padding:6px 12px;border:1px solid #ddd">\${ruleName}</td></tr>
+<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Time</td><td style="padding:6px 12px;border:1px solid #ddd">\${timestamp}</td></tr>
+</table>
+<p>Acknowledging this alarm is an electronic signature and requires a reason.</p>`,
+    },
+    ALARM_CLEARED: {
+      subject: '[DigiLog] Alarm Cleared: ${instrument}',
+      body: `<h2>Alarm Cleared</h2>
+<table style="border-collapse:collapse;width:100%">
+<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Instrument</td><td style="padding:6px 12px;border:1px solid #ddd">\${instrument}</td></tr>
+<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Condition</td><td style="padding:6px 12px;border:1px solid #ddd">\${condition}</td></tr>
+<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Raised At</td><td style="padding:6px 12px;border:1px solid #ddd">\${raisedAt}</td></tr>
+<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Duration</td><td style="padding:6px 12px;border:1px solid #ddd">\${duration}</td></tr>
+<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Time</td><td style="padding:6px 12px;border:1px solid #ddd">\${timestamp}</td></tr>
+</table>
+<p>Clearing is automatic and does NOT acknowledge the alarm — it still needs answering for.</p>`,
+    },
     USER_LOGIN: {
       subject: '[DigiLog] User Login: ${username}',
       body: `<h2>User Login</h2>
@@ -410,6 +438,8 @@ function getDefaultInAppMessage(eventType: string): string {
     CHECKLIST_APPROVED: 'Checklist ${checklistName} approved by ${approvedBy}',
     CHECKLIST_REJECTED: 'Checklist ${checklistName} rejected by ${rejectedBy}',
     SYSTEM_ERROR: 'System error: ${errorMessage}',
+    ALARM_RAISED: 'Alarm on ${instrument}: ${condition} (read ${value})',
+    ALARM_CLEARED: 'Alarm on ${instrument} cleared after ${duration}',
   };
   return msgs[eventType] ?? `Notification: ${eventType}`;
 }
