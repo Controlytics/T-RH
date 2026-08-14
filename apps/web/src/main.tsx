@@ -25,6 +25,7 @@ import { ConfigIndexPage } from './routes/config/index';
 import { PasswordPolicyPage } from './routes/config/password-policy';
 import { InstrumentAttributesConfigPage } from './routes/config/instrument-attributes';
 import { FloorplansConfigPage } from './routes/config/floorplans';
+import { AlarmRulesConfigPage } from './routes/config/alarm-rules';
 import { DatetimeConfigPage } from './routes/config/datetime';
 const ReportPageTitlesPage = lazy(() => import('./routes/config/report-page-titles').then(m => ({ default: m.ReportPageTitlesPage })));
 const AppearanceConfigPage = lazy(() => import("./routes/config/appearance").then(m => ({ default: m.AppearanceConfigPage })));
@@ -57,6 +58,7 @@ const NotificationLogsPage = lazy(() => import('./routes/config/notification-set
 
 const AdminRequestsPage = lazy(() => import("./routes/admin-requests/index").then(m => ({ default: m.AdminRequestsPage })));
 const FunctionalLocationsPage = lazy(() => import('./routes/functional-locations'));
+const AlarmsPage = lazy(() => import('./routes/alarms'));
 const InstrumentProfileListPage = lazy(() => import('./routes/instruments/profile-list').then(m => ({ default: m.InstrumentProfileListPage })));
 const InstrumentListPage = lazy(() => import('./routes/instruments/list').then(m => ({ default: m.InstrumentListPage })));
 const InstrumentCreatePage = lazy(() => import('./routes/instruments/create').then(m => ({ default: m.InstrumentCreatePage })));
@@ -112,6 +114,7 @@ createRoot(document.getElementById('root')!).render(
                 what every operator is asked for at registration. */}
             <Route path="/config/instrument-attributes" element={<RequireRole roles={['SUPER_ADMIN']}><InstrumentAttributesConfigPage /></RequireRole>} />
             <Route path="/config/floorplans" element={<RequireRole roles={['SUPER_ADMIN']}><FloorplansConfigPage /></RequireRole>} />
+            <Route path="/config/alarm-rules" element={<RequireRole permissions={[PERMISSIONS.ALARM_RULE_READ]}><AlarmRulesConfigPage /></RequireRole>} />
             <Route path="/config/report-page-titles" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><ReportPageTitlesPage /></Suspense></RequireRole>} />
             <Route path="/config/ldap" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><LdapConfigPage /></Suspense></RequireRole>} />
             <Route path="/config/datetime" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><DatetimeConfigPage /></RequireRole>} />
@@ -152,6 +155,7 @@ createRoot(document.getElementById('root')!).render(
                 `/instruments/profiles/:profileId` MUST precede `/instruments/:id`
                 below, or "profiles" is captured as an instrument id. */}
             <Route path="/functional-locations" element={<RequireRole permissions={[PERMISSIONS.FUNCTIONAL_LOCATION_READ]}><Suspense fallback={<LazyFallback />}><FunctionalLocationsPage /></Suspense></RequireRole>} />
+            <Route path="/alarms" element={<RequireRole permissions={[PERMISSIONS.ALARM_READ]}><Suspense fallback={<LazyFallback />}><AlarmsPage /></Suspense></RequireRole>} />
             <Route path="/instruments" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_READ]}><Suspense fallback={<LazyFallback />}><InstrumentProfileListPage /></Suspense></RequireRole>} />
             <Route path="/instruments/profiles/:profileId" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_READ]}><Suspense fallback={<LazyFallback />}><InstrumentListPage /></Suspense></RequireRole>} />
             <Route path="/instruments/new" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_CREATE]}><Suspense fallback={<LazyFallback />}><InstrumentCreatePage /></Suspense></RequireRole>} />

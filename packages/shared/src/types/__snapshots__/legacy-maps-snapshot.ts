@@ -225,6 +225,30 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
     "label": "Delete Functional Locations",
     "category": "Functional Locations",
     "icon": "trash"
+  },
+  {
+    "id": "alarm_rules.view",
+    "label": "View Alarm Rules",
+    "category": "Alarms",
+    "icon": "bell"
+  },
+  {
+    "id": "alarm_rules.manage",
+    "label": "Create / Edit / Delete Alarm Rules",
+    "category": "Alarms",
+    "icon": "settings-edit"
+  },
+  {
+    "id": "alarms.view",
+    "label": "View Alarms",
+    "category": "Alarms",
+    "icon": "bell"
+  },
+  {
+    "id": "alarms.acknowledge",
+    "label": "Acknowledge Alarms",
+    "category": "Alarms",
+    "icon": "check"
   }
 ];
 
@@ -349,6 +373,20 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   "functional_locations.delete": [
     "FUNCTIONAL_LOCATION_DELETE",
     "FUNCTIONAL_LOCATION_READ"
+  ],
+  "alarm_rules.view": [
+    "ALARM_RULE_READ"
+  ],
+  "alarm_rules.manage": [
+    "ALARM_RULE_MANAGE",
+    "ALARM_RULE_READ"
+  ],
+  "alarms.view": [
+    "ALARM_READ"
+  ],
+  "alarms.acknowledge": [
+    "ALARM_ACKNOWLEDGE",
+    "ALARM_READ"
   ]
 };
 
@@ -455,6 +493,16 @@ export const SIDEBAR_PRIVILEGE_MAP_SNAPSHOT: SidebarSectionSnapshot[] = [
       "functional_locations.create",
       "functional_locations.edit",
       "functional_locations.delete"
+    ]
+  },
+  {
+    "sidebarId": "alarms",
+    "label": "Alarms",
+    "icon": "🚨",
+    "description": "Limit excursions raised by alarm rules, and their acknowledgement",
+    "privilegeIds": [
+      "alarms.view",
+      "alarms.acknowledge"
     ]
   }
 ];

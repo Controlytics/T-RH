@@ -43,7 +43,7 @@ cd apps/web && npx vitest run src/routes/version-history/__tests__/diff.test.ts
 ## Key Paths
 - Source: `apps/web/src/`
 - Entry: `apps/web/src/main.tsx`
-- Routes: `apps/web/src/routes/` (12 route folders/files; **45 `<Route>` definitions** in `main.tsx` — both verified 2026-08-11; the previous "23 folders / ~84 pages / 77 Routes" was stale before this change and the shortfall has NOT been reconciled)
+- Routes: `apps/web/src/routes/` (**48 `<Route>` definitions** in `main.tsx`, verified `grep -cE "<Route" 2026-08-14`; the previous "23 folders / ~84 pages / 77 Routes" was stale before 2026-08-11 and the shortfall has NOT been reconciled. 2026-08-13 added `/functional-locations`; 2026-08-14 added `/alarms` and `/config/alarm-rules`)
 - Hooks: `apps/web/src/hooks/` (auth, branding, datetime, pagination, reauth, session, single-tab, toast, field-labels)
 - Components: `apps/web/src/components/` (layout, UI primitives, dialogs)
 - API Client: `apps/web/src/lib/api-client.ts`
@@ -94,7 +94,7 @@ profile photo upload silently 401'd until 2026-08-11.
 - Force login (`force: true`) to terminate existing sessions
 
 ## Key Features
-- 34 config pages (auto-discovered from registry)
+- 25 files in `routes/config/` (verified `ls` 2026-08-14; the "34" was inherited from DigiLog and was never true here). Most config surfaces are auto-discovered defs rendered by the dynamic page; `alarm-rules.tsx` (2026-08-14) is a real CRUD page, like `floorplans.tsx`
 - Entity tree with drag-and-drop hierarchy
 - Cleaning-profile pipeline editor (STAGE / CHECKLIST nodes on a custom canvas)
 - Notification system (email/SMS/Telegram/Slack)

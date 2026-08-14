@@ -2375,6 +2375,31 @@ removed Data Injection programme) that still renders through it.
 Together these mean A, B and D were verified only by unit tests plus live probe
 scripts, never through the HTTP layer. That gap is now open to be closed.
 
-**Also still open:** the 4 gateways in the dashboard readings table (they can never
+### 2026-08-14 - C3 done (UI). C4 is the only alarm phase left.
+
+Alarms page (Active/History + acknowledge dialog), Alarm Rules config page + card,
+dashboard Alarms card. Registry: 38 -> 42 permissions, 44 -> 46 reauth, 11 -> 12 sidebar
+items, 11th tree group, 34 -> 38 feature privileges.
+
+The gap flagged at the end of C2 is CLOSED: `ALARM_ACKNOWLEDGE` now has a
+`PERMISSION_TREE` node, so a role can be granted it through the picker instead of the
+capability being SUPER_ADMIN-only.
+
+**`CONFIGURABLE_PRIVILEGE_ORDER` is not optional.** It drives BOTH the ordering of
+FEATURE_PRIVILEGES and the MEMBERSHIP of FEATURE_TO_PERMISSION_MAP, so a configurable
+node left out of it is silently absent from the role -> permission expansion. Adding the
+node alone produced a map of 34 against a privilege list of 38.
+
+Verified: web 656 passing / 5 failed (the known baseline: 2 use-can + 3 url-utils),
+shared 344 passing / 3 failed (known baseline), api + web tsc clean.
+
+**C4 remains:** two `NotificationEventType` values (`ALARM_RAISED`, `ALARM_CLEARED`) and
+the enqueue on raise/clear.
+
+**Also still open:** the 403-path and out-of-scope-404 tests for the alarm endpoints
+(`loginAs` is SUPER_ADMIN, so no e2e exercises a denied caller - a gap shared with the
+existing list/summary endpoints); registering `super-admin` in `e2e/test-helper.ts`;
+clamping `signatureMeaning` inside `lib/audit.ts` for ALL callers rather than per-module;
+the 4 gateways in the dashboard readings table (they can never
 report a value); the Instrument ID charset pattern on the create form that would reject
 CWH-I/142; and the four inert dashboard-cards config keys.

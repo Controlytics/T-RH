@@ -1,5 +1,68 @@
 # Changelog
 
+## [Unreleased] - Alarm subsystem (2026-08-13/14, project C)
+
+Rules the evaluator checks every minute, the alarms they raise, and the e-signed
+acknowledgement that answers for them. Phases C1-C3; C4 (notifications) is open.
+
+### C1 - rules, evaluation, lifecycle
+
+`AlarmRule` + `Alarm` models (migration `20260813164500_alarm_subsystem`, hand-authored,
+drift guard PASS). Decision logic is pure and tested: boundaries are IN spec, a missing
+reading is NOT a breach, and a rule with no usable threshold NEVER fires. The
+`alarm_evaluation` worker runs per minute, registered in **both** `app.ts` and
+`packages/queue/crontab.txt` in the same commit - a cron identifier with no handler
+leaks jobs forever.
+
+### C2 - acknowledgement
+
+`POST /api/alarms/:id/acknowledge`: a reason (5-500 chars) plus `ACKNOWLEDGE_ALARM`
+re-authentication, an `ALARM_ACKNOWLEDGED` audit row, and **409 on a second attempt** so
+the first signature stands. The claim uses `acknowledgedAt: null` in the WHERE, so two
+simultaneous requests cannot both succeed. The lookup is visibility-scoped: an alarm on
+an instrument the caller may not see is 404, never 403.
+
+- **No shared-package change was needed.** `ALARM_ACKNOWLEDGED` and its template were
+  already present, RETAINED per 21 CFR when the previous alarm subsystem was torn out in
+  Phase 6. Re-adding them was a duplicate-key tsc error.
+- **`audit_trail.signature_meaning` is VARCHAR(255) while `reason` is TEXT.** An
+  over-long reason acknowledged the alarm and *then* threw inside `auditLog`, leaving a
+  regulated action with no audit row. Reason is now bounded in the body schema and every
+  signature line in the module is clamped - including the three rule-CRUD lines from C1,
+  which had the same latent overflow through a long rule name.
+
+### C3 - UI
+
+- **Alarms page** (`/alarms`): Active / History tabs that split on the CONDITION, with
+  acknowledgement as its own column. A cleared-but-unacknowledged alarm - the overnight
+  excursion nobody saw - must not read as finished.
+- **Acknowledge dialog** collects the reason and the password TOGETHER, restating the
+  alarm being signed for. Splitting them would let someone type a reason, get a password
+  box, and no longer see what they are signing.
+- **Alarm Rules config page** (`/config/alarm-rules`) with a card on Configuration. The
+  condition text is rendered SERVER-side so this page and an alarm row cannot drift.
+  A rule that has raised alarms cannot be deleted (RESTRICT); the 409 names the count and
+  the row offers deactivation instead.
+- **Dashboard Alarms card** - the one project B left absent. Top level only: it is a
+  destination, not a drill-down.
+- Registry: 4 permissions (38 -> 42), 2 reauth actions (44 -> 46), 1 sidebar item
+  (11 -> 12), an 11th `PERMISSION_TREE` group, and 4 configurable nodes (34 -> 38). The
+  two alarm-rule nodes live under **Configuration**, not Alarms, because Alarm Rules is a
+  config page - putting them in the Alarms group would make granting rule management
+  light up the Alarms sidebar item. New ids must also join
+  `CONFIGURABLE_PRIVILEGE_ORDER`, which drives membership of `FEATURE_TO_PERMISSION_MAP`.
+
+### Test infrastructure fixed along the way
+
+- `compliance_core_db_test` was **three migrations behind**; any e2e touching an
+  instrument 500'd on a missing column. The test DB is migrated separately from the dev
+  DB.
+- `src/e2e/test-helper.ts` registers route modules independently of `app.ts` and had
+  neither `functional-locations` nor `alarms`, so HTTP-level coverage of projects A and C
+  was impossible to write. Both are registered now. `super-admin` is still missing, which
+  is why `super-admin-unretire.test.ts` fails.
+
+
 ## [Unreleased] - Dashboard drill-down + instrument visibility (2026-08-13, projects B and D)
 
 ### B - Dashboard drill-down by functional location

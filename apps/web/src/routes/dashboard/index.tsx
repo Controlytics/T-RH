@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useCan } from '@/hooks/use-can';
 import useSWR from 'swr';
 import { useAuth } from '@/hooks/use-auth';
 import { TelemetryTable } from './telemetry-table';
@@ -38,6 +39,8 @@ const themeGradient = 'linear-gradient(to right, var(--theme-gradient-from), var
  */
 export function DashboardPage() {
   const { user } = useAuth();
+  const can = useCan();
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const selected = params.get('fl');
   const view = params.get('view') === 'graphical' ? 'graphical' : 'table';
@@ -55,6 +58,13 @@ export function DashboardPage() {
   // shows only the instruments that happen to be placed — 5 of 20 here — while its
   // own view shows all 20.
   const { data: allInstruments } = useSWR<{ total?: number }>('/api/instruments?limit=1');
+  // Alarm counts for the overview card. Fetched only when the viewer may read alarms —
+  // the endpoint 403s otherwise, and a card showing 0 because of a permission error
+  // would read as "nothing wrong" to someone who simply cannot see it.
+  const canSeeAlarms = can('alarms.view');
+  const { data: alarmSummary } = useSWR<{ active: number; unacknowledged: number; critical: number }>(
+    canSeeAlarms ? '/api/alarms/summary' : null,
+  );
   const nav = useMemo(
     () => resolveNav(selected, tree?.data ?? [], allInstruments?.total),
     [selected, tree, allInstruments?.total],
@@ -145,6 +155,35 @@ export function DashboardPage() {
               </p>
             </button>
           ))}
+
+          {/* Alarms sits beside the location cards at the top level only: it is a
+              destination, not a drill-down, so it navigates away rather than filtering.
+              Deeper levels are about one location's instruments, where a global alarm
+              count would be misleading. */}
+          {selected === null && canSeeAlarms && (
+            <button
+              type="button"
+              onClick={() => navigate('/alarms')}
+              className="rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-soft transition-all hover:-translate-y-0.5 hover:shadow-elevated"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-lg font-bold text-slate-800">Alarms</p>
+                  <p className="mt-0.5 text-xs uppercase tracking-wider text-slate-500">Active</p>
+                </div>
+                <span className={`shrink-0 rounded-xl px-3 py-1.5 text-lg font-bold text-white ${
+                  (alarmSummary?.active ?? 0) > 0 ? 'bg-red-600' : 'bg-emerald-600'
+                }`}>
+                  {alarmSummary?.active ?? 0}
+                </span>
+              </div>
+              <p className="mt-3 text-xs text-slate-500">
+                {(alarmSummary?.unacknowledged ?? 0) > 0
+                  ? `${alarmSummary?.unacknowledged} awaiting acknowledgement`
+                  : 'Nothing awaiting acknowledgement'}
+              </p>
+            </button>
+          )}
         </div>
       )}
 

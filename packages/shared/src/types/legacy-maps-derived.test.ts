@@ -18,15 +18,15 @@ import {
 } from './__snapshots__/legacy-maps-snapshot.js';
 
 describe('Phase 5E: derived maps === original snapshots', () => {
-  it('FEATURE_PRIVILEGES (34 entries) matches snapshot exactly — order-sensitive', () => {
+  it('FEATURE_PRIVILEGES (38 entries) matches snapshot exactly — order-sensitive', () => {
     expect(FEATURE_PRIVILEGES).toEqual(FEATURE_PRIVILEGES_SNAPSHOT);
   });
 
-  it('FEATURE_TO_PERMISSION_MAP (34 keys) matches snapshot exactly — per-key array equality', () => {
+  it('FEATURE_TO_PERMISSION_MAP (38 keys) matches snapshot exactly — per-key array equality', () => {
     expect(FEATURE_TO_PERMISSION_MAP).toEqual(FEATURE_TO_PERMISSION_MAP_SNAPSHOT);
   });
 
-  it('SIDEBAR_PRIVILEGE_MAP (10 sections): sidebarIds match snapshot in order', () => {
+  it('SIDEBAR_PRIVILEGE_MAP (11 sections): sidebarIds match snapshot in order', () => {
     expect(SIDEBAR_PRIVILEGE_MAP.map(s => s.sidebarId))
       .toEqual(SIDEBAR_PRIVILEGE_MAP_SNAPSHOT.map(s => s.sidebarId));
   });
@@ -40,7 +40,7 @@ describe('Phase 5E: derived maps === original snapshots', () => {
     }
   });
 
-  it('configurable node count is exactly 34', () => {
+  it('configurable node count is exactly 38', () => {
     // Post domain-strip: the 8 core sidebar groups (dashboard, users,
     // admin-requests, configuration, notifications, audit, system-health,
     // debug-traces) contribute 26 configurable nodes. The old version-history
@@ -48,19 +48,22 @@ describe('Phase 5E: derived maps === original snapshots', () => {
     // went in the Phase 0 strip. 2026-08-05 added the 9th group, instruments,
     // with 4 configurable nodes (view / create / edit / delete) → 30. 2026-08-13
     // added the 10th group, functional-locations, with 4 more → 34.
+    // 2026-08-13 (C3) added the 11th group, alarms, with 2 configurable nodes
+    // (view / acknowledge) plus 2 alarm-rule nodes under the CONFIGURATION group,
+    // since Alarm Rules is a config page rather than its own sidebar item → 38.
     const count = PERMISSION_TREE.flatMap(g => g.nodes).filter(n => n.configurable === true).length;
-    expect(count).toBe(34);
+    expect(count).toBe(38);
   });
 
   it('FEATURE_PRIVILEGES has exactly 34 entries', () => {
-    expect(FEATURE_PRIVILEGES).toHaveLength(34);
+    expect(FEATURE_PRIVILEGES).toHaveLength(38);
   });
 
-  it('FEATURE_TO_PERMISSION_MAP has exactly 34 keys', () => {
-    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(34);
+  it('FEATURE_TO_PERMISSION_MAP has exactly 38 keys', () => {
+    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(38);
   });
 
-  it('SIDEBAR_PRIVILEGE_MAP has exactly 10 sections', () => {
-    expect(SIDEBAR_PRIVILEGE_MAP).toHaveLength(10);
+  it('SIDEBAR_PRIVILEGE_MAP has exactly 11 sections', () => {
+    expect(SIDEBAR_PRIVILEGE_MAP).toHaveLength(11);
   });
 });

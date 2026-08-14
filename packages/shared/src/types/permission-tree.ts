@@ -214,6 +214,16 @@ export const PERMISSION_TREE: SidebarGroup[] = [
       { id: 'roles.configure_reauth', label: 'Configure Role Re-auth', sidebarId: 'configuration', page: 'Roles & Access', action: 'Configure Re-auth',
         icon: 'lock', category: 'System', permissions: ['CONFIG_UPDATE'], enforce: 'b',
         gate: ['ROLE_MANAGE'] },
+      // Alarm Rules is a Configuration PAGE, so its nodes belong to this group rather
+      // than to the Alarms sidebar group - otherwise granting rule management would
+      // light up the Alarms sidebar item, which is a different capability. Managing a
+      // rule implies reading rules: a page you may write but not read is unusable.
+      { id: 'alarm_rules.view', label: 'View Alarm Rules', sidebarId: 'configuration', page: 'Alarm Rules', action: 'View',
+        icon: 'bell', category: 'Alarms', permissions: ['ALARM_RULE_READ'], enforce: 'a',
+        gate: ['ALARM_RULE_READ'], configurable: true },
+      { id: 'alarm_rules.manage', label: 'Create / Edit / Delete Alarm Rules', sidebarId: 'configuration', page: 'Alarm Rules', action: 'Manage',
+        icon: 'settings-edit', category: 'Alarms', permissions: ['ALARM_RULE_MANAGE', 'ALARM_RULE_READ'], enforce: 'a',
+        gate: ['ALARM_RULE_MANAGE'], reauthAction: 'MANAGE_ALARM_RULE', configurable: true },
     ],
   },
 
@@ -360,6 +370,26 @@ export const PERMISSION_TREE: SidebarGroup[] = [
     ],
   },
 
+  // Alarms - limit excursions raised by the evaluator (2026-08-13, project C3).
+  //
+  // There is deliberately no create/edit/delete here: alarms are RAISED by the worker
+  // and are regulated records with no delete path. The only human action is
+  // acknowledgement, which is an e-signature - hence the reauth action on that node.
+  // Rule authoring lives under Configuration above, because it is a different job.
+  {
+    sidebarId: 'alarms', label: 'Alarms', icon: '🚨',
+    description: 'Limit excursions raised by alarm rules, and their acknowledgement',
+    visibilityPrivilegeIds: ['alarms.view', 'alarms.acknowledge'],
+    nodes: [
+      { id: 'alarms.view', label: 'View Alarms', sidebarId: 'alarms', page: 'Alarms', action: 'View',
+        icon: 'bell', category: 'Alarms', permissions: ['ALARM_READ'], enforce: 'a',
+        gate: ['ALARM_READ'], configurable: true },
+      { id: 'alarms.acknowledge', label: 'Acknowledge Alarms', sidebarId: 'alarms', page: 'Alarms', action: 'Acknowledge',
+        icon: 'check', category: 'Alarms', permissions: ['ALARM_ACKNOWLEDGE', 'ALARM_READ'], enforce: 'a',
+        gate: ['ALARM_ACKNOWLEDGE'], reauthAction: 'ACKNOWLEDGE_ALARM', configurable: true },
+    ],
+  },
+
 ];
 
 // ─── Phase 5E: Canonical ordering for derived maps ───────────────────────────
@@ -377,6 +407,7 @@ const CONFIGURABLE_PRIVILEGE_ORDER: readonly string[] = [
   'backup.export', 'backup.restore',
   'instruments.view', 'instruments.create', 'instruments.edit', 'instruments.delete',
   'functional_locations.view', 'functional_locations.create', 'functional_locations.edit', 'functional_locations.delete',
+  'alarm_rules.view', 'alarm_rules.manage', 'alarms.view', 'alarms.acknowledge',
 ] as const;
 
 // ─── Derive Functions ────────────────────────────────────────────────────────
