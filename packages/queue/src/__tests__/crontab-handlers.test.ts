@@ -64,6 +64,22 @@ describe('crontab ↔ taskList', () => {
   });
 
   it('the surviving tasks are the expected set', () => {
-    expect(scheduledTasks().sort()).toEqual(['password_expiry_check', 'session_sweep']);
+    // De-duplicated: telemetry_partition_maintenance is scheduled TWICE on purpose (the
+    // 1st and the 15th), so that a single missed run — the machine being off on the 1st —
+    // still leaves next month's partition created. Comparing the raw list would make this
+    // assertion about scheduling frequency, which is not what it is guarding.
+    //
+    // This pin went stale twice without anyone noticing, because the queue package's
+    // suite is not part of `npm test` in apps/api or apps/web: telemetry_partition
+    // _maintenance was added 2026-08-11 and alarm_evaluation on 2026-08-13, and the
+    // expected set was updated for neither. The FIRST test in this file — every
+    // scheduled task has a handler — is the one that actually prevents the row leak,
+    // and it passed throughout.
+    expect([...new Set(scheduledTasks())].sort()).toEqual([
+      'alarm_evaluation',
+      'password_expiry_check',
+      'session_sweep',
+      'telemetry_partition_maintenance',
+    ]);
   });
 });
