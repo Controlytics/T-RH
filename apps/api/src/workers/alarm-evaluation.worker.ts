@@ -170,8 +170,10 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
           },
         });
         raised += 1;
-        // After the commit, and deliberately not awaited into the alarm's fate: the
-        // alarm is the regulated record, the notification is a courtesy on top of it.
+        // After the commit. Awaited, because this is a queue INSERT and not a delivery —
+        // it costs a round trip, not an SMTP handshake. It cannot fail the pass either
+        // way: enqueueAlarmNotification never throws, since the alarm is the regulated
+        // record and the notification is a courtesy on top of it.
         await enqueueAlarmNotification('raised', {
           alarmId: created.id,
           instrumentId,

@@ -5,8 +5,8 @@ model count re-verified 2026-08-06 after the Instruments + instrument-gateway
 work (never previously synced into this doc — see §1a).*
 
 ```bash
-grep -cE '^model ' apps/api/prisma/schema.prisma   # → 27
-grep -cE '^enum '  apps/api/prisma/schema.prisma   # → 6
+grep -cE '^model ' apps/api/prisma/schema.prisma   # → 34  (2026-08-14)
+grep -cE '^enum '  apps/api/prisma/schema.prisma   # → 11  (2026-08-14)
 ```
 
 > The audit chain is documented separately in
@@ -108,16 +108,24 @@ audit chain's advisory lock to commit, and locking a row after that cycles
 against a concurrent writer (Postgres kills one side with `40P01`). See
 `apps/api/DECISIONS.md` §4a for the full rationale and the reproduction case.
 
-## 2. The 6 enums
+## 2. The 11 enums
 
 `AssigneeType`, `UserStatus`, `NotificationType`, `NotificationChannel`,
-`NotificationDeliveryStatus`, `NotificationEventType`.
+`NotificationDeliveryStatus`, `NotificationEventType`, plus five added
+2026-08-13 by the Functional Locations and alarm projects:
+`FunctionalLocationType`, `AlarmMetric`, `AlarmComparison`, `AlarmSeverity`,
+`AlarmState`.
 
 - `UserStatus` = `ENABLED | DISABLED | LOCKED | EXPIRED`
-- `NotificationEventType` still contains **6 dead upstream values**
+- `AlarmState` = `ACTIVE | CLEARED`. There is no ACKNOWLEDGED state: clearing
+  and acknowledgement are independent axes, and collapsing them would hide the
+  cleared-but-unacknowledged alarm that still needs answering for.
+- `NotificationEventType` contains **6 dead upstream values**
   (`DEVICE_ONLINE`, `DEVICE_OFFLINE`, `DEVICE_INACTIVITY`,
   `CHECKLIST_SUBMITTED`, `CHECKLIST_APPROVED`, `CHECKLIST_REJECTED`). Live
-  values are `USER_LOGIN`, `USER_CREATED`, `USER_LOCKED`, `SYSTEM_ERROR`.
+  values are `USER_LOGIN`, `USER_CREATED`, `USER_LOCKED`, `SYSTEM_ERROR`, and
+  — since 2026-08-14 — `ALARM_RAISED` / `ALARM_CLEARED`, emitted by the alarm
+  evaluator onto the `notification` queue.
   A rebuild should model **only the live four**.
 - `AssigneeType` was trimmed upstream during multi-tenancy removal and retains
   more values than are used.

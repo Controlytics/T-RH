@@ -220,7 +220,7 @@ function authorize(user: User, gate: Gate): boolean;   // Grant does not compile
 A rebuild is complete when all of the following hold. Each links to its
 specification.
 
-- [ ] 23 models, 6 enums — or a justified, documented deviation ([Phase 5](../05-database/README.md))
+- [ ] 34 models, 11 enums — or a justified, documented deviation ([Phase 5](../05-database/README.md)). *(Was 23/6 when this checklist was written; the live schema has since grown by the floorplan, functional-location and alarm work. Re-derive with the greps in Phase 5 rather than trusting this line.)*
 - [ ] 139 API paths reachable with equivalent semantics ([endpoints](../06-api/endpoints.md))
 - [ ] 38 frontend routes ([Phase 7](../07-ui/README.md))
 - [ ] 30 permissions · 26 configurable privileges · 8 groups · 9 sidebar items ([Phase 4](../04-roles-permissions/README.md))
