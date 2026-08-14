@@ -44,7 +44,10 @@ an instrument the caller may not see is 404, never 403.
   A rule that has raised alarms cannot be deleted (RESTRICT); the 409 names the count and
   the row offers deactivation instead.
 - **Dashboard Alarms card** - the one project B left absent. Top level only: it is a
-  destination, not a drill-down.
+  destination, not a drill-down. **Gated on the `alarms.view` permission ONLY**, not on
+  the `dashboard-cards` config like the table and floorplan surfaces - so an admin
+  hiding cards per role cannot hide this one. Adding an `alarms` key to that def is a
+  follow-up, alongside the four already-inert keys noted below.
 - Registry: 4 permissions (38 -> 42), 2 reauth actions (44 -> 46), 1 sidebar item
   (11 -> 12), an 11th `PERMISSION_TREE` group, and 4 configurable nodes (34 -> 38). The
   two alarm-rule nodes live under **Configuration**, not Alarms, because Alarm Rules is a

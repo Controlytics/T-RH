@@ -46,7 +46,7 @@ export function AlarmRulesConfigPage() {
 
   // Rule writes need re-authentication, so every one of them parks its intent here and
   // runs only after the password is accepted.
-  const [pending, setPending] = useState<null | (() => Promise<void>) | ((p: string) => Promise<void>)>(null);
+  const [pending, setPending] = useState<((p: string) => Promise<void>) | null>(null);
   const [password, setPassword] = useState('');
   const [reauthError, setReauthError] = useState('');
   const [verifying, setVerifying] = useState(false);
@@ -65,14 +65,18 @@ export function AlarmRulesConfigPage() {
     setVerifying(true);
     setReauthError('');
     try {
-      await (pending as (p: string) => Promise<void>)(password);
-      setPending(null);
-      await mutate();
+      await pending(password);
     } catch (e) {
+      // Stays open with the message: the password is still on screen to correct.
       setReauthError(e instanceof Error ? e.message : 'Could not complete that change.');
+      return;
     } finally {
       setVerifying(false);
     }
+    // Refetch only AFTER closing. Inside the try, a failed refresh would write an error
+    // onto a dialog that is already gone, so the write would look like it had failed.
+    setPending(null);
+    await mutate();
   };
 
   const submit = (draft: RuleDraft) => {

@@ -169,11 +169,15 @@ alarm subsystem does not reimplement any of it.
 
 | Method | Path | Permission |
 |---|---|---|
-| GET | `/api/alarm-rules` | `ALARM_RULE_READ` |
-| POST / PUT / DELETE | `/api/alarm-rules[/:id]` | `ALARM_RULE_MANAGE` + reauth, audited |
+| GET | `/api/alarms/rules` | `ALARM_RULE_READ` |
+| POST / PUT / DELETE | `/api/alarms/rules[/:id]` | `ALARM_RULE_MANAGE` + reauth, audited |
 | GET | `/api/alarms?state=&acknowledged=&instrumentId=` | `ALARM_READ` |
 | GET | `/api/alarms/summary` | `ALARM_READ` — counts for the dashboard card |
 | POST | `/api/alarms/:id/acknowledge` | `ALARM_ACKNOWLEDGE` + reauth, audited |
+
+**Rules are mounted UNDER `/api/alarms`, not at `/api/alarm-rules`** as this table
+originally said (corrected 2026-08-14). The module registers one prefix and both the API
+and the web page agree on it; moving the routes now would be churn for no gain.
 
 **Alarms respect project D's visibility scope.** An alarm names an instrument, so
 listing alarms for instruments a role may not see would leak exactly what D withholds.
