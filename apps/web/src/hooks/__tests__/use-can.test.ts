@@ -25,6 +25,25 @@ vi.mock('../use-auth', () => ({
   useAuth: vi.fn(),
 }));
 
+/**
+ * The real PERMISSION_TREE is used for every test below EXCEPT the OR-gate pair, which
+ * needs a node whose gate holds two permissions. No such node survives the Phase 0
+ * domain strip (`cleaning_profiles.toggle`, the old subject, went with it), so those two
+ * tests stub the resolver for one synthetic node id instead of asserting against
+ * whichever real node happens to have an OR gate today. That coupling is what made them
+ * fail: the hook's OR semantics never changed, its example did.
+ */
+vi.mock('@digilog/shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@digilog/shared')>();
+  return {
+    ...actual,
+    resolveNodeGate: (id: string) =>
+      id === '__test__.or_gated' ? ['FIRST_PERM', 'SECOND_PERM'] : actual.resolveNodeGate(id),
+    resolveNodeGateRoles: (id: string) =>
+      id === '__test__.or_gated' ? [] : actual.resolveNodeGateRoles(id),
+  };
+});
+
 import { useAuth } from '../use-auth';
 
 const mockUseAuth = useAuth as ReturnType<typeof vi.fn>;
@@ -59,25 +78,25 @@ describe('useCan()', () => {
     expect(result.current('pm.delete')).toBe(true);
   });
 
-  // ── OR-gate: user holds ONE of the required perms ─────────────────────────
-  // cleaning_profiles.toggle has a real OR-gate ['FCP_UPDATE','CP_PAGE_EDIT'] (the toggle
-  // theater-fix). (checklists.create was narrowed to single-perm [CHECKLIST_CREATE] in 5C.)
-  it('grants an OR-gated action when user holds the first perm (FCP_UPDATE)', () => {
-    setupUser('QA', ['FCP_UPDATE']);
+  // ── OR-gate: holding ANY ONE of the gate's permissions is enough ──────────
+  // Against a stubbed two-permission gate (see the vi.mock above) rather than a real
+  // node: this asserts the HOOK's semantics, which is what it was always meant to do.
+  it('grants an OR-gated action when the user holds the first perm', () => {
+    setupUser('QA', ['FIRST_PERM']);
     const { result } = renderHook(() => useCan());
-    expect(result.current('cleaning_profiles.toggle')).toBe(true);
+    expect(result.current('__test__.or_gated')).toBe(true);
   });
 
-  it('grants an OR-gated action when user holds the second perm (CP_PAGE_EDIT)', () => {
-    setupUser('QA', ['CP_PAGE_EDIT']);
+  it('grants an OR-gated action when the user holds the second perm', () => {
+    setupUser('QA', ['SECOND_PERM']);
     const { result } = renderHook(() => useCan());
-    expect(result.current('cleaning_profiles.toggle')).toBe(true);
+    expect(result.current('__test__.or_gated')).toBe(true);
   });
 
-  it('denies an OR-gated action when user holds neither perm', () => {
-    setupUser('OPERATOR', ['FILTER_OPERATE', 'CYCLE_READ']);
+  it('denies an OR-gated action when the user holds neither perm', () => {
+    setupUser('OPERATOR', ['SOMETHING_ELSE']);
     const { result } = renderHook(() => useCan());
-    expect(result.current('cleaning_profiles.toggle')).toBe(false);
+    expect(result.current('__test__.or_gated')).toBe(false);
   });
 
   // ── SA-only: holding the GRANT-SET perm does NOT grant the action ──────────

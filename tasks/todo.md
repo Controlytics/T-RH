@@ -2429,9 +2429,36 @@ real regressions in the noise.
   home: destructive handlers must resolve reads before opening the transaction and must
   never delete audit rows; read-side audit enrichment must not mutate the stored row.
 
-**api: 1278 passing / 0 failing / 0 skipped across 102 files.** Still open: web 5
-(2 use-can + 3 url-utils) and shared 3 (audit-templates placeholder, the OR-gated gate
-case, checklists.submit).
+**ALL FOUR PACKAGES GREEN 2026-08-14** — api 1278, web 657, shared 348, queue 10;
+0 failing, 0 skipped anywhere. api + web tsc clean, shared + queue build clean,
+migration drift guard PASS.
+
+web (5) and shared (3) had the same root cause as the api five — pinned to the removed
+domain — but only their EXAMPLES were dead, not their subjects, so they were repointed
+rather than deleted:
+
+- `use-can` OR-gate (2): no node has a multi-permission gate any more, so the two tests
+  now stub a synthetic two-perm gate. They assert the HOOK's semantics, which is what
+  they were always for; tying them to whichever node happened to have an OR gate is what
+  made them rot.
+- `url-utils` raw-fetch guard (3): hardcoded six file paths, three since deleted, so it
+  spent months failing with ENOENT instead of guarding. Now walks the whole `src/` tree —
+  strictly stronger, and it cannot go stale. Includes a self-guard so a broken walk
+  cannot make it pass vacuously.
+- `permission-tree` OR-gate + `checklists.submit` (2): rewritten as properties over the
+  tree. "No gate is simply a copy of the full grant set" covers all 50 nodes where the
+  old test covered one, plus a live example (`alarms.acknowledge` gates on the write
+  perm, not its ALARM_READ dependency).
+- `audit-templates` placeholder (1): a REAL data defect — `DEVIATION_OPEN_BLOCKED`
+  declared `{actor}` but never used it. Removed the declaration rather than adding "by
+  {actor}" to the sentence: it is a retained 21 CFR template, historic rows render
+  through it, and changing the wording changes how an existing regulated record reads.
+
+**Found while fixing: three tests were passing VACUOUSLY.** `resolveNodeGate()` returns
+`[]` for an unknown id, so "known SUPER_ADMIN-only actions have empty gate" kept passing
+for `pm.delete` after that node was deleted — it could not tell "locked down" from "gone".
+It now asserts the node exists first. Same class as the api files whose only passing
+tests asserted rejections from routes that 404 because they do not exist.
 
 **Also still open:** the 403-path and out-of-scope-404 tests for the alarm endpoints
 (`loginAs` is SUPER_ADMIN, so no e2e exercises a denied caller - a gap shared with the

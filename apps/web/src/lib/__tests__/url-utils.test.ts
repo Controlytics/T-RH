@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFileSync, readdirSync } from 'node:fs';
+import { resolve, join, relative } from 'node:path';
 import { apiUrl, getPhotoUrl } from '../url-utils';
 
 describe('apiUrl', () => {
@@ -50,23 +50,48 @@ describe('getPhotoUrl', () => {
  * '/logo.jpg' default is a bundled asset that must NOT take the API base.
  */
 describe('raw fetch call sites resolve against getApiBase()', () => {
-  const FILES = [
-    'routes/filter-management/filter-list.tsx',
-    'routes/filter-management/replacement-schedule.tsx',
-    'routes/pm-schedules/index.tsx',
-    'routes/auth/contact-admin.tsx',
-    'routes/config/backup.tsx',
-    'lib/pdf-report.ts',
-  ];
+  /**
+   * Scans the WHOLE tree rather than a hand-listed set of files.
+   *
+   * The original list named six call sites; three of them
+   * (`routes/filter-management/filter-list.tsx`, `.../replacement-schedule.tsx`,
+   * `routes/pm-schedules/index.tsx`) were deleted in the Phase 0 domain strip, so the
+   * guard spent months failing with ENOENT instead of guarding anything. A list of known
+   * offenders also says nothing about the file someone adds tomorrow, which is the case
+   * that actually matters. Walking the tree is both stricter and unable to go stale.
+   */
+  const SRC = resolve(__dirname, '../..');
 
-  // Matches fetch('/api/...') or fetch(`/api/...`) — i.e. an unprefixed path.
-  // fetch(apiUrl('/api/... and fetch(`${getApiBase()}/api/... both pass.
-  const RAW_RELATIVE_FETCH = /fetch\(\s*['"`]\/api\//g;
-
-  for (const rel of FILES) {
-    it(`${rel} has no unprefixed relative /api fetch`, () => {
-      const src = readFileSync(resolve(__dirname, '../..', rel), 'utf8');
-      expect(src.match(RAW_RELATIVE_FETCH) ?? []).toEqual([]);
+  function sourceFiles(dir: string): string[] {
+    return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const full = join(dir, e.name);
+      if (e.isDirectory()) return e.name === 'node_modules' ? [] : sourceFiles(full);
+      return /\.(ts|tsx)$/.test(e.name) ? [full] : [];
     });
   }
+
+  /** Comment lines are prose about the rule, not calls that break it. */
+  const isComment = (line: string) => /^\s*(\/\/|\*|\/\*)/.test(line);
+
+  it('no source file fetches a bare relative /api path', () => {
+    const offenders: string[] = [];
+    for (const file of sourceFiles(SRC)) {
+      readFileSync(file, 'utf8').split('\n').forEach((line, i) => {
+        if (!isComment(line) && /fetch\(\s*['"`]\/api\//.test(line)) {
+          offenders.push(`${relative(SRC, file).replace(/\\/g, '/')}:${i + 1}`);
+        }
+      });
+    }
+    // A bare relative '/api/...' is the ONE fetch that does not resolve against
+    // getApiBase(), so it silently talks to a different origin than the rest of the app —
+    // and on the Capacitor APK there is no origin at all: the WebView serves index.html
+    // with HTTP 200 and the call quietly does nothing.
+    expect(offenders, `use apiUrl('/api/...') or \`\${getApiBase()}/api/...\` instead`).toEqual([]);
+  });
+
+  it('finds source files at all (guards the walker itself)', () => {
+    // Without this, a broken walk returns [] and the assertion above passes vacuously —
+    // exactly how the previous version of this guard failed silently.
+    expect(sourceFiles(SRC).length).toBeGreaterThan(50);
+  });
 });

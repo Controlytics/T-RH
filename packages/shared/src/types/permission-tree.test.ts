@@ -102,15 +102,34 @@ describe('PermissionNode.gate (Phase 5A)', () => {
   it('known SUPER_ADMIN-only actions have empty gate', () => {
     // notifications.delete was SA-only until 2026-07-01; it is now a real grantable perm
     // (gate ['NOTIFICATION_DELETE']), so it is no longer in this list.
-    for (const id of ['users.delete', 'pm.delete', 'audit.redact']) {
+    //
+    // `pm.delete` was dropped from this list on 2026-08-14: the node went with the PM
+    // domain in the Phase 0 strip, and because resolveNodeGate() returns [] for an
+    // UNKNOWN id, the assertion kept passing against a node that no longer existed. The
+    // existence check below is the point — without it this test cannot tell "locked down"
+    // from "deleted", which is the more dangerous of the two to be wrong about.
+    for (const id of ['users.delete', 'audit.redact']) {
+      expect(nodes.map((n) => n.id), `${id} no longer exists — a vacuous pass, not a passing gate`).toContain(id);
       expect(resolveNodeGate(id), id).toEqual([]);
     }
   });
 
-  it('known OR-gated action lists both perms', () => {
-    // cleaning_profiles.toggle keeps the real backend OR-gate (theater-fix in 5C).
-    // (checklists.create was narrowed to per-action [CHECKLIST_CREATE] in 5C — no longer an OR example.)
-    expect(resolveNodeGate('cleaning_profiles.toggle').sort()).toEqual(['CP_PAGE_EDIT', 'FCP_UPDATE'].sort());
+  /**
+   * NO node currently has a multi-permission gate. `cleaning_profiles.toggle` — the one
+   * this test used to pin — went with the filter domain in the Phase 0 strip, and
+   * `checklists.create` had already been narrowed to a single permission in 5C.
+   *
+   * Rather than delete the coverage, this is written as a property over whatever the tree
+   * holds: it is vacuous today and starts asserting the moment an OR-gated node is added,
+   * which is exactly when it is wanted. The HOOK's OR semantics are covered separately
+   * and non-vacuously in apps/web/src/hooks/__tests__/use-can.test.ts, against a stubbed
+   * two-permission gate.
+   */
+  it('every multi-permission gate is returned in full by resolveNodeGate', () => {
+    const orGated = nodes.filter((n) => Array.isArray(n.gate) && n.gate.length > 1);
+    for (const n of orGated) {
+      expect(resolveNodeGate(n.id).sort(), n.id).toEqual([...n.gate].sort());
+    }
   });
 
   it('resolveNodeGate returns [] for an unknown node id', () => {
@@ -125,10 +144,27 @@ describe('PermissionNode.gate (Phase 5A)', () => {
     expect(resolveNodeGateRoles('system_health.view')).toContain('ADMIN');
   });
 
-  it('checklists.submit gate is FILTER_OPERATE (not the theater perm CHECKLIST_SUBMIT)', () => {
-    // Route POST /api/filters/:id/submit-checklist enforces FILTER_OPERATE.
-    // CHECKLIST_SUBMIT is a grant-only perm with no backend enforcement.
-    expect(resolveNodeGate('checklists.submit')).toEqual(['FILTER_OPERATE']);
+  /**
+   * The gate must be the DISCRIMINATING permission, never the whole grant-expansion set.
+   * `permissions` routinely carries a read dependency — a page you may write but not read
+   * is unusable — and gating on the full set would hand the write action to anyone who
+   * merely holds the read.
+   *
+   * This replaced `checklists.submit gate is FILTER_OPERATE` on 2026-08-14: that node went
+   * with the filter domain, and a single hardcoded example only ever covered one node
+   * anyway. The property below covers all 50 and cannot go stale.
+   */
+  it('no gate is simply a copy of the full grant set', () => {
+    const offenders = nodes.filter(
+      (n) => n.gate.length > 0 && n.permissions.length > 1 && n.gate.length === n.permissions.length,
+    );
+    expect(offenders.map((n) => n.id), 'gate must discriminate, not repeat permissions[]').toEqual([]);
+  });
+
+  it('a live example: alarms.acknowledge gates on the write perm, not its read dependency', () => {
+    // permissions = [ALARM_ACKNOWLEDGE, ALARM_READ]; gate = [ALARM_ACKNOWLEDGE] only.
+    // If the read dep leaked into the gate, anyone who can VIEW alarms could sign one off.
+    expect(resolveNodeGate('alarms.acknowledge')).toEqual(['ALARM_ACKNOWLEDGE']);
   });
 
   // assets.relationships.create/delete nodes were REMOVED 2026-07-01 (vestigial — the perm

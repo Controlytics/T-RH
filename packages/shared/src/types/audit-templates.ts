@@ -547,7 +547,13 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     label: 'PM Deviation Could Not Be Opened',
     category: 'PM Schedules',
     template: 'Overdue-PM deviation for AHU "{targetName}" could NOT be opened — a closed deviation already occupies this PM task',
-    placeholders: ['actor', 'targetName'],
+    // 'actor' was declared here but never appears in the template string above. The
+    // DECLARATION was removed rather than "by {actor}" added to the sentence: this is a
+    // RETAINED 21 CFR template for a removed subsystem, so historic rows still render
+    // through it, and changing the wording would change how an existing regulated record
+    // reads to an inspector. Nothing is lost — the acting user is shown from the audit
+    // row's own userName column, not from this string.
+    placeholders: ['targetName'],
   },
   ACKNOWLEDGE_PM_OVERDUE: {
     label: 'Overdue PM Acknowledged',

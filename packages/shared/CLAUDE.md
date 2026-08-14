@@ -51,7 +51,17 @@ import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 - `INVERSE_RELATIONSHIP_MAP` — Bidirectional relationship type pairs
 - Default audit text templates
 
-## Live Type Inventory (verified 2026-06-30 post-Phase-1-RBAC-catalog)
+## Live Type Inventory
+
+> **The per-file counts in the table below are inherited from upstream DigiLog and were
+> NEVER true in this fork.** Verified by `grep` 2026-08-14, the real numbers are
+> **42** permission constants, **38** feature privileges, **46** reauth actions,
+> **12** sidebar items, **11** PERMISSION_TREE groups, **50** tree nodes. The prose in
+> each row is still useful as *history* — which change removed what, and why — so it is
+> kept rather than rewritten; read the numbers from the greps in the root `CLAUDE.md`
+> "Live-count verification" block, never from here.
+
+### (historic) verified 2026-06-30 post-Phase-1-RBAC-catalog
 
 `packages/shared/src/types/` contains **11 type files** (verified `ls packages/shared/src/types/*.ts | grep -v test` 2026-06-30):
 
