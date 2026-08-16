@@ -58,6 +58,7 @@ const NotificationLogsPage = lazy(() => import('./routes/config/notification-set
 
 const AdminRequestsPage = lazy(() => import("./routes/admin-requests/index").then(m => ({ default: m.AdminRequestsPage })));
 const FunctionalLocationsPage = lazy(() => import('./routes/functional-locations'));
+const FunctionalLocationDetailPage = lazy(() => import('./routes/functional-locations/detail').then(m => ({ default: m.FunctionalLocationDetailPage })));
 const AlarmsPage = lazy(() => import('./routes/alarms'));
 const InstrumentProfileListPage = lazy(() => import('./routes/instruments/profile-list').then(m => ({ default: m.InstrumentProfileListPage })));
 const InstrumentListPage = lazy(() => import('./routes/instruments/list').then(m => ({ default: m.InstrumentListPage })));
@@ -155,6 +156,7 @@ createRoot(document.getElementById('root')!).render(
                 `/instruments/profiles/:profileId` MUST precede `/instruments/:id`
                 below, or "profiles" is captured as an instrument id. */}
             <Route path="/functional-locations" element={<RequireRole permissions={[PERMISSIONS.FUNCTIONAL_LOCATION_READ]}><Suspense fallback={<LazyFallback />}><FunctionalLocationsPage /></Suspense></RequireRole>} />
+            <Route path="/functional-locations/:id" element={<RequireRole permissions={[PERMISSIONS.FUNCTIONAL_LOCATION_READ]}><Suspense fallback={<LazyFallback />}><FunctionalLocationDetailPage /></Suspense></RequireRole>} />
             <Route path="/alarms" element={<RequireRole permissions={[PERMISSIONS.ALARM_READ]}><Suspense fallback={<LazyFallback />}><AlarmsPage /></Suspense></RequireRole>} />
             <Route path="/instruments" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_READ]}><Suspense fallback={<LazyFallback />}><InstrumentProfileListPage /></Suspense></RequireRole>} />
             <Route path="/instruments/profiles/:profileId" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_READ]}><Suspense fallback={<LazyFallback />}><InstrumentListPage /></Suspense></RequireRole>} />

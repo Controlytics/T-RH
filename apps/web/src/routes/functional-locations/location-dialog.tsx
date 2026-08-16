@@ -69,7 +69,9 @@ export function LocationDialog({ open, initial, blocks, presetParentId, onClose,
   return (
     <Dialog open={open} onClose={onClose}>
       <DialogHeader>
-        <DialogTitle>{initial ? 'Rename location' : 'New functional location'}</DialogTitle>
+        {/* "Edit", not "Rename": in edit mode an Area's Block picker is live, so
+            this dialog can move a location as well as rename it. */}
+        <DialogTitle>{initial ? 'Edit functional location' : 'New functional location'}</DialogTitle>
       </DialogHeader>
 
       <div className="space-y-4 p-6 pt-2">

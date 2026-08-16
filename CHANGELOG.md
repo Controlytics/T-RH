@@ -1,5 +1,45 @@
 # Changelog
 
+## [Unreleased] - Functional Locations: browse cards + detail page (2026-08-16)
+
+Frontend only. No API, schema, permission or shared-package change - every endpoint
+used already existed (`GET /`, `GET /:id`, `GET /linkable-instruments`,
+`PUT /:id/instruments`).
+
+The page was one flat list that doubled as the editor, with the instrument panel
+appearing underneath whichever row was selected. It is now two views:
+
+- **`/functional-locations`** - one card per **Block**, its Areas as clickable rows
+  inside it. Deliberately not a flat grid of every location: a Block's count is a
+  roll-up (own + all its Areas') and an Area's is its own, so side by side the two
+  numbers would look like the same kind of number. Card shows `N in total` over
+  `M linked directly - K areas`. Plus a search box (a Block stays in the results when
+  an Area inside it matches), a real empty state, and loading skeletons.
+- **`/functional-locations/:id`** (new route, `routes/functional-locations/detail.tsx`) -
+  the location's details and its connected instruments. Breadcrumb to the parent Block,
+  type badge, three stat tiles, the Areas grid, the editable instrument panel, and -
+  for a Block - a **read-only** "Instruments in this block's areas" section.
+
+**Why two instrument sections and not one:** `GET /:id` resolves the whole SCOPE
+(own + every Area's) while `InstrumentPanel` lists only the DIRECT links. That
+difference is not a bug and the panel must not change: `PUT /:id/instruments` sets
+membership wholesale, so surfacing an Area's instrument in the editor would let an
+unlink silently MOVE it up to the Block. They are rendered as separate, separately
+labelled sections instead.
+
+**Rename became Edit.** The shared dialog renders a live "Belongs to Block" picker for
+an Area, but the old page's PUT sent `{ name }` only - so an operator could change that
+picker, get a success toast, and find the Area still under its old Block. The detail
+page now sends `parentId` too (the API already supported re-parenting and audits both
+paths), and the dialog is titled "Edit functional location".
+
+Edit / Add area / Delete moved onto the detail page; Delete navigates back to the
+list on success and still surfaces the API's 409 verbatim ("still holds 3
+instrument(s)"). A 404 from `/:id` (deleted in another tab, hand-typed id) renders an
+explicit panel rather than a blank shell.
+
+Routes in `main.tsx`: 48 -> **49**.
+
 ## [Unreleased] - Alarm subsystem (2026-08-13/14, project C)
 
 Rules the evaluator checks every minute, the alarms they raise, and the e-signed

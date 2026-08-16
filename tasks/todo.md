@@ -2467,3 +2467,26 @@ clamping `signatureMeaning` inside `lib/audit.ts` for ALL callers rather than pe
 the 4 gateways in the dashboard readings table (they can never
 report a value); the Instrument ID charset pattern on the create form that would reject
 CWH-I/142; and the four inert dashboard-cards config keys.
+
+---
+
+## 2026-08-16 — Functional Locations UI: cards + detail page
+
+Frontend only; no API, schema, permission or shared-package change. `apps/web/src/routes/functional-locations/`:
+`index.tsx` rewritten as a Block-card grid (Areas nested inside each card, search, empty state, skeletons);
+new `detail.tsx` at `/functional-locations/:id` carrying the details, the Areas grid, the editable instrument
+panel, and a read-only "instruments in this block's areas" section; `main.tsx` gains one `<Route>` (48 → 49,
+`grep -cE "<Route"` verified). `instrument-panel.tsx` and `location-dialog.tsx` unchanged.
+
+Also fixed while in the file: the edit dialog's Block picker was live for an Area but the
+PUT sent `{ name }` only, so a move silently no-opped with a success toast. Now sends
+`parentId`; dialog retitled "Edit functional location". `FlNode` moved to `types.ts` so
+the two lazy route chunks no longer import each other.
+
+The panel's direct-links-only filter was left alone deliberately — it is the wholesale membership editor, so
+listing an Area's instrument there would let an unlink move it to the Block. The scope roll-up is shown as a
+separate read-only section instead.
+
+Verified: `tsc --noEmit` clean, `vite build` clean, `npm test -w apps/web` 657/657 pass (incl. the route-guard
+coverage test, which sees the new route). **NOT visually verified** — the automated browser cannot get past
+login through the mkcert cert here; the rendered check is with the operator.

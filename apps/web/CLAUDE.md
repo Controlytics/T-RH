@@ -43,7 +43,7 @@ cd apps/web && npx vitest run src/routes/version-history/__tests__/diff.test.ts
 ## Key Paths
 - Source: `apps/web/src/`
 - Entry: `apps/web/src/main.tsx`
-- Routes: `apps/web/src/routes/` (**48 `<Route>` definitions** in `main.tsx`, verified `grep -cE "<Route" 2026-08-14`; the previous "23 folders / ~84 pages / 77 Routes" was stale before 2026-08-11 and the shortfall has NOT been reconciled. 2026-08-13 added `/functional-locations`; 2026-08-14 added `/alarms` and `/config/alarm-rules`)
+- Routes: `apps/web/src/routes/` (**49 `<Route>` definitions** in `main.tsx`, verified `grep -cE "<Route" 2026-08-16`; the previous "23 folders / ~84 pages / 77 Routes" was stale before 2026-08-11 and the shortfall has NOT been reconciled. 2026-08-13 added `/functional-locations`; 2026-08-14 added `/alarms` and `/config/alarm-rules`; 2026-08-16 added `/functional-locations/:id`)
 - Hooks: `apps/web/src/hooks/` (auth, branding, datetime, pagination, reauth, session, single-tab, toast, field-labels)
 - Components: `apps/web/src/components/` (layout, UI primitives, dialogs)
 - API Client: `apps/web/src/lib/api-client.ts`
