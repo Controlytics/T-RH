@@ -117,7 +117,8 @@ export interface AlarmStatusTextsResponse {
  * display contract. This is the ONE place the two vocabularies meet — a key
  * dropped or renamed on either side shows up here as a test failure instead
  * of as `statusText()` silently falling back to the shipped default forever
- * (see alarm-limits-status-texts-mapping.test.ts).
+ * (see the `mapStatusTextsResponse` describe block in
+ * `__tests__/alarm-display.test.ts`).
  */
 export function mapStatusTextsResponse(res: AlarmStatusTextsResponse): AlarmStatusTexts {
   return {
