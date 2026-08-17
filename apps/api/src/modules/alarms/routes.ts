@@ -8,6 +8,7 @@ import { sanitizeStrings } from '../../lib/sanitize.js';
 import { resolveVisibility } from '../instruments/visibility.js';
 import { describeRule } from './decide.js';
 import { validateRuleDraft, validateAcknowledgement, clampSignature, type RuleDraft } from './validation.js';
+import { loadLimitConfig, countWithoutLimits } from './load-limits.js';
 
 /**
  * Alarm rules and the alarms they raise.
@@ -39,7 +40,7 @@ const ruleProps = {
 
 const alarmProps = {
   id: { type: 'string' },
-  ruleId: { type: 'string' },
+  ruleId: { type: 'string', nullable: true },
   ruleSnapshot: { type: 'object', additionalProperties: true },
   instrumentId: { type: 'string' },
   instrumentCode: { type: 'string', nullable: true },
@@ -52,6 +53,9 @@ const alarmProps = {
   acknowledgedAt: { type: 'string', nullable: true },
   acknowledgedBy: { type: 'string', nullable: true },
   acknowledgeReason: { type: 'string', nullable: true },
+  source: { type: 'string' },
+  limitKind: { type: 'string', nullable: true },
+  clearedValue: { type: 'number', nullable: true },
 } as const;
 
 function draftFrom(body: Record<string, unknown>): RuleDraft {
@@ -386,6 +390,8 @@ export default async function alarmRoutes(app: FastifyInstance) {
             active: { type: 'integer' },
             unacknowledged: { type: 'integer' },
             critical: { type: 'integer' },
+            instrumentsWithoutLimits: { type: 'integer' },
+            instrumentsWithoutLimitsCodes: { type: 'array', items: { type: 'string' } },
           },
         },
         ...errorResponses,
@@ -402,6 +408,23 @@ export default async function alarmRoutes(app: FastifyInstance) {
       prisma.alarm.count({ where: scoped({ acknowledgedAt: null }) }),
       prisma.alarm.count({ where: scoped({ state: 'ACTIVE', severity: 'CRITICAL' }) }),
     ]);
-    return { active, unacknowledged, critical };
+
+    // Same visibility filter as the counts above, so the page cannot name an
+    // instrument the caller is not allowed to see.
+    const cfg = await loadLimitConfig();
+    const visibleInstruments = await prisma.instrument.findMany({
+      where: visibility ?? {},
+      select: { code: true, attributes: { select: { key: true, value: true } } },
+    });
+    const without = countWithoutLimits(
+      visibleInstruments.map((i) => ({ code: i.code, attributes: i.attributes })),
+      cfg.keys,
+    );
+
+    return {
+      active, unacknowledged, critical,
+      instrumentsWithoutLimits: without.count,
+      instrumentsWithoutLimitsCodes: without.codes,
+    };
   });
 }

@@ -6,6 +6,7 @@ import {
   type LimitBound,
 } from '@digilog/shared';
 import type { InstrumentLimits } from './limit-decide.js';
+import { limitsInverted } from './limit-decide.js';
 
 /**
  * The administered attribute-key mapping, read from the `alarm-limits` config.
@@ -76,4 +77,34 @@ export function limitsFor(
       humidityLow: hl?.key ?? null,
     },
   };
+}
+
+/** How many codes the summary will name before it just gives a number. */
+const CODE_CAP = 50;
+
+/**
+ * Instruments no limit alarm can ever fire for.
+ *
+ * Exists so an empty Alarms page cannot mean both "everything is in spec" and
+ * "nothing is being watched". Counts the three ways an instrument ends up
+ * unwatched — no limit attribute, an unparseable value, and an inverted pair —
+ * because all three look identical to an operator who believes it is configured.
+ */
+export function countWithoutLimits(
+  instruments: { code: string; attributes: { key: string; value: string }[] }[],
+  keys: LimitConfig['keys'],
+): { count: number; codes: string[] } {
+  const codes: string[] = [];
+  let count = 0;
+  for (const inst of instruments) {
+    const { limits } = limitsFor(keys, inst.attributes);
+    const tempUsable = !limitsInverted(limits.temperatureHigh, limits.temperatureLow)
+      && (limits.temperatureHigh !== null || limits.temperatureLow !== null);
+    const rhUsable = !limitsInverted(limits.humidityHigh, limits.humidityLow)
+      && (limits.humidityHigh !== null || limits.humidityLow !== null);
+    if (tempUsable || rhUsable) continue;
+    count += 1;
+    if (codes.length < CODE_CAP) codes.push(inst.code);
+  }
+  return { count, codes };
 }
