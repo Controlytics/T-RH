@@ -1697,7 +1697,24 @@ Add the no-limits banner immediately above the table container:
       )}
 ```
 
-Extend the summary SWR type to include the two new fields:
+**`limitAlarmsEnabled` (added in Task 6 review).** The count and the master switch are
+two different facts and the banner must not conflate them. When
+`limitAlarmsEnabled === false`, say that limit alarms are turned off and link to
+Configuration → Instrument Limit Alarms — do NOT report every instrument as unwatched,
+which would send the operator to set limits when the actual fix is a switch. When it is
+true, the existing no-limits sentence applies. Both states are real and distinct:
+
+```tsx
+      {limitAlarmsEnabled === false && (
+        <div className="mb-3 rounded-lg border border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          Limit alarms are turned off, so no instrument limits are being checked.
+          Turn them on in Configuration → Instrument Limit Alarms.
+        </div>
+      )}
+```
+
+Extend the summary SWR type to include the new fields (`instrumentsWithoutLimits`,
+`instrumentsWithoutLimitsCodes`, `limitAlarmsEnabled`):
 
 ```tsx
   const { data: summary, mutate: mutateSummary } = useSWR<{
