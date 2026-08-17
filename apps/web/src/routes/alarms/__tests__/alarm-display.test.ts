@@ -104,3 +104,62 @@ describe('ackReasonError', () => {
     expect(ackReasonError('        ')).toBeTruthy();
   });
 });
+
+import { statusText, alarmTypeText, limitText, type AlarmRow as AlarmRowT } from '../alarm-display';
+
+const base: AlarmRowT = {
+  id: 'a1', instrumentCode: 'CWH-01', instrumentId: 'i1',
+  metric: 'TEMPERATURE', triggeredValue: 26.4, severity: 'CRITICAL',
+  state: 'ACTIVE', raisedAt: '2026-08-17T09:00:00Z', clearedAt: null,
+  acknowledgedAt: null, acknowledgedBy: null, acknowledgeReason: null,
+  source: 'INSTRUMENT_LIMIT', limitKind: 'HIGH', clearedValue: null,
+  ruleSnapshot: { limit: 25, metric: 'TEMPERATURE', limitKind: 'HIGH', description: 'temperature above 25' },
+};
+
+describe('statusText', () => {
+  it('covers all four combinations of condition and signature', () => {
+    expect(statusText({ state: 'ACTIVE', acknowledgedAt: null })).toBe('Still pending Unacknowledged');
+    expect(statusText({ state: 'ACTIVE', acknowledgedAt: '2026-08-17T10:00:00Z' })).toBe('Active — Acknowledged');
+    expect(statusText({ state: 'CLEARED', acknowledgedAt: null })).toBe('Cleared — Unacknowledged');
+    expect(statusText({ state: 'CLEARED', acknowledgedAt: '2026-08-17T10:00:00Z' })).toBe('Cleared');
+  });
+
+  it('never lets cleared-unacknowledged read as finished', () => {
+    // The overnight excursion nobody answered for must not look like Cleared.
+    expect(statusText({ state: 'CLEARED', acknowledgedAt: null }))
+      .not.toBe(statusText({ state: 'CLEARED', acknowledgedAt: 'x' }));
+  });
+
+  it('uses the configured wording when provided', () => {
+    expect(statusText({ state: 'ACTIVE', acknowledgedAt: null }, { activeUnack: 'OPEN' })).toBe('OPEN');
+  });
+
+  it('falls back to the default when a configured text is blank', () => {
+    // A blank setting must not render an empty status cell.
+    expect(statusText({ state: 'ACTIVE', acknowledgedAt: null }, { activeUnack: '   ' }))
+      .toBe('Still pending Unacknowledged');
+  });
+});
+
+describe('alarmTypeText', () => {
+  it('names the bound for a limit alarm', () => {
+    expect(alarmTypeText(base)).toBe('High Temperature');
+    expect(alarmTypeText({ ...base, metric: 'HUMIDITY', limitKind: 'LOW' })).toBe('Low Humidity');
+  });
+
+  it('falls back to the rule name for a rule alarm', () => {
+    expect(alarmTypeText({ ...base, source: 'RULE', limitKind: null, ruleSnapshot: { name: 'Cold room' } }))
+      .toBe('Cold room');
+  });
+});
+
+describe('limitText', () => {
+  it('reads the FROZEN limit, never the live attribute', () => {
+    expect(limitText(base)).toBe('> 25');
+    expect(limitText({ ...base, limitKind: 'LOW', ruleSnapshot: { limit: 18 } })).toBe('< 18');
+  });
+
+  it('renders an em dash when the snapshot carries no limit', () => {
+    expect(limitText({ ...base, ruleSnapshot: {} })).toBe('—');
+  });
+});

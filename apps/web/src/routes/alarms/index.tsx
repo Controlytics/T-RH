@@ -7,8 +7,9 @@ import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { Button } from '@/components/ui/button';
 import { AcknowledgeDialog } from './acknowledge-dialog';
 import {
-  filterByTab, needsAcknowledgement, severityTone, conditionText, triggeredText,
-  instrumentLabel, type AlarmRow, type AlarmTab,
+  filterByTab, needsAcknowledgement, severityTone, triggeredText,
+  instrumentLabel, statusText, alarmTypeText, limitText, clearedText,
+  type AlarmRow, type AlarmTab, type AlarmStatusTexts,
 } from './alarm-display';
 
 /**
@@ -33,9 +34,25 @@ export default function AlarmsPage() {
   const [dialogError, setDialogError] = useState('');
 
   const { data, isLoading, mutate } = useSWR<{ data: AlarmRow[] }>('/api/alarms?limit=500');
-  const { data: summary, mutate: mutateSummary } = useSWR<{ active: number; unacknowledged: number; critical: number }>(
-    '/api/alarms/summary',
+  const { data: summary, mutate: mutateSummary } = useSWR<{
+    active: number; unacknowledged: number; critical: number;
+    instrumentsWithoutLimits?: number; instrumentsWithoutLimitsCodes?: string[];
+    limitAlarmsEnabled?: boolean;
+  }>('/api/alarms/summary');
+
+  // `/api/config/dynamic/<key>` returns a FLAT settings object — the same endpoint
+  // and shape `use-telemetry.ts:41` reads for telemetry-slots. There is NO generic
+  // `/current` route; those are hand-registered per module and alarm-limits has none.
+  const { data: limitCfg } = useSWR<Record<string, string | number | boolean>>(
+    '/api/config/dynamic/alarm-limits',
   );
+  const asText = (v: unknown) => (typeof v === 'string' ? v : undefined);
+  const statusTexts: Partial<AlarmStatusTexts> = {
+    activeUnack: asText(limitCfg?.statusActiveUnack),
+    activeAck: asText(limitCfg?.statusActiveAck),
+    clearedUnack: asText(limitCfg?.statusClearedUnack),
+    clearedAck: asText(limitCfg?.statusClearedAck),
+  };
 
   const rows = useMemo(
     () => filterByTab(data?.data ?? [], tab, unacknowledgedOnly),
@@ -102,27 +119,46 @@ export default function AlarmsPage() {
         </label>
       </div>
 
+      {summary?.limitAlarmsEnabled === false && (
+        <div className="mb-3 rounded-lg border border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          Limit alarms are turned off, so no instrument limits are being checked.
+          Turn them on in Configuration → Instrument Limit Alarms.
+        </div>
+      )}
+      {(summary?.instrumentsWithoutLimits ?? 0) > 0 && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <strong>{summary?.instrumentsWithoutLimits}</strong> instrument
+          {summary?.instrumentsWithoutLimits === 1 ? ' has' : 's have'} no usable limits set — no
+          limit alarm can be raised for {summary?.instrumentsWithoutLimits === 1 ? 'it' : 'them'}.
+          <span className="ml-1 text-amber-800">
+            {(summary?.instrumentsWithoutLimitsCodes ?? []).join(', ')}
+          </span>
+        </div>
+      )}
+
       <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
             <tr>
               <th className="px-4 py-3">Instrument</th>
-              <th className="px-4 py-3">Condition</th>
-              <th className="px-4 py-3">Reading</th>
-              <th className="px-4 py-3">Severity</th>
+              <th className="px-4 py-3">Type</th>
               <th className="px-4 py-3">Raised</th>
-              <th className="px-4 py-3">{tab === 'history' ? 'Cleared' : 'Status'}</th>
+              <th className="px-4 py-3">Value</th>
+              <th className="px-4 py-3">Limit</th>
+              <th className="px-4 py-3">Cleared</th>
+              <th className="px-4 py-3">Cleared value</th>
+              <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Acknowledged</th>
               <th className="px-4 py-3" />
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {isLoading && (
-              <tr><td colSpan={8} className="px-4 py-8 text-center text-slate-500">Loading…</td></tr>
+              <tr><td colSpan={10} className="px-4 py-8 text-center text-slate-500">Loading…</td></tr>
             )}
             {!isLoading && rows.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
+                <td colSpan={10} className="px-4 py-10 text-center text-slate-500">
                   {tab === 'active'
                     ? (unacknowledgedOnly ? 'No unacknowledged active alarms.' : 'No active alarms — every rule is within limit.')
                     : (unacknowledgedOnly ? 'Nothing in history is awaiting acknowledgement.' : 'No alarms have cleared yet.')}
@@ -132,16 +168,18 @@ export default function AlarmsPage() {
             {rows.map((a) => (
               <tr key={a.id} className="hover:bg-slate-50">
                 <td className="px-4 py-3 font-medium text-slate-900">{instrumentLabel(a)}</td>
-                <td className="px-4 py-3 text-slate-700">{conditionText(a)}</td>
+                <td className="px-4 py-3 text-slate-700">{alarmTypeText(a)}</td>
+                <td className="px-4 py-3 whitespace-nowrap text-slate-600">{formatDateTime(a.raisedAt)}</td>
                 <td className="px-4 py-3 tabular-nums text-slate-900">{triggeredText(a)}</td>
+                <td className="px-4 py-3 tabular-nums text-slate-600">{limitText(a)}</td>
+                <td className="px-4 py-3 whitespace-nowrap text-slate-600">
+                  {a.clearedAt ? formatDateTime(a.clearedAt) : <span className="font-medium text-amber-700">—</span>}
+                </td>
+                <td className="px-4 py-3 tabular-nums text-slate-600">{clearedText(a)}</td>
                 <td className="px-4 py-3">
                   <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${severityTone(a.severity)}`}>
-                    {a.severity}
+                    {statusText(a, statusTexts)}
                   </span>
-                </td>
-                <td className="px-4 py-3 whitespace-nowrap text-slate-600">{formatDateTime(a.raisedAt)}</td>
-                <td className="px-4 py-3 whitespace-nowrap text-slate-600">
-                  {a.clearedAt ? formatDateTime(a.clearedAt) : <span className="font-medium text-amber-700">Still breaching</span>}
                 </td>
                 <td className="px-4 py-3">
                   {a.acknowledgedAt ? (

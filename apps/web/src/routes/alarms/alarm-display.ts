@@ -7,6 +7,8 @@
  * the UI must not let "Cleared" read as "dealt with".
  */
 
+import { ALARM_STATUS_TEXT_DEFAULT } from '@digilog/shared';
+
 export interface AlarmRow {
   id: string;
   instrumentCode: string | null;
@@ -20,7 +22,10 @@ export interface AlarmRow {
   acknowledgedAt: string | null;
   acknowledgedBy: string | null;
   acknowledgeReason: string | null;
-  ruleSnapshot?: { name?: string; description?: string } | null;
+  source?: string;
+  limitKind?: string | null;
+  clearedValue?: number | null;
+  ruleSnapshot?: { name?: string; description?: string; limit?: number; metric?: string; limitKind?: string } | null;
 }
 
 export type AlarmTab = 'active' | 'history';
@@ -82,4 +87,71 @@ export function ackReasonError(reason: string): string | null {
   if (n < MIN_ACK_REASON) return `Enter at least ${MIN_ACK_REASON} characters — this is signed into the audit trail.`;
   if (n > MAX_ACK_REASON) return `Keep it under ${MAX_ACK_REASON} characters.`;
   return null;
+}
+
+export interface AlarmStatusTexts {
+  activeUnack: string;
+  activeAck: string;
+  clearedUnack: string;
+  clearedAck: string;
+}
+
+/**
+ * The status cell.
+ *
+ * Two INDEPENDENT axes: the condition (still breaching / ended) and the signature
+ * (signed / not). Four combinations, each separately worded, because
+ * "Cleared — Unacknowledged" must never collapse into "Cleared" — that is the
+ * overnight excursion nobody answered for, and it is not finished.
+ *
+ * A blank configured text falls back to the default rather than rendering an empty
+ * cell: an admin clearing a field must not be able to make a status invisible.
+ */
+export function statusText(
+  a: Pick<AlarmRow, 'state' | 'acknowledgedAt'>,
+  texts?: Partial<AlarmStatusTexts>,
+): string {
+  const pick = (configured: string | undefined, fallback: string) =>
+    configured && configured.trim() ? configured.trim() : fallback;
+
+  const acked = Boolean(a.acknowledgedAt);
+  if (a.state === 'ACTIVE') {
+    return acked
+      ? pick(texts?.activeAck, ALARM_STATUS_TEXT_DEFAULT.activeAck)
+      : pick(texts?.activeUnack, ALARM_STATUS_TEXT_DEFAULT.activeUnack);
+  }
+  return acked
+    ? pick(texts?.clearedAck, ALARM_STATUS_TEXT_DEFAULT.clearedAck)
+    : pick(texts?.clearedUnack, ALARM_STATUS_TEXT_DEFAULT.clearedUnack);
+}
+
+const METRIC_WORD: Record<string, string> = { TEMPERATURE: 'Temperature', HUMIDITY: 'Humidity' };
+
+/** `High Temperature` for a limit alarm; the rule's name for a rule alarm. */
+export function alarmTypeText(a: AlarmRow): string {
+  if (a.source === 'INSTRUMENT_LIMIT' && a.limitKind) {
+    const kind = a.limitKind === 'HIGH' ? 'High' : 'Low';
+    return `${kind} ${METRIC_WORD[a.metric] ?? a.metric}`;
+  }
+  return a.ruleSnapshot?.name || conditionText(a);
+}
+
+/**
+ * The limit this alarm fired against, from the FROZEN snapshot.
+ *
+ * Never the live attribute: changing an instrument's limit today must not rewrite
+ * what a historical alarm says it breached.
+ */
+export function limitText(a: AlarmRow): string {
+  const limit = a.ruleSnapshot?.limit;
+  if (typeof limit !== 'number' || !Number.isFinite(limit)) return '—';
+  const kind = a.limitKind ?? a.ruleSnapshot?.limitKind;
+  return `${kind === 'LOW' ? '<' : '>'} ${limit}`;
+}
+
+/** The reading that brought it back in spec. 0 is a real reading. */
+export function clearedText(a: AlarmRow): string {
+  return typeof a.clearedValue === 'number' && Number.isFinite(a.clearedValue)
+    ? String(a.clearedValue)
+    : '—';
 }
