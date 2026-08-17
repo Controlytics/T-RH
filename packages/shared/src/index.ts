@@ -48,6 +48,16 @@ export {
 } from './types/telemetry-slots.js';
 export type { TelemetrySlot, InstrumentStatus, RoomLimits } from './types/telemetry-slots.js';
 
+export {
+  LIMIT_BOUNDS,
+  ALARM_LIMIT_KEYS_DEFAULT,
+  ALARM_STATUS_TEXT_DEFAULT,
+  parseLimitKeys,
+  parseLimitValue,
+  resolveLimit,
+} from './types/alarm-limits.js';
+export type { LimitBound } from './types/alarm-limits.js';
+
 export type {
   TapeQuestion,
   TapeStage,
