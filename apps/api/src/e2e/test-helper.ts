@@ -7,6 +7,8 @@ import rbacPlugin from '../plugins/rbac.js';
 import authRoutes from '../modules/auth/routes.js';
 import userRoutes from '../modules/users/routes.js';
 import configRoutes from '../modules/config/routes.js';
+import dynamicConfigRoutes from '../modules/config/dynamic-routes.js';
+import { discoverAndRegisterConfigs } from '../lib/config-discovery.js';
 import auditRoutes from '../modules/audit/routes.js';
 import roleRoutes from '../modules/roles/routes.js';
 import notificationRoutes from '../modules/notifications/routes.js';
@@ -27,6 +29,14 @@ import { AppError } from '../lib/errors.js';
 
 /** Default admin password used in tests */
 export const ADMIN_PASSWORD = 'Admin@123';
+
+// `discoverAndRegisterConfigs()` populates the module-level `configRegistry`
+// singleton that `dynamicConfigRoutes` reads at registration time — mirrors
+// `app.ts`'s "Auto-discover config module definitions" step. Every e2e file
+// calls `buildApp()` in its own `beforeAll`, so guard against re-running the
+// discovery (and its `console.warn` on every already-registered moduleKey)
+// once per process rather than once per file.
+let configsDiscovered = false;
 
 /**
  * Build a Fastify instance for integration testing.
@@ -82,9 +92,14 @@ export async function buildApp(
   app.get('/api/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
 
   // Routes
+  if (!configsDiscovered) {
+    await discoverAndRegisterConfigs();
+    configsDiscovered = true;
+  }
   await app.register(authRoutes, { prefix: '/api/auth' });
   await app.register(userRoutes, { prefix: '/api/users' });
   await app.register(configRoutes, { prefix: '/api/config' });
+  await app.register(dynamicConfigRoutes, { prefix: '/api/config' });
   await app.register(auditRoutes, { prefix: '/api/audit' });
   await app.register(roleRoutes, { prefix: '/api/roles' });
   await app.register(notificationRoutes, { prefix: '/api/notifications' });

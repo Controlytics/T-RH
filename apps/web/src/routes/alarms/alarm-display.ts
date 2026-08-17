@@ -99,6 +99,35 @@ export interface AlarmStatusTexts {
   clearedAck: string;
 }
 
+/** The shape `GET /api/config/alarm-limits/status-texts` actually returns —
+ * `status*`-prefixed keys mirroring the stored config keys in
+ * `alarm-limits.def.ts` on the API side. Kept separate from
+ * {@link AlarmStatusTexts} on purpose: that interface is the display
+ * contract `statusText()` reads, and the two vocabularies are not meant to
+ * converge. */
+export interface AlarmStatusTextsResponse {
+  statusActiveUnack: string;
+  statusActiveAck: string;
+  statusClearedUnack: string;
+  statusClearedAck: string;
+}
+
+/**
+ * Maps the API's `status*`-prefixed payload onto the `AlarmStatusTexts`
+ * display contract. This is the ONE place the two vocabularies meet — a key
+ * dropped or renamed on either side shows up here as a test failure instead
+ * of as `statusText()` silently falling back to the shipped default forever
+ * (see alarm-limits-status-texts-mapping.test.ts).
+ */
+export function mapStatusTextsResponse(res: AlarmStatusTextsResponse): AlarmStatusTexts {
+  return {
+    activeUnack: res.statusActiveUnack,
+    activeAck: res.statusActiveAck,
+    clearedUnack: res.statusClearedUnack,
+    clearedAck: res.statusClearedAck,
+  };
+}
+
 /**
  * The status cell.
  *

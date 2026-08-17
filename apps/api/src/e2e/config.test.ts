@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type FastifyInstance } from 'fastify';
+import { ALARM_STATUS_TEXT_DEFAULT } from '@digilog/shared';
+import { prisma } from '../lib/prisma.js';
 import {
   buildApp, loginAs, authGet, authPost, authPut, authDelete,
   ADMIN_PASSWORD,
@@ -96,6 +98,103 @@ describe('Config endpoints', () => {
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.body);
       expect(body.options).toBeDefined();
+    });
+  });
+
+  // =============================================
+  // Alarm-limits status texts — narrow all-authenticated-users read (Fix 1:
+  // GET /api/config/dynamic/alarm-limits is SUPER_ADMIN-only, so a non-SA
+  // operator must not 403 into the alarms page's status column).
+  // =============================================
+  describe('GET /api/config/alarm-limits/status-texts', () => {
+    it('the editor endpoint stays SUPER_ADMIN-only for a non-SA user', async () => {
+      const operatorToken = await loginAs(app, 'RB0001', 'Test@1234');
+      const res = await authGet(app, '/api/config/dynamic/alarm-limits', operatorToken);
+      expect(res.statusCode).toBe(403);
+    });
+
+    it('a non-SUPER_ADMIN user gets 200 with the four status strings', async () => {
+      const operatorToken = await loginAs(app, 'RB0001', 'Test@1234');
+      const res = await authGet(app, '/api/config/alarm-limits/status-texts', operatorToken);
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body).toEqual({
+        statusActiveUnack: expect.any(String),
+        statusActiveAck: expect.any(String),
+        statusClearedUnack: expect.any(String),
+        statusClearedAck: expect.any(String),
+      });
+    });
+
+    it('falls back to defaults when the config row is unset', async () => {
+      const existing = await prisma.systemConfig.findUnique({ where: { configKey: 'alarm-limits' } });
+      await prisma.systemConfig.delete({ where: { configKey: 'alarm-limits' } }).catch(() => {});
+      try {
+        const res = await authGet(app, '/api/config/alarm-limits/status-texts', adminToken);
+        expect(res.statusCode).toBe(200);
+        expect(JSON.parse(res.body)).toEqual({
+          statusActiveUnack: ALARM_STATUS_TEXT_DEFAULT.activeUnack,
+          statusActiveAck: ALARM_STATUS_TEXT_DEFAULT.activeAck,
+          statusClearedUnack: ALARM_STATUS_TEXT_DEFAULT.clearedUnack,
+          statusClearedAck: ALARM_STATUS_TEXT_DEFAULT.clearedAck,
+        });
+      } finally {
+        // Restore whatever was there (including "nothing") so this test doesn't
+        // leak state into the rest of the suite or a concurrent file.
+        if (existing) {
+          await prisma.systemConfig.create({ data: existing as any });
+        }
+      }
+    });
+
+    it('falls back to defaults when a status text is set to a blank string', async () => {
+      const existing = await prisma.systemConfig.findUnique({ where: { configKey: 'alarm-limits' } });
+      const blanked = {
+        ...(existing?.configValue as Record<string, unknown> ?? {}),
+        statusActiveUnack: '   ',
+        statusClearedAck: '',
+      };
+      await prisma.systemConfig.upsert({
+        where: { configKey: 'alarm-limits' },
+        create: { configKey: 'alarm-limits', configValue: blanked, configType: 'system', requiresReauth: false },
+        update: { configValue: blanked },
+      });
+      try {
+        const res = await authGet(app, '/api/config/alarm-limits/status-texts', adminToken);
+        expect(res.statusCode).toBe(200);
+        const body = JSON.parse(res.body);
+        expect(body.statusActiveUnack).toBe(ALARM_STATUS_TEXT_DEFAULT.activeUnack);
+        expect(body.statusClearedAck).toBe(ALARM_STATUS_TEXT_DEFAULT.clearedAck);
+      } finally {
+        if (existing) {
+          await prisma.systemConfig.update({ where: { configKey: 'alarm-limits' }, data: { configValue: existing.configValue as any } });
+        } else {
+          await prisma.systemConfig.delete({ where: { configKey: 'alarm-limits' } }).catch(() => {});
+        }
+      }
+    });
+
+    it('passes through a real configured status text unchanged', async () => {
+      const existing = await prisma.systemConfig.findUnique({ where: { configKey: 'alarm-limits' } });
+      const custom = {
+        ...(existing?.configValue as Record<string, unknown> ?? {}),
+        statusActiveUnack: 'Custom breach wording',
+      };
+      await prisma.systemConfig.upsert({
+        where: { configKey: 'alarm-limits' },
+        create: { configKey: 'alarm-limits', configValue: custom, configType: 'system', requiresReauth: false },
+        update: { configValue: custom },
+      });
+      try {
+        const res = await authGet(app, '/api/config/alarm-limits/status-texts', adminToken);
+        expect(JSON.parse(res.body).statusActiveUnack).toBe('Custom breach wording');
+      } finally {
+        if (existing) {
+          await prisma.systemConfig.update({ where: { configKey: 'alarm-limits' }, data: { configValue: existing.configValue as any } });
+        } else {
+          await prisma.systemConfig.delete({ where: { configKey: 'alarm-limits' } }).catch(() => {});
+        }
+      }
     });
   });
 

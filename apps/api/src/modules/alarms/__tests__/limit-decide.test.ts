@@ -3,6 +3,7 @@ import {
   checkLimits,
   limitsInverted,
   describeLimit,
+  finiteOrNull,
   type InstrumentLimits,
 } from '../limit-decide.js';
 
@@ -74,6 +75,31 @@ describe('limitsInverted', () => {
     expect(limitsInverted(25, 25)).toBe(false);
     expect(limitsInverted(null, 30)).toBe(false);
     expect(limitsInverted(20, null)).toBe(false);
+  });
+});
+
+describe('finiteOrNull', () => {
+  // The guard the raise path (checkPair, via checkLimits above) and the worker's
+  // clear-path branch BOTH go through — see its doc comment for why they must
+  // agree. Testing it directly here (rather than only through checkLimits) is
+  // what lets the worker's clear-branch guard be exercised without needing a
+  // NaN to survive Postgres jsonb storage, which it cannot.
+  it('passes through a real finite number', () => {
+    expect(finiteOrNull(26.4)).toBe(26.4);
+    expect(finiteOrNull(0)).toBe(0);
+    expect(finiteOrNull(-12)).toBe(-12);
+  });
+
+  it('rejects NaN and Infinity', () => {
+    expect(finiteOrNull(NaN)).toBeNull();
+    expect(finiteOrNull(Infinity)).toBeNull();
+    expect(finiteOrNull(-Infinity)).toBeNull();
+  });
+
+  it('rejects null, undefined, and non-numbers', () => {
+    expect(finiteOrNull(null)).toBeNull();
+    expect(finiteOrNull(undefined)).toBeNull();
+    expect(finiteOrNull('26.4')).toBeNull();
   });
 });
 

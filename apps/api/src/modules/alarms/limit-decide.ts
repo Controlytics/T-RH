@@ -37,6 +37,20 @@ export function limitsInverted(high: number | null, low: number | null): boolean
   return high !== null && low !== null && low > high;
 }
 
+/**
+ * A finite number, or null for anything else (including NaN/Infinity).
+ *
+ * Shared between the raise path (`checkPair`, below) and the worker's clear-path
+ * guard (`alarm-evaluation.worker.ts`'s instrument-limit clear branch) — the two
+ * MUST treat a garbage reading identically. If the raise path rejected a NaN but
+ * the clear path accepted it, a dead probe could not open an alarm but could
+ * "clear" one already open, writing `clearedValue: NaN` into a regulated record —
+ * a false "excursion ended" for an instrument that had actually gone quiet.
+ */
+export function finiteOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
 function checkPair(
   metric: LimitMetric,
   high: number | null,
@@ -55,7 +69,7 @@ function checkPair(
   // asNumber()) happens to be finite-safe, but a future caller (a script, a
   // backfill, another worker) may not come through it, and `Infinity > high`
   // is true, which would raise a real alarm on garbage data.
-  const v = typeof value === 'number' && Number.isFinite(value) ? value : null;
+  const v = finiteOrNull(value);
   if (high !== null) {
     out.push({ metric, limitKind: 'HIGH', limit: high, breaching: v !== null && v > high });
   }

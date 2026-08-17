@@ -9,7 +9,8 @@ import { AcknowledgeDialog } from './acknowledge-dialog';
 import {
   filterByTab, needsAcknowledgement, severityTone, triggeredText,
   instrumentLabel, statusText, alarmTypeText, limitText, clearedText,
-  type AlarmRow, type AlarmTab, type AlarmStatusTexts,
+  mapStatusTextsResponse,
+  type AlarmRow, type AlarmTab, type AlarmStatusTextsResponse,
 } from './alarm-display';
 
 /**
@@ -40,19 +41,21 @@ export default function AlarmsPage() {
     limitAlarmsEnabled?: boolean;
   }>('/api/alarms/summary');
 
-  // `/api/config/dynamic/<key>` returns a FLAT settings object — the same endpoint
-  // and shape `use-telemetry.ts:41` reads for telemetry-slots. There is NO generic
-  // `/current` route; those are hand-registered per module and alarm-limits has none.
-  const { data: limitCfg } = useSWR<Record<string, string | number | boolean>>(
-    '/api/config/dynamic/alarm-limits',
+  // Narrow, all-authenticated-users read — the `alarm-limits` config itself
+  // (`/api/config/dynamic/alarm-limits`) is SUPER_ADMIN-only because most of it is
+  // sensitive (attribute-key mapping, severity). `/status-texts` exposes only the
+  // four wording strings, already defaulted server-side, so every operator sees the
+  // configured wording instead of every non-SUPER_ADMIN 403ing into the fallback.
+  //
+  // The API payload uses `status*`-prefixed keys (mirroring the stored config
+  // keys in alarm-limits.def.ts); `AlarmStatusTexts` (alarm-display.ts) uses the
+  // unprefixed display-contract names `statusText()` reads. The two vocabularies
+  // are deliberately different — `mapStatusTextsResponse()` is the one place
+  // that reconciles them, and is unit-tested directly.
+  const { data: statusTextsResponse } = useSWR<AlarmStatusTextsResponse>(
+    '/api/config/alarm-limits/status-texts',
   );
-  const asText = (v: unknown) => (typeof v === 'string' ? v : undefined);
-  const statusTexts: Partial<AlarmStatusTexts> = {
-    activeUnack: asText(limitCfg?.statusActiveUnack),
-    activeAck: asText(limitCfg?.statusActiveAck),
-    clearedUnack: asText(limitCfg?.statusClearedUnack),
-    clearedAck: asText(limitCfg?.statusClearedAck),
-  };
+  const statusTexts = statusTextsResponse ? mapStatusTextsResponse(statusTextsResponse) : undefined;
 
   const rows = useMemo(
     () => filterByTab(data?.data ?? [], tab, unacknowledgedOnly),

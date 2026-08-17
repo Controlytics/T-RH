@@ -105,7 +105,7 @@ describe('ackReasonError', () => {
   });
 });
 
-import { statusText, alarmTypeText, limitText, type AlarmRow as AlarmRowT } from '../alarm-display';
+import { statusText, alarmTypeText, limitText, mapStatusTextsResponse, type AlarmRow as AlarmRowT } from '../alarm-display';
 
 const base: AlarmRowT = {
   id: 'a1', instrumentCode: 'CWH-01', instrumentId: 'i1',
@@ -138,6 +138,28 @@ describe('statusText', () => {
     // A blank setting must not render an empty status cell.
     expect(statusText({ state: 'ACTIVE', acknowledgedAt: null }, { activeUnack: '   ' }))
       .toBe('Still pending Unacknowledged');
+  });
+});
+
+describe('mapStatusTextsResponse', () => {
+  it('carries the API\'s status*-prefixed payload through to configured wording, not the fallback', () => {
+    // This is the boundary the earlier bug lived at: the route returns
+    // status*-prefixed keys, statusText() reads unprefixed ones. A test that
+    // hands statusText() an already-correct object (as 'uses the configured
+    // wording' above does) cannot catch a broken mapping — this one starts
+    // from the real API shape and would fail if the mapping silently dropped
+    // back to identity or mismatched a field.
+    const apiResponse = {
+      statusActiveUnack: 'Custom breach wording',
+      statusActiveAck: 'Custom ack wording',
+      statusClearedUnack: 'Custom cleared-unack wording',
+      statusClearedAck: 'Custom cleared-ack wording',
+    };
+    const mapped = mapStatusTextsResponse(apiResponse);
+    expect(statusText({ state: 'ACTIVE', acknowledgedAt: null }, mapped)).toBe('Custom breach wording');
+    expect(statusText({ state: 'ACTIVE', acknowledgedAt: '2026-08-17T10:00:00Z' }, mapped)).toBe('Custom ack wording');
+    expect(statusText({ state: 'CLEARED', acknowledgedAt: null }, mapped)).toBe('Custom cleared-unack wording');
+    expect(statusText({ state: 'CLEARED', acknowledgedAt: '2026-08-17T10:00:00Z' }, mapped)).toBe('Custom cleared-ack wording');
   });
 });
 

@@ -16,6 +16,7 @@ import {
   checkLimits,
   limitSnapshot,
   describeLimit,
+  finiteOrNull,
   type LimitKind,
   type LimitMetric,
 } from '../modules/alarms/limit-decide.js';
@@ -362,7 +363,13 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
             raisedAt: created.raisedAt,
           });
         } else if (!check.breaching && existingId) {
-          const value = check.metric === 'TEMPERATURE' ? reading.temperature : reading.humidity;
+          const raw = check.metric === 'TEMPERATURE' ? reading.temperature : reading.humidity;
+          // `finiteOrNull` is the SAME function checkPair() uses on the raise path —
+          // see its doc comment in limit-decide.ts for why the two guards must never
+          // diverge. Without it, a NaN could sail past `value === null` below and get
+          // written into `clearedValue`, a CLEARED row that renders as an em dash: the
+          // exact false "excursion ended" the null-guard exists to prevent.
+          const value = finiteOrNull(raw);
           // A MISSING reading holds the alarm open; it does not clear it.
           //
           // The asymmetry is deliberate and symmetrical in its reasoning: without data
@@ -386,6 +393,21 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
             data: { state: 'CLEARED', clearedAt: now, clearedValue: value },
           });
           cleared += 1;
+          // Named off the FROZEN snapshot, not the live limit: if a limit change is
+          // what put the reading back in spec, `describeLimit(check)` here would
+          // describe the CURRENT bound, which never fired — the courtesy email would
+          // name a threshold the alarm was never raised against. The alarm row itself
+          // is already correct (limitSnapshot() froze `description` at raise time);
+          // this only fixes what the notification says about it. Falls back to
+          // `describeLimit(check)` only if the snapshot somehow has no description.
+          const snapshotDescription = closed.ruleSnapshot
+            && typeof closed.ruleSnapshot === 'object'
+            && !Array.isArray(closed.ruleSnapshot)
+            ? (closed.ruleSnapshot as Record<string, unknown>).description
+            : undefined;
+          const condition = typeof snapshotDescription === 'string' && snapshotDescription
+            ? snapshotDescription
+            : describeLimit(check);
           await enqueueAlarmNotification('cleared', {
             alarmId: closed.id,
             instrumentId: row.instrumentId,
@@ -394,7 +416,7 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
             metric: closed.metric,
             severity: closed.severity,
             ruleName: `${check.metric} ${check.limitKind} limit`,
-            condition: describeLimit(check),
+            condition,
             triggeredValue: closed.triggeredValue,
             raisedAt: closed.raisedAt,
             clearedAt: closed.clearedAt,
