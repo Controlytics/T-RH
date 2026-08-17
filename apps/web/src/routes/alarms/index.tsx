@@ -84,7 +84,8 @@ export default function AlarmsPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-slate-900">Alarms</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Limit excursions raised by alarm rules. Acknowledging one is an electronic signature.
+          Raised when an instrument reading crosses a limit — either an instrument's configured
+          limit attributes or an alarm rule. Acknowledging one is an electronic signature.
         </p>
       </div>
 
@@ -142,6 +143,7 @@ export default function AlarmsPage() {
             <tr>
               <th className="px-4 py-3">Instrument</th>
               <th className="px-4 py-3">Type</th>
+              <th className="px-4 py-3">Severity</th>
               <th className="px-4 py-3">Raised</th>
               <th className="px-4 py-3">Value</th>
               <th className="px-4 py-3">Limit</th>
@@ -154,11 +156,11 @@ export default function AlarmsPage() {
           </thead>
           <tbody className="divide-y divide-slate-100">
             {isLoading && (
-              <tr><td colSpan={10} className="px-4 py-8 text-center text-slate-500">Loading…</td></tr>
+              <tr><td colSpan={11} className="px-4 py-8 text-center text-slate-500">Loading…</td></tr>
             )}
             {!isLoading && rows.length === 0 && (
               <tr>
-                <td colSpan={10} className="px-4 py-10 text-center text-slate-500">
+                <td colSpan={11} className="px-4 py-10 text-center text-slate-500">
                   {tab === 'active'
                     ? (unacknowledgedOnly ? 'No unacknowledged active alarms.' : 'No active alarms — every rule is within limit.')
                     : (unacknowledgedOnly ? 'Nothing in history is awaiting acknowledgement.' : 'No alarms have cleared yet.')}
@@ -169,6 +171,11 @@ export default function AlarmsPage() {
               <tr key={a.id} className="hover:bg-slate-50">
                 <td className="px-4 py-3 font-medium text-slate-900">{instrumentLabel(a)}</td>
                 <td className="px-4 py-3 text-slate-700">{alarmTypeText(a)}</td>
+                <td className="px-4 py-3">
+                  <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${severityTone(a.severity)}`}>
+                    {a.severity}
+                  </span>
+                </td>
                 <td className="px-4 py-3 whitespace-nowrap text-slate-600">{formatDateTime(a.raisedAt)}</td>
                 <td className="px-4 py-3 tabular-nums text-slate-900">{triggeredText(a)}</td>
                 <td className="px-4 py-3 tabular-nums text-slate-600">{limitText(a)}</td>

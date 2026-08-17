@@ -25,7 +25,10 @@ export interface AlarmRow {
   source?: string;
   limitKind?: string | null;
   clearedValue?: number | null;
-  ruleSnapshot?: { name?: string; description?: string; limit?: number; metric?: string; limitKind?: string } | null;
+  ruleSnapshot?: {
+    name?: string; description?: string; limit?: number; metric?: string; limitKind?: string;
+    thresholdLow?: number | null; thresholdHigh?: number | null; comparison?: string;
+  } | null;
 }
 
 export type AlarmTab = 'active' | 'history';
@@ -141,12 +144,27 @@ export function alarmTypeText(a: AlarmRow): string {
  *
  * Never the live attribute: changing an instrument's limit today must not rewrite
  * what a historical alarm says it breached.
+ *
+ * Two snapshot shapes feed this: an INSTRUMENT_LIMIT alarm's snapshot carries a single
+ * `limit` + `limitKind`; a RULE alarm's snapshot (see `apps/api/src/modules/alarms/
+ * decide.ts` `ruleSnapshot()`) never has `limit` — it carries `comparison` +
+ * `thresholdLow`/`thresholdHigh` instead. Both must render a bound here.
  */
 export function limitText(a: AlarmRow): string {
   const limit = a.ruleSnapshot?.limit;
-  if (typeof limit !== 'number' || !Number.isFinite(limit)) return '—';
-  const kind = a.limitKind ?? a.ruleSnapshot?.limitKind;
-  return `${kind === 'LOW' ? '<' : '>'} ${limit}`;
+  if (typeof limit === 'number' && Number.isFinite(limit)) {
+    const kind = a.limitKind ?? a.ruleSnapshot?.limitKind;
+    return `${kind === 'LOW' ? '<' : '>'} ${limit}`;
+  }
+
+  const { comparison, thresholdLow, thresholdHigh } = a.ruleSnapshot ?? {};
+  const isNum = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
+  if (comparison === 'ABOVE' && isNum(thresholdHigh)) return `> ${thresholdHigh}`;
+  if (comparison === 'BELOW' && isNum(thresholdLow)) return `< ${thresholdLow}`;
+  if (comparison === 'OUTSIDE_RANGE' && isNum(thresholdLow) && isNum(thresholdHigh)) {
+    return `${thresholdLow} – ${thresholdHigh}`;
+  }
+  return '—';
 }
 
 /** The reading that brought it back in spec. 0 is a real reading. */

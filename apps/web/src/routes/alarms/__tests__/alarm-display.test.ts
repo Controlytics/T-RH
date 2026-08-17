@@ -162,4 +162,46 @@ describe('limitText', () => {
   it('renders an em dash when the snapshot carries no limit', () => {
     expect(limitText({ ...base, ruleSnapshot: {} })).toBe('—');
   });
+
+  // A RULE alarm's snapshot has no `limit` field at all — it is the real shape
+  // `ruleSnapshot()` produces in apps/api/src/modules/alarms/decide.ts:117-129:
+  // { ruleId, name, metric, comparison, thresholdLow, thresholdHigh, delaySeconds,
+  //   severity, snapshotAt }. limitText must fall back to comparison/thresholds.
+  const ruleAlarm = (over: Partial<AlarmRowT> = {}): AlarmRowT => ({
+    ...base,
+    source: 'RULE',
+    limitKind: null,
+    ruleSnapshot: {
+      name: 'Cold room high',
+      metric: 'TEMPERATURE',
+      comparison: undefined,
+      thresholdLow: null,
+      thresholdHigh: null,
+    },
+    ...over,
+  });
+
+  it('renders an ABOVE rule alarm from thresholdHigh', () => {
+    expect(limitText(ruleAlarm({
+      ruleSnapshot: { name: 'Cold room high', comparison: 'ABOVE', thresholdHigh: 24, thresholdLow: null },
+    }))).toBe('> 24');
+  });
+
+  it('renders a BELOW rule alarm from thresholdLow', () => {
+    expect(limitText(ruleAlarm({
+      ruleSnapshot: { name: 'Cold room low', comparison: 'BELOW', thresholdLow: 15, thresholdHigh: null },
+    }))).toBe('< 15');
+  });
+
+  it('renders an OUTSIDE_RANGE rule alarm as a range', () => {
+    expect(limitText(ruleAlarm({
+      ruleSnapshot: { name: 'Cold room range', comparison: 'OUTSIDE_RANGE', thresholdLow: 18, thresholdHigh: 25 },
+    }))).toBe('18 – 25');
+  });
+
+  it('still renders an em dash when the rule snapshot has no usable threshold', () => {
+    expect(limitText(ruleAlarm({
+      ruleSnapshot: { name: 'Broken snapshot', comparison: 'ABOVE', thresholdHigh: null, thresholdLow: null },
+    }))).toBe('—');
+  });
 });
