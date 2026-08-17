@@ -867,7 +867,7 @@ export function limitSnapshot(input: {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd apps/api && npx vitest run src/modules/alarms/__tests__/limit-decide.test.ts`
-Expected: PASS, 11 tests
+Expected: PASS, 10 tests
 
 - [ ] **Step 5: Typecheck and commit**
 
