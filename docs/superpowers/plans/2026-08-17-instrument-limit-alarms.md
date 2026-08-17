@@ -17,7 +17,7 @@
 - **A missing reading is NOT a breach.** That is the `OFFLINE` metric's concern.
 - **Migrations are HAND-AUTHORED.** `prisma migrate diff` emits three destructive statements here (DROP TABLE `instrument_telemetry_history`, `audit_trail.chain_position` DROP NOT NULL, and an FK drop/recreate). Never include them. Read the header of `20260811120000_instrument_floorplans` first.
 - **Apply every migration to `compliance_core_db_test` too.** It migrates separately; being behind makes every instrument-touching e2e return 500.
-- **No new permissions, privileges, reauth actions or sidebar items.** Reuses `ALARM_READ`, `ALARM_ACKNOWLEDGE`, `CONFIG_READ`/`CONFIG_UPDATE`. No counts in CLAUDE.md move.
+- **No new permissions, privileges, reauth actions or sidebar items.** Reuses `ALARM_READ`, `ALARM_ACKNOWLEDGE`, `CONFIG_READ`/`CONFIG_UPDATE`. Those four counts in CLAUDE.md stay put; the ENUM and CONFIG-DEF counts do move (Task 9) and must be re-derived, not assumed.
 - **Acknowledgement fields are never touched by clearing.** A cleared-but-unacknowledged alarm must stay visibly outstanding.
 - **`tsc --noEmit` after every task.** vitest never typechecks; green tests do not mean it compiles.
 - **Two checkouts on this machine.** Always pass `DATABASE_URL` explicitly; this repo is `compliance_core_db` on port 3001/5176.
