@@ -1885,6 +1885,7 @@ must not change what the historical alarm says it breached."
 - Modify: `CLAUDE.md` (System Stats — Prisma enums 11 → 13; Config defs 24 → 25)
 - Modify: `apps/web/CLAUDE.md` (config files count in `routes/config/`)
 - Modify: `packages/shared/CLAUDE.md` (line 19, `types/` file count)
+- Modify: `apps/api/CLAUDE.md` (line 48 — see the correction below)
 - Modify: `tasks/todo.md` (audit-log entry)
 
 **Interfaces:** none.
@@ -1902,6 +1903,17 @@ grep -cE "<Route" apps/web/src/main.tsx
 ls packages/shared/src/types/*.ts | grep -v test | wc -l
 ```
 Expected: models unchanged (34), enums 11 → **13**, config defs 24 → **25**, permissions unchanged (42), routes unchanged (49), shared type files → **13**.
+
+**`apps/api/CLAUDE.md:48` is FACTUALLY WRONG and must be corrected.** It says the
+baseline `migration.sql` "includes ... a partial unique index that `schema.prisma`
+cannot express". It does not: `grep -c "CREATE UNIQUE INDEX.*WHERE"` on that file
+returns **0**, and `pg_indexes` shows no partial unique index in either database
+before 2026-08-17. The first partial unique index in this repo is
+`alarms_active_instrument_limit_unique`, added by
+`20260817120000_alarm_limit_unique_active`. Rewrite line 48 to drop the false claim
+and cite the real index instead — the sentence's actual point (do not regenerate the
+baseline; it carries triggers, functions and sequences the datamodel cannot express)
+stands on its remaining examples.
 
 **`packages/shared/CLAUDE.md:19` says "11 files" and was ALREADY WRONG before this
 plan** — the real count was 12 when Task 1 started and is 13 now. Correct it to the
