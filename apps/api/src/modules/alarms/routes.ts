@@ -392,6 +392,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
             critical: { type: 'integer' },
             instrumentsWithoutLimits: { type: 'integer' },
             instrumentsWithoutLimitsCodes: { type: 'array', items: { type: 'string' } },
+            limitAlarmsEnabled: { type: 'boolean' },
           },
         },
         ...errorResponses,
@@ -402,20 +403,19 @@ export default async function alarmRoutes(app: FastifyInstance) {
     const scoped = (extra: Record<string, unknown>) => scopedToVisible(extra, visibility) as never;
 
     // Counted with the SAME visibility filter as the list, so the card cannot claim
-    // more alarms than the page will show.
-    const [active, unacknowledged, critical] = await Promise.all([
+    // more alarms than the page will show. The instrument lookup for the no-limits
+    // count uses that same visibility filter directly (it targets Instrument, not
+    // Alarm, so it doesn't go through scoped()/scopedToVisible's nested form).
+    const [active, unacknowledged, critical, cfg, visibleInstruments] = await Promise.all([
       prisma.alarm.count({ where: scoped({ state: 'ACTIVE' }) }),
       prisma.alarm.count({ where: scoped({ acknowledgedAt: null }) }),
       prisma.alarm.count({ where: scoped({ state: 'ACTIVE', severity: 'CRITICAL' }) }),
+      loadLimitConfig(),
+      prisma.instrument.findMany({
+        where: visibility ?? {},
+        select: { code: true, attributes: { select: { key: true, value: true } } },
+      }),
     ]);
-
-    // Same visibility filter as the counts above, so the page cannot name an
-    // instrument the caller is not allowed to see.
-    const cfg = await loadLimitConfig();
-    const visibleInstruments = await prisma.instrument.findMany({
-      where: visibility ?? {},
-      select: { code: true, attributes: { select: { key: true, value: true } } },
-    });
     const without = countWithoutLimits(
       visibleInstruments.map((i) => ({ code: i.code, attributes: i.attributes })),
       cfg.keys,
@@ -425,6 +425,10 @@ export default async function alarmRoutes(app: FastifyInstance) {
       active, unacknowledged, critical,
       instrumentsWithoutLimits: without.count,
       instrumentsWithoutLimitsCodes: without.codes,
+      // The worker gates the whole limit-alarm pass on this flag (alarm-evaluation.worker.ts).
+      // Without it, "instrumentsWithoutLimits: 17" would look like 3 instruments ARE being
+      // watched when the feature is administratively off and NONE are.
+      limitAlarmsEnabled: cfg.enabled,
     };
   });
 }
