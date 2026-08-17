@@ -47,6 +47,11 @@ describe('checkLimits', () => {
     expect(checkLimits(temp, { temperature: null, humidity: null }).every((c) => !c.breaching)).toBe(true);
   });
 
+  it('treats a non-finite reading (NaN, Infinity) as NOT breaching, same as null', () => {
+    expect(checkLimits(temp, { temperature: NaN, humidity: null }).every((c) => !c.breaching)).toBe(true);
+    expect(checkLimits(temp, { temperature: Infinity, humidity: null }).every((c) => !c.breaching)).toBe(true);
+  });
+
   it('checks temperature and humidity independently', () => {
     const both: InstrumentLimits = { temperatureHigh: 25, temperatureLow: 18, humidityHigh: 60, humidityLow: 40 };
     const out = checkLimits(both, { temperature: 26, humidity: 30 });

@@ -47,14 +47,20 @@ function checkPair(
   const out: LimitCheck[] = [];
   // Boundaries are IN spec: strictly greater / strictly less, matching
   // isBreaching() for OUTSIDE_RANGE and breaches() for room limits.
-  // A null reading is NOT a breach — "the probe went quiet" is the OFFLINE
-  // metric's concern, and conflating them would make an excursion and a dead
-  // probe indistinguishable in a regulated record.
+  // A null OR non-finite reading is NOT a breach — "the probe went quiet" is
+  // the OFFLINE metric's concern, and conflating them would make an excursion
+  // and a dead probe indistinguishable in a regulated record. This module
+  // defends itself here rather than trusting the caller to have already
+  // filtered NaN/Infinity — today's only caller (telemetry-overview's
+  // asNumber()) happens to be finite-safe, but a future caller (a script, a
+  // backfill, another worker) may not come through it, and `Infinity > high`
+  // is true, which would raise a real alarm on garbage data.
+  const v = typeof value === 'number' && Number.isFinite(value) ? value : null;
   if (high !== null) {
-    out.push({ metric, limitKind: 'HIGH', limit: high, breaching: value !== null && value > high });
+    out.push({ metric, limitKind: 'HIGH', limit: high, breaching: v !== null && v > high });
   }
   if (low !== null) {
-    out.push({ metric, limitKind: 'LOW', limit: low, breaching: value !== null && value < low });
+    out.push({ metric, limitKind: 'LOW', limit: low, breaching: v !== null && v < low });
   }
   return out;
 }
