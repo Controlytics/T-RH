@@ -1171,6 +1171,34 @@ Then, inside `evaluateAlarms()`, replace the final `return { rulesEvaluated: rul
 
 Also remove the early return at the top of `evaluateAlarms()` — currently `if (rules.length === 0) return { rulesEvaluated: 0, raised: 0, cleared: 0 };`. With this pass added, zero rules must NOT skip evaluation; limit alarms have no rules at all. Replace it with nothing (the rule loop over an empty array is already a no-op).
 
+**THIS IS THE HIGHEST-RISK LINE IN THE TASK.** A site with zero alarm rules — which is
+this install today, and the exact configuration where instrument-limit alarms are the
+only alarms anyone has — would otherwise get a feature that silently never runs. Verify
+after the change that `evaluateAlarms()` reaches the limit pass with `alarm_rules` empty.
+
+**Two consequences of removing it, both required:**
+
+1. The rule-alarm query immediately below now runs with a possibly-empty rule list. Make
+   its intent explicit by adding `source: 'RULE'` to the `where`, so the ACTIVE-alarm Map
+   provably excludes limit alarms rather than relying on `NULL IN (...)` never matching:
+
+```ts
+  const active = await prisma.alarm.findMany({
+    // `source: 'RULE'` is not redundant with the ruleId filter — it states the intent at
+    // the query, so a later widening of this where clause cannot silently pull
+    // instrument-limit alarms into a Map keyed on ruleId.
+    where: { state: 'ACTIVE', source: 'RULE', ruleId: { in: rules.map((r) => r.id) } },
+    select: { id: true, ruleId: true, instrumentId: true },
+  });
+```
+
+2. `AlarmEvaluationResult` (the interface near the top of the file) reports only
+   `rulesEvaluated / raised / cleared`. Leave those three meaning what they already mean
+   and ADD a fourth, `instrumentsEvaluated: number`, set to the number of overview rows
+   the limit pass examined. Without it, a run that raised nothing is indistinguishable
+   from a run where the pass never executed — the exact failure this step exists to
+   prevent. Return it from both the early-exit path (`0`) and the normal path.
+
 - [ ] **Step 6: Verify the whole api suite and typecheck**
 
 Run:
