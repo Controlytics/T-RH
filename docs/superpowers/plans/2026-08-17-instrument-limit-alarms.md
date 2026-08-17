@@ -1856,6 +1856,7 @@ must not change what the historical alarm says it breached."
 - Modify: `CHANGELOG.md` (new entry at the top)
 - Modify: `CLAUDE.md` (System Stats — Prisma enums 11 → 13; Config defs 24 → 25)
 - Modify: `apps/web/CLAUDE.md` (config files count in `routes/config/`)
+- Modify: `packages/shared/CLAUDE.md` (line 19, `types/` file count)
 - Modify: `tasks/todo.md` (audit-log entry)
 
 **Interfaces:** none.
@@ -1870,8 +1871,14 @@ grep -cE "^enum "  apps/api/prisma/schema.prisma
 ls apps/api/src/modules/config/defs/*.def.ts | wc -l
 grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts
 grep -cE "<Route" apps/web/src/main.tsx
+ls packages/shared/src/types/*.ts | grep -v test | wc -l
 ```
-Expected: models unchanged (34), enums 11 → **13**, config defs 24 → **25**, permissions unchanged (42), routes unchanged (49).
+Expected: models unchanged (34), enums 11 → **13**, config defs 24 → **25**, permissions unchanged (42), routes unchanged (49), shared type files → **13**.
+
+**`packages/shared/CLAUDE.md:19` says "11 files" and was ALREADY WRONG before this
+plan** — the real count was 12 when Task 1 started and is 13 now. Correct it to the
+verified number and note the prior figure was stale rather than implying this plan
+added two files.
 
 - [ ] **Step 2: Run the stale-stat sweep**
 
