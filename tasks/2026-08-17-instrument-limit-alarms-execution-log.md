@@ -78,3 +78,35 @@ FIX WAVE re-review: all 4 findings ADDRESSED, no new Critical/Important. Mapping
 ACCURACY CORRECTION: committed code at ae11112 ALREADY mapped status*->unprefixed via asText(). The key mismatch existed ONLY in the dead implementer's uncommitted work. In committed history, findings 1 and A are ONE defect (non-SA 403 -> silent fallback), not two.
 PARKED (no second fix wave, per process): (1) alarm-display.ts:120 cites a non-existent test file — the test is in __tests__/alarm-display.test.ts. (2) alarm-limit-hold.test.ts EXECUTES the frozen-description branch but asserts only clearedValue/clearedAt, so a regression to describeLimit(check) would stay green. (3) The API<->display key contract is locked across two files by convention, not construction.
 SAMPLE DISCLOSURE: the re-reviewer ran 5 e2e files, not the full suite (~30 files unrun), per the shared-test-DB constraint. Residual risk from the shared-harness change on unrun files is accepted on grep evidence.
+
+## Addendum — config discovery in the e2e harness (post-review)
+
+`e2e/test-helper.ts` now calls `discoverAndRegisterConfigs()`, which writes to the
+database. Verified safe, with the reasoning recorded because the next person to
+see DB writes in a test harness will ask:
+
+- `seedDefaults()` (`lib/config-registry.ts:156-177`) has **no update branch** — it
+  creates a `system_config` row only when the key is absent. It cannot overwrite,
+  mask or reorder a config a test seeded itself, so ordering around `buildApp()`
+  does not matter.
+- `cleanupDeadConfigKeys()` (`lib/config-discovery.ts:67-75`) deletes a **hardcoded
+  6-key list** (`offline-sync`, `rfid-scanner`, `role-privileges`, `sidebar-config`,
+  `uns`, `retention`) — NOT "every key not in the registry", which would have been
+  dangerous.
+- `migrateFilterPmScheduleIntoPmSettings()` is a no-op in this fork; the def was
+  deleted in the domain strip.
+- No e2e file asserts on `system_config` counts or contents wholesale, and
+  `super-admin-data-delete.test.ts` builds its own app and never uses this helper.
+
+**Cost, measured rather than estimated** (an earlier "tens of ms" figure was wrong
+and is corrected here): **~618ms on the first `buildApp()` per process, ~32ms warm**
+— and the once-per-process guard means nobody pays the warm cost. With
+`fileParallelism: false` across ~37 e2e files, worst case is roughly **+20s on a full
+serial e2e run**. Proportionate (`config.test.ts` alone is ~7s) but real, and worth
+knowing before someone blames a future slowdown on something else.
+
+**Why it is kept rather than scoped behind a flag:** the harness was diverging from
+`app.ts` — the e2e app lacked ~50 routes and a seeded config table that production
+always has. That divergence is exactly what let `/api/config/dynamic/*` 404 silently
+in every test. An opt-in flag would reinstate two different app shapes, which is
+worse for a regulated feature than 600ms per file.
