@@ -5,8 +5,8 @@ model count re-verified 2026-08-06 after the Instruments + instrument-gateway
 work (never previously synced into this doc — see §1a).*
 
 ```bash
-grep -cE '^model ' apps/api/prisma/schema.prisma   # → 34  (2026-08-14)
-grep -cE '^enum '  apps/api/prisma/schema.prisma   # → 11  (2026-08-14)
+grep -cE '^model ' apps/api/prisma/schema.prisma   # → 34  (2026-08-17)
+grep -cE '^enum '  apps/api/prisma/schema.prisma   # → 13  (2026-08-17)
 ```
 
 > The audit chain is documented separately in
@@ -108,13 +108,16 @@ audit chain's advisory lock to commit, and locking a row after that cycles
 against a concurrent writer (Postgres kills one side with `40P01`). See
 `apps/api/DECISIONS.md` §4a for the full rationale and the reproduction case.
 
-## 2. The 11 enums
+## 2. The 13 enums
 
 `AssigneeType`, `UserStatus`, `NotificationType`, `NotificationChannel`,
 `NotificationDeliveryStatus`, `NotificationEventType`, plus five added
 2026-08-13 by the Functional Locations and alarm projects:
 `FunctionalLocationType`, `AlarmMetric`, `AlarmComparison`, `AlarmSeverity`,
-`AlarmState`.
+`AlarmState`, plus two added 2026-08-17 by the instrument-limit alarm work:
+`AlarmSource` (RULE | INSTRUMENT_LIMIT) and `AlarmLimitKind` (HIGH | LOW) —
+`Alarm.ruleId` becomes nullable alongside them, since an instrument-limit
+alarm has no `AlarmRule` behind it.
 
 - `UserStatus` = `ENABLED | DISABLED | LOCKED | EXPIRED`
 - `AlarmState` = `ACTIVE | CLEARED`. There is no ACKNOWLEDGED state: clearing

@@ -94,7 +94,7 @@ profile photo upload silently 401'd until 2026-08-11.
 - Force login (`force: true`) to terminate existing sessions
 
 ## Key Features
-- 25 files in `routes/config/` (verified `ls` 2026-08-14; the "34" was inherited from DigiLog and was never true here). Most config surfaces are auto-discovered defs rendered by the dynamic page; `alarm-rules.tsx` (2026-08-14) is a real CRUD page, like `floorplans.tsx`
+- 25 files in `routes/config/` (re-verified `ls` 2026-08-17 — unchanged; `alarm-limits.def.ts`, added 2026-08-17 for the instrument-limit alarm work, is an auto-discovered def rendered by the dynamic config page, so it adds no file here. Earlier verified `ls` 2026-08-14; the "34" was inherited from DigiLog and was never true here). Most config surfaces are auto-discovered defs rendered by the dynamic page; `alarm-rules.tsx` (2026-08-14) is a real CRUD page, like `floorplans.tsx`
 - Entity tree with drag-and-drop hierarchy
 - Cleaning-profile pipeline editor (STAGE / CHECKLIST nodes on a custom canvas)
 - Notification system (email/SMS/Telegram/Slack)

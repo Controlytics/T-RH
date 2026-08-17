@@ -1,5 +1,48 @@
 # Changelog
 
+## [Unreleased] - Instrument-limit alarms (2026-08-17)
+
+Alarms raised from each instrument's own High/Low Temperature and Humidity Limit
+attributes, in addition to the existing rule-driven alarms.
+
+- **`alarm-limits` config** (super admin) — an ORDERED ALIAS LIST per bound saying
+  which attribute keys carry the limits, because this install's keys have already
+  drifted (`High Temperature`, `Low Temperature` and `Low Temperature Limit` all
+  exist). Plus severity, a master switch, and the four status wordings.
+- **Schema** — `Alarm.ruleId` nullable, `source` (RULE | INSTRUMENT_LIMIT),
+  `limitKind` (HIGH | LOW), `clearedValue`. Enums 11 → 13. Migration
+  `20260817090000_instrument_limit_alarms`, hand-authored, drift guard PASS,
+  applied to `compliance_core_db_test` as well. A second migration the same day,
+  `20260817120000_alarm_limit_unique_active`, adds a partial unique index
+  (`alarms_active_instrument_limit_unique` on `instrument_id, metric, limit_kind`
+  WHERE `state = 'ACTIVE' AND source = 'INSTRUMENT_LIMIT'`) so two overlapping
+  evaluator passes can no longer both insert an open alarm for the same
+  instrument/metric/bound.
+- **Worker** — a second pass in `alarm-evaluation.worker.ts`, reusing
+  `buildTelemetryOverview()` so telemetry-key resolution cannot drift from the
+  dashboard. Identity is `(instrument, metric, limitKind)`.
+- **Alarms page** — Instrument, Type, Severity, Raised, Value, Limit, Cleared,
+  Cleared value, Status, Acknowledged. The Limit column reads the FROZEN snapshot, never the live
+  attribute. A banner names instruments with no usable limits, so an empty page
+  cannot mean both "all in spec" and "nothing is being watched".
+
+**Deliberate decisions:** boundaries are IN spec; a blank or non-numeric limit is
+NOT zero; an inverted high/low pair fires nothing; a MISSING reading neither
+raises nor clears an instrument-limit alarm — it holds an open alarm, because
+absence of data cannot prove recovery; room limits still colour the dashboard
+and raise nothing.
+
+**Known limitations:** an instrument-limit alarm can stay ACTIVE indefinitely if
+its limit attribute is renamed, deleted, or inverted while the alarm is open —
+there is no surface to retire it. The pre-existing RULE alarm path
+(`decide.ts:83-88`) still clears on a missing reading; that defect was fixed only
+for the new instrument-limit path, not for rules. The rendered UI has **not**
+been visually verified in this session — browser automation on this machine is
+blocked by MDM policy, not by the certificate; see the operator verification
+checklist in `tasks/todo.md`.
+
+**No permission, privilege, reauth or sidebar change.**
+
 ## [Unreleased] - Functional Locations: browse cards + detail page (2026-08-16)
 
 Frontend only. No API, schema, permission or shared-package change - every endpoint
