@@ -89,6 +89,47 @@ describe('instrument-limit alarms (e2e)', () => {
     expect(await prisma.alarm.count({ where: { instrumentId } })).toBe(1);
   });
 
+  it('freezes the limit on an alarm that is still ACTIVE and still breaching', async () => {
+    // The alarm raised in test 1 is still ACTIVE and still breaching (the most recent
+    // reading is 27.0 from the previous test, against a limit of 25). Lower the limit
+    // to 20 -- the reading STILL breaches the new limit, so this is the combination the
+    // worker's own logic gives no write path for: raise needs `!existingId` (there IS
+    // one), clear needs `!breaching` (it's still breaching). Neither branch fires. This
+    // is the exact scenario the previous version of this test skipped past, by only
+    // ever changing the limit after the alarm had already CLEARED -- the inspector's
+    // real question is "why does this OPEN alarm still say 25 when the config now says
+    // 20?", not "does a cleared row stay put".
+    await prisma.instrumentAttribute.updateMany({
+      where: { instrumentId, key: 'High Temperature Limit' },
+      data: { value: '20' },
+    });
+    await evaluateAlarms();
+
+    expect(await prisma.alarm.count({ where: { instrumentId } })).toBe(1);
+    const alarm = await prisma.alarm.findFirstOrThrow({ where: { instrumentId } });
+    expect(alarm.state).toBe('ACTIVE');
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/alarms?instrumentId=${instrumentId}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    const row = res.json().data[0];
+    // Frozen at raise time, against the limit that was live then -- not the 20 that's
+    // live now.
+    expect(row.ruleSnapshot.limit).toBe(25);
+    expect(row.limitKind).toBe('HIGH');
+    expect(row.state).toBe('ACTIVE');
+
+    // Restore, so the next test's clear scenario (a reading of 22.0) isn't still
+    // breaching against a limit of 20.
+    await prisma.instrumentAttribute.updateMany({
+      where: { instrumentId, key: 'High Temperature Limit' },
+      data: { value: '25' },
+    });
+  });
+
   it('clears with the value that brought it back in spec, leaving acknowledgement alone', async () => {
     await pushReading(22.0);
     await evaluateAlarms();
