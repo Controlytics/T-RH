@@ -89,7 +89,13 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
     select: { id: true, ruleId: true, instrumentId: true },
   });
   const activeKey = (ruleId: string, instrumentId: string) => `${ruleId}:${instrumentId}`;
-  const activeMap = new Map(active.map((a) => [activeKey(a.ruleId, a.instrumentId), a.id]));
+  // This worker only ever evaluates rule-based alarms (queried above by ruleId IN
+  // rule ids), so ruleId is never null here in practice — but the column is now
+  // nullable for instrument-limit alarms, so narrow explicitly rather than assert.
+  const activeMap = new Map(
+    active.filter((a): a is typeof a & { ruleId: string } => a.ruleId !== null)
+      .map((a) => [activeKey(a.ruleId, a.instrumentId), a.id])
+  );
 
   let raised = 0;
   let cleared = 0;

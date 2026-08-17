@@ -859,7 +859,11 @@ model AlarmRule {
 /// acknowledgement fields, and never deleted.
 model Alarm {
   id     String @id @default(uuid())
-  ruleId String @map("rule_id")
+  /// NULL for an instrument-limit alarm: it is raised from the instrument's own
+  /// attributes and has no rule row. Inventing a synthetic rule would put an
+  /// editable row on the Alarm Rules page that silently disagrees with the
+  /// attribute it came from.
+  ruleId String? @map("rule_id")
 
   /// The rule AS IT WAS when this fired. Editing or deleting the rule must not change
   /// what a historical alarm says about itself — an inspector asking "why did this fire
@@ -873,6 +877,18 @@ model Alarm {
   severity       AlarmSeverity
   state          AlarmState    @default(ACTIVE)
 
+  /// What raised this. RULE alarms come from alarm_rules; INSTRUMENT_LIMIT alarms
+  /// from the instrument's own limit attributes.
+  source AlarmSource @default(RULE)
+
+  /// Which bound was breached. NULL for rule alarms, which describe themselves
+  /// through their snapshot instead.
+  limitKind AlarmLimitKind? @map("limit_kind")
+
+  /// The reading that brought it back in spec. NULL while still active, and for
+  /// OFFLINE which has no value.
+  clearedValue Float? @map("cleared_value")
+
   raisedAt  DateTime  @default(now()) @map("raised_at") @db.Timestamptz(3)
   clearedAt DateTime? @map("cleared_at") @db.Timestamptz(3)
 
@@ -884,12 +900,13 @@ model Alarm {
 
   /// Restrict on BOTH: an alarm is a regulated record, so deleting an instrument or a
   /// rule must not erase the history of what it did.
-  rule       AlarmRule  @relation(fields: [ruleId], references: [id], onDelete: Restrict)
+  rule       AlarmRule? @relation(fields: [ruleId], references: [id], onDelete: Restrict)
   instrument Instrument @relation(fields: [instrumentId], references: [id], onDelete: Restrict)
 
   @@index([state, raisedAt(sort: Desc)])
   @@index([instrumentId, raisedAt(sort: Desc)])
   @@index([acknowledgedAt])
+  @@index([source, instrumentId, metric, limitKind, state])
   @@map("alarms")
 }
 
@@ -914,6 +931,16 @@ enum AlarmSeverity {
 enum AlarmState {
   ACTIVE
   CLEARED
+}
+
+enum AlarmSource {
+  RULE
+  INSTRUMENT_LIMIT
+}
+
+enum AlarmLimitKind {
+  HIGH
+  LOW
 }
 
 model FunctionalLocation {
