@@ -323,6 +323,22 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
           });
         } else if (!check.breaching && existingId) {
           const value = check.metric === 'TEMPERATURE' ? reading.temperature : reading.humidity;
+          // A MISSING reading holds the alarm open; it does not clear it.
+          //
+          // The asymmetry is deliberate and symmetrical in its reasoning: without data
+          // you cannot prove a breach, so a null never RAISES — and equally you cannot
+          // prove recovery, so a null must never CLEAR. checkLimits() reports
+          // `breaching: false` for a null because that is right for the raise path;
+          // acting on it here would write "returned to spec" into a regulated record
+          // about an instrument that had merely gone quiet, with `cleared_value` NULL
+          // as the only trace of the falsehood. A probe that dies mid-excursion leaves
+          // the alarm ACTIVE, which is the truthful state.
+          if (value === null) continue;
+          // KNOWN LIMITATION, deliberately not fixed: clearing needs checkLimits() to
+          // still produce a check for this bound, so renaming or deleting the limit
+          // attribute — or inverting the high/low pair — strands an open alarm ACTIVE
+          // for good. Auto-clearing on a config change would erase the evidence of an
+          // excursion, which is worse than a stale row an operator can acknowledge.
           // Acknowledgement fields untouched: a cleared-but-unacknowledged alarm
           // is the overnight excursion someone must still answer for.
           const closed = await prisma.alarm.update({
