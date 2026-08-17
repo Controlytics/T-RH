@@ -907,6 +907,14 @@ model Alarm {
   @@index([instrumentId, raisedAt(sort: Desc)])
   @@index([acknowledgedAt])
   @@index([source, instrumentId, metric, limitKind, state])
+  /// DB-MANAGED UNIQUENESS, not expressible here: the partial unique index
+  /// `alarms_active_instrument_limit_unique` on (instrument_id, metric, limit_kind)
+  /// WHERE state = 'ACTIVE' AND source = 'INSTRUMENT_LIMIT' (migration
+  /// 20260817120000_alarm_limit_unique_active). It stops two overlapping evaluation
+  /// passes from both opening the same excursion — the loser of that race is
+  /// unreachable by every code path and would stay ACTIVE for good. PARTIAL because
+  /// many CLEARED rows for one bound are legitimate, one per excursion.
+  /// `prisma migrate diff` proposes dropping it; do not accept that.
   @@map("alarms")
 }
 

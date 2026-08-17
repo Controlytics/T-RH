@@ -1,0 +1,43 @@
+-- One ACTIVE instrument-limit alarm per (instrument, metric, bound).
+--
+-- The evaluator's only duplicate guard was an in-memory Map read once at the top of
+-- the pass. Two overlapping passes — the cron (concurrency 10, no jobKey) plus any of
+-- the repo scripts or tests that call evaluateAlarms() directly — both see "no open
+-- alarm" and both insert. The second row is worse than clutter: both rows share one
+-- Map key, so `new Map(...)` keeps only one and the loser is unreachable by every
+-- code path in the system, staying ACTIVE for good. A regulated record cannot have an
+-- excursion that nothing can ever close.
+--
+-- Enforced in the DATABASE rather than by timing, because the race is between
+-- processes and no amount of application-side checking closes it.
+--
+-- PARTIAL on purpose. The uniqueness only holds for the OPEN row: an instrument may
+-- legitimately accumulate many CLEARED alarms for the same bound over its life, one
+-- per excursion, and a plain unique index would forbid the second excursion from ever
+-- being recorded. RULE alarms are excluded because their identity is (rule,
+-- instrument) — a site may hold several rules on one instrument and metric.
+--
+-- Prisma cannot express a partial unique index in the datamodel, so this index is
+-- DB-managed and `schema.prisma` carries a comment naming it. `prisma migrate diff`
+-- will therefore propose DROPPING it — do not accept that.
+--
+-- SAFE AT THIS MOMENT: verified 2026-08-17 that no duplicate exists in either
+-- database (`GROUP BY instrument_id, metric, limit_kind HAVING count(*) > 1` over
+-- ACTIVE + INSTRUMENT_LIMIT rows returned 0 in both `compliance_core_db` and
+-- `compliance_core_db_test`), so the index builds without conflict.
+--
+-- HAND-AUTHORED. `prisma migrate diff` emits three further statements, ALL
+-- deliberately omitted — the same three it has emitted since 20260811120000:
+--
+--   DROP TABLE "instrument_telemetry_history"
+--     — partitioned, invisible to the datamodel, holds live telemetry.
+--   ALTER TABLE "audit_trail" ALTER COLUMN "chain_position" DROP NOT NULL
+--     — the 21 CFR §11 hash-chain position, sequence-backed outside Prisma.
+--   DROP/ADD CONSTRAINT "instrument_credentials_instrument_id_fkey"
+--     — unchanged; a drop-and-recreate of an identical FK.
+--
+-- Read the header of 20260811120000_instrument_floorplans before regenerating.
+
+CREATE UNIQUE INDEX "alarms_active_instrument_limit_unique"
+  ON "alarms" ("instrument_id", "metric", "limit_kind")
+  WHERE "state" = 'ACTIVE' AND "source" = 'INSTRUMENT_LIMIT';

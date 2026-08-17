@@ -15,7 +15,6 @@ import { evaluateAlarms } from '../alarm-evaluation.worker.js';
 
 const CODE = `LIMIT-HOLD-${Date.now()}`;
 let instrumentId = '';
-let startedAt = new Date();
 
 async function setTemperature(value: number) {
   await prisma.instrumentTelemetryLatest.upsert({
@@ -35,7 +34,6 @@ async function openAlarm() {
 
 describe('instrument-limit clear path', () => {
   beforeAll(async () => {
-    startedAt = new Date();
     const profile = await prisma.instrumentProfile.findFirst({ select: { id: true } })
       ?? await prisma.instrumentProfile.create({ data: { name: `LimitHold-${Date.now()}` } });
     const inst = await prisma.instrument.create({
@@ -55,9 +53,10 @@ describe('instrument-limit clear path', () => {
     await prisma.instrumentTelemetryLatest.deleteMany({ where: { instrumentId } });
     await prisma.instrumentAttribute.deleteMany({ where: { instrumentId } });
     await prisma.instrument.deleteMany({ where: { id: instrumentId } });
-    // Evaluation is estate-wide, so it may have raised limit alarms on OTHER fixture
-    // instruments left by other suites. Those are this run's debris, not theirs.
-    await prisma.alarm.deleteMany({ where: { source: 'INSTRUMENT_LIMIT', raisedAt: { gte: startedAt } } });
+    // Scoped to THIS fixture only. An estate-wide sweep of recent INSTRUMENT_LIMIT
+    // alarms would delete a concurrently-running file's rows mid-assertion under the
+    // default (multi-fork) pool, which apps/api/CLAUDE.md documents people do use.
+    // Anything this run raised on another suite's fixture is left for that suite.
   });
 
   it('raises on a breaching reading', async () => {

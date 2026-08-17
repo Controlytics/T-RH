@@ -12,7 +12,13 @@ import {
   type Sample,
 } from '../modules/alarms/decide.js';
 import { enqueueAlarmNotification } from '../modules/alarms/enqueue-notification.js';
-import { checkLimits, limitSnapshot, describeLimit } from '../modules/alarms/limit-decide.js';
+import {
+  checkLimits,
+  limitSnapshot,
+  describeLimit,
+  type LimitKind,
+  type LimitMetric,
+} from '../modules/alarms/limit-decide.js';
 import { loadLimitConfig, limitsFor } from '../modules/alarms/load-limits.js';
 import type { LimitBound } from '@digilog/shared';
 
@@ -68,6 +74,20 @@ async function breachStartedAt(
   }
   return start;
 }
+
+/**
+ * Which config bound a (metric, kind) pair names.
+ *
+ * An exhaustive table rather than string concatenation: the result indexes
+ * `attributeKeys`, and the value it finds is frozen onto the alarm's snapshot as
+ * `attributeKey`. A composed key that misses yields `undefined`, which would silently
+ * drop "which attribute did this fire against" from a regulated record rather than
+ * failing. Adding a metric or a kind now breaks the build here, which is the point.
+ */
+const LIMIT_BOUND: Record<LimitMetric, Record<LimitKind, LimitBound>> = {
+  TEMPERATURE: { HIGH: 'temperatureHigh', LOW: 'temperatureLow' },
+  HUMIDITY: { HIGH: 'humidityHigh', LOW: 'humidityLow' },
+};
 
 export interface AlarmEvaluationResult {
   rulesEvaluated: number;
@@ -280,11 +300,8 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
         const existingId = openMap.get(key);
 
         if (check.breaching && !existingId) {
-          const bound = `${check.metric === 'TEMPERATURE' ? 'temperature' : 'humidity'}${
-            check.limitKind === 'HIGH' ? 'High' : 'Low'
-          }` as LimitBound;
-          const created = await prisma.alarm.create({
-            data: {
+          const bound = LIMIT_BOUND[check.metric][check.limitKind];
+          const data: Prisma.AlarmUncheckedCreateInput = {
               ruleId: null,
               source: 'INSTRUMENT_LIMIT',
               limitKind: check.limitKind,
@@ -306,8 +323,31 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
               severity: limitCfg.severity,
               state: 'ACTIVE',
               raisedAt: now,
-            },
-          });
+          };
+
+          // The partial unique index `alarms_active_instrument_limit_unique` is the
+          // real guard against two passes opening one excursion — `openMap` is read
+          // once and cannot see a row another process inserts mid-pass. P2002 here
+          // therefore means "somebody else already opened this one", which is a
+          // success for the system and nothing for this pass to do.
+          //
+          // Caught rather than allowed to propagate ON PURPOSE: an uncaught throw
+          // abandons every remaining instrument in the cycle, so the constraint would
+          // trade one duplicate row for a minute of undetected excursions across the
+          // whole estate — strictly worse than the problem it fixes.
+          let created;
+          try {
+            created = await prisma.alarm.create({ data });
+          } catch (e) {
+            if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+              console.warn(
+                `[alarms] ${row.code ?? row.instrumentId} ${check.metric} ${check.limitKind}: ` +
+                  'an ACTIVE limit alarm was opened concurrently; skipping the duplicate',
+              );
+              continue;
+            }
+            throw e;
+          }
           raised += 1;
           await enqueueAlarmNotification('raised', {
             alarmId: created.id,
@@ -368,11 +408,19 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
 }
 
 /** graphile-worker task. Registered as `alarm_evaluation`. */
-export const alarmEvaluationTask = async (_payload: unknown, helpers?: { logger?: { info: (m: string) => void } }) => {
+export const alarmEvaluationTask = async (
+  _payload: unknown,
+  helpers?: { logger?: { info: (m: string) => void; debug?: (m: string) => void } },
+) => {
   const res = await evaluateAlarms();
+  const scope = `${res.rulesEvaluated} rule(s), ${res.instrumentsEvaluated} instrument(s)`;
   if (res.raised || res.cleared) {
-    helpers?.logger?.info(
-      `[alarms] ${res.rulesEvaluated} rule(s): raised ${res.raised}, cleared ${res.cleared}`,
-    );
+    helpers?.logger?.info(`[alarms] ${scope}: raised ${res.raised}, cleared ${res.cleared}`);
+  } else {
+    // A quiet minute still has to be distinguishable from a pass that never ran —
+    // with zero rules, `instrumentsEvaluated` is the only evidence the limit feature
+    // is alive at all. At DEBUG so it does not put 1440 lines a day in the operator's
+    // log; graphile-worker suppresses it unless GRAPHILE_LOGGER_DEBUG is set.
+    helpers?.logger?.debug?.(`[alarms] ${scope}: nothing raised or cleared`);
   }
 };
