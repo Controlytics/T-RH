@@ -100,10 +100,21 @@ describe('instrument-limit alarms (e2e)', () => {
   });
 
   it('reports the frozen limit through the API even after the attribute changes', async () => {
+    // Raise the limit to 99 — 26.4 breached the OLD limit (25) but is in spec under
+    // the new one. Then feed a reading that would have breached the old limit but not
+    // the new one, and run a REAL evaluation pass against it. Without a pass in between,
+    // this test would only prove a JSONB column doesn't spontaneously mutate on an
+    // unrelated UPDATE — asserting nothing about the freezing behaviour itself.
     await prisma.instrumentAttribute.updateMany({
       where: { instrumentId, key: 'High Temperature Limit' },
       data: { value: '99' },
     });
+    await pushReading(26.4);
+    await evaluateAlarms();
+
+    // Nothing should raise: 26.4 is in spec against the new 99 limit. A new row here
+    // would mean the pass re-evaluated against a limit this alarm never actually saw.
+    expect(await prisma.alarm.count({ where: { instrumentId } })).toBe(1);
 
     const res = await app.inject({
       method: 'GET',
@@ -112,8 +123,10 @@ describe('instrument-limit alarms (e2e)', () => {
     });
     expect(res.statusCode).toBe(200);
     const row = res.json().data[0];
-    // The snapshot answers "why did this fire at 25?", not the live attribute.
+    // The snapshot answers "why did this fire at 25?", not the live attribute — this is
+    // the exact question a 21 CFR inspector asks about a historical excursion.
     expect(row.ruleSnapshot.limit).toBe(25);
+    expect(row.ruleSnapshot.attributeKey).toBe('High Temperature Limit');
     expect(row.limitKind).toBe('HIGH');
     expect(row.clearedValue).toBe(22.0);
   });
