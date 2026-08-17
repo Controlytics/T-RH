@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { buildTelemetryOverview } from '../modules/instruments/telemetry-overview.js';
 import { resolveLocationIds } from '../modules/functional-locations/tree.js';
@@ -11,6 +12,9 @@ import {
   type Sample,
 } from '../modules/alarms/decide.js';
 import { enqueueAlarmNotification } from '../modules/alarms/enqueue-notification.js';
+import { checkLimits, limitSnapshot, describeLimit } from '../modules/alarms/limit-decide.js';
+import { loadLimitConfig, limitsFor } from '../modules/alarms/load-limits.js';
+import type { LimitBound } from '@digilog/shared';
 
 /**
  * Alarm evaluation. graphile-worker task, registered as `alarm_evaluation`.
@@ -69,6 +73,13 @@ export interface AlarmEvaluationResult {
   rulesEvaluated: number;
   raised: number;
   cleared: number;
+  /**
+   * How many instruments the instrument-limit pass examined. Without it, a run that
+   * raised nothing is indistinguishable from a run where the pass never executed —
+   * and with zero alarm rules configured, the limit pass IS the whole feature.
+   * Zero when the pass is disabled by config.
+   */
+  instrumentsEvaluated: number;
 }
 
 export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationResult> {
@@ -77,15 +88,19 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
     prisma.functionalLocation.findMany({ select: { id: true, name: true, type: true, parentId: true } }),
     buildTelemetryOverview({}),
   ]);
-  if (rules.length === 0) return { rulesEvaluated: 0, raised: 0, cleared: 0 };
-
+  // NO early return on rules.length === 0. Instrument-limit alarms have no rules at
+  // all, so skipping here would disable the entire limit feature on exactly the sites
+  // that rely on it — the rule loop over an empty array is already a no-op.
   const nodes = locations.map((l) => ({ ...l, type: l.type as FlType }));
   const byInstrument = new Map(overview.map((r) => [r.instrumentId, r]));
 
   // Which instruments already have an ACTIVE alarm for which rule. One query rather
   // than one per instrument: this runs every minute.
   const active = await prisma.alarm.findMany({
-    where: { state: 'ACTIVE', ruleId: { in: rules.map((r) => r.id) } },
+    // `source: 'RULE'` is not redundant with the ruleId filter — it states the intent at
+    // the query, so a later widening of this where clause cannot silently pull
+    // instrument-limit alarms into a Map keyed on ruleId.
+    where: { state: 'ACTIVE', source: 'RULE', ruleId: { in: rules.map((r) => r.id) } },
     select: { id: true, ruleId: true, instrumentId: true },
   });
   const activeKey = (ruleId: string, instrumentId: string) => `${ruleId}:${instrumentId}`;
@@ -217,7 +232,123 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
     }
   }
 
-  return { rulesEvaluated: rules.length, raised, cleared };
+  // ─── Instrument-limit pass ────────────────────────────────────────────────
+  //
+  // Separate from the rule pass and additive to it: an instrument can hold a rule
+  // alarm and a limit alarm at once, and neither clears the other. Identity here is
+  // (instrument, metric, limitKind) rather than (rule, instrument), because these
+  // alarms have no rule.
+  let instrumentsEvaluated = 0;
+  const limitCfg = await loadLimitConfig();
+  if (limitCfg.enabled) {
+    const attrRows = await prisma.instrumentAttribute.findMany({
+      select: { instrumentId: true, key: true, value: true },
+    });
+    const attrsByInstrument = new Map<string, { key: string; value: string }[]>();
+    for (const a of attrRows) {
+      const list = attrsByInstrument.get(a.instrumentId) ?? [];
+      list.push({ key: a.key, value: a.value });
+      attrsByInstrument.set(a.instrumentId, list);
+    }
+
+    const openLimitAlarms = await prisma.alarm.findMany({
+      where: { source: 'INSTRUMENT_LIMIT', state: 'ACTIVE' },
+      select: { id: true, instrumentId: true, metric: true, limitKind: true },
+    });
+    const openKey = (instrumentId: string, metric: string, kind: string) =>
+      `${instrumentId}:${metric}:${kind}`;
+    const openMap = new Map(
+      openLimitAlarms.map((a) => [openKey(a.instrumentId, a.metric, a.limitKind ?? ''), a.id]),
+    );
+
+    for (const row of overview) {
+      // Counted BEFORE the attribute check: an estate with no limit attributes must
+      // report the instruments it looked at, not 0 — 0 would be indistinguishable
+      // from a pass that never ran.
+      instrumentsEvaluated += 1;
+      const attributes = attrsByInstrument.get(row.instrumentId) ?? [];
+      if (attributes.length === 0) continue;
+
+      const { limits, attributeKeys } = limitsFor(limitCfg.keys, attributes);
+      const reading = {
+        temperature: row.temperature?.value ?? null,
+        humidity: row.humidity?.value ?? null,
+      };
+
+      for (const check of checkLimits(limits, reading)) {
+        const key = openKey(row.instrumentId, check.metric, check.limitKind);
+        const existingId = openMap.get(key);
+
+        if (check.breaching && !existingId) {
+          const bound = `${check.metric === 'TEMPERATURE' ? 'temperature' : 'humidity'}${
+            check.limitKind === 'HIGH' ? 'High' : 'Low'
+          }` as LimitBound;
+          const created = await prisma.alarm.create({
+            data: {
+              ruleId: null,
+              source: 'INSTRUMENT_LIMIT',
+              limitKind: check.limitKind,
+              // Frozen here: changing the attribute later must not change what
+              // this alarm says about itself.
+              // The cast is only structural: limitSnapshot returns
+              // Record<string, unknown>, which Prisma's InputJsonValue union does not
+              // accept directly. Every value it puts in the object is a JSON scalar.
+              ruleSnapshot: limitSnapshot({
+                metric: check.metric,
+                limitKind: check.limitKind,
+                limit: check.limit,
+                attributeKey: attributeKeys[bound],
+                snapshotAt: now.toISOString(),
+              }) as Prisma.InputJsonObject,
+              instrumentId: row.instrumentId,
+              metric: check.metric,
+              triggeredValue: check.metric === 'TEMPERATURE' ? reading.temperature : reading.humidity,
+              severity: limitCfg.severity,
+              state: 'ACTIVE',
+              raisedAt: now,
+            },
+          });
+          raised += 1;
+          await enqueueAlarmNotification('raised', {
+            alarmId: created.id,
+            instrumentId: row.instrumentId,
+            instrumentCode: row.code,
+            instrumentName: row.name,
+            metric: check.metric,
+            severity: limitCfg.severity,
+            ruleName: `${check.metric} ${check.limitKind} limit`,
+            condition: describeLimit(check),
+            triggeredValue: created.triggeredValue,
+            raisedAt: created.raisedAt,
+          });
+        } else if (!check.breaching && existingId) {
+          const value = check.metric === 'TEMPERATURE' ? reading.temperature : reading.humidity;
+          // Acknowledgement fields untouched: a cleared-but-unacknowledged alarm
+          // is the overnight excursion someone must still answer for.
+          const closed = await prisma.alarm.update({
+            where: { id: existingId },
+            data: { state: 'CLEARED', clearedAt: now, clearedValue: value },
+          });
+          cleared += 1;
+          await enqueueAlarmNotification('cleared', {
+            alarmId: closed.id,
+            instrumentId: row.instrumentId,
+            instrumentCode: row.code,
+            instrumentName: row.name,
+            metric: closed.metric,
+            severity: closed.severity,
+            ruleName: `${check.metric} ${check.limitKind} limit`,
+            condition: describeLimit(check),
+            triggeredValue: closed.triggeredValue,
+            raisedAt: closed.raisedAt,
+            clearedAt: closed.clearedAt,
+          });
+        }
+      }
+    }
+  }
+
+  return { rulesEvaluated: rules.length, raised, cleared, instrumentsEvaluated };
 }
 
 /** graphile-worker task. Registered as `alarm_evaluation`. */
