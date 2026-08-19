@@ -1,4 +1,4 @@
-import { type FastifyInstance } from 'fastify';
+import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
 import { Prisma } from '@prisma/client';
 import {
   createInstrumentSchema,
@@ -19,7 +19,10 @@ import { sanitizeStrings } from '../../lib/sanitize.js';
 import { generateToken, hashToken, tokenPrefix, tokenMatches } from './token.js';
 import { encryptToken, decryptToken, tokenKeyConfigured } from './token-crypto.js';
 import { parseInstrumentCsv, type InstrumentDraft } from './bulk-csv.js';
-import { buildTelemetryOverview } from './telemetry-overview.js';
+import { buildTelemetryOverview, loadAliases } from './telemetry-overview.js';
+import { loadDecimalsConfig, decimalsFor, annotateAttribute } from './decimals.js';
+import { loadAttributeAccess, refuseAttributeWrite, needsReauth } from './attribute-access.js';
+import { ATTRIBUTE_REMARK_MAX } from '@digilog/shared';
 import { invalidateIngestAuthCache } from './ingest-auth.js';
 import { invalidateChildMapCache } from './gateway-children.js';
 import {
@@ -123,6 +126,13 @@ const readingProps = {
   value: {},
   valueType: { type: 'string' },
   ts: { type: 'string', format: 'date-time' },
+  // Which named slot this key maps to, and the precision to show it at — both
+  // resolved server-side so this raw key/value list renders a temperature the
+  // same way the dashboard does. Null for a key that is neither slot (a battery
+  // level, a door contact): those keep their raw value, since nothing has said
+  // what precision they carry.
+  slot: { type: 'string', nullable: true },
+  decimals: { type: 'integer', nullable: true },
 } as const;
 
 type CredentialRow = { tokenPrefix: string; tokenEncrypted?: string | null };
@@ -547,6 +557,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
                       rhMax: { type: 'number', nullable: true },
                     },
                   },
+                  limitSource: { type: 'string', nullable: true },
                   temperature: {
                     type: 'object', nullable: true,
                     properties: {
@@ -561,6 +572,13 @@ export default async function instrumentRoutes(app: FastifyInstance) {
                       key: { type: 'string' },
                       value: { type: 'number' },
                       ts: { type: 'string', format: 'date-time' },
+                    },
+                  },
+                  decimals: {
+                    type: 'object',
+                    properties: {
+                      temperature: { type: 'integer' },
+                      humidity: { type: 'integer' },
                     },
                   },
                   reporting: { type: 'boolean' },
@@ -660,7 +678,34 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         to: q.to ? new Date(q.to) : undefined,
       }),
     ]);
-    return { latest, history: history.rows, historyTotal: history.total };
+    // Label each reading with its slot and this instrument's precision. Same
+    // administered vocabulary and same resolver the dashboard uses — a raw list
+    // that disagrees with the dashboard about the same stored number is the
+    // failure this annotation exists to prevent.
+    const [aliases, decimalsCfg, attributes] = await Promise.all([
+      loadAliases(),
+      loadDecimalsConfig(),
+      prisma.instrumentAttribute.findMany({
+        where: { instrumentId: id },
+        select: { key: true, value: true },
+      }),
+    ]);
+    const dp = decimalsFor(decimalsCfg, attributes);
+    const annotate = (r: { key: string }) => {
+      const k = r.key.toLowerCase();
+      const slot = aliases.temperature.includes(k)
+        ? 'temperature'
+        : aliases.humidity.includes(k)
+          ? 'humidity'
+          : null;
+      return { ...r, slot, decimals: slot ? dp[slot] : null };
+    };
+
+    return {
+      latest: latest.map(annotate),
+      history: history.rows.map(annotate),
+      historyTotal: history.total,
+    };
   });
 
   // GET /api/instruments/:id/dead-letters — this device's rejected payloads
@@ -1526,6 +1571,61 @@ export default async function instrumentRoutes(app: FastifyInstance) {
   } as const;
 
   const attributeSelect = { key: true, value: true, createdAt: true, updatedAt: true } as const;
+  // `slot` / `decimals` / `display` are computed, not stored. Declared here
+  // because Fastify's serializer STRIPS anything absent from the response schema.
+  const annotatedAttributeProps = {
+    ...attributeProps,
+    slot: { type: 'string', nullable: true },
+    decimals: { type: 'integer', nullable: true },
+    display: { type: 'string', nullable: true },
+  } as const;
+
+  /**
+   * The mandatory remark, read identically by all three verbs.
+   *
+   * EXEMPT from HTML stripping — `sanitizeStrings` is called with `['reason']` so
+   * the exemption is stated rather than achieved by reading round the sanitiser.
+   * `stripHtml` empties anything tag-shaped, and a remark like "value < 20 per
+   * SOP" would be silently blanked into a §11 record.
+   */
+  const readRemark = (req: FastifyRequest): string | null => {
+    const body = sanitizeStrings((req.body ?? {}) as Record<string, unknown>, ['reason']);
+    return typeof body.reason === 'string' ? body.reason : null;
+  };
+
+  /**
+   * The per-role attribute gate, applied identically by POST, PUT and DELETE.
+   *
+   * ONE place, because three copies of "may this role touch this key, and did it
+   * say why" is three chances for one of them to be forgotten — and the one that
+   * is forgotten becomes the way round the control. Returns true when the reply
+   * has already been sent.
+   */
+  const attributeWriteRefused = async (
+    req: FastifyRequest, reply: FastifyReply,
+    opts: { key: string; isNewKey: boolean; remark?: string | null },
+  ): Promise<boolean> => {
+    const access = await loadAttributeAccess(req.user?.role);
+    const refusal = refuseAttributeWrite({
+      access,
+      // `requirePermission('INSTRUMENT_UPDATE')` already ran as a preHandler, so
+      // reaching here means the role holds it. Passed explicitly anyway: the
+      // shared rule must never be readable as "the mode alone decides".
+      hasUpdatePermission: true,
+      key: opts.key,
+      isNewKey: opts.isNewKey,
+      remark: opts.remark,
+    });
+    if (refusal) { reply.code(refusal.status).send(refusal.body); return true; }
+
+    // AFTER the access and remark checks: no point asking for a password to
+    // authorise something that is about to be refused anyway.
+    if (needsReauth(access)) {
+      const { ok } = await enforceReauthAlways('UPDATE_INSTRUMENT_ATTRIBUTE', req, reply);
+      if (!ok) return true;
+    }
+    return false;
+  };
 
   /** 404 body for an attribute key that is not on this instrument. */
   const noSuchAttribute = (key: string) => ({
@@ -1620,7 +1720,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       response: {
         200: {
           type: 'object',
-          properties: { data: { type: 'array', items: { type: 'object', properties: attributeProps } } },
+          properties: { data: { type: 'array', items: { type: 'object', properties: annotatedAttributeProps } } },
         },
         ...errorResponses,
       },
@@ -1633,7 +1733,51 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const data = await prisma.instrumentAttribute.findMany({
       where: { instrumentId: id }, select: attributeSelect, orderBy: { key: 'asc' },
     });
-    return { data };
+
+    // A limit or a range is a reading, so it is shown at the same precision as
+    // the reading it bounds — resolved here, from this instrument's own decimals
+    // attributes, so the attributes panel cannot quote a limit differently from
+    // the set-point column or the alarm row that fired against it. `value` is
+    // untouched: `display` is presentation, `value` is the record.
+    const cfg = await loadDecimalsConfig();
+    const dp = decimalsFor(cfg, data);
+    return { data: data.map((a) => ({ ...a, ...annotateAttribute(cfg, dp, a) })) };
+  });
+
+  // GET /api/instruments/attribute-access/me — what THIS caller may do.
+  //
+  // The panel needs the rule to render the right affordances, and it must not
+  // re-derive it: a second implementation eventually offers an Edit button the
+  // server refuses, which reads as the app being broken rather than as a policy.
+  // Registered before '/:id' for the same reason '/telemetry-overview' is.
+  app.get('/attribute-access/me', {
+    preHandler: [app.requirePermission('INSTRUMENT_READ')],
+    schema: {
+      tags: ['Instruments'],
+      summary: "The caller's own instrument-attribute access",
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            mode: { type: 'string', nullable: true },
+            keys: { type: 'array', items: { type: 'string' } },
+            requireReauth: { type: 'boolean' },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req) => {
+    const access = await loadAttributeAccess(req.user?.role);
+    // Only the RULE is returned, not pre-computed verdicts. The panel rebuilds
+    // the access object and calls the same shared functions the gate calls, so
+    // there is one implementation of "may I" rather than a server opinion and a
+    // client opinion that can disagree.
+    return {
+      mode: access?.mode ?? null,
+      keys: access?.keys ?? [],
+      requireReauth: needsReauth(access),
+    };
   });
 
   // POST /api/instruments/:id/attributes — set (create OR update) one attribute
@@ -1646,7 +1790,16 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
       body: {
         type: 'object', required: ['key', 'value'],
-        properties: { key: { type: 'string' }, value: { type: 'string' } },
+        properties: {
+          key: { type: 'string' },
+          value: { type: 'string' },
+          // Mandatory when this OVERWRITES a recorded value; ignored on a first
+          // fill. Bounded here as well as in the shared validator because
+          // `signature_meaning` is VARCHAR(255) and `auditLog` does not truncate:
+          // an over-long remark would write the attribute and THEN throw.
+          reason: { type: 'string', maxLength: ATTRIBUTE_REMARK_MAX },
+          _currentPassword: { type: 'string' },
+        },
       },
       response: {
         200: { type: 'object', properties: attributeProps },
@@ -1663,9 +1816,25 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
     }
     const { key, value } = parsed.data;
+    // EXEMPT from HTML stripping, like every other free-text reason in this
+    // codebase (see the alarms acknowledge route). `stripHtml` turns anything
+    // tag-shaped into the empty string, so a remark reading "value < 20 per SOP"
+    // would be silently blanked — and a §11 record whose reason vanished is worse
+    // than one that never had a field. All three verbs read it the same way.
+    const reason = readRemark(req);
 
     const existing = await prisma.instrument.findUnique({ where: { id }, select: attributeOwnerSelect });
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
+
+    // Whether this is a change or a first fill decides BOTH the access rule and
+    // whether a remark is demanded, so it is read before the gate. Read again
+    // inside the transaction under the row lock, which is the read that decides
+    // create-vs-update; this one only classifies the request.
+    const already = await prisma.instrumentAttribute.findUnique({
+      where: { instrumentId_key: { instrumentId: id, key } },
+      select: { key: true },
+    });
+    if (await attributeWriteRefused(req, reply, { key, isNewKey: !already, remark: reason })) return;
 
     const ctx = buildContext(req);
     const { row, created } = await prisma.$transaction(async (tx) => {
@@ -1692,6 +1861,9 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         // empty one, and inventing `value: ''` would misreport the history.
         ...(before ? { beforeValue: { code: existing.code, attribute: key, value: before.value } } : {}),
         afterValue: { code: existing.code, attribute: key, value },
+        // Only a CHANGE carries one — a first fill is not asked for a reason, and
+        // writing an empty one would claim the operator gave a blank answer.
+        ...(before && reason ? { reason } : {}),
         signatureMeaning: before
           ? `Attribute "${key}" on instrument "${existing.code}" changed`
           : `Attribute "${key}" set on instrument "${existing.code}"`,
@@ -1719,7 +1891,15 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         type: 'object',
         properties: { id: { type: 'string', format: 'uuid' }, key: { type: 'string' } },
       },
-      body: { type: 'object', required: ['value'], properties: { value: { type: 'string' } } },
+      body: {
+        type: 'object', required: ['value', 'reason'],
+        properties: {
+          value: { type: 'string' },
+          // Required: this endpoint only ever CHANGES a recorded value.
+          reason: { type: 'string', maxLength: ATTRIBUTE_REMARK_MAX },
+          _currentPassword: { type: 'string' },
+        },
+      },
       response: { 200: { type: 'object', properties: attributeProps }, ...errorResponses },
     },
   }, async (req, reply) => {
@@ -1732,10 +1912,13 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     }
     const value = parsed.data.value;
     const key = normaliseKey(rawKey);
+    const reason = readRemark(req);
 
     const existing = await prisma.instrument.findUnique({ where: { id }, select: attributeOwnerSelect });
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
     if (!key) return reply.code(404).send(noSuchAttribute(rawKey));
+
+    if (await attributeWriteRefused(req, reply, { key, isNewKey: false, remark: reason })) return;
 
     const ctx = buildContext(req);
     try {
@@ -1763,6 +1946,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           action: 'INSTRUMENT_ATTRIBUTE_SET', targetType: 'Instrument', targetId: id,
           beforeValue: { code: existing.code, attribute: key, value: before.value },
           afterValue: { code: existing.code, attribute: key, value },
+          reason: reason ?? undefined,
           signatureMeaning: `Attribute "${key}" on instrument "${codeLabel(existing.code)}" changed`,
           userId: ctx.userId, userRole: ctx.userRole,
           ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
@@ -1790,6 +1974,15 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         type: 'object',
         properties: { id: { type: 'string', format: 'uuid' }, key: { type: 'string' } },
       },
+      // A body on DELETE. Not a query string: the remark is free text an operator
+      // types, and a query string ends up in access logs and browser history.
+      body: {
+        type: 'object', required: ['reason'],
+        properties: {
+          reason: { type: 'string', maxLength: ATTRIBUTE_REMARK_MAX },
+          _currentPassword: { type: 'string' },
+        },
+      },
       response: {
         200: { type: 'object', properties: { success: { type: 'boolean' } } },
         ...errorResponses,
@@ -1798,10 +1991,15 @@ export default async function instrumentRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     const { id, key: rawKey } = req.params as { id: string; key: string };
     const key = normaliseKey(rawKey);
+    const reason = readRemark(req);
 
     const existing = await prisma.instrument.findUnique({ where: { id }, select: attributeOwnerSelect });
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
     if (!key) return reply.code(404).send(noSuchAttribute(rawKey));
+
+    // Removing a recorded value is a change like any other — the strongest one —
+    // so it takes the same gate and the same mandatory remark.
+    if (await attributeWriteRefused(req, reply, { key, isNewKey: false, remark: reason })) return;
 
     const ctx = buildContext(req);
     try {
@@ -1823,6 +2021,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         await auditLog({
           action: 'INSTRUMENT_ATTRIBUTE_REMOVED', targetType: 'Instrument', targetId: id,
           beforeValue: { code: existing.code, attribute: key, value: before.value },
+          reason: reason ?? undefined,
           signatureMeaning: `Attribute "${key}" removed from instrument "${codeLabel(existing.code)}"`,
           userId: ctx.userId, userRole: ctx.userRole,
           ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,

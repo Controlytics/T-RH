@@ -28,7 +28,7 @@ interface RoleConfig {
 export default function DashboardCardsConfig() {
   // Always refetch roles on mount and bypass the dedupe window so a role
   // created/deleted elsewhere is reflected here immediately (mirrors the
-  // role-access + role-assignments pages). Without this, a deleted role
+  // role-access page). Without this, a deleted role
   // lingers in this list until a hard refresh.
   const { data: rolesData } = useSWR<any>('/api/roles/active', { revalidateOnMount: true, dedupingInterval: 0 });
   const { data: configData } = useSWR<any>('/api/config/dashboard-cards/current');

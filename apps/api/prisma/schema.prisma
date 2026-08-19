@@ -375,6 +375,12 @@ model RoleConfig {
   /// unrestricted); [] = SEE NOTHING; [ids] = these locations, Blocks expanding to
   /// their Areas. Nullable with NO default so this cannot blind existing roles.
   instrumentScope Json? @map("instrument_scope") @db.JsonB
+  /// Which instrument attributes this role may change:
+  /// `{ mode: ALL_EDIT|ALL_VIEW|SELECTED, keys: [], requireReauth: bool }`.
+  /// NULL = inherit, i.e. exactly the pre-2026-08-19 behaviour (editable iff the
+  /// role holds INSTRUMENT_UPDATE). Nullable with NO default so shipping this
+  /// cannot freeze an existing role out of its own work.
+  attributeAccess Json? @map("attribute_access") @db.JsonB
   updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz
   updatedBy    String?  @map("updated_by") @db.VarChar(50)
 

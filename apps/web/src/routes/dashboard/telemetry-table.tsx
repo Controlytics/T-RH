@@ -2,9 +2,9 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { readingAge } from './status';
 import { formatSetPoint, outOfSpec, NOT_AVAILABLE } from './set-point';
+import { formatDecimals } from '@digilog/shared';
 import {
   useTelemetryOverview,
-  useTelemetrySettings,
   type OverviewRow,
 } from './use-telemetry';
 
@@ -78,14 +78,27 @@ function sortValue(row: OverviewRow, key: SortKey): string | number {
   }
 }
 
-/** An actual reading, or NA — never a dash, so the table reads consistently. */
+/**
+ * An actual reading, or NA — never a dash, so the table reads consistently.
+ *
+ * `decimals` is the ROW's instrument precision (`r.decimals.temperature`), not a
+ * page-wide setting. Through `formatDecimals`, which cannot throw — a stray
+ * attribute value must not take the whole table down with a RangeError.
+ */
 function actual(v: { value: number } | null | undefined, decimals: number): string {
-  return v ? v.value.toFixed(decimals) : NOT_AVAILABLE;
+  if (!v) return NOT_AVAILABLE;
+  return formatDecimals(v.value, decimals) ?? NOT_AVAILABLE;
+}
+
+/** Where a set point came from, as a tooltip. */
+function setPointSource(source: OverviewRow['limitSource']): string | undefined {
+  if (source === 'INSTRUMENT') return "This instrument's own limit attributes — the same limits alarms are raised against.";
+  if (source === 'ROOM') return 'The room specification. This instrument declares no limit attributes of its own.';
+  return 'No limits set — neither this instrument nor its room specifies a range.';
 }
 
 export function TelemetryTable({ functionalLocationId, directOnly }: { functionalLocationId?: string; directOnly?: boolean } = {}) {
   const { rows, isLoading, error, refreshMs } = useTelemetryOverview({ functionalLocationId, directOnly });
-  const { temperatureDecimals, humidityDecimals } = useTelemetrySettings();
   const [sort, setSort] = useState<SortKey>('code');
   const [asc, setAsc] = useState(true);
   const [query, setQuery] = useState('');
@@ -252,10 +265,13 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
                     style={tempBad ? { boxShadow: 'inset 3px 0 0 #fca5a5' } : undefined}
                     title={tempBad ? 'Outside the room specification' : undefined}
                   >
-                    {actual(r.temperature, temperatureDecimals)}
+                    {actual(r.temperature, r.decimals.temperature)}
                   </td>
-                  <td className={spec}>
-                    {formatSetPoint(r.limits?.tempMin, r.limits?.tempMax, temperatureDecimals)}
+                  {/* `title` only — the source is a tooltip, not a visible column:
+                      it answers "why do two probes in one room show different
+                      bands" when asked, without another cell to read past. */}
+                  <td className={spec} title={setPointSource(r.limitSource)}>
+                    {formatSetPoint(r.limits?.tempMin, r.limits?.tempMax, r.decimals.temperature)}
                   </td>
 
                   <td
@@ -263,10 +279,10 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
                     style={rhBad ? { boxShadow: 'inset 3px 0 0 #fca5a5' } : undefined}
                     title={rhBad ? 'Outside the room specification' : undefined}
                   >
-                    {actual(r.humidity, humidityDecimals)}
+                    {actual(r.humidity, r.decimals.humidity)}
                   </td>
-                  <td className={spec}>
-                    {formatSetPoint(r.limits?.rhMin, r.limits?.rhMax, humidityDecimals)}
+                  <td className={spec} title={setPointSource(r.limitSource)}>
+                    {formatSetPoint(r.limits?.rhMin, r.limits?.rhMax, r.decimals.humidity)}
                   </td>
 
                   {/* ONLINE / OFFLINE — solid cell, as the reference table does it.

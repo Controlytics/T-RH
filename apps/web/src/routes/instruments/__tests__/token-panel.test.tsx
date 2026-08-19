@@ -15,6 +15,33 @@ const base = {
 };
 
 describe('TokenPanel', () => {
+  /**
+   * The mask must not leak the prefix (operator request, 2026-08-19). It used to
+   * render the first 8 characters followed by bullets; for a short token that is
+   * most of the credential, and a field showing real characters does not read as
+   * masked at all.
+   */
+  it('shows no character of the token until it is revealed', () => {
+    render(<TokenPanel {...base} />);
+    expect(screen.queryByText(/ABCD1234/)).not.toBeInTheDocument();
+    const shown = screen.getByText(/•+/);
+    expect(shown.textContent).toMatch(/^•+$/);
+  });
+
+  it('masks to a fixed width, so the length of the credential does not leak', () => {
+    const { unmount } = render(<TokenPanel {...base} tokenPrefix="AB" />);
+    const short = screen.getByText(/•+/).textContent;
+    unmount();
+    render(<TokenPanel {...base} tokenPrefix="ABCDEFGH" />);
+    expect(screen.getByText(/•+/).textContent).toBe(short);
+  });
+
+  it('renders an em dash when there is no credential at all', () => {
+    render(<TokenPanel {...base} tokenPrefix={null} />);
+    expect(screen.queryByText(/•/)).not.toBeInTheDocument();
+    expect(screen.getByText('—')).toBeInTheDocument();
+  });
+
   it('offers the eye when the credential is recoverable', () => {
     render(<TokenPanel {...base} />);
     expect(screen.getByRole('button', { name: /show token/i })).toBeInTheDocument();
@@ -125,7 +152,7 @@ describe('TokenPanel', () => {
     const field = screen.getByRole('textbox', { name: /access token/i });
 
     fireEvent.change(field, { target: { value: 'a'.repeat(8) } });
-    expect(screen.getByText(/visible\s+as the non-secret prefix/i)).toBeInTheDocument();
+    expect(screen.getByText(/stored\s+as the\s+non-secret prefix/i)).toBeInTheDocument();
     // Warned, NOT blocked — the operator decides.
     expect(screen.getByRole('button', { name: /save token/i })).toBeEnabled();
 

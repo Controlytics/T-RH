@@ -12,6 +12,8 @@
  * excursion, which is the one thing the evaluator exists to do promptly.
  */
 
+import { formatDecimals, TELEMETRY_DECIMALS_FALLBACK } from '@digilog/shared';
+
 export type AlarmNotificationKind = 'raised' | 'cleared';
 
 export interface AlarmNotificationInput {
@@ -24,6 +26,13 @@ export interface AlarmNotificationInput {
   ruleName: string;
   condition: string;
   triggeredValue: number | null;
+  /**
+   * The instrument's display precision, so an email quotes the reading exactly as
+   * the dashboard does. Optional: an absent one falls back to the site default
+   * rather than blocking the notification, since a message that never sends is a
+   * worse failure than one showing a decimal too many.
+   */
+  decimals?: number | null;
   raisedAt: Date;
   clearedAt?: Date | null;
 }
@@ -54,9 +63,9 @@ export function alarmNotificationJob(
 ): AlarmNotificationJob {
   const instrument = a.instrumentCode || a.instrumentId;
   // A reading of 0 is real; only a genuinely absent value (OFFLINE has none) is '—'.
-  const value = typeof a.triggeredValue === 'number' && Number.isFinite(a.triggeredValue)
-    ? String(a.triggeredValue)
-    : '—';
+  // Formatted to the instrument's own precision so the email, the alarm row and the
+  // dashboard cell all quote one excursion the same way.
+  const value = formatDecimals(a.triggeredValue, a.decimals ?? TELEMETRY_DECIMALS_FALLBACK) ?? '—';
 
   const base = {
     alarmId: a.alarmId,

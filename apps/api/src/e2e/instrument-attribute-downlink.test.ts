@@ -79,12 +79,18 @@ async function mk(payload: Record<string, unknown>) {
 }
 const uniq = () => `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 
-const set = (id: string, key: string, value: string) =>
-  app.inject({ method: 'POST', url: `/api/instruments/${id}/attributes`, headers: auth, payload: { key, value } });
+const set = (id: string, key: string, value: string, reason?: string) =>
+  app.inject({
+    method: 'POST', url: `/api/instruments/${id}/attributes`, headers: auth,
+    payload: reason ? { key, value, reason } : { key, value },
+  });
+// A remark is MANDATORY on any write that changes or removes a recorded value
+// (2026-08-19). Not on a first fill, which is why `set` above carries none.
+const REMARK = 'Downlink test — changing the recorded value';
 const edit = (id: string, key: string, value: string) =>
-  app.inject({ method: 'PUT', url: `/api/instruments/${id}/attributes/${encodeURIComponent(key)}`, headers: auth, payload: { value } });
+  app.inject({ method: 'PUT', url: `/api/instruments/${id}/attributes/${encodeURIComponent(key)}`, headers: auth, payload: { value, reason: REMARK } });
 const remove = (id: string, key: string) =>
-  app.inject({ method: 'DELETE', url: `/api/instruments/${id}/attributes/${encodeURIComponent(key)}`, headers: auth });
+  app.inject({ method: 'DELETE', url: `/api/instruments/${id}/attributes/${encodeURIComponent(key)}`, headers: auth, payload: { reason: REMARK } });
 
 describe('attribute downlink — addressing', () => {
   it('publishes a standalone instrument on its OWN topic, QoS 1 and retained', async () => {
@@ -149,7 +155,9 @@ describe('attribute downlink — payload', () => {
   it('reflects state read AFTER the commit, not before it', async () => {
     const inst = await mk({ name: 'DLC', code: `DLC-${uniq()}` });
     await set(inst.id, 'k', 'first');
-    await set(inst.id, 'k', 'second');
+    // The second POST OVERWRITES a recorded value, so it is a change and owes a
+    // remark — POST is the upsert, and the rule follows the act, not the verb.
+    await set(inst.id, 'k', 'second', REMARK);
     // A message built from the pre-write read would say 'first' here.
     expect(sent[1].payload.attributes).toEqual({ k: 'second' });
     expect(sent[1].payload.changed).toEqual({ k: 'second' });

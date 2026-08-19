@@ -139,17 +139,23 @@ export function DynamicConfigPage() {
   }, [moduleDef]);
 
   useEffect(() => {
-    if (savedValues) {
-      setValues(savedValues);
-      setBaseline(JSON.stringify(savedValues));
-    } else if (moduleDef) {
-      const defaults: Record<string, any> = {};
-      for (const s of moduleDef.settings) {
-        if (s.default !== undefined) defaults[s.key] = s.default;
-      }
-      setValues(defaults);
-      setBaseline(JSON.stringify(defaults));
+    if (!moduleDef) return;
+    // Defaults UNDER the stored value, never instead of it.
+    //
+    // The API returns the stored row verbatim with no merge, and a row written
+    // before a setting existed simply has no key for it. Seeding from
+    // `savedValues` alone therefore rendered every NEWLY ADDED setting as an
+    // empty field — and saving that page then PERSISTED the blank, turning "this
+    // install has not been asked yet" into "this install says: nothing". For a
+    // key-mapping setting that is silent: the mapping resolves to no keys and the
+    // feature quietly stops working with a green save behind it.
+    const merged: Record<string, any> = {};
+    for (const s of moduleDef.settings) {
+      if (s.default !== undefined) merged[s.key] = s.default;
     }
+    Object.assign(merged, savedValues ?? {});
+    setValues(merged);
+    setBaseline(JSON.stringify(merged));
   }, [savedValues, moduleDef]);
 
   if (!moduleDef) {

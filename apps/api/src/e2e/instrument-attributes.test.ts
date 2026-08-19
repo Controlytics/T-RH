@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp, loginAs } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
+import { Prisma } from '@prisma/client';
 import { invalidateRolePermsCache } from '../plugins/rbac.js';
 import { fixtureProfileId } from '../test-support/fixture-profile.js';
 
@@ -53,18 +54,30 @@ async function newInstrument(prefix: string) {
 const list = (id: string, headers = auth) =>
   app.inject({ method: 'GET', url: `/api/instruments/${id}/attributes`, headers });
 
-const set = (id: string, key: string, value: string, headers = auth) =>
-  app.inject({ method: 'POST', url: `/api/instruments/${id}/attributes`, headers, payload: { key, value } });
+/**
+ * A remark is MANDATORY on any write that changes or removes a recorded value
+ * (2026-08-19). Not on a first fill — that is registration. These helpers send a
+ * usable one by default so the tests below stay about the behaviour they name;
+ * the remark rules have their own describe block at the bottom.
+ */
+const REMARK = 'Corrected against the calibration certificate';
 
-const edit = (id: string, key: string, value: string, headers = auth) =>
+const set = (id: string, key: string, value: string, headers = auth, reason = REMARK) =>
   app.inject({
-    method: 'PUT', url: `/api/instruments/${id}/attributes/${encodeURIComponent(key)}`,
-    headers, payload: { value },
+    method: 'POST', url: `/api/instruments/${id}/attributes`,
+    headers, payload: { key, value, reason },
   });
 
-const remove = (id: string, key: string, headers = auth) =>
+const edit = (id: string, key: string, value: string, headers = auth, reason: string | null = REMARK) =>
   app.inject({
-    method: 'DELETE', url: `/api/instruments/${id}/attributes/${encodeURIComponent(key)}`, headers,
+    method: 'PUT', url: `/api/instruments/${id}/attributes/${encodeURIComponent(key)}`,
+    headers, payload: reason === null ? { value } : { value, reason },
+  });
+
+const remove = (id: string, key: string, headers = auth, reason: string | null = REMARK) =>
+  app.inject({
+    method: 'DELETE', url: `/api/instruments/${id}/attributes/${encodeURIComponent(key)}`,
+    headers, payload: reason === null ? {} : { reason },
   });
 
 const auditRows = (instrumentId: string, action: string) =>
@@ -145,6 +158,16 @@ describe('Instrument attributes — round trip', () => {
     expect((await set(ghost, 'k', 'v')).statusCode).toBe(404);
     expect((await edit(ghost, 'k', 'v')).statusCode).toBe(404);
     expect((await remove(ghost, 'k')).statusCode).toBe(404);
+  });
+
+  it('rejects a missing remark BEFORE it says whether the instrument exists', async () => {
+    // Body-schema validation runs ahead of the handler, so a write with no remark
+    // is a 400 whatever id it names. That ordering is the right way round: it
+    // answers the malformed request without confirming what does or does not
+    // exist.
+    const ghost = '00000000-0000-4000-8000-000000000000';
+    expect((await edit(ghost, 'k', 'v', auth, null)).statusCode).toBe(400);
+    expect((await remove(ghost, 'k', auth, null)).statusCode).toBe(400);
   });
 });
 
@@ -328,5 +351,142 @@ describe('Instrument attributes — cascade and permissions', () => {
     expect((await app.inject({
       method: 'POST', url: `/api/instruments/${inst.id}/attributes`, payload: { key: 'k', value: 'v' },
     })).statusCode).toBe(401);
+  });
+});
+
+/**
+ * The per-role attribute gate (2026-08-19).
+ *
+ * Driven by writing `role_configs.attribute_access` directly and restoring it
+ * afterwards, because the alternative — logging in as a second role — would need
+ * a role that holds INSTRUMENT_UPDATE and nothing else, and `loginAs` is
+ * SUPER_ADMIN. The rule is read per request with no cache, which is what makes
+ * this work.
+ *
+ * These assert the SERVER refuses. The panel hiding a button is a convenience;
+ * this is the control.
+ */
+describe('Instrument attributes — per-role access', () => {
+  const ROLE = 'SUPER_ADMIN';
+
+  const setAccess = async (value: unknown) => {
+    await prisma.roleConfig.upsert({
+      where: { role: ROLE },
+      create: { role: ROLE, attributeAccess: value as never },
+      update: { attributeAccess: value as never },
+    });
+  };
+  const clearAccess = async () => {
+    await prisma.roleConfig.updateMany({ where: { role: ROLE }, data: { attributeAccess: Prisma.DbNull } });
+  };
+
+  afterEach(clearAccess);
+
+  it('ALL_VIEW refuses every write, including adding a new key', async () => {
+    const inst = await newInstrument('ATTRACC');
+    expect((await set(inst.id, 'Room', 'B-1')).statusCode).toBe(201);
+
+    await setAccess({ mode: 'ALL_VIEW', keys: [], requireReauth: false });
+    expect((await edit(inst.id, 'Room', 'B-2')).statusCode).toBe(403);
+    expect((await remove(inst.id, 'Room')).statusCode).toBe(403);
+    expect((await set(inst.id, 'Another', 'x')).statusCode).toBe(403);
+
+    // And nothing changed underneath the refusal.
+    const rows = (await list(inst.id)).json().data as { key: string; value: string }[];
+    expect(rows.find((r) => r.key === 'Room')?.value).toBe('B-1');
+    expect(rows.some((r) => r.key === 'Another')).toBe(false);
+  });
+
+  it('SELECTED protects an unnamed key but allows the named one', async () => {
+    const inst = await newInstrument('ATTRSEL');
+    await set(inst.id, 'Room', 'B-1');
+    await set(inst.id, 'High Temperature Limit', '25');
+
+    await setAccess({ mode: 'SELECTED', keys: ['Room'], requireReauth: false });
+    expect((await edit(inst.id, 'Room', 'B-2')).statusCode).toBe(200);
+    expect((await edit(inst.id, 'High Temperature Limit', '30')).statusCode).toBe(403);
+    expect((await remove(inst.id, 'High Temperature Limit')).statusCode).toBe(403);
+
+    const rows = (await list(inst.id)).json().data as { key: string; value: string }[];
+    expect(rows.find((r) => r.key === 'High Temperature Limit')?.value).toBe('25');
+  });
+
+  it('SELECTED still allows a brand-new key — it cannot overwrite a protected one', async () => {
+    const inst = await newInstrument('ATTRSELNEW');
+    await setAccess({ mode: 'SELECTED', keys: ['Room'], requireReauth: false });
+    expect((await set(inst.id, 'Supplier Ref', 'SR-1')).statusCode).toBe(201);
+  });
+
+  it('matches a selected key case-insensitively', async () => {
+    const inst = await newInstrument('ATTRCASE');
+    await set(inst.id, 'Room', 'B-1');
+    await setAccess({ mode: 'SELECTED', keys: [' ROOM '], requireReauth: false });
+    expect((await edit(inst.id, 'Room', 'B-2')).statusCode).toBe(200);
+  });
+
+  it('a garbage rule is treated as UNCONFIGURED, never as a grant or a lockout', async () => {
+    const inst = await newInstrument('ATTRJUNK');
+    await set(inst.id, 'Room', 'B-1');
+    await setAccess({ mode: 'EVERYTHING' });
+    expect((await edit(inst.id, 'Room', 'B-2')).statusCode).toBe(200);
+  });
+
+  it('requireReauth demands a password and refuses without one', async () => {
+    const inst = await newInstrument('ATTRRE');
+    await set(inst.id, 'Room', 'B-1');
+    await setAccess({ mode: 'ALL_EDIT', keys: [], requireReauth: true });
+
+    const refused = await edit(inst.id, 'Room', 'B-2');
+    expect(refused.statusCode).toBe(401);
+    expect(refused.json().error).toBe('REAUTH_REQUIRED');
+
+    const accepted = await app.inject({
+      method: 'PUT', url: `/api/instruments/${inst.id}/attributes/Room`,
+      headers: auth, payload: { value: 'B-3', reason: REMARK, _currentPassword: 'Admin@123' },
+    });
+    expect(accepted.statusCode).toBe(200);
+  });
+
+  it('checks access BEFORE the password — a refused write never costs a prompt', async () => {
+    const inst = await newInstrument('ATTRREV');
+    await set(inst.id, 'Room', 'B-1');
+    await setAccess({ mode: 'ALL_VIEW', keys: [], requireReauth: true });
+    expect((await edit(inst.id, 'Room', 'B-2')).statusCode).toBe(403);
+  });
+});
+
+describe('Instrument attributes — the remark is recorded, not just demanded', () => {
+  it('writes the operator’s remark onto the audit row for a change and a delete', async () => {
+    const inst = await newInstrument('ATTRREM');
+    await set(inst.id, 'Room', 'B-1');
+    await edit(inst.id, 'Room', 'B-2', auth, 'Moved to the new bay after the refit');
+    await remove(inst.id, 'Room', auth, 'Instrument relocated off site');
+
+    const changes = await auditRows(inst.id, 'INSTRUMENT_ATTRIBUTE_SET');
+    expect(changes.at(-1)?.reason).toBe('Moved to the new bay after the refit');
+    const removals = await auditRows(inst.id, 'INSTRUMENT_ATTRIBUTE_REMOVED');
+    expect(removals.at(-1)?.reason).toBe('Instrument relocated off site');
+  });
+
+  it('records NO remark for a first fill, rather than an empty one', async () => {
+    // An empty string in the trail would claim the operator gave a blank answer.
+    const inst = await newInstrument('ATTRFIRST');
+    await set(inst.id, 'Room', 'B-1', auth, undefined as unknown as string);
+    const rows = await auditRows(inst.id, 'INSTRUMENT_ATTRIBUTE_SET');
+    expect(rows.at(-1)?.reason ?? null).toBeNull();
+  });
+});
+
+describe('Instrument attributes — the remark survives the sanitiser', () => {
+  it('keeps a remark containing angle brackets instead of blanking it', async () => {
+    // `stripHtml` empties anything tag-shaped, and this codebase has already lost
+    // a value that way. All three verbs read the remark through the SAME exempted
+    // path, so a real sentence about a limit cannot vanish from a §11 record.
+    const inst = await newInstrument('ATTRSAN');
+    await set(inst.id, 'Room', 'B-1');
+    const remark = 'Reset because value < 20 per SOP-114';
+    expect((await edit(inst.id, 'Room', 'B-2', auth, remark)).statusCode).toBe(200);
+    const rows = await auditRows(inst.id, 'INSTRUMENT_ATTRIBUTE_SET');
+    expect(rows.at(-1)?.reason).toBe(remark);
   });
 });

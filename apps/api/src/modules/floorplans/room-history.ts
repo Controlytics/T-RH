@@ -16,6 +16,7 @@ import {
   TELEMETRY_SLOT_ALIASES_DEFAULT,
   type TelemetrySlot,
 } from '@digilog/shared';
+import { loadDecimalsConfig, decimalsFor } from '../instruments/decimals.js';
 
 export type HistoryWindow = '15m' | '1h' | '6h' | '24h' | '7d';
 
@@ -44,6 +45,13 @@ export interface Series {
   instrumentCode: string;
   slot: TelemetrySlot;
   key: string;
+  /**
+   * The precision THIS instrument's readings are shown to, from its own
+   * attributes. Carried per series, not per chart: two probes in one room can
+   * legitimately resolve differently, and a single chart-wide number would
+   * misreport one of them on the very axis meant to compare them.
+   */
+  decimals: number;
   points: SeriesPoint[];
 }
 
@@ -84,14 +92,14 @@ export async function getRoomHistory(roomId: string, window: HistoryWindow) {
 
   const instruments = await prisma.instrument.findMany({
     where: { roomId },
-    select: { id: true, code: true },
+    select: { id: true, code: true, attributes: { select: { key: true, value: true } } },
     orderBy: { code: 'asc' },
   });
   if (instruments.length === 0) {
     return { from: from.toISOString(), to: to.toISOString(), bucketSeconds: spec.bucketSec, series: [] };
   }
 
-  const aliases = await slotAliases();
+  const [aliases, decimalsCfg] = await Promise.all([slotAliases(), loadDecimalsConfig()]);
   const allKeys = [...new Set([...aliases.temperature, ...aliases.humidity])];
   if (allKeys.length === 0) {
     return { from: from.toISOString(), to: to.toISOString(), bucketSeconds: spec.bucketSec, series: [] };
@@ -121,6 +129,7 @@ export async function getRoomHistory(roomId: string, window: HistoryWindow) {
         ORDER BY 3 ASC`;
 
   const codeOf = new Map(instruments.map((i) => [i.id, i.code]));
+  const decimalsOf = new Map(instruments.map((i) => [i.id, decimalsFor(decimalsCfg, i.attributes)]));
   const slotOf = (key: string): TelemetrySlot | null => {
     const k = key.toLowerCase();
     if (aliases.temperature.includes(k)) return 'temperature';
@@ -145,6 +154,7 @@ export async function getRoomHistory(roomId: string, window: HistoryWindow) {
         instrumentCode: codeOf.get(r.instrumentId) ?? r.instrumentId,
         slot,
         key: r.key,
+        decimals: decimalsOf.get(r.instrumentId)?.[slot] ?? decimalsCfg.fallback[slot],
         points: [],
       };
       grouped.set(gk, series);

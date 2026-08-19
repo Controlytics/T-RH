@@ -24,6 +24,9 @@ import {
   type InstrumentStatus,
   type RoomLimits,
 } from '@digilog/shared';
+import { loadDecimalsConfig, decimalsFor } from './decimals.js';
+import { loadLimitConfig, limitsFor } from '../alarms/load-limits.js';
+import { limitsInverted } from '../alarms/limit-decide.js';
 
 export interface SlotValue {
   key: string;
@@ -38,15 +41,37 @@ export interface OverviewRow {
   isActive: boolean;
   room: { id: string; code: string; label: string | null; floorplanId: string } | null;
   /**
-   * The ROOM's environmental specification, i.e. the "set point" the dashboard
-   * table shows beside each actual reading. Already loaded to compute `status`,
-   * so returning it costs nothing and saves the client a second request plus a
-   * client-side join it could get wrong. NULL when the instrument is unplaced —
-   * an unplaced instrument has no specification to meet.
+   * The specification this instrument is judged against — the "set point" beside
+   * each actual reading, and the bounds `status` uses to decide OUT_OF_SPEC.
+   *
+   * The INSTRUMENT's own limit attributes where it declares any, else the room's
+   * (2026-08-19). It used to be the room's only, which had the dashboard showing
+   * one spec while the alarm evaluator enforced a different one: on this
+   * database every instrument carrying limits was unplaced, so the column read
+   * NA for exactly the instruments an alarm could fire for.
+   *
+   * NULL when neither source says anything — a real state, not an error. Nobody
+   * has said what this space is supposed to hold.
    */
   limits: RoomLimits | null;
+  /**
+   * Where `limits` came from, so the UI can say so rather than leaving an
+   * operator to guess why two instruments in one room show different bands.
+   */
+  limitSource: 'INSTRUMENT' | 'ROOM' | null;
   temperature: SlotValue | null;
   humidity: SlotValue | null;
+  /**
+   * How many decimals THIS instrument's readings are shown to, resolved from its
+   * own attributes with the site default as the fallback.
+   *
+   * Resolved here rather than in the browser for the reason `limits` above is:
+   * the client would otherwise need every instrument's attributes and a join it
+   * could get wrong — and the alarm evaluator, which never touches the browser,
+   * needs the same answer to freeze onto a raised alarm. One resolution, one
+   * precision per instrument everywhere.
+   */
+  decimals: { temperature: number; humidity: number };
   reporting: boolean;
   status: InstrumentStatus;
 }
@@ -58,7 +83,9 @@ interface RawReading {
   ts: Date;
 }
 
-async function loadAliases(): Promise<{ temperature: string[]; humidity: string[] }> {
+/** Exported so the per-instrument telemetry route can label a reading with its slot
+ *  using the SAME administered vocabulary the fleet overview resolves with. */
+export async function loadAliases(): Promise<{ temperature: string[]; humidity: string[] }> {
   const row = await prisma.systemConfig.findUnique({ where: { configKey: 'telemetry-slots' } });
   const cfg = (row?.configValue ?? {}) as Record<string, unknown>;
   return {
@@ -138,6 +165,40 @@ async function selectionWhere(
   return undefined;
 }
 
+/**
+ * The instrument's own limit attributes as a RoomLimits band, or null.
+ *
+ * WHOLESALE, never mixed bound-by-bound with the room's. Mixing looks friendlier
+ * — "the room says 18–25, the instrument only declares a high of 23, so show
+ * 18–23" — and it reintroduces exactly the bug this change exists to remove: the
+ * alarm evaluator reads ONLY the instrument's attributes, so it would never fire
+ * below 18 while the table coloured that cell red. The displayed spec has to be
+ * the enforced spec. An undeclared bound is therefore UNBOUNDED, which is also
+ * what the evaluator does with it.
+ *
+ * An inverted pair (low above high) yields null for that metric, matching
+ * `checkPair`: the evaluator raises nothing for it, so the table must not paint a
+ * band that can never be met. See limitsInverted() for why that is not treated as
+ * a permanent breach.
+ */
+export function instrumentLimits(
+  keys: Awaited<ReturnType<typeof loadLimitConfig>>['keys'],
+  attributes: { key: string; value: string }[],
+): RoomLimits | null {
+  const { limits } = limitsFor(keys, attributes);
+  const tempOk = !limitsInverted(limits.temperatureHigh, limits.temperatureLow);
+  const rhOk = !limitsInverted(limits.humidityHigh, limits.humidityLow);
+  const band: RoomLimits = {
+    tempMin: tempOk ? limits.temperatureLow : null,
+    tempMax: tempOk ? limits.temperatureHigh : null,
+    rhMin: rhOk ? limits.humidityLow : null,
+    rhMax: rhOk ? limits.humidityHigh : null,
+  };
+  const declaresSomething =
+    band.tempMin !== null || band.tempMax !== null || band.rhMin !== null || band.rhMax !== null;
+  return declaresSomething ? band : null;
+}
+
 export async function buildTelemetryOverview(
   opts: {
     floorplanId?: string;
@@ -148,9 +209,14 @@ export async function buildTelemetryOverview(
     visibilityWhere?: object;
   } = {},
 ): Promise<OverviewRow[]> {
-  const [aliases, activeWindowMinutes] = await Promise.all([
+  const [aliases, activeWindowMinutes, decimalsCfg, limitCfg] = await Promise.all([
     loadAliases(),
     loadActiveWindowMinutes(),
+    loadDecimalsConfig(),
+    // The SAME administered key mapping the alarm evaluator resolves limits with.
+    // One config, one resolver — two would drift, and the drift would be a table
+    // contradicting the alarm sitting beside it.
+    loadLimitConfig(),
   ]);
 
   // SELECTION filter (what the caller asked for) AND VISIBILITY filter (what their
@@ -166,6 +232,16 @@ export async function buildTelemetryOverview(
     select: {
       id: true, code: true, name: true, isActive: true,
       expectedIntervalSec: true, lastSeenAt: true,
+      // Two string columns per instrument, for the rows already being returned.
+      //
+      // The alarm evaluator calls this function AND separately loads the whole
+      // `instrument_attributes` table for the limit keys, so its per-minute pass
+      // does read attributes twice. Left as-is deliberately: the two want
+      // different shapes (this one is per-row and scoped, that one is a fleet-wide
+      // map), and de-duplicating would mean threading attributes back out of this
+      // function purely to save a join over a table that holds single-digit rows
+      // here. Revisit if the estate grows enough for the join to show.
+      attributes: { select: { key: true, value: true } },
       room: {
         select: {
           id: true, code: true, label: true, floorplanId: true,
@@ -206,9 +282,10 @@ export async function buildTelemetryOverview(
       inst.lastSeenAt, inst.expectedIntervalSec, activeWindowMinutes, now,
     );
 
-    // An unplaced instrument has no room and therefore no specification to
-    // breach: it can be STALE or NO_DATA, never OUT_OF_SPEC. That is correct —
-    // nobody has said what this space is supposed to hold.
+    // An unplaced instrument has no ROOM, but it may still carry its own limits
+    // — which is the common case here — so it can be OUT_OF_SPEC without ever
+    // appearing on a floorplan. Only an instrument with neither source is
+    // unjudgeable: nobody has said what it is supposed to hold.
     const room: OverviewRow['room'] = inst.room
       ? {
           id: inst.room.id,
@@ -217,12 +294,22 @@ export async function buildTelemetryOverview(
           floorplanId: inst.room.floorplanId,
         }
       : null;
-    const limits: RoomLimits | null = inst.room
+    // The instrument's own spec wins over its room's. A probe that carries limit
+    // attributes is the thing alarms are evaluated against, so it is also the
+    // thing the table must show. The room remains the answer for an instrument
+    // that declares nothing — a cleanroom's specification IS a property of the
+    // room, and that reasoning (2026-08-11) still holds where the device is
+    // silent.
+    const own = instrumentLimits(limitCfg.keys, inst.attributes);
+    const roomBand: RoomLimits | null = inst.room
       ? {
           tempMin: inst.room.tempMin, tempMax: inst.room.tempMax,
           rhMin: inst.room.rhMin, rhMax: inst.room.rhMax,
         }
       : null;
+    const limits: RoomLimits | null = own ?? roomBand;
+    const limitSource: OverviewRow['limitSource'] =
+      own ? 'INSTRUMENT' : roomBand ? 'ROOM' : null;
 
     return {
       instrumentId: inst.id,
@@ -231,8 +318,10 @@ export async function buildTelemetryOverview(
       isActive: inst.isActive,
       room,
       limits,
+      limitSource,
       temperature,
       humidity,
+      decimals: decimalsFor(decimalsCfg, inst.attributes),
       reporting,
       status: computeInstrumentStatus({
         temperature: temperature?.value ?? null,

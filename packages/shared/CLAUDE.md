@@ -16,7 +16,7 @@ npm run build -w @digilog/shared
 
 ## Key Exports
 - `schemas/` — Zod validation schemas (login, user, config, etc.)
-- `types/` — TypeScript interfaces, enums, and constants (13 files, verified `ls packages/shared/src/types/*.ts | grep -v test | wc -l` 2026-08-17 — `alarm-limits.ts` added 2026-08-17 for the instrument-limit alarm work. The "11 files" recorded here was already stale before this change; the real count was 12 when this plan started. See Live Type Inventory below)
+- `types/` — TypeScript interfaces, enums, and constants (**15 files**, verified `ls packages/shared/src/types/*.ts | grep -v test | wc -l` 2026-08-19 — 2026-08-19 added `telemetry-decimals.ts` (per-instrument display precision, and which attribute keys hold a temperature or a humidity) and `attribute-access.ts` (per-role instrument-attribute editability + the mandatory-remark validator); both are shared because BOTH sides decide with them and a second implementation would show an affordance the API refuses. Earlier: `alarm-limits.ts` added 2026-08-17 for the instrument-limit alarm work; the "11 files" recorded here was already stale before that, and the real count was 12 when that plan started. See Live Type Inventory below)
 - `index.ts` — Barrel export
 
 ## Usage

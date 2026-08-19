@@ -1,12 +1,16 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { worstStatus, type InstrumentStatus } from '@digilog/shared';
+import {
+  worstStatus,
+  formatDecimals,
+  TELEMETRY_DECIMALS_FALLBACK,
+  type InstrumentStatus,
+} from '@digilog/shared';
 import { statusClasses, readingAge } from './status';
 import { outOfSpec } from './set-point';
 import {
   useFloorplans,
   useTelemetryOverview,
-  useTelemetrySettings,
   formatSlot,
   type FloorplanRoomShape,
   type OverviewRow,
@@ -69,7 +73,6 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
   // Scoped server-side. When a functional location is selected the rows are only
   // that location's instruments, so the rooms drawn below narrow with it.
   const { rows, refreshMs } = useTelemetryOverview({ functionalLocationId, directOnly });
-  const { temperatureDecimals, humidityDecimals } = useTelemetrySettings();
 
   const [planId, setPlanId] = useState<string>('');
   const [openRoomId, setOpenRoomId] = useState<string | null>(null);
@@ -206,8 +209,19 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
               const first = roomRows[0];
               const tempV = first?.temperature?.value ?? null;
               const rhV = first?.humidity?.value ?? null;
-              const tempBad = outOfSpec(tempV, room.tempMin, room.tempMax);
-              const rhBad = outOfSpec(rhV, room.rhMin, room.rhMax);
+              // The chips show `first`'s reading, so they take `first`'s own
+              // precision. A room-wide number would misreport a room holding two
+              // probes of different resolution.
+              const tempDp = first?.decimals.temperature ?? TELEMETRY_DECIMALS_FALLBACK;
+              const rhDp = first?.decimals.humidity ?? TELEMETRY_DECIMALS_FALLBACK;
+              // Judged against the SAME band the row's status used — the
+              // instrument's own limits where it has them, else the room's,
+              // resolved once on the server. Reading `room.tempMin` here instead
+              // (as this did until 2026-08-19) meant a chip could sit green on a
+              // reading the very same instrument's row called out of spec.
+              const chipLimits = first?.limits ?? null;
+              const tempBad = outOfSpec(tempV, chipLimits?.tempMin, chipLimits?.tempMax);
+              const rhBad = outOfSpec(rhV, chipLimits?.rhMin, chipLimits?.rhMax);
 
               // A reading's own chip colour: red when IT breaches, otherwise the
               // room's overall status (stale / no data / ok). This is what lets a
@@ -220,8 +234,8 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
               const fs = Math.max(8, Math.min(15, w / 10, h / 6));
               const showLabel = room.label && h > fs * 4.5 && w > fs * 6;
               const chips: { text: string; st: InstrumentStatus }[] = [];
-              if (tempV !== null) chips.push({ text: `${tempV.toFixed(temperatureDecimals)} °C`, st: chipFor(tempBad) });
-              if (rhV !== null) chips.push({ text: `${rhV.toFixed(humidityDecimals)} %`, st: chipFor(rhBad) });
+              if (tempV !== null) chips.push({ text: `${formatDecimals(tempV, tempDp)} °C`, st: chipFor(tempBad) });
+              if (rhV !== null) chips.push({ text: `${formatDecimals(rhV, rhDp)} %`, st: chipFor(rhBad) });
               const showChips = chips.length > 0 && h > fs * 3.2;
 
               const chipH = fs * 1.5;
@@ -237,8 +251,8 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                   tabIndex={0}
                   onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setOpenRoomId(room.id); }}
                   aria-label={`${room.code}${room.label ? ` ${room.label}` : ''}, ${statusClasses(status).label}${
-                    tempV !== null ? `, ${tempV.toFixed(temperatureDecimals)} degrees${tempBad ? ' out of spec' : ''}` : ''
-                  }${rhV !== null ? `, ${rhV.toFixed(humidityDecimals)} percent humidity${rhBad ? ' out of spec' : ''}` : ''}`}
+                    tempV !== null ? `, ${formatDecimals(tempV, tempDp)} degrees${tempBad ? ' out of spec' : ''}` : ''
+                  }${rhV !== null ? `, ${formatDecimals(rhV, rhDp)} percent humidity${rhBad ? ' out of spec' : ''}` : ''}`}
                 >
                   {/* Wall only — no status fill. The room is white like paper. */}
                   <rect
@@ -314,7 +328,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
             Not placed on any plan ({unplaced.length})
           </h3>
           <p className="mb-3 text-xs text-slate-500">
-            These instruments are reporting but have no room, so they cannot be checked against limits.
+            Not on a plan. Each is still checked against its own limit attributes, where it has them.
           </p>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {unplaced.map((r) => {
@@ -332,7 +346,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                     </span>
                   </div>
                   <p className="mt-1 text-xs tabular-nums text-slate-600">
-                    {formatSlot(r.temperature, temperatureDecimals, '°C')} · {formatSlot(r.humidity, humidityDecimals, '%RH')}
+                    {formatSlot(r.temperature, r.decimals.temperature, '°C')} · {formatSlot(r.humidity, r.decimals.humidity, '%RH')}
                     <span className="text-slate-400"> · {readingAge(latest)}</span>
                   </p>
                 </div>

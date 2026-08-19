@@ -7,7 +7,7 @@
  * the UI must not let "Cleared" read as "dealt with".
  */
 
-import { ALARM_STATUS_TEXT_DEFAULT } from '@digilog/shared';
+import { ALARM_STATUS_TEXT_DEFAULT, formatDecimals, TELEMETRY_DECIMALS_FALLBACK } from '@digilog/shared';
 
 export interface AlarmRow {
   id: string;
@@ -28,6 +28,9 @@ export interface AlarmRow {
   ruleSnapshot?: {
     name?: string; description?: string; limit?: number; metric?: string; limitKind?: string;
     thresholdLow?: number | null; thresholdHigh?: number | null; comparison?: string;
+    /** The instrument's display precision AT RAISE TIME. Null on rows raised before
+     *  the field existed. */
+    decimals?: number | null;
   } | null;
 }
 
@@ -70,11 +73,22 @@ export function conditionText(a: AlarmRow): string {
   return a.ruleSnapshot?.description || a.ruleSnapshot?.name || `${a.metric.toLowerCase()} out of limit`;
 }
 
+/**
+ * The precision this alarm's numbers are quoted at.
+ *
+ * From the FROZEN snapshot, never the instrument's live attribute: an alarm is a
+ * §11 record, and editing `temp_decimals` today must not re-render a closed
+ * excursion at a precision nobody saw when it fired. Rows raised before the field
+ * existed fall back to the shipped default.
+ */
+export function alarmDecimals(a: Pick<AlarmRow, 'ruleSnapshot'>): number {
+  const d = a.ruleSnapshot?.decimals;
+  return typeof d === 'number' && Number.isFinite(d) ? d : TELEMETRY_DECIMALS_FALLBACK;
+}
+
 /** The reading that tripped it. OFFLINE has no value, and 0 is a real reading. */
 export function triggeredText(a: AlarmRow): string {
-  return typeof a.triggeredValue === 'number' && Number.isFinite(a.triggeredValue)
-    ? String(a.triggeredValue)
-    : '—';
+  return formatDecimals(a.triggeredValue, alarmDecimals(a)) ?? '—';
 }
 
 export function instrumentLabel(a: AlarmRow): string {
@@ -181,25 +195,28 @@ export function alarmTypeText(a: AlarmRow): string {
  * `thresholdLow`/`thresholdHigh` instead. Both must render a bound here.
  */
 export function limitText(a: AlarmRow): string {
+  // The bound is quoted at the same precision as the reading it was compared
+  // against — "24.0 breached > 24" reads as a bug in the comparison.
+  const dp = alarmDecimals(a);
+  const f = (n: number) => formatDecimals(n, dp) ?? String(n);
+
   const limit = a.ruleSnapshot?.limit;
   if (typeof limit === 'number' && Number.isFinite(limit)) {
     const kind = a.limitKind ?? a.ruleSnapshot?.limitKind;
-    return `${kind === 'LOW' ? '<' : '>'} ${limit}`;
+    return `${kind === 'LOW' ? '<' : '>'} ${f(limit)}`;
   }
 
   const { comparison, thresholdLow, thresholdHigh } = a.ruleSnapshot ?? {};
   const isNum = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
-  if (comparison === 'ABOVE' && isNum(thresholdHigh)) return `> ${thresholdHigh}`;
-  if (comparison === 'BELOW' && isNum(thresholdLow)) return `< ${thresholdLow}`;
+  if (comparison === 'ABOVE' && isNum(thresholdHigh)) return `> ${f(thresholdHigh)}`;
+  if (comparison === 'BELOW' && isNum(thresholdLow)) return `< ${f(thresholdLow)}`;
   if (comparison === 'OUTSIDE_RANGE' && isNum(thresholdLow) && isNum(thresholdHigh)) {
-    return `${thresholdLow} – ${thresholdHigh}`;
+    return `${f(thresholdLow)} – ${f(thresholdHigh)}`;
   }
   return '—';
 }
 
 /** The reading that brought it back in spec. 0 is a real reading. */
 export function clearedText(a: AlarmRow): string {
-  return typeof a.clearedValue === 'number' && Number.isFinite(a.clearedValue)
-    ? String(a.clearedValue)
-    : '—';
+  return formatDecimals(a.clearedValue, alarmDecimals(a)) ?? '—';
 }

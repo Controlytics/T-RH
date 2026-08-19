@@ -7,6 +7,11 @@ import { roleService } from './role.service.js';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
+import {
+  ATTRIBUTE_ACCESS_MODES,
+  parseAttributeAccess,
+  parseInstrumentAttributeKeys,
+} from '@digilog/shared';
 
 /**
  * Best-effort caller role for the PUBLIC /active endpoint (auth hook skips it,
@@ -508,6 +513,174 @@ export default async function roleRoutes(app: FastifyInstance) {
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
     return { role: name, scope };
+  });
+
+  // ── Instrument attribute access, per role ──────────────────────────────────
+  //
+  // Same shape as instrument-scope beside it, for the same reason: a per-role
+  // rule stored on `role_configs`, read as a whole and written one role at a
+  // time, each write audited. Deliberately NOT part of the Permissions tab's
+  // bulk save — this rule names attribute keys, and a matrix of checkboxes
+  // saved wholesale would make an accidental clear indistinguishable from a
+  // deliberate one.
+  app.get('/attribute-access', {
+    preHandler: [app.requirePermission('ROLE_MANAGE')],
+    schema: {
+      tags: ['Roles'],
+      summary: 'Instrument attribute access for every role, and the keys in use',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            roles: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  role: { type: 'string' },
+                  /** null = not configured = inherit today's behaviour. */
+                  mode: { type: 'string', nullable: true },
+                  keys: { type: 'array', items: { type: 'string' } },
+                  requireReauth: { type: 'boolean' },
+                  /** Does the role hold INSTRUMENT_UPDATE at all? A role without
+                   *  it is read-only whatever mode is stored, and the tab has to
+                   *  be able to say so rather than showing a rule that does
+                   *  nothing. */
+                  canUpdateInstruments: { type: 'boolean' },
+                },
+              },
+            },
+            /** Every attribute key recorded anywhere, plus every key any profile
+             *  asks for — so SELECTED can be ticked from a list rather than typed
+             *  from memory. */
+            availableKeys: { type: 'array', items: { type: 'string' } },
+          },
+        },
+      },
+    },
+  }, async () => {
+    const [roles, cfgs, recorded, profiles] = await Promise.all([
+      prisma.role.findMany({
+        where: { isActive: true },
+        select: { name: true, permissions: true },
+        orderBy: { name: 'asc' },
+      }),
+      prisma.roleConfig.findMany({ select: { role: true, attributeAccess: true } }),
+      prisma.instrumentAttribute.findMany({ select: { key: true }, distinct: ['key'] }),
+      prisma.instrumentProfile.findMany({ select: { attributeKeys: true } }),
+    ]);
+    const byRole = new Map(cfgs.map((c) => [c.role, parseAttributeAccess(c.attributeAccess)]));
+
+    // Folded case-insensitively, first spelling kept — the same rule
+    // parseInstrumentAttributeKeys applies, so the picker cannot offer `Room`
+    // and `room` as two different things to protect.
+    const seen = new Set<string>();
+    const availableKeys: string[] = [];
+    const offer = (k: string) => {
+      const key = k.trim();
+      const fold = key.toLowerCase();
+      if (!key || seen.has(fold)) return;
+      seen.add(fold);
+      availableKeys.push(key);
+    };
+    for (const r of recorded) offer(r.key);
+    for (const p of profiles) for (const k of parseInstrumentAttributeKeys(p.attributeKeys)) offer(k);
+    availableKeys.sort((a, b) => a.localeCompare(b));
+
+    return {
+      roles: roles.map((r) => {
+        const access = byRole.get(r.name) ?? null;
+        const perms = (r.permissions as string[]) ?? [];
+        return {
+          role: r.name,
+          mode: access?.mode ?? null,
+          keys: access?.keys ?? [],
+          requireReauth: access?.requireReauth ?? false,
+          canUpdateInstruments: r.name === 'SUPER_ADMIN' || perms.includes('INSTRUMENT_UPDATE'),
+        };
+      }),
+      availableKeys,
+    };
+  });
+
+  app.put('/attribute-access/:name', {
+    preHandler: [app.requirePermission('ROLE_MANAGE')],
+    schema: {
+      tags: ['Roles'],
+      summary: "Set a role's instrument attribute access",
+      params: { type: 'object', properties: { name: { type: 'string' } } },
+      body: {
+        type: 'object',
+        properties: {
+          // null clears the rule back to "inherit".
+          mode: { type: 'string', nullable: true, enum: [...ATTRIBUTE_ACCESS_MODES, null] as never },
+          keys: { type: 'array', items: { type: 'string' } },
+          requireReauth: { type: 'boolean' },
+        },
+      },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('UPDATE_ROLE_CONFIG', req, reply);
+    if (!ok) return;
+    const { name } = req.params as { name: string };
+    const body = req.body as { mode?: string | null; keys?: string[]; requireReauth?: boolean };
+    const ctx = buildContext(req);
+
+    // Built through the SAME parser the enforcement reads with, so a value this
+    // endpoint accepts cannot be one the gate then treats as unconfigured.
+    const next = body.mode === null || body.mode === undefined
+      ? null
+      : parseAttributeAccess({
+          mode: body.mode,
+          // Dropped unless the mode uses them. Stored under ALL_EDIT/ALL_VIEW they
+          // are inert until someone switches the role back to SELECTED, at which
+          // point a list nobody has looked at in months quietly becomes the rule.
+          // Enforced HERE and not only in the tab: a client-side tidy-up is not a
+          // rule, it is a habit the next caller does not have.
+          keys: body.mode === 'SELECTED' ? (body.keys ?? []) : [],
+          requireReauth: body.requireReauth === true,
+        });
+    if (body.mode && !next) {
+      return reply.code(400).send({
+        error: 'VALIDATION_ERROR',
+        message: `mode must be one of: ${ATTRIBUTE_ACCESS_MODES.join(', ')}`,
+      });
+    }
+
+    const before = await prisma.roleConfig.findUnique({
+      where: { role: name }, select: { attributeAccess: true },
+    });
+    await prisma.roleConfig.upsert({
+      where: { role: name },
+      // Prisma.DbNull writes a real SQL NULL. JsonNull would store the JSON value
+      // `null`, a different thing — and "not configured" versus "configured as
+      // nothing" is the whole contract here.
+      // The cast is structural only: `AttributeAccess` has no index signature,
+      // which is what Prisma's InputJsonObject asks for. Every field it carries
+      // is a JSON scalar or an array of them.
+      create: { role: name, attributeAccess: (next as Prisma.InputJsonObject | null) ?? Prisma.DbNull, updatedBy: ctx.userId },
+      update: { attributeAccess: (next as Prisma.InputJsonObject | null) ?? Prisma.DbNull, updatedBy: ctx.userId },
+    });
+
+    // Bounded: `signature_meaning` is VARCHAR(255) and auditLog does not
+    // truncate, so a role name plus a key count must not be able to overflow it.
+    const describe = next === null
+      ? 'not configured (inherits Edit Instruments)'
+      : next.mode === 'SELECTED'
+        ? `${next.keys.length} attribute(s) editable`
+        : next.mode === 'ALL_EDIT' ? 'all attributes editable' : 'all attributes view-only';
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole,
+      action: 'CONFIG_CHANGED',
+      targetType: 'role_config', targetId: name,
+      beforeValue: { attributeAccess: before?.attributeAccess ?? null },
+      afterValue: { attributeAccess: next },
+      signatureMeaning:
+        `Role "${name.slice(0, 60)}" attribute access set to ${describe}` +
+        (next?.requireReauth ? ', password required' : ''),
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    });
+    return { role: name, mode: next?.mode ?? null, keys: next?.keys ?? [], requireReauth: next?.requireReauth ?? false };
   });
 
   app.put('/instrument-scope/user/:userId', {

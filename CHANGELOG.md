@@ -1,5 +1,257 @@
 # Changelog
 
+## [Unreleased] - Role Assignments page removed (2026-08-19)
+
+`/config/role-assignments` and its Configuration card are gone. It was dead in
+this fork, not merely unused — receipts before deleting:
+
+- It was the single editing surface for seven config keys
+  (`pm-schedule-approval`, `replacement-schedule-approval`, `qnn-notifications`,
+  `guest-cleaning-requests`, `block-change-approval`, `stage-interlock`,
+  `pm-schedule-settings`). **All seven defs were removed with the Phase 0 domain
+  strip** — `grep "moduleKey: '<key>'" config/defs/` returns nothing for each — so
+  no `/api/config/dynamic/<key>` route was ever registered and every section on
+  the page read and wrote an endpoint that does not exist.
+- `system_config` holds **0 rows** for all seven keys, so nothing configured was
+  lost by removing the only screen that could edit them.
+
+Also removed with it: the `roleAssignmentKeys` suppression set in
+`config/index.tsx`, which existed to keep those keys out of the auto-discovered
+"Additional Modules" section. With no defs behind any of its nine entries
+(the seven above plus `filter-cleaning-reasons` and `filter-field-options`) it
+was filtering nothing.
+
+Routes 49 → 48; `routes/config/*.tsx` 25 → 24.
+
+The `filter-data-management` remnants went with it (operator request, same day).
+Three places named a module that the Phase 0 strip removed:
+
+- `EXPLICIT_GRANT_KEYS` in `config/index.tsx` — the allow-list of Super Admin cards
+  a non-admin could be granted. Its only member matched no card, so every
+  non-admin already saw an empty section; `visibleSuperAdminCards` is now simply
+  SUPER_ADMIN-or-nothing. **How to delegate a card again is written at the call
+  site** — it needs both an allow-list entry and a Configuration Access grant, and
+  that split is deliberate.
+- `EXTRA_MODULES` in `access-matrix.tsx` — a SYNTHETIC "Filter Data Management"
+  row injected into the Configuration Access matrix. This one was user-visible:
+  it offered a per-role grant for a page that does not exist, and granting it did
+  nothing.
+- `HIDDEN_MODULE_KEYS` in the same file — the same seven Role Assignments keys,
+  with a comment telling the reader to keep it in sync with a set that no longer
+  exists. None are in the registry manifest, so it hid nothing.
+
+No stored grants were affected: `system_config['access-matrix']` holds only
+`backup`, `user-id`, `datetime` and `password-policy`.
+
+## [Unreleased] - Per-role instrument attribute access (2026-08-19)
+
+Attributes no longer ride on `INSTRUMENT_UPDATE` alone. One administered rule per
+role decides which attributes it may change, whether a password is needed, and
+every change now carries a mandatory remark.
+
+- **Config → Roles & Access → Attribute Access** (new tab). Four states per role:
+  *not configured* (inherits Edit Instruments — the old behaviour), *all editable*,
+  *all view-only*, *selected editable and the rest view-only*, plus a per-role
+  "ask for the operator's password on every attribute change".
+- **Schema**: `role_configs.attribute_access` JSONB, nullable, no default —
+  shipping this changes nothing for anyone until a rule is set. Migration
+  `20260819120000_role_attribute_access`, hand-authored (the three destructive
+  statements `migrate diff` emits here are stripped and named in its header),
+  applied to `compliance_core_db_test` as well, drift guard PASS. Model and enum
+  counts unchanged: 34 / 13.
+- **Editable means change, add and remove.** A view-only role gets no Edit, no
+  Delete and no Add. In SELECTED mode only the named keys carry Edit/Delete;
+  adding a NEW key stays allowed, because a new key cannot overwrite a protected
+  one.
+- **Mandatory remarks** to change or delete a recorded value, recorded on the
+  audit row's `reason`. NOT on a first fill — that is registration, and demanding
+  a reason on every key of a new instrument teaches people to type "x". One
+  dialog serves both acts and shows the before and after, so the remark is
+  written against the real change.
+- **The rule NARROWS `INSTRUMENT_UPDATE` and never widens it.** A role without
+  Edit Instruments stays read-only whatever mode is stored, and the tab says so
+  rather than offering a setting that would do nothing.
+- **Enforced server-side** in one shared gate used by POST, PUT and DELETE, with
+  the decision itself in `@digilog/shared` so the panel renders exactly what the
+  API allows. Access is checked BEFORE the password prompt: a refused write never
+  costs a re-authentication.
+- An unrecognised stored rule is treated as *unconfigured*, never as a grant.
+
+**Caught by its own tests:** the PUT stored the key list even under ALL_EDIT /
+ALL_VIEW, where it is inert — until someone switched the role back to SELECTED
+and a list nobody had looked at in months quietly became the rule. The tab
+cleared it client-side; the endpoint now does too.
+
+**Contract change for existing callers:** `PUT /:id/attributes/:key` and
+`DELETE /:id/attributes/:key` now require `reason`, and `POST /:id/attributes`
+requires it when it overwrites an existing value. A missing remark is a 400 from
+the body schema, which runs before the handler — so it is answered without
+confirming whether the instrument exists.
+
+## [Unreleased] - Limit and range attributes follow the decimals attributes (2026-08-19)
+
+A limit or a range is a reading, so it is now shown at the same precision as the
+reading it bounds — "27 breached > 25" reads as a bug in the comparison when the
+column beside it says 27.0.
+
+- **Two new key lists in Telemetry Keys config**: which attribute keys hold a
+  temperature, and which a humidity. Shipped filled with every Limit and Range key
+  in use. Administered rather than matched on the word "temp": these keys are
+  operator-typed and already inconsistent here (`High Temperature` and
+  `High Temperature Limit` both live), a word rule would wrongly claim any future
+  key containing those letters, and a wrong guess is then fixed by editing config
+  instead of shipping code.
+- **`GET /api/instruments/:id/attributes`** annotates each row with `slot`,
+  `decimals` and `display`. Resolved server-side so this panel, the set-point
+  column and the alarm row cannot quote one limit three ways.
+- **`display` is presentation; `value` is the record.** The panel renders
+  `display`, but Edit opens on the STORED value — saving a formatted string would
+  rewrite a §11 record to match a display choice. A classified key holding
+  something unparseable ("about 25") keeps its raw value rather than blanking.
+- The room chart's limit header is formatted too, at the decimals the room's
+  instruments agree on.
+
+On live data with `temp_decimals=2` / `humid_decimals=5` set on DEMO-TH-361: its
+`High Temperature Limit` 25 renders 25.00 and `High Humidity Range` 100 renders
+100.00000, while CWH-01 (no decimals attribute) shows 23.0 at the site default.
+
+## [Unreleased] - Set point follows the instrument's own limits (2026-08-19)
+
+The dashboard's SET POINT column read the ROOM's limits while the alarm evaluator
+enforced the INSTRUMENT's limit attributes — two specs for one instrument. On this
+database that was not theoretical: every instrument carrying limits was unplaced,
+and both placed instruments carried none, so the column read NA for exactly the
+instruments an alarm could fire for.
+
+`buildTelemetryOverview` now resolves the band through the SAME `alarm-limits`
+config and `limitsFor()` resolver the evaluator uses: the instrument's own limits
+where it declares any, else its room's. Rows gain `limitSource`
+(`INSTRUMENT | ROOM | null`), shown as a tooltip on the set-point cells.
+
+Two decisions worth keeping:
+- **Wholesale, never mixed bound-by-bound.** "Room says 18–25, instrument declares
+  a high of 23, so show 18–23" looks friendlier and reintroduces the bug: the
+  evaluator reads only the instrument's attributes, so nothing would fire below 18
+  while the table painted that cell red. An undeclared bound is UNBOUNDED, exactly
+  as the evaluator treats it.
+- **An inverted pair resolves to no band**, matching `checkPair` raising nothing
+  for it. A range no reading can satisfy is a misconfiguration, not a permanent
+  breach.
+
+Also fixed, so no surface is left on the old source:
+- The floorplan room chips judged out-of-spec against `room.tempMin/Max` read
+  straight off the plan while the row's status came from the resolved band, so a
+  chip could sit green on a reading the same instrument's row called out of spec.
+  Both now use the one resolved band.
+- The room chart's in-spec band was the ROOM's. A room chart overlays every
+  instrument in it, and they can now each carry their own limits — one band
+  belonging to only some of the lines reads as applying to all of them. It is now
+  drawn only where every instrument in the room AGREES; where they differ the
+  header says so and no band is shaded. With no overview row yet it still falls
+  back to the room's bound, which is the only thing known at that moment.
+- The unplaced tray said those instruments "cannot be checked against limits".
+  False as of this change — it is the headline case.
+
+Effect on live data: CWH-01 now shows 18–23 °C (its own `High Temperature`), and
+CWH-02 turns OUT_OF_SPEC at 71 %RH against its own 40–60 — an excursion the
+dashboard previously had no limits to detect.
+
+## [Unreleased] - Instrument attributes: one list (2026-08-19)
+
+The Attributes panel showed recorded attributes in a table and the profile's
+unset keys in a separate dashed block below it. Two lists of the same kind of
+thing, so a key typed on the instrument looked like it had landed somewhere other
+than the profile's keys. They are now interleaved in ONE table — profile order
+first (it reads like the registration form), then any key this instrument alone
+carries.
+
+What the merge deliberately keeps:
+- **"Not set" and "(empty)" stay distinct.** An unset row is a prompt nobody has
+  answered; a recorded empty value is a §11 fact ("checked, and it was blank").
+  Collapsing them would put an assertion in the trail nobody made.
+- **Nothing is back-filled.** An unset key is still ABSENT on the instrument, not
+  written as an empty attribute.
+- **Typing a key here still does not add it to the PROFILE.** Profile keys are
+  administered in Configuration precisely so one operator's spelling cannot become
+  a prompt on every other instrument.
+
+The card counter now reads "Attributes (N set)" — it counts what is recorded, not
+the prompts listed beside it.
+
+## [Unreleased] - Instrument page: connection card, profile edit, token mask (2026-08-19)
+
+Three operator-requested changes on the instrument pages.
+
+- **The Connection card is SUPER_ADMIN only.** It is the device-wiring runbook —
+  broker host, topic scheme, paste-ready publish command — and commissioning is a
+  super-admin job here. Gated in BOTH places it appears: the card on the
+  instrument detail page, and the "How this instrument connects" block inside the
+  token dialog (which opens from creation and from regenerating a token, so
+  gating only the card would have left the same content reachable). The token
+  itself is not gated with it — whoever just issued it must be able to copy it,
+  and revealing it later is separately controlled by password + audit row.
+  **Presentation only:** the panel renders from the API base URL and shared
+  constants, so this removes the instructions from the page, not the endpoints.
+- **The profile is no longer editable in the read-only view.** It was a live
+  `<select>` sitting in the details list: choosing an option fired a PUT
+  immediately, with no Save and nothing to cancel, on a page where every other
+  field waits for Save. It now travels in the same draft and the same PUT as the
+  rest of the edit form. `moveToProfile` removed.
+- **The access token mask shows no character of the token.** It used to render the
+  8-character non-secret prefix followed by bullets; for a short token that is
+  most of the credential, and a field showing real characters does not read as
+  masked. Now a FIXED-width run of bullets — fixed so the mask does not leak the
+  credential's length. The prefix is no longer rendered anywhere in the UI, but
+  `GET /api/instruments/:id` still returns it, so the short-token warning was
+  reworded to say the disclosure is through the API rather than on screen.
+
+## [Unreleased] - Per-instrument display precision (2026-08-19)
+
+Decimal places for temperature and humidity now come from each INSTRUMENT's own
+attributes (`temp_decimals` / `humid_decimals`) instead of one site-wide number.
+`0` shows whole numbers, `1` one decimal, and so on, everywhere the reading
+appears. Precision belongs to the device: a probe resolving to 0.1 °C and one
+reporting whole degrees sit in the same table, and any single number misreports
+one of them.
+
+- **`@digilog/shared/telemetry-decimals`** — `parseDecimalsValue`,
+  `resolveDecimals`, `clampDecimals`, `formatDecimals`. Shared because the API
+  resolves it, the web app formats with it and the alarm evaluator freezes it;
+  two implementations would let one instrument render at two precisions.
+  `"0"` is zero (not "unset"); `""` falls back; `"2.5"` / `"two"` are refused
+  rather than rounded; every count is clamped before `toFixed`, which throws a
+  RangeError outside 0…100 — a throw inside the floorplan's `.map()` would blank
+  the whole dashboard over one stray attribute.
+- **`telemetry-slots` config** — the two "decimal places" numbers become
+  "— default" (used only when the instrument declares nothing), and two new
+  ORDERED ALIAS LISTS name the attribute keys, matching the `alarm-limits`
+  precedent for keys this install's operators type by hand.
+- **Resolved server-side.** `GET /api/instruments/telemetry-overview` rows gain
+  `decimals: { temperature, humidity }`; room-history series gain `decimals`;
+  `GET /api/instruments/:id/telemetry` readings gain `slot` + `decimals`, so the
+  raw key/value list on the instrument page agrees with the dashboard.
+- **Surfaces** — tabular view (actual AND set point), floorplan chips + their
+  aria-labels + the unplaced tray, room detail, the time-series chart (last-point
+  label and hover readout, per series), instrument-detail latest readings, the
+  alarms table, and ALARM_RAISED / ALARM_CLEARED notifications. Chart Y-axis ticks
+  deliberately keep `niceScale`'s own rounding: a tick is a scale value, not a
+  reading.
+- **Alarms freeze it.** `ruleSnapshot.decimals` is written at raise time and read
+  back by the alarms page and the clear notification. Editing an instrument's
+  `temp_decimals` today must not re-render a closed §11 excursion at a precision
+  nobody saw. Rows raised before the field existed fall back to the default.
+
+**Fixed on the way (pre-existing, affects every config def):** the dynamic config
+page seeded its form from the stored row alone, so any setting ADDED to an
+existing def rendered as an empty field — and saving persisted the blank. For a
+key-mapping setting that is silent: the mapping resolves to no keys and the
+feature stops working behind a green save. Defaults now merge UNDER the stored
+value.
+
+**Not done:** nothing is back-filled. No instrument in `compliance_core_db`
+declares either attribute yet, so every reading renders at the site default until
+one is set per instrument.
+
 ## [Unreleased] - Instrument-limit alarms (2026-08-17)
 
 Alarms raised from each instrument's own High/Low Temperature and Humidity Limit

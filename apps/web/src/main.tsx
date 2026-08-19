@@ -48,7 +48,6 @@ const AuditTrailPage = lazy(() => import('./routes/audit/index').then(m => ({ de
 const HelpArticlesPage = lazy(() => import('./routes/config/help').then(m => ({ default: m.HelpArticlesPage })));
 
 const LdapConfigPage = lazy(() => import("./routes/config/ldap"));
-const RoleAssignmentsPage = lazy(() => import("./routes/config/role-assignments").then(m => ({ default: m.RoleAssignmentsPage })));
 const SystemHealthPage = lazy(() => import('./routes/system-health/index').then(m => ({ default: m.SystemHealthPage })));
 const DebugTracesPage = lazy(() => import('./routes/debug/index').then(m => ({ default: m.DebugTracesPage })));
 const EmailSettingsPage = lazy(() => import('./routes/config/notification-settings/email-settings').then(m => ({ default: m.EmailSettingsPage })));
@@ -109,7 +108,6 @@ createRoot(document.getElementById('root')!).render(
 
             {/* Configuration — permission-based */}
             <Route path="/config" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><ConfigIndexPage /></RequireRole>} />
-            <Route path="/config/role-assignments" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><RoleAssignmentsPage /></Suspense></RequireRole>} />
             <Route path="/config/password-policy" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><PasswordPolicyPage /></RequireRole>} />
             {/* SUPER_ADMIN, matching the def's requiredRole — the key list drives
                 what every operator is asked for at registration. */}

@@ -19,26 +19,6 @@ interface Module {
   category: string;
 }
 
-// Modules edited only on the consolidated Role Assignments page — they have no
-// standalone config page and are all SUPER_ADMIN-only, so a per-role access grant
-// here would do nothing. Hidden from the matrix. Keep in sync with
-// roleAssignmentKeys in routes/config/index.tsx.
-const HIDDEN_MODULE_KEYS = new Set([
-  'pm-schedule-approval', 'replacement-schedule-approval', 'qnn-notifications',
-  'guest-cleaning-requests', 'block-change-approval', 'stage-interlock', 'pm-schedule-settings',
-]);
-
-// Modules that have a hardcoded page (no config def → not in the manifest) but
-// should still be grantable per-role here. Injected as synthetic matrix rows.
-const EXTRA_MODULES: Module[] = [
-  {
-    moduleKey: 'filter-data-management',
-    moduleName: 'Filter Data Management',
-    description: 'Edit, delete, or unretire retirement and replacement records (no audit trail)',
-    category: 'filter-management',
-  },
-];
-
 export function AccessMatrixPage() {
   const { toast } = useToast();
   const reauth = useReauth();
@@ -59,13 +39,20 @@ export function AccessMatrixPage() {
     [rolesData],
   );
 
-  // Group modules by category, exclude the access-matrix module itself and the
-  // consolidated modules that no longer have a standalone page (see HIDDEN_MODULE_KEYS).
+  // Group modules by category, excluding the access-matrix module itself — granting
+  // access to the page that grants access is a loop nobody wants to reason about.
+  //
+  // The rows come from the registry manifest alone. There used to be two hand-kept
+  // lists beside it: a hide-set for seven modules "edited on the consolidated Role
+  // Assignments page", and a synthetic row injecting Filter Data Management, which
+  // has no config def. All eight went with the Phase 0 domain strip and neither
+  // list matched anything in the manifest any more — the hide-set hid nothing, and
+  // the synthetic row offered a grant for a page that does not exist (2026-08-19).
   const modulesByCategory = useMemo(() => {
     const groups = new Map<string, Module[]>();
-    const all = [...((manifest ?? []) as Module[]), ...EXTRA_MODULES];
+    const all = (manifest ?? []) as Module[];
     for (const m of all) {
-      if (m.moduleKey === 'access-matrix' || HIDDEN_MODULE_KEYS.has(m.moduleKey)) continue;
+      if (m.moduleKey === 'access-matrix') continue;
       const cat = m.category || 'other';
       if (!groups.has(cat)) groups.set(cat, []);
       groups.get(cat)!.push(m);

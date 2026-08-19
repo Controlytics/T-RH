@@ -1,5 +1,11 @@
 import type { ModuleConfigDefinition } from '../../../lib/config-registry.js';
-import { TELEMETRY_SLOT_ALIASES_DEFAULT } from '@digilog/shared';
+import {
+  TELEMETRY_SLOT_ALIASES_DEFAULT,
+  TELEMETRY_DECIMALS_KEYS_DEFAULT,
+  TELEMETRY_DECIMALS_FALLBACK,
+  TELEMETRY_DECIMALS_MAX,
+  TELEMETRY_VALUED_KEYS_DEFAULT,
+} from '@digilog/shared';
 
 /**
  * Which telemetry key means "temperature", and which means "humidity".
@@ -14,6 +20,14 @@ import { TELEMETRY_SLOT_ALIASES_DEFAULT } from '@digilog/shared';
  * device sending both `temperature` and `temp` resolves identically on every
  * request. Parsing lives in @digilog/shared so the API and the web app cannot
  * disagree about what a line means.
+ *
+ * DECIMAL PLACES are not a site-wide number. Precision belongs to the device —
+ * a probe resolving to 0.1 °C and one reporting whole degrees appear in the same
+ * table — so it is read from each instrument's own attributes
+ * (`temp_decimals` / `humid_decimals`) and the settings below are the KEY MAPPING
+ * plus the fallback for an instrument that declares neither. Resolution lives in
+ * @digilog/shared/telemetry-decimals so the API, the web app and the alarm
+ * evaluator cannot disagree about one instrument's precision.
  *
  * The refresh settings are here rather than hardcoded because "live" on this
  * dashboard is POLLING, not push — this repo has no browser-facing WebSocket or
@@ -51,23 +65,59 @@ export const telemetrySlotsDef: ModuleConfigDefinition = {
       group: 'Key Mapping',
     },
     {
+      key: 'temperatureDecimalsKeys',
+      type: 'textarea',
+      label: 'Temperature decimals — attribute keys',
+      description: 'One key per line, most preferred first. Set the value on the instrument: 0 for whole numbers, 1 for one decimal.',
+      default: TELEMETRY_DECIMALS_KEYS_DEFAULT.temperature,
+      maxLength: 500,
+      group: 'Display',
+    },
+    {
+      key: 'humidityDecimalsKeys',
+      type: 'textarea',
+      label: 'Humidity decimals — attribute keys',
+      description: 'One key per line, most preferred first.',
+      default: TELEMETRY_DECIMALS_KEYS_DEFAULT.humidity,
+      maxLength: 500,
+      group: 'Display',
+    },
+    {
+      key: 'temperatureValuedKeys',
+      type: 'textarea',
+      label: 'Attribute keys holding a temperature',
+      description: 'One per line. Their values are shown at the temperature precision above — limits, ranges, anything measured in degrees.',
+      default: TELEMETRY_VALUED_KEYS_DEFAULT.temperature,
+      maxLength: 2000,
+      group: 'Display',
+    },
+    {
+      key: 'humidityValuedKeys',
+      type: 'textarea',
+      label: 'Attribute keys holding a humidity',
+      description: 'One per line.',
+      default: TELEMETRY_VALUED_KEYS_DEFAULT.humidity,
+      maxLength: 2000,
+      group: 'Display',
+    },
+    {
       key: 'temperatureDecimals',
       type: 'number',
-      label: 'Temperature decimal places',
-      description: 'How many decimals to show for temperature. Does not change what is stored.',
-      default: 1,
+      label: 'Temperature decimals — default',
+      description: 'Used only for an instrument with no decimals attribute. Does not change what is stored.',
+      default: TELEMETRY_DECIMALS_FALLBACK,
       min: 0,
-      max: 4,
+      max: TELEMETRY_DECIMALS_MAX,
       group: 'Display',
     },
     {
       key: 'humidityDecimals',
       type: 'number',
-      label: 'Humidity decimal places',
-      description: 'How many decimals to show for humidity. Does not change what is stored.',
-      default: 1,
+      label: 'Humidity decimals — default',
+      description: 'Used only for an instrument with no decimals attribute.',
+      default: TELEMETRY_DECIMALS_FALLBACK,
       min: 0,
-      max: 4,
+      max: TELEMETRY_DECIMALS_MAX,
       group: 'Display',
     },
     {

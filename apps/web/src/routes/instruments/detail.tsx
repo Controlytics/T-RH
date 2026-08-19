@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import useSWR from 'swr';
+import { formatDecimals, TELEMETRY_DECIMALS_FALLBACK } from '@digilog/shared';
 import { apiClient } from '@/lib/api-client';
+import { useAuth } from '@/hooks/use-auth';
 import { useCan } from '@/hooks/use-can';
 import { useReauth } from '@/hooks/use-reauth';
 import { useToast } from '@/hooks/use-toast';
@@ -38,7 +40,33 @@ interface Instrument {
   profileId: string; profileName: string | null;
 }
 interface ChildInstrument { id: string; code: string; name: string; isActive: boolean }
-interface Reading { key: string; value: unknown; valueType: string; ts: string }
+interface Reading {
+  key: string;
+  value: unknown;
+  valueType: string;
+  ts: string;
+  /** Which named slot the key maps to, resolved server-side. Null for a key that is
+   *  neither temperature nor humidity. */
+  slot?: 'temperature' | 'humidity' | null;
+  /** This instrument's display precision for that slot. Null when there is no slot. */
+  decimals?: number | null;
+}
+
+/**
+ * A stored reading as text.
+ *
+ * A temperature or humidity is shown at the instrument's own precision so this
+ * page agrees with the dashboard about the same number. Anything else keeps its
+ * raw JSON — a battery level or a door contact has no declared precision, and
+ * inventing one here would be this page asserting something nobody configured.
+ */
+function readingText(r: Reading): string {
+  if (r.slot) {
+    const text = formatDecimals(r.value, r.decimals ?? TELEMETRY_DECIMALS_FALLBACK);
+    if (text !== null) return text;
+  }
+  return JSON.stringify(r.value);
+}
 interface DeadLetter { id: string; transport: string; reason: string; rawPayload: string | null; receivedAt: string }
 
 export function InstrumentDetailPage() {
@@ -47,6 +75,18 @@ export function InstrumentDetailPage() {
   const { toast } = useToast();
   const reauth = useReauth();
   const can = useCan();
+  const { user } = useAuth();
+  /**
+   * The Connection card is SUPER_ADMIN only (operator request, 2026-08-19).
+   *
+   * It is the device-wiring runbook — broker host, topic scheme, the paste-ready
+   * publish command — and commissioning a device is a super-admin job here. Note
+   * what this is and is not: the panel renders entirely from the API base URL and
+   * shared constants, so hiding it removes the INSTRUCTIONS from the page, not the
+   * endpoints. The credential itself is not protected by this — that is the token
+   * panel's reveal, which costs a password and writes an audit row either way.
+   */
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const { formatDate, formatTime } = useDatetimeFormat();
 
   const { data: inst, mutate } = useSWR<Instrument>(id ? `/api/instruments/${id}` : null);
@@ -75,17 +115,6 @@ export function InstrumentDetailPage() {
   // that already owns every other edit to it.
   const { data: profiles } = useSWR<{ data: { id: string; name: string }[] }>('/api/instrument-profiles');
 
-  const moveToProfile = async (nextProfileId: string) => {
-    if (!inst || nextProfileId === inst.profileId) return;
-    const name = profiles?.data?.find((p) => p.id === nextProfileId)?.name ?? 'the selected profile';
-    try {
-      await apiClient.put(`/api/instruments/${inst.id}`, { profileId: nextProfileId });
-      void mutate();
-      toast.success('Instrument moved', `"${inst.code}" is now in ${name}.`);
-    } catch (e) {
-      toast.error('Could not move instrument', (e as Error)?.message ?? 'Unknown error');
-    }
-  };
   const activeWindow = activityConfig?.activeWindowMinutes ?? INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN;
 
   const [editing, setEditing] = useState(false);
@@ -133,6 +162,7 @@ export function InstrumentDetailPage() {
         expectedIntervalSec: draft.expectedIntervalSec ? Number(draft.expectedIntervalSec) : null,
         block: draft.block || null, area: draft.area || null, location: draft.location || null,
         isGateway: draft.isGateway ?? false,
+        profileId: draft.profileId ?? inst.profileId,
       });
       setEditing(false);
       void mutate();
@@ -378,24 +408,8 @@ export function InstrumentDetailPage() {
                     chip, and the token prefix off the token field. */}
                 <dt className="text-slate-500">Instrument ID</dt>
                 <dd className="font-mono font-medium text-slate-800">{inst.code}</dd>
-                {/* Moving lives here rather than behind the Edit form: it is one
-                    choice with an immediate effect, and it is the only field on
-                    this page whose value is also a place you can navigate to. */}
                 <dt className="text-slate-500">Profile</dt>
-                <dd>
-                  {can('instruments.edit') ? (
-                    <select
-                      value={inst.profileId}
-                      onChange={(e) => void moveToProfile(e.target.value)}
-                      className="rounded-lg border border-slate-200 px-2 py-1 text-sm"
-                      aria-label="Move to another profile"
-                    >
-                      {profiles?.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
-                  ) : (
-                    inst.profileName || '—'
-                  )}
-                </dd>
+                <dd>{inst.profileName || '—'}</dd>
                 <dt className="text-slate-500">Type</dt><dd>{inst.instrumentType || '—'}</dd>
                 <dt className="text-slate-500">Block</dt><dd>{inst.block || '—'}</dd>
                 <dt className="text-slate-500">Area</dt><dd>{inst.area || '—'}</dd>
@@ -405,6 +419,23 @@ export function InstrumentDetailPage() {
               </dl>
             ) : (
               <div className="space-y-3">
+                {/* Moving between profiles is an EDIT like any other (operator
+                    request, 2026-08-19). It used to be a live select sitting in
+                    the read-only view, so a mis-click moved the instrument
+                    immediately with nothing to cancel — on a page whose every
+                    other field waits for Save. It now travels in the same draft
+                    and the same PUT. */}
+                <label className="block space-y-1">
+                  <span className="text-sm text-slate-600">Profile</span>
+                  <select
+                    value={draft.profileId ?? inst.profileId}
+                    onChange={(e) => setDraft({ ...draft, profileId: e.target.value })}
+                    className="w-full rounded-lg border border-slate-200 px-2 py-2 text-sm"
+                    aria-label="Profile"
+                  >
+                    {profiles?.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </label>
                 <label className="flex items-center gap-2 text-sm text-slate-700">
                   <input
                     type="checkbox"
@@ -476,6 +507,7 @@ export function InstrumentDetailPage() {
         </CardContent>
       </Card>
 
+      {isSuperAdmin && (
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2">{sectionIcon('bg-sky-100 text-sky-600', ICON.connection)}Connection</CardTitle></CardHeader>
         <CardContent>
@@ -500,6 +532,7 @@ export function InstrumentDetailPage() {
           )}
         </CardContent>
       </Card>
+      )}
 
       {inst.isGateway && <GatewayPanel instrumentId={inst.id} canEdit={can('instruments.edit')} />}
 
@@ -517,7 +550,7 @@ export function InstrumentDetailPage() {
                 {telemetry.latest.map((r) => (
                   <TableRow key={r.key}>
                     <TableCell className="font-mono text-xs">{r.key}</TableCell>
-                    <TableCell>{JSON.stringify(r.value)}</TableCell>
+                    <TableCell>{readingText(r)}</TableCell>
                     <TableCell className="text-xs text-slate-500">{r.valueType}</TableCell>
                     <TableCell className="text-sm">{stamp(r.ts)}</TableCell>
                   </TableRow>

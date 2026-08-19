@@ -3,6 +3,7 @@ import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui
 import { Button } from '@/components/ui/button';
 import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
 import { ConnectionInstructions } from './connection-instructions';
+import { useAuth } from '@/hooks/use-auth';
 
 /**
  * The just-issued credential dialog.
@@ -30,6 +31,8 @@ export function TokenDialog({
 }) {
   const [copied, setCopied] = useState(false);
   const [acknowledged, setAcknowledged] = useState(false);
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
 
   return (
     <Dialog open={open} onClose={() => { /* deliberately not dismissible by backdrop */ }} className="max-w-2xl">
@@ -68,10 +71,18 @@ export function TokenDialog({
           </pre>
         </div>
 
-        <div>
-          <h4 className="mb-2 text-sm font-semibold text-slate-800">How this instrument connects</h4>
-          <ConnectionInstructions id={id} code={code} token={token} />
-        </div>
+        {/* SUPER_ADMIN only, matching the Connection card on the instrument
+            page (2026-08-19). Gated here too rather than only there: this dialog
+            opens from creation AND from regenerating a token, so leaving it
+            ungated would show the wiring runbook to exactly the roles the card
+            hides it from. The token above is NOT gated with it — whoever just
+            issued it has to be able to copy it. */}
+        {isSuperAdmin && (
+          <div>
+            <h4 className="mb-2 text-sm font-semibold text-slate-800">How this instrument connects</h4>
+            <ConnectionInstructions id={id} code={code} token={token} />
+          </div>
+        )}
 
         <label className="flex items-start gap-2 text-sm text-slate-700">
           <input

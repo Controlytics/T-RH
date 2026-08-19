@@ -1,5 +1,10 @@
 import useSWR from 'swr';
-import type { InstrumentStatus } from '@digilog/shared';
+import {
+  clampDecimals,
+  formatDecimals,
+  TELEMETRY_DECIMALS_FALLBACK,
+  type InstrumentStatus,
+} from '@digilog/shared';
 
 export interface SlotValue {
   key: string;
@@ -13,15 +18,41 @@ export interface OverviewRow {
   name: string;
   isActive: boolean;
   room: { id: string; code: string; label: string | null; floorplanId: string } | null;
-  /** The room's spec — the "set point" beside each actual reading. NULL if unplaced. */
+  /**
+   * The spec this instrument is judged against — the "set point" beside each
+   * actual reading, and the bounds that decide OUT_OF_SPEC.
+   *
+   * Resolved server-side: the INSTRUMENT's own limit attributes where it declares
+   * any, else its room's. NULL when neither says anything. Never re-derive it
+   * here — the alarm evaluator reads the same attributes through the same
+   * resolver, and a second derivation is how a table comes to contradict the
+   * alarm printed beside it.
+   */
   limits: { tempMin: number | null; tempMax: number | null; rhMin: number | null; rhMax: number | null } | null;
+  /** Which of the two said it. Null when `limits` is null. */
+  limitSource: 'INSTRUMENT' | 'ROOM' | null;
   temperature: SlotValue | null;
   humidity: SlotValue | null;
+  /**
+   * How many decimals THIS instrument's readings are shown to — resolved on the
+   * server from its own `temp_decimals` / `humid_decimals` attributes, with the
+   * `telemetry-slots` config as the fallback.
+   *
+   * Precision is per instrument, never per page: a probe reading whole degrees
+   * and one resolving to 0.1 sit in the same table, and any single number here
+   * would misreport one of them.
+   */
+  decimals: { temperature: number; humidity: number };
   reporting: boolean;
   status: InstrumentStatus;
 }
 
 export interface TelemetrySettings {
+  /**
+   * The SITE DEFAULT only — what an instrument with no decimals attribute falls
+   * back to. Every row that came from the API already carries its own resolved
+   * `decimals`; use that. This is for the few places with no row in hand.
+   */
   temperatureDecimals: number;
   humidityDecimals: number;
   overviewRefreshMs: number;
@@ -47,8 +78,8 @@ export function useTelemetrySettings(): TelemetrySettings {
     typeof v[key] === 'number' ? (v[key] as number) : fallback;
 
   return {
-    temperatureDecimals: num('temperatureDecimals', 1),
-    humidityDecimals: num('humidityDecimals', 1),
+    temperatureDecimals: clampDecimals(num('temperatureDecimals', TELEMETRY_DECIMALS_FALLBACK)),
+    humidityDecimals: clampDecimals(num('humidityDecimals', TELEMETRY_DECIMALS_FALLBACK)),
     overviewRefreshMs: num('overviewRefreshSeconds', 5) * 1000,
     chartRefreshMs: num('chartRefreshSeconds', 10) * 1000,
   };
@@ -89,10 +120,18 @@ export function useTelemetryOverview(opts?: string | { floorplanId?: string; fun
   return { rows: data?.data ?? [], isLoading, error, refreshMs: overviewRefreshMs };
 }
 
-/** "22.4 °C", or an em dash when the slot has no reading. */
+/**
+ * "22.4 °C", or an em dash when the slot has no reading.
+ *
+ * `decimals` is the INSTRUMENT's, i.e. `row.decimals.temperature` — not a page-wide
+ * number. It goes through `formatDecimals`, which cannot throw: `toFixed` raises a
+ * RangeError outside 0…100, and that throw inside the floorplan's `.map()` would
+ * blank the entire dashboard because one attribute held a silly value.
+ */
 export function formatSlot(v: SlotValue | null, decimals: number, unit: string): string {
   if (!v) return '—';
-  return `${v.value.toFixed(decimals)} ${unit}`;
+  const text = formatDecimals(v.value, decimals);
+  return text === null ? '—' : `${text} ${unit}`;
 }
 
 export interface FloorplanRoomShape {
@@ -145,6 +184,9 @@ export interface HistorySeries {
   instrumentCode: string;
   slot: 'temperature' | 'humidity';
   key: string;
+  /** This instrument's display precision, resolved server-side. Per series, because
+   *  two probes in one room can legitimately resolve differently. */
+  decimals: number;
   points: { ts: string; value: number }[];
 }
 

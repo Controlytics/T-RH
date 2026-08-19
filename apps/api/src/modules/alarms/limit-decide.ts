@@ -107,6 +107,14 @@ export function limitSnapshot(input: {
   limitKind: string;
   limit: number;
   attributeKey: string | null;
+  /**
+   * The instrument's display precision at raise time. Frozen for the same reason
+   * `limit` is: the reading has to read back the way the operator saw it, and
+   * editing the instrument's `temp_decimals` today must not silently re-render a
+   * closed excursion at a different precision. Optional so rows raised before
+   * this field existed stay readable — the UI falls back to the site default.
+   */
+  decimals?: number;
   snapshotAt: string;
 }): Record<string, unknown> {
   return {
@@ -117,6 +125,7 @@ export function limitSnapshot(input: {
     limitKind: input.limitKind,
     limit: input.limit,
     attributeKey: input.attributeKey,
+    decimals: input.decimals ?? null,
     description: describeLimit({
       metric: input.metric as LimitMetric,
       limitKind: input.limitKind as LimitKind,

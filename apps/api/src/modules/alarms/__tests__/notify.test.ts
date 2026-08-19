@@ -67,7 +67,23 @@ describe('alarmNotificationJob — cleared', () => {
 describe('the reading', () => {
   it('shows zero as a reading, not as missing', () => {
     // 0 °C is a real cold-room value; a falsy check would erase it from the email.
-    expect(alarmNotificationJob('raised', input({ triggeredValue: 0 })).variables.value).toBe('0');
+    // Quoted at the instrument's precision; this input carries none, so the
+    // shipped default of one decimal applies.
+    expect(alarmNotificationJob('raised', input({ triggeredValue: 0 })).variables.value).toBe('0.0');
+  });
+
+  it("quotes the reading at the instrument's own precision, as the dashboard does", () => {
+    // An email that says 27.4 for a probe whose dashboard cell says 27 is one
+    // excursion described two ways in two regulated records.
+    expect(alarmNotificationJob('raised', input({ triggeredValue: 27.44, decimals: 0 }))
+      .variables.value).toBe('27');
+    expect(alarmNotificationJob('raised', input({ triggeredValue: 27.44, decimals: 2 }))
+      .variables.value).toBe('27.44');
+  });
+
+  it('falls back to the default when no precision was supplied', () => {
+    expect(alarmNotificationJob('raised', input({ triggeredValue: 27.44 }))
+      .variables.value).toBe('27.4');
   });
 
   it('shows a dash when there is no value — OFFLINE has none', () => {

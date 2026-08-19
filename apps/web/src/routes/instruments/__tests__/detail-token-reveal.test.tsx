@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
@@ -24,29 +24,39 @@ const instrument = {
   createdAt: '2026-08-06T00:00:00.000Z', createdBy: null,
   block: null, area: null, location: null,
   isGateway: false, gatewayId: null, lastSeenVia: null,
+  profileId: 'p-1', profileName: 'Default',
 };
+
+const profiles = { data: [{ id: 'p-1', name: 'Default' }, { id: 'p-2', name: 'Test' }] };
 
 vi.mock('swr', () => ({
   default: (key: string | null) => {
     if (key === '/api/instruments/i-1') return { data: instrument, mutate: vi.fn() };
     if (key === '/api/instruments/i-1/attributes') return { data: { data: [] }, mutate: vi.fn() };
     if (key === '/api/instruments/i-1/children') return { data: { data: [] }, mutate: vi.fn() };
+    if (key === '/api/instrument-profiles') return { data: profiles, mutate: vi.fn() };
     return { data: undefined, mutate: vi.fn() };
   },
   mutate: vi.fn(),
 }));
 
 const apiGet = vi.fn();
+const apiPut = vi.fn();
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
     get: (...a: unknown[]) => apiGet(...a),
     getWithReauth: (...a: unknown[]) => apiGet(...a),
-    post: vi.fn(), put: vi.fn(), delete: vi.fn(),
+    post: vi.fn(), put: (...a: unknown[]) => apiPut(...a), delete: vi.fn(),
     postWithReauth: vi.fn(), putWithReauth: vi.fn(),
   },
 }));
 
 vi.mock('@/hooks/use-can', () => ({ useCan: () => () => true }));
+// The Connection card is SUPER_ADMIN only, and both properties under test are
+// properties OF that card — so the reveal path can only be observed as this role.
+// The gate itself is asserted separately below.
+const authUser = { role: 'SUPER_ADMIN' } as { role: string };
+vi.mock('@/hooks/use-auth', () => ({ useAuth: () => ({ user: authUser }) }));
 vi.mock('@/hooks/use-toast', () => ({
   useToast: () => ({ toast: { success: vi.fn(), error: vi.fn() } }),
 }));
@@ -81,6 +91,8 @@ function renderAt(path: string) {
 
 beforeEach(() => {
   apiGet.mockReset();
+  apiPut.mockReset();
+  apiPut.mockResolvedValue({});
   apiGet.mockResolvedValue({ token: 'REVEALED-TOKEN-VALUE' });
 });
 
@@ -118,5 +130,77 @@ describe('instrument detail — token reveal', () => {
     expect(screen.queryByText(/REVEALED-TOKEN-VALUE/)).not.toBeInTheDocument();
     expect(screen.getAllByText(/<ACCESS_TOKEN>/).length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: /show token/i })).toBeInTheDocument();
+  });
+});
+
+describe('the Connection card is SUPER_ADMIN only', () => {
+  const asRole = (role: string) => { authUser.role = role; };
+
+  afterEach(() => asRole('SUPER_ADMIN'));
+
+  it('is not rendered for a non-super-admin, even one who may edit the instrument', () => {
+    // `useCan` is mocked true throughout this file, so this proves the gate is the
+    // ROLE and not a permission that an admin might also hold.
+    asRole('ADMIN');
+    renderAt('/instruments/i-1');
+    expect(screen.queryByText('Connection')).not.toBeInTheDocument();
+    expect(screen.queryAllByText(/<ACCESS_TOKEN>/)).toHaveLength(0);
+    expect(screen.queryByText(/curl -k -X POST/)).not.toBeInTheDocument();
+  });
+
+  it('does not hide the token panel with it — that is gated on permission, not role', () => {
+    asRole('OPERATOR');
+    renderAt('/instruments/i-1');
+    expect(screen.getByRole('button', { name: /show token/i })).toBeInTheDocument();
+  });
+
+  it('is rendered for a super admin', () => {
+    renderAt('/instruments/i-1');
+    expect(screen.getByText('Connection')).toBeInTheDocument();
+  });
+});
+
+
+/**
+ * The profile used to be a LIVE select sitting in the read-only view: choosing an
+ * option fired a PUT immediately, with no Save and nothing to cancel — on a page
+ * where every other field waits for Save. It is now an ordinary edit.
+ */
+describe('the profile is not editable until Edit is pressed', () => {
+  it('renders the profile as text in the read-only view', () => {
+    renderAt('/instruments/i-1');
+    expect(screen.getByText('Default')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Profile')).not.toBeInTheDocument();
+  });
+
+  it('offers the picker only inside the edit form', () => {
+    renderAt('/instruments/i-1');
+    fireEvent.click(screen.getByRole('button', { name: /^edit$/i }));
+    expect(screen.getByLabelText('Profile')).toBeInTheDocument();
+  });
+
+  it('does not write until Save — changing the picker alone sends nothing', () => {
+    renderAt('/instruments/i-1');
+    fireEvent.click(screen.getByRole('button', { name: /^edit$/i }));
+    fireEvent.change(screen.getByLabelText('Profile'), { target: { value: 'p-2' } });
+    expect(apiPut).not.toHaveBeenCalled();
+  });
+
+  it('sends the chosen profile with the rest of the edit on Save', async () => {
+    renderAt('/instruments/i-1');
+    fireEvent.click(screen.getByRole('button', { name: /^edit$/i }));
+    fireEvent.change(screen.getByLabelText('Profile'), { target: { value: 'p-2' } });
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(apiPut).toHaveBeenCalled());
+    expect(apiPut.mock.calls[0][1]).toMatchObject({ profileId: 'p-2' });
+  });
+
+  it('discards the change on Cancel', () => {
+    renderAt('/instruments/i-1');
+    fireEvent.click(screen.getByRole('button', { name: /^edit$/i }));
+    fireEvent.change(screen.getByLabelText('Profile'), { target: { value: 'p-2' } });
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    expect(apiPut).not.toHaveBeenCalled();
+    expect(screen.getByText('Default')).toBeInTheDocument();
   });
 });

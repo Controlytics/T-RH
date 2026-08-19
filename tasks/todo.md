@@ -2496,3 +2496,231 @@ separate read-only section instead.
 Verified: `tsc --noEmit` clean, `vite build` clean, `npm test -w apps/web` 657/657 pass (incl. the route-guard
 coverage test, which sees the new route). **NOT visually verified** — the automated browser cannot get past
 login through the mkcert cert here; the rendered check is with the operator.
+
+---
+
+## 2026-08-19 — Per-instrument decimal places
+
+Decimals for temperature/humidity moved off the site-wide `telemetry-slots` numbers onto each
+instrument's own `temp_decimals` / `humid_decimals` attributes. Operator: "if that key value is 0
+then in entire application show only integer, if 1 show one decimal".
+
+New `packages/shared/src/types/telemetry-decimals.ts` (parse/resolve/clamp/format, 18 tests) and
+`apps/api/src/modules/instruments/decimals.ts` (config load + per-instrument resolve, 6 tests).
+The config def keeps the two numbers as the FALLBACK and adds two attribute-key alias lists,
+following the `alarm-limits` precedent. Resolution is server-side and rides on the existing
+payloads: `telemetry-overview` rows, room-history series, and `/instruments/:id/telemetry`
+readings (which also gained `slot`). Alarms freeze `ruleSnapshot.decimals` at raise time, so a
+closed §11 excursion cannot be re-rendered by editing the attribute later.
+
+Two real defects found and fixed while here, both outside the stated scope:
+- `formatDecimals(null, 1)` returned `"0.0"` — `Number(null)` is 0, so a missing reading would
+  have rendered as a confident zero. Caught by the test written for it.
+- The dynamic config page seeded its form from the stored row ALONE, so any setting added to an
+  existing def rendered blank and SAVED the blank. That is the `seedDefaults` trap one layer up,
+  and it would have silently emptied the new key mapping. Defaults now merge under stored values.
+
+Verified: `tsc --noEmit` clean for api + web; `vite build` clean; api 1322/1322, web 673/673,
+shared 379/379, queue 10/10 — 0 failures, matching the zero baseline. A read-only probe against
+`compliance_core_db` confirmed all 20 instruments resolve (`dp=1` throughout, since 0 instruments
+declare either attribute yet).
+
+**NOT visually verified** — the automated browser cannot get past login through the mkcert cert
+here. The rendered check is with the operator: set `temp_decimals` = 0 on one instrument and
+confirm its row, its floorplan chip and its chart all drop the decimal while its neighbours keep
+theirs.
+
+---
+
+## 2026-08-19 — Instrument page: connection gate, profile edit, token mask
+
+Frontend only; no API, schema or permission change. Operator asked for three things on the
+instrument pages.
+
+1. **Connection card → SUPER_ADMIN only.** Gated in `detail.tsx` and, for consistency, the
+   "How this instrument connects" block in `token-dialog.tsx` — that dialog opens from create
+   AND from regenerate, so gating only the card would have left the same content reachable by
+   the roles it hides it from. Role, not permission: `useCan` is deliberately not involved.
+   Presentation only — `ConnectionInstructions` renders from `getApiBase()` + shared constants
+   and fetches nothing, so this hides the runbook, not the endpoints. Said so in the code.
+2. **Profile no longer live-editable in the read-only view.** It was a `<select>` whose
+   `onChange` fired a PUT immediately — a mis-click moved the instrument with no Save and
+   nothing to cancel. Now part of the edit draft and the existing PUT; `moveToProfile` deleted.
+3. **Token mask hides every character.** Was `prefix + 24 bullets`; now a FIXED 32 bullets, fixed
+   so the mask does not leak the credential's length. `tokenPrefix` is now rendered nowhere in
+   the UI — but the API still returns it, so the short-token warning was reworded to name the
+   API as the disclosure rather than the field.
+
+Tests: +3 mask cases, +3 role-gate cases (including that a non-SA who CAN edit still sees no
+card, and that the token panel is NOT hidden with it), +5 profile cases (read-only text, picker
+only in edit, no write on change, `profileId` in the Save payload, discard on Cancel).
+`detail-token-reveal.test.tsx` needed a SUPER_ADMIN auth mock — both properties it tests are
+properties of the gated card.
+
+Verified: `tsc --noEmit` clean; `vite build` clean; web 684/684 (was 673 — 11 new).
+
+**NOT visually verified** — the automated browser cannot get past login through the mkcert cert
+here. Operator check: open an instrument as a non-super-admin (no Connection card, token panel
+still there), and as super admin confirm the card returns; press Edit and confirm Profile is a
+picker only there and only saves on Save.
+
+---
+
+## 2026-08-19 — Instrument attributes panel: merge the two sections
+
+Operator: a key added at instrument level "showing like different section". Correct — the
+panel rendered recorded attributes in a `<Table>` and the profile's unset keys in a dashed
+`<div>` below it. Offered three options (auto-add the key to the profile / ask each time /
+merge visually); operator chose merge, so profile key administration is unchanged.
+
+`attributes-panel.tsx` now builds one `items` list — profile keys in configured order (matched
+to a recorded attribute case-insensitively, else an unset row), then any attribute the profile
+does not ask for — and renders it as a single table. Unset rows put the input IN the value cell
+with a "Not set" placeholder; recorded-but-blank rows keep "(empty)". Header counter reads
+"(N set)" so it does not appear to disagree with the row count.
+
+Test debt cleared while here: three tests asserted `queryByText(/configured, not set/)` is
+absent. Removing the heading made all three pass VACUOUSLY — the exact trap recorded in
+memory. Rewritten to assert on the rows themselves (no textbox for a key the instrument
+already has / for a placement key / without `canEdit`), plus 5 new tests for the merge: one
+table element containing both kinds of row, profile-then-extras ordering, an instrument-only
+key still listed, "Not set" vs "(empty)", and the counter.
+
+Bug the merge itself introduced, caught before shipping: the first cut folded keys to match
+the profile's list, so an instrument carrying BOTH `Room` and `room` (legal — the unique index
+is `(instrument_id, key)` and Postgres compares case) would have had one of them claimed by the
+profile row and the other swallowed as "already listed". Hiding a recorded §11 value on the
+screen that exists to show them. Now claimed by the EXACT key, +2 tests.
+
+Verified: `tsc --noEmit` clean, `vite build` clean, web 691/691 (was 684).
+
+**NOT visually verified.** Operator check: open an instrument, add a key of your own, and
+confirm it appears in the same table as the profile's keys with no separate block below.
+
+---
+
+## 2026-08-19 — Set point reads the instrument's limits
+
+Operator: set-point column not showing the instrument attribute limits. Diagnosed against the
+live DB first: 2 of 20 instruments placed in a room, both rooms carry limits, and every
+instrument carrying limit attributes (CWH-01/02/03, DEMO-TH-361, DLGW) is UNPLACED — so the
+column was NA for every instrument an alarm could fire for. Two sources of spec since the
+2026-08-17 alarm work: rooms (dashboard) vs instrument attributes (evaluator).
+
+Offered three options; operator chose instrument-first with room fallback.
+`telemetry-overview.ts` gains `instrumentLimits()` reusing `loadLimitConfig()` + `limitsFor()`
+from the alarms module — the same config and resolver, so display and enforcement cannot drift.
+`OverviewRow.limitSource` added (declared in the route schema, or Fastify strips it) and
+surfaced as a tooltip only.
+
+Wholesale precedence, not per-bound: mixing a room's low with an instrument's high would paint
+a lower bound nothing enforces. Inverted pairs resolve to no band, matching `checkPair`.
+
+Fixed in passing, chasing every surface off the old source:
+- `floorplan-view.tsx` judged chips against `room.tempMin/Max` off the plan while the row status
+  used the resolved band — a chip could read green on a reading its own row called out of spec.
+  Both now read `first.limits`.
+- `room-detail.tsx` shaded the chart with the ROOM's band. N instruments in a room can now hold
+  N bands, so it shades only where they AGREE and says "instruments here specify different
+  limits" otherwise. Falls back to the room's bound before the overview row arrives.
+- The unplaced tray's caption ("cannot be checked against limits") was made false by this
+  change — that is now the headline case. Reworded.
+
+Verified by read-only probe against `compliance_core_db`: CWH-01 → INSTRUMENT T[18..23],
+DEMO-TH-361 → INSTRUMENT RH[50..70] (its own, not the room's 40–60), DEMO-TH-142/347 → ROOM,
+DLGW → T[14..-] (low only, unbounded above). CWH-02 becomes OUT_OF_SPEC at 71 %RH — a real
+excursion previously invisible. +7 unit tests on `instrumentLimits`.
+
+Verified: `tsc --noEmit` clean both packages; `vite build` clean; api 1329/1329, web 691/691.
+
+**NOT visually verified.** Operator check: the Set Point column should now show 18.0 - 23.0 on
+CWH-01 and 18.0 - 25.0 on CWH-02/03, and CWH-02's humidity cell should be red.
+
+---
+
+## 2026-08-19 — Limit and range attributes render at the instrument's decimals
+
+Operator: limits and ranges should follow the decimals count. Offered administered key lists vs
+a word rule vs limits-only; operator chose administered lists.
+
+`telemetry-decimals.ts` gains `TELEMETRY_VALUED_KEYS_DEFAULT` + `slotForAttributeKey()`;
+`telemetry-slots.def.ts` gains `temperatureValuedKeys` / `humidityValuedKeys` (defaults cover
+every Limit and Range key in the live DB); `instruments/decimals.ts` gains `annotateAttribute()`;
+`GET /:id/attributes` returns `slot`/`decimals`/`display` per row (declared in the response
+schema, or Fastify strips them). Panel renders `display`, edits `value`.
+
+The trap avoided: Edit must open on the STORED value. Opening on `display` would let a Save
+write "25.0" back over "25" — a presentation choice rewriting a §11 record. Test asserts it.
+
+Verified on live data (operator had already set temp_decimals=2 / humid_decimals=5 on
+DEMO-TH-361): its Limit and Range attributes render at 2 and 5 decimals respectively, CWH-01
+at the site default of 1, and `Slave ID` / `assetTag` / `temp_decimals` are left alone.
+
+Verified: `tsc --noEmit` clean all packages; `vite build` clean; api 1336/1336, web 695/695,
+shared 379/379.
+
+**NOT visually verified.** Operator check: DEMO-TH-361's attributes panel should show
+25.00 / 100.00000, and the config page now carries the two key lists under Display.
+
+---
+
+## 2026-08-19 — Per-role instrument attribute access + mandatory remarks
+
+Plan and the operator's three decisions: `tasks/ATTRIBUTE-ACCESS-PLAN.md`.
+
+Shipped end to end: `packages/shared/src/types/attribute-access.ts` (the decision functions both
+sides call, 18 tests) → `role_configs.attribute_access` + migration `20260819120000` (drift guard
+PASS, applied to both DBs) → `modules/instruments/attribute-access.ts` (the shared gate, 11 tests)
+→ POST/PUT/DELETE enforcement + `GET /attribute-access/me` → `GET|PUT /api/roles/attribute-access`
+→ the panel → Config → Roles & Access → **Attribute Access** tab.
+
+Two real defects caught by tests before shipping:
+- The PUT stored `keys` even under ALL_EDIT/ALL_VIEW. Inert there — until the role was switched
+  back to SELECTED, when a stale list silently became the rule. The tab cleared it client-side;
+  a client-side tidy-up is not a rule, so the endpoint enforces it now.
+- Three existing e2e files wrote attributes without a remark and would have gone red on the
+  next full run rather than at the point of change. Updated with the reasoning inline, plus a
+  new test pinning that a missing remark is answered by the body schema BEFORE existence is
+  checked — which is the right way round, since it does not confirm what exists.
+
+Verified: `tsc --noEmit` clean all packages; `vite build` clean; migration drift guard PASS;
+api 1366/1366, web 707/707, shared 397/397, queue 10/10. Counts re-derived and unchanged:
+34 models, 13 enums, 23 modules, 25 config defs, 25 config pages, 49 routes.
+
+**NOT visually verified.** Operator check: Config → Roles & Access → Attribute Access, set a
+role to "Selected editable" with one key ticked, then open an instrument as that role — only
+that key should carry Edit/Delete, the rest should read "View only", and saving a change
+should demand remarks.
+
+---
+
+## 2026-08-19 — Role Assignments page removed
+
+Operator request. Applied the pre-deletion rule before touching it: read the file for unique
+knowledge, then checked whether anything behind it was live.
+
+Receipts: the page was the single editing surface for 7 config keys, ALL of whose defs went in
+the Phase 0 domain strip (0 hits for `moduleKey: '<key>'` in `config/defs/`), and `system_config`
+holds 0 rows for all 7. So every section read a `/api/config/dynamic/<key>` route that is not
+registered — the page rendered empty controls and any Save would 404. Nothing configured was
+lost.
+
+Removed: `routes/config/role-assignments.tsx` (511 lines), its lazy import + `<Route>` in
+`main.tsx`, its Configuration card, and the `roleAssignmentKeys` suppression set in
+`config/index.tsx` (9 entries, none with a def — it was filtering nothing). Fixed a stale comment
+in `dashboard-cards.tsx` that named the deleted page.
+
+Counts re-derived: routes 49 → 48 (`grep -cE "<Route" main.tsx`), `routes/config/*.tsx` 25 → 24.
+
+Follow-up the same day (operator asked for it): removed the three `filter-data-management` /
+Role-Assignments remnants. `EXPLICIT_GRANT_KEYS` in `config/index.tsx` (matched no card, so
+non-admins already saw an empty Super Admin section — `visibleSuperAdminCards` is now
+SUPER_ADMIN-or-nothing, with the recipe for re-delegating written at the call site);
+`EXTRA_MODULES` in `access-matrix.tsx`, which injected a SYNTHETIC grantable row for a page that
+does not exist — the only user-visible one of the three; and `HIDDEN_MODULE_KEYS`, the same
+7 def-less keys whose comment pointed at the set I had just deleted. Checked
+`system_config['access-matrix']` first: it holds only backup / user-id / datetime /
+password-policy, so no stored grant was orphaned.
+
+Verified: `tsc --noEmit` clean, `vite build` clean, web 707/707.
+

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { formatDecimals } from '@digilog/shared';
 
 /**
  * Hand-rolled SVG line chart. No dependency — this repo has deliberately removed
@@ -64,6 +65,14 @@ export function niceScale(min: number, max: number, tickCount = 5): ScaleResult 
 export interface ChartSeries {
   id: string;
   label: string;
+  /**
+   * The instrument's own display precision. PER SERIES, not per chart: this chart
+   * overlays every probe in a room, and a room may hold one probe resolving to
+   * 0.1 °C beside another reporting whole degrees. A chart-wide number would
+   * quote one of them to a precision it does not have — on the very axis the
+   * chart exists to compare them on.
+   */
+  decimals: number;
   points: { ts: string; value: number }[];
 }
 
@@ -139,7 +148,7 @@ export function TimeSeriesChart({ series, unit, min, max, spanMs, title }: Props
       const d = Math.abs(new Date(p.ts).getTime() - hoverTime);
       if (d < bestD) { bestD = d; best = p; }
     }
-    return { label: s.label, value: best.value, color: seriesColor(i) };
+    return { label: s.label, value: best.value, decimals: s.decimals, color: seriesColor(i) };
   });
 
   const bandTop = max != null ? g.sy(Math.min(max, g.scale.max)) : null;
@@ -199,6 +208,9 @@ export function TimeSeriesChart({ series, unit, min, max, spanMs, title }: Props
         {g.scale.ticks.map((t) => (
           <g key={t}>
             <line x1={PAD.left} x2={W - PAD.right} y1={g.sy(t)} y2={g.sy(t)} stroke="#e2e8f0" strokeWidth={1} />
+            {/* The tick is a SCALE value, not a reading — it keeps niceScale's own
+                rounding rather than an instrument's precision. A 0-decimal probe on
+                a 0.5-step axis should still see 22.5 on the gridline. */}
             <text x={PAD.left - 6} y={g.sy(t) + 3} textAnchor="end" fontSize={10} fill="#64748b">
               {t}
             </text>
@@ -225,7 +237,7 @@ export function TimeSeriesChart({ series, unit, min, max, spanMs, title }: Props
                 fontWeight={600}
                 fill="#334155"
               >
-                {last.value.toFixed(1)}
+                {formatDecimals(last.value, s.decimals)}
               </text>
             </g>
           );
@@ -241,7 +253,7 @@ export function TimeSeriesChart({ series, unit, min, max, spanMs, title }: Props
         {readout.length > 0 ? readout.map((r) => (
           <span key={r.label} className="flex items-center gap-1.5 text-slate-600">
             <span className="inline-block h-2 w-2 rounded-sm" style={{ backgroundColor: r.color }} />
-            {r.label}: <span className="font-semibold tabular-nums text-slate-800">{r.value.toFixed(1)} {unit}</span>
+            {r.label}: <span className="font-semibold tabular-nums text-slate-800">{formatDecimals(r.value, r.decimals)} {unit}</span>
           </span>
         )) : (
           <span className="text-slate-400">Hover the chart to read values</span>

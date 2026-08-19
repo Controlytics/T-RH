@@ -35,6 +35,10 @@ import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
  * disclosed by the prefix alone — no password, no audit row. The operator asked
  * for no length limit (2026-08-07), so the rule became a warning at the point
  * of entry instead of a refusal after it.
+ *
+ * The prefix is no longer rendered anywhere in the UI (2026-08-19), but
+ * `GET /api/instruments/:id` still returns it to anyone holding INSTRUMENT_READ,
+ * so the warning is about the API, not about this field.
  */
 const TOKEN_PREFIX_LEN = 8;
 
@@ -82,9 +86,20 @@ export function TokenPanel({
   const [draft, setDraft] = useState('');
 
   const shown = Boolean(token);
-  // Masked form keeps the non-secret prefix visible: it is what an operator
-  // matches against a device's config sheet without spending a password.
-  const masked = tokenPrefix ? `${tokenPrefix}${'•'.repeat(24)}` : '—';
+  /**
+   * The mask shows NOTHING of the token (operator request, 2026-08-19).
+   *
+   * It used to render the 8-character prefix followed by bullets, on the
+   * reasoning that the prefix is non-secret and lets an operator match a device
+   * against its config sheet without spending a password. The operator's call is
+   * that a masked field showing real characters does not read as masked — and for
+   * a short token the prefix IS most of the credential.
+   *
+   * A fixed bullet count, not the token's length: a mask that varies with the
+   * value leaks how long the credential is. `tokenPrefix` is still what tells us
+   * a credential EXISTS at all — no prefix, no credential, hence the em dash.
+   */
+  const masked = tokenPrefix ? '•'.repeat(32) : '—';
 
   const run = async (fn: () => Promise<void> | void) => {
     setBusy(true);
@@ -184,9 +199,9 @@ export function TokenPanel({
           that, and the operator decides. */}
       {shortWarning && (
         <p className="text-xs text-amber-700">
-          {TOKEN_PREFIX_LEN} characters or fewer: the whole token will be visible
-          as the non-secret prefix to anyone who can view this instrument — no
-          password, and no audit record of the view.
+          {TOKEN_PREFIX_LEN} characters or fewer: the whole token is stored as the
+          non-secret prefix, which the API returns to anyone who can read this
+          instrument — no password, and no audit record of the view.
         </p>
       )}
 

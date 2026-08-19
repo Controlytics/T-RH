@@ -16,6 +16,8 @@
  * only be checked by looking at it, and nobody can open the authenticated UI in
  * a browser from this dev environment.
  */
+import { clampDecimals } from '@digilog/shared';
+
 export const NOT_AVAILABLE = 'NA';
 
 export function formatSetPoint(
@@ -25,7 +27,11 @@ export function formatSetPoint(
 ): string {
   const hasMin = typeof min === 'number' && Number.isFinite(min);
   const hasMax = typeof max === 'number' && Number.isFinite(max);
-  const f = (n: number) => n.toFixed(decimals);
+  // Clamped, not trusted: `decimals` now comes from an operator-typed instrument
+  // attribute, and `toFixed` throws a RangeError outside 0…100 — which here would
+  // take down the whole table rather than one cell.
+  const dp = clampDecimals(decimals);
+  const f = (n: number) => n.toFixed(dp);
 
   if (hasMin && hasMax) return `${f(min)} - ${f(max)}`;
   if (hasMax) return `NMT ${f(max)}`;

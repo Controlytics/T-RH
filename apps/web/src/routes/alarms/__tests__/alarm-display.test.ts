@@ -77,12 +77,32 @@ describe('conditionText', () => {
 
 describe('triggeredText', () => {
   it('shows zero as a reading, not as missing', () => {
-    // 0 °C is a real cold-room value; a falsy check here would erase it.
-    expect(triggeredText(alarm({ triggeredValue: 0 }))).toBe('0');
+    // 0 °C is a real cold-room value; a falsy check here would erase it. Quoted at
+    // the snapshot's precision, which this fixture does not carry — hence the
+    // shipped default of one decimal.
+    expect(triggeredText(alarm({ triggeredValue: 0 }))).toBe('0.0');
   });
 
   it('shows a dash when there is no value (OFFLINE has none)', () => {
     expect(triggeredText(alarm({ triggeredValue: null }))).toBe('—');
+  });
+
+  it('quotes the reading at the precision FROZEN when the alarm was raised', () => {
+    // The instrument's `temp_decimals` at raise time, not its value today: an
+    // attribute edited afterwards must not re-render a closed excursion.
+    expect(triggeredText(alarm({
+      triggeredValue: 27.44,
+      ruleSnapshot: { name: 'r', decimals: 0 },
+    }))).toBe('27');
+    expect(triggeredText(alarm({
+      triggeredValue: 27.44,
+      ruleSnapshot: { name: 'r', decimals: 2 },
+    }))).toBe('27.44');
+  });
+
+  it('falls back to the default for a row raised before decimals were frozen', () => {
+    expect(triggeredText(alarm({ triggeredValue: 27.44, ruleSnapshot: { name: 'r' } }))).toBe('27.4');
+    expect(triggeredText(alarm({ triggeredValue: 27.44, ruleSnapshot: null }))).toBe('27.4');
   });
 });
 
@@ -177,8 +197,14 @@ describe('alarmTypeText', () => {
 
 describe('limitText', () => {
   it('reads the FROZEN limit, never the live attribute', () => {
-    expect(limitText(base)).toBe('> 25');
-    expect(limitText({ ...base, limitKind: 'LOW', ruleSnapshot: { limit: 18 } })).toBe('< 18');
+    expect(limitText(base)).toBe('> 25.0');
+    expect(limitText({ ...base, limitKind: 'LOW', ruleSnapshot: { limit: 18 } })).toBe('< 18.0');
+  });
+
+  it('quotes the bound at the same precision as the reading it was compared against', () => {
+    // "27 breached > 25.0" reads as a bug in the comparison. One alarm, one precision.
+    expect(limitText({ ...base, ruleSnapshot: { limit: 25, decimals: 0 } })).toBe('> 25');
+    expect(limitText({ ...base, ruleSnapshot: { limit: 25, decimals: 2 } })).toBe('> 25.00');
   });
 
   it('renders an em dash when the snapshot carries no limit', () => {
@@ -206,19 +232,19 @@ describe('limitText', () => {
   it('renders an ABOVE rule alarm from thresholdHigh', () => {
     expect(limitText(ruleAlarm({
       ruleSnapshot: { name: 'Cold room high', comparison: 'ABOVE', thresholdHigh: 24, thresholdLow: null },
-    }))).toBe('> 24');
+    }))).toBe('> 24.0');
   });
 
   it('renders a BELOW rule alarm from thresholdLow', () => {
     expect(limitText(ruleAlarm({
       ruleSnapshot: { name: 'Cold room low', comparison: 'BELOW', thresholdLow: 15, thresholdHigh: null },
-    }))).toBe('< 15');
+    }))).toBe('< 15.0');
   });
 
   it('renders an OUTSIDE_RANGE rule alarm as a range', () => {
     expect(limitText(ruleAlarm({
       ruleSnapshot: { name: 'Cold room range', comparison: 'OUTSIDE_RANGE', thresholdLow: 18, thresholdHigh: 25 },
-    }))).toBe('18 – 25');
+    }))).toBe('18.0 – 25.0');
   });
 
   it('still renders an em dash when the rule snapshot has no usable threshold', () => {

@@ -49,6 +49,18 @@ export {
 export type { TelemetrySlot, InstrumentStatus, RoomLimits } from './types/telemetry-slots.js';
 
 export {
+  TELEMETRY_DECIMALS_KEYS_DEFAULT,
+  TELEMETRY_VALUED_KEYS_DEFAULT,
+  slotForAttributeKey,
+  TELEMETRY_DECIMALS_FALLBACK,
+  TELEMETRY_DECIMALS_MAX,
+  parseDecimalsValue,
+  resolveDecimals,
+  clampDecimals,
+  formatDecimals,
+} from './types/telemetry-decimals.js';
+
+export {
   LIMIT_BOUNDS,
   ALARM_LIMIT_KEYS_DEFAULT,
   ALARM_STATUS_TEXT_DEFAULT,
@@ -57,6 +69,18 @@ export {
   resolveLimit,
 } from './types/alarm-limits.js';
 export type { LimitBound } from './types/alarm-limits.js';
+
+export {
+  ATTRIBUTE_ACCESS_MODES,
+  ATTRIBUTE_REMARK_MIN,
+  ATTRIBUTE_REMARK_MAX,
+  parseAttributeAccess,
+  canEditAttributeKey,
+  canAddAttribute,
+  attributeWriteNeedsReauth,
+  validateAttributeRemark,
+} from './types/attribute-access.js';
+export type { AttributeAccess, AttributeAccessMode } from './types/attribute-access.js';
 
 export type {
   TapeQuestion,

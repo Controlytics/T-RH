@@ -90,6 +90,21 @@ const LIMIT_BOUND: Record<LimitMetric, Record<LimitKind, LimitBound>> = {
   HUMIDITY: { HIGH: 'humidityHigh', LOW: 'humidityLow' },
 };
 
+/**
+ * The display precision frozen onto an alarm when it was RAISED.
+ *
+ * The clear notification must quote its reading the same way the raise did — one
+ * excursion, one precision. Reading it live instead would let an attribute edited
+ * mid-excursion make the "returned to spec" message disagree with the "breached"
+ * one about the same instrument. Null for alarms raised before the field existed;
+ * the caller then falls back to the instrument's current setting.
+ */
+function snapshotDecimals(snapshot: unknown): number | null {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return null;
+  const d = (snapshot as Record<string, unknown>).decimals;
+  return typeof d === 'number' && Number.isFinite(d) ? d : null;
+}
+
 export interface AlarmEvaluationResult {
   rulesEvaluated: number;
   raised: number;
@@ -201,6 +216,11 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
             ruleSnapshot: {
               ...ruleSnapshot({ ...shape, name: rule.name, severity: rule.severity }),
               description: describeRule(shape),
+              // The instrument's display precision AS IT WAS. Frozen for the same
+              // reason the threshold is: an inspector reading "fired at 24.0"
+              // must see the number the operator saw, and editing
+              // `temp_decimals` today must not re-render a year-old excursion.
+              decimals: rule.metric === 'HUMIDITY' ? row.decimals.humidity : row.decimals.temperature,
               snapshotAt: now.toISOString(),
             },
             instrumentId,
@@ -226,6 +246,7 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
           ruleName: rule.name,
           condition: describeRule(shape),
           triggeredValue: created.triggeredValue,
+          decimals: rule.metric === 'HUMIDITY' ? row.decimals.humidity : row.decimals.temperature,
           raisedAt: created.raisedAt,
         });
       } else if (decision.action === 'clear' && existing) {
@@ -246,6 +267,8 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
           ruleName: rule.name,
           condition: describeRule(shape),
           triggeredValue: closed.triggeredValue,
+          decimals: snapshotDecimals(closed.ruleSnapshot)
+            ?? (closed.metric === 'HUMIDITY' ? row.decimals.humidity : row.decimals.temperature),
           raisedAt: closed.raisedAt,
           clearedAt: closed.clearedAt,
         });
@@ -316,6 +339,9 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
                 limitKind: check.limitKind,
                 limit: check.limit,
                 attributeKey: attributeKeys[bound],
+                decimals: check.metric === 'HUMIDITY'
+                  ? row.decimals.humidity
+                  : row.decimals.temperature,
                 snapshotAt: now.toISOString(),
               }) as Prisma.InputJsonObject,
               instrumentId: row.instrumentId,
@@ -360,6 +386,7 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
             ruleName: `${check.metric} ${check.limitKind} limit`,
             condition: describeLimit(check),
             triggeredValue: created.triggeredValue,
+            decimals: check.metric === 'HUMIDITY' ? row.decimals.humidity : row.decimals.temperature,
             raisedAt: created.raisedAt,
           });
         } else if (!check.breaching && existingId) {
@@ -418,6 +445,8 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
             ruleName: `${check.metric} ${check.limitKind} limit`,
             condition,
             triggeredValue: closed.triggeredValue,
+            decimals: snapshotDecimals(closed.ruleSnapshot)
+              ?? (check.metric === 'HUMIDITY' ? row.decimals.humidity : row.decimals.temperature),
             raisedAt: closed.raisedAt,
             clearedAt: closed.clearedAt,
           });

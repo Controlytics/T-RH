@@ -231,18 +231,6 @@ const superAdminCards = [
     gradient: "from-blue-500 to-indigo-600",
     shadowColor: "shadow-blue-500/25",
   },
-  {
-    title: 'Role Assignments',
-    description: 'All role assignments in one place — PM workflow, block-change, QNN visibility, guest requests',
-    href: '/config/role-assignments',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 10-4-4 4 4 0 004 4zm6 0a3 3 0 10-2.5-4.5" />
-      </svg>
-    ),
-    gradient: 'from-cyan-500 to-blue-600',
-    shadowColor: 'shadow-cyan-500/25',
-  },
 ];
 
 export function ConfigIndexPage() {
@@ -266,10 +254,6 @@ export function ConfigIndexPage() {
 
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
 
-  // Modules that may be DELEGATED to a non-admin via Configuration Access (shown in
-  // the Super Admin Settings section to a granted role). Filter Data Management edits/
-  // deletes filter records, so it's the one card admins can hand off explicitly.
-  const EXPLICIT_GRANT_KEYS = new Set(['filter-data-management']);
   // DEFAULT-DENY (Phase 2, gap S1): unconfigured modules are hidden from non-superadmins.
   // Was fail-OPEN — see can-access-module.ts. Card visibility only; endpoints gate server-side.
   const canAccessModule = (moduleKey: string | undefined) =>
@@ -284,41 +268,28 @@ export function ConfigIndexPage() {
     [...configCards, ...superAdminCards].map(c => cardModuleKey(c.href)),
   );
 
-  // These keys are edited on the consolidated Role Assignments page
-  // (/config/role-assignments), so they must NOT also appear as standalone
-  // "Additional Modules" cards. Their defs are retained (with hasCustomPage:false)
-  // ONLY so dynamic-routes.ts auto-generates their /api/config/dynamic/<key>
-  // GET/PUT endpoints, which Role Assignments reads/writes — setting
-  // hasCustomPage:true would drop those routes and break that page.
-  const roleAssignmentKeys = new Set([
-    'pm-schedule-approval', 'replacement-schedule-approval',
-    'qnn-notifications', 'guest-cleaning-requests', 'block-change-approval',
-    'stage-interlock', 'pm-schedule-settings',
-    // Hosted in the consolidated "Filter Setup" page (hasCustomPage:false defs,
-    // so they'd otherwise auto-render here once their standalone cards were removed).
-    'filter-cleaning-reasons', 'filter-field-options',
-  ]);
-
   // Group manifest entries by category
   const dynamicModules = (manifest ?? [])
     .filter(m => !m.hasCustomPage)
     .filter(m => !hardcodedModuleKeys.has(m.moduleKey))
-    .filter(m => !roleAssignmentKeys.has(m.moduleKey))
     .filter(m => canAccessModule(m.moduleKey));
 
   const visibleConfigCards = configCards.filter(c => canAccessModule(cardModuleKey(c.href)));
 
-  // Super Admin Settings cards. SUPER_ADMIN sees all; a non-admin sees ONLY the
-  // cards explicitly granted to them in Configuration Access AND marked
-  // delegable (EXPLICIT_GRANT_KEYS) — so e.g. Filter Data Management can be
-  // delegated without exposing Branding / Roles / Backup / etc. The section
-  // header still renders for any role that has at least one card here.
-  const visibleSuperAdminCards = isSuperAdmin
-    ? superAdminCards
-    : superAdminCards.filter(c => {
-        const k = cardModuleKey(c.href);
-        return EXPLICIT_GRANT_KEYS.has(k) && (accessMatrix?.[k] ?? []).includes(user?.role ?? '');
-      });
+  // Super Admin Settings cards: SUPER_ADMIN only.
+  //
+  // There used to be a delegation escape hatch here — an allow-list of modules a
+  // non-admin could be granted through Configuration Access, whose sole member was
+  // `filter-data-management`. That module went with the Phase 0 domain strip, so
+  // the list matched no card and every non-admin already saw an empty section;
+  // removing it changes nothing at runtime (2026-08-19, operator request).
+  //
+  // To delegate one of these cards again: re-introduce the allow-list, add the
+  // module key, and grant the role that key in Configuration Access. Both halves
+  // are required — the allow-list says "this card MAY be handed off", the access
+  // matrix says "to this role" — and that split is deliberate, so a grant made for
+  // a different purpose cannot quietly expose Branding, Roles or Backup.
+  const visibleSuperAdminCards = isSuperAdmin ? superAdminCards : [];
 
   return (
     <div className="space-y-8 animate-fade-in">
