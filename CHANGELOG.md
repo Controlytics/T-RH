@@ -106,9 +106,13 @@ Verified: `tsc --noEmit` clean on api and web; `vite build` clean; api 1351,
 web 623, shared 238, queue 10, integration 2 skipped (by design) — zero
 failures. Restore point: tag `pre-filter-domain-strip`.
 
-**Known leftover:** `apps/web/src/lib/datetime-input.ts` is now orphaned — its
-only callers were the deleted filter and PM pages. It still has its own test
-file. Left in place because it is a generic date helper, not filter content.
+`apps/web/src/lib/datetime-input.ts` and its test went too, on a follow-up
+request. It was orphaned by this removal — its only callers were the deleted
+filter and PM pages. All eight exports (`isoToDateInput`, `startOfDayIso`,
+`endOfDayIso`, `datetimeInputToIso`, `isoToDatetimeInput`,
+`toIsoIfNaiveDatetime`, `NAIVE_DATETIME_RE`, `DATE_ONLY_RE`) were checked
+individually for outside use — zero each. Web suite 623 → 599 tests, 41 → 40
+files; `tsc --noEmit` and `vite build` clean after.
 
 ## [Unreleased] - Role Assignments page removed (2026-08-19)
 

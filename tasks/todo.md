@@ -2763,6 +2763,10 @@ Verified: `tsc --noEmit` clean on api + web, `vite build` clean, drift guard
 PASS, api 1351 / web 623 / shared 238 / queue 10, integration 2 skipped —
 zero failures.
 
+Follow-up the same day (operator asked for it): `lib/datetime-input.ts` + its
+test removed. Orphaned by this strip — its callers were the deleted filter/PM
+pages. Each of its eight exports was grepped individually first (0 uses).
+Web 623 → 599 tests; tsc + `vite build` clean.
+
 **Not done, flagged:** production RDS was not queried for filter-domain audit
-rows (needs `aws login`); `apps/web/src/lib/datetime-input.ts` is orphaned by
-the strip but is a generic date helper, so it was left in place.
+rows (needs `aws login`).
