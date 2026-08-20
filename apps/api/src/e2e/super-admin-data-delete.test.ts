@@ -1,7 +1,7 @@
 /**
  * e2e — DELETE /api/super-admin/data/* (M49)
  *
- * The five generic data-management DELETE handlers (filter events, notifications,
+ * The generic data-management DELETE handlers (notifications,
  * admin requests, block-change requests, PM entries) each did:
  *
  *     await prisma.<model>.delete({ where: { id } }).catch(() => null);

@@ -55,9 +55,7 @@ export async function registerSwagger(app: FastifyInstance) {
         { name: 'Notification Rules', description: 'Notification rules — event-based routing with multi-channel delivery (email, SMS, in-app), recipient targeting, cooldown' },
         { name: 'Uploads', description: 'File uploads — profile photos (JPEG, PNG, GIF, WebP, max 5MB)' },
         { name: 'Backup', description: 'Database backup & restore — export (JSON, SQL, CSV, BAK), validate, and restore with SHA-256 checksum integrity' },
-        { name: 'Entity Templates', description: 'Entity template management — reusable blueprints for entity types with alarm rules and checklist schemas' },
         { name: 'Entities', description: 'Entity instance management — create, configure, and operate entity instances in parent-child hierarchies' },
-        { name: 'Entity Identifiers', description: 'Entity identifiers — QR, RFID, NFC, Barcode, Manual identifiers' },
         // 2026-07-03: removed 10 dead tags for subsystems torn out in Phase 6/7
         // (Data Ingestion, Rule Chains, UNS, Telemetry, Alarms, Export, Retention,
         // Connectivity, MQTT Internal, Entity Relationships) — they rendered as

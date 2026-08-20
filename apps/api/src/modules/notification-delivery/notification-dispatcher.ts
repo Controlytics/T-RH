@@ -37,8 +37,7 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
   const EVENT_LABELS: Record<string, string> = {
     DEVICE_ONLINE: 'Device Online', DEVICE_OFFLINE: 'Device Offline', DEVICE_INACTIVITY: 'Device Inactive',
     USER_LOGIN: 'User Login', USER_CREATED: 'User Created', USER_LOCKED: 'User Locked',
-    CHECKLIST_SUBMITTED: 'Checklist Submitted',
-    CHECKLIST_APPROVED: 'Checklist Approved', CHECKLIST_REJECTED: 'Checklist Rejected', SYSTEM_ERROR: 'System Error',
+    SYSTEM_ERROR: 'System Error',
     ALARM_RAISED: 'Alarm Raised', ALARM_CLEARED: 'Alarm Cleared',
   };
   // Which fields to show per event type (label -> variable key)
@@ -49,15 +48,12 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
     USER_LOGIN: [['Username','username'],['Full Name','fullName'],['Role','role'],['IP Address','ipAddress'],['Time','timestamp']],
     USER_CREATED: [['Username','username'],['Full Name','fullName'],['Email','email'],['Role','role'],['Created By','createdBy'],['Time','timestamp']],
     USER_LOCKED: [['Username','username'],['Full Name','fullName'],['Reason','reason'],['Failed Attempts','failedAttempts'],['IP Address','ipAddress'],['Time','timestamp']],
-    CHECKLIST_SUBMITTED: [['Checklist','checklistName'],['Entity','entityName'],['Submitted By','submittedBy'],['Time','timestamp']],
-    CHECKLIST_APPROVED: [['Checklist','checklistName'],['Approved By','approvedBy'],['Time','timestamp']],
-    CHECKLIST_REJECTED: [['Checklist','checklistName'],['Rejected By','rejectedBy'],['Reason','reason'],['Time','timestamp']],
     SYSTEM_ERROR: [['Error Type','errorType'],['Message','errorMessage'],['URL','url'],['Time','timestamp']],
     ALARM_RAISED: [['Instrument','instrument'],['Metric','metric'],['Reading','value'],['Condition','condition'],['Severity','severity'],['Rule','ruleName'],['Time','timestamp']],
     ALARM_CLEARED: [['Instrument','instrument'],['Metric','metric'],['Condition','condition'],['Severity','severity'],['Rule','ruleName'],['Raised At','raisedAt'],['Duration','duration'],['Time','timestamp']],
   };
   variables.eventLabel = EVENT_LABELS[eventType] ?? eventType;
-  variables.summary = variables.message ?? variables.username ?? variables.deviceName ?? variables.checklistName ?? variables.errorType ?? variables.instrument ?? eventType;
+  variables.summary = variables.message ?? variables.username ?? variables.deviceName ?? variables.errorType ?? variables.instrument ?? eventType;
 
   // Build details HTML table with actual values for this event type
   const fields = EVENT_FIELDS[eventType] ?? [['Time','timestamp']];
@@ -374,35 +370,6 @@ function getDefaultEmailTemplate(eventType: string): { subject: string; bodyTemp
 <tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Time</td><td style="padding:6px 12px;border:1px solid #ddd">\${timestamp}</td></tr>
 </table>`,
     },
-    CHECKLIST_SUBMITTED: {
-      subject: '[DigiLog] Checklist Submitted: ${checklistName}',
-      body: `<h2>Checklist Submitted</h2>
-<table style="border-collapse:collapse;width:100%">
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Checklist</td><td style="padding:6px 12px;border:1px solid #ddd">\${checklistName}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Entity</td><td style="padding:6px 12px;border:1px solid #ddd">\${entityName}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Submitted By</td><td style="padding:6px 12px;border:1px solid #ddd">\${submittedBy}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Time</td><td style="padding:6px 12px;border:1px solid #ddd">\${timestamp}</td></tr>
-</table>`,
-    },
-    CHECKLIST_APPROVED: {
-      subject: '[DigiLog] Checklist Approved: ${checklistName}',
-      body: `<h2>Checklist Approved</h2>
-<table style="border-collapse:collapse;width:100%">
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Checklist</td><td style="padding:6px 12px;border:1px solid #ddd">\${checklistName}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Approved By</td><td style="padding:6px 12px;border:1px solid #ddd">\${approvedBy}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Time</td><td style="padding:6px 12px;border:1px solid #ddd">\${timestamp}</td></tr>
-</table>`,
-    },
-    CHECKLIST_REJECTED: {
-      subject: '[DigiLog] Checklist Rejected: ${checklistName}',
-      body: `<h2>Checklist Rejected</h2>
-<table style="border-collapse:collapse;width:100%">
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Checklist</td><td style="padding:6px 12px;border:1px solid #ddd">\${checklistName}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Rejected By</td><td style="padding:6px 12px;border:1px solid #ddd">\${rejectedBy}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Reason</td><td style="padding:6px 12px;border:1px solid #ddd">\${reason}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Time</td><td style="padding:6px 12px;border:1px solid #ddd">\${timestamp}</td></tr>
-</table>`,
-    },
     SYSTEM_ERROR: {
       subject: '[DigiLog] System Error: ${errorType}',
       body: `<h2>System Error</h2>
@@ -434,9 +401,6 @@ function getDefaultInAppMessage(eventType: string): string {
     USER_LOGIN: 'User ${username} logged in',
     USER_CREATED: 'New user ${username} created by ${createdBy}',
     USER_LOCKED: 'User ${username} account locked: ${reason}',
-    CHECKLIST_SUBMITTED: 'Checklist ${checklistName} submitted by ${submittedBy}',
-    CHECKLIST_APPROVED: 'Checklist ${checklistName} approved by ${approvedBy}',
-    CHECKLIST_REJECTED: 'Checklist ${checklistName} rejected by ${rejectedBy}',
     SYSTEM_ERROR: 'System error: ${errorMessage}',
     ALARM_RAISED: 'Alarm on ${instrument}: ${condition} (read ${value})',
     ALARM_CLEARED: 'Alarm on ${instrument} cleared after ${duration}',

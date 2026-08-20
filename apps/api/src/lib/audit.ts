@@ -140,7 +140,7 @@ export async function auditLog(entry: AuditEntry, tx?: AuditTx): Promise<void> {
   }
 
   // (operation-tracer per-action debug trace removed with data-ingestion removal.
-  // To be re-implemented against filter_events / pm_executions in the
+  // To be re-implemented against instrument events in the
   // repurposed TraceSource framework — see runbook Section 14.)
 }
 

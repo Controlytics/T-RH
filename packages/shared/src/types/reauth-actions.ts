@@ -74,9 +74,9 @@ export const REAUTH_ACTIONS = {
   // Single-delete uses the same key — same blast radius per row.
   DELETE_NOTIFICATION: { label: 'Delete Notification', category: 'Notifications' },
   BULK_DELETE_NOTIFICATIONS: { label: 'Bulk Delete Notifications', category: 'Notifications' },
-  // 2026-05-26 audit fix (PA-REAUTH-3): super-admin filter-data
-  // routes (super-admin/routes.ts) can edit/delete cleaning cycles,
-  // filter events, notifications, admin-requests, etc. with no audit
+  // 2026-05-26 audit fix (PA-REAUTH-3): super-admin data routes
+  // (super-admin/routes.ts) can edit/delete notifications,
+  // admin-requests, etc. with no audit
   // trail (per current code comment). Adding reauth on every mutation
   // is the bare-minimum hardening pending the larger audit-trail
   // retrofit. Applies to every PUT/DELETE/POST in super-admin/routes.ts.
@@ -93,8 +93,7 @@ export const REAUTH_ACTIONS = {
   // surfaces). Distinct keys would force operators to maintain a check
   // matrix per page; this single umbrella reauth action covers the
   // remaining smaller-blast config writes (dashboard-cards visibility,
-  // cleaning-profile-assignment rules, filter-cleaning-reasons
-  // dropdown, ahu-filter-set-config mode toggle). The audit row's
+  // pagination, export options, display precision). The audit row's
   // targetType + targetId distinguishes the surface; the action is
   // shared so operators can opt in / out via one reauth-policy entry.
   UPDATE_CONFIG_PAGE: { label: 'Update Configuration Page', category: 'Configuration' },

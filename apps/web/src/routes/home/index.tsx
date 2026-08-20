@@ -33,13 +33,6 @@ export default function HomePage() {
   );
   const { data: myConfig, mutate: mutateConfig } = useSWR<{ sidebarItems?: string[] }>('/api/config/my-config');
 
-  // Two dead fetches were removed here (Phase 0 leftovers, both 404):
-  //   - `/api/pm-schedules/qnn/visible` fed ViewerCtx.qnnVisible, which only
-  //     ever gated the 'quality-notifications' module — no longer in MODULE_FLOWS.
-  //   - `/api/filter-cleaning-profiles?limit=200` fed an active-profile count
-  //     rendered only for `m.id === 'filter-operations'` — also gone from
-  //     MODULE_FLOWS, so the count could never appear.
-
   // Audit view: every module + every role permitted by the backend gate,
   // regardless of the viewer's or any role's sidebar. Default = the viewer's
   // own modules (mirrors their sidebar).

@@ -32,7 +32,6 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
     import('../modules/config/defs/roles.def.js'),
     import('../modules/config/defs/field-ids.def.js'),
     // retention.def + uns.def deleted with data-ingestion removal.
-    // Domain config defs (filter/pm/replacement/ahu/report/offline/guest/stage)
     // removed with the domain strip.
     import('../modules/config/defs/help.def.js'),
     import('../modules/config/defs/access-matrix.def.js'),
@@ -54,9 +53,6 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
   // Auto-seed defaults for any newly registered configs
   await configRegistry.seedDefaults();
 
-  // One-time migration: merge legacy `filter-pm-schedule.enabled` into `pm-schedule-settings`
-  await migrateFilterPmScheduleIntoPmSettings();
-
   // One-time cleanup: remove dead config keys whose defs were deleted
   // (offline-sync + rfid-scanner settings were never read; role-privileges + sidebar-config pages never existed)
   await cleanupDeadConfigKeys();
@@ -66,29 +62,21 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
 
 async function cleanupDeadConfigKeys(): Promise<void> {
   const { prisma } = await import('./prisma.js');
-  const deadKeys = ['offline-sync', 'rfid-scanner', 'role-privileges', 'sidebar-config', 'uns', 'retention'];
+  const deadKeys = [
+    'offline-sync', 'rfid-scanner', 'role-privileges', 'sidebar-config', 'uns', 'retention',
+    // Filter-domain keys (2026-08-20). Their defs went in the Phase 0 strip and
+    // their single editing surface, /config/role-assignments, was deleted
+    // 2026-08-19 — every read and write from it hit an unregistered route.
+    // `filter-pm-schedule` had a boot-time migration that merged it into
+    // `pm-schedule-settings`; both are swept here instead, since that migration
+    // would otherwise CREATE the dead key it was migrating into.
+    'filter-pm-schedule', 'pm-schedule-settings', 'pm-schedule-approval',
+    'replacement-schedule-approval', 'qnn-notifications', 'guest-cleaning-requests',
+    'block-change-approval', 'stage-interlock',
+  ];
   const res = await prisma.systemConfig.deleteMany({ where: { configKey: { in: deadKeys } } });
   if (res.count > 0) {
     console.info(`[config-migration] removed ${res.count} dead config row(s): ${deadKeys.join(', ')}`);
   }
 }
 
-async function migrateFilterPmScheduleIntoPmSettings(): Promise<void> {
-  const { prisma } = await import('./prisma.js');
-  const legacy = await prisma.systemConfig.findUnique({ where: { configKey: 'filter-pm-schedule' } });
-  if (!legacy) return;
-  const legacyValue = (legacy.configValue ?? {}) as Record<string, unknown>;
-  const enabled = Boolean(legacyValue.enabled);
-
-  const current = await prisma.systemConfig.findUnique({ where: { configKey: 'pm-schedule-settings' } });
-  const currentValue = (current?.configValue ?? {}) as Record<string, unknown>;
-  if (currentValue.enabled === undefined || currentValue.enabled === null) {
-    await prisma.systemConfig.upsert({
-      where: { configKey: 'pm-schedule-settings' },
-      update: { configValue: { ...currentValue, enabled } },
-      create: { configKey: 'pm-schedule-settings', configValue: { enabled } as any, configType: 'filter' },
-    });
-  }
-  await prisma.systemConfig.delete({ where: { configKey: 'filter-pm-schedule' } });
-  console.info('[config-migration] merged filter-pm-schedule into pm-schedule-settings');
-}

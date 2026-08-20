@@ -147,19 +147,17 @@ describe('backup.repository', () => {
    * PK is a UUID with no sequence to reset". The premise was false — the PK is a
    * UUID, but `chain_position` is a BIGSERIAL with its own sequence — so the
    * test was locking in the bug: nothing realigned sequences after a restore,
-   * which collided deviation numbers and broke hash-chain verification.
+   * which broke hash-chain verification.
    */
   describe('resyncSequencesAfterRestore', () => {
     const tx = () => ({ $executeRawUnsafe: vi.fn().mockResolvedValue(undefined) });
 
-    it('realigns all three manual sequences when their tables were restored', async () => {
+    it('realigns the manual sequence when its table was restored', async () => {
       const t = tx();
-      await resyncSequencesAfterRestore(t, ['audit_trail', 'deviations', 'quality_notifications', 'users']);
+      await resyncSequencesAfterRestore(t, ['audit_trail', 'users']);
       const sql = t.$executeRawUnsafe.mock.calls.map((c: any[]) => c[0] as string).join('\n');
       expect(sql).toContain('audit_trail_chain_position_seq');
-      expect(sql).toContain('deviation_number_seq');
-      expect(sql).toContain('qnn_seq');
-      expect(t.$executeRawUnsafe).toHaveBeenCalledTimes(3);
+      expect(t.$executeRawUnsafe).toHaveBeenCalledTimes(1);
     });
 
     it('skips a sequence whose table was not in the backup', async () => {
@@ -179,22 +177,6 @@ describe('backup.repository', () => {
       expect(sql).toMatch(/,\s*false\s*\)/);
     });
 
-    it('parses the numeric suffix of deviation numbers and ignores malformed values', async () => {
-      const t = tx();
-      await resyncSequencesAfterRestore(t, ['deviations']);
-      const sql = t.$executeRawUnsafe.mock.calls[0][0] as string;
-      // 'DEV-000042' -> 42
-      expect(sql).toContain("substring(deviation_number FROM '([0-9]+)$')");
-      // A hand-edited row without a numeric suffix must not NULL out the MAX.
-      expect(sql).toContain("deviation_number ~ '[0-9]+$'");
-    });
 
-    it('parses the numeric suffix of QNNs (sequence is global, not per-year)', async () => {
-      const t = tx();
-      await resyncSequencesAfterRestore(t, ['quality_notifications']);
-      const sql = t.$executeRawUnsafe.mock.calls[0][0] as string;
-      expect(sql).toContain("substring(qnn FROM '([0-9]+)$')");
-      expect(sql).toContain("qnn ~ '[0-9]+$'");
-    });
   });
 });

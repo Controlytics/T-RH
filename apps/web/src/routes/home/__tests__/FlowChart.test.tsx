@@ -14,7 +14,7 @@ const ROLES: RoleAccess[] = [
 
 const steps: FlowStep[] = [
   { label: 'Start Cycle', gate: ['AUDIT_READ'], kind: 'action' },
-  { label: 'Submit Checklist', gate: ['AUDIT_READ'], kind: 'action',
+  { label: 'Acknowledge Alarm', gate: ['AUDIT_READ'], kind: 'action',
     branch: { label: 'Bypass (deviation)', gate: ['MANAGE_DEBUG_TRACE'] } },
 ];
 
@@ -22,7 +22,7 @@ describe('FlowChart', () => {
   it('renders each step label', () => {
     render(<FlowChart steps={steps} moduleId="dashboard" roles={ROLES} />);
     expect(screen.getByText('Start Cycle')).toBeInTheDocument();
-    expect(screen.getByText('Submit Checklist')).toBeInTheDocument();
+    expect(screen.getByText('Acknowledge Alarm')).toBeInTheDocument();
   });
 
   it('shows every role configured for an operation (Operator holds AUDIT_READ)', () => {
@@ -71,7 +71,7 @@ describe('FlowChart — non-role access rendering', () => {
 
   it('renders configured chip for access: "configured"', () => {
     const cfg: FlowStep[] = [
-      { label: 'View QNN', gate: [], access: 'configured', kind: 'system' },
+      { label: 'View Traces', gate: [], access: 'configured', kind: 'system' },
     ];
     render(<FlowChart steps={cfg} moduleId="dashboard" roles={ROLES} />);
     expect(screen.getByText('Roles enabled in visibility config')).toBeInTheDocument();

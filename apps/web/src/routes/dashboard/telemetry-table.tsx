@@ -30,7 +30,7 @@ import {
  * the only place a limit breach is visible on this screen.
  *
  * DP (mmWc) WAS REMOVED at the operator's request (2026-08-13). Nothing in this
- * system produces differential pressure — no schema field, no AHU concept — so the
+ * system produces differential pressure — no schema field for it — so the
  * column only ever showed NA. Re-adding it means adding the data first.
  *
  * DARK TABLE, on operator preference — a light themed version was tried and this

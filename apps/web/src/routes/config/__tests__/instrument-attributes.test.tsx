@@ -19,7 +19,7 @@ import { MemoryRouter } from 'react-router-dom';
  */
 const PROFILES = {
   data: [
-    { id: 'p1', name: 'Cleanroom AHU', instrumentCount: 12, attributeKeys: 'Block\nArea\nRoom' },
+    { id: 'p1', name: 'Cleanroom Probe', instrumentCount: 12, attributeKeys: 'Block\nArea\nRoom' },
     { id: 'p2', name: 'Warehouse Sensors', instrumentCount: 3, attributeKeys: 'Asset Tag' },
     { id: 'p3', name: 'Full Placement', instrumentCount: 1, attributeKeys: 'Block\nArea\nLocation' },
     { id: 'p4', name: 'Brand New', instrumentCount: 0, attributeKeys: '' },

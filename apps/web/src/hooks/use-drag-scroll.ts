@@ -57,7 +57,7 @@ export function useDragScroll() {
       if (e.pointerType !== 'mouse' || e.button !== 0) return;
       const target = e.target as HTMLElement | null;
       // Opt-out: interactive surfaces with their own pointer model (e.g. the
-      // cleaning-profile node-graph canvas) mark themselves `data-no-drag-pan`
+      // a node-graph canvas) mark themselves `data-no-drag-pan`
       // so this generic pan doesn't fight node-dragging.
       if (target?.closest('[data-no-drag-pan]')) return;
       const container = target?.closest(SCROLL_SELECTOR) as HTMLElement | null;

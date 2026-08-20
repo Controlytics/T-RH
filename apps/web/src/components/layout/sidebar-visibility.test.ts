@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SIDEBAR_PRIVILEGE_MAP, FEATURE_TO_PERMISSION_MAP } from '@digilog/shared';
+import { SIDEBAR_PRIVILEGE_MAP, FEATURE_TO_PERMISSION_MAP, SIDEBAR_ITEMS } from '@digilog/shared';
 import { isSidebarItemVisible } from './sidebar-visibility';
 
 // The exact legacy logic from sidebar.tsx's hasPermissionForItem (pre-5B), reproduced
@@ -18,18 +18,18 @@ function legacyVisible(itemId: string, userPerms: string[]): boolean {
 // Representative permission sets covering the meaningful branches.
 const PERM_SETS: Record<string, string[]> = {
   empty: [],
-  viewerish: ['AUDIT_READ', 'ASSET_VIEW', 'ASSET_READ', 'DASHBOARD_VIEW'],
-  operatorish: ['ASSET_VIEW', 'ASSET_READ', 'FILTER_OPERATE', 'CHECKLIST_SUBMIT', 'CYCLE_READ', 'PM_READ', 'EVENT_READ'],
-  adminish: ['USER_READ', 'CONFIG_READ', 'CONFIG_UPDATE', 'ROLE_MANAGE', 'ASSET_VIEW', 'ASSET_READ', 'AUDIT_READ', 'NOTIFICATION_VIEW', 'PM_READ', 'CYCLE_READ', 'FILTER_OPERATE'],
+  viewerish: ['AUDIT_READ', 'INSTRUMENT_READ', 'DASHBOARD_VIEW'],
+  operatorish: ['INSTRUMENT_READ', 'INSTRUMENT_UPDATE', 'ALARM_READ', 'ALARM_ACKNOWLEDGE'],
+  adminish: ['USER_READ', 'CONFIG_READ', 'CONFIG_UPDATE', 'ROLE_MANAGE', 'INSTRUMENT_READ', 'AUDIT_READ', 'NOTIFICATION_VIEW', 'ALARM_READ', 'FUNCTIONAL_LOCATION_READ'],
   onlyUserRead: ['USER_READ'],
   unrelated: ['SOME_FAKE_PERM'],
 };
 
-// All sidebar ids that exist in the privilege map + a couple known NOT in it
-// (must default to visible in both old and new — e.g. report-reviews, system-health).
+// All sidebar ids that exist in the privilege map, plus the one real item known
+// NOT to be in it (must default to visible in both old and new).
 const ALL_ITEM_IDS = [
   ...SIDEBAR_PRIVILEGE_MAP.map(s => s.sidebarId),
-  'report-reviews', // intentionally absent from the privilege map
+  'home', // a real SIDEBAR_ITEMS entry with no PERMISSION_TREE group
 ];
 
 describe('5B sidebar visibility — tree-based matches legacy SIDEBAR_PRIVILEGE_MAP exactly', () => {
@@ -45,7 +45,11 @@ describe('5B sidebar visibility — tree-based matches legacy SIDEBAR_PRIVILEGE_
     expect(isSidebarItemVisible('users', [])).toBe(false);
   });
 
-  it('an item with no tree group / no visibility privileges is visible (e.g. report-reviews)', () => {
-    expect(isSidebarItemVisible('report-reviews', ['ASSET_READ'])).toBe(true);
+  it('an item with no tree group / no visibility privileges is visible (e.g. home)', () => {
+    // Assert the premise before the property: a test pinned to an item that has
+    // been deleted passes vacuously, because an unknown id has no group either.
+    expect(SIDEBAR_ITEMS.map((i) => i.id)).toContain('home');
+    expect(SIDEBAR_PRIVILEGE_MAP.map((s) => s.sidebarId)).not.toContain('home');
+    expect(isSidebarItemVisible('home', ['AUDIT_READ'])).toBe(true);
   });
 });

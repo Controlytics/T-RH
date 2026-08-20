@@ -147,7 +147,7 @@ export type ExportLimitConfig = z.infer<typeof exportLimitConfigSchema>;
 // Offline Cache Configuration Schema (SUPER_ADMIN-only).
 //
 // `cacheStalenessHours` — TTL applied to client-side snapshot caches
-// (filter state, templates, cleaning reasons, equipment groups, etc.). After
+// (reference data the client caches). After
 // this many hours since the entry was written, the client treats the entry as
 // stale and forces a refetch on next read. Mobile previously hardcoded 24h;
 // desktop had no TTL. The configured value now applies to both.

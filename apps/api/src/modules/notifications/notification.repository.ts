@@ -125,7 +125,7 @@ function buildBulkVisibilityFilter(
   username?: string,
   visibleGated: string[] = [],
 ): Record<string, unknown> {
-  // NON-QNN visibility fragment (role-based, same rules as the list).
+  // Visibility fragment (role-based, same rules as the list).
   let normal: Record<string, unknown>;
   if (userRole === 'SUPER_ADMIN') {
     normal = {};
@@ -143,8 +143,11 @@ function buildBulkVisibilityFilter(
   } else {
     normal = username ? { OR: [{ forUserId: username }, { targetUserId: username }] } : {};
   }
-  // Gated types (QNN, guest requests) follow config role lists, not per-user addressing.
-  const GATED = ['PM_SCHEDULE_QNN', 'GUEST_CLEANING_REQUEST'];
+  // Config-gated types follow config role lists rather than per-user addressing.
+  // The registry (GATED_TYPES in notification.service.ts) is empty as of
+  // 2026-08-20, so this list is too — see the note there.
+  const GATED: string[] = [];
+  if (GATED.length === 0) return { id: { in: ids }, ...normal };
   const branches: Record<string, unknown>[] = [
     { AND: [{ type: { notIn: GATED } }, normal] },
   ];

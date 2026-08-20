@@ -135,7 +135,7 @@ beforeAll(async () => {
     update: { isActive: true },
     create: {
       name: 'QA', displayName: 'Quality Assurance', hierarchyLevel: 4,
-      permissions: ['ASSET_READ', 'AUDIT_READ'], isActive: true, isSystem: false,
+      permissions: ['INSTRUMENT_READ', 'AUDIT_READ'], isActive: true, isSystem: false,
     },
   });
 

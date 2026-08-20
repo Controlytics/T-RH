@@ -123,7 +123,7 @@ describe('useCan()', () => {
 
   // ── Unknown nodes ─────────────────────────────────────────────────────────
   it('denies an unknown node id (resolveNodeGate returns [])', () => {
-    setupUser('ADMIN', ['USER_READ', 'ASSET_VIEW']);
+    setupUser('ADMIN', ['USER_READ', 'INSTRUMENT_READ']);
     const { result } = renderHook(() => useCan());
     expect(result.current('nope.nope')).toBe(false);
   });

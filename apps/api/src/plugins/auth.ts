@@ -175,7 +175,6 @@ const isProduction = process.env.NODE_ENV === 'production';
 const PUBLIC_PATHS = [
   '/api/auth/login', '/api/auth/forgot-password', '/api/auth/beacon-logout',
   '/api/health',
-  '/api/guest/cleaning-request',  // guest (unauthenticated) filter cleaning request
 
   ...(isProduction ? [] : ['/docs', '/docs/']),  // Swagger only public in non-production
   '/api/notification-settings/email/oauth2/code', // OAuth2 callback (no JWT - redirect from Microsoft/Google)

@@ -179,7 +179,7 @@ export function useReauth() {
     // ...and notify `execute` callers, which have no promise to await (M85/M64).
     // Pre-fix, cancel settled ONLY the executeWithResult promise, so every
     // execute() caller that clears its submitting flag in onSuccess/onError sat
-    // wedged on "Processing…" forever after a cancel — live today on filter-list
+    // wedged on "Processing…" forever after a cancel — live today on list
     // for the EDIT_FILTER/DELETE_FILTER reauth that SUPERVISORs get.
     //
     // Shape: cancelling is NOT an error, so a caller can pass `onCancel` to

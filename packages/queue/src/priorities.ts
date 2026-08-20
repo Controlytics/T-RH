@@ -1,5 +1,4 @@
 export const JOB_PRIORITY = {
-  CHECKLIST_SUBMISSION: 1,   // Highest — human waiting for response
   ATTRIBUTE_UPDATE: 3,       // Important — config changes
   TELEMETRY: 5,              // Normal — sensor data (bulk)
   DEVICE_EVENT: 7,           // Low — connection status

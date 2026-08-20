@@ -387,16 +387,14 @@ export async function restoreFromBackup(backup: BackupData, opts: { force?: bool
   await prisma.$transaction(async (tx: any) => {
     // Disable EVERY user trigger on the tables we're about to rewrite, not just
     // audit_trail's. This used to name audit_trail's two triggers explicitly,
-    // which left the asset/filter mirror triggers armed during restore:
-    // topologicalSort emits asset_instances before ahus/filters, so restoring
-    // asset_instances fired trg_mirror_asset_instance_iud, which upserted rows
-    // into ahus/filters — and the plain INSERT for those tables then hit a
-    // duplicate key and rolled the whole restore back. Any backup containing a
-    // single AHU or filter (i.e. every real one) could not be restored.
-    // The mirror's `pg_trigger_depth() > 1` guard does not help: the restore's
-    // own INSERT is depth 1.
+    // which left row-mirroring triggers armed during restore: a parent table
+    // restored first fired its trigger, which upserted rows into the child
+    // table — and the plain INSERT for that table then hit a
+    // duplicate key and rolled the whole restore back. A mirroring trigger's
+    // `pg_trigger_depth() > 1` guard does not help: the restore's own INSERT is
+    // depth 1.
     //
-    // A backup is internally consistent — it carries both asset_instances and
+    // A backup is internally consistent — it carries both parent and
     // the typed tables — so the mirror has nothing to contribute here anyway.
     //
     // Note: `SET session_replication_role = 'replica'` would be the tidier
@@ -501,8 +499,7 @@ export async function restoreFromBackup(backup: BackupData, opts: { force?: bool
     // sequences keep the TARGET database's values (TRUNCATE doesn't reset them
     // and we don't RESTART IDENTITY), which breaks two things on a
     // restore-onto-a-fresh-install — the primary disaster-recovery path:
-    //   - deviation_number / qnn: nextval returns a number already present in
-    //     the restored rows, so the next insert trips the unique index.
+    //
     //   - audit_trail.chain_position: new rows get positions that sort INTO the
     //     middle of restored history, so the hash-chain walker links the wrong
     //     rows and verification breaks permanently.
@@ -607,15 +604,16 @@ async function insertRows(
  * so the sequence very much exists. The no-op also had zero callers, meaning
  * nothing has ever realigned sequences after a restore.
  *
- * Three sequences are not owned-and-reset by anything else:
+ * One sequence is not owned-and-reset by anything else:
  *   - audit_trail_chain_position_seq → MAX(chain_position)
- *   - deviation_number_seq → max numeric suffix of deviations.deviation_number
- *     ('DEV-000042' → 42; the column DEFAULTs to nextval + lpad)
- *   - qnn_seq → max numeric suffix of quality_notifications.qnn
- *     ('QN-2026-000042' → 42; the sequence is global, not per-year)
  *
- * `is_called=true` (the 3rd setval arg) means the NEXT nextval returns
- * value + 1. Each falls back to 0 on an empty table so the next value is 1 —
+ * The deviation_number_seq and qnn_seq blocks were removed 2026-08-20 with the
+ * filter domain: neither `deviations`/`quality_notifications` nor their
+ * sequences exist in this database. Both were already inert (guarded on the
+ * table being in the restore set), so nothing changes at runtime.
+ *
+ * `is_called=false` (the 3rd setval arg) means the NEXT nextval returns the
+ * value given. It falls back to 0 + 1 on an empty table so the next value is 1 —
  * setval rejects anything below the sequence minimum.
  *
  * Only tables actually present in the backup are realigned; a sequence whose
@@ -627,27 +625,6 @@ export async function resyncSequencesAfterRestore(tx: any, restoreTables: string
   if (restored.has('audit_trail')) {
     await tx.$executeRawUnsafe(
       `SELECT setval('audit_trail_chain_position_seq', COALESCE((SELECT MAX(chain_position) FROM "audit_trail"), 0) + 1, false)`,
-    );
-  }
-
-  // Suffix parsing tolerates legacy/non-conforming values: the regex guard skips
-  // anything that isn't <prefix>-<digits>, so one hand-edited row can't blow up
-  // the whole restore (or, worse, coerce to NULL and reset the sequence to 1).
-  if (restored.has('deviations')) {
-    await tx.$executeRawUnsafe(
-      `SELECT setval('deviation_number_seq', COALESCE((
-         SELECT MAX(CAST(substring(deviation_number FROM '([0-9]+)$') AS BIGINT))
-           FROM "deviations" WHERE deviation_number ~ '[0-9]+$'
-       ), 0) + 1, false)`,
-    );
-  }
-
-  if (restored.has('quality_notifications')) {
-    await tx.$executeRawUnsafe(
-      `SELECT setval('qnn_seq', COALESCE((
-         SELECT MAX(CAST(substring(qnn FROM '([0-9]+)$') AS BIGINT))
-           FROM "quality_notifications" WHERE qnn ~ '[0-9]+$'
-       ), 0) + 1, false)`,
     );
   }
 }

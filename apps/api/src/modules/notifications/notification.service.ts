@@ -3,14 +3,19 @@ import { notificationRepository } from './notification.repository.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import type { RequestContext } from '../../types/context.js';
+import type { NotificationType } from '@prisma/client';
 import { z } from 'zod';
 
 // Notification types whose visibility is config-driven (a role list), NOT the
 // normal per-user/per-role addressing. Each maps to its config key + field.
-export const GATED_TYPES: Record<string, { configKey: string; field: string }> = {
-  PM_SCHEDULE_QNN: { configKey: 'qnn-notifications', field: 'visibleRoles' },
-  GUEST_CLEANING_REQUEST: { configKey: 'guest-cleaning-requests', field: 'recipientRoles' },
-};
+//
+// EMPTY as of 2026-08-20. Its only two entries (PM_SCHEDULE_QNN,
+// GUEST_CLEANING_REQUEST) went with the filter domain, and both were already
+// reading config keys whose defs the Phase 0 strip removed — `qnn-notifications`
+// and `guest-cleaning-requests` have no def and zero system_config rows, so the
+// gate resolved to "no roles" on every call. Adding an entry here re-arms the
+// mechanism; while it is empty every type uses the normal addressing rules.
+export const GATED_TYPES: Record<string, { configKey: string; field: string }> = {};
 const GATED_TYPE_KEYS = Object.keys(GATED_TYPES);
 
 // Which config-gated notification types this role may see. Super Admin sees all;
@@ -34,6 +39,9 @@ export async function gatedTypesVisibleTo(userRole: string): Promise<string[]> {
 // per-role rules; gated types show only to roles allowed by their config.
 function gatedAwareWhere(userRole: string, username: string, visibleGated: string[]): Record<string, unknown> {
   const normal = buildVisibilityFilter(userRole, username);
+  // No gated types registered: every notification uses the normal rules. Stated
+  // explicitly rather than relying on how `notIn: []` is compiled.
+  if (GATED_TYPE_KEYS.length === 0) return normal;
   const branches: Record<string, unknown>[] = [
     { AND: [{ type: { notIn: GATED_TYPE_KEYS } }, normal] },
   ];
@@ -246,7 +254,7 @@ export const notificationService = {
 // Throws a 403-like error if the notification doesn't belong to the caller (unless ADMIN/SUPER_ADMIN).
 // Mirrors buildVisibilityFilter's rules so list-visibility == single-op access.
 function assertNotificationVisible(notif: any, userRole: string, username: string, visibleGated: string[]): void {
-  // Gated types (QNN, guest requests) follow config role lists, not per-user addressing.
+  // Config-gated types follow config role lists, not per-user addressing.
   if (GATED_TYPE_KEYS.includes(notif.type)) {
     if (visibleGated.includes(notif.type)) return;
     throw new NotFoundError('Notification not found');
@@ -262,7 +270,11 @@ function assertNotificationVisible(notif: any, userRole: string, username: strin
 
 // Exported for use by other modules (auth.service.ts, user.service.ts)
 export async function createNotification(data: {
-  type: 'ACCOUNT_LOCKED' | 'ACCOUNT_DISABLED' | 'ACCOUNT_ENABLED' | 'PASSWORD_RESET_REQUEST' | 'PASSWORD_RESET_APPROVED' | 'PASSWORD_RESET_REJECTED' | 'USER_CREATED' | 'USER_UPDATED' | 'ROLE_CHANGED' | 'BLOCK_CHANGE_REQUESTED' | 'BLOCK_CHANGE_APPROVED' | 'BLOCK_CHANGE_REJECTED' | 'PM_OVERDUE' | 'PM_OVERDUE_COMPLETED' | 'PM_SCHEDULE_QNN' | 'GUEST_CLEANING_REQUEST' | 'REPORT_REVIEW_REQUESTED' | 'REPORT_REVIEW_APPROVED' | 'REPORT_REVIEW_REJECTED' | 'STAGE_APPROVAL_REQUESTED' | 'STAGE_APPROVAL_APPROVED' | 'STAGE_APPROVAL_REJECTED' | 'PASSWORD_EXPIRY_WARNING' | 'PASSWORD_EXPIRED_NOTICE';
+  // The generated enum, not a hand-kept union. The union this replaces had
+  // drifted in BOTH directions — it still listed three BLOCK_CHANGE_* values
+  // that were never in the enum, and omitted DEVICE_*, USER_LOGIN, USER_LOCKED,
+  // SYSTEM_ERROR and the three USER_CREATION_REQUEST_* that are.
+  type: NotificationType;
   title: string;
   message: string;
   targetUserId?: string;

@@ -8,7 +8,6 @@ import { z } from 'zod';
 export const notificationJobSchema = z.object({
   type: z.string(),
   entityId: z.string().uuid().optional(),
-  checklistId: z.string().optional(),
   targetUserId: z.string().optional(),
   targetRole: z.string().optional(),
   title: z.string(),

@@ -9,7 +9,7 @@ const ACCESS_COPY: Record<AccessKind, string> = {
   authenticated: 'Any signed-in user',
 };
 
-/** Left-accent colour per step kind — echoes the cleaning-profile pipeline's
+/** Left-accent colour per step kind — echoes the flow diagram's
  * colour-coded node cards, adapted to the light theme. */
 const KIND_ACCENT: Record<StepKind, string> = {
   action: 'border-l-cyan-500',

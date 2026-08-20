@@ -59,7 +59,7 @@ describe('rbacPlugin', () => {
 
   describe('requirePermission', () => {
     it('allows SUPER_ADMIN for any permission (bypass)', async () => {
-      const middleware = requirePermission('ASSET_VIEW');
+      const middleware = requirePermission('INSTRUMENT_READ');
       const req = makeReq({ sub: 'u1', username: 'super', role: 'SUPER_ADMIN', sessionId: 's1' });
       const reply = makeReply();
 
@@ -69,12 +69,12 @@ describe('rbacPlugin', () => {
     });
 
     it('allows when role has required permission', async () => {
-      const middleware = requirePermission('ASSET_VIEW');
+      const middleware = requirePermission('INSTRUMENT_READ');
       const req = makeReq();
       const reply = makeReply();
 
       mockPrisma.role.findFirst.mockResolvedValue({
-        permissions: ['ASSET_VIEW', 'ASSET_CREATE'],
+        permissions: ['INSTRUMENT_READ', 'INSTRUMENT_CREATE'],
       });
 
       await middleware(req, reply);
@@ -82,12 +82,12 @@ describe('rbacPlugin', () => {
     });
 
     it('denies when role lacks permission', async () => {
-      const middleware = requirePermission('ASSET_DELETE');
+      const middleware = requirePermission('INSTRUMENT_DELETE');
       const req = makeReq();
       const reply = makeReply();
 
       mockPrisma.role.findFirst.mockResolvedValue({
-        permissions: ['ASSET_VIEW'],
+        permissions: ['INSTRUMENT_READ'],
       });
 
       await middleware(req, reply);
@@ -95,7 +95,7 @@ describe('rbacPlugin', () => {
     });
 
     it('denies when role not found in DB', async () => {
-      const middleware = requirePermission('ASSET_VIEW');
+      const middleware = requirePermission('INSTRUMENT_READ');
       const req = makeReq();
       const reply = makeReply();
 
@@ -106,7 +106,7 @@ describe('rbacPlugin', () => {
     });
 
     it('returns 401 when no user on request', async () => {
-      const middleware = requirePermission('ASSET_VIEW');
+      const middleware = requirePermission('INSTRUMENT_READ');
       const req = makeReq(null);
       const reply = makeReply();
 
@@ -115,7 +115,7 @@ describe('rbacPlugin', () => {
     });
 
     it('handles null permissions array gracefully', async () => {
-      const middleware = requirePermission('ASSET_VIEW');
+      const middleware = requirePermission('INSTRUMENT_READ');
       const req = makeReq();
       const reply = makeReply();
 

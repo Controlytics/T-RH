@@ -194,14 +194,14 @@ export function DebugTracesPage() {
               Pipeline Debug Traces
             </h1>
             <p className="text-sm text-slate-500 mt-0.5">
-              Ingestion pipeline stages + every API write operation (filter cleaning, status updates, …) — SUCCESS / FAILED
+              Every API write operation — SUCCESS / FAILED
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={toggleOpTrace}
-            title="When on, every API write operation (filter cleaning, status updates, …) is recorded as a trace"
+            title="When on, every API write operation is recorded as a trace"
             className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold border transition-colors ${
               (opTrace?.enabled ?? true)
                 ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'

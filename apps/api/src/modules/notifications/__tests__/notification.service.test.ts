@@ -71,8 +71,11 @@ describe('notificationService', () => {
       mockNotifRepo.count.mockResolvedValue(0);
 
       await notificationService.list({ page: 1, limit: 20 }, 'ADMIN', 'someadmin');
-      const where = mockNotifRepo.findMany.mock.calls[0][0];
-      const normal = (where.OR as any[])[0].AND[1];
+      // With no config-gated types registered (GATED_TYPES is empty as of
+      // 2026-08-20) the visibility filter IS the normal one, un-wrapped. Reach
+      // through the gated branch only while there is one.
+      const where = mockNotifRepo.findMany.mock.calls[0][0] as any;
+      const normal = where.OR && where.OR[0]?.AND ? where.OR[0].AND[1] : where;
 
       // The three visibility branches survive...
       expect(normal.OR).toEqual([

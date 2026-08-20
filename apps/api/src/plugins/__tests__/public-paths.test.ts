@@ -18,7 +18,6 @@ describe('auth plugin public paths', () => {
       '/api/auth/beacon-logout',
       '/api/auth/forgot-password',
       '/api/auth/login',
-      '/api/guest/cleaning-request',
       '/api/health',
       '/api/ingest/v1/mqtt-auth',
       '/api/ingest/v1/telemetry',

@@ -46,7 +46,7 @@ describe('role.repository', () => {
       mockPrisma.role.create.mockResolvedValue({ name: 'INSPECTOR', hierarchyLevel: 3 });
       const result = await roleRepository.create({
         name: 'INSPECTOR', displayName: 'Inspector', hierarchyLevel: 3,
-        permissions: ['ASSET_VIEW'], color: '#FF0000', createdBy: 'admin',
+        permissions: ['INSTRUMENT_READ'], color: '#FF0000', createdBy: 'admin',
       });
       expect(result.name).toBe('INSPECTOR');
     });

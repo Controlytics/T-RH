@@ -31,7 +31,7 @@ import helpRoutes from './modules/help/routes.js';
 import systemHealthRoutes, { trackRequest } from './modules/system-health/routes.js';
 
 // operation-tracer removed — wrote to ts_pipeline_traces which is being dropped.
-// To be repurposed against filter_events / pm_executions / admin_requests in a
+// To be repurposed against admin_requests / instrument events in a
 // dedicated TraceSource framework (see runbook Section 14).
 
 
@@ -96,7 +96,7 @@ const app = Fastify({
     level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
   },
   trustProxy,
-  bodyLimit: 10 * 1024 * 1024, // 10 MB for base64 image uploads in checklists
+  bodyLimit: 10 * 1024 * 1024, // 10 MB for base64 image uploads
   ajv: {
     customOptions: {
       keywords: ['example'],
@@ -200,7 +200,7 @@ app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
   if (err.statusCode === 429) {
     return reply.code(429).send({ error: 'TOO_MANY_REQUESTS', message: err.message });
   }
-  // Body too large (e.g. base64 images in checklist submissions)
+  // Body too large (e.g. base64 image uploads)
   if ((err as any).code === 'FST_ERR_CTP_BODY_TOO_LARGE') {
     const contentLength = _req.headers['content-length'];
     const sizeMB = contentLength ? (parseInt(contentLength as string) / 1024 / 1024).toFixed(1) : 'unknown';
@@ -235,11 +235,9 @@ app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
       message: 'Request body is not valid JSON',
     });
   }
-  // Prisma unique-constraint violation → 409 (not 500). #low-batch: the four
-  // version sidecars (equipment-groups / checklist-profiles / cleaning-profiles /
-  // filter-profiles) read the live version unlocked then INSERT
-  // (id, versionNumber); two concurrent edits to the same record collide on the
-  // unique index and the loser raises P2002. Surface it as a clean, retryable
+  // Prisma unique-constraint violation → 409 (not 500). Two concurrent edits to
+  // the same record can collide on a unique index and the loser raises P2002.
+  // Surface it as a clean, retryable
   // conflict instead of a 500 + a spurious SYSTEM_ERROR notification. Systemic —
   // covers every current + future unique constraint.
   if ((err as any).code === 'P2002') {

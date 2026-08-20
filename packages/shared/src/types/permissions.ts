@@ -92,8 +92,7 @@ export const PERMISSIONS = {
   ALARM_ACKNOWLEDGE: 'ALARM_ACKNOWLEDGE',
 
   // VERSION_HISTORY_VIEW was removed with the Version History page — all four
-  // versioned entities it browsed (CleaningProfile, FilterProfile,
-  // ChecklistProfile, EquipmentGroup) went in the Phase 0 domain strip, so the
+  // versioned entities it browsed all went in the Phase 0 domain strip, so the
   // page had no reachable data and every one of its tabs 404'd.
 } as const;
 
@@ -145,8 +144,8 @@ export const MANAGE_PERMISSION_SUFFIXES = [
  * documented fallback rules:
  *
  *   1. Direct match: `perms` contains `permission` literally.
- *   2. `*_VIEW` <- `*_READ` fallback: a route gated on `ASSET_VIEW` is
- *      satisfied by a role with `ASSET_READ` (read-only access).
+ *   2. `*_VIEW` <- `*_READ` fallback: a route gated on `INSTRUMENT_VIEW` is
+ *      satisfied by a role with `INSTRUMENT_READ` (read-only access).
  *   3. `*_<suffix> <- *_MANAGE` fallback: for each suffix in
  *      `MANAGE_PERMISSION_SUFFIXES`, if the requested permission ends with
  *      that suffix and the user has the corresponding `*_MANAGE`, grant.

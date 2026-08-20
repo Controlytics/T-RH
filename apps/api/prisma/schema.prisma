@@ -300,17 +300,7 @@ enum NotificationType {
   DEVICE_INACTIVITY
   USER_LOGIN
   USER_LOCKED
-  CHECKLIST_SUBMITTED
-  CHECKLIST_APPROVED
-  CHECKLIST_REJECTED
   SYSTEM_ERROR
-  // PM overdue deviation workflow (2026-06-03)
-  PM_OVERDUE
-  PM_OVERDUE_COMPLETED
-  // PM schedule workflow QNN (Quality Notification Number) — 2026-06-08
-  PM_SCHEDULE_QNN
-  // Guest (unauthenticated) filter cleaning request — 2026-06-09
-  GUEST_CLEANING_REQUEST
   // Report review/approval workflow — 2026-06-11
   REPORT_REVIEW_REQUESTED
   REPORT_REVIEW_APPROVED
@@ -318,10 +308,6 @@ enum NotificationType {
   // Password expiry warnings — per-user daily warning window + expiry notice (2026-07-08)
   PASSWORD_EXPIRY_WARNING
   PASSWORD_EXPIRED_NOTICE
-  // Cleaning stage interlock (QA approval after WASH_OUT/DRY_OUT) — 2026-06-12
-  STAGE_APPROVAL_REQUESTED
-  STAGE_APPROVAL_APPROVED
-  STAGE_APPROVAL_REJECTED
 }
 
 model Notification {
@@ -386,76 +372,6 @@ model RoleConfig {
 
   @@map("role_configs")
 }
-
-// =============================================
-// ASSET MANAGEMENT MODELS
-// =============================================
-
-// Lookup table for the canonical template families that the Filter Management
-// / Cleaning Operations / Mobile pages resolve by code. Stored as a table (not
-// a Prisma enum) so SUPER_ADMIN can add new kinds (e.g. PUMP, VALVE,
-// COMPRESSOR) at runtime via the Configuration UI without a code migration.
-//
-// `code` is the stable, code-level identifier the frontend compares against
-// (`templateKind === 'BLOCK'`). Pages route on code; admins can edit `label`
-// for display.
-//
-// `isSystem=true` rows (BLOCK / AREA / AHU / FILTER / EQUIPMENT / OTHER —
-// seeded by prisma/seed.ts) cannot be deleted and their `code` cannot be
-// renamed; only `label`/`description`/`sortOrder`/`isActive` are admin-
-// editable on system kinds. Non-system kinds are fully editable.
-
-// ─── Typed Hierarchy Tables (Wave 1 of asset-removal, 2026-05-17) ──────────
-// These mirror AssetInstance rows by template_kind via a Postgres trigger
-// (`fn_mirror_asset_instance`). Reusing AssetInstance.id (UUID) so existing
-// soft-FK columns like cleaning_cycles.filterId, filter_events.blockId, etc.
-// continue to resolve. Reads can swap to these tables module-by-module behind
-// a feature flag (Wave 5). AssetInstance / AssetTemplate remain authoritative
-// until Wave 6 cutover.
-
-
-
-
-
-// Asset Template — reusable blueprint for asset types
-
-// Asset Template Version — snapshot of template at a point in time
-
-// Asset Instance — actual asset created from a template
-
-// FilterDetails — 1:1 sidecar holding filter-specific cycle state.
-// Split off AssetInstance in Step 6 (2026-05-01) because these fields are
-// meaningless for non-filter rows and were leaking nullable state across
-// every entity in the system.
-
-// Step 2 (2026-05-01): converted from free-form String to a closed enum.
-// Values mirror INVERSE_RELATIONSHIP_MAP in packages/shared/src/schemas/assets.ts.
-// Bidirectional pair invariant is enforced by a deferred constraint trigger
-// applied via apps/api/prisma/sql/invariants.sql at every reseed.
-
-// Asset Relationship — bidirectional connections between assets
-
-// Asset Identifier — physical identifiers (QR, RFID, NFC, Barcode, Manual)
-
-// =============================================
-// DATA INGESTION & INTEGRATION MODELS (Phase A)
-// =============================================
-
-// Device Credentials (per entity instance)
-// (DeviceCredential model removed with data-ingestion removal — MQTT device auth no longer used.)
-
-// (ChecklistReview + ElectronicSignature models removed 2026-07-04 — orphaned scaffolding
-//  introduced with the data-ingestion feature set (commit e8706bb) and stranded by the
-//  Phase 6/7 tear-outs: ChecklistReview.checklistId linked to the dropped ts_checklist_responses
-//  hypertable; ElectronicSignature.recordId keyed off Alarm.id (removed 2026-05-17) or
-//  ChecklistReview.id. Both 0 rows, 0 code references, no relations. The live e-signature
-//  surface uses ReportSignature + the hash-chained audit_trail, not these tables.
-//  Migration: 20260704062157_drop_checklistreview_electronicsignature.)
-
-// (UnsMapping + ConnectivityStatus models removed with data-ingestion removal.)
-
-// QR Codes (per entity)
-
 
 // Help Articles (version-controlled)
 model HelpArticle {
@@ -562,9 +478,6 @@ enum NotificationEventType {
   USER_LOGIN
   USER_CREATED
   USER_LOCKED
-  CHECKLIST_SUBMITTED
-  CHECKLIST_APPROVED
-  CHECKLIST_REJECTED
   SYSTEM_ERROR
   // 2026-08-14 (project C4). An excursion is not a device going offline: DEVICE_OFFLINE
   // says the instrument stopped talking, these say it reported a value outside its limit.
@@ -654,115 +567,11 @@ model NotificationRuleRecipient {
   @@map("notification_rule_recipients")
 }
 
-// ─── Phase 2: Filter Management System ─────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
-
-// Quality Notification registry. One row per PM-schedule action (upload / review /
-// approve / reject / resubmit). The qnn (QN-YYYY-000001, from the qnn_seq sequence)
-// is the human-facing reference number surfaced in the Notifications center. Soft
-// refs (no FK cascade) so the audit record survives entry/schedule deletion.
-
-
-// ─── Filter Replacement Schedule (upload-driven, 2026-06-02) ───────────────
-// Additive feature: a user uploads a schedule (one ReplacementSchedule batch);
-// each row becomes a ReplacementScheduleEntry (AHU + filter spec + qty + date +
-// ± tolerance window). Due entries surface as tablet My-Tasks; each filter
-// actually replaced is logged as a ReplacementExecution (qty tracking + audit).
-// AHU is a soft ref (no FK) to avoid coupling to the asset/typed-filter tables.
-// The execute step WRAPS the existing replace action — it does not change it.
-
-
-
-
-// ─── PM Overdue Deviations (2026-06-03) ───────────────────────────────────
-// When a PM cleaning task (PmScheduleEntry) passes its tolerance window without
-// all of the AHU's counted filters cleaned, the overdue sweep opens ONE
-// Deviation per entry (UNIQUE pm_schedule_entry_id → no daily duplicates). The
-// ROW IS THE STATE MACHINE: OPEN → ACKNOWLEDGED (operator confirms with password
-// on My Tasks) → CLOSED (all filters cleaned afterwards). Notifications fire once
-// per transition, guarded by notified_at / completion_notified_at. Soft refs (no
-// FK) — like ReplacementSchedule — so the deviation audit record survives
-// schedule/entry deletion (21 CFR). Created via psql DDL (db push blocked).
-
-
-
-
-
-
-// Step 4 (2026-05-02): join table replacing FilterProfile.applicableTemplates
-// JSONB array. Both FKs cascade-delete so a vanishing AssetTemplate or
-// FilterProfile takes its bindings with it — no more dangling UUIDs in JSON.
-// Server-side guard in template.service blocks AssetTemplate delete with
-// 409 IN_USE if any FilterProfile still binds it; the cascade is the safety
-// net, not the operator-visible path.
-
-// Immutable historical snapshot of a FilterProfile at a specific version.
-// Written BEFORE every mutation to the live profile (snapshot-then-bump, Phase A.3).
-// FilterProfile drift cannot affect in-flight cycles because cycles already
-// pin `cleaning_cycles.profileId` to a specific FilterCleaningProfile row at
-// start, so no cycle-side pin map is needed here — versions exist purely for
-// audit replay and admin history.
-
-
-
-// ─── Equipment Groups ──────────────────────────────────────
-
-
-// Immutable historical snapshot of an EquipmentGroup at a specific version.
-// Written BEFORE every mutation to the live group or any of its instruments
-// (snapshot-then-bump, Phase A.4). The composite (group + 3 instruments) is
-// always snapshotted together because update() mutates them as a unit.
-
-
-// ─── Checklist Profiles & Questions ──────────────────────────
-
-
-
-
-// Immutable historical snapshot of a checklist profile at a specific version.
-// Created BEFORE every mutation to the live profile or its questions (snapshot-then-bump).
-// Cycles store a pin map { profileId: versionNumber } and resolve questions through here
-// so answers always reproduce against the schema that was active when the cycle started.
-
-
-
-// (ReportTemplateStatus + ReportStatus enums removed 2026-07-04 with the
-// orphaned reports generate/sign models.)
-
-// ─── Report generate/sign models (ReportTemplate, ReportTemplateVersion,
-// ReportInstance, ReportSignature) removed 2026-07-04 with the orphaned
-// reports module. ReportReview (below) is the ACTIVE ad-hoc review workflow. ──
-
-// 3-stage review/approval workflow for AD-HOC PDF exports (Audit Trail, Filters,
-// Cleaning Cycles, etc. — generated via lib/pdf-report.ts). Because those reports
-// aren't otherwise persisted, "Send for Review" snapshots the rendered data here
-// so the reviewer/approver act on the exact content, and any later download
-// rebuilds the same PDF with Printed By / Reviewed By / Approved By.
-
-
-// =============================================
-// CLEANING STAGE INTERLOCK (QA approval gate)
-// =============================================
-// Two-point quality interlock inside a cleaning cycle. After WASH_OUT and after
-// DRY_OUT the cycle pauses; the filter context is snapshotted and routed to a
-// configurable approver role for a re-authenticated (digital-signature) decision.
-//  - APPROVE → filter continues per the pinned cleaning-profile graph.
-//  - REJECT  → currentLifecycleState moves back to rejectToStateKey (WASH_IN / DRY_IN).
-// Gate rule: an operator may LEAVE an interlock stage only if the LATEST approval
-// row for (cycleId, stageKey) is APPROVED. attemptSeq disambiguates reject→redo
-// loops so a stale prior-attempt APPROVED cannot release a fresh attempt.
-// No Prisma relations (mirrors ReportReview) — cycleId/filterId stored as raw Uuid.
+// 3-stage review/approval workflow for AD-HOC PDF exports (Audit Trail, etc.
+// — generated via lib/pdf-report.ts). Because those reports aren't otherwise
+// persisted, "Send for Review" snapshots the rendered data here so the
+// reviewer/approver act on the exact content, and any later download rebuilds
+// the same PDF with Printed By / Reviewed By / Approved By.
 
 // ─── Instruments (Data Injection P1) ───────────────────────────────────────
 

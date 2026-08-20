@@ -39,7 +39,7 @@ export interface ModuleFlow {
   summary: string;
   steps: FlowStep[];
   /** Optional caveat shown as an info callout above the flow — e.g. "the real
-   * stages depend on the cleaning profile assigned to each filter". */
+   * the alarm rules configured for each instrument". */
   note?: string;
   /**
    * How the steps relate to each other, which decides the rendering:

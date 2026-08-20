@@ -291,7 +291,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     if (y + needed > ph - 18) { doc.addPage(); y = 14; }
   };
 
-  // Always start a fresh page (used to keep each cleaning cycle on its own
+  // Always start a fresh page (used to keep each grouped section on its own
   // page in the lifecycle report).
   const newPage = () => { doc.addPage(); y = 14; };
 

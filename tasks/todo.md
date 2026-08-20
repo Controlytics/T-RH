@@ -2724,3 +2724,45 @@ password-policy, so no stored grant was orphaned.
 
 Verified: `tsc --noEmit` clean, `vite build` clean, web 707/707.
 
+
+---
+
+## Filter / AHU / asset domain removal (2026-08-20)
+
+Operator: "remove filters related content, ahus, assets, any filter activities
+features should remove from this entire application."
+
+Surveyed first: **no** filter/asset/AHU module, route or Prisma model survived
+the Phase 0 strip. What remained was vocabulary — plus a handful of code paths
+that were still reachable. ~700 of the ~1400 raw grep hits were in
+`prisma/migrations*` (archived history + the applied baseline) and were left
+alone; editing them would falsify the record and break the baseline checksum.
+
+Guarded against over-stripping: "filter" is also a generic word here. Left
+untouched — `Array.prototype.filter`, UI filter state, `NotificationRule`'s
+"Filtering conditions (JSONB)", and the `export-limit` message ("The current
+filters match {count} records"), which is about query filters.
+
+Done in two commits, restore point `pre-filter-domain-strip`:
+1. Dead code + registries + the user-visible config lists.
+2. Enum values (hand-authored migration, both DBs, drift guard PASS), the
+   reachable dead behaviour, comment/fixture sweep, docs.
+
+`CLAUDE.md` was also corrected beyond the filter content, because it was
+actively wrong: it named upstream DigiLog's remote and branch, listed
+`apps/android` / `rfid_scan_app` / `packages/db` (none exist), and carried two
+inherited System Stats paragraphs whose counts disagreed with the tree. Every
+number in that section is now re-derived, with the command beside it.
+
+Counts re-derived: audit actions 116 → 93, audit templates 151 → 87, categories
+14 → 7, export surfaces 10 → 1, report defs 9 → 1. Unchanged: 34 models,
+13 enums (values removed, not types), 42 permissions, 46 reauth actions,
+23 modules, 25 config defs, 24 config pages, 48 routes.
+
+Verified: `tsc --noEmit` clean on api + web, `vite build` clean, drift guard
+PASS, api 1351 / web 623 / shared 238 / queue 10, integration 2 skipped —
+zero failures.
+
+**Not done, flagged:** production RDS was not queried for filter-domain audit
+rows (needs `aws login`); `apps/web/src/lib/datetime-input.ts` is orphaned by
+the strip but is a generic date helper, so it was left in place.

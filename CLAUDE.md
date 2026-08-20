@@ -1,24 +1,33 @@
-# DigiLog — CLAUDE.md
+# compliance-core — CLAUDE.md
 
 ## Project
-DigiLog (21cfrlogbook) — IoT data logging platform with 21 CFR Part 11 compliance and an integrated Digital Filter Management System for pharmaceutical cleanrooms.
+A 21 CFR Part 11 administration platform: users, roles, a hash-chained audit
+trail, e-signature re-auth, notifications, and instrument monitoring
+(MQTT ingest, telemetry, alarms, functional locations, floorplans).
+
+**⚠ Much of THIS FILE is inherited from upstream DigiLog and still describes
+things this fork does not have.** `docs/recreation/` is the verified inventory;
+re-derive any count from live code before repeating it.
 
 ## Repository
-- **Remote:** github.com/pankajexa/21cfrlogbook.git
-- **Active branch:** `RFID` (feature work) → merges to `DigitalFMS` → `main`
+- **Remote:** github.com/sivamunnangi1211/TRH_GGP.git (`git remote -v`, 2026-08-20).
+  The `pankajexa/21cfrlogbook` remote recorded here was upstream DigiLog's.
+- **Active branch:** `data-injection`. There is no `main`; `final-user-management`
+  is a FROZEN backup — do not commit to it.
 
 ## Monorepo Structure
 ```
-apps/api/         — Fastify backend (TypeScript, port 3000)
-apps/web/         — React SPA (Vite, port 5175 dev)
-apps/android/     — Capacitor Android wrapper (DigiLog-FilterOps.apk)
-rfid_scan_app/    — Native Kotlin RFID scanner (KC-series UHF readers)
-packages/shared/  — Permissions (102), privileges (83), reauth (92), sidebar items (26), zod schemas
+apps/api/         — Fastify backend (TypeScript, port 3001)
+apps/web/         — React SPA (Vite, port 5176 dev)
+packages/shared/  — Permissions (42), reauth actions (46), sidebar items (12),
+                    permission tree, zod schemas
 packages/queue/   — graphile-worker job queue (Postgres-backed)
-docs/             — Project docs (current)
-old/              — Archived superseded docs and tasks
+docs/             — Project docs; `docs/recreation/` is the verified inventory
 future/           — Forward-looking design notes
 ```
+There is **no** `apps/android`, `rfid_scan_app` or `packages/db` in this fork —
+verified `ls` 2026-08-20. There is no mobile app, RFID, offline sync or
+Capacitor build; requests assuming them are describing upstream DigiLog.
 
 ## Local Dev Environment (Windows)
 The app runs ONLY on local Windows for development. There is no live EC2 / Linux production environment to push to.
@@ -58,9 +67,6 @@ cd apps/web && npx vite build
 
 # Shared packages
 npm run build -w @digilog/shared && npm run build -w @digilog/queue
-
-# APK
-cd apps/android && npx cap copy android && cd android && ./gradlew assembleDebug
 ```
 
 ## Default Login
@@ -82,12 +88,32 @@ cd apps/android && npx cap copy android && cd android && ./gradlew assembleDebug
 - **Verify TLS up** — `curl -sk -o /dev/null -w "%{http_code}" https://localhost:3000/health` should return a code (even 401 means TLS is up).
 - **Don't use HTTPS with self-signed in Capacitor *dev* mode** — WebView's `fetch()` rejects self-signed certs (Capacitor's `BridgeActivity` overrides the WebViewClient after `onCreate`). Keep dev cleartext if testing in-WebView, or install root CA on the device.
 
-## System Stats (current — 2026-06-17, verified post data-ingestion + TimescaleDB removal)
-- **Backend:** **21** API modules under `apps/api/src/modules/` (verified `ls` 2026-08-11 — the "33" recorded here was already stale before the floorplan work; this fork has stripped far more than the entries below account for, and the shortfall has NOT been individually reconciled. Treat the per-removal notes below as history, not as an inventory). **2026-08-11 added 1**: `floorplans` (plans, rooms, room membership, per-room history). 2026-06-11..2026-06-17 dropped 4 modules (`data-ingestion`, `uns`, `connectivity`, `queries`) and re-added `debug-traces` (now reads from `audit_trail` instead of dropped `ts_pipeline_traces`). **2026-07-04 dropped 2 modules** (`reports`, `report-templates`) as dead code — the orphaned report generate/sign engine; the active `report-reviews` module + the report-config defs (`report-page-titles`, `report-labels`, `report-signatories`) SURVIVE.
-- **Database:** **34 Prisma models, 13 enums** (verified `grep -cE "^model "` / `"^enum "` 2026-08-17 — **2026-08-17 added 2 enums** (`AlarmSource`, `AlarmLimitKind`; 11 → 13) for the instrument-limit alarm work: `Alarm` gains a nullable `ruleId`, `source` (RULE | INSTRUMENT_LIMIT), `limitKind` (HIGH | LOW), and `clearedValue`, so a rule-driven alarm and an instrument-attribute-limit alarm share one table. Migration `20260817090000_instrument_limit_alarms`, hand-authored, drift guard PASS, applied to `compliance_core_db_test` as well. A second migration the same day, `20260817120000_alarm_limit_unique_active`, adds a partial unique index (`alarms_active_instrument_limit_unique` on `instrument_id, metric, limit_kind` WHERE `state = 'ACTIVE' AND source = 'INSTRUMENT_LIMIT'`) closing a duplicate-alarm race between overlapping evaluator passes — no model/enum count change. **2026-08-13 added 3 models** (`FunctionalLocation`, `AlarmRule`, `Alarm`) across projects A and C, plus `instrument_scope` JSONB on role_configs/user_configs for project D, and **5 enums** (`FunctionalLocationType` for A; `AlarmMetric`, `AlarmComparison`, `AlarmSeverity`, `AlarmState` for C) — 6 → 11. **2026-08-14 (C4)** added 2 VALUES to the existing `NotificationEventType` enum (`ALARM_RAISED`, `ALARM_CLEARED`); a new value is not a new enum, so 11 stands. Migrations `20260813154500_functional_locations`, `20260813161500_instrument_scope`, `20260813164500_alarm_subsystem`, `20260814090000_alarm_notification_events`; each hand-authored, each stripping the same three destructive statements `migrate diff` emits here; drift guard PASS. **Apply every migration to `compliance_core_db_test` as well** — it is migrated separately, and being behind makes every instrument-touching e2e 500. Earlier: 31 models verified 2026-08-11; **2026-08-11 added 2** — `Floorplan` + `FloorplanRoom`, plus a nullable `Instrument.roomId` FK, for the drawn floorplan dashboard. Room limits carry the environmental spec, reversing the four `* Limit` instrument-attribute keys of 2026-08-08; migrations `20260811120000_instrument_floorplans` + `20260811130000_retire_limit_attributes`, drift guard PASS. Historic note: the long-standing "61 models, 23 enums" was inherited from upstream DigiLog and was NEVER true in this fork — the real count before Instrument Profiles was 28 models / 6 enums); **TimescaleDB DROPPED entirely** (was 6 hypertables — `ts_telemetry`, `ts_attributes`, `ts_checklist_responses`, `ts_device_events`, `ts_binary_data`, `ts_pipeline_traces`). Only `digilog_db` (Prisma) + `digilog_test_db` remain. **2026-06-11..2026-06-17 dropped 6 models** (`DeviceCredential`, `UnsMapping`, `ConnectivityStatus`, `DataStream`, `DeadLetterQueue`, `IngestionSystemConfig`) and 33 rows of dead ingestion config. TemplateKind is a lookup table (admin-editable since Step 1); not an enum. Phase A.3 added `FilterProfileVersion` sidecar; Phase A.4 added `EquipmentGroupVersion` sidecar; Step 4 (2026-05-02) replaced `FilterProfile.applicableTemplates` JSONB array with the `FilterProfileApplicableTemplate` join table. Audit C3 (2026-05-04) added `audit_trail.previous_checksum` + `chain_position BIGSERIAL` for tamper-evident hash chain. **2026-05-17 dropped 5 models** (`RuleChain`, `RuleChainVersion`, `RuleNode`, `RuleNodeConnection`, `Alarm`). **2026-07-01 dropped 2 orphaned tables** (`QrCode`/`qr_codes`, `LatestTelemetry`/`latest_telemetry` — both 0 rows, no FKs; the QR module went 2026-06-06 and the telemetry pipeline went in Phase 7, but the model+table lingered). Migration `20260701071802_drop_qrcode_latesttelemetry`; drift guard PASS. **2026-07-04 dropped 2 more orphaned tables** (`ChecklistReview`/`checklist_reviews`, `ElectronicSignature`/`electronic_signatures` — both 0 rows, 0 code refs, no relations; introduced with the data-ingestion feature set and stranded by the Phase 6/7 tear-outs: ChecklistReview linked to the dropped `ts_checklist_responses` hypertable, ElectronicSignature keyed off the removed `Alarm.id`/`ChecklistReview.id`. Live e-signature surface uses `ReportReview` + the hash-chained `audit_trail`). Migration `20260704062157_drop_checklistreview_electronicsignature`; drift guard PASS. **2026-07-04 dropped 4 models** (`ReportTemplate`, `ReportTemplateVersion`, `ReportInstance`, `ReportSignature`) + 2 enums (`ReportTemplateStatus`, `ReportStatus`) with the reports generate/sign tear-out (`ReportSignature` was orphaned — only the deleted reports module wrote it; the active e-signature surface is `ReportReview`). Migration `20260704121326_drop_reports_generate_sign`.
-- **Permissions (VERIFIED 2026-08-14):** **42** constants, **38** feature privileges, **46** reauth actions, **12** sidebar items, **11** PERMISSION_TREE groups. (The "102 / 83 / 92 / 27" previously recorded here was inherited from upstream DigiLog and was never true in this fork. The "12 sidebar items" recorded on 2026-08-13 was also wrong — `grep` said 11 at that point; it is 12 only now that C3 added `alarms`.) **2026-08-13** added 4 permissions (`FUNCTIONAL_LOCATION_{READ,CREATE,UPDATE,DELETE}`), 3 reauth actions, 1 sidebar item (`functional-locations`), and a 10th tree group with 4 configurable nodes (30 → 34) for Functional Locations. **2026-08-13/14 (alarms, projects C1–C3)** added 4 more permissions (`ALARM_RULE_{READ,MANAGE}`, `ALARM_READ`, `ALARM_ACKNOWLEDGE`; 38 → 42), 2 reauth actions (`MANAGE_ALARM_RULE`, `ACKNOWLEDGE_ALARM`; 44 → 46), 1 sidebar item (`alarms`; 11 → 12), an 11th tree group (Alarms, 2 configurable nodes), and 2 alarm-rule nodes under the **Configuration** group — Alarm Rules is a config page, so putting its nodes in the Alarms group would have made granting rule management light up the Alarms sidebar item (34 → 38 feature privileges). New ids must also be added to `CONFIGURABLE_PRIVILEGE_ORDER` in `permission-tree.ts`: it drives BOTH the ordering and the membership of `FEATURE_TO_PERMISSION_MAP`, so a node omitted from it is silently absent from the role→permission expansion. The frozen snapshot in `packages/shared/src/types/__snapshots__/legacy-maps-snapshot.ts` was extended in the same commit — omitting it produces 5 failures.
+## System Stats (re-derived 2026-08-20 — every number below came from the command beside it)
+- **Backend:** **23** API modules under `apps/api/src/modules/` (`ls | wc -l`).
+- **Database:** **34 Prisma models, 13 enums** (`grep -cE "^model " / "^enum "`).
+  Only `compliance_core_db` + `compliance_core_db_test` exist — **no TimescaleDB,
+  no `digilog_tsdb`**. The test database is migrated **separately**; a migration
+  applied to only one of them makes every instrument-touching e2e 500.
+- **Permissions:** **42** constants, **46** reauth actions, **12** sidebar items
+  (`grep -cE` against `permissions.ts` / `reauth-actions.ts` / `sidebar-items.ts`).
+  The "102 / 83 / 92 / 26" this file carried for months was upstream DigiLog's and
+  was never true here.
+- **Audit registries:** **93** audit actions, **87** audit templates in **7**
+  categories (2026-08-20, after the filter-domain removal).
+- **Config:** **25** definitions (`config/defs/*.def.ts`) + auto-discovery,
+  **24** pages under `apps/web/src/routes/config/`.
+- **Frontend:** **48** `<Route`s in `main.tsx`.
+- **Queue backend:** graphile-worker (Postgres-backed).
+- **Tenancy:** single-tenant, single-site. JWT `scope` always stamps `GLOBAL`.
+- **Themes:** 10 preset colour themes.
+
+Per-removal history has been moved out of this section — it is history, not an
+inventory, and the two long paragraphs that used to live here were inherited
+from upstream DigiLog and disagreed with the tree. `CHANGELOG.md` holds the
+history; `docs/recreation/` holds the inventory.
+
 - **Instrument VISIBILITY (2026-08-13, project D).** `instrument_scope` JSONB on **both** `role_configs` and `user_configs`. **`NULL` = inherit (user → role → unrestricted); `[]` = SEE NOTHING; `[ids]` = those functional locations, Blocks expanding to their Areas.** Resolved once in `modules/instruments/visibility.ts`; a user scope REPLACES the role's and can widen it. Enforced **on the query** — the list merges it into the same `where` the count uses, `GET /:id` applies it in the lookup and 404s (never 403, which would confirm existence), and the overview ANDs selection with visibility. Unassigned instruments are invisible to any active scope. Writing a NULL needs `Prisma.DbNull`, never `JsonNull`. Admin surface: Config → Roles & Access → Instrument Scope. Prove behaviour with `apps/api/scripts/probe-visibility.ts`.
-- **Instrument grouping — THREE concepts, one job each (2026-08-13).** Do not confuse them: **`FunctionalLocation`** (Block > Area tree, `Instrument.functionalLocationId`) is the AUTHORITATIVE logical grouping; **`roomId`** → `FloorplanRoom` is geometry on a drawn plan and drives the graphical view; **`profileId`** is device type. The free-text `Instrument.block` / `.area` columns are SUPERSEDED — no longer read for grouping, kept only so the migration stays comparable. A Block's instruments are its own PLUS its Areas', resolved by `functional-locations/tree.ts:resolveLocationIds()`; querying `functionalLocationId = :id` directly silently omits the Areas. **2026-07-13 — Home sidebar item:** `home` (Module Guide) added to `SIDEBAR_ITEMS` (26→27) and its force-show in `sidebar.tsx` removed, so it is now a normal Roles-&-Access-managed sidebar item (toggleable per role/user on Config → Roles & Access → Sidebar; visible-to-all by permission since it has no `PERMISSION_TREE` group; SUPER_ADMIN bypasses). Existing role_configs backfilled with `home`. NOT added to the Permissions/Feature-Privileges tab (grants no capability). **2026-07-04 — reports generate/sign removal:** dropped 7 perms (`REPORT_TEMPLATE_{READ,CREATE,UPDATE,DELETE}`, `REPORT_VIEW`, `REPORT_SIGN`, `REPORT_DELETE`; 109→102), 7 reauth actions (`{CREATE,UPDATE,DELETE}_REPORT_TEMPLATE`, `GENERATE_REPORT`, `SIGN_REPORT`, `REJECT_REPORT`, `DELETE_REPORT`; 99→92), 9 feature-privilege tree nodes (90→83). The ACTIVE cleaning-record + lifecycle PDF export were re-gated by making `cleaning_record.export`/`lifecycle.export` configurable (kept `REPORT_EXPORT` + `REPORT_GENERATE` perms). `REPORT_REVIEW_SUBMIT/REVIEW/APPROVE` perms + `REVIEW_REPORT`/`APPROVE_REPORT` reauth actions SURVIVE (ad-hoc report-review workflow). **2026-07-02 — RFID picker re-added (regression fix):** `filters.rfid_manage` ("Assign / Unassign RFID Tags") made **configurable again** (89→90 FP), reversing the 2026-07-01 enforced-only removal. With the toggle gone, only SUPER_ADMIN (+ OPERATOR via a leftover `ASSET_IDENTIFIER_CREATE` grant) could assign RFID — every other role got a 403 on the tablet RFID-assign page with no UI way to grant it. Enabling the toggle grants `[FILTER_RFID_MANAGE, ASSET_IDENTIFIER_CREATE, ASSET_IDENTIFIER_DELETE, ASSET_READ]` (satisfies the `POST/DELETE /api/assets/identifiers` `requireAnyPermission` gate). Re-added to `CONFIGURABLE_PRIVILEGE_ORDER` + frozen snapshot (both count tests 89→90). **2026-07-01 — Audit hard-delete (compliance-affecting; operator-requested):** re-added the physical audit-record DELETE that was torn out in 2026-05 for 21 CFR §11.10(e). New `AUDIT_DELETE` perm (+1 constant), `audit.delete` picker toggle ("Delete Audit Record (permanent)", gate `['AUDIT_DELETE']`, grant-set `[AUDIT_DELETE, AUDIT_READ]`, FP 88→89), 2 reauth actions `DELETE_AUDIT_RECORD`/`BULK_DELETE_AUDIT_RECORDS` (100→102; **2026-07-04 removed 3 dead `*_TEMPLATE_KIND` reauth actions — theater, never enforced by any endpoint; 102→99**). Backend `DELETE /api/audit/:id` + `POST /api/audit/bulk-delete` (audit/routes.ts) require `AUDIT_DELETE` (SUPER_ADMIN bypasses) + reauth + a `reason`; each disables the `audit_trail_no_delete` immutability trigger for its transaction (query pg_trigger → `ALTER TABLE … DISABLE/ENABLE TRIGGER`, ACCESS-EXCLUSIVE lock closes the window), writes a meta-audit row (`AUDIT_RECORD_DELETED`/`AUDIT_RECORDS_BULK_DELETED`) recording who/what/why BEFORE the row is destroyed. **WARNING: physical deletion BREAKS the tamper-evident hash chain** — `GET /api/audit/verify-chain` reports the downstream chain invalid, permanently; verify-chain/`verifyAuditChecksum` were deliberately NOT taught to tolerate deletions (breakage stays loud). REDACT (`POST /:id/redact`, chain-preserving) remains the recommended path. Frontend audit page adds a distinct "Delete Permanently" affordance (`can('audit.delete')`) alongside the existing amber "Redact" (`can('audit.redact')`, SA-only); the shared confirm dialog is now mode-aware. Off by default (no role granted `AUDIT_DELETE`; grant per role via the picker). **2026-07-01 — Notifications picker:** `notifications.manage` ("Manage Notifications") made enforced-only (removed from picker; `NOTIFICATION_MANAGE` is enforced by no route). `notifications.delete` ("Delete Notifications") made a **real grantable perm** — its gate was `[]` (SUPER_ADMIN-only) so enabling the toggle did nothing; now gate `['NOTIFICATION_DELETE']` and the backend delete routes (`bulk-delete`, `DELETE /:id`) use `requirePermission('NOTIFICATION_DELETE')` instead of `requireSuperAdmin()` (reverses the 2026-06-30 M5 SA-only decision; SUPER_ADMIN still bypasses). FP 89→88. **2026-07-01 — Filters picker RFID→Export swap:** `filters.rfid_manage` ("Assign / Unassign RFID Tags") made enforced-only (removed from picker per user request; RFID still gated on `FILTER_RFID_MANAGE`, held only by SUPER_ADMIN so no practical impact). Added `filters.export` (`FILTER_LIST_EXPORT`, +1 constant, enforce:'c') gating the Filters page Export (PDF/Excel) menu (`can('filters.export')` in filter-list.tsx) — off by default (SUPER_ADMIN bypasses; enable per role to unhide), mirrors `retirement_list.export`. Net feature-privileges unchanged (89). **2026-07-01 — ASSET_* over-grant fix (privilege leak):** removed the broad `ASSET_CREATE/UPDATE/DELETE` from the grant-sets of `filters.status_update` / `filters.bulk_upload` / `filters.hierarchy_create` + `equipment_groups.create/edit/delete`. Those broad perms leaked edit/create/delete across the Filters page via `useCan` (granting "Update Filter Status" handed out `ASSET_UPDATE`, which satisfies the `filters.edit` / `filters.hierarchy_edit` gate → every edit control lit up; a real backend escalation too since the edit endpoints accept `ASSET_UPDATE`). `ASSET_*` now grants via **no** picker toggle → it LEFT `allMappedPerms` and is **manual-managed** (edit/create granted via the `FILTER_*` toggles; this reverses the 2026-06-30 "keep ASSET_* in grant-sets" decision). Perm constants KEPT; existing roles' `ASSET_*` preserved on re-save. **2026-07-01 — picker redundancy audit (92→89):** `checklists.toggle` (identical gate to `checklists.edit`), `cleaning_profiles.toggle` (redundant with `cleaning_profiles.edit`), and `checklists.submit` (same `FILTER_OPERATE` gate as `filters.operate`; `CHECKLIST_SUBMIT` never enforced) made **enforced-only** (dropped from picker; perms/nodes kept). Also re-tagged `notifications.view`/`notifications.manage` `enforce:'a'→'c'` — `NOTIFICATION_VIEW/MANAGE` are enforced by **no route** (notification endpoints are user-scoped/auth-only, delete is SUPER_ADMIN-only), so those toggles are visibility-only. **2026-07-01 — RFID/Relationships toggle de-dup:** `assets.identifiers.create`/`assets.identifiers.delete` (RFID assign/unassign) + `assets.relationships.create`/`assets.relationships.delete` made enforced-only (dropped from the picker; 96→92 FPs). RFID is fully covered by the single `filters.rfid_manage` toggle (both identifier endpoints accept `FILTER_RFID_MANAGE` via `requireAnyPermission`; `ASSET_IDENTIFIER_DELETE` added to its grant so the map stays complete). `ASSET_RELATIONSHIP_CREATE/DELETE` were grant-only perms never used as a route gate (real gate = `ASSET_UPDATE/FILTER_EDIT/FILTER_HIERARCHY_EDIT` on PUT-instance) — so their nodes **AND the perm constants were removed entirely** (constants 109→107; also stripped from default-roles + live DB SUPER_ADMIN; relationship writes go through the edit gate / `assets.edit`). RFID `ASSET_IDENTIFIER_*` constants KEPT (real gates). `assets.view` label renamed "View Assets"→"View Filters". Roles unchanged. **2026-06-30 — Filters/Assets toggle de-dup:** `assets.create`/`assets.edit`/`assets.delete` made enforced-only (dropped from the role-config picker; 99→96 FPs). They duplicated the filter-specific Create/Edit/Delete Filters + Block/Area/AHU toggles — same capability under different names (backend create/edit/delete endpoints accept `ASSET_*` OR `FILTER_*`/`FILTER_HIERARCHY_*` via `requireAnyPermission`). The `ASSET_CREATE`/`UPDATE`/`DELETE` **permission constants are KEPT** (still granted in roles + accepted as backend alternates); only the duplicate picker toggles were hidden, so roles are unchanged. See `tasks/ASSET-FILTER-PERM-CONSOLIDATION-PLAN.md`. The 2026-06-11..2026-06-17 tear-out removed 2 perms (`UNS_VIEW`, `UNS_MANAGE`), 2 privileges (`uns.view`, `uns.manage`), 6 reauth actions (`MANAGE_DEVICE_CREDENTIAL`, `OVERRIDE_UNS_PATH`, `DELETE_UNS_MAPPING`, `UPDATE_UNS_CONFIG`, `UPDATE_RETENTION_POLICY`, `EXECUTE_RETENTION`), and 2 reauth categories (`UNS`, `Retention`). Audit-action and audit-template registry entries for old subsystems (UNS, RETENTION, DEVICE_CREDENTIAL, RULE_CHAIN, ALARM) are **retained** per 21 CFR §11 (no longer emitted; inspector contract preserved).
+- **Instrument grouping — THREE concepts, one job each (2026-08-13).** Do not confuse them: **`FunctionalLocation`** (Block > Area tree, `Instrument.functionalLocationId`) is the AUTHORITATIVE logical grouping; **`roomId`** → `FloorplanRoom` is geometry on a drawn plan and drives the graphical view; **`profileId`** is device type. The free-text `Instrument.block` / `.area` columns are SUPERSEDED — no longer read for grouping, kept only so the migration stays comparable. A Block's instruments are its own PLUS its Areas', resolved by `functional-locations/tree.ts:resolveLocationIds()`; querying `functionalLocationId = :id` directly silently omits the Areas.
 - **Config:** **25 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **24** corresponding pages (defs verified `ls` 2026-08-19, unchanged; pages 25 → 24 the same day — `routes/config/role-assignments.tsx` deleted as dead code: its 7 config defs went in the Phase 0 strip and `system_config` held 0 rows for them, so every section read an unregistered `/api/config/dynamic/<key>` route. Earlier counts VERIFIED by `ls` 2026-08-17 — `alarm-limits.def.ts` added 2026-08-17: super-admin config for the instrument-limit alarm work — an ordered alias list of attribute keys per bound (High/Low Temperature/Humidity Limit), since this install's keys have already drifted; plus severity, a master switch, and four status wordings. Renders through the dynamic config page, so no `routes/config/*.tsx` of its own — the page count stays 25. The "23 corresponding pages" recorded here 2026-08-11 was already stale before this change (the live page count was 25, per `apps/web/CLAUDE.md`'s 2026-08-14 verification); it was never re-synced here until now. Earlier: `telemetry-slots.def.ts` added 2026-08-11: which telemetry keys the dashboard reads as temperature and humidity, since ingest stores whatever key a device sends. Renders through the dynamic config page, so no `routes/config/*.tsx` of its own; the Floorplans placement editor IS a page. Earlier counts VERIFIED by `ls` 2026-08-07 — the previous "36 / 34" was inherited from DigiLog and was never true in this fork; `instrument-attributes.def.ts` added 2026-08-07 — the attribute keys the New Instrument form asks for, renders via the dynamic config page so no new `routes/config/*.tsx`)
 - **Display precision (2026-08-19):** decimal places for temperature/humidity come from each
   INSTRUMENT's own attributes — `temp_decimals` / `humid_decimals`, `0` meaning whole numbers —
@@ -117,7 +143,7 @@ cd apps/android && npx cap copy android && cd android && ./gradlew assembleDebug
 - Input sanitization strips HTML on all text fields (`apps/api/src/lib/sanitize.ts`)
 - Capacitor APK uses **HTTPS** baked at build via `VITE_API_URL` (cert install required on tablet)
 - Light theme only — `bg-white`, `bg-slate-50`, `border-slate-200`, gradient dialog headers OK
-- **Sidebar RBAC redesign (2026-06-30, branch RFID):** `packages/shared/src/types/permission-tree.ts`
+- **Sidebar RBAC redesign (2026-06-30):** `packages/shared/src/types/permission-tree.ts`
   (`PERMISSION_TREE`) is the **single source of truth** — a Sidebar→Page→Action catalog. Each node
   carries `permissions` (grant-expansion set = the role-config toggle), `gate` (the *discriminating*
   backend permission `useCan()` checks — `[]` = SUPER_ADMIN-only), `reauthAction`, `enforce` (a/b/c),
@@ -133,50 +159,7 @@ cd apps/android && npx cap copy android && cd android && ./gradlew assembleDebug
   `FEATURE_TO_PERMISSION_MAP` (derived) still drives the backend role→permissions expansion (`config.service.ts`).
 - RBAC redesign analysis + phase plans: `tasks/RBAC-SIDEBAR-REDESIGN-ANALYSIS.md`, `docs/superpowers/plans/2026-06-30-rbac-sidebar-phase-{1..5}.md`. Phases 1–3 + 5 done; Phase 4 (per-page View) optional/not executed.
 - New config defs must be imported in `config-discovery.ts` AND registered as a card in `config/index.tsx`
-- Approval/decision flows require remarks; filter cleaning stage remarks stay optional
-- Cycle `profile_id` is locked at start — reassigning a block's profile does NOT migrate in-progress cycles
-
-## Phase Snapshots (history is in `CHANGELOG.md`)
-
-### Phase 2 — Digital Filter Management
-Cleaning profiles, filter operations (cycle start/advance/bypass/checklist), PM scheduling, equipment groups, checklist profiles, filter traceability.
-
-### Phase 3 — RFID & Offline
-RFID Scanner Android app (Reader_Usb.jar SDK), web RFID keyboard guard, offline IndexedDB queue + sync engine, cached identifier→filter map, "Data Synced" indicator, responsive collapsible sidebar.
-
-### Phase 4 — Permissions, Themes, Reports
-18 granular feature toggles introduced (Filters / Checklists / Cleaning Profiles / Equipment / PM) — total privileges grew to 91 over Phases 4 + 5 (later trimmed to 89 in MT removal 2026-04-30, then 90 after VERSION_HISTORY 2026-05-02); 10 color themes; configurable report header/footer/layout; dynamic bulk upload from template attributeSchema; reauth actions grew to 81 across 16 categories.
-
-### Phase 6 — Subsystem Reduction (2026-05-17)
-**Rule chain + alarm tear-out.** Deleted both subsystems wholesale: 5 Prisma models, 22 source files (`apps/api/src/modules/rule-chain/`), 12 web files (`apps/web/src/routes/{rule-chains,alarms}/`, `config/alarm-columns.tsx`), 7 perms / 7 privileges / 5 reauth actions / 2 sidebar items, 6 role permission arrays + 11 alarm field-IDs + 5 `rule_engine.*` configs + 7 help articles from seed, and stale runtime rows from `roles` / `role_configs` / `system_config`. Telemetry ingest pipeline lost Stages 7 + 8 (rule-chain execution + alarm dispatch); the cleaning-cycle pipeline is unrelated and survives. **Retained**: `audit-actions.ts` + `audit-templates.ts` entries for both subsystems (21 CFR §11 inspector contracts — no longer emitted, still rendered for historic rows). Hash chain unaffected; only 4 historic `audit_trail` JSON-detail UUIDs become orphans (accepted per user "hard delete" decision). Plan + execution: `tasks/REMOVE-RULECHAIN-ALARM-PLAN.md`. Pre-removal git tag: `pre-rulechain-alarm-drop`.
-
-### Phase 7 — Data-Ingestion + TimescaleDB Removal (2026-06-11..2026-06-17)
-**Complete tear-out of the dormant ingestion layer.** Pre-removal verification confirmed 5 of 6 hypertables were always empty and only 234 debug-trace rows in `ts_pipeline_traces` — the whole subsystem was carrying weight without serving traffic. Removed in 10 phases:
-- **Phase 1** — 2 frontend route files (`config/uns.tsx`, `config/retention.tsx`) + their config cards + Route entries
-- **Phase 2** — 55 backend files: `modules/{data-ingestion,uns,connectivity,queries}/`, `transport/`, `workers/ingestion.worker.ts`, `workers/maintenance-retention.ts`
-- **Phase 3** — Wire-up cleanup: deleted `lib/operation-tracer.ts` + `workers/maintenance.worker.ts` + 6 other touchpoints (app.ts hooks, instance.service auto-provision block, deployment-check TSDB/MQTT checks, audit.ts dynamic import)
-- **Phase 4** — Dropped 6 Prisma models (`DeviceCredential`, `UnsMapping`, `ConnectivityStatus`, `DataStream`, `DeadLetterQueue`, `IngestionSystemConfig`) — 33 rows of dead `ingestion_system_config` data dropped via `prisma db push --accept-data-loss`
-- **Phase 5** — `DROP DATABASE digilog_tsdb` — all 6 hypertables gone
-- **Phase 6** — Deleted `packages/db/` workspace; uninstalled `@digilog/db`, `mqtt`, `aedes`, `@types/pg` from `apps/api/package.json`; migrated `/api/health` to local `lib/prisma.js`; stubbed `dashboards/routes.ts` timeseries_chart widget + `reports/data-sources/telemetry-source.ts`; `npm install` removed **47 transitive packages**
-- **Phase 7** — Cleaned `apps/api/.env` (TSDB_*, MQTT_*, EMQX_*, UNS_ROOT_PREFIX gone); deleted dead `lib/uns-path.ts`; uninstalled Mosquitto Windows service
-- **Phase 8** — Fixed `e2e/test-helper.ts` (was importing 2 deleted route modules → broken until fixed); fixed `instance.service.test.ts` Prisma-client mock; deleted 2 orphan test files (`workers/__tests__/ingestion.worker.test.ts`, `e2e/connectivity.test.ts`)
-- **Phase 9** — Deleted 2 dead config defs (`uns.def.ts`, `retention.def.ts`); removed 2 perms / 2 privileges / 6 reauth actions / 2 reauth categories from `packages/shared`; stripped DB rows in `roles.permissions` (1 row updated) + `system_config['action-reauth']` (5 stale keys removed)
-- **Phase 10** — Doc sync (this update)
-
-**Section 14 (Debug Traces repurpose)** — landed 2026-06-12 as commit `8619d24`: `/api/debug/traces` repointed onto `audit_trail` so the existing Debug Traces UI keeps working (each audited action → single-stage SUCCESS PipelineTrace). 9.8k records render. Limits: only successes (no error codes / durations).
-
-**What survived**: cleaning-cycle pipeline, PM workflows, audit trail (hash chain unaffected), reports, dashboards (timeseries_chart returns `[]` cleanly), offline sync, RFID, all 35 active modules. Reports module's `{{ts.<slot>.<key>}}` template tags return `{value: null, error: "Telemetry data source has been removed."}` instead of crashing.
-
-**Retained per 21 CFR §11**: `audit-actions.ts` registry entries for `UNS_*`, `RETENTION_*`, `DEVICE_CREDENTIAL_REGENERATED` — historic audit rows still render correctly in inspector UI even though new code never emits these.
-
-Pre-removal git tag: `pre-ingestion-removal` (commit `ed88400`). Phases 1-6 landed as commit `a95f6eb` on `RFID` (82 files, -16736 LoC). Runbook: `~/Downloads/DigiLog-Data-Ingestion-Removal-Plan.docx`.
-
-### Phase 5 — Reports, Offline Hardening, RFID SDK, Filter Data Console (Apr 15–29, 2026)
-Reports module A–F complete (visual template designer + puppeteer-core/Edge / @napi-rs/canvas / Handlebars PDF engine + digital signatures — Phase 3 of windows-friendly-rewrite swapped from `puppeteer` + `chartjs-node-canvas` to eliminate the bundled Chromium download and the node-gyp/MSVC dependency), offline overhaul (TTL cache, idempotency keys, tombstones, LRU, JWT refresh, server-side `stageLookup`, Capacitor Network plugin + SW hook), RFID SDK plugin in DigiLog APK (`Reader_Usb.jar` via `RfidPlugin.java`), Filter Data Management console mirroring 10 user-facing pages, DRY_IN two-step flow with persisted countdown panel, dynamic backup/restore covering all 64 tables, bloat audit 12/14 resolved, EC2/PM2 production assets removed (local-Windows-only), decision-tape proposal for future client/server pipeline drift elimination. Full architectural detail in `PHASE_5_RECENT_WORK.md`.
-
-**Phase 5 verification harness** (Apr 29–30, 2026) — closed the verification gap left by Phases 1–4:
-- **5.1** — `tests/integration/windows-server-stack.test.ts` originally exercised aedes MQTT broker + 100 telemetry publishes → `ts_telemetry` → graphile-worker → puppeteer-core PDF render. **2026-07-15 (M39-batch audit, finding M05): the dead halves were REMOVED, not just noted stale.** The top-level `aedes`/`mqtt` imports failed module resolution — which `describe.skipIf` cannot prevent — so **every root-level `npx vitest run` died at collection**, gate or no gate. Dropped: the MQTT→`ts_telemetry` test (aedes/mqtt uninstalled; `transport/`, `workers/ingestion.worker.ts`, `packages/db/` deleted; `digilog_tsdb` dropped; the `Organization`/`UnsMapping`/`ConnectivityStatus`/`DeviceCredential` models its fixture needed are all gone). The PDF-render test was already removed 2026-07-04 with the reports generate/sign tear-out — so the pre-2026-07-15 claim here that "PDF assertions still valid" was itself stale. **KEPT and verified passing**: the API-boot/`/api/health` check + the graphile-worker `addJob` → task-dispatch check. The file + its `vitest.workspace.ts` entry survive; ungated it now registers 2 skipped tests and exits 0.
-- **5.2** — `scripts/verify-windows-deployment.ps1`: operator-facing smoke check (health endpoint, graphile-worker schema via psql, real PDF render via login → reports/generate). **Mosquitto :1883 check stale post-Phase-7** (service uninstalled). PS 5.1 + 7+ compatible.
+- Approval/decision flows require remarks
 
 ## Key API Endpoints (instrument dashboard — 2026-08-11)
 ```
@@ -191,37 +174,16 @@ GET  /api/floorplans/:id/rooms/:roomId/history?window=15m|1h|6h|24h|7d  — buck
 POST /api/uploads/floorplan                     — plan image (CONFIG_UPDATE)
 ```
 
-## Key API Endpoints (filter operations)
-```
-POST /api/filters/:id/start-cycle       — Start cleaning cycle
-POST /api/filters/:id/advance           — Advance to next stage
-POST /api/filters/:id/submit-checklist  — Submit checklist answers
-POST /api/filters/:id/bypass            — Bypass stage (deviation)
-POST /api/filters/:id/terminate         — Terminate cycle (with reason)
-POST /api/filters/bulk-operate          — Batch advance / start-and-advance / submit-checklist in ONE request (partial success; per-item tx + audit; reauth once). Tablet 50–100 tag submit.
-GET  /api/filters/:id/current-state     — Filter state + next actions (full server snapshot)
-GET  /api/filters/cycles                — List cleaning cycles (mounted by filter-operations/events-routes.ts under the /api/filters prefix)
-GET  /api/filters/events                — List filter events
-GET  /api/filter-cleaning-profiles                       — List cleaning profiles (latest version per lineage)
-GET  /api/filter-cleaning-profiles/:id/versions          — Phase A.2: list lineage version history
-GET  /api/filter-cleaning-profiles/:id/versions/:n       — Phase A.2: frozen snapshot at version n
-GET  /api/filter-profiles/:id/versions                   — Phase A.3: list archived FilterProfile versions
-GET  /api/filter-profiles/:id/versions/:n                — Phase A.3: frozen FilterProfile snapshot at version n
-GET  /api/equipment-groups/:id/versions                  — Phase A.4: list archived EquipmentGroup versions (group + 3 instruments composite)
-GET  /api/equipment-groups/:id/versions/:n               — Phase A.4: frozen EquipmentGroup composite snapshot at version n
-GET  /api/checklist-profiles?expand=questions — Used for offline cache
-GET  /api/config/report-settings/current — Report layout config
-GET  /api/config/password-policy/current — Password policy (public endpoint)
-```
+## Filter domain — REMOVED
 
-## Pipeline Flow
-- CHECKLIST nodes between STAGE nodes trigger automatic question dialogs
-- Server-side enforcement: `advance()` blocks if pending checklist not completed
-- Cycle auto-completes when last STAGE leads to END node
-- Stage chain may include multiple consecutive CHECKLIST nodes — server uses `stageLookup` to resolve
+The DigiLog cleanroom domain (filters, AHUs, assets, cleaning cycles,
+checklists, PM/replacement schedules, RFID, equipment groups) does not exist in
+this fork. Its modules, models and pages went in the Phase 0 strip
+(2026-07-18); its remaining vocabulary — shared types, config lists, audit
+registries, two Postgres enums — went 2026-08-20. See `CHANGELOG.md`.
 
----
-
+A request that assumes any of it is describing *DigiLog*, not this repo. Restore
+points: tags `pre-domain-strip` and `pre-filter-domain-strip`.
 
 ## Documentation Sync Rule
 

@@ -291,7 +291,7 @@ export default async function auditRoutes(app: FastifyInstance) {
   });
 
   // POST /api/audit/report-export-log — record ANY report download/generation
-  // (audit trail, filters, PM schedule, cleaning records, etc.) as an auditable
+  // (audit trail, instrument activity, etc.) as an auditable
   // 21 CFR §11 event. These exports are client-side (jsPDF / Excel over fetched
   // rows), so this is the ONLY place the download is captured. The frontend calls
   // this BEFORE saving the file and blocks the download if it fails (fail-closed),
@@ -310,7 +310,7 @@ export default async function auditRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['reportType', 'format', 'recordCount'],
         properties: {
-          reportType: { type: 'string', minLength: 1, maxLength: 100, description: 'Human report name, e.g. "Audit Trail", "Filters", "PM Schedule"' },
+          reportType: { type: 'string', minLength: 1, maxLength: 100, description: 'Human report name, e.g. "Audit Trail", "Instrument Activity"' },
           format: { type: 'string', enum: ['PDF', 'Excel'] },
           recordCount: { type: 'integer', minimum: 0 },
           period: { type: 'string' },

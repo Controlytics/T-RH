@@ -88,7 +88,7 @@ async function rbacPlugin(app: FastifyInstance) {
   });
 
   // Allow access if the user has ANY of the listed permissions.
-  // Useful for routes that can be gated by either a broad permission (ASSET_UPDATE)
+  // Useful for routes that can be gated by either a broad permission (CONFIG_UPDATE)
   // or a more granular toggle (EG_EDIT) — whichever the role has.
   app.decorate('requireAnyPermission', (...permissions: string[]) => {
     return async (req: FastifyRequest, reply: FastifyReply) => {

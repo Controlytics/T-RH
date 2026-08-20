@@ -81,9 +81,6 @@ export interface ViewerCtx {
  */
 export function viewerCanSeeModule(moduleId: string, v: ViewerCtx): boolean {
   if (v.role === 'SUPER_ADMIN') return true;
-  // The 'quality-notifications' special case was removed with its
-  // `/api/pm-schedules/qnn/visible` feed — that module is no longer in
-  // MODULE_FLOWS, so the branch was unreachable.
   if (!isSidebarItemVisible(moduleId, v.permissions)) return false;
   if (v.sidebarItems.length > 0) return v.sidebarItems.includes(moduleId);
   return true;

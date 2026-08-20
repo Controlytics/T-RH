@@ -74,7 +74,7 @@ describe('rolesForStep', () => {
   });
 
   it('excludes a role that holds the gate but cannot SEE the module', () => {
-    const pinnedOperator: RoleAccess = { ...OPERATOR, sidebarItems: ['filter-operations'] };
+    const pinnedOperator: RoleAccess = { ...OPERATOR, sidebarItems: ['instruments'] };
     const step: FlowStep = { label: 'Advance', gate: ['AUDIT_READ'], kind: 'action' };
     // On 'dashboard' the pinned operator can't see it → excluded (SA remains).
     const out = rolesForStep(step, 'dashboard', [SA, pinnedOperator])!.map((r) => r.name);
@@ -82,7 +82,7 @@ describe('rolesForStep', () => {
   });
 
   it('audit mode (ignoreSidebar) includes a gate-holder even if its sidebar hides the module', () => {
-    const pinnedOperator: RoleAccess = { ...OPERATOR, sidebarItems: ['filter-operations'] };
+    const pinnedOperator: RoleAccess = { ...OPERATOR, sidebarItems: ['instruments'] };
     const step: FlowStep = { label: 'Advance', gate: ['AUDIT_READ'], kind: 'action' };
     const out = rolesForStep(step, 'dashboard', [SA, pinnedOperator], true)!.map((r) => r.name);
     expect(out).toEqual(['SUPER_ADMIN', 'OPERATOR']);
@@ -103,9 +103,6 @@ describe('viewerCanSeeModule', () => {
     expect(viewerCanSeeModule('users', { ...base, role: 'SUPER_ADMIN' })).toBe(true);
   });
 
-  // The 'quality-notifications hidden unless qnnVisible' case was removed with
-  // the qnnVisible flag — that module is no longer in MODULE_FLOWS and its
-  // `/api/pm-schedules/qnn/visible` feed no longer exists.
 
   it('honours the viewer sidebar override', () => {
     expect(viewerCanSeeModule('dashboard', { ...base, sidebarItems: ['system-health'] })).toBe(false);

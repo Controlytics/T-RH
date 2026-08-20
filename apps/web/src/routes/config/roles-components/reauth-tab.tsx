@@ -50,7 +50,7 @@ const REAUTH_CATEGORY_META: Record<ReauthActionCategory, { gradient: string; bgL
     gradient: 'from-red-600 to-rose-700',
     bgLight: 'bg-red-50 border-red-200 text-red-700',
     icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z',
-    description: 'Direct record edits in Filter Data Management',
+    description: 'Direct record edits via the super-admin data console',
   },
   // 'Instruments' was here until 2026-08-06 — see the identical note in
   // routes/config/action-reauth.tsx. The category has no members left because

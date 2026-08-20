@@ -1,5 +1,115 @@
 # Changelog
 
+## [Unreleased] - Filter / AHU / asset domain removed (2026-08-20)
+
+Every remaining filter, AHU, asset, cleaning and filter-activity surface is
+gone. The Phase 0 strip (2026-07-18) removed this domain's modules, models and
+pages; what it left behind was the vocabulary — in shared types, config lists,
+the audit registries and two Postgres enums. None of it was reachable, and
+several pieces were user-visible as dead options.
+
+**Deleted (consumer-free — `grep` for importers returned 0 for each):**
+
+- `packages/shared/src/pipeline-executor/**` — 11 source + 11 test files, the
+  filter cleaning-cycle executor. Exported from the shared barrel and imported
+  by nothing since the strip.
+- `packages/shared/src/types/action-tape.ts` — consumed only by the above.
+- `apps/web/src/types/filter.ts`, `apps/web/src/lib/report-types.ts`,
+  `apps/web/src/lib/format-by-least-count.ts` (an equipment-group helper),
+  `apps/api/src/e2e/checklist-submission.test.ts`,
+  `apps/web/src/lib/__tests__/report-range.test.ts` (re-implemented logic from
+  `pm-schedules/index.tsx` and `cleaning-cycles/history.tsx` inside the test
+  file, so it exercised only itself).
+
+**Pruned to what the app has:**
+
+- `EXPORT_SURFACES` 10 → 1 and `REPORT_DEFS` 9 → 1 (both keep Audit Trail).
+  Config → Export Options was offering per-role PDF/Excel toggles for nine
+  deleted pages. Stored `export-options` and `report-page-titles` were both
+  `{}`, so no orphaned sub-key needed pruning.
+- `AUDIT_ACTIONS` 116 → 93; `AUDIT_TEMPLATE_DEFAULTS` 151 → 87; template
+  categories 14 → 7. `ALARM_ACKNOWLEDGED` / `ALARM_CLEARED` moved to the
+  Instruments category — the alarm subsystem is live again for instrument
+  limits. Config → Audit Templates had been listing 53 editable templates for
+  actions nothing can emit.
+- `audit-helpers.ts`: 12 asset badges, the Block/Area/AHU/Filter kind labels and
+  17 placeholder substitutions. Verified by diffing the live placeholder set
+  against the substitution set — 17 dead, 0 missing.
+
+**Deliberate reversal, on operator instruction.** `CLAUDE.md` recorded the audit
+registries as retained per 21 CFR §11 ("stop emitting, keep historic rows
+renderable"), the precedent set by the UNS and rule-chain tear-outs. Receipt
+taken before removing them:
+
+```
+SELECT action, count(*) FROM audit_trail
+ WHERE action ~* 'FILTER|AHU|ASSET|EQUIPMENT|CLEANING|CHECKLIST|PM_|RFID';
+-- 0 rows (compliance_core_db)
+```
+
+No `audit_trail` row is deleted or altered and the hash chain is untouched. The
+**production RDS is a separate database and was not queried** — if it holds such
+rows they now render as title-cased action keys rather than sentences.
+
+**Enum values (migration `20260820100000_drop_filter_domain_notification_events`).**
+`NotificationType` loses 10 values (three `CHECKLIST_*`, two `PM_OVERDUE_*`,
+`PM_SCHEDULE_QNN`, `GUEST_CLEANING_REQUEST`, three `STAGE_APPROVAL_*`);
+`NotificationEventType` loses three `CHECKLIST_*`. Hand-authored from
+`migrate diff` with the usual three destructive statements stripped (see the
+header of `20260811120000_instrument_floorplans`). Verified 0 rows carry any
+doomed value in **both** databases first; applied to `compliance_core_db` and
+`compliance_core_db_test`; drift guard PASS. Model and enum counts are
+unchanged at 34 / 13 — values were removed, not types.
+
+**Dead behaviour found and removed on the way** (none of it filter-*code*, all
+of it filter-*shaped*, and each reachable in principle):
+
+- `config-discovery.ts` ran `migrateFilterPmScheduleIntoPmSettings()` on every
+  boot, which would **create** `pm-schedule-settings` — a key with no def. It is
+  gone, and the eight filter-domain config keys are swept by
+  `cleanupDeadConfigKeys()` instead.
+- `config.service.ts` added a role to `qnn-notifications.visibleRoles` whenever
+  a Sidebar save included `quality-notifications`. That is not a sidebar item
+  and that config key has no def, so the block could only resurrect a dead key.
+- `plugins/auth.ts` allow-listed `/api/guest/cleaning-request` as
+  **unauthenticated**. No such route exists; an allow-list entry for a path
+  nobody serves is a hole waiting for someone to mount `/api/guest/*`.
+- `backup.repository.ts` resequenced `deviation_number_seq` and `qnn_seq` after
+  a restore. Neither sequence nor either table exists in this database.
+- PWA manifest said "DigiLog - Filter Management" with a "Filter Operations"
+  shortcut — the name users see when installing the app.
+- `notification-dispatcher.ts` carried three checklist email templates,
+  field maps, labels and summaries; `notification-rules` offered three checklist
+  event types in the rule builder.
+- `notification.service.ts`'s `createNotification` took a hand-kept union that
+  had drifted **both** ways — it listed three `BLOCK_CHANGE_*` values never in
+  the enum and omitted seven that are. Replaced with the generated
+  `NotificationType`, which cannot drift.
+
+**Tests repointed rather than deleted where only the example died.** The audit
+template actor-placeholder check became a property over the whole registry;
+`audit-helpers` gained a registry-wide guard that no template leaves a literal
+`{token}` for an inspector; eight fixtures using permission constants that no
+longer exist (`ASSET_VIEW`, `FILTER_OPERATE`, `CHECKLIST_SUBMIT`, …) now name
+live ones. One **vacuous** test was found and fixed:
+`sidebar-visibility.test.ts` asserted `isSidebarItemVisible('report-reviews', …)`
+is true — but `report-reviews` is not a sidebar item, and an unknown id has no
+privilege group either, so it passed for the wrong reason. It now targets
+`home` and asserts the premise before the property.
+
+Counts re-derived: audit actions 116 → 93, audit templates 151 → 87, template
+categories 14 → 7, export surfaces 10 → 1, report defs 9 → 1. Unchanged:
+34 models, 13 enums, 42 permissions, 46 reauth actions, 23 API modules,
+25 config defs, 24 config pages, 48 routes.
+
+Verified: `tsc --noEmit` clean on api and web; `vite build` clean; api 1351,
+web 623, shared 238, queue 10, integration 2 skipped (by design) — zero
+failures. Restore point: tag `pre-filter-domain-strip`.
+
+**Known leftover:** `apps/web/src/lib/datetime-input.ts` is now orphaned — its
+only callers were the deleted filter and PM pages. It still has its own test
+file. Left in place because it is a generic date helper, not filter content.
+
 ## [Unreleased] - Role Assignments page removed (2026-08-19)
 
 `/config/role-assignments` and its Configuration card are gone. It was dead in

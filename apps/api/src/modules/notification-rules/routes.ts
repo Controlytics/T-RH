@@ -16,9 +16,6 @@ export const EVENT_TYPE_META: Record<string, { label: string; module: string; va
   USER_LOGIN:           { label: 'User Login',            module: 'users',      variables: ['username', 'fullName', 'ipAddress', 'timestamp'] },
   USER_CREATED:         { label: 'User Created',          module: 'users',      variables: ['username', 'fullName', 'role', 'createdBy', 'timestamp'] },
   USER_LOCKED:          { label: 'User Locked',           module: 'users',      variables: ['username', 'fullName', 'reason', 'timestamp'] },
-  CHECKLIST_SUBMITTED:  { label: 'Checklist Submitted',   module: 'checklists', variables: ['checklistName', 'submittedBy', 'timestamp'] },
-  CHECKLIST_APPROVED:   { label: 'Checklist Approved',    module: 'checklists', variables: ['checklistName', 'approvedBy', 'timestamp'] },
-  CHECKLIST_REJECTED:   { label: 'Checklist Rejected',    module: 'checklists', variables: ['checklistName', 'rejectedBy', 'reason', 'timestamp'] },
   SYSTEM_ERROR:         { label: 'System Error',          module: 'system',     variables: ['errorType', 'errorMessage', 'timestamp'] },
   // Project C4. The variable lists are held against alarms/notify.ts by a test — a
   // variable promised here but not produced there renders as an empty cell in the email.

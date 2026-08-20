@@ -44,7 +44,6 @@ export const AUDIT_ACTIONS = {
   APPROVAL_REQUESTED: 'APPROVAL_REQUESTED',
   APPROVAL_GRANTED: 'APPROVAL_GRANTED',
   APPROVAL_REJECTED: 'APPROVAL_REJECTED',
-  // Cleaning stage interlock — QA approve/reject signature (2026-06-12)
   STAGE_APPROVAL_APPROVED: 'STAGE_APPROVAL_APPROVED',
   STAGE_APPROVAL_REJECTED: 'STAGE_APPROVAL_REJECTED',
   // Closed WITHOUT a decision — the filter left the gate before the approver acted,

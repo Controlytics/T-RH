@@ -7,12 +7,12 @@ describe('apiUrl', () => {
   beforeEach(() => { localStorage.clear(); delete (window as any).__API_BASE__; });
 
   it('is a no-op on the desktop browser (same-origin, base "")', () => {
-    expect(apiUrl('/api/pm-schedules/upload')).toBe('/api/pm-schedules/upload');
+    expect(apiUrl('/api/instruments/bulk')).toBe('/api/instruments/bulk');
   });
 
   it('prefixes the configured server address (the Capacitor APK case)', () => {
     localStorage.setItem('digilog.serverUrl', 'https://192.168.1.55:3000');
-    expect(apiUrl('/api/pm-schedules/upload')).toBe('https://192.168.1.55:3000/api/pm-schedules/upload');
+    expect(apiUrl('/api/instruments/bulk')).toBe('https://192.168.1.55:3000/api/instruments/bulk');
   });
 
   it('picks up a base set after module load (no cached read)', () => {

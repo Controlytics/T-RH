@@ -141,7 +141,7 @@ class ApiClient {
   // path uses HttpURLConnection which defaults Content-Type to
   // `application/x-www-form-urlencoded` for any non-GET request when the FE
   // didn't set one. Fastify has no parser for that media type and replies 415
-  // "Unsupported Media Type" — which surfaced on the tablet as RFID Remove
+  // "Unsupported Media Type" — which surfaced as a failed Remove
   // failing with "Unsupported Media Type". Sending an empty JSON body forces
   // Fastify's JSON parser to handle it; routes that don't read req.body see
   // an empty object and ignore it.

@@ -31,7 +31,7 @@ export default async function setup(): Promise<void> {
         displayName: 'Viewer',
         description: 'View-only access (test fixture)',
         hierarchyLevel: 1,
-        permissions: ['AUDIT_READ', 'ASSET_VIEW', 'ASSET_READ', 'ALARM_VIEW', 'DASHBOARD_VIEW'],
+        permissions: ['AUDIT_READ', 'INSTRUMENT_READ', 'ALARM_READ', 'DASHBOARD_VIEW'],
         color: 'bg-gradient-to-r from-slate-400 to-slate-500',
         isSystem: true,
       },

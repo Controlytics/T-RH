@@ -14,7 +14,7 @@ import { PERMISSION_TREE, resolveNodePermissions } from '@digilog/shared';
  * Rules (unchanged): empty `userPerms` → false; an item with no tree group OR an empty
  * `visibilityPrivilegeIds` → visible (e.g. dashboard, system-health, report-reviews);
  * otherwise visible iff the user holds at least one permission of at least one visibility
- * privilege. SUPER_ADMIN bypass, the `config.sidebarItems` override, and the qnn server
+ * privilege. SUPER_ADMIN bypass, the `config.sidebarItems` override, and the server
  * flag are handled by the caller (sidebar.tsx), not here.
  */
 export function isSidebarItemVisible(itemId: string, userPerms: string[]): boolean {

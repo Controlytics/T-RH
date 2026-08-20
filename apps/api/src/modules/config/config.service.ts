@@ -81,9 +81,7 @@ export const configService = {
     // the server-side enforceReauth() can verify it. Pre-fix that field
     // survived the schema parse (configs use additionalProperties: true)
     // and got persisted into system_config.config_value as plaintext — a
-    // /api/config/cleaning-profile-assignment GET as any CONFIG_READ user
     // would then echo the SUPER_ADMIN's password back. Found in the
-    // 5/25 cleaning-profile-assignment update audit.
     const sanitized: Record<string, any> = {};
     if (data && typeof data === 'object') {
       for (const k of Object.keys(data)) {
@@ -216,33 +214,6 @@ export const configService = {
       // permissions for 5s; invalidate so the new config takes effect on the
       // very next request rather than waiting up to 5s.
       invalidateRolePermsCache(role);
-    }
-
-    // Link the Quality Notifications (QNN) report. Unlike the other reports it
-    // has NO feature permission — visibility is governed by its own config
-    // `qnn-notifications.visibleRoles`, which ALSO gates the backend QNN data
-    // route (canSeeQnn). So granting a permission can't reveal it; the role must
-    // be in that list. When a Sidebar save enables the QNN report for a role,
-    // add the role to visibleRoles so the report (and its data) are reachable —
-    // matching the sidebar↔permission link for every other report. Additive:
-    // disabling the menu hides it via the allow-list but does not remove the
-    // role here (mirrors the no-revoke permission behaviour above).
-    if (data.sidebarItems !== undefined && role !== 'SUPER_ADMIN') {
-      const effectiveSidebar = data.sidebarItems ?? [];
-      if (effectiveSidebar.includes('quality-notifications')) {
-        const row = await configRepository.getSystemConfig('qnn-notifications');
-        const val = (row?.configValue as Record<string, unknown> | null) ?? {};
-        const roles = Array.isArray(val.visibleRoles) ? (val.visibleRoles as string[]) : ['ADMIN'];
-        if (!roles.includes(role)) {
-          await configRepository.upsertSystemConfig(
-            'qnn-notifications',
-            { ...val, visibleRoles: [...roles, role] },
-            (row?.configType as string) ?? 'notification',
-            row?.requiresReauth ?? false,
-            ctx.userId,
-          );
-        }
-      }
     }
 
     await auditLog({

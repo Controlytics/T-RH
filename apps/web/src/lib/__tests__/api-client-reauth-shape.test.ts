@@ -68,7 +68,7 @@ describe('D6 — api-client REAUTH error shape contract', () => {
       json: async () => ({
         error: 'REAUTH_REQUIRED',
         message: 'Re-authentication required',
-        details: { action: 'START_CLEANING_CYCLE' },
+        details: { action: 'MANAGE_ALARM_RULE' },
       }),
     });
 

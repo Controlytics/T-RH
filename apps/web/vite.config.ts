@@ -37,9 +37,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png'],
       manifest: {
-        name: 'DigiLog - Filter Management',
+        name: 'DigiLog - 21 CFR Part 11 Compliance',
         short_name: 'DigiLog',
-        description: 'Digital Filter Management System - 21 CFR Part 11 Compliant',
+        description: '21 CFR Part 11 compliant administration and instrument monitoring',
         theme_color: '#0891b2',
         background_color: '#f8fafc',
         display: 'standalone',
@@ -54,7 +54,7 @@ export default defineConfig({
         ],
         shortcuts: [
           {
-            name: 'Filter Operations',
+            name: 'Instruments',
             short_name: 'Operations',
             url: '/m',
             icons: [{ src: '/pwa-192x192.png', sizes: '192x192' }],

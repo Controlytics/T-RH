@@ -66,7 +66,7 @@ describe('stripHtml', () => {
   });
 
   it('leaves plain text untouched', () => {
-    expect(stripHtml('AHU-01 filter, set B')).toBe('AHU-01 filter, set B');
+    expect(stripHtml('PROBE-01 sensor, bay B')).toBe('PROBE-01 sensor, bay B');
   });
 
   it('leaves an empty string empty', () => {

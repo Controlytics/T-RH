@@ -150,14 +150,14 @@ describe('configService', () => {
     it('grants a sidebar item\'s primary permission when the item is enabled (sidebar-only save)', async () => {
       mockConfigRepo.findRoleConfig.mockResolvedValue(null);
       mockConfigRepo.upsertRoleConfig.mockResolvedValue({ role: 'QA', sidebarItems: ['users'], homeWidgets: [], permissions: {} });
-      mockPrisma.role.findFirst.mockResolvedValue({ permissions: ['ASSET_READ'] }); // pre-existing unrelated perm
+      mockPrisma.role.findFirst.mockResolvedValue({ permissions: ['AUDIT_READ'] }); // pre-existing unrelated perm
 
       await configService.updateRoleConfig('QA', { sidebarItems: ['users'] }, ctx as any);
 
       // role.permissions must now include the primary perms for 'users' (USER_CREATE/USER_READ)
-      // while preserving the unrelated ASSET_READ.
+      // while preserving the unrelated AUDIT_READ.
       const written = mockPrisma.role.updateMany.mock.calls.at(-1)?.[0].data.permissions as string[];
-      expect(written).toEqual(expect.arrayContaining(['ASSET_READ', 'USER_CREATE', 'USER_READ']));
+      expect(written).toEqual(expect.arrayContaining(['AUDIT_READ', 'USER_CREATE', 'USER_READ']));
     });
 
     it('sidebar-only save is additive — never drops existing permissions', async () => {
