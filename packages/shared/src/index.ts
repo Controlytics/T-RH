@@ -82,30 +82,6 @@ export {
 } from './types/attribute-access.js';
 export type { AttributeAccess, AttributeAccessMode } from './types/attribute-access.js';
 
-export type {
-  TapeQuestion,
-  TapeStage,
-  TapeConnection,
-  TapeInstrument,
-  TapeCycle,
-  TapePinnedProfile,
-  TapePinnedEquipmentGroup,
-  TapeChecklistProfile,
-  TapeChecklistEvent,
-  TapeInput,
-  ActionKind,
-  OperatingRangeMap,
-  AdvanceToStageAction,
-  SubmitChecklistAction,
-  SubmitDryerReadingsAction,
-  SetDryerDurationAction,
-  BypassStageAction,
-  TerminateCycleAction,
-  CompleteCycleAction,
-  Action,
-  ActionTape,
-  StaleTapeError,
-} from './types/action-tape.js';
 
 // Schemas
 export { loginSchema, passwordChangeSchema } from './schemas/auth.js';
@@ -129,5 +105,3 @@ export type { ActionReauthConfig } from './schemas/action-reauth.js';
 export { TRANSPORTS, TOKEN_PREFIX_LEN, createInstrumentSchema, updateInstrumentSchema, instrumentQuerySchema, bulkCreateInstrumentsSchema, setInstrumentTokenSchema, setInstrumentAttributeSchema, updateInstrumentAttributeSchema } from './schemas/instruments.js';
 export type { Transport, CreateInstrumentInput, UpdateInstrumentInput, InstrumentQueryInput, BulkCreateInstrumentsInput, SetInstrumentTokenInput, SetInstrumentAttributeInput, UpdateInstrumentAttributeInput } from './schemas/instruments.js';
 
-// Pipeline executor (Phase 8.4c scaffold; 8.5 fills in guard bodies).
-export * from './pipeline-executor/index.js';

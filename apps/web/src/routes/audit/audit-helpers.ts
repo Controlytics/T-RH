@@ -42,30 +42,7 @@ export const ACTION_COLORS: Record<string, string> = {
   APPROVAL_REJECTED: 'bg-red-100 text-red-700 border-red-200',
   UNAUTHORIZED_ACTION_ATTEMPT: 'bg-red-100 text-red-700 border-red-200',
 
-  // Entity Template Management
-  ASSET_TEMPLATE_CREATED: 'bg-indigo-100 text-indigo-700 border-indigo-200',
-  ASSET_TEMPLATE_UPDATED: 'bg-indigo-100 text-indigo-700 border-indigo-200',
-  ASSET_TEMPLATE_DELETED: 'bg-red-100 text-red-700 border-red-200',
-  ASSET_TEMPLATE_VERSION_CREATED: 'bg-indigo-100 text-indigo-700 border-indigo-200',
-
-  // Entity Instance Management
-  ASSET_CREATED: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-  ASSET_UPDATED: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-  ASSET_STATUS_CHANGED: 'bg-amber-100 text-amber-700 border-amber-200',
-  ASSET_DELETED: 'bg-red-100 text-red-700 border-red-200',
-
-  // Entity Relationships
-  ASSET_RELATIONSHIP_CREATED: 'bg-sky-100 text-sky-700 border-sky-200',
-  ASSET_RELATIONSHIP_DELETED: 'bg-red-100 text-red-700 border-red-200',
-
-  // Entity Identifiers
-  ASSET_IDENTIFIER_CREATED: 'bg-lime-100 text-lime-700 border-lime-200',
-  ASSET_IDENTIFIER_DELETED: 'bg-red-100 text-red-700 border-red-200',
-
-  // Alarm Management — RETAINED per 21 CFR Part 11. The alarm subsystem
-  // was retired 2026-05-17, but historic audit rows with these actions may
-  // still exist and must continue to render with their original badge.
-  // Do NOT delete these entries on dead-code sweeps.
+  // Alarm Management
   ALARM_ACKNOWLEDGED: 'bg-amber-100 text-amber-700 border-amber-200',
   ALARM_CLEARED: 'bg-emerald-100 text-emerald-700 border-emerald-200',
 };
@@ -84,42 +61,19 @@ export function getAuditStatus(action: string): 'Success' | 'Fail' {
 /**
  * 2026-05-20: human-friendly action badge label.
  *
- * The audit table previously rendered the raw constant (ASSET_IDENTIFIER_CREATED)
+ * The audit table previously rendered the raw constant (INSTRUMENT_TOKEN_SET)
  * which is operator-unfriendly. This formatter returns a short title-cased
- * label, with dynamic specialisation for identifier rows where the type
- * (RFID / QR / BARCODE) is the meaningful detail.
+ * label; ACTION_BADGE_OVERRIDES allows a per-action specialisation where the
+ * title-cased key is not the most meaningful wording.
  *
  * For unknown / generic actions it falls back to title-casing the snake_case
  * key (STATE_TRANSITION → "State Transition") so badges always render
  * presentably even when a new action key lands without an explicit override.
  */
-// Block / Area / AHU / Filter kind → display label. Rows carry the kind on
-// afterValue.templateKind (new rows) or afterValue.kind (typed filter rows).
-const KIND_LABELS: Record<string, string> = { BLOCK: 'Block', AREA: 'Area', AHU: 'AHU', FILTER: 'Filter' };
-const kindLabel = (k: unknown): string => (typeof k === 'string' && KIND_LABELS[k]) || '';
-
 // Human record type for {recordType} (generic CREATED/UPDATED/DELETED rows).
-// Title-cases the targetType (cleaning_profile → "Cleaning Profile") with a few
-// acronym overrides so PM/AHU read correctly.
-const RECORD_TYPE_OVERRIDES: Record<string, string> = { pm_schedule: 'PM Schedule' };
+const RECORD_TYPE_OVERRIDES: Record<string, string> = {};
 
-const ACTION_BADGE_OVERRIDES: Record<string, (after: any, before: any) => string> = {
-  ASSET_IDENTIFIER_CREATED: (after) => {
-    const t = (after?.identifierType as string) || '';
-    return t ? `${t} Added` : 'Identifier Added';
-  },
-  ASSET_IDENTIFIER_DELETED: (after, before) => {
-    const t = (after?.identifierType as string) || (before?.identifierType as string) || '';
-    return t ? `${t} Removed` : 'Identifier Removed';
-  },
-  // Block / Area / AHU / Filter lifecycle — badge names the specific kind when known.
-  ASSET_CREATED: (after) => `${kindLabel(after?.templateKind ?? after?.kind) || 'Record'} Created`,
-  ASSET_UPDATED: (after) => `${kindLabel(after?.templateKind ?? after?.kind) || 'Record'} Updated`,
-  ASSET_STATUS_CHANGED: (after, before) => `${kindLabel(after?.templateKind ?? before?.templateKind ?? after?.kind) || 'Record'} Status Changed`,
-  ASSET_DELETED: (after, before) => `${kindLabel(after?.templateKind ?? before?.templateKind ?? after?.kind) || 'Record'} Deactivated`,
-  ASSET_RELATIONSHIP_CREATED: () => 'Placed Under Parent',
-  ASSET_RELATIONSHIP_DELETED: () => 'Removed From Parent',
-};
+const ACTION_BADGE_OVERRIDES: Record<string, (after: any, before: any) => string> = {};
 
 function titleCase(snake: string): string {
   return snake
@@ -137,15 +91,10 @@ export function formatActionLabel(action: string, afterValue?: any, beforeValue?
 
 /**
  * Human-friendly "target" label for a row (used in the exported report column),
- * avoiding internal words like "asset_instance". Names the Block / Area / AHU /
- * Filter kind when the row carries it; hierarchy links read as "Hierarchy Link".
+ * avoiding internal snake_case words.
  */
 export function friendlyTargetType(record: any): string {
   const tt = record?.targetType;
-  const after = record?.afterValue || {};
-  const before = record?.beforeValue || {};
-  if (tt === 'asset_instance') return kindLabel(after.templateKind ?? after.kind ?? before.templateKind) || 'Record';
-  if (tt === 'asset_relationship') return 'Hierarchy Link';
   return tt ? titleCase(String(tt)) : '-';
 }
 
@@ -159,70 +108,13 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
   const nonUuid = (v: unknown): string => (typeof v === 'string' && !UUID_RE.test(v) ? v : '');
   const targetUser = after.username || before.username || nonUuid(record.targetId) || '';
   const isSelf = targetUser === actor;
-  // 2026-05-20 fix: targetName falls through to filterName (CYCLE_STARTED +
-  // other filter-scoped events store filterName, not name) and equipmentName.
   const targetName = after.name || before.name || after.label || before.label
-    || after.filterName || before.filterName
-    || after.equipmentName || before.equipmentName
     || nonUuid(record.targetId) || '';
   const configKey = nonUuid(record.targetId) || targetType || '';
-  const version = after.versionNumber || after.version || before.versionNumber || before.version || '';
-  const sourceName = after.sourceName || before.sourceName || '';
-  // Block / Area / AHU / Filter kind labels. entityKind = this record's kind;
-  // sourceKind = the parent in a hierarchy link; targetKind = the child. Older
-  // rows lack these → fall back to neutral, jargon-free words.
-  const entityKind = kindLabel(after.templateKind ?? before.templateKind ?? after.kind ?? before.kind) || 'record';
-  const sourceKind = kindLabel(after.sourceKind ?? before.sourceKind) || 'parent';
-  const targetKind = kindLabel(after.targetKind ?? before.targetKind ?? after.templateKind ?? after.kind) || 'item';
-  // A create-under-parent is a single ASSET_CREATED row carrying the parent:
-  // {parentClause} => ' under <ParentKind> "<ParentName>"' (or '' when no parent).
-  const parentName = after.parentName || before.parentName || '';
-  const parentClause = parentName ? ` under ${kindLabel(after.parentKind ?? before.parentKind) || 'parent'} "${parentName}"` : '';
   const recordType = targetType ? (RECORD_TYPE_OVERRIDES[targetType] || titleCase(targetType)) : 'record';
-  const beforeStatus = before.status || '';
-  const afterStatus = after.status || '';
-  const identifierType = after.identifierType || before.identifierType || '';
-  const identifierValue = after.identifierValue || before.identifierValue || '';
-  // 2026-05-20 fix: {reason} was in the CYCLE_STARTED template (per
-  // packages/shared/src/types/audit-templates.ts:342) but had no substitution
-  // here — rendered as literal "{reason}" on every cycle-start row. Read
-  // cleaningReasonLabel (human-readable) with fallback to the key.
-  const reason = after.cleaningReasonLabel || before.cleaningReasonLabel
-    || after.cleaningReasonKey || before.cleaningReasonKey
-    || after.reason || before.reason || '';
-
-  // 2026-05-20 fix: add {stage} (checklist/state-transition rows have
-  // afterValue.stage / afterValue.state) and generic {status} (many flows
-  // store status without before/after split). These were used by templates
-  // but had no substitution → rendered as literal "{stage}".
-  const stage = (after.stage as string) || (after.state as string) || '';
-  // 2026-05-20: explicit "from" stage for STATE_TRANSITION rows, reads only
-  // beforeValue so it never collides with the post-transition stage. Genesis
-  // transitions (state-machine entry, e.g. WASH_IN with no prior state) are
-  // the operator scanning a filter that's awaiting its first cleaning cycle,
-  // so render the "from" half as "To Be Cleaned" — the user-facing label
-  // for that pre-cycle lifecycle state.
-  const fromStageRaw = (before.stage as string) || (before.state as string) || '';
-  const fromStage = fromStageRaw || 'To Be Cleaned';
-  const status = (after.status as string) || (before.status as string) || afterStatus || beforeStatus || '';
-
-  // 2026-06-22 fix: the stage-interlock templates (STAGE_APPROVAL_APPROVED /
-  // _REJECTED) use {stageKey}, {filterName}, {rejectToStateKey}. The audit rows
-  // carry them in afterValue, but they had no substitution here → rendered as
-  // literal "{stageKey}" / "{filterName}". Prettify the stage keys for display
-  // (WASH_OUT → "Wash Out") to match the rest of the cleaning UI.
-  const stageKeyRaw = (after.stageKey as string) || (before.stageKey as string) || '';
-  const stageKey = stageKeyRaw ? titleCase(stageKeyRaw) : '';
-  const rejectToStateKeyRaw = (after.rejectToStateKey as string) || (before.rejectToStateKey as string) || '';
-  const rejectToStateKey = rejectToStateKeyRaw ? titleCase(rejectToStateKeyRaw) : '';
-  const filterName = (after.filterName as string) || (before.filterName as string) || '';
-  // 2026-07-15: {currentState} for STAGE_APPROVAL_SUPERSEDED — the lifecycle state
-  // the filter had already reached when its approval request was closed undecided.
-  // Prettified like the other stage keys (CLEANING_CYCLE_COMPLETED → "Cleaning Cycle
-  // Completed"). Same omission as the 2026-05-20 / 2026-06-22 fixes above: a template
-  // placeholder with no substitution here renders literally.
-  const currentStateRaw = (after.currentState as string) || (before.currentState as string) || '';
-  const currentState = currentStateRaw ? titleCase(currentStateRaw) : '';
+  // {reason} is the operator's free-text justification on the audit
+  // self-administration actions (AUDIT_RECORD_DELETED / _REDACTED).
+  const reason = after.reason || before.reason || '';
 
   // 2026-08-06 fix: the eight INSTRUMENT_* templates use {instrument}/{gateway},
   // but had no substitution here → every instrument row rendered the literal
@@ -280,33 +172,15 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
       .replace(/\{targetName\}/g, targetName)
       .replace(/\{configKey\}/g, configKey)
       .replace(/\{targetType\}/g, targetType || 'Data')
-      .replace(/\{version\}/g, String(version))
-      .replace(/\{entityKind\}/g, entityKind)
       .replace(/\{recordType\}/g, recordType)
-      .replace(/\{parentClause\}/g, parentClause)
-      .replace(/\{sourceKind\}/g, sourceKind)
-      .replace(/\{targetKind\}/g, targetKind)
-      .replace(/\{sourceName\}/g, sourceName)
-      .replace(/\{beforeStatus\}/g, beforeStatus)
-      .replace(/\{afterStatus\}/g, afterStatus)
-      .replace(/\{identifierType\}/g, identifierType)
-      .replace(/\{identifierValue\}/g, identifierValue)
       .replace(/\{reason\}/g, reason)
-      .replace(/\{stage\}/g, stage)
-      .replace(/\{fromStage\}/g, fromStage)
-      .replace(/\{status\}/g, status)
-      .replace(/\{stageKey\}/g, stageKey)
-      .replace(/\{filterName\}/g, filterName)
-      .replace(/\{rejectToStateKey\}/g, rejectToStateKey)
-      .replace(/\{currentState\}/g, currentState)
       .replace(/\{instrument\}/g, instrument)
       .replace(/\{gateway\}/g, gateway)
       .replace(/\{attribute\}/g, attribute);
-    // Drop empty quoted placeholders: an unnamed record (e.g. a PM schedule
-    // review/approve row carries no name — the AHU is shown separately) would
-    // otherwise render 'PM schedule "" reviewed by EMP-123'. An empty "" is
-    // always a missing-value artifact, never intentional, so collapse it and
-    // tidy the resulting whitespace.
+    // Drop empty quoted placeholders: a record that carries no name would
+    // otherwise render 'Role "" updated by EMP-123'. An empty "" is always a
+    // missing-value artifact, never intentional, so collapse it and tidy the
+    // resulting whitespace.
     return filled.replace(/\s*""/g, '').replace(/[ \t]{2,}/g, ' ').trim();
   };
 

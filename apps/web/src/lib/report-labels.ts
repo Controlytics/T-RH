@@ -1,8 +1,7 @@
 /**
  * Report label registry — the single source of truth for every configurable
- * report title, subtitle, and table column header. Consumed by BOTH:
- *   - the /config/report-labels admin page (renders an editor per report), and
- *   - each report page (on-screen table + PDF) via useReportLabels().
+ * report title, subtitle, and table column header. Consumed by each report
+ * page (on-screen table + PDF) via useReportLabels().
  *
  * The admin config (systemConfig key 'report-labels') stores only OVERRIDES;
  * resolveReportLabels() merges them over these defaults, so a blank config means
@@ -62,112 +61,6 @@ export const REPORT_DEFS: ReportDef[] = [
       { key: 'targetType', default: 'Target Type' },
       { key: 'description', default: 'Description' },
       { key: 'ipAddress', default: 'IP Address' },
-    ],
-  },
-  {
-    key: 'cleaning-cycles',
-    name: 'Cleaning Cycles',
-    defaultTitle: 'Cleaning Cycles',
-    columns: [
-      { key: 'sNo', default: 'S.No' },
-      { key: 'filter', default: 'Filter' },
-      { key: 'size', default: 'Filter Dimensions' },
-      { key: 'airPressure', default: 'Air Pressure' },
-      { key: 'roWater', default: 'RO Water' },
-      { key: 'washIn', default: 'Wash In' },
-      { key: 'washOut', default: 'Wash Out' },
-      { key: 'washBy', default: 'Wash By' },
-      // 'duration' now = the dryer duration the operator selected at DRY_IN
-      // (cycle.dryerDurationMinutes), NOT the full cycle duration. Header text
-      // is unchanged ("Duration") so admin overrides on this key still apply.
-      { key: 'duration', default: 'Duration' },
-      // 'dryIn' time now = when the operator submitted the dryer-duration
-      // record (cycle.dryerStartedAt), not the temperature-submission time.
-      { key: 'dryIn', default: 'Dry In' },
-      { key: 'dryerTemp', default: 'Dryer Temp' },
-      { key: 'dryOut', default: 'Dry Out' },
-      { key: 'status', default: 'Status' },
-    ],
-  },
-  {
-    key: 'manual-status-updates',
-    name: 'Manual Status Updates',
-    defaultTitle: 'Manual Status Updates',
-    columns: [
-      { key: 'sNo', default: 'S.No' },
-      { key: 'filter', default: 'Filter' },
-      { key: 'statusChange', default: 'Status Change' },
-      { key: 'dateTime', default: 'Date & Time' },
-      { key: 'updatedBy', default: 'Updated By' },
-      { key: 'remarks', default: 'Remarks' },
-    ],
-  },
-  {
-    key: 'filter-traceability',
-    name: 'Filter Traceability',
-    defaultTitle: 'Filter Traceability',
-    columns: [
-      { key: 'code', default: 'Code' },
-      { key: 'reason', default: 'Reason' },
-      { key: 'status', default: 'Status' },
-      { key: 'started', default: 'Started' },
-      { key: 'completed', default: 'Completed' },
-      { key: 'seq', default: '#' },
-    ],
-  },
-  {
-    key: 'rfid-track-record',
-    name: 'RFID Track Record',
-    defaultTitle: 'RFID Track Record',
-    columns: [
-      { key: 'sNo', default: 'S.No' },
-      { key: 'dateTime', default: 'Date / Time' },
-      { key: 'event', default: 'Event' },
-      { key: 'rfid', default: 'RFID Number' },
-      { key: 'filter', default: 'Filter' },
-      { key: 'ahu', default: 'AHU' },
-      { key: 'user', default: 'User' },
-      { key: 'reason', default: 'Reason' },
-    ],
-  },
-  {
-    key: 'replacement-list',
-    name: 'Replacement List',
-    defaultTitle: 'Filter Replacement List',
-    columns: [
-      { key: 'sNo', default: 'S.No' },
-      { key: 'oldFilter', default: 'Old Filter ID' },
-      { key: 'newFilter', default: 'New Filter ID' },
-      { key: 'replacedOn', default: 'Replaced On' },
-      { key: 'performedBy', default: 'Performed By' },
-      { key: 'remarks', default: 'Remarks' },
-    ],
-  },
-  {
-    key: 'retirement-list',
-    name: 'Retirement List',
-    defaultTitle: 'Filter Retirement List',
-    columns: [
-      { key: 'sNo', default: 'S.No' },
-      { key: 'filter', default: 'Filter' },
-      { key: 'set', default: 'Set' },
-      { key: 'retiredOn', default: 'Retired On' },
-      { key: 'retiredBy', default: 'Retired By' },
-      { key: 'remarks', default: 'Remarks' },
-    ],
-  },
-  {
-    key: 'quality-notifications',
-    name: 'Quality Notifications (QNN)',
-    defaultTitle: 'Quality Notifications',
-    columns: [
-      { key: 'sNo', default: 'S.No' },
-      { key: 'qnn', default: 'QNN' },
-      { key: 'action', default: 'Action' },
-      { key: 'ahu', default: 'AHU' },
-      { key: 'message', default: 'Message' },
-      { key: 'by', default: 'By' },
-      { key: 'dateTime', default: 'Date / Time' },
     ],
   },
 ];

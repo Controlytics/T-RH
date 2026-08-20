@@ -10,16 +10,7 @@ export interface ExportSurface {
 }
 
 export const EXPORT_SURFACES: ExportSurface[] = [
-  { key: 'filters', label: 'Filters' },
   { key: 'audit', label: 'Audit Trail' },
-  { key: 'cleaning-record', label: 'Filter Cleaning Record' },
-  { key: 'cleaning-detail', label: 'Cleaning Cycle Detail' },
-  { key: 'lifecycle', label: 'Cleaning Lifecycle Report' },
-  { key: 'deviations', label: 'Deviations' },
-  { key: 'replacement', label: 'Replacement Schedule' },
-  { key: 'rfid-track-record', label: 'RFID Track Record' },
-  { key: 'pm', label: 'PM Schedules' },
-  { key: 'qnn', label: 'Quality Notifications (QNN)' },
 ];
 
 /** Resolve a stored format string into PDF/Excel button visibility.

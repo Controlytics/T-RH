@@ -108,7 +108,7 @@ export interface ReportConfig {
   subtitle?: string;
   orientation?: 'portrait' | 'landscape';
   formatDateTime: (d: string) => string;
-  /** Stable report key (see lib/report-types.ts) used to look up this report's
+  /** Stable report key used to look up this report's
    *  configured Printed/Reviewed/Approved By roles. Omit to keep just the
    *  default "Printed By: <generator>" footer. */
   reportKey?: string;

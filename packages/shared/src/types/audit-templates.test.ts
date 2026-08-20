@@ -13,8 +13,8 @@ import {
 describe('AUDIT_TEMPLATE_CATEGORIES', () => {
   // Mirror src/types/audit-templates.ts. Update both when adding a new
   // top-level audit category.
-  it('has 14 categories', () => {
-    expect(AUDIT_TEMPLATE_CATEGORIES).toHaveLength(14);
+  it('has 7 categories', () => {
+    expect(AUDIT_TEMPLATE_CATEGORIES).toHaveLength(7);
   });
 
   it('contains all expected categories', () => {
@@ -25,13 +25,6 @@ describe('AUDIT_TEMPLATE_CATEGORIES', () => {
       'Role Management',
       'Backup',
       'Data & Approvals',
-      'Hierarchy & Filters',
-      'Filter Management',
-      'Filter Operations',
-      'Cleaning Profiles',
-      'Filter Profiles',
-      'Equipment Groups',
-      'PM Schedules',
       'Instruments',
     ];
     for (const cat of expected) {
@@ -99,37 +92,6 @@ describe('AUDIT_TEMPLATE_DEFAULTS', () => {
     }
   });
 
-  it('contains Hierarchy & Filters actions', () => {
-    const entityActions = [
-      'ASSET_TEMPLATE_CREATED', 'ASSET_TEMPLATE_UPDATED', 'ASSET_TEMPLATE_DELETED', 'ASSET_TEMPLATE_VERSION_CREATED',
-      'ASSET_CREATED', 'ASSET_UPDATED', 'ASSET_STATUS_CHANGED', 'ASSET_DELETED',
-      'ASSET_RELATIONSHIP_CREATED', 'ASSET_RELATIONSHIP_DELETED',
-    ];
-    for (const action of entityActions) {
-      expect(AUDIT_TEMPLATE_DEFAULTS[action], `missing ${action}`).toBeDefined();
-      expect(AUDIT_TEMPLATE_DEFAULTS[action].category).toBe('Hierarchy & Filters');
-    }
-    // The Block/Area/AHU/Filter create + link templates name the kind via a
-    // placeholder ({entityKind}/{sourceKind}/{targetKind}) and use plain wording.
-    // (Word-ban on the RENDERED output is verified in the web audit-helpers test —
-    // the placeholder name {entityKind} itself contains "entity" by construction.)
-    expect(AUDIT_TEMPLATE_DEFAULTS['ASSET_CREATED'].template).toContain('{entityKind}');
-    expect(AUDIT_TEMPLATE_DEFAULTS['ASSET_CREATED'].template).not.toContain('from template');
-    expect(AUDIT_TEMPLATE_DEFAULTS['ASSET_RELATIONSHIP_CREATED'].template).toContain('placed under');
-    expect(AUDIT_TEMPLATE_DEFAULTS['ASSET_RELATIONSHIP_CREATED'].template).not.toMatch(/linked to/i);
-  });
-
-  it('contains Filter Management actions (identifier assign/remove)', () => {
-    // ASSET_IDENTIFIER_* were recategorized Entity Management → Filter Management
-    // (2026-06-29) so the Display Settings audit-text page surfaces them; the
-    // 'Filter Management' category was added to AUDIT_TEMPLATE_CATEGORIES then.
-    const filterActions = ['ASSET_IDENTIFIER_CREATED', 'ASSET_IDENTIFIER_DELETED'];
-    for (const action of filterActions) {
-      expect(AUDIT_TEMPLATE_DEFAULTS[action], `missing ${action}`).toBeDefined();
-      expect(AUDIT_TEMPLATE_DEFAULTS[action].category).toBe('Filter Management');
-    }
-  });
-
   it('contains Role Management actions', () => {
     const roleActions = ['ROLE_CREATED', 'ROLE_UPDATED', 'ROLE_DELETED'];
     for (const action of roleActions) {
@@ -143,19 +105,12 @@ describe('AUDIT_TEMPLATE_DEFAULTS', () => {
     expect(AUDIT_TEMPLATE_DEFAULTS['BACKUP_RESTORED']).toBeDefined();
   });
 
-  it('entity template actions include actor placeholder', () => {
-    const templateActions = ['ASSET_TEMPLATE_CREATED', 'ASSET_TEMPLATE_UPDATED', 'ASSET_TEMPLATE_DELETED'];
-    for (const action of templateActions) {
-      expect(AUDIT_TEMPLATE_DEFAULTS[action].placeholders).toContain('actor');
+  it('every template naming an operator carries the actor placeholder', () => {
+    for (const [action, def] of Object.entries(AUDIT_TEMPLATE_DEFAULTS)) {
+      if (def.template.includes('{actor}')) {
+        expect(def.placeholders, `${action} renders {actor} but omits it`).toContain('actor');
+      }
     }
-  });
-
-  it('ASSET_STATUS_CHANGED includes before/after status placeholders', () => {
-    const def = AUDIT_TEMPLATE_DEFAULTS['ASSET_STATUS_CHANGED'];
-    expect(def.placeholders).toContain('beforeStatus');
-    expect(def.placeholders).toContain('afterStatus');
-    expect(def.template).toContain('{beforeStatus}');
-    expect(def.template).toContain('{afterStatus}');
   });
 });
 

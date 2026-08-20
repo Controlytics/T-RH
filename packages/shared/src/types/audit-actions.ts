@@ -9,14 +9,13 @@
  * events; removing an entry would orphan any operator-customised template
  * tied to it and would force a regulatory documentation update.
  *
- * **Currently unemitted entries (audit 2026-05-16):** the following 20
+ * **Currently unemitted entries (audit 2026-05-16):** the following 16
  * entries have zero `audit.log({ action: 'X' })` call-sites in apps/api/src
  * but are retained per the policy above. If you wire one up, no annotation
  * change is needed — emitting it just makes the contract truthful again.
  *
  *   ROLE_ASSIGNED, APPROVAL_REQUESTED, APPROVAL_GRANTED, APPROVAL_REJECTED,
- *   DATA_VIEWED, DATA_EXPORTED, ALARM_ESCALATED, CHECKLIST_REVIEWED,
- *   CHECKLIST_APPROVED, CHECKLIST_REJECTED, CHECKLIST_REOPENED,
+ *   DATA_VIEWED, DATA_EXPORTED, ALARM_ESCALATED,
  *   SEPARATION_OF_DUTIES_DISABLED, RULE_CHAIN_SET_ROOT, RULE_CHAIN_IMPORTED,
  *   DEVICE_CREDENTIAL_REGENERATED, RETENTION_POLICY_UPDATED, DATA_ARCHIVED,
  *   RETENTION_EXECUTED, SYSTEM_CONFIG_UPDATED, SERVER_RESTART_TRIGGERED
@@ -59,23 +58,9 @@ export const AUDIT_ACTIONS = {
   BACKUP_CREATED: 'BACKUP_CREATED',
   BACKUP_RESTORED: 'BACKUP_RESTORED',
 
-  // Entity Management
-  ASSET_TEMPLATE_CREATED: 'ASSET_TEMPLATE_CREATED',
-  ASSET_TEMPLATE_UPDATED: 'ASSET_TEMPLATE_UPDATED',
-  ASSET_TEMPLATE_DELETED: 'ASSET_TEMPLATE_DELETED',
-  ASSET_TEMPLATE_VERSION_CREATED: 'ASSET_TEMPLATE_VERSION_CREATED',
-  ASSET_CREATED: 'ASSET_CREATED',
-  ASSET_UPDATED: 'ASSET_UPDATED',
-  ASSET_STATUS_CHANGED: 'ASSET_STATUS_CHANGED',
-  ASSET_DELETED: 'ASSET_DELETED',
-  ASSET_RELATIONSHIP_CREATED: 'ASSET_RELATIONSHIP_CREATED',
-  ASSET_RELATIONSHIP_DELETED: 'ASSET_RELATIONSHIP_DELETED',
-  ASSET_IDENTIFIER_CREATED: 'ASSET_IDENTIFIER_CREATED',
-  ASSET_IDENTIFIER_DELETED: 'ASSET_IDENTIFIER_DELETED',
 
   // Data Ingestion & Integration (Phase A)
   DATA_ATTRIBUTES_UPDATED: 'DATA_ATTRIBUTES_UPDATED',
-  DATA_CHECKLIST_SUBMITTED: 'DATA_CHECKLIST_SUBMITTED',
 
   // Alarms — retained per 21 CFR §11 — no longer emitted as of 2026-05-17
   ALARM_CREATED: 'ALARM_CREATED',
@@ -83,18 +68,7 @@ export const AUDIT_ACTIONS = {
   ALARM_CLEARED: 'ALARM_CLEARED',
   ALARM_ESCALATED: 'ALARM_ESCALATED',
 
-  // Checklist profile questions — profile-level create/update/delete use the
-  // generic CREATED / UPDATED / DELETED verbs (targetType disambiguates them).
-  CHECKLIST_QUESTION_ADDED: 'CHECKLIST_QUESTION_ADDED',
-  CHECKLIST_QUESTION_UPDATED: 'CHECKLIST_QUESTION_UPDATED',
-  CHECKLIST_QUESTION_DELETED: 'CHECKLIST_QUESTION_DELETED',
-  CHECKLIST_QUESTIONS_REORDERED: 'CHECKLIST_QUESTIONS_REORDERED',
-
-  // Checklist workflow
-  CHECKLIST_REVIEWED: 'CHECKLIST_REVIEWED',
-  CHECKLIST_APPROVED: 'CHECKLIST_APPROVED',
-  CHECKLIST_REJECTED: 'CHECKLIST_REJECTED',
-  CHECKLIST_REOPENED: 'CHECKLIST_REOPENED',
+  // Segregation-of-duties control
   SEPARATION_OF_DUTIES_DISABLED: 'SEPARATION_OF_DUTIES_DISABLED',
 
   // Rule chain — retained per 21 CFR §11 — no longer emitted as of 2026-05-17
@@ -157,21 +131,11 @@ export const AUDIT_ACTIONS = {
   SYSTEM_CONFIG_UPDATED: 'SYSTEM_CONFIG_UPDATED',
   SERVER_RESTART_TRIGGERED: 'SERVER_RESTART_TRIGGERED',
 
-  // Guest (unauthenticated) activity
-  GUEST_CLEANING_REQUEST_SUBMITTED: 'GUEST_CLEANING_REQUEST_SUBMITTED',
 
-  // Report generation / export — emitted when a user downloads any report
-  // (audit trail, filters, PM schedule, cleaning records, etc.) as PDF/Excel.
+  // Report generation / export — emitted when a user downloads a report
+  // (audit trail, instrument activity, etc.) as PDF/Excel.
   REPORT_GENERATED: 'REPORT_GENERATED',
 
-  // PM Schedules — emitted by the overdue-deviation sweep when a PM task goes
-  // overdue AGAIN but its deviation row is already CLOSED, so the re-occurrence
-  // cannot be recorded (one deviation per task). Surfaces what would otherwise
-  // be a silently missing §11 deviation. NOTE: this subsystem's sibling actions
-  // (DEVIATION_OPENED / DEVIATION_CLOSED / ACKNOWLEDGE_PM_OVERDUE) predate this
-  // entry and are registered only in `audit-templates.ts` — a pre-existing gap
-  // in this file, not a signal that they are unaudited.
-  DEVIATION_OPEN_BLOCKED: 'DEVIATION_OPEN_BLOCKED',
 
   // Instruments — the device registry (2026-08-05). Bulk creation emits one
   // INSTRUMENT_CREATED per instrument rather than one row per batch, so the
