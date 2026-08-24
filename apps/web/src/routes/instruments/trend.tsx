@@ -23,9 +23,36 @@ import {
 } from '@/routes/alarms/alarm-display';
 import { useTrendPeriod, useInstrumentTrend, TREND_PRESETS, TABLE_PAGE_SIZE, type TelemetryLongRow } from './use-trend-data';
 import { toChartSeries, toTableRows, type TableRow as PivotRow } from './trend-series';
-import { ChartIntervalNote } from './chart-interval-note';
+import { ChartIntervalNote, intervalLabel } from './chart-interval-note';
 import { useExtraKeys } from './use-extra-keys';
-import { renderTrendReport, renderTimeSeriesReport, renderAlarmsReport, type ReportInstrument } from './trend-report';
+import {
+  renderTrendReport, renderTimeSeriesReport, renderAlarmsReport,
+  type ReportInstrument, type TrendChartSection,
+} from './trend-report';
+import { renderChartToPng } from './chart-image';
+
+/**
+ * Which of the two administered slots a trend download covers.
+ *
+ * Per-slot, not one report for both, because the reportType string this maps to
+ * is what the §11 audit row records: three different downloads all logged as
+ * "Instrument Trend" leaves an audit trail that cannot say which report a given
+ * row was. `both` is kept as well — an operator signing off on a period usually
+ * wants one document covering it, and dropping it would have made that two
+ * signatures for one decision.
+ */
+type TrendSlot = 'temperature' | 'humidity' | 'both';
+
+const TREND_SLOT_LABEL: Record<TrendSlot, string> = {
+  temperature: 'Temperature',
+  humidity: 'Humidity',
+  both: 'Temperature & Humidity',
+};
+
+type PendingReport =
+  | { kind: 'trend'; slot: TrendSlot }
+  | { kind: 'timeseries' }
+  | { kind: 'alarms' };
 
 /** Rows this page actually charts/pivots are all numeric — a non-numeric
  *  reading (a raw JSON blob on some other key) has no place on an axis or in
@@ -304,7 +331,7 @@ export function InstrumentTrend() {
   // for reauth itself; `runDownload` wraps the whole fetch+build+log+save in
   // `reauth.execute('DOWNLOAD_REPORT', …)`, the one reauth pattern this app
   // uses everywhere else.
-  const [pendingReport, setPendingReport] = useState<'trend' | 'timeseries' | 'alarms' | null>(null);
+  const [pendingReport, setPendingReport] = useState<PendingReport | null>(null);
 
   const instrumentInfo = (): ReportInstrument => ({
     code: inst?.code ?? id ?? '',
@@ -339,31 +366,104 @@ export function InstrumentTrend() {
     });
   };
 
+  /**
+   * One slot's picture for the PDF, or a stated reason there isn't one.
+   *
+   * Built from the REPORT's own rows and the page's current chart interval, so
+   * the printed chart is the chart the operator was looking at — same limits off
+   * the overview row, same bucket, same component (`chart-image.ts` mounts
+   * `TimeSeriesChart` itself rather than re-drawing it).
+   */
+  const chartSectionFor = async (
+    title: string,
+    unit: string,
+    key: string | null,
+    decimals: number,
+    min: number | null | undefined,
+    max: number | null | undefined,
+    rows: { key: string; value: number; ts: string }[],
+    reportSpanMs: number,
+  ): Promise<TrendChartSection> => {
+    if (!key) {
+      return {
+        title,
+        image: null,
+        unavailableReason: `This instrument reports no ${title.toLowerCase()} key, so there is no series to plot.`,
+      };
+    }
+    const series = toChartSeries(rows, key, decimals, title, period.intervalMs);
+    if (series.points.length === 0) {
+      return { title, image: null, unavailableReason: 'No readings in this period, so there is nothing to plot.' };
+    }
+    const image = await renderChartToPng({ title, unit, spanMs: reportSpanMs, min, max, series: [series] });
+    return {
+      title,
+      image,
+      unavailableReason: image
+        ? ''
+        : 'The chart could not be rendered by this browser. The readings below are the complete record for this period.',
+    };
+  };
+
   const runDownload = async (req: ReportDownloadRequest) => {
     const which = pendingReport;
-    if (!which || !id) return;
+    // NOT a silent return. Before this threw, a download in this state saved
+    // nothing and said nothing — the dialog just went back to idle, which is
+    // indistinguishable from a download that worked, and a §11 export that
+    // fails invisibly is the worst failure mode it has.
+    if (!which || !id) {
+      throw new Error('This download could not be started because the page has no instrument loaded. Reload the page and try again.');
+    }
     const reportPeriod = { from: req.period.from, to: req.period.to, label: req.period.label };
 
     try {
       await reauth.executeWithResult('DOWNLOAD_REPORT', async (password) => {
       const instrument = instrumentInfo();
+      const stamp = new Date().toISOString().slice(0, 10);
 
-      if (which === 'trend') {
+      if (which.kind === 'trend') {
+        const wantTemp = which.slot === 'temperature' || which.slot === 'both';
+        const wantHumid = which.slot === 'humidity' || which.slot === 'both';
         const rows = numericRows(await fetchTelemetryForPeriod(reportPeriod.from, reportPeriod.to));
         const keysMeta = [
-          tempKey ? { key: tempKey, label: 'Temperature (°C)', decimals: tempDecimals } : null,
-          humidKey ? { key: humidKey, label: 'Humidity (%RH)', decimals: humidDecimals } : null,
+          wantTemp && tempKey ? { key: tempKey, label: 'Temperature (°C)', decimals: tempDecimals } : null,
+          wantHumid && humidKey ? { key: humidKey, label: 'Humidity (%RH)', decimals: humidDecimals } : null,
         ].filter((k): k is { key: string; label: string; decimals: number } => k !== null);
         const pivoted = toTableRows(rows, keysMeta.map((k) => k.key));
-        const report = await renderTrendReport(pivoted, keysMeta, instrument, reportPeriod, formatDateTime);
+        // The DIALOG's period, not the page's — the operator may have widened it
+        // before confirming, and the chart's x-axis must cover what it printed.
+        const reportSpanMs = Math.max(1, new Date(reportPeriod.to).getTime() - new Date(reportPeriod.from).getTime());
+
+        const charts: TrendChartSection[] = [];
+        if (wantTemp) {
+          charts.push(await chartSectionFor(
+            'Temperature', '°C', tempKey, tempDecimals,
+            trend.overview?.limits?.tempMin, trend.overview?.limits?.tempMax, rows, reportSpanMs,
+          ));
+        }
+        if (wantHumid) {
+          charts.push(await chartSectionFor(
+            'Humidity', '%RH', humidKey, humidDecimals,
+            trend.overview?.limits?.rhMin, trend.overview?.limits?.rhMax, rows, reportSpanMs,
+          ));
+        }
+
+        const slotLabel = TREND_SLOT_LABEL[which.slot];
+        const report = await renderTrendReport({
+          slotLabel, charts, rows: pivoted, keys: keysMeta, instrument,
+          period: reportPeriod, formatDateTime,
+          averagedLabel: intervalLabel(period.intervalMs),
+        });
         // Fail-closed: the audit write happens BEFORE the file is saved.
         await logReportExport({
-          reportType: 'Instrument Trend', format: 'PDF', recordCount: pivoted.length,
+          // Names the SLOT. Three trend reports all logged as "Instrument Trend"
+          // would leave an audit trail that cannot say which one a row is.
+          reportType: `Instrument Trend — ${slotLabel}`, format: 'PDF', recordCount: pivoted.length,
           period: reportPeriod.label, startDate: reportPeriod.from, endDate: reportPeriod.to,
           remarks: req.remarks, password,
         });
-        report.save(`instrument-trend-${instrument.code}-${new Date().toISOString().slice(0, 10)}.pdf`);
-      } else if (which === 'timeseries') {
+        report.save(`instrument-trend-${which.slot}-${instrument.code}-${stamp}.pdf`);
+      } else if (which.kind === 'timeseries') {
         const rawRows = await fetchTelemetryForPeriod(reportPeriod.from, reportPeriod.to);
         const rows = numericRows(rawRows);
         const keysMeta = [
@@ -378,7 +478,7 @@ export function InstrumentTrend() {
           period: reportPeriod.label, startDate: reportPeriod.from, endDate: reportPeriod.to,
           remarks: req.remarks, password,
         });
-        report.save(`instrument-time-series-${instrument.code}-${new Date().toISOString().slice(0, 10)}.pdf`);
+        report.save(`instrument-time-series-${instrument.code}-${stamp}.pdf`);
       } else {
         const rows = await fetchAlarmsForPeriod(reportPeriod.from, reportPeriod.to);
         const report = await renderAlarmsReport(rows, instrument, reportPeriod, formatDateTime, statusTexts);
@@ -387,7 +487,7 @@ export function InstrumentTrend() {
           period: reportPeriod.label, startDate: reportPeriod.from, endDate: reportPeriod.to,
           remarks: req.remarks, password,
         });
-        report.save(`instrument-alarms-${instrument.code}-${new Date().toISOString().slice(0, 10)}.pdf`);
+        report.save(`instrument-alarms-${instrument.code}-${stamp}.pdf`);
         }
       });
       setPendingReport(null);
@@ -401,9 +501,10 @@ export function InstrumentTrend() {
     }
   };
 
-  const reportDialogName = pendingReport === 'trend' ? 'Instrument Trend'
-    : pendingReport === 'timeseries' ? 'Instrument Time Series'
-      : 'Instrument Alarms';
+  const reportDialogName = pendingReport === null ? ''
+    : pendingReport.kind === 'trend' ? `Instrument Trend — ${TREND_SLOT_LABEL[pendingReport.slot]}`
+      : pendingReport.kind === 'timeseries' ? 'Instrument Time Series'
+        : 'Instrument Alarms';
 
   return (
     <div className="space-y-6">
@@ -522,7 +623,7 @@ export function InstrumentTrend() {
           raw table below stays unaveraged regardless of the selection. */}
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-slate-700">Charts</h2>
-        <ExportMenu surface="instrument-trend" onExportPdf={() => setPendingReport('trend')} />
+        <ExportMenu surface="instrument-trend" onExportPdf={() => setPendingReport({ kind: 'trend', slot: 'both' })} />
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
         {/* TimeSeriesChart has no subtitle/caption slot of its own (it is shared
@@ -530,7 +631,14 @@ export function InstrumentTrend() {
             note renders immediately above it — right against the chart's own
             title — rather than changing the shared component for one caller. */}
         <div>
-          <ChartIntervalNote intervalMs={period.intervalMs} />
+          {/* Per-slot download. The combined control on the section header above
+              covers both slots in one signed document; this one produces a report
+              for THIS widget alone, and is logged under its own reportType so the
+              audit trail can tell the three apart. */}
+          <div className="mb-1 flex items-start justify-between gap-2">
+            <ChartIntervalNote intervalMs={period.intervalMs} />
+            <ExportMenu surface="instrument-trend" onExportPdf={() => setPendingReport({ kind: 'trend', slot: 'temperature' })} />
+          </div>
           <TimeSeriesChart
             title="Temperature"
             unit="°C"
@@ -541,7 +649,10 @@ export function InstrumentTrend() {
           />
         </div>
         <div>
-          <ChartIntervalNote intervalMs={period.intervalMs} />
+          <div className="mb-1 flex items-start justify-between gap-2">
+            <ChartIntervalNote intervalMs={period.intervalMs} />
+            <ExportMenu surface="instrument-trend" onExportPdf={() => setPendingReport({ kind: 'trend', slot: 'humidity' })} />
+          </div>
           <TimeSeriesChart
             title="Humidity"
             unit="%RH"
@@ -572,7 +683,7 @@ export function InstrumentTrend() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2">
           <CardTitle className="text-base">Time series (raw readings)</CardTitle>
-          <ExportMenu surface="instrument-trend" onExportPdf={() => setPendingReport('timeseries')} />
+          <ExportMenu surface="instrument-trend" onExportPdf={() => setPendingReport({ kind: 'timeseries' })} />
         </CardHeader>
         <CardContent className="px-0 pt-0">
           {tableRows.length === 0 ? (
@@ -624,7 +735,7 @@ export function InstrumentTrend() {
         <AlarmsWidget
           instrumentId={id}
           period={period}
-          onExportPdf={() => setPendingReport('alarms')}
+          onExportPdf={() => setPendingReport({ kind: 'alarms' })}
           statusTexts={statusTexts}
         />
       )}

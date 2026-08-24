@@ -1,0 +1,159 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
+
+/**
+ * The three trend downloads, end to end through the page's own dispatcher.
+ *
+ * What this guards, in order of how badly it bites:
+ *
+ * 1. `reportType` is what the §11 audit row records (`targetType` on the
+ *    REPORT_GENERATED row). Three different downloads all logged as
+ *    "Instrument Trend" would leave an audit trail that cannot say which
+ *    report a given row is — so the slot has to be IN the string, and that is
+ *    asserted per widget rather than once.
+ * 2. Fail-closed ordering: the audit write must land BEFORE the file is saved,
+ *    so a download whose record never wrote cannot reach the operator's disk.
+ * 3. The download must not fail silently. `runDownload` used to `return`
+ *    without throwing when it had no pending report — the dialog went back to
+ *    idle with no file and no error, which is indistinguishable from success.
+ */
+
+const history = [
+  { key: 'temperature', value: 22.4, ts: '2026-08-24T00:10:00.000Z', slot: 'temperature', decimals: 1 },
+  { key: 'humidity', value: 45.1, ts: '2026-08-24T00:10:00.000Z', slot: 'humidity', decimals: 1 },
+  { key: 'temperature', value: 22.5, ts: '2026-08-24T00:20:00.000Z', slot: 'temperature', decimals: 1 },
+  { key: 'humidity', value: 45.3, ts: '2026-08-24T00:20:00.000Z', slot: 'humidity', decimals: 1 },
+];
+
+const overviewRow = {
+  instrumentId: 'i-1', code: 'DEMO-TH-142', name: 'Demo', isActive: true, room: null,
+  limits: { tempMin: 18, tempMax: 25, rhMin: 30, rhMax: 60 },
+  limitSource: 'INSTRUMENT',
+  temperature: { key: 'temperature', value: 22.5, ts: '2026-08-24T00:20:00.000Z' },
+  humidity: { key: 'humidity', value: 45.3, ts: '2026-08-24T00:20:00.000Z' },
+  decimals: { temperature: 1, humidity: 1 }, reporting: true, status: 'OK',
+};
+
+function dataFor(key: string | null): any {
+  if (!key) return undefined;
+  if (key.includes('/telemetry-overview')) return { data: [overviewRow] };
+  if (key.includes('/telemetry-keys')) return { data: [] };
+  if (key.includes('/telemetry?')) return { latest: [], history, historyTotal: history.length };
+  if (key.includes('/api/alarms')) return { data: [] };
+  if (key.includes('action-reauth/my-actions')) return { actions: [] };
+  if (key.startsWith('/api/instruments/')) return { id: 'i-1', code: 'DEMO-TH-142', name: 'Demo' };
+  return {};
+}
+
+vi.mock('swr', () => ({
+  default: (key: any) => ({ data: dataFor(typeof key === 'function' ? key() : key), isLoading: false, error: undefined }),
+}));
+
+vi.mock('@/lib/api-client', () => ({
+  apiClient: {
+    get: vi.fn(async (url: string) => dataFor(url)),
+    post: vi.fn(async () => ({})),
+    postWithReauth: vi.fn(async () => ({})),
+  },
+}));
+
+/** Ordered log of what happened, so "audit before save" is a real assertion. */
+const events: string[] = [];
+const logged: any[] = [];
+
+vi.mock('@/lib/report-export-log', () => ({
+  logReportExport: vi.fn(async (input: any) => {
+    logged.push(input);
+    events.push(`log:${input.reportType}`);
+  }),
+}));
+
+const saved: string[] = [];
+
+const { InstrumentTrend } = await import('../trend');
+
+const jspdf: any = await import('jspdf');
+// jsPDF binds `save` per instance, but `output` — which `save` calls — is on
+// the shared API object, so intercepting it stops the file without stubbing
+// the document itself.
+jspdf.default.API.save = function (name: string) { saved.push(name); events.push(`save:${name}`); return this; };
+
+function renderPage() {
+  return render(
+    <MemoryRouter initialEntries={['/instruments/i-1/trend']}>
+      <Routes><Route path="/instruments/:id/trend" element={<InstrumentTrend />} /></Routes>
+    </MemoryRouter>,
+  );
+}
+
+/** Click the nth "Export as PDF" button, fill the required remarks, confirm. */
+async function download(buttonIndex: number) {
+  const buttons = screen.getAllByText('Export as PDF');
+  fireEvent.click(buttons[buttonIndex]);
+  fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: 'periodic review' } });
+  fireEvent.click(screen.getByText('Download'));
+  await waitFor(() => expect(saved.length).toBe(1), { timeout: 5000 });
+}
+
+describe('trend page downloads', () => {
+  beforeEach(() => { saved.length = 0; logged.length = 0; events.length = 0; });
+
+  it('offers a download on the temperature widget, the humidity widget, the combined charts, the time series and the alarms', () => {
+    renderPage();
+    // combined (Charts header), temperature, humidity, time series, alarms
+    expect(screen.getAllByText('Export as PDF')).toHaveLength(5);
+  });
+
+  it('names the SLOT in the audit reportType for the temperature widget', async () => {
+    renderPage();
+    await download(1);
+    expect(logged[0].reportType).toBe('Instrument Trend — Temperature');
+    expect(saved[0]).toBe('instrument-trend-temperature-DEMO-TH-142-' + new Date().toISOString().slice(0, 10) + '.pdf');
+  });
+
+  it('names the SLOT in the audit reportType for the humidity widget', async () => {
+    renderPage();
+    await download(2);
+    expect(logged[0].reportType).toBe('Instrument Trend — Humidity');
+    expect(saved[0]).toContain('instrument-trend-humidity-');
+  });
+
+  it('distinguishes the combined report from both single-slot ones', async () => {
+    renderPage();
+    await download(0);
+    expect(logged[0].reportType).toBe('Instrument Trend — Temperature & Humidity');
+    expect(saved[0]).toContain('instrument-trend-both-');
+  });
+
+  it('leaves the time series and alarms reportTypes unchanged', async () => {
+    renderPage();
+    await download(3);
+    expect(logged[0].reportType).toBe('Instrument Time Series');
+    saved.length = 0; logged.length = 0;
+    await download(4);
+    expect(logged[0].reportType).toBe('Instrument Alarms');
+  });
+
+  it('writes the audit record BEFORE saving the file, on every one of them', async () => {
+    for (const idx of [0, 1, 2, 3, 4]) {
+      saved.length = 0; logged.length = 0; events.length = 0;
+      const view = renderPage();
+      await download(idx);
+      expect(events).toHaveLength(2);
+      expect(events[0]).toMatch(/^log:/);
+      expect(events[1]).toMatch(/^save:/);
+      view.unmount();
+    }
+  });
+
+  it('carries the operator\'s remarks and the period into the audit record', async () => {
+    renderPage();
+    await download(1);
+    expect(logged[0].remarks).toBe('periodic review');
+    expect(logged[0].format).toBe('PDF');
+    expect(logged[0].recordCount).toBe(2);
+    expect(logged[0].startDate).toBeTruthy();
+    expect(logged[0].endDate).toBeTruthy();
+  });
+});
