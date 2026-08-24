@@ -115,12 +115,23 @@ async function resolveTargets(): Promise<{ targets: Target[]; skipped: string[] 
 }
 
 async function post(token: string, ts: string, temperature: number, humidity: number) {
-  const res = await fetch(`${API}/api/ingest/v1/telemetry`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-    body: JSON.stringify({ ts, temperature, humidity }),
-  });
-  return res.ok ? { ok: true as const } : { ok: false as const, detail: `${res.status} ${(await res.text()).slice(0, 140)}` };
+  // A transport failure must NOT escape this function. `tsx watch` restarts the
+  // API whenever a file changes, and the in-flight request dies with
+  // ECONNRESET; an unhandled throw here used to unwind the whole live loop and
+  // kill a run that had been healthy for 69 rounds. A live poster is supposed
+  // to outlive a server restart, so the error is reported and the loop carries
+  // on to the next round.
+  try {
+    const res = await fetch(`${API}/api/ingest/v1/telemetry`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ ts, temperature, humidity }),
+    });
+    return res.ok ? { ok: true as const } : { ok: false as const, detail: `${res.status} ${(await res.text()).slice(0, 140)}` };
+  } catch (e) {
+    const cause = (e as { cause?: { code?: string } })?.cause?.code;
+    return { ok: false as const, detail: `transport: ${cause ?? (e instanceof Error ? e.message : String(e))}` };
+  }
 }
 
 async function main() {
@@ -153,6 +164,12 @@ async function main() {
         await sleep(120);
       }
       console.log(`round ${round} @ ${ts} — accepted ${ok}, rejected ${fail}`);
+      // Every instrument failing means the API is down or the tokens are stale.
+      // Say so once per round rather than letting a silent zero-accepted run
+      // look identical to a healthy one in the log.
+      if (ok === 0 && targets.length > 0) {
+        console.error(`  round ${round}: NOTHING accepted — API unreachable or tokens revoked. Still retrying.`);
+      }
       await sleep(Math.max(0, INTERVAL_MIN * 60_000 - targets.length * 120));
     }
   }
