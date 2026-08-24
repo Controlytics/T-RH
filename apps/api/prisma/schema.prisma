@@ -1006,6 +1006,16 @@ model FloorplanRoom {
   rhMin   Float? @map("rh_min")
   rhMax   Float? @map("rh_max")
 
+  /// Doors as drawn on the plan: an array of
+  /// `{ wall, offset, width, kind }`, each normalized against ITS WALL so the
+  /// door stays attached when the room is moved or resized. NULL = nobody has
+  /// drawn doors for this room yet, which is the honest state of every row that
+  /// predates the column. Validated in floorplans/validation.ts, never by a
+  /// CHECK constraint, so a bad payload names its offending field.
+  ///
+  /// Static geometry only. Nothing in this install senses a door.
+  doors Json?
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
   createdBy String?  @map("created_by")

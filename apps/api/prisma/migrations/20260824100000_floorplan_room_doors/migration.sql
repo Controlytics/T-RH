@@ -1,0 +1,16 @@
+-- Doors drawn on a room's walls, for the graphical floor view.
+--
+-- HAND-AUTHORED. `prisma migrate diff` in this repo emits three DESTRUCTIVE
+-- statements that must be stripped every time and are stripped here:
+--   * DROP TABLE "instrument_telemetry_history" — partitioned, so Prisma's
+--     datamodel cannot see it and reads it as stray. It holds live rows.
+--   * ALTER "audit_trail" ALTER "chain_position" DROP NOT NULL — the 21 CFR §11
+--     hash-chain position, backed by a manual sequence out of band.
+--   * DROP/CREATE of an unchanged "instrument_credentials" foreign key.
+-- Read the header of 20260811120000_instrument_floorplans before authoring the
+-- next one.
+--
+-- Nullable with NO default: NULL means "no doors drawn yet", which is exactly
+-- what every existing room is. A default of '[]' would claim someone had looked
+-- at the room and decided it has no doors.
+ALTER TABLE "floorplan_rooms" ADD COLUMN "doors" JSONB;

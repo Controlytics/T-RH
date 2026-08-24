@@ -1,11 +1,12 @@
 import { type FastifyInstance } from 'fastify';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { buildContext } from '../../lib/build-context.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
-import { validateRoomPayload, floorplanSchema, floorplanUpdateSchema } from './validation.js';
+import { validateRoomPayload, floorplanSchema, floorplanUpdateSchema, type RoomDoor } from './validation.js';
 import { getRoomHistory, HISTORY_WINDOWS, type HistoryWindow } from './room-history.js';
 
 /**
@@ -30,10 +31,29 @@ import { getRoomHistory, HISTORY_WINDOWS, type HistoryWindow } from './room-hist
  */
 const IDENTITY_FIELDS = ['code', 'name', 'label'];
 
+/**
+ * `doors` is a Json column, so a SQL NULL needs Prisma.DbNull —
+ * Prisma.JsonNull would store the JSON literal `null`, which reads back as a
+ * value rather than an absence.
+ */
+function doorsForWrite(doors: RoomDoor[] | null | undefined) {
+  return doors == null ? Prisma.DbNull : doors;
+}
+
+/** Readable in an audit entry. A raw JSON blob is not something an inspector can diff. */
+function doorSummary(doors: unknown): string[] {
+  if (!Array.isArray(doors)) return [];
+  return doors.map((d) => {
+    const door = d as RoomDoor;
+    return `${door.kind} on ${door.wall} @ ${door.offset}`;
+  });
+}
+
 const roomSelect = {
   id: true, code: true, label: true,
   x: true, y: true, w: true, h: true,
   tempMin: true, tempMax: true, rhMin: true, rhMax: true,
+  doors: true,
 } as const;
 
 const roomProps = {
@@ -46,6 +66,19 @@ const roomProps = {
   tempMax: { type: 'number', nullable: true },
   rhMin: { type: 'number', nullable: true },
   rhMax: { type: 'number', nullable: true },
+  doors: {
+    type: 'array',
+    nullable: true,
+    items: {
+      type: 'object',
+      properties: {
+        wall: { type: 'string' },
+        offset: { type: 'number' },
+        width: { type: 'number' },
+        kind: { type: 'string' },
+      },
+    },
+  },
 } as const;
 
 const planProps = {
@@ -270,8 +303,15 @@ export default async function floorplanRoutes(app: FastifyInstance) {
     if (!result.ok) return reply.code(400).send({ error: 'VALIDATION_ERROR', message: result.error });
 
     try {
+      const { doors, ...roomData } = result.data;
       const room = await prisma.floorplanRoom.create({
-        data: { ...result.data, floorplanId: id, createdBy: ctx.userId, updatedBy: ctx.userId },
+        data: {
+          ...roomData,
+          doors: doorsForWrite(doors),
+          floorplanId: id,
+          createdBy: ctx.userId,
+          updatedBy: ctx.userId,
+        },
       });
       await auditLog({
         userId: ctx.userId, userRole: ctx.userRole,
@@ -281,6 +321,7 @@ export default async function floorplanRoutes(app: FastifyInstance) {
           floorplan: plan.name, code: room.code, label: room.label,
           geometry: { x: room.x, y: room.y, w: room.w, h: room.h },
           limits: { tempMin: room.tempMin, tempMax: room.tempMax, rhMin: room.rhMin, rhMax: room.rhMax },
+          doors: doorSummary(room.doors),
         },
         signatureMeaning: `Room "${room.code}" added to floorplan "${plan.name}"`,
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
@@ -328,9 +369,10 @@ export default async function floorplanRoutes(app: FastifyInstance) {
     if (!result.ok) return reply.code(400).send({ error: 'VALIDATION_ERROR', message: result.error });
 
     try {
+      const { doors, ...roomData } = result.data;
       const after = await prisma.floorplanRoom.update({
         where: { id: roomId },
-        data: { ...result.data, updatedBy: ctx.userId },
+        data: { ...roomData, doors: doorsForWrite(doors), updatedBy: ctx.userId },
       });
       // before/after carry the LIMITS explicitly: they are the quality
       // specification, and an inspector must be able to read the change without
@@ -343,11 +385,13 @@ export default async function floorplanRoutes(app: FastifyInstance) {
           code: before.code, label: before.label,
           geometry: { x: before.x, y: before.y, w: before.w, h: before.h },
           limits: { tempMin: before.tempMin, tempMax: before.tempMax, rhMin: before.rhMin, rhMax: before.rhMax },
+          doors: doorSummary(before.doors),
         },
         afterValue: {
           code: after.code, label: after.label,
           geometry: { x: after.x, y: after.y, w: after.w, h: after.h },
           limits: { tempMin: after.tempMin, tempMax: after.tempMax, rhMin: after.rhMin, rhMax: after.rhMax },
+          doors: doorSummary(after.doors),
         },
         signatureMeaning: `Room "${after.code}" updated`,
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
