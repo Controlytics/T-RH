@@ -44,6 +44,8 @@ function doorsForWrite(doors: RoomDoor[] | null | undefined) {
 function doorSummary(doors: unknown): string[] {
   if (!Array.isArray(doors)) return [];
   return doors.map((d) => {
+    // Safe only because this module reads back doors solely through the
+    // validated write path above; a hand-edited row in the DB could violate it.
     const door = d as RoomDoor;
     return `${door.kind} on ${door.wall} @ ${door.offset}`;
   });
@@ -369,10 +371,20 @@ export default async function floorplanRoutes(app: FastifyInstance) {
     if (!result.ok) return reply.code(400).send({ error: 'VALIDATION_ERROR', message: result.error });
 
     try {
+      // An OMITTED `doors` key must leave the stored column UNCHANGED — a
+      // client that doesn't know about doors yet (or simply didn't touch them)
+      // must not silently wipe every door drawn on this room. Only an EXPLICIT
+      // `null` or `[]` clears it, so `doors` is left out of the Prisma `data`
+      // entirely when the key was never sent, rather than passed through
+      // doorsForWrite (which would map that `undefined` to Prisma.DbNull).
       const { doors, ...roomData } = result.data;
       const after = await prisma.floorplanRoom.update({
         where: { id: roomId },
-        data: { ...roomData, doors: doorsForWrite(doors), updatedBy: ctx.userId },
+        data: {
+          ...roomData,
+          ...(doors !== undefined ? { doors: doorsForWrite(doors) } : {}),
+          updatedBy: ctx.userId,
+        },
       });
       // before/after carry the LIMITS explicitly: they are the quality
       // specification, and an inspector must be able to read the change without

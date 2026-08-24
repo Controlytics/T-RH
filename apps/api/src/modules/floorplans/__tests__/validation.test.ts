@@ -187,4 +187,21 @@ describe('validateRoomPayload — doors', () => {
     const doors = Array.from({ length: 7 }, (_, i) => ({ ...door, offset: i * 0.1, width: 0.05 }));
     expect(validateRoomPayload({ ...base, doors }).ok).toBe(false);
   });
+
+  // The route handler (routes.ts) relies on `undefined` and `null` staying
+  // DISTINCT out of validateRoomPayload: an omitted key must leave a room's
+  // stored doors untouched on PUT, while an explicit null must clear them.
+  // That branch lives in the Fastify route and isn't reachable from this
+  // module without standing up the server, so the assertion here is the part
+  // that IS reachable: that validation does not collapse the two.
+  it('leaves doors absent from the parsed data when the key is omitted, distinct from an explicit null', () => {
+    const omitted = validateRoomPayload(base);
+    expect(omitted.ok).toBe(true);
+    expect(omitted.ok && 'doors' in omitted.data).toBe(false);
+
+    const explicitNull = validateRoomPayload({ ...base, doors: null });
+    expect(explicitNull.ok).toBe(true);
+    expect(explicitNull.ok && 'doors' in explicitNull.data).toBe(true);
+    expect(explicitNull.ok && explicitNull.data.doors).toBeNull();
+  });
 });
