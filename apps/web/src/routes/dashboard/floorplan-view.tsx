@@ -1,9 +1,8 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   worstStatus,
   formatDecimals,
-  TELEMETRY_DECIMALS_FALLBACK,
   type InstrumentStatus,
 } from '@digilog/shared';
 import { statusClasses, readingAge } from './status';
@@ -16,6 +15,7 @@ import {
   type OverviewRow,
 } from './use-telemetry';
 import { RoomDetail } from './room-detail';
+import { wallSegments, doorPlacements, tileLayout } from './room-geometry';
 
 /**
  * The floor, DRAWN.
@@ -57,10 +57,22 @@ const CHIP: Record<InstrumentStatus, { bg: string; glyph: string }> = {
   OK: { bg: '#15803d', glyph: '' },
 };
 
-/** Wall + label ink. Uniform across every room — the walls carry no status. */
-const WALL = '#1f2937';
-const INK = '#111827';
-const INK_SOFT = '#374151';
+/**
+ * One object so a dark wall-display palette is a value swap rather than a
+ * rewrite. The dark values are deliberately NOT authored yet — a scheme guessed
+ * at without seeing it on the target display is wasted work.
+ *
+ * Chip colours are NOT in here: they are semantic and must not vary with the
+ * surface, or a themed site ends up with a purple "out of spec".
+ */
+const PALETTE = {
+  paper: '#ffffff',
+  wall: '#1f2937',
+  ink: '#111827',
+  inkSoft: '#374151',
+  tile: '#f8fafc',
+  tileBorder: '#cbd5e1',
+} as const;
 
 interface RoomView {
   room: FloorplanRoomShape;
@@ -69,6 +81,7 @@ interface RoomView {
 }
 
 export function FloorplanView({ functionalLocationId, directOnly }: { functionalLocationId?: string; directOnly?: boolean } = {}) {
+  const navigate = useNavigate();
   const { plans, isLoading: plansLoading } = useFloorplans();
   // Scoped server-side. When a functional location is selected the rows are only
   // that location's instruments, so the rooms drawn below narrow with it.
@@ -197,50 +210,13 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
           >
             {/* Building outline. White, not a grey slab: on a plan the paper is
                 white and the ink is the information. */}
-            <rect x={0} y={0} width={VB_W} height={vbH} fill="#ffffff" stroke={WALL} strokeWidth={3} />
+            <rect x={0} y={0} width={VB_W} height={vbH} fill={PALETTE.paper} stroke={PALETTE.wall} strokeWidth={3} />
 
             {roomViews.map(({ room, rows: roomRows, status }) => {
               const x = room.x * VB_W;
               const y = room.y * vbH;
               const w = room.w * VB_W;
               const h = room.h * vbH;
-              const cx = x + w / 2;
-
-              const first = roomRows[0];
-              const tempV = first?.temperature?.value ?? null;
-              const rhV = first?.humidity?.value ?? null;
-              // The chips show `first`'s reading, so they take `first`'s own
-              // precision. A room-wide number would misreport a room holding two
-              // probes of different resolution.
-              const tempDp = first?.decimals.temperature ?? TELEMETRY_DECIMALS_FALLBACK;
-              const rhDp = first?.decimals.humidity ?? TELEMETRY_DECIMALS_FALLBACK;
-              // Judged against the SAME band the row's status used — the
-              // instrument's own limits where it has them, else the room's,
-              // resolved once on the server. Reading `room.tempMin` here instead
-              // (as this did until 2026-08-19) meant a chip could sit green on a
-              // reading the very same instrument's row called out of spec.
-              const chipLimits = first?.limits ?? null;
-              const tempBad = outOfSpec(tempV, chipLimits?.tempMin, chipLimits?.tempMax);
-              const rhBad = outOfSpec(rhV, chipLimits?.rhMin, chipLimits?.rhMax);
-
-              // A reading's own chip colour: red when IT breaches, otherwise the
-              // room's overall status (stale / no data / ok). This is what lets a
-              // green temperature sit beside a red humidity in the same room.
-              const chipFor = (bad: boolean): InstrumentStatus =>
-                bad ? 'OUT_OF_SPEC' : status === 'OUT_OF_SPEC' ? 'OK' : status;
-
-              // Text degrades as the box shrinks: a small room cannot hold four
-              // lines, and overlapping text is worse than absent text.
-              const fs = Math.max(8, Math.min(15, w / 10, h / 6));
-              const showLabel = room.label && h > fs * 4.5 && w > fs * 6;
-              const chips: { text: string; st: InstrumentStatus }[] = [];
-              if (tempV !== null) chips.push({ text: `${formatDecimals(tempV, tempDp)} °C`, st: chipFor(tempBad) });
-              if (rhV !== null) chips.push({ text: `${formatDecimals(rhV, rhDp)} %`, st: chipFor(rhBad) });
-              const showChips = chips.length > 0 && h > fs * 3.2;
-
-              const chipH = fs * 1.5;
-              const blockH = (showChips ? chips.length * (chipH + 2) : 0) + fs * 1.2 + (showLabel ? fs * 1.15 : 0);
-              let cursor = y + h / 2 - blockH / 2 + fs;
 
               return (
                 <g
@@ -250,55 +226,170 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                   role="button"
                   tabIndex={0}
                   onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setOpenRoomId(room.id); }}
-                  aria-label={`${room.code}${room.label ? ` ${room.label}` : ''}, ${statusClasses(status).label}${
-                    tempV !== null ? `, ${formatDecimals(tempV, tempDp)} degrees${tempBad ? ' out of spec' : ''}` : ''
-                  }${rhV !== null ? `, ${formatDecimals(rhV, rhDp)} percent humidity${rhBad ? ' out of spec' : ''}` : ''}`}
+                  aria-label={`${room.code}${room.label ? ` ${room.label}` : ''}, ${statusClasses(status).label}, ${
+                    roomRows.length
+                  } instrument${roomRows.length === 1 ? '' : 's'}${
+                    room.doors && room.doors.length > 0
+                      ? `, ${room.doors.length} door${room.doors.length === 1 ? '' : 's'}`
+                      : ''
+                  }`}
                 >
-                  {/* Wall only — no status fill. The room is white like paper. */}
+                  {/* Fill only. The walls are separate segments below, because a
+                      stroked rect cannot have a door cut out of it. */}
                   <rect
                     x={x} y={y} width={w} height={h}
-                    fill="#ffffff"
-                    stroke={WALL}
-                    strokeWidth={2.5}
+                    fill={PALETTE.paper}
                     className="transition-colors hover:fill-slate-100"
                   />
 
+                  {wallSegments({ x, y, w, h }, room.doors).map((s, i) => (
+                    <line
+                      key={`w${i}`}
+                      x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2}
+                      stroke={PALETTE.wall} strokeWidth={2.5} strokeLinecap="butt"
+                    />
+                  ))}
+
+                  {/* Doors: leaf + swing arc, in wall ink only. A door carries no
+                      reading — nothing in this install senses one — so giving it
+                      status colour would compete with the chips for no meaning. */}
+                  {doorPlacements({ x, y, w, h }, room.doors).map((d, i) => (
+                    <g key={`d${i}`}>
+                      <line
+                        x1={d.leaf.x1} y1={d.leaf.y1} x2={d.leaf.x2} y2={d.leaf.y2}
+                        stroke={PALETTE.wall} strokeWidth={1.6}
+                      />
+                      <path d={d.arc} fill="none" stroke={PALETTE.inkSoft} strokeWidth={1} strokeDasharray="3 2" />
+                      {d.kind !== 'PASSAGE' && (
+                        <text
+                          x={(d.start.x1 + d.start.x2) / 2}
+                          y={(d.start.y1 + d.start.y2) / 2 - 2}
+                          textAnchor="middle" fontSize={7} fontWeight={700} fill={PALETTE.inkSoft}
+                        >
+                          {d.kind === 'ENTRY' ? 'IN' : 'OUT'}
+                        </text>
+                      )}
+                    </g>
+                  ))}
+
                   <text
-                    x={cx} y={cursor} textAnchor="middle"
-                    fontSize={fs * 0.86} fontWeight={700} fill={INK}
+                    x={x + w / 2} y={y + 10} textAnchor="middle"
+                    fontSize={Math.max(8, Math.min(12, w / 10, h / 6)) * 0.86} fontWeight={700} fill={PALETTE.ink}
                   >
                     {room.code}
                   </text>
-                  {showLabel && (
+                  {room.label && tileLayout({ x, y, w, h }, roomRows.length).step === 'CODE_ONLY' && (
                     <text
-                      x={cx} y={(cursor += fs * 1.15)} textAnchor="middle"
-                      fontSize={fs * 0.8} fill={INK_SOFT}
+                      x={x + w / 2} y={y + 22} textAnchor="middle"
+                      fontSize={Math.max(8, Math.min(12, w / 10, h / 6)) * 0.8} fill={PALETTE.inkSoft}
                     >
                       {room.label}
                     </text>
                   )}
 
-                  {/* Solid value chips — the colour belongs to the READING. */}
-                  {showChips && chips.map((chip, ci) => {
-                    const paint = CHIP[chip.st];
-                    const label = paint.glyph ? `${paint.glyph} ${chip.text}` : chip.text;
-                    const cw = Math.min(w - 6, label.length * fs * 0.62 + fs * 0.7);
-                    const cyTop = (cursor += ci === 0 ? fs * 0.6 : chipH + 2);
-                    return (
-                      <g key={chip.text}>
-                        <rect
-                          x={cx - cw / 2} y={cyTop} width={cw} height={chipH}
-                          rx={2} fill={paint.bg}
-                        />
-                        <text
-                          x={cx} y={cyTop + chipH * 0.72} textAnchor="middle"
-                          fontSize={fs * 0.82} fontWeight={700} fill="#ffffff"
+                  {(() => {
+                    const layout = tileLayout({ x, y, w, h }, roomRows.length);
+                    if (layout.visible === 0) return null;
+
+                    return roomRows.slice(0, layout.visible).map((row, i) => {
+                      const col = i % layout.cols;
+                      const rowIx = Math.floor(i / layout.cols);
+                      const tx = x + col * layout.tile.w;
+                      const ty = layout.bodyTop + rowIx * layout.tile.h;
+                      const tcx = tx + layout.tile.w / 2;
+
+                      const tempV = row.temperature?.value ?? null;
+                      const rhV = row.humidity?.value ?? null;
+                      const lim = row.limits;
+                      const tempBad = outOfSpec(tempV, lim?.tempMin, lim?.tempMax);
+                      const rhBad = outOfSpec(rhV, lim?.rhMin, lim?.rhMax);
+                      const chipFor = (bad: boolean): InstrumentStatus =>
+                        bad ? 'OUT_OF_SPEC' : row.status === 'OUT_OF_SPEC' ? 'OK' : row.status;
+
+                      const values: { text: string; st: InstrumentStatus }[] = [];
+                      if (tempV !== null) {
+                        values.push({
+                          text: `${formatDecimals(tempV, row.decimals.temperature)}°`,
+                          st: chipFor(tempBad),
+                        });
+                      }
+                      if (rhV !== null) {
+                        values.push({
+                          text: `${formatDecimals(rhV, row.decimals.humidity)}%`,
+                          st: chipFor(rhBad),
+                        });
+                      }
+
+                      return (
+                        <g
+                          key={row.instrumentId}
+                          onClick={(e) => { e.stopPropagation(); navigate(`/instruments/${row.instrumentId}`); }}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.stopPropagation();
+                              navigate(`/instruments/${row.instrumentId}`);
+                            }
+                          }}
+                          aria-label={`${row.code}${
+                            tempV !== null ? `, ${formatDecimals(tempV, row.decimals.temperature)} degrees${tempBad ? ' out of spec' : ''}` : ''
+                          }${rhV !== null ? `, ${formatDecimals(rhV, row.decimals.humidity)} percent humidity${rhBad ? ' out of spec' : ''}` : ''}`}
                         >
-                          {label}
-                        </text>
-                      </g>
+                          <rect
+                            x={tx + 1.5} y={ty + 1} width={layout.tile.w - 3} height={layout.tile.h - 2}
+                            rx={2} fill={PALETTE.tile} stroke={PALETTE.tileBorder} strokeWidth={0.8}
+                          />
+                          {layout.step === 'FULL' && (
+                            <text
+                              x={tcx} y={ty + layout.fontSize + 1} textAnchor="middle"
+                              fontSize={layout.fontSize * 0.85} fontWeight={700} fill={PALETTE.ink}
+                            >
+                              {row.code}
+                            </text>
+                          )}
+                          {values.map((v, vi) => {
+                            const paint = CHIP[v.st];
+                            const label = paint.glyph ? `${paint.glyph} ${v.text}` : v.text;
+                            const cw = Math.min(layout.tile.w - 6, label.length * layout.fontSize * 0.6 + 4);
+                            const chipH = layout.fontSize * 1.3;
+                            const cyTop =
+                              ty + (layout.step === 'FULL' ? layout.fontSize + 3 : 2) + vi * (chipH + 1.5);
+                            if (cyTop + chipH > ty + layout.tile.h) return null;
+                            return (
+                              <g key={v.text}>
+                                <rect x={tcx - cw / 2} y={cyTop} width={cw} height={chipH} rx={2} fill={paint.bg} />
+                                <text
+                                  x={tcx} y={cyTop + chipH * 0.75} textAnchor="middle"
+                                  fontSize={layout.fontSize * 0.8} fontWeight={700} fill="#ffffff"
+                                >
+                                  {label}
+                                </text>
+                              </g>
+                            );
+                          })}
+                        </g>
+                      );
+                    });
+                  })()}
+
+                  {(() => {
+                    const layout = tileLayout({ x, y, w, h }, roomRows.length);
+                    if (layout.hidden <= 0) return null;
+                    const i = layout.visible;
+                    const col = layout.cols > 0 ? i % layout.cols : 0;
+                    const rowIx = layout.cols > 0 ? Math.floor(i / layout.cols) : 0;
+                    return (
+                      <text
+                        x={x + col * layout.tile.w + layout.tile.w / 2}
+                        y={layout.bodyTop + rowIx * layout.tile.h + layout.fontSize + 2}
+                        textAnchor="middle" fontSize={layout.fontSize * 0.85}
+                        fontWeight={700} fill={PALETTE.inkSoft}
+                      >
+                        +{layout.hidden}
+                      </text>
                     );
-                  })}
+                  })()}
                 </g>
               );
             })}

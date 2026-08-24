@@ -5,6 +5,7 @@ import {
   TELEMETRY_DECIMALS_FALLBACK,
   type InstrumentStatus,
 } from '@digilog/shared';
+import type { RoomDoor } from './room-geometry';
 
 export interface SlotValue {
   key: string;
@@ -141,6 +142,8 @@ export interface FloorplanRoomShape {
   x: number; y: number; w: number; h: number;
   tempMin: number | null; tempMax: number | null;
   rhMin: number | null; rhMax: number | null;
+  /** Drawn openings. NULL for every room drawn before doors existed. */
+  doors: RoomDoor[] | null;
 }
 
 export interface FloorplanShape {
