@@ -1,11 +1,30 @@
+import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import useSWR from 'swr';
-import { INTERVALS, TELEMETRY_DECIMALS_FALLBACK } from '@digilog/shared';
+import { formatDecimals, INTERVALS, TELEMETRY_DECIMALS_FALLBACK } from '@digilog/shared';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
+import { Pagination } from '@/components/ui/pagination';
 import { statusClasses, readingAge } from '@/routes/dashboard/status';
 import { formatSetPoint } from '@/routes/dashboard/set-point';
-import { useTrendPeriod, useInstrumentTrend, TREND_PRESETS } from './use-trend-data';
+import { TimeSeriesChart } from '@/routes/dashboard/time-series-chart';
+import { useTrendPeriod, useInstrumentTrend, TREND_PRESETS, TABLE_PAGE_SIZE, type TelemetryLongRow } from './use-trend-data';
+import { toChartSeries, toTableRows } from './trend-series';
+
+/** Rows this page actually charts/pivots are all numeric — a non-numeric
+ *  reading (a raw JSON blob on some other key) has no place on an axis or in
+ *  a numeric table column, so it is filtered out rather than coerced. */
+function numericRows(rows: TelemetryLongRow[]): { key: string; value: number; ts: string }[] {
+  return rows.filter((r): r is TelemetryLongRow & { value: number } => typeof r.value === 'number')
+    .map((r) => ({ key: r.key, value: r.value, ts: r.ts }));
+}
+
+/** The raw key this instrument reports a slot under, from whichever annotated
+ *  rows are in hand. Administered server-side (`loadAliases()`); never guessed here. */
+function keyForSlot(rows: TelemetryLongRow[], slot: 'temperature' | 'humidity'): string | null {
+  return rows.find((r) => r.slot === slot)?.key ?? null;
+}
 
 /**
  * The instrument trend page — limit-lined charts, raw paged history, alarms,
@@ -100,10 +119,23 @@ export function InstrumentTrend() {
   const { id } = useParams<{ id: string }>();
   const { data: inst } = useSWR<InstrumentSummary>(id ? `/api/instruments/${id}` : null);
   const { period, setPreset, setCustom, setInterval } = useTrendPeriod();
-  const trend = useInstrumentTrend(id ?? '', period, 1, []);
+  const [page, setPage] = useState(1);
+  const trend = useInstrumentTrend(id ?? '', period, page, []);
 
   const fromLocal = period.from.slice(0, 16);
   const toLocal = period.to.slice(0, 16);
+
+  const chartRows = numericRows(trend.chartRows);
+  const tempKey = keyForSlot(trend.chartRows, 'temperature');
+  const humidKey = keyForSlot(trend.chartRows, 'humidity');
+  const tempDecimals = trend.overview?.decimals.temperature ?? TELEMETRY_DECIMALS_FALLBACK;
+  const humidDecimals = trend.overview?.decimals.humidity ?? TELEMETRY_DECIMALS_FALLBACK;
+  const spanMs = Math.max(1, new Date(period.to).getTime() - new Date(period.from).getTime());
+
+  // The raw table only shows the two administered slots for now — Task 7 adds
+  // the per-user extra-key picker on top of this same pivot.
+  const tableKeys = [tempKey, humidKey].filter((k): k is string => k !== null);
+  const tableRows = toTableRows(numericRows(trend.tableRows), tableKeys);
 
   return (
     <div className="space-y-6">
@@ -204,6 +236,73 @@ export function InstrumentTrend() {
           </>
         )}
       </div>
+
+      {/* Charts. Limits come straight off the overview row — never re-derived
+          here — which is what makes the in-spec band agree with the alarm
+          printed on the cards above. `intervalMs` only affects these two; the
+          raw table below stays unaveraged regardless of the selection. */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <TimeSeriesChart
+          title="Temperature"
+          unit="°C"
+          spanMs={spanMs}
+          min={trend.overview?.limits?.tempMin}
+          max={trend.overview?.limits?.tempMax}
+          series={tempKey ? [toChartSeries(chartRows, tempKey, tempDecimals, 'Temperature', period.intervalMs)] : []}
+        />
+        <TimeSeriesChart
+          title="Humidity"
+          unit="%RH"
+          spanMs={spanMs}
+          min={trend.overview?.limits?.rhMin}
+          max={trend.overview?.limits?.rhMax}
+          series={humidKey ? [toChartSeries(chartRows, humidKey, humidDecimals, 'Humidity', period.intervalMs)] : []}
+        />
+      </div>
+
+      {/* Raw paged time-series. RAW ONLY — no averaging, no gap filling: a gap
+          in the record stays a gap, never the previous value repeated. */}
+      <Card>
+        <CardHeader><CardTitle className="text-base">Time series (raw readings)</CardTitle></CardHeader>
+        <CardContent className="px-0 pt-0">
+          {tableRows.length === 0 ? (
+            <p className="px-6 text-sm text-slate-500">No readings in this window.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Timestamp</TableHead>
+                  {tempKey && <TableHead>Temperature (°C)</TableHead>}
+                  {humidKey && <TableHead>Humidity (%RH)</TableHead>}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {tableRows.map((row) => (
+                  <TableRow key={row.ts}>
+                    <TableCell className="text-sm">{new Date(row.ts).toLocaleString()}</TableCell>
+                    {tempKey && (
+                      <TableCell className="tabular-nums">
+                        {row.values[tempKey] == null ? '—' : formatDecimals(row.values[tempKey], tempDecimals)}
+                      </TableCell>
+                    )}
+                    {humidKey && (
+                      <TableCell className="tabular-nums">
+                        {row.values[humidKey] == null ? '—' : formatDecimals(row.values[humidKey], humidDecimals)}
+                      </TableCell>
+                    )}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+          <Pagination
+            page={page}
+            pageSize={TABLE_PAGE_SIZE}
+            totalItems={trend.historyTotal}
+            onPageChange={setPage}
+          />
+        </CardContent>
+      </Card>
     </div>
   );
 }
