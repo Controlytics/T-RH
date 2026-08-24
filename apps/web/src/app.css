@@ -193,3 +193,27 @@ table {
 .tv-row:hover { background: color-mix(in srgb, var(--theme-primary) 30%, #334155); }
 /* Group separator — reinforces which ACTUAL belongs to which SET POINT. */
 .tv-group { border-left: 2px solid color-mix(in srgb, var(--theme-primary) 45%, #334155); }
+
+/* ===========================================================================
+   BAND GAUGE (Instruments -> Trend) — the marker's one page-load moment.
+
+   The marker travels from the LOW bound to its position: it shows the band
+   being traversed, which is that page's whole idea, and it happens once.
+
+   The keyframe's `to` is the SAME value the element carries statically
+   (`left: var(--band-marker-left)`), so the marker's resting position is
+   correct with the animation absent, disabled, or already finished — nothing
+   about where the reading sits depends on the animation having run.
+   =========================================================================== */
+@keyframes band-marker-travel {
+  from { left: 0%; }
+  to { left: var(--band-marker-left); }
+}
+.band-marker {
+  animation: band-marker-travel 450ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Straight to position — the figures beside it already say everything the
+     travel says. */
+  .band-marker { animation: none; }
+}

@@ -73,6 +73,15 @@ export interface ChartSeries {
    * chart exists to compare them on.
    */
   decimals: number;
+  /**
+   * Optional identity override. The palette slot is normally the series' RANK
+   * within one chart, which is right for the dashboard (many probes, one room).
+   * The trend page draws each quantity in its own single-series chart, so rank
+   * would make temperature and humidity BOTH slot 1 — one page, two blues, and
+   * a humidity gauge accented orange beside a blue humidity line. Callers that
+   * own a quantity's identity pass it; every other caller is unaffected.
+   */
+  color?: string;
   points: { ts: string; value: number }[];
 }
 
@@ -148,7 +157,7 @@ export function TimeSeriesChart({ series, unit, min, max, spanMs, title }: Props
       const d = Math.abs(new Date(p.ts).getTime() - hoverTime);
       if (d < bestD) { bestD = d; best = p; }
     }
-    return { label: s.label, value: best.value, decimals: s.decimals, color: seriesColor(i) };
+    return { label: s.label, value: best.value, decimals: s.decimals, color: s.color ?? seriesColor(i) };
   });
 
   const bandTop = max != null ? g.sy(Math.min(max, g.scale.max)) : null;
@@ -164,7 +173,7 @@ export function TimeSeriesChart({ series, unit, min, max, spanMs, title }: Props
           <div className="flex flex-wrap items-center gap-3">
             {withPoints.map((s, i) => (
               <span key={s.id} className="flex items-center gap-1.5 text-xs text-slate-600">
-                <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: seriesColor(i) }} />
+                <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: s.color ?? seriesColor(i) }} />
                 {s.label}
               </span>
             ))}
@@ -227,7 +236,7 @@ export function TimeSeriesChart({ series, unit, min, max, spanMs, title }: Props
           const last = s.points[s.points.length - 1];
           return (
             <g key={s.id}>
-              <path d={d} fill="none" stroke={seriesColor(i)} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+              <path d={d} fill="none" stroke={s.color ?? seriesColor(i)} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
               {/* Direct label at the last point — the relief the palette's
                   low-contrast slot requires, and faster to read than a legend. */}
               <text

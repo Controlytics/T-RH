@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import useSWR from 'swr';
 import { formatDecimals, INTERVALS, MAX_SERIES_POINTS, TELEMETRY_DECIMALS_FALLBACK } from '@digilog/shared';
 import { apiClient } from '@/lib/api-client';
@@ -13,9 +13,8 @@ import { Button } from '@/components/ui/button';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
-import { statusClasses, readingAge } from '@/routes/dashboard/status';
 import { formatSetPoint } from '@/routes/dashboard/set-point';
-import { TimeSeriesChart } from '@/routes/dashboard/time-series-chart';
+import { TimeSeriesChart, SERIES_COLORS } from '@/routes/dashboard/time-series-chart';
 import {
   severityTone, triggeredText, statusText, alarmTypeText, limitText, clearedText,
   mapStatusTextsResponse,
@@ -31,6 +30,17 @@ import {
   type ReportInstrument, type TrendChartSection,
 } from './trend-report';
 import { renderChartToPng } from './chart-image';
+import { BandGauge } from './band-gauge';
+import { TrendHeader } from './trend-header';
+
+/**
+ * Series identity, fixed. Temperature is palette slot 1 and humidity slot 2
+ * across this app — the gauge accent, the chart line and the printed chart all
+ * read the same two constants, so no two surfaces can disagree about which
+ * colour means which quantity.
+ */
+const TEMP_COLOR = SERIES_COLORS[0];
+const HUMID_COLOR = SERIES_COLORS[1];
 
 /**
  * Which of the two administered slots a trend download covers.
@@ -82,79 +92,19 @@ interface InstrumentSummary {
   id: string;
   code: string;
   name: string;
+  /** Free-text placement (spec D8). Caption only — `functionalLocationId` is
+   *  the authoritative grouping and is not what a header line is for. */
+  location?: string | null;
+  area?: string | null;
+  block?: string | null;
 }
 
-function CardSkeleton({ title }: { title: string }) {
+function GaugeSkeleton({ title }: { title: string }) {
   return (
-    <Card>
-      <CardHeader><CardTitle>{title}</CardTitle></CardHeader>
-      <CardContent><p className="text-sm text-slate-400">Loading…</p></CardContent>
-    </Card>
-  );
-}
-
-/**
- * One slot's (temperature or humidity) latest value: its reading at the
- * instrument's own decimals, how long ago it arrived, and the limits it is
- * judged against — with WHERE those limits came from, because a set point
- * with no visible source reads as asserted rather than resolved.
- */
-function LatestValueCard({
-  title,
-  unit,
-  reading,
-  decimals,
-  min,
-  max,
-  limitSource,
-  roomCode,
-}: {
-  title: string;
-  unit: string;
-  reading: { value: number; ts: string } | null;
-  decimals: number;
-  min: number | null | undefined;
-  max: number | null | undefined;
-  limitSource: 'INSTRUMENT' | 'ROOM' | null;
-  roomCode: string | null;
-}) {
-  const status = reading
-    ? min != null && reading.value < min
-      ? 'OUT_OF_SPEC'
-      : max != null && reading.value > max
-        ? 'OUT_OF_SPEC'
-        : 'OK'
-    : 'NO_DATA';
-  const sc = statusClasses(status);
-  const sourceText = limitSource === 'INSTRUMENT'
-    ? 'from this instrument'
-    : limitSource === 'ROOM'
-      ? `from room ${roomCode ?? '—'}`
-      : 'no limits set';
-
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-2">
-        <CardTitle className="text-base">{title}</CardTitle>
-        <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-semibold ${sc.bg} ${sc.text} ${sc.border}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${sc.dot}`} />
-          {sc.label}
-        </span>
-      </CardHeader>
-      <CardContent>
-        <p className="text-3xl font-bold tabular-nums text-slate-800">
-          {reading ? reading.value.toFixed(decimals) : '—'}
-          <span className="ml-1 text-base font-medium text-slate-400">{unit}</span>
-        </p>
-        <p className="mt-1 text-xs text-slate-500">
-          {reading ? readingAge(reading.ts) : 'No readings in this instrument’s history'}
-        </p>
-        <p className="mt-3 text-xs text-slate-500">
-          Limits: <span className="font-medium text-slate-700">{formatSetPoint(min, max, decimals)}</span>{' '}
-          <span className="text-slate-400">({sourceText})</span>
-        </p>
-      </CardContent>
-    </Card>
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.09em] text-slate-500">{title}</p>
+      <p className="mt-3 text-sm text-slate-400">Loading…</p>
+    </section>
   );
 }
 
@@ -393,6 +343,7 @@ export function InstrumentTrend() {
     max: number | null | undefined,
     rows: { key: string; value: number; ts: string }[],
     reportSpanMs: number,
+    color: string,
   ): Promise<{ section: TrendChartSection; plotted: { ts: string; value: number }[] }> => {
     // The summary is computed from the STORED readings, never from the plotted
     // points: the minimum of a set of means is not the minimum of the record,
@@ -411,7 +362,10 @@ export function InstrumentTrend() {
         plotted: [],
       };
     }
-    const series = toChartSeries(rows, key, decimals, title, period.intervalMs);
+    // Same colour the screen drew. `renderChartToPng` mounts this very
+    // component, so a colour set on only one of the two would put a chart in the
+    // §11 record that does not look like the chart it documents.
+    const series = { ...toChartSeries(rows, key, decimals, title, period.intervalMs), color };
     if (series.points.length === 0) {
       return {
         section: { title, image: null, summary, unavailableReason: 'No readings in this period, so there is nothing to plot.' },
@@ -470,7 +424,7 @@ export function InstrumentTrend() {
         if (wantTemp) {
           const r = await chartSectionFor(
             'Temperature', '°C', tempKey, tempDecimals,
-            trend.overview?.limits?.tempMin, trend.overview?.limits?.tempMax, rows, reportSpanMs,
+            trend.overview?.limits?.tempMin, trend.overview?.limits?.tempMax, rows, reportSpanMs, TEMP_COLOR,
           );
           charts.push(r.section);
           if (tempKey) plottedLong.push(...r.plotted.map((pt) => ({ key: tempKey, value: pt.value, ts: pt.ts })));
@@ -478,7 +432,7 @@ export function InstrumentTrend() {
         if (wantHumid) {
           const r = await chartSectionFor(
             'Humidity', '%RH', humidKey, humidDecimals,
-            trend.overview?.limits?.rhMin, trend.overview?.limits?.rhMax, rows, reportSpanMs,
+            trend.overview?.limits?.rhMin, trend.overview?.limits?.rhMax, rows, reportSpanMs, HUMID_COLOR,
           );
           charts.push(r.section);
           if (humidKey) plottedLong.push(...r.plotted.map((pt) => ({ key: humidKey, value: pt.value, ts: pt.ts })));
@@ -558,79 +512,110 @@ export function InstrumentTrend() {
       : pendingReport.kind === 'timeseries' ? 'Instrument Time Series'
         : 'Instrument Alarms';
 
+  // Free-text placement (spec D8) as a caption line. Whatever is recorded, in
+  // the order a reader narrows down a location; nothing is invented when a
+  // field is blank.
+  const placementText = [inst?.location, inst?.area, inst?.block]
+    .filter((part): part is string => typeof part === 'string' && part.trim() !== '')
+    .join(' · ');
+
+  // "Is it talking?" is answered by the MOST RECENT of the two slots — an
+  // instrument still sending humidity is reporting, whatever temperature did.
+  const readingTimes = [trend.overview?.temperature?.ts, trend.overview?.humidity?.ts]
+    .filter((t): t is string => typeof t === 'string');
+  const latestReadingTs = readingTimes.length
+    ? readingTimes.reduce((a, b) => (a > b ? a : b))
+    : null;
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <Link to={id ? `/instruments/${id}` : '/instruments'} className="text-xs text-slate-500 hover:text-slate-700">
-            &larr; Back to instrument
-          </Link>
-          <h1 className="mt-0.5 font-mono text-2xl font-bold tracking-tight text-slate-800">
-            {inst?.code ?? '…'} <span className="font-sans text-base font-normal text-slate-500">Trend</span>
-          </h1>
+    // The page ground, cooler than the shell's slate so the white cards lift
+    // off it. The negative margins EXACTLY cancel `<main>`'s own padding
+    // (`p-3 sm:p-4 lg:p-6`, app-layout.tsx) and the same padding is re-applied
+    // inside, so the band is full-bleed without moving anything on the page.
+    <div
+      className="-m-3 min-h-full space-y-5 p-3 sm:-m-4 sm:p-4 lg:-m-6 lg:p-6"
+      style={{ backgroundColor: '#F7F8FA' }}
+    >
+      {/* The identity strip. What record is this, where is it, and is it
+          reporting right now — before a single number is read. */}
+      <TrendHeader
+        code={inst?.code ?? '…'}
+        name={inst?.name ?? ''}
+        placement={placementText}
+        // Server-resolved; this page never re-judges an instrument's status.
+        status={trend.overview?.status ?? null}
+        lastReadingTs={latestReadingTs}
+        backTo={id ? `/instruments/${id}` : '/instruments'}
+        // The COMBINED download — one document covering the period, which is
+        // what an operator signing off on that period files. The per-widget
+        // downloads stay on their own widgets below.
+        actions={<ExportMenu surface="instrument-trend" onExportPdf={() => setPendingReport({ kind: 'trend', slot: 'both' })} />}
+      />
+
+      {/* One quiet row: everything that changes WHAT is shown, and nothing
+          that says anything about the readings themselves. */}
+      <div className="flex flex-wrap items-end gap-4 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+        <div className="flex flex-wrap gap-1.5">
+          {TREND_PRESETS.map((p) => (
+            <Button
+              key={p.label}
+              size="sm"
+              variant={period.label === p.label ? 'default' : 'secondary'}
+              onClick={() => setPreset(p.ms)}
+            >
+              {p.label}
+            </Button>
+          ))}
         </div>
+
+        <label className="flex items-center gap-1.5 text-xs text-slate-600">
+          From
+          <input
+            type="datetime-local"
+            value={fromLocal}
+            onChange={(e) => e.target.value && setCustom(new Date(e.target.value).toISOString(), period.to)}
+            className="rounded-lg border border-slate-200 px-2 py-1.5 font-mono text-xs tabular-nums [color-scheme:light]"
+            aria-label="From"
+          />
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-slate-600">
+          To
+          <input
+            type="datetime-local"
+            value={toLocal}
+            onChange={(e) => e.target.value && setCustom(period.from, new Date(e.target.value).toISOString())}
+            className="rounded-lg border border-slate-200 px-2 py-1.5 font-mono text-xs tabular-nums [color-scheme:light]"
+            aria-label="To"
+          />
+        </label>
+
+        {/* The interval applies to the CHARTS only — labelled explicitly so a
+            control that visibly does nothing to the table below it doesn't
+            read as broken. */}
+        <label className="flex items-center gap-1.5 text-xs text-slate-600">
+          Chart interval
+          <select
+            value={period.intervalMs ?? ''}
+            onChange={(e) => setInterval(e.target.value === '' ? null : Number(e.target.value))}
+            className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
+            aria-label="Chart interval"
+          >
+            {INTERVALS.map((i) => (
+              <option key={i.value} value={i.seconds === null ? '' : i.seconds * 1000}>{i.label}</option>
+            ))}
+          </select>
+        </label>
       </div>
 
-      <Card>
-        <CardContent className="flex flex-wrap items-end gap-4 pt-6">
-          <div className="flex flex-wrap gap-1.5">
-            {TREND_PRESETS.map((p) => (
-              <Button
-                key={p.label}
-                size="sm"
-                variant={period.label === p.label ? 'default' : 'secondary'}
-                onClick={() => setPreset(p.ms)}
-              >
-                {p.label}
-              </Button>
-            ))}
-          </div>
-
-          <label className="flex items-center gap-1.5 text-xs text-slate-600">
-            From
-            <input
-              type="datetime-local"
-              value={fromLocal}
-              onChange={(e) => e.target.value && setCustom(new Date(e.target.value).toISOString(), period.to)}
-              className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs [color-scheme:light]"
-              aria-label="From"
-            />
-          </label>
-          <label className="flex items-center gap-1.5 text-xs text-slate-600">
-            To
-            <input
-              type="datetime-local"
-              value={toLocal}
-              onChange={(e) => e.target.value && setCustom(period.from, new Date(e.target.value).toISOString())}
-              className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs [color-scheme:light]"
-              aria-label="To"
-            />
-          </label>
-
-          {/* The interval applies to the CHARTS only — labelled explicitly so a
-              control that visibly does nothing to the table below it doesn't
-              read as broken. */}
-          <label className="flex items-center gap-1.5 text-xs text-slate-600">
-            Chart interval
-            <select
-              value={period.intervalMs ?? ''}
-              onChange={(e) => setInterval(e.target.value === '' ? null : Number(e.target.value))}
-              className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
-              aria-label="Chart interval"
-            >
-              {INTERVALS.map((i) => (
-                <option key={i.value} value={i.seconds === null ? '' : i.seconds * 1000}>{i.label}</option>
-              ))}
-            </select>
-          </label>
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-4 sm:grid-cols-2">
+      {/* The band gauges. The page leads with the BAND, not the number: the
+          limits are what an alarm is a departure from and what the whole
+          record exists to evidence. Both are fed straight from the overview
+          row — limits, their source and the decimals all arrive resolved. */}
+      <div className="grid gap-4 lg:grid-cols-2">
         {trend.overview ? (
           <>
-            <LatestValueCard
-              title="Temperature"
+            <BandGauge
+              label="Temperature"
               unit="°C"
               reading={trend.overview.temperature}
               decimals={trend.overview.decimals.temperature ?? TELEMETRY_DECIMALS_FALLBACK}
@@ -638,9 +623,10 @@ export function InstrumentTrend() {
               max={trend.overview.limits?.tempMax}
               limitSource={trend.overview.limitSource}
               roomCode={trend.overview.room?.code ?? null}
+              accent={TEMP_COLOR}
             />
-            <LatestValueCard
-              title="Humidity"
+            <BandGauge
+              label="Humidity"
               unit="%RH"
               reading={trend.overview.humidity}
               decimals={trend.overview.decimals.humidity ?? TELEMETRY_DECIMALS_FALLBACK}
@@ -648,44 +634,37 @@ export function InstrumentTrend() {
               max={trend.overview.limits?.rhMax}
               limitSource={trend.overview.limitSource}
               roomCode={trend.overview.room?.code ?? null}
+              accent={HUMID_COLOR}
+              // The one page-load moment, staggered between the two slots.
+              delayMs={80}
             />
           </>
         ) : (
           <>
-            <CardSkeleton title="Temperature" />
-            <CardSkeleton title="Humidity" />
+            <GaugeSkeleton title="Temperature" />
+            <GaugeSkeleton title="Humidity" />
           </>
         )}
       </div>
 
-      <Card>
-        <CardContent className="pt-6">
-          <ExtraKeyPicker
-            options={keyOptions?.data ?? []}
-            extraKeys={extra.keys}
-            onAdd={extra.add}
-            onRemove={extra.remove}
-          />
-        </CardContent>
-      </Card>
+      {/* Charts, FULL WIDTH and stacked — never side by side. A trend is read
+          along the time axis; halving that axis to fit two charts on a row
+          costs the page the very thing it is for.
 
-      {/* Charts. Limits come straight off the overview row — never re-derived
-          here — which is what makes the in-spec band agree with the alarm
-          printed on the cards above. `intervalMs` only affects these two; the
-          raw table below stays unaveraged regardless of the selection. */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-slate-700">Charts</h2>
-        <ExportMenu surface="instrument-trend" onExportPdf={() => setPendingReport({ kind: 'trend', slot: 'both' })} />
-      </div>
-      <div className="grid gap-4 lg:grid-cols-2">
+          Limits come straight off the overview row — never re-derived here —
+          which is what makes the in-limit band agree with the gauge above it.
+          `intervalMs` only affects these; the raw table below stays unaveraged
+          regardless of the selection. */}
+      <h2 className="text-[11px] font-semibold uppercase tracking-[0.09em] text-slate-500">Charts</h2>
+      <div className="space-y-5">
         {/* TimeSeriesChart has no subtitle/caption slot of its own (it is shared
             with the dashboard, which has no need of this disclosure), so the
             note renders immediately above it — right against the chart's own
             title — rather than changing the shared component for one caller. */}
         <div>
-          {/* Per-slot download. The combined control on the section header above
-              covers both slots in one signed document; this one produces a report
-              for THIS widget alone, and is logged under its own reportType so the
+          {/* Per-slot download. The combined control in the header above covers
+              both slots in one signed document; this one produces a report for
+              THIS widget alone, and is logged under its own reportType so the
               audit trail can tell the three apart. */}
           <div className="mb-1 flex items-start justify-between gap-2">
             <ChartIntervalNote intervalMs={period.intervalMs} />
@@ -697,7 +676,7 @@ export function InstrumentTrend() {
             spanMs={spanMs}
             min={trend.overview?.limits?.tempMin}
             max={trend.overview?.limits?.tempMax}
-            series={tempKey ? [toChartSeries(chartRows, tempKey, tempDecimals, 'Temperature', period.intervalMs)] : []}
+            series={tempKey ? [{ ...toChartSeries(chartRows, tempKey, tempDecimals, 'Temperature', period.intervalMs), color: TEMP_COLOR }] : []}
           />
         </div>
         <div>
@@ -711,25 +690,43 @@ export function InstrumentTrend() {
             spanMs={spanMs}
             min={trend.overview?.limits?.rhMin}
             max={trend.overview?.limits?.rhMax}
-            series={humidKey ? [toChartSeries(chartRows, humidKey, humidDecimals, 'Humidity', period.intervalMs)] : []}
+            series={humidKey ? [{ ...toChartSeries(chartRows, humidKey, humidDecimals, 'Humidity', period.intervalMs), color: HUMID_COLOR }] : []}
           />
         </div>
-        {/* Extra keys carry no administered limits, so no in-spec band — the
-            picker above only offers keys that are not one of the two governed
-            slots, so there is nothing resolved to draw here. */}
-        {extra.keys.map((k) => (
-          <div key={k}>
-            <ChartIntervalNote intervalMs={period.intervalMs} />
-            <TimeSeriesChart
-              title={k}
-              unit=""
-              spanMs={spanMs}
-              series={[toChartSeries(chartRows, k, TELEMETRY_DECIMALS_FALLBACK, k, period.intervalMs)]}
-            />
-          </div>
-        ))}
       </div>
 
+      {/* The per-user extra keys, with their charts, kept together and below
+          the two administered slots — they are an addition to the record this
+          page governs, not part of it. */}
+      <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+        <ExtraKeyPicker
+          options={keyOptions?.data ?? []}
+          extraKeys={extra.keys}
+          onAdd={extra.add}
+          onRemove={extra.remove}
+        />
+        {/* Extra keys carry no administered limits, so no in-limit band — the
+            picker only offers keys that are not one of the two governed slots,
+            so there is nothing resolved to draw here. Nor any series colour:
+            these have no app-wide identity to keep. */}
+        {extra.keys.length > 0 && (
+          <div className="mt-4 space-y-5">
+            {extra.keys.map((k) => (
+              <div key={k}>
+                <ChartIntervalNote intervalMs={period.intervalMs} />
+                <TimeSeriesChart
+                  title={k}
+                  unit=""
+                  spanMs={spanMs}
+                  series={[toChartSeries(chartRows, k, TELEMETRY_DECIMALS_FALLBACK, k, period.intervalMs)]}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
       {/* Raw paged time-series. RAW ONLY — no averaging, no gap filling: a gap
           in the record stays a gap, never the previous value repeated. */}
       <Card>
@@ -791,6 +788,7 @@ export function InstrumentTrend() {
           statusTexts={statusTexts}
         />
       )}
+      </div>
 
       <ReportDownloadDialog
         open={pendingReport !== null}
