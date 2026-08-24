@@ -75,9 +75,15 @@ describe('renderChartToPng', () => {
     const svg = decodeURIComponent(spy.seen[0].replace(/^data:image\/svg\+xml;charset=utf-8,/, ''));
     // The band and the dashed limit lines TimeSeriesChart draws from `min`/`max`.
     // Their presence is the evidence the limits travelled into the picture,
-    // rather than the picture being redrawn without them.
-    expect(svg).toContain('#16a34a');
+    // rather than the picture being redrawn without them. The in-limit hex is
+    // the semantic token (`#15803D`, shared with the trend page's band gauge);
+    // it was `#16a34a` until 2026-08-24, when the two were reconciled.
+    expect(svg).toContain('#15803D');
     expect(svg).toContain('stroke-dasharray="4 3"');
+    // The bounds' VALUES, not just their rules — a printed record whose limit
+    // lines carry no numbers makes the reader infer them off the axis.
+    expect(svg).toContain('Max 25.0');
+    expect(svg).toContain('Min 18.0');
     // A plotted line, from the series colour and a path command.
     expect(svg).toContain('#2a78d6');
     expect(svg).toMatch(/<path[^>]+d="M[\d.]+,[\d.]+ L/);

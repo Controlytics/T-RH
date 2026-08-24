@@ -22,6 +22,10 @@ import { formatDecimals } from '@digilog/shared';
  * `node scripts/validate_palette.js "#2a78d6,#eb6834,#1baf7a" --mode light --pairs all`
  * → all checks pass (worst CVD ΔE 9.2, worst normal-vision ΔE 24.0).
  */
+/** The in-limit semantic, shared with the trend page's band gauge. Fixed, not
+ *  themed: a site that themes the app purple must not get a purple limit. */
+const LIMIT_LINE = '#15803D';
+
 export const SERIES_COLORS = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#4a3aa7'] as const;
 
 /** Never generate a hue past the end of the palette — clamp instead. */
@@ -160,6 +164,20 @@ export function TimeSeriesChart({ series, unit, min, max, spanMs, title }: Props
     return { label: s.label, value: best.value, decimals: s.decimals, color: s.color ?? seriesColor(i) };
   });
 
+  /**
+   * The precision a LIMIT is printed at.
+   *
+   * A limit belongs to the chart, not to any one series — this chart may
+   * overlay several probes in a room against one room spec. The FINEST of the
+   * series' own precisions is used, because rounding a 27.05 limit to "27" on
+   * a chart drawn for a 2-decimal probe would print a bound the record does
+   * not hold. `formatDecimals` (not `toFixed`) because `decimals` traces back
+   * to an operator-typed instrument attribute and `toFixed` throws outside
+   * 0…100 — inside this render that would blank the whole chart.
+   */
+  const limitDecimals = Math.max(0, ...withPoints.map((s) => s.decimals));
+  const limitText = (v: number) => formatDecimals(v, limitDecimals) ?? String(v);
+
   const bandTop = max != null ? g.sy(Math.min(max, g.scale.max)) : null;
   const bandBottom = min != null ? g.sy(Math.max(min, g.scale.min)) : null;
 
@@ -200,17 +218,40 @@ export function TimeSeriesChart({ series, unit, min, max, spanMs, title }: Props
             y={bandTop ?? PAD.top}
             width={g.plotW}
             height={Math.max(0, (bandBottom ?? PAD.top + g.plotH) - (bandTop ?? PAD.top))}
-            fill="#16a34a"
+            fill={LIMIT_LINE}
             opacity={0.07}
           />
         )}
+        {/* The limit lines, each carrying its own VALUE.
+            A dashed line with no number beside it is a boundary the reader has
+            to infer from the y-axis — on the one chart whose whole question is
+            "did it ever leave its limits?". The label rides in the plot area
+            with a white halo (`paintOrder`) so it stays legible where the
+            series crosses under it, rather than in the right margin where the
+            direct series labels already sit. */}
         {max != null && max <= g.scale.max && (
-          <line x1={PAD.left} x2={W - PAD.right} y1={g.sy(max)} y2={g.sy(max)}
-                stroke="#16a34a" strokeWidth={1} strokeDasharray="4 3" opacity={0.7} />
+          <g>
+            <line x1={PAD.left} x2={W - PAD.right} y1={g.sy(max)} y2={g.sy(max)}
+                  stroke={LIMIT_LINE} strokeWidth={1} strokeDasharray="4 3" opacity={0.75} />
+            <text
+              x={PAD.left + 4} y={g.sy(max) - 4} fontSize={10} fontWeight={600}
+              fill={LIMIT_LINE} stroke="#fff" strokeWidth={3} paintOrder="stroke"
+            >
+              {`Max ${limitText(max)}`}
+            </text>
+          </g>
         )}
         {min != null && min >= g.scale.min && (
-          <line x1={PAD.left} x2={W - PAD.right} y1={g.sy(min)} y2={g.sy(min)}
-                stroke="#16a34a" strokeWidth={1} strokeDasharray="4 3" opacity={0.7} />
+          <g>
+            <line x1={PAD.left} x2={W - PAD.right} y1={g.sy(min)} y2={g.sy(min)}
+                  stroke={LIMIT_LINE} strokeWidth={1} strokeDasharray="4 3" opacity={0.75} />
+            <text
+              x={PAD.left + 4} y={g.sy(min) + 11} fontSize={10} fontWeight={600}
+              fill={LIMIT_LINE} stroke="#fff" strokeWidth={3} paintOrder="stroke"
+            >
+              {`Min ${limitText(min)}`}
+            </text>
+          </g>
         )}
 
         {/* Recessive grid + axis labels. */}
