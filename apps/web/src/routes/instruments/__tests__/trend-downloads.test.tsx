@@ -19,9 +19,14 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
  *    idle with no file and no error, which is indistinguishable from success.
  */
 
+// Two readings inside one 5-minute bucket, one in the next. At `raw` that is
+// three table rows; at `5m` it is two averaged points — which is what makes the
+// "table follows the chart" assertion below discriminating.
 const history = [
   { key: 'temperature', value: 22.4, ts: '2026-08-24T00:10:00.000Z', slot: 'temperature', decimals: 1 },
   { key: 'humidity', value: 45.1, ts: '2026-08-24T00:10:00.000Z', slot: 'humidity', decimals: 1 },
+  { key: 'temperature', value: 22.6, ts: '2026-08-24T00:11:00.000Z', slot: 'temperature', decimals: 1 },
+  { key: 'humidity', value: 45.2, ts: '2026-08-24T00:11:00.000Z', slot: 'humidity', decimals: 1 },
   { key: 'temperature', value: 22.5, ts: '2026-08-24T00:20:00.000Z', slot: 'temperature', decimals: 1 },
   { key: 'humidity', value: 45.3, ts: '2026-08-24T00:20:00.000Z', slot: 'humidity', decimals: 1 },
 ];
@@ -79,9 +84,9 @@ const jspdf: any = await import('jspdf');
 // the document itself.
 jspdf.default.API.save = function (name: string) { saved.push(name); events.push(`save:${name}`); return this; };
 
-function renderPage() {
+function renderPage(query = '') {
   return render(
-    <MemoryRouter initialEntries={['/instruments/i-1/trend']}>
+    <MemoryRouter initialEntries={[`/instruments/i-1/trend${query}`]}>
       <Routes><Route path="/instruments/:id/trend" element={<InstrumentTrend />} /></Routes>
     </MemoryRouter>,
   );
@@ -169,12 +174,41 @@ describe('trend page downloads', () => {
     }
   });
 
+  /**
+   * The chart and the table in ONE report must not quote different values for
+   * one instant with nothing saying why — that is the same §11 problem as the
+   * on-screen version of it (Issue 4), one document further along. So when the
+   * chart is averaged, the table under it holds those same averaged points, and
+   * the raw record lives in the Time Series report.
+   */
+  it('builds the trend table from the same points the chart plots, when averaged', async () => {
+    renderPage('?interval=5m');
+    await download(1);
+    // Three stored readings collapse to two 5-minute buckets.
+    expect(logged[0].recordCount).toBe(2);
+  });
+
+  it('leaves the trend table at every stored reading when the chart is raw', async () => {
+    renderPage('?interval=raw');
+    await download(1);
+    expect(logged[0].recordCount).toBe(3);
+  });
+
+  it('never averages the Time Series report, whatever the chart interval is', async () => {
+    // The raw record is this report's entire job; the chart control must not
+    // reach it.
+    renderPage('?interval=5m');
+    await download(3);
+    expect(logged[0].reportType).toBe('Instrument Time Series');
+    expect(logged[0].recordCount).toBe(3);
+  });
+
   it('carries the operator\'s remarks and the period into the audit record', async () => {
     renderPage();
     await download(1);
     expect(logged[0].remarks).toBe('periodic review');
     expect(logged[0].format).toBe('PDF');
-    expect(logged[0].recordCount).toBe(2);
+    expect(logged[0].recordCount).toBe(3);
     expect(logged[0].startDate).toBeTruthy();
     expect(logged[0].endDate).toBeTruthy();
   });

@@ -6,6 +6,7 @@ import {
 } from '@/routes/alarms/alarm-display';
 import type { TableRow } from './trend-series';
 import type { ChartImage } from './chart-image';
+import type { SlotSummary } from './trend-summary';
 
 /**
  * The PDF renderers behind the trend page's governed downloads — the trend
@@ -66,7 +67,7 @@ function addCapNotice(report: ReportDoc, capped: boolean, shownCount: number, to
   );
 }
 
-/** One slot's picture, as it will appear in the PDF. `image` is `null` when the
+/** One slot's picture and its period statistics. `image` is `null` when the
  *  slot had no readings to draw or the rasteriser could not produce a PNG — the
  *  report then says which, rather than leaving a gap that reads as "no data". */
 export interface TrendChartSection {
@@ -75,6 +76,26 @@ export interface TrendChartSection {
   image: ChartImage | null;
   /** Why there is no picture. Printed verbatim when `image` is null. */
   unavailableReason: string;
+  /** Computed from the STORED readings, never from the averaged points plotted
+   *  above them. `null` when the slot had no readings in the period. */
+  summary: SlotSummary | null;
+}
+
+/**
+ * How much of the period's record this report was actually built from.
+ *
+ * `GET /:id/telemetry` caps `limit` at 500 server-side and the repository orders
+ * `ts DESC`, so a long period comes back as its most recent tail, not the whole
+ * window — measured on this install, a 30-day period holds 7,646 rows and 500
+ * come back. A statistics block computed over 6.5% of a period, printed under a
+ * heading naming the whole period, is a §11 misrepresentation with no tell. So
+ * the report states its own coverage whenever the two numbers differ.
+ */
+export interface ReportCoverage {
+  /** Readings the report received. */
+  returned: number;
+  /** Readings the period actually holds, from the endpoint's `historyTotal`. */
+  total: number;
 }
 
 export interface TrendReportInput {
@@ -98,6 +119,17 @@ export interface TrendReportInput {
    * outlives the screen.
    */
   averagedLabel: string | null;
+  /**
+   * Whether the TABLE holds averaged points rather than stored readings.
+   *
+   * The table under an averaged chart shows the SAME points the chart plots —
+   * two blocks of one report disagreeing about the value at an instant, with
+   * nothing saying why, is the defect this whole report was rewritten to
+   * remove. The raw record then lives in the Time Series report, and this one
+   * says so rather than leaving the reader to wonder where it went.
+   */
+  tableIsAveraged: boolean;
+  coverage: ReportCoverage;
 }
 
 /** Page margin and usable width, matching `pdf-report.ts`'s own 14mm gutters. */
@@ -142,6 +174,50 @@ function addChart(report: ReportDoc, section: TrendChartSection): void {
   report.y += h + 6;
 }
 
+/** A number at the slot's own resolved precision, or an em dash. */
+function num(v: number | null | undefined, decimals: number): string {
+  return v == null ? '—' : (formatDecimals(v, decimals) ?? '—');
+}
+
+/**
+ * One slot's period statistics, under its chart.
+ *
+ * Out-of-spec is stated in READINGS, and the wording says so. Converting
+ * samples into a duration means assuming what happened between them, and the
+ * gap left by an instrument that went offline is exactly where that assumption
+ * is worst — it would attribute a value to a stretch with no record at all.
+ */
+function addSummary(report: ReportDoc, summary: SlotSummary, formatDateTime: (d: string) => string): void {
+  const d = summary.decimals;
+  const rows: string[][] = [
+    ['Readings', summary.count.toLocaleString()],
+    ['Minimum', `${num(summary.min, d)} ${summary.unit}`],
+    ['Maximum', `${num(summary.max, d)} ${summary.unit}`],
+    ['Mean', `${num(summary.mean, d)} ${summary.unit}`],
+    ['First reading', `${num(summary.first.value, d)} ${summary.unit}  —  ${formatDateTime(summary.first.ts)}`],
+    ['Last reading', `${num(summary.last.value, d)} ${summary.unit}  —  ${formatDateTime(summary.last.ts)}`],
+  ];
+
+  if (summary.outOfSpecCount === null) {
+    // NOT "0 out of spec". No limits are set, so nothing was checked, and a
+    // zero here would read as a clean period rather than an unjudged one.
+    rows.push(['Out of specification', 'Not assessed — no limits are set for this slot']);
+  } else {
+    const pct = summary.count > 0 ? (summary.outOfSpecCount / summary.count) * 100 : 0;
+    rows.push([
+      'Out of specification',
+      `${summary.outOfSpecCount.toLocaleString()} of ${summary.count.toLocaleString()} readings (${pct.toFixed(1)}%)`,
+    ]);
+    rows.push([
+      '— below / above limit',
+      `${(summary.belowCount ?? 0).toLocaleString()} below ${num(summary.limitMin, d)}`
+      + `  /  ${(summary.aboveCount ?? 0).toLocaleString()} above ${num(summary.limitMax, d)}`,
+    ]);
+  }
+
+  report.addTable({ head: [`${summary.label} — period summary`, 'Value'], body: rows });
+}
+
 /**
  * The trend widget as a report: the CHART the operator saw, with its in-spec
  * band, and the readings table beneath it.
@@ -158,11 +234,30 @@ export async function renderTrendReport(input: TrendReportInput): Promise<Report
   const { shown, capped, total } = capRows(input.rows);
   const report = await createReport({
     title: `Instrument Trend — ${input.slotLabel}`,
-    subtitle: `${input.instrument.code} — ${input.slotLabel}`,
+    // Says what this report IS, so a reader months later does not have to infer
+    // it from the title alone how it differs from the Time Series report. The
+    // audit `reportType` cannot carry this — target_type is VARCHAR(50) and
+    // "Instrument Trend — Temperature & Humidity" already uses 41 of it.
+    subtitle: `${input.instrument.code} — ${input.slotLabel}. Chart and period summary. `
+      + `The complete raw record is the Instrument Time Series report.`,
     reportKey: 'instrument-trend',
     formatDateTime: input.formatDateTime,
   });
   addInstrumentDetails(report, input.instrument, input.period);
+
+  // Coverage first, above everything it qualifies. A statistics block reads as
+  // authoritative, so if it does not cover the period its heading names, that
+  // has to be the first thing read, not a footnote under the table.
+  if (input.coverage.total > input.coverage.returned) {
+    addNote(
+      report,
+      `INCOMPLETE PERIOD: this report was built from the ${input.coverage.returned.toLocaleString()} most recent `
+      + `readings, but ${input.period.label} holds ${input.coverage.total.toLocaleString()}. The chart, the summary `
+      + `and the table below all describe that most recent portion only — not the whole period named above. `
+      + `Narrow the period for a report that covers all of it.`,
+      report.colors.red,
+    );
+  }
 
   // The same disclosure `ChartIntervalNote` makes on screen, in the same words
   // (`intervalLabel` is the one source for the bucket's name). A printed record
@@ -171,15 +266,29 @@ export async function renderTrendReport(input: TrendReportInput): Promise<Report
   if (input.averagedLabel) {
     addNote(
       report,
-      `Note: the chart below is AVERAGED over ${input.averagedLabel}. Each plotted point is the mean of the `
-      + `readings in its bucket, not a stored reading. The table lists every stored reading in this period.`,
+      `Note: the chart AND the table below are AVERAGED over ${input.averagedLabel}. Each point and each row is `
+      + `the mean of the readings in its bucket, not a stored reading. The period summary is NOT averaged — it is `
+      + `computed from the stored readings, so a brief excursion that averaging smooths away still appears there. `
+      + `For the complete unaveraged record, use the Instrument Time Series report.`,
       report.colors.red,
     );
   }
 
-  for (const section of input.charts) addChart(report, section);
+  for (const section of input.charts) {
+    addChart(report, section);
+    if (section.summary) {
+      addSummary(report, section.summary, input.formatDateTime);
+    } else {
+      addNote(report, `No ${section.title.toLowerCase()} readings in this period, so there is nothing to summarise.`, report.colors.muted);
+    }
+  }
 
   addCapNotice(report, capped, shown.length, total, input.period);
+  report.addSectionTitle(
+    input.tableIsAveraged
+      ? `Averaged readings — the same points plotted above, not stored readings`
+      : `Readings — every stored reading in this period`,
+  );
   report.addTable({
     head: ['Timestamp', ...input.keys.map((k) => k.label)],
     body: shown.map((r) => [

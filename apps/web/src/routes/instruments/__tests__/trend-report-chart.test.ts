@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { renderTrendReport, type TrendChartSection } from '../trend-report';
+import { summariseSlot } from '../trend-summary';
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: { get: vi.fn(async () => ({})), post: vi.fn(), postWithReauth: vi.fn() },
@@ -39,10 +40,17 @@ const rows = [
 const PNG =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
+const readings = [
+  { key: 't', value: 22.4, ts: '2026-08-24T00:10:00.000Z' },
+  { key: 't', value: 22.5, ts: '2026-08-24T00:20:00.000Z' },
+  { key: 't', value: 26.9, ts: '2026-08-24T00:30:00.000Z' },
+];
+
 const drawnChart: TrendChartSection = {
   title: 'Temperature',
   image: { dataUrl: PNG, width: 1800, height: 520 },
   unavailableReason: '',
+  summary: summariseSlot(readings, 't', 'Temperature', '°C', 1, 18, 25),
 };
 
 type Input = Parameters<typeof renderTrendReport>[0];
@@ -57,6 +65,8 @@ function baseInput(overrides: Partial<Input> = {}): Input {
     period,
     formatDateTime,
     averagedLabel: null,
+    tableIsAveraged: false,
+    coverage: { returned: 3, total: 3 },
     ...overrides,
   };
 }
@@ -108,7 +118,7 @@ describe('the trend report shows the trend', () => {
 
   it('draws NO chart image when the slot had nothing to plot', async () => {
     const { images } = await capture(baseInput({
-      charts: [{ title: 'Temperature', image: null, unavailableReason: 'No readings in this period, so there is nothing to plot.' }],
+      charts: [{ title: 'Temperature', image: null, summary: null, unavailableReason: 'No readings in this period, so there is nothing to plot.' }],
     }));
     expect(images.filter((a) => a[0] === PNG)).toHaveLength(0);
   });
@@ -145,9 +155,11 @@ describe('the trend report shows the trend', () => {
   it('keeps the readings table beneath the chart — the chart is the picture, the table is the record', async () => {
     const { report } = await capture(baseInput());
     const tables = report.getSnapshot().sections.filter((x: any) => 'head' in x);
-    expect(tables).toHaveLength(1);
-    expect(tables[0].head).toEqual(['Timestamp', 'Temperature (°C)']);
-    expect(tables[0].body).toEqual([
+    // Two now: the period summary, then the readings.
+    expect(tables).toHaveLength(2);
+    const readingsTable = tables.find((t: any) => t.head[0] === 'Timestamp')!;
+    expect(readingsTable.head).toEqual(['Timestamp', 'Temperature (°C)']);
+    expect(readingsTable.body).toEqual([
       ['2026-08-24T00:10:00.000Z', '22.4'],
       ['2026-08-24T00:20:00.000Z', '22.5'],
     ]);
@@ -158,14 +170,85 @@ describe('the trend report shows the trend', () => {
       charts: [{
         title: 'Temperature',
         image: null,
-        unavailableReason: 'The chart could not be rendered by this browser. The readings below are the complete record for this period.',
+        summary: null,
+        unavailableReason: 'The chart could not be rendered by this browser. The summary and the readings below still describe this period.',
       }],
     }));
     expect(text).toMatch(/Temperature/);
     // splitTextToSize wraps it across drawn lines, so both halves are asserted
     // rather than the whole sentence surviving as one run.
     expect(text).toMatch(/could not be rendered by this browser/);
-    expect(text).toMatch(/complete record for this period/);
+    expect(text).toMatch(/still describe this period/);
+  });
+
+  it('prints the period summary under the chart', async () => {
+    const { report } = await capture(baseInput());
+    const tables = report.getSnapshot().sections.filter((x: any) => 'head' in x);
+    const summary = tables.find((t: any) => t.head[0] === 'Temperature — period summary')!;
+    expect(summary).toBeTruthy();
+    const byLabel = Object.fromEntries(summary.body.map((r: string[]) => [r[0], r[1]]));
+    expect(byLabel['Readings']).toBe('3');
+    expect(byLabel['Minimum']).toBe('22.4 °C');
+    expect(byLabel['Maximum']).toBe('26.9 °C');
+    expect(byLabel['Mean']).toBe('23.9 °C');
+    expect(byLabel['First reading']).toContain('22.4');
+    expect(byLabel['Last reading']).toContain('26.9');
+    // One of the three readings is above the 25 limit.
+    expect(byLabel['Out of specification']).toBe('1 of 3 readings (33.3%)');
+    expect(byLabel['— below / above limit']).toBe('0 below 18.0  /  1 above 25.0');
+  });
+
+  it('says "not assessed" rather than "0 out of spec" when no limits are set', async () => {
+    // Zero would read as a clean period. Nothing was checked, which is
+    // a different claim entirely and the one a §11 reader needs.
+    const { report } = await capture(baseInput({
+      charts: [{
+        ...drawnChart,
+        summary: summariseSlot(readings, 't', 'Temperature', '°C', 1, null, null),
+      }],
+    }));
+    const tables = report.getSnapshot().sections.filter((x: any) => 'head' in x);
+    const summary = tables.find((t: any) => t.head[0] === 'Temperature — period summary')!;
+    const byLabel = Object.fromEntries(summary.body.map((r: string[]) => [r[0], r[1]]));
+    expect(byLabel['Out of specification']).toMatch(/Not assessed/);
+    expect(summary.body.map((r: string[]) => r[0])).not.toContain('— below / above limit');
+  });
+
+  it('states its own coverage when the period holds more than the report received', async () => {
+    // The endpoint caps at 500 rows and orders ts DESC, so a long period comes
+    // back as its most recent tail. A summary printed under a heading naming
+    // the whole period, computed over 6.5% of it, is a §11 misrepresentation.
+    const { text } = await capture(baseInput({ coverage: { returned: 500, total: 7646 } }));
+    expect(text).toMatch(/INCOMPLETE PERIOD/);
+    expect(text).toMatch(/500 most recent/);
+    expect(text).toMatch(/7,646/);
+  });
+
+  it('says nothing about coverage when the report holds the whole period', async () => {
+    const { text } = await capture(baseInput({ coverage: { returned: 3, total: 3 } }));
+    expect(text).not.toMatch(/INCOMPLETE PERIOD/);
+  });
+
+  it('labels the table as averaged when it holds averaged points, and points at the raw record', async () => {
+    const { report, text } = await capture(baseInput({ tableIsAveraged: true, averagedLabel: '5 minutes' }));
+    const titles = report.getSnapshot().sections.map((x: any) => x.title).filter(Boolean);
+    expect(titles).toContain('Averaged readings — the same points plotted above, not stored readings');
+    expect(text).toMatch(/the chart AND the table below are AVERAGED over 5 minutes/);
+    // The summary must be exempted in words, because it is NOT averaged.
+    expect(text).toMatch(/period summary is NOT averaged/);
+    expect(text).toMatch(/Instrument Time Series report/);
+  });
+
+  it('labels the table as stored readings when it is not averaged', async () => {
+    const { report } = await capture(baseInput({ tableIsAveraged: false }));
+    const titles = report.getSnapshot().sections.map((x: any) => x.title).filter(Boolean);
+    expect(titles).toContain('Readings — every stored reading in this period');
+  });
+
+  it('says in the subtitle what this report is, and where the raw record lives', async () => {
+    const { report } = await capture(baseInput());
+    expect(report.getSnapshot().subtitle).toMatch(/Chart and period summary/);
+    expect(report.getSnapshot().subtitle).toMatch(/Instrument Time Series report/);
   });
 
   it('states the row cap in the report when it truncates', async () => {
@@ -177,6 +260,7 @@ describe('the trend report shows the trend', () => {
     expect(text).toMatch(/Truncated/);
     expect(text).toMatch(/2,500/);
     const tables = report.getSnapshot().sections.filter((x: any) => 'head' in x);
-    expect(tables[0].body).toHaveLength(2000);
+    const readingsTable = tables.find((t: any) => t.head[0] === 'Timestamp')!;
+    expect(readingsTable.body).toHaveLength(2000);
   });
 });

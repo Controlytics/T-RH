@@ -23,6 +23,7 @@ import {
 } from '@/routes/alarms/alarm-display';
 import { useTrendPeriod, useInstrumentTrend, TREND_PRESETS, TABLE_PAGE_SIZE, type TelemetryLongRow } from './use-trend-data';
 import { toChartSeries, toTableRows, type TableRow as PivotRow } from './trend-series';
+import { summariseSlot } from './trend-summary';
 import { ChartIntervalNote, intervalLabel } from './chart-interval-note';
 import { useExtraKeys } from './use-extra-keys';
 import {
@@ -349,11 +350,20 @@ export function InstrumentTrend() {
 
   // Fetch fresh rows for the DIALOG's chosen period — it may differ from the
   // page's, since the operator can change it in the dialog before confirming.
+  /**
+   * Rows for the DIALOG's chosen period, WITH the period's true row count.
+   *
+   * `historyTotal` is not decoration. The endpoint caps `limit` at 500
+   * server-side and orders `ts DESC`, so a long period comes back as its most
+   * recent tail: measured on this install, a 30-day window holds 7,646 rows and
+   * 500 are returned. Without the total, a report cannot know it is describing
+   * 6.5% of the period whose name is printed at the top of it.
+   */
   const fetchTelemetryForPeriod = async (from: string, to: string) => {
-    const res = await apiClient.get<{ history: TelemetryLongRow[] }>(
+    const res = await apiClient.get<{ history: TelemetryLongRow[]; historyTotal: number }>(
       `/api/instruments/${id}/telemetry?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=${MAX_SERIES_POINTS}`,
     );
-    return res.history;
+    return res;
   };
 
   const fetchAlarmsForPeriod = async (from: string, to: string): Promise<AlarmRow[]> => {
@@ -383,25 +393,42 @@ export function InstrumentTrend() {
     max: number | null | undefined,
     rows: { key: string; value: number; ts: string }[],
     reportSpanMs: number,
-  ): Promise<TrendChartSection> => {
+  ): Promise<{ section: TrendChartSection; plotted: { ts: string; value: number }[] }> => {
+    // The summary is computed from the STORED readings, never from the plotted
+    // points: the minimum of a set of means is not the minimum of the record,
+    // and an excursion that averaging smoothed away must not vanish from the
+    // one block of the report a §11 reader treats as authoritative.
+    const summary = key ? summariseSlot(rows, key, title, unit, decimals, min, max) : null;
+
     if (!key) {
       return {
-        title,
-        image: null,
-        unavailableReason: `This instrument reports no ${title.toLowerCase()} key, so there is no series to plot.`,
+        section: {
+          title,
+          image: null,
+          summary: null,
+          unavailableReason: `This instrument reports no ${title.toLowerCase()} key, so there is no series to plot.`,
+        },
+        plotted: [],
       };
     }
     const series = toChartSeries(rows, key, decimals, title, period.intervalMs);
     if (series.points.length === 0) {
-      return { title, image: null, unavailableReason: 'No readings in this period, so there is nothing to plot.' };
+      return {
+        section: { title, image: null, summary, unavailableReason: 'No readings in this period, so there is nothing to plot.' },
+        plotted: [],
+      };
     }
     const image = await renderChartToPng({ title, unit, spanMs: reportSpanMs, min, max, series: [series] });
     return {
-      title,
-      image,
-      unavailableReason: image
-        ? ''
-        : 'The chart could not be rendered by this browser. The readings below are the complete record for this period.',
+      section: {
+        title,
+        image,
+        summary,
+        unavailableReason: image
+          ? ''
+          : 'The chart could not be rendered by this browser. The summary and the readings below still describe this period.',
+      },
+      plotted: series.points,
     };
   };
 
@@ -424,35 +451,49 @@ export function InstrumentTrend() {
       if (which.kind === 'trend') {
         const wantTemp = which.slot === 'temperature' || which.slot === 'both';
         const wantHumid = which.slot === 'humidity' || which.slot === 'both';
-        const rows = numericRows(await fetchTelemetryForPeriod(reportPeriod.from, reportPeriod.to));
+        const fetched = await fetchTelemetryForPeriod(reportPeriod.from, reportPeriod.to);
+        const rows = numericRows(fetched.history);
         const keysMeta = [
           wantTemp && tempKey ? { key: tempKey, label: 'Temperature (°C)', decimals: tempDecimals } : null,
           wantHumid && humidKey ? { key: humidKey, label: 'Humidity (%RH)', decimals: humidDecimals } : null,
         ].filter((k): k is { key: string; label: string; decimals: number } => k !== null);
-        const pivoted = toTableRows(rows, keysMeta.map((k) => k.key));
         // The DIALOG's period, not the page's — the operator may have widened it
         // before confirming, and the chart's x-axis must cover what it printed.
         const reportSpanMs = Math.max(1, new Date(reportPeriod.to).getTime() - new Date(reportPeriod.from).getTime());
 
         const charts: TrendChartSection[] = [];
+        // Long rows rebuilt from the points each chart ACTUALLY plotted, so the
+        // table under an averaged chart holds those same averaged points. Two
+        // blocks of one report quoting different values for one instant, with
+        // nothing saying why, is the defect this report was rewritten to remove.
+        const plottedLong: { key: string; value: number; ts: string }[] = [];
         if (wantTemp) {
-          charts.push(await chartSectionFor(
+          const r = await chartSectionFor(
             'Temperature', '°C', tempKey, tempDecimals,
             trend.overview?.limits?.tempMin, trend.overview?.limits?.tempMax, rows, reportSpanMs,
-          ));
+          );
+          charts.push(r.section);
+          if (tempKey) plottedLong.push(...r.plotted.map((pt) => ({ key: tempKey, value: pt.value, ts: pt.ts })));
         }
         if (wantHumid) {
-          charts.push(await chartSectionFor(
+          const r = await chartSectionFor(
             'Humidity', '%RH', humidKey, humidDecimals,
             trend.overview?.limits?.rhMin, trend.overview?.limits?.rhMax, rows, reportSpanMs,
-          ));
+          );
+          charts.push(r.section);
+          if (humidKey) plottedLong.push(...r.plotted.map((pt) => ({ key: humidKey, value: pt.value, ts: pt.ts })));
         }
+        // Through the same tested pivot the screen uses, rather than a second
+        // merge written for this one caller.
+        const pivoted = toTableRows(plottedLong, keysMeta.map((k) => k.key));
 
         const slotLabel = TREND_SLOT_LABEL[which.slot];
         const report = await renderTrendReport({
           slotLabel, charts, rows: pivoted, keys: keysMeta, instrument,
           period: reportPeriod, formatDateTime,
           averagedLabel: intervalLabel(period.intervalMs),
+          tableIsAveraged: period.intervalMs !== null,
+          coverage: { returned: rows.length, total: fetched.historyTotal ?? rows.length },
         });
         // Fail-closed: the audit write happens BEFORE the file is saved.
         await logReportExport({
@@ -468,7 +509,7 @@ export function InstrumentTrend() {
         report.save(`instrument-trend-${slotFile}-${instrument.code}-${stamp}.pdf`);
       } else if (which.kind === 'timeseries') {
         const rawRows = await fetchTelemetryForPeriod(reportPeriod.from, reportPeriod.to);
-        const rows = numericRows(rawRows);
+        const rows = numericRows(rawRows.history);
         const keysMeta = [
           tempKey ? { key: tempKey, label: 'Temperature (°C)', decimals: tempDecimals } : null,
           humidKey ? { key: humidKey, label: 'Humidity (%RH)', decimals: humidDecimals } : null,
