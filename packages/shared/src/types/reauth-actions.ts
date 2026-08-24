@@ -110,6 +110,8 @@ export const REAUTH_ACTIONS = {
   MANAGE_ALARM_RULE: { label: 'Create / Update / Delete Alarm Rule', category: 'Configuration' },
   ACKNOWLEDGE_ALARM: { label: 'Acknowledge Alarm', category: 'Configuration' },
 
+  DOWNLOAD_REPORT: { label: 'Download / Generate a Report', category: 'Reports' },
+
   // Instruments — DELIBERATELY EMPTY. All THREE token actions
   // (`REVEAL_INSTRUMENT_TOKEN`, `SET_INSTRUMENT_TOKEN`,
   // `REGENERATE_INSTRUMENT_TOKEN`) were listed here on 2026-08-06 and all three
@@ -142,6 +144,12 @@ export const REAUTH_ACTION_CATEGORIES = [
   // SUPER_ADMIN_DATA_EDIT from both screens.
   'Notifications',
   'Super Admin',
+  // Downloading a report is a §11 record-producing act: it asks for a reason and
+  // a signature. The category must exist HERE or the policy renders nowhere —
+  // config/action-reauth.tsx and roles-components/reauth-tab.tsx both build
+  // their lists by iterating this array, so an action in a missing category can
+  // never have its policy set.
+  'Reports',
   // 'Instruments' was here until 2026-08-06. Its only member,
   // REGENERATE_INSTRUMENT_TOKEN, moved to an always-on gate and left the
   // registry with the other two token actions, so the category had no members
