@@ -29,7 +29,7 @@ import {
   gatewayInvariantError, lockedGatewayRecheck, lockInstrumentRows, isDeadlock,
   GatewayInvariantViolation,
 } from './gateway-invariants.js';
-import { getLatest, getHistory } from './telemetry.repository.js';
+import { getLatest, getHistory, getDistinctKeys } from './telemetry.repository.js';
 import { publishAttributeDownlink } from './attribute-downlink.js';
 import { publishChildRoster, clearChildRoster } from './child-roster.js';
 
@@ -641,6 +641,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         properties: {
           key: { type: 'string' },
           limit: { type: 'integer', default: 100 },
+          offset: { type: 'integer', default: 0, minimum: 0 },
           // Additive: getHistory() has always accepted a time range, the route
           // simply never surfaced it. Callers passing neither are unaffected.
           from: { type: 'string', format: 'date-time' },
@@ -661,19 +662,28 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const q = req.query as { key?: string; limit?: number; from?: string; to?: string };
-    const exists = await prisma.instrument.findUnique({ where: { id }, select: { id: true } });
+    const q = req.query as { key?: string; limit?: number; offset?: number; from?: string; to?: string };
+    // Visibility is applied as part of the LOOKUP, not checked after it, so an
+    // out-of-scope instrument is indistinguishable from a non-existent one —
+    // matching the /:id detail route above (404, never 403).
+    const { where: visibility } = await resolveVisibility(buildContext(req));
+    const exists = await prisma.instrument.findFirst({
+      where: withVisibility({ id }, visibility) as { id: string },
+      select: { id: true },
+    });
     if (!exists) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
 
     // Capped server-side: this reads a partitioned history table and the page
     // only ever renders a recent window.
     const limit = Math.min(Math.max(Number(q.limit ?? 100), 1), 500);
+    const offset = Math.max(Number(q.offset ?? 0), 0);
     const [latest, history] = await Promise.all([
       getLatest(id),
       getHistory({
         instrumentId: id,
         key: q.key,
         limit,
+        offset,
         from: q.from ? new Date(q.from) : undefined,
         to: q.to ? new Date(q.to) : undefined,
       }),
@@ -705,6 +715,65 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       latest: latest.map(annotate),
       history: history.rows.map(annotate),
       historyTotal: history.total,
+    };
+  });
+
+  // GET /api/instruments/:id/telemetry-keys — the keys this instrument has
+  // ACTUALLY sent, newest activity first. Backs the trend page's "add a key"
+  // picker: ingest stores whatever key a device sends, so a free-text field
+  // would invite a key that has never existed and a widget that can never draw.
+  app.get('/:id/telemetry-keys', {
+    preHandler: [app.requirePermission('INSTRUMENT_READ')],
+    schema: {
+      tags: ['Instruments'],
+      summary: 'Distinct telemetry keys sent by one instrument',
+      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            data: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  key: { type: 'string' },
+                  slot: { type: ['string', 'null'], enum: ['temperature', 'humidity', null] },
+                  lastSeen: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    // Same visibility discipline as /:id/telemetry above — an out-of-scope
+    // instrument must 404, not 403, so this route can't be used to confirm an
+    // instrument exists outside the caller's scope.
+    const { where: visibility } = await resolveVisibility(buildContext(req));
+    const exists = await prisma.instrument.findFirst({
+      where: withVisibility({ id }, visibility) as { id: string },
+      select: { id: true },
+    });
+    if (!exists) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
+
+    // Same alias resolution the telemetry route uses, so the picker and the
+    // charts agree about which key is "temperature".
+    const [aliases, keys] = await Promise.all([loadAliases(), getDistinctKeys(id)]);
+    const annotateKey = (k: string) => {
+      const lower = k.toLowerCase();
+      return aliases.temperature.includes(lower)
+        ? 'temperature' as const
+        : aliases.humidity.includes(lower)
+          ? 'humidity' as const
+          : null;
+    };
+
+    return {
+      data: keys.map((k) => ({ key: k.key, slot: annotateKey(k.key), lastSeen: k.lastSeen })),
     };
   });
 

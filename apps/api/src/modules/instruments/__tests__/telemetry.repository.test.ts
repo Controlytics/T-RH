@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import { prisma } from '../../../lib/prisma.js';
-import { writeBatch, getLatest, getHistory, writeDeadLetters } from '../telemetry.repository.js';
+import { writeBatch, getLatest, getHistory, writeDeadLetters, getDistinctKeys } from '../telemetry.repository.js';
 
 /**
  * Ported from pre-data-injection-drop:apps/api/src/modules/data-injection/__tests__/telemetry.repository.test.ts
@@ -141,6 +141,32 @@ describe('telemetry repository', () => {
     ]);
     expect((await getLatest(INST))[0].value).toBe(1);
     expect((await getLatest(OTHER))[0].value).toBe(2);
+  });
+
+  it('returns one row per key, newest ts, ordered by recency', async () => {
+    const t1 = new Date('2026-08-10T00:00:00Z');
+    const t2 = new Date('2026-08-20T00:00:00Z');
+    const t3 = new Date('2026-08-15T00:00:00Z');
+    await writeBatch([
+      { instrumentId: INST, key: 'temp', value: 1, valueType: 'int', ts: t1 },
+      { instrumentId: INST, key: 'temp', value: 2, valueType: 'int', ts: t3 },
+      { instrumentId: INST, key: 'rh', value: 9, valueType: 'int', ts: t2 },
+    ]);
+
+    const keys = await getDistinctKeys(INST);
+    expect(keys).toHaveLength(2);
+    // rh's newest (t2) is later than temp's newest (t3) — rh first.
+    expect(keys.map((k) => k.key)).toEqual(['rh', 'temp']);
+    expect(new Date(keys.find((k) => k.key === 'temp')!.lastSeen).getTime()).toBe(t3.getTime());
+  });
+
+  it('does not mix keys across different instruments', async () => {
+    await writeBatch([
+      { instrumentId: INST, key: 'temp', value: 1, valueType: 'int', ts: AT },
+      { instrumentId: OTHER, key: 'co2', value: 400, valueType: 'int', ts: AT },
+    ]);
+    expect((await getDistinctKeys(INST)).map((k) => k.key)).toEqual(['temp']);
+    expect((await getDistinctKeys(OTHER)).map((k) => k.key)).toEqual(['co2']);
   });
 
   it('writes dead letters', async () => {

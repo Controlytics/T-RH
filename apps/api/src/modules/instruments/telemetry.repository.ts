@@ -115,6 +115,22 @@ export async function getHistory(opts: {
   return { rows, total: Number(count) };
 }
 
+/**
+ * The keys this instrument has ACTUALLY sent, newest activity first.
+ *
+ * The trend page's "add a key" picker offers these and nothing else: ingest
+ * stores whatever key a device sends, so a free-text field would invite a key
+ * that has never existed and a widget that can never draw.
+ */
+export async function getDistinctKeys(instrumentId: string): Promise<{ key: string; lastSeen: Date }[]> {
+  return prisma.$queryRaw<{ key: string; lastSeen: Date }[]>`
+    SELECT key, max(ts) AS "lastSeen"
+    FROM instrument_telemetry_history
+    WHERE instrument_id = ${instrumentId}
+    GROUP BY key
+    ORDER BY max(ts) DESC`;
+}
+
 export async function writeDeadLetters(
   rows: { id?: string; instrumentId: string | null; transport: string; reason: string; rawPayload?: string | null }[],
 ): Promise<void> {
