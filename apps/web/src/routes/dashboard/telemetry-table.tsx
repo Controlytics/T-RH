@@ -311,18 +311,19 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
                       >
                         {r.code}
                       </Link>
-                      {r.room && (
-                        <Link
-                          to={`/instruments/${r.instrumentId}`}
-                          title={`Trend — last reading ${readingAge(latest)}`}
-                          aria-label={`Trend for ${r.code}`}
-                          className="text-slate-200 hover:text-white"
-                        >
-                          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 17l4-6 4 3 5-8 5 6" />
-                          </svg>
-                        </Link>
-                      )}
+                      {/* Not gated on `r.room`: an instrument's history does not
+                          depend on whether anyone has drawn it on a floorplan —
+                          an unplaced instrument still has readings to trend. */}
+                      <Link
+                        to={`/instruments/${r.instrumentId}/trend`}
+                        title={`Trend page — last reading ${readingAge(latest)}`}
+                        aria-label={`Open trend page for ${r.code}`}
+                        className="text-slate-200 hover:text-white"
+                      >
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 17l4-6 4 3 5-8 5 6" />
+                        </svg>
+                      </Link>
                     </div>
                   </td>
                 </tr>
