@@ -27,7 +27,10 @@ import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 ## Exports Inventory
 
 ### Permissions
-- `PERMISSIONS` enum — 52+ permission constants (ASSET_CREATE, ASSET_READ, FILTER_MANAGE, etc.)
+- `PERMISSIONS` enum — **42** permission constants (verified `grep -cE "^\s+[A-Z_]+:\s*'"
+  packages/shared/src/types/permissions.ts` 2026-08-24; see Live Type Inventory below). The examples
+  this line used to give — `ASSET_CREATE`, `ASSET_READ`, `FILTER_MANAGE` — don't exist any more
+  (asset/filter domain removed); current examples: `USER_CREATE`, `USER_READ`, `USER_UPDATE`.
 - Used by both backend `requirePermission()` and frontend `<RequireRole permissions={[]}>`
 
 ### Schemas
@@ -43,12 +46,14 @@ import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 - Role hierarchy types
 - Notification event types
 - Config key types
-- Alarm column definitions
-- Relationship type mappings (INVERSE_RELATIONSHIP_MAP)
+- ~~Alarm column definitions~~ / ~~Relationship type mappings (INVERSE_RELATIONSHIP_MAP)~~ — **gone**;
+  see Constants note below
 
 ### Constants
-- `ALARM_COLUMN_DEFINITIONS` — 11 alarm columns with metadata
-- `INVERSE_RELATIONSHIP_MAP` — Bidirectional relationship type pairs
+- ~~`ALARM_COLUMN_DEFINITIONS`~~ / ~~`INVERSE_RELATIONSHIP_MAP`~~ — **neither exists** (verified
+  `grep -rn "ALARM_COLUMN_DEFINITIONS\|INVERSE_RELATIONSHIP_MAP" packages/shared/src/` 2026-08-24: no
+  matches). The alarm-columns config page was removed 2026-05-17 with the rule-chain/alarm tear-out;
+  `INVERSE_RELATIONSHIP_MAP` was entity/relationship-domain, removed 2026-07-18.
 - Default audit text templates
 
 ## Live Type Inventory
@@ -75,37 +80,43 @@ import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 | `roles.ts` | Role constants + hierarchy + display labels; `defaultRoles` extracted to `apps/api/prisma/default-roles.ts` (Phase 1 reconciliation) |
 | `permission-categories.ts` | Permission grouping for the role-access UI |
 | `permission-tree.ts` | **Single sidebar-anchored permission catalog (Sidebar→Page→Action); derives `FEATURE_PRIVILEGES` / `FEATURE_TO_PERMISSION_MAP` / `SIDEBAR_PRIVILEGE_MAP`; source of truth from Phase 1 onward** — added 2026-06-30. **Phase 5A (2026-06-30):** `PermissionNode` gained `gate: Permission[]` (discriminating backend perm, NOT grant-expansion) + optional `gateRoles?: string[]`. Helpers: `resolveNodeGate(nodeId)` / `resolveNodeGateRoles(nodeId)` — both return `[]` for unknown ids. `useCan()` hook in `apps/web/src/hooks/use-can.ts` consumes these. |
-| `sidebar-items.ts` | **27** sidebar items (Organizations entry removed in MT removal; `version-history` added 2026-05-02; **2026-06-11** added `rfid-track-record` + `quality-notifications` — real Reports-group nav items that were missing from this configurable list, so editing a role's sidebar config silently dropped them. `reports-group` is a derived container and intentionally NOT a configurable item. **2026-07-13** added `home` (first entry) — the Module Guide, previously force-shown in `sidebar.tsx` and absent here, now a normal Roles-&-Access-managed item; existing role_configs backfilled with `home`.) |
+| `sidebar-items.ts` | ~~**27**~~ **12** sidebar items — the "27" here is stale (covered by the Live Type Inventory correction above; verified `grep -c "id: '" packages/shared/src/types/sidebar-items.ts` minus the interface's own `id: string;` line = 12, 2026-08-24). Current list: `home, dashboard, functional-locations, alarms, users, admin-requests, configuration, notifications, audit, system-health, instruments, debug-traces`. Everything else in this row's prose (Organizations removed, `version-history`/`rfid-track-record`/`quality-notifications`/`reports-group` additions) describes items that were later removed with the domains they belonged to; `version-history` and the Reports-group items are NOT in the live list above. `home` (2026-07-13, first entry) is the one addition from this row's history that survives. |
 | `sidebar-privilege-map.ts` | Sidebar item → privilege binding. **Phase 5E: now DERIVED** from `PERMISSION_TREE` group `visibilityPrivilegeIds` (`deriveSidebarPrivilegeMap()`); hand-maintained array retired. `getPrivilegesForSection` kept. |
 | `audit-actions.ts` | Audit action constants for `AuditTrail.action` |
 | `audit-templates.ts` | Templates that hide UUIDs in audit UI (e.g. `"<RequestType> — <Name> (<EmployeeID>)"`) |
-| `action-tape.ts` | Action-tape discriminated union (7 action variants: ADVANCE_TO_STAGE / SUBMIT_CHECKLIST / SUBMIT_DRYER_READINGS / SET_DRYER_DURATION / BYPASS_STAGE / TERMINATE_CYCLE / COMPLETE_CYCLE) — lifted from filter-operations module in Phase 5 (Step 8.1) |
+| ~~`action-tape.ts`~~ | **File does not exist** (verified `ls packages/shared/src/types/` 2026-08-24, no matches anywhere in the codebase). It described the filter-operations action tape, gone with the domain. Remove this row next time this table is touched. |
 
 Plus `index.ts` (barrel).
 
-`packages/shared/src/schemas/` contains **8 Zod validation schemas** (+ `.test.ts` siblings):
+`packages/shared/src/schemas/` contains **7 Zod validation schemas** (+ `.test.ts` siblings, verified
+`ls packages/shared/src/schemas/*.ts | grep -v test | wc -l` 2026-08-24 — the table below is stale;
+`assets.ts`, `templates.ts`, `hierarchy.ts` don't exist any more (asset/entity domain removed), and
+`instrument-profiles.ts` + `instruments.ts` were added since and are missing from this table):
 
 | File | Purpose |
 |---|---|
 | `auth.ts` | Login, logout, change-password, force-login |
 | `users.ts` | Create / update / role-assignment user payloads |
-| `assets.ts` | Asset template + instance + relationship + identifier + **TemplateKind CRUD** payloads. `SYSTEM_TEMPLATE_KIND_CODES` and `templateKindCodeSchema` exported here (Step 1 of architectural refactor). |
-| `templates.ts` | Asset template body schema (`attributeSchema`, alarm rules) |
-| `hierarchy.ts` | Block / Area / AHU hierarchy create payloads |
+| `instruments.ts` | Instrument CRUD / attribute payloads |
+| `instrument-profiles.ts` | Instrument profile CRUD payloads |
 | `audit.ts` | Audit query schema |
 | `config.ts` | All config-page payload schemas (password-policy, branding, datetime, etc.) |
 | `action-reauth.ts` | Reauth-action request schema |
 
-> Stray file: `config.ts.patch` exists in this folder — clean up.
+> ~~Stray file: `config.ts.patch` exists in this folder — clean up.~~ Does not exist (verified
+> `ls packages/shared/src/schemas/*.patch` 2026-08-24: no such file) — already cleaned up.
 
 ## Notes
 - Prisma schema has **34 Prisma models, 13 enums** (verified `grep -cE "^model "` / `"^enum "` 2026-08-17 — 2026-08-17 added 2 enums (`AlarmSource`, `AlarmLimitKind`; 11 → 13) for instrument-limit alarms, plus `Alarm.ruleId` (now nullable), `source`, `limitKind`, `clearedValue`. Earlier: 2026-08-11 added `Floorplan` + `FloorplanRoom`; 2026-08-13 added `FunctionalLocation`, `AlarmRule`, `Alarm` and five enums (`FunctionalLocationType`, `AlarmMetric`, `AlarmComparison`, `AlarmSeverity`, `AlarmState`); 2026-08-14 added two VALUES to `NotificationEventType`, which is not a new enum. Earlier: **29 Prisma models, 6 enums** verified 2026-08-08; the long-standing "61 models, 23 enums" was inherited from upstream DigiLog and was NEVER true in this fork — the real count before Instrument Profiles was 28 models / 6 enums). Recent changes: rule-chain + alarm tear-out 2026-05-17 dropped 5 models; data-ingestion tear-out 2026-06-11..2026-06-17 dropped 6 models (`DeviceCredential`, `UnsMapping`, `ConnectivityStatus`, `DataStream`, `DeadLetterQueue`, `IngestionSystemConfig`); reports generate/sign tear-out 2026-07-04 dropped 4 models (`ReportTemplate`, `ReportTemplateVersion`, `ReportInstance`, `ReportSignature`) + 2 enums (`ReportTemplateStatus`, `ReportStatus`); Wave 1 typed-hierarchy migration added 4 sidecar tables Block/Area/AHU/Filter; Step 6 added `FilterDetails` 1:1 sidecar; Phase A.3 added `FilterProfileVersion` sidecar; Phase A.4 added `EquipmentGroupVersion` sidecar.
-- Phase 2 types (filter operations, cleaning profiles) are still co-located in API modules (not yet extracted)
-- 64 field IDs across 12 modules (stale Alarms ×11 + Telemetry ×3 removed 2026-06-29 with the torn-out subsystems — seed + DB)
+- ~~Phase 2 types (filter operations, cleaning profiles) are still co-located in API modules (not yet extracted)~~ — moot; filter operations/cleaning profiles were removed entirely in the 2026-07-18 Phase 0 strip, not just left un-extracted.
+- 64 field IDs across 12 modules (stale Alarms ×11 + Telemetry ×3 removed 2026-06-29 with the torn-out subsystems — seed + DB) — **unverified 2026-08-24**, re-count before citing; several of the 12 modules referenced here no longer exist.
 
 ---
 
 ## Phase 3 Update (2026-04-07)
+
+> ⚠️ **Removed — `rfid_scan_app/` does not exist** (verified `ls rfid_scan_app` 2026-08-24: no such
+> file). No mobile app, RFID, or offline sync exists in this fork. Kept as history.
 
 **RFID & Offline Operations:**
 - RFID Scanner Android app (`rfid_scan_app/`) for KC-series UHF readers

@@ -44,6 +44,13 @@
 **Decision:** SWR types must match the API response shape. Paginated endpoints return `{ data: [], total, page, limit, totalPages }`, not raw arrays.
 **Rationale:** The API wraps paginated results in a standard envelope. The frontend must type SWR calls as `useSWR<{ data: T[] }>('/api/...')` and extract `res?.data`. Using `useSWR<T[]>` directly causes runtime crashes (`o.filter is not a function`) because the response object has no `.filter` method.
 
+> ⚠️ **Correction (2026-08-24): decisions §12–§14, §17–§20, §22–§23, §25 below describe the
+> Entity/Asset Explorer, which is GONE.** The entity/asset domain (templates, instances,
+> relationships, the `/assets` route) was removed in the 2026-07-18 Phase 0 strip — verified
+> `ls apps/web/src/routes/` 2026-08-24 has no `assets` folder. Retained as historical
+> decision-records; do not use them to infer current UI. (This mirrors the "SUPERSEDED" markers
+> already on §24 and §26 below for the same reason, plus rule-chain/alarm-specific removals.)
+
 ## 12. Entity Explorer Split Panel Layout
 **Decision:** The Entity Explorer uses a fixed-width tree panel (320px) on the left with a detail panel on the right, plus a toggle for list view.
 **Rationale:** Entity hierarchies need visual tree navigation for CONTAINS relationships, but flat list view is essential for search/filter operations across all entities. The split panel gives both options. Detail panel uses 5 tabs (Overview, Attributes, Relationships, Identifiers, Audit) to organize the rich entity data without overwhelming the user.
@@ -127,6 +134,9 @@
 
 ## Phase 2 Decisions
 
+> ⚠️ **This whole section is about the removed filter/cleaning-cycle domain** — see the correction
+> banner above decision §12. Kept as history.
+
 - ~~**Pipeline editor reuses ReactFlow**~~: *(superseded 2026-05-17 — `reactflow` was uninstalled with the rule-chain tear-out; the cleaning-profile pipeline editor now uses a custom canvas)*
 - **Pipeline as graph, not linear list**: Chose directed graph (stages + connections) over linear array to support future branching, parallel paths, and conditional flows
 - **Checklist as pipeline node, not stage property**: Checklists are first-class CHECKLIST nodes in the graph, not attached to stages. This allows placing checklists between any stages, or multiple checklists in sequence
@@ -143,6 +153,9 @@
 ---
 
 ## Phase 3 Update (2026-04-07)
+
+> ⚠️ **Removed — `rfid_scan_app/` does not exist** (verified `ls rfid_scan_app` 2026-08-24: no such
+> file). No mobile app, RFID, or offline sync exists in this fork. Kept as history.
 
 **RFID & Offline Operations:**
 - RFID Scanner Android app (`rfid_scan_app/`) for KC-series UHF readers

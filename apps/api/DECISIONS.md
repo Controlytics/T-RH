@@ -4,6 +4,20 @@
 **Decision:** Store role as a Prisma enum on the `users` table rather than a separate `roles` table with join.
 **Rationale:** Phase 1 has 6 fixed roles. This simplifies queries, avoids JOINs on every auth check, and roles are checked on nearly every request. A roles table would add complexity without benefit at this stage. Can be migrated to a table in later phases if custom roles are needed.
 
+> ⚠️ **Correction (2026-08-24): decisions §2, §13–§24 below, plus "Phase 2 Decisions" and
+> "Phase 3 Update," describe the Asset/Entity/Filter/Checklist/RFID domain, which is GONE.**
+> It was removed in the 2026-07-18 Phase 0 strip (entities/assets/templates/relationships) and the
+> filter-domain vocabulary cleanup on 2026-08-20. Verified 2026-08-24: `apps/api/prisma/schema.prisma`
+> has no `Asset*`/`Entity*`/`Filter*`/`Checklist*`/`EquipmentGroup*` models, `apps/api/src/modules/`
+> has no `assets`/`filter-*`/`checklist-profiles`/`equipment-groups` modules, and `rfid_scan_app/`
+> does not exist. Retained below as historical decision-records (the "why," for whoever reads old
+> commits), matching the existing "SUPERSEDED CLUSTER" note further down for §25/§27–§30/§33–§35/§37 —
+> read that note too, since it covers a *second*, earlier-recognized removal (TimescaleDB/rule-chain).
+> Decisions §1, §3–§12, §31, §32, §36, §38–§41 remain current (auth/session/audit/permission
+> mechanics not specific to the asset domain). §17's *pattern* (requirePermission over requireRole)
+> still applies generally; §18's specific example (asset/entity mutation routes) is gone with the
+> domain.
+
 ## 2. Template-Based Entity Architecture (not hardcoded hierarchy)
 **Decision:** Entities are created from configurable templates (blueprints) rather than hardcoded Block > Area > Module > Instrument hierarchy tables.
 **Rationale:** The requirements doc specifies flexible entity types (CCTV cameras, clean rooms, reactors, etc.) that vary per deployment. Templates define attribute schemas (with 9 data types and numeric constraints), telemetry schemas, expected identifiers, expected relationships, and status lifecycles. Instances are created from templates and validated against their schema. This supports unlimited entity types without schema changes.
@@ -184,6 +198,9 @@
 
 ## Phase 2 Decisions
 
+> ⚠️ **This whole section is about the removed filter/cleaning-cycle domain** — see the correction
+> banner above decision §2. Kept as history.
+
 - **Pipeline as graph, not linear list**: Chose directed graph (stages + connections) over linear array to support future branching, parallel paths, and conditional flows
 - **Checklist as pipeline node, not stage property**: Checklists are first-class CHECKLIST nodes in the graph, not attached to stages. This allows placing checklists between any stages, or multiple checklists in sequence
 - **Versioning via create-new + archive-old**: Updating a cleaning profile creates a new version and archives the old one, preserving historical data for completed cycles. **Phase A.2 (2026-05-01)** added `lineageId UUID` to `FilterCleaningProfile` so version chains survive renames; `list()` groups by `distinct: ['lineageId']` (was `['name']`); endpoints `GET /:id/versions` and `/:id/versions/:n` expose history. Did NOT introduce a sidecar `*Version` table — the rowful approach is simpler and equivalent. Contrast with **Phase A.1 ChecklistProfile** which mutates in place and uses a sidecar `ChecklistProfileVersion` snapshot table. **Phase A.3 (2026-05-01)** extended the sidecar pattern to `FilterProfile`: live row mutates in place + version-bumped, OUTGOING state archived into `FilterProfileVersion` snapshot rows. Endpoints `GET /api/filter-profiles/:id/versions` and `/:id/versions/:n`. Per-block override is explicitly out of scope — FilterProfile is uniform across blocks. No cycle-side pin map needed because cycles already pin `cleaning_cycles.profileId` to a FilterCleaningProfile row at start. **Phase A.4 (2026-05-02)** extended the sidecar pattern to `EquipmentGroup` as a composite — `EquipmentGroupVersion.snapshot` carries the parent group plus all 3 instruments (ordered by sortOrder) in one row, because `update()` mutates them as a unit. Audit replay of submitted readings is already byte-exact via the immutable `FilterEvent.attributes.instrumentReadings` snapshot, so A.4 versioning is for admin-edit history only — no cycle-pinning of group versions. Cleaning reasons (config def values) were considered for A.4 but need no code: `CleaningCycle.cleaningReasonKey` + `cleaningReasonLabel` columns are written at cycle start and act as the per-cycle pin. **Two patterns coexist intentionally**: rowful-immutable for entities that are already designed to archive (FilterCleaningProfile, AssetTemplate); sidecar for entities that mutate in place (ChecklistProfile, FilterProfile, EquipmentGroup).
@@ -198,6 +215,10 @@
 ---
 
 ## Phase 3 Update (2026-04-07)
+
+> ⚠️ **RFID/Android/offline-sync is REMOVED — `rfid_scan_app/` does not exist in this fork**
+> (verified `ls rfid_scan_app` 2026-08-24: no such file). Root `CLAUDE.md` confirms there is no
+> mobile app, RFID, or offline sync here. Kept as history.
 
 **RFID & Offline Operations:**
 - RFID Scanner Android app (`rfid_scan_app/`) for KC-series UHF readers

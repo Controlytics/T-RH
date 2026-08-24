@@ -43,22 +43,35 @@ node apps/api/dist/app.js
 - Config routes: monolith split into `apps/api/src/modules/config/static-routes/<surface>.routes.ts` per tab; top-level `routes.ts` is just a registration loop (~170 LOC, was 1003)
 
 ## Architecture
-- 21 route modules registered via `apps/api/src/modules/*/routes.ts` (verified `ls` 2026-08-11)
+- **23** route modules registered via `apps/api/src/modules/*/routes.ts` (re-verified `ls apps/api/src/modules/ | wc -l` 2026-08-24; the "21" here was a 2026-08-11 snapshot, see the Key Paths note above for what changed since)
 - Config auto-discovery at startup via `lib/config-discovery.ts`
 - Config registry pattern via `lib/config-registry.ts` (self-registering config modules)
 - Input sanitization: `lib/sanitize.ts` (HTML stripping on all text inputs)
 - JWT auth with 30-min refresh, session management, re-auth for sensitive ops
 - Permission-based RBAC via `requirePermission()` on all protected routes
 
-## 33 API Modules (verified `ls` 2026-07-04)
+## ⚠️ 33 API Modules — ENTIRELY STALE, kept as history only (re-verified 2026-08-24)
+
+The list below (`verified ls 2026-07-04`) predates the 2026-07-18 Phase 0 strip and the 2026-08-20
+filter-domain vocabulary removal. **None of the filter/asset/checklist/PM/equipment modules named in
+it exist any more.** The live module list is the **23 modules** in the section above ("Route modules"):
+`admin-requests, alarms, audit, auth, backup, config, dashboards, debug-traces, floorplans,
+functional-locations, help, instrument-profiles, instruments, ldap, notification-delivery,
+notification-rules, notifications, roles, super-admin, system-health, uploads, user-groups, users`
+(verified `ls apps/api/src/modules/` 2026-08-24). Do not use the list below as a reference for what
+exists — it documents what was removed and when, nothing more.
+
 admin-requests, assets, audit, auth, backup, block-change-requests, checklist-profiles, cleaning-profiles, config (36 auto-discovered definitions), dashboards, debug-traces, deployment-check, equipment-groups, filter-operations, filter-profiles, guest, help, hierarchy, ldap, notification-delivery, notification-rules, notifications, pm-schedules, replacement-schedule, report-reviews, roles, stage-approvals, super-admin, sync, system-health, uploads, user-groups, users.
 
-**Removed in 2026 cleanups**: `org-admin` + `tenant-admin` (MT removal, 2026-04-30), `rule-chain` (alarm tear-out, 2026-05-17), `qr-code` (placeholder, 2026-06-06), **`data-ingestion` + `uns` + `connectivity` + `queries` (ingestion tear-out, 2026-06-11..2026-06-17)**, **`reports` + `report-templates` (reports generate/sign tear-out, 2026-07-04 — `report-reviews` survives)**.
+**Removed in 2026 cleanups**: `org-admin` + `tenant-admin` (MT removal, 2026-04-30), `rule-chain` (alarm tear-out, 2026-05-17), `qr-code` (placeholder, 2026-06-06), **`data-ingestion` + `uns` + `connectivity` + `queries` (ingestion tear-out, 2026-06-11..2026-06-17)**, **`reports` + `report-templates` (reports generate/sign tear-out, 2026-07-04 — `report-reviews` survives)**, and (2026-07-18 Phase 0 strip) `assets`, `block-change-requests`, `checklist-profiles`, `cleaning-profiles`, `equipment-groups`, `filter-operations`, `filter-profiles`, `guest`, `hierarchy`, `pm-schedules`, `replacement-schedule`, `stage-approvals`, `sync`, `deployment-check` — the entire filter/cleanroom domain and several support modules. `report-reviews` also gone by 2026-08-24 (not in the live 23 — verify before citing).
 
 ## Databases
-- **digilog_db** (PostgreSQL 18 via Prisma) — application data (**29 models, 6 enums** — see the note above)
-- ~~`digilog_tsdb`~~ — **DROPPED 2026-06-11** with the data-ingestion tear-out. All 6 hypertables removed (`ts_telemetry`, `ts_attributes`, `ts_checklist_responses`, `ts_device_events`, `ts_binary_data`, `ts_pipeline_traces`).
-- `digilog_test_db` — **the vitest suite runs entirely against this DB** (since 2026-07-02). `vitest.env.ts` forces `DATABASE_URL` onto it before Prisma connects, so e2e/integration writes never pollute `digilog_db`'s immutable, hash-chained `audit_trail` (21 CFR §11). Same schema as `digilog_db` (migration-driven); seed it once with `DATABASE_URL=…/digilog_test_db INITIAL_ADMIN_PASSWORD=Admin@123 npx tsx prisma/seed.ts`.
+- **digilog_db** per `.env.example` (this checkout's actual `.env` uses `compliance_core_db` — see
+  Environment note above) (PostgreSQL 18 via Prisma) — application data (**34 models, 13 enums**,
+  verified `grep -cE "^model "` / `"^enum "` 2026-08-24 — see root `CLAUDE.md` System Stats for the
+  live number, the "29 models, 6 enums" here is a 2026-08-08 snapshot, not current)
+- ~~`digilog_tsdb`~~ — **DROPPED 2026-06-11** with the data-ingestion tear-out, still gone. All 6 hypertables removed (`ts_telemetry`, `ts_attributes`, `ts_checklist_responses`, `ts_device_events`, `ts_binary_data`, `ts_pipeline_traces`).
+- `digilog_test_db` per `.env.example` naming (this checkout's actual test DB is `compliance_core_db_test`) — **the vitest suite runs entirely against this DB** (since 2026-07-02). `vitest.env.ts` forces `DATABASE_URL` onto it before Prisma connects, so e2e/integration writes never pollute the dev DB's immutable, hash-chained `audit_trail` (21 CFR §11). Same schema as the dev DB (migration-driven); seed it once with `DATABASE_URL=…/<test-db> INITIAL_ADMIN_PASSWORD=Admin@123 npx tsx prisma/seed.ts`.
 
 ## Database Migrations — READ BEFORE ANY SCHEMA CHANGE
 
@@ -228,10 +241,33 @@ parallelism) but reliable. Until each test file owns its own login
 fixture, this is the right default.
 
 ## Environment
-- API_PORT=3000
-- PostgreSQL: localhost:5432 (only database now — also hosts the graphile-worker job queue)
-- ~~Mosquitto~~ — removed 2026-06-17 with data-ingestion tear-out (service uninstalled + `mqtt`/`aedes` deps gone)
-- ~~TimescaleDB~~ — `digilog_tsdb` database dropped 2026-06-11
+- API_PORT=3000 (default per `.env.example`; this checkout's actual `.env` runs 3001 to avoid
+  colliding with a sibling DigiLog checkout on 3000 — see `local-env-two-checkouts` memory)
+- PostgreSQL: localhost:5432 (only database now — also hosts the graphile-worker job queue). DB name
+  per `.env.example` is `digilog_db`; this checkout's actual `.env` uses `compliance_core_db` — same
+  sibling-checkout reason. Don't hardcode either name; read `DATABASE_URL`.
+- ~~TimescaleDB~~ — `digilog_tsdb` database dropped 2026-06-11, still gone.
+- **MQTT is back (2026-08, correction 2026-08-24).** The line that used to be here — "Mosquitto
+  removed 2026-06-17 with data-ingestion tear-out ... `mqtt`/`aedes` deps gone" — was true of the OLD
+  telemetry pipeline but is now WRONG: `apps/api/package.json` depends on `"mqtt": "^5.15.2"` again,
+  and `app.ts` registers `/api/ingest/v1`, `mqtt-auth-routes.ts`, an MQTT bridge
+  (`modules/instruments/listeners/mqtt-bridge.ts`), and a raw-TCP ingest listener (`INGEST_TCP_PORT`)
+  for the new instrument-telemetry ingest path. `aedes` is still gone (that was an in-process broker
+  for the old pipeline; the new bridge is a client connecting OUT to an external broker, EMQX in local
+  dev — see `emqx-on-windows` memory). Verified `grep -n mqtt apps/api/src/app.ts` and
+  `grep '"mqtt"' apps/api/package.json` 2026-08-24.
+
+---
+
+> ⚠️ **EVERYTHING FROM HERE DOWN (Phase 2 through Phase 4) DESCRIBES REMOVED SOFTWARE.**
+> The filter/cleaning/checklist/PM/equipment-group domain was deleted in the 2026-07-18 Phase 0
+> strip and its remaining vocabulary in the 2026-08-20 filter-domain removal — verified `ls
+> apps/api/src/modules/` 2026-08-24 shows none of `filter-operations`, `filter-profiles`,
+> `cleaning-profiles`, `checklist-profiles`, `pm-schedules`, `equipment-groups`,
+> `entity-assignments` exist, and `apps/api/prisma/schema.prisma` has no `Filter*`/`Checklist*`/
+> `EquipmentGroup*`/`CleaningCycle` models. The RFID Android app (`rfid_scan_app/`) referenced in
+> Phase 3 also does not exist (verified `ls rfid_scan_app` 2026-08-24: no such file). Kept below as
+> history, per this repo's doc policy — do not use it to infer what currently exists.
 
 ## Phase 2: Digital Filter Management System
 

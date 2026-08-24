@@ -17,8 +17,10 @@ Authoritative inventory of features and dependencies in the codebase that are **
 
 > **MOOT as of 2026-07-04.** The server-side reports generate/sign engine was removed entirely, and
 > `puppeteer-core` + `@napi-rs/canvas` + `chart.js` were uninstalled with it. There is no server-side
-> PDF/Chromium path anymore (the surviving cleaning-record / filter-lifecycle export renders client-side
-> via `apps/web/src/lib/pdf-report.ts` with jsPDF). The Phase-3 resolution below is kept for history.
+> PDF/Chromium path anymore. `apps/web/src/lib/pdf-report.ts` (jsPDF, client-side) still exists and is
+> still the export engine, but its original consumers here — cleaning-record / filter-lifecycle export —
+> are gone with the 2026-08-20 filter-domain removal (verified 2026-08-24); check current callers before
+> citing a specific report type. The Phase-3 resolution below is kept for history.
 
 **Resolved by:** `abdc9dd feat(reports): switch pdf-renderer from puppeteer to puppeteer-core + Edge` and `79937b7 feat(reports): edge-detector helper for puppeteer-core executablePath` (2026-04-29, on `feature/phase3-reports-edge`).
 
@@ -54,7 +56,19 @@ Cold-start render also dropped from ~34 s (bundled puppeteer first launch) to ~1
 
 `renderChart` public signature is unchanged (input config + resolved-series Map → base64 PNG data URL). 4-test smoke covers line / bar / pie + a PNG-signature byte assertion. Suite went from 464 ms (chartjs-node-canvas) to 151 ms.
 
-### 3. EMQX / Mosquitto MQTT broker — ✅ REMOVED ENTIRELY (2026-06-17)
+### 3. EMQX / Mosquitto MQTT broker — ✅ REMOVED (2026-06-17), then ⚠️ RE-ADDED for instrument ingest (2026-08)
+
+> **Correction (2026-08-24):** the removal below was real and complete at the
+> time — but a **new, unrelated** MQTT ingest bridge for instrument telemetry
+> was added back afterward. `apps/api/package.json` now depends on
+> `"mqtt": "^5.15.2"` again, `apps/api/src/app.ts` registers `/api/ingest/v1`,
+> `mqtt-auth-routes.ts`, and an MQTT bridge (`modules/instruments/listeners/
+> mqtt-bridge.ts`), and EMQX 5.3.2 is back in active local use (see the
+> `emqx-on-windows` memory / `LOCAL_SETUP_WINDOWS.md` §9A/§9B). "There's no
+> broker to install" (below) is no longer true for anyone doing instrument
+> ingest work. The old telemetry/TimescaleDB pipeline this entry originally
+> described is still gone; only the broker dependency came back, for a
+> different subsystem.
 
 **Superseded by Phase 7 ingestion tear-out.** The entire MQTT subsystem (EMQX → Mosquitto migration in Phase 1, then Mosquitto retained as the broker) is GONE as of 2026-06-11..2026-06-17:
 - `apps/api/src/transport/` deleted (mqtt-client.ts, mosquitto-acl-generator.ts, mosquitto-refresh-routes.ts, etc.)
@@ -64,7 +78,7 @@ Cold-start render also dropped from ~34 s (bundled puppeteer first launch) to ~1
 - `MQTT_ENABLED`, `MQTT_BROKER_HOST`, `MQTT_BROKER_PORT`, `EMQX_ADMIN_PASSWORD` removed from `apps/api/.env`
 - `scripts/install-mosquitto.ps1` is now historical-only — do NOT run it
 
-This Windows-hostility problem is permanently resolved: there's no broker to install, no service to manage, no dynsec to regenerate. See `CHANGELOG.md` "Data-ingestion + TimescaleDB removal" entry and root `CLAUDE.md` Phase 7 snapshot for full scope.
+This Windows-hostility problem was resolved for the *old* pipeline: there was no broker to install, no service to manage, no dynsec to regenerate. See `CHANGELOG.md` "Data-ingestion + TimescaleDB removal" entry and root `CLAUDE.md` Phase 7 snapshot for full scope. **This is no longer "permanently" true** — see the 2026-08-24 correction above; EMQX is back for instrument ingest and its Windows-hostility concerns apply again there (see `emqx-on-windows` memory).
 
 > **Deploy-script note (2026-07-04):** `scripts/install-on-target.ps1`, `install-mosquitto.ps1`, and `package-for-production.ps1` were **removed**. The current deploy path is the `DigiLog-Setup-<ver>.exe` installer (`scripts/build-installer.ps1` → `install.ps1` → `provision-db.ps1` + `register-services.ps1`; see `docs/PHARMA_DEPLOYMENT_21CFR.md`). The mitigation prose below that says *"install-on-target.ps1 should run X"* describes what the **installer** should enforce — read it as the installer's responsibility, not that script.
 
@@ -161,6 +175,13 @@ Live-verified: graphile-worker schema auto-bootstraps on first connect. The orig
 ---
 
 ## 🟡 APK / Android build chain (only if building APK on the server)
+
+> **⚠️ Obsolete as of the 2026-07-18 Phase 0 strip (marked 2026-08-24).** Neither
+> `apps/android/` nor `rfid_scan_app/` exists in this fork any more — verified
+> `ls apps/` (only `api` and `web`) and `ls rfid_scan_app` (no such file), 2026-08-24.
+> There is no APK, no Capacitor build, and no RFID hardware path to build for.
+> Entries #10 and #11 below describe a problem that no longer applies; kept as
+> history per this repo's doc policy, not as live guidance.
 
 ### 10. JDK 21 + Android SDK + Gradle
 
@@ -275,11 +296,11 @@ New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' `
 - ESLint, Vitest, TypeScript — pure JS
 - `jose` (JWT), `ldapts` (LDAP), `nodemailer` — pure JS
 - PostgreSQL 18 itself (now also hosts the graphile-worker queue schema)
-- ~~`mqtt` npm package~~ — uninstalled 2026-06-17 with data-ingestion tear-out
+- `mqtt` npm package — uninstalled 2026-06-17 with data-ingestion tear-out, **but reinstalled since** (`"mqtt": "^5.15.2"` in `apps/api/package.json`, verified 2026-08-24) for the new instrument-ingest MQTT bridge; see the correction on entry #3 above
 - HTTPS via mkcert (after the cert-import step in §6)
 - Windows Service registration — the `DigiLog-Setup.exe` installer registers `DigiLogDB` + `DigiLogAPI` as WinSW services (`scripts/register-services.ps1`); NSSM (`install-services-phase5.ps1`) remains for manual deploys
 - ~~Memurai (Redis substitute, paid)~~ — RETIRED in Phase 4 (2026-05-01); pub/sub now in-process
-- The 35 config defs + 34 config pages + 102 permissions — all pure JS
+- The config defs + config pages + permission constants — all pure JS (**stale counts removed 2026-08-24**: this line said "35 config defs + 34 config pages + 102 permissions", none of which were ever true in this fork per root `CLAUDE.md`; live counts there are **25 / 24 / 42** — re-derive via the grep/ls commands in root `CLAUDE.md`'s "Live-count verification" block rather than trusting a number here)
 
 ---
 
@@ -293,10 +314,10 @@ For a **Windows Server production deployment**, the realistic stance is:
 | React SPA | ✅ keep | Built artifact, served by Fastify static or IIS |
 | PostgreSQL 18 (vanilla, no TimescaleDB) | ✅ keep | Also hosts the graphile-worker job queue. TimescaleDB dropped 2026-06-11 with data-ingestion tear-out. |
 | ~~Memurai~~ | ✅ fully removed | Phase 2: queue → graphile-worker on Postgres. Phase 4 (2026-05-01): pub/sub → in-process EventEmitter bus. `ioredis` dependency dropped. **No Redis service required at all.** |
-| ~~MQTT broker~~ | ✅ fully removed (2026-06-17) | Mosquitto Windows service uninstalled; `mqtt`/`aedes` npm deps gone. No broker needed at all. |
+| MQTT broker | ⚠️ needed again (instrument ingest) | The old Mosquitto data-ingestion broker was removed 2026-06-17, but a new MQTT bridge for instrument telemetry was added back afterward (`mqtt` npm dep + `/api/ingest/v1` routes + `mqtt-bridge.ts`, verified 2026-08-24). EMQX is the broker in local use for this — see `LOCAL_SETUP_WINDOWS.md` §9A/§9B. This row previously said "fully removed" and "no broker needed at all"; that is no longer accurate. |
 | ~~Reports module (PDF + charts)~~ | ⚪ REMOVED (2026-07-04) | Server-side reports generate/sign engine torn out; `puppeteer-core`/`@napi-rs/canvas`/`chart.js` uninstalled. No server PDF/Chromium path. Surviving export is client-side (jsPDF). |
-| APK builds | ❌ off-server | Build on dev machine, copy artifact |
-| Native RFID hardware | ❌ off-server | Tablet + USB reader on operator floor |
+| APK builds / Capacitor / Android | ⚪ REMOVED — not just off-server | `apps/android/` doesn't exist in this fork (verified `ls apps/` 2026-08-24, only `api`/`web`). There is no APK to build anywhere, on-server or off. |
+| Native RFID hardware | ⚪ REMOVED | `rfid_scan_app/` doesn't exist in this fork (verified 2026-08-24). No tablet/RFID reader integration remains. |
 | CI builds | ✅ ubuntu-latest | Leave Windows out of CI loop |
 
 ---

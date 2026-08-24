@@ -2,7 +2,7 @@
 
 **Purpose:** This file contains everything Claude (or a developer) needs to clone, set up, and run the DigiLog application locally on a Windows machine. Follow every step exactly.
 
-> ⚠️ **2026-06-17 — TimescaleDB + Mosquitto no longer required.** The data-ingestion subsystem was removed in Phase 7 of the cleanup. You only need vanilla PostgreSQL 18 (no TimescaleDB extension), no MQTT broker, and no telemetry-related `.env` keys (`TSDB_*` / `MQTT_*` / `EMQX_*` / `UNS_ROOT_PREFIX` are all gone). This guide has been updated accordingly. See `CHANGELOG.md` Phase 7 entry + root `CLAUDE.md` System Stats for what's current.
+> ⚠️ **Correction (2026-08-24) — MQTT ingest is BACK; this banner and §1.4's "no broker" note below are stale for TimescaleDB but WRONG for MQTT.** Phase 7 (2026-06-17) did remove the old TimescaleDB/Mosquitto data-ingestion pipeline, and that part of this banner still holds — no TimescaleDB extension, no `TSDB_*` keys. But `apps/api/package.json` now depends on `"mqtt": "^5.15.2"` again, `apps/api/src/app.ts` registers `/api/ingest/v1` + `mqtt-auth-routes.ts` + a raw-TCP ingest listener + an MQTT bridge (`modules/instruments/listeners/mqtt-bridge.ts`), and `MQTT_BROKER_URL` / `INGEST_TCP_PORT` are live `.env` keys — verified by `grep -n mqtt apps/api/src/app.ts` and `grep '"mqtt"' apps/api/package.json` 2026-08-24. This is the **new** instrument-ingest MQTT bridge (via EMQX — see §9A/§9B below), unrelated to the old telemetry pipeline. Follow §9 if you need instrument ingest; skip it if you don't. See `CHANGELOG.md` Phase 7 entry + root `CLAUDE.md` System Stats for what's current, and don't trust this paragraph's "no MQTT broker" framing below without re-checking §9.
 
 ---
 
@@ -29,9 +29,11 @@ this section entirely — there is nothing to install for the pub/sub layer.
 - Download: https://git-scm.com/download/win
 - Verify: `git --version`
 
-> **No MQTT broker required.** The data-ingestion subsystem (Mosquitto/MQTT,
-> TimescaleDB) was removed wholesale in Phase 7 (2026-06). There is no broker
-> to install for local dev.
+> **⚠️ Stale as of 2026-08-24 — see the correction banner at the top of this file.**
+> The OLD data-ingestion subsystem (Mosquitto/MQTT, TimescaleDB) was removed
+> wholesale in Phase 7 (2026-06), but a NEW MQTT ingest bridge (EMQX-based,
+> for instrument telemetry) was added back afterward — see §9A/§9B below for
+> the broker you now DO need if you're working on instrument ingest.
 
 ---
 

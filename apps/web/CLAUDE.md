@@ -8,13 +8,15 @@ React 19 SPA built with Vite 6. In dev it runs on the Vite dev server (port 5175
 # Local Development (Windows)
 cd apps/web && npx vite --host         # Dev server on port 5175
 
-# Build (consumed by the Fastify static-serve at :3000 and by Capacitor for the APK)
+# Build (consumed by the Fastify static-serve at :3000)
 cd apps/web && npx vite build          # Outputs to apps/web/dist/
-
-# Update APK with the latest build
-cd apps/android && npx cap copy android
-cd apps/android/android && ./gradlew assembleDebug
 ```
+
+> ⚠️ **Correction (2026-08-24): the APK/Capacitor commands that used to be here are fiction.**
+> `apps/android/` does not exist in this fork — verified `ls apps/` 2026-08-24 (only `api`, `web`).
+> There is no Capacitor build, no APK, and no `cap`/`gradlew` step. Root `CLAUDE.md` confirms: no
+> mobile app here. If you need APK build history, it's in `apps/web/DECISIONS.md` / `CHANGELOG.md`
+> as a removed feature, not a live command.
 
 ## Testing
 ```bash
@@ -141,9 +143,22 @@ profile photo upload silently 401'd until 2026-08-11.
 - No dark theme anywhere in the application
 
 ## Frontend Pages
+
+> ⚠️ **Stale — re-verified 2026-08-24, this list is a 2026-05-17 snapshot.** `assets`,
+> `checklists`, `cleaning-cycles`, `filter-management`, `mobile`, `pm-schedules`, `tenant` do not
+> exist under `apps/web/src/routes/` any more (Phase 0 strip). The live top-level folders are:
+> `admin-requests, alarms, audit, auth, config, dashboard, debug, functional-locations, home,
+> instruments, notifications, profile, system-health, users` (verified `ls
+> apps/web/src/routes/` 2026-08-24 — 14 folders, not the list below).
+
 admin-requests, assets (dialogs/tabs/hooks), audit, auth, checklists, cleaning-cycles (history/timeline), config (branding/notification-rules/notification-settings/roles), debug, filter-management (operations/profiles/status/scan/traceability/AHU-dashboard/cleaning-profile-editor/retirement/replacement/bulk-upload/equipment), mobile, notifications, pm-schedules, profile, system-health, tenant, users (alarms + rule-chains route folders removed 2026-05-17)
 
 ## Phase 2 Pages
+
+> ⚠️ **This entire section (Phase 2 Pages, and Phase 3/parts of Phase 4 below) describes pages
+> that no longer exist** — the filter/checklist/PM/RFID domain was removed in the 2026-07-18 Phase 0
+> strip. Verified `ls apps/web/src/routes/` 2026-08-24: none of `filter-management`, `cleaning-cycles`,
+> `checklists`, `pm-schedules` exist. Kept as history.
 - `routes/filter-management/filter-operations.tsx` — Main operations page (8 stages, scan, checklist dialog, reason selection)
 - `routes/filter-management/cleaning-profile-editor.tsx` — Visual pipeline editor (canvas, drag, wire, properties panel)
 - `routes/filter-management/cleaning-profile-list.tsx` — Profile list with status badges
@@ -176,6 +191,9 @@ admin-requests, assets (dialogs/tabs/hooks), audit, auth, checklists, cleaning-c
 
 ## Phase 3 Update (2026-04-07)
 
+> ⚠️ **Removed — `rfid_scan_app/` does not exist** (verified `ls rfid_scan_app` 2026-08-24: no such
+> file). No mobile app, RFID, or offline sync exists in this fork. Kept as history.
+
 **RFID & Offline Operations:**
 - RFID Scanner Android app (`rfid_scan_app/`) for KC-series UHF readers
 - RFID keyboard guard prevents UKB tag input leaking into random fields
@@ -194,10 +212,20 @@ See `CHANGELOG.md` for full details.
 
 ## Phase 4 Update (2026-04-14)
 
+> ⚠️ **Themes and Granular Permissions below are current in spirit (still 10 presets, verified
+> `grep -c "name:" apps/web/src/lib/themes.ts` 2026-08-24); the per-page examples naming
+> filter-list/checklists/cleaning-profiles are stale — those pages are gone. Report Configuration
+> below is mostly stale too**: `routes/config/report-config.tsx`, `report-labels.tsx`, and
+> `report-signatories.tsx` do not exist (verified `ls apps/web/src/routes/config/` 2026-08-24 — only
+> `report-page-titles.tsx` survives, matching root `CLAUDE.md`'s note that it replaced
+> `report-settings.def.ts`). `report-page-wrapper.tsx` still exists and is still used (by
+> `routes/audit/index.tsx`), but its other listed consumers (Filter Traceability, Quality
+> Notifications, RFID Track Record) are gone with their pages.
+
 **Configurable Color Themes:**
 - 10 presets in `lib/themes.ts`, applied via CSS custom properties
 - Theme selector on Branding page, `use-branding` hook applies on load
-- Replaced hardcoded cyan/teal with CSS vars on: filter-list, PM schedules, dashboard, approvals, checklists, cleaning profiles
+- ~~Replaced hardcoded cyan/teal with CSS vars on: filter-list, PM schedules, dashboard, approvals, checklists, cleaning profiles~~ (those pages are gone; the CSS-var theming mechanism itself is still live on remaining pages)
 
 **Granular Permissions:**
 - SUPER_ADMIN bypasses all frontend permission checks
