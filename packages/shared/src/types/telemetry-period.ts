@@ -51,7 +51,25 @@ export const INTERVALS: IntervalSpec[] = [
 ];
 
 export const DEFAULT_PERIOD: PeriodPreset = '24h';
-export const DEFAULT_INTERVAL: IntervalKey = '5m';
+
+/**
+ * `raw`, NOT a bucket — a screen must not OPEN disagreeing with itself.
+ *
+ * This was `5m` until 2026-08-24. The trend page charts at the interval and
+ * tables the raw readings, so on first load the chart plotted a five-minute
+ * MEAN (22.4) beside a table showing the stored reading for that same instant
+ * (22.5). Neither number was wrong, but an operator had no way to tell which
+ * one was the record — and on a 21 CFR Part 11 surface an unannounced derived
+ * value sitting where a reading should be is a misrepresentation, not a
+ * display preference. `ChartIntervalNote` discloses averaging, but it only
+ * renders once a bucket is chosen, so the default was the one state where the
+ * disagreement was silent.
+ *
+ * Averaging is now something the operator opts INTO, at which point the note
+ * appears and says so. `chooseInterval` still widens the bucket when `raw`
+ * would exceed `MAX_SERIES_POINTS`, and still reports `downgradedFrom`.
+ */
+export const DEFAULT_INTERVAL: IntervalKey = 'raw';
 
 /**
  * The most points any single series may carry back to a browser.
