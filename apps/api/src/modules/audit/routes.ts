@@ -308,7 +308,7 @@ export default async function auditRoutes(app: FastifyInstance) {
       description: 'Writes a REPORT_GENERATED audit row capturing who generated which report, the format, the record count, and any active filters.',
       body: {
         type: 'object',
-        required: ['reportType', 'format', 'recordCount'],
+        required: ['reportType', 'format', 'recordCount', 'remarks'],
         properties: {
           reportType: { type: 'string', minLength: 1, maxLength: 100, description: 'Human report name, e.g. "Audit Trail", "Instrument Activity"' },
           format: { type: 'string', enum: ['PDF', 'Excel'] },
@@ -317,6 +317,7 @@ export default async function auditRoutes(app: FastifyInstance) {
           search: { type: 'string' },
           startDate: { type: 'string' },
           endDate: { type: 'string' },
+          remarks: { type: 'string', minLength: 1, maxLength: 500, description: 'Why this report was generated. Required — a §11 record states its reason.' },
         },
       },
       response: {
@@ -324,9 +325,15 @@ export default async function auditRoutes(app: FastifyInstance) {
         ...errorResponses,
       },
     },
-  }, async (req) => {
-    const { reportType, format, recordCount, period, search, startDate, endDate } =
-      req.body as { reportType: string; format: string; recordCount: number; period?: string; search?: string; startDate?: string; endDate?: string };
+  }, async (req, reply) => {
+    // Configurable, not welded on: enforceReauth consults the per-role policy,
+    // so an administrator can relax this for a role that downloads routinely
+    // without the requirement disappearing from the registry.
+    const { ok } = await enforceReauth('DOWNLOAD_REPORT', req, reply);
+    if (!ok) return;
+
+    const { reportType, format, recordCount, period, search, startDate, endDate, remarks } =
+      req.body as { reportType: string; format: string; recordCount: number; period?: string; search?: string; startDate?: string; endDate?: string; remarks: string };
     await auditLog({
       userId: req.user.username, userRole: req.user.role,
       action: 'REPORT_GENERATED',
@@ -339,8 +346,9 @@ export default async function auditRoutes(app: FastifyInstance) {
         search: search ?? null,
         startDate: startDate ?? null,
         endDate: endDate ?? null,
+        remarks,
       },
-      reason: `Report generated: ${reportType} (${recordCount} record(s)) as ${format}`,
+      reason: `Report generated: ${reportType} (${recordCount} record(s)) as ${format} — ${remarks}`,
       signatureMeaning: `${req.user.username} generated the ${reportType} report (${recordCount} record(s)) as ${format}`,
       ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
     });
