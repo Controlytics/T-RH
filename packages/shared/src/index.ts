@@ -61,6 +61,27 @@ export {
 } from './types/telemetry-decimals.js';
 
 export {
+  PERIOD_PRESETS,
+  INTERVALS,
+  DEFAULT_PERIOD,
+  DEFAULT_INTERVAL,
+  MAX_SERIES_POINTS,
+  intervalSpec,
+  isIntervalKey,
+  isPeriodPreset,
+  resolvePeriod,
+  chooseInterval,
+  describeRange,
+} from './types/telemetry-period.js';
+export type {
+  PeriodPreset,
+  PeriodPresetSpec,
+  IntervalKey,
+  IntervalSpec,
+  ResolvedRange,
+} from './types/telemetry-period.js';
+
+export {
   LIMIT_BOUNDS,
   ALARM_LIMIT_KEYS_DEFAULT,
   ALARM_STATUS_TEXT_DEFAULT,
