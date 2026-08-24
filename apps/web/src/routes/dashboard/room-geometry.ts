@@ -159,11 +159,32 @@ export interface TileLayout {
 
 /** Below these, a tile cannot hold legible text at all. viewBox units. */
 const MIN_TILE_W = 46;
-const MIN_TILE_H = 26;
 /** A tile showing values but no instrument code needs less height. */
 const VALUES_TILE_H = 18;
 /** Room for the code strip along the room's top edge. */
 const HEADER_H = 14;
+
+/**
+ * The renderer (`floorplan-view.tsx`) draws each chip at `fontSize *
+ * CHIP_HEIGHT_FACTOR` tall, stacked `CHIP_GAP` apart, starting `fontSize +
+ * FULL_CODE_GAP` down when a code line precedes them (FULL) or a flat
+ * `VALUES_TOP_GAP` down when it doesn't (VALUES_ONLY / OVERFLOW). It drops any
+ * chip whose bottom would exceed the tile — so a layout step is only really
+ * FULL or VALUES_ONLY if the tile it hands back is tall enough for BOTH
+ * chips, not just the one that happens to fit. These four numbers must track
+ * the renderer's literals exactly, or this module can promise a tile that the
+ * renderer then quietly clips.
+ */
+const CHIP_HEIGHT_FACTOR = 1.3;
+const CHIP_GAP = 1.5;
+const FULL_CODE_GAP = 3;
+const VALUES_TOP_GAP = 2;
+
+/** The tile height needed to show two stacked chips, given the top offset before the first one. */
+function twoChipsHeight(fontSize: number, topGap: number): number {
+  const chipH = fontSize * CHIP_HEIGHT_FACTOR;
+  return topGap + 2 * chipH + CHIP_GAP;
+}
 
 /**
  * How many instrument tiles fit, and what has to be given up when they do not.
@@ -186,31 +207,43 @@ export function tileLayout(box: PixelBox, count: number): TileLayout {
   // code and nothing else.
   if (box.w < MIN_TILE_W || bodyH < VALUES_TILE_H) return empty;
 
-  const fullCols = Math.max(1, Math.floor(box.w / MIN_TILE_W));
-  const fullRows = Math.max(0, Math.floor(bodyH / MIN_TILE_H));
-  const fullCapacity = fullCols * fullRows;
+  const rawCols = Math.max(1, Math.floor(box.w / MIN_TILE_W));
+  // Never spread instruments across more columns than there are instruments —
+  // one instrument in a wide room gets one wide tile, not a narrow tile in a
+  // grid with empty columns beside it.
+  const cols = Math.max(1, Math.min(rawCols, count));
+  const tileW = box.w / cols;
+
+  const fullFontSize = Math.max(8, Math.min(12, tileW / 4.5));
+  const fullRequiredH = twoChipsHeight(fullFontSize, fullFontSize + FULL_CODE_GAP);
+  const fullRows = Math.max(0, Math.floor(bodyH / fullRequiredH));
+  const fullCapacity = cols * fullRows;
 
   if (fullRows >= 1 && fullCapacity >= count) {
+    const rows = Math.ceil(count / cols);
     return {
       step: 'FULL', visible: count, hidden: 0,
-      cols: fullCols, rows: Math.ceil(count / fullCols),
-      tile: { w: box.w / fullCols, h: Math.min(MIN_TILE_H * 1.6, bodyH / Math.ceil(count / fullCols)) },
-      fontSize: Math.max(8, Math.min(12, box.w / fullCols / 4.5)),
+      cols, rows,
+      tile: { w: tileW, h: bodyH / rows },
+      fontSize: fullFontSize,
       bodyTop,
     };
   }
 
   // Drop the instrument code line: values are what a control room reads first,
   // and the tile is still clickable through to the instrument.
-  const valueRows = Math.max(0, Math.floor(bodyH / VALUES_TILE_H));
-  const valueCapacity = fullCols * valueRows;
+  const valuesFontSize = Math.max(8, Math.min(11, tileW / 5));
+  const valuesRequiredH = twoChipsHeight(valuesFontSize, VALUES_TOP_GAP);
+  const valueRows = Math.max(0, Math.floor(bodyH / valuesRequiredH));
+  const valueCapacity = cols * valueRows;
 
   if (valueRows >= 1 && valueCapacity >= count) {
+    const rows = Math.ceil(count / cols);
     return {
       step: 'VALUES_ONLY', visible: count, hidden: 0,
-      cols: fullCols, rows: Math.ceil(count / fullCols),
-      tile: { w: box.w / fullCols, h: Math.min(VALUES_TILE_H * 1.4, bodyH / Math.ceil(count / fullCols)) },
-      fontSize: Math.max(8, Math.min(11, box.w / fullCols / 5)),
+      cols, rows,
+      tile: { w: tileW, h: bodyH / rows },
+      fontSize: valuesFontSize,
       bodyTop,
     };
   }
@@ -220,9 +253,9 @@ export function tileLayout(box: PixelBox, count: number): TileLayout {
     const visible = valueCapacity - 1;
     return {
       step: 'OVERFLOW', visible, hidden: count - visible,
-      cols: fullCols, rows: valueRows,
-      tile: { w: box.w / fullCols, h: bodyH / valueRows },
-      fontSize: Math.max(8, Math.min(11, box.w / fullCols / 5)),
+      cols, rows: valueRows,
+      tile: { w: tileW, h: bodyH / valueRows },
+      fontSize: valuesFontSize,
       bodyTop,
     };
   }

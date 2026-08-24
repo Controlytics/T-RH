@@ -140,3 +140,44 @@ describe('tileLayout — degrade steps', () => {
     expect(order[narrow.step]).toBeGreaterThanOrEqual(order[wide.step]);
   });
 });
+
+describe('tileLayout — chip fit (regression: a FULL/VALUES_ONLY tile must actually hold two chips)', () => {
+  // Mirrors floorplan-view.tsx's own chip geometry exactly (chipH = fontSize *
+  // factor, stacked `gap` apart, starting `topGap` down) — if these numbers
+  // drift from the renderer's literals, this test stops meaning anything.
+  const CHIP_HEIGHT_FACTOR = 1.3;
+  const CHIP_GAP = 1.5;
+  const FULL_CODE_GAP = 3; // renderer: `ty + layout.fontSize + 3` before the first chip
+  const VALUES_TOP_GAP = 2; // renderer: `ty + 2` before the first chip when there's no code line
+
+  function requiredHeight(fontSize: number, topGap: number): number {
+    const chipH = fontSize * CHIP_HEIGHT_FACTOR;
+    return topGap + 2 * chipH + CHIP_GAP;
+  }
+
+  it('gives a FULL tile enough height for a code line plus two chips', () => {
+    const l = tileLayout({ x: 0, y: 0, w: 244, h: 234 }, 1);
+    expect(l.step).toBe('FULL');
+    expect(l.tile.h).toBeGreaterThanOrEqual(requiredHeight(l.fontSize, l.fontSize + FULL_CODE_GAP));
+  });
+
+  it('gives a VALUES_ONLY tile enough height for two chips with no code line', () => {
+    const l = tileLayout({ x: 0, y: 0, w: 300, h: 50 }, 1);
+    expect(l.step).toBe('VALUES_ONLY');
+    expect(l.tile.h).toBeGreaterThanOrEqual(requiredHeight(l.fontSize, VALUES_TOP_GAP));
+  });
+
+  it('does not clip the humidity chip for a single instrument in a wide room (exact reported case)', () => {
+    const l = tileLayout({ x: 0, y: 0, w: 244, h: 234 }, 1);
+    // One instrument should not be spread across a 5-column grid it doesn't need.
+    expect(l.cols).toBe(1);
+    expect(l.tile.h).toBeGreaterThanOrEqual(requiredHeight(l.fontSize, l.fontSize + FULL_CODE_GAP));
+  });
+});
+
+describe('tileLayout — column count', () => {
+  it('never uses more columns than there are instruments', () => {
+    const l = tileLayout({ x: 0, y: 0, w: 300, h: 200 }, 2);
+    expect(l.cols).toBeLessThanOrEqual(2);
+  });
+});
