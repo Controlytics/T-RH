@@ -143,3 +143,100 @@ export function doorPlacements(box: PixelBox, doors: RoomDoor[] | null | undefin
     };
   });
 }
+
+export type DegradeStep = 'FULL' | 'VALUES_ONLY' | 'OVERFLOW' | 'COMPACT' | 'CODE_ONLY';
+
+export interface TileLayout {
+  step: DegradeStep;
+  visible: number;
+  hidden: number;
+  cols: number;
+  rows: number;
+  tile: { w: number; h: number };
+  fontSize: number;
+  bodyTop: number;
+}
+
+/** Below these, a tile cannot hold legible text at all. viewBox units. */
+const MIN_TILE_W = 46;
+const MIN_TILE_H = 26;
+/** A tile showing values but no instrument code needs less height. */
+const VALUES_TILE_H = 18;
+/** Room for the code strip along the room's top edge. */
+const HEADER_H = 14;
+
+/**
+ * How many instrument tiles fit, and what has to be given up when they do not.
+ *
+ * Text degrades in FIXED, ORDERED steps rather than shrinking continuously:
+ * overlapping text is worse than absent text, and a font that keeps shrinking
+ * produces a floor where half the rooms are unreadable but none of them look
+ * broken. The step is chosen from measured size, never guessed.
+ */
+export function tileLayout(box: PixelBox, count: number): TileLayout {
+  const bodyTop = box.y + HEADER_H;
+  const bodyH = box.h - HEADER_H;
+  const empty: TileLayout = {
+    step: 'CODE_ONLY', visible: 0, hidden: Math.max(0, count), cols: 0, rows: 0,
+    tile: { w: 0, h: 0 }, fontSize: 8, bodyTop,
+  };
+
+  if (count <= 0) return { ...empty, hidden: 0 };
+  // Not enough body left for even a values-only tile: the room can carry its
+  // code and nothing else.
+  if (box.w < MIN_TILE_W || bodyH < VALUES_TILE_H) return empty;
+
+  const fullCols = Math.max(1, Math.floor(box.w / MIN_TILE_W));
+  const fullRows = Math.max(0, Math.floor(bodyH / MIN_TILE_H));
+  const fullCapacity = fullCols * fullRows;
+
+  if (fullRows >= 1 && fullCapacity >= count) {
+    return {
+      step: 'FULL', visible: count, hidden: 0,
+      cols: fullCols, rows: Math.ceil(count / fullCols),
+      tile: { w: box.w / fullCols, h: Math.min(MIN_TILE_H * 1.6, bodyH / Math.ceil(count / fullCols)) },
+      fontSize: Math.max(8, Math.min(12, box.w / fullCols / 4.5)),
+      bodyTop,
+    };
+  }
+
+  // Drop the instrument code line: values are what a control room reads first,
+  // and the tile is still clickable through to the instrument.
+  const valueRows = Math.max(0, Math.floor(bodyH / VALUES_TILE_H));
+  const valueCapacity = fullCols * valueRows;
+
+  if (valueRows >= 1 && valueCapacity >= count) {
+    return {
+      step: 'VALUES_ONLY', visible: count, hidden: 0,
+      cols: fullCols, rows: Math.ceil(count / fullCols),
+      tile: { w: box.w / fullCols, h: Math.min(VALUES_TILE_H * 1.4, bodyH / Math.ceil(count / fullCols)) },
+      fontSize: Math.max(8, Math.min(11, box.w / fullCols / 5)),
+      bodyTop,
+    };
+  }
+
+  if (valueRows >= 1 && valueCapacity >= 2) {
+    // One slot goes to the "+K" marker, so the count it reports is honest.
+    const visible = valueCapacity - 1;
+    return {
+      step: 'OVERFLOW', visible, hidden: count - visible,
+      cols: fullCols, rows: valueRows,
+      tile: { w: box.w / fullCols, h: bodyH / valueRows },
+      fontSize: Math.max(8, Math.min(11, box.w / fullCols / 5)),
+      bodyTop,
+    };
+  }
+
+  if (valueRows >= 1) {
+    // One reading block for the room, as the view drew before tiles existed.
+    return {
+      step: 'COMPACT', visible: 1, hidden: count - 1,
+      cols: 1, rows: 1,
+      tile: { w: box.w, h: bodyH },
+      fontSize: Math.max(8, Math.min(11, box.w / 6)),
+      bodyTop,
+    };
+  }
+
+  return empty;
+}

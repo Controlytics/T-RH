@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { wallSegments, doorPlacements, type RoomDoor } from '../room-geometry';
+import { tileLayout } from '../room-geometry';
 
 /** A 100x100 box at the origin — every expected number below is readable by hand. */
 const box = { x: 0, y: 0, w: 100, h: 100 };
@@ -88,5 +89,54 @@ describe('doorPlacements', () => {
       { wall: 'left', offset: 0.1, width: 0.1, kind: 'PASSAGE' },
     ]);
     expect(placements.map((p) => p.kind)).toEqual(['ENTRY', 'PASSAGE']);
+  });
+});
+
+describe('tileLayout — degrade steps', () => {
+  const big = { x: 0, y: 0, w: 300, h: 200 };
+  const tiny = { x: 0, y: 0, w: 26, h: 18 };
+
+  it('draws full tiles when there is room', () => {
+    const l = tileLayout(big, 2);
+    expect(l.step).toBe('FULL');
+    expect(l.visible).toBe(2);
+    expect(l.hidden).toBe(0);
+  });
+
+  it('never reports more visible tiles than there are instruments', () => {
+    expect(tileLayout(big, 1).visible).toBe(1);
+    expect(tileLayout(big, 0).visible).toBe(0);
+  });
+
+  it('falls to CODE_ONLY in a box too small for any tile', () => {
+    expect(tileLayout(tiny, 3).step).toBe('CODE_ONLY');
+    expect(tileLayout(tiny, 3).visible).toBe(0);
+  });
+
+  it('overflows rather than overlapping when the instruments do not fit', () => {
+    const l = tileLayout({ x: 0, y: 0, w: 120, h: 70 }, 12);
+    expect(l.step).toBe('OVERFLOW');
+    expect(l.visible + l.hidden).toBe(12);
+    expect(l.hidden).toBeGreaterThan(0);
+    // The +K marker occupies a slot, so a tile is given up to make space for it.
+    expect(l.visible).toBeLessThan(l.cols * l.rows);
+  });
+
+  it('keeps every tile inside the box', () => {
+    const l = tileLayout(big, 4);
+    expect(l.cols * l.tile.w).toBeLessThanOrEqual(big.w);
+    expect(l.bodyTop + l.rows * l.tile.h).toBeLessThanOrEqual(big.y + big.h);
+  });
+
+  it('leaves the header strip clear for the room code', () => {
+    const l = tileLayout(big, 2);
+    expect(l.bodyTop).toBeGreaterThan(big.y);
+  });
+
+  it('is monotonic — a smaller box never degrades to a richer step', () => {
+    const order: Record<string, number> = { FULL: 0, VALUES_ONLY: 1, OVERFLOW: 2, COMPACT: 3, CODE_ONLY: 4 };
+    const wide = tileLayout({ x: 0, y: 0, w: 300, h: 200 }, 3);
+    const narrow = tileLayout({ x: 0, y: 0, w: 90, h: 60 }, 3);
+    expect(order[narrow.step]).toBeGreaterThanOrEqual(order[wide.step]);
   });
 });
