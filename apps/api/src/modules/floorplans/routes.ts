@@ -55,7 +55,7 @@ const roomSelect = {
   id: true, code: true, label: true,
   x: true, y: true, w: true, h: true,
   tempMin: true, tempMax: true, rhMin: true, rhMax: true,
-  doors: true,
+  doors: true, grade: true,
 } as const;
 
 const roomProps = {
@@ -81,6 +81,10 @@ const roomProps = {
       },
     },
   },
+  // NULL = nobody has classified this room; renders white as before this
+  // field existed. Fastify strips undeclared response properties, so this
+  // entry is what actually lets the value reach the browser.
+  grade: { type: 'string', nullable: true },
 } as const;
 
 const planProps = {
@@ -324,6 +328,7 @@ export default async function floorplanRoutes(app: FastifyInstance) {
           geometry: { x: room.x, y: room.y, w: room.w, h: room.h },
           limits: { tempMin: room.tempMin, tempMax: room.tempMax, rhMin: room.rhMin, rhMax: room.rhMax },
           doors: doorSummary(room.doors),
+          grade: room.grade,
         },
         signatureMeaning: `Room "${room.code}" added to floorplan "${plan.name}"`,
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
@@ -398,12 +403,14 @@ export default async function floorplanRoutes(app: FastifyInstance) {
           geometry: { x: before.x, y: before.y, w: before.w, h: before.h },
           limits: { tempMin: before.tempMin, tempMax: before.tempMax, rhMin: before.rhMin, rhMax: before.rhMax },
           doors: doorSummary(before.doors),
+          grade: before.grade,
         },
         afterValue: {
           code: after.code, label: after.label,
           geometry: { x: after.x, y: after.y, w: after.w, h: after.h },
           limits: { tempMin: after.tempMin, tempMax: after.tempMax, rhMin: after.rhMin, rhMax: after.rhMax },
           doors: doorSummary(after.doors),
+          grade: after.grade,
         },
         signatureMeaning: `Room "${after.code}" updated`,
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,

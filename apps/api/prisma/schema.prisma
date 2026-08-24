@@ -1016,6 +1016,13 @@ model FloorplanRoom {
   /// Static geometry only. Nothing in this install senses a door.
   doors Json?
 
+  /// Cleanroom-grade classification: one of A / B / C / D / CIRCULATION /
+  /// UTILITY. NULL = nobody has classified this room, which renders it white
+  /// exactly as before this column existed. TEXT with zod validation rather
+  /// than a Postgres enum, so the classification vocabulary can be extended
+  /// without a migration and the enum count stays at 13.
+  grade String?
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
   createdBy String?  @map("created_by")

@@ -41,6 +41,14 @@ export type RoomDoor = z.infer<typeof doorSchema>;
 /** The four walls, in the order the editor lists them. */
 export const DOOR_WALLS = ['top', 'right', 'bottom', 'left'] as const;
 
+/**
+ * Cleanroom-grade classification. TEXT in the database, not a Postgres enum,
+ * so this list can grow without a migration — but it is still validated here
+ * so a bad payload names the offending field rather than silently persisting
+ * an unrecognized grade the renderer can't colour.
+ */
+export const ROOM_GRADES = ['A', 'B', 'C', 'D', 'CIRCULATION', 'UTILITY'] as const;
+
 export const roomSchema = z.object({
   code: z.string().trim().min(1).max(60),
   label: z.string().trim().max(120).nullable().optional(),
@@ -56,6 +64,9 @@ export const roomSchema = z.object({
   rhMax: humidity.nullable().optional(),
   // Six is a ceiling on a runaway client, not a judgement about architecture.
   doors: z.array(doorSchema).max(6).nullable().optional(),
+  // NULL = nobody has classified this room; it renders white exactly as
+  // before this field existed.
+  grade: z.enum(ROOM_GRADES).nullable().optional(),
 });
 
 export type RoomInput = z.infer<typeof roomSchema>;

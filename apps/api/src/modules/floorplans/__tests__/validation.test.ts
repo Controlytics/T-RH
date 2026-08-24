@@ -205,3 +205,32 @@ describe('validateRoomPayload — doors', () => {
     expect(explicitNull.ok && explicitNull.data.doors).toBeNull();
   });
 });
+
+describe('validateRoomPayload — grade', () => {
+  it.each(['A', 'B', 'C', 'D', 'CIRCULATION', 'UTILITY'] as const)(
+    'accepts grade %s',
+    (grade) => {
+      const r = validateRoomPayload({ ...base, grade });
+      expect(r.ok).toBe(true);
+      expect(r.ok && r.data.grade).toBe(grade);
+    },
+  );
+
+  it('rejects an unknown grade, naming the field', () => {
+    const r = validateRoomPayload({ ...base, grade: 'AA' });
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.error.startsWith('grade:')).toBe(true);
+  });
+
+  it('accepts an explicit null grade — nobody has classified this room', () => {
+    const r = validateRoomPayload({ ...base, grade: null });
+    expect(r.ok).toBe(true);
+    expect(r.ok && r.data.grade).toBeNull();
+  });
+
+  it('accepts an omitted grade — every existing room', () => {
+    const r = validateRoomPayload(base);
+    expect(r.ok).toBe(true);
+    expect(r.ok && 'grade' in r.data).toBe(false);
+  });
+});
