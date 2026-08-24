@@ -24,6 +24,7 @@ import { exportToExcel } from '@/lib/excel-export';
 import { logReportExport } from '@/lib/report-export-log';
 import { useExportLimit } from '@/hooks/use-export-limit';
 import { ExportMenu } from '@/components/ExportMenu';
+import { ReportDownloadDialog, type ReportDownloadRequest } from '@/components/report-download-dialog';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { useReportLabels } from '../../hooks/use-report-labels';
 
@@ -316,43 +317,67 @@ export function AuditTrailPage() {
 
   // Record the export as an auditable event BEFORE the file is saved. Throws on
   // failure so the caller can block the download (fail-closed, 21 CFR §11).
-  const logExport = async (format: 'PDF' | 'Excel', recordCount: number) => {
+  const logExport = async (format: 'PDF' | 'Excel', recordCount: number, remarks: string, password?: string) => {
     await logReportExport({
       reportType: 'Audit Trail', format, recordCount,
       period: currentPeriod(),
       search: search || undefined,
       startDate: fromDateTime ? new Date(fromDateTime).toISOString() : undefined,
       endDate: toDateTime ? new Date(toDateTime).toISOString() : undefined,
+      remarks,
+      password,
     });
   };
 
-  const exportPdf = async () => {
-    setDownloading(true);
+  // Pending download: which format the operator picked from <ExportMenu>,
+  // waiting on the governed dialog (period display + remarks + reauth) before
+  // anything is actually generated.
+  const [downloadFormat, setDownloadFormat] = useState<'PDF' | 'Excel' | null>(null);
+
+  const exportPdf = async () => setDownloadFormat('PDF');
+  const exportExcel = async () => setDownloadFormat('Excel');
+
+  // Runs once the operator confirms the download dialog. The dialog's own
+  // period fields are not wired here — the Audit Trail already has a real
+  // period selector in its filters above, and `currentPeriod()`/`fromDateTime`/
+  // `toDateTime` are what actually drive `fetchAllFilteredRecords`, so the
+  // dialog is shown without period fields for this surface (`showPeriod={false}`).
+  const runDownload = async (req: ReportDownloadRequest) => {
+    const format = downloadFormat;
+    if (!format) return;
     try {
-      const records = await fetchAllFilteredRecords();
-      if (records.length === 0) { toast.error('Nothing to export', 'No audit records match the current filters.'); return; }
-      if (records.length > exportLimit.maxRecords) {
-        toast.error('Export too large', exportLimit.tooLargeMessage(records.length));
-        return;
-      }
-      const report = await createReport({ reportKey: 'audit-trail',
-        title: auditL.title,
-        subtitle: auditL.subtitle || `Period: ${currentPeriod()}${search ? `  |  Search: "${search}"` : ''}  |  Total: ${records.length} record(s)  |  21 CFR Part 11 Compliant`,
-        orientation: 'landscape',
-        formatDateTime,
+      await reauth.executeWithResult('DOWNLOAD_REPORT', async (password) => {
+        setDownloading(true);
+        const records = await fetchAllFilteredRecords();
+        if (records.length === 0) throw new Error('No audit records match the current filters.');
+        if (records.length > exportLimit.maxRecords) throw new Error(exportLimit.tooLargeMessage(records.length));
+
+        if (format === 'PDF') {
+          const report = await createReport({ reportKey: 'audit-trail',
+            title: auditL.title,
+            subtitle: auditL.subtitle || `Period: ${currentPeriod()}${search ? `  |  Search: "${search}"` : ''}  |  Total: ${records.length} record(s)  |  21 CFR Part 11 Compliant`,
+            orientation: 'landscape',
+            formatDateTime,
+          });
+          report.addTable({ head: auditHead, body: mapAuditRows(records), columnStyles: { 0: { cellWidth: 35 }, 5: { cellWidth: 65 } } });
+          // Fail-closed: the log write happens BEFORE the file is saved.
+          await logExport('PDF', records.length, req.remarks, password);
+          report.save(`audit-trail-${new Date().toISOString().slice(0, 10)}.pdf`);
+        } else {
+          await logExport('Excel', records.length, req.remarks, password);
+          exportToExcel({ filename: `audit-trail-${new Date().toISOString().slice(0, 10)}`, sheetName: 'Audit Trail', head: auditHead, rows: mapAuditRows(records) });
+        }
       });
-      report.addTable({ head: auditHead, body: mapAuditRows(records), columnStyles: { 0: { cellWidth: 35 }, 5: { cellWidth: 65 } } });
-      // Fail-closed: if the export can't be recorded, cancel the download.
-      try {
-        await logExport('PDF', records.length);
-      } catch (e: any) {
-        toast.error('Export blocked', `Could not record this download in the audit trail: ${e?.message ?? 'unknown error'}. Download cancelled.`);
-        return;
-      }
-      report.save(`audit-trail-${new Date().toISOString().slice(0, 10)}.pdf`);
+      setDownloadFormat(null);
     } catch (e: any) {
-      toast.error('Export failed', e?.message ?? 'Could not export the audit trail. Please try again.');
-    } finally { setDownloading(false); }
+      setDownloading(false);
+      // A cancelled reauth prompt is not a failure — just drop the pending
+      // download quietly rather than showing it as an error in the dialog.
+      if (e?.error === 'REAUTH_CANCELLED') { setDownloadFormat(null); return; }
+      throw e;
+    } finally {
+      setDownloading(false);
+    }
   };
 
   // Snapshot for the review workflow — same build over all filtered records,
@@ -368,28 +393,6 @@ export function AuditTrailPage() {
     });
     report.addTable({ head: auditHead, body: mapAuditRows(records), columnStyles: { 0: { cellWidth: 35 }, 5: { cellWidth: 65 } } });
     return report.getSnapshot();
-  };
-
-  const exportExcel = async () => {
-    setDownloading(true);
-    try {
-      const records = await fetchAllFilteredRecords();
-      if (records.length === 0) { toast.error('Nothing to export', 'No audit records match the current filters.'); return; }
-      if (records.length > exportLimit.maxRecords) {
-        toast.error('Export too large', exportLimit.tooLargeMessage(records.length));
-        return;
-      }
-      // Fail-closed: if the export can't be recorded, cancel the download.
-      try {
-        await logExport('Excel', records.length);
-      } catch (e: any) {
-        toast.error('Export blocked', `Could not record this download in the audit trail: ${e?.message ?? 'unknown error'}. Download cancelled.`);
-        return;
-      }
-      exportToExcel({ filename: `audit-trail-${new Date().toISOString().slice(0, 10)}`, sheetName: 'Audit Trail', head: auditHead, rows: mapAuditRows(records) });
-    } catch (e: any) {
-      toast.error('Export failed', e?.message ?? 'Could not export the audit trail. Please try again.');
-    } finally { setDownloading(false); }
   };
 
   return (
@@ -562,6 +565,23 @@ export function AuditTrailPage() {
         onConfirm={reauth.confirm}
         onCancel={() => { reauth.cancel(); setDeleting(false); setHardDeleting(false); }}
         actionLabel="Delete Audit Record"
+      />
+
+      <ReportDownloadDialog
+        open={downloadFormat !== null}
+        reportName="Audit Trail"
+        // The Audit Trail already has a real period selector in its filters
+        // above, which is what actually drives the export — the dialog is
+        // shown without period fields for this surface rather than a second,
+        // disconnected pair of date pickers.
+        showPeriod={false}
+        initialPeriod={{
+          from: fromDateTime ? new Date(fromDateTime).toISOString() : '',
+          to: toDateTime ? new Date(toDateTime).toISOString() : '',
+          label: currentPeriod(),
+        }}
+        onCancel={() => setDownloadFormat(null)}
+        onConfirm={runDownload}
       />
     </div>
   );

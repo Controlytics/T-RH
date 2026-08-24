@@ -11,6 +11,8 @@ export interface ExportSurface {
 
 export const EXPORT_SURFACES: ExportSurface[] = [
   { key: 'audit', label: 'Audit Trail' },
+  { key: 'instrument-trend', label: 'Instrument Trend' },
+  { key: 'alarms', label: 'Alarms' },
 ];
 
 /** Resolve a stored format string into PDF/Excel button visibility.
