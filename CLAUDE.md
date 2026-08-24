@@ -69,7 +69,12 @@ The app runs ONLY on local Windows for development. There is no live EC2 / Linux
   (`/api/ingest/v1/telemetry`, `/api/ingest/v1/mqtt-auth`, the TCP listener and
   the outbound broker subscription) — it was this file that was stale, not the
   dossier. Re-derive from `app.ts` before trusting either.
-- Convenience: `start-digilog.bat` / `stop-digilog.bat`
+- Convenience: **`start-app.bat`** / **`stop-app.bat`** (wrappers around
+  `scripts/start-app.ps1` / `stop-app.ps1`, which verify every dependency and
+  are idempotent). This file said `start-digilog.bat` / `stop-digilog.bat`
+  until 2026-08-24 — **those files do not exist** (`ls` → no such file); they
+  were removed and renamed, and `docs/deployment-methods/method-a-native-windows.md`
+  already records that. Fifth stale claim found in this file on 2026-08-24.
 - API runs via `tsx watch` in dev (no PM2 locally), Vite serves frontend
 - See `LOCAL_SETUP_WINDOWS.md` and `DEPLOY-WINDOWS.md` for full details
 

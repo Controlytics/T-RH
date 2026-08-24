@@ -195,9 +195,14 @@ Frontend runs on http://localhost:5175
 
 ### 8.2 Using Batch Scripts
 ```bash
-start-digilog.bat    # Starts API and Frontend (no Redis, no MQTT broker)
-stop-digilog.bat     # Stops all services
+start-app.bat    # Starts API and Frontend (wraps scripts/start-app.ps1)
+stop-app.bat     # Stops all services
 ```
+
+> **Corrected 2026-08-24.** This block named `start-digilog.bat` /
+> `stop-digilog.bat`, which **do not exist** — following it literally fails at
+> once. The live launchers are `start-app.bat` / `stop-app.bat`, wrapping
+> `scripts/start-app.ps1`, which verifies each dependency and is safe to re-run.
 
 ### 8.3 Production Mode
 

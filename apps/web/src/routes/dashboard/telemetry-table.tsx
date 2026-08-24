@@ -305,8 +305,18 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
 
                   <td className={`tv-group ${CELL} border border-slate-500`}>
                     <div className="flex items-center justify-center gap-2">
+                      {/* BOTH links in this cell go to the trend page. The
+                          column is headed "Mimic / Trend", so every target in
+                          it must be a trend — this code link pointed at the
+                          instrument's config page until 2026-08-24, which meant
+                          clicking the obvious thing (the instrument's name) in a
+                          column labelled Trend silently took you somewhere else.
+                          The identity column on the far left is where you go to
+                          CONFIGURE an instrument; this column is where you go to
+                          LOOK at it. */}
                       <Link
-                        to={`/instruments/${r.instrumentId}`}
+                        to={`/instruments/${r.instrumentId}/trend`}
+                        title={`Trend page for ${r.code}`}
                         className="font-semibold text-sky-200 hover:text-white hover:underline"
                       >
                         {r.code}
