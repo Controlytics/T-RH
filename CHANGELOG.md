@@ -9,6 +9,28 @@ Counts re-verified against live code 2026-08-24; only reauth actions moved
 (46 → 47, 7 → 8 categories) — models, enums, permissions, sidebar items,
 modules, config defs/pages, audit actions/templates are all unchanged.
 
+**C. Trend page — the band gauge (2026-08-24)**
+
+- `routes/instruments/band-gauge.tsx` + `trend-header.tsx`; `trend.tsx`
+  restructured (data layer untouched). The two latest-value cards are replaced
+  by a gauge that draws the LIMIT BAND with the reading marked in position and
+  both headroom figures stated — in GMP monitoring nothing is "a value";
+  everything is a value inside a band.
+- The gauge states an absent band rather than drawing an empty track, and
+  handles the three mis-administrations the schema permits (one bound only,
+  low === high, low > high) — all reachable, since both bounds are
+  operator-typed instrument attributes.
+- **Behaviour change:** an instrument with NO limits no longer shows a green
+  "In spec". `LatestValueCard` returned `OK` when both bounds were NULL; the
+  gauge reads "Not assessed". Nor does it assert "In spec" over a reading the
+  server has already resolved as STALE/PARTIAL — the header prints that word a
+  few rows above.
+- `ChartSeries` gains an optional `color` (default: the rank-based palette
+  slot, so dashboard callers are unaffected). Temperature is slot 1 and
+  humidity slot 2 on screen AND in the printed chart — both charts previously
+  drew slot 1, so one quantity had two identity colours.
+- No new dependency, route, config def, page, model or enum. Counts unchanged.
+
 **A. Room doors + per-instrument tiles**
 
 - `floorplan_rooms.doors Json?` (nullable) — an array of `{wall, offset,

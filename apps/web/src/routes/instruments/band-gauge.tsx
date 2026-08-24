@@ -1,4 +1,4 @@
-import { formatDecimals } from '@digilog/shared';
+import { formatDecimals, type InstrumentStatus } from '@digilog/shared';
 import { formatSetPoint, outOfSpec } from '@/routes/dashboard/set-point';
 import { statusClasses, readingAge } from '@/routes/dashboard/status';
 
@@ -126,6 +126,16 @@ export interface BandGaugeProps {
   max: number | null | undefined;
   limitSource: 'INSTRUMENT' | 'ROOM' | null;
   roomCode: string | null;
+  /**
+   * The INSTRUMENT's server-resolved status, taken as given.
+   *
+   * Staleness is decided server-side (against `expectedIntervalSec`) and cannot
+   * be re-derived here from a timestamp — and the header prints that same word
+   * a few rows above this gauge. Without it, a probe that stopped reporting
+   * four hours ago reads "Not reporting" in the header and "In spec" in the
+   * gauge: two judgements of one instrument on one screen.
+   */
+  instrumentStatus?: InstrumentStatus | null;
   /** Series identity — the palette slot this quantity owns app-wide. */
   accent: string;
   /** Page-load stagger, ms. The travel itself is in CSS (`.band-marker`). */
@@ -133,21 +143,32 @@ export interface BandGaugeProps {
 }
 
 export function BandGauge({
-  label, unit, reading, decimals, min, max, limitSource, roomCode, accent, delayMs = 0,
+  label, unit, reading, decimals, min, max, limitSource, roomCode,
+  instrumentStatus = null, accent, delayMs = 0,
 }: BandGaugeProps) {
   const state = bandGaugeState(reading?.value, min, max, decimals);
 
-  // The breach decision comes from `outOfSpec` — the ONE implementation, shared
-  // with the dashboard table and the floor plan. A second copy here is how two
-  // views of one instrument come to disagree about the same reading.
   // "Not assessed" belongs to exactly one case: a reading arrived and NOTHING
   // is checking it. An absent reading is a fact about the record and keeps its
   // own status word ("No data") — calling that "not assessed" would blame the
   // administration for a silence the instrument is responsible for.
   const assessed = !(state.kind === 'no-track' && !state.assessed);
-  const status = state.kind === 'no-reading'
+
+  // The breach decision comes from `outOfSpec` — the ONE implementation, shared
+  // with the dashboard table and the floor plan. A second copy here is how two
+  // views of one instrument come to disagree about the same reading.
+  const breachesLimits = outOfSpec(reading?.value, min, max);
+  const status: InstrumentStatus = state.kind === 'no-reading'
     ? 'NO_DATA'
-    : outOfSpec(reading?.value, min, max) ? 'OUT_OF_SPEC' : 'OK';
+    // A breach is a breach: the stored numbers decide that, and they are the
+    // one thing this gauge is authoritative about.
+    : breachesLimits ? 'OUT_OF_SPEC'
+      // Otherwise the instrument's own status wins over a local "In spec".
+      // Asserting compliance over a reading the server has already called
+      // stale is exactly the contradiction this page must not print.
+      : instrumentStatus && instrumentStatus !== 'OK' && instrumentStatus !== 'NO_DATA'
+        ? instrumentStatus
+        : 'OK';
   const sc = statusClasses(status);
 
   const sourceText = limitSource === 'INSTRUMENT'

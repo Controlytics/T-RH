@@ -145,6 +145,29 @@ describe('BandGauge render', () => {
     expect(screen.queryByText('0.0')).toBeNull();
   });
 
+  /**
+   * The header prints the instrument's SERVER-RESOLVED status a few rows above
+   * this gauge. Staleness is decided server-side, against `expectedIntervalSec`,
+   * and cannot be re-derived from a timestamp in the browser — so a gauge
+   * computing its own word from the numbers alone would print "In spec" under a
+   * header saying "Not reporting", about one instrument, on one screen.
+   *
+   * This is the case that actually reaches an operator: a probe that stops
+   * reporting is far more common than a mis-administered band.
+   */
+  it('never asserts "In spec" over a reading the server has already called stale', () => {
+    renderGauge({ instrumentStatus: 'STALE' });
+    expect(screen.getByTestId('band-status')).toHaveTextContent('Not reporting');
+    expect(screen.getByTestId('band-status')).not.toHaveTextContent('In spec');
+    // The band is still drawn — where the last reading sat is still true.
+    expect(screen.getByTestId('band-marker')).toBeInTheDocument();
+  });
+
+  it('but a breach still reads as a breach — the stored numbers decide that', () => {
+    renderGauge({ reading: at(31.5), instrumentStatus: 'STALE' });
+    expect(screen.getByTestId('band-status')).toHaveTextContent('Out of limit');
+  });
+
   it('renders the reading at the instrument’s own resolved precision', () => {
     renderGauge({ reading: at(22.4), decimals: 0 });
     expect(screen.getByText('22')).toBeInTheDocument();

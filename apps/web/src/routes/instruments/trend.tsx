@@ -623,6 +623,7 @@ export function InstrumentTrend() {
               max={trend.overview.limits?.tempMax}
               limitSource={trend.overview.limitSource}
               roomCode={trend.overview.room?.code ?? null}
+              instrumentStatus={trend.overview.status}
               accent={TEMP_COLOR}
             />
             <BandGauge
@@ -634,6 +635,7 @@ export function InstrumentTrend() {
               max={trend.overview.limits?.rhMax}
               limitSource={trend.overview.limitSource}
               roomCode={trend.overview.room?.code ?? null}
+              instrumentStatus={trend.overview.status}
               accent={HUMID_COLOR}
               // The one page-load moment, staggered between the two slots.
               delayMs={80}
