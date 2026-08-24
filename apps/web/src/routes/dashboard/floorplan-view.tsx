@@ -398,14 +398,26 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                   {/* The room code is the one typographic move on the drawing:
                       uppercase and tracked, which is what gives it the character
                       of a drafting label. The tracking is not repeated anywhere
-                      else. */}
-                  <text
-                    x={x + w / 2} y={y + 10} textAnchor="middle"
-                    fontSize={Math.max(8, Math.min(12, w / 10, h / 6)) * 0.86} fontWeight={700}
-                    letterSpacing="0.08em" fill={zone.ink}
-                  >
-                    {room.code.toUpperCase()}
-                  </text>
+                      else.
+
+                      SUPPRESSED when it would only repeat what the tile below
+                      already says. Where a room is named for the single
+                      instrument in it, printing the code here AND on the tile
+                      shows the same identifier twice in two sizes — which reads
+                      as two different things at a glance, and costs the room the
+                      vertical space its readings need. The tile wins because it
+                      is the thing carrying the values. */}
+                  {!(roomRows.length === 1
+                    && roomRows[0].code.toUpperCase() === room.code.toUpperCase()
+                    && tileLayout({ x, y, w, h }, roomRows.length).step === 'FULL') && (
+                    <text
+                      x={x + w / 2} y={y + 10} textAnchor="middle"
+                      fontSize={Math.max(8, Math.min(12, w / 10, h / 6)) * 0.86} fontWeight={700}
+                      letterSpacing="0.08em" fill={zone.ink}
+                    >
+                      {room.code.toUpperCase()}
+                    </text>
+                  )}
                   {room.label && tileLayout({ x, y, w, h }, roomRows.length).step === 'CODE_ONLY' && (
                     <text
                       x={x + w / 2} y={y + 22} textAnchor="middle"
