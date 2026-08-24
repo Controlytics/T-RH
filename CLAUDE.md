@@ -38,8 +38,16 @@ The app runs ONLY on local Windows for development. There is no live EC2 / Linux
   for pub/sub too (in-process EventEmitter bus); `ioredis` is no longer in
   package.json. Those pub/sub consumers (WebSocket events, pipeline tracing,
   debug recorder) were all torn out in Phase 6/7, and the now-orphaned bus
-  (`lib/internal-bus.ts`) + the `@fastify/websocket` plugin were removed
-  2026-07-03 as dead code — there is no pub/sub layer anymore.
+  (`lib/internal-bus.ts`) was removed 2026-07-03 as dead code — there is no
+  pub/sub layer anymore.
+  **`@fastify/websocket` was NOT removed, or came back — this file said it was
+  until 2026-08-24.** Verified against live code that day:
+  `apps/api/package.json` has `"@fastify/websocket": "^11.3.0"`,
+  `apps/api/src/app.ts:8` imports it and line 172 registers it
+  (`maxPayload: 1MB`); it serves the instrument-ingest WebSocket at
+  `/api/ingest/v1/ws`. Same failure mode as the `mqtt` claim below: a
+  tear-out was recorded, later reversed, and the doc never re-synced. **Do not
+  delete either as dead code on this file's say-so — grep `app.ts` first.**
   (The device-RPC correlation cache `lib/rpc-cache.ts` was removed 2026-07-01
   as dead code — its only consumer, the data-ingestion MQTT RPC handler, went
   in the Phase 7 tear-out.)
@@ -159,7 +167,15 @@ history; `docs/recreation/` holds the inventory.
   Migration `20260819120000_role_attribute_access`, drift guard PASS, applied to both databases.
 - **Themes:** 10 preset color themes (Ocean / Sapphire / Emerald / Amethyst / Sunset / Slate / Ruby / Forest / Midnight / Coral)
 - **Frontend:** **49** Routes in `main.tsx` (verified `grep -cE "<Route"` 2026-08-24 — 48 → 49: new `/instruments/:id/trend` page; the "77" was inherited from upstream DigiLog and was never true in this fork; `/config/role-assignments` removed 2026-08-19 as dead code, 49 → 48), **18** custom hooks, **18** lib modules (`ls apps/web/src/hooks/ | wc -l` / `ls apps/web/src/lib/ | wc -l`, each including its own `__tests__` subfolder as one entry — the "26 / 30" this file carried for months was never true against the live tree and was never re-verified until now)
-- **Queue backend:** graphile-worker (Postgres-backed); 3 worker tasks (`notification`, `pm_overdue_check`, `session_sweep`)
+- **Queue backend:** graphile-worker (Postgres-backed); **5** worker tasks —
+  `notification`, `password_expiry_check`, `session_sweep`,
+  `telemetry_partition_maintenance`, `alarm_evaluation` (verified 2026-08-24
+  against the `taskList` in `apps/api/src/app.ts:455-480`). This file listed
+  "3 tasks (`notification`, `pm_overdue_check`, `session_sweep`)" until then;
+  **`pm_overdue_check` does not exist anywhere in the tree** (`grep -r
+  pm_overdue_check apps/api/src packages/` → 0 hits) — it was the filter
+  domain's PM scheduler and went with that strip. Re-derive from the
+  `taskList` literal, never from this line.
 - **Tenancy:** **single-tenant, single-site, single-company.** Multi-tenancy was removed 2026-04-30 (`Organization` model + `organizationId` columns + `org-admin`/`tenant-admin` modules dropped). JWT `scope` always stamps `GLOBAL`. The `RoleScope` enum and `AssigneeType` enum are retained but trimmed to one/two values respectively.
 
 ## Important Notes
