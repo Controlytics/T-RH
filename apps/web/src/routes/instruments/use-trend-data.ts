@@ -1,0 +1,184 @@
+import { useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import useSWR from 'swr';
+import {
+  PERIOD_PRESETS,
+  INTERVALS,
+  DEFAULT_PERIOD,
+  DEFAULT_INTERVAL,
+  MAX_SERIES_POINTS,
+  intervalSpec,
+  isIntervalKey,
+  resolvePeriod,
+  type IntervalKey,
+} from '@digilog/shared';
+import { useTelemetryOverview, type OverviewRow } from '@/routes/dashboard/use-telemetry';
+
+/**
+ * The trend page's own period vocabulary, built on top of the shared
+ * `telemetry-period` primitives rather than re-deriving preset math here.
+ *
+ * `from`/`to` are always CONCRETE ISO instants, never a live-relative preset
+ * name. That is what makes the page linkable: an operator sending "look at
+ * this excursion" sends the exact window, and reloading the link shows the
+ * same minutes rather than a "last 24 hours" that has since slid forward.
+ */
+export interface TrendPeriod {
+  from: string;
+  to: string;
+  label: string;
+  /** Chart aggregation bucket in ms; null = raw (every stored reading). */
+  intervalMs: number | null;
+}
+
+export const TREND_PRESETS: { label: string; ms: number }[] =
+  PERIOD_PRESETS.map((p) => ({ label: p.label, ms: p.ms }));
+
+function intervalMsFor(key: IntervalKey): number | null {
+  const spec = intervalSpec(key);
+  return spec.seconds === null ? null : spec.seconds * 1000;
+}
+
+/** The nearest known interval key for a bucket width, defaulting when the ms value is unrecognised. */
+function intervalKeyForMs(ms: number | null): IntervalKey {
+  if (ms === null) return 'raw';
+  return INTERVALS.find((i) => i.seconds !== null && i.seconds * 1000 === ms)?.value ?? DEFAULT_INTERVAL;
+}
+
+function readPeriod(params: URLSearchParams): TrendPeriod {
+  const from = params.get('from');
+  const to = params.get('to');
+  const intervalParam = params.get('interval');
+  const interval = isIntervalKey(intervalParam) ? intervalParam : DEFAULT_INTERVAL;
+  const intervalMs = intervalMsFor(interval);
+
+  if (from && to) {
+    return { from, to, label: params.get('label') ?? 'Custom', intervalMs };
+  }
+  // No window in the URL yet — seed the default preset relative to now, once.
+  const defaultSpec = PERIOD_PRESETS.find((p) => p.value === DEFAULT_PERIOD)!;
+  const range = resolvePeriod(DEFAULT_PERIOD, new Date());
+  return { from: range.from.toISOString(), to: range.to.toISOString(), label: defaultSpec.label, intervalMs };
+}
+
+/**
+ * Period + chart-interval state, held in the URL query string.
+ *
+ * `setPreset`/`setCustom` both resolve to a CONCRETE range immediately and
+ * write it into the URL — the preset name itself is never the stored state,
+ * only the sugar that produced it (see the `TrendPeriod` doc comment above).
+ */
+export function useTrendPeriod(): {
+  period: TrendPeriod;
+  setPreset: (ms: number) => void;
+  setCustom: (from: string, to: string) => void;
+  setInterval: (ms: number | null) => void;
+} {
+  const [params, setParams] = useSearchParams();
+  const period = useMemo(() => readPeriod(params), [params]);
+
+  const setPreset = (ms: number) => {
+    const now = new Date();
+    const spec = TREND_PRESETS.find((p) => p.ms === ms);
+    const next = new URLSearchParams(params);
+    next.set('from', new Date(now.getTime() - ms).toISOString());
+    next.set('to', now.toISOString());
+    next.set('label', spec?.label ?? 'Custom');
+    setParams(next, { replace: true });
+  };
+
+  const setCustom = (from: string, to: string) => {
+    const next = new URLSearchParams(params);
+    next.set('from', from);
+    next.set('to', to);
+    next.set('label', 'Custom');
+    setParams(next, { replace: true });
+  };
+
+  const setInterval = (ms: number | null) => {
+    const next = new URLSearchParams(params);
+    next.set('interval', intervalKeyForMs(ms));
+    setParams(next, { replace: true });
+  };
+
+  return { period, setPreset, setCustom, setInterval };
+}
+
+/** One telemetry reading, LONG format — matches `GET /:id/telemetry`'s `history`/`latest` rows. */
+export interface TelemetryLongRow {
+  key: string;
+  value: unknown;
+  ts: string;
+  slot?: 'temperature' | 'humidity' | null;
+  decimals?: number | null;
+}
+
+export const TABLE_PAGE_SIZE = 50;
+
+interface TelemetryResponse {
+  latest: TelemetryLongRow[];
+  history: TelemetryLongRow[];
+  historyTotal: number;
+}
+
+export interface InstrumentTrendData {
+  /** This instrument's row from the telemetry overview — latest values, resolved
+   *  limits + their source, and resolved decimals. Never re-derived here. */
+  overview: OverviewRow | null;
+  /** Every key, across the WHOLE period, capped at `MAX_SERIES_POINTS` — feeds the charts. */
+  chartRows: TelemetryLongRow[];
+  /** Every key, for just the current PAGE of the period — feeds the raw table. */
+  tableRows: TelemetryLongRow[];
+  /** The true count across the whole period, for paging the table (never `tableRows.length`). */
+  historyTotal: number;
+  isLoading: boolean;
+}
+
+/**
+ * Data for one instrument's trend page: latest-value cards, charts, and the
+ * raw paged table, all sourced from the LONG-format telemetry endpoint plus
+ * the shared telemetry-overview row for limits/decimals/status.
+ *
+ * `extraKeys` is accepted here (not just read further down the tree) because
+ * the endpoint returns EVERY key in one combined, unfiltered response — there
+ * is no per-key request to make. What `extraKeys` selects is which of those
+ * already-present keys Task 7's picker renders a chart/column for; it does
+ * not change what gets fetched, so it is not read in this function today.
+ * Kept in the signature so that stays documented rather than silently true.
+ */
+/**
+ * `page` is 1-based, matching `components/ui/pagination.tsx` (`Pagination`'s
+ * own convention) — the table page control the trend page reuses.
+ */
+export function useInstrumentTrend(
+  id: string,
+  period: TrendPeriod,
+  page: number,
+  _extraKeys: string[],
+): InstrumentTrendData {
+  const { rows: overviewRows, isLoading: overviewLoading } = useTelemetryOverview();
+  const overview = overviewRows.find((r) => r.instrumentId === id) ?? null;
+
+  // Chart series need the whole period, not just the visible table page — capped
+  // at MAX_SERIES_POINTS rather than left unbounded, for the same reason the
+  // shared telemetry-period module caps a bucketed series: serialising more than
+  // a chart can draw stalls the API before the browser gets the chance to fail.
+  const chartKey = id
+    ? `/api/instruments/${id}/telemetry?from=${encodeURIComponent(period.from)}&to=${encodeURIComponent(period.to)}&limit=${MAX_SERIES_POINTS}`
+    : null;
+  const { data: chartData, isLoading: chartLoading } = useSWR<TelemetryResponse>(chartKey);
+
+  const offset = Math.max(page - 1, 0) * TABLE_PAGE_SIZE;
+  const tableKey = id
+    ? `/api/instruments/${id}/telemetry?from=${encodeURIComponent(period.from)}&to=${encodeURIComponent(period.to)}&limit=${TABLE_PAGE_SIZE}&offset=${offset}`
+    : null;
+  const { data: tableData, isLoading: tableLoading } = useSWR<TelemetryResponse>(tableKey);
+
+  return {
+    overview,
+    chartRows: chartData?.history ?? [],
+    tableRows: tableData?.history ?? [],
+    historyTotal: tableData?.historyTotal ?? 0,
+    isLoading: overviewLoading || chartLoading || tableLoading,
+  };
+}

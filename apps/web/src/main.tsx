@@ -64,6 +64,7 @@ const InstrumentListPage = lazy(() => import('./routes/instruments/list').then(m
 const InstrumentCreatePage = lazy(() => import('./routes/instruments/create').then(m => ({ default: m.InstrumentCreatePage })));
 const InstrumentBulkCreatePage = lazy(() => import('./routes/instruments/bulk-create').then(m => ({ default: m.InstrumentBulkCreatePage })));
 const InstrumentDetailPage = lazy(() => import('./routes/instruments/detail').then(m => ({ default: m.InstrumentDetailPage })));
+const InstrumentTrend = lazy(() => import('./routes/instruments/trend').then(m => ({ default: m.InstrumentTrend })));
 
 
 function LazyFallback() {
@@ -161,6 +162,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/instruments/new" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_CREATE]}><Suspense fallback={<LazyFallback />}><InstrumentCreatePage /></Suspense></RequireRole>} />
             <Route path="/instruments/bulk" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_CREATE]}><Suspense fallback={<LazyFallback />}><InstrumentBulkCreatePage /></Suspense></RequireRole>} />
             <Route path="/instruments/:id" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_READ]}><Suspense fallback={<LazyFallback />}><InstrumentDetailPage /></Suspense></RequireRole>} />
+            <Route path="/instruments/:id/trend" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_READ]}><Suspense fallback={<LazyFallback />}><InstrumentTrend /></Suspense></RequireRole>} />
 
             {/* Audit / Versions — SUPER_ADMIN only by default; assignable via Role Privileges → Audit / Versions. */}
 
