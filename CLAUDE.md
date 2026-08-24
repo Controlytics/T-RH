@@ -43,10 +43,24 @@ The app runs ONLY on local Windows for development. There is no live EC2 / Linux
   (The device-RPC correlation cache `lib/rpc-cache.ts` was removed 2026-07-01
   as dead code — its only consumer, the data-ingestion MQTT RPC handler, went
   in the Phase 7 tear-out.)
-- **No TimescaleDB or MQTT dependency** (removed 2026-06-11..2026-06-17 — see
-  Phase 7 below). `digilog_tsdb` database dropped, `packages/db` workspace
-  deleted, `mqtt` + `aedes` + `@types/pg` deps uninstalled, Mosquitto Windows
-  service removed. 47 transitive npm packages dropped with the cleanup.
+- **No TimescaleDB** (removed 2026-06-11..2026-06-17 — see Phase 7 below).
+  `digilog_tsdb` database dropped, `packages/db` workspace deleted, `aedes` +
+  `@types/pg` deps uninstalled, Mosquitto Windows service removed. 47
+  transitive npm packages dropped with the cleanup. Both remain true —
+  verified `ls packages/` (only `queue`, `shared`) and `grep aedes
+  apps/api/package.json` (0 hits), 2026-08-24.
+- **MQTT IS LIVE AGAIN — this file claimed the opposite until 2026-08-24.**
+  The Phase 7 line above used to read "No TimescaleDB **or MQTT** dependency …
+  `mqtt` + `aedes` … uninstalled". The `mqtt` half was reversed afterwards and
+  the doc was never re-synced. Verified against live code 2026-08-24:
+  `apps/api/package.json` carries `"mqtt": "^5.15.2"`; `apps/api/src/app.ts`
+  registers `ingestRoutes` and `wsIngestRoutes` at `/api/ingest/v1` and imports
+  `modules/instruments/mqtt-auth-routes.js`. The broker is EMQX 5.3.2 (see the
+  EMQX memory entry), not Mosquitto.
+  **`docs/recreation/06-api/endpoints.md` is CORRECT about the ingest surface**
+  (`/api/ingest/v1/telemetry`, `/api/ingest/v1/mqtt-auth`, the TCP listener and
+  the outbound broker subscription) — it was this file that was stale, not the
+  dossier. Re-derive from `app.ts` before trusting either.
 - Convenience: `start-digilog.bat` / `stop-digilog.bat`
 - API runs via `tsx watch` in dev (no PM2 locally), Vite serves frontend
 - See `LOCAL_SETUP_WINDOWS.md` and `DEPLOY-WINDOWS.md` for full details
