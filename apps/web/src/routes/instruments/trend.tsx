@@ -462,7 +462,10 @@ export function InstrumentTrend() {
           period: reportPeriod.label, startDate: reportPeriod.from, endDate: reportPeriod.to,
           remarks: req.remarks, password,
         });
-        report.save(`instrument-trend-${which.slot}-${instrument.code}-${stamp}.pdf`);
+        // `slot` is an internal enum value; 'both' is not a document name an
+        // operator would file, so the filename carries the slot's own words.
+        const slotFile = slotLabel.toLowerCase().replace(/\s*&\s*/g, '-').replace(/\s+/g, '-');
+        report.save(`instrument-trend-${slotFile}-${instrument.code}-${stamp}.pdf`);
       } else if (which.kind === 'timeseries') {
         const rawRows = await fetchTelemetryForPeriod(reportPeriod.from, reportPeriod.to);
         const rows = numericRows(rawRows);

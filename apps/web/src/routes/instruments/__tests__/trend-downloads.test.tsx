@@ -123,7 +123,29 @@ describe('trend page downloads', () => {
     renderPage();
     await download(0);
     expect(logged[0].reportType).toBe('Instrument Trend — Temperature & Humidity');
-    expect(saved[0]).toContain('instrument-trend-both-');
+    // 'both' is an internal enum value, not a document name an operator files.
+    expect(saved[0]).toContain('instrument-trend-temperature-humidity-');
+  });
+
+  /**
+   * `audit_trail.target_type` is VARCHAR(50) and the route stores `reportType`
+   * straight into it (`audit/routes.ts` → `auditLog({ targetType: reportType })`).
+   * The route's own schema allows 100 characters, so a reportType between 51 and
+   * 100 passes validation and then fails the INSERT — the download's audit write
+   * throws, and fail-closed means the operator gets no file and no clear reason.
+   *
+   * The longest string this page emits is 41 characters. That is nine characters
+   * of headroom, which a third slot or a wordier label would eat, so it is
+   * measured here rather than left to be discovered by an operator.
+   */
+  it('keeps every reportType inside the audit column it is stored in', async () => {
+    for (const idx of [0, 1, 2, 3, 4]) {
+      saved.length = 0; logged.length = 0; events.length = 0;
+      const view = renderPage();
+      await download(idx);
+      expect(logged[0].reportType.length).toBeLessThanOrEqual(50);
+      view.unmount();
+    }
   });
 
   it('leaves the time series and alarms reportTypes unchanged', async () => {
