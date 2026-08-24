@@ -1,7 +1,13 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import useSWR from 'swr';
-import { formatDecimals, INTERVALS, TELEMETRY_DECIMALS_FALLBACK } from '@digilog/shared';
+import { formatDecimals, INTERVALS, MAX_SERIES_POINTS, TELEMETRY_DECIMALS_FALLBACK } from '@digilog/shared';
+import { apiClient } from '@/lib/api-client';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
+import { ExportMenu } from '@/components/ExportMenu';
+import { ReportDownloadDialog, type ReportDownloadRequest } from '@/components/report-download-dialog';
+import { logReportExport } from '@/lib/report-export-log';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
@@ -15,9 +21,10 @@ import {
   type AlarmRow,
 } from '@/routes/alarms/alarm-display';
 import { useTrendPeriod, useInstrumentTrend, TREND_PRESETS, TABLE_PAGE_SIZE, type TelemetryLongRow } from './use-trend-data';
-import { toChartSeries, toTableRows } from './trend-series';
+import { toChartSeries, toTableRows, type TableRow as PivotRow } from './trend-series';
 import { ChartIntervalNote } from './chart-interval-note';
 import { useExtraKeys } from './use-extra-keys';
+import { renderTrendReport, renderTimeSeriesReport, renderAlarmsReport, type ReportInstrument } from './trend-report';
 
 /** Rows this page actually charts/pivots are all numeric — a non-numeric
  *  reading (a raw JSON blob on some other key) has no place on an axis or in
@@ -185,7 +192,13 @@ function ExtraKeyPicker({
  * vocabulary the Alarms page itself uses, so this widget cannot describe the
  * same event differently.
  */
-function AlarmsWidget({ instrumentId, period }: { instrumentId: string; period: { from: string; to: string } }) {
+function AlarmsWidget({
+  instrumentId, period, onExportPdf,
+}: {
+  instrumentId: string;
+  period: { from: string; to: string };
+  onExportPdf: () => void;
+}) {
   const { formatDate, formatTime } = useDatetimeFormat();
   const { data } = useSWR<{ data: AlarmRow[] }>(instrumentId ? `/api/alarms?instrumentId=${instrumentId}&limit=500` : null);
   const stamp = (v: string) => `${formatDate(v)} ${formatTime(v)}`;
@@ -199,7 +212,10 @@ function AlarmsWidget({ instrumentId, period }: { instrumentId: string; period: 
 
   return (
     <Card>
-      <CardHeader><CardTitle className="text-base">Alarms in this period</CardTitle></CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between gap-2">
+        <CardTitle className="text-base">Alarms in this period</CardTitle>
+        <ExportMenu surface="instrument-trend" onExportPdf={onExportPdf} />
+      </CardHeader>
       <CardContent className="px-0 pt-0">
         {rows.length === 0 ? (
           <p className="px-6 text-sm text-slate-500">No alarms raised in this window.</p>
@@ -252,6 +268,8 @@ export function InstrumentTrend() {
   const extra = useExtraKeys(id ?? '');
   const trend = useInstrumentTrend(id ?? '', period, page, extra.keys);
   const { data: keyOptions } = useSWR<{ data: TelemetryKeyOption[] }>(id ? `/api/instruments/${id}/telemetry-keys` : null);
+  const { formatDateTime } = useDatetimeFormat();
+  const reauth = useReauth();
 
   const fromLocal = period.from.slice(0, 16);
   const toLocal = period.to.slice(0, 16);
@@ -268,6 +286,113 @@ export function InstrumentTrend() {
   // render at the shared fallback precision and with no in-spec band.
   const tableKeys = [tempKey, humidKey, ...extra.keys].filter((k): k is string => k !== null);
   const tableRows = toTableRows(numericRows(trend.tableRows), tableKeys);
+
+  // ── Governed downloads (Task 8) ──────────────────────────────────────────
+  // One dialog instance, reused for whichever of the three widgets the
+  // operator picked — `pendingReport` says which. The dialog does not prompt
+  // for reauth itself; `runDownload` wraps the whole fetch+build+log+save in
+  // `reauth.execute('DOWNLOAD_REPORT', …)`, the one reauth pattern this app
+  // uses everywhere else.
+  const [pendingReport, setPendingReport] = useState<'trend' | 'timeseries' | 'alarms' | null>(null);
+
+  const instrumentInfo = (): ReportInstrument => ({
+    code: inst?.code ?? id ?? '',
+    name: inst?.name ?? '',
+    locationText: trend.overview?.room
+      ? `Room ${trend.overview.room.code}${trend.overview.room.label ? ` (${trend.overview.room.label})` : ''}`
+      : 'Not placed on a floorplan',
+    limitsText: trend.overview
+      ? `Temp ${formatSetPoint(trend.overview.limits?.tempMin, trend.overview.limits?.tempMax, tempDecimals)} / `
+        + `RH ${formatSetPoint(trend.overview.limits?.rhMin, trend.overview.limits?.rhMax, humidDecimals)} `
+        + `(${trend.overview.limitSource === 'INSTRUMENT' ? 'from this instrument'
+          : trend.overview.limitSource === 'ROOM' ? `from room ${trend.overview.room?.code ?? '—'}` : 'no limits set'})`
+      : 'Unknown',
+  });
+
+  // Fetch fresh rows for the DIALOG's chosen period — it may differ from the
+  // page's, since the operator can change it in the dialog before confirming.
+  const fetchTelemetryForPeriod = async (from: string, to: string) => {
+    const res = await apiClient.get<{ history: TelemetryLongRow[] }>(
+      `/api/instruments/${id}/telemetry?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=${MAX_SERIES_POINTS}`,
+    );
+    return res.history;
+  };
+
+  const fetchAlarmsForPeriod = async (from: string, to: string): Promise<AlarmRow[]> => {
+    const res = await apiClient.get<{ data: AlarmRow[] }>(`/api/alarms?instrumentId=${id}&limit=500`);
+    const fromMs = new Date(from).getTime();
+    const toMs = new Date(to).getTime();
+    return res.data.filter((a) => {
+      const raised = new Date(a.raisedAt).getTime();
+      return raised >= fromMs && raised <= toMs;
+    });
+  };
+
+  const runDownload = async (req: ReportDownloadRequest) => {
+    const which = pendingReport;
+    if (!which || !id) return;
+    const reportPeriod = { from: req.period.from, to: req.period.to, label: req.period.label };
+
+    try {
+      await reauth.executeWithResult('DOWNLOAD_REPORT', async (password) => {
+      const instrument = instrumentInfo();
+
+      if (which === 'trend') {
+        const rows = numericRows(await fetchTelemetryForPeriod(reportPeriod.from, reportPeriod.to));
+        const keysMeta = [
+          tempKey ? { key: tempKey, label: 'Temperature (°C)', decimals: tempDecimals } : null,
+          humidKey ? { key: humidKey, label: 'Humidity (%RH)', decimals: humidDecimals } : null,
+        ].filter((k): k is { key: string; label: string; decimals: number } => k !== null);
+        const pivoted = toTableRows(rows, keysMeta.map((k) => k.key));
+        const report = await renderTrendReport(pivoted, keysMeta, instrument, reportPeriod, formatDateTime);
+        // Fail-closed: the audit write happens BEFORE the file is saved.
+        await logReportExport({
+          reportType: 'Instrument Trend', format: 'PDF', recordCount: pivoted.length,
+          period: reportPeriod.label, startDate: reportPeriod.from, endDate: reportPeriod.to,
+          remarks: req.remarks, password,
+        });
+        report.save(`instrument-trend-${instrument.code}-${new Date().toISOString().slice(0, 10)}.pdf`);
+      } else if (which === 'timeseries') {
+        const rawRows = await fetchTelemetryForPeriod(reportPeriod.from, reportPeriod.to);
+        const rows = numericRows(rawRows);
+        const keysMeta = [
+          tempKey ? { key: tempKey, label: 'Temperature (°C)', decimals: tempDecimals } : null,
+          humidKey ? { key: humidKey, label: 'Humidity (%RH)', decimals: humidDecimals } : null,
+          ...extra.keys.map((k) => ({ key: k, label: k, decimals: TELEMETRY_DECIMALS_FALLBACK })),
+        ].filter((k): k is { key: string; label: string; decimals: number } => k !== null);
+        const pivoted: PivotRow[] = toTableRows(rows, keysMeta.map((k) => k.key));
+        const report = await renderTimeSeriesReport(pivoted, keysMeta, instrument, reportPeriod, formatDateTime);
+        await logReportExport({
+          reportType: 'Instrument Time Series', format: 'PDF', recordCount: pivoted.length,
+          period: reportPeriod.label, startDate: reportPeriod.from, endDate: reportPeriod.to,
+          remarks: req.remarks, password,
+        });
+        report.save(`instrument-time-series-${instrument.code}-${new Date().toISOString().slice(0, 10)}.pdf`);
+      } else {
+        const rows = await fetchAlarmsForPeriod(reportPeriod.from, reportPeriod.to);
+        const report = await renderAlarmsReport(rows, instrument, reportPeriod, formatDateTime);
+        await logReportExport({
+          reportType: 'Instrument Alarms', format: 'PDF', recordCount: rows.length,
+          period: reportPeriod.label, startDate: reportPeriod.from, endDate: reportPeriod.to,
+          remarks: req.remarks, password,
+        });
+        report.save(`instrument-alarms-${instrument.code}-${new Date().toISOString().slice(0, 10)}.pdf`);
+        }
+      });
+      setPendingReport(null);
+    } catch (e: any) {
+      // A cancelled reauth prompt is not a failure — drop the pending download
+      // quietly. Any other error rethrows so `ReportDownloadDialog`'s own
+      // catch surfaces it INSIDE the dialog and keeps it open, rather than the
+      // dialog silently closing on a download whose audit write never landed.
+      if (e?.error === 'REAUTH_CANCELLED') { setPendingReport(null); return; }
+      throw e;
+    }
+  };
+
+  const reportDialogName = pendingReport === 'trend' ? 'Instrument Trend'
+    : pendingReport === 'timeseries' ? 'Instrument Time Series'
+      : 'Instrument Alarms';
 
   return (
     <div className="space-y-6">
@@ -384,6 +509,10 @@ export function InstrumentTrend() {
           here — which is what makes the in-spec band agree with the alarm
           printed on the cards above. `intervalMs` only affects these two; the
           raw table below stays unaveraged regardless of the selection. */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-slate-700">Charts</h2>
+        <ExportMenu surface="instrument-trend" onExportPdf={() => setPendingReport('trend')} />
+      </div>
       <div className="grid gap-4 lg:grid-cols-2">
         {/* TimeSeriesChart has no subtitle/caption slot of its own (it is shared
             with the dashboard, which has no need of this disclosure), so the
@@ -430,7 +559,10 @@ export function InstrumentTrend() {
       {/* Raw paged time-series. RAW ONLY — no averaging, no gap filling: a gap
           in the record stays a gap, never the previous value repeated. */}
       <Card>
-        <CardHeader><CardTitle className="text-base">Time series (raw readings)</CardTitle></CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between gap-2">
+          <CardTitle className="text-base">Time series (raw readings)</CardTitle>
+          <ExportMenu surface="instrument-trend" onExportPdf={() => setPendingReport('timeseries')} />
+        </CardHeader>
         <CardContent className="px-0 pt-0">
           {tableRows.length === 0 ? (
             <p className="px-6 text-sm text-slate-500">No readings in this window.</p>
@@ -477,7 +609,27 @@ export function InstrumentTrend() {
         </CardContent>
       </Card>
 
-      {id && <AlarmsWidget instrumentId={id} period={period} />}
+      {id && <AlarmsWidget instrumentId={id} period={period} onExportPdf={() => setPendingReport('alarms')} />}
+
+      <ReportDownloadDialog
+        open={pendingReport !== null}
+        reportName={reportDialogName}
+        showPeriod
+        initialPeriod={{ from: period.from, to: period.to, label: period.label }}
+        onCancel={() => setPendingReport(null)}
+        onConfirm={runDownload}
+      />
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+        actionLabel="Download Report"
+      />
     </div>
   );
 }
