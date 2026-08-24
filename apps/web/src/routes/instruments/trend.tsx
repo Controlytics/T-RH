@@ -6,12 +6,18 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
+import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { statusClasses, readingAge } from '@/routes/dashboard/status';
 import { formatSetPoint } from '@/routes/dashboard/set-point';
 import { TimeSeriesChart } from '@/routes/dashboard/time-series-chart';
+import {
+  severityTone, triggeredText, statusText, alarmTypeText, limitText, clearedText,
+  type AlarmRow,
+} from '@/routes/alarms/alarm-display';
 import { useTrendPeriod, useInstrumentTrend, TREND_PRESETS, TABLE_PAGE_SIZE, type TelemetryLongRow } from './use-trend-data';
 import { toChartSeries, toTableRows } from './trend-series';
 import { ChartIntervalNote } from './chart-interval-note';
+import { useExtraKeys } from './use-extra-keys';
 
 /** Rows this page actually charts/pivots are all numeric — a non-numeric
  *  reading (a raw JSON blob on some other key) has no place on an axis or in
@@ -116,12 +122,136 @@ function LatestValueCard({
   );
 }
 
+interface TelemetryKeyOption {
+  key: string;
+  slot: 'temperature' | 'humidity' | null;
+  lastSeen: string;
+}
+
+/**
+ * The per-user "add a key" picker.
+ *
+ * Offers ONLY what `GET /:id/telemetry-keys` says this instrument has actually
+ * sent — a free-text field would invite a key that has never existed and a
+ * chart that can never draw. The two administered slots are excluded: they
+ * already have their own cards/charts above and must not be offerable twice.
+ */
+function ExtraKeyPicker({
+  options, extraKeys, onAdd, onRemove,
+}: {
+  options: TelemetryKeyOption[];
+  extraKeys: string[];
+  onAdd: (k: string) => void;
+  onRemove: (k: string) => void;
+}) {
+  const [pending, setPending] = useState('');
+  const offerable = options.filter((o) => o.slot === null && !extraKeys.includes(o.key));
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-xs font-medium text-slate-600">Additional keys:</span>
+      {extraKeys.map((k) => (
+        <span key={k} className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
+          {k}
+          <button type="button" onClick={() => onRemove(k)} aria-label={`Remove ${k}`} className="text-slate-400 hover:text-slate-700">×</button>
+        </span>
+      ))}
+      {offerable.length > 0 && (
+        <span className="flex items-center gap-1.5">
+          <select
+            value={pending}
+            onChange={(e) => setPending(e.target.value)}
+            className="rounded-lg border border-slate-200 px-2 py-1 text-xs"
+            aria-label="Additional telemetry key"
+          >
+            <option value="">Choose a key…</option>
+            {offerable.map((o) => <option key={o.key} value={o.key}>{o.key}</option>)}
+          </select>
+          <Button size="sm" variant="secondary" disabled={!pending} onClick={() => { onAdd(pending); setPending(''); }}>
+            Add
+          </Button>
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * This instrument's alarms for the current period.
+ *
+ * `GET /api/alarms` has no date filter yet (added by the separate Alarms
+ * plan) — the period is applied CLIENT-SIDE here for now, filtering on
+ * `raisedAt`. Every word on this row comes from `alarm-display.ts`, the same
+ * vocabulary the Alarms page itself uses, so this widget cannot describe the
+ * same event differently.
+ */
+function AlarmsWidget({ instrumentId, period }: { instrumentId: string; period: { from: string; to: string } }) {
+  const { formatDate, formatTime } = useDatetimeFormat();
+  const { data } = useSWR<{ data: AlarmRow[] }>(instrumentId ? `/api/alarms?instrumentId=${instrumentId}&limit=500` : null);
+  const stamp = (v: string) => `${formatDate(v)} ${formatTime(v)}`;
+
+  const from = new Date(period.from).getTime();
+  const to = new Date(period.to).getTime();
+  const rows = (data?.data ?? []).filter((a) => {
+    const raised = new Date(a.raisedAt).getTime();
+    return raised >= from && raised <= to;
+  });
+
+  return (
+    <Card>
+      <CardHeader><CardTitle className="text-base">Alarms in this period</CardTitle></CardHeader>
+      <CardContent className="px-0 pt-0">
+        {rows.length === 0 ? (
+          <p className="px-6 text-sm text-slate-500">No alarms raised in this window.</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Type</TableHead>
+                <TableHead>Severity</TableHead>
+                <TableHead>Raised</TableHead>
+                <TableHead>Value</TableHead>
+                <TableHead>Limit</TableHead>
+                <TableHead>Cleared</TableHead>
+                <TableHead>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((a) => (
+                <TableRow key={a.id}>
+                  <TableCell>{alarmTypeText(a)}</TableCell>
+                  <TableCell>
+                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${severityTone(a.severity)}`}>
+                      {a.severity}
+                    </span>
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-sm">{stamp(a.raisedAt)}</TableCell>
+                  <TableCell className="tabular-nums">{triggeredText(a)}</TableCell>
+                  <TableCell className="tabular-nums">{limitText(a)}</TableCell>
+                  <TableCell className="whitespace-nowrap text-sm">{a.clearedAt ? stamp(a.clearedAt) : '—'}{' '}{a.clearedAt && <span className="tabular-nums text-slate-500">({clearedText(a)})</span>}</TableCell>
+                  <TableCell>
+                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${severityTone(a.severity)}`}>
+                      {statusText(a)}
+                    </span>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function InstrumentTrend() {
   const { id } = useParams<{ id: string }>();
   const { data: inst } = useSWR<InstrumentSummary>(id ? `/api/instruments/${id}` : null);
   const { period, setPreset, setCustom, setInterval } = useTrendPeriod();
   const [page, setPage] = useState(1);
-  const trend = useInstrumentTrend(id ?? '', period, page, []);
+  const extra = useExtraKeys(id ?? '');
+  const trend = useInstrumentTrend(id ?? '', period, page, extra.keys);
+  const { data: keyOptions } = useSWR<{ data: TelemetryKeyOption[] }>(id ? `/api/instruments/${id}/telemetry-keys` : null);
 
   const fromLocal = period.from.slice(0, 16);
   const toLocal = period.to.slice(0, 16);
@@ -133,9 +263,10 @@ export function InstrumentTrend() {
   const humidDecimals = trend.overview?.decimals.humidity ?? TELEMETRY_DECIMALS_FALLBACK;
   const spanMs = Math.max(1, new Date(period.to).getTime() - new Date(period.from).getTime());
 
-  // The raw table only shows the two administered slots for now — Task 7 adds
-  // the per-user extra-key picker on top of this same pivot.
-  const tableKeys = [tempKey, humidKey].filter((k): k is string => k !== null);
+  // Extra keys carry no administered decimals/limits — there is nothing
+  // resolved server-side for a key nobody has declared as a slot, so they
+  // render at the shared fallback precision and with no in-spec band.
+  const tableKeys = [tempKey, humidKey, ...extra.keys].filter((k): k is string => k !== null);
   const tableRows = toTableRows(numericRows(trend.tableRows), tableKeys);
 
   return (
@@ -238,6 +369,17 @@ export function InstrumentTrend() {
         )}
       </div>
 
+      <Card>
+        <CardContent className="pt-6">
+          <ExtraKeyPicker
+            options={keyOptions?.data ?? []}
+            extraKeys={extra.keys}
+            onAdd={extra.add}
+            onRemove={extra.remove}
+          />
+        </CardContent>
+      </Card>
+
       {/* Charts. Limits come straight off the overview row — never re-derived
           here — which is what makes the in-spec band agree with the alarm
           printed on the cards above. `intervalMs` only affects these two; the
@@ -269,6 +411,20 @@ export function InstrumentTrend() {
             series={humidKey ? [toChartSeries(chartRows, humidKey, humidDecimals, 'Humidity', period.intervalMs)] : []}
           />
         </div>
+        {/* Extra keys carry no administered limits, so no in-spec band — the
+            picker above only offers keys that are not one of the two governed
+            slots, so there is nothing resolved to draw here. */}
+        {extra.keys.map((k) => (
+          <div key={k}>
+            <ChartIntervalNote intervalMs={period.intervalMs} />
+            <TimeSeriesChart
+              title={k}
+              unit=""
+              spanMs={spanMs}
+              series={[toChartSeries(chartRows, k, TELEMETRY_DECIMALS_FALLBACK, k, period.intervalMs)]}
+            />
+          </div>
+        ))}
       </div>
 
       {/* Raw paged time-series. RAW ONLY — no averaging, no gap filling: a gap
@@ -285,6 +441,7 @@ export function InstrumentTrend() {
                   <TableHead>Timestamp</TableHead>
                   {tempKey && <TableHead>Temperature (°C)</TableHead>}
                   {humidKey && <TableHead>Humidity (%RH)</TableHead>}
+                  {extra.keys.map((k) => <TableHead key={k}>{k}</TableHead>)}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -301,6 +458,11 @@ export function InstrumentTrend() {
                         {row.values[humidKey] == null ? '—' : formatDecimals(row.values[humidKey], humidDecimals)}
                       </TableCell>
                     )}
+                    {extra.keys.map((k) => (
+                      <TableCell key={k} className="tabular-nums">
+                        {row.values[k] == null ? '—' : formatDecimals(row.values[k], TELEMETRY_DECIMALS_FALLBACK)}
+                      </TableCell>
+                    ))}
                   </TableRow>
                 ))}
               </TableBody>
@@ -314,6 +476,8 @@ export function InstrumentTrend() {
           />
         </CardContent>
       </Card>
+
+      {id && <AlarmsWidget instrumentId={id} period={period} />}
     </div>
   );
 }
