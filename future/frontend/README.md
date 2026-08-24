@@ -92,7 +92,7 @@ apps/web/src/
 7. Idempotency: every queued mutation carries a generated `clientOpId` UUID. The sync engine sends it both as `x-client-op-id` header and in the body. Server `lib/idempotency.ts` dedups via `FilterEvent.attributes.clientOpId` match.
 8. Stale-profile yellow banner appears when `cycle.profile_id != live block-assignment` after offline replay.
 
-Full architecture: `OFFLINE_SYNC_ARCHITECTURE.md` at repo root.
+Full architecture: `docs/archive/OFFLINE_SYNC_ARCHITECTURE.md` at repo root.
 
 ## Theme model (short version)
 

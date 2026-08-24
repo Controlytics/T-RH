@@ -276,13 +276,19 @@ points: tags `pre-domain-strip` and `pre-filter-domain-strip`.
 **Hard rule:** every numerical claim in any doc must be backed by a `grep`/`ls` against live code at the moment the doc is touched. Don't trust prior docs — verify.
 
 **Active doc set** (kept current together):
-- Root: `README`, `CLAUDE`, `AGENTS`, `CHANGELOG`, `PROJECT_SUMMARY`, `PROJECT_ARCHITECTURE`, `API_REFERENCE`, `BACKEND_GUIDE`, `FRONTEND_GUIDE`, `OFFLINE_SYNC_ARCHITECTURE`, `DEPLOY-WINDOWS`, `LOCAL_SETUP_WINDOWS`, `windowsIssues`
-  (`PHASE_5_RECENT_WORK.md` moved to `docs/archive/PHASE_5_RECENT_WORK.md` — it described
+- Root: `README`, `CLAUDE`, `AGENTS`, `CHANGELOG`, `PROJECT_SUMMARY`, `PROJECT_ARCHITECTURE`, `API_REFERENCE`, `BACKEND_GUIDE`, `FRONTEND_GUIDE`, `DEPLOY-WINDOWS`, `LOCAL_SETUP_WINDOWS`, `windowsIssues`
+  (`OFFLINE_SYNC_ARCHITECTURE.md` moved to `docs/archive/` the same day — it described an
+  IndexedDB offline queue, a Capacitor APK and `cleaning_cycles`/`filter_events`, none of
+  which exist here; it was read first and held no unique knowledge worth extracting.
+  `PHASE_5_RECENT_WORK.md` moved to `docs/archive/PHASE_5_RECENT_WORK.md` — it described
   the removed filter/RFID/reports domain end to end; its three still-useful lessons were
   extracted into `apps/api/src/modules/backup/backup.repository.ts`, `apps/api/CLAUDE.md`,
   and this file's "Never" section before the move)
 - Per-package: `apps/{api,web}/{CLAUDE,DECISIONS}.md`, `packages/shared/CLAUDE.md`
 - Reference: `docs/`, `future/`, `tasks/todo.md`, `PROJECT_HANDOVER/`
+- **NOT current, kept for the record:** `docs/archive/` — see its README. Archived rather
+  than deleted because CONTRIBUTING's receipts show a bulk delete of `future/` was reverted
+  twice. Never cite anything in there as evidence about today's system.
 
 **Per-change mapping:** see [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) "Change → Docs map" — read it before touching code that affects counts, modules, shared types, or any public surface. Same file holds the **12-touchpoint rule** for new config defs and the **pre-deletion rule** with receipts.
 

@@ -1,195 +1,241 @@
-# DigiLog — 21 CFR Part 11 Compliant Digital Logbook
+# compliance-core
 
-> ⚠ **Drift warning (verified 2026-08-24).** This entire document describes upstream
-> DigiLog's Filter Management System (FMS), not this fork. In this repo (branch
-> `data-injection`): there is **no `apps/android`** and **no `rfid_scan_app`** (`ls apps/`
-> shows only `api`, `web`; `ls rfid_scan_app` → no such file); the filter/AHU/cleaning/PM
-> domain does not exist (removed — see `CLAUDE.md` "Filter domain — REMOVED"); the backend
-> has **23 modules** (`ls apps/api/src/modules | wc -l`), not 33; the DB has **34 models /
-> 13 enums** (`grep -cE "^model /^enum " apps/api/prisma/schema.prisma`), not 61/23; there
-> are **42 permissions / 47 reauth actions** (`grep -cE` against `permissions.ts` /
-> `reauth-actions.ts`), not 102/92; the frontend has **49 `<Route>`s** (`grep -cE "<Route"
-> apps/web/src/main.tsx`), not 77. This fork is a 21 CFR Part 11 admin platform for users,
-> roles, audit trail, e-signature reauth, notifications, and instrument monitoring — see
-> `CLAUDE.md` and `docs/recreation/` for the accurate description.
+A 21 CFR Part 11 administration platform: user and role management, a
+hash-chained tamper-evident audit trail, e-signature re-authentication on
+sensitive actions, notifications, and instrument monitoring (telemetry ingest,
+alarms, functional locations, floorplans and per-instrument trends).
 
-DigiLog is a **21 CFR Part 11** compliant **Digital Filter Management System (FMS)** for pharmaceutical cleanroom HEPA filter lifecycle tracking: filter cleaning cycles, preventive maintenance, equipment status, electronic-signature checklists, and tamper-proof audit trails.
+It is a fork of DigiLog that has been stripped back to that core. The
+cleanroom filter/AHU/cleaning domain the upstream product was built around is
+**not** here — see "What this fork does not have" below.
 
-The platform is monorepo-based (Turborepo) with a Fastify backend, a React/Vite SPA, a Capacitor Android wrapper for tablets, and a native Kotlin RFID scanner companion app.
+Monorepo: Fastify 5 API, React 19 + Vite 6 SPA, two shared workspaces, one
+PostgreSQL database, Turborepo for task running. Windows-first local dev.
 
----
+> **Every count and command in this file was re-derived from live code on
+> 2026-08-24**, on branch `data-injection`. The command that produced each
+> number is printed beside it, so you can re-run it rather than trusting this
+> document. Do that — docs in this repo drift.
 
-## What's in this repo
+## Repository layout
 
-| Path | Contents |
+`ls apps/ packages/`
+
+| Path | What it is for |
 |---|---|
-| `apps/api/` | Fastify 5 backend — 33 modules, 200+ endpoints |
-| `apps/web/` | React 19 SPA — 77 routes, Tailwind CSS |
-| `apps/android/` | Capacitor Android wrapper that ships the SPA as `DigiLog-FilterOps.apk` |
-| `rfid_scan_app/` | Native Kotlin app for KC-series UHF RFID readers (USB) |
-| `packages/shared/` | Permissions, privileges, reauth actions, Zod schemas |
-| `packages/queue/` | graphile-worker queue producer + runner (Postgres-backed; Phase 2 of windows-friendly-rewrite swapped from BullMQ + ioredis) |
-| `docs/` | Active project documentation |
-| `old/` | Archived superseded docs (kept for reference) |
-| `future/` | Forward-looking design notes |
-| `scripts/` | Windows PowerShell deployment scripts |
-| `start-digilog.bat` / `stop-digilog.bat` | Local Windows service launchers |
+| `apps/api/` | Fastify backend. Auth, RBAC, audit chain, notifications, instruments, ingest. **23** modules (`ls apps/api/src/modules/ \| wc -l`). Prisma schema + migrations live here. |
+| `apps/web/` | React SPA (Vite, Tailwind 4, SWR, react-router). **49** `<Route>` elements (`grep -cE "<Route" apps/web/src/main.tsx`). |
+| `packages/shared/` | Contracts both sides import: **42** permissions, **47** reauth actions, **12** sidebar items, the permission tree, Zod schemas. |
+| `packages/queue/` | graphile-worker producer + runner. Postgres-backed — no Redis. |
+| `docs/` | Project docs. `docs/recreation/` is the verified inventory. |
+| `scripts/` | PowerShell scripts for start/stop, DB provisioning, migration verification, packaging. |
+| `tests/integration/` | Cross-workspace suite, gated on `INTEGRATION_TEST=1`. |
+| `future/`, `old/` | Design notes and archived docs. Both describe upstream DigiLog in places. |
 
-For end-to-end details, start with `PROJECT_SUMMARY.md` (overview), `PROJECT_ARCHITECTURE.md` (system architecture), `BACKEND_GUIDE.md` (API), `FRONTEND_GUIDE.md` (web), and `OFFLINE_SYNC_ARCHITECTURE.md` (tablet/offline).
+Counts came from: `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts`,
+`grep -cE "^\s+[A-Z_]+:" packages/shared/src/types/reauth-actions.ts`,
+`grep -cE "id: '" packages/shared/src/types/sidebar-items.ts`.
 
----
+The database has **34 models and 13 enums**
+(`grep -cE "^model " apps/api/prisma/schema.prisma`, and `grep -cE "^enum "` on
+the same file).
 
-## Features
+## Running it locally
 
-### Phase 1 — Core Platform
-- **Entity management** — Hierarchical asset modeling, identifiers (RFID / NFC / Barcode)
-- **Digital checklists** — 10+ field types, photo capture, 3-step approval workflow
-- **Audit trail** — Tamper-evident SHA-256 hash-chain log with before/after snapshots
-- **Notifications** — In-app + email (SMTP/OAuth2) + SMS (AWS SNS / Twilio) + Telegram + Slack
-- **Backup/restore** — Full DB export covering all tables (`pg_tables` + `jsonb_populate_recordset`), SHA-256 integrity verification
-- **RBAC** — 6 hierarchical roles, **102 permissions**, **83 feature toggles**, **92 reauthentication actions** across 16 categories, **26 sidebar items** (single-tenant since 2026-04-30)
-- **Help articles** — 40+ versioned in-app docs across 8 categories
-- **LDAP integration** — Active Directory / OpenLDAP with group→role mapping
+### Prerequisites
 
-### Phase 2 — Digital Filter Management System (FMS)
-- **Filter operations** — Multi-stage cleaning lifecycle with QR/RFID scan
-- **Cleaning profiles** — Visual pipeline editor (custom hand-rolled canvas) with drag-and-drop nodes, CHECKLIST gates, BYPASS mode
-- **Checklist profiles** — Reusable question templates wired into pipeline checklist nodes
-- **Filter profiles** — Block restrictions, max-cycle limits, profile-to-filter assignment
-- **Cleaning cycles** — Full audit trail with timestamps, performer, remarks, checklist answers
-- **PM schedules** — Preventive maintenance per AHU with tolerance windows + QA approval
-- **Equipment groups** — AHU dashboard, dual-set filter management (Set A / Set B)
-- **Filter traceability** — Per-filter event log + cycle timeline + deviation tracking
-- **Bulk upload** — Dynamic CSV columns generated from filter template `attributeSchema`
-- **Retirement & replacement** — End-of-life tracking
+- Node.js 20+ and npm (the repo pins `npm@11.6.2` via `packageManager`)
+- PostgreSQL 18, reachable on `localhost:5432`
+- Windows. The launcher and provisioning scripts are PowerShell; the app itself
+  is plain Node and has no Windows-only runtime dependency.
 
-### Phase 3 — RFID & Offline Operations
-- **RFID Scanner Android app** for KC-series UHF readers via USB-C (`rfid_scan_app/`)
-- **RFID SDK plugin** bundled into DigiLog APK (`Reader_Usb.jar` via `RfidPlugin.java`) — works in SDK and UKB modes
-- **Web-side RFID guard** — global keyboard interceptor blocks tag bursts in non-`data-rfid` fields
-- **Offline cleaning operations** — IndexedDB queue + sync engine, FIFO replay on reconnect
-- **Cached master data** — filters, templates, cleaning reasons, identifier→filter map
-- **"Data Synced" indicator** in mobile header
-- **Responsive layout** — sidebar collapses to hamburger on `<lg` screens
-- **Modal error popups** replacing inline banners
+### The short path
 
-### Phase 4 — Permissions, Themes, Reports
-- **18 granular feature toggles** — Filters (6), Checklists (4), Cleaning Profiles (4), Equipment (4), PM (4)
-- **10 color themes** — CSS variables (`--theme-primary`, `--theme-gradient-from/to`)
-- ~~**Report template designer** — visual editor + PDF generation engine + digital signatures~~ *(removed 2026-07-04 — orphaned generate/sign engine torn out; the ad-hoc report-reviews workflow + client-side cleaning-record/lifecycle PDF export remain)*
-- **Configurable report page titles / labels / signatories** — `/config/report-config`
-- **Dynamic bulk upload** — CSV columns from template `attributeSchema`
-- **92 reauthentication actions** across 16 categories
-- **Block change request/approval** workflow with single-use consumption
-
-### Phase 5 — April 15–29, 2026 (live on `RFID` branch)
-Detailed in `docs/archive/PHASE_5_RECENT_WORK.md` (archived — describes the removed filter/RFID/reports domain):
-
-- ~~**Reports module — phases A–F**~~ — **REMOVED 2026-07-04** as dead code (the report generate/sign template designer + PDF engine was orphaned). The `reports`/`report-templates` modules, their 4 Prisma models, and the puppeteer-core/@napi-rs/canvas render stack are gone. The active `report-reviews` workflow + report-config (page titles / labels / signatories) chrome survive; cleaning-record and lifecycle PDF export remain.
-- **Offline hardening (14-issue overhaul)** — TTL cache, idempotency keys, tombstones, LRU eviction, JWT refresh on replay, server-side `stageLookup` walker for chained CHECKLIST nodes, Capacitor Network plugin + Service Worker hook
-- **RFID SDK plugin baked into DigiLog APK** — `Reader_Usb.jar` via `RfidPlugin.java` — KC-series readers work in SDK and UKB modes
-- **Filter Data Management console** — 10 tabs each mirroring its user-facing page (cycles, events, PM, audit, notifications, admin requests, block changes, etc.) with Edit modals
-- **DRY_IN two-step flow** — SET_DURATION → SUBMIT_READINGS, "Currently Drying" countdown panel persisted across navigation/offline
-- **Dynamic backup/restore** — covers all tables via `pg_tables` + `jsonb_populate_recordset`, non-superuser compatible
-- **Admin requests approval execution** — approvals now actually create/unlock/reset/modify users
-- **Bloat audit follow-up** — 12/14 items resolved (SPIS submit-path parity, dependency cleanup, config monolith split, inline-style codemod, EC2 assets removed, lint rule for `as any`)
-- **Decision-tape proposal** — future architecture to eliminate client/server pipeline drift (proposed, not yet implemented)
-
----
-
-## Tech Stack
-
-| Component | Technology |
-|---|---|
-| Backend | Fastify 5 (Node.js / TypeScript, port 3000) |
-| Frontend | React 19 + Vite 6 (TypeScript, Tailwind CSS 4, port 5175 dev) |
-| Database | PostgreSQL 18 + Prisma ORM (single DB `digilog_db`) |
-| Job queue | graphile-worker on PostgreSQL (LISTEN/NOTIFY + SKIP LOCKED + advisory locks) |
-| Pub/sub (non-queue) | None — Phase 4 retired Redis; the in-process EventEmitter bus was later removed with its last WS/trace/debug consumer (Phase 6/7) |
-| Mobile | Capacitor Android APK + native Kotlin RFID app |
-| Reverse proxy | Optional / customer-choice (no longer bundled — Fastify on `:3000` direct is the default). The `DigiLog-Setup.exe` installer registers `DigiLogDB` + `DigiLogAPI` as auto-start Windows services; see `docs/PHARMA_DEPLOYMENT_21CFR.md` |
-
----
-
-## Quick Start (Windows local dev)
-
-**Prerequisites:** Node.js 20+, PostgreSQL 18. **No Redis dependency** — Phase 4 (2026-05-01) retired it.
-
-```bash
-# Clone
-git clone https://github.com/pankajexa/21cfrlogbook.git
-cd 21cfrlogbook
-git checkout DigitalFMS
-npm install
-
-# Build shared packages
-npm run build -w @digilog/shared && npm run build -w @digilog/queue
-
-# Initialize the database
-createdb digilog_db
-npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma
-npx prisma db seed --schema=apps/api/prisma/schema.prisma
-
-# Run API and web in two terminals (or use start-digilog.bat)
-cd apps/api && npx tsx watch src/app.ts       # API on :3000
-cd apps/web && npx vite --host                # Web on :5175
+```
+start-app.bat
 ```
 
-See `LOCAL_SETUP_WINDOWS.md` for the full step-by-step setup, and `DEPLOY-WINDOWS.md` for production-style deployment paths.
+`scripts/start-app.ps1` (the batch file is a thin launcher) checks Node, reads
+`apps/api/.env`, verifies the database and the ports, runs `npm install`,
+builds the shared workspaces, runs `prisma generate`, then opens two windows
+running the API and the web dev server. It is safe to re-run — every step is
+skipped when already satisfied. `stop-app.bat` shuts it down.
 
----
+Use this path if you can. The manual path below has two sharp edges that the
+script exists to handle.
 
-## Default Login
-- **Username:** `superadmin`
-- **Password:** `Admin@123` (forced change on first login)
+### The manual path
 
-## Local URLs
-| Service | URL |
+```bash
+npm install
+npm run build -w @digilog/shared
+npm run build -w @digilog/queue
+```
+
+Create `apps/api/.env` from `apps/api/.env.example`. Two things to fix as you
+copy it: the example's `DATABASE_URL` names `digilog_db`, but this checkout
+uses **`compliance_core_db`**; and this checkout must run on ports **3001 and
+5176**, not the defaults, because a sibling DigiLog checkout owns 3000 and
+5175. At minimum you need `DATABASE_URL`, `JWT_SECRET`,
+`VERIFICATION_TOKEN_SECRET`, `PORT=3001` and `WEB_PORT=5176`.
+
+Create and migrate the database:
+
+```bash
+# psql -c "CREATE DATABASE compliance_core_db OWNER <role>;"
+#   — or run scripts/provision-db.ps1, which does role + database + grants
+npm run db:migrate            # = cd apps/api && npx prisma migrate deploy
+```
+
+Seed the first user. **`npm run db:seed` on its own fails**:
+`apps/api/prisma/seed.ts` throws `FATAL: INITIAL_ADMIN_PASSWORD env var must be
+set` rather than baking a default password into the repo. Pass one:
+
+```bash
+cd apps/api
+INITIAL_ADMIN_PASSWORD='<pick one>' npx prisma db seed
+```
+
+Then start the two servers, in two terminals:
+
+```bash
+# API — reads apps/api/.env, so PORT=3001 in that file is enough
+cd apps/api && npx tsx watch src/app.ts
+
+# Web — these two env vars are NOT optional here, see below
+cd apps/web
+WEB_PORT=5176 API_PROXY_TARGET=https://localhost:3001 npx vite --host
+```
+
+On Windows `cmd` that last line is
+`set WEB_PORT=5176&& set API_PROXY_TARGET=https://localhost:3001&& npx vite --host`.
+
+**Why those two env vars matter.** `apps/web/vite.config.ts` defaults to
+`port: 5175` and proxies `/api` to `https://localhost:3000`. `WEB_PORT` and
+`PORT` live in `apps/api/.env`, which Vite never reads. So a bare `npx vite` in
+this checkout serves on 5175 and sends every API call to the *sibling* DigiLog
+checkout's backend — the app appears to work, against the wrong data.
+`scripts/start-app.ps1` sets both variables explicitly for exactly this reason.
+
+`npm run dev` (turbo) has the same problem and is not the recommended path.
+
+### Signing in
+
+Username `superadmin`, password whatever you passed as
+`INITIAL_ADMIN_PASSWORD`. There is no default password in the repo. The seed
+sets `forcePasswordChange: false`, so you are not prompted to change it at
+first login.
+
+### URLs
+
+With the ports above: web on `https://localhost:5176`, API on
+`https://localhost:3001`, Swagger at `https://localhost:3001/docs`. Both are
+`http://` instead if you have no certs — see below.
+
+## Sharp edges worth knowing before you hit them
+
+**TLS is conditional on both sides, and the certs are gitignored.**
+`apps/api/src/app.ts` serves HTTPS only when `API_HTTPS=true`, reading
+`certs/server.{key,crt}`. `apps/web/vite.config.ts` calls `devHttps()`, which
+returns `undefined` when those files are absent — so a fresh clone gets a plain
+**HTTP** dev server and a plain HTTP API. Generate the pair with mkcert (the
+same invocation `scripts/start-app.ps1` prints at its cert check):
+
+```
+mkcert -key-file certs\server.key -cert-file certs\server.crt localhost 127.0.0.1
+```
+
+Trust the mkcert root at `%LOCALAPPDATA%\mkcert\rootCA.pem`. The
+`certs/rootCA.pem` committed at the repo root is a *different*, hand-rolled CA
+that signs nothing in use — verifying `server.crt` against it fails, and that
+failure is not a broken chain.
+
+**There are two databases, migrated separately.** Dev is
+`compliance_core_db`; the vitest suite runs against `compliance_core_db_test`,
+forced by `apps/api/vitest.env.ts` before Prisma connects, so test writes never
+touch the immutable audit chain. A migration applied to only one of them makes
+every instrument-touching e2e test return 500. Apply to both:
+
+```bash
+DATABASE_URL="postgresql://…/compliance_core_db_test?schema=public" npx prisma migrate deploy
+```
+
+The test database needs its own seed run too, with the same
+`INITIAL_ADMIN_PASSWORD` mechanism.
+
+**The audit trail is hash-chained and immutable.**
+`apps/api/src/lib/hash-chain.ts`, verified by `audit-verify.ts`. Deleting rows
+from `audit_trail` — which a misdirected test run has done in this checkout
+before — leaves permanent gaps that cannot be repaired. That is why the
+test-database guard above fails closed instead of falling back.
+
+**MQTT ingest is real and load-bearing.** `mqtt` is a dependency in
+`apps/api/package.json`; `app.ts` registers `/api/ingest/v1` and starts an MQTT
+bridge plus a raw-TCP listener, both gated on their env vars
+(`MQTT_BROKER_URL`, `INGEST_TCP_PORT`), so no port opens unasked. A doc
+claiming ingest was removed is describing the Phase 7 tear-out of a
+*different*, older pipeline. Do not delete this code on the strength of such a
+doc.
+
+## Commands
+
+| Command | What it does |
 |---|---|
-| Web (Vite dev) | http://localhost:5175 |
-| API | https://localhost:3000 |
-| Swagger docs | https://localhost:3000/docs |
+| `npm run build` | turbo build across workspaces |
+| `npm run lint` | `tsc --noEmit` per workspace |
+| `npm test` | turbo test (vitest). Vitest does not typecheck — run `lint` as well |
+| `npm run db:migrate` | `prisma migrate deploy` against `DATABASE_URL` |
+| `npm run db:seed` | seed (requires `INITIAL_ADMIN_PASSWORD`, see above) |
+| `npm run db:studio` | Prisma Studio |
+| `npm run db:verify-migrations` | migration drift guard, `scripts/verify-migrations.ps1` |
+| `npm run check:cycles` | madge circular-dependency check |
 
----
+All of these are from the root `package.json`; the per-workspace scripts are in
+each workspace's own `package.json`.
 
-## Database
+## What this fork does not have
 
-### PostgreSQL (`digilog_db` — Prisma)
-**61 models, 23 enums** covering users, roles, sessions, entities, templates, relationships (Step 2 enum), identifiers, audit, notifications, configs, help articles, filter cleaning profiles (Phase A.2 added `lineageId UUID` for rowful version history — same row count, no new model), filter profiles + FilterProfileVersion immutable history (Phase A.3) + FilterProfileApplicableTemplate join table (Step 4), cleaning cycles, filter events, FilterDetails 1:1 sidecar (Step 6), PM schedules + entries + executions, checklist profiles + questions + ChecklistProfileVersion immutable history (Phase 5b A.1), equipment groups + instruments + EquipmentGroupVersion composite-snapshot history (Phase A.4), report reviews, block-change requests, admin requests, dashboards + widgets + assignments, password history + reset requests.
+Each of these was checked, not assumed:
 
-The vitest suite runs against a separate `digilog_test_db`.
+- **No mobile app and no Capacitor build.** `apps/android/` and
+  `rfid_scan_app/` do not exist (`ls`), and no workspace `package.json`
+  mentions Capacitor (`grep -ri capacitor --include=package.json`). The SPA
+  *does* still register a service worker via `vite-plugin-pwa`, with
+  `apps/web/src/components/pwa-reload-prompt.tsx` — note that its manifest's
+  `start_url: '/m'` points at a route that no longer exists in `main.tsx`.
+- **No RFID.** No scanner app, no reader SDK, no keyboard-burst guard.
+- **No offline sync.** No IndexedDB usage anywhere in `apps/web/src`, no sync
+  engine, no `lib/offline-replay-token.ts` — despite `apps/api/.env.example`
+  still carrying a comment about it. `OFFLINE_SYNC_ARCHITECTURE.md` at the repo
+  root describes something that is gone.
+- **No filter / AHU / cleaning / PM domain.** Its modules, models, pages and
+  vocabulary were removed (Phase 0 strip 2026-07-18, remainder 2026-08-20). The
+  only surviving mention is a list of retired config keys in
+  `apps/api/src/lib/config-discovery.ts`. Restore points exist as the tags
+  `pre-domain-strip` and `pre-filter-domain-strip`.
+- **No Redis and no TimescaleDB.** The job queue is graphile-worker on the same
+  Postgres; there is no second database beyond the test one.
+- **No `packages/db` workspace**, no multi-tenancy (the JWT `scope` always
+  stamps `GLOBAL`), no CI (`.github/workflows` does not exist), and no
+  `LICENSE` file — this repo states no licence terms.
 
----
+## Where to go next
 
-## Documentation Map
+- **`CLAUDE.md`** — working agreements for this repo, and the "Live-count
+  verification" block whose commands produced the numbers above. Treat the
+  numbers printed in it as leads rather than facts; several have been caught
+  stale, including two that this file corrects.
+- **`docs/recreation/`** — the verified inventory. Where a root-level doc and
+  this directory disagree, this directory is the one that was checked.
+- **`docs/CONTRIBUTING.md`** — the change-to-docs map, the rule for adding a
+  config def, and the pre-deletion rule.
+- **`CHANGELOG.md`** — chronological history, including what was removed and when.
 
-| File | Purpose |
-|---|---|
-| `PROJECT_SUMMARY.md` | 30-second project overview |
-| `PROJECT_ARCHITECTURE.md` | System architecture, request flow, data layers |
-| `API_REFERENCE.md` | Full API surface (200+ endpoints) |
-| `BACKEND_GUIDE.md` | Backend dev guide — module patterns, plugins, auth |
-| `FRONTEND_GUIDE.md` | Frontend dev guide — routes, hooks, state |
-| `OFFLINE_SYNC_ARCHITECTURE.md` | Tablet APK + offline IndexedDB queue + sync engine |
-| `docs/archive/PHASE_5_RECENT_WORK.md` | Archived — Post-Phase-4 architecture changes (Apr 15–29) for the now-removed filter/RFID/reports domain; historical only |
-| `CHANGELOG.md` | Full chronological history |
-| `future/README.md` | Onboarding pack — overview + reading order |
-| `future/overview/CODEBASE_SUMMARY.md` | Most-comprehensive single-file tech stack with version pins (React 19 / Vite 6 / Fastify 5 / Prisma 6 / Capacitor 8 / `jose` / `ldapts`), feature areas verified by directory inspection, "How to find things" cookbook |
-| `future/overview/CURRENT_STATUS.md` | Snapshot @ 2026-04-29 + **KNOWN GOTCHAS** taxonomy (Capacitor WebView fetch, Fastify schema stripping, roles after DB restore, cycle profile_id frozen, idempotency-key required for replay) |
-| `future/overview/API_LIST.md` | Compact 394-endpoint index with `*` public markers |
-| `future/backend/{README,MODULES,API_ENDPOINTS,ENV_SETUP}.md` | Backend onboarding — directory map, request lifecycle + PUBLIC_PATHS taxonomy, per-module verified endpoint counts, full canonical endpoint table, env-setup walkthrough |
-| `future/frontend/{README,KEY_FILES,PATTERNS}.md` | Frontend onboarding — directory map, annotated file index ("why it matters"), conventions for routes / SWR / forms / offline-safe mutations / dynamic attribute forms |
-| `future/qa/{README,FEATURE_CHECKLIST,ACCEPTANCE_CRITERIA,KNOWN_ISSUES}.md` | QA pack — user personas (Engineer / Supervisor / QA / Admin / Super-admin), per-feature verification steps, "done-when" bullets, gotchas grouped by env / frontend / offline / permissions |
-| `future/testing/{README,MANUAL_TEST_GUIDE,TEST_INVENTORY}.md` | 4 test surfaces breakdown, 12 golden-path scripts, every `*.test.ts` enumerated by surface |
-| `CLAUDE.md` | Instructions for AI coding assistants |
-| `AGENTS.md` | Agent-mode instructions |
-| `DEPLOY-WINDOWS.md` | Windows deployment options |
-| `LOCAL_SETUP_WINDOWS.md` | Windows local dev setup |
-| `windowsIssues.md` | Windows Server difficulty audit — 18 dependency / runtime issues with severity + mitigation |
-| `docs/` | User guides, admin guides, compliance, deployment methods |
-| `old/` | Archived superseded docs (read-only history) |
-
----
-
-## License
-Proprietary — Pankaj Exa Technologies
+**Documents to distrust.** Several root-level docs were inherited from upstream
+DigiLog and describe a product this repo is not: `API_REFERENCE.md`,
+`PROJECT_SUMMARY.md`, `PROJECT_ARCHITECTURE.md`, `BACKEND_GUIDE.md`,
+`FRONTEND_GUIDE.md`, `OFFLINE_SYNC_ARCHITECTURE.md`, `PHASE_5_RECENT_WORK.md`,
+and much of `future/`. Most now carry an explicit drift warning at the top —
+read the warning before you read the document. Anything describing filters,
+AHUs, cleaning cycles, RFID, tablets or offline queues is upstream DigiLog, not
+this fork.

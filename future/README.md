@@ -38,7 +38,7 @@ These are still accurate and authoritative; existing tooling links into them:
 - `AGENTS.md` — agent-mode rules
 - `README.md` — quick-start
 - `CHANGELOG.md` — version history (up to `[2.5.0]` 2026-04-25)
-- `API_REFERENCE.md`, `BACKEND_GUIDE.md`, `FRONTEND_GUIDE.md`, `OFFLINE_SYNC_ARCHITECTURE.md`, `PROJECT_ARCHITECTURE.md`, `PROJECT_SUMMARY.md`
+- `API_REFERENCE.md`, `BACKEND_GUIDE.md`, `FRONTEND_GUIDE.md`, `docs/archive/OFFLINE_SYNC_ARCHITECTURE.md`, `PROJECT_ARCHITECTURE.md`, `PROJECT_SUMMARY.md`
 - `docs/archive/PHASE_5_RECENT_WORK.md` — archived; post-Phase-4 work (Apr 15–29: reports, offline hardening, RFID SDK plugin, Filter Data Mgmt console, decision-tape proposal) for the now-removed filter/RFID/reports domain
 - `DEPLOY-WINDOWS.md`, `LOCAL_SETUP_WINDOWS.md`
 - `PROJECT_HANDOVER/APPLICATION_FLOW.md` — handover doc with 14 Mermaid diagrams

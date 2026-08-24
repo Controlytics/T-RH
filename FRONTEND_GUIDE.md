@@ -4,7 +4,7 @@
 > previously described the removed filter/AHU/cleaning-cycle/RFID domain and a
 > Capacitor tablet app (offline queue, RFID bridge) — none of it exists in this
 > fork; see root `CLAUDE.md` "Filter domain — REMOVED" and the equally stale
-> `OFFLINE_SYNC_ARCHITECTURE.md`. Rewritten below from `apps/web/src/main.tsx`,
+> `docs/archive/OFFLINE_SYNC_ARCHITECTURE.md`. Rewritten below from `apps/web/src/main.tsx`,
 > `routes/`, `hooks/`, and `lib/` directly. Note for whoever next touches root
 > `CLAUDE.md`: its System Stats line ("26 custom hooks, 30 lib modules") is
 > also stale — live counts are **17 hooks, 17 lib modules** (`ls
@@ -205,7 +205,7 @@ inventory:
 | `ReportDownloadDialog` | `report-download-dialog.tsx` | Report download confirmation |
 | `SendForReviewButton` | `SendForReviewButton.tsx` | Send-for-review action |
 | `SuperAdminApiAccess` | `super-admin-api-access.tsx` | Super-admin API token/access panel |
-| `PwaReloadPrompt` | `pwa-reload-prompt.tsx` | Prompts a refresh when `vite-plugin-pwa` detects a new service-worker build — asset-caching for update UX, not an offline-data feature (see `OFFLINE_SYNC_ARCHITECTURE.md`, a deletion candidate for describing a different, non-existent offline subsystem) |
+| `PwaReloadPrompt` | `pwa-reload-prompt.tsx` | Prompts a refresh when `vite-plugin-pwa` detects a new service-worker build — asset-caching for update UX, not an offline-data feature (see `docs/archive/OFFLINE_SYNC_ARCHITECTURE.md`, a deletion candidate for describing a different, non-existent offline subsystem) |
 
 ## Utility Libraries (17 modules — verified `ls apps/web/src/lib/*.ts` 2026-08-24)
 
@@ -303,7 +303,7 @@ There is no client-side offline queue, IndexedDB cache, or sync engine in this
 fork's web app. The previous version of this section described `executeOrQueue()`,
 `sync-engine.ts`, and an IndexedDB cache of filter instances / cleaning
 profiles / cleaning reasons — none of that exists; it belonged to the removed
-Capacitor tablet app. See `OFFLINE_SYNC_ARCHITECTURE.md` (flagged as a
+Capacitor tablet app. See `docs/archive/OFFLINE_SYNC_ARCHITECTURE.md` (flagged as a
 deletion candidate in this same sweep) for the full picture of what was
 removed. The only offline-adjacent code in this app is the PWA service-worker
 update prompt (`components/pwa-reload-prompt.tsx`, `vite-plugin-pwa`), which
