@@ -11,6 +11,7 @@ import { formatSetPoint } from '@/routes/dashboard/set-point';
 import { TimeSeriesChart } from '@/routes/dashboard/time-series-chart';
 import { useTrendPeriod, useInstrumentTrend, TREND_PRESETS, TABLE_PAGE_SIZE, type TelemetryLongRow } from './use-trend-data';
 import { toChartSeries, toTableRows } from './trend-series';
+import { ChartIntervalNote } from './chart-interval-note';
 
 /** Rows this page actually charts/pivots are all numeric — a non-numeric
  *  reading (a raw JSON blob on some other key) has no place on an axis or in
@@ -242,22 +243,32 @@ export function InstrumentTrend() {
           printed on the cards above. `intervalMs` only affects these two; the
           raw table below stays unaveraged regardless of the selection. */}
       <div className="grid gap-4 lg:grid-cols-2">
-        <TimeSeriesChart
-          title="Temperature"
-          unit="°C"
-          spanMs={spanMs}
-          min={trend.overview?.limits?.tempMin}
-          max={trend.overview?.limits?.tempMax}
-          series={tempKey ? [toChartSeries(chartRows, tempKey, tempDecimals, 'Temperature', period.intervalMs)] : []}
-        />
-        <TimeSeriesChart
-          title="Humidity"
-          unit="%RH"
-          spanMs={spanMs}
-          min={trend.overview?.limits?.rhMin}
-          max={trend.overview?.limits?.rhMax}
-          series={humidKey ? [toChartSeries(chartRows, humidKey, humidDecimals, 'Humidity', period.intervalMs)] : []}
-        />
+        {/* TimeSeriesChart has no subtitle/caption slot of its own (it is shared
+            with the dashboard, which has no need of this disclosure), so the
+            note renders immediately above it — right against the chart's own
+            title — rather than changing the shared component for one caller. */}
+        <div>
+          <ChartIntervalNote intervalMs={period.intervalMs} />
+          <TimeSeriesChart
+            title="Temperature"
+            unit="°C"
+            spanMs={spanMs}
+            min={trend.overview?.limits?.tempMin}
+            max={trend.overview?.limits?.tempMax}
+            series={tempKey ? [toChartSeries(chartRows, tempKey, tempDecimals, 'Temperature', period.intervalMs)] : []}
+          />
+        </div>
+        <div>
+          <ChartIntervalNote intervalMs={period.intervalMs} />
+          <TimeSeriesChart
+            title="Humidity"
+            unit="%RH"
+            spanMs={spanMs}
+            min={trend.overview?.limits?.rhMin}
+            max={trend.overview?.limits?.rhMax}
+            series={humidKey ? [toChartSeries(chartRows, humidKey, humidDecimals, 'Humidity', period.intervalMs)] : []}
+          />
+        </div>
       </div>
 
       {/* Raw paged time-series. RAW ONLY — no averaging, no gap filling: a gap
