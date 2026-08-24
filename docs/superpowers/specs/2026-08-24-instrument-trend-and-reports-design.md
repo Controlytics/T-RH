@@ -34,7 +34,7 @@ This is most of the work, and none of it needs rebuilding:
 | PDF with company name, logo, Printed By + user ID, printed date/time, signature and remarks block | `apps/web/src/lib/pdf-report.ts` (`createReport`) | **Complete.** Used by the Audit Trail. Company name comes from the `branding` config, overridable by `report-page-titles`. |
 | Per-role gating of which pages may export, and in which formats | `lib/export-surfaces.ts` + `<ExportMenu>` + `config/export-options.tsx` | **Complete.** `EXPORT_SURFACES` currently lists only `audit`. |
 | Excel export | `lib/excel-export.ts` | Complete. |
-| Export logging | `lib/report-export-log.ts` | Complete, but records only that an export happened. |
+| **Audited export logging** — `POST /api/audit/report-export-log` writes a `REPORT_GENERATED` audit row (report name, format, record count, period, search, start/end date), **fail-closed**: the browser calls it BEFORE saving the file and cancels the download if it fails | `lib/report-export-log.ts` + `modules/audit/routes.ts:304` | **Complete.** Carries no remarks and no re-authentication. |
 | Per-instrument history, time-ranged, with a total row count | `telemetry.repository.ts:getHistory()` | **Supports `offset` and returns `total` already.** The HTTP route does not expose `offset`. |
 | Readings annotated with their slot (temperature/humidity) and the instrument's own decimal precision | `GET /api/instruments/:id/telemetry` | Complete, and uses the same resolver the dashboard uses. |
 | Alarms filtered by instrument | `GET /api/alarms?instrumentId=` | **Complete.** No date range. |
@@ -62,13 +62,29 @@ Only after all three does `createReport()` run.
 `DOWNLOAD_REPORT` (46 → **47**) under a new `Reports` category — the category
 must be added to `REAUTH_ACTION_CATEGORIES` as well, because both policy editors
 iterate that array and an action in a missing category renders nowhere and can
-never be configured. A new audit action `REPORT_DOWNLOADED` (93 → **94**)
-records surface, instrument (where the report is about one), period, remarks and
-row count.
+never be configured.
 
-The gate is server-enforced in the only sense that matters here: the browser
-calls a new endpoint that performs the reauth check and writes the audit entry,
-and renders the PDF only on its success. The API never returns the PDF.
+**No new audit action and no new endpoint.** `POST /api/audit/report-export-log`
+already writes a `REPORT_GENERATED` row for every download, already carries
+period / start / end / search / record count, and is already **fail-closed** —
+the browser calls it before saving the file and cancels the download if it
+fails. The gate is built by adding two things to that existing endpoint:
+
+- a **required `remarks`** field, carried into the audit `reason`; and
+- `enforceReauth('DOWNLOAD_REPORT', …)`, which is the *configurable* form, so an
+  administrator can relax the requirement per role rather than it being welded on.
+
+Audit actions therefore stay at **93**.
+
+**Consequence, stated plainly:** this endpoint is shared with the Audit Trail's
+existing export. Making `remarks` required breaks that caller unless it is
+updated in the same change, so the Audit Trail export moves onto the same dialog.
+That is a deliberate widening of scope beyond the two new surfaces: it makes
+every report download in the product governed the same way, rather than leaving
+the oldest one as the single ungoverned exit. If that is not wanted, the
+alternative is a `remarks`-optional endpoint with the requirement enforced per
+surface in the browser — weaker, because the browser is then the only thing
+insisting on it.
 
 **Accepted limitation, on the record.** The PDF is generated in the browser
 (`jspdf`), so the gate records intent — it cannot prevent someone reading data
@@ -161,9 +177,11 @@ exist.
 | `GET /api/alarms` gains `from` / `to` | No date filter exists today. |
 | `GET /api/alarms` gains `q` | Server-side search for §6. |
 | New `GET /api/instruments/:id/telemetry-keys` | The distinct keys this instrument has actually sent, for §5.6's picker. |
-| New `POST /api/reports/download` | Enforces `DOWNLOAD_REPORT` reauth, writes the `REPORT_DOWNLOADED` audit entry, returns success. Returns no file. |
+| `POST /api/audit/report-export-log` gains a required `remarks` and `DOWNLOAD_REPORT` reauth | The gate of §4. Not a new endpoint — the existing fail-closed export logger. |
 
-All additive. No existing caller changes behaviour.
+All additive except the last: requiring `remarks` on `report-export-log` changes
+an existing caller (the Audit Trail export), which moves onto the same dialog in
+the same change. See §4.
 
 ## 8. Counts that move
 
@@ -171,12 +189,11 @@ All additive. No existing caller changes behaviour.
 |---|---|---|
 | Reauth actions | 46 | 47 |
 | Reauth categories | 8 | 9 (`Reports`) |
-| Audit actions | 93 | 94 |
 | Frontend routes | 48 | 49 |
 | Export surfaces | 1 | 3 |
 
 Unchanged: 34 Prisma models, 13 enums, 42 permissions, 23 API modules, 25 config
-defs.
+defs, **93 audit actions** (the existing `REPORT_GENERATED` is reused).
 
 ## 9. Risks
 
