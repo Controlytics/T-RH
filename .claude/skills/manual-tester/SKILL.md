@@ -1,97 +1,131 @@
 ---
 name: manual-tester
-description: This skill should be used when the user asks to "test the app", "run manual tests", "test the filter operations", "test the cleaning pipeline", "test entity pages", "test delete functionality", "verify data in browser", or needs to perform end-to-end manual testing of the DigiLog platform — driving the UI, exercising filter cleaning cycles, and verifying data in the database and browser.
-version: 0.2.0
+description: Use when the user asks to "test the app", "run manual tests", "test the dashboard", "test instruments", "test alarms", "test the audit trail", "verify data in browser", or needs end-to-end manual testing of compliance-core — driving the UI, exercising instrument monitoring and §11 flows, and verifying data in the database and browser.
+version: 0.3.0
 ---
 
-# Manual Tester — DigiLog Platform
+# Manual Tester — compliance-core
 
-This skill provides structured workflows for manually testing the DigiLog 21 CFR Part 11 platform. It covers driving the web UI, exercising the Digital Filter Management cleaning pipeline, verifying data in the browser, and testing delete operations.
+Structured workflows for manually testing this 21 CFR Part 11 platform: user
+and role administration, the hash-chained audit trail, e-signature
+re-authentication, notifications, and instrument monitoring (telemetry ingest,
+alarms, functional locations, floorplans, the graphical and tabular dashboards,
+and per-instrument trend pages).
 
-> **Scope note:** DigiLog's data-ingestion subsystem (MQTT/HTTP telemetry, TimescaleDB, connectivity, alarms, rule chains) was removed in Phase 7 (2026-06). This skill only covers what survives: the filter/entity UI, cleaning cycles, PM schedules, audit trail, and delete operations. There is no telemetry ingestion, no MQTT broker, and no alarm subsystem to test.
+> **Rewritten 2026-08-24.** Version 0.2.0 of this skill described the **filter /
+> cleaning-cycle / PM / RFID domain**, which was stripped from this fork
+> (2026-07-18 and 2026-08-20), and asserted that "there is no telemetry
+> ingestion, no MQTT broker, and no alarm subsystem to test." **All three of
+> those are false** — verified 2026-08-24: `apps/api/package.json` carries
+> `mqtt@^5.15.2`, `app.ts` registers `/api/ingest/v1`, and `modules/alarms/`
+> and `modules/instruments/` are live. It also told you to run
+> `start-digilog.bat`, which does not exist, and to curl `/api/health`, which
+> is not a route. Every command below was re-verified against live code.
 
 ## Prerequisites
 
-Before starting any test:
+Local Windows dev only — there is no live server to test against.
 
-1. **Local dev (Windows only — there is no live server):** Run `start-digilog.bat` from the project root, or start the two processes manually:
-   ```bash
-   cd apps/api && npx tsx watch src/app.ts     # API on http://localhost:3000
-   cd apps/web && npx vite --host              # Frontend on http://localhost:5175
-   ```
-2. Confirm the API is up:
-   ```bash
-   curl http://localhost:3000/api/health
-   ```
-3. Frontend: `http://localhost:5175`. Swagger: `http://localhost:3000/docs`.
-4. Default login: `superadmin` / `Admin@123` (forced change on first login).
+**1. Start it.** From the project root:
 
-## Test Workflow 1: Entity / Filter UI Verification
-
-1. Navigate to `http://localhost:5175` → **Filters** (or the entity/hierarchy pages).
-2. Confirm the hierarchy tree renders (Block → Area → AHU → Filter).
-3. Click a filter and verify its detail panel: name, status, filter profile, current lifecycle state.
-4. Check for unstyled UI elements and console errors that return unexpected responses (open DevTools → Console).
-
-## Test Workflow 2: Digital Filter Management (Cleaning Pipeline)
-
-### Filter Operations (API)
 ```bash
-# Start a cleaning cycle
-curl -X POST "http://localhost:3000/api/filters/<filterId>/start-cycle" \
-  -H "Authorization: Bearer <JWT>" \
-  -H "Content-Type: application/json" \
-  -d '{"reason": "Scheduled cleaning", "cleaningReasonId": "scheduled"}'
-
-# Advance to next stage
-curl -X POST "http://localhost:3000/api/filters/<filterId>/advance" \
-  -H "Authorization: Bearer <JWT>"
-
-# Submit checklist answers
-curl -X POST "http://localhost:3000/api/filters/<filterId>/submit-checklist" \
-  -H "Authorization: Bearer <JWT>" \
-  -H "Content-Type: application/json" \
-  -d '{"checklistId": "<id>", "answers": {"q1": true, "q2": "Clean"}}'
-
-# Get current filter state (full server snapshot)
-curl "http://localhost:3000/api/filters/<filterId>/current-state" \
-  -H "Authorization: Bearer <JWT>"
+start-app.bat          # wraps scripts/start-app.ps1 — idempotent, verifies deps
 ```
 
-### UI Verification (Filter Management)
-1. Navigate to **Filter Management > Operations** — verify the stage grid with filter counts.
-2. Click a filter card → verify current state, stage, and available actions.
-3. Start a cycle → verify the stage advances through the pipeline (WASH_IN → WASH_OUT → DRY_IN → DRY_OUT → STORAGE_IN → STORAGE_OUT).
-4. Verify checklist gates block advancement until submitted.
-5. Navigate to **Cleaning Cycles** — verify completed cycles and the event timeline.
-6. Navigate to **PM Schedules** — verify schedule entries and execution tracking.
+Or manually, in two terminals:
 
-### Database Verification (Cleaning Pipeline)
-```sql
--- Cleaning cycles
-SELECT id, status, "startedAt", "completedAt" FROM cleaning_cycles ORDER BY "startedAt" DESC;
+```bash
+cd apps/api && npx tsx watch src/app.ts
+# reads apps/api/.env: PORT=3001, API_HTTPS=true
 
--- Filter events
-SELECT id, "eventType", "filterId", "createdAt" FROM filter_events ORDER BY "createdAt" DESC;
-
--- PM executions
-SELECT id, status, "completedAt" FROM pm_executions ORDER BY "createdAt" DESC;
+cd apps/web
+WEB_PORT=5176 API_PROXY_TARGET=https://localhost:3001 npx vite --host
 ```
 
-Local DB connection: `PGPASSWORD=digilog123 psql -h localhost -U digilog -d digilog_db`.
+**Those two web env vars are not optional.** `apps/web/vite.config.ts` defaults
+to port 5175 and proxies `/api` to `https://localhost:3000` — which is the
+**sibling DigiLog checkout's** backend. A bare `npx vite` here gives you an app
+that appears to work while reading the wrong database. If a test result makes no
+sense, check the port in your address bar before anything else.
 
-## Test Workflow 3: Delete Operations
+**2. Confirm the API is up.** There is no `/health` route — do not curl one.
+Any response at all proves the server and TLS are alive:
 
-DigiLog has several delete surfaces. Test each against its permission gate:
+```bash
+curl -sk --ssl-revoke-best-effort -o /dev/null -w "%{http_code}" https://localhost:3001/api/system-health
+```
 
-1. **Entity / filter delete** — from the Filters page, confirm delete is gated (SUPER_ADMIN bypasses; other roles need the relevant `FILTER_*` / `ASSET_*` grant). Verify soft-delete entities allow name reuse afterward.
-2. **Audit record delete** — `AUDIT_DELETE` permission (off by default). A permanent hard-delete breaks the tamper-evident hash chain on purpose; `GET /api/audit/verify-chain` will report the chain invalid afterward. Prefer **REDACT** (chain-preserving) for normal use.
-3. After any delete, verify the row is gone in the DB and the UI reflects the change (no stale rows, no console errors).
+`401` is a pass here — it means TLS terminated and the route rejected an
+unauthenticated call. `/api/system-health` requires ADMIN. On Windows, curl uses
+Schannel and returns exit 60 on valid local certs without
+`--ssl-revoke-best-effort`; that is not a broken chain.
 
-## Test Workflow 4: Browser Verification Checklist
+**3. Sign in.** `superadmin`, with the password that was passed as
+`INITIAL_ADMIN_PASSWORD` when the database was seeded. There is no default
+password in this repo — seeding throws without that variable — and
+`forcePasswordChange` is `false`, so you will not be prompted to change it.
 
-For every page touched during a test session:
-- No unstyled UI elements (missing Tailwind classes, raw HTML).
-- No console logs that return unexpected responses (401/403/500, `Unexpected token '<'`, parse errors).
-- Datetimes render via the app's formatter (no raw ISO strings leaking into the UI).
-- Permission-gated buttons appear/disappear correctly per role (log out/in after a role grant — perms are baked at login).
+**4. Know which database you are looking at.** `compliance_core_db` is dev;
+`compliance_core_db_test` is for e2e and is migrated **separately**. A migration
+applied to only one makes every instrument-touching test 500 in a way that looks
+like application code.
+
+## A hard constraint on how you verify
+
+**Playwright cannot get past login on this machine.** Its browser cannot fetch
+the API through the mkcert certificate, and `browser_click` silently no-ops. Do
+not report a UI behaviour as verified because a script "clicked" something.
+
+So: **verify beneath the UI, and hand the visual check to the operator.** Assert
+against the API with `app.inject` or curl, and against the database with Prisma
+or psql. When you have done all you can, say plainly which parts you have not
+seen, and ask the operator to look. Never claim to have seen a page render.
+
+While the operator is looking, ask them to watch for unstyled or misaligned
+elements and for console errors — those are the two failures that no
+below-the-UI check will ever catch.
+
+## What is worth testing here
+
+Live modules (`ls apps/api/src/modules/` — 23): admin-requests, alarms, audit,
+auth, backup, config, dashboards, debug-traces, floorplans,
+functional-locations, help, instrument-profiles, instruments, ldap,
+notification-delivery, notification-rules, notifications, roles, super-admin,
+system-health, uploads, user-groups, users.
+
+High-value flows, roughly in order of how badly they fail if broken:
+
+1. **The audit chain.** Every §11 action must leave a row, and the chain must
+   verify. Check that a rejected action leaves NO row and a successful one
+   leaves exactly one, with `beforeValue`/`afterValue` naming what changed.
+2. **E-signature re-authentication.** Actions configured to require it must
+   reject without a password and audit the attempt. Policy is per role — check
+   Config → Roles & Access before concluding a prompt is missing.
+3. **Instrument visibility.** A scoped role must not see instruments outside its
+   scope, and out-of-scope lookups must **404, never 403** — a 403 confirms the
+   instrument exists, which is the leak the design avoids.
+4. **Alarms.** Raised against the instrument's own limits where it has them,
+   else its room's; the precision is frozen onto the alarm at raise time.
+5. **Dashboards.** Tabular and graphical views must agree with each other and
+   with the alarms page about the same reading.
+6. **Report downloads.** Period + remarks + re-authentication are required, the
+   audit write happens BEFORE the file is produced, and a failed audit write
+   must cancel the download.
+
+## What does not exist — do not test for it, and do not "restore" it
+
+No filters, AHUs, cleaning cycles, checklists, PM schedules, assets or
+equipment groups. No mobile app, RFID, Capacitor build or offline sync. No
+`packages/db`, no TimescaleDB, no `digilog_tsdb`.
+
+**But MQTT ingest DOES exist** (`/api/ingest/v1`, EMQX 5.3.2 as the broker), and
+so do alarms and telemetry. Several documents in this repo still claim
+otherwise. If a doc and the code disagree, the code wins — re-derive from
+`apps/api/src/app.ts` before believing either.
+
+## Reporting results
+
+State what you ran, what you observed, and what you could not check. If a test
+fails, give the actual output rather than a summary of it. If you fixed
+something incidentally, say so. Do not describe a run as passing when part of it
+was skipped — name the skip.

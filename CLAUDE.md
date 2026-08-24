@@ -112,18 +112,26 @@ npm run build -w @digilog/shared && npm run build -w @digilog/queue
   guessing from this file.
 
 ## Key Local URLs
-- App: http://localhost:5175 (Vite dev)
-- API: https://localhost:3000 — `API_HTTPS=true` in `apps/api/.env` (mkcert certs at `certs/server.{key,crt}`)
+**Corrected 2026-08-24 — this section said 5175 / 3000 and contradicted line 20
+of this same file, which says 3001.** `apps/api/.env` is the authority:
+`PORT=3001`, `API_HTTPS=true`.
+- App: **https://localhost:5176** — and only if `WEB_PORT=5176` is set.
+  `apps/web/vite.config.ts` defaults to **5175** and proxies `/api` to
+  **https://localhost:3000**, which is the *sibling DigiLog checkout's* backend.
+  A bare `npx vite` here therefore serves an app that looks fine while reading
+  the wrong database. Set `WEB_PORT=5176 API_PROXY_TARGET=https://localhost:3001`,
+  or use `start-app.bat`, which sets both.
+- API: **https://localhost:3001** — `API_HTTPS=true` in `apps/api/.env` (mkcert certs at `certs/server.{key,crt}`)
 - **`certs/server.crt` is NOT signed by `certs/rootCA.pem`.** This file claimed it was until 2026-08-06, and that false line cost two agents an investigation each into a "broken chain" that was never broken. Verified:
   - `certs/server.crt` issuer → `O=mkcert development CA` — the CA to trust is **`%LOCALAPPDATA%\mkcert\rootCA.pem`**, and `openssl verify -CAfile` against it returns OK.
   - `certs/rootCA.pem` is a separate hand-rolled `CN=DigiLog Root CA` that signs nothing currently in use. `openssl verify` against it fails with `error 20 … unable to get local issuer certificate`.
   - Second red herring: `curl` on Windows uses Schannel and rejects valid local chains with `exit 60` / "revocation status is unknown" unless given `--ssl-revoke-best-effort`. An exit 60 here is not evidence of a bad chain.
-- Swagger: https://localhost:3000/docs
+- Swagger: https://localhost:3001/docs
 
 ### TLS notes
 - **APK requires HTTPS** — plain HTTP causes a Capacitor TLS parse error on login. Tablet must trust `rootCA.pem` (Settings → Security → Install certificate). `apps/web/.env.production` is **`skip-worktree` and tracked blank** on purpose (no dev's IP in the repo); it is set locally only (currently `https://192.168.1.53:3000`, = this PC's static IP). **The baked value only affects a FRESH install** — `getApiBase()` (`apps/web/src/lib/api-base.ts`) reads `localStorage['digilog.serverUrl']` FIRST, so a tablet with an existing Server Address keeps using it across APK updates; change it on-device. See the network IP-change runbook in memory.
-- **Browser dev** — `http://localhost:5175 → https://localhost:3000` is fine (browser allows it; no mixed-content issue for fetch).
-- **Verify TLS up** — `curl -sk -o /dev/null -w "%{http_code}" https://localhost:3000/health` should return a code (even 401 means TLS is up).
+- **Browser dev** — `http://localhost:5176 → https://localhost:3001` is fine (browser allows it; no mixed-content issue for fetch).
+- **Verify TLS up** — `curl -sk --ssl-revoke-best-effort -o /dev/null -w "%{http_code}" https://localhost:3001/api/system-health` should return a code (401 is a pass — TLS terminated and the route rejected an unauthenticated call). **There is no `/health` route** (`grep "get('/health'" apps/api/src` → 0 hits); this line pointed at one until 2026-08-24, so a 404 was being read as evidence of anything at all.
 - **Don't use HTTPS with self-signed in Capacitor *dev* mode** — WebView's `fetch()` rejects self-signed certs (Capacitor's `BridgeActivity` overrides the WebViewClient after `onCreate`). Keep dev cleartext if testing in-WebView, or install root CA on the device.
 
 ## System Stats (re-derived 2026-08-24 — every number below came from the command beside it)
