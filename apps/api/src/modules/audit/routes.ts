@@ -334,6 +334,15 @@ export default async function auditRoutes(app: FastifyInstance) {
 
     const { reportType, format, recordCount, period, search, startDate, endDate, remarks } =
       req.body as { reportType: string; format: string; recordCount: number; period?: string; search?: string; startDate?: string; endDate?: string; remarks: string };
+    // Schema `minLength: 1` alone would accept a whitespace-only string — a
+    // blank padded with spaces states no reason. Trim server-side rather than
+    // trust the dialog's client-side trim: this endpoint is the ONLY place a
+    // report download is captured, so it is the last line of defence for the
+    // §11 requirement that the record state its reason.
+    const trimmedRemarks = remarks?.trim();
+    if (!trimmedRemarks) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'remarks is required and cannot be blank.' });
+    }
     await auditLog({
       userId: req.user.username, userRole: req.user.role,
       action: 'REPORT_GENERATED',
@@ -346,9 +355,9 @@ export default async function auditRoutes(app: FastifyInstance) {
         search: search ?? null,
         startDate: startDate ?? null,
         endDate: endDate ?? null,
-        remarks,
+        remarks: trimmedRemarks,
       },
-      reason: `Report generated: ${reportType} (${recordCount} record(s)) as ${format} — ${remarks}`,
+      reason: `Report generated: ${reportType} (${recordCount} record(s)) as ${format} — ${trimmedRemarks}`,
       signatureMeaning: `${req.user.username} generated the ${reportType} report (${recordCount} record(s)) as ${format}`,
       ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
     });
