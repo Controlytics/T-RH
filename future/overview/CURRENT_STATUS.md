@@ -1,5 +1,10 @@
 # Current Status — 2026-04-29
 
+> **⚠ STALE — see `future/README.md` banner.** This is a pre-strip snapshot:
+> multi-tenancy, the filter/AHU domain, RFID/Android, and the MQTT/rule-chain
+> IoT stack described as "shipped and stable" below were all removed after
+> this date. For what exists now, use root `CLAUDE.md` and `docs/recreation/`.
+
 ## Active branch
 
 - **`RFID`** (derived from `main`, not yet merged)

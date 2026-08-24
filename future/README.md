@@ -1,5 +1,16 @@
 # future/ — Onboarding Pack
 
+> **⚠ STALE, and the "trust this pack" claim below is now backwards.** This
+> pack is a snapshot from **2026-04-29** — before multi-tenancy was removed
+> (2026-04-30), before the IoT/rule-chain/MQTT/TimescaleDB tear-outs
+> (2026-05..2026-06), before the filter/AHU/RFID domain was stripped
+> (2026-07-18 modules, 2026-08-20 vocabulary), and it describes an Android/
+> RFID tablet app that root `CLAUDE.md` and `docs/recreation/08-mobile/`
+> confirm never shipped in this fork. It is now the **older, wrong** document
+> relative to root `CLAUDE.md` and `docs/recreation/` (the verified
+> inventory) — treat it as an archived design pack for the pre-strip product,
+> not onboarding material for `compliance-core` today.
+
 Single source of truth for anyone joining the project — developers, QA, testers, or business stakeholders. Written by inspecting the actual code in this repository (not by relying on older design documents). If something here contradicts an older `.md` file, trust this pack.
 
 ## What's inside

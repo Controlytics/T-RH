@@ -1,5 +1,7 @@
 # System Requirements
 
+> **⚠ STALE — describes software not in this fork.** This page is inherited from upstream DigiLog and describes subsystems (Digital Filter Management / cleaning-cycle / AHU / PM domain, RFID and Android tablet operations, MQTT/IoT telemetry ingestion) that do **not exist** in `compliance-core`. See root `CLAUDE.md` ("Filter domain — REMOVED") and `docs/recreation/02-inventory/absent-subsystems.md` for the verified inventory. Kept for historical background only; do not use it to answer "does X exist" questions.
+
 > **DigiLog runs on local Windows only as of Phase 5 (2026-04-29).** EC2 / Linux / PM2 production paths were retired in commit `251be95`. The historical production stack table is preserved below for archival reference; the canonical install path is the `DigiLog-Setup.exe` installer — see `docs/PHARMA_DEPLOYMENT_21CFR.md` (root `DEPLOY-WINDOWS.md` is a pointer to it).
 
 ## Server (current — Windows local)

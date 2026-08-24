@@ -1,5 +1,7 @@
 # Entities & Hierarchy
 
+> **⚠ STALE — describes software not in this fork.** This page is inherited from upstream DigiLog and describes subsystems (Digital Filter Management / cleaning-cycle / AHU / PM domain, RFID and Android tablet operations, MQTT/IoT telemetry ingestion) that do **not exist** in `compliance-core`. See root `CLAUDE.md` ("Filter domain — REMOVED") and `docs/recreation/02-inventory/absent-subsystems.md` for the verified inventory. Kept for historical background only; do not use it to answer "does X exist" questions.
+
 Entities represent physical equipment in a hierarchical tree following ISA-95. Managed via 65 Prisma models with 25 enums, including typed-hierarchy sidecars (Block/Area/AHU/Filter).
 
 ## Entity Templates

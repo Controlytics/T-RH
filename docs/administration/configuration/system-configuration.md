@@ -1,5 +1,7 @@
 # System Configuration
 
+> **⚠ STALE — describes software not in this fork.** This page is inherited from upstream DigiLog and describes subsystems (Digital Filter Management / cleaning-cycle / AHU / PM domain, RFID and Android tablet operations, MQTT/IoT telemetry ingestion) that do **not exist** in `compliance-core`. See root `CLAUDE.md` ("Filter domain — REMOVED") and `docs/recreation/02-inventory/absent-subsystems.md` for the verified inventory. Kept for historical background only; do not use it to answer "does X exist" questions.
+
 35 config definitions with auto-discovery at startup. All operational limits are stored in the database (SystemConfig table), not environment variables.
 
 ## Config Definitions

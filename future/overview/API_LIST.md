@@ -1,5 +1,7 @@
 # API Endpoint Index
 
+> **⚠ STALE — see `future/README.md` banner.** Pre-strip (2026-04-29) snapshot; multi-tenancy, the filter/AHU/RFID domain, and the MQTT/rule-chain IoT stack described here were removed afterward. Use root `CLAUDE.md` and `docs/recreation/` for current reality.
+
 **Total registered HTTP endpoints:** ~398 across 59 route files (verified via grep of `apps/api/src/modules/**/*.ts`, 2026-04-29).
 
 All endpoints are mounted under `/api/...` unless noted. Prefixes come from `apps/api/src/app.ts` (`app.register(..., { prefix: ... })`). The list below groups endpoints by their **mount prefix**, so to derive the full URL, concatenate the prefix with each route path. A `*` marks an endpoint that is public (does not require a bearer token); everything else goes through `authPlugin` + `rbacPlugin`.

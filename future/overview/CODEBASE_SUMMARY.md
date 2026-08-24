@@ -1,5 +1,7 @@
 # Codebase Summary
 
+> **⚠ STALE — see `future/README.md` banner.** Pre-strip (2026-04-29) snapshot; multi-tenancy, the filter/AHU/RFID domain, and the MQTT/rule-chain IoT stack described here were removed afterward. Use root `CLAUDE.md` and `docs/recreation/` for current reality.
+
 ## What this product is
 
 **DigiLog** (package name: `digilog`, also referred to as `21cfrlogbook`) is a multi-tenant IoT data-logging and digital-filter-management platform built to be **21 CFR Part 11 compliant**. It started as a generic IoT logger (Phases 1–2) and grew a pharma-focused digital Filter Management System (FMS) with RFID, offline tablet operations, PM scheduling, and a full reports module (Phases 3–5).
