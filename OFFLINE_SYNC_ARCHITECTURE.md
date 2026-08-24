@@ -1,5 +1,30 @@
 # DigiLog — Offline Sync Architecture
 
+> ⚠️ **DELETION CANDIDATE — describes software that does not exist in this fork (verified 2026-08-24).**
+> This entire document describes upstream DigiLog's filter/cleaning-cycle domain (filters, AHUs,
+> equipment groups, RFID scanning) plus a Capacitor Android tablet app with IndexedDB offline-queue
+> sync. `CLAUDE.md` states this fork has no mobile app, no RFID, no offline sync, and no Capacitor
+> build — verified directly:
+> - `apps/android`, `packages/db`, and any `capacitor` dependency are absent from the repo
+>   (`ls apps/`, `ls packages/`, `grep -i capacitor apps/*/package.json` all come back empty).
+> - Every file named in § 13 "Files Involved" is **missing** except `apps/api/src/lib/reauth-check.ts`,
+>   which **no longer contains any offline-replay / `x-offline-replay` logic**
+>   (`grep -rn "x-offline-replay\|offlinePerformedAt\|offline-grant"` across `apps/api/src` and
+>   `apps/web/src` returns nothing except one historical comment in `use-auth.ts` noting the
+>   offline-replay subsystem was removed in commit `cbcb913`).
+> - The filter/AHU/equipment-group/cleaning-cycle domain this doc assumes was removed in the
+>   Phase 0 strip (2026-07-18) — see `CLAUDE.md` "Filter domain — REMOVED".
+>
+> **What is real and unrelated:** this fork DOES have a browser PWA service worker
+> (`apps/web/src/components/pwa-reload-prompt.tsx`, `vite-plugin-pwa` in `apps/web/package.json`)
+> that caches static assets for update-prompt purposes — this is asset caching for the web app,
+> not data offline-sync, and it is not what this document describes.
+>
+> No unique knowledge here would survive deletion — the sync algorithm, IndexedDB schema, and
+> `x-offline-replay` protocol described below are all for a subsystem that was fully removed and
+> replaced by nothing. Reported as a deletion candidate to the coordinator; not deleted per the
+> pre-deletion rule.
+
 ## Overview
 
 The tablet APK and web browser run the **same React codebase**. The APK is a Capacitor wrapper that loads the built SPA inside an Android WebView. Both connect to the same Fastify API on the local network. The tablet adds offline support via IndexedDB queuing — operations performed without network are stored locally and replayed when connectivity returns.

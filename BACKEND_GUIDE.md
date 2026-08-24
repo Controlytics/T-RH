@@ -1,15 +1,24 @@
 # DigiLog — Backend Guide
 
-> **2026-07-03 — synced to the current codebase.** The Phase 6/7 tear-out
-> sections (`data-ingestion` / `uns` / `connectivity` / `queries` / `rule-chain` /
-> `transport/` / Mosquitto / MQTT / TimescaleDB / `packages/db`) were removed from
-> this guide, and counts/tables reconciled to live (**33 modules, 61 models, 23
-> enums** — reports + report-templates removed 2026-07-04). See root `CLAUDE.md` Phase 7 snapshot + `apps/api/CLAUDE.md` for the
-> authoritative module list + `CHANGELOG.md` for tear-out details.
+> **2026-08-24 — re-synced to live code (drift sweep).** The previous
+> "2026-07-03" sync (33 modules, 61 models, 23 enums) predates the Phase 0
+> filter-domain strip (2026-07-18) and the 2026-08-20 vocabulary cleanup — every
+> table below describing `filter-operations`, `filter-profiles`,
+> `cleaning-profiles`, `checklist-profiles`, `pm-schedules`,
+> `block-change-requests`, `stage-approvals`, `replacement-schedule`,
+> `report-reviews`, `guest`, `sync`, `assets`, `hierarchy`, `equipment-groups`,
+> or the `idempotency.ts` "offline replay dedup" lib was **describing modules
+> that no longer exist**. Verified counts below come from:
+> `ls apps/api/src/modules/ | wc -l` → **23**; `grep -cE "^model "` /
+> `"^enum "` on `apps/api/prisma/schema.prisma` → **34 models, 13 enums**;
+> `ls apps/api/src/modules/config/defs/*.def.ts | wc -l` → **25**. This fork
+> also gained modules the old guide never listed: `alarms`, `floorplans`,
+> `functional-locations`, `instrument-profiles`, `instruments`. See root
+> `CLAUDE.md` System Stats and `CHANGELOG.md` for history.
 
 ## Overview
 
-Fastify 5 backend with TypeScript, **33 API modules** (verified `ls` 2026-07-04 — see `apps/api/CLAUDE.md`). Runs locally on Windows: `tsx watch` in dev, compiled JS for prod-style local builds. Under the `DigiLog-Setup.exe` installer, production runs as the `DigiLogAPI` Windows service (WinSW-wrapped `node dist/app.js`, via `scripts/register-services.ps1`); a manual deploy can run `node dist/app.js` in the foreground (Phase 4 retired PM2). See `docs/PHARMA_DEPLOYMENT_21CFR.md`. EC2 is no longer in scope.
+Fastify 5 backend with TypeScript, **23 API modules** (verified `ls apps/api/src/modules/` 2026-08-24). Runs locally on Windows: `tsx watch` in dev, compiled JS for prod-style local builds. There is no live EC2/Linux production environment (`root CLAUDE.md` — "The app runs ONLY on local Windows for development"). `scripts/register-services.ps1` (WinSW-wrapped `DigiLogAPI`/`DigiLogDB` Windows services) and `docs/PHARMA_DEPLOYMENT_21CFR.md` still exist for a packaged-installer deployment path — verified present on disk — but that is a separate concern from the day-to-day dev loop described in root `CLAUDE.md`, which uses `start-app.bat` / `stop-app.bat`.
 
 **Entry point:** `apps/api/src/app.ts`
 **Dev:** `cd apps/api && npx tsx watch src/app.ts` (port 3000)
@@ -18,111 +27,104 @@ Fastify 5 backend with TypeScript, **33 API modules** (verified `ls` 2026-07-04 
 
 ## App Setup (app.ts)
 
-The main application file registers everything in this order:
+Verified against `apps/api/src/app.ts` 2026-08-24 (import order + registration order):
 
-1. **Fastify instance** — body limit 10MB, logger (pino)
-2. **Helmet** — security headers (HSTS, no CSP)
-3. **CORS** — configured origins from .env
-4. **Rate limiter** — 500 requests/minute global
+1. **Fastify instance** — pino logger
+2. **Helmet, CORS, rate limiter** — security headers, configured origins, global rate limit
+3. **`@fastify/multipart`** — multipart uploads
+4. **`@fastify/websocket`** — registered (`maxPayload: 1MB`); used by
+   `modules/instruments/listeners/ws-listener.ts` for instrument ingest. This
+   contradicts the old claim (still in root `CLAUDE.md` as of this sweep) that
+   the WebSocket plugin was removed as dead code 2026-07-03 — it is imported
+   and registered live in `app.ts` today, evidently reintroduced for the
+   instrument-ingest work. Flagged for `CLAUDE.md`'s owner; not fixed here
+   (out of this pass's file scope).
 5. **Swagger** — OpenAPI docs at `/docs`
 6. **Auth plugin** — JWT verification, user lookup, session validation
 7. **RBAC plugin** — `requirePermission()` decorator
-8. **Audit logger plugin** — SHA-256 hash-chain logging
-9. **33 route modules** — registered under `/api/` prefix
-10. **Job runner** — one graphile-worker Runner registers the task handlers
-   (`notification`, `pm_overdue_check`, `session_sweep`) + the maintenance
-   crontab (Phase 2 swapped from BullMQ). *The MQTT client, `/ws` handler, and
-   the ingestion/maintenance workers were removed in the Phase 7 tear-out.*
-11. **Config discovery** — auto-registers 35 config definitions
-12. **Static uploads** — serves `/uploads/` directory
-13. **Health check** — `GET /api/health`
-14. **Error handler** — unified error responses (AppError → HTTP codes)
+8. **23 route modules** — registered under `/api/` prefix, plus instrument
+   ingest listeners (TCP, MQTT bridge, WS)
+9. **Job runner** — one graphile-worker Runner registers **5** task handlers:
+   `notification`, `password_expiry_check`, `session_sweep`,
+   `telemetry_partition_maintenance`, `alarm_evaluation` (verified `grep` of
+   the `taskList` in `app.ts` — this is a different set from the "3 tasks"
+   figure recorded in root `CLAUDE.md`, which is itself stale)
+10. **Config discovery** — auto-registers 25 config definitions
+11. **Static uploads** — serves `/uploads/` directory
+12. **Health check** — `GET /api/health`
+13. **Error handler** — unified error responses (AppError → HTTP codes)
 
-## 35 API Modules
+## 23 API Modules
 
-(Authoritative list: `ls apps/api/src/modules/` — see `apps/api/CLAUDE.md`. Endpoint counts below are approximate.)
+(Authoritative list: `ls apps/api/src/modules/` — verified 2026-08-24. The
+previous 35-module list here named 17 modules from the filter/AHU/RFID/report
+domain that no longer exist anywhere in this repo — `filter-operations`,
+`filter-profiles`, `cleaning-profiles`, `checklist-profiles`, `pm-schedules`,
+`block-change-requests`, `stage-approvals`, `replacement-schedule`,
+`report-reviews`, `guest`, `sync`, `assets`, `hierarchy`, `equipment-groups`,
+`deployment-check` — and never listed the instrument/floorplan/alarm modules
+this fork actually has. Endpoint counts are omitted rather than guessed; read
+each module's `routes.ts` for its exact surface.)
 
 ### Auth & User Management
 
-| Module | Prefix | Endpoints | Key Features |
-|---|---|---|---|
-| `auth` | `/api/auth` | 9 | Login, logout, refresh, verify, change-password, forgot-password |
-| `users` | `/api/users` | 14 | CRUD, enable/disable, unlock, reset-password, bulk-delete |
-| `roles` | `/api/roles` | 8 | Role CRUD, permissions, hierarchy, creatable roles |
-| `user-groups` | `/api/user-groups` | 7 | Group CRUD, member management |
+| Module | Prefix | Key Features |
+|---|---|---|
+| `auth` | `/api/auth` | Login, logout, refresh, verify, change-password, forgot-password, password-expiry sweep |
+| `users` | `/api/users` | CRUD, enable/disable, unlock, reset-password |
+| `roles` | `/api/roles` | Role CRUD, permissions, `role_configs` (instrument scope, attribute access) |
+| `user-groups` | `/api/user-groups` | Group CRUD, member management |
 
 ### Admin
 
-| Module | Prefix | Endpoints | Key Features |
-|---|---|---|---|
-| `super-admin` | `/api/super-admin` | ~30 | Platform-wide admin, system stats, data management (org CRUD removed in MT removal 2026-04-30) |
-| `admin-requests` | `/api/admin-requests` | 4 | Admin action request workflow |
+| Module | Prefix | Key Features |
+|---|---|---|
+| `super-admin` | `/api/super-admin` | Platform-wide admin, system stats, data management |
+| `admin-requests` | `/api/admin-requests` | Admin action request workflow |
 
-> **Note (MT removal 2026-04-30):** `org-admin` and `tenant-admin` modules were deleted entirely. DigiLog is now single-tenant.
+DigiLog is single-tenant, single-site (`Organization` model + `org-admin`/`tenant-admin` modules removed 2026-04-30).
 
-### Asset Management
+### Instrument Monitoring
 
-| Module | Prefix | Endpoints | Key Features |
-|---|---|---|---|
-| `assets` | `/api/assets` | 30+ | Templates, instances, relationships, identifiers (sub-routes) |
-| `hierarchy` | `/api/hierarchy` | 10+ | Typed Block/Area/AHU/Filter hierarchy read + typed filter create (Wave 2/3) |
-| `equipment-groups` | `/api/equipment-groups` | 6 | AHU equipment group CRUD |
-
-### Filter Operations
-
-| Module | Prefix | Endpoints | Key Features |
-|---|---|---|---|
-| `filter-operations` | `/api/filters` | 15 | Cycle start/advance/bypass, checklist submit, events |
-| `filter-profiles` | `/api/filter-profiles` | 8 | Filter-to-profile assignments + Phase A.3 sidecar versioning + version-history endpoints |
-| `cleaning-profiles` | `/api/filter-cleaning-profiles` | 11 | Pipeline profile CRUD, lineage-based versioning (Phase A.2 — `lineageId` UUID), version-history endpoints, validation |
-| `checklist-profiles` | `/api/checklist-profiles` | 9 | Checklist template + question management |
-| `pm-schedules` | `/api/pm-schedules` | 18 | PM scheduling, entries, executions, approvals |
-| `block-change-requests` | `/api/block-change-requests` | 5 | Block reassignment approval workflow |
-| `stage-approvals` | `/api/stage-approvals` | 6 | Stage-interlock approval workflow (WASH_OUT/DRY_OUT QA gate) |
-| `replacement-schedule` | `/api/replacement-schedules` | 6 | Scheduled filter-replacement workflow |
-
-### Reports
-
-| Module | Prefix | Endpoints | Key Features |
-|---|---|---|---|
-| `report-reviews` | `/api/report-reviews` | 6 | Report review/approval workflow |
+| Module | Prefix | Key Features |
+|---|---|---|
+| `instruments` | `/api/instruments` | Telemetry ingest (MQTT/TCP/WS), overview, per-instrument history, visibility scope, attribute access/downlink, gateway fan-out |
+| `instrument-profiles` | — | Device-type profile CRUD |
+| `functional-locations` | `/api/functional-locations` | Block/Area tree — authoritative instrument grouping |
+| `floorplans` | `/api/floorplans` | Plan + room CRUD, room membership, bucketed room history |
+| `alarms` | `/api/alarms` | Alarm rule CRUD, decision engine, notification enqueue |
 
 ### Notifications
 
-| Module | Prefix | Endpoints | Key Features |
-|---|---|---|---|
-| `notifications` | `/api/notifications` | 9 | User notifications, unread count, bulk actions |
-| `notification-rules` | `/api/notification-rules` | 8 | Event-based notification triggers |
-| `notification-delivery` | `/api/notification-settings` | 18 | Email/SMS/Telegram/Slack channel config |
+| Module | Prefix | Key Features |
+|---|---|---|
+| `notifications` | `/api/notifications` | User notifications, unread count, bulk actions |
+| `notification-rules` | `/api/notification-rules` | Event-based notification triggers |
+| `notification-delivery` | `/api/notification-settings` | Email/SMS/Telegram/Slack channel config |
 
 ### Configuration
 
-| Module | Prefix | Endpoints | Key Features |
-|---|---|---|---|
-| `config` | `/api/config` | 40+ | 35 config definitions (`config/defs/`), `dynamic-routes.ts` for registry-discovered surfaces + `static-routes/` per-tab files (split done in bloat audit P2.3) |
-
-**Static-routes split** (`apps/api/src/modules/config/static-routes/`, 18 files): `access-matrix.routes.ts`, `action-reauth.routes.ts`, `ahu-completion-process.routes.ts`, `audit-templates.routes.ts`, `branding.routes.ts`, `cleaning-profile-assignment.routes.ts`, `dashboard-cards.routes.ts`, `export-options.routes.ts`, `field-ids.routes.ts`, `offline-cache.routes.ts`, `pm-schedule-filters.routes.ts`, `replacement-schedule-filters.routes.ts`, `report-labels.routes.ts`, `report-page-titles.routes.ts`, `report-signatories.routes.ts`, `roles.routes.ts`, `tablet-access.routes.ts`, `user-id.routes.ts` (`alarm-columns.routes.ts` removed 2026-05-17 with the rule-chain/alarm tear-out). Top-level `routes.ts` is now a registration loop (~170 LOC, was 1003).
+| Module | Prefix | Key Features |
+|---|---|---|
+| `config` | `/api/config` | 25 config definitions (`config/defs/`), `dynamic-routes.ts` for registry-discovered surfaces + `static-routes/` per-tab files |
 
 ### Infrastructure
 
-| Module | Prefix | Endpoints | Key Features |
-|---|---|---|---|
-| `guest` | `/api/guest` | 1 | Unauthenticated guest filter-cleaning request |
-| `uploads` | `/api/uploads` | 1 | Profile photo upload |
-| `help` | `/api/help` | 6 | Help article CRUD |
-| `ldap` | `/api/ldap` | 4 | LDAP integration config, sync |
+| Module | Prefix | Key Features |
+|---|---|---|
+| `uploads` | `/api/uploads` | Profile photo / floorplan image upload |
+| `help` | `/api/help` | Help article CRUD |
+| `ldap` | `/api/ldap` | LDAP integration config, sync |
 
 ### System
 
-| Module | Prefix | Endpoints | Key Features |
-|---|---|---|---|
-| `audit` | `/api/audit` | 4 | Audit trail query, hash-chain verification |
-| `backup` | `/api/backup` | 3 | Database export/restore (JSON, SQL, CSV, BAK) |
-| `system-health` | `/api/system-health` | 1 | System metrics |
-| `deployment-check` | `/api/deployment-check` | 1 | Deployment validation |
-| `dashboards` | `/api/dashboards` | 13 | Dashboard CRUD, widget management |
-| `debug-traces` | `/api/debug/traces` | 2 | Audited-action traces for the Debug UI (repointed onto `audit_trail` in Phase 7) |
-| `sync` | `/api/sync` | 4 | Offline queue sync / batch replay |
+| Module | Prefix | Key Features |
+|---|---|---|
+| `audit` | `/api/audit` | Audit trail query, hash-chain verification |
+| `backup` | `/api/backup` | Database export/restore |
+| `system-health` | `/api/system-health` | System metrics |
+| `dashboards` | `/api/dashboards` | Dashboard CRUD, widget management |
+| `debug-traces` | `/api/debug/traces` | Audited-action traces for the Debug UI |
 
 ## Shared Libraries (apps/api/src/lib/)
 
@@ -143,7 +145,8 @@ The main application file registers everything in this order:
 | `hash-chain.ts` | SHA-256 chain verification for audit integrity |
 | `swagger.ts` | OpenAPI/Swagger configuration |
 | `user-id-validator.ts` | Custom user ID format validation |
-| `idempotency.ts` | **Offline replay dedup** — checks `x-client-op-id` header against `FilterEvent.attributes.clientOpId`; returns cached state for duplicate replays so retries never produce duplicate cycles, double advances, or repeat checklist submissions. |
+
+(`idempotency.ts` — the old "offline replay dedup" lib keyed on `FilterEvent.attributes.clientOpId` — does not exist; verified `find apps/api/src -iname "idempotency*"` returns nothing. `FilterEvent` and the offline-replay flow it belonged to were removed with the filter domain.)
 
 ## Plugins (apps/api/src/plugins/)
 
@@ -153,30 +156,35 @@ The main application file registers everything in this order:
 | `rbac.ts` | `requirePermission(perm)` — single perm check; `requireAnyPermission(...perms)` — accepts any of the listed perms (used for granular toggle fallbacks like `FCP_* OR CHECKLIST_*`); `enforceReauth(action, req, reply)` accepts `string \| string[]` and reauths if any configured for role. |
 | `audit-logger.ts` | Auto-log mutations with before/after values; SHA-256 hash-chained per-org. |
 
-## Workers
+## Workers (`apps/api/src/workers/`)
 
-Three graphile-worker task handlers (the `transport/` layer + the ingestion/maintenance workers were all removed in the Phase 7 tear-out):
+**5** graphile-worker task handlers (verified `ls apps/api/src/workers/` — the
+"3 tasks: notification / pm_overdue_check / session_sweep" figure recorded
+elsewhere, including root `CLAUDE.md`, is stale; there is no `pm_overdue_check`
+task in this fork — PM scheduling was part of the removed filter domain):
 
-| Worker | Task | Schedule |
+| Worker | Task | Purpose |
 |---|---|---|
 | `notification.worker.ts` | `notification` | On-demand (enqueued by app events) |
-| `pm-overdue.worker.ts` | `pm_overdue_check` | Daily cron (~08:30) — flags overdue PM deviations |
-| `session-sweep.worker.ts` | `session_sweep` | Cron — expires stale sessions |
+| `password-expiry.worker.ts` | `password_expiry_check` | Flags/expires aging passwords |
+| `session-sweep.worker.ts` | `session_sweep` | Expires stale sessions |
+| `telemetry-partition.worker.ts` | `telemetry_partition_maintenance` | Maintains partitioned instrument-telemetry history table |
+| `alarm-evaluation.worker.ts` | `alarm_evaluation` | Evaluates alarm rules against telemetry |
 
-## Assets module (`apps/api/src/modules/assets/`)
+## Instruments module (`apps/api/src/modules/instruments/`)
 
-The largest single module — split into per-domain layers:
-
-```
-assets/
-├── routes/              4 route files (identifier, instance, relationship, template)
-├── services/            5 services (identifier, instance, relationship, template, bulk-upload-filter)
-├── repositories/        4 Prisma access layers (identifier, instance, relationship, template)
-├── helpers/             Shared helpers
-└── index.ts             Registration barrel
-```
-
-`bulk-upload-filter.service.ts` handles the dynamic CSV bulk upload that reads the Filter template's `attributeSchema` to decide columns + validation.
+The largest single module today (replaces the old "Assets module" section,
+which described `assets/routes|services|repositories/` — that directory does
+not exist; `find apps/api/src/modules -iname "assets"` returns nothing).
+Flat file layout, not sub-directories per layer: `routes.ts`,
+`ingest-routes.ts` / `ingest-core.ts` / `ingest-auth.ts` (MQTT/TCP/WS ingest),
+`mqtt-auth-routes.ts`, `listeners/` (tcp-listener, mqtt-bridge, ws-listener),
+`visibility.ts` (instrument-scope resolution), `attribute-access.ts` /
+`attribute-downlink.ts`, `decimals.ts` (per-instrument display precision),
+`telemetry-overview.ts` / `telemetry.repository.ts`, `bulk-csv.ts`,
+`gateway-children.ts` / `gateway-fanout.ts` / `gateway-invariants.ts` /
+`child-roster.ts` (gateway-device hierarchy), `token.ts` / `token-crypto.ts`
+(device auth tokens), `payload-parser.ts`, `last-seen.ts`.
 
 ## Shared `RequestContext` type (`apps/api/src/types/context.ts`)
 
@@ -201,40 +209,43 @@ Automated end-to-end test suites (`*.test.ts`) — Vitest-driven, hits a live te
 
 | Suite | Coverage |
 |---|---|
-| `auth.test.ts` | Login, logout, session, JWT refresh |
+| `auth.test.ts`, `auth-profile-reauth.test.ts`, `password-expiry-sweep.test.ts` | Login, logout, session, JWT refresh, reauth, password expiry |
 | `users.test.ts` | User CRUD, enable/disable/unlock |
-| `roles.test.ts` | Role CRUD, permission assignment |
-| `entities.test.ts` | Asset templates + instances + relationships |
-| `audit.test.ts` | Audit trail hash-chain integrity |
-| `checklist-submission.test.ts` | Checklist field validation, sig flow |
-| `checklist-templates.test.ts` | Checklist profile + question CRUD |
+| `roles.test.ts`, `role-attribute-access.e2e.test.ts` | Role CRUD, permission assignment, attribute-access rule |
+| `audit.test.ts`, `audit-chain.test.ts`, `audit-export-log.test.ts`, `audit-trail-gaps.test.ts` | Audit trail hash-chain integrity, export, gap detection |
 | `config.test.ts` | Config defs, registry, partial update |
-| `health.test.ts` | `/api/health` endpoint |
+| `health.test.ts`, `system-health.test.ts` | `/api/health`, system metrics |
 | `help-articles.test.ts` | Help CRUD + versioning |
-| `notifications.test.ts` | In-app notification flow |
-| `system-health.test.ts` | System metrics |
+| `notifications.test.ts`, `notification-config-audit-masking.test.ts` | In-app notification flow, secret masking in audit |
+| `instruments.test.ts`, `instrument-attributes.test.ts`, `instrument-attribute-downlink.test.ts`, `instrument-child-roster.test.ts`, `instrument-limit-alarms.e2e.test.ts`, `instrument-profiles.e2e.test.ts`, `instrument-token.test.ts`, `instrument-ingest.test.ts`, `limit-attribute-retirement.e2e.test.ts` | Instrument CRUD, attributes/downlink, gateway children, limit alarms, ingest tokens |
+| `mqtt-ingest.test.ts`, `mqtt-auth.test.ts`, `tcp-ingest.test.ts`, `ws-ingest.test.ts`, `gateway-ingest.test.ts` | Telemetry ingest over MQTT/TCP/WS + device auth |
+| `floorplans.e2e.test.ts`, `room-history.e2e.test.ts`, `telemetry-overview.e2e.test.ts` | Floorplan/room CRUD, bucketed history, dashboard overview |
+| `alarm-rules.e2e.test.ts`, `alarm-acknowledge.e2e.test.ts` | Alarm rule CRUD, acknowledgment |
+| `ldap-directory.e2e.test.ts` | LDAP sync |
+| `super-admin-data-delete.test.ts` | Super-admin data management |
 | `test-helper.ts` | Shared bootstrapper (sets up + tears down test DB) |
 
-**Note:** Phase 2/3/4/5 features (filter operations, RFID, offline replay, reports, block-change, PM My Tasks) do NOT yet have e2e tests. The archived `tests/manual-test-cases/` only covered Phase 1 — those remain a gap (logged in `PHASE_5_RECENT_WORK.md` § 11).
+(Verified `ls apps/api/src/e2e/`. The old list here named `entities.test.ts`,
+`checklist-submission.test.ts`, `checklist-templates.test.ts` — none exist;
+they covered the removed filter/checklist domain. Its "gap" note about
+"filter operations, RFID, offline replay, reports, block-change, PM My Tasks"
+having no e2e tests is moot — none of those features exist to test.)
 
-## Database Schema (61 models, 23 enums)
+## Database Schema (34 models, 13 enums)
 
-> `apps/api/prisma/schema.prisma` is authoritative. The lists below are grouped highlights (deleted Phase 6/7 models — `Organization`, `DeviceCredential`, `RuleChain*`, `Alarm`, `ConnectivityStatus`, `DataStream`, `LatestTelemetry`, `DeadLetterQueue`, `IngestionSystemConfig`, `QrCode`, `UnsMapping` — removed; newer typed-hierarchy sidecars `Block`/`Area`/`Ahu`/`Filter` + `FilterDetails` not all listed).
+> `apps/api/prisma/schema.prisma` is authoritative (verified `grep -cE "^model "` / `"^enum "` 2026-08-24). The
+> previous "61 models, 23 enums" figure predates the Phase 0 filter-domain
+> strip; every model below in the old "Asset / Filter Operation / Scheduling /
+> Report" groups (`AssetTemplate`, `AssetInstance`, `FilterCleaningProfile`,
+> `CleaningCycle`, `FilterEvent`, `ChecklistProfile`, `EquipmentGroup`,
+> `PmSchedule`, `BlockChangeRequest`, `ReportReview`, and their `*Version`
+> sidecars) is gone.
 
 ### Core Models
 `User`, `Role`, `Session`, `PasswordHistory`, `PasswordResetRequest`, `SystemConfig`, `FieldIdConfig`, `RoleConfig`, `UserConfig`
 
-### Asset Models
-`AssetTemplate`, `AssetTemplateVersion`, `AssetInstance`, `AssetRelationship`, `AssetIdentifier`, `TemplateAssignment`, `EntityAssignment`, `FilterDetails` (Step 6 sidecar), typed `Block`/`Area`/`Ahu`/`Filter` (Wave 1)
-
-### Filter Operation Models
-`FilterCleaningProfile`, `FilterPipelineStage`, `FilterPipelineConnection`, `FilterProfile`, `FilterProfileVersion` (Phase A.3 sidecar), `FilterProfileApplicableTemplate` (Step 4 join table), `CleaningCycle`, `FilterEvent`, `ChecklistProfile`, `ChecklistQuestion`, `ChecklistProfileVersion` (Phase A.1 sidecar), `ChecklistReview`, `ElectronicSignature`, `EquipmentGroup`, `EquipmentGroupInstrument`, `EquipmentGroupVersion` (Phase A.4 composite sidecar)
-
-### Scheduling Models
-`PmSchedule`, `PmScheduleEntry`, `PmExecution`, `EquipmentGroup`, `EquipmentGroupInstrument`, `BlockChangeRequest`
-
-### Report Models
-`ReportReview` (ad-hoc review/approval workflow). *(ReportTemplate, ReportTemplateVersion, ReportInstance, ReportSignature dropped 2026-07-04 with the orphaned reports generate/sign module.)*
+### Instrument Monitoring Models
+`Instrument`, `InstrumentProfile`, `InstrumentCredential`, `InstrumentAttribute`, `InstrumentTelemetryLatest`, `FunctionalLocation`, `Floorplan`, `FloorplanRoom`, `AlarmRule`, `Alarm`, `DeadLetter` (verified `grep -E "^model " apps/api/prisma/schema.prisma`)
 
 ### Notification Models
 `Notification`, `NotificationLog`, `NotificationTemplate`, `NotificationRule`, `NotificationRuleRecipient`, `UserGroup`, `UserGroupMember`
@@ -244,42 +255,54 @@ Automated end-to-end test suites (`*.test.ts`) — Vitest-driven, hits a live te
 
 ## Environment Variables
 
-```env
-# PostgreSQL
-DATABASE_URL=postgresql://digilog:password@localhost:5432/digilog_db?schema=public
+Verified against `apps/api/.env.example` 2026-08-24 (previous version here
+still listed `capacitor://localhost` in `ALLOWED_ORIGINS`, `JWT_EXPIRES_IN=8h`,
+and claimed TimescaleDB/MQTT vars were fully retired — MQTT vars are back,
+see below):
 
-# (Phase 7 removed TimescaleDB (TSDB_*), MQTT/Mosquitto (MQTT_*/MOSQUITTO_*/EMQX_*)
-# env vars. Phase 4 had retired Redis (REDIS_*); the in-process EventEmitter bus
-# that replaced it was itself removed 2026-07-03 as dead code. None are read now.)
+```env
+# PostgreSQL — also used by graphile-worker (shares the same DB)
+DATABASE_URL=postgresql://digilog:CHANGE_ME@localhost:5432/digilog_db?schema=public
 
 # JWT
-JWT_SECRET=random-64-char-string
-VERIFICATION_TOKEN_SECRET=different-random-64-char-string
-JWT_EXPIRES_IN=8h
+JWT_SECRET=change-this-to-a-secure-random-string
+VERIFICATION_TOKEN_SECRET=change-this-to-another-secure-random-string
+JWT_EXPIRES_IN=1h
+
+# Audit chain integrity (21 CFR §11.10(e)) — AUDIT_CHAIN_KEY + AUDIT_CHAIN_KEYED_FROM,
+# see apps/api/.env.example for the full pairing rationale
 
 # Server
 NODE_ENV=production
 API_PORT=3000
+WEB_PORT=5175
 API_HTTPS=true
 
 # CORS
-CORS_ORIGIN=https://192.168.1.100
-ALLOWED_ORIGINS=https://192.168.1.100,capacitor://localhost
+CORS_ORIGIN=http://localhost:5175
+ALLOWED_ORIGINS=http://localhost:5175,http://localhost:5173,http://localhost:3000
 
 # Uploads
 UPLOAD_DIR=./uploads
 MAX_FILE_SIZE=5242880
 ```
 
+**No TSDB_*/UNS_* keys** (Phase 7 TimescaleDB/data-ingestion removal, 2026-06-17,
+still holds). **MQTT came back 2026-08-06** with the Instruments ingest bridge —
+an external EMQX broker feeding readings into the same ingest core the HTTP
+route uses; see the instrument-ingest block in `apps/api/.env.example` for its
+keys. This is a distinct mechanism from the pre-Phase-7 MQTT/Mosquitto layer
+that was torn out.
+
 ## Key Architectural Patterns
 
-1. **Module pattern** — Each feature is a self-contained module with routes + service + repository
-2. **Single-tenant** — As of MT removal (2026-04-30), there is no per-org scoping; every query operates against the full table.
+1. **Module pattern** — Each feature is a self-contained module with routes + service (+ repository where the module is large enough to split)
+2. **Single-tenant, single-site** — no per-org scoping; JWT `scope` always stamps `GLOBAL`
 3. **Permission-based RBAC** — `requirePermission('PERM')` on every protected route
-4. **Re-authentication** — `enforceReauth('ACTION', req, reply)` for 81 sensitive operations
-5. **Audit logging** — Every mutation auto-logged with SHA-256 hash chain
+4. **Re-authentication** — `enforceReauth('ACTION', req, reply)`, **47** reauth actions defined in `packages/shared/src/types/reauth-actions.ts` (verified `grep -cE "^\s+[A-Z_]+:"`; the "81 sensitive operations" figure previously here was a leftover from the removed filter/PM/RFID domain's reauth-gated actions)
+5. **Audit logging** — Every mutation auto-logged with SHA-256 hash chain (optionally keyed HMAC-SHA256, see `AUDIT_CHAIN_KEY` above)
 6. **Input sanitization** — All text fields stripped of HTML via `sanitize.ts`
-7. **Config registry** — 35 config definitions auto-discovered at startup
-8. **Versioning** — Two patterns: (a) **immutable-rowful** for `FilterCleaningProfile` (update archives the old row + inserts a new row with `version+1`; rows in the same lineage share `lineageId UUID`; cycles freeze `profileId` at start) and help articles; (b) **sidecar table** for `ChecklistProfile` (Phase A.1), `FilterProfile` (Phase A.3), and `EquipmentGroup` (Phase A.4 — composite snapshot of group + 3 instruments) — all three mutate in place; mutations snapshot the OUTGOING state into a `*Version` sidecar then bump `version`. **Cycle pinning:** ChecklistProfile via `cycle.checklistVersionPins JSONB` (A.1) and EquipmentGroup via `cycle.equipmentGroupVersionPin Int?` (P1, 2026-05-02) — reading validation reads operating-range from the pinned snapshot, not the live group. FilterProfile needs no cycle pin because cycles already pin `cleaning_cycles.profileId` to a FilterCleaningProfile row at start. Submitted instrument readings are also immutably snapshotted into `FilterEvent.attributes.instrumentReadings`. First version is created lazily — the live row IS v1 until first edit. Cleaning reasons (config def) are NOT versioned: `CleaningCycle.cleaningReasonKey` + `cleaningReasonLabel` columns written at cycle start act as the per-cycle pin. **Tablet/offline contract** for sending `expected<Entity>Version` and self-healing on 409 SCHEMA_DRIFT is documented in `future/offline-version-sync-contract.md` and bundled with the next APK build (Slice B).
-9. **Immutable events** — Filter events stored with checksums, never modified (21 CFR Part 11)
+7. **Config registry** — 25 config definitions auto-discovered at startup
+8. **Instrument governance** — per-role/per-user instrument visibility scope (`instrument_scope` JSONB), per-role attribute editability (`attribute_access` JSONB), per-instrument display-decimal precision frozen onto alarm records at raise time — see root `CLAUDE.md` System Stats for the full rules. (The old point 8 here described `FilterCleaningProfile`/`ChecklistProfile`/`EquipmentGroup` versioning sidecars and a "Tablet/offline contract" — those models and the whole versioning scheme are gone with the filter domain. `future/offline-version-sync-contract.md` still exists on disk as a forward-looking design note, per its `future/` location, but nothing in live code implements it.)
+9. **Immutable audit trail** — audit rows stored with checksums, never modified (21 CFR Part 11); the old point 9 ("Filter events stored with checksums") described the removed `FilterEvent` model specifically
 10. **Error handling** — `AppError(statusCode, code, message)` → unified JSON error response

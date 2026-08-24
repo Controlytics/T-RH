@@ -1,5 +1,43 @@
 # Phase 5 — Reports, Offline Hardening, RFID SDK, Filter Data Console (April 15–29, 2026)
 
+> ⚠️ **DELETION CANDIDATE — this entire document describes the filter/RFID/reports
+> domain, which was fully removed from this fork (verified 2026-08-24).** Every
+> subsystem this doc's sections 2–9 describe in present tense — RFID SDK/UKB
+> reader integration, the offline sync/cache engine, the Filter Data Management
+> console, DRY_IN cleaning-cycle stages, PM schedules, block-change approval,
+> the "action tape" pipeline design — belongs to the cleaning/filter domain that
+> `CLAUDE.md` documents as "REMOVED" (Phase 0 strip, 2026-07-18) and the
+> Capacitor tablet app, which also does not exist (no `capacitor` dependency,
+> no `apps/android`; see `OFFLINE_SYNC_ARCHITECTURE.md`'s banner, also flagged
+> in this sweep). Verified: none of `filter-operations.tsx`, `mobile-operations.tsx`,
+> `apps/api/src/lib/idempotency.ts`, `packages/shared/src/pipeline-executor/`,
+> `apps/android/`, `rfid_scan_app/`, or the `FilterCleaningProfile` /
+> `ChecklistProfile` / `PmSchedule` / `BlockChangeRequest` Prisma models exist
+> anywhere in the repo today. Section 1 (Reports) already self-documents its own
+> removal (2026-07-04) — the rest of the document never got the same treatment.
+> The team's suggestion to check whether § 11's open items were closed by
+> "the instrument dashboard, floorplans, alarms, instrument attributes, and
+> the new instrument trend page" does not apply: **this document never mentions
+> any of those** (verified by grep) — it predates the fork's pivot from the
+> filter-cleaning domain to the instrument-monitoring domain entirely, and § 11's
+> actual open/closed items (decision tape, version pinning, RFID tag management,
+> etc.) are all scoped to the removed domain, so the question of whether they
+> were "closed" by instrument-monitoring work is moot — different domain, not a
+> successor.
+>
+> **What would be lost by deleting this file:** real historical design
+> rationale and postmortems that could be useful analogically even though the
+> domain is gone — e.g. §2 "never reconstruct server logic client-side" (the
+> lesson behind the offline-cache redesign), §6's `pg_tables` + `jsonb_populate_recordset`
+> generic backup/restore technique (the *current* `backup` module may still use
+> a similar approach — worth checking before deleting), and the RBAC plumbing
+> notes in §9 (`requireAnyPermission`, keyed reauth) which describe patterns
+> that plausibly still exist in some form in `plugins/rbac.ts` today. Reported
+> to the coordinator as a deletion candidate; not deleted per the pre-deletion
+> rule. The historical content below is left as-is (not fact-checked line by
+> line — see the banner above for why that would be effort spent on a document
+> about software this fork does not have).
+
 This doc captures the architecture and behavior changes that landed **after** the Phase 4 release (`2.3.0`, 2026-04-14). Everything here is live in the working tree on branch `RFID`. CHANGELOG entries `2.4.0` and `2.5.0` summarize the same work in release-note form; this doc focuses on the *why* and the cross-cutting design decisions.
 
 ---
