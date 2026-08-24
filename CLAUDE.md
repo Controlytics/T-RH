@@ -93,7 +93,18 @@ npm run build -w @digilog/shared && npm run build -w @digilog/queue
 
 ## Default Login
 - **Username:** `superadmin`
-- **Password:** `Admin@123` (forced change on first login)
+- **Password:** whatever `INITIAL_ADMIN_PASSWORD` was set to when the database
+  was seeded. **There is no default password in this repo, and there is no
+  forced change on first login.** This file said "`Admin@123` (forced change on
+  first login)" until 2026-08-24; both halves were false. Verified against
+  `apps/api/prisma/seed.ts` (and the bundled `seed.mjs`, which matches):
+  - `const defaultPassword = process.env.INITIAL_ADMIN_PASSWORD;` and, if it is
+    unset, seeding **throws** — `FATAL: INITIAL_ADMIN_PASSWORD env var must be
+    set for seeding. Cannot use hardcoded default.` So a seed can never have
+    produced `Admin@123` unless someone passed it deliberately.
+  - `forcePasswordChange: false` on both seeded users (seed.ts:85, :95).
+  If you don't know the password for an existing database, reset it rather than
+  guessing from this file.
 
 ## Key Local URLs
 - App: http://localhost:5175 (Vite dev)
