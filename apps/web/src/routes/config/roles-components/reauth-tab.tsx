@@ -52,6 +52,12 @@ const REAUTH_CATEGORY_META: Record<ReauthActionCategory, { gradient: string; bgL
     icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z',
     description: 'Direct record edits via the super-admin data console',
   },
+  'Reports': {
+    gradient: 'from-teal-600 to-cyan-600',
+    bgLight: 'bg-teal-50 border-teal-200 text-teal-700',
+    icon: 'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4',
+    description: 'Downloading or generating a report is a §11 record-producing act',
+  },
   // 'Instruments' was here until 2026-08-06 — see the identical note in
   // routes/config/action-reauth.tsx. The category has no members left because
   // all three instrument token actions moved to always-on gates.
