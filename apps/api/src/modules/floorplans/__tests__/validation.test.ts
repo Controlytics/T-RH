@@ -109,3 +109,82 @@ describe('validateRoomPayload — code', () => {
     expect(r.ok && r.data.code).toBe('CWH-I/142');
   });
 });
+
+const door = { wall: 'top' as const, offset: 0.2, width: 0.1, kind: 'ENTRY' as const };
+
+describe('validateRoomPayload — doors', () => {
+  it('accepts a room with no doors key at all — every existing room', () => {
+    expect(validateRoomPayload(base).ok).toBe(true);
+  });
+
+  it('accepts an explicit null and an empty list', () => {
+    expect(validateRoomPayload({ ...base, doors: null }).ok).toBe(true);
+    expect(validateRoomPayload({ ...base, doors: [] }).ok).toBe(true);
+  });
+
+  it('accepts one door on each wall', () => {
+    const doors = (['top', 'right', 'bottom', 'left'] as const).map((wall) => ({ ...door, wall }));
+    expect(validateRoomPayload({ ...base, doors }).ok).toBe(true);
+  });
+
+  it('accepts a door flush against the far corner of its wall', () => {
+    expect(validateRoomPayload({ ...base, doors: [{ ...door, offset: 0.8, width: 0.2 }] }).ok).toBe(true);
+  });
+
+  it('rejects an unknown wall', () => {
+    const r = validateRoomPayload({ ...base, doors: [{ ...door, wall: 'ceiling' }] });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toMatch(/wall/i);
+  });
+
+  it('rejects an unknown kind', () => {
+    const r = validateRoomPayload({ ...base, doors: [{ ...door, kind: 'AIRLOCK' }] });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toMatch(/kind/i);
+  });
+
+  it('rejects a zero-width door — a slip while dragging, never an intent', () => {
+    expect(validateRoomPayload({ ...base, doors: [{ ...door, width: 0 }] }).ok).toBe(false);
+  });
+
+  it('rejects a negative offset', () => {
+    expect(validateRoomPayload({ ...base, doors: [{ ...door, offset: -0.01 }] }).ok).toBe(false);
+  });
+
+  it('rejects a door running past the end of its wall', () => {
+    const r = validateRoomPayload({ ...base, doors: [{ ...door, offset: 0.9, width: 0.2 }] });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toMatch(/past the end of the top wall/i);
+  });
+
+  it('rejects two doors overlapping on the same wall', () => {
+    const doors = [
+      { ...door, offset: 0.2, width: 0.2 },
+      { ...door, offset: 0.3, width: 0.2 },
+    ];
+    const r = validateRoomPayload({ ...base, doors });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toMatch(/overlap/i);
+  });
+
+  it('accepts two doors that merely touch end to start', () => {
+    const doors = [
+      { ...door, offset: 0.2, width: 0.2 },
+      { ...door, offset: 0.4, width: 0.2 },
+    ];
+    expect(validateRoomPayload({ ...base, doors }).ok).toBe(true);
+  });
+
+  it('accepts overlapping offsets when the doors are on DIFFERENT walls', () => {
+    const doors = [
+      { ...door, wall: 'top' as const, offset: 0.2, width: 0.2 },
+      { ...door, wall: 'left' as const, offset: 0.3, width: 0.2 },
+    ];
+    expect(validateRoomPayload({ ...base, doors }).ok).toBe(true);
+  });
+
+  it('rejects more than six doors — a runaway client, not a real room', () => {
+    const doors = Array.from({ length: 7 }, (_, i) => ({ ...door, offset: i * 0.1, width: 0.05 }));
+    expect(validateRoomPayload({ ...base, doors }).ok).toBe(false);
+  });
+});

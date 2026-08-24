@@ -19,6 +19,28 @@ const normalized = z.number().min(0).max(1);
 const temperature = z.number().min(-100).max(200);
 const humidity = z.number().min(0).max(100);
 
+/**
+ * A door is normalized against its WALL, not against the plan: `offset` is where
+ * the opening starts along that wall as a fraction of the wall's length, and
+ * `width` is how much of the wall it takes. Normalizing against the wall (rather
+ * than storing plan coordinates) is what keeps a door attached to its room when
+ * the room is moved or resized in the editor.
+ *
+ * Doors are static geometry. NOTHING in this install senses a door, so a door
+ * must never be drawn as though it carries a reading.
+ */
+const doorSchema = z.object({
+  wall: z.enum(['top', 'right', 'bottom', 'left']),
+  offset: normalized,
+  width: normalized.refine((v) => v > 0, { message: 'must be greater than 0' }),
+  kind: z.enum(['ENTRY', 'EXIT', 'PASSAGE']),
+});
+
+export type RoomDoor = z.infer<typeof doorSchema>;
+
+/** The four walls, in the order the editor lists them. */
+export const DOOR_WALLS = ['top', 'right', 'bottom', 'left'] as const;
+
 export const roomSchema = z.object({
   code: z.string().trim().min(1).max(60),
   label: z.string().trim().max(120).nullable().optional(),
@@ -32,6 +54,8 @@ export const roomSchema = z.object({
   tempMax: temperature.nullable().optional(),
   rhMin: humidity.nullable().optional(),
   rhMax: humidity.nullable().optional(),
+  // Six is a ceiling on a runaway client, not a judgement about architecture.
+  doors: z.array(doorSchema).max(6).nullable().optional(),
 });
 
 export type RoomInput = z.infer<typeof roomSchema>;
@@ -65,6 +89,31 @@ export function validateRoomPayload(input: unknown): ValidationResult {
   }
   if (d.rhMin != null && d.rhMax != null && d.rhMin >= d.rhMax) {
     return { ok: false, error: 'Minimum humidity must be below maximum humidity.' };
+  }
+
+  // A door must FINISH on its wall, for the same reason a room must finish
+  // inside the plan: normalized coordinates make "starts in bounds" too weak.
+  const doors = d.doors ?? [];
+  for (let i = 0; i < doors.length; i++) {
+    const door = doors[i];
+    if (door.offset + door.width > 1) {
+      return {
+        ok: false,
+        error: `doors.${i}: the door runs past the end of the ${door.wall} wall (offset + width must be at most 1).`,
+      };
+    }
+  }
+
+  // Two openings drawn on top of each other are not representable — one wall
+  // cannot have two doors in the same place — so this is a drag that went wrong.
+  for (const wall of DOOR_WALLS) {
+    const onWall = doors.filter((door) => door.wall === wall).sort((a, b) => a.offset - b.offset);
+    for (let i = 1; i < onWall.length; i++) {
+      const prev = onWall[i - 1];
+      if (onWall[i].offset < prev.offset + prev.width) {
+        return { ok: false, error: `doors: two doors overlap on the ${wall} wall.` };
+      }
+    }
   }
 
   return { ok: true, data: d };
