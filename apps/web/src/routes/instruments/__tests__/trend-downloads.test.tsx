@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { STUB_PNG, withoutCanvas } from '@/test-support/canvas-stub';
 
 /**
  * The three trend downloads, end to end through the page's own dispatcher.
@@ -17,6 +18,12 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
  * 3. The download must not fail silently. `runDownload` used to `return`
  *    without throwing when it had no pending report — the dialog went back to
  *    idle with no file and no error, which is indistinguishable from success.
+ * 4. The chart reaches the PDF, and when it CANNOT the report says so. Both
+ *    branches are exercised: `test-setup.ts` stubs the canvas so the normal
+ *    path runs, and `withoutCanvas` removes it to prove the fallback. The stub
+ *    hands back a canned 1x1 PNG, so "the chart reached the PDF" means jsPDF
+ *    was given an image — NOT that the image depicts a chart. Nothing here has
+ *    seen the rendered picture.
  */
 
 // Two readings inside one 5-minute bucket, one in the next. At `raw` that is
@@ -91,6 +98,13 @@ const jspdf: any = await import('jspdf');
  *  uncompressed content streams — what the PDF actually holds, not what a call
  *  was asked to draw. */
 let lastPdf = '';
+/** Every image jsPDF was handed, across the whole run. */
+const images: any[][] = [];
+const realAddImage = jspdf.default.API.addImage;
+jspdf.default.API.addImage = function (this: any, ...args: any[]) {
+  images.push(args);
+  return realAddImage.apply(this, args);
+};
 jspdf.default.API.save = function (this: any, name: string) {
   saved.push(name);
   events.push(`save:${name}`);
@@ -121,7 +135,7 @@ async function download(buttonIndex: number) {
 }
 
 describe('trend page downloads', () => {
-  beforeEach(() => { saved.length = 0; logged.length = 0; events.length = 0; });
+  beforeEach(() => { saved.length = 0; logged.length = 0; events.length = 0; images.length = 0; lastPdf = ''; });
 
   it('offers a download on the temperature widget, the humidity widget, the combined charts, the time series and the alarms', () => {
     renderPage();
@@ -233,6 +247,41 @@ describe('trend page downloads', () => {
     await download(1);
     const pdf = lastPdfText();
     expect(pdf).not.toMatch(/INCOMPLETE PERIOD/);
+  });
+
+  it('puts the chart into the trend PDF', async () => {
+    renderPage();
+    await download(1);
+    // The branding logo loads over fetch, which is unavailable here, so the
+    // only image this document can carry is the chart. STUB_PNG is what the
+    // canvas stub returns — this proves the raster path ran end to end and
+    // jsPDF received an image. It does NOT prove the image is a chart.
+    expect(images.some((a) => a[0] === STUB_PNG && a[1] === 'PNG')).toBe(true);
+  });
+
+  it('puts a chart into the combined report for BOTH slots', async () => {
+    renderPage();
+    await download(0);
+    expect(images.filter((a) => a[0] === STUB_PNG)).toHaveLength(2);
+  });
+
+  /**
+   * The fallback the lead asked to see proven. On a real browser this branch
+   * should never fire; if it does, the report must still be a usable §11 record
+   * — a stated reason, the period summary and the readings — rather than a gap
+   * where the picture should be, which reads as "no data".
+   */
+  it('still produces a report, saying why, when the chart cannot be rasterised', async () => {
+    await withoutCanvas(async () => {
+      renderPage();
+      await download(1);
+    });
+    expect(images.filter((a) => a[0] === STUB_PNG)).toHaveLength(0);
+    expect(saved).toHaveLength(1);
+    expect(lastPdfText()).toMatch(/could not be rendered by this browser/);
+    // ...and the record itself is still there.
+    expect(lastPdfText()).toMatch(/period summary/);
+    expect(logged[0].reportType).toBe('Instrument Trend \u2014 Temperature');
   });
 
   it('carries the operator\'s remarks and the period into the audit record', async () => {

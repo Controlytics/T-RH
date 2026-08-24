@@ -1,19 +1,22 @@
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { renderChartToPng } from '../chart-image';
+import { STUB_PNG, withoutCanvas } from '@/test-support/canvas-stub';
 
 /**
  * WHAT THIS TEST CAN AND CANNOT PROVE.
  *
- * jsdom has no 2D canvas, so the rasterising step itself — `drawImage` +
- * `toDataURL` — cannot run here, and no test in this suite has ever seen a real
- * chart PNG. That half is unverified and is stated as such rather than faked
- * with a green assertion.
+ * `test-setup.ts` installs a canvas stub, so the rasterising path really runs
+ * here — mount, serialise, decode, draw, `toDataURL`. What the stub hands back
+ * is a canned 1×1 PNG, so these tests show the PIPELINE works and that a caller
+ * receives an image of the right dimensions. **They say nothing about whether
+ * the pixels are a chart.** No test in this repo has seen the rendered image;
+ * that needs a real browser and a human.
  *
  * What IS verifiable, and is the part most likely to break silently: that the
  * REAL `TimeSeriesChart` gets mounted and its own SVG serialised — limit band,
  * plotted path and all — rather than a second, divergent redrawing of the same
- * numbers. If that ever regressed into a hand-rolled SVG, the printed chart
- * would stop matching the screen and nothing else would notice.
+ * numbers. If that regressed into a hand-rolled SVG the printed chart would
+ * stop matching the screen and nothing else would notice.
  */
 
 const points = [
@@ -31,59 +34,47 @@ const input = {
   series: [{ id: 'temperature', label: 'Temperature', decimals: 1, points }],
 };
 
-/** Stand in for the canvas jsdom does not have, capturing what was drawn. */
-function stubCanvas(toDataUrl: string | (() => string)) {
-  const drawn: any[] = [];
-  const proto = HTMLCanvasElement.prototype as any;
-  const realCtx = proto.getContext;
-  const realUrl = proto.toDataURL;
-  proto.getContext = () => ({
-    fillStyle: '',
-    fillRect: () => {},
-    drawImage: (...a: any[]) => drawn.push(a),
-  });
-  proto.toDataURL = () => (typeof toDataUrl === 'function' ? toDataUrl() : toDataUrl);
-  return {
-    drawn,
-    restore: () => { proto.getContext = realCtx; proto.toDataURL = realUrl; },
-  };
-}
-
-/** jsdom never fires load/error for a data: URL, so drive `onload` ourselves. */
-function stubImageDecode() {
-  const proto = Object.getOwnPropertyDescriptor(globalThis.Image.prototype, 'src');
+/** Record the data URL handed to the decoder, without disturbing the stub's
+ *  `onload`, so the serialised SVG can be inspected. */
+function spyOnDecodedSource() {
+  const previous = Object.getOwnPropertyDescriptor(globalThis.Image.prototype, 'src')!;
   const seen: string[] = [];
   Object.defineProperty(globalThis.Image.prototype, 'src', {
     configurable: true,
-    set(this: any, v: string) {
+    set(this: HTMLImageElement, v: string) {
       seen.push(v);
-      setTimeout(() => this.onload?.(), 0);
+      previous.set!.call(this, v);
     },
-    get() { return seen[seen.length - 1]; },
+    get(this: HTMLImageElement) { return previous.get!.call(this); },
   });
   return {
     seen,
-    restore: () => {
-      if (proto) Object.defineProperty(globalThis.Image.prototype, 'src', proto);
-    },
+    restore: () => Object.defineProperty(globalThis.Image.prototype, 'src', previous),
   };
 }
 
+/** Make `toDataURL` return something that is not a PNG, for one test. */
+function stubBadDataUrl(value: string) {
+  const proto = HTMLCanvasElement.prototype as any;
+  const previous = Object.getOwnPropertyDescriptor(proto, 'toDataURL')!;
+  proto.toDataURL = () => value;
+  return { restore: () => Object.defineProperty(proto, 'toDataURL', previous) };
+}
+
 const cleanups: (() => void)[] = [];
-afterEach(() => { while (cleanups.length) cleanups.pop()!(); vi.useRealTimers(); });
+afterEach(() => { while (cleanups.length) cleanups.pop()!(); });
 
 describe('renderChartToPng', () => {
   it('serialises the REAL chart — its in-spec band and its plotted path', async () => {
-    const canvas = stubCanvas('data:image/png;base64,AAAA');
-    const image = stubImageDecode();
-    cleanups.push(canvas.restore, image.restore);
+    const spy = spyOnDecodedSource();
+    cleanups.push(spy.restore);
 
     const result = await renderChartToPng(input);
     expect(result).not.toBeNull();
 
-    const svg = decodeURIComponent(image.seen[0].replace(/^data:image\/svg\+xml;charset=utf-8,/, ''));
+    const svg = decodeURIComponent(spy.seen[0].replace(/^data:image\/svg\+xml;charset=utf-8,/, ''));
     // The band and the dashed limit lines TimeSeriesChart draws from `min`/`max`.
-    // Their presence is the evidence the limits travelled into the picture
+    // Their presence is the evidence the limits travelled into the picture,
     // rather than the picture being redrawn without them.
     expect(svg).toContain('#16a34a');
     expect(svg).toContain('stroke-dasharray="4 3"');
@@ -96,37 +87,38 @@ describe('renderChartToPng', () => {
     expect(svg).toContain('fill="#ffffff"');
   });
 
-  it('reports the raster size so the caller can place it without distorting it', async () => {
-    const canvas = stubCanvas('data:image/png;base64,AAAA');
-    const image = stubImageDecode();
-    cleanups.push(canvas.restore, image.restore);
+  it('completes the raster and returns a PNG data URL', async () => {
+    const result = await renderChartToPng(input);
+    // The stub's canned PNG — proof the path reached `toDataURL`, NOT proof
+    // that the image depicts anything.
+    expect(result!.dataUrl).toBe(STUB_PNG);
+  });
 
+  it('reports the raster size so the caller can place it without distorting it', async () => {
     const result = await renderChartToPng(input);
     expect(result!.width).toBe(1800);              // the 900 viewBox at 2x
     expect(result!.height / result!.width).toBeCloseTo(260 / 900, 5);
   });
 
   it('returns null — never throws — when the environment has no usable canvas', async () => {
-    // No stub at all: this is jsdom's real behaviour, and the real behaviour of
-    // any browser that refuses a 2D context. The caller prints a stated reason
-    // and keeps the table.
-    await expect(renderChartToPng(input)).resolves.toBeNull();
+    // jsdom's real behaviour, and the real behaviour of any browser that
+    // refuses a 2D context. The caller prints a stated reason and keeps the
+    // summary and table.
+    await withoutCanvas(async () => {
+      await expect(renderChartToPng(input)).resolves.toBeNull();
+    });
   });
 
   it('returns null when the canvas hands back something that is not a PNG', async () => {
     // A stubbed or blocked toDataURL returns "data:," in some browsers. Feeding
     // that to jsPDF throws halfway through building the document, which would
     // lose the whole report rather than just its picture.
-    const canvas = stubCanvas('data:,');
-    const image = stubImageDecode();
-    cleanups.push(canvas.restore, image.restore);
+    const bad = stubBadDataUrl('data:,');
+    cleanups.push(bad.restore);
     await expect(renderChartToPng(input)).resolves.toBeNull();
   });
 
   it('returns null for a series with no points — there is nothing to plot', async () => {
-    const canvas = stubCanvas('data:image/png;base64,AAAA');
-    const image = stubImageDecode();
-    cleanups.push(canvas.restore, image.restore);
     // TimeSeriesChart renders its "No readings in this window" card instead of
     // an <svg>, so there is no element to serialise.
     const result = await renderChartToPng({
@@ -137,10 +129,6 @@ describe('renderChartToPng', () => {
   });
 
   it('leaves no mounted chart behind in the document', async () => {
-    const canvas = stubCanvas('data:image/png;base64,AAAA');
-    const image = stubImageDecode();
-    cleanups.push(canvas.restore, image.restore);
-
     // Let earlier cases' deferred unmounts drain first, otherwise the baseline
     // counts their hosts and the assertion measures the wrong thing.
     await new Promise((r) => setTimeout(r, 5));
