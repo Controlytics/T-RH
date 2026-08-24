@@ -1,6 +1,9 @@
 import { formatDecimals } from '@digilog/shared';
 import { createReport, type ReportDoc } from '@/lib/pdf-report';
-import { alarmTypeText, triggeredText, limitText, clearedText, statusText, type AlarmRow } from '@/routes/alarms/alarm-display';
+import {
+  alarmTypeText, triggeredText, limitText, clearedText, statusText,
+  type AlarmRow, type AlarmStatusTexts,
+} from '@/routes/alarms/alarm-display';
 import type { TableRow } from './trend-series';
 
 /**
@@ -115,12 +118,23 @@ export async function renderTimeSeriesReport(
   return report;
 }
 
-/** The alarms widget — same wording as the Alarms page, via `alarm-display.ts`. */
+/**
+ * The alarms widget — same wording as the Alarms page, via `alarm-display.ts`.
+ *
+ * `statusTexts` must be the SAME configured wording the on-screen widget is
+ * showing (from `mapStatusTextsResponse()` over `/api/config/alarm-limits/
+ * status-texts`), not the shipped defaults — a printed §11 record that
+ * describes an alarm differently than the screen it was generated from is a
+ * record that does not match the system it documents. `undefined` is only
+ * correct while that config is still loading; `statusText()` itself falls
+ * back to the defaults in that case.
+ */
 export async function renderAlarmsReport(
   rows: AlarmRow[],
   instrument: ReportInstrument,
   period: ReportPeriod,
   formatDateTime: (d: string) => string,
+  statusTexts?: AlarmStatusTexts,
 ): Promise<ReportDoc> {
   const { shown, capped, total } = capRows(rows);
   const report = await createReport({
@@ -140,7 +154,7 @@ export async function renderAlarmsReport(
       triggeredText(a),
       limitText(a),
       a.clearedAt ? `${formatDateTime(a.clearedAt)} (${clearedText(a)})` : '—',
-      statusText(a),
+      statusText(a, statusTexts),
     ]),
   });
   return report;

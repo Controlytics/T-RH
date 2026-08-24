@@ -18,7 +18,8 @@ import { formatSetPoint } from '@/routes/dashboard/set-point';
 import { TimeSeriesChart } from '@/routes/dashboard/time-series-chart';
 import {
   severityTone, triggeredText, statusText, alarmTypeText, limitText, clearedText,
-  type AlarmRow,
+  mapStatusTextsResponse,
+  type AlarmRow, type AlarmStatusTexts, type AlarmStatusTextsResponse,
 } from '@/routes/alarms/alarm-display';
 import { useTrendPeriod, useInstrumentTrend, TREND_PRESETS, TABLE_PAGE_SIZE, type TelemetryLongRow } from './use-trend-data';
 import { toChartSeries, toTableRows, type TableRow as PivotRow } from './trend-series';
@@ -192,12 +193,16 @@ function ExtraKeyPicker({
  * vocabulary the Alarms page itself uses, so this widget cannot describe the
  * same event differently.
  */
-function AlarmsWidget({
-  instrumentId, period, onExportPdf,
+export function AlarmsWidget({
+  instrumentId, period, onExportPdf, statusTexts,
 }: {
   instrumentId: string;
   period: { from: string; to: string };
   onExportPdf: () => void;
+  /** Configured status wording, from the same `/api/config/alarm-limits/status-texts`
+   *  the Alarms page reads — `undefined` while loading, in which case `statusText()`
+   *  falls back to the shipped defaults on its own. Never a second vocabulary. */
+  statusTexts: AlarmStatusTexts | undefined;
 }) {
   const { formatDate, formatTime } = useDatetimeFormat();
   const { data } = useSWR<{ data: AlarmRow[] }>(instrumentId ? `/api/alarms?instrumentId=${instrumentId}&limit=500` : null);
@@ -247,7 +252,7 @@ function AlarmsWidget({
                   <TableCell className="whitespace-nowrap text-sm">{a.clearedAt ? stamp(a.clearedAt) : '—'}{' '}{a.clearedAt && <span className="tabular-nums text-slate-500">({clearedText(a)})</span>}</TableCell>
                   <TableCell>
                     <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${severityTone(a.severity)}`}>
-                      {statusText(a)}
+                      {statusText(a, statusTexts)}
                     </span>
                   </TableCell>
                 </TableRow>
@@ -270,6 +275,12 @@ export function InstrumentTrend() {
   const { data: keyOptions } = useSWR<{ data: TelemetryKeyOption[] }>(id ? `/api/instruments/${id}/telemetry-keys` : null);
   const { formatDateTime } = useDatetimeFormat();
   const reauth = useReauth();
+  // Same endpoint, same mapping, as `routes/alarms/index.tsx` — the ONE place
+  // the API's `status*`-prefixed keys are reconciled with the unprefixed
+  // `AlarmStatusTexts` `statusText()` reads. `undefined` while loading; the
+  // fallback is `statusText()`'s own, not re-implemented here.
+  const { data: statusTextsResponse } = useSWR<AlarmStatusTextsResponse>('/api/config/alarm-limits/status-texts');
+  const statusTexts = statusTextsResponse ? mapStatusTextsResponse(statusTextsResponse) : undefined;
 
   const fromLocal = period.from.slice(0, 16);
   const toLocal = period.to.slice(0, 16);
@@ -370,7 +381,7 @@ export function InstrumentTrend() {
         report.save(`instrument-time-series-${instrument.code}-${new Date().toISOString().slice(0, 10)}.pdf`);
       } else {
         const rows = await fetchAlarmsForPeriod(reportPeriod.from, reportPeriod.to);
-        const report = await renderAlarmsReport(rows, instrument, reportPeriod, formatDateTime);
+        const report = await renderAlarmsReport(rows, instrument, reportPeriod, formatDateTime, statusTexts);
         await logReportExport({
           reportType: 'Instrument Alarms', format: 'PDF', recordCount: rows.length,
           period: reportPeriod.label, startDate: reportPeriod.from, endDate: reportPeriod.to,
@@ -609,7 +620,14 @@ export function InstrumentTrend() {
         </CardContent>
       </Card>
 
-      {id && <AlarmsWidget instrumentId={id} period={period} onExportPdf={() => setPendingReport('alarms')} />}
+      {id && (
+        <AlarmsWidget
+          instrumentId={id}
+          period={period}
+          onExportPdf={() => setPendingReport('alarms')}
+          statusTexts={statusTexts}
+        />
+      )}
 
       <ReportDownloadDialog
         open={pendingReport !== null}
