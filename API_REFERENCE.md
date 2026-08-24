@@ -1,5 +1,20 @@
 # DigiLog — API Reference
 
+> ⚠ **Drift warning (verified 2026-08-24).** The **Assets**, **Filter Operations**,
+> **Cleaning Profiles**, **Filter Profiles**, **Equipment Groups**, and **PM Schedules**
+> sections below document endpoints that do not exist in this fork — confirmed by grepping
+> `apps/api/src/app.ts` route registrations and `ls apps/api/src/modules/`, which lists only:
+> `admin-requests, alarms, audit, auth, backup, config, dashboards, debug-traces,
+> floorplans, functional-locations, help, instrument-profiles, instruments, ldap,
+> notification-delivery, notification-rules, notifications, roles, super-admin,
+> system-health, uploads, user-groups, users` (**23** modules). There is no `/api/assets/*`,
+> `/api/template-kinds`, or filter/PM/equipment-group route registered anywhere. The
+> **Instrument Profiles & Instruments** section is real and current. The permission count
+> at the bottom ("102 total") is wrong — live count is **42**
+> (`grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts`); reauth actions
+> are **47**, not 92. Actual instrument/telemetry/floorplan endpoints are documented in
+> `CLAUDE.md`'s "Key API Endpoints" section.
+
 **Base URL:** `https://<server-ip>:3000/api` (Fastify direct; reverse proxy is optional / customer-choice after Phase 4 of the windows-friendly-rewrite)
 **Authentication:** JWT Bearer token (header: `Authorization: Bearer <token>`)
 **Content-Type:** `application/json`
@@ -447,7 +462,7 @@ Common error codes:
 
 ---
 
-## Permission Reference (102 total — verified by `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts`; the list below is illustrative grouping, not exhaustive)
+## Permission Reference (**42** total, re-verified 2026-08-24 with `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts` — the "102" this line previously carried was upstream DigiLog's; the list below is illustrative grouping from that stale upstream list and is not exhaustive or necessarily accurate for this fork)
 
 ### User Management
 `USER_CREATE`, `USER_READ`, `USER_UPDATE`, `USER_DELETE`, `USER_ENABLE_DISABLE`, `USER_UNLOCK`, `USER_RESET_PASSWORD`

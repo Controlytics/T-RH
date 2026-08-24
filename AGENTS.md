@@ -1,5 +1,18 @@
 # DigiLog — Codex Code Review Instructions
 
+> ⚠ **Drift warning (verified 2026-08-24).** This file's module list, counts, and "Phase 2:
+> Filter Management" / "Phase 3: RFID & Offline" review sections describe upstream DigiLog,
+> not this fork. Live counts here: **23** backend modules (`ls apps/api/src/modules | wc -l`,
+> not the 33 listed below — the named list includes removed modules like
+> `filter-operations`, `cleaning-profiles`, `equipment-groups`, `pm-schedules`,
+> `checklist-profiles`, `filter-profiles`, `admin-requests`, `block-change-requests`,
+> `replacement-schedule`, `stage-approvals`, `assets`, `hierarchy`, `debug-traces`,
+> `deployment-check`, `sync`, `system-health`, `guest`, `user-groups`), **49** frontend
+> routes (not 76), **34 models / 13 enums** (not 61/23), **42 permissions / 47 reauth
+> actions** (not 102/92; sidebar item count needs re-derivation, see `CLAUDE.md`). There is
+> no `orgId` review note needed either way (still true: single-tenant). See `CLAUDE.md` for
+> the accurate module/count inventory before using this file for review guidance.
+
 ## Project Context
 DigiLog (21cfrlogbook) — IoT data logging platform with 21 CFR Part 11 compliance.
 Monorepo: Fastify API (apps/api), React SPA (apps/web), shared packages.

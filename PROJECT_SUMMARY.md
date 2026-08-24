@@ -1,5 +1,16 @@
 # DigiLog — Project Summary
 
+> ⚠ **Drift warning (verified 2026-08-24).** Every section below (Business Purpose, Tech
+> Stack table, Monorepo Structure, Phases 1–4, Database Statistics) describes upstream
+> DigiLog's pharmaceutical Filter Management System. This fork has no filter/AHU/PM/
+> cleaning-cycle domain, no `apps/android`, no `rfid_scan_app`, no RFID hardware
+> integration (`ls apps/` → `api`, `web` only; `ls rfid_scan_app` → not found). Verified
+> live counts: **23** API modules, **34** Prisma models, **13** enums, **42** permissions,
+> **47** reauth actions, **49** frontend routes (not the 33/61/23/102/92/77 used
+> throughout). This fork is a 21 CFR Part 11 admin platform (users, roles, hash-chained
+> audit trail, e-signature reauth, notifications, instrument monitoring) — see `CLAUDE.md`
+> and `docs/recreation/` for the accurate summary.
+
 ## What is DigiLog?
 
 DigiLog is a **21 CFR Part 11 compliant Digital Filter Management System** designed for pharmaceutical and manufacturing facilities. It tracks filter cleaning cycles, preventive maintenance, equipment status, and provides complete audit trails with electronic signatures.

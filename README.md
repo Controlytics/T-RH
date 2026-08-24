@@ -1,5 +1,18 @@
 # DigiLog — 21 CFR Part 11 Compliant Digital Logbook
 
+> ⚠ **Drift warning (verified 2026-08-24).** This entire document describes upstream
+> DigiLog's Filter Management System (FMS), not this fork. In this repo (branch
+> `data-injection`): there is **no `apps/android`** and **no `rfid_scan_app`** (`ls apps/`
+> shows only `api`, `web`; `ls rfid_scan_app` → no such file); the filter/AHU/cleaning/PM
+> domain does not exist (removed — see `CLAUDE.md` "Filter domain — REMOVED"); the backend
+> has **23 modules** (`ls apps/api/src/modules | wc -l`), not 33; the DB has **34 models /
+> 13 enums** (`grep -cE "^model /^enum " apps/api/prisma/schema.prisma`), not 61/23; there
+> are **42 permissions / 47 reauth actions** (`grep -cE` against `permissions.ts` /
+> `reauth-actions.ts`), not 102/92; the frontend has **49 `<Route>`s** (`grep -cE "<Route"
+> apps/web/src/main.tsx`), not 77. This fork is a 21 CFR Part 11 admin platform for users,
+> roles, audit trail, e-signature reauth, notifications, and instrument monitoring — see
+> `CLAUDE.md` and `docs/recreation/` for the accurate description.
+
 DigiLog is a **21 CFR Part 11** compliant **Digital Filter Management System (FMS)** for pharmaceutical cleanroom HEPA filter lifecycle tracking: filter cleaning cycles, preventive maintenance, equipment status, electronic-signature checklists, and tamper-proof audit trails.
 
 The platform is monorepo-based (Turborepo) with a Fastify backend, a React/Vite SPA, a Capacitor Android wrapper for tablets, and a native Kotlin RFID scanner companion app.

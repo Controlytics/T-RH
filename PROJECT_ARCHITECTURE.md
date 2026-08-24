@@ -1,5 +1,18 @@
 # DigiLog — Project Architecture
 
+> ⚠ **Drift warning (verified 2026-08-24).** This document's own 2026-07-04 reconciliation
+> note is now itself stale, and the diagrams still show an RFID Scanner client and an
+> `apps/android` / `rfid_scan_app` package tree that do not exist in this fork (`ls apps/`
+> → `api`, `web` only; `ls rfid_scan_app` → not found). Also stale: "no MQTT" — MQTT was
+> reintroduced for instrument ingest (`apps/api/package.json` has `"mqtt": "^5.15.2"`,
+> `app.ts` registers `/api/ingest/v1` and an MQTT ingest bridge) — do not assume MQTT/ingest
+> claims elsewhere in this repo are permanently false. Verified live counts: **23** backend
+> modules (not "35 Route Modules" / 33), **34 models / 13 enums** (not 61/23), **49**
+> frontend routes (not 77), **42 permissions / 47 reauth actions** (not 102/92). The Phase 2
+> "Filter Management" domain (cleaning profiles, filter profiles, PM schedules, equipment
+> groups) does not exist — see `CLAUDE.md` "Filter domain — REMOVED". Treat this whole file
+> as historical/upstream unless a claim is independently re-verified against live code.
+
 > **Reconciled to current architecture 2026-07-04.** DigiLog is a Fastify API + PostgreSQL 18 (Prisma, single database — no TimescaleDB) + graphile-worker queue + React SPA + Capacitor APK + native RFID scanner. The data-ingestion pipeline, UNS, device connectivity, MQTT/Mosquitto broker, TimescaleDB, transport layer, rule-chain/alarm subsystems, and multi-tenancy were all removed (2026-04-30..2026-07-03). This doc describes only what remains. See root `CLAUDE.md` + `CHANGELOG.md` for the full removal history.
 
 ## System Architecture
