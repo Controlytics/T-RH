@@ -29,6 +29,11 @@ const history = [
   { key: 'humidity', value: 45.2, ts: '2026-08-24T00:11:00.000Z', slot: 'humidity', decimals: 1 },
   { key: 'temperature', value: 22.5, ts: '2026-08-24T00:20:00.000Z', slot: 'temperature', decimals: 1 },
   { key: 'humidity', value: 45.3, ts: '2026-08-24T00:20:00.000Z', slot: 'humidity', decimals: 1 },
+  // A NON-NUMERIC reading. `numericRows` drops it, but the endpoint counts it in
+  // `historyTotal` — this database holds one such row today, and comparing the
+  // filtered count against the unfiltered total made the report cry
+  // "INCOMPLETE PERIOD" with nothing truncated.
+  { key: 'status', value: 'RUNNING', ts: '2026-08-24T00:20:00.000Z', slot: null, decimals: null },
 ];
 
 const overviewRow = {
@@ -82,7 +87,21 @@ const jspdf: any = await import('jspdf');
 // jsPDF binds `save` per instance, but `output` — which `save` calls — is on
 // the shared API object, so intercepting it stops the file without stubbing
 // the document itself.
-jspdf.default.API.save = function (name: string) { saved.push(name); events.push(`save:${name}`); return this; };
+/** The text of the most recently saved document, read out of jsPDF's own
+ *  uncompressed content streams — what the PDF actually holds, not what a call
+ *  was asked to draw. */
+let lastPdf = '';
+jspdf.default.API.save = function (this: any, name: string) {
+  saved.push(name);
+  events.push(`save:${name}`);
+  const raw: string = (this.internal.pages as string[][]).filter(Boolean).flat().join('\n');
+  lastPdf = [...raw.matchAll(/\((.*?)\)\s*Tj/gs)]
+    .map((m) => m[1].replace(/\\([()\\])/g, '$1'))
+    .join(' ');
+  return this;
+};
+
+function lastPdfText() { return lastPdf; }
 
 function renderPage(query = '') {
   return render(
@@ -201,6 +220,19 @@ describe('trend page downloads', () => {
     await download(3);
     expect(logged[0].reportType).toBe('Instrument Time Series');
     expect(logged[0].recordCount).toBe(3);
+  });
+
+  it('does not cry INCOMPLETE PERIOD just because a reading was non-numeric', async () => {
+    // The fixture holds one non-numeric reading, so historyTotal exceeds the
+    // numeric row count while nothing whatsoever was truncated. The coverage
+    // comparison must be against what the endpoint RETURNED, not against what
+    // survived the numeric filter. A false truncation warning in a §11 record
+    // is its own misrepresentation, and it trains the reader to ignore the
+    // banner that matters.
+    renderPage();
+    await download(1);
+    const pdf = lastPdfText();
+    expect(pdf).not.toMatch(/INCOMPLETE PERIOD/);
   });
 
   it('carries the operator\'s remarks and the period into the audit record', async () => {

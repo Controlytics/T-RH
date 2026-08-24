@@ -251,10 +251,14 @@ export async function renderTrendReport(input: TrendReportInput): Promise<Report
   if (input.coverage.total > input.coverage.returned) {
     addNote(
       report,
+      // "stored values across all keys", not "readings": this count spans every
+      // key the instrument sent, while each summary below counts ONE slot. Two
+      // numbers in the same units that cannot be reconciled would read as a
+      // contradiction rather than as the different measures they are.
       `INCOMPLETE PERIOD: this report was built from the ${input.coverage.returned.toLocaleString()} most recent `
-      + `readings, but ${input.period.label} holds ${input.coverage.total.toLocaleString()}. The chart, the summary `
-      + `and the table below all describe that most recent portion only — not the whole period named above. `
-      + `Narrow the period for a report that covers all of it.`,
+      + `stored values across all keys, but ${input.period.label} holds ${input.coverage.total.toLocaleString()}. `
+      + `The chart, the summary and the table below all describe that most recent portion only — not the whole `
+      + `period named above. Narrow the period for a report that covers all of it.`,
       report.colors.red,
     );
   }

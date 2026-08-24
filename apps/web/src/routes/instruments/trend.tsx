@@ -493,7 +493,15 @@ export function InstrumentTrend() {
           period: reportPeriod, formatDateTime,
           averagedLabel: intervalLabel(period.intervalMs),
           tableIsAveraged: period.intervalMs !== null,
-          coverage: { returned: rows.length, total: fetched.historyTotal ?? rows.length },
+          // `fetched.history.length`, NOT `rows.length`. `rows` has already had
+          // non-numeric readings dropped, while `historyTotal` counts every
+          // stored value in the period — comparing the two would report
+          // "INCOMPLETE PERIOD" whenever this instrument sent a single
+          // non-numeric key, with nothing actually truncated. This database
+          // holds such a reading today. A false truncation warning in a §11
+          // record is its own misrepresentation, and it teaches the reader to
+          // ignore the banner that matters.
+          coverage: { returned: fetched.history.length, total: fetched.historyTotal ?? fetched.history.length },
         });
         // Fail-closed: the audit write happens BEFORE the file is saved.
         await logReportExport({
