@@ -236,6 +236,7 @@ function buildingLayout(
   _grade: Grade,
   used: Set<string>,
   gradeOf: (ids: string[]) => Grade,
+  codeOf: (ids: string[]) => string | null,
 ): RoomSpec[] {
   const N = locs.length;
   const M = 0.012;
@@ -283,9 +284,13 @@ function buildingLayout(
           : Math.abs(rect.x + rect.w - bodyR) < 1e-9 ? 'right'
             : b < bands - 1 ? 'bottom' : 'top';
       out.push({
-        code: makeCode(label, 0, used),
-        // The code already IS the name; a label repeating it would print the
-        // same words twice in two sizes.
+        // The room is identified by the INSTRUMENT in it. The operator wants a
+        // box to carry the instrument ID and its two readings and nothing else:
+        // on a monitoring wall the room name is context you already have from
+        // the plan you opened, while the instrument ID is what you act on.
+        // The location name is not lost — it stays on the instrument's own
+        // `Location` attribute, which is where it came from.
+        code: makeCode(codeOf(ids) ?? label, 0, used),
         label: null,
         grade: gradeOf(ids),
         rect,
@@ -391,6 +396,7 @@ async function main() {
     where: { key: { in: ['Low Temperature Limit', 'High Temperature Limit', 'Low Humidity Limit', 'High Humidity Limit'] } },
     select: { instrumentId: true, key: true, value: true },
   });
+  const codeById = new Map<string, string>(instruments.map((i) => [i.id, i.code]));
   const attrsByInstrument = new Map<string, Map<string, string>>();
   for (const a of attrRows) {
     let m = attrsByInstrument.get(a.instrumentId);
@@ -454,6 +460,12 @@ async function main() {
       const first = ids[0];
       const attrs = attrsByInstrument.get(first);
       return attrs ? gradeFromLimits(attrs) : grade;
+    }, (ids) => {
+      // Two instruments in one location: name the room for the first and say
+      // there is another, rather than silently showing only one of them.
+      const codes = ids.map((id) => codeById.get(id)).filter(Boolean) as string[];
+      if (!codes.length) return null;
+      return codes.length === 1 ? codes[0] : `${codes[0]} +${codes.length - 1}`;
     });
 
     const placed = await drawPlan(plan.id, planName, rooms);
