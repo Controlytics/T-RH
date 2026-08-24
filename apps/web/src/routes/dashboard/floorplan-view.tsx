@@ -381,19 +381,13 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                     />
                   )}
 
-                  {/* Grade tab. Omitted entirely when the room has no grade — an
-                      absent tab is honest, a guessed grade is not. */}
-                  {gradeMeta && w > 26 && h > 22 && (
-                    <g pointerEvents="none">
-                      <rect x={x + 4} y={y + 4} width={14} height={11} rx={2} fill={zone.ink} />
-                      <text
-                        x={x + 11} y={y + 12} textAnchor="middle"
-                        fontSize={8} fontWeight={700} fill="#ffffff"
-                      >
-                        {gradeMeta.tab}
-                      </text>
-                    </g>
-                  )}
+                  {/* The grade TAB was removed 2026-08-24 at the operator's
+                      request, along with the grade legend below. The zone TINT
+                      stays: it still groups a floor visually. Note the
+                      consequence — with no tab and no legend, that tint is now
+                      decoration rather than a readable classification, so do not
+                      rely on it to tell A from B. Status colour is unaffected
+                      and keeps its glyph and its legend. */}
 
                   {/* The room code is the one typographic move on the drawing:
                       uppercase and tracked, which is what gives it the character
@@ -473,8 +467,8 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                             }
                           }}
                           aria-label={`${row.code}${
-                            tempV !== null ? `, ${formatDecimals(tempV, row.decimals.temperature)} degrees${tempBad ? ' out of spec' : ''}` : ''
-                          }${rhV !== null ? `, ${formatDecimals(rhV, row.decimals.humidity)} percent humidity${rhBad ? ' out of spec' : ''}` : ''}`}
+                            tempV !== null ? `, ${formatDecimals(tempV, row.decimals.temperature)} degrees${tempBad ? ' out of limit' : ''}` : ''
+                          }${rhV !== null ? `, ${formatDecimals(rhV, row.decimals.humidity)} percent humidity${rhBad ? ' out of limit' : ''}` : ''}`}
                         >
                           <rect
                             x={tx + 1.5} y={ty + 1} width={layout.tile.w - 3} height={layout.tile.h - 2}
@@ -539,9 +533,9 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
         </div>
       )}
 
-      {/* Two legends, one bar, separated by a rule: the drawing carries two
-          readings and both have to be decodable without asking anyone. Status is
-          never colour alone — every chip keeps its glyph. */}
+      {/* Status legend. The room-grade legend was removed 2026-08-24 at the
+          operator's request. Status is never colour alone — every chip keeps
+          its glyph, and that pairing is what this bar exists to teach. */}
       <div className="flex flex-wrap items-center gap-4 rounded-xl border border-slate-200 bg-white px-4 py-3">
         <span className="text-xs font-semibold text-slate-700">Reading colour:</span>
         {(['OK', 'OUT_OF_SPEC', 'STALE', 'PARTIAL', 'NO_DATA'] as InstrumentStatus[]).map((s) => (
@@ -556,21 +550,6 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
           </span>
         ))}
 
-        <span className="hidden h-5 w-px bg-slate-200 sm:block" aria-hidden="true" />
-
-        <span className="text-xs font-semibold text-slate-700">Room grade:</span>
-        {ROOM_GRADES.map((g) => (
-          <span key={g} className="flex items-center gap-1.5 text-xs text-slate-600">
-            <span
-              className="inline-block h-3.5 w-3.5 rounded-sm border"
-              style={{ backgroundColor: ZONE[g].fill, borderColor: ZONE[g].ink }}
-            />
-            <span className="font-semibold" style={{ color: ZONE[g].ink }}>
-              {ROOM_GRADE_META[g].label}
-            </span>
-            <span className="text-slate-500">— {ROOM_GRADE_META[g].name}</span>
-          </span>
-        ))}
       </div>
 
       {unplaced.length > 0 && (

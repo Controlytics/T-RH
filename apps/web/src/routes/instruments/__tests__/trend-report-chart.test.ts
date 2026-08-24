@@ -194,7 +194,7 @@ describe('the trend report shows the trend', () => {
     expect(byLabel['First reading']).toContain('22.4');
     expect(byLabel['Last reading']).toContain('26.9');
     // One of the three readings is above the 25 limit.
-    expect(byLabel['Out of specification']).toBe('1 of 3 readings (33.3%)');
+    expect(byLabel['Out of limit']).toBe('1 of 3 readings (33.3%)');
     expect(byLabel['— below / above limit']).toBe('0 below 18.0  /  1 above 25.0');
   });
 
@@ -210,7 +210,7 @@ describe('the trend report shows the trend', () => {
     const tables = report.getSnapshot().sections.filter((x: any) => 'head' in x);
     const summary = tables.find((t: any) => t.head[0] === 'Temperature — period summary')!;
     const byLabel = Object.fromEntries(summary.body.map((r: string[]) => [r[0], r[1]]));
-    expect(byLabel['Out of specification']).toMatch(/Not assessed/);
+    expect(byLabel['Out of limit']).toMatch(/Not assessed/);
     expect(summary.body.map((r: string[]) => r[0])).not.toContain('— below / above limit');
   });
 

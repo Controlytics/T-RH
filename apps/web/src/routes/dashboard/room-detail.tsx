@@ -134,7 +134,7 @@ export function RoomDetail({ floorplanId, roomId, onBack }: Props) {
               ? 'Instruments here specify different limits — no shared band is drawn'
               : tempLimits || rhLimits
               ? [tempLimits, rhLimits].filter(Boolean).join(' · ')
-              : 'No limits set — this room is never reported out of spec.'}
+              : 'No limits set — this room is never reported out of limit.'}
           </p>
         </div>
 

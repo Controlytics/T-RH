@@ -638,7 +638,7 @@ export function FloorplansConfigPage() {
             <div>
               <h3 className="text-sm font-semibold text-slate-700">Limits</h3>
               <p className="mb-2 text-xs text-slate-500">
-                Leave a field blank to leave that bound unchecked. A room with no limits is never out of spec.
+                Leave a field blank to leave that bound unchecked. A room with no limits is never out of limit.
               </p>
               <div className="grid gap-4 sm:grid-cols-4">
                 {([

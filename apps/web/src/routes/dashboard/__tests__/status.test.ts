@@ -28,7 +28,7 @@ describe('statusClasses', () => {
   });
 
   it('labels are human sentences, not enum names', () => {
-    expect(statusClasses('OUT_OF_SPEC').label).toBe('Out of spec');
+    expect(statusClasses('OUT_OF_SPEC').label).toBe('Out of limit');
     expect(statusClasses('NO_DATA').label).toBe('No data');
   });
 

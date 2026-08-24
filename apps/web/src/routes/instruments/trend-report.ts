@@ -201,11 +201,11 @@ function addSummary(report: ReportDoc, summary: SlotSummary, formatDateTime: (d:
   if (summary.outOfSpecCount === null) {
     // NOT "0 out of spec". No limits are set, so nothing was checked, and a
     // zero here would read as a clean period rather than an unjudged one.
-    rows.push(['Out of specification', 'Not assessed — no limits are set for this slot']);
+    rows.push(['Out of limit', 'Not assessed — no limits are set for this slot']);
   } else {
     const pct = summary.count > 0 ? (summary.outOfSpecCount / summary.count) * 100 : 0;
     rows.push([
-      'Out of specification',
+      'Out of limit',
       `${summary.outOfSpecCount.toLocaleString()} of ${summary.count.toLocaleString()} readings (${pct.toFixed(1)}%)`,
     ]);
     rows.push([

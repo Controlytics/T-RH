@@ -22,7 +22,7 @@ export interface StatusClasses {
 const MAP: Record<InstrumentStatus, StatusClasses> = {
   OUT_OF_SPEC: {
     dot: 'bg-red-500', text: 'text-red-700', bg: 'bg-red-50', border: 'border-red-300',
-    label: 'Out of spec',
+    label: 'Out of limit',
   },
   STALE: {
     dot: 'bg-amber-500', text: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-300',
