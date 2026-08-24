@@ -11,6 +11,9 @@ import {
   useFloorplans,
   useTelemetryOverview,
   formatSlot,
+  ROOM_GRADES,
+  ROOM_GRADE_META,
+  type RoomGrade,
   type FloorplanRoomShape,
   type OverviewRow,
 } from './use-telemetry';
@@ -37,14 +40,15 @@ import { wallSegments, doorPlacements, tileLayout } from './room-geometry';
 const VB_W = 1000;
 
 /**
- * ARCHITECTURAL DRAWING (operator reference `graphical.png`, 2026-08-13).
+ * ARCHITECTURAL DRAWING (operator reference `graphical.png`, 2026-08-13;
+ * restyled to docs/superpowers/specs/2026-08-24-graphical-view-visual-design.md).
  *
- * Rooms are WHITE with dark walls, like a plan. Status colour lives in the value
- * CHIPS, not in the room fill. That is the whole point of the change: a floor of
- * pastel-tinted tiles cannot show two readings disagreeing — one room, one
- * colour — whereas a green temperature chip beside a red humidity chip says
- * exactly what is wrong. It also keeps a dense floor readable, because most of
- * the drawing stays white.
+ * Rooms are drawn with dark walls, like a plan. STATUS colour lives in the value
+ * CHIPS and nowhere else on the drawing: a floor tinted BY STATUS cannot show two
+ * readings disagreeing — one room, one colour — whereas a green temperature chip
+ * beside a red humidity chip says exactly what is wrong. The room fill carries a
+ * different reading entirely (cleanroom grade, see ZONE below) at a chroma low
+ * enough that it can never be mistaken for an alarm.
  *
  * Chip colours are SEMANTIC and deliberately not theme colours: a site that
  * themes the app purple must not end up with a purple "out of spec".
@@ -67,12 +71,72 @@ const CHIP: Record<InstrumentStatus, { bg: string; glyph: string }> = {
  */
 const PALETTE = {
   paper: '#ffffff',
+  /** The plate the building sits on, so the plan reads as a drawing, not a float. */
+  ground: '#f8fafc',
   wall: '#1f2937',
+  /** Doors read as openings, and match the operator's reference drawing. */
+  door: '#0ea5e9',
   ink: '#111827',
   inkSoft: '#374151',
-  tile: '#f8fafc',
+  /** Room label — subordinate to the code by size AND colour. */
+  labelInk: '#475569',
+  /** Corridor centre-line. */
+  centreLine: '#94a3b8',
+  /** Alarm halo. Same red as the OUT_OF_SPEC chip, deliberately. */
+  alarm: '#dc2626',
+  tile: '#ffffff',
   tileBorder: '#cbd5e1',
 } as const;
+
+/**
+ * ZONE COLOUR — hue encodes cleanroom GRADE, saturation encodes STATUS.
+ *
+ * GMP floor plans are already colour-coded by classification, so this borrows
+ * the subject's own vernacular instead of inventing a palette. The rule that
+ * keeps the two readings from fighting: zone colour is LOW CHROMA and appears
+ * in exactly three places — the room fill, the room code, and the grade tab.
+ * Status colour is saturated and appears only in the chips and the alarm halo.
+ * Walls, doors and the building outline are never zone-coloured: the zone
+ * already speaks three times, and a fourth is what tips a dense floor into
+ * noise.
+ *
+ * An unknown or absent grade falls back to `NONE`, which is exactly how the
+ * drawing looked before grades existed — an absent classification is honest, a
+ * guessed one is not.
+ */
+const NO_ZONE = { fill: PALETTE.paper, ink: PALETTE.wall } as const;
+
+const ZONE: Record<RoomGrade, { fill: string; ink: string }> = {
+  A: { fill: '#eef0ff', ink: '#4338ca' },
+  B: { fill: '#e8f1fe', ink: '#1d4ed8' },
+  C: { fill: '#e9f7f1', ink: '#047857' },
+  D: { fill: '#fef5e7', ink: '#b45309' },
+  CIRCULATION: { fill: '#eff2f7', ink: '#475569' },
+  UTILITY: { fill: '#f4f4f5', ink: '#52525b' },
+};
+
+/** The API sends free text; anything not in the vocabulary draws unclassified. */
+function zoneOf(grade: string | null): { fill: string; ink: string } {
+  return grade && grade in ZONE ? ZONE[grade as RoomGrade] : NO_ZONE;
+}
+
+/**
+ * The alarm halo pulses so a breach finds the eye from across the room — this
+ * drawing's job is to be read from a monitoring wall. Motion is a real
+ * accessibility cost, so `prefers-reduced-motion` drops to the static stroke;
+ * the halo itself never goes away, because it is the thing carrying the alarm.
+ */
+const HALO_CSS = `
+/* Hover feedback that does not repaint the zone: darkening keeps the hue, and
+   works on a white unclassified room where a tint would be invisible. */
+.fp-room-fill { transition: filter 120ms ease; }
+.fp-room-fill:hover { filter: brightness(0.955); }
+.fp-alarm-halo { opacity: 0.9; animation: fpAlarmPulse 2s ease-in-out infinite; }
+@keyframes fpAlarmPulse { 0%, 100% { opacity: 0.9 } 50% { opacity: 0.35 } }
+@media (prefers-reduced-motion: reduce) {
+  .fp-alarm-halo { animation: none; opacity: 0.9; }
+}
+`;
 
 interface RoomView {
   room: FloorplanRoomShape;
@@ -208,15 +272,23 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
             role="img"
             aria-label={`${plan.name}: ${roomViews.length} rooms with current temperature and humidity`}
           >
-            {/* Building outline. White, not a grey slab: on a plan the paper is
-                white and the ink is the information. */}
-            <rect x={0} y={0} width={VB_W} height={vbH} fill={PALETTE.paper} stroke={PALETTE.wall} strokeWidth={3} />
+            <style>{HALO_CSS}</style>
+
+            {/* Building outline on its plate. The ground is a shade off white so
+                the building reads as a drawing laid on something, and so the
+                gaps between rooms are visibly OUTSIDE them. The ink is still the
+                information. */}
+            <rect x={0} y={0} width={VB_W} height={vbH} fill={PALETTE.ground} stroke={PALETTE.wall} strokeWidth={3} />
 
             {roomViews.map(({ room, rows: roomRows, status }) => {
               const x = room.x * VB_W;
               const y = room.y * vbH;
               const w = room.w * VB_W;
               const h = room.h * vbH;
+              const zone = zoneOf(room.grade);
+              const gradeMeta = room.grade && room.grade in ROOM_GRADE_META
+                ? ROOM_GRADE_META[room.grade as RoomGrade]
+                : null;
 
               return (
                 <g
@@ -226,7 +298,10 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                   role="button"
                   tabIndex={0}
                   onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setOpenRoomId(room.id); }}
-                  aria-label={`${room.code}${room.label ? ` ${room.label}` : ''}, ${statusClasses(status).label}, ${
+                  aria-label={`${room.code}${room.label ? ` ${room.label}` : ''}${
+                    // Zone colour is never the only carrier of the grade.
+                    gradeMeta ? `, grade ${gradeMeta.label}` : ''
+                  }, ${statusClasses(status).label}, ${
                     roomRows.length
                   } instrument${roomRows.length === 1 ? '' : 's'}${
                     room.doors && room.doors.length > 0
@@ -234,13 +309,31 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                       : ''
                   }`}
                 >
-                  {/* Fill only. The walls are separate segments below, because a
-                      stroked rect cannot have a door cut out of it. */}
+                  {/* Fill only, and the ONE place zone colour is allowed to
+                      cover area. The walls are separate segments below, because
+                      a stroked rect cannot have a door cut out of it. */}
                   <rect
                     x={x} y={y} width={w} height={h}
-                    fill={PALETTE.paper}
-                    className="transition-colors hover:fill-slate-100"
+                    fill={zone.fill}
+                    className="fp-room-fill"
                   />
+
+                  {/* Corridor centre-line. Runs the room's long axis and makes
+                      the corridors read as one connected circulation system
+                      rather than as leftover space between rooms. */}
+                  {room.grade === 'CIRCULATION' && (
+                    w >= h ? (
+                      <line
+                        x1={x + 6} y1={y + h / 2} x2={x + w - 6} y2={y + h / 2}
+                        stroke={PALETTE.centreLine} strokeWidth={1} strokeDasharray="6 5"
+                      />
+                    ) : (
+                      <line
+                        x1={x + w / 2} y1={y + 6} x2={x + w / 2} y2={y + h - 6}
+                        stroke={PALETTE.centreLine} strokeWidth={1} strokeDasharray="6 5"
+                      />
+                    )
+                  )}
 
                   {wallSegments({ x, y, w, h }, room.doors).map((s, i) => (
                     <line
@@ -250,16 +343,19 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                     />
                   ))}
 
-                  {/* Doors: leaf + swing arc, in wall ink only. A door carries no
-                      reading — nothing in this install senses one — so giving it
-                      status colour would compete with the chips for no meaning. */}
+                  {/* Doors: leaf + swing arc in the door blue, which reads as an
+                      opening and matches the operator's reference drawing. A door
+                      carries no reading — nothing in this install senses one — so
+                      it is never given STATUS colour, and it is never given ZONE
+                      colour either: the zone already speaks through fill, code and
+                      tab. */}
                   {doorPlacements({ x, y, w, h }, room.doors).map((d, i) => (
                     <g key={`d${i}`}>
                       <line
                         x1={d.leaf.x1} y1={d.leaf.y1} x2={d.leaf.x2} y2={d.leaf.y2}
-                        stroke={PALETTE.wall} strokeWidth={1.6}
+                        stroke={PALETTE.door} strokeWidth={1.6}
                       />
-                      <path d={d.arc} fill="none" stroke={PALETTE.inkSoft} strokeWidth={1} strokeDasharray="3 2" />
+                      <path d={d.arc} fill="none" stroke={PALETTE.door} strokeWidth={1} strokeDasharray="3 2" />
                       {d.kind !== 'PASSAGE' && (
                         <text
                           x={(d.start.x1 + d.start.x2) / 2}
@@ -272,16 +368,48 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                     </g>
                   ))}
 
+                  {/* Alarm halo. It NEVER repaints the fill: the fill is the
+                      grade, and an alarm that recoloured it would make grade and
+                      status argue over the same pixels. Skipped on a box too
+                      small to inset without the stroke crossing itself. */}
+                  {status === 'OUT_OF_SPEC' && w > 12 && h > 12 && (
+                    <rect
+                      className="fp-alarm-halo"
+                      x={x + 4} y={y + 4} width={w - 8} height={h - 8}
+                      fill="none" stroke={PALETTE.alarm} strokeWidth={2}
+                      pointerEvents="none"
+                    />
+                  )}
+
+                  {/* Grade tab. Omitted entirely when the room has no grade — an
+                      absent tab is honest, a guessed grade is not. */}
+                  {gradeMeta && w > 26 && h > 22 && (
+                    <g pointerEvents="none">
+                      <rect x={x + 4} y={y + 4} width={14} height={11} rx={2} fill={zone.ink} />
+                      <text
+                        x={x + 11} y={y + 12} textAnchor="middle"
+                        fontSize={8} fontWeight={700} fill="#ffffff"
+                      >
+                        {gradeMeta.tab}
+                      </text>
+                    </g>
+                  )}
+
+                  {/* The room code is the one typographic move on the drawing:
+                      uppercase and tracked, which is what gives it the character
+                      of a drafting label. The tracking is not repeated anywhere
+                      else. */}
                   <text
                     x={x + w / 2} y={y + 10} textAnchor="middle"
-                    fontSize={Math.max(8, Math.min(12, w / 10, h / 6)) * 0.86} fontWeight={700} fill={PALETTE.ink}
+                    fontSize={Math.max(8, Math.min(12, w / 10, h / 6)) * 0.86} fontWeight={700}
+                    letterSpacing="0.08em" fill={zone.ink}
                   >
-                    {room.code}
+                    {room.code.toUpperCase()}
                   </text>
                   {room.label && tileLayout({ x, y, w, h }, roomRows.length).step === 'CODE_ONLY' && (
                     <text
                       x={x + w / 2} y={y + 22} textAnchor="middle"
-                      fontSize={Math.max(8, Math.min(12, w / 10, h / 6)) * 0.8} fill={PALETTE.inkSoft}
+                      fontSize={Math.max(8, Math.min(12, w / 10, h / 6)) * 0.8} fill={PALETTE.labelInk}
                     >
                       {room.label}
                     </text>
@@ -338,12 +466,13 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                         >
                           <rect
                             x={tx + 1.5} y={ty + 1} width={layout.tile.w - 3} height={layout.tile.h - 2}
-                            rx={2} fill={PALETTE.tile} stroke={PALETTE.tileBorder} strokeWidth={0.8}
+                            rx={3} fill={PALETTE.tile} stroke={PALETTE.tileBorder} strokeWidth={0.8}
                           />
                           {layout.step === 'FULL' && (
                             <text
                               x={tcx} y={ty + layout.fontSize + 1} textAnchor="middle"
-                              fontSize={layout.fontSize * 0.85} fontWeight={700} fill={PALETTE.ink}
+                              fontSize={layout.fontSize * 0.85} fontWeight={600}
+                              letterSpacing="0.04em" fill={PALETTE.ink}
                             >
                               {row.code}
                             </text>
@@ -362,6 +491,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                                 <text
                                   x={tcx} y={cyTop + chipH * 0.75} textAnchor="middle"
                                   fontSize={layout.fontSize * 0.8} fontWeight={700} fill="#ffffff"
+                                  style={{ fontVariantNumeric: 'tabular-nums' }}
                                 >
                                   {label}
                                 </text>
@@ -397,7 +527,9 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
         </div>
       )}
 
-      {/* Legend — status is never colour alone. */}
+      {/* Two legends, one bar, separated by a rule: the drawing carries two
+          readings and both have to be decodable without asking anyone. Status is
+          never colour alone — every chip keeps its glyph. */}
       <div className="flex flex-wrap items-center gap-4 rounded-xl border border-slate-200 bg-white px-4 py-3">
         <span className="text-xs font-semibold text-slate-700">Reading colour:</span>
         {(['OK', 'OUT_OF_SPEC', 'STALE', 'PARTIAL', 'NO_DATA'] as InstrumentStatus[]).map((s) => (
@@ -409,6 +541,22 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
               {CHIP[s].glyph || '21.7'}
             </span>
             {statusClasses(s).label}
+          </span>
+        ))}
+
+        <span className="hidden h-5 w-px bg-slate-200 sm:block" aria-hidden="true" />
+
+        <span className="text-xs font-semibold text-slate-700">Room grade:</span>
+        {ROOM_GRADES.map((g) => (
+          <span key={g} className="flex items-center gap-1.5 text-xs text-slate-600">
+            <span
+              className="inline-block h-3.5 w-3.5 rounded-sm border"
+              style={{ backgroundColor: ZONE[g].fill, borderColor: ZONE[g].ink }}
+            />
+            <span className="font-semibold" style={{ color: ZONE[g].ink }}>
+              {ROOM_GRADE_META[g].label}
+            </span>
+            <span className="text-slate-500">— {ROOM_GRADE_META[g].name}</span>
           </span>
         ))}
       </div>

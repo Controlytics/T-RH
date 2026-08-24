@@ -135,10 +135,41 @@ export function formatSlot(v: SlotValue | null, decimals: number, unit: string):
   return text === null ? '—' : `${text} ${unit}`;
 }
 
+/**
+ * Cleanroom classification vocabulary.
+ *
+ * TEXT, not a Postgres enum — a classification list that may need extending
+ * should not need a migration to do it. Which also means the value arriving
+ * from the API is only ever `string`: everything that paints from it must
+ * tolerate one it does not know and fall back to unclassified.
+ */
+export const ROOM_GRADES = ['A', 'B', 'C', 'D', 'CIRCULATION', 'UTILITY'] as const;
+export type RoomGrade = (typeof ROOM_GRADES)[number];
+
+/**
+ * `tab` is what fits in the 14×11 grade tab on the drawing; `label` and `name`
+ * are the legend and the editor's wording. CIRCULATION and UTILITY get two
+ * letters rather than one because a bare "C" on a corridor would read as grade
+ * C — the two are different classifications and must not share a glyph.
+ */
+export const ROOM_GRADE_META: Record<RoomGrade, { tab: string; label: string; name: string }> = {
+  A: { tab: 'A', label: 'A', name: 'Sterile core' },
+  B: { tab: 'B', label: 'B', name: 'Aseptic' },
+  C: { tab: 'C', label: 'C', name: 'Clean production' },
+  D: { tab: 'D', label: 'D', name: 'Support / stores' },
+  CIRCULATION: { tab: 'CR', label: 'Circulation', name: 'Corridors' },
+  UTILITY: { tab: 'UT', label: 'Utility', name: 'Plant, offices' },
+};
+
 export interface FloorplanRoomShape {
   id: string;
   code: string;
   label: string | null;
+  /**
+   * Cleanroom grade, one of `ROOM_GRADES`. NULL = nobody has classified this
+   * room; it draws exactly as it did before grades existed.
+   */
+  grade: string | null;
   x: number; y: number; w: number; h: number;
   tempMin: number | null; tempMax: number | null;
   rhMin: number | null; rhMax: number | null;

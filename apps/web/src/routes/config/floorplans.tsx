@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { RoomDoor, DoorWall, DoorKind } from '@/routes/dashboard/room-geometry';
+import { ROOM_GRADES, ROOM_GRADE_META } from '@/routes/dashboard/use-telemetry';
 
 /**
  * Place rooms on a floor layout and give each one its environmental limits.
@@ -31,6 +32,8 @@ interface Room {
   x: number; y: number; w: number; h: number;
   tempMin: number | null; tempMax: number | null;
   rhMin: number | null; rhMax: number | null;
+  /** Cleanroom classification, or NULL when nobody has classified the room. */
+  grade: string | null;
   doors: RoomDoor[] | null;
   instruments?: { id: string; code: string; name: string }[];
 }
@@ -140,6 +143,9 @@ export function FloorplansConfigPage() {
   const [draft, setDraft] = useState<Box | null>(null);
   const [form, setForm] = useState({
     code: '', label: '',
+    // '' is the wire's NULL: "Not classified" is a real, common answer here and
+    // must be selectable, not just the state before anyone touched the field.
+    grade: '',
     tempMin: '', tempMax: '', rhMin: '', rhMax: '',
     instrumentIds: [] as string[],
     doors: [] as RoomDoor[],
@@ -157,6 +163,7 @@ export function FloorplansConfigPage() {
     setForm({
       code: selectedRoom.code,
       label: selectedRoom.label ?? '',
+      grade: selectedRoom.grade ?? '',
       tempMin: selectedRoom.tempMin?.toString() ?? '',
       tempMax: selectedRoom.tempMax?.toString() ?? '',
       rhMin: selectedRoom.rhMin?.toString() ?? '',
@@ -241,7 +248,7 @@ export function FloorplansConfigPage() {
       if (!box || box.w < 0.005 || box.h < 0.005) return;
       setSelectedRoomId(null);
       setDraft(box);
-      setForm({ code: '', label: '', tempMin: '', tempMax: '', rhMin: '', rhMax: '', instrumentIds: [], doors: [] });
+      setForm({ code: '', label: '', grade: '', tempMin: '', tempMax: '', rhMin: '', rhMax: '', instrumentIds: [], doors: [] });
     }
   };
 
@@ -315,6 +322,7 @@ export function FloorplansConfigPage() {
     const body = {
       code: form.code.trim(),
       label: form.label.trim() || null,
+      grade: form.grade || null,
       x: draft.x, y: draft.y, w: draft.w, h: draft.h,
       tempMin: numOrNull(form.tempMin), tempMax: numOrNull(form.tempMax),
       rhMin: numOrNull(form.rhMin), rhMax: numOrNull(form.rhMax),
@@ -588,7 +596,7 @@ export function FloorplansConfigPage() {
             <CardTitle>{selectedRoom ? `Edit ${selectedRoom.code}` : 'New room'}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-3">
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700">Room code</label>
                 <Input
@@ -606,6 +614,24 @@ export function FloorplansConfigPage() {
                   placeholder="WET LAB"
                 />
                 <p className="mt-1 text-xs text-slate-500">Optional, shown beside the code.</p>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Cleanroom grade</label>
+                <select
+                  value={form.grade}
+                  onChange={(e) => setForm((f) => ({ ...f, grade: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                >
+                  <option value="">Not classified</option>
+                  {ROOM_GRADES.map((g) => (
+                    <option key={g} value={g}>
+                      {ROOM_GRADE_META[g].label} — {ROOM_GRADE_META[g].name}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-slate-500">
+                  Tints the room on the graphical view. Leave unclassified rather than guessing.
+                </p>
               </div>
             </div>
 
