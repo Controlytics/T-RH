@@ -98,10 +98,14 @@ npm run build -w @digilog/shared && npm run build -w @digilog/queue
 
 ## Default Login
 - **Username:** `superadmin`
-- **Password:** whatever `INITIAL_ADMIN_PASSWORD` was set to when the database
-  was seeded. **There is no default password in this repo, and there is no
-  forced change on first login.** This file said "`Admin@123` (forced change on
-  first login)" until 2026-08-24; both halves were false. Verified against
+- **Password:** on THIS machine it is `Admin@123` — verified 2026-08-24 by
+  POSTing it to `/api/auth/login`, which returned **409 SESSION_CONFLICT**
+  (credentials accepted; refused only because a session was already open).
+  `apps/api/scripts/demo-live-scenario.ts` hardcodes the same value.
+  **But it is not a repo default** — it is whatever `INITIAL_ADMIN_PASSWORD`
+  was set to when this database was seeded, and a fresh seed elsewhere will
+  have a different one. **There is NO forced change on first login**; that half
+  of the old line was simply wrong. Verified against
   `apps/api/prisma/seed.ts` (and the bundled `seed.mjs`, which matches):
   - `const defaultPassword = process.env.INITIAL_ADMIN_PASSWORD;` and, if it is
     unset, seeding **throws** — `FATAL: INITIAL_ADMIN_PASSWORD env var must be
