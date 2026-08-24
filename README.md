@@ -206,8 +206,8 @@ Each of these was checked, not assumed:
 - **No RFID.** No scanner app, no reader SDK, no keyboard-burst guard.
 - **No offline sync.** No IndexedDB usage anywhere in `apps/web/src`, no sync
   engine, no `lib/offline-replay-token.ts` — despite `apps/api/.env.example`
-  still carrying a comment about it. `OFFLINE_SYNC_ARCHITECTURE.md` at the repo
-  root describes something that is gone.
+  still carrying a comment about it. `docs/archive/OFFLINE_SYNC_ARCHITECTURE.md`
+  describes something that is gone.
 - **No filter / AHU / cleaning / PM domain.** Its modules, models, pages and
   vocabulary were removed (Phase 0 strip 2026-07-18, remainder 2026-08-20). The
   only surviving mention is a list of retired config keys in
@@ -234,8 +234,10 @@ Each of these was checked, not assumed:
 **Documents to distrust.** Several root-level docs were inherited from upstream
 DigiLog and describe a product this repo is not: `API_REFERENCE.md`,
 `PROJECT_SUMMARY.md`, `PROJECT_ARCHITECTURE.md`, `BACKEND_GUIDE.md`,
-`FRONTEND_GUIDE.md`, `OFFLINE_SYNC_ARCHITECTURE.md`, `PHASE_5_RECENT_WORK.md`,
-and much of `future/`. Most now carry an explicit drift warning at the top —
-read the warning before you read the document. Anything describing filters,
+`FRONTEND_GUIDE.md`, and much of `future/`. Each of those five now carries an
+explicit drift warning at the top — read the warning before you read the
+document. `docs/archive/` holds documents kept only as history
+(`OFFLINE_SYNC_ARCHITECTURE.md`, `PHASE_5_RECENT_WORK.md`); nothing in it
+describes the current system. Anything describing filters,
 AHUs, cleaning cycles, RFID, tablets or offline queues is upstream DigiLog, not
 this fork.
