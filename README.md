@@ -83,7 +83,7 @@ For end-to-end details, start with `PROJECT_SUMMARY.md` (overview), `PROJECT_ARC
 - **Block change request/approval** workflow with single-use consumption
 
 ### Phase 5 — April 15–29, 2026 (live on `RFID` branch)
-Detailed in `PHASE_5_RECENT_WORK.md`:
+Detailed in `docs/archive/PHASE_5_RECENT_WORK.md` (archived — describes the removed filter/RFID/reports domain):
 
 - ~~**Reports module — phases A–F**~~ — **REMOVED 2026-07-04** as dead code (the report generate/sign template designer + PDF engine was orphaned). The `reports`/`report-templates` modules, their 4 Prisma models, and the puppeteer-core/@napi-rs/canvas render stack are gone. The active `report-reviews` workflow + report-config (page titles / labels / signatories) chrome survive; cleaning-record and lifecycle PDF export remain.
 - **Offline hardening (14-issue overhaul)** — TTL cache, idempotency keys, tombstones, LRU eviction, JWT refresh on replay, server-side `stageLookup` walker for chained CHECKLIST nodes, Capacitor Network plugin + Service Worker hook
@@ -171,7 +171,7 @@ The vitest suite runs against a separate `digilog_test_db`.
 | `BACKEND_GUIDE.md` | Backend dev guide — module patterns, plugins, auth |
 | `FRONTEND_GUIDE.md` | Frontend dev guide — routes, hooks, state |
 | `OFFLINE_SYNC_ARCHITECTURE.md` | Tablet APK + offline IndexedDB queue + sync engine |
-| `PHASE_5_RECENT_WORK.md` | Post-Phase-4 architecture changes (Apr 15–29) — reports, offline hardening, RFID SDK, decision tape |
+| `docs/archive/PHASE_5_RECENT_WORK.md` | Archived — Post-Phase-4 architecture changes (Apr 15–29) for the now-removed filter/RFID/reports domain; historical only |
 | `CHANGELOG.md` | Full chronological history |
 | `future/README.md` | Onboarding pack — overview + reading order |
 | `future/overview/CODEBASE_SUMMARY.md` | Most-comprehensive single-file tech stack with version pins (React 19 / Vite 6 / Fastify 5 / Prisma 6 / Capacitor 8 / `jose` / `ldapts`), feature areas verified by directory inspection, "How to find things" cookbook |

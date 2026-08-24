@@ -27,6 +27,23 @@ function assertSafeIdentifier(name: string): void {
 // ---------------------------------------------------------------------------
 // Dynamic table discovery
 // ---------------------------------------------------------------------------
+//
+// Why this is discovered from the catalog instead of a hardcoded table list
+// (rescued from the now-archived `PHASE_5_RECENT_WORK.md` § 6, the only place
+// that recorded the rationale — the original design listed every table by
+// name with hand-written JOIN code, and a new Prisma model was silently
+// missing from every backup until someone remembered to add it):
+//   - `pg_tables` enumerates every table in `public` at call time, so a new
+//     model is covered automatically the moment its migration runs — no
+//     backup-module edit needed.
+//   - `jsonb_populate_recordset` (see `insertRows` / `fixupSelfRefs` below)
+//     round-trips rows generically through each column's own text-input
+//     type coercion (uuid, timestamptz, enum, jsonb, arrays, …), so restore
+//     never needs per-table column lists either.
+//   - Together this means adding a model is a zero-touch change for backup/
+//     restore, and it works without superuser (`pg_dump` needs a shell-out
+//     and broader DB privileges; this is plain SQL over the app's own
+//     connection).
 
 /** Tables that should not be backed up/restored (Prisma internals, etc.) */
 const EXCLUDED_TABLES = new Set(['_prisma_migrations']);

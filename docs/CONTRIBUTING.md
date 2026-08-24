@@ -24,7 +24,7 @@ For every kind of code change, update every doc in the right column **in the sam
 | **New endpoint** in existing module | `BACKEND_GUIDE.md` endpoint count, `future/backend/MODULES.md`, `future/backend/API_ENDPOINTS.md`, `future/overview/API_LIST.md` |
 | **New backend `lib/` helper** | `BACKEND_GUIDE.md` libs table, `future/backend/README.md` libs table, `PROJECT_ARCHITECTURE.md` apps/api map |
 | **New plugin / transport / worker** | `BACKEND_GUIDE.md` corresponding table, `future/backend/README.md` corresponding section, `PROJECT_ARCHITECTURE.md` |
-| **New `config/static-routes/<surface>.routes.ts`** | `BACKEND_GUIDE.md` static-routes list, `PHASE_5_RECENT_WORK.md` § 9 |
+| **New `config/static-routes/<surface>.routes.ts`** | `BACKEND_GUIDE.md` static-routes list, `docs/archive/PHASE_5_RECENT_WORK.md` § 9 |
 | **`PUBLIC_GET_PATHS` change** in `plugins/auth.ts` | `BACKEND_GUIDE.md`, `future/backend/README.md` "Public paths" |
 | **New `requireAnyPermission` / `enforceReauth` usage** | `BACKEND_GUIDE.md` rbac plugin entry, `future/backend/README.md` rbac entry |
 | ~~**New rule-chain node** in `nodes/<category>.ts`~~ | *(removed 2026-05-17 — rule-chain subsystem torn out; N/A)* |
@@ -89,10 +89,10 @@ Plus: write an e2e test, append to `CHANGELOG.md`, and update count claims in CL
 
 | Code change | Docs to update |
 |---|---|
-| **New native Java plugin** in `apps/android/.../java/` | `PROJECT_ARCHITECTURE.md` Android tree, `OFFLINE_SYNC_ARCHITECTURE.md` if it touches sync, `PHASE_5_RECENT_WORK.md` § 3 |
-| **`Reader_Usb.jar` SDK update** | `PROJECT_ARCHITECTURE.md`, `PHASE_5_RECENT_WORK.md`, `README.md` Phase 3/5 RFID line |
+| **New native Java plugin** in `apps/android/.../java/` | `PROJECT_ARCHITECTURE.md` Android tree, `OFFLINE_SYNC_ARCHITECTURE.md` if it touches sync, `docs/archive/PHASE_5_RECENT_WORK.md` § 3 |
+| **`Reader_Usb.jar` SDK update** | `PROJECT_ARCHITECTURE.md`, `docs/archive/PHASE_5_RECENT_WORK.md`, `README.md` Phase 3/5 RFID line |
 | **Capacitor plugin add** in `apps/android/package.json` | `future/overview/CODEBASE_SUMMARY.md` Android section, `OFFLINE_SYNC_ARCHITECTURE.md` if it changes connectivity |
-| **Change to `offline-store`, `sync-engine`, `offline-sync-service`, `connectivity.ts`, `idempotency.ts`** | `OFFLINE_SYNC_ARCHITECTURE.md`, `future/frontend/README.md` Offline section, `FRONTEND_GUIDE.md` libs, `PHASE_5_RECENT_WORK.md` § 2 + § 9 |
+| **Change to `offline-store`, `sync-engine`, `offline-sync-service`, `connectivity.ts`, `idempotency.ts`** | `OFFLINE_SYNC_ARCHITECTURE.md`, `future/frontend/README.md` Offline section, `FRONTEND_GUIDE.md` libs, `docs/archive/PHASE_5_RECENT_WORK.md` § 2 + § 9 |
 | **New `x-*` header convention** | `OFFLINE_SYNC_ARCHITECTURE.md`, `future/backend/API_ENDPOINTS.md` "Header conventions" |
 
 ### Tests / infra / deployment
@@ -141,7 +141,7 @@ Lesson: don't trust folder names like `old/` or `future/` to mean "obsolete". Re
 3. `future/overview/CURRENT_STATUS.md` — KNOWN GOTCHAS taxonomy
 4. Role-specific subfolder of `future/` (`backend/`, `frontend/`, `qa/`, `testing/`)
 5. Root deep-dives (`BACKEND_GUIDE.md`, `FRONTEND_GUIDE.md`, `OFFLINE_SYNC_ARCHITECTURE.md`)
-6. `PHASE_5_RECENT_WORK.md` for the most recent architecture decisions
+6. `docs/archive/PHASE_5_RECENT_WORK.md` — archived; historical architecture decisions for the removed filter/RFID/reports domain only, not current
 7. `tasks/todo.md` for the audit-pass receipts (only if you're debugging documentation drift)
 
 The pack under `future/` is one abstraction level higher than the root `*_GUIDE.md` files — it tells you where to look, not how every detail works.

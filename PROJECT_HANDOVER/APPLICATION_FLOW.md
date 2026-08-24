@@ -8,7 +8,7 @@
 > - **Section 18 ("Permissions, 95 / 82 / 69")** is a release-time snapshot of Phase 4. Current totals are **102 permissions / 83 feature toggles / 92 reauth actions** — verified by `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts` etc.
 > - **Section 21 (Operations table)** mentions Memurai/EMQX/Nginx/PM2 — **all removed**. Redis/Memurai (2026-05-01), MQTT/EMQX/Mosquitto + TimescaleDB (2026-06), and Nginx + PM2 (Phase 4) are gone; the current stack is PostgreSQL 18 (single `digilog_db`) + one Node process, deployed via the `DigiLog-Setup.exe` installer (registers `DigiLogDB` + `DigiLogAPI` Windows services). See `docs/PHARMA_DEPLOYMENT_21CFR.md`.
 >
-> For the current architecture refer to root `PROJECT_ARCHITECTURE.md`, `BACKEND_GUIDE.md`, `docs/PHARMA_DEPLOYMENT_21CFR.md`, and `PHASE_5_RECENT_WORK.md` § 12.
+> For the current architecture refer to root `PROJECT_ARCHITECTURE.md`, `BACKEND_GUIDE.md`, `docs/PHARMA_DEPLOYMENT_21CFR.md`, and `docs/archive/PHASE_5_RECENT_WORK.md` § 12 (archived).
 
 ---
 

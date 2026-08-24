@@ -49,6 +49,19 @@ node apps/api/dist/app.js
 - Input sanitization: `lib/sanitize.ts` (HTML stripping on all text inputs)
 - JWT auth with 30-min refresh, session management, re-auth for sensitive ops
 - Permission-based RBAC via `requirePermission()` on all protected routes
+- **`app.requireAnyPermission(...perms)`** (`plugins/rbac.ts`) — sibling decorator to
+  `requirePermission()` for a route that can be satisfied by either of two permission
+  families (e.g. a broad `CONFIG_UPDATE` or a narrower per-feature toggle). It shares
+  the exact same `hasEffectivePermission()` fallback rules (`*_VIEW <- *_READ`,
+  `*_<suffix> <- *_MANAGE`) as `requirePermission`, so the two decorators can't drift
+  on what a role is allowed — live users today: `admin-requests`, `backup`, `uploads`.
+  `enforceReauth(action, req, reply)` (`lib/reauth-check.ts`) pairs with it: it accepts
+  `string | string[]` and fires reauth if the role requires it for **any** of the
+  listed actions, for the same "one route serves multiple logical actions" case.
+  (This pattern predates the filter-domain removal — the original 04-18 use case,
+  documented in the now-archived `PHASE_5_RECENT_WORK.md` § 9, gated
+  equipment-groups/checklist-profiles/PM/filter-ops permission-family fallbacks that
+  no longer exist — but the decorator and its rationale are unchanged and current.)
 
 ## ⚠️ 33 API Modules — ENTIRELY STALE, kept as history only (re-verified 2026-08-24)
 

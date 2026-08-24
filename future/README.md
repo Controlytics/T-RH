@@ -39,7 +39,7 @@ These are still accurate and authoritative; existing tooling links into them:
 - `README.md` — quick-start
 - `CHANGELOG.md` — version history (up to `[2.5.0]` 2026-04-25)
 - `API_REFERENCE.md`, `BACKEND_GUIDE.md`, `FRONTEND_GUIDE.md`, `OFFLINE_SYNC_ARCHITECTURE.md`, `PROJECT_ARCHITECTURE.md`, `PROJECT_SUMMARY.md`
-- `PHASE_5_RECENT_WORK.md` — post-Phase-4 work (Apr 15–29: reports, offline hardening, RFID SDK plugin, Filter Data Mgmt console, decision-tape proposal)
+- `docs/archive/PHASE_5_RECENT_WORK.md` — archived; post-Phase-4 work (Apr 15–29: reports, offline hardening, RFID SDK plugin, Filter Data Mgmt console, decision-tape proposal) for the now-removed filter/RFID/reports domain
 - `DEPLOY-WINDOWS.md`, `LOCAL_SETUP_WINDOWS.md`
 - `PROJECT_HANDOVER/APPLICATION_FLOW.md` — handover doc with 14 Mermaid diagrams
 
@@ -49,7 +49,7 @@ The pack under `future/` complements those — it's written one abstraction leve
 
 `old/` retains the audit-trail material:
 
-- `old/docs-superseded/superpowers-{plans,specs}/` — completed feature design specs (block-change, PM tasks, reports, DRY_IN) referenced from `PHASE_5_RECENT_WORK § 10`
+- `old/docs-superseded/superpowers-{plans,specs}/` — completed feature design specs (block-change, PM tasks, reports, DRY_IN) referenced from `docs/archive/PHASE_5_RECENT_WORK.md § 10`
 - `old/docs-superseded/{ARCHITECTURE.md, bloat.md, offline-sync-design.md}` — historical reference
 - `old/{apks, db-backups, playwright-artifacts, reports-specs, screenshots}/` — point-in-time binary artifacts
 

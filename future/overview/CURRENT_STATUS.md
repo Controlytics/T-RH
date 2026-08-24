@@ -153,5 +153,5 @@
 - `future/backend/README.md` — backend module-by-module walkthrough
 - `future/frontend/README.md` — frontend patterns (offline, permissions, themes)
 - `future/qa/FEATURE_CHECKLIST.md` — what to verify, with how-to-verify steps
-- Root `PHASE_5_RECENT_WORK.md` — full architectural breakdown of 2026-04-15..29 work
+- `docs/archive/PHASE_5_RECENT_WORK.md` — archived; full architectural breakdown of 2026-04-15..29 work for the now-removed filter/RFID/reports domain
 - Root `CHANGELOG.md` — release history through `[2.5.0]` 2026-04-25

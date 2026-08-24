@@ -276,7 +276,11 @@ points: tags `pre-domain-strip` and `pre-filter-domain-strip`.
 **Hard rule:** every numerical claim in any doc must be backed by a `grep`/`ls` against live code at the moment the doc is touched. Don't trust prior docs — verify.
 
 **Active doc set** (kept current together):
-- Root: `README`, `CLAUDE`, `AGENTS`, `CHANGELOG`, `PROJECT_SUMMARY`, `PROJECT_ARCHITECTURE`, `API_REFERENCE`, `BACKEND_GUIDE`, `FRONTEND_GUIDE`, `OFFLINE_SYNC_ARCHITECTURE`, `PHASE_5_RECENT_WORK`, `DEPLOY-WINDOWS`, `LOCAL_SETUP_WINDOWS`, `windowsIssues`
+- Root: `README`, `CLAUDE`, `AGENTS`, `CHANGELOG`, `PROJECT_SUMMARY`, `PROJECT_ARCHITECTURE`, `API_REFERENCE`, `BACKEND_GUIDE`, `FRONTEND_GUIDE`, `OFFLINE_SYNC_ARCHITECTURE`, `DEPLOY-WINDOWS`, `LOCAL_SETUP_WINDOWS`, `windowsIssues`
+  (`PHASE_5_RECENT_WORK.md` moved to `docs/archive/PHASE_5_RECENT_WORK.md` — it described
+  the removed filter/RFID/reports domain end to end; its three still-useful lessons were
+  extracted into `apps/api/src/modules/backup/backup.repository.ts`, `apps/api/CLAUDE.md`,
+  and this file's "Never" section before the move)
 - Per-package: `apps/{api,web}/{CLAUDE,DECISIONS}.md`, `packages/shared/CLAUDE.md`
 - Reference: `docs/`, `future/`, `tasks/todo.md`, `PROJECT_HANDOVER/`
 
@@ -298,7 +302,7 @@ grep -cE "<Route"                               apps/web/src/main.tsx
 
 **Stale-stat sweep:** when changing any count, generate a regex from the *previous* numbers and grep across the active doc set; every match needs an update. Don't bake hardcoded numbers into the regex — derive them on the spot from the System Stats above.
 
-**Always-update on any feature change:** `CHANGELOG.md`, `PHASE_5_RECENT_WORK.md` § 11 if closing an open gap, memory after corrections, `tasks/todo.md` audit-log entry for non-trivial doc work.
+**Always-update on any feature change:** `CHANGELOG.md`, memory after corrections, `tasks/todo.md` audit-log entry for non-trivial doc work.
 
 **Pre-deletion:** read each file's actual content for unique knowledge before deleting; when in doubt, restore. Receipts in `docs/CONTRIBUTING.md`.
 
@@ -316,6 +320,19 @@ and explain — don't silently comply with a rule that's misfiring.
   rewriting git history).
 - State assumptions explicitly in your response so I can correct them.
 -while testing front end check for unlined Ui elements and consle logs that return unexpceted responses
+- Never reconstruct server-side decision logic in the client. This fork's
+  offline-cache rewrite (rescued from the now-archived `PHASE_5_RECENT_WORK.md`)
+  hit this the hard way: the client walked the pipeline-state graph itself to
+  figure out "what's next" and missed chained nodes the server would have
+  caught, causing drift bugs between what the UI showed and what the server
+  actually allowed. The fix was to cache the server's own response verbatim
+  and replay it, never re-derive it. The current codebase follows the same
+  principle deliberately — e.g. instrument display-decimal precision and
+  attribute-edit permission are resolved once server-side
+  (`@digilog/shared/telemetry-decimals`, `modules/instruments/attribute-access.ts`)
+  and ride on the API payload; nothing in the browser re-derives either. If a
+  UI needs a policy decision (what's allowed, what's next, how to format a
+  §11 record), fetch or cache the server's answer — don't recompute it.
 
 ## Correctness
 - before editing the code fnd and list all the touch point this code change will effect, after code change, test all touch points, if you find a bug, fix it even if it not in your scope, only then consider the task done.
