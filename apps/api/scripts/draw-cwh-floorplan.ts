@@ -101,15 +101,44 @@ function doorFor(r: Rect): Door[] {
   return [{ wall: r.w >= r.h ? 'bottom' : 'right', offset: 0.38, width: 0.2, kind: 'ENTRY' }];
 }
 
+/**
+ * The plan's canvas shape, from how many rooms it holds.
+ *
+ * Room coordinates are normalized 0..1 against the plan, and the dashboard
+ * renders every plan at the same width — so a plan with 8 rooms drew them at
+ * four times the size of a plan with 33. Making the canvas TALLER as the room
+ * count grows keeps a room roughly the same size on screen whichever area you
+ * are looking at, which is what makes the set read as one building rather than
+ * as drawings at different zooms.
+ *
+ * Clamped so a very sparse area does not become a letterbox strip.
+ */
+function canvasFor(roomCount: number): { width: number; height: number } {
+  const WIDTH = 1600;
+  const ratio = Math.max(0.34, Math.min(1.30, roomCount / 24));
+  return { width: WIDTH, height: Math.round(WIDTH * ratio) };
+}
+
 function stem(area: string): string {
   return area.replace(/[^A-Za-z0-9]+/g, ' ').trim().split(' ')
     .map((w) => w.slice(0, 3).toUpperCase()).join('-').slice(0, 20);
 }
 
-function makeCode(area: string, n: number, used: Set<string>): string {
-  let code = `${stem(area)}/${String(n).padStart(2, '0')}`;
-  let i = 1;
-  while (used.has(code)) code = `${stem(area)}/${String(n).padStart(2, '0')}-${i++}`;
+/**
+ * A room is identified by its REAL NAME, not a generated serial.
+ *
+ * Codes like "STA/01" carried no information: they were an artefact of the
+ * generator, and on the drawing they took the prominent bold line while the
+ * actual room name sat underneath in smaller type. The room code column is
+ * VarChar(60), so a long location is truncated here and the untruncated name
+ * stays on the label; a numeric suffix is added ONLY when truncation would
+ * otherwise collide with another room on the same plan.
+ */
+function makeCode(name: string, _n: number, used: Set<string>): string {
+  const base = name.replace(/\s+/g, ' ').trim().slice(0, 60) || 'ROOM';
+  let code = base;
+  let i = 2;
+  while (used.has(code)) code = `${base.slice(0, 56)} (${i++})`;
   used.add(code);
   return code;
 }
@@ -225,11 +254,11 @@ function buildingLayout(
   const corridorRows: Rect[] = [];
 
   out.push({
-    code: makeCode(areaName, 90 + corridorN++, used), label: 'SERVICE CORRIDOR',
+    code: makeCode('SERVICE CORRIDOR', 0, used), label: null,
     grade: 'CIRCULATION', rect: { x: left, y: top, w: SPINE, h: bottom - top }, instruments: [],
   });
   out.push({
-    code: makeCode(areaName, 90 + corridorN++, used), label: 'SERVICE CORRIDOR',
+    code: makeCode('SERVICE CORRIDOR', 0, used), label: null,
     grade: 'CIRCULATION', rect: { x: bodyR, y: top, w: SPINE, h: bottom - top }, instruments: [],
   });
 
@@ -254,8 +283,10 @@ function buildingLayout(
           : Math.abs(rect.x + rect.w - bodyR) < 1e-9 ? 'right'
             : b < bands - 1 ? 'bottom' : 'top';
       out.push({
-        code: makeCode(areaName, out.length, used),
-        label: label.slice(0, 120),
+        code: makeCode(label, 0, used),
+        // The code already IS the name; a label repeating it would print the
+        // same words twice in two sizes.
+        label: null,
         grade: gradeOf(ids),
         rect,
         instruments: ids,
@@ -269,8 +300,8 @@ function buildingLayout(
   }
   for (const rect of corridorRows) {
     out.push({
-      code: makeCode(areaName, 80 + corridorN++, used),
-      label: `CORRIDOR-${corridorN}`, grade: 'CIRCULATION', rect, instruments: [],
+      code: makeCode('CORRIDOR', 0, used), label: null,
+      grade: 'CIRCULATION', rect, instruments: [],
     });
   }
   return out;
@@ -285,7 +316,7 @@ function doorTowardCorridorLocal(cell: Cell, corridorRows: Set<number>): Door[] 
   return [{ wall: 'bottom', offset: 0.36, width: 0.22, kind }];
 }
 
-interface RoomSpec { code: string; label: string; grade: Grade; rect: Rect; instruments: string[]; door?: Door[] }
+interface RoomSpec { code: string; label: string | null; grade: Grade; rect: Rect; instruments: string[]; door?: Door[] }
 
 /** Replace a plan's rooms wholesale, audited, and place its instruments. */
 async function drawPlan(planId: string, planName: string, rooms: RoomSpec[]): Promise<number> {
@@ -389,7 +420,8 @@ async function main() {
   for (let idx = 0; idx < areaList.length; idx++) {
     const area = areaList[idx];
     const planName = `CWH — ${area.name}`;
-    let plan = await prisma.floorplan.findFirst({ where: { name: planName }, select: { id: true } });
+    const shape = canvasFor(area.locs.length);
+    let plan = await prisma.floorplan.findFirst({ where: { name: planName }, select: { id: true, imageWidth: true, imageHeight: true } });
     if (!plan) {
       plan = await prisma.floorplan.create({
         data: {
@@ -398,12 +430,20 @@ async function main() {
           // tracing guide in the editor. Reusing the block's own scan is honest
           // — it is the same building — and avoids inventing a second asset.
           imagePath: overview.imagePath,
-          imageWidth: overview.imageWidth, imageHeight: overview.imageHeight,
+          imageWidth: shape.width, imageHeight: shape.height,
           sortOrder: idx + 1, createdBy: ACTOR, updatedBy: ACTOR,
         },
-        select: { id: true },
+        select: { id: true, imageWidth: true, imageHeight: true },
       });
-      console.log(`created plan "${planName}"`);
+      console.log(`created plan "${planName}" ${shape.width}x${shape.height}`);
+    } else if (plan.imageWidth !== shape.width || plan.imageHeight !== shape.height) {
+      // An existing plan keeps its rooms but must adopt the corrected shape,
+      // or it goes on rendering at the old zoom.
+      await prisma.floorplan.update({
+        where: { id: plan.id },
+        data: { imageWidth: shape.width, imageHeight: shape.height, updatedBy: ACTOR },
+      });
+      console.log(`reshaped "${planName}" -> ${shape.width}x${shape.height}`);
     }
 
     const grade = gradeForArea(area.name);
@@ -422,15 +462,46 @@ async function main() {
   }
 
   // ── The overview: one room per area, no instruments ────────────────────
+  //
+  // Areas are sized by INSTRUMENT count, not room count, so an area with few
+  // sensors does not occupy the same space as a dense one.
+  //
+  // They tessellate EXACTLY — no inset. Insetting each block used to leave a
+  // channel of blank space between areas that nothing filled; on a floor plan
+  // an unexplained void reads as a hole, not as circulation. Circulation is now
+  // drawn explicitly as a perimeter ring, and the areas fill everything inside
+  // it edge to edge.
   const usedOverview = new Set<string>();
-  const areaRects = partition(canvas, areaList, (a) => a.locs.length);
-  const overviewRooms: RoomSpec[] = areaRects.map(({ item: area, rect }) => ({
-    code: makeCode(area.name, 0, usedOverview),
-    label: `${area.name} — ${area.locs.length} rooms`,
-    grade: gradeForArea(area.name),
-    rect: inset(rect, 0.0045),
-    instruments: [],
-  }));
+  const RING = 0.032;
+  const inner: Rect = {
+    x: canvas.x + RING, y: canvas.y + RING,
+    w: canvas.w - RING * 2, h: canvas.h - RING * 2,
+  };
+
+  const overviewRooms: RoomSpec[] = [
+    { code: makeCode('CORRIDOR — NORTH', 0, usedOverview), label: null, grade: 'CIRCULATION',
+      rect: { x: canvas.x, y: canvas.y, w: canvas.w, h: RING }, instruments: [] },
+    { code: makeCode('CORRIDOR — SOUTH', 0, usedOverview), label: null, grade: 'CIRCULATION',
+      rect: { x: canvas.x, y: inner.y + inner.h, w: canvas.w, h: RING }, instruments: [] },
+    { code: makeCode('CORRIDOR — WEST', 0, usedOverview), label: null, grade: 'CIRCULATION',
+      rect: { x: canvas.x, y: inner.y, w: RING, h: inner.h }, instruments: [] },
+    { code: makeCode('CORRIDOR — EAST', 0, usedOverview), label: null, grade: 'CIRCULATION',
+      rect: { x: inner.x + inner.w, y: inner.y, w: RING, h: inner.h }, instruments: [] },
+  ];
+
+  const areaRects = partition(inner, areaList, (a) =>
+    a.locs.reduce((n, [, ids]) => n + ids.length, 0));
+  for (const { item: area, rect } of areaRects) {
+    const instrumentCount = area.locs.reduce((n, [, ids]) => n + ids.length, 0);
+    overviewRooms.push({
+      code: makeCode(area.name, 0, usedOverview),
+      label: `${instrumentCount} instruments`,
+      grade: gradeForArea(area.name),
+      rect,
+      instruments: [],
+      door: [{ wall: 'bottom', offset: 0.4, width: 0.18, kind: 'PASSAGE' }],
+    });
+  }
   await drawPlan(overview.id, OVERVIEW_PLAN, overviewRooms);
   console.log(`  ${OVERVIEW_PLAN.padEnd(28)} rooms=${overviewRooms.length} placed=0 (overview — see the header note)`);
 
