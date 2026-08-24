@@ -8,6 +8,7 @@ import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import type { RoomDoor, DoorWall, DoorKind } from '@/routes/dashboard/room-geometry';
 
 /**
  * Place rooms on a floor layout and give each one its environmental limits.
@@ -30,6 +31,7 @@ interface Room {
   x: number; y: number; w: number; h: number;
   tempMin: number | null; tempMax: number | null;
   rhMin: number | null; rhMax: number | null;
+  doors: RoomDoor[] | null;
   instruments?: { id: string; code: string; name: string }[];
 }
 
@@ -140,6 +142,7 @@ export function FloorplansConfigPage() {
     code: '', label: '',
     tempMin: '', tempMax: '', rhMin: '', rhMax: '',
     instrumentIds: [] as string[],
+    doors: [] as RoomDoor[],
   });
   const [saving, setSaving] = useState(false);
   /** How strongly the plan image shows through while tracing. */
@@ -159,6 +162,7 @@ export function FloorplansConfigPage() {
       rhMin: selectedRoom.rhMin?.toString() ?? '',
       rhMax: selectedRoom.rhMax?.toString() ?? '',
       instrumentIds: assigned.map((i) => i.id),
+      doors: selectedRoom.doors ?? [],
     });
     setDraft({ x: selectedRoom.x, y: selectedRoom.y, w: selectedRoom.w, h: selectedRoom.h });
   }, [selectedRoomId, plan, planDetail]);
@@ -237,7 +241,7 @@ export function FloorplansConfigPage() {
       if (!box || box.w < 0.005 || box.h < 0.005) return;
       setSelectedRoomId(null);
       setDraft(box);
-      setForm({ code: '', label: '', tempMin: '', tempMax: '', rhMin: '', rhMax: '', instrumentIds: [] });
+      setForm({ code: '', label: '', tempMin: '', tempMax: '', rhMin: '', rhMax: '', instrumentIds: [], doors: [] });
     }
   };
 
@@ -277,6 +281,29 @@ export function FloorplansConfigPage() {
     }
   };
 
+  // ── Doors ────────────────────────────────────────────────────────────────
+  const DOOR_WIDTH = 0.12;
+
+  /** Place a door centred on the click, clamped so it finishes on its wall. */
+  const addDoor = (wall: DoorWall, t: number) => {
+    if (form.doors.length >= 6) {
+      toast.error('Too many doors', 'A room can carry at most six doors.');
+      return;
+    }
+    const offset = Math.min(Math.max(t - DOOR_WIDTH / 2, 0), 1 - DOOR_WIDTH);
+    const next: RoomDoor = { wall, offset, width: DOOR_WIDTH, kind: 'ENTRY' };
+    // The server rejects overlaps; refusing here means the operator finds out on
+    // the click rather than on the save, with the room already half-edited.
+    const clash = form.doors.some(
+      (d) => d.wall === wall && offset < d.offset + d.width && d.offset < offset + DOOR_WIDTH,
+    );
+    if (clash) {
+      toast.error('Doors overlap', 'There is already a door here. Move or delete it first.');
+      return;
+    }
+    setForm((f) => ({ ...f, doors: [...f.doors, next] }));
+  };
+
   // ── Save / delete ────────────────────────────────────────────────────────
   const saveRoom = () => {
     if (!plan || !draft) return;
@@ -291,6 +318,7 @@ export function FloorplansConfigPage() {
       x: draft.x, y: draft.y, w: draft.w, h: draft.h,
       tempMin: numOrNull(form.tempMin), tempMax: numOrNull(form.tempMax),
       rhMin: numOrNull(form.rhMin), rhMax: numOrNull(form.rhMax),
+      doors: form.doors.length > 0 ? form.doors : null,
     };
 
     setSaving(true);
@@ -477,6 +505,47 @@ export function FloorplansConfigPage() {
                         style={{ cursor: 'nwse-resize' }}
                       />
                     )}
+
+                    {isSelected && (['top', 'right', 'bottom', 'left'] as DoorWall[]).map((wall) => {
+                      const vertical = wall === 'left' || wall === 'right';
+                      return (
+                        <span
+                          key={wall}
+                          title={`Add a door on the ${wall} wall`}
+                          onPointerDown={(e) => {
+                            // Stop the room's own move-drag: placing a door must
+                            // not also nudge the room out from under the pointer.
+                            e.stopPropagation();
+                            const rect = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect();
+                            const t = vertical
+                              ? (e.clientY - rect.top) / rect.height
+                              : (e.clientX - rect.left) / rect.width;
+                            addDoor(wall, t);
+                          }}
+                          className="absolute bg-sky-500/0 hover:bg-sky-500/40"
+                          style={
+                            vertical
+                              ? { top: 0, bottom: 0, width: 8, [wall]: -4, cursor: 'copy' }
+                              : { left: 0, right: 0, height: 8, [wall]: -4, cursor: 'copy' }
+                          }
+                        />
+                      );
+                    })}
+
+                    {isSelected && form.doors.map((d, i) => {
+                      const vertical = d.wall === 'left' || d.wall === 'right';
+                      return (
+                        <span
+                          key={`${d.wall}-${i}`}
+                          className="absolute bg-sky-600"
+                          style={
+                            vertical
+                              ? { [d.wall]: -2, top: `${d.offset * 100}%`, height: `${d.width * 100}%`, width: 4 }
+                              : { [d.wall]: -2, left: `${d.offset * 100}%`, width: `${d.width * 100}%`, height: 4 }
+                          }
+                        />
+                      );
+                    })}
                   </div>
                 );
               })}
@@ -563,6 +632,45 @@ export function FloorplansConfigPage() {
                   </div>
                 ))}
               </div>
+            </div>
+
+            <div className="sm:col-span-2">
+              <p className="mb-1 text-xs font-semibold text-slate-700">Doors</p>
+              {form.doors.length === 0 ? (
+                <p className="text-xs text-slate-500">
+                  Click a wall of the selected room to place a door.
+                </p>
+              ) : (
+                <ul className="space-y-1">
+                  {form.doors.map((d, i) => (
+                    <li key={`${d.wall}-${i}`} className="flex items-center gap-2 text-xs text-slate-600">
+                      <span className="w-14 font-medium capitalize">{d.wall}</span>
+                      <select
+                        value={d.kind}
+                        onChange={(e) => {
+                          const kind = e.target.value as DoorKind;
+                          setForm((f) => ({
+                            ...f,
+                            doors: f.doors.map((door, ix) => (ix === i ? { ...door, kind } : door)),
+                          }));
+                        }}
+                        className="rounded border border-slate-200 px-1.5 py-1"
+                      >
+                        <option value="ENTRY">Entry</option>
+                        <option value="EXIT">Exit</option>
+                        <option value="PASSAGE">Passage</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => setForm((f) => ({ ...f, doors: f.doors.filter((_, ix) => ix !== i) }))}
+                        className="text-red-600 hover:underline"
+                      >
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
 
             <div>
