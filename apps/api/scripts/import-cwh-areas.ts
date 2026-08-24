@@ -45,12 +45,25 @@ function decodeEntities(s: string): string {
 
 const clean = (s: string) => decodeEntities(String(s ?? '')).replace(/\s+/g, ' ').trim();
 
+/**
+ * Area names carrying an AHU qualifier — "Module-F(AHU-046)",
+ * "Module-F(AHU-046,AHU-047)" — collapse to their base area. Operator decision
+ * 2026-08-24: those are one area, not eight. Nothing is lost by it: the FULL
+ * spreadsheet value stays on each instrument's `Area` attribute, so which AHU
+ * serves a given room is still answerable; only the functional-location tree
+ * is simplified.
+ */
+function normaliseArea(name: string): string {
+  const base = name.replace(/\s*\(.*\)\s*$/, '').trim();
+  return base || name;
+}
+
 async function main() {
   const { rows } = JSON.parse(readFileSync(SHEET_JSON, 'utf8')) as { rows: SheetRow[] };
 
   const byArea = new Map<string, string[]>();
   for (const r of rows) {
-    const area = clean(r.Area);
+    const area = normaliseArea(clean(r.Area));
     const code = String(r.name ?? '').trim();
     if (!area || !code) continue;
     const list = byArea.get(area);
@@ -158,6 +171,30 @@ async function main() {
     }
     console.log(`  ${area.padEnd(28)} ${existing ? 'existing' : 'created '}  linked=${toLink.length}/${codes.length}`);
   }
+
+  // The Module-F merge strands the areas an earlier run created for each AHU
+  // qualifier. An AREA with no instruments and no children is dead structure:
+  // it clutters every location picker and every scope screen while meaning
+  // nothing. Removed here, audited — the AHU value itself survives on each
+  // instrument's `Area` attribute, so nothing is actually lost.
+  const stranded = await prisma.functionalLocation.findMany({
+    where: { parentId: blockId, type: 'AREA', instruments: { none: {} }, children: { none: {} } },
+    select: { id: true, name: true },
+  });
+  for (const dead of stranded) {
+    await prisma.$transaction(async (tx) => {
+      await tx.functionalLocation.delete({ where: { id: dead.id } });
+      await auditLog({
+        action: 'FUNCTIONAL_LOCATION_DELETED', targetType: 'FunctionalLocation', targetId: dead.id,
+        beforeValue: { name: dead.name, type: 'AREA', parent: BLOCK_NAME },
+        reason: REASON + ' Area left empty by the Module-F merge; the AHU qualifier survives on each instrument Area attribute.',
+        signatureMeaning: `Empty functional location area "${dead.name}" removed after the Module-F merge`,
+        userId: ACTOR, userRole: 'SUPER_ADMIN',
+        ipAddress: '127.0.0.1', userAgent: 'scripts/import-cwh-areas.ts', sessionId: null,
+      }, tx);
+    });
+  }
+  if (stranded.length) console.log(`removed ${stranded.length} empty area(s): ${stranded.map((s) => s.name).join(', ')}`);
 
   console.log(`\nareas created: ${createdAreas}   instruments linked: ${linked}`);
   if (missing.length) console.log(`NOT FOUND in the registry (${missing.length}): ${missing.slice(0, 10).join(', ')}${missing.length > 10 ? '…' : ''}`);

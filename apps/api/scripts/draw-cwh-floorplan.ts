@@ -38,6 +38,18 @@ import { prisma } from '../src/lib/prisma.js';
 import { auditLog } from '../src/lib/audit.js';
 import { Prisma } from '@prisma/client';
 
+/**
+ * Deterministic [0,1) from a string. Layout randomness comes from the room's
+ * own name, never `Math.random()`: a plan that reshuffles on every run is
+ * useless as a reference, and the operator has to be able to re-run this
+ * without the floor moving under them.
+ */
+function hash01(seed: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) { h ^= seed.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return ((h >>> 0) % 10000) / 10000;
+}
+
 const APPLY = process.argv.includes('--apply');
 const ACTOR = 'superadmin';
 const OVERVIEW_PLAN = 'CWH - 3rd Floor';
@@ -128,73 +140,149 @@ function jitter(seed: string): number {
  * width — the last room absorbs the rounding, so no hairline gap can open at
  * the right-hand wall.
  */
+/**
+ * Recursively cut a rectangle into `n` rooms by GUILLOTINE SPLITS.
+ *
+ * Every cut runs edge to edge, so the pieces tessellate by construction — no
+ * cell grid, no leftovers, no mop-up pass. Crucially the split point is varied
+ * from a hash rather than taken as k/n, which is what gives rooms genuinely
+ * different sizes in BOTH dimensions: a wide short room beside a narrow tall
+ * one, small rooms stacked where a big one sits opposite. An even split at k/n
+ * is what produced the "same size boxes one after another".
+ *
+ * Cuts alternate onto whichever axis is longer, so nothing degenerates into a
+ * sliver however lopsided the split fraction gets.
+ */
+function guillotine(rect: Rect, n: number, seed: string): Rect[] {
+  if (n <= 1) return [rect];
+  const j = hash01(`${seed}:${n}`);
+  // How many rooms go on the first side. Biased away from a clean half so the
+  // two halves differ in room count as well as in size.
+  const k = Math.max(1, Math.min(n - 1, Math.round(n * (0.3 + j * 0.4))));
+  // The AREA fraction is deliberately NOT k/n — nudging it up to 25% either way
+  // is what makes a 3-room half sometimes larger than a 4-room half, which is
+  // how a real plan looks.
+  const skew = 0.75 + hash01(`${seed}:s:${n}`) * 0.5;
+  const frac = Math.max(0.18, Math.min(0.82, (k / n) * skew));
+
+  if (rect.w >= rect.h) {
+    const wl = rect.w * frac;
+    return [
+      ...guillotine({ ...rect, w: wl }, k, `${seed}L`),
+      ...guillotine({ x: rect.x + wl, y: rect.y, w: rect.w - wl, h: rect.h }, n - k, `${seed}R`),
+    ];
+  }
+  const ht = rect.h * frac;
+  return [
+    ...guillotine({ ...rect, h: ht }, k, `${seed}T`),
+    ...guillotine({ x: rect.x, y: rect.y + ht, w: rect.w, h: rect.h - ht }, n - k, `${seed}B`),
+  ];
+}
+
+/**
+ * Grade from the room's OWN environmental specification, not from its area.
+ *
+ * Colouring every room on a plan by its area meant a whole floor was one hue —
+ * accurate but monotonous, and it wasted the one channel that could carry
+ * information. The spreadsheet's limit columns hold real variety (temperature
+ * bands 20-25, 18-27, 0-25, 0-27; humidity 0-30, 0-60, 0-70, and 16 rooms with
+ * no humidity control at all), so hue now says how tightly a room is specified.
+ * That is honest: a tighter spec IS a higher classification.
+ */
+function gradeFromLimits(attrs: Map<string, string>): Grade {
+  const num = (k: string) => { const v = Number(attrs.get(k)); return Number.isFinite(v) ? v : null; };
+  const tLo = num('Low Temperature Limit'), tHi = num('High Temperature Limit');
+  const hLo = num('Low Humidity Limit'), hHi = num('High Humidity Limit');
+
+  // Both temperature bounds actually set — the tightest control on this floor.
+  if (tLo !== null && tLo > 0 && tHi !== null && tHi > 0) return 'A';
+  if (hHi !== null && hHi > 0 && hHi <= 60) return 'B';
+  if (hHi !== null && hHi > 60) return 'C';
+  return 'D';   // no humidity limit set at all
+}
+
 function buildingLayout(
   areaName: string,
   locs: [string, string[]][],
-  grade: Grade,
+  _grade: Grade,
   used: Set<string>,
+  gradeOf: (ids: string[]) => Grade,
 ): RoomSpec[] {
   const N = locs.length;
-  const perBand = Math.max(3, Math.min(7, Math.ceil(Math.sqrt(N * 1.35))));
-  const bands = Math.ceil(N / perBand);
+  const M = 0.012;
+  const SPINE = Math.min(0.05, Math.max(0.028, 0.34 / Math.max(4, Math.sqrt(N) * 2)));
+  const CORR = SPINE * 0.9;
 
-  const M = 0.014;                 // outer margin
-  const SPINE_W = 0.055;           // vertical service corridor down the left
-  const CORR_H = Math.min(0.06, Math.max(0.03, 0.42 / (bands + 1)));
   const left = M, right = 1 - M, top = M, bottom = 1 - M;
-  const bodyX = left + SPINE_W;
-  const bodyW = right - bodyX;
-  const bandH = (bottom - top - CORR_H * (bands - 1)) / bands;
+  const bodyX = left + SPINE, bodyR = right - SPINE;
+
+  // One cross corridor per ~10 rooms, so a small floor is not mostly circulation.
+  const bands = Math.max(1, Math.min(3, Math.round(N / 10)));
+  const bandH = (bottom - top - CORR * (bands - 1)) / bands;
 
   const out: RoomSpec[] = [];
+  let corridorN = 0;
+  const corridorRows: Rect[] = [];
 
-  // The spine, full height — one connected run, not a gap between blocks.
   out.push({
-    code: makeCode(areaName, 90, used),
-    label: 'SERVICE CORRIDOR',
-    grade: 'CIRCULATION',
-    rect: { x: left, y: top, w: SPINE_W, h: bottom - top },
-    instruments: [],
+    code: makeCode(areaName, 90 + corridorN++, used), label: 'SERVICE CORRIDOR',
+    grade: 'CIRCULATION', rect: { x: left, y: top, w: SPINE, h: bottom - top }, instruments: [],
+  });
+  out.push({
+    code: makeCode(areaName, 90 + corridorN++, used), label: 'SERVICE CORRIDOR',
+    grade: 'CIRCULATION', rect: { x: bodyR, y: top, w: SPINE, h: bottom - top }, instruments: [],
   });
 
-  let n = 0;
+  // Split the rooms across the bands, then guillotine each band.
+  const perBand = Array.from({ length: bands }, (_, i) =>
+    Math.floor(N / bands) + (i < N % bands ? 1 : 0));
+  let idx = 0;
   for (let b = 0; b < bands; b++) {
-    const y = top + b * (bandH + CORR_H);
-    const slice = locs.slice(b * perBand, (b + 1) * perBand);
+    const y = top + b * (bandH + CORR);
+    const region: Rect = { x: bodyX, y, w: bodyR - bodyX, h: bandH };
+    const slice = locs.slice(idx, idx + perBand[b]);
+    idx += perBand[b];
     if (!slice.length) continue;
 
-    // Irregular widths that still sum exactly to bodyW.
-    const weights = slice.map(([label]) => 0.72 + jitter(label) * 0.7);
-    const totalW = weights.reduce((a, c) => a + c, 0);
-    let cursor = bodyX;
-    slice.forEach(([label, ids], i) => {
-      const w = i === slice.length - 1 ? right - cursor : (bodyW * weights[i]) / totalW;
-      // Doors face the corridor this band touches: below, unless it is the last
-      // band, which opens upward onto the corridor above it.
-      const wall: Door['wall'] = b < bands - 1 ? 'bottom' : 'top';
+    const rects = guillotine(region, slice.length, `${areaName}:${b}`);
+    rects.forEach((rect, i) => {
+      const [label, ids] = slice[i];
+      // Door faces the nearest circulation: the corridor below when there is
+      // one, the corridor above for the last band, else the spine it touches.
+      const wall: Door['wall'] =
+        Math.abs(rect.x - bodyX) < 1e-9 ? 'left'
+          : Math.abs(rect.x + rect.w - bodyR) < 1e-9 ? 'right'
+            : b < bands - 1 ? 'bottom' : 'top';
       out.push({
-        code: makeCode(areaName, ++n, used),
+        code: makeCode(areaName, out.length, used),
         label: label.slice(0, 120),
-        grade,
-        rect: { x: cursor, y, w, h: bandH },
+        grade: gradeOf(ids),
+        rect,
         instruments: ids,
-        door: [{ wall, offset: 0.36, width: 0.2, kind: 'ENTRY' }],
+        door: [{ wall, offset: 0.34, width: 0.24, kind: 'ENTRY' }],
       });
-      cursor += w;
     });
 
-    // The corridor under this band, spanning the body width.
     if (b < bands - 1) {
-      out.push({
-        code: makeCode(areaName, 80 + b, used),
-        label: `CORRIDOR-${b + 1}`,
-        grade: 'CIRCULATION',
-        rect: { x: bodyX, y: y + bandH, w: bodyW, h: CORR_H },
-        instruments: [],
-      });
+      corridorRows.push({ x: bodyX, y: y + bandH, w: bodyR - bodyX, h: CORR });
     }
   }
+  for (const rect of corridorRows) {
+    out.push({
+      code: makeCode(areaName, 80 + corridorN++, used),
+      label: `CORRIDOR-${corridorN}`, grade: 'CIRCULATION', rect, instruments: [],
+    });
+  }
   return out;
+}
+
+/** Door faces the corridor the room touches; otherwise the spine, otherwise down. */
+function doorTowardCorridorLocal(cell: Cell, corridorRows: Set<number>): Door[] {
+  const kind = 'ENTRY' as const;
+  if (corridorRows.has(cell.r1 + 1)) return [{ wall: 'bottom', offset: 0.36, width: 0.22, kind }];
+  if (corridorRows.has(cell.r0 - 1)) return [{ wall: 'top', offset: 0.36, width: 0.22, kind }];
+  if (cell.c0 === 1) return [{ wall: 'left', offset: 0.34, width: 0.28, kind }];
+  return [{ wall: 'bottom', offset: 0.36, width: 0.22, kind }];
 }
 
 interface RoomSpec { code: string; label: string; grade: Grade; rect: Rect; instruments: string[]; door?: Door[] }
@@ -268,6 +356,17 @@ async function main() {
     if (list) list.push(i.id); else locs.set(loc, [i.id]);
   }
 
+  const attrRows = await prisma.instrumentAttribute.findMany({
+    where: { key: { in: ['Low Temperature Limit', 'High Temperature Limit', 'Low Humidity Limit', 'High Humidity Limit'] } },
+    select: { instrumentId: true, key: true, value: true },
+  });
+  const attrsByInstrument = new Map<string, Map<string, string>>();
+  for (const a of attrRows) {
+    let m = attrsByInstrument.get(a.instrumentId);
+    if (!m) { m = new Map(); attrsByInstrument.set(a.instrumentId, m); }
+    m.set(a.key, a.value);
+  }
+
   const areaList = [...areas.entries()]
     .map(([name, locs]) => ({ name, locs: [...locs.entries()] }))
     .sort((a, b) => b.locs.length - a.locs.length);
@@ -309,7 +408,13 @@ async function main() {
 
     const grade = gradeForArea(area.name);
     const used = new Set<string>();
-    const rooms = buildingLayout(area.name, area.locs, grade, used);
+    // Grade per ROOM from its instrument's own limits, so a floor carries
+    // variety that means something rather than one flat hue.
+    const rooms = buildingLayout(area.name, area.locs, grade, used, (ids) => {
+      const first = ids[0];
+      const attrs = attrsByInstrument.get(first);
+      return attrs ? gradeFromLimits(attrs) : grade;
+    });
 
     const placed = await drawPlan(plan.id, planName, rooms);
     totalRooms += rooms.length; totalPlaced += placed;
