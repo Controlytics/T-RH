@@ -2,6 +2,8 @@
 
 ## Audit log
 
+- **2026-08-24 — Docs sweep: room doors + cleanroom grade + instrument trend page + governed report downloads** — Documentation-only sweep (commits `0f53691..e88f03b` on `data-injection`) for two shipped features: (A) `floorplan_rooms.doors Json?` + per-instrument tiles on the graphical floor view (migration `20260824100000_floorplan_room_doors`; fixed a defect where a room box rendered only `rows[0]`, hiding a second instrument); (B) `floorplan_rooms.grade` nullable TEXT (migration `20260824140000_floorplan_room_grade`, deliberately not an enum), the `/instruments/:id/trend` page, new reauth action `DOWNLOAD_REPORT` under a new `Reports` category, and `POST /api/audit/report-export-log` now requiring `remarks` + reauth (reuses the existing `REPORT_GENERATED` audit action — no new one added). Also documented a pre-existing security fix: `GET /:id/telemetry` had no instrument-visibility scoping while `GET /:id` did; now scoped identically. **Every count re-derived live, not trusted from prior docs:** 34 models / 13 enums (unchanged — both features are nullable columns, no new models); 42 permissions (unchanged); **46 → 47 reauth actions, 7 → 8 categories** (`DOWNLOAD_REPORT` / `Reports`); 12 sidebar items (unchanged); 23 API modules (unchanged); 25 config defs / 24 config pages (unchanged); 93 audit actions / 87 audit templates / 7 categories (unchanged); **48 → 49 `<Route>`s** (new trend page); 18 hooks / 18 lib modules (re-derived — the "26 / 30" `CLAUDE.md` had carried for months was never true against the live tree and is now corrected, unrelated to this branch's diff). Updated `CLAUDE.md` (System Stats, Key API Endpoints, new feature notes), `CHANGELOG.md` (new `[Unreleased]` entry), `apps/api/CLAUDE.md`, `apps/web/CLAUDE.md`, `packages/shared/CLAUDE.md`. **Could not verify / left alone (pre-existing, unrelated to this diff):** `AGENTS.md`, `PROJECT_SUMMARY.md`, `PROJECT_ARCHITECTURE.md`, `docs/index.md`, and `FRONTEND_GUIDE.md`'s route-count line all still carry the long-stale "102 permissions / 83 privileges / 92 reauth actions / 26 sidebar items" upstream-DigiLog numbers `CLAUDE.md` itself already disclaims — fixing that is a separate, larger drift-hunt outside this sweep's scope and was not attempted here to avoid a partial/inconsistent rewrite. `docs/recreation/` (the doc set `CLAUDE.md` calls the sole verified inventory) references an MQTT/data-ingestion API surface (`/api/ingest/v1/*`) that `CLAUDE.md` says was removed 2026-06-11..17 — that inventory is itself stale independent of this work and was not touched.
+
 - **2026-08-17 — Instrument-limit alarms** — Spec `docs/superpowers/specs/2026-08-17-instrument-limit-alarms-design.md`, plan `docs/superpowers/plans/2026-08-17-instrument-limit-alarms.md`. Shared parsing, `alarm-limits` config, schema (enums 11 → 13), worker pass, API fields, page columns, e2e.
 
   Verified: unit + e2e green, `tsc --noEmit` clean on api and web, `vite build` clean, drift guard PASS, migration applied to BOTH databases.
@@ -2770,3 +2772,49 @@ Web 623 → 599 tests; tsc + `vite build` clean.
 
 **Not done, flagged:** production RDS was not queried for filter-domain audit
 rows (needs `aws login`).
+
+## 2026-08-24 — Instrument Trends page + period/interval + gated downloads
+
+Operator request: the dashboard Trend link must open a per-instrument TRENDS page
+(not the instrument page); separate temp/RH trend charts with limit lines; period +
+interval (aggregation bucket) selection on every dashboard screen; live temp/RH
+cards; a combined temp+RH time-series widget; an alarms widget; downloads on every
+widget + the alarms page, each gated on period + password + remarks; alarms page
+search + period; instrument header showing Block / Instrument ID / Area / limits.
+
+Decisions (confirmed with operator 2026-08-24):
+- "Interval" = AGGREGATION BUCKET (1m/5m/15m/1h/raw), not poll rate.
+- Downloads are SERVER-SIDE and AUDITED. A browser-only blob cannot verify a
+  password or write an audit row, so the gate would be decorative.
+- Formats: Excel + PDF.
+
+Touch points surveyed before editing:
+- [ ] packages/shared: new `telemetry-period.ts` (period presets + interval buckets,
+      pure); export from index.
+- [ ] api instruments: new `instrument-history.ts` (bucketed per-instrument history,
+      modelled on floorplans/room-history.ts — NOT telemetry.repository.getHistory,
+      which caps at 1000 rows and returns ts DESC).
+- [ ] api instruments/routes.ts: GET /:id/history, POST /:id/telemetry/export.
+- [ ] api alarms/routes.ts: from/to/q on GET /, POST /export.
+- [ ] web: gated-export-dialog (period + remarks + password) — ONE dialog, reused.
+- [ ] web: period-picker + use-period (URL-backed).
+- [ ] web: routes/instruments/trends.tsx (new page) + main.tsx route (48 -> 49).
+- [ ] web: dual-axis-chart.tsx (combined temp+RH — single-unit TimeSeriesChart
+      cannot honestly overlay degC and %RH on one axis).
+- [ ] web: telemetry-table.tsx — repoint Trend column, drop the `r.room &&` gate
+      (unplaced instruments have telemetry and must have a trend affordance).
+- [ ] web: dashboard/index.tsx, dashboard/room-detail.tsx — period picker.
+- [ ] web: alarms/index.tsx — search + period + export.
+- [ ] web: lib/export-surfaces.ts — register new surfaces (formatToFlags FAILS OPEN,
+      so an unregistered surface silently bypasses role gating).
+- [ ] docs: CHANGELOG.md, CLAUDE.md route count.
+
+Constraints established from the code, not assumed:
+- Limits must be the RESOLVED band (instrument attributes first, else room) with
+  `limitSource` — never the room's alone, or the chart contradicts the alarm.
+- Block/Area come from the functional-location tree, NOT `Instrument.block`/`.area`
+  (superseded free-text columns).
+- Always-on reauth actions are deliberately ABSENT from REAUTH_ACTIONS (see the
+  comment at reauth-actions.ts:114) — count stays 46.
+- `DATA_EXPORTED` audit action + template already exist and are unemitted; wiring
+  them up is what the registry's own comment asks for. Count stays 93/87.

@@ -1,5 +1,71 @@
 # Changelog
 
+## [Unreleased] - Room doors, cleanroom grade, instrument trend page, governed report downloads (2026-08-24)
+
+Two features on top of the instrument dashboard: (A) drawn doors and
+per-instrument tiles on the graphical floor view, and (B) a cleanroom-grade
+overlay, a per-instrument trend page, and a governed report-download gate.
+Counts re-verified against live code 2026-08-24; only reauth actions moved
+(46 → 47, 7 → 8 categories) — models, enums, permissions, sidebar items,
+modules, config defs/pages, audit actions/templates are all unchanged.
+
+**A. Room doors + per-instrument tiles**
+
+- `floorplan_rooms.doors Json?` (nullable) — an array of `{wall, offset,
+  width, kind}`, normalized against the wall so a door stays attached when
+  the room moves. Migration `20260824100000_floorplan_room_doors`, applied to
+  both databases.
+- Doors are drawn as real gaps in segmented walls with a swing arc; drawn and
+  edited in Config → Floorplans. They ride the existing
+  `UPDATE_FLOORPLAN_ROOM` reauth + audit path — no new permission or reauth
+  action.
+- **On `PUT /api/floorplans/:id/rooms/:roomId`, an omitted `doors` key leaves
+  the column unchanged; only an explicit `null`/`[]` clears it.** Deliberate —
+  a client that doesn't know about doors can't silently wipe them; this is a
+  §11 data-loss guard, not an oversight.
+- **Fixed a defect:** each room box on the graphical floor view now renders
+  ONE TILE PER INSTRUMENT (own code, limits, decimals). The box previously
+  rendered only `rows[0]`, so a room's second instrument was invisible,
+  including when it was the one breaching a limit.
+- New pure module `apps/web/src/routes/dashboard/room-geometry.ts` (wall
+  splitting, door placement, tile layout with fixed degrade steps).
+
+**B. Cleanroom grade, trend page, governed report downloads**
+
+- `floorplan_rooms.grade` nullable `TEXT` (`A|B|C|D|CIRCULATION|UTILITY`),
+  validated by zod, deliberately **not** a Postgres enum so the vocabulary can
+  grow without a migration (enum count stays at 13). Migration
+  `20260824140000_floorplan_room_grade`, both databases. Hue encodes grade,
+  saturation encodes status — design spec
+  `docs/superpowers/specs/2026-08-24-graphical-view-visual-design.md`.
+- New route `/instruments/:id/trend`: period + interval header, latest-value
+  cards, limit-lined charts reusing the existing `TimeSeriesChart`, a raw
+  paged time-series, an alarms widget, and per-user extra telemetry keys in
+  `localStorage`. `main.tsx` `<Route>` count 48 → **49**
+  (`grep -cE "<Route" apps/web/src/main.tsx`).
+- Trend charts average client-side when an interval is selected, and say so
+  on screen ("Averaged over 5 minutes — the table below shows every reading")
+  — a derived point must never look like a stored reading.
+- New reauth action `DOWNLOAD_REPORT` under a new `Reports` category
+  (46 → **47** reauth actions, 7 → **8** categories —
+  `grep -cE "^\s+[A-Z_]+:" packages/shared/src/types/reauth-actions.ts`).
+- `POST /api/audit/report-export-log` now requires `remarks` and enforces
+  `DOWNLOAD_REPORT` reauth. It reuses the **existing** `REPORT_GENERATED`
+  audit action — no new audit action was added (93 actions / 87 templates /
+  7 categories unchanged). The Audit Trail export moved onto the same
+  dialog, so every report download in the product is now governed.
+- `GET /api/instruments/:id/telemetry` gained `offset` (paging); new
+  `GET /api/instruments/:id/telemetry-keys` returns the keys an instrument
+  has actually sent.
+- **Fixed a pre-existing security gap:** `GET /:id/telemetry` had **no
+  instrument-visibility scoping** (a bare `findUnique`) while its sibling
+  `GET /:id` did — telemetry was readable for instruments outside the
+  caller's resolved scope. Now scoped the same way: 404 (never 403, which
+  would confirm existence) when out of scope; callers with unrestricted
+  scope are unaffected.
+- New shared module `packages/shared/src/types/telemetry-period.ts` (period
+  presets, interval specs, range resolution).
+
 ## [Unreleased] - Filter / AHU / asset domain removed (2026-08-20)
 
 Every remaining filter, AHU, asset, cleaning and filter-activity surface is

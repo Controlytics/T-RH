@@ -54,8 +54,10 @@ import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 ## Live Type Inventory
 
 > **The per-file counts in the table below are inherited from upstream DigiLog and were
-> NEVER true in this fork.** Verified by `grep` 2026-08-14, the real numbers are
-> **42** permission constants, **38** feature privileges, **46** reauth actions,
+> NEVER true in this fork.** Verified by `grep` 2026-08-24, the real numbers are
+> **42** permission constants, **38** feature privileges, **47** reauth actions in
+> **8** categories (46 → 47, 7 → 8: `DOWNLOAD_REPORT` added 2026-08-24 under a new
+> `Reports` category to govern report/audit-export downloads),
 > **12** sidebar items, **11** PERMISSION_TREE groups, **50** tree nodes. The prose in
 > each row is still useful as *history* — which change removed what, and why — so it is
 > kept rather than rewritten; read the numbers from the greps in the root `CLAUDE.md`

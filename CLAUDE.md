@@ -19,7 +19,7 @@ re-derive any count from live code before repeating it.
 ```
 apps/api/         — Fastify backend (TypeScript, port 3001)
 apps/web/         — React SPA (Vite, port 5176 dev)
-packages/shared/  — Permissions (42), reauth actions (46), sidebar items (12),
+packages/shared/  — Permissions (42), reauth actions (47), sidebar items (12),
                     permission tree, zod schemas
 packages/queue/   — graphile-worker job queue (Postgres-backed)
 docs/             — Project docs; `docs/recreation/` is the verified inventory
@@ -88,21 +88,31 @@ npm run build -w @digilog/shared && npm run build -w @digilog/queue
 - **Verify TLS up** — `curl -sk -o /dev/null -w "%{http_code}" https://localhost:3000/health` should return a code (even 401 means TLS is up).
 - **Don't use HTTPS with self-signed in Capacitor *dev* mode** — WebView's `fetch()` rejects self-signed certs (Capacitor's `BridgeActivity` overrides the WebViewClient after `onCreate`). Keep dev cleartext if testing in-WebView, or install root CA on the device.
 
-## System Stats (re-derived 2026-08-20 — every number below came from the command beside it)
+## System Stats (re-derived 2026-08-24 — every number below came from the command beside it)
 - **Backend:** **23** API modules under `apps/api/src/modules/` (`ls | wc -l`).
 - **Database:** **34 Prisma models, 13 enums** (`grep -cE "^model " / "^enum "`).
+  Unchanged by the 2026-08-24 doors/grade work — both landed as nullable
+  columns on the existing `FloorplanRoom` model (`doors Json?`, `grade
+  String?`; migrations `20260824100000_floorplan_room_doors` and
+  `20260824140000_floorplan_room_grade`), not new models. `grade` is
+  deliberately a plain validated string, not a Postgres enum, so the
+  vocabulary (`A|B|C|D|CIRCULATION|UTILITY`) can grow without a migration —
+  the enum count stays at 13 on purpose.
   Only `compliance_core_db` + `compliance_core_db_test` exist — **no TimescaleDB,
   no `digilog_tsdb`**. The test database is migrated **separately**; a migration
   applied to only one of them makes every instrument-touching e2e 500.
-- **Permissions:** **42** constants, **46** reauth actions, **12** sidebar items
-  (`grep -cE` against `permissions.ts` / `reauth-actions.ts` / `sidebar-items.ts`).
+- **Permissions:** **42** constants, **47** reauth actions in **8** categories,
+  **12** sidebar items (`grep -cE` against `permissions.ts` / `reauth-actions.ts`
+  / `sidebar-items.ts`). 46 → 47 (2026-08-24): `DOWNLOAD_REPORT` added under a
+  new `Reports` category (7 → 8 categories) to govern report/audit-export
+  downloads; no permission or sidebar item was added for it.
   The "102 / 83 / 92 / 26" this file carried for months was upstream DigiLog's and
   was never true here.
 - **Audit registries:** **93** audit actions, **87** audit templates in **7**
   categories (2026-08-20, after the filter-domain removal).
 - **Config:** **25** definitions (`config/defs/*.def.ts`) + auto-discovery,
   **24** pages under `apps/web/src/routes/config/`.
-- **Frontend:** **48** `<Route`s in `main.tsx`.
+- **Frontend:** **49** `<Route`s in `main.tsx`.
 - **Queue backend:** graphile-worker (Postgres-backed).
 - **Tenancy:** single-tenant, single-site. JWT `scope` always stamps `GLOBAL`.
 - **Themes:** 10 preset colour themes.
@@ -134,7 +144,7 @@ history; `docs/recreation/` holds the inventory.
   `reason` column; a first fill does not). Admin surface: Config → Roles & Access → Attribute Access.
   Migration `20260819120000_role_attribute_access`, drift guard PASS, applied to both databases.
 - **Themes:** 10 preset color themes (Ocean / Sapphire / Emerald / Amethyst / Sunset / Slate / Ruby / Forest / Midnight / Coral)
-- **Frontend:** **48** Routes in `main.tsx` (verified `grep -cE "<Route"` 2026-08-19 — the "77" was inherited from upstream DigiLog and was never true in this fork; `/config/role-assignments` removed 2026-08-19 as dead code, 49 → 48), **26** custom hooks, **30** lib modules
+- **Frontend:** **49** Routes in `main.tsx` (verified `grep -cE "<Route"` 2026-08-24 — 48 → 49: new `/instruments/:id/trend` page; the "77" was inherited from upstream DigiLog and was never true in this fork; `/config/role-assignments` removed 2026-08-19 as dead code, 49 → 48), **18** custom hooks, **18** lib modules (`ls apps/web/src/hooks/ | wc -l` / `ls apps/web/src/lib/ | wc -l`, each including its own `__tests__` subfolder as one entry — the "26 / 30" this file carried for months was never true against the live tree and was never re-verified until now)
 - **Queue backend:** graphile-worker (Postgres-backed); 3 worker tasks (`notification`, `pm_overdue_check`, `session_sweep`)
 - **Tenancy:** **single-tenant, single-site, single-company.** Multi-tenancy was removed 2026-04-30 (`Organization` model + `organizationId` columns + `org-admin`/`tenant-admin` modules dropped). JWT `scope` always stamps `GLOBAL`. The `RoleScope` enum and `AssigneeType` enum are retained but trimmed to one/two values respectively.
 
@@ -161,18 +171,64 @@ history; `docs/recreation/` holds the inventory.
 - New config defs must be imported in `config-discovery.ts` AND registered as a card in `config/index.tsx`
 - Approval/decision flows require remarks
 
-## Key API Endpoints (instrument dashboard — 2026-08-11)
+## Key API Endpoints (instrument dashboard — updated 2026-08-24)
 ```
 GET  /api/instruments/telemetry-overview        — every instrument's current temp + RH, one request
-GET  /api/instruments/:id/telemetry?from=&to=   — per-instrument history (from/to exposed 2026-08-11)
-GET  /api/floorplans                            — plans + their rooms
+GET  /api/instruments/:id/telemetry?from=&to=&offset=  — per-instrument history, paged (offset added 2026-08-24)
+GET  /api/instruments/:id/telemetry-keys        — distinct telemetry keys this instrument has sent (added 2026-08-24)
+GET  /api/floorplans                            — plans + their rooms (rooms now carry `doors` + `grade`, 2026-08-24)
 GET  /api/floorplans/:id                        — one plan, rooms, and the instruments in each
 POST/PUT/DELETE /api/floorplans[/:id]           — plan CRUD (CONFIG_UPDATE + reauth, audited)
-POST/PUT/DELETE /api/floorplans/:id/rooms[/:roomId]  — room CRUD, geometry + limits validated
+POST/PUT/DELETE /api/floorplans/:id/rooms[/:roomId]  — room CRUD, geometry + limits + `doors`/`grade` validated
 PUT  /api/floorplans/:id/rooms/:roomId/instruments   — set room membership wholesale
 GET  /api/floorplans/:id/rooms/:roomId/history?window=15m|1h|6h|24h|7d  — bucketed above 6h
 POST /api/uploads/floorplan                     — plan image (CONFIG_UPDATE)
+POST /api/audit/report-export-log               — governed report-download log; requires `remarks` +
+                                                    `DOWNLOAD_REPORT` reauth (2026-08-24); reuses the
+                                                    existing `REPORT_GENERATED` audit action, no new one added
 ```
+
+- **On `PUT /api/floorplans/:id/rooms/:roomId`, an omitted `doors` key leaves the
+  column unchanged; only an explicit `null`/`[]` clears it.** Deliberate §11
+  data-loss guard so a client that predates doors can't silently wipe them.
+- **Room doors (2026-08-24):** `floorplan_rooms.doors` JSONB, nullable — an
+  array of `{wall, offset, width, kind}` normalized against the wall so a door
+  stays attached when the room moves. Drawn as real gaps with a swing arc in
+  Config → Floorplans; rides the existing `UPDATE_FLOORPLAN_ROOM` reauth/audit
+  path — no new permission or reauth action. New pure module
+  `apps/web/src/routes/dashboard/room-geometry.ts` does wall splitting, door
+  placement and tile layout.
+- **Per-instrument tiles (2026-08-24):** each room box on the graphical floor
+  view now renders ONE TILE PER INSTRUMENT (code, limits, decimals). This
+  fixed a defect: the box previously rendered only `rows[0]`, hiding a room's
+  second instrument, including when it was the one breaching a limit.
+- **Cleanroom grade (2026-08-24):** `floorplan_rooms.grade` nullable TEXT
+  (`A|B|C|D|CIRCULATION|UTILITY`), zod-validated, deliberately **not** a
+  Postgres enum so the vocabulary can grow without a migration — the enum
+  count stays at 13. Hue encodes grade, saturation encodes status; design spec
+  `docs/superpowers/specs/2026-08-24-graphical-view-visual-design.md`.
+- **Instrument trend page (2026-08-24):** new route `/instruments/:id/trend`
+  — period + interval header, latest-value cards, limit-lined charts (reusing
+  `TimeSeriesChart`), a raw paged time-series, an alarms widget, per-user
+  extra telemetry keys in `localStorage`. New shared module
+  `packages/shared/src/types/telemetry-period.ts` (period presets, interval
+  specs, range resolution). When an interval is selected the chart averages
+  client-side and says so on screen ("Averaged over 5 minutes — the table
+  below shows every reading") — a derived point must never look like a
+  stored reading.
+- **Governed report downloads (2026-08-24):** new reauth action
+  `DOWNLOAD_REPORT` under a new `Reports` category (46 → 47 reauth actions,
+  7 → 8 categories). `POST /api/audit/report-export-log` now requires
+  `remarks` and enforces `DOWNLOAD_REPORT` reauth; it reuses the existing
+  `REPORT_GENERATED` audit action — no new audit action was added (93/87/7
+  unchanged). The Audit Trail export moved onto the same dialog, so every
+  report download in the product is now governed.
+- **Fixed a pre-existing security gap (2026-08-24):** `GET /:id/telemetry`
+  had no instrument-visibility scoping (a bare `findUnique`) while its
+  sibling `GET /:id` did — telemetry was readable for instruments outside
+  the caller's resolved scope (see the instrument VISIBILITY note above).
+  Now scoped the same way: 404 (never 403) when out of scope; callers with
+  unrestricted scope are unaffected.
 
 ## Filter domain — REMOVED
 
