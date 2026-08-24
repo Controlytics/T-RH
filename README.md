@@ -44,8 +44,14 @@ the same file).
 
 ### Prerequisites
 
-- Node.js 20+ and npm (the repo pins `npm@11.6.2` via `packageManager`)
-- PostgreSQL 18, reachable on `localhost:5432`
+- Node.js and npm. **Nothing in the repo pins a Node version** — there is no
+  `engines` field in any workspace `package.json` (`grep -rn '"engines"'`). The
+  root `package.json` pins `npm@11.6.2` via `packageManager`, which is only
+  enforced if you have Corepack on. This machine runs Node v24.14.1 and npm
+  11.11.0, and the app builds and runs on them; Node 20+ is the floor the
+  dependencies imply, not one the repo checks.
+- PostgreSQL. `psql --version` here reports 18.3, reachable on `localhost:5432`.
+  No minimum is enforced anywhere in the repo.
 - Windows. The launcher and provisioning scripts are PowerShell; the app itself
   is plain Node and has no Windows-only runtime dependency.
 
@@ -74,9 +80,10 @@ npm run build -w @digilog/queue
 
 Create `apps/api/.env` from `apps/api/.env.example`. Two things to fix as you
 copy it: the example's `DATABASE_URL` names `digilog_db`, but this checkout
-uses **`compliance_core_db`**; and this checkout must run on ports **3001 and
-5176**, not the defaults, because a sibling DigiLog checkout owns 3000 and
-5175. At minimum you need `DATABASE_URL`, `JWT_SECRET`,
+uses **`compliance_core_db`**; and this checkout is configured for ports
+**3001 and 5176** rather than the code defaults of 3000 and 5175, which a
+sibling DigiLog checkout owns on the machine this was set up on. At minimum
+you need `DATABASE_URL`, `JWT_SECRET`,
 `VERIFICATION_TOKEN_SECRET`, `PORT=3001` and `WEB_PORT=5176`.
 
 Create and migrate the database:
@@ -216,8 +223,13 @@ Each of these was checked, not assumed:
 - **No Redis and no TimescaleDB.** The job queue is graphile-worker on the same
   Postgres; there is no second database beyond the test one.
 - **No `packages/db` workspace**, no multi-tenancy (the JWT `scope` always
-  stamps `GLOBAL`), no CI (`.github/workflows` does not exist), and no
-  `LICENSE` file — this repo states no licence terms.
+  stamps `GLOBAL`), and no CI configuration of any kind — no
+  `.github/workflows`, `.gitlab-ci.yml`, `Jenkinsfile`, `.circleci` or
+  `azure-pipelines.yml`. Nothing runs the tests but you.
+- **No `LICENSE` file.** This repo states no licence terms. The pre-rewrite
+  README asserted "Proprietary — Pankaj Exa Technologies", which is upstream
+  DigiLog's vendor, not this fork's; it was dropped rather than carried over
+  unverified. If this fork needs a licence stated, it needs a deliberate one.
 
 ## Where to go next
 
