@@ -105,7 +105,7 @@ describe('BandGauge render', () => {
     expect(screen.getByText('4.4 above low')).toBeInTheDocument();
     expect(screen.getByText('4.6 below high')).toBeInTheDocument();
     // `statusClasses`' own word, never a second vocabulary invented here.
-    expect(screen.getByTestId('band-status')).toHaveTextContent('In spec');
+    expect(screen.getByTestId('band-status')).toHaveTextContent('In limit');
   });
 
   it('2 — outside its band: the marker is hard against the breached end and the excess is named', () => {
@@ -130,7 +130,7 @@ describe('BandGauge render', () => {
     renderGauge({ min: null, max: null, limitSource: null });
     expect(screen.queryByTestId('band-marker')).toBeNull();
     expect(screen.getByTestId('band-note')).toHaveTextContent('No limits set — not assessed');
-    // NOT "In spec": nothing was checked, and a green word here would assert a
+    // NOT "In limit": nothing was checked, and a green word here would assert a
     // compliance that no administered limit supports.
     expect(screen.getByTestId('band-status')).toHaveTextContent('Not assessed');
     expect(screen.getByText('22.4')).toBeInTheDocument();
@@ -155,10 +155,10 @@ describe('BandGauge render', () => {
    * This is the case that actually reaches an operator: a probe that stops
    * reporting is far more common than a mis-administered band.
    */
-  it('never asserts "In spec" over a reading the server has already called stale', () => {
+  it('never asserts "In limit" over a reading the server has already called stale', () => {
     renderGauge({ instrumentStatus: 'STALE' });
     expect(screen.getByTestId('band-status')).toHaveTextContent('Not reporting');
-    expect(screen.getByTestId('band-status')).not.toHaveTextContent('In spec');
+    expect(screen.getByTestId('band-status')).not.toHaveTextContent('In limit');
     // The band is still drawn — where the last reading sat is still true.
     expect(screen.getByTestId('band-marker')).toBeInTheDocument();
   });

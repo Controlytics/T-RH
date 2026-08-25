@@ -4,10 +4,16 @@ import type { InstrumentStatus } from '@digilog/shared';
  * Status → Tailwind classes.
  *
  * These colours are SEMANTIC, so they are fixed rather than theme variables: a
- * site that themes the app purple must not end up with a purple "out of spec".
+ * site that themes the app purple must not end up with a purple "out of limit".
+ *
+ * The vocabulary is LIMIT, not spec (operator wording, 2026-08-24): a reading is
+ * judged against configured bounds, so it is in or out of LIMIT. "Out of limit"
+ * shipped first and left its opposite reading "In spec", which put both words on
+ * the same screen — one page saying a reading was in spec and out of limit is
+ * how a reader stops trusting either.
  *
  * STALE and PARTIAL share amber deliberately. Both mean "cannot confirm this is
- * in spec" — one because the reading is old, one because a promised reading is
+ * in limit" — one because the reading is old, one because a promised reading is
  * missing — and inventing a fifth colour for that distinction would cost more
  * legibility than it buys. The labels still tell them apart.
  */
@@ -38,7 +44,7 @@ const MAP: Record<InstrumentStatus, StatusClasses> = {
   },
   OK: {
     dot: 'bg-emerald-500', text: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-300',
-    label: 'In spec',
+    label: 'In limit',
   },
 };
 

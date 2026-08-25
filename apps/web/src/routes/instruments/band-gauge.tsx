@@ -163,7 +163,7 @@ export function BandGauge({
     // A breach is a breach: the stored numbers decide that, and they are the
     // one thing this gauge is authoritative about.
     : breachesLimits ? 'OUT_OF_SPEC'
-      // Otherwise the instrument's own status wins over a local "In spec".
+      // Otherwise the instrument's own status wins over a local "In limit".
       // Asserting compliance over a reading the server has already called
       // stale is exactly the contradiction this page must not print.
       : instrumentStatus && instrumentStatus !== 'OK' && instrumentStatus !== 'NO_DATA'

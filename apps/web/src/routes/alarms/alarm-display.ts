@@ -216,7 +216,7 @@ export function limitText(a: AlarmRow): string {
   return '—';
 }
 
-/** The reading that brought it back in spec. 0 is a real reading. */
+/** The reading that brought it back in limit. 0 is a real reading. */
 export function clearedText(a: AlarmRow): string {
   return formatDecimals(a.clearedValue, alarmDecimals(a)) ?? '—';
 }

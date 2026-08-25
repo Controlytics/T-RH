@@ -10,7 +10,7 @@ const ALL_CARDS = [
   { key: 'notifications', label: 'Notifications', description: 'Notification count with link to notifications' },
   { key: 'quick_actions', label: 'Quick Actions', description: 'Create user, view audit, system config shortcuts' },
   { key: 'telemetry_table', label: 'Instrument Readings — Table', description: 'Every instrument’s current temperature and humidity, as a table' },
-  { key: 'telemetry_floorplan', label: 'Instrument Readings — Floorplan', description: 'Rooms drawn on the floor layout, coloured by whether they are in spec' },
+  { key: 'telemetry_floorplan', label: 'Instrument Readings — Floorplan', description: 'Rooms drawn on the floor layout, coloured by whether they are in limit' },
 ];
 // The 8 filter-domain card keys (filter_analytics, total_filters, active_cycles,
 // completed_today, stage_distribution, cycle_status, daily_chart, monthly_chart)
