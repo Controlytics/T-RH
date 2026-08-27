@@ -26,6 +26,7 @@ import { PasswordPolicyPage } from './routes/config/password-policy';
 import { InstrumentAttributesConfigPage } from './routes/config/instrument-attributes';
 import { FloorplansConfigPage } from './routes/config/floorplans';
 import { AlarmRulesConfigPage } from './routes/config/alarm-rules';
+import { AlarmWebhooksConfigPage } from './routes/config/alarm-webhooks';
 import { DatetimeConfigPage } from './routes/config/datetime';
 const ReportPageTitlesPage = lazy(() => import('./routes/config/report-page-titles').then(m => ({ default: m.ReportPageTitlesPage })));
 const AppearanceConfigPage = lazy(() => import("./routes/config/appearance").then(m => ({ default: m.AppearanceConfigPage })));
@@ -115,6 +116,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/config/instrument-attributes" element={<RequireRole roles={['SUPER_ADMIN']}><InstrumentAttributesConfigPage /></RequireRole>} />
             <Route path="/config/floorplans" element={<RequireRole roles={['SUPER_ADMIN']}><FloorplansConfigPage /></RequireRole>} />
             <Route path="/config/alarm-rules" element={<RequireRole permissions={[PERMISSIONS.ALARM_RULE_READ]}><AlarmRulesConfigPage /></RequireRole>} />
+            <Route path="/config/alarm-webhooks" element={<RequireRole permissions={[PERMISSIONS.ALARM_RULE_READ]}><AlarmWebhooksConfigPage /></RequireRole>} />
             <Route path="/config/report-page-titles" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><ReportPageTitlesPage /></Suspense></RequireRole>} />
             <Route path="/config/ldap" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><LdapConfigPage /></Suspense></RequireRole>} />
             <Route path="/config/datetime" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><DatetimeConfigPage /></RequireRole>} />

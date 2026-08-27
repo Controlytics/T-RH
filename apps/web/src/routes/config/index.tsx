@@ -133,6 +133,18 @@ const superAdminCards = [
     shadowColor: 'shadow-amber-500/25',
   },
   {
+    title: 'Alarm Webhooks',
+    description: 'Hooters and HTTP endpoints alarms are announced to, and what body to send',
+    href: '/config/alarm-webhooks',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5.636 5.636a9 9 0 000 12.728m12.728 0a9 9 0 000-12.728M8.464 8.464a5 5 0 000 7.072m7.072 0a5 5 0 000-7.072M13 12a1 1 0 11-2 0 1 1 0 012 0z" />
+      </svg>
+    ),
+    gradient: 'from-orange-500 to-amber-600',
+    shadowColor: 'shadow-orange-500/25',
+  },
+  {
     title: 'Configuration Access',
     description: 'Assign config modules to roles — choose what each role can open',
     href: '/config/access-matrix',
