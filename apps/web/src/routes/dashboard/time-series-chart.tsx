@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { formatDecimals } from '@digilog/shared';
+import { pixelToTime, normalizeSelection } from './chart-zoom';
 
 /**
  * Hand-rolled SVG line chart. No dependency — this repo has deliberately removed
@@ -98,14 +99,58 @@ interface Props {
   /** Window span, so the x labels can choose clock vs date. */
   spanMs: number;
   title: string;
+  /**
+   * Drag-to-zoom, OPTIONAL — a caller opts in by handling it.
+   *
+   * The chart reports the span the operator selected and does nothing else with
+   * it: it does not fetch, and it does not own the range. **Zoom refetches; it
+   * does not magnify.** The page turns this into a narrower request and the
+   * server answers with the TRUE readings for that window, which on a
+   * downsampled 30-day view is more detail than the chart currently holds.
+   * Scaling up the points already in memory would draw bigger dots and claim a
+   * resolution that was never received — on a §11 record, a picture asserting
+   * detail it does not have. A chart that fetched would also be a second place
+   * in this app that knows how to build a telemetry URL.
+   *
+   * Providing it is what makes the chart INTERACTIVE: without it there is no
+   * drag, no selection rectangle and no fullscreen control, so the dashboard's
+   * room view and the off-screen render behind the PDF export are untouched.
+   */
+  onZoom?: (from: Date, to: Date) => void;
+  /** Provided only while the view IS zoomed — it is what renders "Reset zoom". */
+  onResetZoom?: () => void;
 }
 
 const W = 900;
 const H = 260;
 const PAD = { top: 14, right: 62, bottom: 26, left: 46 };
 
-export function TimeSeriesChart({ series, unit, min, max, spanMs, title }: Props) {
+/**
+ * The narrowest span a drag may select.
+ *
+ * A click is a zero-width drag; a flick is a near-zero one. Either would set a
+ * range the server holds nothing for, and the chart would blank on a gesture
+ * the operator did not mean to make. The floor is on TIME, not pixels, so the
+ * same short drag zooms on a 30-day window and is ignored on a 5-minute one.
+ */
+const MIN_ZOOM_SPAN_MS = 60_000;
+
+export function TimeSeriesChart({ series, unit, min, max, spanMs, title, onZoom, onResetZoom }: Props) {
   const [hoverX, setHoverX] = useState<number | null>(null);
+  /** Drag in progress, in viewBox x — null when not dragging. */
+  const [drag, setDrag] = useState<{ a: number; b: number } | null>(null);
+  const [fullscreen, setFullscreen] = useState(false);
+
+  const interactive = typeof onZoom === 'function';
+
+  // Escape leaves fullscreen. A fixed full-viewport overlay with no keyboard
+  // way out is a trap for anyone not using a mouse.
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setFullscreen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [fullscreen]);
 
   const withPoints = series.filter((s) => s.points.length > 0);
 
@@ -149,10 +194,36 @@ export function TimeSeriesChart({ series, unit, min, max, spanMs, title }: Props
       : d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
   };
 
-  // Nearest point per series to the hovered x, for the readout.
-  const hoverTime = hoverX === null
-    ? null
-    : g.t0 + ((hoverX - PAD.left) / g.plotW) * (g.t1 - g.t0);
+  // Nearest point per series to the hovered x, for the readout. Same pixel→time
+  // map the zoom uses, so a hover readout and a zoom edge can never disagree
+  // about which instant a given column of the plot is.
+  const hoverTime = hoverX === null ? null : pixelToTime(hoverX, PAD.left, g.plotW, g.t0, g.t1);
+
+  /** Pointer x in viewBox units — the SVG scales to its container, so client px are not plot px. */
+  const viewX = (e: { clientX: number; currentTarget: { getBoundingClientRect(): DOMRect } }) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    return ((e.clientX - r.left) / r.width) * W;
+  };
+
+  const endDrag = () => {
+    if (!drag) return;
+    const sel = normalizeSelection(
+      pixelToTime(drag.a, PAD.left, g.plotW, g.t0, g.t1),
+      pixelToTime(drag.b, PAD.left, g.plotW, g.t0, g.t1),
+      MIN_ZOOM_SPAN_MS,
+    );
+    // Cleared unconditionally: a rejected drag must not leave its rectangle
+    // painted over a chart that did not change.
+    setDrag(null);
+    if (sel) onZoom?.(new Date(sel.from), new Date(sel.to));
+  };
+
+  // Drawn selection, clamped to the plot so a drag that runs off the edge shows
+  // the edge it will actually select rather than spilling over the axis labels.
+  const clampPlot = (px: number) => Math.min(W - PAD.right, Math.max(PAD.left, px));
+  const dragRect = drag && Math.abs(drag.b - drag.a) > 0.5
+    ? { x: Math.min(clampPlot(drag.a), clampPlot(drag.b)), w: Math.abs(clampPlot(drag.b) - clampPlot(drag.a)) }
+    : null;
 
   const readout = hoverTime === null ? [] : withPoints.map((s, i) => {
     let best = s.points[0];
@@ -182,34 +253,79 @@ export function TimeSeriesChart({ series, unit, min, max, spanMs, title }: Props
   const bandBottom = min != null ? g.sy(Math.max(min, g.scale.min)) : null;
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-3">
+    <div
+      className={
+        fullscreen
+          ? 'fixed inset-0 z-50 flex flex-col overflow-auto bg-white p-5'
+          : 'rounded-xl border border-slate-200 bg-white p-3'
+      }
+    >
       <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-sm font-semibold text-slate-800">{title}</p>
-        {/* Legend is always present for 2+ series; identity is never colour
-            alone because the swatch sits beside a name. */}
-        {withPoints.length > 1 && (
-          <div className="flex flex-wrap items-center gap-3">
-            {withPoints.map((s, i) => (
-              <span key={s.id} className="flex items-center gap-1.5 text-xs text-slate-600">
-                <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: s.color ?? seriesColor(i) }} />
-                {s.label}
-              </span>
-            ))}
-          </div>
-        )}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Legend is always present for 2+ series; identity is never colour
+              alone because the swatch sits beside a name. */}
+          {withPoints.length > 1 && withPoints.map((s, i) => (
+            <span key={s.id} className="flex items-center gap-1.5 text-xs text-slate-600">
+              <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: s.color ?? seriesColor(i) }} />
+              {s.label}
+            </span>
+          ))}
+          {/* Controls exist only for a caller that handles zoom — see `onZoom`.
+              This is what keeps the dashboard's room view and the off-screen
+              render behind the PDF export exactly as they were. */}
+          {interactive && (
+            <>
+              {onResetZoom && (
+                <button
+                  type="button"
+                  onClick={onResetZoom}
+                  className="rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                >
+                  Reset zoom
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setFullscreen((v) => !v)}
+                aria-pressed={fullscreen}
+                className="rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+              >
+                {fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       <svg
         viewBox={`0 0 ${W} ${H}`}
-        className="h-auto w-full"
+        className={
+          `${fullscreen ? 'w-full flex-1' : 'h-auto w-full'}${interactive ? ' cursor-crosshair touch-none' : ''}`
+        }
+        preserveAspectRatio={fullscreen ? 'xMidYMid meet' : undefined}
         role="img"
         aria-label={`${title}. ${withPoints.length} series between ${fmtTime(g.t0)} and ${fmtTime(g.t1)}.`}
         onMouseMove={(e) => {
-          const r = e.currentTarget.getBoundingClientRect();
-          const px = ((e.clientX - r.left) / r.width) * W;
+          const px = viewX(e);
           setHoverX(px >= PAD.left && px <= W - PAD.right ? px : null);
         }}
         onMouseLeave={() => setHoverX(null)}
+        // Pointer events, with capture, deliberately: a drag that leaves the
+        // plot area must keep tracking so it can select the EDGE (which is what
+        // `pixelToTime`'s clamp is for). Cancelling on mouse-leave would make
+        // "from here to the end" — the most natural gesture on a trend — do
+        // nothing at all.
+        onPointerDown={interactive ? (e) => {
+          if (e.button !== 0) return;
+          const px = viewX(e);
+          if (px < PAD.left || px > W - PAD.right) return;
+          e.currentTarget.setPointerCapture?.(e.pointerId);
+          setDrag({ a: px, b: px });
+        } : undefined}
+        onPointerMove={interactive && drag ? (e) => setDrag({ a: drag.a, b: viewX(e) }) : undefined}
+        onPointerUp={interactive ? endDrag : undefined}
+        onPointerCancel={interactive ? () => setDrag(null) : undefined}
       >
         {/* In-spec band, behind everything. */}
         {(bandTop !== null || bandBottom !== null) && (
@@ -297,6 +413,18 @@ export function TimeSeriesChart({ series, unit, min, max, spanMs, title }: Props
         {hoverX !== null && (
           <line x1={hoverX} x2={hoverX} y1={PAD.top} y2={PAD.top + g.plotH} stroke="#94a3b8" strokeWidth={1} />
         )}
+
+        {/* Selection, drawn only WHILE dragging — nothing is emitted otherwise,
+            so the SVG the PDF export serialises is unchanged. Neutral ink: the
+            selection is chrome, not data, and must not read as a limit band. */}
+        {dragRect && (
+          <g>
+            <rect x={dragRect.x} y={PAD.top} width={dragRect.w} height={g.plotH} fill="#334155" opacity={0.12} />
+            <line x1={dragRect.x} x2={dragRect.x} y1={PAD.top} y2={PAD.top + g.plotH} stroke="#334155" strokeWidth={1} />
+            <line x1={dragRect.x + dragRect.w} x2={dragRect.x + dragRect.w} y1={PAD.top} y2={PAD.top + g.plotH}
+                  stroke="#334155" strokeWidth={1} />
+          </g>
+        )}
       </svg>
 
       <div className="mt-1 flex min-h-[18px] flex-wrap items-center gap-3 text-xs">
@@ -306,7 +434,13 @@ export function TimeSeriesChart({ series, unit, min, max, spanMs, title }: Props
             {r.label}: <span className="font-semibold tabular-nums text-slate-800">{formatDecimals(r.value, r.decimals)} {unit}</span>
           </span>
         )) : (
-          <span className="text-slate-400">Hover the chart to read values</span>
+          <span className="text-slate-400">
+            {interactive
+              // Said, not left to be discovered: a drag that silently refetches
+              // is otherwise indistinguishable from the page reloading itself.
+              ? 'Hover the chart to read values · drag across it to zoom into that window'
+              : 'Hover the chart to read values'}
+          </span>
         )}
       </div>
     </div>

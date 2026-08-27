@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import useSWR from 'swr';
-import { formatDecimals, INTERVALS, MAX_SERIES_POINTS, TELEMETRY_DECIMALS_FALLBACK } from '@digilog/shared';
+import {
+  formatDecimals, INTERVALS, MAX_SERIES_POINTS, TELEMETRY_DECIMALS_FALLBACK,
+  PERIOD_PRESETS, DEFAULT_PERIOD,
+} from '@digilog/shared';
 import { apiClient } from '@/lib/api-client';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
@@ -40,6 +43,10 @@ import { SampledNote } from './sampled-note';
  * read the same two constants, so no two surfaces can disagree about which
  * colour means which quantity.
  */
+/** What "Reset zoom" falls back to when this session never chose a preset —
+ *  the page's own default period, not a number invented here. */
+const DEFAULT_PERIOD_MS = PERIOD_PRESETS.find((p) => p.value === DEFAULT_PERIOD)!.ms;
+
 const TEMP_COLOR = SERIES_COLORS[0];
 const HUMID_COLOR = SERIES_COLORS[1];
 
@@ -249,6 +256,31 @@ export function InstrumentTrend() {
   const { data: inst } = useSWR<InstrumentSummary>(id ? `/api/instruments/${id}` : null);
   const { period, setPreset, setCustom, setInterval } = useTrendPeriod();
   const [page, setPage] = useState(1);
+  /**
+   * The preset the operator last chose, so "Reset zoom" can put it back.
+   *
+   * Not read back out of the URL: once zoomed, the URL holds a concrete custom
+   * window and the preset that produced it is gone. On a shared zoomed link
+   * there was no prior choice in THIS session, so reset falls back to the
+   * page's default period rather than inventing one.
+   */
+  const [lastPresetMs, setLastPresetMs] = useState<number>(DEFAULT_PERIOD_MS);
+  const choosePreset = (ms: number) => { setLastPresetMs(ms); setPreset(ms); };
+  /**
+   * Zoom = set the range and REFETCH. The chart hands up the window the drag
+   * covered; `setCustom` is the range setter the manual From/To inputs already
+   * use, so a zoom goes down the path that already works, is linkable, and
+   * survives a refresh. Nothing magnifies the points already drawn — the
+   * server answers the narrower request with the true readings for it.
+   */
+  const onZoom = (from: Date, to: Date) => setCustom(from.toISOString(), to.toISOString());
+  /**
+   * Offered only while the window IS custom — which is what makes the chart
+   * render its "Reset zoom" button, so the button never appears on a view
+   * there is nothing to reset to. A hand-typed custom range counts as zoomed;
+   * that is one signal, not two, and resetting it is just as sensible.
+   */
+  const onResetZoom = period.label === 'Custom' ? () => choosePreset(lastPresetMs) : undefined;
   const extra = useExtraKeys(id ?? '');
   const trend = useInstrumentTrend(id ?? '', period, page, extra.keys);
   const { data: keyOptions } = useSWR<{ data: TelemetryKeyOption[] }>(id ? `/api/instruments/${id}/telemetry-keys` : null);
@@ -587,7 +619,7 @@ export function InstrumentTrend() {
               key={p.label}
               size="sm"
               variant={period.label === p.label ? 'default' : 'secondary'}
-              onClick={() => setPreset(p.ms)}
+              onClick={() => choosePreset(p.ms)}
             >
               {p.label}
             </Button>
@@ -705,6 +737,8 @@ export function InstrumentTrend() {
             min={trend.overview?.limits?.tempMin}
             max={trend.overview?.limits?.tempMax}
             series={tempSeries ? [{ ...tempSeries, color: TEMP_COLOR }] : []}
+            onZoom={onZoom}
+            onResetZoom={onResetZoom}
           />
           <SampledNote
             shown={tempSeries?.points.length ?? 0}
@@ -723,6 +757,8 @@ export function InstrumentTrend() {
             min={trend.overview?.limits?.rhMin}
             max={trend.overview?.limits?.rhMax}
             series={humidSeries ? [{ ...humidSeries, color: HUMID_COLOR }] : []}
+            onZoom={onZoom}
+            onResetZoom={onResetZoom}
           />
           <SampledNote
             shown={humidSeries?.points.length ?? 0}
@@ -755,6 +791,11 @@ export function InstrumentTrend() {
                   unit=""
                   spanMs={spanMs}
                   series={[toChartSeries(chartRows, k, TELEMETRY_DECIMALS_FALLBACK, k, period.intervalMs)]}
+                  // Same page range, so the extra-key charts zoom it too —
+                  // otherwise a drag would work on two charts of a stack and
+                  // silently do nothing on the rest.
+                  onZoom={onZoom}
+                  onResetZoom={onResetZoom}
                 />
               </div>
             ))}
