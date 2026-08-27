@@ -224,6 +224,16 @@ export const PERMISSION_TREE: SidebarGroup[] = [
       { id: 'alarm_rules.manage', label: 'Create / Edit / Delete Alarm Rules', sidebarId: 'configuration', page: 'Alarm Rules', action: 'Manage',
         icon: 'settings-edit', category: 'Alarms', permissions: ['ALARM_RULE_MANAGE', 'ALARM_RULE_READ'], enforce: 'a',
         gate: ['ALARM_RULE_MANAGE'], reauthAction: 'MANAGE_ALARM_RULE', configurable: true },
+      // Alarm Webhooks is a Configuration PAGE, like Alarm Rules — its nodes belong to
+      // this group so granting them does not light up the Alarms sidebar item, which is
+      // a different capability. No new PERMISSION: a role that can decide when an alarm
+      // fires can already decide where it is announced.
+      { id: 'alarm_webhooks.view', label: 'View Alarm Webhooks', sidebarId: 'configuration', page: 'Alarm Webhooks', action: 'View',
+        icon: 'bell', category: 'Alarms', permissions: ['ALARM_RULE_READ'], enforce: 'a',
+        gate: ['ALARM_RULE_READ'], configurable: true },
+      { id: 'alarm_webhooks.manage', label: 'Create / Edit / Delete / Test Alarm Webhooks', sidebarId: 'configuration', page: 'Alarm Webhooks', action: 'Manage',
+        icon: 'settings-edit', category: 'Alarms', permissions: ['ALARM_RULE_MANAGE', 'ALARM_RULE_READ'], enforce: 'a',
+        gate: ['ALARM_RULE_MANAGE'], reauthAction: 'MANAGE_ALARM_WEBHOOK', configurable: true },
     ],
   },
 
@@ -407,7 +417,7 @@ const CONFIGURABLE_PRIVILEGE_ORDER: readonly string[] = [
   'backup.export', 'backup.restore',
   'instruments.view', 'instruments.create', 'instruments.edit', 'instruments.delete',
   'functional_locations.view', 'functional_locations.create', 'functional_locations.edit', 'functional_locations.delete',
-  'alarm_rules.view', 'alarm_rules.manage', 'alarms.view', 'alarms.acknowledge',
+  'alarm_rules.view', 'alarm_rules.manage', 'alarm_webhooks.view', 'alarm_webhooks.manage', 'alarms.view', 'alarms.acknowledge',
 ] as const;
 
 // ─── Derive Functions ────────────────────────────────────────────────────────

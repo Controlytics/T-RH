@@ -40,7 +40,7 @@ describe('Phase 5E: derived maps === original snapshots', () => {
     }
   });
 
-  it('configurable node count is exactly 38', () => {
+  it('configurable node count is exactly 40', () => {
     // Post domain-strip: the 8 core sidebar groups (dashboard, users,
     // admin-requests, configuration, notifications, audit, system-health,
     // debug-traces) contribute 26 configurable nodes. The old version-history
@@ -51,16 +51,18 @@ describe('Phase 5E: derived maps === original snapshots', () => {
     // 2026-08-13 (C3) added the 11th group, alarms, with 2 configurable nodes
     // (view / acknowledge) plus 2 alarm-rule nodes under the CONFIGURATION group,
     // since Alarm Rules is a config page rather than its own sidebar item → 38.
+    // 2026-08-27 added 2 alarm_webhooks nodes (view / manage) under the same
+    // CONFIGURATION group, for the same reason as alarm_rules → 40.
     const count = PERMISSION_TREE.flatMap(g => g.nodes).filter(n => n.configurable === true).length;
-    expect(count).toBe(38);
+    expect(count).toBe(40);
   });
 
   it('FEATURE_PRIVILEGES has exactly 34 entries', () => {
-    expect(FEATURE_PRIVILEGES).toHaveLength(38);
+    expect(FEATURE_PRIVILEGES).toHaveLength(40);
   });
 
   it('FEATURE_TO_PERMISSION_MAP has exactly 38 keys', () => {
-    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(38);
+    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(40);
   });
 
   it('SIDEBAR_PRIVILEGE_MAP has exactly 11 sections', () => {

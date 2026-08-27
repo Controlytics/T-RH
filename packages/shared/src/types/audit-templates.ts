@@ -213,6 +213,30 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'Alarm "{targetName}" cleared by {actor}',
     placeholders: ['actor', 'targetName'],
   },
+  ALARM_WEBHOOK_CREATED: {
+    label: 'Alarm Webhook Created',
+    category: 'Instruments',
+    template: 'Alarm webhook "{targetName}" created by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  ALARM_WEBHOOK_UPDATED: {
+    label: 'Alarm Webhook Updated',
+    category: 'Instruments',
+    template: 'Alarm webhook "{targetName}" updated by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  ALARM_WEBHOOK_DELETED: {
+    label: 'Alarm Webhook Deleted',
+    category: 'Instruments',
+    template: 'Alarm webhook "{targetName}" deleted by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  ALARM_WEBHOOK_TESTED: {
+    label: 'Alarm Webhook Tested',
+    category: 'Instruments',
+    template: 'Alarm webhook "{targetName}" test-fired by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
 
   // Admin Requests
   ADMIN_REQUEST_SUBMITTED: {

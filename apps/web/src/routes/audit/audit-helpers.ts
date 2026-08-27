@@ -44,6 +44,10 @@ export const ACTION_COLORS: Record<string, string> = {
 
   // Alarm Management
   ALARM_ACKNOWLEDGED: 'bg-amber-100 text-amber-700 border-amber-200',
+  ALARM_WEBHOOK_CREATED: 'bg-sky-100 text-sky-700 border-sky-200',
+  ALARM_WEBHOOK_UPDATED: 'bg-sky-100 text-sky-700 border-sky-200',
+  ALARM_WEBHOOK_DELETED: 'bg-rose-100 text-rose-700 border-rose-200',
+  ALARM_WEBHOOK_TESTED: 'bg-sky-100 text-sky-700 border-sky-200',
   ALARM_CLEARED: 'bg-emerald-100 text-emerald-700 border-emerald-200',
 };
 

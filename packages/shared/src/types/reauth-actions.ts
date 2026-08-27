@@ -109,6 +109,9 @@ export const REAUTH_ACTIONS = {
   DELETE_FUNCTIONAL_LOCATION: { label: 'Delete Functional Location', category: 'Configuration' },
   MANAGE_ALARM_RULE: { label: 'Create / Update / Delete Alarm Rule', category: 'Configuration' },
   ACKNOWLEDGE_ALARM: { label: 'Acknowledge Alarm', category: 'Configuration' },
+  // Disabling or re-pointing a target silences a plant-floor buzzer, and a test fire
+  // sounds a real one. Both are signed acts, not preference toggles.
+  MANAGE_ALARM_WEBHOOK: { label: 'Create / Update / Delete / Test Alarm Webhook', category: 'Configuration' },
 
   DOWNLOAD_REPORT: { label: 'Download / Generate a Report', category: 'Reports' },
 

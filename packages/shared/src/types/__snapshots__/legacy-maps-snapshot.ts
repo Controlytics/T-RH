@@ -239,6 +239,18 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
     "icon": "settings-edit"
   },
   {
+    "id": "alarm_webhooks.view",
+    "label": "View Alarm Webhooks",
+    "category": "Alarms",
+    "icon": "bell"
+  },
+  {
+    "id": "alarm_webhooks.manage",
+    "label": "Create / Edit / Delete / Test Alarm Webhooks",
+    "category": "Alarms",
+    "icon": "settings-edit"
+  },
+  {
     "id": "alarms.view",
     "label": "View Alarms",
     "category": "Alarms",
@@ -378,6 +390,13 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
     "ALARM_RULE_READ"
   ],
   "alarm_rules.manage": [
+    "ALARM_RULE_MANAGE",
+    "ALARM_RULE_READ"
+  ],
+  "alarm_webhooks.view": [
+    "ALARM_RULE_READ"
+  ],
+  "alarm_webhooks.manage": [
     "ALARM_RULE_MANAGE",
     "ALARM_RULE_READ"
   ],
