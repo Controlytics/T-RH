@@ -5,6 +5,7 @@ import { useSession } from '@/hooks/use-session';
 import { useSingleTab } from '@/hooks/use-single-tab';
 import { useBranding } from '@/hooks/use-branding';
 import { useDragScroll } from '@/hooks/use-drag-scroll';
+import { backgroundLayerStyle } from '@/lib/background-style';
 import { SuperAdminLockdownScreen } from '@/components/super-admin-api-access';
 import { useSuperAdminLock } from '@/hooks/use-super-admin-lock';
 import { Sidebar } from './sidebar';
@@ -164,12 +165,29 @@ export function AppLayout() {
     return <SuperAdminLockdownScreen />;
   }
 
+  // The operator-uploaded background image, or null when none is set. Resolved by a
+  // pure helper so the clamping and the escaping are unit-tested — Playwright cannot
+  // authenticate in this repo, so no automated check ever sees this render.
+  const backgroundStyle = backgroundLayerStyle(branding);
+
   return (
-    <div className="flex h-screen bg-slate-50">
+    <div className={`flex h-screen ${backgroundStyle ? '' : 'bg-slate-50'}`}>
+      {/* Background image layer. Fixed and pointer-events-none so it never
+          intercepts a click, and behind everything via a negative z-index. The white
+          sheet under it is what keeps dense pages legible: the image's own strength
+          is set by `opacity` on the image element, NOT by fading this sheet, because
+          fading the image element would also fade anything painted on top of it. */}
+      {backgroundStyle && (
+        <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 bg-white">
+          <div className="absolute inset-0" style={backgroundStyle} />
+        </div>
+      )}
       <Sidebar userRole={user?.role ?? ''} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header user={user} onLogout={logout} onMenuToggle={() => setSidebarOpen(o => !o)} />
-        <main className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6 bg-gradient-to-br from-slate-50 to-slate-100/50">
+        {/* With a background set, the main pane goes transparent so the image shows
+            through; without one it keeps the original gradient exactly. */}
+        <main className={`flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6 ${backgroundStyle ? '' : 'bg-gradient-to-br from-slate-50 to-slate-100/50'}`}>
           <Outlet />
         </main>
       </div>

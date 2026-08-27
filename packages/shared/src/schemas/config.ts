@@ -26,6 +26,21 @@ export const brandingConfigSchema = z.object({
   loginBgEnd: z.string().regex(/^#[0-9A-Fa-f]{6}$/).default('#1e3a5f'),
   // Color theme preset
   colorTheme: z.string().default('ocean'),
+
+  // App background image (2026-08-27). SUPER_ADMIN-set, applies behind every
+  // authenticated page.
+  //
+  // A PATH, never a data URI — deliberately unlike `logoUrl` above. The image is
+  // uploaded to disk by POST /api/uploads/branding-background and only its path is
+  // stored, because `system_config` is read constantly and a branding change is
+  // AUDITED: a base64 background would put the whole image twice into a §11
+  // before/after record. The 512 cap is what enforces that; do not raise it to
+  // logoUrl's 3,000,000 "for consistency".
+  backgroundUrl: z.string().max(512).default(''),
+  // Strength of the image behind the white scrim, as a percentage. The default is
+  // deliberately low: the dashboard is dense (tables, charts, the floorplan), and a
+  // full-strength photograph behind it is unreadable with no in-app remedy.
+  backgroundOpacity: z.number().int().min(0).max(100).default(12),
 });
 
 export const passwordPolicySchema = z.object({

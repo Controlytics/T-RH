@@ -8,11 +8,17 @@ import { UPLOADS_ROOT } from '../../lib/uploads-dir.js';
 // match the static serve root in app.ts, otherwise written photos 404.
 const profilePhotosDir = path.join(UPLOADS_ROOT, 'photos');
 const floorplansDir = path.join(UPLOADS_ROOT, 'floorplans');
+// The app background image. `/uploads/branding/` is ALREADY in PUBLIC_GET_PATHS
+// (apps/api/src/plugins/auth.ts) and must stay there: a CSS `background-image`
+// cannot send an Authorization header, so a background served from a protected
+// path would 401 for every viewer. Same reasoning that made floorplans public.
+const brandingDir = path.join(UPLOADS_ROOT, 'branding');
 
 // Ensure upload directories exist
 async function ensureDirectories() {
   await mkdir(profilePhotosDir, { recursive: true });
   await mkdir(floorplansDir, { recursive: true });
+  await mkdir(brandingDir, { recursive: true });
 }
 
 // Allowed image types — configurable via environment
@@ -268,6 +274,80 @@ export default async function uploadRoutes(app: FastifyInstance) {
       await writeFile(path.join(floorplansDir, filename), result.buffer);
 
       return { success: true, url: `/uploads/floorplans/${filename}`, filename };
+    } catch (err: unknown) {
+      const e = err as { code?: string; statusCode?: number; message?: string };
+      if (e.code === 'FST_REQ_FILE_TOO_LARGE') {
+        return reply.code(413).send({
+          error: 'FILE_TOO_LARGE',
+          message: `File exceeds maximum size of ${MAX_FILE_SIZE / 1024 / 1024} MB`,
+        });
+      }
+      if (e.statusCode === 415 || e.message?.includes('multipart')) {
+        return reply.code(400).send({
+          error: 'INVALID_REQUEST',
+          message: 'Request must be multipart/form-data with a file',
+        });
+      }
+      app.log.error(err);
+      return reply.code(500).send({ error: 'Failed to upload file' });
+    }
+  });
+
+  // The app background image (2026-08-27). Like /floorplan and unlike /photo, this
+  // writes a SHARED asset every user sees, so it carries CONFIG_UPDATE rather than
+  // bare authentication — otherwise any signed-in user could replace what the whole
+  // site looks like.
+  //
+  // The resulting path is stored on the `branding` config as `backgroundUrl`. It is
+  // a PATH, never a data URI: `system_config` is read constantly and a branding
+  // change is audited, so an inlined image would land twice in a §11 before/after
+  // record. The 512-char cap on that field is what holds the line.
+  app.post('/branding-background', {
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    // Same reasoning as the other two: nothing here unlinks a file and there is no
+    // quota, so each call permanently costs up to MAX_FILE_SIZE of disk. Replacing a
+    // background is a rare act.
+    config: { rateLimit: { max: 20, timeWindow: '1 hour' } },
+    schema: {
+      tags: ['Uploads'],
+      summary: 'Upload the application background image',
+      description: 'Upload a background image (JPEG, PNG, GIF, or WebP). Maximum 5 MB. Returns the URL to store on the branding config.',
+      consumes: ['multipart/form-data'],
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            url: { type: 'string', description: 'Relative URL path to the uploaded image' },
+            filename: { type: 'string' },
+          },
+        },
+        400: { type: 'object', properties: { error: { type: 'string' }, message: { type: 'string' } } },
+        413: { type: 'object', properties: { error: { type: 'string' }, message: { type: 'string' } } },
+        500: { type: 'object', properties: { error: { type: 'string' } } },
+      },
+    },
+  }, async (req, reply) => {
+    try {
+      const data = await req.file();
+      if (!data) return reply.code(400).send({ error: 'No file uploaded' });
+
+      // The SHARED validator — magic bytes checked against the declared (and
+      // therefore attacker-controlled) mime type, and `truncated` for oversize.
+      // Reused rather than reimplemented so this route cannot drift into being the
+      // weaker of the three.
+      const result = await readValidatedImage(data as never);
+      if (!result.ok) return reply.code(result.code).send(result.body);
+
+      // Extension from the VALIDATED mime type, never the supplied filename.
+      const filename = `${randomUUID()}${result.ext}`;
+      await writeFile(path.join(brandingDir, filename), result.buffer);
+
+      // The PREVIOUS background file is deliberately NOT deleted. It may still be
+      // named by an audited before-value of a branding change, and a §11 record that
+      // points at a missing file is worse than an orphaned image. Disk is reclaimed
+      // by the operator, not silently by this route.
+      return { success: true, url: `/uploads/branding/${filename}`, filename };
     } catch (err: unknown) {
       const e = err as { code?: string; statusCode?: number; message?: string };
       if (e.code === 'FST_REQ_FILE_TOO_LARGE') {

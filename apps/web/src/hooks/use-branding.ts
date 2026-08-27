@@ -20,6 +20,10 @@ export const defaultBranding: BrandingConfig = {
   loginBgStart: '#0f172a',
   loginBgEnd: '#1e3a5f',
   colorTheme: 'ocean',
+  // No background image by default. Empty means absent — AppLayout renders no layer
+  // at all rather than a transparent one over the page's own background.
+  backgroundUrl: '',
+  backgroundOpacity: 12,
 };
 
 export function useBranding() {

@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { LogoUploadSection } from './branding-components/logo-upload-section';
+import { BackgroundUploadSection } from './branding-components/background-upload-section';
 import { ColorSettingsSection } from './branding-components/color-settings-section';
 import { BrandingPreview } from './branding-components/branding-preview';
 import { LoginBgSection } from './branding-components/login-bg-section';
@@ -107,6 +108,18 @@ export function BrandingConfigPage() {
               onLogoUpload={handleLogoUpload}
               onRemoveLogo={handleRemoveLogo}
               register={register}
+            />
+
+            {/* The background image is uploaded to disk and only its path is stored,
+                so both fields are set through `setValue` with shouldDirty — the Save
+                button is disabled unless the form is dirty, and the upload itself
+                does not write the config. Nothing is applied until Save, which
+                carries the existing UPDATE_BRANDING re-authentication. */}
+            <BackgroundUploadSection
+              backgroundUrl={watchedValues.backgroundUrl ?? ''}
+              backgroundOpacity={watchedValues.backgroundOpacity ?? 12}
+              onChange={(url) => setValue('backgroundUrl', url, { shouldDirty: true })}
+              onOpacityChange={(v) => setValue('backgroundOpacity', v, { shouldDirty: true })}
             />
 
             {/* App Identity Section */}
