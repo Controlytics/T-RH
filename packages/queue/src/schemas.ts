@@ -32,3 +32,21 @@ export const notificationEventJobSchema = z.object({
   variables: z.record(z.string()).default({}),
 });
 export type NotificationEventJob = z.infer<typeof notificationEventJobSchema>;
+
+/**
+ * Alarm webhook (hooter) job — what the evaluator and the acknowledge route enqueue.
+ *
+ * Enqueued with maxAttempts: 1 on purpose. Retry is BOUNDED INSIDE the job (3 attempts,
+ * ~2s apart) because graphile-worker's exponential backoff could otherwise sound a
+ * buzzer twenty minutes after the excursion cleared — announcing a condition that no
+ * longer exists, which is worse than not announcing at all.
+ */
+export const alarmWebhookJobSchema = z.object({
+  event: z.enum(['RAISED', 'CLEARED', 'ACKNOWLEDGED']),
+  alarmId: z.string().min(1),
+  instrumentId: z.string().min(1),
+  severity: z.string().min(1),
+  /** Template variables. Strings only — the renderer does no coercion. */
+  variables: z.record(z.string()).default({}),
+});
+export type AlarmWebhookJob = z.infer<typeof alarmWebhookJobSchema>;

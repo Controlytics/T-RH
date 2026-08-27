@@ -49,6 +49,7 @@ import { dispatchNotification } from './modules/notification-delivery/notificati
 import adminRequestRoutes from './modules/admin-requests/routes.js';
 import floorplanRoutes from './modules/floorplans/routes.js';
 import { alarmEvaluationTask } from './workers/alarm-evaluation.worker.js';
+import { alarmWebhookTask } from './workers/alarm-webhook.worker.js';
 import functionalLocationRoutes from './modules/functional-locations/routes.js';
 import alarmRoutes from './modules/alarms/routes.js';
 import ingestRoutes from './modules/instruments/ingest-routes.js';
@@ -477,6 +478,12 @@ try {
         // together: that file warns that an identifier with no handler is enqueued
         // and never completed, which once left 51,798 orphan jobs.
         alarm_evaluation: alarmEvaluationTask,
+
+        // Alarm webhook annunciator — event-driven, NOT cron. Enqueued by the alarm
+        // evaluator and the acknowledge route. Retry is bounded inside the task, so
+        // this is enqueued with maxAttempts: 1: a buzzer that sounds twenty minutes
+        // late announces a condition that no longer exists.
+        alarm_webhook: alarmWebhookTask,
       },
       crontabPath,
     });
