@@ -148,20 +148,32 @@ function GaugeSkeleton({ title }: { title: string }) {
  * loading and error are answered here, above the chart, and only a RESOLVED,
  * empty response reaches the chart's own empty state.
  *
+ * A FAILED REVALIDATION IS NOT A FAILED LOAD. SWR keeps `data` when a refetch
+ * of the same key errors — a focus revalidation, a Retry, an errorRetry — so a
+ * chart that loaded correctly can be sitting there fully drawn while `error` is
+ * set. Replacing it with "could not be loaded" would be this component's own
+ * defect mirrored: a false statement about readings that ARE in hand. So the
+ * error CARD renders only when there is nothing to show (`hasData` false);
+ * otherwise the chart stays and carries a quiet "could not be refreshed" line
+ * with the same retry. A stale chart that says it is stale is honest; a blank
+ * one claiming the readings are unavailable is not.
+ *
  * Wrapped rather than pushed into `TimeSeriesChart` itself: that component is
  * shared with the dashboard's room view and the off-screen PDF render, neither
  * of which has a fetch to be loading or failing.
  */
 function ChartPanel({
-  isLoading, error, onRetry, title, children,
+  isLoading, error, hasData, onRetry, title, children,
 }: {
   isLoading: boolean;
   error: unknown;
+  /** Whether the chart request has readings in hand from an earlier success. */
+  hasData: boolean;
   onRetry: () => void;
   title: string;
   children: React.ReactNode;
 }) {
-  if (error) {
+  if (error && !hasData) {
     return (
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-6">
         <div>
@@ -170,6 +182,17 @@ function ChartPanel({
         </div>
         <Button size="sm" variant="secondary" onClick={onRetry}>Retry</Button>
       </div>
+    );
+  }
+  if (error) {
+    return (
+      <>
+        <p className="mb-1 flex flex-wrap items-center gap-2 text-xs text-amber-700">
+          <span>These readings could not be refreshed. Showing the last ones that loaded.</span>
+          <button type="button" onClick={onRetry} className="font-semibold underline underline-offset-2">Retry</button>
+        </p>
+        {children}
+      </>
     );
   }
   if (isLoading) {
@@ -894,6 +917,7 @@ export function InstrumentTrend() {
             title="Temperature Trend"
             isLoading={trend.chartsLoading}
             error={trendError}
+            hasData={trend.chartRows.length > 0}
             onRetry={retryTrend}
           >
             <TimeSeriesChart
@@ -929,6 +953,7 @@ export function InstrumentTrend() {
             title="Humidity Trend"
             isLoading={trend.chartsLoading}
             error={trendError}
+            hasData={trend.chartRows.length > 0}
             onRetry={retryTrend}
           >
             <TimeSeriesChart
@@ -978,6 +1003,7 @@ export function InstrumentTrend() {
                   title={k}
                   isLoading={trend.chartsLoading}
                   error={trendError}
+                  hasData={trend.chartRows.length > 0}
                   onRetry={retryTrend}
                 >
                   <TimeSeriesChart

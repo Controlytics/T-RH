@@ -76,10 +76,13 @@ export interface TrendChartSection {
   image: ChartImage | null;
   /** Why there is no picture. Printed verbatim when `image` is null. */
   unavailableReason: string;
-  /** Never computed from the averaged points plotted above it. Its COUNTS come
-   *  from the server's aggregate over EVERY reading in the range
-   *  (`withServerSummary`), so a sampled chart cannot understate the number of
-   *  excursions here; its extremes describe the rows the report was built from.
+  /** Never computed from the averaged points plotted above it. Its readings
+   *  count, extremes, mean AND out-of-limit counts all come from the server's
+   *  aggregate over EVERY reading in the range (`withServerSummary`), so a
+   *  sampled chart can neither understate the number of excursions here nor
+   *  print a maximum below a limit it reports breaches of. Only `first`/`last`
+   *  describe the rows the report was built from, and those are two labelled
+   *  instants the sampler preserves verbatim.
    *  `null` when the slot had no readings in the period. */
   summary: SlotSummary | null;
 }

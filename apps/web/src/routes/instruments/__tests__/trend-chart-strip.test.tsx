@@ -32,13 +32,16 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
  * been read out of the DOM, not seen.
  */
 
-// Two readings inside one 5-minute bucket, one in the next, per key. At `5m`
-// the temperature series plots two AVERAGED points (22.5 and 22.5), so nothing
-// the strip prints can have come from the plotted series.
+// Two readings in one 5-minute bucket, TWO in the next. The second bucket means
+// to 22.7 while its LAST STORED reading is 22.9 — that gap is what makes
+// "Current is a stored reading, not the last plotted point" a real assertion.
+// With a single reading in the final bucket the mean would equal the reading
+// and the test would pass against either implementation.
 const history = [
   { key: 'temperature', value: 22.4, ts: '2026-08-24T00:10:00.000Z', slot: 'temperature', decimals: 1 },
   { key: 'temperature', value: 22.6, ts: '2026-08-24T00:11:00.000Z', slot: 'temperature', decimals: 1 },
   { key: 'temperature', value: 22.5, ts: '2026-08-24T00:20:00.000Z', slot: 'temperature', decimals: 1 },
+  { key: 'temperature', value: 22.9, ts: '2026-08-24T00:21:00.000Z', slot: 'temperature', decimals: 1 },
   { key: 'humidity', value: 45.3, ts: '2026-08-24T00:20:00.000Z', slot: 'humidity', decimals: 1 },
   { key: 'co2', value: 410, ts: '2026-08-24T00:20:00.000Z', slot: null, decimals: null },
 ];
@@ -46,9 +49,9 @@ const history = [
 /** The server's aggregates over the WHOLE range — the population the sample
  *  above is drawn from. `temperature.max` is the excursion LTTB dropped. */
 const summaries: Record<string, any> = {
-  temperature: { count: 2500, min: 17.2, max: 31.9, avg: 22.8, first: history[0].ts, last: history[2].ts },
-  humidity: { count: 2500, min: 40.0, max: 55.5, avg: 46.2, first: history[3].ts, last: history[3].ts },
-  co2: { count: 2500, min: 400, max: 900, avg: 512, first: history[4].ts, last: history[4].ts },
+  temperature: { count: 2500, min: 17.2, max: 31.9, avg: 22.8, first: history[0].ts, last: history[3].ts },
+  humidity: { count: 2500, min: 40.0, max: 55.5, avg: 46.2, first: history[4].ts, last: history[4].ts },
+  co2: { count: 2500, min: 400, max: 900, avg: 512, first: history[5].ts, last: history[5].ts },
 };
 
 const overviewRow = {
@@ -60,8 +63,16 @@ const overviewRow = {
   decimals: { temperature: 1, humidity: 1 }, reporting: true, status: 'OK',
 };
 
-/** Flipped per test to drive the chart request's own loading/error branches. */
-const chartState: { isLoading: boolean; error: unknown } = { isLoading: false, error: undefined };
+/**
+ * Flipped per test to drive the chart request's own loading/error branches.
+ *
+ * `keepData` models SWR's real behaviour on a FAILED REVALIDATION: `data` is
+ * retained from the last success while `error` is set. That combination is
+ * reachable on every focus refetch and every Retry, and it is the one the error
+ * card must NOT claim "could not be loaded" for.
+ */
+const chartState: { isLoading: boolean; error: unknown; keepData: boolean } =
+  { isLoading: false, error: undefined, keepData: false };
 
 function dataFor(key: string | null): any {
   if (!key) return undefined;
@@ -81,7 +92,14 @@ vi.mock('swr', () => ({
     // test — the table request must stay resolved, or a test proving the chart
     // skeleton would also be proving the table blank and could not tell them apart.
     const isChart = typeof k === 'string' && k.includes('points=');
-    if (isChart && chartState.error) return { data: undefined, isLoading: false, error: chartState.error, mutate: vi.fn() };
+    if (isChart && chartState.error) {
+      return {
+        data: chartState.keepData ? dataFor(k) : undefined,
+        isLoading: false,
+        error: chartState.error,
+        mutate: vi.fn(),
+      };
+    }
     if (isChart && chartState.isLoading) return { data: undefined, isLoading: true, error: undefined, mutate: vi.fn() };
     return { data: dataFor(k), isLoading: false, error: undefined, mutate: vi.fn() };
   },
@@ -126,7 +144,13 @@ describe('trend page — per-chart summary strip', () => {
   it('shows the latest STORED reading as Current, not the last averaged point', () => {
     chartState.isLoading = false; chartState.error = undefined;
     renderPage();
-    expect(strips('Current')[0]).toBe('22.5 °C');
+    // The final 5-minute bucket holds 22.5 and 22.9 and PLOTS their mean, 22.7.
+    // The stored reading at the latest instant is 22.9, and that is what
+    // "Current" means. Pointing `latestValueForKey` at the series' last point
+    // instead prints 22.7 and fails here — which is the whole reason the
+    // fixture carries two readings in that bucket rather than one.
+    expect(strips('Current')[0]).toBe('22.9 °C');
+    expect(strips('Current')[0]).not.toBe('22.7 °C');
   });
 
   it('renders at the instrument\'s own decimals, and humidity in its own unit', () => {
@@ -146,7 +170,7 @@ describe('trend page — extra-key charts disclose sampling', () => {
     // extra-key chart plotted its single sampled point and said nothing.
     // (Temperature returned three, and carries its own "Showing 3 of 2,500".)
     expect(screen.getAllByText(/Showing 1 of 2,500 readings/)).toHaveLength(2);
-    expect(screen.getAllByText(/Showing 3 of 2,500 readings/)).toHaveLength(1);
+    expect(screen.getAllByText(/Showing 4 of 2,500 readings/)).toHaveLength(1);
     // And it is the EXTRA-KEY chart's own note, not one of the two above that
     // happens to read the same. Scoped to the container holding the co2 chart
     // title, so a note rendered anywhere else on the page cannot satisfy this.
@@ -171,19 +195,35 @@ describe('trend page — extra-key charts disclose sampling', () => {
 
 describe('trend page — chart loading and error states', () => {
   it('does not claim "No data available" while the chart request is in flight', () => {
-    chartState.isLoading = true; chartState.error = undefined;
+    chartState.isLoading = true; chartState.error = undefined; chartState.keepData = false;
     renderPage();
     expect(screen.queryByText('No data available')).toBeNull();
     expect(screen.getAllByText('Loading…').length).toBeGreaterThanOrEqual(2);
   });
 
   it('does not claim "No data available" when the chart request failed — it offers Retry', () => {
-    chartState.isLoading = false; chartState.error = new Error('network');
+    chartState.isLoading = false; chartState.error = new Error('network'); chartState.keepData = false;
     renderPage();
     expect(screen.queryByText('No data available')).toBeNull();
     const panels = screen.getAllByText(/These readings could not be loaded/);
     expect(panels.length).toBeGreaterThanOrEqual(2);
     expect(within(panels[0].closest('div')!.parentElement!).getByText('Retry')).toBeInTheDocument();
     chartState.error = undefined;
+  });
+
+  it('KEEPS a loaded chart when a later refresh fails, and says the refresh failed', () => {
+    // SWR keeps `data` on a failed revalidation of the same key. Blanking a
+    // correctly rendered chart to say "could not be loaded" would be a false
+    // statement about readings that are in hand — the mirror of the "No data
+    // available"-while-loading defect this page was fixed for.
+    chartState.isLoading = false; chartState.error = new Error('network'); chartState.keepData = true;
+    renderPage();
+    expect(screen.queryByText(/These readings could not be loaded/)).toBeNull();
+    expect(screen.getAllByText(/could not be refreshed/).length).toBeGreaterThanOrEqual(2);
+    // The readings really are still on screen: the strip still prints the
+    // server's figures rather than nothing.
+    expect(strips('Maximum')[0]).toBe('31.9 °C');
+    expect(screen.queryByText('No data available')).toBeNull();
+    chartState.error = undefined; chartState.keepData = false;
   });
 });
