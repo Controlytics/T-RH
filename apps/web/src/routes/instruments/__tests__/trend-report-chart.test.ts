@@ -221,10 +221,11 @@ describe('the trend report shows the trend', () => {
     // Scoped to the two blocks that ARE sampled...
     expect(text).toMatch(/the chart and the readings table below/);
     // ...and saying exactly which figures below are over the whole period and
-    // which are not. Claiming the whole summary block is whole-range would be
-    // its own false statement: only the counts are.
-    expect(text).toMatch(/readings count and its out-of-limit counts over EVERY reading/);
-    expect(text).toMatch(/minimum, maximum and mean describe the readings this report holds/);
+    // which are not. Since 2026-08-27 that is every figure in the summary
+    // EXCEPT the first/last pair, which the sampler preserves verbatim.
+    expect(text).toMatch(/readings count, minimum, maximum, mean and out-of-limit counts are all/);
+    expect(text).toMatch(/computed over EVERY reading in the period, not over this sample/);
+    expect(text).toMatch(/Only its first and last readings are read from this sample/);
   });
 
   it('offers a remedy that exists — not the Time Series report, which samples identically', async () => {
@@ -301,7 +302,7 @@ describe('the trend report shows the trend', () => {
     expect(byLabel['Out of limit']).toBe('1 of 3 readings (33.3%) — against the high limit only');
   });
 
-  it('prints the SERVER\'s whole-range counts, not the sampled ones', async () => {
+  it('prints the SERVER\'s whole-range figures, not the sampled ones', async () => {
     // The three `readings` above are the sample the report was built from; the
     // period holds 2,500 readings and nine breaches the sampler did not draw.
     // Counted over the sample this block would say "0 out of limit".
@@ -325,12 +326,16 @@ describe('the trend report shows the trend', () => {
     expect(byLabel['Readings']).toBe('2,500');
     expect(byLabel['Out of limit']).toBe('9 of 2,500 readings (0.4%)');
     expect(byLabel['— below / above limit']).toBe('2 below 18.0  /  7 above 25.0');
-    // The EXTREMES stay row-derived, and so do `first`/`last`, so the block
-    // quotes one population throughout. A server minimum of 17.0 printed above
-    // a first/last pair that never goes below 22.4 would be a table
-    // contradicting itself with nothing saying why.
-    expect(byLabel['Maximum']).toBe('26.9 °C');
-    expect(byLabel['Minimum']).toBe('22.4 °C');
+    // THE EXTREMES COME FROM THE RANGE TOO (2026-08-27). The sample's own
+    // maximum is 26.9 °C, which would print directly above "7 above 25.0" — a
+    // maximum below a limit the same block reports seven breaches of. The
+    // printed maximum must be the range's, so a reader who cannot see the
+    // readings can reconcile the two figures.
+    expect(byLabel['Maximum']).toBe('99.9 °C');
+    expect(byLabel['Minimum']).toBe('17.0 °C');
+    expect(byLabel['Mean']).toBe('20.2 °C');
+    // `first`/`last` stay row-derived — labelled claims about two instants,
+    // each with its own timestamp, which the endpoint cannot supply.
     expect(byLabel['First reading']).toContain('22.4');
   });
 

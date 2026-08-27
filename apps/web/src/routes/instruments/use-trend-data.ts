@@ -163,6 +163,24 @@ export interface InstrumentTrendData {
    *  derived from `chartRows`, which may be sampled. */
   summaries: Record<string, TelemetrySummary>;
   isLoading: boolean;
+  /**
+   * The CHART request's own in-flight flag, separate from `isLoading`.
+   *
+   * The charts must not blank because the table's page fetch is slow: gating a
+   * chart skeleton on the combined flag would replace a fully loaded chart
+   * with "Loading…" every time the operator paged the table underneath it.
+   */
+  chartsLoading: boolean;
+  /**
+   * The CHART request's error, and its retry.
+   *
+   * Exposed here rather than left to the page to re-issue `useSWR` with a
+   * hand-copied key: the key would then live in two files, and the failure
+   * when they drifted would be silent — a Retry button quietly mutating a
+   * request nothing was watching. One owner of the key, one subscription.
+   */
+  error: unknown;
+  retry: () => void;
 }
 
 /**
@@ -200,7 +218,8 @@ export function useInstrumentTrend(
   const chartKey = id
     ? `/api/instruments/${id}/telemetry?from=${encodeURIComponent(period.from)}&to=${encodeURIComponent(period.to)}&points=${MAX_SERIES_POINTS}`
     : null;
-  const { data: chartData, isLoading: chartLoading } = useSWR<TelemetryResponse>(chartKey);
+  const { data: chartData, isLoading: chartLoading, error: chartError, mutate: chartMutate } =
+    useSWR<TelemetryResponse>(chartKey);
 
   const offset = Math.max(page - 1, 0) * TABLE_PAGE_SIZE;
   const tableKey = id
@@ -219,5 +238,8 @@ export function useInstrumentTrend(
     historyTotal: tableData?.historyTotal ?? 0,
     summaries: chartData?.summaries ?? {},
     isLoading: overviewLoading || chartLoading || tableLoading,
+    chartsLoading: chartLoading,
+    error: chartError,
+    retry: () => { void chartMutate(); },
   };
 }

@@ -31,7 +31,7 @@ import {
   GatewayInvariantViolation,
 } from './gateway-invariants.js';
 import {
-  getLatest, getHistory, getDistinctKeys, getRangeRows, getRangeSummary,
+  getLatest, getHistory, getDistinctKeys, getRangeRows, getRangeSummary, chartRangeTotal,
   type TelemetryRow, type RangeSummary,
 } from './telemetry.repository.js';
 import { publishAttributeDownlink } from './attribute-downlink.js';
@@ -834,7 +834,32 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           (r): r is TelemetryRow & { value: number } => typeof r.value === 'number',
         );
         const sampled = lttb(plottable, points);
-        return { key, summary, bounds, sampled, total: rows.length, truncated, dropped: sampled.length < plottable.length };
+        return {
+          key,
+          summary,
+          bounds,
+          sampled,
+          // The range's TRUE reading count, from the summary's own `count(*)`,
+          // not `rows.length` — which is the post-slice count and understates
+          // the range whenever `CHART_HARD_CAP` fires. `historyTotal` is an
+          // on-screen and printed §11 statement ("Showing 5,000 of N"), so it
+          // has to describe the window that was asked for. The two are
+          // byte-equivalent on every non-truncating call: `getRangeSummary`
+          // counts `count(*)` with no numeric guard, exactly what `getRangeRows`
+          // selects. `rows.length` remains the fallback for a key the summary
+          // returned nothing for (an empty range), where it is 0 either way.
+          //
+          // DIRECTION OF TRUNCATION: `getRangeRows` is `ORDER BY ts ASC LIMIT
+          // hardCap + 1`, so a capped fetch keeps the OLDEST readings and the
+          // chart would cover only the BEGINNING of the period. (The original
+          // defect was the mirror image — `getHistory`'s DESC kept only the
+          // newest.) Unreachable at this cadence, and `truncated` is reported
+          // either way, but the next reader should not have to re-derive which
+          // end goes missing.
+          total: chartRangeTotal(summary, rows.length),
+          truncated,
+          dropped: sampled.length < plottable.length,
+        };
       }));
 
       historyRows = perKey.flatMap((k) => k.sampled);
@@ -915,14 +940,9 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const { where: visibility } = await resolveVisibility(buildContext(req));
     const exists = await prisma.instrument.findFirst({
       where: withVisibility({ id }, visibility) as { id: string },
-      // The ROOM's band comes back on this same read rather than in a second
-      // query: it is the fallback for an instrument that declares no limits of
-      // its own, and without it every room-limited instrument would have its
-      // breach counts reported as "no limit set" in a signed document.
-      select: {
-        id: true,
-        room: { select: { tempMin: true, tempMax: true, rhMin: true, rhMax: true } },
-      },
+      // Existence only. This route computes no breach counts, so it needs no
+      // room band — the read is here purely to decide 404 vs 200.
+      select: { id: true },
     });
     if (!exists) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
 

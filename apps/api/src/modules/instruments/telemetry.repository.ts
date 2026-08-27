@@ -260,6 +260,25 @@ export async function getRangeSummary(opts: {
 }
 
 /**
+ * The reading count a chart response reports for one key.
+ *
+ * ALWAYS the summary's own `count(*)` where there is one. `getRangeRows` slices
+ * to `hardCap`, so its row count is a POST-SLICE number: if the cap ever fires,
+ * reporting it would put "Showing 5,000 of 200,000" on screen and the same
+ * understated denominator in a signed PDF, for a range holding more. That is a
+ * false numeric statement about the record, not a display rounding.
+ *
+ * The two are byte-equivalent on every non-truncating call — `getRangeSummary`
+ * counts `count(*)` with no numeric guard, exactly the rows `getRangeRows`
+ * selects — so this changes nothing until the cap actually fires. The row count
+ * remains the fallback for a key the summary returned nothing for (an empty
+ * range), where both are 0.
+ */
+export function chartRangeTotal(summary: { count: number } | null, sliceLength: number): number {
+  return summary?.count ?? sliceLength;
+}
+
+/**
  * Every reading in the range for one key, ASCENDING, bounded by `hardCap`.
  *
  * ASC, unlike getHistory's DESC: the sampler and the chart both need chronological

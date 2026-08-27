@@ -36,6 +36,7 @@ import { renderChartToPng } from './chart-image';
 import { BandGauge } from './band-gauge';
 import { TrendHeader } from './trend-header';
 import { SampledNote } from './sampled-note';
+import { ChartSummaryStrip } from './chart-summary-strip';
 
 /**
  * Series identity, fixed. Temperature is palette slot 1 and humidity slot 2
@@ -81,6 +82,26 @@ function numericRows(rows: TelemetryLongRow[]): { key: string; value: number; ts
     .map((r) => ({ key: r.key, value: r.value, ts: r.ts }));
 }
 
+/**
+ * The LATEST STORED reading for one key in the rows in hand — the summary
+ * strip's "Current".
+ *
+ * Taken from the raw rows, never from a chart series: `toChartSeries` bucket-
+ * averages when an interval is selected, so its last point is a mean, and a
+ * mean labelled "Current" is a derived number presented as a reading. The
+ * server summary cannot supply this either — it returns `first`/`last` as
+ * timestamps, not value+timestamp pairs. LTTB keeps the range's last point
+ * verbatim, so this IS the period's last stored reading.
+ */
+function latestValueForKey(rows: { key: string; value: number; ts: string }[], key: string): number | null {
+  let best: { value: number; ts: string } | null = null;
+  for (const r of rows) {
+    if (r.key !== key) continue;
+    if (best === null || r.ts > best.ts) best = r;
+  }
+  return best === null ? null : best.value;
+}
+
 /** The raw key this instrument reports a slot under, from whichever annotated
  *  rows are in hand. Administered server-side (`loadAliases()`); never guessed here. */
 function keyForSlot(rows: TelemetryLongRow[], slot: 'temperature' | 'humidity'): string | null {
@@ -114,6 +135,53 @@ function GaugeSkeleton({ title }: { title: string }) {
       <p className="mt-3 text-sm text-slate-400">Loading…</p>
     </section>
   );
+}
+
+/**
+ * The three states a chart can be in BEFORE it can honestly say "No data
+ * available".
+ *
+ * `TimeSeriesChart` renders that message whenever its series hold no points,
+ * which is also true while the fetch is in flight and while it is failing. On a
+ * §11 surface those are three different claims: "the range holds nothing" is a
+ * statement about the record, and the other two are "we do not know yet". So
+ * loading and error are answered here, above the chart, and only a RESOLVED,
+ * empty response reaches the chart's own empty state.
+ *
+ * Wrapped rather than pushed into `TimeSeriesChart` itself: that component is
+ * shared with the dashboard's room view and the off-screen PDF render, neither
+ * of which has a fetch to be loading or failing.
+ */
+function ChartPanel({
+  isLoading, error, onRetry, title, children,
+}: {
+  isLoading: boolean;
+  error: unknown;
+  onRetry: () => void;
+  title: string;
+  children: React.ReactNode;
+}) {
+  if (error) {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-6">
+        <div>
+          <p className="text-sm font-medium text-red-800">{title}</p>
+          <p className="mt-1 text-xs text-red-700">These readings could not be loaded, so nothing is shown.</p>
+        </div>
+        <Button size="sm" variant="secondary" onClick={onRetry}>Retry</Button>
+      </div>
+    );
+  }
+  if (isLoading) {
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white p-6 text-center">
+        <p className="text-sm font-medium text-slate-700">{title}</p>
+        <p className="mt-1 text-xs text-slate-500">Loading…</p>
+        <div className="mt-4 h-40 animate-pulse rounded-lg bg-slate-100" />
+      </div>
+    );
+  }
+  return <>{children}</>;
 }
 
 interface TelemetryKeyOption {
@@ -305,18 +373,16 @@ export function InstrumentTrend() {
   const extra = useExtraKeys(id ?? '');
   const trend = useInstrumentTrend(id ?? '', period, page, extra.keys);
   /**
-   * Error + retry for the trend fetch, WITHOUT reaching into `use-trend-data.ts`.
+   * Error + retry for the chart fetch, from the hook that OWNS the request.
    *
-   * `useInstrumentTrend` doesn't return `error`/`mutate` — it owns the chart and
-   * table requests and isn't in this task's file scope. SWR dedupes by key, so
-   * this reads the SAME cached request the hook already issues (the chart path,
-   * `points=`) rather than firing a second one; this key must stay identical to
-   * the one built inside `useInstrumentTrend` or the two would diverge.
+   * This page used to re-issue `useSWR` with a hand-copied copy of the hook's
+   * chart key to get at these two. SWR deduped it to one subscription, so it
+   * worked — but the key then lived in two files, and the day the hook's URL
+   * shape changed, Retry would have gone on silently mutating a request nothing
+   * was watching. One owner of the key.
    */
-  const trendChartKey = id
-    ? `/api/instruments/${id}/telemetry?from=${encodeURIComponent(period.from)}&to=${encodeURIComponent(period.to)}&points=${MAX_SERIES_POINTS}`
-    : null;
-  const { error: trendError, mutate: retryTrend } = useSWR(trendChartKey);
+  const trendError = trend.error;
+  const retryTrend = trend.retry;
   const { data: keyOptions } = useSWR<{ data: TelemetryKeyOption[] }>(id ? `/api/instruments/${id}/telemetry-keys` : null);
   const { formatDateTime } = useDatetimeFormat();
   const reauth = useReauth();
@@ -362,6 +428,10 @@ export function InstrumentTrend() {
    */
   const tempRawCount = tempKey ? rawCountForKey(trend.chartRows, tempKey) : 0;
   const humidRawCount = humidKey ? rawCountForKey(trend.chartRows, humidKey) : 0;
+  // "Current" for each summary strip — the latest STORED reading in the range.
+  // See `latestValueForKey` for why it is not read off the plotted series.
+  const tempCurrent = tempKey ? latestValueForKey(chartRows, tempKey) : null;
+  const humidCurrent = humidKey ? latestValueForKey(chartRows, humidKey) : null;
 
   // Extra keys carry no administered decimals/limits — there is nothing
   // resolved server-side for a key nobody has declared as a slot, so they
@@ -466,11 +536,12 @@ export function InstrumentTrend() {
     //
     // `rows` is a SAMPLED subset of the period (LTTB-downsampled to
     // MAX_SERIES_POINTS per key), so every figure computed from it is a
-    // figure over the sample. `withServerSummary` replaces the ones the
-    // server computed over the whole range — the readings count, min, max,
-    // mean and the three out-of-limit counts — and keeps only `first`/`last`,
-    // which are value+timestamp PAIRS the endpoint does not return and which
-    // the sampler preserves verbatim at the range's endpoints.
+    // figure over the sample. `withServerSummary` replaces every one the
+    // server computed over the whole range — the readings count, minimum,
+    // maximum, mean and the three out-of-limit counts — and keeps only
+    // `first`/`last`, which are value+timestamp PAIRS the endpoint does not
+    // return and which the sampler preserves verbatim at the range's
+    // endpoints.
     //
     // The limits passed here are the screen's (from the overview payload) and
     // are what `summariseSlot` would judge against; the PRINTED bounds and
@@ -693,12 +764,11 @@ export function InstrumentTrend() {
         actions={<ExportMenu surface="instrument-trend" onExportPdf={() => setPendingReport({ kind: 'trend', slot: 'both' })} />}
       />
 
-      {trendError && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">
-          <span>Could not load this instrument&rsquo;s trend data.</span>
-          <Button size="sm" variant="secondary" onClick={() => retryTrend()}>Retry</Button>
-        </div>
-      )}
+      {/* NO page-level error banner. The chart fetch is the only request this
+          error belongs to — the gauges, the raw table and the alarms widget
+          each have their own — so it is reported on the charts it actually
+          blanks (`ChartPanel`), where the reader is already looking, rather
+          than once at the top AND again on every chart below. */}
 
       {/* One quiet row: everything that changes WHAT is shown, and nothing
           that says anything about the readings themselves. */}
@@ -820,40 +890,68 @@ export function InstrumentTrend() {
             <ChartIntervalNote intervalMs={period.intervalMs} />
             <ExportMenu surface="instrument-trend" onExportPdf={() => setPendingReport({ kind: 'trend', slot: 'temperature' })} />
           </div>
-          <TimeSeriesChart
+          <ChartPanel
             title="Temperature Trend"
-            unit="°C"
-            spanMs={spanMs}
-            min={trend.overview?.limits?.tempMin}
-            max={trend.overview?.limits?.tempMax}
-            series={tempSeries ? [{ ...tempSeries, color: TEMP_COLOR }] : []}
-            onZoom={onZoom}
-            onResetZoom={onResetZoom}
-          />
-          <SampledNote
-            shown={tempRawCount}
-            total={tempKey ? (trend.summaries[tempKey]?.count ?? 0) : 0}
-          />
+            isLoading={trend.chartsLoading}
+            error={trendError}
+            onRetry={retryTrend}
+          >
+            <TimeSeriesChart
+              title="Temperature Trend"
+              unit="°C"
+              spanMs={spanMs}
+              min={trend.overview?.limits?.tempMin}
+              max={trend.overview?.limits?.tempMax}
+              series={tempSeries ? [{ ...tempSeries, color: TEMP_COLOR }] : []}
+              onZoom={onZoom}
+              onResetZoom={onResetZoom}
+            />
+            <SampledNote
+              shown={tempRawCount}
+              total={tempKey ? (trend.summaries[tempKey]?.count ?? 0) : 0}
+            />
+            {/* Min/Max/Average over the WHOLE range, from the server — never
+                from the plotted (sampled, possibly bucket-averaged) points. */}
+            <ChartSummaryStrip
+              summary={tempKey ? trend.summaries[tempKey] : undefined}
+              current={tempCurrent}
+              decimals={tempDecimals}
+              unit="°C"
+            />
+          </ChartPanel>
         </div>
         <div>
           <div className="mb-1 flex items-start justify-between gap-2">
             <ChartIntervalNote intervalMs={period.intervalMs} />
             <ExportMenu surface="instrument-trend" onExportPdf={() => setPendingReport({ kind: 'trend', slot: 'humidity' })} />
           </div>
-          <TimeSeriesChart
+          <ChartPanel
             title="Humidity Trend"
-            unit="%RH"
-            spanMs={spanMs}
-            min={trend.overview?.limits?.rhMin}
-            max={trend.overview?.limits?.rhMax}
-            series={humidSeries ? [{ ...humidSeries, color: HUMID_COLOR }] : []}
-            onZoom={onZoom}
-            onResetZoom={onResetZoom}
-          />
-          <SampledNote
-            shown={humidRawCount}
-            total={humidKey ? (trend.summaries[humidKey]?.count ?? 0) : 0}
-          />
+            isLoading={trend.chartsLoading}
+            error={trendError}
+            onRetry={retryTrend}
+          >
+            <TimeSeriesChart
+              title="Humidity Trend"
+              unit="%RH"
+              spanMs={spanMs}
+              min={trend.overview?.limits?.rhMin}
+              max={trend.overview?.limits?.rhMax}
+              series={humidSeries ? [{ ...humidSeries, color: HUMID_COLOR }] : []}
+              onZoom={onZoom}
+              onResetZoom={onResetZoom}
+            />
+            <SampledNote
+              shown={humidRawCount}
+              total={humidKey ? (trend.summaries[humidKey]?.count ?? 0) : 0}
+            />
+            <ChartSummaryStrip
+              summary={humidKey ? trend.summaries[humidKey] : undefined}
+              current={humidCurrent}
+              decimals={humidDecimals}
+              unit="%RH"
+            />
+          </ChartPanel>
         </div>
       </div>
 
@@ -876,17 +974,43 @@ export function InstrumentTrend() {
             {extra.keys.map((k) => (
               <div key={k}>
                 <ChartIntervalNote intervalMs={period.intervalMs} />
-                <TimeSeriesChart
+                <ChartPanel
                   title={k}
-                  unit=""
-                  spanMs={spanMs}
-                  series={[toChartSeries(chartRows, k, TELEMETRY_DECIMALS_FALLBACK, k, period.intervalMs)]}
-                  // Same page range, so the extra-key charts zoom it too —
-                  // otherwise a drag would work on two charts of a stack and
-                  // silently do nothing on the rest.
-                  onZoom={onZoom}
-                  onResetZoom={onResetZoom}
-                />
+                  isLoading={trend.chartsLoading}
+                  error={trendError}
+                  onRetry={retryTrend}
+                >
+                  <TimeSeriesChart
+                    title={k}
+                    unit=""
+                    spanMs={spanMs}
+                    series={[toChartSeries(chartRows, k, TELEMETRY_DECIMALS_FALLBACK, k, period.intervalMs)]}
+                    // Same page range, so the extra-key charts zoom it too —
+                    // otherwise a drag would work on two charts of a stack and
+                    // silently do nothing on the rest.
+                    onZoom={onZoom}
+                    onResetZoom={onResetZoom}
+                  />
+                  {/* The server samples EVERY key on the chart path, not just
+                      the two administered slots, so an extra-key chart drops
+                      readings exactly as they do — and until 2026-08-27 it was
+                      the one chart on this page that did so without saying so.
+                      Same `shown`/`total` pair as the two above: raw readings
+                      represented, against the server's `count(*)` for the key. */}
+                  <SampledNote
+                    shown={rawCountForKey(trend.chartRows, k)}
+                    total={trend.summaries[k]?.count ?? 0}
+                  />
+                  {/* Extra keys carry no administered precision, so the strip
+                      renders at the same shared fallback the chart and the table
+                      column for this key already use. */}
+                  <ChartSummaryStrip
+                    summary={trend.summaries[k]}
+                    current={latestValueForKey(chartRows, k)}
+                    decimals={TELEMETRY_DECIMALS_FALLBACK}
+                    unit=""
+                  />
+                </ChartPanel>
               </div>
             ))}
           </div>

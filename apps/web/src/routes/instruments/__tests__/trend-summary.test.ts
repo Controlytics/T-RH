@@ -142,21 +142,34 @@ describe('withServerSummary', () => {
     expect(after.outOfSpecCount).toBe(9);
   });
 
-  it('leaves the EXTREMES row-derived, so the block quotes one population', () => {
-    // `first`/`last` cannot come from the server — it returns timestamps, not
-    // value+timestamp pairs — so taking min/max/mean from the range would print
-    // a minimum of 17 above a first/last pair that never goes below 22.4, with
-    // nothing in the table saying they describe different populations.
+  it('takes the EXTREMES from the range too, so the block cannot contradict itself', () => {
+    // OVERTURNS the original decision to leave min/max/mean row-derived. A
+    // sample-derived maximum can sit BELOW a limit the same block reports
+    // breaches of: here the sample tops out at 22.5 while the range holds 7
+    // readings above the 25 high limit. "Maximum 22.5 °C" printed above "7
+    // readings above 25.0" is arithmetically impossible, in the artifact that
+    // leaves the building.
+    //
+    // The reasoning it replaces was that whole-range extremes beside
+    // sample-derived `first`/`last` quote two populations. They do not
+    // conflict: `first`/`last` are printed as "First reading"/"Last reading"
+    // WITH their own timestamps — claims about two instants, not about the
+    // range — so a range minimum below both is expected.
     const after = withServerSummary(base(), server)!;
-    expect(after.min).toBe(22.4);
-    expect(after.max).toBe(22.5);
-    expect(after.mean).toBeCloseTo(22.45, 5);
+    expect(after.min).toBe(17);
+    expect(after.max).toBe(99.9);
+    expect(after.mean).toBe(20.2);
+    // The contradiction the swap exists to prevent: the printed maximum can
+    // never sit below a high limit the printed count reports breaches of.
+    expect(after.aboveCount).toBe(7);
+    expect(after.max).toBeGreaterThan(after.limitMax!);
   });
 
   it('keeps first/last as the sampled value+timestamp pairs', () => {
-    // The endpoint returns only timestamps for these two, and the sampler keeps
-    // the range's endpoints verbatim, so the pairs computed here are the true
-    // first and last plotted readings.
+    // The ONE thing that stays row-derived. The endpoint returns only
+    // timestamps for these two, and the sampler keeps the range's endpoints
+    // verbatim, so the pairs computed here are the true first and last stored
+    // readings of the period.
     const after = withServerSummary(base(), server)!;
     expect(after.first).toEqual({ value: 22.4, ts: '2026-08-24T00:10:00.000Z' });
     expect(after.last).toEqual({ value: 22.5, ts: '2026-08-24T00:20:00.000Z' });

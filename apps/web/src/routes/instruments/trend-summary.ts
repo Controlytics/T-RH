@@ -20,12 +20,13 @@
  * Limits arrive already resolved from the telemetry-overview payload
  * (instrument's own, else its room's). Nothing here re-derives them.
  *
- * 3. SINCE 2026-08-27 THE COUNTS THE REPORT PRINTS COME FROM THE SERVER, not
+ * 3. SINCE 2026-08-27 THE FIGURES THE REPORT PRINTS COME FROM THE SERVER, not
  *    from the rows this file was handed — see `withServerSummary` below. The
- *    rows the report fetches are a SAMPLE spread across the period, so a count
- *    over them is a count over the sample. `summariseSlot` still computes
- *    everything from the rows, and its extremes and its `first`/`last` pairs
- *    are what the report keeps.
+ *    rows the report fetches are a SAMPLE spread across the period, so every
+ *    figure over them is a figure over the sample. `summariseSlot` still
+ *    computes everything from the rows; the report keeps only its `first`/`last`
+ *    PAIRS, which are value+timestamp claims about two specific instants that
+ *    the endpoint cannot supply and the sampler preserves verbatim.
  */
 
 export interface Reading {
@@ -124,8 +125,8 @@ export interface ServerSlotSummary {
   /** Readings carrying a number — the population the counts are over, and the
    *  denominator the report prints them against. */
   numericCount: number;
-  /** Present on the payload and deliberately NOT used by `withServerSummary` —
-   *  see the note there on why the printed extremes stay row-derived. */
+  /** The whole range's extremes and mean — what the report prints. See
+   *  `withServerSummary`. `avg` maps onto `SlotSummary.mean`. */
   min: number;
   max: number;
   avg: number;
@@ -149,20 +150,24 @@ export interface ServerSlotSummary {
  * sampler did not draw, and the PDF prints that number under a heading naming
  * the whole period — a §11 misstatement with no tell.
  *
- * COUNTS AND BOUNDS ONLY. `min`/`max`/`mean` are deliberately NOT taken from
- * the server, even though the payload carries them. They would come from the
- * whole range while `first`/`last` — value+timestamp PAIRS the endpoint cannot
- * supply, so they must stay row-derived — come from the sample, and the printed
- * block would then quote two populations with nothing saying so: "Minimum 17.0"
- * above a first/last pair that never goes below 22.4 is a table contradicting
- * itself. A count is self-describing against `count`; an extreme is not. (LTTB
- * is extremity-preserving by construction, so the practical gap is small; the
- * visible contradiction would not be.) If whole-range extremes are ever wanted
- * here, `first`/`last` have to be solved in the same change.
+ * `min`/`max`/`mean` COME FROM THE SERVER TOO, since 2026-08-27. They did not
+ * at first: the stated reason was that whole-range extremes beside sample-derived
+ * `first`/`last` would quote two populations — "Minimum 17.0" above a first/last
+ * pair that never goes below 22.4. THAT REASONING WAS OVERTURNED, because
+ * `first`/`last` are printed as "First reading" / "Last reading" WITH their own
+ * timestamps: they are claims about two specific instants, not about the range,
+ * and a range minimum below both of them is ordinary and expected. What the old
+ * arrangement bought was the absence of a non-contradiction; what it cost was a
+ * real one — a sampled maximum of 24.8 °C printed directly above "3 readings
+ * above 25.0", in the artifact that leaves the building. LTTB may drop the one
+ * reading that breached, and the breach counts beside it never do.
  *
- * `count` DOES become the server's `numericCount`, because it is the
- * denominator the breach counts are printed against — a numerator over the
- * range above a denominator over the sample could print more than 100%.
+ * `count` becomes the server's `numericCount`, the denominator the breach counts
+ * are printed against — a numerator over the range above a denominator over the
+ * sample could print more than 100%. It is also the population `min`/`max`/`mean`
+ * and the breach counts are ALL taken over server-side (each is a numeric-guarded
+ * aggregate or a `count(*) FILTER` over the same numeric cast), so the printed
+ * block now quotes ONE population throughout, bar the two labelled instants.
  *
  * With no server summary for the key (nothing in the range, or a caller that
  * did not take the chart path) the sampled figures stand — there is nothing
@@ -177,6 +182,9 @@ export function withServerSummary(
   return {
     ...summary,
     count: server.numericCount,
+    min: server.min,
+    max: server.max,
+    mean: server.avg,
     belowCount: server.belowCount,
     aboveCount: server.aboveCount,
     outOfSpecCount: server.outOfSpecCount,

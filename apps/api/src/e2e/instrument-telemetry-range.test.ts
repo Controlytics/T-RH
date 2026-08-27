@@ -30,6 +30,8 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { fixtureProfileId } from '../test-support/fixture-profile.js';
 import { invalidateRolePermsCache } from '../plugins/rbac.js';
+// The route's own decision about which number `historyTotal` reports.
+import { chartRangeTotal } from '../modules/instruments/telemetry.repository.js';
 
 let app: FastifyInstance;
 let auth: Record<string, string>;
@@ -407,6 +409,38 @@ describe('chart path — true out-of-limit counts over the range', () => {
     expect(t.aboveCount).toBe(1);
     expect(t.belowCount).toBe(0);
     expect(t.max).toBe(99.9);
+  });
+
+  it('reports `historyTotal` from the range COUNT, never from the sliced rows', async () => {
+    // `getRangeRows` returns at most `CHART_HARD_CAP` rows, so its length is a
+    // POST-SLICE number. `historyTotal` is an on-screen and printed §11
+    // statement ("Showing 5,000 of N readings"), so it must describe the window
+    // that was asked for.
+    //
+    // WHAT THIS HALF CAN AND CANNOT SHOW: the cap is 200,000 and seeding past
+    // it is not viable here, so over HTTP the two are equal by construction —
+    // what is asserted is the INVARIANT that ties them, per key, including the
+    // key carrying a non-numeric reading (both are `count(*)`, unguarded).
+    // The truncating case is proved on the pure decision below.
+    const res = await telemetry(mixedInstId, `?points=100&from=${FROM}&to=${TO}`);
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as ChartBody;
+    const summed = Object.values(body.summaries!).reduce((n, k) => n + k.count, 0);
+    expect(body.historyTotal).toBe(summed);
+    // Four stored temperature values, one of them the string reading — the
+    // total counts it, exactly as `summaries.temperature.count` does.
+    expect(body.summaries!.temperature.count).toBe(4);
+  });
+
+  it('and the decision itself prefers the count when the row read was truncated', () => {
+    // The discriminating half, on the pure function the route uses. At the cap
+    // the sliced read holds 200,000 rows for a range holding 250,000; reporting
+    // the slice would understate the denominator by 50,000 readings.
+    expect(chartRangeTotal({ count: 250_000 }, 200_000)).toBe(250_000);
+    // Equal on every non-truncating call, which is why this is a zero-risk swap.
+    expect(chartRangeTotal({ count: 2_500 }, 2_500)).toBe(2_500);
+    // No summary means an empty range; the row count is 0 there too.
+    expect(chartRangeTotal(null, 0)).toBe(0);
   });
 
   it('does not add the new fields to the paged table path', async () => {

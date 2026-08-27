@@ -101,12 +101,12 @@ export interface TrendChartSection {
  *
  * What is still true is that the chart and the table hold fewer rows than the
  * period does, so the note discloses that and scopes itself to those two
- * blocks. The period summary's COUNTS are not affected: since 2026-08-27 the
- * readings count and the out-of-limit counts come from SQL over every reading in
- * the range (`withServerSummary`). Its minimum, maximum and mean still describe
- * the sampled readings — see `withServerSummary` for why they cannot be swapped
- * without solving `first`/`last` too — so the note says which is which rather
- * than claiming the whole block is whole-range.
+ * blocks. The period summary is NOT affected: since 2026-08-27 its readings
+ * count, minimum, maximum, mean and out-of-limit counts all come from SQL over
+ * every reading in the range (`withServerSummary`). Only `First reading` and
+ * `Last reading` are taken from the rows the report holds, and those two are
+ * labelled claims about two specific instants which the sampler preserves
+ * verbatim — so the note scopes itself to the chart and the table.
  */
 export interface ReportCoverage {
   /** Stored values the report received — the sample the chart and table hold. */
@@ -205,12 +205,15 @@ function num(v: number | null | undefined, decimals: number): string {
  * is worst — it would attribute a value to a stretch with no record at all.
  */
 function addSummary(report: ReportDoc, summary: SlotSummary, formatDateTime: (d: string) => string): void {
-  // NOTE ON POPULATIONS. `Readings` and the out-of-limit figures are counted
-  // over every reading in the period; `Minimum`/`Maximum`/`Mean` and the
-  // first/last pair are computed over the rows the report holds, which may be a
-  // sample. The coverage note above says exactly that when the two differ — the
-  // one thing that must never happen is the block implying a single population
-  // it does not have.
+  // NOTE ON POPULATIONS. `Readings`, `Minimum`, `Maximum`, `Mean` and the
+  // out-of-limit figures are ALL over every reading in the period, computed in
+  // SQL — one population throughout (see `withServerSummary`). The exception is
+  // the first/last pair, which is read from the rows the report holds: those two
+  // are claims about two specific INSTANTS, each printed with its own timestamp,
+  // not claims about the range, so a range minimum below both of them is
+  // expected rather than a contradiction. Before 2026-08-27 the extremes were
+  // row-derived, which let a sampled `Maximum 24.8 °C` print directly above
+  // `3 readings above 25.0` — arithmetically impossible on a signed record.
   const d = summary.decimals;
   const rows: string[][] = [
     ['Readings', summary.count.toLocaleString()],
@@ -317,8 +320,9 @@ export async function renderTrendReport(input: TrendReportInput): Promise<Report
       + `${input.coverage.total.toLocaleString()} stored values across all keys that ${input.period.label} holds. `
       + `They are selected ACROSS THE WHOLE PERIOD — this is not a recent portion of it — so the chart and the `
       + `readings table below preserve the shape of the record without printing every stored reading. The period `
-      + `summary below states its readings count and its out-of-limit counts over EVERY reading in the period, not `
-      + `over this sample; its minimum, maximum and mean describe the readings this report holds. To print every `
+      + `summary below is NOT affected: its readings count, minimum, maximum, mean and out-of-limit counts are all `
+      + `computed over EVERY reading in the period, not over this sample. Only its first and last readings are read `
+      + `from this sample, and the sample keeps the period's first and last stored readings exactly. To print every `
       + `stored reading, NARROW THE PERIOD — no report from this page prints more than `
       + `${MAX_REPORT_ROWS.toLocaleString()} rows, and the Instrument Time Series report is built from the same `
       + `sample as this one.`,
