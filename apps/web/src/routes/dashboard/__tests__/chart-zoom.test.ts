@@ -33,8 +33,17 @@ describe('pixelToTime', () => {
   it('returns a whole millisecond, never a fraction', () => {
     // A telemetry instant is an integer ms; a fractional one would round-trip
     // through `new Date(...).toISOString()` with a `.500` the record never had.
-    const t = pixelToTime(123, 46, 800, t0, t1);
+    //
+    // The inputs are chosen to make `Math.round` LOAD-BEARING: a FRACTIONAL
+    // pixel (which is what the chart actually feeds this — `viewX` scales
+    // client px into viewBox units and almost never lands on an integer) over
+    // a span not divisible by `plotW`. With the tidy 4500 ms/px fixture the
+    // other cases use, every integer pixel already yields an integer and this
+    // assertion would pass with the rounding deleted.
+    const odd = t0 + 3_600_001;
+    const t = pixelToTime(123.7, 46, 800, t0, odd);
     expect(Number.isInteger(t)).toBe(true);
+    expect(t).toBe(t0 + 349_650); // unrounded this is …650.097
   });
 
   /**

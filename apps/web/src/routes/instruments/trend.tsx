@@ -257,6 +257,27 @@ export function InstrumentTrend() {
   const { period, setPreset, setCustom, setInterval } = useTrendPeriod();
   const [page, setPage] = useState(1);
   /**
+   * The raw table's page resets whenever the WINDOW changes.
+   *
+   * Without this, changing the range while on page 5 keeps sending
+   * `offset=200` into a window that may hold 30 readings: a populated chart
+   * above an empty table, with nothing on screen hinting that paging is the
+   * reason. Placed here, on the range itself, rather than inside `onZoom` —
+   * the preset buttons and the From/To inputs change the range too, and
+   * fixing only the new path would leave the two older ones broken while
+   * looking fixed.
+   *
+   * Adjusted during RENDER (React's documented "state derived from a change"
+   * pattern), not in an effect: an effect would let one fetch go out at the
+   * stale offset before the correction lands.
+   */
+  const rangeKey = `${period.from}|${period.to}`;
+  const [seenRangeKey, setSeenRangeKey] = useState(rangeKey);
+  if (seenRangeKey !== rangeKey) {
+    setSeenRangeKey(rangeKey);
+    setPage(1);
+  }
+  /**
    * The preset the operator last chose, so "Reset zoom" can put it back.
    *
    * Not read back out of the URL: once zoomed, the URL holds a concrete custom

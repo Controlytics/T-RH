@@ -300,10 +300,16 @@ export function TimeSeriesChart({ series, unit, min, max, spanMs, title, onZoom,
 
       <svg
         viewBox={`0 0 ${W} ${H}`}
-        className={
-          `${fullscreen ? 'w-full flex-1' : 'h-auto w-full'}${interactive ? ' cursor-crosshair touch-none' : ''}`
-        }
-        preserveAspectRatio={fullscreen ? 'xMidYMid meet' : undefined}
+        // `h-auto w-full` in BOTH states, deliberately. Stretching the SVG to
+        // fill the fullscreen height (`flex-1` + `preserveAspectRatio="meet"`)
+        // letterboxes the viewBox inside the element on any container whose
+        // ratio differs from 900:260 — and `viewX` divides by the ELEMENT's
+        // width, so every pixel→time conversion would be off by the
+        // letterboxing. Hover would name the wrong instant and a drag would
+        // select the wrong window, with nothing on screen to say so. Spanning
+        // the viewport width at natural height keeps `viewX` exact in both
+        // states; the container scrolls (`overflow-auto`) if that overflows.
+        className={`h-auto w-full${interactive ? ' cursor-crosshair touch-none' : ''}`}
         role="img"
         aria-label={`${title}. ${withPoints.length} series between ${fmtTime(g.t0)} and ${fmtTime(g.t1)}.`}
         onMouseMove={(e) => {
