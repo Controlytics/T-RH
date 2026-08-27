@@ -17,9 +17,10 @@ import { invalidateRolePermsCache } from '../plugins/rbac.js';
  * field missing from the JSON on the wire.
  *
  * The test fire points at a real `node:http` server on 127.0.0.1 rather than an
- * unroutable address. `deliverToTarget` retries three times, ~2s apart, and writes a
- * row per attempt — so a failing URL would cost >4s and produce three rows, testing
- * the retry loop instead of the route.
+ * unroutable address — an unreachable URL would test the transport, and the route's
+ * own `timeoutMs`, instead of the route. (`POST /:id/test` sends ONE attempt as of
+ * 2026-08-27 and writes one row; the three-attempt retry belongs to the annunciation
+ * path in the worker, and is covered there.)
  */
 
 let app: FastifyInstance;
@@ -491,6 +492,9 @@ describe('alarm webhook delivery log — instrument visibility', () => {
   let operator: Record<string, string>;
   let scopedTargetId = '';
   let alarmId = '';
+  /** An alarm on a SECOND instrument, this one INSIDE the operator's scope. */
+  let visibleAlarmId = '';
+  let visibleInstrumentId = '';
   let flId = '';
   let rolePermsBefore: string[] = [];
   let roleId = '';
@@ -549,13 +553,51 @@ describe('alarm webhook delivery log — instrument visibility', () => {
       ],
     });
 
+    // A SECOND instrument, placed INSIDE the operator's scope, with its own alarm and
+    // delivery row. Without it these tests could not tell correct scoping from a filter
+    // that blocks everything with an alarm — delete the `{ alarm: { instrument } }`
+    // branch and the TEST-row assertions alone would still pass.
+    const vis = await app.inject({
+      method: 'POST', url: '/api/instruments', headers: auth,
+      payload: {
+        name: 'hooter-e2e-visible', code: `HOOK-E2E-VIS-${Date.now()}`,
+        profileId: await fixtureProfileId('fixture:alarm-webhooks'),
+      },
+    });
+    expect(vis.statusCode).toBe(201);
+    visibleInstrumentId = vis.json().id;
+    await prisma.instrument.update({
+      where: { id: visibleInstrumentId }, data: { functionalLocationId: flId },
+    });
+    const visibleAlarm = await prisma.alarm.create({
+      data: {
+        instrumentId: visibleInstrumentId,
+        metric: 'TEMPERATURE',
+        severity: 'MAJOR',
+        state: 'ACTIVE',
+        triggeredValue: 29.1,
+        ruleSnapshot: { name: 'visibility fixture (in scope)' } as never,
+      },
+    });
+    visibleAlarmId = visibleAlarm.id;
+    await prisma.alarmWebhookDelivery.create({
+      data: {
+        targetId: scopedTargetId, alarmId: visibleAlarmId, event: 'RAISED', url: hooterUrl,
+        requestBody: '{"instrument":"IN-SCOPE-CODE","value":29.1}',
+        httpStatus: 200, attempt: 1, status: 'SENT', sentAt: new Date(),
+      },
+    });
+
     operator = { authorization: `Bearer ${await loginAs(app, 'RB0001', 'Test@1234')}` };
   });
 
   afterAll(async () => {
     // Deliveries before the alarm: both FKs are RESTRICT.
     await prisma.alarmWebhookDelivery.deleteMany({ where: { targetId: scopedTargetId } });
-    if (alarmId) await prisma.alarm.deleteMany({ where: { id: alarmId } });
+    await prisma.alarm.deleteMany({ where: { id: { in: [alarmId, visibleAlarmId].filter(Boolean) } } });
+    if (visibleInstrumentId) {
+      await app.inject({ method: 'DELETE', url: `/api/instruments/${visibleInstrumentId}`, headers: headers() });
+    }
     await prisma.roleConfig.updateMany({
       where: { role: 'OPERATOR' }, data: { instrumentScope: Prisma.DbNull },
     });
@@ -575,8 +617,8 @@ describe('alarm webhook delivery log — instrument visibility', () => {
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as { data: { event: string }[]; total: number };
-    expect(body.total).toBe(2);
-    expect(body.data.map((d) => d.event).sort()).toEqual(['RAISED', 'TEST']);
+    expect(body.total).toBe(3);
+    expect(body.data.map((d) => d.event).sort()).toEqual(['RAISED', 'RAISED', 'TEST']);
   });
 
   it('a scoped role does not see the delivery row for an instrument outside its scope', async () => {
@@ -585,12 +627,15 @@ describe('alarm webhook delivery log — instrument visibility', () => {
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as { data: { event: string; requestBody: string }[]; total: number };
-    // The TEST row survives — it names no instrument and leaks nothing.
-    expect(body.data.map((d) => d.event)).toEqual(['TEST']);
+    // BOTH directions, or this proves nothing: the row for the OUT-OF-SCOPE instrument
+    // is gone, the row for the IN-SCOPE one is still there, and the TEST row survives
+    // because it names no instrument.
+    expect(body.data.map((d) => d.event).sort()).toEqual(['RAISED', 'TEST']);
     // total must agree with the page, or the footer and pager contradict the rows.
-    expect(body.total).toBe(1);
+    expect(body.total).toBe(2);
     // The whole point: the verbatim body, and the instrument code inside it, is gone.
     expect(body.data.some((d) => d.requestBody.includes('SECRET-CODE'))).toBe(false);
+    expect(body.data.some((d) => d.requestBody.includes('IN-SCOPE-CODE'))).toBe(true);
   });
 
   it('the status filter still narrows the scoped page and its total', async () => {

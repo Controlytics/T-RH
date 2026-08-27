@@ -288,6 +288,35 @@ A target whose `url` is unreachable therefore produces three FAILED rows and
 nothing else. It does not block, retry forever, or affect any other target in
 the same job.
 
+**Amended 2026-08-27 (final review).** Two clarifications the original wording
+did not carry:
+
+- "does not block … or affect any other target" is a **latency** promise as
+  well as a failure-isolation one, so the worker delivers to matched targets
+  **concurrently**. The match and cooldown pass stays sequential. Sequential
+  delivery meant a dead hooter delayed every other hooter by ~19s.
+- `POST /:id/test` sends **ONE** attempt, not three, and so writes one row. A
+  test is a diagnostic, not an annunciation: retrying it tells the operator
+  nothing, and it held the request — and the `ALARM_WEBHOOK_TESTED` audit row
+  written after it — open for ~19s against exactly the hooter that button
+  exists to diagnose.
+
+### Instrument visibility (amended 2026-08-27, final review)
+
+Scoping across this module is **split**, deliberately:
+
+- The **config** routes (`GET /`, `GET /:id`, and the mutations) are NOT
+  instrument-visibility scoped, matching the alarm RULES routes. A half-scoped
+  config surface is worse than an unscoped one: an admin who could see only
+  half the plant would build a target that silently omitted the rest and could
+  not tell.
+- `GET /:id/deliveries` **IS** scoped. It is not configuration — there is
+  nothing there to misconfigure — and it returns `requestBody` verbatim, which
+  under the default template carries the instrument code and the reading for
+  every excursion. `alarm_webhooks.view` is configurable, so a role with a
+  restricted `instrument_scope` can hold it. Rows with `alarmId: null` (TEST
+  fires) are returned: they name no instrument.
+
 ### Cooldown
 
 `cooldownSeconds` throttles **`RAISED` only**. `CLEARED` and `ACKNOWLEDGED` are
@@ -364,6 +393,8 @@ DELETE /api/alarm-webhooks/:id             delete        (reauth + audit; refuse
                                                           while deliveries exist)
 POST   /api/alarm-webhooks/:id/test        test fire     (reauth + audit)
 GET    /api/alarm-webhooks/:id/deliveries  paged delivery log
+                                           (instrument-visibility scoped —
+                                            see the amendment below)
 ```
 
 The module is registered in **both** `apps/api/src/app.ts` **and**
