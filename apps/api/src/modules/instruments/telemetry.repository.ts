@@ -145,3 +145,78 @@ export async function writeDeadLetters(
     })),
   });
 }
+
+export interface RangeSummary {
+  count: number; min: number; max: number; avg: number; first: Date; last: Date;
+}
+
+/**
+ * Aggregates over EVERY reading in the range, for one key.
+ *
+ * SEPARATE from the row query on purpose, and this is the point of the whole
+ * design: the chart may be showing a SAMPLED subset, and a max computed from that
+ * subset would silently understate an excursion — a 34 °C spike the sampler did not
+ * pick would simply not appear in "Maximum" on a regulated record. These numbers
+ * come from SQL over the full range, always.
+ *
+ * `count` is every reading in the range; the min/max/avg aggregates SKIP
+ * non-numeric readings (see the cast below), so the two can legitimately
+ * disagree on an instrument that has sent a string.
+ *
+ * Casts inside a CASE, never a bare `::float8`: telemetry `value` is jsonb and this
+ * database really contains a non-numeric one (a device sent the string "hello").
+ * A WHERE on jsonb_typeof is NOT a reliable guard — Postgres does not promise the
+ * filter runs before the projection, so the query passes under one plan and fails
+ * under another. room-history.ts does the same thing for the same reason.
+ */
+export async function getRangeSummary(opts: {
+  instrumentId: string; key: string; from?: Date; to?: Date;
+}): Promise<RangeSummary | null> {
+  const rows = await prisma.$queryRaw<{
+    count: bigint; min: number | null; max: number | null; avg: number | null;
+    first: Date | null; last: Date | null;
+  }[]>`
+    SELECT count(*)::bigint AS count,
+           min(CASE WHEN jsonb_typeof(value) = 'number' THEN (value #>> '{}')::float8 END) AS min,
+           max(CASE WHEN jsonb_typeof(value) = 'number' THEN (value #>> '{}')::float8 END) AS max,
+           avg(CASE WHEN jsonb_typeof(value) = 'number' THEN (value #>> '{}')::float8 END) AS avg,
+           min(ts) AS first,
+           max(ts) AS last
+    FROM instrument_telemetry_history
+    WHERE instrument_id = ${opts.instrumentId}
+      AND key = ${opts.key}
+      ${opts.from ? Prisma.sql`AND ts >= ${opts.from}` : Prisma.empty}
+      ${opts.to ? Prisma.sql`AND ts <= ${opts.to}` : Prisma.empty}`;
+
+  const r = rows[0];
+  if (!r || Number(r.count) === 0 || r.min === null || r.max === null || r.avg === null || !r.first || !r.last) {
+    return null;
+  }
+  return { count: Number(r.count), min: r.min, max: r.max, avg: r.avg, first: r.first, last: r.last };
+}
+
+/**
+ * Every reading in the range for one key, ASCENDING, bounded by `hardCap`.
+ *
+ * ASC, unlike getHistory's DESC: the sampler and the chart both need chronological
+ * order, and reversing 30,000 rows in JS to undo a DESC is wasted work.
+ *
+ * `hardCap` is a backstop against an unbounded fetch, NOT the sampling target —
+ * sampling happens after this returns. If the cap is hit the caller is told, so it
+ * can never silently plot a truncated window the way the route did before 2026-08-27.
+ */
+export async function getRangeRows(opts: {
+  instrumentId: string; key: string; from?: Date; to?: Date; hardCap: number;
+}): Promise<{ rows: TelemetryRow[]; truncated: boolean }> {
+  const rows = await prisma.$queryRaw<TelemetryRow[]>`
+    SELECT key, value, value_type AS "valueType", ts
+    FROM instrument_telemetry_history
+    WHERE instrument_id = ${opts.instrumentId}
+      AND key = ${opts.key}
+      ${opts.from ? Prisma.sql`AND ts >= ${opts.from}` : Prisma.empty}
+      ${opts.to ? Prisma.sql`AND ts <= ${opts.to}` : Prisma.empty}
+    ORDER BY ts ASC LIMIT ${opts.hardCap + 1}`;
+
+  const truncated = rows.length > opts.hardCap;
+  return { rows: truncated ? rows.slice(0, opts.hardCap) : rows, truncated };
+}

@@ -22,14 +22,17 @@ import { parseInstrumentCsv, type InstrumentDraft } from './bulk-csv.js';
 import { buildTelemetryOverview, loadAliases } from './telemetry-overview.js';
 import { loadDecimalsConfig, decimalsFor, annotateAttribute } from './decimals.js';
 import { loadAttributeAccess, refuseAttributeWrite, needsReauth } from './attribute-access.js';
-import { ATTRIBUTE_REMARK_MAX } from '@digilog/shared';
+import { ATTRIBUTE_REMARK_MAX, lttb } from '@digilog/shared';
 import { invalidateIngestAuthCache } from './ingest-auth.js';
 import { invalidateChildMapCache } from './gateway-children.js';
 import {
   gatewayInvariantError, lockedGatewayRecheck, lockInstrumentRows, isDeadlock,
   GatewayInvariantViolation,
 } from './gateway-invariants.js';
-import { getLatest, getHistory, getDistinctKeys } from './telemetry.repository.js';
+import {
+  getLatest, getHistory, getDistinctKeys, getRangeRows, getRangeSummary,
+  type TelemetryRow, type RangeSummary,
+} from './telemetry.repository.js';
 import { publishAttributeDownlink } from './attribute-downlink.js';
 import { publishChildRoster, clearChildRoster } from './child-roster.js';
 
@@ -134,6 +137,18 @@ const readingProps = {
   slot: { type: 'string', nullable: true },
   decimals: { type: 'integer', nullable: true },
 } as const;
+
+/**
+ * Backstop on the CHART path's row read — far above any real range at this
+ * installation's 30-90s cadence (a 30-day period is ~86,000 readings per key),
+ * low enough to bound memory. NOT the sampling target: sampling happens after
+ * the rows come back, and if this cap is ever hit the response says so through
+ * `historySampled` rather than quietly plotting a short window.
+ */
+const CHART_HARD_CAP = 200_000;
+
+/** A `RangeSummary` with its two timestamps on the wire as ISO strings. */
+type SerialisedSummary = Omit<RangeSummary, 'first' | 'last'> & { first: string; last: string };
 
 type CredentialRow = { tokenPrefix: string; tokenEncrypted?: string | null };
 type InstrumentRow = Record<string, unknown> & { credentials?: CredentialRow[] };
@@ -646,6 +661,11 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           // simply never surfaced it. Callers passing neither are unaffected.
           from: { type: 'string', format: 'date-time' },
           to: { type: 'string', format: 'date-time' },
+          // Target points per key for the CHART path. Omitted = legacy behaviour
+          // (the paged `limit`/`offset` table path), so existing callers are
+          // unaffected. Enumerated bounds, so an out-of-range value is a 400 from
+          // the schema rather than a silent clamp.
+          points: { type: 'integer', minimum: 1, maximum: 5000 },
         },
       },
       response: {
@@ -655,6 +675,21 @@ export default async function instrumentRoutes(app: FastifyInstance) {
             latest: { type: 'array', items: { type: 'object', properties: readingProps } },
             history: { type: 'array', items: { type: 'object', properties: readingProps } },
             historyTotal: { type: 'integer' },
+            // Chart path only. Fastify STRIPS any field not declared here, so a
+            // field added to the handler without a line in this block vanishes
+            // between the handler and the wire with no error anywhere.
+            historySampled: { type: 'boolean' },
+            summaries: {
+              type: 'object',
+              additionalProperties: {
+                type: 'object',
+                properties: {
+                  count: { type: 'integer' },
+                  min: { type: 'number' }, max: { type: 'number' }, avg: { type: 'number' },
+                  first: { type: 'string' }, last: { type: 'string' },
+                },
+              },
+            },
           },
         },
         ...errorResponses,
@@ -662,7 +697,9 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const q = req.query as { key?: string; limit?: number; offset?: number; from?: string; to?: string };
+    const q = req.query as {
+      key?: string; limit?: number; offset?: number; from?: string; to?: string; points?: number;
+    };
     // Visibility is applied as part of the LOOKUP, not checked after it, so an
     // out-of-scope instrument is indistinguishable from a non-existent one —
     // matching the /:id detail route above (404, never 403).
@@ -677,17 +714,69 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     // only ever renders a recent window.
     const limit = Math.min(Math.max(Number(q.limit ?? 100), 1), 500);
     const offset = Math.max(Number(q.offset ?? 0), 0);
-    const [latest, history] = await Promise.all([
-      getLatest(id),
-      getHistory({
-        instrumentId: id,
-        key: q.key,
-        limit,
-        offset,
-        from: q.from ? new Date(q.from) : undefined,
-        to: q.to ? new Date(q.to) : undefined,
-      }),
-    ]);
+    const from = q.from ? new Date(q.from) : undefined;
+    const to = q.to ? new Date(q.to) : undefined;
+    // `points` present = the CHART path: every reading in the range, downsampled
+    // to `points` per key, with Min/Max/Avg computed in SQL over the WHOLE range.
+    // Absent = the paged TABLE path, unchanged.
+    //
+    // Why the chart needs its own path at all: `getHistory` caps at 1000 rows
+    // ORDER BY ts DESC, so before 2026-08-27 a 7-day request came back holding
+    // only the newest day, with nothing in the response saying so — the axis
+    // claimed a week and the summary strip was computed over that truncated
+    // slice. The fix is not a bigger cap; it is sampling plus true aggregates.
+    const points = q.points === undefined ? null : Number(q.points);
+
+    const latest = await getLatest(id);
+
+    let historyRows: TelemetryRow[];
+    let historyTotal: number;
+    let historySampled: boolean | undefined;
+    let summaries: Record<string, SerialisedSummary> | undefined;
+
+    if (points === null) {
+      const history = await getHistory({ instrumentId: id, key: q.key, limit, offset, from, to });
+      historyRows = history.rows;
+      historyTotal = history.total;
+    } else {
+      // No `key` means "every key this instrument has sent" — the trend page
+      // charts them all in one request. A key with no readings inside the range
+      // simply contributes no rows and no summary entry.
+      const keys = q.key ? [q.key] : (await getDistinctKeys(id)).map((k) => k.key);
+      const perKey = await Promise.all(keys.map(async (key) => {
+        const [{ rows, truncated }, summary] = await Promise.all([
+          getRangeRows({ instrumentId: id, key, from, to, hardCap: CHART_HARD_CAP }),
+          getRangeSummary({ instrumentId: id, key, from, to }),
+        ]);
+        // A non-numeric reading (a device once sent the string "hello") has no
+        // position on a value axis, so it is dropped BEFORE sampling. That is
+        // why the sampled row count can be below `historyTotal` even when
+        // nothing was sampled away.
+        const plottable = rows.filter(
+          (r): r is TelemetryRow & { value: number } => typeof r.value === 'number',
+        );
+        const sampled = lttb(plottable, points);
+        return { key, summary, sampled, total: rows.length, truncated, dropped: sampled.length < plottable.length };
+      }));
+
+      historyRows = perKey.flatMap((k) => k.sampled);
+      // The TRUE number of readings in the range, not the number returned — the
+      // whole defect this task fixes was a count that described the returned
+      // slice rather than the window that was asked for.
+      historyTotal = perKey.reduce((n, k) => n + k.total, 0);
+      historySampled = perKey.some((k) => k.truncated || k.dropped);
+      summaries = {};
+      for (const k of perKey) {
+        if (!k.summary) continue;
+        // ISO explicitly rather than trusting Date→string coercion in the
+        // serialiser: the wire contract for these two is a timestamp string.
+        summaries[k.key] = {
+          ...k.summary,
+          first: k.summary.first.toISOString(),
+          last: k.summary.last.toISOString(),
+        };
+      }
+    }
     // Label each reading with its slot and this instrument's precision. Same
     // administered vocabulary and same resolver the dashboard uses — a raw list
     // that disagrees with the dashboard about the same stored number is the
@@ -713,8 +802,10 @@ export default async function instrumentRoutes(app: FastifyInstance) {
 
     return {
       latest: latest.map(annotate),
-      history: history.rows.map(annotate),
-      historyTotal: history.total,
+      history: historyRows.map(annotate),
+      historyTotal,
+      // Only on the chart path — the table path's response shape is untouched.
+      ...(historySampled === undefined ? {} : { historySampled, summaries }),
     };
   });
 
