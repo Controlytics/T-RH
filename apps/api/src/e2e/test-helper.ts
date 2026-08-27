@@ -23,6 +23,7 @@ import instrumentProfileRoutes from '../modules/instrument-profiles/routes.js';
 import instrumentRoutes from '../modules/instruments/routes.js';
 import functionalLocationRoutes from '../modules/functional-locations/routes.js';
 import alarmRoutes from '../modules/alarms/routes.js';
+import alarmWebhookRoutes from '../modules/alarm-webhooks/routes.js';
 import floorplanRoutes from '../modules/floorplans/routes.js';
 import { prisma } from '../lib/prisma.js';
 import { AppError } from '../lib/errors.js';
@@ -118,6 +119,7 @@ export async function buildApp(
   // both shipped with no HTTP-level coverage until 2026-08-13.
   await app.register(functionalLocationRoutes, { prefix: '/api/functional-locations' });
   await app.register(alarmRoutes, { prefix: '/api/alarms' });
+  await app.register(alarmWebhookRoutes, { prefix: '/api/alarm-webhooks' });
 
   await app.ready();
   return app;
