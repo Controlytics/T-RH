@@ -37,6 +37,8 @@ const s = Date.now();
 const instruments: string[] = [];
 
 let instId = '';
+/** An instrument whose `temperature` key carries one NON-NUMERIC reading. */
+let mixedInstId = '';
 /** A second instrument, inside the operator's scope — the positive control. */
 let visibleInstId = '';
 let flId = '';
@@ -50,6 +52,40 @@ const BASE = 20;
 const SPIKE = 99.9;
 const SPIKE_INDEX = Math.floor(TOTAL / 2);
 const STEP_MS = 30_000;
+
+/**
+ * The limits seeded onto the main instrument, as ATTRIBUTES — the only place
+ * this system stores an instrument's own limits.
+ *
+ * Chosen against the fixture: every base reading is 20.0-20.4, so nothing is
+ * below 15 and nothing but the 99.9 spike is above 25. `aboveCount === 1` is
+ * therefore an exact expectation, and `belowCount === 0` is a REAL zero — a
+ * checked bound with no breach, which the report must distinguish from a bound
+ * that was never set.
+ */
+const TEMP_HIGH = 25;
+const TEMP_LOW = 15;
+
+/**
+ * The two administered configs the breach counts depend on, PINNED for this file.
+ *
+ * `loadAliases` (which key is a temperature) and `loadLimitConfig` (which
+ * attribute name carries a bound) both read `system_config` live, and this
+ * install's lists have already drifted from the shipped defaults. Without
+ * pinning, these assertions would be testing this machine's configuration
+ * rather than the code. Restored verbatim in afterAll — the suite shares
+ * `compliance_core_db_test`.
+ */
+const PINNED_CONFIG: Record<string, Record<string, string>> = {
+  'telemetry-slots': { temperatureKeys: 'temperature', humidityKeys: 'humidity' },
+  'alarm-limits': {
+    temperatureHighKeys: 'High Temperature Limit',
+    temperatureLowKeys: 'Low Temperature Limit',
+    humidityHighKeys: 'High Humidity Limit',
+    humidityLowKeys: 'Low Humidity Limit',
+  },
+};
+const configBefore = new Map<string, { value: unknown; existed: boolean }>();
 
 /**
  * Window start. 2,500 readings 30s apart span ~20.8h, so `to` lands about
@@ -98,7 +134,10 @@ interface ChartBody {
   historyTotal: number;
   historySampled?: boolean;
   summaries?: Record<string, {
-    count: number; min: number; max: number; avg: number; first: string; last: string;
+    count: number; numericCount: number; min: number; max: number; avg: number;
+    first: string; last: string;
+    belowCount: number | null; aboveCount: number | null; outOfSpecCount: number | null;
+    limitMin: number | null; limitMax: number | null;
   }>;
 }
 
@@ -108,7 +147,29 @@ beforeAll(async () => {
   app = await buildApp();
   auth = { authorization: `Bearer ${await loginAs(app)}` };
 
+  for (const [key, value] of Object.entries(PINNED_CONFIG)) {
+    const existing = await prisma.systemConfig.findUnique({ where: { configKey: key } });
+    configBefore.set(key, { value: existing?.configValue ?? null, existed: Boolean(existing) });
+    await prisma.systemConfig.upsert({
+      where: { configKey: key },
+      create: { configKey: key, configValue: value, configType: 'object' },
+      update: { configValue: value },
+    });
+  }
+
   instId = await createInstrument(`TRNG-A-${s}`);
+
+  // Written straight to the table rather than through the attribute endpoint:
+  // that route is a governed §11 surface (reauth + remarks) and this file is
+  // testing telemetry, not attribute governance.
+  await prisma.instrumentAttribute.createMany({
+    data: [
+      { instrumentId: instId, key: 'High Temperature Limit', value: String(TEMP_HIGH) },
+      { instrumentId: instId, key: 'Low Temperature Limit', value: String(TEMP_LOW) },
+      // DELIBERATELY no humidity limits: the humidity summary must come back
+      // with null counts, not zeros.
+    ],
+  });
 
   await seed(instId, 'temperature', Array.from({ length: TOTAL }, (_, i) => ({
     ts: new Date(t0.getTime() + i * STEP_MS),
@@ -120,6 +181,24 @@ beforeAll(async () => {
   await seed(instId, 'humidity', [0, 1, 2].map((i) => ({
     ts: new Date(t0.getTime() + i * STEP_MS), value: 45 + i,
   })));
+
+  // A separate instrument whose temperature series holds a STRING. The breach
+  // counts cast jsonb inside a CASE for exactly this row; a bare `::float8`
+  // would make the whole request 500 under a plan that projects before it
+  // filters, and this database really does hold such a value.
+  mixedInstId = await createInstrument(`TRNG-MIX-${s}`);
+  await prisma.instrumentAttribute.createMany({
+    data: [
+      { instrumentId: mixedInstId, key: 'High Temperature Limit', value: String(TEMP_HIGH) },
+      { instrumentId: mixedInstId, key: 'Low Temperature Limit', value: String(TEMP_LOW) },
+    ],
+  });
+  await seed(mixedInstId, 'temperature', [
+    { ts: new Date(t0.getTime()), value: 20 },
+    { ts: new Date(t0.getTime() + STEP_MS), value: 'hello' },
+    { ts: new Date(t0.getTime() + 2 * STEP_MS), value: 21 },
+    { ts: new Date(t0.getTime() + 3 * STEP_MS), value: 99.9 },
+  ]);
 
   // Readings that exist but sit OUTSIDE [FROM, TO] — a key with nothing in the
   // range must contribute no rows and no summary entry.
@@ -146,6 +225,15 @@ afterAll(async () => {
     await app.inject({ method: 'DELETE', url: `/api/instruments/${id}`, headers: auth });
   }
   if (flId) await prisma.functionalLocation.deleteMany({ where: { id: flId } });
+  for (const [key, prev] of configBefore) {
+    if (prev.existed) {
+      await prisma.systemConfig.update({
+        where: { configKey: key }, data: { configValue: prev.value as never },
+      });
+    } else {
+      await prisma.systemConfig.deleteMany({ where: { configKey: key } });
+    }
+  }
   await app.close();
 });
 
@@ -251,6 +339,82 @@ describe('GET /api/instruments/:id/telemetry — chart path (points=)', () => {
   it('requires authentication', async () => {
     const res = await app.inject({ method: 'GET', url: `/api/instruments/${instId}/telemetry?points=10` });
     expect(res.statusCode).toBe(401);
+  });
+});
+
+/**
+ * The OUT-OF-LIMIT counts, which the signed trend report prints.
+ *
+ * Same reason as the `summaries.max` case above: the report says "N readings
+ * out of limit over this period", and an N counted over the rows the sampler
+ * happened to draw understates an excursion it skipped. The counts are computed
+ * in SQL over every reading in the range, against the limits `limitsFor()`
+ * resolves — the evaluator's own answer, never re-derived from attribute names
+ * here or in the browser.
+ */
+describe('chart path — true out-of-limit counts over the range', () => {
+  it('counts a breach that is NOT among the returned rows', async () => {
+    // `points=2` returns [first, last] verbatim, so the 99.9 spike in the middle
+    // is guaranteed absent from `history` — a count taken over those rows would
+    // be 0, and the report would print "0 readings out of limit" for a period
+    // holding a 99.9 °C excursion.
+    const res = await telemetry(instId, `?key=temperature&points=2&from=${FROM}&to=${TO}`);
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as ChartBody;
+    const rows = rowsFor(body, 'temperature');
+    expect(rows.some((r) => r.value === SPIKE)).toBe(false);
+
+    const t = body.summaries!.temperature;
+    expect(t.aboveCount).toBe(1);
+    // A REAL zero: the low limit was set and checked, and nothing breached it.
+    // Distinguishable from null, which is what an unset bound gives.
+    expect(t.belowCount).toBe(0);
+    expect(t.outOfSpecCount).toBe(1);
+    // The bounds the counts were taken against ride on the same payload, so the
+    // report cannot print a count from one resolution and a limit from another.
+    expect(t.limitMin).toBe(TEMP_LOW);
+    expect(t.limitMax).toBe(TEMP_HIGH);
+    // The denominator a percentage is printed against: every NUMERIC reading in
+    // the range, not the two rows returned.
+    expect(t.numericCount).toBe(TOTAL);
+    expect(t.count).toBe(TOTAL);
+  });
+
+  it('reports NULL, never 0, for a slot with no limits set', async () => {
+    // This instrument declares temperature limits and no humidity ones. A zero
+    // here would read as "humidity was assessed and was in limit" for a period
+    // nothing checked at all.
+    const res = await telemetry(instId, `?key=humidity&points=100&from=${FROM}&to=${TO}`);
+    expect(res.statusCode).toBe(200);
+    const h = (res.json() as ChartBody).summaries!.humidity;
+    expect(h.belowCount).toBeNull();
+    expect(h.aboveCount).toBeNull();
+    expect(h.outOfSpecCount).toBeNull();
+    expect(h.limitMin).toBeNull();
+    expect(h.limitMax).toBeNull();
+    // The other aggregates are unaffected — nothing about an absent limit stops
+    // min/max/avg being computed.
+    expect(h.max).toBe(47);
+  });
+
+  it('counts around a non-numeric reading rather than failing on it', async () => {
+    const res = await telemetry(mixedInstId, `?key=temperature&points=100&from=${FROM}&to=${TO}`);
+    expect(res.statusCode).toBe(200);
+    const t = (res.json() as ChartBody).summaries!.temperature;
+    // Four stored values, three of them numbers.
+    expect(t.count).toBe(4);
+    expect(t.numericCount).toBe(3);
+    expect(t.aboveCount).toBe(1);
+    expect(t.belowCount).toBe(0);
+    expect(t.max).toBe(99.9);
+  });
+
+  it('does not add the new fields to the paged table path', async () => {
+    // Fastify strips undeclared fields, so this also guards the reverse: the
+    // table path's response shape is untouched by any of the above.
+    const res = await telemetry(instId, `?key=temperature&limit=5&from=${FROM}&to=${TO}`);
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as ChartBody).summaries).toBeUndefined();
   });
 });
 

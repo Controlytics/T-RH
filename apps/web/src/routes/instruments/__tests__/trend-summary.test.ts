@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { summariseSlot } from '../trend-summary';
+import { summariseSlot, withServerSummary, type ServerSlotSummary } from '../trend-summary';
 import { toChartSeries } from '../trend-series';
 
 /**
@@ -103,5 +103,97 @@ describe('summariseSlot', () => {
       't', 'Temperature', '°C', 1, 18, 25,
     )!;
     expect(fromPlotted.aboveCount).toBe(0);
+  });
+});
+
+/**
+ * `withServerSummary` — the sampled figures replaced by the server's.
+ *
+ * The report fetches its rows down the `points=` path, which returns a sample
+ * of the period rather than every reading. Counting excursions over that
+ * sample understates the record, and the PDF prints the number under a heading
+ * naming the whole period. These tests fix the two claims that must not slip:
+ * the counts describe the RANGE, and an absent bound stays null all the way to
+ * the renderer instead of becoming a zero.
+ */
+describe('withServerSummary', () => {
+  const sampled = [
+    t('2026-08-24T00:10:00.000Z', 22.4),
+    t('2026-08-24T00:20:00.000Z', 22.5),
+  ];
+  const base = () => summariseSlot(sampled, 't', 'Temperature', '°C', 1, 18, 25)!;
+
+  const server: ServerSlotSummary = {
+    numericCount: 2500, min: 17, max: 99.9, avg: 20.2,
+    belowCount: 2, aboveCount: 7, outOfSpecCount: 9,
+    limitMin: 18, limitMax: 25,
+  };
+
+  it('takes the counts from the range, not from the sample', () => {
+    const before = base();
+    // The sample holds two in-limit readings; the range holds nine breaches the
+    // sampler never returned. Counted over the sample this is a clean period.
+    expect(before.outOfSpecCount).toBe(0);
+
+    const after = withServerSummary(before, server)!;
+    expect(after.count).toBe(2500);
+    expect(after.belowCount).toBe(2);
+    expect(after.aboveCount).toBe(7);
+    expect(after.outOfSpecCount).toBe(9);
+  });
+
+  it('leaves the EXTREMES row-derived, so the block quotes one population', () => {
+    // `first`/`last` cannot come from the server — it returns timestamps, not
+    // value+timestamp pairs — so taking min/max/mean from the range would print
+    // a minimum of 17 above a first/last pair that never goes below 22.4, with
+    // nothing in the table saying they describe different populations.
+    const after = withServerSummary(base(), server)!;
+    expect(after.min).toBe(22.4);
+    expect(after.max).toBe(22.5);
+    expect(after.mean).toBeCloseTo(22.45, 5);
+  });
+
+  it('keeps first/last as the sampled value+timestamp pairs', () => {
+    // The endpoint returns only timestamps for these two, and the sampler keeps
+    // the range's endpoints verbatim, so the pairs computed here are the true
+    // first and last plotted readings.
+    const after = withServerSummary(base(), server)!;
+    expect(after.first).toEqual({ value: 22.4, ts: '2026-08-24T00:10:00.000Z' });
+    expect(after.last).toEqual({ value: 22.5, ts: '2026-08-24T00:20:00.000Z' });
+    expect(after.label).toBe('Temperature');
+    expect(after.decimals).toBe(1);
+  });
+
+  it('carries an absent bound through as null, never as zero', () => {
+    // Zero would claim the readings were checked against a low limit and
+    // passed. Nothing was checked — a claim of compliance the data cannot
+    // support is the one thing this field exists to prevent.
+    const after = withServerSummary(base(), {
+      ...server, belowCount: null, limitMin: null, outOfSpecCount: 7,
+    })!;
+    expect(after.belowCount).toBeNull();
+    expect(after.limitMin).toBeNull();
+    expect(after.aboveCount).toBe(7);
+    expect(after.outOfSpecCount).toBe(7);
+  });
+
+  it('prints the bound the server counted against, not the screen\'s', () => {
+    // The two resolutions can differ (a room band vs an instrument's own). One
+    // table quoting a count from one and a limit from the other would be
+    // internally inconsistent on a signed record.
+    const after = withServerSummary(base(), { ...server, limitMax: 24 })!;
+    expect(after.limitMax).toBe(24);
+  });
+
+  it('leaves the sampled figures alone when the server sent none for this key', () => {
+    // Nothing truer to put in their place; dropping the block would remove the
+    // summary from the report rather than qualify it.
+    const after = withServerSummary(base(), undefined)!;
+    expect(after.count).toBe(2);
+    expect(after.max).toBe(22.5);
+  });
+
+  it('is null-safe on a slot with no readings', () => {
+    expect(withServerSummary(null, server)).toBeNull();
   });
 });

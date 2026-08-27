@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { renderTrendReport, type TrendChartSection } from '../trend-report';
-import { summariseSlot } from '../trend-summary';
+import { summariseSlot, withServerSummary } from '../trend-summary';
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: { get: vi.fn(async () => ({})), post: vi.fn(), postWithReauth: vi.fn() },
@@ -215,18 +215,92 @@ describe('the trend report shows the trend', () => {
   });
 
   it('states its own coverage when the period holds more than the report received', async () => {
-    // The endpoint caps at 500 rows and orders ts DESC, so a long period comes
-    // back as its most recent tail. A summary printed under a heading naming
-    // the whole period, computed over 6.5% of it, is a §11 misrepresentation.
     const { text } = await capture(baseInput({ coverage: { returned: 500, total: 7646 } }));
-    expect(text).toMatch(/INCOMPLETE PERIOD/);
-    expect(text).toMatch(/500 most recent/);
-    expect(text).toMatch(/7,646/);
+    expect(text).toMatch(/REPRESENTATIVE SAMPLE/);
+    expect(text).toMatch(/500 of the 7,646 stored values/);
+    // Scoped to the two blocks that ARE sampled...
+    expect(text).toMatch(/the chart and the readings table below/);
+    // ...and saying exactly which figures below are over the whole period and
+    // which are not. Claiming the whole summary block is whole-range would be
+    // its own false statement: only the counts are.
+    expect(text).toMatch(/readings count and its out-of-limit counts over EVERY reading/);
+    expect(text).toMatch(/minimum, maximum and mean describe the sampled readings/);
+  });
+
+  it('does NOT claim the report covers only the most recent portion of the period', async () => {
+    // It did say exactly that, and it was true while the fetch used `limit=` and
+    // the server answered ORDER BY ts DESC. Under `points=` the rows are spread
+    // across the whole period, so that sentence became a false statement about
+    // the document's own coverage — in a signed §11 record, worse than the
+    // truncation it was written to disclose.
+    const { text } = await capture(baseInput({ coverage: { returned: 500, total: 7646 } }));
+    expect(text).not.toMatch(/INCOMPLETE PERIOD/);
+    expect(text).not.toMatch(/most recent/);
+    expect(text).not.toMatch(/portion only/);
   });
 
   it('says nothing about coverage when the report holds the whole period', async () => {
     const { text } = await capture(baseInput({ coverage: { returned: 3, total: 3 } }));
-    expect(text).not.toMatch(/INCOMPLETE PERIOD/);
+    expect(text).not.toMatch(/REPRESENTATIVE SAMPLE/);
+  });
+
+  it('says "no limit set" for an absent bound, never "0 below —"', async () => {
+    // The instrument declares a high limit and no low one. A "0 below" here
+    // claims the readings were checked against a low limit and passed; nothing
+    // was checked. `?? 0` in the renderer used to produce exactly that.
+    const { report } = await capture(baseInput({
+      charts: [{
+        ...drawnChart,
+        summary: withServerSummary(
+          summariseSlot(readings, 't', 'Temperature', '°C', 1, null, 25),
+          {
+            numericCount: 3, min: 22.4, max: 26.9, avg: 23.933333,
+            belowCount: null, aboveCount: 1, outOfSpecCount: 1,
+            limitMin: null, limitMax: 25,
+          },
+        ),
+      }],
+    }));
+    const tables = report.getSnapshot().sections.filter((x: any) => 'head' in x);
+    const summary = tables.find((t: any) => t.head[0] === 'Temperature — period summary')!;
+    const byLabel = Object.fromEntries(summary.body.map((r: string[]) => [r[0], r[1]]));
+    expect(byLabel['— below / above limit']).toBe('no low limit set — not assessed  /  1 above 25.0');
+    // And the total says what it was assessed against, so half an assessment
+    // is not printed as a whole one.
+    expect(byLabel['Out of limit']).toBe('1 of 3 readings (33.3%) — against the high limit only');
+  });
+
+  it('prints the SERVER\'s whole-range counts, not the sampled ones', async () => {
+    // The three `readings` above are the sample the report was built from; the
+    // period holds 2,500 readings and nine breaches the sampler did not draw.
+    // Counted over the sample this block would say "0 out of limit".
+    const { report } = await capture(baseInput({
+      charts: [{
+        ...drawnChart,
+        summary: withServerSummary(
+          summariseSlot(readings, 't', 'Temperature', '°C', 1, 18, 25),
+          {
+            numericCount: 2500, min: 17.0, max: 99.9, avg: 20.2,
+            belowCount: 2, aboveCount: 7, outOfSpecCount: 9,
+            limitMin: 18, limitMax: 25,
+          },
+        ),
+      }],
+      coverage: { returned: 3, total: 2500 },
+    }));
+    const tables = report.getSnapshot().sections.filter((x: any) => 'head' in x);
+    const summary = tables.find((t: any) => t.head[0] === 'Temperature — period summary')!;
+    const byLabel = Object.fromEntries(summary.body.map((r: string[]) => [r[0], r[1]]));
+    expect(byLabel['Readings']).toBe('2,500');
+    expect(byLabel['Out of limit']).toBe('9 of 2,500 readings (0.4%)');
+    expect(byLabel['— below / above limit']).toBe('2 below 18.0  /  7 above 25.0');
+    // The EXTREMES stay row-derived, and so do `first`/`last`, so the block
+    // quotes one population throughout. A server minimum of 17.0 printed above
+    // a first/last pair that never goes below 22.4 would be a table
+    // contradicting itself with nothing saying why.
+    expect(byLabel['Maximum']).toBe('26.9 °C');
+    expect(byLabel['Minimum']).toBe('22.4 °C');
+    expect(byLabel['First reading']).toContain('22.4');
   });
 
   it('labels the table as averaged when it holds averaged points, and points at the raw record', async () => {

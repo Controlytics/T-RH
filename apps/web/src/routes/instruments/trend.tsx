@@ -25,7 +25,7 @@ import {
 } from '@/routes/alarms/alarm-display';
 import { useTrendPeriod, useInstrumentTrend, TREND_PRESETS, TABLE_PAGE_SIZE, type TelemetryLongRow } from './use-trend-data';
 import { toChartSeries, toTableRows, rawCountForKey, type TableRow as PivotRow } from './trend-series';
-import { summariseSlot } from './trend-summary';
+import { summariseSlot, withServerSummary, type ServerSlotSummary } from './trend-summary';
 import { ChartIntervalNote, intervalLabel } from './chart-interval-note';
 import { useExtraKeys } from './use-extra-keys';
 import {
@@ -406,15 +406,23 @@ export function InstrumentTrend() {
    *
    * This changes what `rows` IS for the report built from it below: it is
    * now a representative sample spread across the whole period, not a
-   * truncated recent tail. `ReportCoverage`'s "INCOMPLETE PERIOD" banner
-   * (`trend-report.ts`) was written for the old truncation and still reads
-   * "this report was built from the N most recent stored values ... The
-   * chart, the summary and the table below all describe that most recent
-   * portion only" — that wording is no longer accurate once `rows` can be a
-   * whole-range sample. Not fixed here; flagged for the team lead.
+   * truncated recent tail. Both consequences of that are handled, and both
+   * were §11 defects rather than cosmetic ones (2026-08-27, task 3b):
+   *  - the report's coverage banner no longer says the report covers "the
+   *    most recent portion" of the period, because it no longer does; it
+   *    discloses a whole-period SAMPLE instead (`ReportCoverage`), and
+   *  - `summaries` is carried back with the rows so the printed statistics —
+   *    including the out-of-limit counts — come from SQL over every reading
+   *    in the range rather than over the sample. A count of excursions taken
+   *    over a sample understates the record it is signed as describing.
    */
   const fetchTelemetryForPeriod = async (from: string, to: string) => {
-    const res = await apiClient.get<{ history: TelemetryLongRow[]; historyTotal: number }>(
+    const res = await apiClient.get<{
+      history: TelemetryLongRow[];
+      historyTotal: number;
+      /** Per key, computed server-side over the WHOLE range — never derived here. */
+      summaries?: Record<string, ServerSlotSummary>;
+    }>(
       `/api/instruments/${id}/telemetry?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&points=${MAX_SERIES_POINTS}`,
     );
     return res;
@@ -448,6 +456,7 @@ export function InstrumentTrend() {
     rows: { key: string; value: number; ts: string }[],
     reportSpanMs: number,
     color: string,
+    serverSummaries: Record<string, ServerSlotSummary> | undefined,
   ): Promise<{ section: TrendChartSection; plotted: { ts: string; value: number }[] }> => {
     // The summary is computed from `rows` (the report's own STORED readings,
     // never the averaged points the chart plots): the minimum of a set of
@@ -455,14 +464,24 @@ export function InstrumentTrend() {
     // averaging smoothed away must not vanish from the one block of the
     // report a §11 reader treats as authoritative.
     //
-    // Since `fetchTelemetryForPeriod` moved onto the `points=` chart path,
-    // `rows` can itself be a SAMPLED subset of the period (LTTB-downsampled
-    // to MAX_SERIES_POINTS per key) rather than every stored reading — so
-    // `summary.count`, and `belowCount`/`aboveCount`/`outOfSpecCount`, are
-    // counts over the SAMPLED series, not necessarily over every reading in
-    // the period. Nothing in the printed report currently says this (see the
-    // doc comment on `fetchTelemetryForPeriod`); not redesigning that here.
-    const summary = key ? summariseSlot(rows, key, title, unit, decimals, min, max) : null;
+    // `rows` is a SAMPLED subset of the period (LTTB-downsampled to
+    // MAX_SERIES_POINTS per key), so every figure computed from it is a
+    // figure over the sample. `withServerSummary` replaces the ones the
+    // server computed over the whole range — the readings count, min, max,
+    // mean and the three out-of-limit counts — and keeps only `first`/`last`,
+    // which are value+timestamp PAIRS the endpoint does not return and which
+    // the sampler preserves verbatim at the range's endpoints.
+    //
+    // The limits passed here are the screen's (from the overview payload) and
+    // are what `summariseSlot` would judge against; the PRINTED bounds and
+    // counts both come from the server's own resolution instead, so the
+    // report cannot quote a count from one answer and a limit from another.
+    const summary = key
+      ? withServerSummary(
+        summariseSlot(rows, key, title, unit, decimals, min, max),
+        serverSummaries?.[key],
+      )
+      : null;
 
     if (!key) {
       return {
@@ -538,6 +557,7 @@ export function InstrumentTrend() {
           const r = await chartSectionFor(
             'Temperature', '°C', tempKey, tempDecimals,
             trend.overview?.limits?.tempMin, trend.overview?.limits?.tempMax, rows, reportSpanMs, TEMP_COLOR,
+            fetched.summaries,
           );
           charts.push(r.section);
           if (tempKey) plottedLong.push(...r.plotted.map((pt) => ({ key: tempKey, value: pt.value, ts: pt.ts })));
@@ -546,6 +566,7 @@ export function InstrumentTrend() {
           const r = await chartSectionFor(
             'Humidity', '%RH', humidKey, humidDecimals,
             trend.overview?.limits?.rhMin, trend.overview?.limits?.rhMax, rows, reportSpanMs, HUMID_COLOR,
+            fetched.summaries,
           );
           charts.push(r.section);
           if (humidKey) plottedLong.push(...r.plotted.map((pt) => ({ key: humidKey, value: pt.value, ts: pt.ts })));

@@ -19,7 +19,8 @@ import { sanitizeStrings } from '../../lib/sanitize.js';
 import { generateToken, hashToken, tokenPrefix, tokenMatches } from './token.js';
 import { encryptToken, decryptToken, tokenKeyConfigured } from './token-crypto.js';
 import { parseInstrumentCsv, type InstrumentDraft } from './bulk-csv.js';
-import { buildTelemetryOverview, loadAliases } from './telemetry-overview.js';
+import { buildTelemetryOverview, loadAliases, instrumentLimits } from './telemetry-overview.js';
+import { loadLimitConfig } from '../alarms/load-limits.js';
 import { loadDecimalsConfig, decimalsFor, annotateAttribute } from './decimals.js';
 import { loadAttributeAccess, refuseAttributeWrite, needsReauth } from './attribute-access.js';
 import { ATTRIBUTE_REMARK_MAX, lttb } from '@digilog/shared';
@@ -147,8 +148,20 @@ const readingProps = {
  */
 const CHART_HARD_CAP = 200_000;
 
-/** A `RangeSummary` with its two timestamps on the wire as ISO strings. */
-type SerialisedSummary = Omit<RangeSummary, 'first' | 'last'> & { first: string; last: string };
+/**
+ * A `RangeSummary` on the wire: the two timestamps as ISO strings, plus the
+ * BOUNDS the breach counts were taken against.
+ *
+ * The bounds ride along deliberately. A client that printed the counts from
+ * here and the limits from its own `telemetry-overview` fetch would be quoting
+ * two independent resolutions in one table — and "0 above 25.0" is a claim
+ * about a specific number, so the number has to come from the same resolution
+ * that produced the count. `null` means no bound was resolved for this key,
+ * which is the server's statement, not a client inference.
+ */
+type SerialisedSummary = Omit<RangeSummary, 'first' | 'last'> & {
+  first: string; last: string; limitMin: number | null; limitMax: number | null;
+};
 
 type CredentialRow = { tokenPrefix: string; tokenEncrypted?: string | null };
 type InstrumentRow = Record<string, unknown> & { credentials?: CredentialRow[] };
@@ -685,6 +698,16 @@ export default async function instrumentRoutes(app: FastifyInstance) {
                 type: 'object',
                 properties: {
                   count: { type: 'integer' },
+                  // The numeric population, and the TRUE breach counts over the
+                  // whole range — see `getRangeSummary`. Nullable, and null is
+                  // load-bearing: it means no limit was resolved for this key,
+                  // which is not the same claim as zero breaches.
+                  numericCount: { type: 'integer' },
+                  belowCount: { type: 'integer', nullable: true },
+                  aboveCount: { type: 'integer', nullable: true },
+                  outOfSpecCount: { type: 'integer', nullable: true },
+                  limitMin: { type: 'number', nullable: true },
+                  limitMax: { type: 'number', nullable: true },
                   min: { type: 'number' }, max: { type: 'number' }, avg: { type: 'number' },
                   first: { type: 'string' }, last: { type: 'string' },
                 },
@@ -706,7 +729,14 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const { where: visibility } = await resolveVisibility(buildContext(req));
     const exists = await prisma.instrument.findFirst({
       where: withVisibility({ id }, visibility) as { id: string },
-      select: { id: true },
+      // The ROOM's band comes back on this same read rather than in a second
+      // query: it is the fallback for an instrument that declares no limits of
+      // its own, and without it every room-limited instrument would have its
+      // breach counts reported as "no limit set" in a signed document.
+      select: {
+        id: true,
+        room: { select: { tempMin: true, tempMax: true, rhMin: true, rhMax: true } },
+      },
     });
     if (!exists) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
 
@@ -727,6 +757,51 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     // slice. The fix is not a bigger cap; it is sampling plus true aggregates.
     const points = q.points === undefined ? null : Number(q.points);
 
+    // Loaded BEFORE the branch, not after it: the chart path needs the slot
+    // mapping and the resolved limits to bound its per-key breach counts, and
+    // the table path needs the same two for its annotation anyway.
+    const [aliases, decimalsCfg, attributes, limitCfg] = await Promise.all([
+      loadAliases(),
+      loadDecimalsConfig(),
+      prisma.instrumentAttribute.findMany({
+        where: { instrumentId: id },
+        select: { key: true, value: true },
+      }),
+      // The SAME administered key mapping the alarm evaluator and the dashboard
+      // resolve limits with. Nothing here reads an attribute name directly —
+      // two surfaces disagreeing about which limit applies is a defect this
+      // repo has already paid for once.
+      loadLimitConfig(),
+    ]);
+    const dp = decimalsFor(decimalsCfg, attributes);
+    const slotFor = (key: string): 'temperature' | 'humidity' | null => {
+      const k = key.toLowerCase();
+      if (aliases.temperature.includes(k)) return 'temperature';
+      if (aliases.humidity.includes(k)) return 'humidity';
+      return null;
+    };
+    /**
+     * The band the breach counts are taken against: the instrument's OWN limits
+     * where it declares any, else its room's — `buildTelemetryOverview`'s rule,
+     * through the same `instrumentLimits()` helper.
+     *
+     * That helper also nulls BOTH bounds of a metric whose pair is inverted,
+     * because the evaluator raises nothing for such a pair. Counting breaches
+     * against a band the alarm system deliberately ignores would put a number
+     * in a §11 report that no alarm on this system could ever corroborate.
+     */
+    const own = instrumentLimits(limitCfg.keys, attributes);
+    const band = own ?? (exists.room
+      ? { tempMin: exists.room.tempMin, tempMax: exists.room.tempMax, rhMin: exists.room.rhMin, rhMax: exists.room.rhMax }
+      : null);
+    const boundsFor = (key: string): { low: number | null; high: number | null } => {
+      const slot = slotFor(key);
+      if (!band || !slot) return { low: null, high: null };
+      return slot === 'temperature'
+        ? { low: band.tempMin ?? null, high: band.tempMax ?? null }
+        : { low: band.rhMin ?? null, high: band.rhMax ?? null };
+    };
+
     const latest = await getLatest(id);
 
     let historyRows: TelemetryRow[];
@@ -744,9 +819,12 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       // simply contributes no rows and no summary entry.
       const keys = q.key ? [q.key] : (await getDistinctKeys(id)).map((k) => k.key);
       const perKey = await Promise.all(keys.map(async (key) => {
+        const bounds = boundsFor(key);
         const [{ rows, truncated }, summary] = await Promise.all([
           getRangeRows({ instrumentId: id, key, from, to, hardCap: CHART_HARD_CAP }),
-          getRangeSummary({ instrumentId: id, key, from, to }),
+          // The breach counts are computed in THIS query, over every reading in
+          // the range — never over `rows`, which may be a sample.
+          getRangeSummary({ instrumentId: id, key, from, to, low: bounds.low, high: bounds.high }),
         ]);
         // A non-numeric reading (a device once sent the string "hello") has no
         // position on a value axis, so it is dropped BEFORE sampling. That is
@@ -756,7 +834,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           (r): r is TelemetryRow & { value: number } => typeof r.value === 'number',
         );
         const sampled = lttb(plottable, points);
-        return { key, summary, sampled, total: rows.length, truncated, dropped: sampled.length < plottable.length };
+        return { key, summary, bounds, sampled, total: rows.length, truncated, dropped: sampled.length < plottable.length };
       }));
 
       historyRows = perKey.flatMap((k) => k.sampled);
@@ -774,29 +852,19 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           ...k.summary,
           first: k.summary.first.toISOString(),
           last: k.summary.last.toISOString(),
+          limitMin: k.bounds.low,
+          limitMax: k.bounds.high,
         };
       }
     }
     // Label each reading with its slot and this instrument's precision. Same
     // administered vocabulary and same resolver the dashboard uses — a raw list
     // that disagrees with the dashboard about the same stored number is the
-    // failure this annotation exists to prevent.
-    const [aliases, decimalsCfg, attributes] = await Promise.all([
-      loadAliases(),
-      loadDecimalsConfig(),
-      prisma.instrumentAttribute.findMany({
-        where: { instrumentId: id },
-        select: { key: true, value: true },
-      }),
-    ]);
-    const dp = decimalsFor(decimalsCfg, attributes);
+    // failure this annotation exists to prevent. `slotFor` is the SAME mapping
+    // the breach bounds above were chosen with, so a key cannot be a
+    // temperature for one and not the other.
     const annotate = (r: { key: string }) => {
-      const k = r.key.toLowerCase();
-      const slot = aliases.temperature.includes(k)
-        ? 'temperature'
-        : aliases.humidity.includes(k)
-          ? 'humidity'
-          : null;
+      const slot = slotFor(r.key);
       return { ...r, slot, decimals: slot ? dp[slot] : null };
     };
 
@@ -847,7 +915,14 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const { where: visibility } = await resolveVisibility(buildContext(req));
     const exists = await prisma.instrument.findFirst({
       where: withVisibility({ id }, visibility) as { id: string },
-      select: { id: true },
+      // The ROOM's band comes back on this same read rather than in a second
+      // query: it is the fallback for an instrument that declares no limits of
+      // its own, and without it every room-limited instrument would have its
+      // breach counts reported as "no limit set" in a signed document.
+      select: {
+        id: true,
+        room: { select: { tempMin: true, tempMax: true, rhMin: true, rhMax: true } },
+      },
     });
     if (!exists) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
 

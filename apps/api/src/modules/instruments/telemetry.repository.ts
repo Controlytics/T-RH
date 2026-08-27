@@ -148,6 +148,31 @@ export async function writeDeadLetters(
 
 export interface RangeSummary {
   count: number; min: number; max: number; avg: number; first: Date; last: Date;
+  /**
+   * Readings in the range that carry a NUMBER, which is the population every
+   * other number here is computed over — min/max/avg skip a non-numeric value
+   * and so do the two breach counts. `count` counts every stored value,
+   * numeric or not, and the two can legitimately differ.
+   *
+   * Kept separate rather than folded into `count` because the trend page's
+   * "Showing N of M readings" note is written against `count`'s no-guard
+   * meaning: narrowing it there would make the page claim readings had been
+   * sampled away when the only thing missing was a string.
+   */
+  numericCount: number;
+  /**
+   * Readings strictly below / above the bound the caller passed, over the WHOLE
+   * range — not over whatever the sampler drew.
+   *
+   * `null` means NO BOUND WAS GIVEN, which is a different statement from `0`.
+   * Zero says "checked, nothing breached"; null says "nothing was checked", and
+   * a §11 record that prints the first when the second is true claims
+   * compliance the data cannot support. Callers must keep the distinction.
+   */
+  belowCount: number | null;
+  aboveCount: number | null;
+  /** Sum of the bounds that WERE given; null only when neither was. */
+  outOfSpecCount: number | null;
 }
 
 /**
@@ -161,7 +186,14 @@ export interface RangeSummary {
  *
  * `count` is every reading in the range; the min/max/avg aggregates SKIP
  * non-numeric readings (see the cast below), so the two can legitimately
- * disagree on an instrument that has sent a string.
+ * disagree on an instrument that has sent a string. `numericCount` is the
+ * population they DO cover, and the denominator a breach count must be printed
+ * against.
+ *
+ * The two BREACH counts are here for the same reason the max is: the signed
+ * trend report prints "N readings out of limit", and an N counted over the
+ * sampled rows understates an excursion the sampler skipped. They are counted
+ * in the same single pass, against bounds the CALLER resolved.
  *
  * Casts inside a CASE, never a bare `::float8`: telemetry `value` is jsonb and this
  * database really contains a non-numeric one (a device sent the string "hello").
@@ -171,17 +203,37 @@ export interface RangeSummary {
  */
 export async function getRangeSummary(opts: {
   instrumentId: string; key: string; from?: Date; to?: Date;
+  /** Resolved limits for this key, or null/undefined where the instrument (and
+   *  its room) declares none. Passed in already resolved — this file must never
+   *  work out which attribute is a limit. */
+  low?: number | null; high?: number | null;
 }): Promise<RangeSummary | null> {
+  // The SAME `CASE`-wrapped cast the aggregates use, reused rather than
+  // repeated: a bare `(value #>> '{}')::float8` in the FILTER would throw on
+  // this database's one non-numeric reading under any plan that projects
+  // before it filters.
+  const numeric = Prisma.sql`CASE WHEN jsonb_typeof(value) = 'number' THEN (value #>> '{}')::float8 END`;
+  const below = opts.low == null
+    ? Prisma.sql`NULL::bigint`
+    : Prisma.sql`count(*) FILTER (WHERE ${numeric} < ${opts.low})::bigint`;
+  const above = opts.high == null
+    ? Prisma.sql`NULL::bigint`
+    : Prisma.sql`count(*) FILTER (WHERE ${numeric} > ${opts.high})::bigint`;
+
   const rows = await prisma.$queryRaw<{
-    count: bigint; min: number | null; max: number | null; avg: number | null;
+    count: bigint; numericCount: bigint; min: number | null; max: number | null; avg: number | null;
     first: Date | null; last: Date | null;
+    belowCount: bigint | null; aboveCount: bigint | null;
   }[]>`
     SELECT count(*)::bigint AS count,
-           min(CASE WHEN jsonb_typeof(value) = 'number' THEN (value #>> '{}')::float8 END) AS min,
-           max(CASE WHEN jsonb_typeof(value) = 'number' THEN (value #>> '{}')::float8 END) AS max,
-           avg(CASE WHEN jsonb_typeof(value) = 'number' THEN (value #>> '{}')::float8 END) AS avg,
+           count(${numeric})::bigint AS "numericCount",
+           min(${numeric}) AS min,
+           max(${numeric}) AS max,
+           avg(${numeric}) AS avg,
            min(ts) AS first,
-           max(ts) AS last
+           max(ts) AS last,
+           ${below} AS "belowCount",
+           ${above} AS "aboveCount"
     FROM instrument_telemetry_history
     WHERE instrument_id = ${opts.instrumentId}
       AND key = ${opts.key}
@@ -192,7 +244,19 @@ export async function getRangeSummary(opts: {
   if (!r || Number(r.count) === 0 || r.min === null || r.max === null || r.avg === null || !r.first || !r.last) {
     return null;
   }
-  return { count: Number(r.count), min: r.min, max: r.max, avg: r.avg, first: r.first, last: r.last };
+  const belowCount = r.belowCount === null ? null : Number(r.belowCount);
+  const aboveCount = r.aboveCount === null ? null : Number(r.aboveCount);
+  return {
+    count: Number(r.count),
+    numericCount: Number(r.numericCount),
+    min: r.min, max: r.max, avg: r.avg, first: r.first, last: r.last,
+    belowCount,
+    aboveCount,
+    // Null ONLY when neither bound was given. With one bound set the total is
+    // the breaches against THAT bound — a real, checked number — and the
+    // report says which bound it was assessed against.
+    outOfSpecCount: belowCount === null && aboveCount === null ? null : (belowCount ?? 0) + (aboveCount ?? 0),
+  };
 }
 
 /**

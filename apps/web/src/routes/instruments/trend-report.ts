@@ -76,25 +76,42 @@ export interface TrendChartSection {
   image: ChartImage | null;
   /** Why there is no picture. Printed verbatim when `image` is null. */
   unavailableReason: string;
-  /** Computed from the STORED readings, never from the averaged points plotted
-   *  above them. `null` when the slot had no readings in the period. */
+  /** Never computed from the averaged points plotted above it. Its COUNTS come
+   *  from the server's aggregate over EVERY reading in the range
+   *  (`withServerSummary`), so a sampled chart cannot understate the number of
+   *  excursions here; its extremes describe the rows the report was built from.
+   *  `null` when the slot had no readings in the period. */
   summary: SlotSummary | null;
 }
 
 /**
- * How much of the period's record this report was actually built from.
+ * How much of the period's record the CHART and the TABLE were built from.
  *
- * `GET /:id/telemetry` caps `limit` at 500 server-side and the repository orders
- * `ts DESC`, so a long period comes back as its most recent tail, not the whole
- * window — measured on this install, a 30-day period holds 7,646 rows and 500
- * come back. A statistics block computed over 6.5% of a period, printed under a
- * heading naming the whole period, is a §11 misrepresentation with no tell. So
- * the report states its own coverage whenever the two numbers differ.
+ * This used to describe a truncation. `GET /:id/telemetry` was asked for
+ * `limit=500` and answered `ORDER BY ts DESC`, so a long period came back as
+ * its most recent tail — measured on this install, a 30-day period held 7,646
+ * rows and 500 came back — and the note said so in those words.
+ *
+ * IT IS NO LONGER A TRUNCATION, and the note must not keep saying it is. The
+ * report now fetches down the `points=` path: the server reads every reading in
+ * the range and downsamples by SELECTION, so what comes back is a sample spread
+ * across the WHOLE period. A banner claiming the report covers "the most recent
+ * portion only" would be a false statement about its own coverage in a signed
+ * document — strictly worse than the truncation it was written for.
+ *
+ * What is still true is that the chart and the table hold fewer rows than the
+ * period does, so the note discloses that and scopes itself to those two
+ * blocks. The period summary's COUNTS are not affected: since 2026-08-27 the
+ * readings count and the out-of-limit counts come from SQL over every reading in
+ * the range (`withServerSummary`). Its minimum, maximum and mean still describe
+ * the sampled readings — see `withServerSummary` for why they cannot be swapped
+ * without solving `first`/`last` too — so the note says which is which rather
+ * than claiming the whole block is whole-range.
  */
 export interface ReportCoverage {
-  /** Readings the report received. */
+  /** Stored values the report received — the sample the chart and table hold. */
   returned: number;
-  /** Readings the period actually holds, from the endpoint's `historyTotal`. */
+  /** Stored values the period actually holds, from the endpoint's `historyTotal`. */
   total: number;
 }
 
@@ -188,6 +205,12 @@ function num(v: number | null | undefined, decimals: number): string {
  * is worst — it would attribute a value to a stretch with no record at all.
  */
 function addSummary(report: ReportDoc, summary: SlotSummary, formatDateTime: (d: string) => string): void {
+  // NOTE ON POPULATIONS. `Readings` and the out-of-limit figures are counted
+  // over every reading in the period; `Minimum`/`Maximum`/`Mean` and the
+  // first/last pair are computed over the rows the report holds, which may be a
+  // sample. The coverage note above says exactly that when the two differ — the
+  // one thing that must never happen is the block implying a single population
+  // it does not have.
   const d = summary.decimals;
   const rows: string[][] = [
     ['Readings', summary.count.toLocaleString()],
@@ -204,15 +227,36 @@ function addSummary(report: ReportDoc, summary: SlotSummary, formatDateTime: (d:
     rows.push(['Out of limit', 'Not assessed — no limits are set for this slot']);
   } else {
     const pct = summary.count > 0 ? (summary.outOfSpecCount / summary.count) * 100 : 0;
+    // ONE definition of "this side was assessed", used by both the qualifier
+    // and the per-side text below. Two conditions that can disagree would print
+    // "no low limit set" on one line and a two-sided assessment on the line
+    // above it — and they DO diverge if either the count or the bound is null
+    // on its own, which is reachable on the fallback path where no server
+    // summary is available and `summariseSlot`'s own zero stands.
+    const lowAssessed = summary.belowCount !== null && summary.limitMin != null;
+    const highAssessed = summary.aboveCount !== null && summary.limitMax != null;
+    // Which bounds this figure was assessed against, when only one exists. The
+    // total is a real count either way, but "3 of 2,500 readings" under a
+    // heading saying "Out of limit" reads as a full two-sided assessment, and
+    // half an assessment presented as a whole one overstates what was checked.
+    const only = !lowAssessed ? ' — against the high limit only'
+      : !highAssessed ? ' — against the low limit only' : '';
     rows.push([
       'Out of limit',
-      `${summary.outOfSpecCount.toLocaleString()} of ${summary.count.toLocaleString()} readings (${pct.toFixed(1)}%)`,
+      `${summary.outOfSpecCount.toLocaleString()} of ${summary.count.toLocaleString()} readings (${pct.toFixed(1)}%)${only}`,
     ]);
-    rows.push([
-      '— below / above limit',
-      `${(summary.belowCount ?? 0).toLocaleString()} below ${num(summary.limitMin, d)}`
-      + `  /  ${(summary.aboveCount ?? 0).toLocaleString()} above ${num(summary.limitMax, d)}`,
-    ]);
+    // Per SIDE, because a bound can be absent on its own. A missing low limit
+    // printed as "0 below —" claims the readings were checked against a low
+    // limit and passed; nothing was checked at all. The `?? 0` that used to be
+    // here was exactly that defect — which is why the null has to survive all
+    // the way into the words rather than being coalesced away one line short.
+    const belowText = lowAssessed
+      ? `${(summary.belowCount ?? 0).toLocaleString()} below ${num(summary.limitMin, d)}`
+      : 'no low limit set — not assessed';
+    const aboveText = highAssessed
+      ? `${(summary.aboveCount ?? 0).toLocaleString()} above ${num(summary.limitMax, d)}`
+      : 'no high limit set — not assessed';
+    rows.push(['— below / above limit', `${belowText}  /  ${aboveText}`]);
   }
 
   report.addTable({ head: [`${summary.label} — period summary`, 'Value'], body: rows });
@@ -245,9 +289,8 @@ export async function renderTrendReport(input: TrendReportInput): Promise<Report
   });
   addInstrumentDetails(report, input.instrument, input.period);
 
-  // Coverage first, above everything it qualifies. A statistics block reads as
-  // authoritative, so if it does not cover the period its heading names, that
-  // has to be the first thing read, not a footnote under the table.
+  // Coverage first, above everything it qualifies. What the chart and the table
+  // are drawn from has to be the first thing read, not a footnote under them.
   if (input.coverage.total > input.coverage.returned) {
     addNote(
       report,
@@ -255,10 +298,13 @@ export async function renderTrendReport(input: TrendReportInput): Promise<Report
       // key the instrument sent, while each summary below counts ONE slot. Two
       // numbers in the same units that cannot be reconciled would read as a
       // contradiction rather than as the different measures they are.
-      `INCOMPLETE PERIOD: this report was built from the ${input.coverage.returned.toLocaleString()} most recent `
-      + `stored values across all keys, but ${input.period.label} holds ${input.coverage.total.toLocaleString()}. `
-      + `The chart, the summary and the table below all describe that most recent portion only — not the whole `
-      + `period named above. Narrow the period for a report that covers all of it.`,
+      `REPRESENTATIVE SAMPLE: the chart and the readings table below hold `
+      + `${input.coverage.returned.toLocaleString()} of the ${input.coverage.total.toLocaleString()} stored values `
+      + `across all keys that ${input.period.label} holds. They are selected ACROSS THE WHOLE PERIOD — this is not `
+      + `a recent portion of it — so the shape of the record is preserved, but not every stored reading is printed. `
+      + `The period summary below states its readings count and its out-of-limit counts over EVERY reading in the `
+      + `period, not over this sample. Its minimum, maximum and mean describe the sampled readings. For every `
+      + `stored reading in print, narrow the period or use the Instrument Time Series report.`,
       report.colors.red,
     );
   }
