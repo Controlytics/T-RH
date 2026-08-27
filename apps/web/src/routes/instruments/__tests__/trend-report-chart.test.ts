@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { renderTrendReport, type TrendChartSection } from '../trend-report';
+import { renderTrendReport, renderTimeSeriesReport, type TrendChartSection } from '../trend-report';
 import { summariseSlot, withServerSummary } from '../trend-summary';
 
 vi.mock('@/lib/api-client', () => ({
@@ -224,7 +224,38 @@ describe('the trend report shows the trend', () => {
     // which are not. Claiming the whole summary block is whole-range would be
     // its own false statement: only the counts are.
     expect(text).toMatch(/readings count and its out-of-limit counts over EVERY reading/);
-    expect(text).toMatch(/minimum, maximum and mean describe the sampled readings/);
+    expect(text).toMatch(/minimum, maximum and mean describe the readings this report holds/);
+  });
+
+  it('offers a remedy that exists — not the Time Series report, which samples identically', async () => {
+    // The Time Series branch calls the SAME `points=` fetch this report does, so
+    // whenever this note prints because the sampler sampled, that report sampled
+    // too. "Use the Instrument Time Series report for every stored reading" was
+    // therefore false in essentially every instance it appeared — the same
+    // defect class as the coverage claim, displaced onto the remedy.
+    const { text } = await capture(baseInput({ coverage: { returned: 500, total: 7646 } }));
+    expect(text).toMatch(/NARROW THE PERIOD/);
+    expect(text).toMatch(/Instrument Time Series report is built from the same sample as this one/);
+    expect(text).not.toMatch(/narrow the period or use the Instrument Time Series report/);
+  });
+
+  it('does not call the Time Series report the complete raw record anywhere', async () => {
+    const { text, report } = await capture(baseInput({ averagedLabel: '5 minutes' }));
+    expect(report.getSnapshot().subtitle).not.toMatch(/complete raw record/);
+    expect(report.getSnapshot().subtitle).toMatch(/same readings unaveraged/);
+    expect(text).not.toMatch(/complete unaveraged record/);
+    // What IS true of it: unaveraged, and sampled the same way.
+    expect(text).toMatch(/same period UNAVERAGED/);
+    expect(text).toMatch(/built from the same sample as this report/);
+  });
+
+  it('attributes the all-keys count to the FETCH, not to a single-slot table', async () => {
+    // `coverage.returned` spans every key, while a Temperature-only report's
+    // table holds one slot's points. Saying "the table below holds 500 of 7,646"
+    // is a count of a population that table does not have.
+    const { text } = await capture(baseInput({ coverage: { returned: 500, total: 7646 } }));
+    expect(text).toMatch(/this report was built from 500 of the 7,646 stored values across all keys/);
+    expect(text).not.toMatch(/readings table below hold 500/);
   });
 
   it('does NOT claim the report covers only the most recent portion of the period', async () => {
@@ -323,6 +354,33 @@ describe('the trend report shows the trend', () => {
     const { report } = await capture(baseInput());
     expect(report.getSnapshot().subtitle).toMatch(/Chart and period summary/);
     expect(report.getSnapshot().subtitle).toMatch(/Instrument Time Series report/);
+  });
+
+  it('states its own coverage on the Time Series report, which samples too', async () => {
+    // It was printing a sampled subset under the title "raw readings" with no
+    // disclosure at all, while two other documents pointed readers here for the
+    // unaveraged record.
+    const report = await renderTimeSeriesReport(
+      rows, keys, instrument, period, formatDateTime, { returned: 500, total: 7646 },
+    );
+    const pages: string[][] = (report as any).doc.internal.pages;
+    const text = [...pages.filter(Boolean).flat().join('\n').matchAll(/\((.*?)\)\s*Tj/gs)]
+      .map((m) => m[1].replace(/\\([()\\])/g, '$1')).join(' ');
+    expect(text).toMatch(/REPRESENTATIVE SAMPLE/);
+    expect(text).toMatch(/500 of the 7,646 stored values/);
+    // Its rows ARE stored readings — that claim stays, because it is true.
+    expect(text).toMatch(/Every row below is a stored, unaveraged reading/);
+    expect(text).toMatch(/NOT every stored reading in the period/);
+  });
+
+  it('says nothing about coverage on a Time Series report that holds the period', async () => {
+    const report = await renderTimeSeriesReport(
+      rows, keys, instrument, period, formatDateTime, { returned: 2, total: 2 },
+    );
+    const pages: string[][] = (report as any).doc.internal.pages;
+    const text = [...pages.filter(Boolean).flat().join('\n').matchAll(/\((.*?)\)\s*Tj/gs)]
+      .map((m) => m[1].replace(/\\([()\\])/g, '$1')).join(' ');
+    expect(text).not.toMatch(/REPRESENTATIVE SAMPLE/);
   });
 
   it('states the row cap in the report when it truncates', async () => {

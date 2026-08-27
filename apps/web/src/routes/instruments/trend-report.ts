@@ -282,8 +282,13 @@ export async function renderTrendReport(input: TrendReportInput): Promise<Report
     // it from the title alone how it differs from the Time Series report. The
     // audit `reportType` cannot carry this — target_type is VARCHAR(50) and
     // "Instrument Trend — Temperature & Humidity" already uses 41 of it.
+    // NOT "the complete raw record is the Instrument Time Series report". That
+    // report calls the SAME sampled fetch this one does (`points=`), so for a
+    // wide period it is not the complete record either — and no report from
+    // this page prints more than MAX_REPORT_ROWS rows regardless. What is
+    // actually true of it is that it is UNAVERAGED.
     subtitle: `${input.instrument.code} — ${input.slotLabel}. Chart and period summary. `
-      + `The complete raw record is the Instrument Time Series report.`,
+      + `The Instrument Time Series report covers the same readings unaveraged.`,
     reportKey: 'instrument-trend',
     formatDateTime: input.formatDateTime,
   });
@@ -297,14 +302,26 @@ export async function renderTrendReport(input: TrendReportInput): Promise<Report
       // "stored values across all keys", not "readings": this count spans every
       // key the instrument sent, while each summary below counts ONE slot. Two
       // numbers in the same units that cannot be reconciled would read as a
-      // contradiction rather than as the different measures they are.
-      `REPRESENTATIVE SAMPLE: the chart and the readings table below hold `
-      + `${input.coverage.returned.toLocaleString()} of the ${input.coverage.total.toLocaleString()} stored values `
-      + `across all keys that ${input.period.label} holds. They are selected ACROSS THE WHOLE PERIOD — this is not `
-      + `a recent portion of it — so the shape of the record is preserved, but not every stored reading is printed. `
-      + `The period summary below states its readings count and its out-of-limit counts over EVERY reading in the `
-      + `period, not over this sample. Its minimum, maximum and mean describe the sampled readings. For every `
-      + `stored reading in print, narrow the period or use the Instrument Time Series report.`,
+      // contradiction rather than as the different measures they are. It is a
+      // claim about what this report was BUILT FROM, for the same reason —
+      // attributing an all-keys number to a Temperature-only table would be a
+      // count of a population that table does not hold.
+      //
+      // And the remedy it offers is one that exists. It used to end "or use the
+      // Instrument Time Series report", which calls the SAME sampled fetch:
+      // whenever this note prints because LTTB sampled, that report sampled too,
+      // so the sentence was false in essentially every instance it appeared.
+      // Narrowing the period is the remedy that actually works, bounded by
+      // MAX_REPORT_ROWS, which no report from this page exceeds.
+      `REPRESENTATIVE SAMPLE: this report was built from ${input.coverage.returned.toLocaleString()} of the `
+      + `${input.coverage.total.toLocaleString()} stored values across all keys that ${input.period.label} holds. `
+      + `They are selected ACROSS THE WHOLE PERIOD — this is not a recent portion of it — so the chart and the `
+      + `readings table below preserve the shape of the record without printing every stored reading. The period `
+      + `summary below states its readings count and its out-of-limit counts over EVERY reading in the period, not `
+      + `over this sample; its minimum, maximum and mean describe the readings this report holds. To print every `
+      + `stored reading, NARROW THE PERIOD — no report from this page prints more than `
+      + `${MAX_REPORT_ROWS.toLocaleString()} rows, and the Instrument Time Series report is built from the same `
+      + `sample as this one.`,
       report.colors.red,
     );
   }
@@ -319,7 +336,8 @@ export async function renderTrendReport(input: TrendReportInput): Promise<Report
       `Note: the chart AND the table below are AVERAGED over ${input.averagedLabel}. Each point and each row is `
       + `the mean of the readings in its bucket, not a stored reading. The period summary is NOT averaged — it is `
       + `computed from the stored readings, so a brief excursion that averaging smooths away still appears there. `
-      + `For the complete unaveraged record, use the Instrument Time Series report.`,
+      + `For the same period UNAVERAGED, use the Instrument Time Series report — it prints stored readings rather `
+      + `than bucket means. It is built from the same sample as this report, and states its own coverage.`,
       report.colors.red,
     );
   }
@@ -356,15 +374,26 @@ export async function renderTrendReport(input: TrendReportInput): Promise<Report
   return report;
 }
 
-/** The raw paged time-series widget — every administered AND extra key column
- *  currently shown on screen, for the dialog's chosen period (which may differ
- *  from the page's). */
+/**
+ * The raw paged time-series widget — every administered AND extra key column
+ * currently shown on screen, for the dialog's chosen period (which may differ
+ * from the page's).
+ *
+ * `coverage` is REQUIRED, and is why this signature changed on 2026-08-27.
+ * This report fetches down the same `points=` path the trend report does, so
+ * for a wide period it holds a SAMPLE — and it was printing that sample under
+ * the title "raw readings" with no disclosure at all. Two other documents point
+ * readers here for the unaveraged record, so it has to say what it holds; a
+ * caller that has the numbers must pass them rather than being allowed to omit
+ * the disclosure by omitting an argument.
+ */
 export async function renderTimeSeriesReport(
   rows: TableRow[],
   keys: { key: string; label: string; decimals: number }[],
   instrument: ReportInstrument,
   period: ReportPeriod,
   formatDateTime: (d: string) => string,
+  coverage: ReportCoverage,
 ): Promise<ReportDoc> {
   const { shown, capped, total } = capRows(rows);
   const report = await createReport({
@@ -374,6 +403,17 @@ export async function renderTimeSeriesReport(
     formatDateTime,
   });
   addInstrumentDetails(report, instrument, period);
+  if (coverage.total > coverage.returned) {
+    addNote(
+      report,
+      `REPRESENTATIVE SAMPLE: this report was built from ${coverage.returned.toLocaleString()} of the `
+      + `${coverage.total.toLocaleString()} stored values across all keys that ${period.label} holds, selected `
+      + `ACROSS THE WHOLE PERIOD rather than taken from its most recent portion. Every row below is a stored, `
+      + `unaveraged reading, but these are NOT every stored reading in the period. To print every stored reading, `
+      + `narrow the period — no report from this page prints more than ${MAX_REPORT_ROWS.toLocaleString()} rows.`,
+      report.colors.red,
+    );
+  }
   addCapNotice(report, capped, shown.length, total, period);
   report.addTable({
     head: ['Timestamp', ...keys.map((k) => k.label)],

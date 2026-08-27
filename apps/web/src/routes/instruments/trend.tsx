@@ -612,7 +612,14 @@ export function InstrumentTrend() {
           ...extra.keys.map((k) => ({ key: k, label: k, decimals: TELEMETRY_DECIMALS_FALLBACK })),
         ].filter((k): k is { key: string; label: string; decimals: number } => k !== null);
         const pivoted: PivotRow[] = toTableRows(rows, keysMeta.map((k) => k.key));
-        const report = await renderTimeSeriesReport(pivoted, keysMeta, instrument, reportPeriod, formatDateTime);
+        // Same `fetched.history.length` vs `historyTotal` comparison the trend
+        // report makes, and for the same reason: `rows` has had non-numeric
+        // readings dropped, so comparing THAT would report a sample on an
+        // instrument that merely sent one string.
+        const report = await renderTimeSeriesReport(
+          pivoted, keysMeta, instrument, reportPeriod, formatDateTime,
+          { returned: rawRows.history.length, total: rawRows.historyTotal ?? rawRows.history.length },
+        );
         await logReportExport({
           reportType: 'Instrument Time Series', format: 'PDF', recordCount: pivoted.length,
           period: reportPeriod.label, startDate: reportPeriod.from, endDate: reportPeriod.to,
