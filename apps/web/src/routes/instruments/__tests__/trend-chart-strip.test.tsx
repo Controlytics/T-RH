@@ -147,6 +147,15 @@ describe('trend page — extra-key charts disclose sampling', () => {
     // (Temperature returned three, and carries its own "Showing 3 of 2,500".)
     expect(screen.getAllByText(/Showing 1 of 2,500 readings/)).toHaveLength(2);
     expect(screen.getAllByText(/Showing 3 of 2,500 readings/)).toHaveLength(1);
+    // And it is the EXTRA-KEY chart's own note, not one of the two above that
+    // happens to read the same. Scoped to the container holding the co2 chart
+    // title, so a note rendered anywhere else on the page cannot satisfy this.
+    // Anchored on the co2 STRIP's Average (512 — a value no other chart on this
+    // page carries), so the container found is unambiguously the co2 chart's.
+    // `screen.getByText('co2')` would not do: the picker renders a chip with
+    // the same text.
+    const co2Panel = screen.getByText(/^512/).closest('dl')!.parentElement!;
+    expect(within(co2Panel).getByText(/Showing 1 of 2,500 readings/)).toBeInTheDocument();
     localStorage.clear();
   });
 

@@ -91,6 +91,55 @@ the same defect and printed the same misdescribed period.
   `ORDER BY ts DESC`, false once the rows are spread across the whole range.
   Its out-of-limit counts now come from the server's whole-range summary.
 
+### Review fix wave (2026-08-27, later the same day)
+
+Eight fixes from the whole-branch review. **No count moved** — no model, enum,
+permission, reauth action, module, config def, config page or `<Route>` was
+added or removed; re-derived from live code 2026-08-27.
+
+- **The signed PDF could print a Maximum BELOW a limit it reported breaches
+  of.** `withServerSummary` took the readings count and the out-of-limit counts
+  from the server but left `min`/`max`/`mean` derived from the LTTB sample, and
+  LTTB can drop the one reading that breached: `Maximum 24.8 °C` printed
+  directly above `3 above 25.0`, arithmetically impossible, in the artifact that
+  leaves the building. All three now come from the server too.
+  **This deliberately overturns the earlier decision to keep them row-derived.**
+  That decision's stated reason was that whole-range extremes beside
+  sample-derived `first`/`last` would quote two populations. They do not
+  conflict: `first`/`last` print as "First reading"/"Last reading" WITH their
+  own timestamps — claims about two instants, not about the range — so a range
+  minimum below both is expected. The count, extremes, mean and breach counts
+  now all describe the same server-side numeric population; the report's
+  coverage banner shrank to say exactly that.
+- **The on-screen per-chart summary strip that spec §3 asked for was never
+  built.** Each chart now carries Current / Minimum / Maximum / Average from the
+  server's whole-range summary, at the instrument's own decimals — so the screen
+  and the PDF quote the same aggregates for the same figures. "Current" is the
+  latest STORED reading in the range, never the last plotted point, which is a
+  bucket mean whenever a chart interval is selected.
+- **`historyTotal` was the post-slice row count**, so a read that hit the
+  200,000-row backstop would have printed an understated denominator both in
+  "Showing N of M readings" and in the PDF banner. It now comes from the range's
+  own `count(*)` (`chartRangeTotal`), byte-equivalent on every non-truncating
+  call. The truncation DIRECTION is now stated in code: the read is `ts ASC`, so
+  a capped fetch keeps the oldest readings — the mirror image of the original
+  defect.
+- **Extra-key charts sampled silently** — the one place left in the feature that
+  dropped readings without saying so. They now carry `SampledNote` and a summary
+  strip (at the shared fallback precision; an undeclared key has no administered
+  decimals).
+- **The charts said "No data available" while loading and while the fetch was
+  failing** — a positive claim about the record when the truth was "we do not
+  know". A skeleton and a per-chart error state with Retry now answer those two;
+  only a resolved, empty range reaches the chart's own empty state. The
+  page-level error banner was removed: the chart request is the only request
+  that error belongs to.
+- `useInstrumentTrend` now returns `error`/`retry`/`chartsLoading`; the SWR key
+  the page had duplicated byte-for-byte to reach them is gone.
+- A dead `room` select and a false comment removed from `/:id/telemetry-keys`'s
+  visibility lookup. Four comments describing the old summary behaviour made
+  true.
+
 ## [Unreleased] - Alarm webhook annunciator (2026-08-27)
 
 Alarms now reach a **device** as well as a person. An operator can point an
