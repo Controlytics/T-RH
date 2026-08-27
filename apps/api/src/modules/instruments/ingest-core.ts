@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { parsePayload, toReadings } from './payload-parser.js';
 import { writeBatch, writeDeadLetters } from './telemetry.repository.js';
 import { stampLastSeen } from './last-seen.js';
+import { enqueueAlarmEvaluation } from '../alarms/enqueue-evaluation.js';
 import { fanoutDevices } from './gateway-fanout.js';
 import { childMapFor } from './gateway-children.js';
 import type { IngestIdentity } from './ingest-auth.js';
@@ -146,6 +147,10 @@ export async function ingestPayload(args: {
     if (readings.length > 0) {
       await writeBatch(readings);
       await stampLastSeen([...new Set(readings.map((r) => r.instrumentId))], 'gateway');
+      // Readings landed, so judge them now rather than at the next minute tick.
+      // ENQUEUES, never evaluates: the evaluator must stay out of this path, or a
+      // broken evaluation could reject a telemetry write. Never throws.
+      await enqueueAlarmEvaluation();
     }
 
     // The GATEWAY itself connected and authenticated directly — that is
@@ -186,5 +191,8 @@ export async function ingestPayload(args: {
   // presents a credential of its own. Throttled and never allowed to fail an
   // accepted reading.
   await stampLastSeen([identity.id], 'direct');
+  // Same as the gateway path above: enqueue an evaluation so an excursion is raised
+  // (or cleared) within seconds of the reading rather than on the next minute tick.
+  await enqueueAlarmEvaluation();
   return { ok: true, accepted: readings.length };
 }

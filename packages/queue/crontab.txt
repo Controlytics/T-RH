@@ -46,4 +46,12 @@
 # excursion nobody is told about for five minutes is five minutes of unrecorded
 # deviation. Handler: alarm_evaluation in apps/api/src/app.ts (see the warning at
 # the top of this file — an identifier without a handler leaks jobs forever).
+# alarm_evaluation is ALSO enqueued on ingest (modules/alarms/enqueue-evaluation.ts),
+# which is what makes an excursion raise within ~1s instead of on the next tick.
+# THIS ENTRY IS STILL REQUIRED and is not redundant:
+#   * OFFLINE alarms fire on the ABSENCE of telemetry. An ingest-triggered
+#     evaluation cannot observe an instrument that has gone quiet, because a quiet
+#     instrument ingests nothing. This tick is the only thing that can raise one.
+#   * It is the safety net when an enqueue fails (that helper never throws, so a
+#     queue outage costs promptness, not the reading).
 * * * * * alarm_evaluation ?id=alarm_evaluation&max=1&fill=0s
