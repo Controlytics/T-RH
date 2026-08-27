@@ -73,7 +73,12 @@ export function backgroundLayerStyle(branding: BackgroundSource | null | undefin
     backgroundSize: FIT,
     backgroundRepeat: 'no-repeat',
     backgroundPosition: 'center',
-    backgroundAttachment: 'fixed',
+    // NOT `fixed`. `background-attachment: fixed` positions the image against the
+    // VIEWPORT, so with `contain` the image is letterboxed against the whole window
+    // and appears to begin partway down the content pane. The layer is already a
+    // non-scrolling element sized to the pane, so the default (`scroll`) centres the
+    // image within the pane itself, which is where it belongs.
+    backgroundAttachment: 'scroll',
     // The image's own strength. The white scrim is a sibling element rather than a
     // filter on this one, because `opacity` on the image would also fade anything
     // painted on top of it.

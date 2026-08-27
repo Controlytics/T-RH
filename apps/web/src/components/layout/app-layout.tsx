@@ -178,37 +178,35 @@ export function AppLayout() {
   const backgroundStyle = onDashboard ? backgroundLayerStyle(branding) : null;
 
   return (
-    <div className={`flex h-screen ${backgroundStyle ? '' : 'bg-slate-50'}`}>
-      {/* Wallpaper layer. `fixed inset-0` covers the WHOLE window — including behind
-          the sidebar and the header, which go translucent below so it shows through
-          rather than starting where the content pane starts. pointer-events-none so
-          it never intercepts a click; negative z-index keeps it under everything.
-          The white sheet beneath is what keeps dense content legible: the image's
-          strength is `opacity` on the image element, NOT a fade of this sheet, since
-          fading the element would also fade whatever is painted on top of it. */}
-      {backgroundStyle && (
-        <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 bg-white">
-          <div className="absolute inset-0" style={backgroundStyle} />
-        </div>
-      )}
-      <Sidebar
-        userRole={user?.role ?? ''}
-        open={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        translucent={!!backgroundStyle}
-      />
+    <div className="flex h-screen bg-slate-50">
+      <Sidebar userRole={user?.role ?? ''} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex flex-1 flex-col overflow-hidden">
-        <Header
-          user={user}
-          onLogout={logout}
-          onMenuToggle={() => setSidebarOpen(o => !o)}
-          translucent={!!backgroundStyle}
-        />
-        {/* With a wallpaper set, the main pane goes transparent so the image shows
-            through; without one it keeps the original gradient exactly. */}
-        <main className={`flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6 ${backgroundStyle ? '' : 'bg-gradient-to-br from-slate-50 to-slate-100/50'}`}>
-          <Outlet />
-        </main>
+        <Header user={user} onLogout={logout} onMenuToggle={() => setSidebarOpen(o => !o)} />
+        {/*
+          The content pane. The wallpaper lives HERE — after the sidebar and below the
+          header — not behind the chrome, and not on the viewport.
+
+          Scoping it to this box is also what fixes where the image starts: the layer
+          is sized to the pane, so `contain` centres the image within the content area
+          instead of letterboxing it against the whole window (which is what made it
+          appear to begin partway down the sidebar).
+
+          The wallpaper sits OUTSIDE the scrolling <main> so it stays put while
+          content scrolls over it. A layer inside a scrolling box would scroll away
+          and only ever cover the first screenful.
+        */}
+        <div className="relative flex-1 overflow-hidden">
+          {backgroundStyle && (
+            <div aria-hidden className="pointer-events-none absolute inset-0 bg-white">
+              <div className="absolute inset-0" style={backgroundStyle} />
+            </div>
+          )}
+          {/* With a wallpaper set the pane goes transparent so the image shows
+              through; without one it keeps the original gradient exactly. */}
+          <main className={`absolute inset-0 overflow-y-auto p-3 sm:p-4 lg:p-6 ${backgroundStyle ? '' : 'bg-gradient-to-br from-slate-50 to-slate-100/50'}`}>
+            <Outlet />
+          </main>
+        </div>
       </div>
 
       {/* Session Timeout Warning Dialog */}

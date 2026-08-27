@@ -85,8 +85,16 @@ describe('backgroundLayerStyle', () => {
     expect(style.backgroundPosition).toBe('center');
   });
 
-  it('stays put while content scrolls', () => {
-    expect(backgroundLayerStyle({ backgroundUrl: '/x.png' })!.backgroundAttachment).toBe('fixed');
+  /**
+   * `fixed` positions the image against the VIEWPORT. Combined with `contain` that
+   * letterboxes it against the whole window, so inside the content pane the image
+   * appears to begin partway down — which is exactly the defect this pins. The layer
+   * is a non-scrolling element sized to the pane, so `scroll` centres the image
+   * within the pane. It stays put while content scrolls because the layer is
+   * OUTSIDE the scrolling element, not because of this property.
+   */
+  it('positions against its own box, not the viewport', () => {
+    expect(backgroundLayerStyle({ backgroundUrl: '/x.png' })!.backgroundAttachment).toBe('scroll');
   });
 
   it('uses the low default strength when none is stored', () => {
