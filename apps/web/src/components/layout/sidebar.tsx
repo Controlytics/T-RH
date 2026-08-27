@@ -4,11 +4,21 @@ import { cn } from '@/lib/cn';
 import { useBranding } from '@/hooks/use-branding';
 import { useAuth } from '@/hooks/use-auth';
 import { isSidebarItemVisible } from './sidebar-visibility';
+import { withAlpha } from '@/lib/background-style';
 
 interface SidebarProps {
   userRole: string;
   open: boolean;
   onClose: () => void;
+  /**
+   * Let the dashboard wallpaper show through the brand gradient (2026-08-27).
+   *
+   * Held at 0.88 rather than something more dramatic on purpose: the nav labels are
+   * white, and over a light wallpaper a much thinner gradient makes them unreadable.
+   * The wallpaper reads as a tint here, not as a picture — the picture belongs in
+   * the content pane.
+   */
+  translucent?: boolean;
 }
 
 interface NavItem {
@@ -138,7 +148,7 @@ export const allNavItems: NavItem[] = [
   },
 ];
 
-export function Sidebar({ userRole: _userRole, open, onClose }: SidebarProps) {
+export function Sidebar({ userRole: _userRole, open, onClose, translucent = false }: SidebarProps) {
   const location = useLocation();
   const { branding } = useBranding();
   const { user } = useAuth();
@@ -190,7 +200,12 @@ export function Sidebar({ userRole: _userRole, open, onClose }: SidebarProps) {
           'fixed inset-y-0 left-0 z-50 flex w-64 max-w-[85vw] flex-col transition-transform duration-300 md:static md:max-w-none md:translate-x-0',
           open ? 'translate-x-0' : '-translate-x-full'
         )}
-        style={{ background: `linear-gradient(180deg, ${branding.primaryColor} 0%, ${branding.loginBgStart} 100%)` }}
+        style={{
+          background: translucent
+            ? `linear-gradient(180deg, ${withAlpha(branding.primaryColor, 0.88)} 0%, ${withAlpha(branding.loginBgStart, 0.88)} 100%)`
+            : `linear-gradient(180deg, ${branding.primaryColor} 0%, ${branding.loginBgStart} 100%)`,
+          ...(translucent ? { backdropFilter: 'blur(2px)' } : {}),
+        }}
       >
       {/* Logo Section */}
       <div className="flex flex-col items-center py-3 border-b border-white/10">

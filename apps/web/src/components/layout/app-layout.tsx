@@ -165,27 +165,46 @@ export function AppLayout() {
     return <SuperAdminLockdownScreen />;
   }
 
-  // The operator-uploaded background image, or null when none is set. Resolved by a
-  // pure helper so the clamping and the escaping are unit-tested — Playwright cannot
+  // DASHBOARD ONLY. The dashboard is one route (`/`) with several levels inside it
+  // — entry cards, a Block's Areas, the tabular and graphical views — so a single
+  // pathname check covers every dashboard screen. Every other page keeps the plain
+  // grey chrome: a wallpaper behind the Audit Trail or a config form is where
+  // legibility actually suffers.
+  const onDashboard = location.pathname === '/';
+
+  // The operator-uploaded wallpaper, or null when none is set. Resolved by a pure
+  // helper so the clamping and the url() escaping are unit-tested — Playwright cannot
   // authenticate in this repo, so no automated check ever sees this render.
-  const backgroundStyle = backgroundLayerStyle(branding);
+  const backgroundStyle = onDashboard ? backgroundLayerStyle(branding) : null;
 
   return (
     <div className={`flex h-screen ${backgroundStyle ? '' : 'bg-slate-50'}`}>
-      {/* Background image layer. Fixed and pointer-events-none so it never
-          intercepts a click, and behind everything via a negative z-index. The white
-          sheet under it is what keeps dense pages legible: the image's own strength
-          is set by `opacity` on the image element, NOT by fading this sheet, because
-          fading the image element would also fade anything painted on top of it. */}
+      {/* Wallpaper layer. `fixed inset-0` covers the WHOLE window — including behind
+          the sidebar and the header, which go translucent below so it shows through
+          rather than starting where the content pane starts. pointer-events-none so
+          it never intercepts a click; negative z-index keeps it under everything.
+          The white sheet beneath is what keeps dense content legible: the image's
+          strength is `opacity` on the image element, NOT a fade of this sheet, since
+          fading the element would also fade whatever is painted on top of it. */}
       {backgroundStyle && (
         <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 bg-white">
           <div className="absolute inset-0" style={backgroundStyle} />
         </div>
       )}
-      <Sidebar userRole={user?.role ?? ''} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar
+        userRole={user?.role ?? ''}
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        translucent={!!backgroundStyle}
+      />
       <div className="flex flex-1 flex-col overflow-hidden">
-        <Header user={user} onLogout={logout} onMenuToggle={() => setSidebarOpen(o => !o)} />
-        {/* With a background set, the main pane goes transparent so the image shows
+        <Header
+          user={user}
+          onLogout={logout}
+          onMenuToggle={() => setSidebarOpen(o => !o)}
+          translucent={!!backgroundStyle}
+        />
+        {/* With a wallpaper set, the main pane goes transparent so the image shows
             through; without one it keeps the original gradient exactly. */}
         <main className={`flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6 ${backgroundStyle ? '' : 'bg-gradient-to-br from-slate-50 to-slate-100/50'}`}>
           <Outlet />

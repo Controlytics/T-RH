@@ -1,5 +1,34 @@
 import { describe, it, expect } from 'vitest';
-import { backgroundLayerStyle, resolveOpacity } from '../background-style.js';
+import { backgroundLayerStyle, resolveOpacity, withAlpha } from '../background-style.js';
+
+describe('withAlpha', () => {
+  it('converts a 6-digit hex to rgba', () => {
+    expect(withAlpha('#1e3a5f', 0.85)).toBe('rgba(30, 58, 95, 0.85)');
+  });
+
+  it('is case-insensitive', () => {
+    expect(withAlpha('#FFFFFF', 1)).toBe('rgba(255, 255, 255, 1)');
+  });
+
+  /**
+   * The branding colours are operator-typed and this repo has already shipped
+   * config values that drifted from their expected shape. A malformed colour must
+   * degrade to the original string — the sidebar then renders opaque, which is the
+   * pre-existing appearance, rather than becoming an invalid gradient that paints
+   * nothing and leaves the nav unreadable.
+   */
+  it('returns the input unchanged when it is not a 6-digit hex', () => {
+    expect(withAlpha('red', 0.5)).toBe('red');
+    expect(withAlpha('#fff', 0.5)).toBe('#fff');
+    expect(withAlpha('', 0.5)).toBe('');
+    expect(withAlpha(undefined as unknown as string, 0.5)).toBe('');
+  });
+
+  it('clamps alpha to 0..1', () => {
+    expect(withAlpha('#000000', 5)).toBe('rgba(0, 0, 0, 1)');
+    expect(withAlpha('#000000', -2)).toBe('rgba(0, 0, 0, 0)');
+  });
+});
 
 describe('resolveOpacity', () => {
   it('passes a normal value through', () => {

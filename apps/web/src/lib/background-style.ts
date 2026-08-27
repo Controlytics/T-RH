@@ -14,6 +14,24 @@ import type { CSSProperties } from 'react';
 /** `contain`: show the WHOLE image, letterboxed rather than cropped. Operator's choice. */
 const FIT: CSSProperties['backgroundSize'] = 'contain';
 
+/**
+ * A 6-digit hex colour with an alpha applied, for letting the wallpaper show through
+ * the sidebar and header.
+ *
+ * A malformed colour returns UNCHANGED rather than throwing or producing an invalid
+ * value: the chrome then renders at its original opacity, which is merely the
+ * previous appearance. An invalid gradient would paint nothing and leave white nav
+ * text on the wallpaper.
+ */
+export function withAlpha(hex: string, alpha: number): string {
+  if (!hex) return '';
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex.trim());
+  if (!m) return hex;
+  const a = Math.min(1, Math.max(0, alpha));
+  const [r, g, b] = [m[1], m[2], m[3]].map((h) => parseInt(h, 16));
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
+}
+
 export interface BackgroundSource {
   backgroundUrl?: string;
   /** Percentage strength of the image behind the white scrim, 0..100. */

@@ -16,6 +16,13 @@ interface HeaderProps {
   } | undefined;
   onLogout: () => void;
   onMenuToggle?: () => void;
+  /**
+   * Let the dashboard wallpaper show through the header bar (2026-08-27), so the
+   * image starts at the top of the window rather than below the chrome. Kept at 80%
+   * with a blur: the header carries dark text and the notification badge, and a
+   * thinner sheet over a busy wallpaper makes both hard to read.
+   */
+  translucent?: boolean;
 }
 
 const roleColors: Record<string, string> = {
@@ -36,7 +43,7 @@ const roleLabels: Record<string, string> = {
   VIEWER: 'Viewer',
 };
 
-export function Header({ user, onLogout, onMenuToggle }: HeaderProps) {
+export function Header({ user, onLogout, onMenuToggle, translucent = false }: HeaderProps) {
   const [showMenu, setShowMenu] = useState(false);
   const { branding } = useBranding();
   const navigate = useNavigate();
@@ -49,7 +56,7 @@ export function Header({ user, onLogout, onMenuToggle }: HeaderProps) {
   const unreadCount = notificationData?.count ?? 0;
 
   return (
-    <header className="flex h-14 lg:h-16 items-center justify-between border-b border-slate-200 bg-white px-4 lg:px-6 shadow-sm">
+    <header className={`flex h-14 lg:h-16 items-center justify-between border-b border-slate-200 px-4 lg:px-6 shadow-sm ${translucent ? 'bg-white/80 backdrop-blur-sm' : 'bg-white'}`}>
       {/* Left side - Hamburger menu (mobile only) */}
       <button
         onClick={onMenuToggle}
