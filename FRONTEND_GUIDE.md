@@ -9,8 +9,11 @@
 > `CLAUDE.md`: its System Stats line ("26 custom hooks, 30 lib modules") is
 > also stale — live counts are **17 hooks, 17 lib modules** (`ls
 > apps/web/src/hooks/*.ts` / `apps/web/src/lib/*.ts`), and its route count of
-> 48 is off by one — live is **49** (`grep -cE "<Route" apps/web/src/main.tsx`).
-> Not fixed here since `CLAUDE.md` isn't one of this pass's four files.
+> 48 is off by one — live was **49** at that date (**50** as of 2026-08-27,
+> `grep -cE "<Route" apps/web/src/main.tsx`).
+> Not fixed here since `CLAUDE.md` wasn't one of that pass's four files; root
+> `CLAUDE.md`'s hook/lib and route counts were both corrected on 2026-08-24 and
+> 2026-08-27 respectively.
 
 ## Overview
 
@@ -20,7 +23,7 @@ React 19 SPA built with Vite 6, styled with Tailwind CSS 4. The built `apps/web/
 **Dev server:** `npx vite --host` (port 5175/5176)
 **Build:** `npx vite build` → `apps/web/dist/`
 
-## All Routes (49 — verified `grep -cE "<Route" apps/web/src/main.tsx` 2026-08-24)
+## All Routes (50 — verified `grep -cE "<Route" apps/web/src/main.tsx` 2026-08-27)
 
 The previous "85+ pages" figure and every table below it described `/assets`,
 `/filters`, `/filter-cleaning-profiles`, `/checklists`, `/cleaning-cycles`,
@@ -88,7 +91,7 @@ them, exist in `main.tsx` or `routes/` today.
 
 `apps/web/src/main.tsx` ends with `<Route path="*" element={<Navigate to="/" replace />} />`. Any URL that doesn't match a registered route redirects to the dashboard instead of rendering blank.
 
-### Configuration (24 pages — verified `ls apps/web/src/routes/config/*.tsx` 2026-08-24)
+### Configuration (25 pages — verified `ls apps/web/src/routes/config/*.tsx | wc -l` 2026-08-27)
 
 | Path | Page | Permission / Notes |
 |---|---|---|
@@ -97,6 +100,7 @@ them, exist in `main.tsx` or `routes/` today.
 | `/config/instrument-attributes` | InstrumentAttributesConfigPage | SUPER_ADMIN — attribute keys the New Instrument form asks for |
 | `/config/floorplans` | FloorplansConfigPage | SUPER_ADMIN — plan/room placement editor |
 | `/config/alarm-rules` | AlarmRulesConfigPage | ALARM_RULE_READ |
+| `/config/alarm-webhooks` | AlarmWebhooksConfigPage | ALARM_RULE_READ |
 | `/config/report-page-titles` | ReportPageTitlesPage (lazy) | CONFIG_READ |
 | `/config/ldap` | LdapConfigPage (lazy) | CONFIG_READ |
 | `/config/datetime` | DatetimeConfigPage | CONFIG_READ |
@@ -315,7 +319,7 @@ caches static assets for update UX and does nothing with application data.
 2. **apiClient for all writes** — post/put/delete with token attachment
 3. **Lazy loading** — heavy pages code-split via `React.lazy()`
 4. **Permission gating** — `<RequireRole>` for routes, `useCan()` for buttons, `isSuperAdmin` bypass
-5. **Re-authentication** — `useReauth()` + `ReauthDialog`, **47** reauth actions defined in `packages/shared/src/types/reauth-actions.ts` (the "81 sensitive actions" figure previously here belonged to the removed filter/PM/RFID domain)
+5. **Re-authentication** — `useReauth()` + `ReauthDialog`, **48** reauth actions defined in `packages/shared/src/types/reauth-actions.ts` (the "81 sensitive actions" figure previously here belonged to the removed filter/PM/RFID domain)
 6. **Toast notifications** — success/error feedback (never `alert()`)
 7. **Light theme only** — bg-white cards, bg-slate-50 sections, no dark mode
 8. **Responsive** — sidebar collapses to hamburger on mobile, reduced padding

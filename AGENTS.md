@@ -1,15 +1,19 @@
 # DigiLog — Codex Code Review Instructions
 
-> ⚠ **Drift warning (verified 2026-08-24).** This file's module list, counts, and "Phase 2:
+> ⚠ **Drift warning (re-verified 2026-08-27).** This file's module list, counts, and "Phase 2:
 > Filter Management" / "Phase 3: RFID & Offline" review sections describe upstream DigiLog,
-> not this fork. Live counts here: **23** backend modules (`ls apps/api/src/modules | wc -l`,
-> not the 33 listed below — the named list includes removed modules like
-> `filter-operations`, `cleaning-profiles`, `equipment-groups`, `pm-schedules`,
-> `checklist-profiles`, `filter-profiles`, `admin-requests`, `block-change-requests`,
-> `replacement-schedule`, `stage-approvals`, `assets`, `hierarchy`, `debug-traces`,
-> `deployment-check`, `sync`, `system-health`, `guest`, `user-groups`), **49** frontend
-> routes (not 76), **34 models / 13 enums** (not 61/23), **42 permissions / 47 reauth
-> actions** (not 102/92; sidebar item count needs re-derivation, see `CLAUDE.md`). There is
+> not this fork. Live counts here: **24** backend modules (`ls apps/api/src/modules | wc -l`,
+> not the 33 that section used to list — the removed ones are `assets`,
+> `block-change-requests`, `checklist-profiles`, `cleaning-profiles`,
+> `deployment-check`, `equipment-groups`, `filter-operations`, `filter-profiles`,
+> `guest`, `hierarchy`, `pm-schedules`, `replacement-schedule`, `report-reviews`,
+> `stage-approvals` and `sync`. **`admin-requests`, `debug-traces`, `system-health`
+> and `user-groups` are LIVE** — this banner listed all four as removed until
+> 2026-08-27, which was wrong; verified against `ls apps/api/src/modules/`),
+> **50** frontend
+> routes (not 76), **36 models / 13 enums** (not 61/23), **42 permissions / 48 reauth
+> actions** (not 102/92), **97 audit actions / 91 audit templates**, **12** sidebar items,
+> **6** graphile-worker tasks. There is
 > no `orgId` review note needed either way (still true: single-tenant). See `CLAUDE.md` for
 > the accurate module/count inventory before using this file for review guidance.
 
@@ -18,16 +22,32 @@ DigiLog (21cfrlogbook) — IoT data logging platform with 21 CFR Part 11 complia
 Monorepo: Fastify API (apps/api), React SPA (apps/web), shared packages.
 Branch: RFID (active development) → merges to DigitalFMS → main.
 
-## Current Module Count (verified 2026-07-06)
-- **Backend:** 33 API modules
-- **Frontend:** 76 routes in `apps/web/src/main.tsx`
-- **Database:** 61 Prisma models, 23 enums (single database `digilog_db`; TimescaleDB `digilog_tsdb` dropped 2026-06-11)
-- **Permissions:** 102 constants, 83 feature privileges, 92 reauth actions across 16 categories, 26 sidebar items
+## Current Module Count (re-derived 2026-08-27)
+- **Backend:** **24** API modules (`ls apps/api/src/modules/ | wc -l`)
+- **Frontend:** **50** `<Route`s in `apps/web/src/main.tsx` (`grep -cE "<Route"`)
+- **Database:** **36** Prisma models, **13** enums (single database `compliance_core_db`, plus `compliance_core_db_test`; TimescaleDB `digilog_tsdb` dropped 2026-06-11)
+- **Permissions:** **42** constants, **40** feature privileges, **48** reauth actions across **8** categories, **12** sidebar items
+- **Audit registries:** **97** audit actions, **91** audit templates across **7** categories
+- **Queue:** **6** graphile-worker tasks (`notification`, `password_expiry_check`, `session_sweep`, `telemetry_partition_maintenance`, `alarm_evaluation`, `alarm_webhook`)
+
+> The figures this section carried until 2026-08-27 — "33 API modules, 76 routes,
+> 61 models / 23 enums, 102 permissions / 83 privileges / 92 reauth actions across 16
+> categories / 26 sidebar items", stamped "verified 2026-07-06" — were upstream
+> DigiLog's and were never true in this fork. They are recorded here only so a reader
+> who has seen them elsewhere knows they were checked and rejected, not overlooked.
 
 > Many modules/models were removed across 2026 tear-outs: multi-tenancy (`org-admin`/`tenant-admin` + org scoping, 2026-04-30), rule-chain + alarms (2026-05-17), data-ingestion + UNS + connectivity + queries + TimescaleDB (2026-06-11..17), qr-code (2026-06-06), and the reports generate/sign + report-templates engine (2026-07-04). See `CLAUDE.md` System Stats + `CHANGELOG.md`.
 
-## Backend Modules (33)
-admin-requests, assets (templates, instances, identifiers), audit, auth, backup, block-change-requests, checklist-profiles, cleaning-profiles, config (35 auto-discovered defs), dashboards, debug-traces, deployment-check, equipment-groups, filter-operations, filter-profiles, guest, help, hierarchy, ldap, notification-delivery, notification-rules, notifications, pm-schedules, replacement-schedule, report-reviews, roles, stage-approvals, super-admin, sync, system-health, uploads, user-groups, users.
+## Backend Modules (24 — `ls apps/api/src/modules/`, 2026-08-27)
+admin-requests, alarm-webhooks, alarms, audit, auth, backup, config (25 auto-discovered defs), dashboards, debug-traces, floorplans, functional-locations, help, instrument-profiles, instruments, ldap, notification-delivery, notification-rules, notifications, roles, super-admin, system-health, uploads, user-groups, users.
+
+> The 33-module list this section carried until 2026-08-27 named `assets`,
+> `block-change-requests`, `checklist-profiles`, `cleaning-profiles`,
+> `equipment-groups`, `filter-operations`, `filter-profiles`, `guest`,
+> `hierarchy`, `pm-schedules`, `replacement-schedule`, `report-reviews`,
+> `stage-approvals`, `sync` and `deployment-check`. **None of them exist here** —
+> they went with the multi-tenancy, rule-chain, data-ingestion, reports and
+> filter-domain tear-outs. Do not review against them.
 
 ## Review Focus Areas
 

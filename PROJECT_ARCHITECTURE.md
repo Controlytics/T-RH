@@ -6,9 +6,12 @@
 > → `api`, `web` only; `ls rfid_scan_app` → not found). Also stale: "no MQTT" — MQTT was
 > reintroduced for instrument ingest (`apps/api/package.json` has `"mqtt": "^5.15.2"`,
 > `app.ts` registers `/api/ingest/v1` and an MQTT ingest bridge) — do not assume MQTT/ingest
-> claims elsewhere in this repo are permanently false. Verified live counts: **23** backend
-> modules (not "35 Route Modules" / 33), **34 models / 13 enums** (not 61/23), **49**
-> frontend routes (not 77), **42 permissions / 47 reauth actions** (not 102/92). The Phase 2
+> claims elsewhere in this repo are permanently false. Verified live counts (re-derived
+> 2026-08-27): **24** backend modules (not "35 Route Modules" / 33), **36 models / 13
+> enums** (not 61/23), **50** frontend routes (not 77), **42 permissions / 48 reauth
+> actions** (not 102/92), **97 audit actions / 91 audit templates**, **12** sidebar items,
+> **25** config defs / **25** config pages, **6** graphile-worker tasks, **21** Prisma
+> migrations. The Phase 2
 > "Filter Management" domain (cleaning profiles, filter profiles, PM schedules, equipment
 > groups) does not exist — see `CLAUDE.md` "Filter domain — REMOVED". Treat this whole file
 > as historical/upstream unless a claim is independently re-verified against live code.
@@ -48,7 +51,7 @@
 │  │       ▼          DATA LAYER                          │        │
 │  │  ┌────────────────────────────────┐                   │        │
 │  │  │ PostgreSQL 18  :5432            │                   │        │
-│  │  │ 61 Prisma models · 23 enums     │                   │        │
+│  │  │ 36 Prisma models · 13 enums     │                   │        │
 │  │  │ digilog_db (app + queue schema) │                   │        │
 │  │  │ graphile-worker job queue       │                   │        │
 │  │  └────────────────────────────────┘                   │        │
@@ -81,21 +84,21 @@
 ├── apps/api/                      (Fastify backend)
 │   ├── src/
 │   │   ├── app.ts                 Entry point — registers all plugins, routes, handlers
-│   │   ├── modules/               33 feature modules (routes.ts + *.service.ts)
+│   │   ├── modules/               24 feature modules (routes.ts + *.service.ts)
 │   │   ├── plugins/               auth.ts, rbac.ts, audit-logger.ts
-│   │   ├── workers/               notification.worker.ts, pm-overdue.worker.ts, session-sweep.worker.ts (graphile-worker tasks)
+│   │   ├── workers/               6 graphile-worker tasks: notification, password-expiry, session-sweep, telemetry-partition, alarm-evaluation, alarm-webhook (there is no pm-overdue.worker.ts)
 │   │   ├── lib/                   Shared utilities (audit, jwt, sanitize, prisma, etc.)
 │   │   └── types/                 TypeScript type definitions
 │   └── prisma/
-│       ├── schema.prisma          61 models, 23 enums
+│       ├── schema.prisma          36 models, 13 enums
 │       └── seed.ts                Default roles, superadmin, configs
 │
 ├── apps/web/                      (React SPA)
 │   └── src/
-│       ├── main.tsx               Route definitions (77 routes), lazy loading, error boundaries
-│       ├── routes/                23 route module dirs
+│       ├── main.tsx               Route definitions (50 <Route>s), lazy loading, error boundaries
+│       ├── routes/                route module dirs (25 pages under routes/config/)
 │       ├── components/            Layout (sidebar, header), UI primitives, dialogs
-│       ├── hooks/                 26 custom hooks (auth, session, branding, offline, etc.)
+│       ├── hooks/                 18 entries (auth, session, branding, reauth, etc. — no offline hooks)
 │       └── lib/                   API client, SWR config, themes, offline store, sync engine
 │
 ├── apps/android/                  (Capacitor Android wrapper)
@@ -108,10 +111,10 @@
 ├── packages/shared/               (Shared types & schemas)
 │   └── src/
 │       ├── schemas/               Zod validation schemas
-│       └── types/                 Permissions (102), privileges (83), reauth (92), sidebar items (26)
+│       └── types/                 Permissions (42), privileges (40), reauth (48), sidebar items (12), audit actions (97), audit templates (91)
 │
 └── packages/queue/                (Job queue)
-    ├── crontab.txt                graphile-worker cron file (pm_overdue_check, session_sweep)
+    ├── crontab.txt                graphile-worker cron file (no pm_overdue_check — that task does not exist; alarm_webhook is event-driven and deliberately has NO entry here)
     └── src/
         ├── index.ts               getProducer() + getRunner() over graphile-worker on Postgres (Phase 2 of windows-friendly-rewrite swapped from BullMQ + ioredis; commit `7832af1`)
         ├── schemas.ts             Zod schemas for job payloads
@@ -144,9 +147,9 @@
 
 | Path | Purpose |
 |---|---|
-| `apps/api/prisma/schema.prisma` | 61 models, 23 enums |
+| `apps/api/prisma/schema.prisma` | 36 models, 13 enums (`grep -cE "^model " / "^enum "`, 2026-08-27) |
 | `apps/api/prisma/seed.ts` | Default roles, super-admin user, system configs |
-| `apps/api/prisma/migrations/` | Versioned Prisma migrations — `00000000000000_baseline` (squashed schema) + `20260701071802_drop_qrcode_latesttelemetry`, plus `migration_lock.toml` |
+| `apps/api/prisma/migrations/` | **21** versioned Prisma migrations (`ls`, 2026-08-27) — `00000000000000_baseline` (squashed schema) through `20260827120000_alarm_webhooks`, plus `migration_lock.toml`. Recent: `20260819120000_role_attribute_access`, `20260820100000_drop_filter_domain_notification_events`, `20260824100000_floorplan_room_doors`, `20260824140000_floorplan_room_grade`, `20260827120000_alarm_webhooks` (the alarm webhook annunciator — `AlarmWebhookTarget` + `AlarmWebhookDelivery`, hand-authored, applied to `compliance_core_db` and `compliance_core_db_test`, drift guard PASS). Every migration here is hand-authored: `prisma migrate diff` in this repo emits three destructive statements that must be stripped each time — see the header of `20260811120000_instrument_floorplans/migration.sql` |
 | `apps/api/prisma/sql/extensions.sql` | Hand-written SQL — installs PostgreSQL extensions (e.g. `pg_trgm`, `uuid-ossp`) used by Prisma |
 | `apps/api/prisma/schema.prisma.bak` | **Stray backup file** — clean up |
 | `apps/api/uploads/photos/` | User-uploaded profile photos + checklist photos (served at `/uploads/`) |

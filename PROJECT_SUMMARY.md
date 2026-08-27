@@ -1,13 +1,14 @@
 # DigiLog — Project Summary
 
-> ⚠ **Drift warning (verified 2026-08-24).** Every section below (Business Purpose, Tech
-> Stack table, Monorepo Structure, Phases 1–4, Database Statistics) describes upstream
+> ⚠ **Drift warning (re-verified 2026-08-27).** Every section below (Business Purpose, Tech
+> Stack table, Monorepo Structure, Phases 1–4) describes upstream
 > DigiLog's pharmaceutical Filter Management System. This fork has no filter/AHU/PM/
 > cleaning-cycle domain, no `apps/android`, no `rfid_scan_app`, no RFID hardware
 > integration (`ls apps/` → `api`, `web` only; `ls rfid_scan_app` → not found). Verified
-> live counts: **23** API modules, **34** Prisma models, **13** enums, **42** permissions,
-> **47** reauth actions, **49** frontend routes (not the 33/61/23/102/92/77 used
-> throughout). This fork is a 21 CFR Part 11 admin platform (users, roles, hash-chained
+> live counts: **24** API modules, **36** Prisma models, **13** enums, **42** permissions,
+> **48** reauth actions, **50** frontend routes (not the 33/61/23/102/92/77 used
+> throughout). The **Database Statistics** table below WAS part of that drift and has
+> now been re-derived from live code; everything else in this file has not. This fork is a 21 CFR Part 11 admin platform (users, roles, hash-chained
 > audit trail, e-signature reauth, notifications, instrument monitoring) — see `CLAUDE.md`
 > and `docs/recreation/` for the accurate summary.
 
@@ -24,8 +25,8 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 | Layer | Technology | Details |
 |---|---|---|
 | **Frontend** | React 19 + TypeScript | Vite SPA, Tailwind CSS, SWR |
-| **Backend** | Node.js + Fastify 5 | TypeScript, 33 API modules, 200+ endpoints (org-admin + tenant-admin removed in MT removal 2026-04-30; reports + report-templates removed 2026-07-04) |
-| **Primary DB** | PostgreSQL 18 | 61 Prisma models, 23 enums (single DB `digilog_db`; TemplateKind lookup; MT removal dropped Organization; Step 6 added FilterDetails 1:1 sidecar; Step 5b A.1 added ChecklistProfileVersion immutable-history table; Phase A.2 added `FilterCleaningProfile.lineageId` for rowful version-history tracking — no new model; Phase A.3 added `FilterProfileVersion` sidecar; Phase A.4 added `EquipmentGroupVersion` sidecar — group + 3 instruments composite snapshot per version; **Step 4 (2026-05-02)** replaced `FilterProfile.applicableTemplates` JSONB array with `FilterProfileApplicableTemplate` join table — cascade FKs to AssetTemplate kill the dangling-reference foot-gun, and AssetTemplate delete is guarded with 409 IN_USE) |
+| **Backend** | Node.js + Fastify 5 | TypeScript, ~~33~~ **24** API modules (2026-08-27); the endpoint count is not restated — "200+" was upstream DigiLog's and an honest figure needs the live OpenAPI document (org-admin + tenant-admin removed in MT removal 2026-04-30; reports + report-templates removed 2026-07-04) |
+| **Primary DB** | PostgreSQL 18 | ~~61 Prisma models, 23 enums~~ **36 models, 13 enums** (2026-08-27); single DB ~~`digilog_db`~~ `compliance_core_db` (plus `compliance_core_db_test`). The rest of this cell is upstream DigiLog schema history and is kept as a record, not as current state — TemplateKind lookup; MT removal dropped Organization; Step 6 added FilterDetails 1:1 sidecar; Step 5b A.1 added ChecklistProfileVersion immutable-history table; Phase A.2 added `FilterCleaningProfile.lineageId` for rowful version-history tracking — no new model; Phase A.3 added `FilterProfileVersion` sidecar; Phase A.4 added `EquipmentGroupVersion` sidecar — group + 3 instruments composite snapshot per version; **Step 4 (2026-05-02)** replaced `FilterProfile.applicableTemplates` JSONB array with `FilterProfileApplicableTemplate` join table — cascade FKs to AssetTemplate kill the dangling-reference foot-gun, and AssetTemplate delete is guarded with 409 IN_USE) |
 | **Job Queue** | graphile-worker on PostgreSQL | LISTEN/NOTIFY + SKIP LOCKED + advisory locks; no separate Redis service |
 | **Mobile** | Capacitor (Android APK) | Wraps web app for tablet use |
 | **RFID** | Kotlin Android app | KC-series UHF reader integration |
@@ -35,11 +36,11 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 ```
 21cfrlogbook-DigitalFMS/
 ├── apps/
-│   ├── api/            — Fastify backend (33 modules, TypeScript)
-│   ├── web/            — React SPA (77 routes, Vite + Tailwind)
-│   └── android/        — Capacitor wrapper for Android APK (incl. RfidPlugin.java for SDK-mode RFID)
+│   ├── api/            — Fastify backend (24 modules as of 2026-08-27, not 33; TypeScript)
+│   ├── web/            — React SPA (50 <Route>s as of 2026-08-27, not 77; Vite + Tailwind)
+│   └── android/        — DOES NOT EXIST in this fork (`ls apps/` → api, web only); listed here as upstream DigiLog history
 ├── packages/
-│   ├── shared/         — Zod schemas, permissions, types (102 permissions, 83 privileges, 92 reauth actions, 26 sidebar items)
+│   ├── shared/         — Zod schemas, permissions, types (42 permissions, 40 privileges, 48 reauth actions, 12 sidebar items — 2026-08-27; the 102/83/92/26 here until then was DigiLog's)
 │   └── queue/          — graphile-worker job queue (Postgres-backed; Phase 2 of windows-friendly-rewrite swapped from BullMQ + ioredis)
 ├── rfid_scan_app/      — Native Kotlin Android RFID scanner (predates RfidPlugin in DigiLog APK)
 ├── scripts/            — Windows PowerShell deployment scripts (package + install)
@@ -87,24 +88,42 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 - 92 re-authentication actions across 16 categories
 - Block change request/approval workflow
 
-## Database Statistics
+## Database Statistics (re-derived from live code 2026-08-27)
 
-| Metric | Count |
-|---|---|
-| Prisma models | 61 |
-| Database enums | 23 |
-| Permission constants | 102 |
-| Feature privileges | 83 |
-| Re-auth actions | 92 |
-| Sidebar items | 26 |
-| API modules | 33 |
-| API endpoints | 200+ |
-| Config definitions | 35 |
-| Config pages | 34 |
-| Frontend routes | 77 |
-| Custom React hooks | 26 |
-| Frontend lib modules | 30 |
-| graphile-worker tasks | 3 (`notification`, `pm_overdue_check`, `session_sweep`) |
+Each figure is the output of the command beside it. Re-run the command rather
+than trusting the table — this is the one section of this file that tracks the
+fork rather than upstream DigiLog.
+
+| Metric | Count | Command |
+|---|---|---|
+| Prisma models | **36** | `grep -cE "^model " apps/api/prisma/schema.prisma` |
+| Database enums | **13** | `grep -cE "^enum " apps/api/prisma/schema.prisma` |
+| Permission constants | **42** | `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts` |
+| Feature privileges | **40** | `FEATURE_PRIVILEGES.length` (pinned by `legacy-maps-derived.test.ts`) |
+| Re-auth actions | **48** in **8** categories | `grep -cE "^\s+[A-Z_]+:" packages/shared/src/types/reauth-actions.ts` |
+| Audit actions | **97** | `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/audit-actions.ts` |
+| Audit templates | **91** in **7** categories | `grep -cE "^\s+\[?[A-Z_]+\]?:" packages/shared/src/types/audit-templates.ts` |
+| Sidebar items | **12** | `SIDEBAR_ITEMS.length` |
+| API modules | **24** | `ls apps/api/src/modules/ \| wc -l` |
+| Config definitions | **25** | `ls apps/api/src/modules/config/defs/*.def.ts \| wc -l` |
+| Config pages | **25** | `ls apps/web/src/routes/config/*.tsx \| wc -l` |
+| Frontend routes | **50** | `grep -cE "<Route" apps/web/src/main.tsx` |
+| Prisma migrations | **21** | `ls apps/api/prisma/migrations/` |
+| graphile-worker tasks | **6** (`notification`, `password_expiry_check`, `session_sweep`, `telemetry_partition_maintenance`, `alarm_evaluation`, `alarm_webhook`) | the `taskList` literal, `apps/api/src/app.ts:458-489` |
+
+**API endpoint count is not stated here.** The old "200+" was upstream
+DigiLog's, and an honest figure needs the live OpenAPI document
+(`curl -sk https://localhost:3001/docs/json`), which requires the API running.
+Left blank rather than guessed.
+
+> The figures this table carried until 2026-08-27 — 61 models / 23 enums,
+> 102 permissions / 83 privileges / 92 reauth actions / 26 sidebar items,
+> 33 API modules, 200+ endpoints, 35 config defs / 34 config pages, 77 routes,
+> 26 hooks / 30 lib modules, and "3 tasks (`notification`, `pm_overdue_check`,
+> `session_sweep`)" — were upstream DigiLog's and were never true in this fork.
+> `pm_overdue_check` in particular does not exist anywhere in the tree. They are
+> recorded here so a reader who has seen them elsewhere knows they were checked
+> and rejected, not overlooked.
 
 ## Security & Compliance
 

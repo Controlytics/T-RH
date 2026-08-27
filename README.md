@@ -13,7 +13,7 @@ Monorepo: Fastify 5 API, React 19 + Vite 6 SPA, two shared workspaces, one
 PostgreSQL database, Turborepo for task running. Windows-first local dev.
 
 > **Every count and command in this file was re-derived from live code on
-> 2026-08-24**, on branch `data-injection`. The command that produced each
+> 2026-08-27**, on branch `data-injection`. The command that produced each
 > number is printed beside it, so you can re-run it rather than trusting this
 > document. Do that — docs in this repo drift.
 
@@ -23,9 +23,9 @@ PostgreSQL database, Turborepo for task running. Windows-first local dev.
 
 | Path | What it is for |
 |---|---|
-| `apps/api/` | Fastify backend. Auth, RBAC, audit chain, notifications, instruments, ingest. **23** modules (`ls apps/api/src/modules/ \| wc -l`). Prisma schema + migrations live here. |
-| `apps/web/` | React SPA (Vite, Tailwind 4, SWR, react-router). **49** `<Route>` elements (`grep -cE "<Route" apps/web/src/main.tsx`). |
-| `packages/shared/` | Contracts both sides import: **42** permissions, **47** reauth actions, **12** sidebar items, the permission tree, Zod schemas. |
+| `apps/api/` | Fastify backend. Auth, RBAC, audit chain, notifications, instruments, ingest, alarm webhooks. **24** modules (`ls apps/api/src/modules/ \| wc -l`). Prisma schema + migrations live here. |
+| `apps/web/` | React SPA (Vite, Tailwind 4, SWR, react-router). **50** `<Route>` elements (`grep -cE "<Route" apps/web/src/main.tsx`). |
+| `packages/shared/` | Contracts both sides import: **42** permissions, **48** reauth actions, **12** sidebar items, the permission tree, Zod schemas. |
 | `packages/queue/` | graphile-worker producer + runner. Postgres-backed — no Redis. |
 | `docs/` | Project docs. `docs/recreation/` is the verified inventory. |
 | `scripts/` | PowerShell scripts for start/stop, DB provisioning, migration verification, packaging. |
@@ -36,7 +36,7 @@ Counts came from: `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permiss
 `grep -cE "^\s+[A-Z_]+:" packages/shared/src/types/reauth-actions.ts`,
 `grep -cE "id: '" packages/shared/src/types/sidebar-items.ts`.
 
-The database has **34 models and 13 enums**
+The database has **36 models and 13 enums**
 (`grep -cE "^model " apps/api/prisma/schema.prisma`, and `grep -cE "^enum "` on
 the same file).
 

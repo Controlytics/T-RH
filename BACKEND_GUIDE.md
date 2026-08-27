@@ -1,6 +1,6 @@
 # DigiLog — Backend Guide
 
-> **2026-08-24 — re-synced to live code (drift sweep).** The previous
+> **2026-08-27 — re-synced to live code (drift sweep).** The previous
 > "2026-07-03" sync (33 modules, 61 models, 23 enums) predates the Phase 0
 > filter-domain strip (2026-07-18) and the 2026-08-20 vocabulary cleanup — every
 > table below describing `filter-operations`, `filter-profiles`,
@@ -9,16 +9,16 @@
 > `report-reviews`, `guest`, `sync`, `assets`, `hierarchy`, `equipment-groups`,
 > or the `idempotency.ts` "offline replay dedup" lib was **describing modules
 > that no longer exist**. Verified counts below come from:
-> `ls apps/api/src/modules/ | wc -l` → **23**; `grep -cE "^model "` /
-> `"^enum "` on `apps/api/prisma/schema.prisma` → **34 models, 13 enums**;
+> `ls apps/api/src/modules/ | wc -l` → **24**; `grep -cE "^model "` /
+> `"^enum "` on `apps/api/prisma/schema.prisma` → **36 models, 13 enums**;
 > `ls apps/api/src/modules/config/defs/*.def.ts | wc -l` → **25**. This fork
-> also gained modules the old guide never listed: `alarms`, `floorplans`,
-> `functional-locations`, `instrument-profiles`, `instruments`. See root
+> also gained modules the old guide never listed: `alarms`, `alarm-webhooks`,
+> `floorplans`, `functional-locations`, `instrument-profiles`, `instruments`. See root
 > `CLAUDE.md` System Stats and `CHANGELOG.md` for history.
 
 ## Overview
 
-Fastify 5 backend with TypeScript, **23 API modules** (verified `ls apps/api/src/modules/` 2026-08-24). Runs locally on Windows: `tsx watch` in dev, compiled JS for prod-style local builds. There is no live EC2/Linux production environment (`root CLAUDE.md` — "The app runs ONLY on local Windows for development"). `scripts/register-services.ps1` (WinSW-wrapped `DigiLogAPI`/`DigiLogDB` Windows services) and `docs/PHARMA_DEPLOYMENT_21CFR.md` still exist for a packaged-installer deployment path — verified present on disk — but that is a separate concern from the day-to-day dev loop described in root `CLAUDE.md`, which uses `start-app.bat` / `stop-app.bat`.
+Fastify 5 backend with TypeScript, **24 API modules** (verified `ls apps/api/src/modules/ | wc -l` 2026-08-27). Runs locally on Windows: `tsx watch` in dev, compiled JS for prod-style local builds. There is no live EC2/Linux production environment (`root CLAUDE.md` — "The app runs ONLY on local Windows for development"). `scripts/register-services.ps1` (WinSW-wrapped `DigiLogAPI`/`DigiLogDB` Windows services) and `docs/PHARMA_DEPLOYMENT_21CFR.md` still exist for a packaged-installer deployment path — verified present on disk — but that is a separate concern from the day-to-day dev loop described in root `CLAUDE.md`, which uses `start-app.bat` / `stop-app.bat`.
 
 **Entry point:** `apps/api/src/app.ts`
 **Dev:** `cd apps/api && npx tsx watch src/app.ts` (port 3000)
@@ -42,13 +42,14 @@ Verified against `apps/api/src/app.ts` 2026-08-24 (import order + registration o
 5. **Swagger** — OpenAPI docs at `/docs`
 6. **Auth plugin** — JWT verification, user lookup, session validation
 7. **RBAC plugin** — `requirePermission()` decorator
-8. **23 route modules** — registered under `/api/` prefix, plus instrument
+8. **24 route modules** — registered under `/api/` prefix, plus instrument
    ingest listeners (TCP, MQTT bridge, WS)
-9. **Job runner** — one graphile-worker Runner registers **5** task handlers:
+9. **Job runner** — one graphile-worker Runner registers **6** task handlers:
    `notification`, `password_expiry_check`, `session_sweep`,
-   `telemetry_partition_maintenance`, `alarm_evaluation` (verified `grep` of
-   the `taskList` in `app.ts` — this is a different set from the "3 tasks"
-   figure recorded in root `CLAUDE.md`, which is itself stale)
+   `telemetry_partition_maintenance`, `alarm_evaluation`, `alarm_webhook`
+   (verified against the `taskList` in `app.ts:458-489`, 2026-08-27; the
+   "3 tasks" figure root `CLAUDE.md` carried until 2026-08-24 was stale and has
+   since been corrected there too)
 10. **Config discovery** — auto-registers 25 config definitions
 11. **Static uploads** — serves `/uploads/` directory
 12. **Health check** — `GET /api/health`
@@ -93,6 +94,7 @@ DigiLog is single-tenant, single-site (`Organization` model + `org-admin`/`tenan
 | `functional-locations` | `/api/functional-locations` | Block/Area tree — authoritative instrument grouping |
 | `floorplans` | `/api/floorplans` | Plan + room CRUD, room membership, bucketed room history |
 | `alarms` | `/api/alarms` | Alarm rule CRUD, decision engine, notification enqueue |
+| `alarm-webhooks` | `/api/alarm-webhooks` | Webhook/hooter target CRUD, scope resolution, test fire, §11 delivery log |
 
 ### Notifications
 
@@ -158,10 +160,11 @@ DigiLog is single-tenant, single-site (`Organization` model + `org-admin`/`tenan
 
 ## Workers (`apps/api/src/workers/`)
 
-**5** graphile-worker task handlers (verified `ls apps/api/src/workers/` — the
-"3 tasks: notification / pm_overdue_check / session_sweep" figure recorded
-elsewhere, including root `CLAUDE.md`, is stale; there is no `pm_overdue_check`
-task in this fork — PM scheduling was part of the removed filter domain):
+**6** graphile-worker task handlers (verified against the `taskList` in
+`app.ts:458-489`, 2026-08-27 — the "3 tasks: notification / pm_overdue_check /
+session_sweep" figure recorded elsewhere is stale; there is no
+`pm_overdue_check` task in this fork — PM scheduling was part of the removed
+filter domain):
 
 | Worker | Task | Purpose |
 |---|---|---|
@@ -170,6 +173,7 @@ task in this fork — PM scheduling was part of the removed filter domain):
 | `session-sweep.worker.ts` | `session_sweep` | Expires stale sessions |
 | `telemetry-partition.worker.ts` | `telemetry_partition_maintenance` | Maintains partitioned instrument-telemetry history table |
 | `alarm-evaluation.worker.ts` | `alarm_evaluation` | Evaluates alarm rules against telemetry |
+| `alarm-webhook.worker.ts` | `alarm_webhook` | Annunciates an alarm to matching webhook targets. Event-driven — **no crontab entry on purpose**; enqueued `maxAttempts: 1` with retry bounded inside the task (3 attempts, ~2s apart), so backoff cannot buzz a hooter long after the excursion cleared |
 
 ## Instruments module (`apps/api/src/modules/instruments/`)
 
@@ -221,6 +225,7 @@ Automated end-to-end test suites (`*.test.ts`) — Vitest-driven, hits a live te
 | `mqtt-ingest.test.ts`, `mqtt-auth.test.ts`, `tcp-ingest.test.ts`, `ws-ingest.test.ts`, `gateway-ingest.test.ts` | Telemetry ingest over MQTT/TCP/WS + device auth |
 | `floorplans.e2e.test.ts`, `room-history.e2e.test.ts`, `telemetry-overview.e2e.test.ts` | Floorplan/room CRUD, bucketed history, dashboard overview |
 | `alarm-rules.e2e.test.ts`, `alarm-acknowledge.e2e.test.ts` | Alarm rule CRUD, acknowledgment |
+| `alarm-webhooks.test.ts` | Webhook target CRUD, reauth enforcement, audit rows, response-schema completeness, delete refused while deliveries exist, `POST /:id/test` writing a `TEST` delivery row |
 | `ldap-directory.e2e.test.ts` | LDAP sync |
 | `super-admin-data-delete.test.ts` | Super-admin data management |
 | `test-helper.ts` | Shared bootstrapper (sets up + tears down test DB) |
@@ -231,9 +236,9 @@ they covered the removed filter/checklist domain. Its "gap" note about
 "filter operations, RFID, offline replay, reports, block-change, PM My Tasks"
 having no e2e tests is moot — none of those features exist to test.)
 
-## Database Schema (34 models, 13 enums)
+## Database Schema (36 models, 13 enums)
 
-> `apps/api/prisma/schema.prisma` is authoritative (verified `grep -cE "^model "` / `"^enum "` 2026-08-24). The
+> `apps/api/prisma/schema.prisma` is authoritative (verified `grep -cE "^model "` / `"^enum "` 2026-08-27; 34 → 36 that day, `AlarmWebhookTarget` + `AlarmWebhookDelivery`, with no new enum — their `method`/`event`/`status` are validated strings). The
 > previous "61 models, 23 enums" figure predates the Phase 0 filter-domain
 > strip; every model below in the old "Asset / Filter Operation / Scheduling /
 > Report" groups (`AssetTemplate`, `AssetInstance`, `FilterCleaningProfile`,
@@ -245,7 +250,7 @@ having no e2e tests is moot — none of those features exist to test.)
 `User`, `Role`, `Session`, `PasswordHistory`, `PasswordResetRequest`, `SystemConfig`, `FieldIdConfig`, `RoleConfig`, `UserConfig`
 
 ### Instrument Monitoring Models
-`Instrument`, `InstrumentProfile`, `InstrumentCredential`, `InstrumentAttribute`, `InstrumentTelemetryLatest`, `FunctionalLocation`, `Floorplan`, `FloorplanRoom`, `AlarmRule`, `Alarm`, `DeadLetter` (verified `grep -E "^model " apps/api/prisma/schema.prisma`)
+`Instrument`, `InstrumentProfile`, `InstrumentCredential`, `InstrumentAttribute`, `InstrumentTelemetryLatest`, `FunctionalLocation`, `Floorplan`, `FloorplanRoom`, `AlarmRule`, `Alarm`, `AlarmWebhookTarget`, `AlarmWebhookDelivery`, `DeadLetter` (verified `grep -E "^model " apps/api/prisma/schema.prisma` 2026-08-27; the last two added that day — `AlarmWebhookDelivery` is the §11 receipt, one row per delivery attempt, and both its FKs `Restrict` so deleting a target cannot erase the record of what it annunciated)
 
 ### Notification Models
 `Notification`, `NotificationLog`, `NotificationTemplate`, `NotificationRule`, `NotificationRuleRecipient`, `UserGroup`, `UserGroupMember`
@@ -299,7 +304,7 @@ that was torn out.
 1. **Module pattern** — Each feature is a self-contained module with routes + service (+ repository where the module is large enough to split)
 2. **Single-tenant, single-site** — no per-org scoping; JWT `scope` always stamps `GLOBAL`
 3. **Permission-based RBAC** — `requirePermission('PERM')` on every protected route
-4. **Re-authentication** — `enforceReauth('ACTION', req, reply)`, **47** reauth actions defined in `packages/shared/src/types/reauth-actions.ts` (verified `grep -cE "^\s+[A-Z_]+:"`; the "81 sensitive operations" figure previously here was a leftover from the removed filter/PM/RFID domain's reauth-gated actions)
+4. **Re-authentication** — `enforceReauth('ACTION', req, reply)`, **48** reauth actions defined in `packages/shared/src/types/reauth-actions.ts` (verified `grep -cE "^\s+[A-Z_]+:"`; the "81 sensitive operations" figure previously here was a leftover from the removed filter/PM/RFID domain's reauth-gated actions)
 5. **Audit logging** — Every mutation auto-logged with SHA-256 hash chain (optionally keyed HMAC-SHA256, see `AUDIT_CHAIN_KEY` above)
 6. **Input sanitization** — All text fields stripped of HTML via `sanitize.ts`
 7. **Config registry** — 25 config definitions auto-discovered at startup
