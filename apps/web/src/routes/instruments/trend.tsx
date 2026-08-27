@@ -32,6 +32,7 @@ import {
 import { renderChartToPng } from './chart-image';
 import { BandGauge } from './band-gauge';
 import { TrendHeader } from './trend-header';
+import { SampledNote } from './sampled-note';
 
 /**
  * Series identity, fixed. Temperature is palette slot 1 and humidity slot 2
@@ -269,6 +270,11 @@ export function InstrumentTrend() {
   const tempDecimals = trend.overview?.decimals.temperature ?? TELEMETRY_DECIMALS_FALLBACK;
   const humidDecimals = trend.overview?.decimals.humidity ?? TELEMETRY_DECIMALS_FALLBACK;
   const spanMs = Math.max(1, new Date(period.to).getTime() - new Date(period.from).getTime());
+
+  // Hoisted out of the chart JSX below so `shown` (the SampledNote count) is
+  // read off the exact same series the chart draws, not recomputed.
+  const tempSeries = tempKey ? toChartSeries(chartRows, tempKey, tempDecimals, 'Temperature', period.intervalMs) : null;
+  const humidSeries = humidKey ? toChartSeries(chartRows, humidKey, humidDecimals, 'Humidity', period.intervalMs) : null;
 
   // Extra keys carry no administered decimals/limits — there is nothing
   // resolved server-side for a key nobody has declared as a slot, so they
@@ -678,7 +684,11 @@ export function InstrumentTrend() {
             spanMs={spanMs}
             min={trend.overview?.limits?.tempMin}
             max={trend.overview?.limits?.tempMax}
-            series={tempKey ? [{ ...toChartSeries(chartRows, tempKey, tempDecimals, 'Temperature', period.intervalMs), color: TEMP_COLOR }] : []}
+            series={tempSeries ? [{ ...tempSeries, color: TEMP_COLOR }] : []}
+          />
+          <SampledNote
+            shown={tempSeries?.points.length ?? 0}
+            total={tempKey ? (trend.summaries[tempKey]?.count ?? 0) : 0}
           />
         </div>
         <div>
@@ -692,7 +702,11 @@ export function InstrumentTrend() {
             spanMs={spanMs}
             min={trend.overview?.limits?.rhMin}
             max={trend.overview?.limits?.rhMax}
-            series={humidKey ? [{ ...toChartSeries(chartRows, humidKey, humidDecimals, 'Humidity', period.intervalMs), color: HUMID_COLOR }] : []}
+            series={humidSeries ? [{ ...humidSeries, color: HUMID_COLOR }] : []}
+          />
+          <SampledNote
+            shown={humidSeries?.points.length ?? 0}
+            total={humidKey ? (trend.summaries[humidKey]?.count ?? 0) : 0}
           />
         </div>
       </div>

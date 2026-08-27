@@ -115,22 +115,44 @@ export interface TelemetryLongRow {
 
 export const TABLE_PAGE_SIZE = 50;
 
+/** Per-key aggregates over the WHOLE requested range, computed in SQL — never
+ *  over just the (possibly sampled) rows returned. Chart path only. */
+export interface TelemetrySummary {
+  count: number;
+  min: number;
+  max: number;
+  avg: number;
+  first: string;
+  last: string;
+}
+
 interface TelemetryResponse {
   latest: TelemetryLongRow[];
   history: TelemetryLongRow[];
   historyTotal: number;
+  /** Chart path only (`points` was sent). True when any key's plotted series
+   *  is a subset of what the range actually holds — sampled down, or hit the
+   *  server's hard cap. */
+  historySampled?: boolean;
+  /** Chart path only, keyed by telemetry key. */
+  summaries?: Record<string, TelemetrySummary>;
 }
 
 export interface InstrumentTrendData {
   /** This instrument's row from the telemetry overview — latest values, resolved
    *  limits + their source, and resolved decimals. Never re-derived here. */
   overview: OverviewRow | null;
-  /** Every key, across the WHOLE period, capped at `MAX_SERIES_POINTS` — feeds the charts. */
+  /** Every key, across the WHOLE period, sampled down to `MAX_SERIES_POINTS` per key — feeds the charts. */
   chartRows: TelemetryLongRow[];
   /** Every key, for just the current PAGE of the period — feeds the raw table. */
   tableRows: TelemetryLongRow[];
   /** The true count across the whole period, for paging the table (never `tableRows.length`). */
   historyTotal: number;
+  /** True when the chart series is a subset of the range's readings. */
+  historySampled: boolean;
+  /** Per-key true aggregates over the WHOLE range, for the summary strip — never
+   *  derived from `chartRows`, which may be sampled. */
+  summaries: Record<string, TelemetrySummary>;
   isLoading: boolean;
 }
 
@@ -159,12 +181,15 @@ export function useInstrumentTrend(
   const { rows: overviewRows, isLoading: overviewLoading } = useTelemetryOverview();
   const overview = overviewRows.find((r) => r.instrumentId === id) ?? null;
 
-  // Chart series need the whole period, not just the visible table page — capped
-  // at MAX_SERIES_POINTS rather than left unbounded, for the same reason the
-  // shared telemetry-period module caps a bucketed series: serialising more than
-  // a chart can draw stalls the API before the browser gets the chance to fail.
+  // Chart series need the whole period, not just the visible table page —
+  // `points` (not `limit`) puts this on the CHART path: every reading in the
+  // range is read server-side and downsampled to MAX_SERIES_POINTS per key,
+  // with true min/max/avg computed over the whole range, not the sampled
+  // slice. `limit` here would hit the legacy TABLE path instead, which caps
+  // at 500 rows ordered newest-first — a 7/30-day window would come back
+  // holding roughly the last day, with nothing in the response saying so.
   const chartKey = id
-    ? `/api/instruments/${id}/telemetry?from=${encodeURIComponent(period.from)}&to=${encodeURIComponent(period.to)}&limit=${MAX_SERIES_POINTS}`
+    ? `/api/instruments/${id}/telemetry?from=${encodeURIComponent(period.from)}&to=${encodeURIComponent(period.to)}&points=${MAX_SERIES_POINTS}`
     : null;
   const { data: chartData, isLoading: chartLoading } = useSWR<TelemetryResponse>(chartKey);
 
@@ -178,7 +203,13 @@ export function useInstrumentTrend(
     overview,
     chartRows: chartData?.history ?? [],
     tableRows: tableData?.history ?? [],
+    // From the TABLE response, never the chart one — the chart path's own
+    // `historyTotal` counts the same whole-range readings, but the table's
+    // paging must stay driven by its own fetch regardless of what the chart
+    // request returns or when it resolves.
     historyTotal: tableData?.historyTotal ?? 0,
+    historySampled: chartData?.historySampled ?? false,
+    summaries: chartData?.summaries ?? {},
     isLoading: overviewLoading || chartLoading || tableLoading,
   };
 }
