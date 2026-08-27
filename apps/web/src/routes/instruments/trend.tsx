@@ -309,15 +309,26 @@ export function InstrumentTrend() {
   /**
    * Rows for the DIALOG's chosen period, WITH the period's true row count.
    *
-   * `historyTotal` is not decoration. The endpoint caps `limit` at 500
-   * server-side and orders `ts DESC`, so a long period comes back as its most
-   * recent tail: measured on this install, a 30-day window holds 7,646 rows and
-   * 500 are returned. Without the total, a report cannot know it is describing
-   * 6.5% of the period whose name is printed at the top of it.
+   * `points` (not `limit`) puts this on the same CHART path the on-screen
+   * charts use (see `use-trend-data.ts`): every reading in the range is read
+   * server-side and downsampled to MAX_SERIES_POINTS per key, with the true
+   * `historyTotal` computed over the WHOLE range — not the old `limit=500`
+   * path, which capped server-side at 500 rows ordered `ts DESC` and came
+   * back holding only the period's most recent tail (measured on this
+   * install, a 30-day window held 7,646 rows and 500 came back).
+   *
+   * This changes what `rows` IS for the report built from it below: it is
+   * now a representative sample spread across the whole period, not a
+   * truncated recent tail. `ReportCoverage`'s "INCOMPLETE PERIOD" banner
+   * (`trend-report.ts`) was written for the old truncation and still reads
+   * "this report was built from the N most recent stored values ... The
+   * chart, the summary and the table below all describe that most recent
+   * portion only" — that wording is no longer accurate once `rows` can be a
+   * whole-range sample. Not fixed here; flagged for the team lead.
    */
   const fetchTelemetryForPeriod = async (from: string, to: string) => {
     const res = await apiClient.get<{ history: TelemetryLongRow[]; historyTotal: number }>(
-      `/api/instruments/${id}/telemetry?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=${MAX_SERIES_POINTS}`,
+      `/api/instruments/${id}/telemetry?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&points=${MAX_SERIES_POINTS}`,
     );
     return res;
   };
@@ -351,10 +362,19 @@ export function InstrumentTrend() {
     reportSpanMs: number,
     color: string,
   ): Promise<{ section: TrendChartSection; plotted: { ts: string; value: number }[] }> => {
-    // The summary is computed from the STORED readings, never from the plotted
-    // points: the minimum of a set of means is not the minimum of the record,
-    // and an excursion that averaging smoothed away must not vanish from the
-    // one block of the report a §11 reader treats as authoritative.
+    // The summary is computed from `rows` (the report's own STORED readings,
+    // never the averaged points the chart plots): the minimum of a set of
+    // means is not the minimum of the record, and an excursion that
+    // averaging smoothed away must not vanish from the one block of the
+    // report a §11 reader treats as authoritative.
+    //
+    // Since `fetchTelemetryForPeriod` moved onto the `points=` chart path,
+    // `rows` can itself be a SAMPLED subset of the period (LTTB-downsampled
+    // to MAX_SERIES_POINTS per key) rather than every stored reading — so
+    // `summary.count`, and `belowCount`/`aboveCount`/`outOfSpecCount`, are
+    // counts over the SAMPLED series, not necessarily over every reading in
+    // the period. Nothing in the printed report currently says this (see the
+    // doc comment on `fetchTelemetryForPeriod`); not redesigning that here.
     const summary = key ? summariseSlot(rows, key, title, unit, decimals, min, max) : null;
 
     if (!key) {

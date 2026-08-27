@@ -89,6 +89,7 @@ vi.mock('@/lib/report-export-log', () => ({
 const saved: string[] = [];
 
 const { InstrumentTrend } = await import('../trend');
+const { apiClient } = await import('@/lib/api-client');
 
 const jspdf: any = await import('jspdf');
 // jsPDF binds `save` per instance, but `output` — which `save` calls — is on
@@ -234,6 +235,26 @@ describe('trend page downloads', () => {
     await download(3);
     expect(logged[0].reportType).toBe('Instrument Time Series');
     expect(logged[0].recordCount).toBe(3);
+  });
+
+  /**
+   * The report's own fetch (`fetchTelemetryForPeriod`) carried the same
+   * truncating defect the chart fix (Task 3) exists for: `limit=5000` hits
+   * the legacy TABLE path, which the route clamps to 500 rows ordered newest
+   * first, so a long report silently described the period's most recent tail.
+   * `points=` puts it on the same server-side sampling path the on-screen
+   * charts now use.
+   */
+  it('requests the report\'s telemetry on the sampled CHART path, not the legacy limit path', async () => {
+    renderPage();
+    await download(1);
+    const urls = (apiClient.get as any).mock.calls.map((c: any[]) => String(c[0]));
+    const telemetryCalls = urls.filter((u: string) => u.includes('/telemetry?'));
+    expect(telemetryCalls.length).toBeGreaterThan(0);
+    for (const u of telemetryCalls) {
+      expect(u).toContain('points=');
+      expect(u).not.toMatch(/[?&]limit=/);
+    }
   });
 
   it('does not cry INCOMPLETE PERIOD just because a reading was non-numeric', async () => {
