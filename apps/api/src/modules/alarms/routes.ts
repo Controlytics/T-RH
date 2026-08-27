@@ -7,6 +7,8 @@ import { errorResponses } from '../../lib/error-schemas.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { resolveVisibility } from '../instruments/visibility.js';
 import { describeRule } from './decide.js';
+import { enqueueAlarmWebhook } from '../alarm-webhooks/enqueue.js';
+import { describeSnapshot, decimalsFromSnapshot } from '../alarm-webhooks/build-variables.js';
 import { validateRuleDraft, validateAcknowledgement, clampSignature, type RuleDraft } from './validation.js';
 import { loadLimitConfig, countWithoutLimits } from './load-limits.js';
 
@@ -367,6 +369,27 @@ export default async function alarmRoutes(app: FastifyInstance) {
       reason: reason.trim(),
       signatureMeaning: clampSignature(`Acknowledged alarm on ${updated.instrument?.code ?? updated.instrumentId} (${updated.metric}) — ${reason.trim()}`),
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    });
+
+    // AFTER the atomic claim (updateMany with acknowledgedAt: null in the WHERE), so
+    // the loser of two simultaneous acknowledgements fires nothing. Never throws.
+    // `ruleSnapshot` carries one of two shapes (RULE vs INSTRUMENT_LIMIT) — see
+    // alarm-webhooks/build-variables.ts for why describeSnapshot/decimalsFromSnapshot
+    // branch on it rather than assuming describeRule's shape.
+    await enqueueAlarmWebhook('ACKNOWLEDGED', {
+      alarmId: id,
+      instrumentId: updated.instrumentId,
+      instrumentCode: updated.instrument?.code ?? null,
+      metric: updated.metric,
+      severity: updated.severity,
+      ruleName: (updated.ruleSnapshot as { name?: string } | null)?.name ?? '',
+      condition: describeSnapshot(updated.ruleSnapshot),
+      triggeredValue: updated.triggeredValue,
+      decimals: decimalsFromSnapshot(updated.ruleSnapshot),
+      raisedAt: updated.raisedAt,
+      clearedAt: updated.clearedAt,
+      acknowledgedBy: updated.acknowledgedBy,
+      acknowledgeReason: updated.acknowledgeReason,
     });
 
     return {

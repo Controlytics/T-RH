@@ -12,6 +12,7 @@ import {
   type Sample,
 } from '../modules/alarms/decide.js';
 import { enqueueAlarmNotification } from '../modules/alarms/enqueue-notification.js';
+import { enqueueAlarmWebhook } from '../modules/alarm-webhooks/enqueue.js';
 import {
   checkLimits,
   limitSnapshot,
@@ -249,6 +250,19 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
           decimals: rule.metric === 'HUMIDITY' ? row.decimals.humidity : row.decimals.temperature,
           raisedAt: created.raisedAt,
         });
+        await enqueueAlarmWebhook('RAISED', {
+          alarmId: created.id,
+          instrumentId,
+          instrumentCode: row.code,
+          instrumentName: row.name,
+          metric: rule.metric,
+          severity: rule.severity,
+          ruleName: rule.name,
+          condition: describeRule(shape),
+          triggeredValue: created.triggeredValue,
+          decimals: rule.metric === 'HUMIDITY' ? row.decimals.humidity : row.decimals.temperature,
+          raisedAt: created.raisedAt,
+        });
       } else if (decision.action === 'clear' && existing) {
         // Acknowledgement fields are untouched: a cleared-but-unacknowledged alarm is
         // the overnight excursion someone must still answer for in the morning.
@@ -258,6 +272,21 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
         });
         cleared += 1;
         await enqueueAlarmNotification('cleared', {
+          alarmId: closed.id,
+          instrumentId,
+          instrumentCode: row.code,
+          instrumentName: row.name,
+          metric: closed.metric,
+          severity: closed.severity,
+          ruleName: rule.name,
+          condition: describeRule(shape),
+          triggeredValue: closed.triggeredValue,
+          decimals: snapshotDecimals(closed.ruleSnapshot)
+            ?? (closed.metric === 'HUMIDITY' ? row.decimals.humidity : row.decimals.temperature),
+          raisedAt: closed.raisedAt,
+          clearedAt: closed.clearedAt,
+        });
+        await enqueueAlarmWebhook('CLEARED', {
           alarmId: closed.id,
           instrumentId,
           instrumentCode: row.code,
@@ -389,6 +418,19 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
             decimals: check.metric === 'HUMIDITY' ? row.decimals.humidity : row.decimals.temperature,
             raisedAt: created.raisedAt,
           });
+          await enqueueAlarmWebhook('RAISED', {
+            alarmId: created.id,
+            instrumentId: row.instrumentId,
+            instrumentCode: row.code,
+            instrumentName: row.name,
+            metric: check.metric,
+            severity: limitCfg.severity,
+            ruleName: `${check.metric} ${check.limitKind} limit`,
+            condition: describeLimit(check),
+            triggeredValue: created.triggeredValue,
+            decimals: check.metric === 'HUMIDITY' ? row.decimals.humidity : row.decimals.temperature,
+            raisedAt: created.raisedAt,
+          });
         } else if (!check.breaching && existingId) {
           const raw = check.metric === 'TEMPERATURE' ? reading.temperature : reading.humidity;
           // `finiteOrNull` is the SAME function checkPair() uses on the raise path —
@@ -436,6 +478,21 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
             ? snapshotDescription
             : describeLimit(check);
           await enqueueAlarmNotification('cleared', {
+            alarmId: closed.id,
+            instrumentId: row.instrumentId,
+            instrumentCode: row.code,
+            instrumentName: row.name,
+            metric: closed.metric,
+            severity: closed.severity,
+            ruleName: `${check.metric} ${check.limitKind} limit`,
+            condition,
+            triggeredValue: closed.triggeredValue,
+            decimals: snapshotDecimals(closed.ruleSnapshot)
+              ?? (check.metric === 'HUMIDITY' ? row.decimals.humidity : row.decimals.temperature),
+            raisedAt: closed.raisedAt,
+            clearedAt: closed.clearedAt,
+          });
+          await enqueueAlarmWebhook('CLEARED', {
             alarmId: closed.id,
             instrumentId: row.instrumentId,
             instrumentCode: row.code,
