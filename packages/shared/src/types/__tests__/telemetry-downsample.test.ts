@@ -68,6 +68,32 @@ describe('lttb', () => {
     const pts = Array.from({ length: 500 }, (_, i) => ({ ts: new Date(1_700_000_000_000 + i * 1_000), value: i }));
     expect(lttb(pts, 100)).toHaveLength(100);
   });
+
+  /**
+   * Regression: an off-by-one in the bucket range formulas shifted every
+   * selection window forward by one full bucket, so bucket 0's own candidates
+   * — the head of the series — were never scanned by any iteration at any
+   * target. A spike in that unscanned head vanished from every chart.
+   */
+  it.each([5, 1, 10, 25])('keeps a spike inside the first bucket (index %i)', (spikeIndex) => {
+    const pts = ramp(5_000);
+    pts[spikeIndex] = at(spikeIndex, 999999);
+    const out = lttb(pts, 200);
+    expect(out.some((p) => p.value === 999999)).toBe(true);
+  });
+
+  /**
+   * At target === 3 there is exactly one selectable bucket (`target - 2 === 1`),
+   * so it must find the real extremum in that bucket rather than defaulting to
+   * `points[points.length - 2]` — the failure mode of the same off-by-one.
+   */
+  it('with target 3, selects the real extremum near the head, not always the point before last', () => {
+    const pts = ramp(10);
+    pts[1] = at(1, 999999);
+    const out = lttb(pts, 3);
+    expect(out).toHaveLength(3);
+    expect(out.some((p) => p.value === 999999)).toBe(true);
+  });
 });
 
 describe('period presets', () => {

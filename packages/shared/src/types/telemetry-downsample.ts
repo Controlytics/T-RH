@@ -47,12 +47,15 @@ export function lttb<T extends DownsamplePoint>(points: T[], target: number): T[
   let selected = 0;
 
   for (let i = 0; i < target - 2; i++) {
-    const rangeStart = Math.floor((i + 1) * bucketSize) + 1;
-    const rangeEnd = Math.min(Math.floor((i + 2) * bucketSize) + 1, points.length - 1);
+    // Selection range for bucket `i`: the points between the fixed first point
+    // and the next bucket boundary. `i`/`(i + 1)` — NOT `(i + 1)`/`(i + 2)` —
+    // or bucket 0's own candidates are never scanned by any iteration.
+    const rangeStart = Math.floor(i * bucketSize) + 1;
+    const rangeEnd = Math.min(Math.floor((i + 1) * bucketSize) + 1, points.length - 1);
 
     // The NEXT bucket's average position, which the triangle is measured against.
     const nextStart = rangeEnd;
-    const nextEnd = Math.min(Math.floor((i + 3) * bucketSize) + 1, points.length);
+    const nextEnd = Math.min(Math.floor((i + 2) * bucketSize) + 1, points.length);
     const nextCount = Math.max(1, nextEnd - nextStart);
     let avgX = 0;
     let avgY = 0;
@@ -67,12 +70,7 @@ export function lttb<T extends DownsamplePoint>(points: T[], target: number): T[
     const aY = points[selected].value;
 
     let bestArea = -1;
-    // Default when the range is empty (bucketSize divides evenly and the last
-    // bucket collapses to a single index): fall back to the point just before
-    // the reserved final point, never to `points.length - 1` itself — that
-    // index is `last`, already pushed after the loop, and picking it here
-    // would duplicate it with an identical timestamp back-to-back.
-    let bestIndex = Math.min(rangeStart, points.length - 2);
+    let bestIndex = rangeStart;
     for (let j = rangeStart; j < rangeEnd; j++) {
       const area = Math.abs(
         (aX - avgX) * (points[j].value - aY) - (aX - millis(points[j].ts)) * (avgY - aY),
