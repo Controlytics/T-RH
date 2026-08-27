@@ -81,6 +81,9 @@ export type {
   ResolvedRange,
 } from './types/telemetry-period.js';
 
+export { lttb } from './types/telemetry-downsample.js';
+export type { DownsamplePoint } from './types/telemetry-downsample.js';
+
 export {
   LIMIT_BOUNDS,
   ALARM_LIMIT_KEYS_DEFAULT,

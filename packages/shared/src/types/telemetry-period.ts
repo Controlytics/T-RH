@@ -15,7 +15,7 @@
  * `chartRefreshSeconds`); the two are unrelated and must not be conflated in the UI.
  */
 
-export type PeriodPreset = '15m' | '1h' | '6h' | '24h' | '7d' | '30d' | 'custom';
+export type PeriodPreset = '15m' | '1h' | '6h' | '12h' | '24h' | '7d' | '30d' | 'custom';
 
 export interface PeriodPresetSpec {
   value: Exclude<PeriodPreset, 'custom'>;
@@ -27,6 +27,7 @@ export const PERIOD_PRESETS: PeriodPresetSpec[] = [
   { value: '15m', label: 'Last 15 minutes', ms: 15 * 60_000 },
   { value: '1h', label: 'Last hour', ms: 60 * 60_000 },
   { value: '6h', label: 'Last 6 hours', ms: 6 * 3_600_000 },
+  { value: '12h', label: 'Last 12 hours', ms: 12 * 3_600_000 },
   { value: '24h', label: 'Last 24 hours', ms: 24 * 3_600_000 },
   { value: '7d', label: 'Last 7 days', ms: 7 * 86_400_000 },
   { value: '30d', label: 'Last 30 days', ms: 30 * 86_400_000 },
@@ -110,7 +111,7 @@ export function resolvePeriod(preset: PeriodPreset, now: Date, custom?: Resolved
     if (!custom) return { from: new Date(now.getTime() - 24 * 3_600_000), to: now };
     return custom;
   }
-  const spec = PERIOD_PRESETS.find((p) => p.value === preset) ?? PERIOD_PRESETS[3];
+  const spec = PERIOD_PRESETS.find((p) => p.value === preset) ?? PERIOD_PRESETS.find((p) => p.value === DEFAULT_PERIOD)!;
   return { from: new Date(now.getTime() - spec.ms), to: now };
 }
 
