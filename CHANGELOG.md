@@ -93,12 +93,20 @@ therefore keyed off the **instrument**, and scope reuses the existing
   `ALARM_RULE_MANAGE`: a role that can decide when an alarm fires can already
   decide where it is announced. **No new sidebar item** (12 unchanged) — the
   page lives under Config.
-- The `/config` card is **default-deny**: a non-SUPER_ADMIN role with
-  `ALARM_RULE_READ` will not see it until `alarm-webhooks` is granted under
-  Configuration Access, same as Alarm Rules.
-- The `/api/alarm-webhooks` routes are **deliberately not instrument-visibility
-  scoped**, matching the alarm RULES routes and unlike the alarm LIST routes —
-  a considered decision, recorded so it is not "fixed" unknowingly.
+- The `/config` card is **SUPER_ADMIN-only**: `visibleSuperAdminCards =
+  isSuperAdmin ? superAdminCards : []` (the delegation allow-list went
+  2026-08-19), so a non-SUPER_ADMIN never sees the card and no Configuration
+  Access grant will surface it. `/config/alarm-webhooks` is still reachable by
+  URL, where `RequireRole permissions={[ALARM_RULE_READ]}` admits them — same
+  as Alarm Rules, which sits in the same array. (An earlier entry here said
+  "default-deny … until `alarm-webhooks` is granted under Configuration
+  Access"; that was false and is corrected.)
+- Instrument-visibility scoping on `/api/alarm-webhooks` is **split**: the
+  config routes (`GET /`, `GET /:id`, mutations) are deliberately not scoped,
+  matching the alarm RULES routes — a half-scoped config surface is worse than
+  an unscoped one. `GET /:id/deliveries` **is** scoped, because it is not
+  configuration and returns `requestBody` verbatim (instrument code + reading).
+  TEST rows (`alarmId: null`) are returned; they name no instrument.
 
 ### Surface
 

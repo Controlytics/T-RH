@@ -6,6 +6,8 @@ import { buildApp, loginAs } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
 import { invalidateReauthCache } from '../lib/reauth-check.js';
 import { fixtureProfileId } from '../test-support/fixture-profile.js';
+import { Prisma } from '@prisma/client';
+import { invalidateRolePermsCache } from '../plugins/rbac.js';
 
 /**
  * HTTP-level coverage of the alarm-webhook target module.
@@ -467,5 +469,135 @@ describe('alarm webhook targets', () => {
     expect(res.json().message).toContain('1 delivery record');
     expect(res.json().message).toContain('Deactivate');
     expect(await prisma.alarmWebhookTarget.findUnique({ where: { id } })).not.toBeNull();
+  });
+});
+
+/**
+ * The delivery log IS instrument-visibility scoped, unlike the config routes.
+ *
+ * `requestBody` is stored verbatim and, under the default template, carries the
+ * instrument code and the reading for every excursion — so a role with a restricted
+ * `instrument_scope` reading another instrument's delivery rows would leak exactly what
+ * project D withholds. `alarm_webhooks.view` is configurable, so that role can hold
+ * ALARM_RULE_READ; this is reachable, not hypothetical.
+ *
+ * Driven through the SEEDED OPERATOR rather than `admin`: SUPER_ADMIN short-circuits
+ * `resolveVisibility` to unrestricted, so every assertion here would pass against an
+ * unscoped route if it were run as admin. OPERATOR is granted ALARM_RULE_READ *and
+ * nothing else* and scoped to a functional location the fixture instrument is not in —
+ * an unplaced instrument is invisible to any active scope.
+ */
+describe('alarm webhook delivery log — instrument visibility', () => {
+  let operator: Record<string, string>;
+  let scopedTargetId = '';
+  let alarmId = '';
+  let flId = '';
+  let rolePermsBefore: string[] = [];
+  let roleId = '';
+
+  beforeAll(async () => {
+    const fl = await prisma.functionalLocation.create({
+      data: { name: `hooter-e2e-fl-${Date.now()}`, type: 'BLOCK' },
+    });
+    flId = fl.id;
+
+    const role = await prisma.role.findFirstOrThrow({ where: { name: 'OPERATOR' } });
+    roleId = role.id;
+    rolePermsBefore = role.permissions as string[];
+    await prisma.role.update({
+      where: { id: roleId },
+      data: { permissions: [...rolePermsBefore, 'ALARM_RULE_READ'] },
+    });
+    invalidateRolePermsCache('OPERATOR');
+    await prisma.roleConfig.upsert({
+      where: { role: 'OPERATOR' },
+      create: { role: 'OPERATOR', instrumentScope: [flId] },
+      update: { instrumentScope: [flId] },
+    });
+
+    const created = await newTarget();
+    expect(created.statusCode).toBe(201);
+    scopedTargetId = created.json().id;
+
+    // A real alarm on the fixture instrument, which has NO functional location and is
+    // therefore outside the operator's scope.
+    const alarm = await prisma.alarm.create({
+      data: {
+        instrumentId,
+        metric: 'TEMPERATURE',
+        severity: 'CRITICAL',
+        state: 'ACTIVE',
+        triggeredValue: 31.5,
+        ruleSnapshot: { name: 'visibility fixture' } as never,
+      },
+    });
+    alarmId = alarm.id;
+
+    // Two rows: one that names an instrument, one TEST fire that names none.
+    await prisma.alarmWebhookDelivery.createMany({
+      data: [
+        {
+          targetId: scopedTargetId, alarmId, event: 'RAISED', url: hooterUrl,
+          requestBody: '{"instrument":"SECRET-CODE","value":31.5}',
+          httpStatus: 200, attempt: 1, status: 'SENT', sentAt: new Date(),
+        },
+        {
+          targetId: scopedTargetId, alarmId: null, event: 'TEST', url: hooterUrl,
+          requestBody: '{"event":"TEST"}',
+          httpStatus: 200, attempt: 1, status: 'SENT', sentAt: new Date(),
+        },
+      ],
+    });
+
+    operator = { authorization: `Bearer ${await loginAs(app, 'RB0001', 'Test@1234')}` };
+  });
+
+  afterAll(async () => {
+    // Deliveries before the alarm: both FKs are RESTRICT.
+    await prisma.alarmWebhookDelivery.deleteMany({ where: { targetId: scopedTargetId } });
+    if (alarmId) await prisma.alarm.deleteMany({ where: { id: alarmId } });
+    await prisma.roleConfig.updateMany({
+      where: { role: 'OPERATOR' }, data: { instrumentScope: Prisma.DbNull },
+    });
+    if (roleId) {
+      await prisma.role.update({ where: { id: roleId }, data: { permissions: rolePermsBefore as never } });
+      invalidateRolePermsCache('OPERATOR');
+    }
+    if (flId) await prisma.functionalLocation.deleteMany({ where: { id: flId } });
+    // The admin token was not invalidated by the operator login, but re-login keeps the
+    // rest of the file independent of the order vitest happens to run these in.
+    auth = { authorization: `Bearer ${await loginAs(app)}` };
+  });
+
+  it('an unrestricted caller sees both rows', async () => {
+    const res = await app.inject({
+      method: 'GET', url: `/api/alarm-webhooks/${scopedTargetId}/deliveries`, headers: auth,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { data: { event: string }[]; total: number };
+    expect(body.total).toBe(2);
+    expect(body.data.map((d) => d.event).sort()).toEqual(['RAISED', 'TEST']);
+  });
+
+  it('a scoped role does not see the delivery row for an instrument outside its scope', async () => {
+    const res = await app.inject({
+      method: 'GET', url: `/api/alarm-webhooks/${scopedTargetId}/deliveries`, headers: operator,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { data: { event: string; requestBody: string }[]; total: number };
+    // The TEST row survives — it names no instrument and leaks nothing.
+    expect(body.data.map((d) => d.event)).toEqual(['TEST']);
+    // total must agree with the page, or the footer and pager contradict the rows.
+    expect(body.total).toBe(1);
+    // The whole point: the verbatim body, and the instrument code inside it, is gone.
+    expect(body.data.some((d) => d.requestBody.includes('SECRET-CODE'))).toBe(false);
+  });
+
+  it('the status filter still narrows the scoped page and its total', async () => {
+    const res = await app.inject({
+      method: 'GET', url: `/api/alarm-webhooks/${scopedTargetId}/deliveries?status=FAILED`, headers: operator,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().total).toBe(0);
   });
 });

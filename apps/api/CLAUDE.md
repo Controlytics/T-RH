@@ -60,10 +60,24 @@ node apps/api/dist/app.js
   HTML-escapes and would corrupt a JSON payload. Seven routes under
   `/api/alarm-webhooks`; `DELETE` is refused while deliveries reference the
   target (both FKs `Restrict` — a delivery is the §11 evidence of what the
-  system did or did not annunciate). **The routes are deliberately NOT
-  instrument-visibility scoped**, matching the alarm RULES routes
-  (`alarms/routes.ts:93-202`) and unlike the alarm LIST routes — a considered
-  decision, not an oversight.
+  system did or did not annunciate). Instrument-visibility scoping is **SPLIT**
+  (corrected 2026-08-27 — this entry previously said the whole module was
+  unscoped): the CONFIG routes (`GET /`, `GET /:id`, mutations) are
+  deliberately NOT scoped, matching the alarm RULES routes
+  (`alarms/routes.ts:93-202`) and unlike the alarm LIST routes, because a
+  half-scoped config surface would let an admin build a target that silently
+  omitted half the plant. `GET /:id/deliveries` **IS** scoped
+  (`resolveVisibility`, nested under the alarm's instrument, ANDed never
+  spread): it is not configuration and returns `requestBody` verbatim, which
+  carries the instrument code and the reading. `alarmId: null` rows (TEST
+  fires) are returned — they name no instrument, and a nested relation filter
+  would otherwise drop them. Also 2026-08-27: the worker delivers to matched
+  targets CONCURRENTLY (`Promise.allSettled`) so one dead hooter cannot delay
+  the others by ~19s; the match/cooldown pass stays sequential because
+  `shouldFire` mutates the cooldown map. `POST /:id/test` fires ONE attempt
+  (`deliverToTarget`'s `maxAttempts` param) — a test is a diagnostic, and three
+  attempts held the request, and the `ALARM_WEBHOOK_TESTED` audit row that
+  follows it, open for ~19s against a hooter that does not answer.
 - Config definitions: `apps/api/src/modules/config/defs/` (**25 files** — verified by `ls` 2026-08-17; `alarm-limits.def` added 2026-08-17 (which attribute keys carry each temperature/humidity limit, the limit-alarm severity, the master switch, and the four alarm status wordings). `telemetry-slots.def` added 2026-08-11. Earlier note: the previous "36" was inherited from DigiLog and was never true here. `instrument-attributes.def` added 2026-08-07)
 - Route modules: `apps/api/src/modules/` (**24 modules**, verified `ls | wc -l` 2026-08-27 — `alarm-webhooks` added 2026-08-27; earlier 23, verified `ls` 2026-08-14 — `functional-locations` + `alarms` added 2026-08-13. **A new module must be registered in BOTH `app.ts` AND `src/e2e/test-helper.ts`** — the helper builds its own app, so a module missing from it 404s in every e2e test. Earlier: 21 modules verified `ls` 2026-08-11 — `floorplans` added 2026-08-11. The previous "33" was already stale and the shortfall has NOT been individually reconciled; treat the removal notes below as history, not an inventory — `org-admin`/`tenant-admin` deleted in MT removal; `rule-chain` deleted 2026-05-17; `qr-code` deleted 2026-06-06; **`data-ingestion`, `uns`, `connectivity`, `queries` deleted 2026-06-11..2026-06-17** with the ingestion tear-out; **`reports`, `report-templates` deleted 2026-07-04** with the reports generate/sign tear-out (`report-reviews` survives); `debug-traces` re-added 2026-06-12 reading from `audit_trail` instead of dropped `ts_pipeline_traces`)
 - Config routes: monolith split into `apps/api/src/modules/config/static-routes/<surface>.routes.ts` per tab; top-level `routes.ts` is just a registration loop (~170 LOC, was 1003)

@@ -351,16 +351,28 @@ GET    /api/alarm-webhooks/:id/deliveries?status= — paged §11 delivery log, f
     inside the task (3 attempts, ~2s apart) so graphile-worker's exponential
     backoff cannot sound a buzzer twenty minutes after the excursion cleared.
     Event-driven — no `crontab.txt` entry on purpose.
-  - **The `/config` card is DEFAULT-DENY.** A non-SUPER_ADMIN role holding
-    `ALARM_RULE_READ` will NOT see it until `alarm-webhooks` is granted under
-    Config → Configuration Access — same as Alarm Rules
-    (`canAccessConfigModule`, card visibility only; the endpoints gate
-    server-side).
-  - **The `/api/alarm-webhooks` routes are deliberately NOT instrument-visibility
-    scoped**, matching the alarm RULES routes (`alarms/routes.ts:93-202`) and
-    unlike the alarm LIST routes. Configuring where an alarm is announced is an
-    administrative act gated by `ALARM_RULE_MANAGE`, not a per-operator data
-    read. This was chosen, not overlooked — don't "fix" it without deciding to.
+  - The `/config` card is **SUPER_ADMIN-ONLY**, not default-deny — this
+    file claimed the latter until 2026-08-27 and it was FALSE.
+    `apps/web/src/routes/config/index.tsx` reads
+    `const visibleSuperAdminCards = isSuperAdmin ? superAdminCards : []` (the
+    delegation allow-list was removed 2026-08-19), and the Alarm Webhooks card
+    is in `superAdminCards`. A non-SUPER_ADMIN therefore NEVER sees the card,
+    and granting `alarm-webhooks` under Configuration Access will NOT surface
+    it. They can still reach `/config/alarm-webhooks` by URL, where the route's
+    `RequireRole permissions={[ALARM_RULE_READ]}` admits them. Alarm Rules sits
+    in the same array, so the BEHAVIOUR is precedent-consistent — only the
+    description was wrong.
+  - Instrument-visibility scoping on `/api/alarm-webhooks` is **SPLIT**
+    (corrected 2026-08-27; this file previously said the whole module was
+    unscoped). The CONFIG routes (`GET /`, `GET /:id`, mutations) are
+    deliberately NOT scoped, matching the alarm RULES routes — a half-scoped
+    config surface is worse than an unscoped one, because an admin who could
+    see only half the plant would build a target that silently omitted the rest
+    and could not tell. `GET /:id/deliveries` **IS** scoped: it is not
+    configuration, and it returns `requestBody` verbatim, which under the
+    default template carries the instrument code and the reading for every
+    excursion. Rows whose `alarmId` is NULL (TEST fires) are returned — they
+    name no instrument.
   - Outbound stance, on the record: the URL is operator-typed and on their LAN,
     so there is **no allowlist**. The guards are a hard per-request timeout,
     `redirect: 'error'`, no cookies/credentials/session token, and the exact

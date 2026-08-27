@@ -345,9 +345,14 @@ export default async function alarmRoutes(app: FastifyInstance) {
         message: (validateAcknowledgement(won, reason) as { message: string }).message,
       });
     }
+    // `name` as well as `code`: the webhook enqueue below passes `instrumentName`, and
+    // every evaluator site already does. Omitting it here made `${instrumentName}`
+    // render the NAME on RAISED/CLEARED and the CODE on ACKNOWLEDGED for one alarm
+    // (build-variables.ts falls back to the code), against the design's promise that
+    // the payload, the email and the dashboard quote one excursion identically.
     const updated = await prisma.alarm.findUniqueOrThrow({
       where: { id },
-      include: { instrument: { select: { code: true } } },
+      include: { instrument: { select: { code: true, name: true } } },
     });
 
     await auditLog({
@@ -380,6 +385,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
       alarmId: id,
       instrumentId: updated.instrumentId,
       instrumentCode: updated.instrument?.code ?? null,
+      instrumentName: updated.instrument?.name ?? null,
       metric: updated.metric,
       severity: updated.severity,
       ruleName: (updated.ruleSnapshot as { name?: string } | null)?.name ?? '',

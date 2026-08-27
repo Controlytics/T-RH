@@ -7,6 +7,7 @@ import { enforceReauth } from '../../lib/reauth-check.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { clampSignature } from '../alarms/validation.js';
+import { resolveVisibility } from '../instruments/visibility.js';
 import { validateTargetDraft, type TargetDraft } from './validation.js';
 import { expandLocations, targetMatches } from './target-scope.js';
 import { deliverToTarget } from './send.js';
@@ -22,6 +23,17 @@ import { ALARM_WEBHOOK_DELIVERY_STATUSES, DEFAULT_WEBHOOK_BODY_TEMPLATE } from '
  * Gated on ALARM_RULE_READ / ALARM_RULE_MANAGE deliberately: a role that can decide
  * WHEN an alarm fires can already decide WHERE it is announced, so this adds no
  * permission.
+ *
+ * INSTRUMENT VISIBILITY IS SPLIT HERE, on purpose:
+ *
+ * - The CONFIG routes (`GET /`, `GET /:id`, and the mutations) are NOT scoped,
+ *   matching the alarm RULES routes (`alarms/routes.ts`) and unlike the alarm LIST
+ *   routes. A half-scoped config surface is worse than an unscoped one: an admin who
+ *   could see only half the plant would build a target that silently omitted the rest
+ *   and have no way to tell.
+ * - `GET /:id/deliveries` IS scoped. It is not configuration, and it returns
+ *   `requestBody` verbatim — the instrument code and the reading for every excursion.
+ *   See the route for the detail.
  */
 
 // EVERY field returned must appear here. Fastify silently strips what it does not
@@ -559,6 +571,16 @@ export default async function alarmWebhookRoutes(app: FastifyInstance) {
       'TEST',
       null,
       variables,
+      // ONE attempt. A test is a diagnostic, not an annunciation — see deliverToTarget.
+      // Three attempts would hold this request open for ~19s against a hooter that does
+      // not answer (the common case when commissioning one), and the
+      // `ALARM_WEBHOOK_TESTED` row below is written only once the send returns: a
+      // process death or a client timeout inside that window would leave a buzzer that
+      // physically sounded with no audit row naming who pressed the button. The row
+      // stays HERE rather than moving earlier because it deliberately carries the
+      // OUTCOME (`ok` / `httpStatus` / `error`) — written first it could only lie. One
+      // attempt collapses the exposure to a single `timeoutMs`.
+      1,
     );
 
     // deliverToTarget returns only a boolean and writes a row per attempt. The raw
@@ -629,12 +651,35 @@ export default async function alarmWebhookRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const q = req.query as { limit?: number; offset?: number; status?: string };
+    // The target lookup is NOT scoped: a target is configuration, not an instrument,
+    // and the config routes above are deliberately unscoped (see the module header).
     const target = await prisma.alarmWebhookTarget.findUnique({ where: { id }, select: { id: true } });
     if (!target) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Alarm webhook target not found.' });
 
     const take = Math.min(Math.max(q.limit ?? 50, 1), 200);
     const skip = Math.max(q.offset ?? 0, 0);
-    const where = { targetId: id, ...(q.status ? { status: q.status } : {}) };
+    const base: Prisma.AlarmWebhookDeliveryWhereInput = {
+      targetId: id,
+      ...(q.status ? { status: q.status } : {}),
+    };
+    // THIS route IS instrument-visibility scoped, unlike the config routes above. It is
+    // not configuration — there is nothing here to misconfigure — and it returns
+    // `requestBody` verbatim, which under the default template carries the instrument
+    // code and the reading for every excursion. `alarm_webhooks.view` is configurable,
+    // so a role with a restricted `instrument_scope` can hold it; the exposure is
+    // reachable by design, not hypothetical.
+    //
+    // A delivery reaches its instrument through its alarm, so the filter nests under
+    // the relation the way alarms/routes.ts:scopedToVisible does — AND, never spread,
+    // or a later key could silently replace it and widen the result.
+    //
+    // `alarmId` is NULLABLE (a TEST fire has no alarm) and a nested relation filter
+    // never matches a null relation, so the OR is required: without it every TEST row
+    // would vanish for a scoped role. A TEST row names no instrument and leaks nothing.
+    const { where: visibility } = await resolveVisibility(buildContext(req));
+    const where: Prisma.AlarmWebhookDeliveryWhereInput = visibility
+      ? { AND: [base, { OR: [{ alarmId: null }, { alarm: { instrument: visibility } }] }] }
+      : base;
     const [rows, total] = await Promise.all([
       prisma.alarmWebhookDelivery.findMany({
         where,

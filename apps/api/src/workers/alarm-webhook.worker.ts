@@ -64,6 +64,8 @@ export async function runAlarmWebhookJob(
   let sent = 0;
   let failed = 0;
   let matched = 0;
+  /** Matched, past the cooldown, and awaiting delivery. Delivered concurrently below. */
+  const due: typeof targets = [];
 
   for (const t of targets) {
     const shape: AlarmWebhookTargetShape = {
@@ -89,8 +91,31 @@ export async function runAlarmWebhookJob(
     matched++;
     if (!shouldFire(event, t.id, t.cooldownSeconds, now)) continue;
 
-    const ok = await attemptTarget(t, event, alarmId, variables);
-    if (ok) sent++; else failed++;
+    due.push(t);
+  }
+
+  // DELIVERY FANS OUT. The loop above stays sequential — `shouldFire` mutates the
+  // cooldown map, and claiming concurrently would let two passes both read "not fired
+  // yet" — but delivery must not be, because `deliverToTarget` retries 3 times ~2s
+  // apart: one unplugged panel hooter would otherwise buzz the control-room hooter
+  // ~19s late (up to ~184s at the permitted timeoutMs of 60000). The spec promises a
+  // dead target "does not block ... or affect any other target in the same job", and
+  // that is a LATENCY promise as well as a failure-isolation one.
+  //
+  // Safe to run concurrently: the targets share no mutable state. The cooldown map is
+  // already fully updated above, before any send starts. Fan-out is bounded by the
+  // number of ACTIVE targets this event matched — operator-configured, a handful of
+  // hooters in practice — so it is deliberately not throttled.
+  //
+  // allSettled, and `attemptTarget` keeps its own try/catch: the per-target catch is
+  // the failure isolation, and a settled rejection (which that catch should make
+  // unreachable) is still counted as a failure rather than silently dropped.
+  const results = await Promise.allSettled(
+    due.map((t) => attemptTarget(t, event, alarmId, variables)),
+  );
+  for (const r of results) {
+    if (r.status === 'fulfilled' && r.value) sent++;
+    else failed++;
   }
 
   return { targets: matched, sent, failed };
