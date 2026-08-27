@@ -718,6 +718,8 @@ model Alarm {
   rule       AlarmRule? @relation(fields: [ruleId], references: [id], onDelete: Restrict)
   instrument Instrument @relation(fields: [instrumentId], references: [id], onDelete: Restrict)
 
+  webhookDeliveries AlarmWebhookDelivery[]
+
   @@index([state, raisedAt(sort: Desc)])
   @@index([instrumentId, raisedAt(sort: Desc)])
   @@index([acknowledgedAt])
@@ -731,6 +733,101 @@ model Alarm {
   /// many CLEARED rows for one bound are legitimate, one per excursion.
   /// `prisma migrate diff` proposes dropping it; do not accept that.
   @@map("alarms")
+}
+
+/// An IP hooter (or any HTTP endpoint) that is POSTed to when an alarm changes state.
+/// Scoped to instruments the same way role_configs.instrument_scope is — functional
+/// locations with Blocks expanding to their Areas, PLUS explicit instruments — so this
+/// introduces no fourth grouping concept.
+model AlarmWebhookTarget {
+  id          String  @id @default(uuid())
+  name        String  @db.VarChar(200)
+  description String? @db.VarChar(500)
+
+  /// Operator-typed. NO allowlist: a hooter lives on the operator's LAN and any
+  /// allowlist would have to contain it. Guards are the timeout, redirect:'error',
+  /// and the delivery log — see the design's "Outbound-request stance".
+  url    String @db.Text
+  /// POST | PUT | GET. A validated string, not an enum, so the vocabulary can grow
+  /// without a migration — same precedent as FloorplanRoom.grade.
+  method String @default("POST") @db.VarChar(10)
+
+  headers     Json   @default("{}") @map("headers") @db.JsonB
+  contentType String @default("application/json") @map("content_type") @db.VarChar(100)
+  /// ${...} placeholders. Rendered by render-body.ts, NOT by the notification
+  /// template engine, which HTML-escapes and would corrupt JSON.
+  bodyTemplate String @map("body_template") @db.Text
+
+  /// When set, the response body MUST match this for the send to count as delivered,
+  /// and it OVERRIDES the status code. Cheap hardware returns HTTP 200 on failure —
+  /// the same lesson as SmsConfig.httpGatewaySuccessRegex (#sms-2xx).
+  successRegex String? @map("success_regex") @db.Text
+  timeoutMs    Int     @default(5000) @map("timeout_ms")
+
+  fireOnRaised       Boolean @default(true) @map("fire_on_raised")
+  fireOnCleared      Boolean @default(true) @map("fire_on_cleared")
+  fireOnAcknowledged Boolean @default(true) @map("fire_on_acknowledged")
+
+  /// NULL = every severity. ["CRITICAL","MAJOR"] narrows.
+  severities Json? @db.JsonB
+  /// Throttles RAISED ONLY. CLEARED and ACKNOWLEDGED are silence signals and are
+  /// never suppressed — rate-limiting the off switch leaves a buzzer sounding for a
+  /// condition that has already gone away.
+  cooldownSeconds Int     @default(0) @map("cooldown_seconds")
+  isActive        Boolean @default(true) @map("is_active")
+
+  /// NOT NULL with a [] default, deliberately unlike role_configs.instrument_scope
+  /// where NULL means "inherit". There is nothing to inherit from here, and [] must
+  /// unambiguously mean NOTHING rather than being confusable with "unrestricted".
+  scopeLocationIds   Json @default("[]") @map("scope_location_ids") @db.JsonB
+  scopeInstrumentIds Json @default("[]") @map("scope_instrument_ids") @db.JsonB
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdBy String?  @map("created_by")
+  updatedBy String?  @map("updated_by")
+
+  deliveries AlarmWebhookDelivery[]
+
+  @@index([isActive])
+  @@map("alarm_webhook_targets")
+}
+
+/// One delivery attempt. The §11 evidence that the system did — or did not —
+/// annunciate a specific excursion. Never edited, never deleted.
+model AlarmWebhookDelivery {
+  id       String  @id @default(uuid())
+  targetId String  @map("target_id")
+  /// NULL for a TEST fire, which has no alarm behind it.
+  alarmId  String? @map("alarm_id")
+
+  /// RAISED | CLEARED | ACKNOWLEDGED | TEST.
+  event String @db.VarChar(20)
+  /// Copied at send time: the target's URL may be edited afterwards, and this row
+  /// must keep saying which URL was actually hit.
+  url String @db.Text
+  /// Stored verbatim. Small, and the only honest answer to "why didn't it fire" —
+  /// re-rendering it later from a since-edited template would be a fabrication.
+  requestBody     String  @map("request_body") @db.Text
+  httpStatus      Int?    @map("http_status")
+  responseSnippet String? @map("response_snippet") @db.VarChar(1000)
+  attempt         Int
+  /// SENT | FAILED.
+  status String @db.VarChar(10)
+  error  String? @db.Text
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  sentAt    DateTime? @map("sent_at") @db.Timestamptz(3)
+
+  /// RESTRICT on both: a delivery row is evidence about a regulated event, so
+  /// deleting a target or an alarm must not erase the record of what it did.
+  target AlarmWebhookTarget @relation(fields: [targetId], references: [id], onDelete: Restrict)
+  alarm  Alarm?             @relation(fields: [alarmId], references: [id], onDelete: Restrict)
+
+  @@index([targetId, createdAt(sort: Desc)])
+  @@index([alarmId])
+  @@index([status])
+  @@map("alarm_webhook_deliveries")
 }
 
 enum AlarmMetric {
