@@ -16,7 +16,7 @@ npm run build -w @digilog/shared
 
 ## Key Exports
 - `schemas/` — Zod validation schemas (login, user, config, etc.)
-- `types/` — TypeScript interfaces, enums, and constants (**15 files**, verified `ls packages/shared/src/types/*.ts | grep -v test | wc -l` 2026-08-19 — 2026-08-19 added `telemetry-decimals.ts` (per-instrument display precision, and which attribute keys hold a temperature or a humidity) and `attribute-access.ts` (per-role instrument-attribute editability + the mandatory-remark validator); both are shared because BOTH sides decide with them and a second implementation would show an affordance the API refuses. Earlier: `alarm-limits.ts` added 2026-08-17 for the instrument-limit alarm work; the "11 files" recorded here was already stale before that, and the real count was 12 when that plan started. See Live Type Inventory below)
+- `types/` — TypeScript interfaces, enums, and constants (**17 files**, verified `ls packages/shared/src/types/*.ts | grep -v test | wc -l` 2026-08-27 — 2026-08-27 added `telemetry-downsample.ts` (`lttb()`, Largest-Triangle-Three-Buckets: it SELECTS a subset of the readings it is given and never computes a new one, which is why the trend page can plot a 30-day range without inventing a value; its tests assert reference equality with `toBe`, so a refactor that builds new objects fails). 2026-08-27 also added `alarm-webhook.ts`, which this line was never re-synced for — the "15" was stale by two before this correction. Earlier, 2026-08-19 added `telemetry-decimals.ts` (per-instrument display precision, and which attribute keys hold a temperature or a humidity) and `attribute-access.ts` (per-role instrument-attribute editability + the mandatory-remark validator); both are shared because BOTH sides decide with them and a second implementation would show an affordance the API refuses. Earlier: `alarm-limits.ts` added 2026-08-17 for the instrument-limit alarm work; the "11 files" recorded here was already stale before that, and the real count was 12 when that plan started. See Live Type Inventory below)
 - `index.ts` — Barrel export
 
 ## Usage
@@ -76,6 +76,14 @@ import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 > each row is still useful as *history* — which change removed what, and why — so it is
 > kept rather than rewritten; read the numbers from the greps in the root `CLAUDE.md`
 > "Live-count verification" block, never from here.
+
+**`telemetry-period.ts` — never index `PERIOD_PRESETS` by POSITION.** The default
+window used to be resolved as `PERIOD_PRESETS[3]`, so inserting a preset anywhere
+above it silently changed what every trend page opened on — a latent trap that
+bit when the `12h` preset was added 2026-08-27. It now resolves by VALUE against
+`DEFAULT_PERIOD`. Add presets freely; do not reintroduce a positional lookup.
+`15m` is kept even though the operator's list starts at `1h` — removing a preset
+someone may be using was not part of that change.
 
 ### (historic) verified 2026-06-30 post-Phase-1-RBAC-catalog
 

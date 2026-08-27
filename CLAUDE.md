@@ -209,7 +209,7 @@ history; `docs/recreation/` holds the inventory.
   `reason` column; a first fill does not). Admin surface: Config → Roles & Access → Attribute Access.
   Migration `20260819120000_role_attribute_access`, drift guard PASS, applied to both databases.
 - **Themes:** 10 preset color themes (Ocean / Sapphire / Emerald / Amethyst / Sunset / Slate / Ruby / Forest / Midnight / Coral)
-- **Frontend:** **50** Routes in `main.tsx` (verified `grep -cE "<Route"` 2026-08-27 — 49 → 50: new `/config/alarm-webhooks` page; earlier 48 → 49 on 2026-08-24: the `/instruments/:id/trend` page; the "77" was inherited from upstream DigiLog and was never true in this fork; `/config/role-assignments` removed 2026-08-19 as dead code, 49 → 48), **18** custom hooks, **18** lib modules (`ls apps/web/src/hooks/ | wc -l` / `ls apps/web/src/lib/ | wc -l`, each including its own `__tests__` subfolder as one entry — the "26 / 30" this file carried for months was never true against the live tree and was never re-verified until now)
+- **Frontend:** **50** Routes in `main.tsx` (verified `grep -cE "<Route"` 2026-08-27 — 49 → 50: new `/config/alarm-webhooks` page; earlier 48 → 49 on 2026-08-24: the `/instruments/:id/trend` page; the "77" was inherited from upstream DigiLog and was never true in this fork; `/config/role-assignments` removed 2026-08-19 as dead code, 49 → 48), **18** custom hooks, **19** lib modules (`ls apps/web/src/hooks/ | wc -l` / `ls apps/web/src/lib/ | wc -l`, each including its own `__tests__` subfolder as one entry — lib 18 → 19 corrected 2026-08-27: `lib/background-style.ts` landed with the wallpaper work (`764fff5`) and this line was never re-synced; the 2026-08-27 trend-sampling work added NO lib module — the "26 / 30" this file carried for months was never true against the live tree and was never re-verified until now)
 - **Queue backend:** graphile-worker (Postgres-backed); **6** worker tasks —
   `notification`, `password_expiry_check`, `session_sweep`,
   `telemetry_partition_maintenance`, `alarm_evaluation`, `alarm_webhook`
@@ -252,6 +252,15 @@ history; `docs/recreation/` holds the inventory.
 ```
 GET  /api/instruments/telemetry-overview        — every instrument's current temp + RH, one request
 GET  /api/instruments/:id/telemetry?from=&to=&offset=  — per-instrument history, paged (offset added 2026-08-24)
+GET  /api/instruments/:id/telemetry?from=&to=&points=N — the CHART path (added 2026-08-27): every
+                                                  reading in the range, LTTB-downsampled to N per key
+                                                  (1..5000, out of range = 400, never a silent clamp),
+                                                  plus `historyTotal` (the TRUE count in range),
+                                                  `historySampled`, and `summaries[key]`
+                                                  {count, numericCount, min, max, avg, first, last,
+                                                   below/above/outOfSpecCount, limitMin, limitMax}
+                                                  computed in SQL over EVERY reading in the range.
+                                                  `points` omitted = the old paged table path, unchanged.
 GET  /api/instruments/:id/telemetry-keys        — distinct telemetry keys this instrument has sent (added 2026-08-24)
 GET  /api/floorplans                            — plans + their rooms (rooms now carry `doors` + `grade`, 2026-08-24)
 GET  /api/floorplans/:id                        — one plan, rooms, and the instruments in each
@@ -296,10 +305,12 @@ GET    /api/alarm-webhooks/:id/deliveries?status= — paged §11 delivery log, f
   `TimeSeriesChart`), a raw paged time-series, an alarms widget, per-user
   extra telemetry keys in `localStorage`. New shared module
   `packages/shared/src/types/telemetry-period.ts` (period presets, interval
-  specs, range resolution). When an interval is selected the chart averages
-  client-side and says so on screen ("Averaged over 5 minutes — the table
-  below shows every reading") — a derived point must never look like a
-  stored reading.
+  specs, range resolution). Aggregation is an explicit OPT-IN and defaults to
+  `raw`: when an interval IS selected the chart averages client-side and says
+  so on screen ("Averaged over 5 minutes — the table below shows every
+  reading") — a derived point must never look like a stored reading. Wide
+  ranges are handled by SELECTION instead, not by averaging — see the
+  2026-08-27 note below.
 - **Governed report downloads (2026-08-24):** new reauth action
   `DOWNLOAD_REPORT` under a new `Reports` category (46 → 47 reauth actions,
   7 → 8 categories). `POST /api/audit/report-export-log` now requires
@@ -379,6 +390,47 @@ GET    /api/alarm-webhooks/:id/deliveries?status= — paged §11 delivery log, f
     URL, body, status and response snippet in the delivery log for every
     attempt.
   - Design spec: `docs/superpowers/specs/2026-08-27-alarm-webhook-annunciator-design.md`.
+
+- **Trend page: wide ranges are SAMPLED, and the range figures are true
+  (2026-08-27).** No count moved — no model, enum, permission, reauth action,
+  config def, module or route was added. Spec:
+  `docs/superpowers/specs/2026-08-27-instrument-trend-page-design.md`.
+  - **The bug this fixed.** `GET /:id/telemetry` silently capped at the newest
+    1000 readings (`Math.min(limit, 1000)` with `ORDER BY ts DESC`) for ANY
+    range. A 7-day or 30-day chart therefore plotted roughly the last DAY while
+    the axis claimed a week, and every figure derived from it described that
+    slice. The PDF report's own fetch had the same defect. Nothing on screen
+    said so — this is the shape of defect to look for whenever a "limit" and a
+    "range" meet in one query.
+  - **Downsampling is by SELECTION, never by averaging.** `lttb()` in
+    `@digilog/shared` (`types/telemetry-downsample.ts`,
+    Largest-Triangle-Three-Buckets) returns a subset of the input array —
+    every plotted point is a STORED reading at its STORED timestamp, and the
+    unit tests assert reference equality (`toBe`) so a refactor that builds new
+    objects fails. First and last readings are always kept, or the chart's
+    x-extent would disagree with the range asked for. Averaging is a separate,
+    opt-in, labelled control and is off by default.
+  - **When a chart is showing a subset it SAYS SO on screen** —
+    `sampled-note.tsx`: "Showing 2,000 of 28,431 readings." `shown` is the RAW
+    READING COUNT, not the number of points after any client-side bucketing;
+    quoting the bucket count would understate what the range was read from.
+  - **Out-of-limit counts and the readings count come from SQL over the WHOLE
+    range** (`telemetry.repository.ts:getRangeSummary`), never from the plotted
+    subset, so a sampled chart cannot understate an excursion. Which figures
+    the signed PDF swaps for the server's and which stay row-derived is decided
+    in ONE place — `routes/instruments/trend-summary.ts:withServerSummary` —
+    and the reasoning is written beside it. Read it there, not from here.
+  - **Zoom REFETCHES; it does not magnify.** Drag-selecting a span sets a
+    custom range and requests it fresh, so zooming into a sampled 30-day view
+    reveals the true raw readings for the narrower window. Magnifying the
+    subset already in hand would draw bigger dots and claim a resolution the
+    client does not have.
+  - **The signed PDF's banner was REWORDED, because fixing the truncation
+    turned a true disclosure into a false one.** It used to say the report
+    covered "the most recent portion" of the period — true under `ORDER BY ts
+    DESC`, false once the rows are spread across the whole range by sampling. A
+    disclosure is a §11 claim and goes stale when the thing it discloses is
+    fixed; check the wording whenever the data path under it changes.
 
 ## Filter domain — REMOVED
 

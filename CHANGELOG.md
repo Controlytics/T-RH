@@ -1,5 +1,96 @@
 # Changelog
 
+## [Unreleased] - Instrument trend page: sampling, true range summaries, zoom (2026-08-27)
+
+The Trend page now plots wide ranges honestly. Spec:
+`docs/superpowers/specs/2026-08-27-instrument-trend-page-design.md`.
+
+**No count moved.** Re-derived from live code 2026-08-27: **36** Prisma models,
+**13** enums, **42** permissions, **48** reauth actions, **24** API modules,
+**25** config defs, **25** config pages, **50** `<Route>`s. No migration. One
+existing route gained query parameters; one new pure module in
+`@digilog/shared`; one preset added to an existing list.
+
+### The bug this fixed
+
+`GET /api/instruments/:id/telemetry` silently returned only the **newest 1000
+readings** for any range — `telemetry.repository.ts:getHistory` did
+`Math.min(opts.limit ?? 100, 1000)` with `ORDER BY ts DESC`. At this
+installation's 30–90 second cadence, a 7-day chart plotted roughly the last
+**day** while the x-axis claimed a week, and the summary strip was computed over
+that truncated slice. Nothing on screen said so. The PDF report's own fetch had
+the same defect and printed the same misdescribed period.
+
+### Backend
+
+- `points` (integer, 1..5000) selects a **chart path** separate from the paged
+  table path. Out of range is a **400 from the schema, not a silent clamp**.
+  `points` omitted leaves the old `limit`/`offset` behaviour byte-for-byte
+  unchanged, and the 1000-row cap stays on that path.
+- Response gains `historyTotal` (the TRUE number of readings in the range, not
+  the number returned), `historySampled`, and `summaries[key]` —
+  `{ count, numericCount, min, max, avg, first, last, belowCount, aboveCount,
+  outOfSpecCount, limitMin, limitMax }`.
+- **`summaries` is computed in SQL over EVERY reading in the range**
+  (`getRangeSummary`), in a query deliberately separate from the row query. A
+  `max` derived from the downsampled subset would let a spike the sampler did
+  not select vanish from a signed §11 readout — an aggregate that *understates
+  an excursion* is the worst failure this surface has.
+- `belowCount`/`aboveCount`/`outOfSpecCount` are nullable and **the null is
+  load-bearing**: it means no limit was resolved for that key, which is not the
+  claim "zero breaches". `limitMin`/`limitMax` ride along from the server's own
+  limit resolution, so a printed count and a printed bound cannot disagree
+  about which limit applies.
+- Pinned by `apps/api/src/e2e/instrument-telemetry-range.test.ts`, including the
+  assertion that carries the whole design: **`summary.max` equals the true
+  maximum in the range even when that reading is not among the returned rows.**
+
+### Shared
+
+- New pure module `packages/shared/src/types/telemetry-downsample.ts` —
+  `lttb()`, Largest-Triangle-Three-Buckets. It **selects** readings and never
+  computes one: every returned element is reference-equal to an input element,
+  asserted with `toBe` so a refactor that builds new objects fails. Returns the
+  input unchanged when it already fits, always keeps the first and last
+  reading, preserves order, and degenerates cleanly below `target < 3`. A
+  bucket-range off-by-one that hid an excursion in the first bucket was found
+  and fixed by its own spike-preservation test.
+- `12h` preset added to `PERIOD_PRESETS`. **The default window no longer
+  resolves by array POSITION** (`PERIOD_PRESETS[3]`) but by value against
+  `DEFAULT_PERIOD` — the positional lookup meant inserting a preset silently
+  changed what every trend page opened on. `15m` is kept: removing a preset
+  someone may be using was not part of this.
+
+### Frontend
+
+- **Downsampling is by selection, never by averaging.** Averaging invents
+  values that were never read, and a two-second excursion is exactly what a
+  bucket mean destroys — on a §11 system the excursion is the thing the record
+  exists to show. Client-side aggregation remains available, is **off by
+  default**, and says so on screen when on.
+- When a chart is showing a subset it says so in the flow, not in a tooltip:
+  `sampled-note.tsx`, "Showing 2,000 of 28,431 readings." `shown` is the **raw
+  reading count**, not the post-bucketing point count.
+- **Zoom refetches; it does not magnify.** `routes/dashboard/chart-zoom.ts`
+  turns a drag selection into a time range and the page requests it fresh, so
+  zooming into a sampled 30-day view reveals the true raw readings for the
+  narrower window. Magnifying the subset in hand would claim a resolution the
+  client does not have. Fullscreen no longer maps pointer pixels to the wrong
+  instant.
+- Empty / loading / error states, chart titles, and tooltip units on both
+  charts.
+- Chart colours moved to `--chart-*` custom properties in `app.css`, each read
+  with a literal fallback. **Known limitation, now written down:** the PDF
+  export serialises the chart's SVG into a standalone document with no
+  stylesheet, so only the fallbacks resolve — the exported chart can never
+  follow a future theme. Accepted: a signed record printing yesterday's palette
+  beats one printing an invisible line.
+- **The signed PDF report's banner was reworded**, because fixing the
+  truncation turned a true disclosure into a false one. It used to say the
+  report covered "the most recent portion" of the period — true under
+  `ORDER BY ts DESC`, false once the rows are spread across the whole range.
+  Its out-of-limit counts now come from the server's whole-range summary.
+
 ## [Unreleased] - Alarm webhook annunciator (2026-08-27)
 
 Alarms now reach a **device** as well as a person. An operator can point an

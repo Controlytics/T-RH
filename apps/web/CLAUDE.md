@@ -72,6 +72,28 @@ dropped `chartjs-node-canvas`, `reactflow` and `@monaco-editor/react`. Series
 colours come from a fixed validated categorical order; status colour never
 carries meaning alone (always a glyph + word).
 
+**Chart colours live in `app.css` as `--chart-*` custom properties (2026-08-27),
+and every consumer must read them WITH a literal fallback** —
+`var(--chart-series-1, #2a78d6)`, never a bare `var()`. The PDF export
+(`routes/instruments/chart-image.ts`) mounts `TimeSeriesChart` off-screen and
+serialises its live SVG into a STANDALONE document with **no stylesheet
+attached**, so the custom property is undefined there and only the fallback
+resolves. The consequence, stated plainly because it is easy to rediscover the
+hard way: **the exported chart can never follow a future theme.** It will always
+print the fallback literals. That is an accepted limitation, not an oversight —
+the indirection exists so a future dark theme need not touch chart code, and a
+signed §11 record printing a black or invisible line would be far worse than one
+printing yesterday's palette. The reasoning is also written beside the variables
+themselves in `app.css`.
+
+**Trend chart interaction (2026-08-27) — zoom REFETCHES, it does not magnify.**
+`routes/dashboard/chart-zoom.ts` turns a drag selection into a time range; the
+page sets a custom range and requests it fresh, so zooming into a sampled
+30-day view reveals the true raw readings for the narrower window. `SampledNote`
+("Showing N of M readings") takes `shown` from the RAW reading count, not from
+the post-bucketing point count. Rendering the picture and the numbers from two
+different populations is the defect these two rules exist to prevent.
+
 `apiClient.postFormData()` is the ONE way to upload multipart — it reuses the
 single definition of where the session token lives (`sessionStorage`). A
 hand-rolled `fetch` reading `localStorage.getItem('access_token')` is why

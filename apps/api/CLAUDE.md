@@ -39,6 +39,41 @@ node apps/api/dist/app.js
   `GET /:id/telemetry` had no instrument-visibility scoping (bare
   `findUnique`) while `GET /:id` did — now scoped identically, 404 (never 403)
   out of scope.
+- **2026-08-27 — `GET /:id/telemetry` stopped silently truncating wide ranges.**
+  **No count moved** (36/13 models/enums, 42 permissions, 48 reauth actions, 24
+  modules, 25 config defs — re-derived, unchanged) and there is **no
+  migration**: one existing route gained query parameters.
+  - **The defect.** `telemetry.repository.ts:getHistory` did
+    `Math.min(opts.limit ?? 100, 1000)` with `ORDER BY ts DESC`, so ANY range
+    wider than 1000 readings returned only the NEWEST 1000 and said nothing.
+    At this installation's 30–90s cadence a 7-day chart therefore plotted
+    roughly the last DAY while the axis claimed a week, and every figure derived
+    from the response described that slice. Look for this shape wherever a
+    `limit` and a `from`/`to` meet in one query.
+  - **The chart path is now separate from the table path.** `points` (integer,
+    1..5000; out of range is a **400 from the schema, never a silent clamp**)
+    switches the handler to: read the whole range, `lttb()`-downsample to
+    `points` per key, and return `historyTotal` (the TRUE count in range),
+    `historySampled`, and `summaries[key]`. `points` omitted = the old paged
+    `limit`/`offset` table path, byte-for-byte unchanged, so existing callers
+    are unaffected. The 1000-row cap in `getHistory` STAYS for that path.
+  - **`summaries[key]` is computed in SQL over EVERY reading in the range**
+    (`telemetry.repository.ts:getRangeSummary`), in a query SEPARATE from the
+    row query, and that separation is the point of the design: a `max` derived
+    from the downsampled subset would let a spike the sampler did not select
+    vanish from a signed §11 readout. `belowCount`/`aboveCount`/
+    `outOfSpecCount` are **nullable and the null is load-bearing** — it means
+    no limit was resolved for that key, which is not the claim "zero breaches".
+    `limitMin`/`limitMax` ride along from the server's own limit resolution, so
+    a printed count and a printed bound cannot come from two different answers
+    to "which limit applies?".
+  - **The response schema is a filter, not documentation.** Fastify STRIPS any
+    field not declared in the `response` block — a field added to the handler
+    without a line there vanishes between handler and wire with no error
+    anywhere. `historySampled`/`summaries` had to be declared to exist.
+  - Pinned by `src/e2e/instrument-telemetry-range.test.ts`, including the
+    assertion that carries the design: **`summary.max` equals the true maximum
+    in the range even when that reading is not among the returned rows.**
 - **2026-08-27 — alarm webhook annunciator.** New module `alarm-webhooks`
   (23 → **24 modules**), registered in **both** `app.ts` and
   `src/e2e/test-helper.ts`. Added 2 models, `AlarmWebhookTarget` +
