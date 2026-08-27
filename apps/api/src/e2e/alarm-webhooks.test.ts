@@ -177,13 +177,40 @@ describe('alarm webhook targets', () => {
     expect(res.json().message).toContain('nonsense');
   });
 
-  it('does not sanitise the body template into uselessness', async () => {
-    // stripHtml empties anything tag-shaped. A template is full of `${...}` and braces,
-    // which is why it is in the skipKeys list.
-    const tpl = '{"event":"${event}","v":"${value}"}';
-    const res = await newTarget({ bodyTemplate: tpl });
+  // ── The four `sanitizeStrings` skipKeys exemptions ────────────────────────
+  //
+  // Every fixture below is TAG-SHAPED, and `stripHtml` was run against each one
+  // directly to confirm it is damaged: an unexempted implementation stores a
+  // different string and the assertion fails. A JSON template, a plain URL and a
+  // reason like "value < 20" all survive stripHtml untouched, so a fixture of that
+  // kind would pass with the exemption removed and prove nothing.
+
+  it('does not sanitise an XML body template — `bodyTemplate` is exempt', async () => {
+    // A genuinely supported configuration: contentType is operator-set and
+    // renderWebhookBody honours it, so an XML hooter is the real case the exemption
+    // exists for. stripHtml reduces this to '${event}${severity}'.
+    const tpl = '<alarm><event>${event}</event><severity>${severity}</severity></alarm>';
+    const res = await newTarget({ bodyTemplate: tpl, contentType: 'application/xml' });
     expect(res.statusCode).toBe(201);
     expect(res.json().bodyTemplate).toBe(tpl);
+    expect(res.json().contentType).toBe('application/xml');
+  });
+
+  it('does not sanitise a tag-shaped url path — `url` is exempt', async () => {
+    // stripHtml turns this into 'http://127.0.0.1:9/trigger', a DIFFERENT hooter.
+    const url = 'http://127.0.0.1:9/<alarm>/trigger';
+    const res = await newTarget({ url });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().url).toBe(url);
+  });
+
+  it('does not sanitise a tag-shaped success regex — `successRegex` is exempt', async () => {
+    // Cheap hardware answers with an XML-ish ack. stripHtml reduces this to '^$',
+    // which matches only an empty body — every delivery would fail closed.
+    const successRegex = '^<ok>$';
+    const res = await newTarget({ successRegex });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().successRegex).toBe(successRegex);
   });
 
   it('fetches one target', async () => {
@@ -237,9 +264,12 @@ describe('alarm webhook targets', () => {
     expect(await prisma.alarmWebhookTarget.findUnique({ where: { id } })).not.toBeNull();
   });
 
-  it('keeps a reason containing angle brackets — it is exempt from sanitisation', async () => {
+  it('keeps a tag-shaped reason verbatim — `reason` is exempt from sanitisation', async () => {
     const id = (await newTarget()).json().id;
-    const reason = 'decommissioned, value < 20 per SOP-114';
+    // stripHtml reduces this to 'decommissioned', silently blanking the reference
+    // out of a regulated record. ("value < 20 per SOP-114" would NOT be damaged —
+    // `<` followed by a space is not tag-shaped — so it proves nothing here.)
+    const reason = 'decommissioned <per SOP-114>';
     const res = await app.inject({
       method: 'DELETE', url: `/api/alarm-webhooks/${id}`, headers: headers(), payload: { reason },
     });
