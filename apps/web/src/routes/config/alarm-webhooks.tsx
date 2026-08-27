@@ -32,7 +32,7 @@ export interface WebhookTarget {
   isActive: boolean;
   scopeLocationIds: string[];
   scopeInstrumentIds: string[];
-  /** Resolved SERVER-side. See the comment on `scopeSummary` below. */
+  /** Resolved SERVER-side — never recomputed here. See AlarmWebhooksConfigPage's note. */
   instrumentCount: number;
   createdAt: string;
   updatedAt: string;
@@ -58,6 +58,12 @@ interface InstrumentRow { id: string; code: string; name: string }
 interface FlNode { id: string; name: string; type: 'BLOCK' | 'AREA'; ownCount: number; totalCount: number; children: FlNode[] }
 
 interface TestResult { ok: boolean; httpStatus: number | null; responseSnippet: string | null; error: string | null }
+/**
+ * `stamp` exists so a REPEATED test with an identical outcome still counts as a new
+ * result. Press-test-again is the commissioning loop; keying the delivery-log refetch
+ * on the result's content alone would silently skip the second row.
+ */
+interface StampedTestResult extends TestResult { stamp: number }
 
 /** EXACTLY `enum AlarmSeverity` and the API's `SEVERITIES` — three, and there is no WARNING. */
 const SEVERITIES = ['CRITICAL', 'MAJOR', 'MINOR'] as const;
@@ -79,8 +85,13 @@ interface Draft {
   successRegex: string;
   timeoutMs: number;
   cooldownSeconds: number;
-  /** Always a concrete list in the draft; `null` is reconstructed on submit. */
-  severities: string[];
+  /**
+   * THREE STATES, carried verbatim rather than collapsed, because two of them are
+   * opposite behaviours: `null` = every severity, `[]` = NONE (permanently silent,
+   * see target-scope.ts), `[..]` = those. A UI that cannot tell the last two apart
+   * shows "fires for everything" and "fires for nothing" identically.
+   */
+  severities: string[] | null;
   fireOnRaised: boolean;
   fireOnCleared: boolean;
   fireOnAcknowledged: boolean;
@@ -94,7 +105,7 @@ const emptyDraft: Draft = {
   headerRows: [], contentType: 'application/json',
   bodyTemplate: DEFAULT_WEBHOOK_BODY_TEMPLATE,
   successRegex: '', timeoutMs: 5000, cooldownSeconds: 0,
-  severities: [...SEVERITIES],
+  severities: null,
   fireOnRaised: true, fireOnCleared: true, fireOnAcknowledged: true, isActive: true,
   scopeLocationIds: [], scopeInstrumentIds: [],
 };
@@ -112,9 +123,7 @@ function draftOf(t: WebhookTarget): Draft {
     successRegex: t.successRegex ?? '',
     timeoutMs: t.timeoutMs,
     cooldownSeconds: t.cooldownSeconds,
-    // null on the wire means "every severity"; the draft carries all three so the
-    // ticked state is the same shape either way.
-    severities: t.severities === null ? [...SEVERITIES] : t.severities,
+    severities: t.severities,
     fireOnRaised: t.fireOnRaised,
     fireOnCleared: t.fireOnCleared,
     fireOnAcknowledged: t.fireOnAcknowledged,
@@ -157,11 +166,6 @@ export function webhookDraftError(d: Draft): { field: string; message: string } 
   if (!Number.isInteger(d.cooldownSeconds) || d.cooldownSeconds < 0 || d.cooldownSeconds > 86_400) {
     return { field: 'cooldownSeconds', message: 'Cooldown must be between 0 and 86400 seconds.' };
   }
-  // `severities: []` is accepted by the server and matches NOTHING (target-scope.ts).
-  // Refused here rather than saved, because unlike an empty scope — which is legal so a
-  // target can be created before its instruments exist — an empty severity list has no
-  // legitimate meaning.
-  if (d.severities.length === 0) return { field: 'severities', message: 'Select at least one severity.' };
   for (const r of d.headerRows) {
     if (r.value.trim() && !r.key.trim()) return { field: 'headers', message: 'A header value needs a name.' };
   }
@@ -183,9 +187,7 @@ function bodyOf(d: Draft) {
     successRegex: d.successRegex.trim() || null,
     timeoutMs: d.timeoutMs,
     cooldownSeconds: d.cooldownSeconds,
-    // All three ticked stores null — "every severity", so a severity added later is
-    // still announced. A subset stores the subset.
-    severities: d.severities.length === SEVERITIES.length ? null : d.severities,
+    severities: d.severities,
     fireOnRaised: d.fireOnRaised,
     fireOnCleared: d.fireOnCleared,
     fireOnAcknowledged: d.fireOnAcknowledged,
@@ -217,11 +219,14 @@ export function AlarmWebhooksConfigPage() {
   const [deleteReason, setDeleteReason] = useState('');
   const [deleteError, setDeleteError] = useState('');
   const [detailId, setDetailId] = useState<string | null>(null);
-  const [testResult, setTestResult] = useState<Record<string, TestResult>>({});
+  const [testResult, setTestResult] = useState<Record<string, StampedTestResult>>({});
 
   // Every write needs re-authentication, so each one parks its intent here and runs
   // only once the password is accepted.
   const [pending, setPending] = useState<((p: string) => Promise<void>) | null>(null);
+  // Named per action: an e-signature that says "Save alarm webhook" while the operator
+  // is test-firing a hooter misdescribes what is being signed for.
+  const [pendingLabel, setPendingLabel] = useState('Save alarm webhook');
   const [password, setPassword] = useState('');
   const [reauthError, setReauthError] = useState('');
   const [verifying, setVerifying] = useState(false);
@@ -230,9 +235,10 @@ export function AlarmWebhooksConfigPage() {
   const canManage = can('alarm_webhooks.manage');
   const detail = targets.find((t) => t.id === detailId) ?? null;
 
-  const runWithPassword = (fn: (p: string) => Promise<void>) => {
+  const runWithPassword = (label: string, fn: (p: string) => Promise<void>) => {
     setPassword('');
     setReauthError('');
+    setPendingLabel(label);
     setPending(() => fn);
   };
 
@@ -257,7 +263,7 @@ export function AlarmWebhooksConfigPage() {
 
   const submit = (draft: Draft) => {
     setDialogOpen(false);
-    runWithPassword(async (p) => {
+    runWithPassword(draft.id ? 'Update alarm webhook' : 'Create alarm webhook', async (p) => {
       const body = bodyOf(draft);
       if (draft.id) {
         await apiClient.putWithReauth(`/api/alarm-webhooks/${draft.id}`, body, p);
@@ -270,14 +276,18 @@ export function AlarmWebhooksConfigPage() {
   };
 
   const toggleActive = (t: WebhookTarget) => {
-    runWithPassword(async (p) => {
+    runWithPassword(t.isActive ? 'Deactivate alarm webhook' : 'Activate alarm webhook', async (p) => {
       await apiClient.putWithReauth(`/api/alarm-webhooks/${t.id}`, { isActive: !t.isActive }, p);
       toast.success(t.isActive ? 'Target deactivated' : 'Target activated', `"${t.name}".`);
     });
   };
 
   const remove = (t: WebhookTarget, reason: string) => {
-    runWithPassword(async (p) => {
+    // Closed FIRST, so the re-auth prompt is never stacked on top of this dialog.
+    // `reason` is already an argument, so nothing is lost by unmounting the form.
+    setConfirmDelete(null);
+    setDeleteError('');
+    runWithPassword('Delete alarm webhook', async (p) => {
       try {
         await apiClient.deleteWithReauth(`/api/alarm-webhooks/${t.id}`, p, { reason });
       } catch (e) {
@@ -288,25 +298,21 @@ export function AlarmWebhooksConfigPage() {
         const err = e as { code?: string; message?: string };
         if (err?.code === 'TARGET_HAS_DELIVERIES') {
           setPending(null);
-          setConfirmDelete(null);
-          setDeleteError('');
           toast.error('Cannot delete', `${err.message ?? ''} Deactivate it instead.`.trim());
           return;
         }
         throw e;
       }
-      setConfirmDelete(null);
-      setDeleteError('');
       toast.success('Target deleted', `"${t.name}" removed.`);
     });
   };
 
   const sendTest = (t: WebhookTarget) => {
-    runWithPassword(async (p) => {
+    runWithPassword('Test-fire alarm webhook', async (p) => {
       // `ok: false` arrives as a 200. Throwing on it would render a dead hooter as a
       // re-authentication failure, so the result is stored and shown on the page.
       const res = await apiClient.postWithReauth<TestResult>(`/api/alarm-webhooks/${t.id}/test`, {}, p);
-      setTestResult((prev) => ({ ...prev, [t.id]: res }));
+      setTestResult((prev) => ({ ...prev, [t.id]: { ...res, stamp: Date.now() } }));
       if (res.ok) toast.success('Test delivered', `HTTP ${res.httpStatus ?? '—'}`);
       else toast.error('Test failed', res.error ?? `HTTP ${res.httpStatus ?? '—'}`);
     });
@@ -349,7 +355,16 @@ export function AlarmWebhooksConfigPage() {
                   {[t.fireOnRaised && 'Raised', t.fireOnCleared && 'Cleared', t.fireOnAcknowledged && 'Acknowledged']
                     .filter(Boolean).join(', ') || 'None'}
                 </td>
-                <td className="px-4 py-3 text-slate-700">{t.severities === null ? 'All' : (t.severities.join(', ') || 'None')}</td>
+                <td className="px-4 py-3">
+                  {/* An empty severity list is accepted by the API and can never fire, while
+                      `instrumentCount` is resolved with severities held open — so the row would
+                      otherwise read "1 instrument in scope" for a permanently silent target. */}
+                  {t.severities !== null && t.severities.length === 0 ? (
+                    <span className="text-amber-700">No severities selected — this target will not fire</span>
+                  ) : (
+                    <span className="text-slate-700">{t.severities === null ? 'All' : t.severities.join(', ')}</span>
+                  )}
+                </td>
                 <td className="px-4 py-3">
                   {t.instrumentCount === 0 ? (
                     <span className="text-amber-700">0 instruments — this target will not fire</span>
@@ -424,6 +439,7 @@ export function AlarmWebhooksConfigPage() {
                 <textarea
                   id="webhook-delete-reason"
                   rows={3}
+                  maxLength={500}
                   className={field}
                   value={deleteReason}
                   onChange={(e) => { setDeleteReason(e.target.value); setDeleteError(''); }}
@@ -455,7 +471,7 @@ export function AlarmWebhooksConfigPage() {
         onPasswordChange={setPassword}
         onConfirm={confirmReauth}
         onCancel={() => setPending(null)}
-        actionLabel="Save alarm webhook"
+        actionLabel={pendingLabel}
       />
     </div>
   );
@@ -474,7 +490,7 @@ function TargetDetail({
 }: {
   target: WebhookTarget;
   canManage: boolean;
-  testResult?: TestResult;
+  testResult?: StampedTestResult;
   onTest: () => void;
   formatDateTime: (v: string | Date) => string;
 }) {
@@ -491,7 +507,7 @@ function TargetDetail({
   const shown = status ? rows.filter((r) => r.status === status) : rows;
 
   // A test writes delivery rows, so the log must be refetched after one fires.
-  const testKey = testResult ? `${testResult.ok}:${testResult.httpStatus}:${testResult.error ?? ''}` : '';
+  const testKey = testResult?.stamp ?? 0;
   useEffect(() => { if (testKey) void mutate(); }, [testKey, mutate]);
 
   return (
@@ -734,7 +750,9 @@ function TargetDialog({
             />
             {showErr('bodyTemplate') && <p className="mt-1 text-xs text-red-600">{err!.message}</p>}
             <div className="mt-2 space-y-1 rounded-lg border border-slate-200 bg-slate-50 p-3">
-              {ALARM_WEBHOOK_EVENTS.map((event) => (
+              {/* TEST offers exactly RAISED's variables — a duplicate row, and the
+                  server validates against the union either way. */}
+              {ALARM_WEBHOOK_EVENTS.filter((e) => e !== 'TEST').map((event) => (
                 <div key={event} className="flex flex-wrap items-center gap-1.5">
                   <span className="w-28 shrink-0 text-xs font-semibold text-slate-600">{event}</span>
                   {ALARM_WEBHOOK_VARIABLES[event].map((v) => (
@@ -761,20 +779,36 @@ function TargetDialog({
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <span className={labelCls}>Severities</span>
-              <div className="flex flex-wrap gap-3">
-                {SEVERITIES.map((s) => (
-                  <label key={s} className="flex items-center gap-1.5 text-sm text-slate-700">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 rounded border-slate-300"
-                      checked={draft.severities.includes(s)}
-                      onChange={() => set('severities', toggleIn(draft.severities, s))}
-                    />
-                    {s}
-                  </label>
-                ))}
+              {/* All (null) and Selected-with-none ([]) are opposite behaviours, so they get
+                  separate controls rather than the same set of empty checkboxes. */}
+              <div className="flex flex-wrap items-center gap-3 text-sm text-slate-700">
+                <label className="flex items-center gap-1.5">
+                  <input type="radio" checked={draft.severities === null} onChange={() => set('severities', null)} />
+                  All severities
+                </label>
+                <label className="flex items-center gap-1.5">
+                  <input type="radio" checked={draft.severities !== null} onChange={() => set('severities', [])} />
+                  Selected
+                </label>
               </div>
-              {showErr('severities') && <p className="mt-1 text-xs text-red-600">{err!.message}</p>}
+              {draft.severities !== null && (
+                <div className="mt-2 flex flex-wrap gap-3">
+                  {SEVERITIES.map((s) => (
+                    <label key={s} className="flex items-center gap-1.5 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-slate-300"
+                        checked={draft.severities!.includes(s)}
+                        onChange={() => set('severities', toggleIn(draft.severities!, s))}
+                      />
+                      {s}
+                    </label>
+                  ))}
+                </div>
+              )}
+              {draft.severities !== null && draft.severities.length === 0 && (
+                <p className="mt-2 text-xs text-amber-700">No severities selected — this target will not fire</p>
+              )}
             </div>
             <div>
               <span className={labelCls}>Fire on</span>
