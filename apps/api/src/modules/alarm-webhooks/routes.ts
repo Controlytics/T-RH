@@ -12,7 +12,7 @@ import { expandLocations, targetMatches } from './target-scope.js';
 import { deliverToTarget } from './send.js';
 import { buildWebhookVariables } from './build-variables.js';
 import type { FlNode } from '../functional-locations/tree.js';
-import { DEFAULT_WEBHOOK_BODY_TEMPLATE } from '@digilog/shared';
+import { ALARM_WEBHOOK_DELIVERY_STATUSES, DEFAULT_WEBHOOK_BODY_TEMPLATE } from '@digilog/shared';
 
 /**
  * Alarm webhook targets — the IP hooters an alarm is announced to.
@@ -48,6 +48,13 @@ const targetProps = {
   scopeInstrumentIds: { type: 'array', items: { type: 'string' } },
   /** Resolved server-side so an accidentally empty scope is visible on the page. */
   instrumentCount: { type: 'integer' },
+  /**
+   * The outcome of this target's most recent delivery attempt, or null if it has
+   * never fired. "Did the hooter actually work last time" is the question the config
+   * page exists to answer, and it cannot be derived from anything else on the row.
+   */
+  lastDeliveryStatus: { type: 'string', nullable: true },
+  lastDeliveryAt: { type: 'string', nullable: true },
   createdAt: { type: 'string' },
   updatedAt: { type: 'string' },
 } as const;
@@ -83,7 +90,7 @@ const asSeverities = (v: unknown): string[] | null => (v === null || v === undef
  * ONE mapper, so "every targetProps key is emitted" is mechanical rather than a
  * property-by-property spread that quietly drops a field when the model grows.
  */
-function toTargetResponse(row: TargetRow, instrumentCount: number) {
+function toTargetResponse(row: TargetRow, instrumentCount: number, last: LastDelivery | null) {
   return {
     id: row.id,
     name: row.name,
@@ -104,9 +111,46 @@ function toTargetResponse(row: TargetRow, instrumentCount: number) {
     scopeLocationIds: asStringArray(row.scopeLocationIds),
     scopeInstrumentIds: asStringArray(row.scopeInstrumentIds),
     instrumentCount,
+    lastDeliveryStatus: last?.status ?? null,
+    lastDeliveryAt: last ? (last.sentAt ?? last.createdAt).toISOString() : null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+interface LastDelivery { status: string; createdAt: Date; sentAt: Date | null }
+
+/**
+ * The newest delivery per target, in TWO queries regardless of how many targets there
+ * are — a per-target lookup would put the list route's cost on the number of hooters
+ * configured, the same trap `resolveInstrumentCounts` avoids.
+ *
+ * `attempt` breaks the tie between rows written inside the same millisecond, matching
+ * the delivery log's own ordering, so a 3-attempt burst reports its LAST attempt
+ * rather than an arbitrary one.
+ */
+async function resolveLastDeliveries(targetIds: string[]): Promise<Map<string, LastDelivery>> {
+  const out = new Map<string, LastDelivery>();
+  if (targetIds.length === 0) return out;
+
+  const newest = await prisma.alarmWebhookDelivery.groupBy({
+    by: ['targetId'],
+    where: { targetId: { in: targetIds } },
+    _max: { createdAt: true },
+  });
+  const pairs = newest
+    .filter((n): n is typeof n & { _max: { createdAt: Date } } => n._max.createdAt !== null)
+    .map((n) => ({ targetId: n.targetId, createdAt: n._max.createdAt }));
+  if (pairs.length === 0) return out;
+
+  const rows = await prisma.alarmWebhookDelivery.findMany({
+    where: { OR: pairs },
+    select: { targetId: true, status: true, createdAt: true, sentAt: true, attempt: true },
+    orderBy: { attempt: 'asc' },
+  });
+  // Ascending attempt, so the last write for a target wins.
+  for (const r of rows) out.set(r.targetId, { status: r.status, createdAt: r.createdAt, sentAt: r.sentAt });
+  return out;
 }
 
 function toDeliveryResponse(row: {
@@ -235,8 +279,11 @@ export default async function alarmWebhookRoutes(app: FastifyInstance) {
     },
   }, async () => {
     const rows = await prisma.alarmWebhookTarget.findMany({ orderBy: { name: 'asc' } });
-    const counts = await resolveInstrumentCounts(rows);
-    return { data: rows.map((r) => toTargetResponse(r, counts.get(r.id) ?? 0)) };
+    const [counts, last] = await Promise.all([
+      resolveInstrumentCounts(rows),
+      resolveLastDeliveries(rows.map((r) => r.id)),
+    ]);
+    return { data: rows.map((r) => toTargetResponse(r, counts.get(r.id) ?? 0, last.get(r.id) ?? null)) };
   });
 
   // ── GET /:id ──────────────────────────────────────────────────────────────
@@ -252,8 +299,8 @@ export default async function alarmWebhookRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const row = await prisma.alarmWebhookTarget.findUnique({ where: { id } });
     if (!row) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Alarm webhook target not found.' });
-    const counts = await resolveInstrumentCounts([row]);
-    return toTargetResponse(row, counts.get(row.id) ?? 0);
+    const [counts, last] = await Promise.all([resolveInstrumentCounts([row]), resolveLastDeliveries([row.id])]);
+    return toTargetResponse(row, counts.get(row.id) ?? 0, last.get(row.id) ?? null);
   });
 
   // ── POST / — the reference handler. Every other mutating route follows this exact
@@ -317,7 +364,8 @@ export default async function alarmWebhookRoutes(app: FastifyInstance) {
     });
 
     const counts = await resolveInstrumentCounts([created]);
-    return reply.code(201).send(toTargetResponse(created, counts.get(created.id) ?? 0));
+    // A target cannot have fired before it existed.
+    return reply.code(201).send(toTargetResponse(created, counts.get(created.id) ?? 0, null));
   });
 
   // ── PUT /:id ──────────────────────────────────────────────────────────────
@@ -395,8 +443,8 @@ export default async function alarmWebhookRoutes(app: FastifyInstance) {
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
 
-    const counts = await resolveInstrumentCounts([updated]);
-    return toTargetResponse(updated, counts.get(updated.id) ?? 0);
+    const [counts, last] = await Promise.all([resolveInstrumentCounts([updated]), resolveLastDeliveries([updated.id])]);
+    return toTargetResponse(updated, counts.get(updated.id) ?? 0, last.get(updated.id) ?? null);
   });
 
   // ── DELETE /:id ───────────────────────────────────────────────────────────
@@ -557,7 +605,15 @@ export default async function alarmWebhookRoutes(app: FastifyInstance) {
       params: { type: 'object', properties: { id: { type: 'string' } } },
       querystring: {
         type: 'object',
-        properties: { limit: { type: 'integer' }, offset: { type: 'integer' } },
+        properties: {
+          limit: { type: 'integer' },
+          offset: { type: 'integer' },
+          // Enumerated here so a bad value is a 400 from the schema rather than a
+          // filter that silently matches nothing. Applied to BOTH the page and the
+          // count below: a filtered page against an unfiltered total is a footer and
+          // a pager that disagree with the rows.
+          status: { type: 'string', enum: [...ALARM_WEBHOOK_DELIVERY_STATUSES] },
+        },
       },
       response: {
         200: {
@@ -572,22 +628,23 @@ export default async function alarmWebhookRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const q = req.query as { limit?: number; offset?: number };
+    const q = req.query as { limit?: number; offset?: number; status?: string };
     const target = await prisma.alarmWebhookTarget.findUnique({ where: { id }, select: { id: true } });
     if (!target) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Alarm webhook target not found.' });
 
     const take = Math.min(Math.max(q.limit ?? 50, 1), 200);
     const skip = Math.max(q.offset ?? 0, 0);
+    const where = { targetId: id, ...(q.status ? { status: q.status } : {}) };
     const [rows, total] = await Promise.all([
       prisma.alarmWebhookDelivery.findMany({
-        where: { targetId: id },
+        where,
         // Same order as the @@index([targetId, createdAt(sort: Desc)]); `attempt`
         // breaks the tie between rows written inside the same millisecond, so a
         // 3-attempt burst reads back in the order it happened.
         orderBy: [{ createdAt: 'desc' }, { attempt: 'desc' }],
         take, skip,
       }),
-      prisma.alarmWebhookDelivery.count({ where: { targetId: id } }),
+      prisma.alarmWebhookDelivery.count({ where }),
     ]);
     return { data: rows.map(toDeliveryResponse), total };
   });

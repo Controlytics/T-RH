@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import useSWR from 'swr';
 import {
+  ALARM_WEBHOOK_DELIVERY_STATUSES,
   ALARM_WEBHOOK_EVENTS,
   ALARM_WEBHOOK_METHODS,
   ALARM_WEBHOOK_VARIABLES,
@@ -34,6 +35,8 @@ export interface WebhookTarget {
   scopeInstrumentIds: string[];
   /** Resolved SERVER-side — never recomputed here. See AlarmWebhooksConfigPage's note. */
   instrumentCount: number;
+  lastDeliveryStatus: string | null;
+  lastDeliveryAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -337,30 +340,41 @@ export function AlarmWebhooksConfigPage() {
               <th className="px-4 py-3">Events</th>
               <th className="px-4 py-3">Severities</th>
               <th className="px-4 py-3">Scope</th>
+              <th className="px-4 py-3">Last delivery</th>
               <th className="px-4 py-3">State</th>
               <th className="px-4 py-3" />
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {isLoading && <tr><td colSpan={8} className="px-4 py-8 text-center text-slate-500">Loading…</td></tr>}
+            {isLoading && <tr><td colSpan={9} className="px-4 py-8 text-center text-slate-500">Loading…</td></tr>}
             {!isLoading && targets.length === 0 && (
-              <tr><td colSpan={8} className="px-4 py-10 text-center text-slate-500">No targets.</td></tr>
+              <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-500">No targets.</td></tr>
             )}
             {targets.map((t) => (
               <tr key={t.id} className="hover:bg-slate-50">
                 <td className="px-4 py-3 font-medium text-slate-900">{t.name}</td>
                 <td className="max-w-xs truncate px-4 py-3 text-slate-700" title={t.url}>{t.url}</td>
                 <td className="px-4 py-3 text-slate-700">{t.method}</td>
-                <td className="px-4 py-3 text-slate-700">
-                  {[t.fireOnRaised && 'Raised', t.fireOnCleared && 'Cleared', t.fireOnAcknowledged && 'Acknowledged']
-                    .filter(Boolean).join(', ') || 'None'}
+                <td className="px-4 py-3">
+                  {/* All three flags off is as terminal as an empty scope, and was the one
+                      mute state carrying no visual weight at all. */}
+                  {(() => {
+                    const events = [
+                      t.fireOnRaised && 'Raised',
+                      t.fireOnCleared && 'Cleared',
+                      t.fireOnAcknowledged && 'Acknowledged',
+                    ].filter(Boolean);
+                    return events.length === 0
+                      ? <span className="text-amber-700">No events — this target will not fire</span>
+                      : <span className="text-slate-700">{events.join(', ')}</span>;
+                  })()}
                 </td>
                 <td className="px-4 py-3">
                   {/* An empty severity list is accepted by the API and can never fire, while
                       `instrumentCount` is resolved with severities held open — so the row would
                       otherwise read "1 instrument in scope" for a permanently silent target. */}
                   {t.severities !== null && t.severities.length === 0 ? (
-                    <span className="text-amber-700">No severities selected — this target will not fire</span>
+                    <span className="text-amber-700">No severities — this target will not fire</span>
                   ) : (
                     <span className="text-slate-700">{t.severities === null ? 'All' : t.severities.join(', ')}</span>
                   )}
@@ -369,7 +383,22 @@ export function AlarmWebhooksConfigPage() {
                   {t.instrumentCount === 0 ? (
                     <span className="text-amber-700">0 instruments — this target will not fire</span>
                   ) : (
-                    <span className="tabular-nums text-slate-600">{t.instrumentCount} instruments in scope</span>
+                    <span className="tabular-nums text-slate-600">
+                      {t.scopeLocationIds.length} locations, {t.scopeInstrumentIds.length} instruments
+                      {' · '}{t.instrumentCount} in scope
+                    </span>
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  {/* Resolved server-side on the list response. "Did this hooter actually
+                      work last time" cannot be derived from anything else on the row. */}
+                  {t.lastDeliveryStatus === null ? (
+                    <span className="text-slate-500">Never fired</span>
+                  ) : (
+                    <span className={t.lastDeliveryStatus === 'SENT' ? 'text-emerald-700' : 'text-red-700'}>
+                      {t.lastDeliveryStatus}
+                      {t.lastDeliveryAt && <span className="text-slate-500"> {'·'} {formatDateTime(t.lastDeliveryAt)}</span>}
+                    </span>
                   )}
                 </td>
                 <td className="px-4 py-3">
@@ -480,10 +509,9 @@ export function AlarmWebhooksConfigPage() {
 /**
  * Delivery log for one target, plus the test control.
  *
- * The status filter applies to the LOADED PAGE only — `GET /:id/deliveries` accepts
- * `limit`/`offset` and nothing else, so filtering server-side is not available. The
- * counter therefore reports the shown rows separately from the unfiltered total rather
- * than presenting a filtered subset as if it were the whole log.
+ * The status filter is a QUERY PARAM, never a filter over the fetched page: `total` and
+ * the pager have to move with the rows, or the footer, the Next button and the empty
+ * state all describe a different set from the one on screen.
  */
 function TargetDetail({
   target, canManage, testResult, onTest, formatDateTime,
@@ -500,11 +528,11 @@ function TargetDetail({
   useEffect(() => { setOffset(0); setStatus(''); }, [target.id]);
 
   const { data, isLoading, mutate } = useSWR<{ data: Delivery[]; total: number }>(
-    `/api/alarm-webhooks/${target.id}/deliveries?limit=${DELIVERY_PAGE}&offset=${offset}`,
+    `/api/alarm-webhooks/${target.id}/deliveries?limit=${DELIVERY_PAGE}&offset=${offset}`
+      + (status ? `&status=${status}` : ''),
   );
   const rows = data?.data ?? [];
   const total = data?.total ?? 0;
-  const shown = status ? rows.filter((r) => r.status === status) : rows;
 
   // A test writes delivery rows, so the log must be refetched after one fires.
   const testKey = testResult?.stamp ?? 0;
@@ -515,10 +543,16 @@ function TargetDetail({
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
         <h2 className="text-sm font-semibold text-slate-800">{target.name}</h2>
         <div className="flex items-center gap-2">
-          <select className="rounded-md border border-slate-300 px-2 py-1 text-sm" value={status} onChange={(e) => setStatus(e.target.value)}>
+          <select
+            className="rounded-md border border-slate-300 px-2 py-1 text-sm"
+            value={status}
+            aria-label="Delivery status"
+            // Back to the first page: offset 25 of the unfiltered log is not offset 25
+            // of the filtered one.
+            onChange={(e) => { setStatus(e.target.value); setOffset(0); }}
+          >
             <option value="">All statuses</option>
-            <option value="SENT">Sent</option>
-            <option value="FAILED">Failed</option>
+            {ALARM_WEBHOOK_DELIVERY_STATUSES.map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
           {canManage && <Button size="sm" onClick={onTest}>Send test</Button>}
         </div>
@@ -555,10 +589,10 @@ function TargetDetail({
           </thead>
           <tbody className="divide-y divide-slate-100">
             {isLoading && <tr><td colSpan={6} className="px-4 py-6 text-center text-slate-500">Loading…</td></tr>}
-            {!isLoading && shown.length === 0 && (
+            {!isLoading && rows.length === 0 && (
               <tr><td colSpan={6} className="px-4 py-6 text-center text-slate-500">No deliveries.</td></tr>
             )}
-            {shown.map((d) => (
+            {rows.map((d) => (
               <tr key={d.id} className="hover:bg-slate-50">
                 <td className="px-4 py-2 text-slate-700">{formatDateTime(d.sentAt ?? d.createdAt)}</td>
                 <td className="px-4 py-2 text-slate-700">{d.event}</td>
@@ -581,7 +615,7 @@ function TargetDetail({
       </div>
 
       <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-4 py-2 text-xs text-slate-600">
-        <span className="tabular-nums">{shown.length} shown · {total} total</span>
+        <span className="tabular-nums">{total} deliveries{status ? ` · ${status}` : ''}</span>
         <div className="flex gap-2">
           <Button size="sm" variant="outline" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - DELIVERY_PAGE))}>
             Previous
@@ -617,8 +651,12 @@ function TargetDialog({
   const [touched, setTouched] = useState(false);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
 
-  const { data: instrumentData } = useSWR<{ data: InstrumentRow[] }>('/api/instruments?limit=500');
-  const { data: flData } = useSWR<{ data: FlNode[] }>('/api/functional-locations');
+  // linkable-instruments returns EVERY instrument unpaginated; /api/instruments caps at
+  // the zod max of 500 and would silently drop the rest out of the picker.
+  const { data: instrumentData, error: instrumentError } = useSWR<{ data: InstrumentRow[] }>(
+    '/api/functional-locations/linkable-instruments',
+  );
+  const { data: flData, error: flError } = useSWR<{ data: FlNode[] }>('/api/functional-locations');
 
   const instruments = useMemo(
     () => [...(instrumentData?.data ?? [])].sort((a, b) => a.code.localeCompare(b.code)),
@@ -836,7 +874,11 @@ function TargetDialog({
             <div>
               <span className={labelCls}>Functional locations</span>
               <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-3">
-                {flat.length === 0 && <p className="text-xs text-slate-500">None.</p>}
+                {/* A role holding only alarm-webhook management lacks
+                    FUNCTIONAL_LOCATION_READ / INSTRUMENT_READ, and an unreadable list must
+                    not read as an empty site. */}
+                {flError && <p className="text-xs text-amber-700">Could not load — you may not have access to functional locations.</p>}
+                {!flError && flat.length === 0 && <p className="text-xs text-slate-500">None.</p>}
                 {flat.map(({ node, depth }) => (
                   <label key={node.id} className={`flex items-center gap-2 text-sm ${depth ? 'pl-6' : 'font-medium'}`}>
                     <input
@@ -856,7 +898,8 @@ function TargetDialog({
             <div>
               <span className={labelCls}>Instruments</span>
               <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-3">
-                {instruments.length === 0 && <p className="text-xs text-slate-500">None.</p>}
+                {instrumentError && <p className="text-xs text-amber-700">Could not load — you may not have access to instruments.</p>}
+                {!instrumentError && instruments.length === 0 && <p className="text-xs text-slate-500">None.</p>}
                 {instruments.map((i) => (
                   <label key={i.id} className="flex items-center gap-2 text-sm text-slate-700">
                     <input

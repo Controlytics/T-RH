@@ -145,7 +145,7 @@ describe('alarm webhook targets', () => {
       'id', 'name', 'description', 'url', 'method', 'headers', 'contentType', 'bodyTemplate',
       'successRegex', 'timeoutMs', 'fireOnRaised', 'fireOnCleared', 'fireOnAcknowledged',
       'severities', 'cooldownSeconds', 'isActive', 'scopeLocationIds', 'scopeInstrumentIds',
-      'instrumentCount', 'createdAt', 'updatedAt',
+      'instrumentCount', 'lastDeliveryStatus', 'lastDeliveryAt', 'createdAt', 'updatedAt',
     ]) {
       expect(body, `missing "${key}" — check the response schema`).toHaveProperty(key);
     }
@@ -155,6 +155,26 @@ describe('alarm webhook targets', () => {
     expect(body.isActive).toBe(true);
     // Resolved server-side: the one instrument this target's scope names.
     expect(body.instrumentCount).toBe(1);
+    // Never fired, so there is nothing to report — not a fabricated "SENT".
+    expect(body.lastDeliveryStatus).toBeNull();
+    expect(body.lastDeliveryAt).toBeNull();
+  });
+
+  it('reports the last delivery outcome on the list once the target has fired', async () => {
+    const id = (await newTarget()).json().id;
+
+    const before = (await app.inject({ method: 'GET', url: '/api/alarm-webhooks', headers: auth }))
+      .json().data.find((t: { id: string }) => t.id === id);
+    expect(before.lastDeliveryStatus).toBeNull();
+    expect(before.lastDeliveryAt).toBeNull();
+
+    await app.inject({ method: 'POST', url: `/api/alarm-webhooks/${id}/test`, headers: headers() });
+
+    const after = (await app.inject({ method: 'GET', url: '/api/alarm-webhooks', headers: auth }))
+      .json().data.find((t: { id: string }) => t.id === id);
+    expect(after.lastDeliveryStatus).toBe('SENT');
+    // A timestamp, not just a truthy string — the page renders it as a date.
+    expect(Number.isNaN(Date.parse(after.lastDeliveryAt))).toBe(false);
   });
 
   it('reports the resolved instrument count so an empty scope is visible', async () => {
@@ -344,6 +364,29 @@ describe('alarm webhook targets', () => {
     // Stored verbatim: re-rendering it later from a since-edited template would be
     // a fabrication.
     expect(row.requestBody).toContain('"event":"TEST"');
+  });
+
+  it('filters the delivery log by status, narrowing the rows AND the total', async () => {
+    const id = (await newTarget()).json().id;
+    await app.inject({ method: 'POST', url: `/api/alarm-webhooks/${id}/test`, headers: headers() });
+
+    const sent = await app.inject({ method: 'GET', url: `/api/alarm-webhooks/${id}/deliveries?status=SENT`, headers: auth });
+    expect(sent.statusCode).toBe(200);
+    expect(sent.json().total).toBe(1);
+    expect(sent.json().data).toHaveLength(1);
+    expect(sent.json().data[0].status).toBe('SENT');
+
+    // The total MUST move with the rows. A filtered page against an unfiltered total
+    // is what drives a pager past the end of the filtered set.
+    const failed = await app.inject({ method: 'GET', url: `/api/alarm-webhooks/${id}/deliveries?status=FAILED`, headers: auth });
+    expect(failed.statusCode).toBe(200);
+    expect(failed.json().total).toBe(0);
+    expect(failed.json().data).toHaveLength(0);
+
+    // An unknown status is refused by the schema rather than silently matching nothing,
+    // which would be indistinguishable from "this target has never failed".
+    const bogus = await app.inject({ method: 'GET', url: `/api/alarm-webhooks/${id}/deliveries?status=NOPE`, headers: auth });
+    expect(bogus.statusCode).toBe(400);
   });
 
   it('refuses to delete a target that has delivery records, and says how many', async () => {
