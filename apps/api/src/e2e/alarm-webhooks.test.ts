@@ -366,6 +366,72 @@ describe('alarm webhook targets', () => {
     expect(row.requestBody).toContain('"event":"TEST"');
   });
 
+  it('keeps a stored severities:[] through a PUT that changes only the url', async () => {
+    // The regression this pins: `[]` means "no severity, never fires" and is a state a
+    // seed or an import can produce. If a partial update ever re-read it as "unset" and
+    // wrote back null, the target would silently start firing for EVERY severity — and
+    // if the page refused to save it, its url could never be corrected at all. Neither
+    // is allowed; the value is data, and an update that does not mention it must not
+    // touch it.
+    const created = await newTarget({ severities: [] });
+    expect(created.statusCode).toBe(201);
+    const id = created.json().id;
+    expect(created.json().severities).toEqual([]);
+
+    const newUrl = `${hooterUrl}?moved=1`;
+    const put = await app.inject({
+      method: 'PUT', url: `/api/alarm-webhooks/${id}`, headers: headers(), payload: { url: newUrl },
+    });
+    expect(put.statusCode).toBe(200);
+    expect(put.json().url).toBe(newUrl);
+    // Not null (= every severity) and not the three-value list.
+    expect(put.json().severities).toEqual([]);
+
+    // Asserted on the stored row too: a correct response over a wrong column would pass
+    // the check above and still be a silent data change.
+    const stored = await prisma.alarmWebhookTarget.findUnique({ where: { id } });
+    expect(stored!.severities).toEqual([]);
+
+    const fetched = await app.inject({ method: 'GET', url: `/api/alarm-webhooks/${id}`, headers: auth });
+    expect(fetched.json().severities).toEqual([]);
+  });
+
+  it('breaks a same-millisecond delivery tie by attempt, agreeing with the delivery log', async () => {
+    const id = (await newTarget()).json().id;
+
+    // One timestamp, three attempts — exactly what a retry burst writes. `createdAt` alone
+    // cannot order these, so the list row and the log could disagree about which one is
+    // "last" unless both fall back to `attempt`.
+    const at = new Date();
+    await prisma.alarmWebhookDelivery.createMany({
+      data: [1, 2, 3].map((attempt) => ({
+        targetId: id,
+        event: 'RAISED',
+        url: hooterUrl,
+        requestBody: `{"attempt":${attempt}}`,
+        httpStatus: attempt === 3 ? 200 : 500,
+        attempt,
+        // The LAST attempt succeeded, so a tie-break that picked any other row would
+        // report FAILED for a target that is in fact working — the exact misreading the
+        // column exists to prevent.
+        status: attempt === 3 ? 'SENT' : 'FAILED',
+        createdAt: at,
+        sentAt: at,
+      })),
+    });
+
+    const log = await app.inject({ method: 'GET', url: `/api/alarm-webhooks/${id}/deliveries`, headers: auth });
+    expect(log.json().total).toBe(3);
+    const first = log.json().data[0];
+    expect(first.attempt).toBe(3);
+
+    const row = (await app.inject({ method: 'GET', url: '/api/alarm-webhooks', headers: auth }))
+      .json().data.find((t: { id: string }) => t.id === id);
+    // The two surfaces must name the same delivery, not merely both be plausible.
+    expect(row.lastDeliveryStatus).toBe(first.status);
+    expect(row.lastDeliveryStatus).toBe('SENT');
+  });
+
   it('filters the delivery log by status, narrowing the rows AND the total', async () => {
     const id = (await newTarget()).json().id;
     await app.inject({ method: 'POST', url: `/api/alarm-webhooks/${id}/test`, headers: headers() });

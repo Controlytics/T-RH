@@ -590,7 +590,13 @@ function TargetDetail({
           <tbody className="divide-y divide-slate-100">
             {isLoading && <tr><td colSpan={6} className="px-4 py-6 text-center text-slate-500">Loading…</td></tr>}
             {!isLoading && rows.length === 0 && (
-              <tr><td colSpan={6} className="px-4 py-6 text-center text-slate-500">No deliveries.</td></tr>
+              <tr>
+                <td colSpan={6} className="px-4 py-6 text-center text-slate-500">
+                  {/* Unqualified, this says the target has never fired — false, and
+                      dangerously so, on a target with 400 rows and a filter applied. */}
+                  {status ? `No ${status} deliveries.` : 'No deliveries.'}
+                </td>
+              </tr>
             )}
             {rows.map((d) => (
               <tr key={d.id} className="hover:bg-slate-50">
@@ -651,10 +657,15 @@ function TargetDialog({
   const [touched, setTouched] = useState(false);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
 
-  // linkable-instruments returns EVERY instrument unpaginated; /api/instruments caps at
-  // the zod max of 500 and would silently drop the rest out of the picker.
+  // The 500 cap is DELIBERATE — do not "fix" it by moving to
+  // /api/functional-locations/linkable-instruments, which returns every instrument
+  // unpaginated but is a bare findMany with no visibility scoping. This route applies
+  // resolveVisibility, so a user with a restricted instrument_scope cannot read the
+  // codes and names of instruments outside it. The cap costs display only: ids beyond
+  // it stay in scopeInstrumentIds and are resubmitted untouched, so nothing is lost by
+  // saving from a truncated picker.
   const { data: instrumentData, error: instrumentError } = useSWR<{ data: InstrumentRow[] }>(
-    '/api/functional-locations/linkable-instruments',
+    '/api/instruments?limit=500',
   );
   const { data: flData, error: flError } = useSWR<{ data: FlNode[] }>('/api/functional-locations');
 
@@ -874,10 +885,10 @@ function TargetDialog({
             <div>
               <span className={labelCls}>Functional locations</span>
               <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-3">
-                {/* A role holding only alarm-webhook management lacks
-                    FUNCTIONAL_LOCATION_READ / INSTRUMENT_READ, and an unreadable list must
-                    not read as an empty site. */}
-                {flError && <p className="text-xs text-amber-700">Could not load — you may not have access to functional locations.</p>}
+                {/* A role holding only alarm-webhook management holds neither
+                    FUNCTIONAL_LOCATION_READ nor INSTRUMENT_READ, and an unreadable list
+                    must not read as an empty site. */}
+                {flError && <p className="text-xs text-amber-700">Could not load — you may not have FUNCTIONAL_LOCATION_READ.</p>}
                 {!flError && flat.length === 0 && <p className="text-xs text-slate-500">None.</p>}
                 {flat.map(({ node, depth }) => (
                   <label key={node.id} className={`flex items-center gap-2 text-sm ${depth ? 'pl-6' : 'font-medium'}`}>
@@ -898,7 +909,7 @@ function TargetDialog({
             <div>
               <span className={labelCls}>Instruments</span>
               <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-3">
-                {instrumentError && <p className="text-xs text-amber-700">Could not load — you may not have access to instruments.</p>}
+                {instrumentError && <p className="text-xs text-amber-700">Could not load — you may not have INSTRUMENT_READ.</p>}
                 {!instrumentError && instruments.length === 0 && <p className="text-xs text-slate-500">None.</p>}
                 {instruments.map((i) => (
                   <label key={i.id} className="flex items-center gap-2 text-sm text-slate-700">
