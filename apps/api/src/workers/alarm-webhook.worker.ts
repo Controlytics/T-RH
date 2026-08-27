@@ -19,6 +19,34 @@ import { deliverToTarget } from '../modules/alarm-webhooks/send.js';
 const asStringArray = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
 
+/**
+ * Delivers to one target with error isolation. A throw here — the delivery-row
+ * insert failing on a connection blip or constraint violation, or anything else
+ * inside `deliverToTarget` — must cost ONE target's annunciation, never abort the
+ * rest of the targets in this job. Same precedent as notification-dispatcher.ts's
+ * per-recipient try/catch around `prisma.notification.create`.
+ *
+ * `deliver` is injected (default `deliverToTarget`) so this is testable without a
+ * database — a test can pass a stub that throws.
+ */
+export async function attemptTarget(
+  target: Parameters<typeof deliverToTarget>[0],
+  event: string,
+  alarmId: string | null,
+  variables: Record<string, string>,
+  deliver: typeof deliverToTarget = deliverToTarget,
+): Promise<boolean> {
+  try {
+    return await deliver(target, event, alarmId, variables);
+  } catch (err) {
+    console.error(
+      `[alarm-webhook] target ${target.id} threw during delivery:`,
+      err instanceof Error ? err.message : String(err),
+    );
+    return false;
+  }
+}
+
 export async function runAlarmWebhookJob(
   payload: AlarmWebhookJob,
   now: number = Date.now(),
@@ -61,7 +89,7 @@ export async function runAlarmWebhookJob(
     matched++;
     if (!shouldFire(event, t.id, t.cooldownSeconds, now)) continue;
 
-    const ok = await deliverToTarget(t, event, alarmId, variables);
+    const ok = await attemptTarget(t, event, alarmId, variables);
     if (ok) sent++; else failed++;
   }
 
