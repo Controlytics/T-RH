@@ -126,3 +126,18 @@ export type { ActionReauthConfig } from './schemas/action-reauth.js';
 export { TRANSPORTS, TOKEN_PREFIX_LEN, createInstrumentSchema, updateInstrumentSchema, instrumentQuerySchema, bulkCreateInstrumentsSchema, setInstrumentTokenSchema, setInstrumentAttributeSchema, updateInstrumentAttributeSchema } from './schemas/instruments.js';
 export type { Transport, CreateInstrumentInput, UpdateInstrumentInput, InstrumentQueryInput, BulkCreateInstrumentsInput, SetInstrumentTokenInput, SetInstrumentAttributeInput, UpdateInstrumentAttributeInput } from './schemas/instruments.js';
 
+export {
+  ALARM_WEBHOOK_EVENTS,
+  ALARM_WEBHOOK_METHODS,
+  ALARM_WEBHOOK_DELIVERY_STATUSES,
+  ALARM_WEBHOOK_VARIABLES,
+  DEFAULT_WEBHOOK_BODY_TEMPLATE,
+} from './types/alarm-webhook.js';
+export type {
+  AlarmWebhookEvent,
+  AlarmWebhookMethod,
+  AlarmWebhookDeliveryStatus,
+  AlarmWebhookScope,
+  AlarmWebhookTargetShape,
+} from './types/alarm-webhook.js';
+
