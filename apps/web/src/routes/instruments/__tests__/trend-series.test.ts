@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toChartSeries, toTableRows } from '../trend-series';
+import { toChartSeries, toTableRows, rawCountForKey } from '../trend-series';
 
 const rows = [
   { key: 'temp', value: 21.5, ts: '2026-08-24T10:00:00.000Z' },
@@ -47,6 +47,51 @@ describe('toChartSeries', () => {
       const s = toChartSeries(wide, 'temp', 1, 'Temperature', 60_000);
       expect(s.points).toHaveLength(2);
     });
+  });
+});
+
+describe('rawCountForKey', () => {
+  it('counts every row for the key, not the number of points a chart would draw', () => {
+    expect(rawCountForKey(rows, 'temp')).toBe(2);
+  });
+  it('returns 0 for a key that never appears', () => {
+    expect(rawCountForKey(rows, 'co2')).toBe(0);
+  });
+
+  /**
+   * The bug this guards: `SampledNote`'s `shown` count used to be
+   * `toChartSeries(...).points.length`, which is the BUCKET count once an
+   * interval is selected — not the number of raw readings the chart
+   * represents. A 1-hour period with 3,600 raw readings bucketed to 5
+   * minutes plots 12 points, so the note read "Showing 12 of 3,600
+   * readings" directly under `ChartIntervalNote`'s "the table below shows
+   * every reading" — two contradictory claims in the same card, on a §11
+   * page, for a chart where nothing was actually dropped. `rawCountForKey`
+   * must stay the RAW count regardless of bucketing.
+   */
+  it('stays the raw reading count even when the same rows would bucket down to far fewer chart points', () => {
+    const threeReadingsOneBucket = [
+      { key: 'temp', value: 21.5, ts: '2026-08-24T10:00:00.000Z' },
+      { key: 'temp', value: 21.6, ts: '2026-08-24T10:01:00.000Z' },
+      { key: 'temp', value: 21.7, ts: '2026-08-24T10:02:00.000Z' },
+    ];
+    const bucketed = toChartSeries(threeReadingsOneBucket, 'temp', 1, 'Temperature', 5 * 60_000);
+    expect(bucketed.points).toHaveLength(1); // what the chart DRAWS
+    expect(rawCountForKey(threeReadingsOneBucket, 'temp')).toBe(3); // what it REPRESENTS
+  });
+
+  // The caller passes rows with `value: unknown` (the response's raw shape,
+  // before this page's numeric-only filter) precisely so a non-numeric
+  // reading on this key is counted the same way the server's
+  // `summaries[key].count` counts it (`count(*)`, no numeric guard) — a
+  // type that required `value: number` would force filtering first, which
+  // is exactly the mismatch that made the boundary case work "by accident".
+  it('counts a row regardless of its value type — matches the server COUNT(*), not a numeric-only count', () => {
+    const withNonNumeric = [
+      { key: 'temperature', value: 21.5, ts: '2026-08-24T10:00:00.000Z' },
+      { key: 'temperature', value: 'ERR', ts: '2026-08-24T10:01:00.000Z' },
+    ];
+    expect(rawCountForKey(withNonNumeric, 'temperature')).toBe(2);
   });
 });
 

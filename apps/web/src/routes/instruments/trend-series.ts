@@ -41,6 +41,32 @@ export function toChartSeries(
   return { id: key, label, decimals, points: bucketMs ? bucketize(points, bucketMs) : points };
 }
 
+/**
+ * How many raw readings for `key` are in `rows`, BEFORE any bucketing.
+ *
+ * This is what `SampledNote`'s `shown` count means: "raw readings this chart
+ * is representing", not "marks drawn on the chart". Bucketing and sampling are
+ * independent — a bucketed chart still represents every one of these rows (it
+ * just averages them for display), while a chart the server sampled down
+ * represents FEWER rows than the period actually holds. Counting bucket/point
+ * output instead would make the note describe how many marks were drawn, and
+ * with an interval selected that number collapses to the bucket count — 12
+ * buckets for 3,600 raw readings — which reads as 99.7% of the record missing
+ * when nothing was dropped at all.
+ *
+ * Takes `{ key }[]`, not `TelemetryLongRow[]` — the caller passes the
+ * response's UNFILTERED `chartRows` (before the numeric-only filter this page
+ * applies for plotting), so a non-numeric reading on this key counts here the
+ * same way the server's `summaries[key].count` counts it (`count(*)`, no
+ * numeric guard). Counting only the numeric-filtered rows would make this
+ * number fall below `summaries[key].count` whenever a key held one
+ * non-numeric reading, which reads as "sampled" for a period where nothing
+ * was actually dropped by the server.
+ */
+export function rawCountForKey(rows: { key: string }[], key: string): number {
+  return rows.reduce((n, r) => (r.key === key ? n + 1 : n), 0);
+}
+
 /** Average same-bucket points into one, keyed by the bucket's start instant. */
 function bucketize(points: { ts: string; value: number }[], bucketMs: number): { ts: string; value: number }[] {
   const buckets = new Map<number, { sum: number; count: number }>();

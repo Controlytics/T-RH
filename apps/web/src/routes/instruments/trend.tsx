@@ -24,7 +24,7 @@ import {
   type AlarmRow, type AlarmStatusTexts, type AlarmStatusTextsResponse,
 } from '@/routes/alarms/alarm-display';
 import { useTrendPeriod, useInstrumentTrend, TREND_PRESETS, TABLE_PAGE_SIZE, type TelemetryLongRow } from './use-trend-data';
-import { toChartSeries, toTableRows, type TableRow as PivotRow } from './trend-series';
+import { toChartSeries, toTableRows, rawCountForKey, type TableRow as PivotRow } from './trend-series';
 import { summariseSlot } from './trend-summary';
 import { ChartIntervalNote, intervalLabel } from './chart-interval-note';
 import { useExtraKeys } from './use-extra-keys';
@@ -303,10 +303,31 @@ export function InstrumentTrend() {
   const humidDecimals = trend.overview?.decimals.humidity ?? TELEMETRY_DECIMALS_FALLBACK;
   const spanMs = Math.max(1, new Date(period.to).getTime() - new Date(period.from).getTime());
 
-  // Hoisted out of the chart JSX below so `shown` (the SampledNote count) is
-  // read off the exact same series the chart draws, not recomputed.
+  // Hoisted out of the chart JSX below so both the chart and `SampledNote`
+  // read off the same computation, not two recomputations that could drift.
   const tempSeries = tempKey ? toChartSeries(chartRows, tempKey, tempDecimals, 'Temperature', period.intervalMs) : null;
   const humidSeries = humidKey ? toChartSeries(chartRows, humidKey, humidDecimals, 'Humidity', period.intervalMs) : null;
+  /**
+   * `SampledNote`'s `shown` prop: "raw readings this chart is representing" —
+   * NOT `series.points.length`, which is the number of MARKS drawn. Those two
+   * differ whenever a chart interval is selected: `toChartSeries` buckets the
+   * series for display, so `points.length` collapses to the bucket count (12
+   * buckets for a 3,600-reading hour at 5-minute buckets) while the chart
+   * still represents every one of those 3,600 readings — bucketing averages
+   * for display, it does not drop data the way server-side sampling does.
+   * Using the bucket count here made the note read "Showing 12 of 3,600
+   * readings" directly under `ChartIntervalNote`'s "the table below shows
+   * every reading" — two contradictory §11 claims in one card.
+   *
+   * Computed from `trend.chartRows` (UNFILTERED, before this page's
+   * numeric-only filter) rather than `chartRows`/`tempSeries.points`, so a
+   * non-numeric reading on this key counts the same way the server's
+   * `summaries[key].count` counts it (`count(*)`, no numeric guard) — see
+   * `rawCountForKey`'s own doc comment for why that avoids a false "sampled"
+   * reading when nothing was actually dropped by the server.
+   */
+  const tempRawCount = tempKey ? rawCountForKey(trend.chartRows, tempKey) : 0;
+  const humidRawCount = humidKey ? rawCountForKey(trend.chartRows, humidKey) : 0;
 
   // Extra keys carry no administered decimals/limits — there is nothing
   // resolved server-side for a key nobody has declared as a slot, so they
@@ -741,7 +762,7 @@ export function InstrumentTrend() {
             onResetZoom={onResetZoom}
           />
           <SampledNote
-            shown={tempSeries?.points.length ?? 0}
+            shown={tempRawCount}
             total={tempKey ? (trend.summaries[tempKey]?.count ?? 0) : 0}
           />
         </div>
@@ -761,7 +782,7 @@ export function InstrumentTrend() {
             onResetZoom={onResetZoom}
           />
           <SampledNote
-            shown={humidSeries?.points.length ?? 0}
+            shown={humidRawCount}
             total={humidKey ? (trend.summaries[humidKey]?.count ?? 0) : 0}
           />
         </div>

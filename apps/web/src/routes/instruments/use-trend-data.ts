@@ -130,9 +130,20 @@ interface TelemetryResponse {
   latest: TelemetryLongRow[];
   history: TelemetryLongRow[];
   historyTotal: number;
-  /** Chart path only (`points` was sent). True when any key's plotted series
-   *  is a subset of what the range actually holds — sampled down, or hit the
-   *  server's hard cap. */
+  /**
+   * Chart path only (`points` was sent). True when any key's plotted series
+   * is a subset of what the range actually holds — sampled down, or hit the
+   * server's hard cap.
+   *
+   * Deliberately NOT surfaced on `InstrumentTrendData` below. It is a single
+   * flag over ALL keys in the response, so it cannot say which key's chart
+   * was sampled — and `SampledNote`'s own per-key `shown < total` comparison
+   * (against `summaries[key].count`, both counted the same way server-side)
+   * is a strictly more precise signal for "was THIS chart's data sampled"
+   * than this boolean could ever be. Typed here only because it is part of
+   * the wire response; a prop that looked load-bearing on the hook but was
+   * never read was worse than not exposing it at all.
+   */
   historySampled?: boolean;
   /** Chart path only, keyed by telemetry key. */
   summaries?: Record<string, TelemetrySummary>;
@@ -148,8 +159,6 @@ export interface InstrumentTrendData {
   tableRows: TelemetryLongRow[];
   /** The true count across the whole period, for paging the table (never `tableRows.length`). */
   historyTotal: number;
-  /** True when the chart series is a subset of the range's readings. */
-  historySampled: boolean;
   /** Per-key true aggregates over the WHOLE range, for the summary strip — never
    *  derived from `chartRows`, which may be sampled. */
   summaries: Record<string, TelemetrySummary>;
@@ -208,7 +217,6 @@ export function useInstrumentTrend(
     // paging must stay driven by its own fetch regardless of what the chart
     // request returns or when it resolves.
     historyTotal: tableData?.historyTotal ?? 0,
-    historySampled: chartData?.historySampled ?? false,
     summaries: chartData?.summaries ?? {},
     isLoading: overviewLoading || chartLoading || tableLoading,
   };
