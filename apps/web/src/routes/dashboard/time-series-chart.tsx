@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { formatDecimals } from '@digilog/shared';
+import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { pixelToTime, normalizeSelection } from './chart-zoom';
 
 /**
@@ -22,12 +23,27 @@ import { pixelToTime, normalizeSelection } from './chart-zoom';
  * Categorical slots 1–3 of the validated palette, in fixed order.
  * `node scripts/validate_palette.js "#2a78d6,#eb6834,#1baf7a" --mode light --pairs all`
  * → all checks pass (worst CVD ΔE 9.2, worst normal-vision ΔE 24.0).
+ *
+ * Values are CSS custom properties (defined light-only in `app.css`), each with
+ * the SAME literal colour as its own CSS fallback — `var(--chart-series-1,
+ * #2a78d6)`, not a bare `var()`. The fallback is not decorative: the PDF export
+ * (`routes/instruments/chart-image.ts`) serialises this chart's SVG into a
+ * standalone document with no stylesheet attached, where an undefined custom
+ * property resolves to nothing. The fallback is what keeps that export showing
+ * the same colour the screen did, rather than a black or invisible line.
  */
 /** The in-limit semantic, shared with the trend page's band gauge. Fixed, not
  *  themed: a site that themes the app purple must not get a purple limit. */
-const LIMIT_LINE = '#15803D';
+const LIMIT_LINE = 'var(--chart-limit-line, #15803D)';
 
-export const SERIES_COLORS = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#4a3aa7'] as const;
+export const SERIES_COLORS = [
+  'var(--chart-series-1, #2a78d6)',
+  'var(--chart-series-2, #eb6834)',
+  'var(--chart-series-3, #1baf7a)',
+  'var(--chart-series-4, #eda100)',
+  'var(--chart-series-5, #e87ba4)',
+  'var(--chart-series-6, #4a3aa7)',
+] as const;
 
 /** Never generate a hue past the end of the palette — clamp instead. */
 export function seriesColor(index: number): string {
@@ -136,6 +152,7 @@ const PAD = { top: 14, right: 62, bottom: 26, left: 46 };
 const MIN_ZOOM_SPAN_MS = 60_000;
 
 export function TimeSeriesChart({ series, unit, min, max, spanMs, title, onZoom, onResetZoom }: Props) {
+  const { formatDateTime } = useDatetimeFormat();
   const [hoverX, setHoverX] = useState<number | null>(null);
   /** Drag in progress, in viewBox x — null when not dragging. */
   const [drag, setDrag] = useState<{ a: number; b: number } | null>(null);
@@ -181,7 +198,7 @@ export function TimeSeriesChart({ series, unit, min, max, spanMs, title, onZoom,
     return (
       <div className="rounded-xl border border-slate-200 bg-white p-6 text-center">
         <p className="text-sm font-medium text-slate-700">{title}</p>
-        <p className="mt-1 text-xs text-slate-500">No readings in this window.</p>
+        <p className="mt-1 text-xs text-slate-500">No data available</p>
       </div>
     );
   }
@@ -232,7 +249,11 @@ export function TimeSeriesChart({ series, unit, min, max, spanMs, title, onZoom,
       const d = Math.abs(new Date(p.ts).getTime() - hoverTime);
       if (d < bestD) { bestD = d; best = p; }
     }
-    return { label: s.label, value: best.value, decimals: s.decimals, color: s.color ?? seriesColor(i) };
+    // `best.ts` — the READING's own timestamp, not the pixel-derived hover
+    // instant `pixelToTime` produced. The nearest stored point is what the
+    // reader is actually being shown a value for; the hovered pixel is only
+    // how they picked it.
+    return { label: s.label, value: best.value, decimals: s.decimals, color: s.color ?? seriesColor(i), ts: best.ts };
   });
 
   /**
@@ -379,17 +400,17 @@ export function TimeSeriesChart({ series, unit, min, max, spanMs, title, onZoom,
         {/* Recessive grid + axis labels. */}
         {g.scale.ticks.map((t) => (
           <g key={t}>
-            <line x1={PAD.left} x2={W - PAD.right} y1={g.sy(t)} y2={g.sy(t)} stroke="#e2e8f0" strokeWidth={1} />
+            <line x1={PAD.left} x2={W - PAD.right} y1={g.sy(t)} y2={g.sy(t)} stroke="var(--chart-grid-line, #e2e8f0)" strokeWidth={1} />
             {/* The tick is a SCALE value, not a reading — it keeps niceScale's own
                 rounding rather than an instrument's precision. A 0-decimal probe on
                 a 0.5-step axis should still see 22.5 on the gridline. */}
-            <text x={PAD.left - 6} y={g.sy(t) + 3} textAnchor="end" fontSize={10} fill="#64748b">
+            <text x={PAD.left - 6} y={g.sy(t) + 3} textAnchor="end" fontSize={10} fill="var(--chart-axis-text, #64748b)">
               {t}
             </text>
           </g>
         ))}
-        <text x={PAD.left} y={H - 8} fontSize={10} fill="#64748b">{fmtTime(g.t0)}</text>
-        <text x={W - PAD.right} y={H - 8} textAnchor="end" fontSize={10} fill="#64748b">{fmtTime(g.t1)}</text>
+        <text x={PAD.left} y={H - 8} fontSize={10} fill="var(--chart-axis-text, #64748b)">{fmtTime(g.t0)}</text>
+        <text x={W - PAD.right} y={H - 8} textAnchor="end" fontSize={10} fill="var(--chart-axis-text, #64748b)">{fmtTime(g.t1)}</text>
 
         {/* Series. 2px, no per-point markers — these are dense polls. */}
         {withPoints.map((s, i) => {
@@ -407,7 +428,7 @@ export function TimeSeriesChart({ series, unit, min, max, spanMs, title, onZoom,
                 y={g.sy(last.value) + 3}
                 fontSize={10}
                 fontWeight={600}
-                fill="#334155"
+                fill="var(--chart-value-label, #334155)"
               >
                 {formatDecimals(last.value, s.decimals)}
               </text>
@@ -417,7 +438,7 @@ export function TimeSeriesChart({ series, unit, min, max, spanMs, title, onZoom,
 
         {/* Hover crosshair. */}
         {hoverX !== null && (
-          <line x1={hoverX} x2={hoverX} y1={PAD.top} y2={PAD.top + g.plotH} stroke="#94a3b8" strokeWidth={1} />
+          <line x1={hoverX} x2={hoverX} y1={PAD.top} y2={PAD.top + g.plotH} stroke="var(--chart-crosshair, #94a3b8)" strokeWidth={1} />
         )}
 
         {/* Selection, drawn only WHILE dragging — nothing is emitted otherwise,
@@ -425,10 +446,10 @@ export function TimeSeriesChart({ series, unit, min, max, spanMs, title, onZoom,
             selection is chrome, not data, and must not read as a limit band. */}
         {dragRect && (
           <g>
-            <rect x={dragRect.x} y={PAD.top} width={dragRect.w} height={g.plotH} fill="#334155" opacity={0.12} />
-            <line x1={dragRect.x} x2={dragRect.x} y1={PAD.top} y2={PAD.top + g.plotH} stroke="#334155" strokeWidth={1} />
+            <rect x={dragRect.x} y={PAD.top} width={dragRect.w} height={g.plotH} fill="var(--chart-selection, #334155)" opacity={0.12} />
+            <line x1={dragRect.x} x2={dragRect.x} y1={PAD.top} y2={PAD.top + g.plotH} stroke="var(--chart-selection, #334155)" strokeWidth={1} />
             <line x1={dragRect.x + dragRect.w} x2={dragRect.x + dragRect.w} y1={PAD.top} y2={PAD.top + g.plotH}
-                  stroke="#334155" strokeWidth={1} />
+                  stroke="var(--chart-selection, #334155)" strokeWidth={1} />
           </g>
         )}
       </svg>
@@ -438,6 +459,10 @@ export function TimeSeriesChart({ series, unit, min, max, spanMs, title, onZoom,
           <span key={r.label} className="flex items-center gap-1.5 text-slate-600">
             <span className="inline-block h-2 w-2 rounded-sm" style={{ backgroundColor: r.color }} />
             {r.label}: <span className="font-semibold tabular-nums text-slate-800">{formatDecimals(r.value, r.decimals)} {unit}</span>
+            {/* The reading's own timestamp — not the pixel the pointer happens to
+                sit on — so the hover readout names the exact instant it is
+                quoting a value for. */}
+            <span className="tabular-nums text-slate-400">{formatDateTime(r.ts)}</span>
           </span>
         )) : (
           <span className="text-slate-400">

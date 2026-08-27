@@ -160,6 +160,41 @@ table {
 .text-theme-primary { color: var(--theme-primary); }
 
 /* ===========================================================================
+   TREND CHART COLOURS (routes/dashboard/time-series-chart.tsx) — LIGHT ONLY.
+   No dark block here on purpose: CLAUDE.md is explicit that this app has no
+   dark theme. The indirection through custom properties is what makes one
+   possible later without touching the chart's own code — it is not
+   permission to add a `prefers-color-scheme`/`[data-theme]` override now.
+
+   Every consumer reads these with a literal-colour FALLBACK
+   (`var(--chart-series-1, #2a78d6)`), not a bare `var()`. The PDF export
+   (`routes/instruments/chart-image.ts`) serialises the chart's live SVG on
+   its own, with no stylesheet attached — a bare `var()` there would resolve
+   to nothing (an invisible or black line in a signed §11 report) because the
+   custom property is undefined in that standalone document. The CSS fallback
+   syntax activates in exactly that situation and reproduces the same colour
+   the screen showed, so the indirection costs the export nothing.
+   =========================================================================== */
+:root {
+  /* Categorical slots 1-6, fixed order — see SERIES_COLORS' own doc comment
+     for why the order itself must never change. */
+  --chart-series-1: #2a78d6;
+  --chart-series-2: #eb6834;
+  --chart-series-3: #1baf7a;
+  --chart-series-4: #eda100;
+  --chart-series-5: #e87ba4;
+  --chart-series-6: #4a3aa7;
+  /* The in-limit band + limit lines. Fixed, not themed — a purple-themed
+     site must not get a purple limit. */
+  --chart-limit-line: #15803d;
+  --chart-grid-line: #e2e8f0;
+  --chart-axis-text: #64748b;
+  --chart-value-label: #334155;
+  --chart-crosshair: #94a3b8;
+  --chart-selection: #334155;
+}
+
+/* ===========================================================================
    TABULAR VIEW (Dashboard -> Table view) — scoped styling for the room-condition
    table in routes/dashboard/telemetry-table.tsx. Nothing else uses `.tv-*`.
 

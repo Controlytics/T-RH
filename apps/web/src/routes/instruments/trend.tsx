@@ -304,6 +304,19 @@ export function InstrumentTrend() {
   const onResetZoom = period.label === 'Custom' ? () => choosePreset(lastPresetMs) : undefined;
   const extra = useExtraKeys(id ?? '');
   const trend = useInstrumentTrend(id ?? '', period, page, extra.keys);
+  /**
+   * Error + retry for the trend fetch, WITHOUT reaching into `use-trend-data.ts`.
+   *
+   * `useInstrumentTrend` doesn't return `error`/`mutate` — it owns the chart and
+   * table requests and isn't in this task's file scope. SWR dedupes by key, so
+   * this reads the SAME cached request the hook already issues (the chart path,
+   * `points=`) rather than firing a second one; this key must stay identical to
+   * the one built inside `useInstrumentTrend` or the two would diverge.
+   */
+  const trendChartKey = id
+    ? `/api/instruments/${id}/telemetry?from=${encodeURIComponent(period.from)}&to=${encodeURIComponent(period.to)}&points=${MAX_SERIES_POINTS}`
+    : null;
+  const { error: trendError, mutate: retryTrend } = useSWR(trendChartKey);
   const { data: keyOptions } = useSWR<{ data: TelemetryKeyOption[] }>(id ? `/api/instruments/${id}/telemetry-keys` : null);
   const { formatDateTime } = useDatetimeFormat();
   const reauth = useReauth();
@@ -652,6 +665,13 @@ export function InstrumentTrend() {
         actions={<ExportMenu surface="instrument-trend" onExportPdf={() => setPendingReport({ kind: 'trend', slot: 'both' })} />}
       />
 
+      {trendError && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">
+          <span>Could not load this instrument&rsquo;s trend data.</span>
+          <Button size="sm" variant="secondary" onClick={() => retryTrend()}>Retry</Button>
+        </div>
+      )}
+
       {/* One quiet row: everything that changes WHAT is shown, and nothing
           that says anything about the readings themselves. */}
       <div className="flex flex-wrap items-end gap-4 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
@@ -773,7 +793,7 @@ export function InstrumentTrend() {
             <ExportMenu surface="instrument-trend" onExportPdf={() => setPendingReport({ kind: 'trend', slot: 'temperature' })} />
           </div>
           <TimeSeriesChart
-            title="Temperature"
+            title="Temperature Trend"
             unit="°C"
             spanMs={spanMs}
             min={trend.overview?.limits?.tempMin}
@@ -793,7 +813,7 @@ export function InstrumentTrend() {
             <ExportMenu surface="instrument-trend" onExportPdf={() => setPendingReport({ kind: 'trend', slot: 'humidity' })} />
           </div>
           <TimeSeriesChart
-            title="Humidity"
+            title="Humidity Trend"
             unit="%RH"
             spanMs={spanMs}
             min={trend.overview?.limits?.rhMin}
