@@ -19,7 +19,7 @@ re-derive any count from live code before repeating it.
 ```
 apps/api/         — Fastify backend (TypeScript, port 3001)
 apps/web/         — React SPA (Vite, port 5176 dev)
-packages/shared/  — Permissions (42), reauth actions (47), sidebar items (12),
+packages/shared/  — Permissions (42), reauth actions (48), sidebar items (12),
                     permission tree, zod schemas
 packages/queue/   — graphile-worker job queue (Postgres-backed)
 docs/             — Project docs; `docs/recreation/` is the verified inventory
@@ -138,10 +138,16 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
 - **Verify TLS up** — `curl -sk --ssl-revoke-best-effort -o /dev/null -w "%{http_code}" https://localhost:3001/api/system-health` should return a code (401 is a pass — TLS terminated and the route rejected an unauthenticated call). **There is no `/health` route** (`grep "get('/health'" apps/api/src` → 0 hits); this line pointed at one until 2026-08-24, so a 404 was being read as evidence of anything at all.
 - **Don't use HTTPS with self-signed in Capacitor *dev* mode** — WebView's `fetch()` rejects self-signed certs (Capacitor's `BridgeActivity` overrides the WebViewClient after `onCreate`). Keep dev cleartext if testing in-WebView, or install root CA on the device.
 
-## System Stats (re-derived 2026-08-24 — every number below came from the command beside it)
-- **Backend:** **23** API modules under `apps/api/src/modules/` (`ls | wc -l`).
-- **Database:** **34 Prisma models, 13 enums** (`grep -cE "^model " / "^enum "`).
-  Unchanged by the 2026-08-24 doors/grade work — both landed as nullable
+## System Stats (re-derived 2026-08-27 — every number below came from the command beside it)
+- **Backend:** **24** API modules under `apps/api/src/modules/` (`ls | wc -l`).
+  23 → 24 (2026-08-27): `alarm-webhooks`, the alarm annunciator.
+- **Database:** **36 Prisma models, 13 enums** (`grep -cE "^model " / "^enum "`).
+  34 → 36 (2026-08-27): `AlarmWebhookTarget` + `AlarmWebhookDelivery`
+  (migration `20260827120000_alarm_webhooks`). **The enum count did NOT move** —
+  that target's `method`, `event` and `status` are validated strings, the same
+  deliberate precedent as `FloorplanRoom.grade` below, so the vocabulary can
+  grow without a migration. Do not go looking for a new Postgres enum.
+  Earlier: unchanged by the 2026-08-24 doors/grade work — both landed as nullable
   columns on the existing `FloorplanRoom` model (`doors Json?`, `grade
   String?`; migrations `20260824100000_floorplan_room_doors` and
   `20260824140000_floorplan_room_grade`), not new models. `grade` is
@@ -151,19 +157,28 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   Only `compliance_core_db` + `compliance_core_db_test` exist — **no TimescaleDB,
   no `digilog_tsdb`**. The test database is migrated **separately**; a migration
   applied to only one of them makes every instrument-touching e2e 500.
-- **Permissions:** **42** constants, **47** reauth actions in **8** categories,
+- **Permissions:** **42** constants, **48** reauth actions in **8** categories,
   **12** sidebar items (`grep -cE` against `permissions.ts` / `reauth-actions.ts`
-  / `sidebar-items.ts`). 46 → 47 (2026-08-24): `DOWNLOAD_REPORT` added under a
+  / `sidebar-items.ts`). 47 → 48 (2026-08-27): `MANAGE_ALARM_WEBHOOK` added under
+  the EXISTING `Configuration` category (categories stay at 8). **No permission
+  and no sidebar item was added** — the alarm webhooks surface reuses
+  `ALARM_RULE_READ` / `ALARM_RULE_MANAGE` and lives under Config.
+  Earlier: 46 → 47 (2026-08-24): `DOWNLOAD_REPORT` added under a
   new `Reports` category (7 → 8 categories) to govern report/audit-export
   downloads; no permission or sidebar item was added for it.
   The "102 / 83 / 92 / 26" this file carried for months was upstream DigiLog's and
   was never true here.
-- **Audit registries:** **93** audit actions, **87** audit templates in **7**
-  categories (2026-08-20, after the filter-domain removal).
+- **Audit registries:** **97** audit actions, **91** audit templates in **7**
+  categories. 93 → 97 / 87 → 91 (2026-08-27): create / update / delete / test
+  for alarm webhook targets; categories unchanged.
 - **Config:** **25** definitions (`config/defs/*.def.ts`) + auto-discovery,
-  **24** pages under `apps/web/src/routes/config/`.
-- **Frontend:** **49** `<Route`s in `main.tsx`.
-- **Queue backend:** graphile-worker (Postgres-backed).
+  **25** pages under `apps/web/src/routes/config/`. 24 → 25 (2026-08-27):
+  `alarm-webhooks.tsx`. **The def count did NOT move** — alarm webhooks are a
+  real CRUD module with their own tables, not a `system_config` row, so there
+  is no `*.def.ts` for them.
+- **Frontend:** **50** `<Route`s in `main.tsx` (49 → 50, 2026-08-27:
+  `/config/alarm-webhooks`).
+- **Queue backend:** graphile-worker (Postgres-backed), **6** tasks.
 - **Tenancy:** single-tenant, single-site. JWT `scope` always stamps `GLOBAL`.
 - **Themes:** 10 preset colour themes.
 
@@ -174,7 +189,7 @@ history; `docs/recreation/` holds the inventory.
 
 - **Instrument VISIBILITY (2026-08-13, project D).** `instrument_scope` JSONB on **both** `role_configs` and `user_configs`. **`NULL` = inherit (user → role → unrestricted); `[]` = SEE NOTHING; `[ids]` = those functional locations, Blocks expanding to their Areas.** Resolved once in `modules/instruments/visibility.ts`; a user scope REPLACES the role's and can widen it. Enforced **on the query** — the list merges it into the same `where` the count uses, `GET /:id` applies it in the lookup and 404s (never 403, which would confirm existence), and the overview ANDs selection with visibility. Unassigned instruments are invisible to any active scope. Writing a NULL needs `Prisma.DbNull`, never `JsonNull`. Admin surface: Config → Roles & Access → Instrument Scope. Prove behaviour with `apps/api/scripts/probe-visibility.ts`.
 - **Instrument grouping — THREE concepts, one job each (2026-08-13).** Do not confuse them: **`FunctionalLocation`** (Block > Area tree, `Instrument.functionalLocationId`) is the AUTHORITATIVE logical grouping; **`roomId`** → `FloorplanRoom` is geometry on a drawn plan and drives the graphical view; **`profileId`** is device type. The free-text `Instrument.block` / `.area` columns are SUPERSEDED — no longer read for grouping, kept only so the migration stays comparable. A Block's instruments are its own PLUS its Areas', resolved by `functional-locations/tree.ts:resolveLocationIds()`; querying `functionalLocationId = :id` directly silently omits the Areas.
-- **Config:** **25 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **24** corresponding pages (defs verified `ls` 2026-08-19, unchanged; pages 25 → 24 the same day — `routes/config/role-assignments.tsx` deleted as dead code: its 7 config defs went in the Phase 0 strip and `system_config` held 0 rows for them, so every section read an unregistered `/api/config/dynamic/<key>` route. Earlier counts VERIFIED by `ls` 2026-08-17 — `alarm-limits.def.ts` added 2026-08-17: super-admin config for the instrument-limit alarm work — an ordered alias list of attribute keys per bound (High/Low Temperature/Humidity Limit), since this install's keys have already drifted; plus severity, a master switch, and four status wordings. Renders through the dynamic config page, so no `routes/config/*.tsx` of its own — the page count stays 25. The "23 corresponding pages" recorded here 2026-08-11 was already stale before this change (the live page count was 25, per `apps/web/CLAUDE.md`'s 2026-08-14 verification); it was never re-synced here until now. Earlier: `telemetry-slots.def.ts` added 2026-08-11: which telemetry keys the dashboard reads as temperature and humidity, since ingest stores whatever key a device sends. Renders through the dynamic config page, so no `routes/config/*.tsx` of its own; the Floorplans placement editor IS a page. Earlier counts VERIFIED by `ls` 2026-08-07 — the previous "36 / 34" was inherited from DigiLog and was never true in this fork; `instrument-attributes.def.ts` added 2026-08-07 — the attribute keys the New Instrument form asks for, renders via the dynamic config page so no new `routes/config/*.tsx`)
+- **Config:** **25 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **25** corresponding pages (defs verified `ls` 2026-08-27, unchanged; pages 24 → 25 on 2026-08-27 — `routes/config/alarm-webhooks.tsx`, which has no def of its own because alarm webhooks are a CRUD module, not a `system_config` row. Earlier: pages 25 → 24 the same day — `routes/config/role-assignments.tsx` deleted as dead code: its 7 config defs went in the Phase 0 strip and `system_config` held 0 rows for them, so every section read an unregistered `/api/config/dynamic/<key>` route. Earlier counts VERIFIED by `ls` 2026-08-17 — `alarm-limits.def.ts` added 2026-08-17: super-admin config for the instrument-limit alarm work — an ordered alias list of attribute keys per bound (High/Low Temperature/Humidity Limit), since this install's keys have already drifted; plus severity, a master switch, and four status wordings. Renders through the dynamic config page, so no `routes/config/*.tsx` of its own — the page count stays 25. The "23 corresponding pages" recorded here 2026-08-11 was already stale before this change (the live page count was 25, per `apps/web/CLAUDE.md`'s 2026-08-14 verification); it was never re-synced here until now. Earlier: `telemetry-slots.def.ts` added 2026-08-11: which telemetry keys the dashboard reads as temperature and humidity, since ingest stores whatever key a device sends. Renders through the dynamic config page, so no `routes/config/*.tsx` of its own; the Floorplans placement editor IS a page. Earlier counts VERIFIED by `ls` 2026-08-07 — the previous "36 / 34" was inherited from DigiLog and was never true in this fork; `instrument-attributes.def.ts` added 2026-08-07 — the attribute keys the New Instrument form asks for, renders via the dynamic config page so no new `routes/config/*.tsx`)
 - **Display precision (2026-08-19):** decimal places for temperature/humidity come from each
   INSTRUMENT's own attributes — `temp_decimals` / `humid_decimals`, `0` meaning whole numbers —
   NOT from a site-wide setting. The two numbers left in `telemetry-slots` are only the fallback
@@ -194,11 +209,15 @@ history; `docs/recreation/` holds the inventory.
   `reason` column; a first fill does not). Admin surface: Config → Roles & Access → Attribute Access.
   Migration `20260819120000_role_attribute_access`, drift guard PASS, applied to both databases.
 - **Themes:** 10 preset color themes (Ocean / Sapphire / Emerald / Amethyst / Sunset / Slate / Ruby / Forest / Midnight / Coral)
-- **Frontend:** **49** Routes in `main.tsx` (verified `grep -cE "<Route"` 2026-08-24 — 48 → 49: new `/instruments/:id/trend` page; the "77" was inherited from upstream DigiLog and was never true in this fork; `/config/role-assignments` removed 2026-08-19 as dead code, 49 → 48), **18** custom hooks, **18** lib modules (`ls apps/web/src/hooks/ | wc -l` / `ls apps/web/src/lib/ | wc -l`, each including its own `__tests__` subfolder as one entry — the "26 / 30" this file carried for months was never true against the live tree and was never re-verified until now)
-- **Queue backend:** graphile-worker (Postgres-backed); **5** worker tasks —
+- **Frontend:** **50** Routes in `main.tsx` (verified `grep -cE "<Route"` 2026-08-27 — 49 → 50: new `/config/alarm-webhooks` page; earlier 48 → 49 on 2026-08-24: the `/instruments/:id/trend` page; the "77" was inherited from upstream DigiLog and was never true in this fork; `/config/role-assignments` removed 2026-08-19 as dead code, 49 → 48), **18** custom hooks, **18** lib modules (`ls apps/web/src/hooks/ | wc -l` / `ls apps/web/src/lib/ | wc -l`, each including its own `__tests__` subfolder as one entry — the "26 / 30" this file carried for months was never true against the live tree and was never re-verified until now)
+- **Queue backend:** graphile-worker (Postgres-backed); **6** worker tasks —
   `notification`, `password_expiry_check`, `session_sweep`,
-  `telemetry_partition_maintenance`, `alarm_evaluation` (verified 2026-08-24
-  against the `taskList` in `apps/api/src/app.ts:455-480`). This file listed
+  `telemetry_partition_maintenance`, `alarm_evaluation`, `alarm_webhook`
+  (verified 2026-08-27 against the `taskList` in `apps/api/src/app.ts:458-489`;
+  5 → 6 that day). `alarm_webhook` is **event-driven and deliberately has NO
+  `crontab.txt` entry** — a scheduled buzz would announce an excursion that has
+  already gone. A task identifier with no handler leaks jobs forever, so if you
+  ever remove the handler, remove the enqueue with it. This file listed
   "3 tasks (`notification`, `pm_overdue_check`, `session_sweep`)" until then;
   **`pm_overdue_check` does not exist anywhere in the tree** (`grep -r
   pm_overdue_check apps/api/src packages/` → 0 hits) — it was the filter
@@ -229,7 +248,7 @@ history; `docs/recreation/` holds the inventory.
 - New config defs must be imported in `config-discovery.ts` AND registered as a card in `config/index.tsx`
 - Approval/decision flows require remarks
 
-## Key API Endpoints (instrument dashboard — updated 2026-08-24)
+## Key API Endpoints (instrument dashboard — updated 2026-08-27)
 ```
 GET  /api/instruments/telemetry-overview        — every instrument's current temp + RH, one request
 GET  /api/instruments/:id/telemetry?from=&to=&offset=  — per-instrument history, paged (offset added 2026-08-24)
@@ -244,6 +263,13 @@ POST /api/uploads/floorplan                     — plan image (CONFIG_UPDATE)
 POST /api/audit/report-export-log               — governed report-download log; requires `remarks` +
                                                     `DOWNLOAD_REPORT` reauth (2026-08-24); reuses the
                                                     existing `REPORT_GENERATED` audit action, no new one added
+GET    /api/alarm-webhooks                      — targets + the instrument count each currently resolves to
+POST   /api/alarm-webhooks                      — create target (ALARM_RULE_MANAGE + MANAGE_ALARM_WEBHOOK reauth, audited)
+GET    /api/alarm-webhooks/:id                  — one target
+PUT    /api/alarm-webhooks/:id                  — update target (reauth, audited)
+DELETE /api/alarm-webhooks/:id                  — delete target (reauth, audited; REFUSED while deliveries reference it)
+POST   /api/alarm-webhooks/:id/test             — test fire (reauth, audited — it makes a real buzzer sound)
+GET    /api/alarm-webhooks/:id/deliveries?status= — paged §11 delivery log, filtered server-side
 ```
 
 - **On `PUT /api/floorplans/:id/rooms/:roomId`, an omitted `doors` key leaves the
@@ -287,6 +313,60 @@ POST /api/audit/report-export-log               — governed report-download log
   the caller's resolved scope (see the instrument VISIBILITY note above).
   Now scoped the same way: 404 (never 403) when out of scope; callers with
   unrestricted scope are unaffected.
+- **Alarm webhook annunciator (2026-08-27).** Alarms now reach a *device* — an
+  IP-addressable hooter — as well as a person. Two models,
+  `AlarmWebhookTarget` (URL, method, headers, content type, body template,
+  success regex, timeout, `fireOn{Raised,Cleared,Acknowledged}`, severities,
+  cooldown, scope) and `AlarmWebhookDelivery` (the §11 receipt: ONE ROW PER
+  ATTEMPT, success or failure, with the URL and rendered body actually sent).
+  Migration `20260827120000_alarm_webhooks`, applied to both databases.
+  **No new permission** (reuses `ALARM_RULE_READ` / `ALARM_RULE_MANAGE`) and
+  **no new Prisma enum** (`method`/`event`/`status` are validated strings) —
+  don't go looking for either.
+  - **Keyed off the INSTRUMENT, never the alarm rule.** `Alarm.ruleId` is
+    nullable and the `INSTRUMENT_LIMIT` alarms that actually fire here have no
+    rule row, so a design hung off `AlarmRule` would annunciate nothing while
+    looking correctly configured.
+  - **Scope reuses the `instrument_scope` shape — no fourth grouping concept.**
+    `scopeLocationIds` (functional locations, a Block expanding to its Areas via
+    `resolveLocationIds()`) UNIONED with `scopeInstrumentIds`. Unlike
+    `instrument_scope` both are `NOT NULL DEFAULT '[]'`, and **both empty
+    matches NOTHING, never everything** — a silent target is a bug someone
+    fixes; a plant-wide buzzer gets the feature switched off for good. Several
+    targets may match one instrument and all of them fire (local panel plus
+    control room) — that is intended.
+  - **Cooldown throttles `RAISED` only.** `CLEARED` and `ACKNOWLEDGED` are
+    silence signals; rate-limiting the off switch leaves a buzzer sounding for a
+    condition that has gone. In-memory per-target map, same single-instance
+    caveat as the dispatcher's.
+  - **Body rendering is `alarm-webhooks/render-body.ts`, deliberately NOT
+    `notification-delivery/template-engine.ts:resolveTemplate()`.** That one
+    HTML-escapes `& < > "`, which corrupts a JSON payload — an instrument named
+    `Chiller "A" & B` would ship `&quot;A&quot;` and the hooter would reject the
+    request intermittently, looking like a network fault. Placeholders come from
+    the exported `ALARM_WEBHOOK_VARIABLES`, which the config page's picker
+    renders from, so the UI cannot advertise a variable the renderer won't
+    produce.
+  - **Worker `alarm_webhook`, enqueued `maxAttempts: 1`.** Retry is bounded
+    inside the task (3 attempts, ~2s apart) so graphile-worker's exponential
+    backoff cannot sound a buzzer twenty minutes after the excursion cleared.
+    Event-driven — no `crontab.txt` entry on purpose.
+  - **The `/config` card is DEFAULT-DENY.** A non-SUPER_ADMIN role holding
+    `ALARM_RULE_READ` will NOT see it until `alarm-webhooks` is granted under
+    Config → Configuration Access — same as Alarm Rules
+    (`canAccessConfigModule`, card visibility only; the endpoints gate
+    server-side).
+  - **The `/api/alarm-webhooks` routes are deliberately NOT instrument-visibility
+    scoped**, matching the alarm RULES routes (`alarms/routes.ts:93-202`) and
+    unlike the alarm LIST routes. Configuring where an alarm is announced is an
+    administrative act gated by `ALARM_RULE_MANAGE`, not a per-operator data
+    read. This was chosen, not overlooked — don't "fix" it without deciding to.
+  - Outbound stance, on the record: the URL is operator-typed and on their LAN,
+    so there is **no allowlist**. The guards are a hard per-request timeout,
+    `redirect: 'error'`, no cookies/credentials/session token, and the exact
+    URL, body, status and response snippet in the delivery log for every
+    attempt.
+  - Design spec: `docs/superpowers/specs/2026-08-27-alarm-webhook-annunciator-design.md`.
 
 ## Filter domain — REMOVED
 

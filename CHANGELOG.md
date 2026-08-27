@@ -1,5 +1,125 @@
 # Changelog
 
+## [Unreleased] - Alarm webhook annunciator (2026-08-27)
+
+Alarms now reach a **device** as well as a person. An operator can point an
+IP-addressable hooter (or any HTTP endpoint) at one instrument or a group of
+them and have it buzz when any of them goes into alarm. `NotificationRule` is
+untouched — alerting people is unchanged.
+
+**Why not the obvious implementations.** Extending `NotificationRule` fails
+because `notification-dispatcher.ts` skips a rule with no *user* recipients,
+because the rule has no instrument scoping, and — decisively — because
+`Alarm.ruleId` is nullable: the `INSTRUMENT_LIMIT` alarms that actually fire on
+this installation carry no rule row, so a design hung off `AlarmRule` would
+annunciate nothing while appearing correctly configured. A new
+`InstrumentGroup` model fails because it would be a fourth grouping concept
+beside `FunctionalLocation`, `roomId` and `profileId`. Annunciation is
+therefore keyed off the **instrument**, and scope reuses the existing
+`role_configs.instrument_scope` shape.
+
+### Data model
+
+- **2 new Prisma models** (34 → **36**), migration
+  `20260827120000_alarm_webhooks`, hand-authored, applied to
+  `compliance_core_db` **and** `compliance_core_db_test`:
+  - `AlarmWebhookTarget` — url, method, headers, contentType, bodyTemplate,
+    successRegex, timeoutMs, `fireOnRaised/Cleared/Acknowledged`, severities,
+    cooldownSeconds, isActive, `scopeLocationIds`, `scopeInstrumentIds`.
+  - `AlarmWebhookDelivery` — the §11 receipt: **one row per attempt**, success
+    or failure, storing the URL hit and the body actually sent, plus
+    httpStatus, responseSnippet, attempt, status, error.
+- **No new Prisma enum** (13 unchanged, deliberately): `method`, `event` and
+  `status` are validated strings, the same precedent as `FloorplanRoom.grade`,
+  so the vocabulary can grow without a migration. Do not go looking for one.
+- Both FKs `onDelete: Restrict`. Deleting a target is a soft operation
+  (`isActive = false`); a hard delete is refused with a stated message while
+  deliveries reference it, because a delivery row is the evidence of whether an
+  excursion was annunciated.
+
+### Scope
+
+- `scopeLocationIds` (functional locations, a Block expanding to its Areas via
+  `functional-locations/tree.ts:resolveLocationIds()`) UNIONED with
+  `scopeInstrumentIds`. Resolved once, server-side, in
+  `modules/alarm-webhooks/target-scope.ts`.
+- Unlike `instrument_scope`, both columns are `NOT NULL DEFAULT '[]'`, and
+  **both empty matches NOTHING — never everything.** A silent misconfigured
+  target is a bug someone finds; a plant-wide buzzer gets the feature switched
+  off at the panel and never switched back on. A unit test pins `[]`/`[]` to
+  zero matches.
+- Several targets may match one instrument and all of them fire — the
+  local-panel-plus-control-room case, intended.
+
+### Firing and delivery
+
+- Fires on **RAISED**, **CLEARED** and **ACKNOWLEDGED**. The acknowledge hook
+  sits **after** the atomic claim, so two simultaneous acknowledgements produce
+  one delivery, not two.
+- `enqueueAlarmWebhook()` **never throws** — a queue outage or an unplugged
+  hooter must cost an annunciation, never the detection of every other
+  excursion in the same pass.
+- **New graphile-worker task `alarm_webhook`** (5 → **6**), enqueued
+  `maxAttempts: 1`; retry is bounded inside the task (3 attempts, ~2s apart) so
+  graphile-worker's exponential backoff cannot sound a buzzer twenty minutes
+  after the excursion cleared. Event-driven — **no `crontab.txt` entry, on
+  purpose.**
+- `cooldownSeconds` throttles **RAISED only**. `CLEARED` and `ACKNOWLEDGED` are
+  silence signals; never rate-limit the off switch. In-memory per-target map,
+  same single-instance caveat as the dispatcher's.
+- Success = 2xx **and**, when `successRegex` is set, a matching response body —
+  the regex is authoritative, because cheap hardware returns HTTP 200 on
+  failure (same lesson as `SmsConfig.httpGatewaySuccessRegex`).
+- Body rendering is a **separate renderer**,
+  `modules/alarm-webhooks/render-body.ts` — deliberately *not*
+  `notification-delivery/template-engine.ts:resolveTemplate()`, which
+  HTML-escapes `& < > "` and would ship `&quot;A&quot;` for an instrument named
+  `Chiller "A" & B`, corrupting the JSON payload and looking like an
+  intermittent network fault. Placeholders come from the exported
+  `ALARM_WEBHOOK_VARIABLES`, which the config page's picker renders from.
+- Outbound stance, stated for the record rather than revisited quietly: the URL
+  is operator-typed and on their LAN, so there is **no allowlist**. The guards
+  are a hard timeout, `redirect: 'error'`, no cookies/credentials/session
+  token, and a full delivery-log record of every attempt.
+
+### Governance
+
+- **New reauth action `MANAGE_ALARM_WEBHOOK`** (47 → **48**) in the *existing*
+  `Configuration` category — categories stay at **8**. Enforced on create,
+  update, delete and test-fire.
+- **4 new audit actions and 4 new templates** (93 → **97** / 87 → **91**),
+  7 categories unchanged.
+- **No new permission** (42 unchanged) — the routes reuse `ALARM_RULE_READ` /
+  `ALARM_RULE_MANAGE`: a role that can decide when an alarm fires can already
+  decide where it is announced. **No new sidebar item** (12 unchanged) — the
+  page lives under Config.
+- The `/config` card is **default-deny**: a non-SUPER_ADMIN role with
+  `ALARM_RULE_READ` will not see it until `alarm-webhooks` is granted under
+  Configuration Access, same as Alarm Rules.
+- The `/api/alarm-webhooks` routes are **deliberately not instrument-visibility
+  scoped**, matching the alarm RULES routes and unlike the alarm LIST routes —
+  a considered decision, recorded so it is not "fixed" unknowingly.
+
+### Surface
+
+- **New API module `alarm-webhooks`** (23 → **24**), registered in **both**
+  `app.ts` and `src/e2e/test-helper.ts`. Seven routes:
+  `GET /api/alarm-webhooks`, `POST /`, `GET /:id`, `PUT /:id`, `DELETE /:id`,
+  `POST /:id/test`, `GET /:id/deliveries?status=` (server-side filter).
+  `POST /:id/test` fires regardless of scope and flags, so a hooter can be
+  commissioned without waiting for a real excursion — and is audited, because
+  it makes a real buzzer sound.
+- **New config page** `apps/web/src/routes/config/alarm-webhooks.tsx`
+  (24 → **25** config pages; 49 → **50** `<Route`s), with a card in
+  `config/index.tsx`. **No new config def** (25 unchanged) — alarm webhooks are
+  a CRUD module with their own tables, not a `system_config` row.
+
+### Counts after this change (each re-derived from live code 2026-08-27)
+
+36 models · 13 enums · 42 permissions · 48 reauth actions in 8 categories ·
+97 audit actions · 91 audit templates in 7 categories · 24 API modules ·
+25 config defs · 25 config pages · 50 routes · 6 worker tasks · 12 sidebar items.
+
 ## [Unreleased] - Room doors, cleanroom grade, instrument trend page, governed report downloads (2026-08-24)
 
 Two features on top of the instrument dashboard: (A) drawn doors and
