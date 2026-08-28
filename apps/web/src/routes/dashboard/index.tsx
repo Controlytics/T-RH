@@ -246,7 +246,10 @@ export function DashboardPage() {
                     title={panelHeading('Instrument Readings — Table')}
                     editing={layout.editing}
                     style={it.style}
+                    width={it.w}
+                    height={it.h}
                     onStyleChange={(next) => layout.setStyle(it.i, next)}
+                    onSizeChange={(w, h) => layout.setSize(it.i, w, h)}
                   >
                     <TelemetryTable functionalLocationId={nav.functionalLocationId} directOnly={nav.directOnly} />
                   </PanelCard>
@@ -256,7 +259,10 @@ export function DashboardPage() {
                     title={panelHeading('Instrument Readings — Floorplan')}
                     editing={layout.editing}
                     style={it.style}
+                    width={it.w}
+                    height={it.h}
                     onStyleChange={(next) => layout.setStyle(it.i, next)}
+                    onSizeChange={(w, h) => layout.setSize(it.i, w, h)}
                   >
                     <FloorplanView functionalLocationId={nav.functionalLocationId} directOnly={nav.directOnly} />
                   </PanelCard>
@@ -266,7 +272,10 @@ export function DashboardPage() {
                     title="Trend — spread across this selection"
                     editing={layout.editing}
                     style={it.style}
+                    width={it.w}
+                    height={it.h}
                     onStyleChange={(next) => layout.setStyle(it.i, next)}
+                    onSizeChange={(w, h) => layout.setSize(it.i, w, h)}
                   >
                     <AggregateTrendCard
                       functionalLocationId={nav.functionalLocationId}
@@ -281,7 +290,10 @@ export function DashboardPage() {
                     title="Active alarms in this selection"
                     editing={layout.editing}
                     style={it.style}
+                    width={it.w}
+                    height={it.h}
                     onStyleChange={(next) => layout.setStyle(it.i, next)}
+                    onSizeChange={(w, h) => layout.setSize(it.i, w, h)}
                   >
                     <SelectionAlarms functionalLocationId={nav.functionalLocationId} />
                   </PanelCard>

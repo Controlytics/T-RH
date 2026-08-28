@@ -24,6 +24,7 @@ export type { PanelDefinition, PanelKey, PanelPage } from './types/panels.js';
 
 export {
   DEFAULT_DASHBOARD_LAYOUT, LAYOUT_VERSION, GRID_COLUMNS, normalizeLayout, resolveLayout,
+  PANEL_WIDTHS, PANEL_HEIGHTS, namedWidth, namedHeight,
 } from './types/dashboard-layout.js';
 export type { DashboardLayout, LayoutItem } from './types/dashboard-layout.js';
 

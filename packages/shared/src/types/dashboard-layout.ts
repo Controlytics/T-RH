@@ -89,6 +89,43 @@ const DASHBOARD_PANEL_KEYS = new Set(
   PANELS.filter((p) => p.page === 'dashboard').map((p) => p.key),
 );
 
+/**
+ * Named widths and heights for the per-card size controls.
+ *
+ * Dragging the card's corner remains the primary way to size it; these exist so a
+ * size can be set exactly, and so someone who finds dragging fiddly is not shut
+ * out of the feature. The two must agree: a dragged card shows the matching named
+ * value, or "Custom" when it sits between two of them — never a wrong name.
+ *
+ * Widths are fractions of the 12-column grid. Heights are grid rows; the labels
+ * quote the approximate pixels because "9 rows" means nothing to the person
+ * choosing, and the grid's row height is an implementation detail.
+ */
+export const PANEL_WIDTHS: readonly { w: number; label: string }[] = [
+  { w: 3, label: 'Quarter' },
+  { w: 4, label: 'Third' },
+  { w: 6, label: 'Half' },
+  { w: 8, label: 'Two thirds' },
+  { w: 12, label: 'Full width' },
+] as const;
+
+export const PANEL_HEIGHTS: readonly { h: number; label: string }[] = [
+  { h: 5, label: 'Short (~280px)' },
+  { h: 9, label: 'Medium (~490px)' },
+  { h: 13, label: 'Tall (~710px)' },
+  { h: 16, label: 'Very tall (~880px)' },
+  { h: 22, label: 'Huge (~1200px)' },
+] as const;
+
+/** The named width/height matching a card exactly, or null when it is in between. */
+export function namedWidth(w: number): number | null {
+  return PANEL_WIDTHS.some((x) => x.w === w) ? w : null;
+}
+
+export function namedHeight(h: number): number | null {
+  return PANEL_HEIGHTS.some((x) => x.h === h) ? h : null;
+}
+
 /** Default size for a panel the default layout does not place — see appendMissing. */
 const FALLBACK_SIZE = { w: 12, h: 8 };
 

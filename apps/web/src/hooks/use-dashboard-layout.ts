@@ -79,5 +79,19 @@ export function useDashboardLayout() {
     }));
   };
 
-  return { items, editing, saving, start, cancel, save, reset, setDraft, setStyle, loaded: data !== undefined };
+  /**
+   * Resize one card from the edit panel.
+   *
+   * The same draft a DRAG writes to, so the two ways of sizing a card cannot
+   * disagree and both are discarded by Cancel. Width and height are LAYOUT, not
+   * style — which is why this sets w/h rather than going through setStyle.
+   */
+  const setSize = (key: string, w: number, h: number) => {
+    setDraft(items.map((it) => (it.i === key ? { ...it, w, h } : it)));
+  };
+
+  return {
+    items, editing, saving, start, cancel, save, reset, setDraft, setStyle, setSize,
+    loaded: data !== undefined,
+  };
 }

@@ -3,6 +3,7 @@ import {
   DEFAULT_DASHBOARD_LAYOUT, LAYOUT_VERSION, normalizeLayout, resolveLayout,
 } from './dashboard-layout.js';
 import { PANELS } from './panels.js';
+import { PANEL_WIDTHS, PANEL_HEIGHTS, namedWidth, namedHeight } from './dashboard-layout.js';
 
 const item = (i: string, y: number) => ({ i, x: 0, y, w: 12, h: 6 });
 
@@ -137,5 +138,32 @@ describe('the layout is about the DASHBOARD only', () => {
   it('the built-in default contains only dashboard panels', () => {
     const dashboardKeys = new Set(PANELS.filter((p) => p.page === 'dashboard').map((p) => p.key));
     for (const it of DEFAULT_DASHBOARD_LAYOUT.items) expect(dashboardKeys.has(it.i)).toBe(true);
+  });
+});
+
+describe('the named card sizes', () => {
+  it('recognises a card that matches a named step', () => {
+    expect(namedWidth(6)).toBe(6);
+    expect(namedHeight(9)).toBe(9);
+  });
+
+  it('returns null for a card dragged BETWEEN two named steps', () => {
+    // The editor then shows "Custom". Quoting the nearest name for a card that is
+    // not that size would be worse than admitting it has no name — the control
+    // would silently lie about the card in front of you.
+    expect(namedWidth(7)).toBeNull();
+    expect(namedHeight(11)).toBeNull();
+  });
+
+  it('every named width fits the grid, and every height is usable', () => {
+    for (const w of PANEL_WIDTHS) {
+      expect(w.w).toBeGreaterThan(0);
+      expect(w.w).toBeLessThanOrEqual(12);
+    }
+    for (const h of PANEL_HEIGHTS) expect(h.h).toBeGreaterThanOrEqual(3);
+  });
+
+  it('offers full width, since that is what the default layout uses', () => {
+    expect(PANEL_WIDTHS.some((w) => w.w === 12)).toBe(true);
   });
 });

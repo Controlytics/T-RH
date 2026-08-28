@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import {
-  PANEL_TINTS, PANEL_SIZES, PANEL_PADDINGS, MAX_PANEL_TITLE,
-  tintFor, sizeFor, paddingFor, type PanelStyle,
+  PANEL_TINTS, PANEL_SIZES, PANEL_PADDINGS, PANEL_WIDTHS, PANEL_HEIGHTS, MAX_PANEL_TITLE,
+  tintFor, sizeFor, paddingFor, namedWidth, namedHeight, type PanelStyle,
 } from '@digilog/shared';
 
 /**
@@ -22,13 +22,17 @@ import {
  * @digilog/shared types/panel-style.ts.
  */
 export function PanelCard({
-  title, editing, style, onStyleChange, children,
+  title, editing, style, width, height, onStyleChange, onSizeChange, children,
 }: {
   /** The panel's built-in heading, used when the operator has not renamed it. */
   title: string;
   editing: boolean;
   style?: PanelStyle;
+  /** The card's current grid width and height, for the size controls. */
+  width: number;
+  height: number;
   onStyleChange?: (next: PanelStyle | undefined) => void;
+  onSizeChange?: (w: number, h: number) => void;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -66,7 +70,10 @@ export function PanelCard({
         <PanelStyleEditor
           title={title}
           style={style}
+          width={width}
+          height={height}
           onChange={onStyleChange}
+          onSizeChange={onSizeChange}
           onDone={() => setOpen(false)}
         />
       )}
@@ -105,11 +112,14 @@ export function PanelCard({
  * cannot go around it.
  */
 function PanelStyleEditor({
-  title, style, onChange, onDone,
+  title, style, width, height, onChange, onSizeChange, onDone,
 }: {
   title: string;
   style?: PanelStyle;
+  width: number;
+  height: number;
   onChange: (next: PanelStyle | undefined) => void;
+  onSizeChange?: (w: number, h: number) => void;
   onDone: () => void;
 }) {
   const current = style?.tint ?? 'default';
@@ -155,6 +165,43 @@ function PanelStyleEditor({
           ))}
         </div>
       </div>
+
+      {onSizeChange && (
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Card width
+            </p>
+            {/*
+              The same draft dragging writes to, so the two ways of sizing a card
+              cannot disagree. A card dragged to a width between two named steps
+              shows "Custom" rather than the nearest name — quoting a size the card
+              does not have would be worse than admitting it has no name.
+            */}
+            <select
+              className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+              value={namedWidth(width) ?? 0}
+              onChange={(e) => onSizeChange(Number(e.target.value), height)}
+            >
+              {namedWidth(width) === null && <option value={0}>Custom ({width}/12)</option>}
+              {PANEL_WIDTHS.map((w) => <option key={w.w} value={w.w}>{w.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Card height
+            </p>
+            <select
+              className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+              value={namedHeight(height) ?? 0}
+              onChange={(e) => onSizeChange(width, Number(e.target.value))}
+            >
+              {namedHeight(height) === null && <option value={0}>Custom ({height} rows)</option>}
+              {PANEL_HEIGHTS.map((h) => <option key={h.h} value={h.h}>{h.label}</option>)}
+            </select>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-3">
         <div>
