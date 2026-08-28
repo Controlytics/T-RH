@@ -8,6 +8,9 @@ import { resolveNav, ALL_INSTRUMENTS, type NavNode } from './location-nav';
 import { usePanels } from '@/hooks/use-panels';
 import { AggregateTrendCard } from './aggregate-trend-card';
 import { SelectionAlarms } from './selection-alarms';
+import { PanelGrid } from './panel-grid';
+import { PanelCard } from './panel-card';
+import { useDashboardLayout } from '@/hooks/use-dashboard-layout';
 
 /** A CSS gradient STRING for `backgroundImage`. Not lib/theme-styles' themeGradient,
  *  which is a CSSProperties object and cannot be assigned to that property. */
@@ -47,7 +50,6 @@ export function DashboardPage() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const selected = params.get('fl');
-  const view = params.get('view') === 'graphical' ? 'graphical' : 'table';
   // In the URL, like `fl` and `view`: the whole dashboard state is linkable and
   // survives a refresh, which is the convention this page already set.
   const aggWindow = (['1h', '6h', '24h', '7d'] as const)
@@ -62,6 +64,7 @@ export function DashboardPage() {
   // /api/config/dashboard-cards/current fetch, which had no per-user layer and
   // which did the role lookup here in the browser.
   const { showPanel } = usePanels();
+  const layout = useDashboardLayout();
 
   const { data: tree } = useSWR<{ data: NavNode[] }>('/api/functional-locations');
   // The true instrument total, including instruments in NO location. limit=1 so
@@ -86,13 +89,19 @@ export function DashboardPage() {
     if (fl) next.set('fl', fl); else next.delete('fl');
     setParams(next);
   };
-  const setView = (v: 'table' | 'graphical') => {
-    const next = new URLSearchParams(params);
-    next.set('view', v);
-    setParams(next);
-  };
 
   const locations = tree?.data ?? [];
+
+  /**
+   * The two readings panels used to sit under one heading naming the current
+   * location. As separate cards they each need it, or a screen showing both gives
+   * no clue which location the numbers belong to.
+   */
+  const panelHeading = (base: string) => {
+    const where = nav.breadcrumb.length > 0 ? nav.breadcrumb[nav.breadcrumb.length - 1].label : null;
+    const pinned = nav.directOnly ? ' (pinned to the block itself)' : '';
+    return where ? `${base} — ${where}${pinned}` : `${base}${pinned}`;
+  };
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -198,65 +207,69 @@ export function DashboardPage() {
         </div>
       )}
 
-      {nav.showViews && (showPanel('telemetry_table') || showPanel('telemetry_floorplan')) && (
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold text-slate-800">
-              {nav.breadcrumb.length > 0 ? nav.breadcrumb[nav.breadcrumb.length - 1].label : 'Instrument Readings'}
-              {nav.directOnly && <span className="ml-2 text-sm font-normal text-slate-500">(pinned to the block itself)</span>}
-            </h2>
-            <div className="flex gap-1 rounded-xl bg-slate-100 p-1">
-              {showPanel('telemetry_table') && (
-                <button
-                  type="button"
-                  onClick={() => setView('table')}
-                  className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                    view === 'table' ? 'text-white' : 'text-slate-600 hover:text-slate-800'
-                  }`}
-                  style={view === 'table' ? { backgroundImage: themeGradient } : undefined}
-                >
-                  Table view
-                </button>
-              )}
-              {showPanel('telemetry_floorplan') && (
-                <button
-                  type="button"
-                  onClick={() => setView('graphical')}
-                  className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                    view === 'graphical' ? 'text-white' : 'text-slate-600 hover:text-slate-800'
-                  }`}
-                  style={view === 'graphical' ? { backgroundImage: themeGradient } : undefined}
-                >
-                  Graphical view
-                </button>
-              )}
-            </div>
-          </div>
+      {/*
+        THE PANEL GRID.
 
-          {view === 'table' && showPanel('telemetry_table') && (
-            <TelemetryTable functionalLocationId={nav.functionalLocationId} directOnly={nav.directOnly} />
-          )}
-          {view === 'graphical' && showPanel('telemetry_floorplan') && (
-            <FloorplanView functionalLocationId={nav.functionalLocationId} directOnly={nav.directOnly} />
-          )}
-        </div>
-      )}
+        Every assignable panel is a grid item: draggable and resizable once
+        "Arrange" is pressed, and persisted per user with a role default beneath.
 
-      {/* The aggregate widgets follow the drill-down, so they live with the views
-          rather than beside the entry cards. Both are panel-assignable; a role
-          holding an explicit panel list does not get them until an admin ticks
-          them, which is the intended default for new capability. */}
-      {nav.showViews && showPanel('dashboard_trend') && (
-        <AggregateTrendCard
-          functionalLocationId={nav.functionalLocationId}
-          directOnly={nav.directOnly}
-          window={aggWindow}
-          onWindowChange={setAggWindow}
-        />
-      )}
+        The Table | Graphical TOGGLE WAS REMOVED on 2026-08-28 (operator's call).
+        A grid where each panel is independently placeable cannot also have two of
+        them sharing one slot behind a switch — and they were already two separate
+        keys in the panel catalogue. Both can now be on screen at once, or either
+        dragged away. The `?view=` URL parameter went with it.
 
-      {nav.showViews && showPanel('dashboard_alarms') && (
-        <SelectionAlarms functionalLocationId={nav.functionalLocationId} />
+        Each child's `key` MUST equal its layout item's `i`. That is how
+        react-grid-layout matches a child to its position; a mismatch silently
+        drops the card rather than erroring.
+      */}
+      {nav.showViews && layout.items.length > 0 && (
+        <PanelGrid
+          items={layout.items}
+          editing={layout.editing}
+          saving={layout.saving}
+          onStart={layout.start}
+          onCancel={layout.cancel}
+          onSave={layout.save}
+          onReset={layout.reset}
+          onChange={layout.setDraft}
+        >
+          {layout.items.map((it) => {
+            // A layout item for a panel this viewer may not see never reaches the
+            // browser — the server strips it — but the guard stays as the single
+            // place that decides, so assignment and rendering cannot disagree.
+            if (!showPanel(it.i)) return <div key={it.i} />;
+            return (
+              <div key={it.i}>
+                {it.i === 'telemetry_table' && (
+                  <PanelCard title={panelHeading('Instrument Readings — Table')} editing={layout.editing}>
+                    <TelemetryTable functionalLocationId={nav.functionalLocationId} directOnly={nav.directOnly} />
+                  </PanelCard>
+                )}
+                {it.i === 'telemetry_floorplan' && (
+                  <PanelCard title={panelHeading('Instrument Readings — Floorplan')} editing={layout.editing}>
+                    <FloorplanView functionalLocationId={nav.functionalLocationId} directOnly={nav.directOnly} />
+                  </PanelCard>
+                )}
+                {it.i === 'dashboard_trend' && (
+                  <PanelCard title="Trend — spread across this selection" editing={layout.editing}>
+                    <AggregateTrendCard
+                      functionalLocationId={nav.functionalLocationId}
+                      directOnly={nav.directOnly}
+                      window={aggWindow}
+                      onWindowChange={setAggWindow}
+                    />
+                  </PanelCard>
+                )}
+                {it.i === 'dashboard_alarms' && (
+                  <PanelCard title="Active alarms in this selection" editing={layout.editing}>
+                    <SelectionAlarms functionalLocationId={nav.functionalLocationId} />
+                  </PanelCard>
+                )}
+              </div>
+            );
+          })}
+        </PanelGrid>
       )}
 
       {nav.level === 0 && locations.length === 0 && (
