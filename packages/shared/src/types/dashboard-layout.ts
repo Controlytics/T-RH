@@ -68,9 +68,14 @@ export const DEFAULT_DASHBOARD_LAYOUT: DashboardLayout = {
   version: LAYOUT_VERSION,
   items: [
     { i: 'telemetry_table', x: 0, y: 0, w: 12, h: 9 },
-    { i: 'telemetry_floorplan', x: 0, y: 9, w: 12, h: 11 },
-    { i: 'dashboard_trend', x: 0, y: 20, w: 12, h: 9 },
-    { i: 'dashboard_alarms', x: 0, y: 29, w: 12, h: 6 },
+    // The floorplan is the tallest by a distance, and deliberately so: it draws
+    // rooms to scale, so a short card shrinks every room until the codes inside
+    // them stop being readable. 16 rows is ~880px at the grid's 40px row and 16px
+    // margin — enough for a floor plan to be a plan rather than a thumbnail.
+    // Raised from 11 on 2026-08-28 after the first look at it.
+    { i: 'telemetry_floorplan', x: 0, y: 9, w: 12, h: 16 },
+    { i: 'dashboard_trend', x: 0, y: 25, w: 12, h: 9 },
+    { i: 'dashboard_alarms', x: 0, y: 34, w: 12, h: 6 },
   ],
 };
 
