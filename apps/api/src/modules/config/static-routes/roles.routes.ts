@@ -216,6 +216,16 @@ export async function rolesConfigRoutes(app: FastifyInstance) {
                       y: { type: 'integer' },
                       w: { type: 'integer' },
                       h: { type: 'integer' },
+                      // Fastify STRIPS undeclared response fields, silently. The
+                      // card's tint and custom heading would never reach the
+                      // browser without these four lines.
+                      style: {
+                        type: 'object',
+                        properties: {
+                          tint: { type: 'string' },
+                          title: { type: 'string' },
+                        },
+                      },
                     },
                   },
                 },
@@ -269,6 +279,17 @@ export async function rolesConfigRoutes(app: FastifyInstance) {
                 y: { type: 'integer' },
                 w: { type: 'integer' },
                 h: { type: 'integer' },
+                // Fastify's ajv REMOVES properties a body schema does not
+                // declare. Verified against the running server: an undeclared
+                // `style` returned 200 and stored nothing — a save that reports
+                // success and silently loses the operator's work.
+                style: {
+                  type: 'object',
+                  properties: {
+                    tint: { type: 'string' },
+                    title: { type: 'string' },
+                  },
+                },
               },
             },
           },

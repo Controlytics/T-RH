@@ -27,6 +27,11 @@ export {
 } from './types/dashboard-layout.js';
 export type { DashboardLayout, LayoutItem } from './types/dashboard-layout.js';
 
+export {
+  PANEL_TINTS, DEFAULT_TINT, MAX_PANEL_TITLE, isTintKey, tintFor, normalizePanelStyle, contrastRatio,
+} from './types/panel-style.js';
+export type { PanelStyle, PanelTint } from './types/panel-style.js';
+
 export { SIDEBAR_PRIVILEGE_MAP, getPrivilegesForSection } from './types/sidebar-privilege-map.js';
 export type { SidebarSection } from './types/sidebar-privilege-map.js';
 

@@ -242,17 +242,32 @@ export function DashboardPage() {
             return (
               <div key={it.i}>
                 {it.i === 'telemetry_table' && (
-                  <PanelCard title={panelHeading('Instrument Readings — Table')} editing={layout.editing}>
+                  <PanelCard
+                    title={panelHeading('Instrument Readings — Table')}
+                    editing={layout.editing}
+                    style={it.style}
+                    onStyleChange={(next) => layout.setStyle(it.i, next)}
+                  >
                     <TelemetryTable functionalLocationId={nav.functionalLocationId} directOnly={nav.directOnly} />
                   </PanelCard>
                 )}
                 {it.i === 'telemetry_floorplan' && (
-                  <PanelCard title={panelHeading('Instrument Readings — Floorplan')} editing={layout.editing}>
+                  <PanelCard
+                    title={panelHeading('Instrument Readings — Floorplan')}
+                    editing={layout.editing}
+                    style={it.style}
+                    onStyleChange={(next) => layout.setStyle(it.i, next)}
+                  >
                     <FloorplanView functionalLocationId={nav.functionalLocationId} directOnly={nav.directOnly} />
                   </PanelCard>
                 )}
                 {it.i === 'dashboard_trend' && (
-                  <PanelCard title="Trend — spread across this selection" editing={layout.editing}>
+                  <PanelCard
+                    title="Trend — spread across this selection"
+                    editing={layout.editing}
+                    style={it.style}
+                    onStyleChange={(next) => layout.setStyle(it.i, next)}
+                  >
                     <AggregateTrendCard
                       functionalLocationId={nav.functionalLocationId}
                       directOnly={nav.directOnly}
@@ -262,7 +277,12 @@ export function DashboardPage() {
                   </PanelCard>
                 )}
                 {it.i === 'dashboard_alarms' && (
-                  <PanelCard title="Active alarms in this selection" editing={layout.editing}>
+                  <PanelCard
+                    title="Active alarms in this selection"
+                    editing={layout.editing}
+                    style={it.style}
+                    onStyleChange={(next) => layout.setStyle(it.i, next)}
+                  >
                     <SelectionAlarms functionalLocationId={nav.functionalLocationId} />
                   </PanelCard>
                 )}

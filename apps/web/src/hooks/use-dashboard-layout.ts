@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import useSWR from 'swr';
-import { DEFAULT_DASHBOARD_LAYOUT, type DashboardLayout, type LayoutItem } from '@digilog/shared';
+import { DEFAULT_DASHBOARD_LAYOUT, type DashboardLayout, type LayoutItem, type PanelStyle } from '@digilog/shared';
 import { apiClient } from '@/lib/api-client';
 
 /**
@@ -63,5 +63,21 @@ export function useDashboardLayout() {
     }
   };
 
-  return { items, editing, saving, start, cancel, save, reset, setDraft, loaded: data !== undefined };
+  /**
+   * Change one card's chrome.
+   *
+   * Edits the DRAFT, exactly like a drag: colour and position save together with
+   * one button and are discarded together by Cancel. They are one preference
+   * about one card, so a half-applied state — a saved colour on a card whose move
+   * was cancelled — should not be reachable.
+   */
+  const setStyle = (key: string, style: PanelStyle | undefined) => {
+    setDraft(items.map((it) => {
+      if (it.i !== key) return it;
+      const { style: _dropped, ...rest } = it;
+      return style ? { ...rest, style } : rest;
+    }));
+  };
+
+  return { items, editing, saving, start, cancel, save, reset, setDraft, setStyle, loaded: data !== undefined };
 }

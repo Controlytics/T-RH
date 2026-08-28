@@ -1030,6 +1030,15 @@ export default async function roleRoutes(app: FastifyInstance) {
                     y: { type: 'integer' },
                     w: { type: 'integer' },
                     h: { type: 'integer' },
+                    // See the same block on /api/config/my-dashboard-layout:
+                    // ajv strips undeclared body properties.
+                    style: {
+                      type: 'object',
+                      properties: {
+                        tint: { type: 'string' },
+                        title: { type: 'string' },
+                      },
+                    },
                   },
                 },
               },

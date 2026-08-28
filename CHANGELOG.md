@@ -1,5 +1,63 @@
 # Changelog
 
+## [Unreleased] - Per-card styling on the dashboard (2026-08-28)
+
+Project C2 of two, completing the customisable dashboard. In **Arrange** mode each
+card gains an **Edit** button: a colour from a bounded palette, and a custom
+heading.
+
+**No migration, no new endpoint, no count moved** except shared type files
+**19 → 20** (`types/panel-style.ts`). Models 36, enums 13, permissions 42, reauth
+48, audit actions 97, modules 24, config defs 25, config pages 24, `<Route>`s 50 —
+re-derived, unchanged.
+
+### A bounded palette, not a colour picker
+
+Operator's decision, and the reason is this application's own rule: colour never
+carries meaning alone here — every status is a colour PLUS a glyph PLUS a word.
+Free hex would let someone paint an out-of-limit card green, or set text the shade
+of its background.
+
+Each tint therefore ships with its **own** text colour, chosen with it, and a test
+asserts **WCAG AA (≥4.5:1)** for every pair — so the palette cannot grow unsafely.
+A bounded palette is only safer than free hex if something actually checks the
+bound. Posting a raw hex directly is refused, and the refusal drops only the
+style: a bad colour cannot cost someone their arrangement.
+
+**The tint styles the card's CHROME only.** Status badges, limit lines,
+out-of-spec highlighting and chart series colours live inside the panels and are
+unreachable from here. They encode compliance state, and a §11 record that looked
+different depending on who arranged their dashboard would not be a record.
+
+### It rides on the layout, deliberately
+
+`style` is an OPTIONAL field on each layout item, in the same `dashboard_layout`
+column. Colour and position therefore save together, reset together, and follow
+the same not-audited rule — they are one preference about one card, and a
+half-applied state (a saved colour on a card whose move was cancelled) should not
+be reachable. Being optional is also why `LAYOUT_VERSION` did not need bumping:
+every layout stored before this still reads.
+
+### The trap, verified before it was written
+
+**Fastify's ajv REMOVES body properties a schema does not declare.** Checked
+against the running server: a `style` field absent from the schema came back
+**200** and stored nothing — a save that reports success and silently loses the
+operator's work. Fastify strips undeclared RESPONSE fields the same way. `style`
+is declared in all three places a layout item is described on the wire, and an
+e2e case pins the round trip.
+
+### Verification
+
+API **1600 passing / 127 files**, web **813 / 61**, shared **197**, `tsc` clean on
+all three, `vite build` succeeds. Live against the real database: a tint and a
+custom heading round-tripped, a raw hex was refused while the card's position
+survived.
+
+Not verified in a browser. **Neither the drag nor the colour picker has been seen
+by anyone yet** — Playwright cannot authenticate against this install's
+certificate.
+
 ## [Unreleased] - Draggable, resizable dashboard (2026-08-28)
 
 Every assignable dashboard panel is now a grid item: drag to move, drag the corner

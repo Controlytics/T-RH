@@ -159,3 +159,43 @@ describe('dashboard layout', () => {
     expect(res.statusCode).toBe(400);
   });
 });
+
+describe('per-card styling rides on the layout', () => {
+  it('a tint and a custom heading survive the round trip', async () => {
+    // The trap this pins: Fastify's ajv REMOVES body properties a schema does not
+    // declare, and Fastify strips undeclared RESPONSE fields too. Either omission
+    // gives a 200 that silently stores or returns nothing — a save that reports
+    // success and loses the operator's work. Verified against the running server
+    // before the schemas were written.
+    const res = await app.inject({
+      method: 'PUT', url: '/api/config/my-dashboard-layout',
+      headers: operator,
+      payload: { layout: { version: LAYOUT_VERSION, items: [
+        { i: 'telemetry_table', x: 0, y: 0, w: 12, h: 9, style: { tint: 'sky', title: 'Cold room' } },
+      ] } },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const l = await myLayout();
+    const card = l!.items.find((i) => i.i === 'telemetry_table') as unknown as
+      { style?: { tint?: string; title?: string } };
+    expect(card.style).toEqual({ tint: 'sky', title: 'Cold room' });
+  });
+
+  it('refuses a colour outside the bounded palette', async () => {
+    // Free hex is what the bounded palette exists to refuse — someone posting one
+    // directly must not get it. The item survives; only the style is dropped, so a
+    // bad colour cannot cost someone their arrangement.
+    const res = await app.inject({
+      method: 'PUT', url: '/api/config/my-dashboard-layout',
+      headers: operator,
+      payload: { layout: { version: LAYOUT_VERSION, items: [
+        { i: 'telemetry_table', x: 0, y: 0, w: 12, h: 9, style: { tint: '#00ff00' } },
+      ] } },
+    });
+    expect(res.statusCode).toBe(200);
+    const card = (await myLayout())!.items.find((i) => i.i === 'telemetry_table') as unknown as
+      { style?: unknown };
+    expect(card.style).toBeUndefined();
+  });
+});

@@ -1,4 +1,5 @@
 import { PANELS, isPanelKey } from './panels.js';
+import { normalizePanelStyle, type PanelStyle } from './panel-style.js';
 
 /**
  * Where each dashboard panel sits, and how big it is.
@@ -37,6 +38,17 @@ export interface LayoutItem {
   y: number;
   w: number;
   h: number;
+  /**
+   * Optional per-card chrome: a palette tint and a custom heading.
+   *
+   * Carried HERE rather than in a column of its own, so a card's position and its
+   * appearance save together, reset together, and follow the same not-audited
+   * rule. They are one preference about one card.
+   *
+   * Optional, so every layout stored before this existed still reads — which is
+   * why the version did not need bumping.
+   */
+  style?: PanelStyle;
 }
 
 export interface DashboardLayout {
@@ -88,7 +100,12 @@ function readItem(v: unknown): LayoutItem | null | undefined {
   // which is different from the value being unreadable (undefined). The first is
   // ordinary catalogue evolution; the second means fall back to the default.
   if (!isPanelKey(o.i)) return null;
-  return { i: o.i, x: o.x, y: o.y, w: o.w, h: o.h };
+  // A bad STYLE is dropped rather than invalidating the item: the card then
+  // renders in its default chrome, which is a cosmetic loss. Rejecting a whole
+  // layout because one colour was unreadable would move someone's cards over a
+  // styling mistake.
+  const style = normalizePanelStyle(o.style);
+  return { i: o.i, x: o.x, y: o.y, w: o.w, h: o.h, ...(style ? { style } : {}) };
 }
 
 /**
