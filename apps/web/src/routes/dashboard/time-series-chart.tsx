@@ -106,8 +106,26 @@ export interface ChartSeries {
   points: { ts: string; value: number }[];
 }
 
+/**
+ * A per-bucket spread — the shaded area between a low and a high value at each
+ * timestamp. OPTIONAL and absent by default, so every existing caller is
+ * unaffected.
+ *
+ * Added 2026-08-28 for the dashboard's aggregate trend card, where the low/high
+ * are the MINIMUM and MAXIMUM across a selection of instruments. Nothing in an
+ * envelope is a stored reading; the card that supplies one says so on its face.
+ */
+export interface ChartEnvelope {
+  points: { ts: string; lo: number; hi: number }[];
+  color: string;
+  /** Rendered in the legend beside the series, e.g. "min–max across 33 instruments". */
+  label?: string;
+}
+
 interface Props {
   series: ChartSeries[];
+  /** Optional shaded spread drawn beneath the series. See ChartEnvelope. */
+  envelope?: ChartEnvelope;
   unit: string;
   /** Room limits — drawn as the in-spec band. */
   min?: number | null;
@@ -151,7 +169,7 @@ const PAD = { top: 14, right: 62, bottom: 26, left: 46 };
  */
 const MIN_ZOOM_SPAN_MS = 60_000;
 
-export function TimeSeriesChart({ series, unit, min, max, spanMs, title, onZoom, onResetZoom }: Props) {
+export function TimeSeriesChart({ series, envelope, unit, min, max, spanMs, title, onZoom, onResetZoom }: Props) {
   const { formatDateTime } = useDatetimeFormat();
   const [hoverX, setHoverX] = useState<number | null>(null);
   /** Drag in progress, in viewBox x — null when not dragging. */
@@ -174,15 +192,21 @@ export function TimeSeriesChart({ series, unit, min, max, spanMs, title, onZoom,
   const geom = useMemo(() => {
     if (withPoints.length === 0) return null;
 
-    const times = withPoints.flatMap((s) => s.points.map((p) => new Date(p.ts).getTime()));
+    const envPoints = envelope?.points ?? [];
+    const times = [
+      ...withPoints.flatMap((s) => s.points.map((p) => new Date(p.ts).getTime())),
+      ...envPoints.map((p) => new Date(p.ts).getTime()),
+    ];
     const values = withPoints.flatMap((s) => s.points.map((p) => p.value));
     const t0 = Math.min(...times);
     const t1 = Math.max(...times);
 
-    // Union the data range with the limit band, so a limit just outside the
-    // readings is still visible rather than silently cropped off.
-    const lo = Math.min(...values, min ?? Infinity);
-    const hi = Math.max(...values, max ?? -Infinity);
+    // Union the data range with the limit band AND the envelope, so neither a
+    // limit just outside the readings nor the top of the spread is silently
+    // cropped off. An envelope clipped at the plot edge would understate the
+    // spread it exists to show.
+    const lo = Math.min(...values, ...envPoints.map((p) => p.lo), min ?? Infinity);
+    const hi = Math.max(...values, ...envPoints.map((p) => p.hi), max ?? -Infinity);
     const scale = niceScale(lo, hi);
 
     const plotW = W - PAD.left - PAD.right;
@@ -191,7 +215,7 @@ export function TimeSeriesChart({ series, unit, min, max, spanMs, title, onZoom,
     const sy = (v: number) => PAD.top + plotH - ((v - scale.min) / (scale.max - scale.min)) * plotH;
 
     return { t0, t1, scale, plotW, plotH, sx, sy };
-  }, [withPoints, min, max]);
+  }, [withPoints, envelope, min, max]);
 
   if (withPoints.length === 0) {
     // A chart with axes and no line reads as "flat". Say nothing is here.
@@ -354,6 +378,25 @@ export function TimeSeriesChart({ series, unit, min, max, spanMs, title, onZoom,
         onPointerUp={interactive ? endDrag : undefined}
         onPointerCancel={interactive ? () => setDrag(null) : undefined}
       >
+        {/* The aggregate envelope, BENEATH the in-spec band and the series: it is
+            context for the lines, never the subject. Drawn as one closed path —
+            highs left-to-right, then lows back — so a gap in the data leaves a gap
+            in the shape rather than a straight edge implying readings nobody took. */}
+        {envelope && envelope.points.length > 1 && (
+          <path
+            d={
+              envelope.points.map((p, i) =>
+                `${i === 0 ? 'M' : 'L'} ${g.sx(new Date(p.ts).getTime())} ${g.sy(p.hi)}`).join(' ')
+              + ' '
+              + [...envelope.points].reverse().map((p) =>
+                `L ${g.sx(new Date(p.ts).getTime())} ${g.sy(p.lo)}`).join(' ')
+              + ' Z'
+            }
+            fill={envelope.color}
+            opacity={0.16}
+            stroke="none"
+          />
+        )}
         {/* In-spec band, behind everything. */}
         {(bandTop !== null || bandBottom !== null) && (
           <rect
