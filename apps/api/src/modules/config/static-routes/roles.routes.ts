@@ -224,6 +224,8 @@ export async function rolesConfigRoutes(app: FastifyInstance) {
                         properties: {
                           tint: { type: 'string' },
                           title: { type: 'string' },
+                          size: { type: 'string' },
+                          pad: { type: 'string' },
                         },
                       },
                     },
@@ -288,6 +290,8 @@ export async function rolesConfigRoutes(app: FastifyInstance) {
                   properties: {
                     tint: { type: 'string' },
                     title: { type: 'string' },
+                    size: { type: 'string' },
+                    pad: { type: 'string' },
                   },
                 },
               },

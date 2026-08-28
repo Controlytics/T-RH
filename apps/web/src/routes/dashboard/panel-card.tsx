@@ -1,5 +1,8 @@
 import { useState, type ReactNode } from 'react';
-import { PANEL_TINTS, MAX_PANEL_TITLE, tintFor, type PanelStyle } from '@digilog/shared';
+import {
+  PANEL_TINTS, PANEL_SIZES, PANEL_PADDINGS, MAX_PANEL_TITLE,
+  tintFor, sizeFor, paddingFor, type PanelStyle,
+} from '@digilog/shared';
 
 /**
  * The frame around one dashboard panel inside the grid.
@@ -10,7 +13,8 @@ import { PANEL_TINTS, MAX_PANEL_TITLE, tintFor, type PanelStyle } from '@digilog
  *
  * In edit mode it gains a grab cursor, a dashed outline and an Edit button.
  *
- * **The tint styles the card's CHROME only.** Everything inside — status badges,
+ * The operator may set a tint, a content size, the content padding and a custom
+ * heading. **The tint styles the card's CHROME only.** Everything inside — status badges,
  * limit lines, out-of-spec highlighting, chart series colours — is untouched and
  * unreachable from here. Those encode compliance state, and a §11 record that
  * looked different depending on who arranged their dashboard would not be a
@@ -29,6 +33,8 @@ export function PanelCard({
 }) {
   const [open, setOpen] = useState(false);
   const tint = tintFor(style?.tint);
+  const size = sizeFor(style?.size);
+  const pad = paddingFor(style?.pad);
   const heading = style?.title ?? title;
 
   return (
@@ -70,9 +76,20 @@ export function PanelCard({
         min-height:auto, which refuses to shrink below its content, so without it
         the card grows past the height the grid gave it and overlaps its
         neighbour — which reads as the grid being broken.
+
+        The size is applied as `zoom`, NOT `font-size`. The panels size their text
+        with absolute Tailwind classes, which do not inherit from a container's
+        font-size — a font-size here would be a control that appears to work and
+        changes nothing. zoom scales the content, which is why the editor calls it
+        "Content size" rather than promising something narrower.
+
+        It sits on the scroll container's CHILD, not the container, so scrolling
+        still measures the scaled content correctly.
       */}
-      <div className="min-h-0 flex-1 overflow-auto p-3">
-        {children}
+      <div className="min-h-0 flex-1 overflow-auto" style={{ padding: pad.px }}>
+        <div style={size.zoom === 1 ? undefined : { zoom: size.zoom }}>
+          {children}
+        </div>
       </div>
     </div>
   );
@@ -99,7 +116,12 @@ function PanelStyleEditor({
 
   const set = (patch: Partial<PanelStyle>) => {
     const next: PanelStyle = { ...style, ...patch };
+    // A choice equal to the default is stored as ABSENCE, not as a value. Storing
+    // 'normal' would pin the card to today's default, so changing that default
+    // later would not reach the cards that never chose anything.
     if (next.tint === 'default') delete next.tint;
+    if (next.size === 'normal') delete next.size;
+    if (next.pad === 'normal') delete next.pad;
     if (!next.title || next.title.trim().length === 0) delete next.title;
     onChange(Object.keys(next).length > 0 ? next : undefined);
   };
@@ -131,6 +153,36 @@ function PanelStyleEditor({
               Aa
             </button>
           ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            Content size
+          </p>
+          {/* Named "Content size", not "Font size", because zoom scales spacing
+              and glyphs along with the text. Calling it what it is beats a label
+              that promises something narrower than it delivers. */}
+          <select
+            className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+            value={style?.size ?? 'normal'}
+            onChange={(e) => set({ size: e.target.value })}
+          >
+            {PANEL_SIZES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            Padding
+          </p>
+          <select
+            className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+            value={style?.pad ?? 'normal'}
+            onChange={(e) => set({ pad: e.target.value })}
+          >
+            {PANEL_PADDINGS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+          </select>
         </div>
       </div>
 

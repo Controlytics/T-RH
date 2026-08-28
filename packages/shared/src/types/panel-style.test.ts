@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  PANEL_TINTS, MAX_PANEL_TITLE, contrastRatio, isTintKey, normalizePanelStyle, tintFor,
+  PANEL_TINTS, PANEL_SIZES, PANEL_PADDINGS, MAX_PANEL_TITLE,
+  contrastRatio, isTintKey, normalizePanelStyle, tintFor, sizeFor, paddingFor,
 } from './panel-style.js';
 
 describe('the palette is bounded AND readable', () => {
@@ -75,5 +76,51 @@ describe('normalizePanelStyle', () => {
     expect(normalizePanelStyle(null)).toBeUndefined();
     expect(normalizePanelStyle('sky')).toBeUndefined();
     expect(normalizePanelStyle({ colour: 'red' })).toBeUndefined();
+  });
+});
+
+describe('content size and padding', () => {
+  it('reads a size and a padding', () => {
+    expect(normalizePanelStyle({ size: 'large', pad: 'roomy' })).toEqual({ size: 'large', pad: 'roomy' });
+  });
+
+  it('does not STORE the default — absent already means normal', () => {
+    // Storing 'normal' would pin the card to today's default, so changing the
+    // default later would not reach the cards that never chose anything.
+    expect(normalizePanelStyle({ size: 'normal', pad: 'normal' })).toBeUndefined();
+  });
+
+  it('drops a value outside the bounded steps', () => {
+    // A free number invites 0.4, which is a card nobody can read.
+    expect(normalizePanelStyle({ size: '0.4' })).toBeUndefined();
+    expect(normalizePanelStyle({ size: 3 })).toBeUndefined();
+    expect(normalizePanelStyle({ pad: '40px' })).toBeUndefined();
+  });
+
+  it('falls back to normal for an unknown or absent key', () => {
+    // A retired step must render at normal, not pin the card to whatever replaced
+    // it in the list.
+    expect(sizeFor('gigantic').key).toBe('normal');
+    expect(sizeFor(undefined).zoom).toBe(1);
+    expect(paddingFor('nope').key).toBe('normal');
+  });
+
+  it('keeps every step legible and every padding sane', () => {
+    // The bound is only a safeguard if something checks it. Nothing below 0.7
+    // survives a table; nothing above 2 fits a card.
+    for (const s of PANEL_SIZES) {
+      expect(s.zoom).toBeGreaterThanOrEqual(0.7);
+      expect(s.zoom).toBeLessThanOrEqual(2);
+    }
+    for (const p of PANEL_PADDINGS) {
+      expect(p.px).toBeGreaterThanOrEqual(0);
+      expect(p.px).toBeLessThanOrEqual(48);
+    }
+    expect(PANEL_SIZES.some((s) => s.zoom === 1)).toBe(true);
+  });
+
+  it('combines with a tint and a title', () => {
+    expect(normalizePanelStyle({ tint: 'sky', title: 'Cold room', size: 'large', pad: 'tight' }))
+      .toEqual({ tint: 'sky', title: 'Cold room', size: 'large', pad: 'tight' });
   });
 });

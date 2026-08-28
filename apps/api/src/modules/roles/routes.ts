@@ -1037,6 +1037,8 @@ export default async function roleRoutes(app: FastifyInstance) {
                       properties: {
                         tint: { type: 'string' },
                         title: { type: 'string' },
+                        size: { type: 'string' },
+                        pad: { type: 'string' },
                       },
                     },
                   },

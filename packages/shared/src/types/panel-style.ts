@@ -45,6 +45,63 @@ export const PANEL_TINTS: readonly PanelTint[] = [
 
 export const DEFAULT_TINT = 'default';
 
+/**
+ * Content size, as a CSS `zoom` factor.
+ *
+ * **`zoom`, not `font-size`, and the label says "Content size" for that reason.**
+ * The panels size their text with absolute Tailwind classes (`text-sm`,
+ * `text-[11px]`), which do not inherit from a container's font-size — setting one
+ * would have produced a control that appears to work and changes nothing. `zoom`
+ * scales the whole content: text, spacing and any glyphs with it. That is a
+ * blunter instrument than a font control, so the UI calls it what it is rather
+ * than promising something narrower.
+ *
+ * Bounded steps, like the palette: a free number invites 0.4, which is a card
+ * nobody can read.
+ */
+export interface PanelSize {
+  key: string;
+  label: string;
+  zoom: number;
+}
+
+export const PANEL_SIZES: readonly PanelSize[] = [
+  { key: 'compact', label: 'Compact', zoom: 0.85 },
+  { key: 'normal', label: 'Normal', zoom: 1 },
+  { key: 'large', label: 'Large', zoom: 1.15 },
+  { key: 'xlarge', label: 'Extra large', zoom: 1.3 },
+] as const;
+
+export const DEFAULT_SIZE = 'normal';
+
+/** Padding inside the card's content area, in pixels. */
+export interface PanelPadding {
+  key: string;
+  label: string;
+  px: number;
+}
+
+export const PANEL_PADDINGS: readonly PanelPadding[] = [
+  { key: 'none', label: 'None', px: 0 },
+  { key: 'tight', label: 'Tight', px: 6 },
+  { key: 'normal', label: 'Normal', px: 12 },
+  { key: 'roomy', label: 'Roomy', px: 20 },
+] as const;
+
+export const DEFAULT_PADDING = 'normal';
+
+const SIZE_KEYS = new Set(PANEL_SIZES.map((x) => x.key));
+const PADDING_KEYS = new Set(PANEL_PADDINGS.map((x) => x.key));
+
+export function sizeFor(key: string | undefined): PanelSize {
+  return PANEL_SIZES.find((x) => x.key === key) ?? PANEL_SIZES[1];
+}
+
+export function paddingFor(key: string | undefined): PanelPadding {
+  return PANEL_PADDINGS.find((x) => x.key === key) ?? PANEL_PADDINGS[2];
+}
+
+
 const TINT_KEYS = new Set(PANEL_TINTS.map((t) => t.key));
 
 export function isTintKey(v: unknown): v is string {
@@ -62,6 +119,10 @@ export interface PanelStyle {
   tint?: string;
   /** Overrides the panel's built-in heading. Absent means "use the built-in". */
   title?: string;
+  /** A PANEL_SIZES key. Absent means `normal`. */
+  size?: string;
+  /** A PANEL_PADDINGS key. Absent means `normal`. */
+  pad?: string;
 }
 
 /**
@@ -77,6 +138,10 @@ export function normalizePanelStyle(v: unknown): PanelStyle | undefined {
   const o = v as Record<string, unknown>;
   const style: PanelStyle = {};
   if (isTintKey(o.tint)) style.tint = o.tint;
+  // Unknown keys are DROPPED, never defaulted-in as a stored value: a retired
+  // size should render at normal, not pin the card to whatever replaced it.
+  if (typeof o.size === 'string' && SIZE_KEYS.has(o.size) && o.size !== DEFAULT_SIZE) style.size = o.size;
+  if (typeof o.pad === 'string' && PADDING_KEYS.has(o.pad) && o.pad !== DEFAULT_PADDING) style.pad = o.pad;
   if (typeof o.title === 'string') {
     const title = o.title.trim().slice(0, MAX_PANEL_TITLE);
     if (title.length > 0) style.title = title;

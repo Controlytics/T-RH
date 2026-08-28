@@ -28,9 +28,11 @@ export {
 export type { DashboardLayout, LayoutItem } from './types/dashboard-layout.js';
 
 export {
-  PANEL_TINTS, DEFAULT_TINT, MAX_PANEL_TITLE, isTintKey, tintFor, normalizePanelStyle, contrastRatio,
+  PANEL_TINTS, PANEL_SIZES, PANEL_PADDINGS,
+  DEFAULT_TINT, DEFAULT_SIZE, DEFAULT_PADDING, MAX_PANEL_TITLE,
+  isTintKey, tintFor, sizeFor, paddingFor, normalizePanelStyle, contrastRatio,
 } from './types/panel-style.js';
-export type { PanelStyle, PanelTint } from './types/panel-style.js';
+export type { PanelStyle, PanelTint, PanelSize, PanelPadding } from './types/panel-style.js';
 
 export { SIDEBAR_PRIVILEGE_MAP, getPrivilegesForSection } from './types/sidebar-privilege-map.js';
 export type { SidebarSection } from './types/sidebar-privilege-map.js';
