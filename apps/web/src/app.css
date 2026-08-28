@@ -340,6 +340,45 @@ select.ctl-sm { padding-right: 2rem; background-size: 1rem; background-position:
 .ctl-check:disabled:checked { background-color: #94a3b8; border-color: transparent; }
 .ctl-radio:disabled:checked { border-color: #94a3b8; }
 
+/* ===========================================================================
+   DATA TABLES — `.tbl`
+   ===========================================================================
+
+   Fifteen screens render a raw <table>. They agreed on nothing: some had a
+   hover state, some did not; some separated rows with a border, some with
+   nothing; header bands ranged from white to slate-100 to a gradient.
+
+   This deliberately styles ONLY what a call site almost never sets itself —
+   the header band, the row separator, the hover, and the row rhythm. It sets
+   no text alignment, no font size and no cell colour, because `.tbl th` is a
+   descendant selector and would BEAT a `text-right` or `text-xs` utility on
+   the cell, silently undoing alignment a screen chose on purpose. Anything a
+   page might reasonably decide per-cell is left to the page.
+
+   Not applied to routes/dashboard/telemetry-table.tsx: that table is
+   deliberately DARK on operator preference, with contrast measured across all
+   ten themes (see the .tv-* block below). It keeps its own styling.
+*/
+.tbl { width: 100%; border-collapse: separate; border-spacing: 0; }
+
+.tbl thead th {
+  background-color: #f8fafc;                     /* slate-50 */
+  border-bottom: 1px solid #e2e8f0;
+  /* A header that survives scrolling inside a tall table. Harmless when the
+     table is short or its container does not scroll. */
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+/* Zebra, kept very light. At a stronger tint the banding competes with the
+   status colours in the cells, which are the only colour in a table that
+   should carry meaning. */
+.tbl tbody tr:nth-child(even) { background-color: #fcfdfe; }
+.tbl tbody tr { border-top: 1px solid #f1f5f9; }
+.tbl tbody tr:hover { background-color: #f1f5f9; }
+.tbl tbody td { vertical-align: middle; }
+
 /* Professional focus styles */
 :focus-visible {
   outline: 2px solid var(--color-accent);

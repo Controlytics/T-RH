@@ -153,7 +153,7 @@ export function NotificationLogsPage() {
       {/* Table */}
       <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 shadow-[var(--elev-1)] overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="tbl w-full text-sm">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
                 <th className="text-left px-4 py-3 font-medium text-slate-600">Channel</th>

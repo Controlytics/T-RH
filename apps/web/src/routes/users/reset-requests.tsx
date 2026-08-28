@@ -336,7 +336,7 @@ export function ResetRequestsPage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="tbl w-full">
                 <thead>
                   <tr className="border-b border-slate-100">
                     <th className="text-left py-4 px-4 font-semibold text-slate-600 text-sm">User</th>

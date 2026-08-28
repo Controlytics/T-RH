@@ -448,7 +448,7 @@ export function HelpArticlesPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="tbl w-full">
               <thead>
                 <tr className="bg-gradient-to-r from-slate-50 to-white border-b border-slate-200">
                   <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Title</th>

@@ -331,7 +331,7 @@ export function AlarmWebhooksConfigPage() {
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-        <table className="w-full text-sm">
+        <table className="tbl w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
             <tr>
               <th className="px-4 py-3">Name</th>
@@ -576,7 +576,7 @@ function TargetDetail({
       )}
 
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="tbl w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
             <tr>
               <th className="px-4 py-2">Time</th>

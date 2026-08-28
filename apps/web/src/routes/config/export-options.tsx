@@ -73,7 +73,7 @@ export function ExportOptionsPage() {
         <div className="text-sm text-slate-400 py-12 text-center">No roles to configure.</div>
       ) : (
         <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white">
-          <table className="w-full border-collapse">
+          <table className="tbl w-full border-collapse">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
                 <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider sticky left-0 bg-slate-50">Page</th>

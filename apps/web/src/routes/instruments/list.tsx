@@ -231,7 +231,7 @@ export function InstrumentListPage() {
       </div>
 
       <div className="overflow-hidden rounded-[var(--radius-card)] border border-slate-200 bg-white">
-        <table className="w-full text-sm">
+        <table className="tbl w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50/80 text-left">
               <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Instrument ID</th>

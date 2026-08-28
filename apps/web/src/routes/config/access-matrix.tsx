@@ -174,7 +174,7 @@ export function AccessMatrixPage() {
       ) : (
         <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 shadow-[var(--elev-1)] overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="tbl w-full">
               <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 z-10">
                 <tr>
                   <th className="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Module</th>

@@ -346,7 +346,7 @@ export function DebugTracesPage() {
       {/* Traces Table Card */}
       <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-[var(--elev-2)] overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="tbl w-full text-sm">
             <thead>
               <tr className="bg-gradient-to-r from-slate-50 to-slate-100/80 border-b border-slate-200">
                 <th className="text-left px-5 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs w-8" />
