@@ -37,6 +37,7 @@ import { BandGauge } from './band-gauge';
 import { TrendHeader } from './trend-header';
 import { SampledNote } from './sampled-note';
 import { ChartSummaryStrip } from './chart-summary-strip';
+import { usePanels } from '@/hooks/use-panels';
 
 /**
  * Series identity, fixed. Temperature is palette slot 1 and humidity slot 2
@@ -344,6 +345,10 @@ export function AlarmsWidget({
 
 export function InstrumentTrend() {
   const { id } = useParams<{ id: string }>();
+  // Panel assignment, resolved server-side. Gates RENDERING only — the data
+  // fetching below is untouched, so a hidden panel changes what is shown while
+  // the signed PDF report still covers the whole record.
+  const { showPanel } = usePanels();
   const { data: inst } = useSWR<InstrumentSummary>(id ? `/api/instruments/${id}` : null);
   const { period, setPreset, setCustom, setInterval } = useTrendPeriod();
   const [page, setPage] = useState(1);
@@ -851,7 +856,12 @@ export function InstrumentTrend() {
       {/* The band gauges. The page leads with the BAND, not the number: the
           limits are what an alarm is a departure from and what the whole
           record exists to evidence. Both are fed straight from the overview
-          row — limits, their source and the decimals all arrive resolved. */}
+          row — limits, their source and the decimals all arrive resolved.
+
+          Panel-gated: hiding this changes what is SHOWN. The readings behind it
+          are still fetched and still reach the PDF report — instrument_scope is
+          what withholds data, never this. */}
+      {showPanel('trend_gauges') && (
       <div className="grid gap-4 lg:grid-cols-2">
         {trend.overview ? (
           <>
@@ -889,6 +899,7 @@ export function InstrumentTrend() {
           </>
         )}
       </div>
+      )}
 
       {/* Charts, FULL WIDTH and stacked — never side by side. A trend is read
           along the time axis; halving that axis to fit two charts on a row
@@ -898,6 +909,8 @@ export function InstrumentTrend() {
           which is what makes the in-limit band agree with the gauge above it.
           `intervalMs` only affects these; the raw table below stays unaveraged
           regardless of the selection. */}
+      {showPanel('trend_charts') && (
+      <>
       <h2 className="text-[11px] font-semibold uppercase tracking-[0.09em] text-slate-500">Charts</h2>
       <div className="space-y-5">
         {/* TimeSeriesChart has no subtitle/caption slot of its own (it is shared
@@ -936,12 +949,14 @@ export function InstrumentTrend() {
             />
             {/* Min/Max/Average over the WHOLE range, from the server — never
                 from the plotted (sampled, possibly bucket-averaged) points. */}
-            <ChartSummaryStrip
-              summary={tempKey ? trend.summaries[tempKey] : undefined}
-              current={tempCurrent}
-              decimals={tempDecimals}
-              unit="°C"
-            />
+            {showPanel('trend_summary') && (
+              <ChartSummaryStrip
+                summary={tempKey ? trend.summaries[tempKey] : undefined}
+                current={tempCurrent}
+                decimals={tempDecimals}
+                unit="°C"
+              />
+            )}
           </ChartPanel>
         </div>
         <div>
@@ -970,12 +985,14 @@ export function InstrumentTrend() {
               shown={humidRawCount}
               total={humidKey ? (trend.summaries[humidKey]?.count ?? 0) : 0}
             />
-            <ChartSummaryStrip
-              summary={humidKey ? trend.summaries[humidKey] : undefined}
-              current={humidCurrent}
-              decimals={humidDecimals}
-              unit="%RH"
-            />
+            {showPanel('trend_summary') && (
+              <ChartSummaryStrip
+                summary={humidKey ? trend.summaries[humidKey] : undefined}
+                current={humidCurrent}
+                decimals={humidDecimals}
+                unit="%RH"
+              />
+            )}
           </ChartPanel>
         </div>
       </div>
@@ -1030,22 +1047,27 @@ export function InstrumentTrend() {
                   {/* Extra keys carry no administered precision, so the strip
                       renders at the same shared fallback the chart and the table
                       column for this key already use. */}
-                  <ChartSummaryStrip
-                    summary={trend.summaries[k]}
-                    current={latestValueForKey(chartRows, k)}
-                    decimals={TELEMETRY_DECIMALS_FALLBACK}
-                    unit=""
-                  />
+                  {showPanel('trend_summary') && (
+                    <ChartSummaryStrip
+                      summary={trend.summaries[k]}
+                      current={latestValueForKey(chartRows, k)}
+                      decimals={TELEMETRY_DECIMALS_FALLBACK}
+                      unit=""
+                    />
+                  )}
                 </ChartPanel>
               </div>
             ))}
           </div>
         )}
       </div>
+      </>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
       {/* Raw paged time-series. RAW ONLY — no averaging, no gap filling: a gap
           in the record stays a gap, never the previous value repeated. */}
+      {showPanel('trend_historian_table') && (
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2">
           <CardTitle className="text-base">Time series (raw readings)</CardTitle>
@@ -1096,8 +1118,9 @@ export function InstrumentTrend() {
           />
         </CardContent>
       </Card>
+      )}
 
-      {id && (
+      {id && showPanel('trend_alarms') && (
         <AlarmsWidget
           instrumentId={id}
           period={period}
