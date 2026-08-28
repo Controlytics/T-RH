@@ -117,11 +117,17 @@ Tokens live in `src/app.css` `@theme`; primitives in `src/components/ui/`.
   `rounded-2xl` is left alone: it is the dashboard panel cards.
 - **`.ctl` / `.ctl-sm` / `.ctl-check` / `.ctl-radio`** (`app.css`) are for the raw
   `<input>`/`<select>`/`<textarea>` that have not migrated to the primitives.
-  Prefer `Input`/`Select`/`Checkbox` in new code. **`.ctl` sets no width** — it is
-  plain CSS after Tailwind's utilities and would beat `w-full`/`flex-1`.
+  Prefer `Input`/`Select`/`Checkbox` in new code.
 - **`.tbl`** styles the raw tables' header band, separator, hover and rhythm, and
-  deliberately sets no alignment, font size or cell colour: `.tbl th` is a
-  descendant selector and would beat a `text-right` utility on the cell.
+  deliberately sets no alignment, font size or cell colour.
+- **⚠ THESE LIVE IN `@layer components`, AND MUST STAY THERE.** Tailwind v4 emits
+  utilities into `@layer utilities`, and in the CSS cascade an **unlayered rule
+  beats every layered rule at any specificity**. While these classes sat outside
+  a layer they silently outranked every Tailwind class on the same element — the
+  `.tbl` zebra was erasing the `bg-amber-50/20` tint Admin Requests puts on a
+  PENDING row, and wrapping the selectors in `:where()` did NOT fix it, because
+  specificity was never what decided it. If you add a shared class here, put it
+  in the layer, or a call site will not be able to override it.
 - **Elevation is `--elev-1/2/3`.** Don't reach for `shadow-lg` etc.
 - Status colour never travels alone — always colour + glyph + word.
 

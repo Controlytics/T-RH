@@ -62,6 +62,25 @@ affordances landed at a different height per card; and the login page overrode i
 own `Input` primitive with `h-12 border-2`, rebuilding the look the primitive
 exists to replace.
 
+### The shared classes were outranking every utility (found in review)
+
+`.ctl` and `.tbl` were added **unlayered**, and in the CSS cascade an unlayered
+rule beats every layered rule *at any specificity*. Tailwind v4 emits utilities
+into `@layer utilities`, so those classes silently outranked every Tailwind class
+on the same element: `.tbl`'s zebra was erasing the `bg-amber-50/20` tint Admin
+Requests puts on a PENDING row. Wrapping the selectors in `:where()` did not fix
+it, because specificity was never what decided it. They now live in
+`@layer components`. **Anything shared added to `app.css` must go in that layer**,
+or call sites cannot override it.
+
+Four more from the same review: the toast live region unmounted when empty (a
+region must already be in the document for a mutation to be announced, so the
+fix one commit earlier was still silent); the collapsed sidebar had no breakpoint
+while its toggle is `md:flex`, stranding a tablet with an icon-only drawer and no
+way to expand it; `.ctl` had been applied to the audit date fields, which sit
+inside an already-bordered wrapper and so drew a second border and focus ring;
+and `.ctl-check` was 18px against the `Checkbox` primitive's 20px.
+
 ### Deliberately excluded
 
 `routes/dashboard/` panel-card geometry (tuned with the operator days earlier),
