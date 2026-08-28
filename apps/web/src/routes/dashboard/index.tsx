@@ -2,10 +2,10 @@ import { useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useCan } from '@/hooks/use-can';
 import useSWR from 'swr';
-import { useAuth } from '@/hooks/use-auth';
 import { TelemetryTable } from './telemetry-table';
 import { FloorplanView } from './floorplan-view';
 import { resolveNav, ALL_INSTRUMENTS, type NavNode } from './location-nav';
+import { usePanels } from '@/hooks/use-panels';
 
 /** A CSS gradient STRING for `backgroundImage`. Not lib/theme-styles' themeGradient,
  *  which is a CSSProperties object and cannot be assigned to that property. */
@@ -27,30 +27,30 @@ const themeGradient = 'linear-gradient(to right, var(--theme-gradient-from), var
  * linkable, survives a refresh, and the browser Back button walks back up the tree.
  *
  * The Welcome hero, Quick Overview and Quick Actions were removed (operator: "in
- * dashboard page show only tabular view and graphical view"). CONSEQUENCE: the
- * `total_users`, `audit_trail`, `notifications` and `quick_actions` keys in the
- * dashboard-cards config are now INERT — still listed on the config page, toggling
- * nothing. Removing them is a follow-up config-def change, not bundled here.
- * `telemetry_table` / `telemetry_floorplan` still gate the two views.
+ * dashboard page show only tabular view and graphical view"). The four keys that
+ * gated them — `total_users`, `audit_trail`, `notifications`, `quick_actions` —
+ * were INERT from that day and were finally retired on 2026-08-28 with the panel
+ * assignment work.
+ *
+ * Panel visibility now comes from `usePanels()`: resolved SERVER-SIDE per role and
+ * per user and shipped on /api/config/my-config, so nothing here re-derives it.
+ * The catalogue is @digilog/shared types/panels.ts.
  *
  * There is deliberately NO Alarms card: this fork has no alarm subsystem, and a
  * card that cannot be backed by data is worse than an absent one. It arrives with
  * the alarm project.
  */
 export function DashboardPage() {
-  const { user } = useAuth();
   const can = useCan();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const selected = params.get('fl');
   const view = params.get('view') === 'graphical' ? 'graphical' : 'table';
 
-  const { data: cardConfig } = useSWR<{ roles?: Record<string, string[]> }>('/api/config/dashboard-cards/current');
-  const visibleCards = useMemo(() => {
-    const rolesMap: Record<string, string[]> = cardConfig?.roles ?? {};
-    return rolesMap[user?.role ?? ''] ?? null;
-  }, [cardConfig, user?.role]);
-  const showCard = (key: string) => visibleCards === null || visibleCards.includes(key);
+  // Resolved server-side, per role AND per user. Replaces the old
+  // /api/config/dashboard-cards/current fetch, which had no per-user layer and
+  // which did the role lookup here in the browser.
+  const { showPanel } = usePanels();
 
   const { data: tree } = useSWR<{ data: NavNode[] }>('/api/functional-locations');
   // The true instrument total, including instruments in NO location. limit=1 so
@@ -187,7 +187,7 @@ export function DashboardPage() {
         </div>
       )}
 
-      {nav.showViews && (showCard('telemetry_table') || showCard('telemetry_floorplan')) && (
+      {nav.showViews && (showPanel('telemetry_table') || showPanel('telemetry_floorplan')) && (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-lg font-semibold text-slate-800">
@@ -195,7 +195,7 @@ export function DashboardPage() {
               {nav.directOnly && <span className="ml-2 text-sm font-normal text-slate-500">(pinned to the block itself)</span>}
             </h2>
             <div className="flex gap-1 rounded-xl bg-slate-100 p-1">
-              {showCard('telemetry_table') && (
+              {showPanel('telemetry_table') && (
                 <button
                   type="button"
                   onClick={() => setView('table')}
@@ -207,7 +207,7 @@ export function DashboardPage() {
                   Table view
                 </button>
               )}
-              {showCard('telemetry_floorplan') && (
+              {showPanel('telemetry_floorplan') && (
                 <button
                   type="button"
                   onClick={() => setView('graphical')}
@@ -222,10 +222,10 @@ export function DashboardPage() {
             </div>
           </div>
 
-          {view === 'table' && showCard('telemetry_table') && (
+          {view === 'table' && showPanel('telemetry_table') && (
             <TelemetryTable functionalLocationId={nav.functionalLocationId} directOnly={nav.directOnly} />
           )}
-          {view === 'graphical' && showCard('telemetry_floorplan') && (
+          {view === 'graphical' && showPanel('telemetry_floorplan') && (
             <FloorplanView functionalLocationId={nav.functionalLocationId} directOnly={nav.directOnly} />
           )}
         </div>
