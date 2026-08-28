@@ -1,5 +1,107 @@
 # Changelog
 
+## [Unreleased] - Dashboard aggregate widgets (2026-08-28)
+
+A trend card showing the spread across the current drill-down, a list of active
+alarms for that same selection, and an "As of" column on the Readings table.
+Project B of two; Project A (panel assignment) shipped earlier the same day and
+these arrive as two new keys in its catalogue. Spec:
+`docs/superpowers/specs/2026-08-28-dashboard-aggregate-widgets-design.md`.
+
+**No count moved.** Models **36**, enums **13**, permissions **42**, reauth
+actions **48**, audit actions **97**, API modules **24**, config defs **25**,
+config pages **24**, `<Route>`s **50**, shared type files **18** — all
+re-derived, all unchanged. **No migration**, no new permission, reauth action or
+audit action.
+
+### The trend card
+
+New `GET /api/instruments/telemetry-aggregate?functionalLocationId=&window=`
+(`modules/instruments/telemetry-aggregate.ts`), aggregating in SQL over the
+instruments the caller may see within the selection, bucketed like
+`room-history.ts`. A Block covers its Areas through `resolveLocationIds` — a bare
+equality would return only what is pinned to the Block itself, which on this
+installation is nothing at all.
+
+Three decisions the code argues rather than assumes:
+
+- **Every value it returns is DERIVED**, and the card says so above the plot. On a
+  §11 system a computed number that looks like a recorded one is a
+  misrepresentation, not a presentational shortcut — the same reason the
+  per-instrument trend page labels an averaged chart and refuses to let its
+  sampler invent a point.
+- **Limit lines appear only when every instrument in the selection resolves to the
+  same bound.** Instruments carry their own limits, and this database already
+  holds instruments whose attributes override their room's; drawing the first
+  one's limits across a mixed selection would be a false claim about all the
+  others. An instrument with NO bound makes the selection mixed rather than
+  agreeing. A selection where NOTHING is bounded is reported as unbounded, not as
+  mixed, because "these instruments have different limits" would be untrue there.
+- **Below two instruments reporting, the card shows the COUNT instead of a band.**
+  Added after the endpoint's first live run: 1 of 101 instruments had reported in
+  24 hours, and a "spread across 33 instruments" computed from one sensor is
+  technically correct and practically a lie. Judged on the PEAK, not the last
+  bucket, so one quiet bucket does not make the card flicker between two
+  presentations. The per-bucket instrument count is shown either way.
+
+`TimeSeriesChart` gained ONE optional `envelope` prop, absent by default — the
+trend page's and room chart's tests staying green is the evidence they are
+untouched. Its lo/hi join the y-scale union, since an envelope clipped at the plot
+edge would understate the spread it exists to show.
+
+### The alarm list
+
+`GET /api/alarms` gained a `functionalLocationId` filter, expanded via
+`resolveLocationIds` and **ANDed with** the caller's visibility scope through
+`scopedToVisible`, never substituted for it — a location filter that widened
+visibility would be the exact inversion of what both filters are for. Pinned by a
+case that names a location the caller cannot see and asserts it returns nothing.
+
+The widget renders NOTHING on a permission error rather than an empty state: "no
+alarms" reads as "nothing is wrong" to someone who simply cannot see them. The
+existing top-level Alarms count card is untouched.
+
+### The Readings table
+
+**No new panel.** The existing table already IS latest-reading-per-instrument, so
+building a second one of that shape would have been a duplicate to keep in sync by
+hand. It gains the one thing it lacked: an **As of** column, so a value that
+stopped updating an hour ago no longer looks like a live one.
+
+It uses the EXISTING `readingAge` in `status.ts` — a second copy was written
+before that was noticed, and deleted. The only genuinely new rule is
+`oldestReadingTs`, which deliberately differs from the `latest` timestamp two
+lines above it: that one drives the Status tooltip and asks "are we hearing from
+this instrument at all"; this asks "how stale might the numbers on this row be",
+and the freshest of two values cannot answer that.
+
+### Panel keys
+
+`dashboard_trend` and `dashboard_alarms`, APPENDED to the dashboard group because
+the catalogue order is asserted. **No migration:** a role holding an explicit
+panel list does not get them until an admin ticks them, since absence of a key
+already means "not shown" and that is the right default for new capability.
+Deliberately the opposite of what Project A's migration did for the trend keys,
+where those panels were already visible and carrying only the dashboard keys would
+have taken something away.
+
+### Verification
+
+API **1590 passing / 126 files** (single-fork), web **813 / 61**, `tsc --noEmit`
+clean on all three projects, `vite build` succeeds. New e2e
+`src/e2e/telemetry-aggregate.test.ts` (13 cases) drives everything through the
+seeded OPERATOR over HTTP; its load-bearing case seeds an out-of-scope instrument
+with a value extreme enough that its inclusion could not be mistaken for anything
+else, because an aggregate leaks silently — as a number that is merely wrong, with
+no row on screen to point at.
+
+Not verified in a browser — Playwright cannot authenticate against this install's
+certificate.
+
+**Worth knowing:** at the time of writing, 1 of 101 instruments had reported in 24
+hours, so the trend card will show its sparse-selection message for most
+selections until ingest is running.
+
 ## [Unreleased] - Panel assignment, per role and per user (2026-08-28)
 
 Every panel on the dashboard and the instrument trend page is now assignable, per

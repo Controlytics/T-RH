@@ -16,6 +16,7 @@ import { buildApp, loginAs } from './test-helper.js';
 import type { FastifyInstance } from 'fastify';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
+import { PANELS } from '@digilog/shared';
 
 let app: FastifyInstance;
 let auth: Record<string, string>;
@@ -121,7 +122,10 @@ describe('panel assignment', () => {
       where: { targetType: 'role_config', targetId: 'OPERATOR' },
       orderBy: { timestamp: 'desc' }, select: { signatureMeaning: true },
     });
-    expect(row?.signatureMeaning).toContain('2 of 7');
+    // Derived, not hardcoded: this asserted "2 of 7" until the catalogue grew to 9
+    // and the suite caught it. The claim worth pinning is that the signature names
+    // the count against the catalogue's real size, not any particular size.
+    expect(row?.signatureMeaning).toContain(`2 of ${PANELS.length}`);
   });
 
   it('audits the user write too', async () => {
