@@ -344,6 +344,11 @@ model UserConfig {
   /// unrestricted); [] = SEE NOTHING; [ids] = these locations, Blocks expanding to
   /// their Areas. Nullable with NO default so this cannot blind existing roles.
   instrumentScope Json? @map("instrument_scope") @db.JsonB
+  /// Which dashboard / trend-page panels this user may SEE, overriding their role.
+  /// NULL = inherit; [] = NO panels; [keys] = these panels. Same three states as
+  /// role_configs.dashboard_cards, and the empty list must never be read as
+  /// inherit.
+  dashboardCards Json? @map("dashboard_cards") @db.JsonB
   updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz
   updatedBy    String?  @map("updated_by") @db.VarChar(50)
 
@@ -367,6 +372,13 @@ model RoleConfig {
   /// role holds INSTRUMENT_UPDATE). Nullable with NO default so shipping this
   /// cannot freeze an existing role out of its own work.
   attributeAccess Json? @map("attribute_access") @db.JsonB
+  /// Which dashboard / trend-page panels this role may SEE. NULL = inherit
+  /// (user -> role -> every panel); [] = NO panels; [keys] = these panels.
+  /// Nullable with NO default: a default of '[]' would blank every existing
+  /// role's dashboard the moment this migration ran.
+  /// A hidden panel is a DISPLAY decision, NOT an access control — instrument_scope
+  /// is what restricts data. See @digilog/shared types/panels.ts.
+  dashboardCards Json? @map("dashboard_cards") @db.JsonB
   updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz
   updatedBy    String?  @map("updated_by") @db.VarChar(50)
 
