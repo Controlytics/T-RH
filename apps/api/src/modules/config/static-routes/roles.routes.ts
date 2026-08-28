@@ -2,6 +2,7 @@ import { type FastifyInstance } from 'fastify';
 import { enforceReauth } from '../../../lib/reauth-check.js';
 import { buildContext } from '../../../lib/build-context.js';
 import { configService } from '../config.service.js';
+import { resolvePanelsFor } from '../panel-access.js';
 
 export async function rolesConfigRoutes(app: FastifyInstance) {
   app.get('/roles', {
@@ -185,11 +186,23 @@ export async function rolesConfigRoutes(app: FastifyInstance) {
             sidebarItems: { type: 'array', items: { type: 'string' } },
             homeWidgets: { type: 'array', items: { type: 'string' } },
             permissions: { type: 'object', additionalProperties: true },
+            // Which dashboard / trend-page panels this user may SEE; null = every
+            // panel. Resolved server-side (see modules/config/panel-access.ts) so
+            // the browser applies the answer rather than re-deriving it.
+            //
+            // Fastify STRIPS any field absent from this response block, silently,
+            // so a field added to the handler without a line here never reaches
+            // the wire — the same trap the trend-page work hit in August.
+            panels: { type: 'array', items: { type: 'string' }, nullable: true },
           },
         },
       },
     },
   }, async (req) => {
-    return configService.getMyConfig(req.user.username);
+    const [config, panels] = await Promise.all([
+      configService.getMyConfig(req.user.username),
+      resolvePanelsFor(req.user.username),
+    ]);
+    return { ...config, panels };
   });
 }
