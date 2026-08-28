@@ -1,61 +1,59 @@
 import { type SelectHTMLAttributes, forwardRef } from 'react';
 import { cn } from '@/lib/cn';
 
+/**
+ * The one select.
+ *
+ * What this replaces, and why each went: an indigo-to-violet gradient chevron
+ * that appeared nowhere else in the product and ignored all ten colour themes;
+ * `border-2` and `ring-4`, which made a 44px control read as heavy; and three
+ * variants (`default` / `filled` / `outlined`) that gave four screens four
+ * different-looking dropdowns for the same job.
+ *
+ * One appearance now. The variants are kept as accepted props so existing
+ * callers keep compiling, but they no longer change how it looks — a select
+ * should not be a place where screens differ.
+ *
+ * A NATIVE `<select>`, deliberately. On a plant floor this gets used with a
+ * keyboard, with a touchscreen, and by people relying on the operating system's
+ * own accessibility settings; a div-based replacement gives up all three to win
+ * control over the option list. For long lists there is `SearchableSelect`,
+ * which earns its custom implementation by doing something native cannot.
+ */
 interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
+  /** Accepted for source compatibility. No longer changes the appearance. */
   variant?: 'default' | 'filled' | 'outlined';
   selectSize?: 'sm' | 'md' | 'lg';
   icon?: React.ReactNode;
 }
 
+/** A single grey chevron. Inherits nothing, matches everything. */
+const CHEVRON =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24'%3E%3Cpath stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' d='M6 9l6 6 6-6'/%3E%3C/svg%3E\")";
+
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(
-  ({ className, children, variant = 'default', selectSize = 'md', icon, ...props }, ref) => {
-    const sizeClasses = {
-      sm: 'h-9 text-xs px-3 pr-9',
-      md: 'h-11 text-sm px-4 pr-10',
-      lg: 'h-12 text-base px-5 pr-12',
-    };
-
-    const variantClasses = {
-      default: [
-        'border-2 border-slate-200 bg-white',
-        'hover:border-slate-300 hover:bg-slate-50/50',
-        'focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 focus:bg-white',
-      ].join(' '),
-      filled: [
-        'border-0 bg-slate-100',
-        'hover:bg-slate-200/70',
-        'focus:bg-white focus:ring-4 focus:ring-indigo-500/10 focus:shadow-md',
-      ].join(' '),
-      outlined: [
-        'border-2 border-slate-300 bg-transparent',
-        'hover:border-indigo-400 hover:bg-indigo-50/30',
-        'focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/15',
-      ].join(' '),
-    };
-
-    // Custom chevron SVG with gradient
-    const chevronSvg = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24'%3E%3Cdefs%3E%3ClinearGradient id='grad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%236366f1'/%3E%3Cstop offset='100%25' style='stop-color:%238b5cf6'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath stroke='%236366f1' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round' d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`;
+  ({ className, children, selectSize = 'md', variant: _variant, icon: _icon, ...props }, ref) => {
+    const size = {
+      sm: 'h-8 text-[13px] pl-2.5 pr-8 bg-[length:1rem] bg-[right_0.5rem_center]',
+      md: 'h-10 text-[14px] pl-3 pr-9 bg-[length:1.15rem] bg-[right_0.6rem_center]',
+      lg: 'h-11 text-[15px] pl-3.5 pr-10 bg-[length:1.25rem] bg-[right_0.7rem_center]',
+    }[selectSize];
 
     return (
       <select
         ref={ref}
         className={cn(
-          'flex w-full rounded-xl font-medium text-slate-700',
-          'cursor-pointer',
-          'disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-slate-100',
-          'transition-all duration-200 ease-out',
-          'appearance-none bg-no-repeat',
-          sizeClasses[selectSize],
-          variantClasses[variant],
-          selectSize === 'sm' ? 'bg-[length:1rem] bg-[right_0.5rem_center]' :
-          selectSize === 'lg' ? 'bg-[length:1.5rem] bg-[right_1rem_center]' :
-          'bg-[length:1.25rem] bg-[right_0.75rem_center]',
-          'shadow-sm hover:shadow-md focus:shadow-lg',
+          'flex w-full cursor-pointer appearance-none rounded-[var(--radius-control)] bg-no-repeat',
+          'border border-slate-300 bg-white text-slate-800',
+          'hover:border-slate-400',
+          'focus:border-[var(--theme-primary,#2a78d6)] focus:outline-none focus:ring-2 focus:ring-[var(--theme-primary,#2a78d6)]/25',
+          'disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500',
+          'aria-[invalid=true]:border-rose-400 aria-[invalid=true]:focus:ring-rose-200',
+          'transition-colors duration-150',
+          size,
           className,
         )}
-        style={{
-          backgroundImage: chevronSvg,
-        }}
+        style={{ backgroundImage: CHEVRON }}
         {...props}
       >
         {children}

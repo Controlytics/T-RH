@@ -1,6 +1,70 @@
 @import "tailwindcss";
 
+/* Inter, SELF-HOSTED via @fontsource-variable. Not a CDN link: this application
+   runs on a factory network that may have no route to the internet, and a
+   webfont fetched at runtime would silently fall back to a system face on the
+   machines that matter most. One variable file covers every weight. */
+@import "@fontsource-variable/inter";
+
 @theme {
+  /* ── Design tokens: typography ───────────────────────────────────────────
+     One scale, used everywhere. The sizes below are the ONLY ones any screen
+     should reach for; a page inventing its own is the thing that made the
+     application look assembled rather than designed. */
+  --font-sans: "Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --text-page-title: 1.625rem;      /* 26px  semibold — one per screen */
+  --text-page-title--line-height: 2rem;
+  --text-section: 1.1875rem;        /* 19px  semibold — a group of cards */
+  --text-section--line-height: 1.625rem;
+  --text-card-title: 1rem;          /* 16px  semibold — one card */
+  --text-label: 0.8125rem;          /* 13px  medium   — a field's name */
+  --text-label--line-height: 1.125rem;
+  --text-control: 0.875rem;         /* 14px  — what the operator types and reads */
+  --text-helper: 0.75rem;           /* 12px  — guidance under a field */
+  --text-eyebrow: 0.625rem;         /* 10px  uppercase tracked — a kind, not a title */
+
+  /* ── Design tokens: spacing ──────────────────────────────────────────────
+     A 4px base. Anything between these steps is a decision nobody made. */
+  --space-1: 0.25rem;   /*  4 */
+  --space-2: 0.5rem;    /*  8 */
+  --space-3: 0.75rem;   /* 12 */
+  --space-4: 1rem;      /* 16 */
+  --space-6: 1.5rem;    /* 24 */
+  --space-8: 2rem;      /* 32 */
+  --space-12: 3rem;     /* 48 */
+
+  /* ── Design tokens: radius ───────────────────────────────────────────────
+     Industrial, not cartoonish. The application previously mixed 8px and 16px
+     on adjacent elements; these three cover every case. */
+  --radius-control: 0.375rem;  /*  6px — inputs, selects, buttons */
+  --radius-card: 0.625rem;     /* 10px — cards, panels, modals */
+  --radius-pill: 9999px;       /*       badges only */
+
+  /* ── Design tokens: control geometry ─────────────────────────────────────
+     ONE height for every interactive control, so a row of a button beside a
+     select beside an input lines up without anyone nudging margins. */
+  --control-h: 2.5rem;         /* 40px */
+  --control-h-sm: 2rem;        /* 32px */
+
+  /* ── Design tokens: elevation ────────────────────────────────────────────
+     Two layers, always: a hairline that holds the element's edge against a
+     light page, and an ambient below it. A single blurred shadow is what makes
+     a surface read as a default rather than a decision. */
+  --elev-1: 0 1px 2px -1px rgb(15 23 42 / 0.08), 0 2px 6px -2px rgb(15 23 42 / 0.06);
+  --elev-2: 0 1px 2px -1px rgb(15 23 42 / 0.10), 0 8px 20px -6px rgb(15 23 42 / 0.12);
+  --elev-3: 0 2px 4px -2px rgb(15 23 42 / 0.12), 0 16px 40px -12px rgb(15 23 42 / 0.20);
+
+  /* ── Design tokens: semantic status ──────────────────────────────────────
+     Status colour NEVER travels alone in this application — every badge pairs
+     it with a glyph and a word. These are the ink/ground pairs those badges
+     use, so a status looks the same on every screen. */
+  --status-ok-ink: #065f46;      --status-ok-bg: #d1fae5;      --status-ok-dot: #059669;
+  --status-warn-ink: #92400e;    --status-warn-bg: #fef3c7;    --status-warn-dot: #d97706;
+  --status-danger-ink: #9f1239;  --status-danger-bg: #ffe4e6;  --status-danger-dot: #e11d48;
+  --status-info-ink: #075985;    --status-info-bg: #e0f2fe;    --status-info-dot: #0284c7;
+  --status-idle-ink: #334155;    --status-idle-bg: #f1f5f9;    --status-idle-dot: #64748b;
+
   /* Primary brand colors - Professional navy blue */
   --color-primary: #1e3a5f;
   --color-primary-foreground: #ffffff;
@@ -337,4 +401,10 @@ table {
 
 @media (prefers-reduced-motion: reduce) {
   .panel-card { transition: none; }
+}
+
+/* Skeletons pulse to say "not yet", but a pulse that cannot be turned off is a
+   distraction for anyone who asked the system to stop moving things. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse { animation: none; }
 }
