@@ -93,10 +93,9 @@ export function AuditFilters({
               From Date & Time
             </label>
             <div className="relative group">
-              <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-emerald-500/20 to-teal-500/20 blur-sm opacity-0 group-hover:opacity-100 transition-opacity" />
               <div className="relative bg-white rounded-xl border border-slate-200 hover:border-emerald-400 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/20 transition-all overflow-hidden">
                 <div className="flex items-center">
-                  <div className="flex-shrink-0 p-3 bg-gradient-to-br from-emerald-500 to-teal-600 text-white">
+                  <div className="flex-shrink-0 p-3 bg-slate-100 text-slate-500">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
@@ -129,10 +128,9 @@ export function AuditFilters({
               To Date & Time
             </label>
             <div className="relative group">
-              <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-rose-500/20 to-pink-500/20 blur-sm opacity-0 group-hover:opacity-100 transition-opacity" />
               <div className="relative bg-white rounded-xl border border-slate-200 hover:border-rose-400 focus-within:border-rose-500 focus-within:ring-2 focus-within:ring-rose-500/20 transition-all overflow-hidden">
                 <div className="flex items-center">
-                  <div className="flex-shrink-0 p-3 bg-gradient-to-br from-rose-500 to-pink-600 text-white">
+                  <div className="flex-shrink-0 p-3 bg-slate-100 text-slate-500">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>

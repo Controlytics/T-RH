@@ -99,8 +99,41 @@ single definition of where the session token lives (`sessionStorage`). A
 hand-rolled `fetch` reading `localStorage.getItem('access_token')` is why
 profile photo upload silently 401'd until 2026-08-11.
 
+## Design system (Stage 1 `7ed8329`, Stage 2 2026-08-28)
+
+Tokens live in `src/app.css` `@theme`; primitives in `src/components/ui/`.
+
+- **The type is Inter, self-hosted** (`@fontsource-variable/inter`). **Do NOT
+  reintroduce a CDN font `<link>` in `index.html`** — this runs on a factory
+  network that may have no internet route, and a webfont fetched at runtime
+  falls back to a system face on exactly the machines that matter. That was a
+  real shipped bug: Inter was bundled but `body` read `--font-body`, which named
+  Sora from Google Fonts, so Inter rendered nowhere. `--font-display` and
+  `--font-body` are now the same family, separated by tracking and weight.
+- **Radius: two values.** `--radius-control` (6px) and `--radius-card` (10px).
+  `--radius-sm/md/lg/xl` are **aliases** onto those — they are not a second
+  vocabulary and must not be deleted, because Tailwind generates
+  `rounded-lg`/`rounded-xl` from them and ~700 call sites use those utilities.
+  `rounded-2xl` is left alone: it is the dashboard panel cards.
+- **`.ctl` / `.ctl-sm` / `.ctl-check` / `.ctl-radio`** (`app.css`) are for the raw
+  `<input>`/`<select>`/`<textarea>` that have not migrated to the primitives.
+  Prefer `Input`/`Select`/`Checkbox` in new code. **`.ctl` sets no width** — it is
+  plain CSS after Tailwind's utilities and would beat `w-full`/`flex-1`.
+- **`.tbl`** styles the raw tables' header band, separator, hover and rhythm, and
+  deliberately sets no alignment, font size or cell colour: `.tbl th` is a
+  descendant selector and would beat a `text-right` utility on the cell.
+- **Elevation is `--elev-1/2/3`.** Don't reach for `shadow-lg` etc.
+- Status colour never travels alone — always colour + glyph + word.
+
 ## Architecture
 - React Router v6 with AppLayout wrapper for auth + session management
+- **Sidebar collapse** state is in `localStorage` (`compliance-core.sidebarCollapsed`),
+  read through a try/catch — a browser blocking site data throws on access, and an
+  exception there takes the whole shell down. The auth token deliberately stays in
+  `sessionStorage`; do not conflate the two.
+- The sidebar item list is **flat on purpose**. `config.sidebarItems` is an
+  operator-ordered array (Config → Roles & Access → Sidebar), so adding section
+  headings would silently override an arrangement someone chose.
 - SWR for data fetching with auto-revalidation
 - **`react-grid-layout` was ADDED 2026-08-28** — the first UI dependency taken on
   here in a long time, and a deliberate reversal of the habit recorded below. It

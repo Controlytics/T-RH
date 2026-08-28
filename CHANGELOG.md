@@ -1,5 +1,75 @@
 # Changelog
 
+## [Unreleased] - UI redesign, Stage 2: applying the design system (2026-08-28)
+
+Stage 1 (`7ed8329`) built the tokens and the missing primitives and migrated **no
+pages**. Stage 2 is the migration. **No count moved**: no model, enum, permission,
+reauth action, audit action, module, config def, config page or `<Route>` was
+added or removed — re-derived, unchanged. This is presentation only; no endpoint,
+query, permission gate or business rule was touched.
+
+### The font was never applied
+
+Stage 1 added Inter as a self-hosted dependency (`@fontsource-variable/inter`) and
+set it as `--font-sans`, but `body` reads `--font-body`, which named **Sora,
+fetched from `fonts.googleapis.com`** by a `<link>` in `index.html`. Inter was
+downloaded, bundled and rendered nowhere — and the faces that *were* applied came
+from a CDN this application's factory network may have no route to, falling back
+to `system-ui` on exactly the machines Stage 1 self-hosted a font to protect. Both
+font variables now resolve to the bundled Inter and the CDN link is gone.
+
+### Converged in one place rather than page by page
+
+- **Radius** — `--radius-sm/md/lg/xl` **aliased** onto `--radius-control`/`--radius-card`,
+  not deleted: Tailwind generates `rounded-lg`/`rounded-xl` from them and those
+  appear ~700 times, so deleting would have silently dropped the radius from every
+  one. `rounded-2xl`/`3xl` rewritten across 59 files.
+- **Form controls** — `.ctl`, `.ctl-sm`, `.ctl-check`, `.ctl-radio` in `app.css`;
+  134 raw controls across 43 files rewritten onto them. Only `className` was
+  touched. The focus ring reads `--theme-primary`, so all ten colour themes now
+  reach the form controls; the hardcoded green/cyan/blue/indigo rings it replaces
+  reached none.
+- **Type** — 37 `<h1>` and 23 `<h2>` onto the two scale tokens. Twelve titles used
+  `bg-clip-text`, which renders lighter than solid ink, so the largest text on
+  those screens had the weakest contrast on them.
+- **Elevation** — five Tailwind shadow steps (279 uses) onto the three `--elev-*`
+  layers across 73 files, tinted shadow colours dropped with them.
+- **Tables** — `.tbl` gives the fifteen raw tables one header band, separator,
+  hover and rhythm. It sets no alignment, size or cell colour on purpose:
+  `.tbl th` would beat a `text-right` utility on the cell.
+
+### Screens rebuilt
+
+`dynamic-config.tsx` (which renders every auto-discovered config module, making it
+the single biggest lever on that screen class), `config/index.tsx`, the sidebar
+(collapsible icon rail), the header (its desktop left half was an empty spacer),
+and the login page.
+
+### Accessibility
+
+Pinch zoom un-blocked (`user-scalable=no` fails WCAG 1.4.4). Dialogs gained focus
+capture and restore, `role="dialog"` and `aria-modal` — previously a keyboard
+user's Tab walked the page *underneath* the overlay. Toasts became a polite live
+region: the entire save-confirmation channel had been silent to screen readers.
+
+### Four defects that only appeared in a browser
+
+`tsc`, `vite build` and 813 unit tests all passed over these; see
+[[playwright-clicks-dont-land]] in memory for how the screens were finally driven.
+Buttons wrapped to two lines and stopped matching the control height beside them;
+the dashboard title was unreadable over the operator's wallpaper; config-card
+affordances landed at a different height per card; and the login page overrode its
+own `Input` primitive with `h-12 border-2`, rebuilding the look the primitive
+exists to replace.
+
+### Deliberately excluded
+
+`routes/dashboard/` panel-card geometry (tuned with the operator days earlier),
+the `.tv-*` dark tabular view (operator preference, contrast measured across all
+ten presets), `--chart-*` literal fallbacks (the PDF export serialises SVG with no
+stylesheet), `border-2` on selection states (the width *is* the signal) and on
+dashed drop zones. Remaining work is listed in `tasks/ui-redesign-stage2.md`.
+
 ## [Unreleased] - Per-card styling on the dashboard (2026-08-28)
 
 Project C2 of two, completing the customisable dashboard. In **Arrange** mode each
