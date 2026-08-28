@@ -228,11 +228,27 @@ its own `moduleKey`, `permissions`, `requiredRole`, `requiresReauth`,
 ## 9. Dashboards
 
 `Dashboard`, `DashboardWidget`, `DashboardAssignment`. Four permissions
-(`DASHBOARD_VIEW/CREATE/MANAGE/ASSIGN`). Dashboard **card visibility is
-per-role**, configured on Appearance → Dashboard Cards and stored under the
-`dashboard-cards` config key; the backend validates submitted keys against a
-`VALID_CARD_KEYS` allow-list that must stay in sync with the frontend list.
-Current cards: `total_users`, `audit_trail`, `notifications`, `quick_actions`.
+(`DASHBOARD_VIEW/CREATE/MANAGE/ASSIGN`).
+
+**Panel visibility is per-role AND per-user** (2026-08-28). Stored as a nullable
+`dashboard_cards` JSONB on `role_configs` and `user_configs`, configured on
+Config → Roles & Access → **Panels**, resolved server-side and shipped on
+`/api/config/my-config`. Three states: `NULL` = inherit (user → role → every
+panel), `[]` = NO panels, `[keys]` = these.
+
+The catalogue is `@digilog/shared` `types/panels.ts` — the single definition,
+replacing the `ALL_CARDS` / `VALID_CARD_KEYS` pair that previously had to be kept
+in sync by hand. Panels: `telemetry_table`, `telemetry_floorplan` (dashboard);
+`trend_gauges`, `trend_charts`, `trend_summary`, `trend_historian_table`,
+`trend_alarms` (instrument trend page).
+
+**Hiding a panel is a DISPLAY decision, not an access control** — it does not stop
+the data being fetched. `instrument_scope` restricts data.
+
+The previous surface (Appearance → Dashboard Cards, `system_config['dashboard-cards']`,
+per-role only, keys `total_users` / `audit_trail` / `notifications` /
+`quick_actions` / the two telemetry ones) was retired the same day; the first four
+of those keys had been inert since the dashboard was cut back to its two views.
 
 ## 10. Backup & restore
 

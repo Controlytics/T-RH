@@ -1,26 +1,23 @@
-import { useState } from 'react';
 import { BrandingConfigPage } from './branding';
-import DashboardCardsConfig from './dashboard-cards';
 
 /**
- * Branding & Dashboard — one SUPER_ADMIN page combining the Branding editor and
- * the Dashboard Cards visibility matrix into tabs. Each tab is an independent
- * editor backed by its own config key (branding / dashboard-cards) and keeps its
- * own Save. Replaces the two standalone config pages (2026-06-29).
+ * Branding — logo, colours, themes, and the company/application name.
+ *
+ * This page used to carry a second tab, "Dashboard Cards", holding a per-ROLE
+ * card visibility matrix backed by `system_config['dashboard-cards']`. That
+ * surface was retired on 2026-08-28: it had no per-user layer, four of its six
+ * toggles gated dashboard sections that no longer existed, and it saved the whole
+ * config blob at once, so two admins editing different roles overwrote each other
+ * silently. Panel assignment now lives on Config -> Roles & Access -> Panels,
+ * beside Instrument Scope, which is the other reason a user sees less than
+ * everything.
+ *
+ * The wrapper is kept rather than collapsed into the branding page because the
+ * route and its config card both point here.
  */
-type TabKey = 'branding' | 'dashboard';
-
-const TABS: { key: TabKey; label: string }[] = [
-  { key: 'branding', label: 'Branding' },
-  { key: 'dashboard', label: 'Dashboard Cards' },
-];
-
 export function AppearanceConfigPage() {
-  const [tab, setTab] = useState<TabKey>('branding');
-
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-5">
-      {/* Header */}
       <div className="flex items-center gap-3">
         <span className="grid place-items-center w-11 h-11 rounded-2xl bg-gradient-to-br from-violet-500 to-fuchsia-600 text-white shadow-lg shadow-violet-500/20">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -28,28 +25,15 @@ export function AppearanceConfigPage() {
           </svg>
         </span>
         <div>
-          <h1 className="text-xl font-bold text-slate-800 leading-tight">Branding &amp; Dashboard</h1>
-          <p className="text-sm text-slate-500">Logo, colors, themes, and company/app name — plus which dashboard cards each role sees.</p>
+          <h1 className="text-xl font-bold text-slate-800 leading-tight">Branding</h1>
+          <p className="text-sm text-slate-500">
+            Logo, colours, themes, and company/app name. Dashboard and trend-page panels are
+            assigned on Roles &amp; Access &rarr; Panels.
+          </p>
         </div>
       </div>
 
-      {/* Tab bar */}
-      <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-full sm:w-fit">
-        {TABS.map((t) => (
-          <button key={t.key} onClick={() => setTab(t.key)}
-            className={`flex-1 sm:flex-none px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
-              tab === t.key ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-            }`}>
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Active panel */}
-      <div>
-        {tab === 'branding' && <BrandingConfigPage />}
-        {tab === 'dashboard' && <DashboardCardsConfig />}
-      </div>
+      <BrandingConfigPage />
     </div>
   );
 }

@@ -113,6 +113,50 @@ node apps/api/dist/app.js
   (`deliverToTarget`'s `maxAttempts` param) — a test is a diagnostic, and three
   attempts held the request, and the `ALARM_WEBHOOK_TESTED` audit row that
   follows it, open for ~19s against a hooter that does not answer.
+- **2026-08-28 — instrument visibility can name INSTRUMENTS, not just locations.**
+  **No count moved** (36 models / 13 enums, 42 permissions, 48 reauth actions, 24
+  modules, 25 config defs / 25 pages — unchanged) and **no migration**: the
+  existing `instrument_scope` JSONB carries the new shape.
+  - **The column holds TWO shapes, permanently.** Rows before this date are a
+    bare `string[]` of functional-location ids; rows since are
+    `{locationIds, instrumentIds}`. Legacy rows are deliberately NEVER rewritten
+    — rewriting every access-control row is a bigger risk than a reader that
+    takes both. `normalizeScope()` in `modules/instruments/visibility.ts` is that
+    reader and there is exactly ONE of it. Before this change there were two
+    independent `Array.isArray(v)` tests (visibility.ts and the admin GET in
+    `roles/routes.ts`), and in both, "not an array" meant *nothing stored* →
+    **unrestricted**. Either one left behind reads a legacy restricted row as
+    unrestricted while the admin screen still shows the restriction.
+  - **`scopeToWhere` is a UNION and always emits BOTH branches** —
+    `{OR: [{functionalLocationId:{in}}, {id:{in}}]}`. `{OR: []}` matches NOTHING
+    in Prisma while `{}` matches EVERYTHING, and a "drop the empty branch"
+    refactor is one step from the second. Every consumer treats the fragment as
+    opaque (`AND: [where, vis]`, `{instrument: vis}`, `visibilityWhere`), so the
+    nested OR composes — verified, not assumed.
+  - **A documented rule was deliberately reversed:** an instrument with no
+    functional location is still unreachable by the LOCATION branch (`IN (...)`
+    never matches NULL) but IS granted when named by id. Assigning a freshly
+    commissioned device must not silently do nothing.
+  - **Two pre-existing leaks fixed in the same pass**, both the shape of the
+    `GET /:id/telemetry` gap closed 2026-08-24 — a sibling route left on a bare
+    lookup when its neighbour was scoped: `GET /:id/dead-letters` (returns
+    `rawPayload`, the device's own message) and
+    `GET /api/floorplans/:id/rooms/:roomId/history` (returned every instrument in
+    the room). The latter filters the room MEMBERSHIP query, so an out-of-scope
+    instrument contributes no series rather than being stripped after the rows
+    were read. `GET /api/floorplans/:id` stays unscoped **knowingly**: it lists
+    instrument identity per room, is CONFIG_READ, and is fetched only by the
+    Config → Floorplans editor (verified 2026-08-28) — the dashboard uses
+    `GET /api/floorplans`, which returns rooms without instruments.
+  - New route `GET /api/roles/instrument-scope/instruments` (ROLE_MANAGE),
+    **deliberately unscoped** for the admin picker, same reasoning as the
+    alarm-webhook config routes. The §11 signature on both scope PUTs now names
+    the instrument count too — "set to N functional location(s)" became false the
+    moment instruments could be named.
+  - Pinned by `src/e2e/instrument-scope-selection.test.ts` (21 cases, every
+    restricted case paired with a positive control, driven through the seeded
+    OPERATOR because SUPER_ADMIN short-circuits visibility) and 26 unit tests in
+    `modules/instruments/__tests__/visibility.test.ts`.
 - Config definitions: `apps/api/src/modules/config/defs/` (**25 files** — verified by `ls` 2026-08-17; `alarm-limits.def` added 2026-08-17 (which attribute keys carry each temperature/humidity limit, the limit-alarm severity, the master switch, and the four alarm status wordings). `telemetry-slots.def` added 2026-08-11. Earlier note: the previous "36" was inherited from DigiLog and was never true here. `instrument-attributes.def` added 2026-08-07)
 - Route modules: `apps/api/src/modules/` (**24 modules**, verified `ls | wc -l` 2026-08-27 — `alarm-webhooks` added 2026-08-27; earlier 23, verified `ls` 2026-08-14 — `functional-locations` + `alarms` added 2026-08-13. **A new module must be registered in BOTH `app.ts` AND `src/e2e/test-helper.ts`** — the helper builds its own app, so a module missing from it 404s in every e2e test. Earlier: 21 modules verified `ls` 2026-08-11 — `floorplans` added 2026-08-11. The previous "33" was already stale and the shortfall has NOT been individually reconciled; treat the removal notes below as history, not an inventory — `org-admin`/`tenant-admin` deleted in MT removal; `rule-chain` deleted 2026-05-17; `qr-code` deleted 2026-06-06; **`data-ingestion`, `uns`, `connectivity`, `queries` deleted 2026-06-11..2026-06-17** with the ingestion tear-out; **`reports`, `report-templates` deleted 2026-07-04** with the reports generate/sign tear-out (`report-reviews` survives); `debug-traces` re-added 2026-06-12 reading from `audit_trail` instead of dropped `ts_pipeline_traces`)
 - Config routes: monolith split into `apps/api/src/modules/config/static-routes/<surface>.routes.ts` per tab; top-level `routes.ts` is just a registration loop (~170 LOC, was 1003)

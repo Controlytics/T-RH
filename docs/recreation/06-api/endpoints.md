@@ -18,10 +18,11 @@ curl -sk https://localhost:3001/docs/json
 | GET | `/api/config/action-reauth/check` | Check if action requires re-authentication |
 | GET | `/api/config/action-reauth/my-actions` | Get re-auth actions for current user |
 | GET · PUT | `/api/config/audit-templates` | Get audit text templates |
+| GET | `/api/roles/panel-access` | Panel assignment for every role and every user override (ROLE_MANAGE) |
+| PUT | `/api/roles/panel-access/role/:name` | Set a role's assignable panels (reauth, audited) |
+| PUT | `/api/roles/panel-access/user/:userId` | Set one user's panels, overriding their role (reauth, audited) |
 | GET | `/api/config/audit-templates/current` | Get effective audit text templates |
 | GET · PUT | `/api/config/branding` | Get branding configuration |
-| PUT | `/api/config/dashboard-cards` | Update dashboard card visibility per role |
-| GET | `/api/config/dashboard-cards/current` | Get dashboard card visibility settings |
 | GET · PUT | `/api/config/datetime` | Get Datetime configuration |
 | GET | `/api/config/datetime/current` | Get current datetime format settings |
 | GET · PUT | `/api/config/dynamic/export-limit` | Get Export Limits config |

@@ -1,5 +1,275 @@
 # Changelog
 
+## [Unreleased] - Panel assignment, per role and per user (2026-08-28)
+
+Every panel on the dashboard and the instrument trend page is now assignable, per
+role AND per user, on Config -> Roles & Access -> **Panels** — beside Instrument
+Scope, in the same shape. Spec:
+`docs/superpowers/specs/2026-08-28-panel-assignment-design.md`; plan:
+`docs/superpowers/plans/2026-08-28-panel-assignment.md`.
+
+**One count moved:** config pages **25 -> 24** (`routes/config/dashboard-cards.tsx`
+deleted; the new tab lives inside the existing `role-access.tsx`). Shared type
+files 17 -> 18 (`types/panels.ts`). Models **36**, enums **13**, permissions
+**42**, reauth actions **48**, audit actions **97**, modules **24**, config defs
+**25**, `<Route>`s **50** — all re-derived and unchanged. **No new permission,
+reauth action or audit action**: the routes reuse `ROLE_MANAGE`,
+`UPDATE_ROLE_CONFIG` and `CONFIG_CHANGED`, exactly like instrument scope.
+
+### What is assignable
+
+`telemetry_table` and `telemetry_floorplan` on the dashboard; `trend_gauges`,
+`trend_charts`, `trend_summary`, `trend_historian_table` and `trend_alarms` on the
+trend page, **which had no governance at all before this**.
+
+### Hiding a panel is a DISPLAY decision, not an access control
+
+It does not stop the data being fetched from the API — `instrument_scope` is what
+restricts data. That sentence is on the editor screen, not only in the design doc,
+because an admin who hides the alarms widget believing they have withheld alarm
+data has been misled by the UI, and that is the failure this feature can most
+easily cause. The trend page's data fetching is deliberately untouched, so a
+hidden panel does not change what the signed PDF report covers.
+
+### Storage: like `instrument_scope`, not like `dashboard-cards`
+
+Nullable `dashboard_cards` JSONB on **both** `role_configs` and `user_configs`
+(migration `20260828070000_panel_access`, hand-authored, drift guard PASS, applied
+to `compliance_core_db` and `compliance_core_db_test`). Three states, kept
+distinguishable end to end: `NULL` = inherit (user -> role -> every panel),
+`[]` = **NO panels**, `[keys]` = these.
+
+**Deliberately unlike `sidebarItems` sitting beside it.**
+`configService.getMyConfig` decides whether a user config wins by testing
+`sidebarItems.length > 0`, so an empty user list falls through to the role.
+Panels must not copy that: it turns a deliberate deny into a grant. The reasoning
+is written at both the resolver and the route so nobody "makes it consistent"
+later.
+
+Nullable with **no default** — a `DEFAULT '[]'` would have blanked every existing
+role's dashboard the moment the migration ran.
+
+### The migration bug the checkpoint caught
+
+The first version used `UPDATE` alone. On this installation only ADMIN and VIEWER
+had `role_configs` rows while the legacy map named six roles, so four were
+silently skipped. Harmless here by luck — those four listed both live cards
+anyway — but a role whose list held **no** live card would have been widened from
+"no cards" to "every panel". The migration now pairs the `UPDATE` with an `INSERT`
+for roles that have no config row, and `scripts/verify-panel-migration.ts` proves
+the carry-over against the row it came from before that row is deleted.
+
+The carry-over also **adds every trend key** to each migrated role. The trend page
+was ungoverned before, so everyone saw all five of its panels; carrying only the
+two dashboard keys would have silently stripped the whole trend page from every
+role — a narrowing nobody asked for, and one that would have looked like a bug in
+the new feature rather than in the SQL.
+
+### One catalogue, replacing two hand-synced copies
+
+`@digilog/shared` `types/panels.ts` is now the only definition. It replaced an
+`ALL_CARDS` array in the web config page and a `VALID_CARD_KEYS` set in the API
+route that carried a "keep in sync" comment — a drift with a comment on it. A
+frozen-key test locks the order, because those keys are stored in the database and
+renaming one silently orphans every row that names it.
+
+**Four keys retired**: `total_users`, `audit_trail`, `notifications`,
+`quick_actions`. They gated dashboard sections removed when the page was cut to
+"tabular view and graphical view", and had been inert ever since. A switch that
+does nothing on a governance screen is worse than an absent one — someone will
+turn one off believing they restricted something. (The same thing had already
+happened once, to eight filter-domain keys; that history is recorded in
+`panels.ts` rather than lost with the file that held it.)
+
+### Retired
+
+`modules/config/static-routes/dashboard-cards.routes.ts`,
+`routes/config/dashboard-cards.tsx`, and the `system_config['dashboard-cards']`
+row (deleted only after the carry-over verified; its final value is in the commit
+message). Config -> Appearance is now a single Branding page. Retiring the old PUT
+also removes a live hazard: it wrote the **whole** config blob, so two admins
+editing different roles overwrote each other silently. The new routes write one
+role or one user at a time.
+
+### Verification
+
+API **1566 passing / 124 files** (single-fork), web **798 / 59**, shared 20 new
+unit tests, `tsc --noEmit` clean on all three projects, `vite build` succeeds.
+New e2e `src/e2e/panel-access.test.ts` (11 cases) drives everything through the
+seeded OPERATOR over HTTP, because SUPER_ADMIN short-circuits to "every panel" and
+an admin-driven version would pass against a route with no resolution at all.
+Not verified in a browser — Playwright cannot authenticate against this install's
+certificate.
+
+## [Unreleased] - Instrument visibility: assign individual instruments, not just locations (2026-08-28)
+
+A role or user scope can now name INSTRUMENTS as well as functional locations.
+"Area-wise" and "location-wise" already worked — `FunctionalLocation` is the
+Block > Area tree and a granted Block already expanded to its Areas — so the new
+capability is explicit instrument ids, singly or in any number.
+
+**No count moved.** No model, enum, permission, reauth action, config def, config
+page, API module or `<Route>` was added, and **there is no migration**: the
+existing `instrument_scope` JSONB column carries the new shape.
+
+### Storage — two shapes, permanently, on purpose
+
+`role_configs.instrument_scope` / `user_configs.instrument_scope` now hold
+`{locationIds, instrumentIds}`. Rows written before today hold a bare array of
+location ids and are **deliberately never rewritten** — rewriting every
+access-control row is a larger risk than a reader that accepts both.
+
+`normalizeScope()` in `modules/instruments/visibility.ts` is that reader, and
+there is exactly ONE of it. Before this change there were two independent
+`Array.isArray(v)` tests (visibility.ts and the admin GET in roles/routes.ts),
+and in both, "not an array" meant *nothing stored* → **unrestricted**. Either one
+left behind would have read every legacy restricted row as unrestricted while the
+admin screen still displayed the restriction. The legacy-shape cases in
+`src/e2e/instrument-scope-selection.test.ts` exist to keep that closed.
+
+Three states are unchanged and still distinguishable end to end: `null` =
+inherit, an empty selection = **sees nothing**, anything selected = that
+selection.
+
+### Matching is a UNION
+
+`scopeToWhere` compiles to `{ OR: [ {functionalLocationId: {in: …}}, {id: {in: …}} ] }`
+— the same shape an alarm webhook target already uses, so no fourth grouping
+concept was introduced. **Both branches are always emitted, even when empty:**
+`{ OR: [] }` matches nothing in Prisma while `{}` matches everything, and a
+"tidy up the empty branch" refactor is one step from the second.
+
+### One documented behaviour deliberately reversed
+
+`scopeToWhere` used to guarantee that an instrument with no functional location
+was invisible to any active scope (`IN (...)` never matches NULL). **Naming an
+instrument by id now grants it even when it has not been placed** — otherwise
+assigning a freshly commissioned device would silently do nothing. The location
+branch is unchanged and still cannot reach an unplaced instrument; the e2e suite
+asserts both halves so the grant is traceable to the new branch.
+
+### Two pre-existing leaks found in the touchpoint sweep and fixed
+
+Both are the same shape as the `GET /:id/telemetry` gap closed on 2026-08-24 — a
+sibling route left on a bare lookup when its neighbour was scoped. "The user
+cannot see that instrument's data" was not true while either answered:
+
+- **`GET /api/instruments/:id/dead-letters`** — no visibility scoping at all, and
+  it returns `rawPayload`, the device's own message, which carries the readings.
+  Now scoped in the lookup: 404, never 403.
+- **`GET /api/floorplans/:id/rooms/:roomId/history`** — returned the time series
+  for *every* instrument in a room regardless of scope. Now filtered on the room
+  MEMBERSHIP query, so an out-of-scope instrument contributes no series at all
+  rather than being filtered out of the response after the rows were read. The
+  room and its limits are still returned: a room is a space, not an instrument.
+
+**Counts were leaking too — a whole second class, found by the operator.** A
+count is a disclosure: it both misdescribes what the caller has and reveals the
+size of the estate they are excluded from.
+
+- **`GET /api/instrument-profiles` and `/:id`** counted every instrument in the
+  profile. On this install a user scoped to 4 instruments saw a profile card
+  reading "101 instruments". The nested relation now carries the visibility
+  filter. `PUT /:id` is scoped the same way so an edit cannot make the number
+  jump to one the list never shows; `POST /` needs no scope (a new profile is
+  empty). **The DELETE guard stays UNSCOPED deliberately** — it exists to explain
+  the foreign key's refusal, and the FK counts every instrument regardless of who
+  asks; a scoped count there would tell a restricted admin the profile is empty
+  and then hand them a raw FK error. Both halves are pinned by tests.
+- **`GET /api/functional-locations`** reported "CWH Block: 100" to the same user.
+  `loadOwnCounts` now takes the visibility filter. **The tree's SHAPE is
+  deliberately not filtered** — every Block and Area is still returned, showing
+  0. A location is a place, not an instrument, and hiding locations would make
+  the plant's structure change depending on who is looking, including for the
+  admin choosing locations to grant.
+- Checked and found already correct: `GET /api/alarms/summary` (18 active for an
+  unrestricted caller, 2 for the scoped one), `GET /api/instruments`,
+  `telemetry-overview`, `eligible-children`, and `GET /api/floorplans` (rooms
+  carry no instruments).
+
+**`GET /api/floorplans/:id` was checked and left unscoped, knowingly.** It lists
+instrument identity (id/code/name) per room, gates on `CONFIG_READ`, and is
+fetched only by the Config → Floorplans placement editor — verified 2026-08-28,
+not assumed. The graphical dashboard uses `GET /api/floorplans`, which returns
+rooms **without** instruments, plus the room history above. An admin placing
+instruments on a plan must see all of them, the same reasoning already on record
+for the alarm-webhook config routes. Recorded here rather than left as "I looked
+at it", which is how the 2026-08-24 telemetry gap survived beside a scoped
+sibling.
+
+### Admin surface
+
+Config → Roles & Access → Instrument Scope gains an instrument picker beside the
+location picker (searchable by code, name or location; unplaced instruments
+labelled). The two lists add up, and the screen says so.
+
+- **An instrument already covered by a selected location renders ticked, disabled
+  and labelled "via <location>"**, above a count line. Selecting a Block always
+  granted every instrument in its Areas — on this install, selecting `CWH Block`
+  grants 100 instruments, none of which are attached to the Block itself — but
+  the picker showed nothing ticked, so a correct assignment was invisible. That
+  is the worst combination on an access-control screen. The row cannot be
+  unticked individually: the location grants it, so removing one would mean
+  deselecting the location.
+- Which locations cover an instrument is answered **server-side**
+  (`coveringLocationIds` on the picker payload) by `buildCoveringIndex()`, which
+  is built by calling `resolveLocationIds` over every location rather than by
+  walking `parentId` upward. Containment is a policy decision and a second copy
+  of it in the browser is the drift this repo has been bitten by before; deriving
+  the index from the one authoritative function means the picture and the query
+  cannot disagree. An e2e case walks the picker's own answer and asserts the
+  scoped list returns exactly the instruments it claimed, in both directions.
+
+- The picker reads a new **deliberately unscoped** listing,
+  `GET /api/roles/instrument-scope/instruments` (ROLE_MANAGE). A scoped listing
+  would show an admin who is themselves restricted only their own instruments,
+  so they would build a scope silently omitting the rest with no way to tell —
+  the reasoning already on record for the alarm-webhook config routes.
+- The §11 signature was reworded: `"...set to N functional location(s)"` became a
+  false statement the moment instruments could be named. It now names both counts,
+  and "NO instruments at all" for an empty selection.
+- **Fixed while in there:** the tab defined its editor and picker components
+  *inside* its render function, so React remounted them on every parent render —
+  a half-finished selection was silently discarded whenever SWR revalidated (on
+  window focus, for instance) or another row saved. Hoisted to module scope, with
+  an explicit `key` so the editor re-seeds from the server value on save and only
+  then.
+
+### Verification
+
+`visibility.test.ts` 26 unit tests (normalizeScope's legacy/new/malformed
+branches, the always-two-branch `OR`, the unplaced-instrument grant);
+`instrument-scope-selection.test.ts` 21 e2e over HTTP as the seeded OPERATOR, each
+restricted case paired with a positive control — including the two routes that
+paint the dashboard (`telemetry-overview` and the `points=` chart path) under an
+INSTRUMENT-ONLY scope, which is the discriminating fixture: any step that assumed
+a scope names locations would come back empty there while the list page still
+showed the instrument. A per-user override in the new shape is covered too, since
+replace-not-intersect is what "same role, different users, different instruments"
+rests on. Related suites re-run green:
+telemetry-range, alarm-webhooks, floorplans, instruments, roles,
+role-attribute-access, instrument-limit-alarms (284 + 84 passing), web 794/794.
+`tsc --noEmit` clean on both projects. Not verified in a browser — Playwright
+cannot authenticate against this install's certificate.
+
+## [Unreleased] - Dashboard wallpaper fills the content pane (2026-08-28)
+
+Operator: no gap between the sidebar and the dashboard wallpaper.
+
+`apps/web/src/lib/background-style.ts` switched `background-size` from `contain`
+to `cover`. The gap was not a margin — the layer is already flush against the
+sidebar (`absolute inset-0` in the content pane). It was `contain`'s
+letterboxing: whatever the pane's aspect ratio does not match was left as blank
+white scrim, which on a wide screen reads as a white band beside the sidebar.
+
+**The cost, stated plainly:** an image whose aspect ratio differs from the
+content pane is now CROPPED, centred, so its edges are what is lost. Nothing
+functional rides on the wallpaper. No count moved; no other file changed.
+
+Test updated to assert `cover` (`src/lib/__tests__/background-style.test.ts`,
+15 pass). Not verified in a browser — Playwright cannot authenticate against
+this install's cert, so the visual check is the operator's.
+
 ## [Unreleased] - Instrument trend page: sampling, true range summaries, zoom (2026-08-27)
 
 The Trend page now plots wide ranges honestly. Spec:

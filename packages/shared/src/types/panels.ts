@@ -39,6 +39,13 @@ export const PANEL_PAGES: readonly { page: PanelPage; label: string }[] = [
  * The four keys retired on 2026-08-28 — `total_users`, `audit_trail`,
  * `notifications`, `quick_actions` — gated dashboard sections that no longer exist.
  * They are deliberately absent, not commented out.
+ *
+ * Earlier still, EIGHT filter-domain keys (filter_analytics, total_filters,
+ * active_cycles, completed_today, stage_distribution, cycle_status, daily_chart,
+ * monthly_chart) went with the Filter Cleaning Analytics block: the
+ * `/api/filters/dashboard-stats` feed behind them was removed in the Phase 0
+ * strip, so those toggles controlled cards that could never render. Recorded here
+ * because it is the same failure twice — a catalogue outliving what it describes.
  */
 export const PANELS: readonly PanelDefinition[] = [
   {
