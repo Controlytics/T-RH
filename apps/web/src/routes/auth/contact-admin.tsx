@@ -258,7 +258,7 @@ export function ContactAdminPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h2 className="text-xl font-bold text-slate-800 mb-2">Request Submitted</h2>
+          <h2 className="text-[19px] font-semibold leading-tight text-slate-800 mb-2">Request Submitted</h2>
           <p className="text-sm text-slate-500 mb-6">Your request has been sent to the administrator. You will be notified once it's processed.</p>
           <a href="/login" className="inline-block px-6 py-2 rounded-lg text-sm font-medium text-white bg-cyan-600 hover:bg-cyan-700 transition-colors">
             Back to Login
@@ -279,7 +279,7 @@ export function ContactAdminPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
             </a>
-            <h1 className="text-xl font-bold text-slate-800">Contact Admin</h1>
+            <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Contact Admin</h1>
           </div>
           <p className="text-sm text-slate-500 ml-9">Submit a request to the system administrator</p>
         </div>

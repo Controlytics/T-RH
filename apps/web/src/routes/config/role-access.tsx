@@ -202,7 +202,7 @@ export function RoleAccessPage() {
                 </svg>
               </div>
               <div>
-                <h1 className="text-2xl font-bold">Role & Access Configuration</h1>
+                <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Role & Access Configuration</h1>
                 <p className="text-purple-100/80 text-sm">Manage roles, permissions, sidebar visibility, and re-authentication</p>
               </div>
             </div>

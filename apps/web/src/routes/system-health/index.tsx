@@ -169,7 +169,7 @@ export function SystemHealthPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">System Health</h1>
+          <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">System Health</h1>
           <p className="text-sm text-slate-500 mt-1">
             Server: {data.os.hostname} &middot; Last updated:{' '}
             {formatTime(data.timestamp)}

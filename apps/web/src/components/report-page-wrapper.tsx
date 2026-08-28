@@ -57,7 +57,7 @@ export function ReportPageWrapper({ title, totalRecords, page, totalPages, child
           <div className="flex-1 text-center">
             <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">{companyName}</p>
             {appName && <p className="text-[11px] font-medium text-slate-500">{appName}</p>}
-            <h2 className="text-lg font-bold text-slate-800">{title}</h2>
+            <h2 className="text-[19px] font-semibold leading-tight text-slate-800">{title}</h2>
           </div>
           {/* Right: performed-by */}
           <div className="text-right text-xs text-slate-400 space-y-0.5 shrink-0 min-w-[110px]">

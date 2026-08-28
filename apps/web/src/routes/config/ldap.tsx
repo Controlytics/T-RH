@@ -175,7 +175,7 @@ export default function LdapConfigPage() {
             </svg>
           </div>
           <div>
-            <h1 className="text-2xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">LDAP / Active Directory</h1>
+            <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">LDAP / Active Directory</h1>
             <p className="text-sm text-slate-500 mt-0.5">Configure LDAP authentication and user provisioning</p>
           </div>
         </div>

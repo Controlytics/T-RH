@@ -418,7 +418,7 @@ export function FloorplansConfigPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       <div>
-        <h1 className="text-2xl font-bold text-slate-800">Floorplans</h1>
+        <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Floorplans</h1>
         <p className="mt-1 text-sm text-slate-500">
           Upload a floor layout, drag a box over each room that holds instruments, and set that room&rsquo;s
           temperature and humidity limits. The dashboard colours each room against these limits.

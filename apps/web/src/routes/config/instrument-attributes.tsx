@@ -205,7 +205,7 @@ export function InstrumentAttributesConfigPage() {
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Instrument Attributes</h1>
+          <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Instrument Attributes</h1>
           <p className="text-sm text-slate-500">
             The attributes the New Instrument form asks for, per profile. You set
             the keys here; whoever registers a device fills in the values.

@@ -72,7 +72,7 @@ export default function HomePage() {
     <div className="w-full p-4 sm:p-6">
       <header className="mb-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <h1 className="text-2xl font-bold text-slate-800">Module Guide</h1>
+          <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Module Guide</h1>
           <div className="flex items-center gap-2">
             {/* View toggle: personalized vs full audit view. */}
             <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-sm" role="group" aria-label="Guide view">

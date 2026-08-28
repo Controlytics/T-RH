@@ -186,7 +186,7 @@ export function FunctionalLocationDetailPage() {
               </p>
             )}
             <div className="mt-1 flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl font-bold text-slate-800">{data.name}</h1>
+              <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">{data.name}</h1>
               <Badge variant={isBlock ? 'default' : 'secondary'}>{data.type}</Badge>
             </div>
           </div>

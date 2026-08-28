@@ -198,7 +198,7 @@ export function ProfilePage() {
         <CardContent className="pt-16 pb-6">
           <div className="flex items-start justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-slate-800">{user.fullName}</h1>
+              <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">{user.fullName}</h1>
               <div className="flex items-center gap-3 mt-2">
                 <Badge className={`${roleColors[user.role] ?? ''}`}>
                   {roleLabels[user.role] ?? user.role}

@@ -170,7 +170,7 @@ export function AuditTemplatesConfigPage() {
           <Card key={category} className="border-slate-200/60 shadow-xl overflow-hidden">
             <div className={`h-1 bg-gradient-to-r ${categoryGradients[category] || 'from-slate-400 to-slate-500'}`} />
             <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/80">
-              <h2 className="text-lg font-semibold text-slate-800">{category}</h2>
+              <h2 className="text-[19px] font-semibold leading-tight text-slate-800">{category}</h2>
               <p className="text-xs text-slate-500 mt-0.5">{items.length} action{items.length > 1 ? 's' : ''}</p>
             </div>
             <CardContent className="p-0">

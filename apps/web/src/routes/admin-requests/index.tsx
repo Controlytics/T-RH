@@ -219,7 +219,7 @@ export function AdminRequestsPage() {
               </svg>
             </div>
             <div>
-              <h1 className="text-xl font-bold text-slate-800 tracking-tight">Admin Requests</h1>
+              <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Admin Requests</h1>
               <p className="text-[13px] text-slate-400 mt-0.5">
                 {pendingCount > 0 ? (
                   <><span className="text-amber-600 font-semibold">{pendingCount} pending</span> request{pendingCount !== 1 ? 's' : ''} awaiting review</>

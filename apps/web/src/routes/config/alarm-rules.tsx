@@ -122,7 +122,7 @@ export function AlarmRulesConfigPage() {
     <div className="p-6">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Alarm Rules</h1>
+          <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Alarm Rules</h1>
           <p className="mt-1 text-sm text-slate-500">
             Conditions the evaluator checks every minute. Raising and clearing are automatic;
             acknowledgement happens on the Alarms page.

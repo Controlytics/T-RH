@@ -333,7 +333,7 @@ export function HelpArticlesPage() {
                 </svg>
               </div>
               <div>
-                <h1 className="text-2xl font-bold">Help Articles</h1>
+                <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Help Articles</h1>
                 <p className="text-teal-100/80 text-sm">Manage in-app help content and documentation</p>
               </div>
             </div>

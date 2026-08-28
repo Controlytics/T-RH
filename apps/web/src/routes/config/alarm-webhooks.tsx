@@ -324,7 +324,7 @@ export function AlarmWebhooksConfigPage() {
   return (
     <div className="p-6">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
-        <h1 className="text-2xl font-semibold text-slate-900">Alarm Webhooks</h1>
+        <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Alarm Webhooks</h1>
         {canManage && (
           <Button onClick={() => { setEditing(undefined); setDialogOpen(true); }}>New Target</Button>
         )}

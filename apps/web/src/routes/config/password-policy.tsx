@@ -65,7 +65,7 @@ export function PasswordPolicyPage() {
             </svg>
           </div>
           <div>
-            <h1 className="text-2xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">General & Password Settings</h1>
+            <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">General & Password Settings</h1>
             <p className="text-sm text-slate-500 mt-0.5">Configure security and authentication policies</p>
           </div>
         </div>
@@ -122,7 +122,7 @@ export function PasswordPolicyPage() {
                 </svg>
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-slate-800">General Settings</h2>
+                <h2 className="text-[19px] font-semibold leading-tight text-slate-800">General Settings</h2>
                 <p className="text-sm text-slate-500">Login security and session timeout</p>
               </div>
             </div>
@@ -193,7 +193,7 @@ export function PasswordPolicyPage() {
                 </svg>
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-slate-800">Password Requirements</h2>
+                <h2 className="text-[19px] font-semibold leading-tight text-slate-800">Password Requirements</h2>
                 <p className="text-sm text-slate-500">Configure password complexity and history rules</p>
               </div>
             </div>

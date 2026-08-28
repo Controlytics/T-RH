@@ -72,7 +72,7 @@ export default function FunctionalLocationsPage() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Functional Locations</h1>
+          <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Functional Locations</h1>
           <p className="mt-1 text-sm text-slate-600">
             Block and Area grouping. An instrument belongs to exactly one location.
           </p>

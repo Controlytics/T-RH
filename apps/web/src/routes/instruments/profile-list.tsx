@@ -90,7 +90,7 @@ export function InstrumentProfileListPage() {
             </svg>
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-slate-800">Instrument Profiles</h1>
+            <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Instrument Profiles</h1>
             <p className="text-sm text-slate-500 mt-0.5">
               Group instruments by area, system or purpose. Open a profile to see and add its instruments.
             </p>

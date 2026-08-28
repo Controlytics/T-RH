@@ -56,7 +56,11 @@ function ConfigCard({
           <p className="mt-1 text-[13px] leading-relaxed text-slate-500">{card.description}</p>
         </div>
       </div>
-      <span className="mt-3 flex items-center gap-1 text-[13px] font-medium text-[var(--theme-primary,#2a78d6)]">
+      {/* `mt-auto` pins this to the bottom of the card. Without it the affordance
+          floats directly under the description, so in a row of cards with
+          different description lengths it lands at a different height on each —
+          which is what the grid looked like before. */}
+      <span className="mt-auto flex items-center gap-1 pt-3 text-[13px] font-medium text-[var(--theme-primary,#2a78d6)]">
         Configure
         <svg aria-hidden className="h-4 w-4 transition-transform duration-150 group-hover:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -515,7 +519,7 @@ export function ConfigIndexPage() {
                     <p className="mt-1 line-clamp-2 text-[13px] leading-relaxed text-slate-500">{mod.description}</p>
                   </div>
                 </div>
-                <div className="mt-3 flex items-center justify-between">
+                <div className="mt-auto flex items-center justify-between pt-3">
                   <span className="text-[12px] text-slate-400">
                     {mod.settings.length} {mod.settings.length === 1 ? 'setting' : 'settings'}
                   </span>

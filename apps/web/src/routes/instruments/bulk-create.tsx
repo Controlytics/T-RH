@@ -78,7 +78,7 @@ export function InstrumentBulkCreatePage() {
     <div className="mx-auto max-w-4xl space-y-6">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Bulk Upload Instruments</h1>
+          <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Bulk Upload Instruments</h1>
           <p className="text-sm text-slate-500">
             Valid rows are created even when others fail — one typo does not reject the file.
           </p>

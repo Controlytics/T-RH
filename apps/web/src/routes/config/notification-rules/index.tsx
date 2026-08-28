@@ -150,7 +150,7 @@ export function NotificationRulesPage() {
           </svg>
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Notification Rules</h1>
+          <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Notification Rules</h1>
           <p className="text-sm text-slate-500">Configure event-based alerts, recipients, templates, and delivery logs</p>
         </div>
       </div>

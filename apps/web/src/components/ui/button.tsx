@@ -65,7 +65,12 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       disabled={disabled || loading}
       aria-busy={loading || undefined}
       className={cn(
-        'inline-flex select-none items-center justify-center gap-2 rounded-[var(--radius-control)] text-[14px] font-medium',
+        // `whitespace-nowrap` is not cosmetic. Without it a two-word label in a
+        // narrow flex row wraps, the button grows to two lines, and it no longer
+        // matches the height of the control beside it — which is the whole point
+        // of having one control height. Observed on User Management, where
+        // "Create User" and "Password Reset Requests" both wrapped.
+        'inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap rounded-[var(--radius-control)] text-[14px] font-medium',
         'transition-[background-color,border-color,filter,box-shadow] duration-150',
         // A visible focus ring is not optional: this application is used with a
         // keyboard on a plant floor as often as with a mouse.

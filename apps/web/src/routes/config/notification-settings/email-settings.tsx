@@ -101,7 +101,7 @@ function ChannelSettingsPage({ defaultTab = 'email' }: { defaultTab?: 'email' | 
           </svg>
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Notification Channels</h1>
+          <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Notification Channels</h1>
           <p className="text-sm text-slate-500">Configure email SMTP and SMS provider settings</p>
         </div>
       </div>

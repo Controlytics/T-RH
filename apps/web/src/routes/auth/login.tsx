@@ -114,7 +114,7 @@ export function LoginPage() {
     >
       <div className="w-full max-w-md">
         {/* Login Card */}
-        <div className="relative bg-white/95 backdrop-blur-sm rounded-[var(--radius-card)] shadow-2xl overflow-hidden">
+        <div className="relative bg-white/95 backdrop-blur-sm rounded-[var(--radius-card)] shadow-[var(--elev-3)] overflow-hidden">
           {/* Decorative gradient header */}
           <div
             className="h-2"
@@ -146,7 +146,7 @@ export function LoginPage() {
                 </div>
               )}
               <h1
-                className="text-3xl font-bold mb-2"
+                className="mb-2 text-[26px] font-semibold tracking-[-0.01em]"
                 style={{
                   backgroundImage: `linear-gradient(to right, ${branding.primaryColor}, ${branding.secondaryColor})`,
                   backgroundClip: 'text',
@@ -161,21 +161,21 @@ export function LoginPage() {
 
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
               {error && (
-                <div className="flex items-center gap-3 rounded-xl bg-gradient-to-r from-red-50 to-red-100 border border-red-200 p-4">
-                  <div className="w-10 h-10 rounded-full bg-red-500 flex items-center justify-center shrink-0">
+                <div className="flex items-center gap-2.5 rounded-[var(--radius-control)] border border-rose-200 bg-rose-50 p-3">
+                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-rose-600">
                     <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </div>
-                  <p className="text-sm text-red-700 font-medium">{error}</p>
+                  <p className="text-[13px] font-medium text-rose-800">{error}</p>
                 </div>
               )}
 
               <div className="space-y-2">
-                <label className="block text-sm font-semibold text-slate-700">User ID</label>
+                <label className="block text-[13px] font-medium text-slate-700">User ID</label>
                 <div className="relative">
-                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                    <svg className="h-[18px] w-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                     </svg>
                   </div>
@@ -184,11 +184,11 @@ export function LoginPage() {
                     placeholder="Enter your user ID"
                     autoFocus
                     autoComplete="username"
-                    className="h-12 pl-12 pr-4 text-base rounded-xl border-2 border-slate-200 bg-slate-50/50 transition-all"
+                    className="pl-11"
                   />
                 </div>
                 {errors.username && (
-                  <p className="text-sm text-red-500 flex items-center gap-1.5 mt-1 font-medium">
+                  <p className="mt-1 flex items-center gap-1.5 text-[12px] text-rose-700">
                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                     </svg>
@@ -198,10 +198,10 @@ export function LoginPage() {
               </div>
 
               <div className="space-y-2">
-                <label className="block text-sm font-semibold text-slate-700">Password</label>
+                <label className="block text-[13px] font-medium text-slate-700">Password</label>
                 <div className="relative">
-                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                    <svg className="h-[18px] w-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                     </svg>
                   </div>
@@ -211,7 +211,7 @@ export function LoginPage() {
                     placeholder="Enter your password"
                     secureField
                     autoComplete="current-password"
-                    className="h-12 pl-12 pr-16 text-base rounded-xl border-2 border-slate-200 bg-slate-50/50 transition-all"
+                    className="pl-11 pr-16"
                   />
                   <button
                     type="button"
@@ -226,7 +226,7 @@ export function LoginPage() {
                   </button>
                 </div>
                 {errors.password && (
-                  <p className="text-sm text-red-500 flex items-center gap-1.5 mt-1 font-medium">
+                  <p className="mt-1 flex items-center gap-1.5 text-[12px] text-rose-700">
                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                     </svg>
@@ -248,7 +248,7 @@ export function LoginPage() {
 
               <Button
                 type="submit"
-                className="w-full h-12 text-base font-semibold rounded-xl transition-all hover:-translate-y-0.5"
+                className="w-full" size="lg"
                 style={{
                   background: `linear-gradient(to right, ${branding.primaryColor}, ${branding.secondaryColor})`,
                   boxShadow: `0 10px 40px -10px ${branding.secondaryColor}50`,
@@ -307,7 +307,7 @@ export function LoginPage() {
           </p>
 
           {systemSession && (
-            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+            <div className="p-4 rounded-[var(--radius-control)] bg-slate-50 border border-slate-200 space-y-3">
               <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Current Session</p>
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-full bg-gradient-to-br from-slate-200 to-slate-300 flex items-center justify-center">
@@ -364,7 +364,7 @@ export function LoginPage() {
           </p>
 
           {sessionConflict && (
-            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+            <div className="p-4 rounded-[var(--radius-control)] bg-slate-50 border border-slate-200 space-y-3">
               <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Existing Session</p>
               <div className="space-y-2">
                 {sessionConflict.type === 'different_user' && sessionConflict.username && (

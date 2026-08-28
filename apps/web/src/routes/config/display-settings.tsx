@@ -30,7 +30,7 @@ export function DisplaySettingsPage() {
           </svg>
         </span>
         <div>
-          <h1 className="text-xl font-bold text-slate-800 leading-tight">Display Settings</h1>
+          <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Display Settings</h1>
           <p className="text-sm text-slate-500">Field display names, audit-trail wording, and list page sizes.</p>
         </div>
       </div>

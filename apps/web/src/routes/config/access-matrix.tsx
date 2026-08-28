@@ -141,7 +141,7 @@ export function AccessMatrixPage() {
             </svg>
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-slate-800">Configuration Access</h1>
+            <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Configuration Access</h1>
             <p className="text-sm text-slate-500 mt-0.5">
               Assign configuration modules to roles. SUPER_ADMIN always has access to all modules.
             </p>

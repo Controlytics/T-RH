@@ -164,7 +164,7 @@ export function InstrumentCreatePage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <h1 className="text-2xl font-semibold text-slate-900">New Instrument</h1>
+      <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">New Instrument</h1>
 
       <form onSubmit={submit} className="space-y-6">
         <Card>

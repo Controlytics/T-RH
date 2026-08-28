@@ -104,7 +104,7 @@ export function CreateUserPage() {
             </svg>
           </div>
           <div>
-            <h1 className="text-2xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">Create New User</h1>
+            <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Create New User</h1>
             <p className="text-sm text-slate-500 mt-0.5">Add a new user to the system</p>
           </div>
         </div>
@@ -141,7 +141,7 @@ export function CreateUserPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                 </svg>
               </div>
-              <h2 className="text-lg font-semibold text-slate-800">User Information</h2>
+              <h2 className="text-[19px] font-semibold leading-tight text-slate-800">User Information</h2>
             </div>
 
             <div className="grid grid-cols-2 gap-6">
@@ -250,7 +250,7 @@ export function CreateUserPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
                 </svg>
               </div>
-              <h2 className="text-lg font-semibold text-slate-800">Temporary Password</h2>
+              <h2 className="text-[19px] font-semibold leading-tight text-slate-800">Temporary Password</h2>
             </div>
 
             <div className="space-y-4">

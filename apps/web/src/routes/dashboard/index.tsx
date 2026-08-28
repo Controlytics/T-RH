@@ -105,9 +105,23 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      {/*
+        THE PLATE behind this header is a legibility fix, not decoration.
+
+        The dashboard is the one route that renders the operator-uploaded
+        wallpaper, and the title and breadcrumb sat directly on it — over a
+        photograph, dark slate type on an arbitrary image has no contrast
+        guarantee at all, and with the wallpaper set on this install the word
+        "Dashboard" was effectively unreadable.
+
+        A translucent plate rather than a switch on "is a wallpaper set":
+        the header does not know, and should not have to. Over a wallpaper it
+        restores contrast; over the plain grey page it reads as an ordinary
+        header band.
+      */}
+      <div className="flex flex-wrap items-end justify-between gap-3 rounded-[var(--radius-card)] border border-white/70 bg-white/85 px-4 py-3 shadow-[var(--elev-1)] backdrop-blur-sm">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Dashboard</h1>
+          <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Dashboard</h1>
           {/* Breadcrumb: the only way back up, so it is always rendered once a
               selection exists rather than only at the deepest level. */}
           {nav.breadcrumb.length > 0 && (

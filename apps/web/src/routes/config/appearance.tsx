@@ -25,7 +25,7 @@ export function AppearanceConfigPage() {
           </svg>
         </span>
         <div>
-          <h1 className="text-xl font-bold text-slate-800 leading-tight">Branding</h1>
+          <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Branding</h1>
           <p className="text-sm text-slate-500">
             Logo, colours, themes, and company/app name. Dashboard and trend-page panels are
             assigned on Roles &amp; Access &rarr; Panels.

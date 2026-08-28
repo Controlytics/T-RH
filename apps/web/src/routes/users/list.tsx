@@ -270,7 +270,7 @@ export function UserListPage() {
             </svg>
           </div>
           <div>
-            <h1 className="text-2xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">User Management</h1>
+            <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">User Management</h1>
             <p className="text-sm text-slate-500 mt-0.5">Manage system users and their access permissions</p>
           </div>
         </div>

@@ -169,7 +169,7 @@ export function ResetRequestsPage() {
               </svg>
             </div>
             <div>
-              <h1 className="text-2xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">Password Reset Requests</h1>
+              <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Password Reset Requests</h1>
               <p className="text-sm text-slate-500 mt-0.5">Review and process password reset requests from users</p>
             </div>
           </div>
@@ -214,7 +214,7 @@ export function ResetRequestsPage() {
               </svg>
             </div>
             <div className="flex items-center gap-3">
-              <h2 className="text-lg font-semibold text-slate-800">Pending Requests</h2>
+              <h2 className="text-[19px] font-semibold leading-tight text-slate-800">Pending Requests</h2>
               {pendingRequests.length > 0 && (
                 <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-sm">
                   {pendingRequests.length}
@@ -320,7 +320,7 @@ export function ResetRequestsPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
-            <h2 className="text-lg font-semibold text-slate-800">Request History</h2>
+            <h2 className="text-[19px] font-semibold leading-tight text-slate-800">Request History</h2>
           </div>
         </div>
         <div className="p-6">

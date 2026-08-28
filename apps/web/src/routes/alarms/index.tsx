@@ -85,7 +85,7 @@ export default function AlarmsPage() {
   return (
     <div className="p-6">
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-slate-900">Alarms</h1>
+        <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Alarms</h1>
         <p className="mt-1 text-sm text-slate-500">
           Raised when an instrument reading crosses a limit — either an instrument's configured
           limit attributes or an alarm rule. Acknowledging one is an electronic signature.
