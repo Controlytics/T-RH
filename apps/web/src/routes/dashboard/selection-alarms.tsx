@@ -52,16 +52,19 @@ export function SelectionAlarms({ functionalLocationId }: { functionalLocationId
 
   return (
     <section className="space-y-2">
-      <div className="flex items-baseline justify-between gap-2">
-        <h2 className="text-[11px] font-semibold uppercase tracking-[0.09em] text-slate-500">
-          Active alarms in this selection
-        </h2>
+      {/* No heading here: PanelCard supplies it, and the operator may have
+          renamed it. A second hard-coded title would contradict theirs. */}
+      <div className="flex items-baseline justify-end">
         <Link to="/alarms" className="text-xs font-medium text-slate-500 hover:underline">
           All alarms →
         </Link>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-white">
+      {/* TRANSPARENT, not bg-white. This sits inside a PanelCard that already
+          draws the border, the rounding and — the point of this change — the
+          operator's chosen tint. An opaque box here painted over the tint, so
+          only the card's border appeared to change colour. */}
+      <div className="rounded-xl border border-slate-200/70">
         {rows.length === 0 ? (
           <p className="p-4 text-sm text-slate-500">
             {data ? 'No active alarms here.' : 'Loading…'}

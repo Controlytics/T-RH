@@ -52,7 +52,7 @@ function SlotChart({
   // that gets believed.
   if (!band) {
     return (
-      <div className="rounded-xl border border-slate-200 bg-white p-6">
+      <div className="rounded-xl border border-slate-200/70 p-6">
         <p className="text-sm font-medium text-slate-700">{title}</p>
         <p className="mt-2 text-sm text-slate-500">{sparseMessage(points, selectionCount)}</p>
       </div>
@@ -115,12 +115,12 @@ export function AggregateTrendCard({
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
+        {/* No heading: PanelCard supplies it, and the operator may have renamed
+            it. The derived-data disclosure stays — it is a claim about the data,
+            not decoration, and must not be renameable away. */}
         <div>
-          <h2 className="text-[11px] font-semibold uppercase tracking-[0.09em] text-slate-500">
-            Trend — spread across this selection
-          </h2>
           {data && (
-            <p className="mt-0.5 text-[11px] text-slate-500">{derivedNote(data.instrumentCount)}</p>
+            <p className="text-[11px] text-slate-500">{derivedNote(data.instrumentCount)}</p>
           )}
         </div>
         <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
@@ -140,7 +140,7 @@ export function AggregateTrendCard({
       </div>
 
       {isLoading && !data ? (
-        <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">Loading…</div>
+        <div className="rounded-xl border border-slate-200/70 p-6 text-sm text-slate-500">Loading…</div>
       ) : data ? (
         <div className="grid gap-4 lg:grid-cols-2">
           <SlotChart
@@ -165,7 +165,7 @@ export function AggregateTrendCard({
           />
         </div>
       ) : (
-        <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
+        <div className="rounded-xl border border-slate-200/70 p-6 text-sm text-slate-500">
           Trend data is unavailable.
         </div>
       )}

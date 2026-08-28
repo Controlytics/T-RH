@@ -536,7 +536,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
       {/* Status legend. The room-grade legend was removed 2026-08-24 at the
           operator's request. Status is never colour alone — every chip keeps
           its glyph, and that pairing is what this bar exists to teach. */}
-      <div className="flex flex-wrap items-center gap-4 rounded-xl border border-slate-200 bg-white px-4 py-3">
+      <div className="flex flex-wrap items-center gap-4 rounded-xl border border-slate-200/70 px-4 py-3">
         <span className="text-xs font-semibold text-slate-700">Reading colour:</span>
         {(['OK', 'OUT_OF_SPEC', 'STALE', 'PARTIAL', 'NO_DATA'] as InstrumentStatus[]).map((s) => (
           <span key={s} className="flex items-center gap-1.5 text-xs text-slate-600">
@@ -553,7 +553,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
       </div>
 
       {unplaced.length > 0 && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="rounded-2xl border border-slate-200/70 p-4">
           <h3 className="text-sm font-semibold text-slate-800">
             Not placed on any plan ({unplaced.length})
           </h3>
