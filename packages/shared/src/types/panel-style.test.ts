@@ -14,6 +14,24 @@ describe('the palette is bounded AND readable', () => {
     }
   });
 
+  it('every tint heading is readable on its HEADER plate, not just on the body', () => {
+    // The plate is a shade deeper than the card, so AA against the body does not
+    // imply AA against the plate — and the title sits on the plate.
+    for (const t of PANEL_TINTS) {
+      expect(contrastRatio(t.head, t.text), `${t.key} header plate vs text`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it('every rail is a real CSS value, and the default defers to the site theme', () => {
+    // `default` carries a var() so an unstyled card wears whichever of the ten
+    // themes the operator picked, rather than a fixed grey the theme cannot reach.
+    for (const t of PANEL_TINTS) expect(t.rail.length).toBeGreaterThan(3);
+    expect(PANEL_TINTS[0].rail).toContain('var(--theme-primary');
+    // Every other rail is a literal, so nothing depends on a variable that may
+    // not be set on a given page.
+    for (const t of PANEL_TINTS.slice(1)) expect(t.rail.startsWith('#')).toBe(true);
+  });
+
   it('every tint border is distinguishable from its background', () => {
     // A border the same shade as the card is no border, and in edit mode the card
     // outline is how someone sees what they are dragging.

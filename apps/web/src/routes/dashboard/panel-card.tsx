@@ -22,10 +22,19 @@ import {
  * @digilog/shared types/panel-style.ts.
  */
 export function PanelCard({
-  title, editing, style, width, height, onStyleChange, onSizeChange, children,
+  title, eyebrow, editing, style, width, height, onStyleChange, onSizeChange, children,
 }: {
   /** The panel's built-in heading, used when the operator has not renamed it. */
   title: string;
+  /**
+   * What KIND of panel this is — "Readings", "Layout", "Trend", "Alarms".
+   *
+   * Not decoration: four cards of identical chrome, one holding a table and one a
+   * floor plan, are hard to tell apart at a glance on a wall display. The eyebrow
+   * says which is which before the content has loaded, and it survives the
+   * operator renaming the title.
+   */
+  eyebrow: string;
   editing: boolean;
   style?: PanelStyle;
   /** The card's current grid width and height, for the size controls. */
@@ -43,23 +52,45 @@ export function PanelCard({
 
   return (
     <div
-      className={`flex h-full flex-col overflow-hidden rounded-2xl border shadow-soft ${
+      className={`panel-card flex h-full flex-col overflow-hidden rounded-2xl border ${
         editing ? 'cursor-grab border-dashed active:cursor-grabbing' : ''
       }`}
       style={{ backgroundColor: tint.bg, borderColor: tint.border }}
     >
+      {/*
+        THE RAIL. The card body stays light so the content is readable, which
+        leaves a tint almost invisible from across a room; the rail carries the
+        colour instead. On the default tint it takes the site theme, so the
+        dashboard finally wears whichever of the ten themes is selected.
+      */}
+      <div className="panel-card__rail" style={{ backgroundColor: tint.rail }} aria-hidden />
+
+      {/* The label plate: a shade deeper than the body, the way an instrument's
+          legend sits proud of its face. */}
       <div
-        className="flex shrink-0 items-center gap-2 border-b px-4 py-2"
-        style={{ borderColor: tint.border }}
+        className="flex shrink-0 items-baseline gap-3 border-b px-4 py-2.5"
+        style={{ borderColor: tint.border, backgroundColor: tint.head }}
       >
-        <h2 className="truncate text-sm font-semibold" style={{ color: tint.text }} title={heading}>
-          {heading}
-        </h2>
+        <div className="min-w-0">
+          <p
+            className="text-[10px] font-semibold uppercase leading-none tracking-[0.14em] opacity-60"
+            style={{ color: tint.text }}
+          >
+            {eyebrow}
+          </p>
+          <h2
+            className="mt-1 truncate text-[15px] font-semibold leading-tight"
+            style={{ color: tint.text }}
+            title={heading}
+          >
+            {heading}
+          </h2>
+        </div>
         {editing && onStyleChange && (
           <button
             type="button"
             onClick={() => setOpen((o) => !o)}
-            className="ml-auto shrink-0 rounded-md border border-slate-300 bg-white/80 px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-white"
+            className="ml-auto shrink-0 self-center rounded-md border border-slate-300 bg-white/90 px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-white"
           >
             {open ? 'Close' : 'Edit'}
           </button>

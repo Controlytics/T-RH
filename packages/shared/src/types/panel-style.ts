@@ -26,6 +26,22 @@ export interface PanelTint {
   border: string;
   /** Heading text ON that background. Paired, never chosen independently. */
   text: string;
+  /**
+   * The full-height rail down the card's leading edge, and the strongest colour
+   * in the tint.
+   *
+   * It exists because the card BODY must stay light for readability, which leaves
+   * a tint barely visible from across a room. The rail carries the colour instead:
+   * legible at a glance on a wall display, invisible to the content.
+   *
+   * `default` deliberately takes the SITE THEME rather than a fixed grey, so an
+   * unstyled card wears whichever of the ten themes the operator picked. The
+   * dashboard ignoring the theme while the sidebar wore it was the real
+   * inconsistency here.
+   */
+  rail: string;
+  /** The header plate behind the title — a shade deeper than the card body. */
+  head: string;
 }
 
 /**
@@ -34,13 +50,15 @@ export interface PanelTint {
  * a pair; the test will refuse one that fails AA.
  */
 export const PANEL_TINTS: readonly PanelTint[] = [
-  { key: 'default', label: 'Default', bg: '#ffffff', border: '#e2e8f0', text: '#1e293b' },
-  { key: 'slate', label: 'Slate', bg: '#f1f5f9', border: '#cbd5e1', text: '#1e293b' },
-  { key: 'sky', label: 'Sky', bg: '#e0f2fe', border: '#7dd3fc', text: '#075985' },
-  { key: 'emerald', label: 'Emerald', bg: '#d1fae5', border: '#6ee7b7', text: '#065f46' },
-  { key: 'amber', label: 'Amber', bg: '#fef3c7', border: '#fcd34d', text: '#92400e' },
-  { key: 'rose', label: 'Rose', bg: '#ffe4e6', border: '#fda4af', text: '#9f1239' },
-  { key: 'violet', label: 'Violet', bg: '#ede9fe', border: '#c4b5fd', text: '#5b21b6' },
+  // The rail is a CSS value, not only a hex, so `default` can defer to the site
+  // theme. Everything consuming it assigns it to a style property.
+  { key: 'default', label: 'Default', bg: '#ffffff', border: '#e2e8f0', text: '#1e293b', rail: 'var(--theme-primary, #2a78d6)', head: '#f8fafc' },
+  { key: 'slate', label: 'Slate', bg: '#f8fafc', border: '#cbd5e1', text: '#1e293b', rail: '#475569', head: '#f1f5f9' },
+  { key: 'sky', label: 'Sky', bg: '#f0f9ff', border: '#7dd3fc', text: '#075985', rail: '#0284c7', head: '#e0f2fe' },
+  { key: 'emerald', label: 'Emerald', bg: '#f0fdf4', border: '#6ee7b7', text: '#065f46', rail: '#059669', head: '#d1fae5' },
+  { key: 'amber', label: 'Amber', bg: '#fffbeb', border: '#fcd34d', text: '#92400e', rail: '#d97706', head: '#fef3c7' },
+  { key: 'rose', label: 'Rose', bg: '#fff1f2', border: '#fda4af', text: '#9f1239', rail: '#e11d48', head: '#ffe4e6' },
+  { key: 'violet', label: 'Violet', bg: '#f5f3ff', border: '#c4b5fd', text: '#5b21b6', rail: '#7c3aed', head: '#ede9fe' },
 ] as const;
 
 export const DEFAULT_TINT = 'default';

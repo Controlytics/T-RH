@@ -244,6 +244,7 @@ export function DashboardPage() {
                 {it.i === 'telemetry_table' && (
                   <PanelCard
                     title={panelHeading('Instrument Readings — Table')}
+                    eyebrow="Readings"
                     editing={layout.editing}
                     style={it.style}
                     width={it.w}
@@ -257,6 +258,7 @@ export function DashboardPage() {
                 {it.i === 'telemetry_floorplan' && (
                   <PanelCard
                     title={panelHeading('Instrument Readings — Floorplan')}
+                    eyebrow="Layout"
                     editing={layout.editing}
                     style={it.style}
                     width={it.w}
@@ -270,6 +272,7 @@ export function DashboardPage() {
                 {it.i === 'dashboard_trend' && (
                   <PanelCard
                     title="Trend — spread across this selection"
+                    eyebrow="Trend"
                     editing={layout.editing}
                     style={it.style}
                     width={it.w}
@@ -288,6 +291,7 @@ export function DashboardPage() {
                 {it.i === 'dashboard_alarms' && (
                   <PanelCard
                     title="Active alarms in this selection"
+                    eyebrow="Alarms"
                     editing={layout.editing}
                     style={it.style}
                     width={it.w}
