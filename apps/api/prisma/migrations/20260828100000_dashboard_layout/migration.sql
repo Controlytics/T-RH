@@ -1,0 +1,21 @@
+-- Customisable dashboard layout, per user with a role default (2026-08-28).
+--
+-- HAND-AUTHORED. `prisma migrate diff` also emitted three statements that are
+-- DELIBERATELY NOT HERE, the same three it always emits against this pg_dump
+-- baseline (see 20260811120000_instrument_floorplans/migration.sql's header):
+--   * DROP TABLE "instrument_telemetry_history" — partitioned, invisible to the
+--     datamodel, holds every reading in the system.
+--   * ALTER "audit_trail"."chain_position" DROP NOT NULL — the 21 CFR Part 11
+--     hash-chain position, sequence-backed out of band.
+--   * a drop/recreate of an unchanged "instrument_credentials" foreign key.
+-- Applying any of them would be destructive.
+--
+-- Nullable with NO DEFAULT. NULL on user_configs means "use the role's default";
+-- NULL on role_configs means "use the built-in". There is no third state here —
+-- unlike dashboard_cards beside it, where [] is a deliberate deny. An empty
+-- layout is not an instruction, so nothing needs to distinguish it from absent.
+--
+-- No data carry-over: there was no prior layout to migrate, and NULL already
+-- means "use the default" everywhere that reads these columns.
+ALTER TABLE "role_configs" ADD COLUMN "dashboard_layout" JSONB;
+ALTER TABLE "user_configs" ADD COLUMN "dashboard_layout" JSONB;

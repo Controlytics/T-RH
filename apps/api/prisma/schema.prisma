@@ -349,6 +349,12 @@ model UserConfig {
   /// role_configs.dashboard_cards, and the empty list must never be read as
   /// inherit.
   dashboardCards Json? @map("dashboard_cards") @db.JsonB
+  /// This user's own dashboard arrangement. NULL = use their role's default,
+  /// then the built-in. See role_configs.dashboard_layout for why this is two
+  /// states rather than three. NOT audited: it is a personal preference, and a
+  /// hash-chained §11 trail filling with "moved a card 40px left" is one in which
+  /// real records get harder to find.
+  dashboardLayout Json? @map("dashboard_layout") @db.JsonB
   updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz
   updatedBy    String?  @map("updated_by") @db.VarChar(50)
 
@@ -379,6 +385,14 @@ model RoleConfig {
   /// A hidden panel is a DISPLAY decision, NOT an access control — instrument_scope
   /// is what restricts data. See @digilog/shared types/panels.ts.
   dashboardCards Json? @map("dashboard_cards") @db.JsonB
+  /// The role's DEFAULT dashboard arrangement, which a user's own layout
+  /// overrides. NULL = use the built-in default.
+  /// TWO states, NOT the three dashboardCards uses above: an empty layout is not
+  /// a meaningful instruction the way an empty panel list is a deliberate deny,
+  /// so absent and unreadable both simply fall back. Do not unify the two rules.
+  /// Layout is a PREFERENCE and grants nothing — dashboardCards decides what a
+  /// user may see. Setting a ROLE default is audited; a user's own layout is not.
+  dashboardLayout Json? @map("dashboard_layout") @db.JsonB
   updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz
   updatedBy    String?  @map("updated_by") @db.VarChar(50)
 
