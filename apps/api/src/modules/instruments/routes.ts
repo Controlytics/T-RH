@@ -11,6 +11,8 @@ import {
 } from '@digilog/shared';
 import { prisma } from '../../lib/prisma.js';
 import { resolveVisibility, withVisibility } from './visibility.js';
+import { getTelemetryAggregate } from './telemetry-aggregate.js';
+import { HISTORY_WINDOWS, type HistoryWindow } from '../floorplans/room-history.js';
 import { auditLog } from '../../lib/audit.js';
 import { buildContext } from '../../lib/build-context.js';
 import { enforceReauthAlways } from '../../lib/reauth-check.js';
@@ -393,6 +395,21 @@ function isDuplicateCode(err: unknown): boolean {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
 }
 
+/** One aggregate bucket on the wire. */
+const aggregatePointProps = {
+  ts: { type: 'string', format: 'date-time' },
+  min: { type: 'number' },
+  mean: { type: 'number' },
+  max: { type: 'number' },
+  instrumentCount: { type: 'integer' },
+} as const;
+
+/** A shared bound, or null when the selection's instruments disagree. */
+const aggregateBoundProps = {
+  min: { type: 'number', nullable: true },
+  max: { type: 'number', nullable: true },
+} as const;
+
 export default async function instrumentRoutes(app: FastifyInstance) {
   // GET /api/instruments — paginated list
   app.get('/', {
@@ -628,6 +645,74 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       functionalLocationDirect: q.functionalLocationDirect === 'true',
       visibilityWhere: visibility,
     }) };
+  });
+
+  // GET /api/instruments/telemetry-aggregate — min/mean/max across a SELECTION.
+  //
+  // The dashboard's trend card. Registered before `/:id` so the static segment is
+  // unambiguous (Fastify already ranks it higher; this is for the reader).
+  //
+  // EVERY VALUE IT RETURNS IS DERIVED — not one is a stored reading. The card that
+  // draws them says so; see telemetry-aggregate.ts.
+  app.get('/telemetry-aggregate', {
+    preHandler: [app.requirePermission('INSTRUMENT_READ')],
+    schema: {
+      tags: ['Instruments'],
+      summary: 'Min/mean/max across the instruments in a selection, bucketed',
+      description:
+        'Aggregate of every instrument the caller may see within the given functional location. '
+        + 'All values are COMPUTED, not stored readings. Limit bounds are returned only when every '
+        + 'instrument in the selection resolves to the same bound.',
+      querystring: {
+        type: 'object',
+        properties: {
+          functionalLocationId: { type: 'string' },
+          functionalLocationDirect: { type: 'string' },
+          window: { type: 'string', enum: [...HISTORY_WINDOWS], default: '24h' },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            from: { type: 'string', format: 'date-time' },
+            to: { type: 'string', format: 'date-time' },
+            bucketSeconds: { type: 'integer', nullable: true },
+            instrumentCount: { type: 'integer' },
+            series: {
+              type: 'object',
+              // Fastify STRIPS any field absent from a response schema, silently.
+              // Both slots are declared explicitly for that reason.
+              properties: {
+                temperature: { type: 'array', items: { type: 'object', properties: aggregatePointProps } },
+                humidity: { type: 'array', items: { type: 'object', properties: aggregatePointProps } },
+              },
+            },
+            limits: {
+              type: 'object',
+              properties: {
+                temperature: { type: 'object', nullable: true, properties: aggregateBoundProps },
+                humidity: { type: 'object', nullable: true, properties: aggregateBoundProps },
+              },
+            },
+            limitsMixed: {
+              type: 'object',
+              properties: { temperature: { type: 'boolean' }, humidity: { type: 'boolean' } },
+            },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req) => {
+    const q = req.query as { functionalLocationId?: string; functionalLocationDirect?: string; window?: string };
+    const { where: visibility } = await resolveVisibility(buildContext(req));
+    return getTelemetryAggregate({
+      functionalLocationId: q.functionalLocationId,
+      direct: q.functionalLocationDirect === 'true',
+      window: (q.window ?? '24h') as HistoryWindow,
+      visibility,
+    });
   });
 
   // GET /api/instruments/:id — detail
