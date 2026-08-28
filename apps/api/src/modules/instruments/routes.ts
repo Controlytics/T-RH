@@ -996,7 +996,17 @@ export default async function instrumentRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const q = req.query as { limit?: number };
-    const exists = await prisma.instrument.findUnique({ where: { id }, select: { id: true } });
+    // Scoped like `GET /:id` and `GET /:id/telemetry` beside it. This route was
+    // left on a bare `findUnique` when the telemetry gap was closed on
+    // 2026-08-24 — and `rawPayload` is the device's own message, so an
+    // out-of-scope instrument's readings were readable here verbatim. Visibility
+    // is applied as part of the LOOKUP, so out-of-scope is indistinguishable
+    // from non-existent: 404, never 403.
+    const { where: visibility } = await resolveVisibility(buildContext(req));
+    const exists = await prisma.instrument.findFirst({
+      where: withVisibility({ id }, visibility) as { id: string },
+      select: { id: true },
+    });
     if (!exists) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
 
     const take = Math.min(Math.max(Number(q.limit ?? 50), 1), 200);

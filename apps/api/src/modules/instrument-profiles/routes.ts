@@ -9,6 +9,7 @@ import { auditLog } from '../../lib/audit.js';
 import { buildContext } from '../../lib/build-context.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { errorResponses } from '../../lib/error-schemas.js';
+import { resolveVisibility } from '../instruments/visibility.js';
 
 /**
  * Instrument profiles — a named container for instruments.
@@ -67,7 +68,23 @@ function present(row: ProfileRow) {
   };
 }
 
-const withInstruments = { instruments: { select: { isActive: true } } };
+/**
+ * The instruments a profile's counts are drawn from, NARROWED to what the caller
+ * may see.
+ *
+ * `visibility` is the caller's resolved instrument scope, or undefined when they
+ * are unrestricted. Passing it into the nested relation — rather than counting
+ * everything — is the whole point: a profile card reading "101 instruments" to
+ * someone scoped to four misdescribes what they have AND discloses how many exist
+ * outside their scope. Same defect shape as an unscoped list, just expressed as a
+ * number instead of rows.
+ *
+ * `where: undefined` is Prisma's no-filter, so the unrestricted caller's counts
+ * are byte-for-byte what they were before.
+ */
+const withInstruments = (visibility?: object) => ({
+  instruments: { where: visibility, select: { isActive: true } },
+});
 
 /** Prisma's unique-constraint violation — here, only `name` is unique. */
 function isDuplicateName(err: unknown): boolean {
@@ -93,11 +110,15 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
         ...errorResponses,
       },
     },
-  }, async () => {
+  }, async (req) => {
+    const { where: visibility } = await resolveVisibility(buildContext(req));
     const rows = await prisma.instrumentProfile.findMany({
-      include: withInstruments,
+      include: withInstruments(visibility),
       orderBy: { name: 'asc' },
     });
+    // Every profile is still LISTED, including ones holding nothing the caller can
+    // see. A profile is a device type, not an instrument: hiding the type would
+    // make the New Instrument form's dropdown depend on who is looking.
     return { data: rows.map((r) => present(r as ProfileRow)), total: rows.length };
   });
 
@@ -112,7 +133,10 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const row = await prisma.instrumentProfile.findUnique({ where: { id }, include: withInstruments });
+    const { where: visibility } = await resolveVisibility(buildContext(req));
+    const row = await prisma.instrumentProfile.findUnique({
+      where: { id }, include: withInstruments(visibility),
+    });
     if (!row) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Profile not found.' });
     return present(row as ProfileRow);
   });
@@ -163,9 +187,11 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
     const attributeKeys = parsed.data.attributeKeys ?? '';
 
     try {
+      // A profile that has just been created holds nothing, so there is no scope
+      // question here — the empty argument keeps one shape for the helper.
       const row = await prisma.instrumentProfile.create({
         data: { ...parsed.data, attributeKeys, createdBy: ctx.userId },
-        include: withInstruments,
+        include: withInstruments(),
       });
 
       await auditLog({
@@ -228,10 +254,13 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
     const ctx = buildContext(req);
 
     try {
+      // Scoped like the read routes: this response replaces the row on screen, and
+      // an edit must not make the count jump to a number the list never shows.
+      const { where: visibility } = await resolveVisibility(ctx);
       const row = await prisma.instrumentProfile.update({
         where: { id },
         data: { ...parsed.data, updatedBy: ctx.userId },
-        include: withInstruments,
+        include: withInstruments(visibility),
       });
 
       const keysBefore = parseInstrumentAttributeKeys(before.attributeKeys);
@@ -293,6 +322,11 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
+    // DELIBERATELY UNSCOPED, unlike the read routes above. The guard exists to
+    // explain the foreign key's refusal, and the FK counts every instrument
+    // regardless of who is asking. A scoped count here would tell a restricted
+    // admin the profile is empty and then hand them a raw FK error when they act
+    // on it.
     const row = await prisma.instrumentProfile.findUnique({
       where: { id },
       include: { _count: { select: { instruments: true } } },

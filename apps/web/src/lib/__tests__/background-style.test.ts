@@ -78,20 +78,26 @@ describe('backgroundLayerStyle', () => {
     expect(style.opacity).toBeCloseTo(0.3);
   });
 
-  it('shows the whole image rather than cropping it', () => {
+  /**
+   * `cover`, not `contain`. `contain` letterboxes: the blank scrim it leaves beside
+   * the image reads on screen as a GAP between the sidebar and the wallpaper, which
+   * is the defect this pins. The cost is that a mismatched aspect ratio is cropped
+   * at the edges — accepted deliberately.
+   */
+  it('fills the pane edge to edge rather than letterboxing', () => {
     const style = backgroundLayerStyle({ backgroundUrl: '/uploads/branding/a.png' })!;
-    expect(style.backgroundSize).toBe('contain');
+    expect(style.backgroundSize).toBe('cover');
     expect(style.backgroundRepeat).toBe('no-repeat');
     expect(style.backgroundPosition).toBe('center');
   });
 
   /**
-   * `fixed` positions the image against the VIEWPORT. Combined with `contain` that
-   * letterboxes it against the whole window, so inside the content pane the image
-   * appears to begin partway down — which is exactly the defect this pins. The layer
-   * is a non-scrolling element sized to the pane, so `scroll` centres the image
-   * within the pane. It stays put while content scrolls because the layer is
-   * OUTSIDE the scrolling element, not because of this property.
+   * `fixed` sizes and positions the image against the VIEWPORT, so the pane would
+   * show whichever band of a window-sized image fell behind it and the image would
+   * appear to begin partway down — exactly the defect this pins. The layer is a
+   * non-scrolling element sized to the pane, so `scroll` fills the pane. It stays
+   * put while content scrolls because the layer is OUTSIDE the scrolling element,
+   * not because of this property.
    */
   it('positions against its own box, not the viewport', () => {
     expect(backgroundLayerStyle({ backgroundUrl: '/x.png' })!.backgroundAttachment).toBe('scroll');

@@ -7,6 +7,7 @@ import { errorResponses } from '../../lib/error-schemas.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { validateFlDraft, type FlType } from './validation.js';
 import { buildTree, locationPath, resolveLocationIds, type FlNode } from './tree.js';
+import { resolveVisibility, withVisibility, type ScopeWhere } from '../instruments/visibility.js';
 
 /**
  * Functional Locations — the authoritative Block > Area grouping of instruments.
@@ -49,11 +50,25 @@ async function loadNodes(): Promise<FlNode[]> {
 }
 
 /** location id → instruments linked DIRECTLY to it. */
-async function loadOwnCounts(): Promise<Map<string, number>> {
+/**
+ * Instruments per location, NARROWED to what the caller may see.
+ *
+ * `visibility` is the caller's resolved instrument scope, or undefined when
+ * unrestricted. Without it the dashboard's Block cards announced "CWH Block: 100"
+ * to a user scoped to four instruments — a count is a disclosure, and this one
+ * both misdescribed what they had and revealed the size of the estate they were
+ * excluded from. Same defect as an unscoped list, expressed as a number.
+ *
+ * The tree's SHAPE is deliberately not filtered: every Block and Area is still
+ * returned, showing 0. A location is a place, not an instrument, and hiding
+ * locations would make the plant's structure change depending on who is looking —
+ * including for the admin picking locations to grant.
+ */
+async function loadOwnCounts(visibility?: ScopeWhere): Promise<Map<string, number>> {
   const grouped = await prisma.instrument.groupBy({
     by: ['functionalLocationId'],
     _count: { _all: true },
-    where: { functionalLocationId: { not: null } },
+    where: withVisibility({ functionalLocationId: { not: null } }, visibility) as never,
   });
   return new Map(grouped.map((g) => [g.functionalLocationId as string, g._count._all]));
 }
@@ -73,8 +88,9 @@ export default async function functionalLocationRoutes(app: FastifyInstance) {
         ...errorResponses,
       },
     },
-  }, async () => {
-    const [nodes, counts] = await Promise.all([loadNodes(), loadOwnCounts()]);
+  }, async (req) => {
+    const { where: visibility } = await resolveVisibility(buildContext(req));
+    const [nodes, counts] = await Promise.all([loadNodes(), loadOwnCounts(visibility)]);
     return { data: buildTree(nodes, counts) };
   });
 

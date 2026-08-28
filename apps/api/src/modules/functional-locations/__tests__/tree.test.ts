@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveLocationIds, buildTree, locationPath, type FlNode } from '../tree.js';
+import { resolveLocationIds, buildCoveringIndex, buildTree, locationPath, type FlNode } from '../tree.js';
 
 const all: FlNode[] = [
   { id: 'cwh', name: 'CWH', type: 'BLOCK', parentId: null },
@@ -70,5 +70,43 @@ describe('locationPath', () => {
   it('returns null for no location and for an unknown one', () => {
     expect(locationPath(null, all)).toBeNull();
     expect(locationPath('nope', all)).toBeNull();
+  });
+});
+
+describe('buildCoveringIndex', () => {
+  it('maps an Area to itself AND its Block', () => {
+    // The point of the whole index: selecting the Block covers the Area's
+    // instruments, so the scope editor must show them as already included.
+    expect([...buildCoveringIndex(all).get('me')!].sort()).toEqual(['cwh', 'me']);
+  });
+
+  it('maps a Block to itself only', () => {
+    expect(buildCoveringIndex(all).get('cwh')).toEqual(['cwh']);
+    expect(buildCoveringIndex(all).get('bc')).toEqual(['bc']);
+  });
+
+  it('agrees with resolveLocationIds in both directions', () => {
+    // The invariant that makes this safe to ship to a client: L covers X if and
+    // only if resolveLocationIds(L) contains X. Written as a property rather than
+    // as examples, so a future change to the depth cap breaks it here first.
+    const index = buildCoveringIndex(all);
+    for (const location of all) {
+      for (const covered of resolveLocationIds(location.id, all)) {
+        expect(index.get(covered)).toContain(location.id);
+      }
+    }
+    for (const [covered, locations] of index) {
+      for (const locationId of locations) {
+        expect(resolveLocationIds(locationId, all)).toContain(covered);
+      }
+    }
+  });
+
+  it('has no entry for a location that does not exist', () => {
+    expect(buildCoveringIndex(all).get('nope')).toBeUndefined();
+  });
+
+  it('is empty for an empty tree', () => {
+    expect(buildCoveringIndex([]).size).toBe(0);
   });
 });

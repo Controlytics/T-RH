@@ -17,6 +17,7 @@ import {
   type TelemetrySlot,
 } from '@digilog/shared';
 import { loadDecimalsConfig, decimalsFor } from '../instruments/decimals.js';
+import { withVisibility, type ScopeWhere } from '../instruments/visibility.js';
 
 export type HistoryWindow = '15m' | '1h' | '6h' | '24h' | '7d';
 
@@ -85,13 +86,21 @@ async function slotAliases(): Promise<Record<TelemetrySlot, string[]>> {
 const NUMERIC_VALUE = Prisma.sql`
   CASE WHEN jsonb_typeof(value) = 'number' THEN (value #>> '{}')::float8 END`;
 
-export async function getRoomHistory(roomId: string, window: HistoryWindow) {
+/**
+ * `visibility` is the caller's resolved instrument scope, or undefined when they
+ * are unrestricted. It is applied to the ROOM MEMBERSHIP query, so an instrument
+ * the caller may not see contributes no series — every reading below is selected
+ * by `instrument_id = ANY(ids)`, and `ids` comes from this one query. Filtering
+ * the returned series instead would still have read the rows out of the database
+ * and left the next refactor one step from shipping them.
+ */
+export async function getRoomHistory(roomId: string, window: HistoryWindow, visibility?: ScopeWhere) {
   const spec = WINDOW_SPEC[window];
   const to = new Date();
   const from = new Date(to.getTime() - spec.ms);
 
   const instruments = await prisma.instrument.findMany({
-    where: { roomId },
+    where: withVisibility({ roomId }, visibility) as { roomId: string },
     select: { id: true, code: true, attributes: { select: { key: true, value: true } } },
     orderBy: { code: 'asc' },
   });

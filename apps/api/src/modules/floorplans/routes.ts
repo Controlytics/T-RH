@@ -8,6 +8,7 @@ import { errorResponses } from '../../lib/error-schemas.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { validateRoomPayload, floorplanSchema, floorplanUpdateSchema, type RoomDoor } from './validation.js';
 import { getRoomHistory, HISTORY_WINDOWS, type HistoryWindow } from './room-history.js';
+import { resolveVisibility } from '../instruments/visibility.js';
 
 /**
  * Floorplans, their rooms, and which instruments sit in each.
@@ -518,9 +519,17 @@ export default async function floorplanRoutes(app: FastifyInstance) {
       return reply.code(404).send({ error: 'NOT_FOUND', message: 'Room not found on this floorplan.' });
     }
 
+    // Instrument-visibility scoped, unlike the room CRUD around it. This route
+    // is not configuration — it returns READINGS for whatever sits in the room —
+    // so an instrument outside the caller's scope must contribute nothing. The
+    // room itself and its limits are still returned: the room is a space, not an
+    // instrument, and hiding it would empty the graphical view of geometry the
+    // caller is entitled to see.
+    const { where: visibility } = await resolveVisibility(buildContext(req));
+
     // Room limits ride along so the chart can draw its in-spec band without a
     // second request.
-    return { room, ...(await getRoomHistory(roomId, window)) };
+    return { room, ...(await getRoomHistory(roomId, window, visibility)) };
   });
 
   // PUT /:id/rooms/:roomId/instruments — set the room's membership wholesale.

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { effectiveScope, expandScope, scopeToWhere, type ScopeNode } from '../visibility.js';
+import { effectiveScope, expandScope, normalizeScope, scopeToWhere, type ScopeNode } from '../visibility.js';
 
 const nodes: ScopeNode[] = [
   { id: 'cwh', name: 'CWH', type: 'BLOCK', parentId: null },
@@ -8,10 +8,14 @@ const nodes: ScopeNode[] = [
   { id: 'bc', name: 'Block C', type: 'BLOCK', parentId: null },
 ];
 
+/** The stored shape, written longhand so the tests read like the JSON column. */
+const sel = (locationIds: string[], instrumentIds: string[] = []) => ({ locationIds, instrumentIds });
+const NONE = sel([], []);
+
 describe('effectiveScope', () => {
   it('gives SUPER_ADMIN everything, whatever is stored', () => {
-    expect(effectiveScope('SUPER_ADMIN', [], [])).toBeNull();
-    expect(effectiveScope('SUPER_ADMIN', ['cwh'], ['bc'])).toBeNull();
+    expect(effectiveScope('SUPER_ADMIN', NONE, NONE)).toBeNull();
+    expect(effectiveScope('SUPER_ADMIN', sel(['cwh']), sel(['bc']))).toBeNull();
   });
 
   it('is unrestricted when neither scope is set', () => {
@@ -20,28 +24,77 @@ describe('effectiveScope', () => {
   });
 
   it('inherits the role scope when the user has none', () => {
-    expect(effectiveScope('OPERATOR', ['cwh'], null)).toEqual(['cwh']);
+    expect(effectiveScope('OPERATOR', sel(['cwh']), null)).toEqual(sel(['cwh']));
   });
 
   it('lets the user scope REPLACE the role scope', () => {
     // "same role, different users, different instruments" — the requirement.
-    expect(effectiveScope('OPERATOR', ['cwh'], ['bc'])).toEqual(['bc']);
+    expect(effectiveScope('OPERATOR', sel(['cwh']), sel(['bc']))).toEqual(sel(['bc']));
   });
 
   it('lets a user override WIDEN beyond the role, and that is intended', () => {
     // Documented consequence of replace-not-intersect. If this ever needs to be
     // impossible, effectiveScope is the single place to change.
-    expect(effectiveScope('OPERATOR', ['bc'], ['cwh', 'bc'])).toEqual(['cwh', 'bc']);
+    expect(effectiveScope('OPERATOR', sel(['bc']), sel(['cwh', 'bc']))).toEqual(sel(['cwh', 'bc']));
   });
 
   it('treats an EMPTY user scope as "sees nothing", NOT as "inherit"', () => {
     // The core rule. A `length > 0` test here would fall through to the role and
     // silently turn a deny into a grant.
-    expect(effectiveScope('OPERATOR', ['cwh'], [])).toEqual([]);
+    expect(effectiveScope('OPERATOR', sel(['cwh']), NONE)).toEqual(NONE);
   });
 
   it('treats an EMPTY role scope as "sees nothing" too', () => {
-    expect(effectiveScope('OPERATOR', [], null)).toEqual([]);
+    expect(effectiveScope('OPERATOR', NONE, null)).toEqual(NONE);
+  });
+
+  it('an instrument-only scope is a real scope, not an absent one', () => {
+    // No locations at all, one instrument. If this ever inherited instead, naming a
+    // single instrument would silently grant the whole estate.
+    expect(effectiveScope('OPERATOR', sel(['cwh']), sel([], ['i1']))).toEqual(sel([], ['i1']));
+  });
+});
+
+/**
+ * The column holds TWO shapes: rows written before 2026-08-28 are a bare array of
+ * functional-location ids; rows written since are `{locationIds, instrumentIds}`.
+ * Old rows are never rewritten, so this function is the only thing standing between
+ * a legacy row and being read as "no scope stored" — which means UNRESTRICTED.
+ */
+describe('normalizeScope', () => {
+  it('reads a legacy bare array as locations with no instruments', () => {
+    expect(normalizeScope(['cwh', 'bc'])).toEqual(sel(['cwh', 'bc']));
+  });
+
+  it('reads a legacy EMPTY array as "sees nothing", not as absent', () => {
+    // The single most dangerous case: `[]` is a deny. Returning undefined here would
+    // turn every pre-existing "sees nothing" row into "sees everything".
+    expect(normalizeScope([])).toEqual(NONE);
+  });
+
+  it('reads the new object shape', () => {
+    expect(normalizeScope({ locationIds: ['cwh'], instrumentIds: ['i1'] })).toEqual(sel(['cwh'], ['i1']));
+  });
+
+  it('fills in a missing half of the object shape rather than rejecting it', () => {
+    expect(normalizeScope({ locationIds: ['cwh'] })).toEqual(sel(['cwh']));
+    expect(normalizeScope({ instrumentIds: ['i1'] })).toEqual(sel([], ['i1']));
+  });
+
+  it('drops non-string members instead of carrying them into a query', () => {
+    expect(normalizeScope(['cwh', 7, null])).toEqual(sel(['cwh']));
+    expect(normalizeScope({ locationIds: ['cwh'], instrumentIds: [{}] })).toEqual(sel(['cwh']));
+  });
+
+  it('treats absent and malformed alike as INHERIT, never as deny', () => {
+    // Deliberate: a corrupted value must not blind a user. That is an outage
+    // presenting as a permission change, and much harder to diagnose than seeing
+    // too much.
+    expect(normalizeScope(null)).toBeUndefined();
+    expect(normalizeScope(undefined)).toBeUndefined();
+    expect(normalizeScope('cwh')).toBeUndefined();
+    expect(normalizeScope(42)).toBeUndefined();
+    expect(normalizeScope({ nonsense: true })).toBeUndefined();
   });
 });
 
@@ -75,24 +128,51 @@ describe('scopeToWhere', () => {
     expect(scopeToWhere(null, nodes)).toBeUndefined();
   });
 
-  it('filters to the expanded location set', () => {
-    const w = scopeToWhere(['cwh'], nodes)!;
-    expect(w.functionalLocationId.in.sort()).toEqual(['cwh', 'me', 'mf']);
+  it('matches the expanded location set OR the named instruments', () => {
+    const w = scopeToWhere(sel(['cwh'], ['i1']), nodes)!;
+    expect([...w.OR[0].functionalLocationId.in].sort()).toEqual(['cwh', 'me', 'mf']);
+    expect(w.OR[1].id.in).toEqual(['i1']);
   });
 
-  it('an empty scope yields an IN () that matches nothing, not undefined', () => {
+  it('a legacy location-only scope produces the same location filter as before', () => {
+    // Unchanged on the half that existed. The only difference is the extra
+    // instrument branch, which is empty and therefore matches nothing.
+    const w = scopeToWhere(normalizeScope(['cwh'])!, nodes)!;
+    expect([...w.OR[0].functionalLocationId.in].sort()).toEqual(['cwh', 'me', 'mf']);
+    expect(w.OR[1].id.in).toEqual([]);
+  });
+
+  it('an empty scope yields branches that match nothing, not undefined', () => {
     // undefined would mean "no filter" — i.e. see everything — which is the exact
     // inversion of what an empty scope asks for.
-    const w = scopeToWhere([], nodes)!;
+    const w = scopeToWhere(NONE, nodes)!;
     expect(w).toBeDefined();
-    expect(w.functionalLocationId.in).toEqual([]);
+    expect(w.OR[0].functionalLocationId.in).toEqual([]);
+    expect(w.OR[1].id.in).toEqual([]);
   });
 
-  it('excludes unassigned instruments whenever a scope is active', () => {
-    // `IN (...)` never matches NULL, so an instrument with no functional location is
-    // invisible to any scoped role — the operator's explicit choice.
-    const w = scopeToWhere(['cwh'], nodes)!;
-    expect(w.functionalLocationId.in).not.toContain(null);
-    expect(Object.keys(w)).toEqual(['functionalLocationId']);
+  it('NEVER emits an empty OR array', () => {
+    // `{ OR: [] }` matches NOTHING in Prisma while `{}` matches EVERYTHING, and the
+    // two are one refactor apart. Both branches are always present, so neither
+    // accident is reachable from here.
+    for (const scope of [NONE, sel(['cwh']), sel([], ['i1'])]) {
+      expect(scopeToWhere(scope, nodes)!.OR.length).toBe(2);
+    }
+  });
+
+  it('an explicitly named instrument is granted regardless of its location', () => {
+    // Changed 2026-08-28. The location branch still excludes unplaced instruments —
+    // `IN (...)` never matches NULL — but naming an instrument by id now grants it
+    // even before anyone has placed it in a Block or Area. Assigning a freshly
+    // commissioned device must not silently do nothing.
+    const w = scopeToWhere(sel([], ['unplaced-1']), nodes)!;
+    expect(w.OR[1]).toEqual({ id: { in: ['unplaced-1'] } });
+    expect(Object.keys(w.OR[1])).toEqual(['id']);
+  });
+
+  it('the location branch alone still cannot reach an unplaced instrument', () => {
+    const w = scopeToWhere(sel(['cwh']), nodes)!;
+    expect(w.OR[0].functionalLocationId.in).not.toContain(null);
+    expect(Object.keys(w.OR[0])).toEqual(['functionalLocationId']);
   });
 });

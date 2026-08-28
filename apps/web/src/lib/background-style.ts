@@ -11,8 +11,19 @@ import type { CSSProperties } from 'react';
  * a CSS `background-image` cannot send an Authorization header.
  */
 
-/** `contain`: show the WHOLE image, letterboxed rather than cropped. Operator's choice. */
-const FIT: CSSProperties['backgroundSize'] = 'contain';
+/**
+ * `cover`: the image FILLS the content pane, edge to edge.
+ *
+ * This was `contain` until 2026-08-28. `contain` shows the whole image, but it
+ * letterboxes: whatever the pane's aspect ratio does not match is left as blank
+ * scrim, and on a wide screen that reads on-screen as a white GAP between the
+ * sidebar and the wallpaper. Operator's call: no gap beats no crop.
+ *
+ * The consequence, stated plainly: an image whose aspect ratio differs from the
+ * content pane is CROPPED — centred, so the edges are what is lost. A wallpaper
+ * with detail at its margins will lose it. Nothing functional rides on the image.
+ */
+const FIT: CSSProperties['backgroundSize'] = 'cover';
 
 /**
  * A 6-digit hex colour with an alpha applied, for letting the wallpaper show through
@@ -73,11 +84,12 @@ export function backgroundLayerStyle(branding: BackgroundSource | null | undefin
     backgroundSize: FIT,
     backgroundRepeat: 'no-repeat',
     backgroundPosition: 'center',
-    // NOT `fixed`. `background-attachment: fixed` positions the image against the
-    // VIEWPORT, so with `contain` the image is letterboxed against the whole window
-    // and appears to begin partway down the content pane. The layer is already a
-    // non-scrolling element sized to the pane, so the default (`scroll`) centres the
-    // image within the pane itself, which is where it belongs.
+    // NOT `fixed`. `background-attachment: fixed` sizes and positions the image
+    // against the VIEWPORT, so the pane would show whichever band of a
+    // window-sized image happened to fall behind it — the image would appear to
+    // start partway down, and under `cover` it would also be scaled to the window
+    // rather than to the pane. The layer is already a non-scrolling element sized
+    // to the pane, so the default (`scroll`) fills the pane itself.
     backgroundAttachment: 'scroll',
     // The image's own strength. The white scrim is a sibling element rather than a
     // filter on this one, because `opacity` on the image would also fade anything

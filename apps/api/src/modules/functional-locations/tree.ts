@@ -44,6 +44,34 @@ export function resolveLocationIds(id: string, all: FlNode[]): string[] {
   return [self.id, ...all.filter((n) => n.parentId === self.id).map((n) => n.id)];
 }
 
+/**
+ * The INVERSE of `resolveLocationIds`: for each location id, every location that
+ * would grant it if selected. An Area maps to itself plus its Block; a Block maps
+ * to itself.
+ *
+ * Built BY CALLING `resolveLocationIds` over every location rather than by walking
+ * `parentId` upward, so the two answers cannot drift. A hand-written upward walk
+ * would be a second copy of the containment rule, and the day the BLOCK > AREA
+ * depth cap changes, one of the two copies gets updated and the other quietly
+ * disagrees — with the symptom being a UI that says an instrument is not covered
+ * while the query happily returns it.
+ *
+ * Used to tell the scope editor which instruments a selected location already
+ * covers. That is a POLICY question ("what does this grant?"), so it is answered
+ * here and shipped to the client, never re-derived in the browser.
+ */
+export function buildCoveringIndex(all: FlNode[]): Map<string, string[]> {
+  const covering = new Map<string, string[]>();
+  for (const location of all) {
+    for (const covered of resolveLocationIds(location.id, all)) {
+      const list = covering.get(covered);
+      if (list) list.push(location.id);
+      else covering.set(covered, [location.id]);
+    }
+  }
+  return covering;
+}
+
 const byName = (a: FlNode, b: FlNode) => a.name.localeCompare(b.name);
 
 /**
