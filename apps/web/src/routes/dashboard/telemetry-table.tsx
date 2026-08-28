@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { readingAge } from './status';
+import { readingAge, oldestReadingTs } from './status';
 import { formatSetPoint, outOfSpec, NOT_AVAILABLE } from './set-point';
 import { formatDecimals } from '@digilog/shared';
 import {
@@ -61,6 +61,10 @@ const COLUMN_GROUPS = [
   { key: 'temp', label: 'Temp. (°C)', sub: ['Actual', 'Set Point'], width: '13%' },
   { key: 'rh', label: 'RH (%)', sub: ['Actual', 'Set Point'], width: '13%' },
   { key: 'status', label: 'Status', width: '12%' },
+  // Added 2026-08-28. The payload always carried the reading timestamps and this
+  // table only ever showed them in a tooltip, so a value that stopped updating an
+  // hour ago looked exactly like a live one.
+  { key: 'asOf', label: 'As of', width: '10%' },
   { key: 'trend', label: 'Mimic / Trend', width: '12%' },
 ];
 
@@ -228,6 +232,12 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
             )}
             {shown.map((r) => {
               const latest = [r.temperature?.ts, r.humidity?.ts].filter(Boolean).sort().pop() ?? null;
+              // The OLDER of the two, which is a different question from `latest`
+              // above: that one drives the Status tooltip and asks "are we hearing
+              // from this instrument at all". This asks "how stale might the
+              // numbers ON THIS ROW be", and the freshest of two values cannot
+              // answer it.
+              const asOf = oldestReadingTs(r.temperature, r.humidity);
               // The limit breach lives HERE now that the status cell is
               // online/offline. Losing this styling loses the compliance signal.
               const tempBad = outOfSpec(r.temperature?.value, r.limits?.tempMin, r.limits?.tempMax);
@@ -301,6 +311,17 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
                       <span className={`h-1.5 w-1.5 rounded-full ${r.reporting ? 'bg-emerald-200' : 'bg-red-200'}`} />
                       {r.reporting ? 'Online' : 'Offline'}
                     </div>
+                  </td>
+
+                  {/* How stale the readings on this row are. The absolute time is on
+                      hover; the cell stays coarse, because the reader is asking "is
+                      this current?" and a to-the-second figure on a 30-second cadence
+                      changes on every poll for no information gained. */}
+                  <td
+                    className={`tv-group ${CELL} border border-slate-500 text-center`}
+                    title={asOf ? new Date(asOf).toLocaleString() : 'This instrument has never reported'}
+                  >
+                    {readingAge(asOf)}
                   </td>
 
                   <td className={`tv-group ${CELL} border border-slate-500`}>

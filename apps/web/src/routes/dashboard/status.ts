@@ -53,6 +53,27 @@ export function statusClasses(status: InstrumentStatus): StatusClasses {
 }
 
 /**
+ * The OLDER of an instrument's two slot timestamps, or null when it has neither.
+ *
+ * The older, deliberately, and NOT the same question the Status column asks. That
+ * one uses the LATEST timestamp, because it is answering "are we hearing from this
+ * instrument at all". This answers "how stale might the numbers on this row be",
+ * and the freshest of two values cannot answer that: a row whose humidity arrived
+ * a second ago and whose temperature stopped an hour ago is an hour stale in the
+ * only sense the reading columns care about.
+ */
+export function oldestReadingTs(
+  temperature: { ts: string } | null | undefined,
+  humidity: { ts: string } | null | undefined,
+): string | null {
+  const stamps = [temperature?.ts, humidity?.ts].filter((t): t is string => typeof t === 'string');
+  if (stamps.length === 0) return null;
+  return stamps.reduce((oldest, t) => (new Date(t) < new Date(oldest) ? t : oldest));
+}
+
+/**
+ * "12s ago" / "4h ago" / "Never".
+/**
  * "12s ago" / "4h ago" / "Never".
  *
  * Short by design — it sits inside a table cell. `now` is injected so the
