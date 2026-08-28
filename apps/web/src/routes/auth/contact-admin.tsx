@@ -252,7 +252,7 @@ export function ContactAdminPage() {
   if (submitted) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4" style={{ background: `linear-gradient(135deg, ${branding.loginBgStart ?? '#0f172a'}, ${branding.loginBgEnd ?? '#1e293b'})` }}>
-        <div className="bg-white rounded-[var(--radius-card)] shadow-xl p-8 w-full max-w-md text-center">
+        <div className="bg-white rounded-[var(--radius-card)] shadow-[var(--elev-2)] p-8 w-full max-w-md text-center">
           <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
             <svg className="w-8 h-8 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -270,7 +270,7 @@ export function ContactAdminPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4" style={{ background: `linear-gradient(135deg, ${branding.loginBgStart ?? '#0f172a'}, ${branding.loginBgEnd ?? '#1e293b'})` }}>
-      <div className="bg-white rounded-[var(--radius-card)] shadow-xl w-full max-w-lg overflow-hidden">
+      <div className="bg-white rounded-[var(--radius-card)] shadow-[var(--elev-2)] w-full max-w-lg overflow-hidden">
         {/* Header */}
         <div className="px-8 py-6 border-b border-slate-200">
           <div className="flex items-center gap-3 mb-1">

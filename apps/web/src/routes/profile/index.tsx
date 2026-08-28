@@ -156,11 +156,11 @@ export function ProfilePage() {
                 <img
                   src={getPhotoUrl(formData.photoUrl)}
                   alt={formData.fullName}
-                  className="w-24 h-24 rounded-[var(--radius-card)] object-cover border-4 border-white shadow-xl"
+                  className="w-24 h-24 rounded-[var(--radius-card)] object-cover border-4 border-white shadow-[var(--elev-2)]"
                 />
               ) : (
                 <div
-                  className="w-24 h-24 rounded-[var(--radius-card)] flex items-center justify-center text-white text-2xl font-bold border-4 border-white shadow-xl"
+                  className="w-24 h-24 rounded-[var(--radius-card)] flex items-center justify-center text-white text-2xl font-bold border-4 border-white shadow-[var(--elev-2)]"
                   style={{ background: `linear-gradient(135deg, ${branding.secondaryColor}, ${branding.accentColor})` }}
                 >
                   {formData.fullName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}

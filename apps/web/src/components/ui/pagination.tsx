@@ -90,7 +90,7 @@ export function Pagination({ page, pageSize, totalItems, onPageChange, onPageSiz
                   key={p}
                   onClick={() => onPageChange(p)}
                   className={`min-w-8 h-8 px-2 rounded-lg text-sm font-semibold transition-colors ${
-                    p === safePage ? 'text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100'
+                    p === safePage ? 'text-white shadow-[var(--elev-1)]' : 'text-slate-500 hover:bg-slate-100'
                   }`}
                   style={p === safePage ? { backgroundColor: 'var(--theme-primary)' } : undefined}
                 >

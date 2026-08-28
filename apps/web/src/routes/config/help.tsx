@@ -314,7 +314,7 @@ export function HelpArticlesPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* ── Header ── */}
-      <div className="relative overflow-hidden rounded-[var(--radius-card)] bg-gradient-to-br from-emerald-500 via-teal-600 to-cyan-700 p-6 text-white shadow-2xl">
+      <div className="relative overflow-hidden rounded-[var(--radius-card)] bg-gradient-to-br from-emerald-500 via-teal-600 to-cyan-700 p-6 text-white shadow-[var(--elev-3)]">
         <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxwYXRoIGQ9Ik0zNiAxOGMzLjMxNCAwIDYgMi42ODYgNiA2cy0yLjY4NiA2LTYgNi02LTIuNjg2LTYtNiAyLjY4Ni02IDYtNiIgc3Ryb2tlPSJyZ2JhKDI1NSwyNTUsMjU1LDAuMSkiIHN0cm9rZS13aWR0aD0iMiIvPjwvZz48L3N2Zz4=')] opacity-30" />
         <div className="relative flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -327,7 +327,7 @@ export function HelpArticlesPage() {
               </svg>
             </Link>
             <div className="flex items-center gap-3">
-              <div className="p-3 rounded-xl bg-white/20 backdrop-blur-sm shadow-lg">
+              <div className="p-3 rounded-xl bg-white/20 backdrop-blur-sm shadow-[var(--elev-2)]">
                 <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
@@ -345,7 +345,7 @@ export function HelpArticlesPage() {
             </div>
             <button
               onClick={openCreate}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white text-teal-700 hover:bg-teal-50 font-semibold shadow-lg transition-all duration-200 text-sm"
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white text-teal-700 hover:bg-teal-50 font-semibold shadow-[var(--elev-2)] transition-all duration-200 text-sm"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -357,7 +357,7 @@ export function HelpArticlesPage() {
       </div>
 
       {/* ── Filters ── */}
-      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-xl shadow-slate-200/40 overflow-hidden">
+      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-[var(--elev-2)] overflow-hidden">
         <div className="h-1 bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500" />
         <div className="p-5">
           <div className="flex items-center gap-4">
@@ -420,7 +420,7 @@ export function HelpArticlesPage() {
       </div>
 
       {/* ── Table ── */}
-      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-xl shadow-slate-200/40 overflow-hidden">
+      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-[var(--elev-2)] overflow-hidden">
         {isLoading ? (
           <div className="p-16 text-center">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 mb-4 animate-pulse">
@@ -559,7 +559,7 @@ export function HelpArticlesPage() {
       <div className="relative overflow-hidden rounded-[var(--radius-card)] bg-gradient-to-r from-emerald-50 via-teal-50 to-cyan-50 border border-emerald-100/50 p-5">
         <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-emerald-500/10 to-teal-500/10 rounded-full blur-3xl" />
         <div className="relative flex items-start gap-4">
-          <div className="flex-shrink-0 p-3 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/25">
+          <div className="flex-shrink-0 p-3 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-[var(--elev-2)]">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
@@ -601,7 +601,7 @@ export function HelpArticlesPage() {
       <Dialog open={showCreate} onClose={() => setShowCreate(false)} className="max-w-2xl">
         <DialogHeader>
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-md">
+            <div className="p-2.5 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-[var(--elev-1)]">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
@@ -646,7 +646,7 @@ export function HelpArticlesPage() {
       <Dialog open={showEdit} onClose={() => setShowEdit(false)} className="max-w-2xl">
         <DialogHeader>
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-gradient-to-br from-sky-500 to-blue-600 text-white shadow-md">
+            <div className="p-2.5 rounded-xl bg-gradient-to-br from-sky-500 to-blue-600 text-white shadow-[var(--elev-1)]">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
               </svg>
@@ -696,7 +696,7 @@ export function HelpArticlesPage() {
       <Dialog open={showVersions} onClose={() => setShowVersions(false)} className="max-w-2xl">
         <DialogHeader>
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 text-white shadow-md">
+            <div className="p-2.5 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 text-white shadow-[var(--elev-1)]">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
@@ -735,7 +735,7 @@ export function HelpArticlesPage() {
                   <div className="flex items-center gap-2.5">
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${
                       idx === 0
-                        ? 'bg-gradient-to-br from-violet-500 to-purple-600 text-white shadow-sm'
+                        ? 'bg-gradient-to-br from-violet-500 to-purple-600 text-white shadow-[var(--elev-1)]'
                         : 'bg-slate-200 text-slate-600'
                     }`}>
                       v{v.version}

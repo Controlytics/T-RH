@@ -207,7 +207,7 @@ export function AuditTable({
                               </span>
                               {isTruncated && (
                                 <span
-                                  className="pointer-events-none absolute left-0 bottom-full mb-2 z-50 hidden group-hover:block w-[28rem] max-w-[36rem] bg-white text-slate-800 text-xs leading-snug rounded-lg border border-slate-200 shadow-xl px-3 py-2 whitespace-normal break-words"
+                                  className="pointer-events-none absolute left-0 bottom-full mb-2 z-50 hidden group-hover:block w-[28rem] max-w-[36rem] bg-white text-slate-800 text-xs leading-snug rounded-lg border border-slate-200 shadow-[var(--elev-2)] px-3 py-2 whitespace-normal break-words"
                                   role="tooltip"
                                 >
                                   {desc}

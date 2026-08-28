@@ -275,7 +275,7 @@ export function NotificationsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <div className="p-3 rounded-[var(--radius-card)] shadow-lg" style={{ backgroundImage: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
+          <div className="p-3 rounded-[var(--radius-card)] shadow-[var(--elev-2)]" style={{ backgroundImage: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
             <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
             </svg>
@@ -307,7 +307,7 @@ export function NotificationsPage() {
 
       {/* Selection Toolbar */}
       {isSomeSelected && (
-        <div className="bg-white rounded-[var(--radius-card)] border-2 border-indigo-200 shadow-xl p-4 flex items-center justify-between">
+        <div className="bg-white rounded-[var(--radius-card)] border-2 border-indigo-200 shadow-[var(--elev-2)] p-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-indigo-100">
               <svg className="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -349,7 +349,7 @@ export function NotificationsPage() {
       )}
 
       {/* Filters */}
-      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-xl shadow-slate-200/40 p-6">
+      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-[var(--elev-2)] p-6">
         <div className="flex items-center gap-2 mb-4">
           <div className="p-2 rounded-lg bg-gradient-to-br from-amber-500 to-orange-500">
             <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -488,12 +488,12 @@ export function NotificationsPage() {
           return (
           <div
             key={notification.id}
-            className={`bg-white rounded-[var(--radius-card)] border shadow-sm p-5 transition-all hover:shadow-md ${
+            className={`bg-white rounded-[var(--radius-card)] border shadow-[var(--elev-1)] p-5 transition-all hover:shadow-[var(--elev-1)] ${
               isSelected
                 ? 'border-indigo-300 bg-indigo-50/30 ring-1 ring-indigo-200'
                 : notification.isRead
                   ? 'border-slate-200/60 opacity-75'
-                  : 'border-amber-200 shadow-amber-100/50'
+                  : 'border-amber-200'
             }`}
           >
             <div className="flex items-start gap-4">
@@ -506,7 +506,7 @@ export function NotificationsPage() {
                   className="ctl-check"
                 />
               </div>
-              <div className={`p-3 rounded-xl ${typeColors[notification.type] ?? 'bg-slate-500 text-white'} shadow-lg`}>
+              <div className={`p-3 rounded-xl ${typeColors[notification.type] ?? 'bg-slate-500 text-white'} shadow-[var(--elev-2)]`}>
                 {typeIcons[notification.type] ?? (
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -583,7 +583,7 @@ export function NotificationsPage() {
 
         {/* Empty State */}
         {(!data?.data || data.data.length === 0) && (
-          <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-sm p-16 text-center">
+          <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-[var(--elev-1)] p-16 text-center">
             <div className="flex flex-col items-center gap-4">
               <div className="p-4 rounded-[var(--radius-card)] bg-slate-100">
                 <svg className="w-10 h-10 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -603,7 +603,7 @@ export function NotificationsPage() {
 
       {/* Pagination */}
       {data && data.total > 0 && (
-        <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-sm">
+        <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-[var(--elev-1)]">
           <Pagination
             page={page}
             pageSize={perPage}

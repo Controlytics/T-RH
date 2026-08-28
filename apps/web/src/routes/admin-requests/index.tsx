@@ -213,7 +213,7 @@ export function AdminRequestsPage() {
       <div className="px-6 pt-5 pb-4 border-b border-slate-100 bg-white shrink-0 space-y-4">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl shadow-lg" style={{ backgroundImage: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
+            <div className="p-2.5 rounded-xl shadow-[var(--elev-2)]" style={{ backgroundImage: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
               <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
               </svg>
@@ -254,7 +254,7 @@ export function AdminRequestsPage() {
               // aria-pressed carries the active state that is otherwise only
               // conveyed by the accent ring.
               <button key={c.key} onClick={() => setStatusFilter(c.key)} aria-pressed={active}
-                className={`flex items-center gap-3 p-3.5 rounded-xl border bg-white text-left transition-all ${active ? `${a.ring} shadow-sm` : 'border-slate-200 hover:border-slate-300 hover:shadow-sm'}`}>
+                className={`flex items-center gap-3 p-3.5 rounded-xl border bg-white text-left transition-all ${active ? `${a.ring} shadow-[var(--elev-1)]` : 'border-slate-200 hover:border-slate-300 hover:shadow-[var(--elev-1)]'}`}>
                 <span className={`grid place-items-center w-10 h-10 rounded-lg shrink-0 ${a.iconBg}`}>{c.icon}</span>
                 <div className="min-w-0">
                   <div className="text-xl font-bold text-slate-800 tabular-nums leading-none">{counts[c.countKey]}</div>
@@ -390,7 +390,7 @@ export function AdminRequestsPage() {
             role="dialog"
             aria-modal="true"
             aria-label={`${TYPE_CFG[selectedRequest.requestType]?.label ?? selectedRequest.requestType} request from ${selectedRequest.requesterName}`}
-            className="fixed top-0 right-0 h-full w-[480px] bg-white shadow-2xl z-50 flex flex-col border-l border-slate-200 focus:outline-none"
+            className="fixed top-0 right-0 h-full w-[480px] bg-white shadow-[var(--elev-3)] z-50 flex flex-col border-l border-slate-200 focus:outline-none"
           >
             {/* Panel header */}
             <div className="px-6 py-4 border-b border-slate-100">
@@ -506,13 +506,13 @@ export function AdminRequestsPage() {
               <div className="px-6 py-4 border-t border-slate-100 bg-white flex items-center gap-3">
                 {canReject && (
                   <button onClick={() => handleProcess('reject')} disabled={processing}
-                    className="flex-1 px-4 py-2.5 rounded-xl text-[13px] font-semibold text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50 shadow-sm">
+                    className="flex-1 px-4 py-2.5 rounded-xl text-[13px] font-semibold text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50 shadow-[var(--elev-1)]">
                     {processing ? 'Processing...' : 'Reject'}
                   </button>
                 )}
                 {canApprove && (
                   <button onClick={() => handleProcess('approve')} disabled={processing}
-                    className="flex-1 px-4 py-2.5 rounded-xl text-[13px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors disabled:opacity-50 shadow-sm">
+                    className="flex-1 px-4 py-2.5 rounded-xl text-[13px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors disabled:opacity-50 shadow-[var(--elev-1)]">
                     {processing ? 'Processing...' : 'Approve'}
                   </button>
                 )}
@@ -544,7 +544,7 @@ export function AdminRequestsPage() {
               role="dialog"
               aria-modal="true"
               aria-label="Request processed"
-              className="bg-white rounded-[var(--radius-card)] shadow-2xl w-full max-w-md overflow-hidden focus:outline-none"
+              className="bg-white rounded-[var(--radius-card)] shadow-[var(--elev-3)] w-full max-w-md overflow-hidden focus:outline-none"
             >
               <div className="px-6 py-5 bg-gradient-to-br from-emerald-500 to-teal-600 text-white">
                 <div className="flex items-center gap-3">

@@ -24,7 +24,7 @@ function RoleBadge({ role }: { role: RoleAccess }) {
   return (
     <span
       style={isRaw ? { backgroundColor: role.color } : undefined}
-      className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium text-white shadow-sm ${isRaw ? '' : role.color}`}
+      className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium text-white shadow-[var(--elev-1)] ${isRaw ? '' : role.color}`}
     >
       {role.displayName}
     </span>
@@ -98,7 +98,7 @@ function StepCard({ step, index, moduleId, roles, auditMode, numbered = true }: 
   // (non-sequential) modules, where a step order would be misleading.
   return (
     <div className="flex w-72 shrink-0 flex-col">
-      <div className={`min-h-[7rem] rounded-xl border border-l-4 border-slate-200 bg-white p-4 shadow-sm ${KIND_ACCENT[step.kind]}`}>
+      <div className={`min-h-[7rem] rounded-xl border border-l-4 border-slate-200 bg-white p-4 shadow-[var(--elev-1)] ${KIND_ACCENT[step.kind]}`}>
         <div className="mb-2 flex items-start gap-2.5">
           {numbered && (
             <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-500">
@@ -118,7 +118,7 @@ function StepCard({ step, index, moduleId, roles, auditMode, numbered = true }: 
       {step.branch && (
         <div className="flex flex-col items-center">
           <DownArrow />
-          <div className="w-full rounded-xl border border-dashed border-amber-300 bg-amber-50/50 p-3 shadow-sm">
+          <div className="w-full rounded-xl border border-dashed border-amber-300 bg-amber-50/50 p-3 shadow-[var(--elev-1)]">
             <p className="mb-1.5 text-[13px] font-medium text-slate-600">{step.branch.label}</p>
             <RoleBadges roles={rolesForGate(step.branch.gate, moduleId, roles, auditMode)} />
           </div>
@@ -167,7 +167,7 @@ export function FlowChart({ steps, moduleId, roles, auditMode = false, layout }:
   // that would falsely imply an order (Create → Edit → Delete is not a flow).
   if (layout !== 'sequence') {
     return (
-      <div className="rounded-[var(--radius-card)] border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="rounded-[var(--radius-card)] border border-slate-200 bg-white p-4 shadow-[var(--elev-1)]">
         <ul className="flex flex-wrap gap-3">
           {steps.map((step, i) => (
             <li key={i}>
@@ -180,7 +180,7 @@ export function FlowChart({ steps, moduleId, roles, auditMode = false, layout }:
   }
 
   return (
-    <div className="relative rounded-[var(--radius-card)] border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="relative rounded-[var(--radius-card)] border border-slate-200 bg-white p-4 shadow-[var(--elev-1)]">
       {/* Scroll region. Cards top-align (items-start); the arrow connectors pin
           themselves to the header line, so uneven card heights never knock the
           row out of alignment. */}
@@ -206,7 +206,7 @@ export function FlowChart({ steps, moduleId, roles, auditMode = false, layout }:
 
       {/* Scroll cue — visible until the user reaches the end. */}
       {overflow && !atEnd && (
-        <div className="pointer-events-none absolute bottom-3 right-4 flex items-center gap-1 rounded-full bg-slate-800/80 px-2.5 py-1 text-[11px] font-medium text-white shadow-sm">
+        <div className="pointer-events-none absolute bottom-3 right-4 flex items-center gap-1 rounded-full bg-slate-800/80 px-2.5 py-1 text-[11px] font-medium text-white shadow-[var(--elev-1)]">
           Scroll for more
           <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 6l6 6-6 6" />

@@ -125,7 +125,7 @@ export function RuleDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-white shadow-xl">
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-white shadow-[var(--elev-2)]">
         <div className="rounded-t-lg bg-gradient-to-r from-sky-500 to-blue-600 px-5 py-3">
           <h2 className="text-base font-semibold text-white">{draft.id ? 'Edit Alarm Rule' : 'New Alarm Rule'}</h2>
         </div>

@@ -41,7 +41,7 @@ function ToastEntry({ toast, onDismiss }: { toast: ToastItem; onDismiss: (id: st
   return (
     <div
       className={cn(
-        'flex items-start gap-3 px-4 py-3 rounded-lg border shadow-lg max-w-sm transition-all duration-200',
+        'flex items-start gap-3 px-4 py-3 rounded-lg border shadow-[var(--elev-2)] max-w-sm transition-all duration-200',
         VARIANT_STYLES[toast.variant],
         visible ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0',
       )}

@@ -136,7 +136,7 @@ export function LoginPage() {
                 </div>
               ) : (
                 <div
-                  className="inline-flex items-center justify-center w-20 h-20 rounded-[var(--radius-card)] mb-4 shadow-xl"
+                  className="inline-flex items-center justify-center w-20 h-20 rounded-[var(--radius-card)] mb-4 shadow-[var(--elev-2)]"
                   style={{
                     background: `linear-gradient(to bottom right, ${branding.primaryColor}, ${branding.secondaryColor})`,
                     boxShadow: `0 10px 40px -10px ${branding.secondaryColor}50`

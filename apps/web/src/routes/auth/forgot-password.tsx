@@ -41,7 +41,7 @@ export function ForgotPasswordPage() {
       }}
     >
       <div className="w-full max-w-md">
-        <div className="relative bg-white/95 backdrop-blur-sm rounded-[var(--radius-card)] shadow-2xl overflow-hidden">
+        <div className="relative bg-white/95 backdrop-blur-sm rounded-[var(--radius-card)] shadow-[var(--elev-3)] overflow-hidden">
           <div
             className="h-2"
             style={{
@@ -62,7 +62,7 @@ export function ForgotPasswordPage() {
                 </div>
               ) : (
                 <div
-                  className="inline-flex items-center justify-center w-16 h-16 rounded-[var(--radius-card)] mb-4 shadow-xl"
+                  className="inline-flex items-center justify-center w-16 h-16 rounded-[var(--radius-card)] mb-4 shadow-[var(--elev-2)]"
                   style={{
                     background: `linear-gradient(to bottom right, ${branding.primaryColor}, ${branding.secondaryColor})`,
                     boxShadow: `0 10px 40px -10px ${branding.secondaryColor}50`
@@ -143,7 +143,7 @@ export function ForgotPasswordPage() {
                       onChange={(e) => setUsername(e.target.value)}
                       placeholder="Enter your User ID"
                       autoFocus
-                      className="h-12 pl-12 pr-4 text-base rounded-xl border-2 border-slate-200 bg-slate-50/50 transition-all"
+                      className="h-12 pl-12 pr-4 text-base rounded-xl border border-slate-200 bg-slate-50/50 transition-all"
                     />
                   </div>
                 </div>

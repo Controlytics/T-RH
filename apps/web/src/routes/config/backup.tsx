@@ -214,7 +214,7 @@ export function BackupRestorePage() {
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex items-center gap-4">
-        <div className="p-3 rounded-[var(--radius-card)] bg-gradient-to-br from-emerald-500 to-teal-600 shadow-lg shadow-emerald-500/25">
+        <div className="p-3 rounded-[var(--radius-card)] bg-gradient-to-br from-emerald-500 to-teal-600 shadow-[var(--elev-2)]">
           <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
           </svg>
@@ -252,8 +252,8 @@ export function BackupRestorePage() {
                   onClick={() => setSelectedFormat(fmt.value)}
                   className={`relative flex flex-col items-start gap-2 rounded-xl border-2 p-4 text-left transition-all ${
                     selectedFormat === fmt.value
-                      ? 'border-blue-500 bg-blue-50/50 shadow-md shadow-blue-500/10'
-                      : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
+                      ? 'border-blue-500 bg-blue-50/50 shadow-[var(--elev-1)]'
+                      : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-[var(--elev-1)]'
                   }`}
                 >
                   {/* Selection indicator */}
@@ -286,7 +286,7 @@ export function BackupRestorePage() {
               onClick={handleExport}
               disabled={exporting || !canExport}
               title={!canExport ? 'BACKUP_MANAGE permission required' : undefined}
-              className="gap-2 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 shadow-lg shadow-blue-500/25 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="gap-2 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 shadow-[var(--elev-2)] disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -473,7 +473,7 @@ export function BackupRestorePage() {
                     onClick={() => setConfirmRestore(true)}
                     disabled={restoring || !canRestore}
                     title={!canRestore ? 'BACKUP_RESTORE permission required' : undefined}
-                    className="w-full gap-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 shadow-lg shadow-amber-500/25 disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="w-full gap-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 shadow-[var(--elev-2)] disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />

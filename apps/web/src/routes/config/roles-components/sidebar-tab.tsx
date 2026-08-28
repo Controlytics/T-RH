@@ -144,7 +144,7 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
       const isEnabled = enabledItems.includes(item.id);
       return (
         <div key={item.id} onClick={() => toggleSidebarItem(item.id)} className={`relative p-4 rounded-xl border-2 transition-all cursor-pointer ${
-          isEnabled ? 'bg-violet-50 border-violet-300 shadow-md' : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-sm'
+          isEnabled ? 'bg-violet-50 border-violet-300 shadow-[var(--elev-1)]' : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-[var(--elev-1)]'
         }`}>
           <div className={`absolute top-3 right-3 w-6 h-6 rounded-full flex items-center justify-center transition-all ${isEnabled ? 'bg-violet-500 text-white' : 'bg-slate-200 text-slate-400'}`}>
             {isEnabled ? (
@@ -168,7 +168,7 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
       const isEnabled = enabledItems.includes(item.id);
       return (
         <div key={item.id} onClick={() => toggleSidebarItem(item.id)} className={`flex items-center gap-3 p-3 rounded-xl border-2 transition-all cursor-pointer ${
-          isEnabled ? 'bg-violet-50 border-violet-300 shadow-sm' : 'bg-white border-slate-200 hover:border-slate-300'
+          isEnabled ? 'bg-violet-50 border-violet-300 shadow-[var(--elev-1)]' : 'bg-white border-slate-200 hover:border-slate-300'
         }`}>
           <span className="text-xl">{item.icon}</span>
           <span className={`flex-1 font-medium text-sm ${isEnabled ? 'text-violet-800' : 'text-slate-600'}`}>{item.label}</span>
@@ -319,7 +319,7 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
                 <div className="flex flex-wrap gap-2">
                   {allRoles.map((role) => (
                     <button key={role.name} onClick={() => handleSidebarRoleChange(role.name)} disabled={isTransitioning}
-                      className={`px-4 py-2 rounded-xl text-sm font-medium transition-all text-white shadow-md ${
+                      className={`px-4 py-2 rounded-xl text-sm font-medium transition-all text-white shadow-[var(--elev-1)] ${
                         sidebarSelectedRole === role.name ? role.color + ' ring-2 ring-offset-2 ring-violet-400' : 'bg-slate-100 !text-slate-600 hover:bg-slate-200 !shadow-none'
                       } ${isTransitioning ? 'opacity-50 cursor-wait' : ''}`}>
                       {role.displayName}

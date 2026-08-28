@@ -14,7 +14,7 @@ interface RoleTableProps {
 
 export function RoleTable({ roles, isLoading, isSuperAdmin, onEdit, onDelete }: RoleTableProps) {
   return (
-    <Card className="border-0 shadow-xl overflow-hidden">
+    <Card className="border-0 shadow-[var(--elev-2)] overflow-hidden">
       <CardContent className="p-0">
         {isLoading ? (
           <div className="p-16 text-center">

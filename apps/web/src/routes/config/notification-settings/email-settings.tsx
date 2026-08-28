@@ -95,7 +95,7 @@ function ChannelSettingsPage({ defaultTab = 'email' }: { defaultTab?: 'email' | 
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </Link>
-        <div className="p-3 rounded-[var(--radius-card)] bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/25">
+        <div className="p-3 rounded-[var(--radius-card)] bg-gradient-to-br from-blue-500 to-indigo-600 shadow-[var(--elev-2)]">
           <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
           </svg>
@@ -111,7 +111,7 @@ function ChannelSettingsPage({ defaultTab = 'email' }: { defaultTab?: 'email' | 
         <button
           onClick={() => setTab('email')}
           className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-medium transition-all ${
-            tab === 'email' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            tab === 'email' ? 'bg-white text-slate-800 shadow-[var(--elev-1)]' : 'text-slate-500 hover:text-slate-700'
           }`}
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -122,7 +122,7 @@ function ChannelSettingsPage({ defaultTab = 'email' }: { defaultTab?: 'email' | 
         <button
           onClick={() => setTab('sms')}
           className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-medium transition-all ${
-            tab === 'sms' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            tab === 'sms' ? 'bg-white text-slate-800 shadow-[var(--elev-1)]' : 'text-slate-500 hover:text-slate-700'
           }`}
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -272,7 +272,7 @@ function EmailTab() {
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Enable toggle */}
-        <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm">
+        <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 p-6 shadow-[var(--elev-1)]">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="font-semibold text-slate-800">Email Notifications</h3>
@@ -286,7 +286,7 @@ function EmailTab() {
         </div>
 
         {/* Mail From */}
-        <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm space-y-4">
+        <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 p-6 shadow-[var(--elev-1)] space-y-4">
           <h3 className="font-semibold text-slate-800">Mail From</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -302,7 +302,7 @@ function EmailTab() {
         </div>
 
         {/* SMTP Provider */}
-        <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm space-y-4">
+        <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 p-6 shadow-[var(--elev-1)] space-y-4">
           <h3 className="font-semibold text-slate-800">SMTP Provider</h3>
           <div className="flex flex-wrap gap-2">
             {Object.entries(SMTP_PRESETS).map(([key]) => (
@@ -312,7 +312,7 @@ function EmailTab() {
                 onClick={() => applyPreset(key)}
                 className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all border-2 ${
                   smtpProvider === key
-                    ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-sm'
+                    ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-[var(--elev-1)]'
                     : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
                 }`}
               >
@@ -323,7 +323,7 @@ function EmailTab() {
         </div>
 
         {/* SMTP Server Settings */}
-        <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm space-y-4">
+        <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 p-6 shadow-[var(--elev-1)] space-y-4">
           <h3 className="font-semibold text-slate-800">SMTP Server Settings</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="md:col-span-2">
@@ -352,7 +352,7 @@ function EmailTab() {
         </div>
 
         {/* Authentication */}
-        <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm space-y-5">
+        <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 p-6 shadow-[var(--elev-1)] space-y-5">
           <h3 className="font-semibold text-slate-800">Authentication</h3>
 
           {/* Auth Type Toggle */}
@@ -432,7 +432,7 @@ function EmailTab() {
                       onClick={() => setValue('oauth2Provider', p.value, { shouldDirty: true })}
                       className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                         oauth2Provider === p.value
-                          ? 'bg-indigo-600 text-white shadow-md'
+                          ? 'bg-indigo-600 text-white shadow-[var(--elev-1)]'
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
@@ -550,7 +550,7 @@ function EmailTab() {
                     <button
                       type="button"
                       onClick={startOAuth2Flow}
-                      className="px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-blue-600 text-white rounded-lg text-sm font-semibold hover:from-indigo-700 hover:to-blue-700 transition-all shadow-md shadow-indigo-500/25 flex items-center gap-2"
+                      className="px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-blue-600 text-white rounded-lg text-sm font-semibold hover:from-indigo-700 hover:to-blue-700 transition-all shadow-[var(--elev-1)] flex items-center gap-2"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -576,7 +576,7 @@ function EmailTab() {
       </form>
 
       {/* Test Section */}
-      <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm space-y-4">
+      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 p-6 shadow-[var(--elev-1)] space-y-4">
         <h3 className="font-semibold text-slate-800">Send Test Email</h3>
         <p className="text-sm text-slate-500">Enter a recipient email and send a test message to verify your configuration works.</p>
         <div className="flex gap-3 items-end">
@@ -732,7 +732,7 @@ function SmsTab() {
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Enable toggle */}
-        <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm">
+        <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 p-6 shadow-[var(--elev-1)]">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="font-semibold text-slate-800">SMS Notifications</h3>
@@ -746,7 +746,7 @@ function SmsTab() {
         </div>
 
         {/* Provider Selection */}
-        <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm space-y-4">
+        <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 p-6 shadow-[var(--elev-1)] space-y-4">
           <h3 className="font-semibold text-slate-800">SMS Provider</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {SMS_PROVIDERS.map((p) => (
@@ -765,7 +765,7 @@ function SmsTab() {
         </div>
 
         {/* Common Settings */}
-        <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm space-y-4">
+        <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 p-6 shadow-[var(--elev-1)] space-y-4">
           <h3 className="font-semibold text-slate-800">Common Settings</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -781,7 +781,7 @@ function SmsTab() {
 
         {/* Provider-specific settings */}
         {provider === 'twilio' && (
-          <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm space-y-4">
+          <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 p-6 shadow-[var(--elev-1)] space-y-4">
             <h3 className="font-semibold text-slate-800">Twilio Settings</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -804,7 +804,7 @@ function SmsTab() {
             AWS SNS use the HTTP Gateway pointed at the SNS REST endpoint. */}
 
         {provider === 'vonage' && (
-          <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm space-y-4">
+          <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 p-6 shadow-[var(--elev-1)] space-y-4">
             <h3 className="font-semibold text-slate-800">Vonage (Nexmo) Settings</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -824,7 +824,7 @@ function SmsTab() {
         )}
 
         {provider === 'http-gateway' && (
-          <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm space-y-4">
+          <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 p-6 shadow-[var(--elev-1)] space-y-4">
             <h3 className="font-semibold text-slate-800">HTTP Gateway Settings</h3>
             <div className="space-y-4">
               <div>
@@ -868,7 +868,7 @@ function SmsTab() {
       </form>
 
       {/* Test Section */}
-      <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm space-y-4">
+      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 p-6 shadow-[var(--elev-1)] space-y-4">
         <h3 className="font-semibold text-slate-800">Test SMS Configuration</h3>
         <p className="text-sm text-slate-500">Send a test SMS to verify your settings.</p>
         <div className="flex gap-3 items-end">

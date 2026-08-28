@@ -34,7 +34,7 @@ export function AcknowledgeDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-lg rounded-lg bg-white shadow-xl">
+      <div className="w-full max-w-lg rounded-lg bg-white shadow-[var(--elev-2)]">
         <div className="rounded-t-lg bg-gradient-to-r from-amber-500 to-red-500 px-5 py-3">
           <h2 className="text-base font-semibold text-white">Acknowledge Alarm</h2>
         </div>

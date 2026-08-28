@@ -196,15 +196,15 @@ export function EditUserPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-[var(--radius-card)] bg-gradient-to-br from-[#1e3a5f] to-[#3b82f6] flex items-center justify-center text-white text-xl font-bold shadow-lg shadow-blue-500/25">
+          <div className="w-16 h-16 rounded-[var(--radius-card)] bg-gradient-to-br from-[#1e3a5f] to-[#3b82f6] flex items-center justify-center text-white text-xl font-bold shadow-[var(--elev-2)]">
             {userData.fullName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
           </div>
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">{userData.fullName}</h1>
-              <Badge className={`${status.bg} text-white border-0 shadow-sm`}>{userData.status}</Badge>
+              <Badge className={`${status.bg} text-white border-0 shadow-[var(--elev-1)]`}>{userData.status}</Badge>
               {isDirectoryUser && (
-                <Badge className="bg-gradient-to-r from-sky-500 to-blue-600 text-white border-0 shadow-sm gap-1">
+                <Badge className="bg-gradient-to-r from-sky-500 to-blue-600 text-white border-0 shadow-[var(--elev-1)] gap-1">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2" /></svg>
                   Active Directory
                 </Badge>
@@ -227,7 +227,7 @@ export function EditUserPage() {
       </div>
 
       {/* Form Card */}
-      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-xl shadow-slate-200/40 overflow-hidden">
+      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-[var(--elev-2)] overflow-hidden">
         <form onSubmit={handleSubmit(onSubmit)}>
           {/* Error Message */}
           {error && (
@@ -350,7 +350,7 @@ export function EditUserPage() {
             </div>
 
             <div className="grid grid-cols-3 gap-4">
-              <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm">
+              <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-[var(--elev-1)]">
                 <div className="flex items-center gap-2 text-slate-500 text-sm mb-2">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
@@ -360,7 +360,7 @@ export function EditUserPage() {
                 <p className="font-semibold text-slate-800">{formatDate(userData.createdAt)}</p>
                 <p className="text-xs text-slate-400 mt-1">by {userData.createdBy ?? 'system'}</p>
               </div>
-              <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm">
+              <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-[var(--elev-1)]">
                 <div className="flex items-center gap-2 text-slate-500 text-sm mb-2">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
@@ -374,7 +374,7 @@ export function EditUserPage() {
                   <p className="text-xs text-slate-400 mt-1">{formatTime(userData.lastLogin)}</p>
                 )}
               </div>
-              <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm">
+              <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-[var(--elev-1)]">
                 <div className="flex items-center gap-2 text-slate-500 text-sm mb-2">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
@@ -524,7 +524,7 @@ export function EditUserPage() {
           <Button
             onClick={handleGenerateTempPassword}
             disabled={isGenerating}
-            className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-lg shadow-amber-500/20"
+            className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-[var(--elev-2)]"
           >
             {isGenerating ? (
               <>

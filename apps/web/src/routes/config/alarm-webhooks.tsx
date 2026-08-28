@@ -458,7 +458,7 @@ export function AlarmWebhooksConfigPage() {
 
       {confirmDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-md rounded-lg bg-white shadow-xl">
+          <div className="w-full max-w-md rounded-lg bg-white shadow-[var(--elev-2)]">
             <div className="rounded-t-lg bg-gradient-to-r from-rose-500 to-red-600 px-5 py-3">
               <h2 className="text-base font-semibold text-white">Delete “{confirmDelete.name}”</h2>
             </div>
@@ -700,7 +700,7 @@ function TargetDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-lg bg-white shadow-xl">
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-lg bg-white shadow-[var(--elev-2)]">
         <div className="rounded-t-lg bg-gradient-to-r from-sky-500 to-blue-600 px-5 py-3">
           <h2 className="text-base font-semibold text-white">{draft.id ? 'Edit Target' : 'New Target'}</h2>
         </div>

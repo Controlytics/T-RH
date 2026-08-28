@@ -111,7 +111,7 @@ function MetricCard({
       <div className={`absolute top-0 left-0 right-0 h-1 ${gradient}`} />
       <div className="p-6">
         <div className="flex items-center gap-3 mb-4">
-          <div className={`p-2.5 rounded-xl ${gradient} text-white shadow-lg`}>{icon}</div>
+          <div className={`p-2.5 rounded-xl ${gradient} text-white shadow-[var(--elev-2)]`}>{icon}</div>
           <h3 className="text-sm font-semibold text-slate-800 uppercase tracking-wider">{title}</h3>
         </div>
         {children}
@@ -143,7 +143,7 @@ export function SystemHealthPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="flex flex-col items-center gap-3">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-slate-300 border-t-blue-600" />
+          <div className="animate-spin rounded-full h-8 w-8 border border-slate-300 border-t-blue-600" />
           <p className="text-sm text-slate-500">Loading system metrics...</p>
         </div>
       </div>
@@ -200,24 +200,24 @@ export function SystemHealthPage() {
 
       {/* Top-level summary cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 p-5 text-white shadow-lg">
+        <div className="rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 p-5 text-white shadow-[var(--elev-2)]">
           <p className="text-blue-100 text-xs uppercase tracking-wider">OS Uptime</p>
           <p className="text-2xl font-bold mt-1">{formatUptime(data.os.uptimeSeconds)}</p>
           <p className="text-blue-200 text-xs mt-1">{data.os.platform} {data.os.arch}</p>
         </div>
-        <div className="rounded-xl bg-gradient-to-r from-purple-500 to-pink-600 p-5 text-white shadow-lg">
+        <div className="rounded-xl bg-gradient-to-r from-purple-500 to-pink-600 p-5 text-white shadow-[var(--elev-2)]">
           <p className="text-purple-100 text-xs uppercase tracking-wider">API Requests</p>
           <p className="text-2xl font-bold mt-1">{data.api.totalRequests.toLocaleString()}</p>
           <p className="text-purple-200 text-xs mt-1">{data.api.requestsPerMinute} req/min</p>
         </div>
-        <div className="rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 p-5 text-white shadow-lg">
+        <div className="rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 p-5 text-white shadow-[var(--elev-2)]">
           <p className="text-amber-100 text-xs uppercase tracking-wider">RAM Usage</p>
           <p className="text-2xl font-bold mt-1">{data.memory.usagePercent}%</p>
           <p className="text-amber-200 text-xs mt-1">
             {formatBytes(data.memory.usedBytes)} / {formatBytes(data.memory.totalBytes)}
           </p>
         </div>
-        <div className="rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 p-5 text-white shadow-lg">
+        <div className="rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 p-5 text-white shadow-[var(--elev-2)]">
           <p className="text-emerald-100 text-xs uppercase tracking-wider">CPU Usage</p>
           <p className="text-2xl font-bold mt-1">{data.cpu.usagePercent}%</p>
           <p className="text-emerald-200 text-xs mt-1">{data.cpu.cores} cores</p>

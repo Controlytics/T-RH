@@ -167,7 +167,7 @@ export function AuditTemplatesConfigPage() {
         if (!items || items.length === 0) return null;
 
         return (
-          <Card key={category} className="border-slate-200/60 shadow-xl overflow-hidden">
+          <Card key={category} className="border-slate-200/60 shadow-[var(--elev-2)] overflow-hidden">
             <div className={`h-1 bg-gradient-to-r ${categoryGradients[category] || 'from-slate-400 to-slate-500'}`} />
             <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/80">
               <h2 className="text-[19px] font-semibold leading-tight text-slate-800">{category}</h2>
@@ -231,7 +231,7 @@ export function AuditTemplatesConfigPage() {
       {/* Bottom Save Bar */}
       {hasChanges && (
         <div className="sticky bottom-4 z-10">
-          <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 shadow-xl p-4 flex items-center justify-between border-t border-t-slate-100">
+          <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 shadow-[var(--elev-2)] p-4 flex items-center justify-between border-t border-t-slate-100">
             <p className="text-sm text-slate-500">You have unsaved changes.</p>
             <div className="flex items-center gap-3">
               <Button variant="outline" size="sm" onClick={() => { setTemplates(null); setSuccessMsg(''); }}>

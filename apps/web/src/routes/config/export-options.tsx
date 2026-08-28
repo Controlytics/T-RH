@@ -64,7 +64,7 @@ export function ExportOptionsPage() {
           <span className="font-semibold text-emerald-700"> Both</span>. SUPER_ADMIN always has both.
         </p>
         <button onClick={save} disabled={saving}
-          className="shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-teal-500 to-cyan-600 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
+          className="shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-teal-500 to-cyan-600 shadow-[var(--elev-1)] disabled:opacity-40 disabled:cursor-not-allowed">
           {saving ? 'Saving…' : 'Save Changes'}
         </button>
       </div>

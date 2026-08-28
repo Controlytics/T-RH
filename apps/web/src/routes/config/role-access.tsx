@@ -138,7 +138,7 @@ export function RoleAccessPage() {
   const renderHeaderActions = () => {
     if (activeTab === 'roles' && isSuperAdmin) {
       return (
-        <Button onClick={openCreateDialog} className="bg-white text-purple-600 hover:bg-purple-50 shadow-lg font-semibold">
+        <Button onClick={openCreateDialog} className="bg-white text-purple-600 hover:bg-purple-50 shadow-[var(--elev-2)] font-semibold">
           <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
           Create Role
         </Button>
@@ -146,7 +146,7 @@ export function RoleAccessPage() {
     }
     if (activeTab === 'permissions' && permState.dirty) {
       return (
-        <Button onClick={() => permissionsRef.current?.save()} disabled={permState.saving} className="bg-white text-purple-600 hover:bg-purple-50 shadow-lg font-semibold">
+        <Button onClick={() => permissionsRef.current?.save()} disabled={permState.saving} className="bg-white text-purple-600 hover:bg-purple-50 shadow-[var(--elev-2)] font-semibold">
           {permState.saving ? (
             <><svg className="w-4 h-4 mr-2 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>Saving...</>
           ) : (
@@ -157,7 +157,7 @@ export function RoleAccessPage() {
     }
     if (activeTab === 'sidebar' && sidebarState.dirty && sidebarState.canSave) {
       return (
-        <Button onClick={() => sidebarRef.current?.save()} disabled={sidebarState.saving} className="bg-white text-purple-600 hover:bg-purple-50 shadow-lg font-semibold">
+        <Button onClick={() => sidebarRef.current?.save()} disabled={sidebarState.saving} className="bg-white text-purple-600 hover:bg-purple-50 shadow-[var(--elev-2)] font-semibold">
           {sidebarState.saving ? (
             <><svg className="w-4 h-4 mr-2 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>Saving...</>
           ) : (
@@ -172,7 +172,7 @@ export function RoleAccessPage() {
           <Button onClick={() => reauthRef.current?.reset()} variant="outline" className="bg-white/10 text-white border-white/20 hover:bg-white/20 font-semibold">
             Discard
           </Button>
-          <Button onClick={() => reauthRef.current?.save()} disabled={reauthState.saving} className="bg-white text-purple-600 hover:bg-purple-50 shadow-lg font-semibold">
+          <Button onClick={() => reauthRef.current?.save()} disabled={reauthState.saving} className="bg-white text-purple-600 hover:bg-purple-50 shadow-[var(--elev-2)] font-semibold">
             {reauthState.saving ? (
               <><svg className="w-4 h-4 mr-2 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>Saving...</>
             ) : (
@@ -188,7 +188,7 @@ export function RoleAccessPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="relative overflow-hidden rounded-[var(--radius-card)] bg-gradient-to-br from-violet-500 via-purple-600 to-indigo-600 p-6 text-white shadow-2xl">
+      <div className="relative overflow-hidden rounded-[var(--radius-card)] bg-gradient-to-br from-violet-500 via-purple-600 to-indigo-600 p-6 text-white shadow-[var(--elev-3)]">
         <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxwYXRoIGQ9Ik0zNiAxOGMzLjMxNCAwIDYgMi42ODYgNiA2cy0yLjY4NiA2LTYgNi02LTIuNjg2LTYtNiAyLjY4Ni02IDYtNiIgc3Ryb2tlPSJyZ2JhKDI1NSwyNTUsMjU1LDAuMSkiIHN0cm9rZS13aWR0aD0iMiIvPjwvZz48L3N2Zz4=')] opacity-30" />
         <div className="relative flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -196,7 +196,7 @@ export function RoleAccessPage() {
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
             </Link>
             <div className="flex items-center gap-3 mb-1">
-              <div className="p-3 rounded-xl bg-white/20 backdrop-blur-sm shadow-lg">
+              <div className="p-3 rounded-xl bg-white/20 backdrop-blur-sm shadow-[var(--elev-2)]">
                 <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
                 </svg>
@@ -242,7 +242,7 @@ export function RoleAccessPage() {
           {/* Info Banner */}
           <div className="relative overflow-hidden rounded-[var(--radius-card)] bg-gradient-to-r from-purple-50 via-indigo-50 to-blue-50 border border-purple-100/50 p-5">
             <div className="flex items-start gap-4">
-              <div className="flex-shrink-0 p-3 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-lg shadow-purple-500/25">
+              <div className="flex-shrink-0 p-3 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-[var(--elev-2)]">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>

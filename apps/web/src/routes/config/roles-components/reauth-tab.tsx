@@ -248,7 +248,7 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
           <div className="space-y-6">
             {/* Stats Cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-[var(--elev-1)]">
                 <div className="flex items-center gap-3">
                   <div className="p-2 rounded-lg bg-blue-50">
                     <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -261,7 +261,7 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
                   </div>
                 </div>
               </div>
-              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-[var(--elev-1)]">
                 <div className="flex items-center gap-3">
                   <div className="p-2 rounded-lg bg-emerald-50">
                     <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -274,7 +274,7 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
                   </div>
                 </div>
               </div>
-              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-[var(--elev-1)]">
                 <div className="flex items-center gap-3">
                   <div className="p-2 rounded-lg bg-purple-50">
                     <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -287,7 +287,7 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
                   </div>
                 </div>
               </div>
-              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-[var(--elev-1)]">
                 <div className="flex items-center gap-3">
                   <div className="p-2 rounded-lg bg-orange-50">
                     <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -379,7 +379,7 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
             </div>
 
             {/* Matrix Table */}
-            <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-xl shadow-slate-200/40">
+            <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-[var(--elev-2)]">
               <div className="overflow-x-auto rounded-[var(--radius-card)]">
                 <table className="w-full">
                   <thead>
@@ -391,7 +391,7 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
                         <th key={role.name} className="px-2 pt-4 pb-3 text-center" style={{ minWidth: reauthVisibleRoles.length > 3 ? '105px' : '140px' }}>
                           <div className="flex flex-col items-center gap-1">
                             <div
-                              className={`inline-flex items-center rounded-lg font-bold text-white shadow-sm whitespace-nowrap ${reauthVisibleRoles.length > 3 ? 'px-2 py-1 text-[10px]' : 'px-3 py-1.5 text-[11px]'} ${role.color || 'bg-slate-500'}`}
+                              className={`inline-flex items-center rounded-lg font-bold text-white shadow-[var(--elev-1)] whitespace-nowrap ${reauthVisibleRoles.length > 3 ? 'px-2 py-1 text-[10px]' : 'px-3 py-1.5 text-[11px]'} ${role.color || 'bg-slate-500'}`}
                             >
                               {role.displayName}
                             </div>
@@ -501,7 +501,7 @@ function ReauthCategorySection({
               onClick={onToggleCollapse}
               className="flex items-center gap-3 flex-1 text-left"
             >
-              <div className={`p-1.5 rounded-lg bg-gradient-to-br ${meta.gradient} shadow-sm`}>
+              <div className={`p-1.5 rounded-lg bg-gradient-to-br ${meta.gradient} shadow-[var(--elev-1)]`}>
                 <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={meta.icon} />
                 </svg>
@@ -568,7 +568,7 @@ function ReauthCategorySection({
                     />
                     <div className={`w-5 h-5 rounded-md border-2 transition-all duration-150 flex items-center justify-center
                       ${checked
-                        ? 'border-blue-500 bg-blue-500 shadow-sm shadow-blue-500/25'
+                        ? 'border-blue-500 bg-blue-500 shadow-[var(--elev-1)]'
                         : 'border-slate-300 bg-white group-hover/check:border-slate-400 group-hover/check:bg-slate-50'
                       }`}
                     >

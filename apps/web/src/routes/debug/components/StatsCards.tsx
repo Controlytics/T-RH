@@ -62,11 +62,11 @@ export function StatsCards({ stats, total }: { stats: TraceStats | undefined; to
       {statItems.map((item) => (
         <div
           key={item.label}
-          className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-xl shadow-slate-200/40 p-5 hover:shadow-lg transition-shadow"
+          className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-[var(--elev-2)] p-5 hover:shadow-[var(--elev-2)] transition-shadow"
         >
           <div className="flex items-center justify-between mb-3">
             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider leading-tight">{item.label}</p>
-            <div className={`p-2 rounded-xl ${item.iconBg} shadow-lg`}>{item.icon}</div>
+            <div className={`p-2 rounded-xl ${item.iconBg} shadow-[var(--elev-2)]`}>{item.icon}</div>
           </div>
           <p className={`text-2xl font-bold ${item.valueClass}`}>{item.value}</p>
         </div>

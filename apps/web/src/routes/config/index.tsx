@@ -119,7 +119,6 @@ const configCards = [
       </svg>
     ),
     gradient: 'from-blue-500 to-indigo-600',
-    shadowColor: 'shadow-blue-500/25',
   },
   {
     title: 'Date/Time Format',
@@ -132,7 +131,6 @@ const configCards = [
       </svg>
     ),
     gradient: 'from-purple-500 to-pink-600',
-    shadowColor: 'shadow-purple-500/25',
   },
   {
     title: 'Backup & Restore',
@@ -145,7 +143,6 @@ const configCards = [
       </svg>
     ),
     gradient: 'from-emerald-500 to-teal-600',
-    shadowColor: 'shadow-emerald-500/25',
   },
   {
     title: 'User ID Format',
@@ -158,7 +155,6 @@ const configCards = [
       </svg>
     ),
     gradient: 'from-teal-500 to-emerald-600',
-    shadowColor: 'shadow-teal-500/25',
   },
 ];
 
@@ -183,7 +179,6 @@ const superAdminCards = [
       </svg>
     ),
     gradient: 'from-emerald-500 to-teal-600',
-    shadowColor: 'shadow-emerald-500/25',
   },
   {
     title: 'Instrument Attributes',
@@ -195,7 +190,6 @@ const superAdminCards = [
       </svg>
     ),
     gradient: 'from-sky-500 to-cyan-600',
-    shadowColor: 'shadow-sky-500/25',
   },
   {
     title: 'Telemetry Keys',
@@ -207,7 +201,6 @@ const superAdminCards = [
       </svg>
     ),
     gradient: 'from-teal-500 to-cyan-600',
-    shadowColor: 'shadow-teal-500/25',
   },
   {
     title: 'Instrument Limit Alarms',
@@ -219,7 +212,6 @@ const superAdminCards = [
       </svg>
     ),
     gradient: 'from-rose-500 to-orange-600',
-    shadowColor: 'shadow-rose-500/25',
   },
   {
     title: 'Alarm Rules',
@@ -231,7 +223,6 @@ const superAdminCards = [
       </svg>
     ),
     gradient: 'from-amber-500 to-red-500',
-    shadowColor: 'shadow-amber-500/25',
   },
   {
     title: 'Alarm Webhooks',
@@ -243,7 +234,6 @@ const superAdminCards = [
       </svg>
     ),
     gradient: 'from-orange-500 to-amber-600',
-    shadowColor: 'shadow-orange-500/25',
   },
   {
     title: 'Configuration Access',
@@ -255,7 +245,6 @@ const superAdminCards = [
       </svg>
     ),
     gradient: 'from-indigo-500 to-purple-600',
-    shadowColor: 'shadow-indigo-500/25',
   },
   {
     title: 'Branding & Dashboard',
@@ -267,7 +256,6 @@ const superAdminCards = [
       </svg>
     ),
     gradient: 'from-violet-500 to-fuchsia-600',
-    shadowColor: 'shadow-violet-500/25',
   },
   {
     title: 'Role & Access Configuration',
@@ -279,7 +267,6 @@ const superAdminCards = [
       </svg>
     ),
     gradient: 'from-violet-500 to-purple-600',
-    shadowColor: 'shadow-violet-500/25',
   },
   {
     title: 'Display Settings',
@@ -291,7 +278,6 @@ const superAdminCards = [
       </svg>
     ),
     gradient: 'from-cyan-500 to-blue-600',
-    shadowColor: 'shadow-cyan-500/25',
   },
 
   {
@@ -304,7 +290,6 @@ const superAdminCards = [
       </svg>
     ),
     gradient: 'from-green-500 to-emerald-600',
-    shadowColor: 'shadow-green-500/25',
   },
   {
     title: 'Help Articles',
@@ -316,7 +301,6 @@ const superAdminCards = [
       </svg>
     ),
     gradient: 'from-emerald-500 to-teal-600',
-    shadowColor: 'shadow-emerald-500/25',
   },
   // 'Alarm Columns' config card removed 2026-05-17 (alarm subsystem retired).
   
@@ -330,7 +314,6 @@ const superAdminCards = [
       </svg>
     ),
     gradient: "from-amber-500 to-orange-600",
-    shadowColor: "shadow-amber-500/25",
   },
   {
     title: "Notification Channels",
@@ -342,7 +325,6 @@ const superAdminCards = [
       </svg>
     ),
     gradient: "from-blue-500 to-indigo-600",
-    shadowColor: "shadow-blue-500/25",
   },
 ];
 

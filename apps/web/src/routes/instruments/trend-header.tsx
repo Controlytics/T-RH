@@ -34,7 +34,7 @@ export function TrendHeader({
 
   return (
     <header
-      className="rounded-[var(--radius-card)] px-5 py-4 text-white shadow-sm"
+      className="rounded-[var(--radius-card)] px-5 py-4 text-white shadow-[var(--elev-1)]"
       style={{ background: 'linear-gradient(135deg, var(--theme-sidebar-bg), var(--theme-primary-dark))' }}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">

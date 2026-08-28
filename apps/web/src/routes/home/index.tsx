@@ -13,7 +13,7 @@ function RoleLegendBadge({ role }: { role: RoleAccess }) {
   return (
     <span
       style={isRaw ? { backgroundColor: role.color } : undefined}
-      className={`inline-block rounded-full px-2.5 py-1 text-xs font-medium text-white shadow-sm ${isRaw ? '' : role.color}`}
+      className={`inline-block rounded-full px-2.5 py-1 text-xs font-medium text-white shadow-[var(--elev-1)] ${isRaw ? '' : role.color}`}
     >
       {role.displayName}
     </span>
@@ -80,7 +80,7 @@ export default function HomePage() {
                 type="button"
                 onClick={() => setAuditView(false)}
                 aria-pressed={!auditView}
-                className={`rounded-md px-3 py-1.5 font-medium transition-colors ${!auditView ? 'bg-white text-cyan-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                className={`rounded-md px-3 py-1.5 font-medium transition-colors ${!auditView ? 'bg-white text-cyan-700 shadow-[var(--elev-1)]' : 'text-slate-500 hover:text-slate-700'}`}
               >
                 My modules
               </button>
@@ -88,7 +88,7 @@ export default function HomePage() {
                 type="button"
                 onClick={() => setAuditView(true)}
                 aria-pressed={auditView}
-                className={`rounded-md px-3 py-1.5 font-medium transition-colors ${auditView ? 'bg-white text-cyan-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                className={`rounded-md px-3 py-1.5 font-medium transition-colors ${auditView ? 'bg-white text-cyan-700 shadow-[var(--elev-1)]' : 'text-slate-500 hover:text-slate-700'}`}
               >
                 All modules (audit)
               </button>
@@ -99,7 +99,7 @@ export default function HomePage() {
               onClick={handleRefresh}
               disabled={refreshing}
               title="Reload roles from the latest configuration"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 shadow-sm transition-colors hover:bg-slate-50 disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 shadow-[var(--elev-1)] transition-colors hover:bg-slate-50 disabled:opacity-60"
             >
               <svg
                 className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`}

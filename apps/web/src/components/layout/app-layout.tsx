@@ -112,7 +112,7 @@ export function AppLayout() {
         }}
       >
         <div className="w-full max-w-md">
-          <div className="relative bg-white/95 backdrop-blur-sm rounded-[var(--radius-card)] shadow-2xl overflow-hidden">
+          <div className="relative bg-white/95 backdrop-blur-sm rounded-[var(--radius-card)] shadow-[var(--elev-3)] overflow-hidden">
             <div
               className="h-2"
               style={{

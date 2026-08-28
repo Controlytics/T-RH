@@ -72,7 +72,7 @@ export function UserTable({
   onUnlock,
 }: UserTableProps) {
   return (
-    <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-xl shadow-slate-200/40 overflow-hidden">
+    <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-[var(--elev-2)] overflow-hidden">
       <Table>
         <TableHeader>
           <TableRow className="bg-gradient-to-r from-slate-50 to-white border-b border-slate-100">
@@ -114,7 +114,7 @@ export function UserTable({
               )}
               <TableCell>
                 <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#1e3a5f] to-[#3b82f6] flex items-center justify-center text-white font-semibold text-sm shadow-md">
+                  <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#1e3a5f] to-[#3b82f6] flex items-center justify-center text-white font-semibold text-sm shadow-[var(--elev-1)]">
                     {user.fullName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
                   </div>
                   <div>
@@ -140,12 +140,12 @@ export function UserTable({
               </TableCell>
               <TableCell className="text-slate-600">{user.email}</TableCell>
               <TableCell>
-                <Badge className={`${roleColors[user.role] ?? 'bg-slate-500 text-white'} shadow-sm`}>
+                <Badge className={`${roleColors[user.role] ?? 'bg-slate-500 text-white'} shadow-[var(--elev-1)]`}>
                   {rolesData?.find(r => r.name === user.role)?.displayName || user.role.replace('_', ' ')}
                 </Badge>
               </TableCell>
               <TableCell>
-                <Badge className={`${statusBadge[user.status] ?? 'bg-slate-100 text-slate-600'} shadow-sm`}>{user.status}</Badge>
+                <Badge className={`${statusBadge[user.status] ?? 'bg-slate-100 text-slate-600'} shadow-[var(--elev-1)]`}>{user.status}</Badge>
               </TableCell>
               <TableCell>
                 {user.lastLogin ? (

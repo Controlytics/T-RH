@@ -142,9 +142,9 @@ export function SearchableSelect({
         aria-expanded={open}
         className={cn(
           'flex h-11 w-full items-center justify-between rounded-xl px-4',
-          'border-2 border-slate-200 bg-white text-sm font-medium text-slate-700',
-          'shadow-sm transition-all duration-200 ease-out',
-          'hover:border-slate-300 hover:bg-slate-50/50 hover:shadow-md',
+          'border border-slate-200 bg-white text-sm font-medium text-slate-700',
+          'shadow-[var(--elev-1)] transition-all duration-200 ease-out',
+          'hover:border-slate-300 hover:bg-slate-50/50 hover:shadow-[var(--elev-1)]',
           'focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/10',
           'disabled:cursor-not-allowed disabled:bg-slate-100 disabled:opacity-50',
           triggerClassName,
@@ -170,7 +170,7 @@ export function SearchableSelect({
             // inside the scroll container that clips it.
             'w-max min-w-full max-w-[70vw]',
             align === 'right' ? 'right-0' : 'left-0',
-            'border-2 border-slate-200 bg-white shadow-lg',
+            'border border-slate-200 bg-white shadow-[var(--elev-2)]',
           )}
         >
           <div className="relative border-b border-slate-200 p-2">

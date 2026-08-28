@@ -95,11 +95,11 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
     return (
       <>
         {/* Role Selection Card */}
-        <Card className="border-0 shadow-xl bg-gradient-to-br from-white via-white to-slate-50/50 overflow-hidden">
+        <Card className="border-0 shadow-[var(--elev-2)] bg-gradient-to-br from-white via-white to-slate-50/50 overflow-hidden">
           <div className="h-1 bg-gradient-to-r from-violet-500 via-purple-500 to-indigo-500" />
           <CardContent className="p-6">
             <div className="flex items-center gap-3 mb-5">
-              <div className="p-2.5 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 text-white shadow-lg shadow-violet-500/25">
+              <div className="p-2.5 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 text-white shadow-[var(--elev-2)]">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                 </svg>
@@ -116,12 +116,12 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
                 return (
                   <button key={role.name} onClick={() => { setPermSelectedRole(role.name); setPermDirty(false); }}
                     className={`relative group p-4 rounded-[var(--radius-card)] border-2 transition-all duration-300 ${
-                      permSelectedRole === role.name ? 'border-transparent shadow-xl scale-[1.02]' : 'border-slate-200 hover:border-slate-300 hover:shadow-lg'
+                      permSelectedRole === role.name ? 'border-transparent shadow-[var(--elev-2)] scale-[1.02]' : 'border-slate-200 hover:border-slate-300 hover:shadow-[var(--elev-2)]'
                     }`}>
                     {permSelectedRole === role.name && <div className="absolute inset-0 rounded-[var(--radius-card)] bg-gradient-to-br from-slate-500 to-slate-600 opacity-10" />}
                     <div className="relative">
                       <div className={`w-12 h-12 mx-auto rounded-xl flex items-center justify-center mb-3 transition-all ${
-                        permSelectedRole === role.name ? 'text-white shadow-lg' : 'bg-slate-100 text-slate-500 group-hover:bg-slate-200'
+                        permSelectedRole === role.name ? 'text-white shadow-[var(--elev-2)]' : 'bg-slate-100 text-slate-500 group-hover:bg-slate-200'
                       }`} style={permSelectedRole === role.name ? { background: color } : undefined}>
                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={DEFAULT_ROLE_ICON} />
@@ -132,7 +132,7 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
                       </p>
                       {permSelectedRole === role.name && (
                         <div className="absolute -top-1 -right-1">
-                          <div className="w-5 h-5 rounded-full flex items-center justify-center shadow-lg" style={{ background: color }}>
+                          <div className="w-5 h-5 rounded-full flex items-center justify-center shadow-[var(--elev-2)]" style={{ background: color }}>
                             <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                             </svg>
@@ -162,11 +162,11 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card className="border-0 shadow-lg overflow-hidden">
+          <Card className="border-0 shadow-[var(--elev-2)] overflow-hidden">
             <div className="h-1" style={{ background: selectableRoles.find(r => r.name === permSelectedRole)?.color || '#64748b' }} />
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white shadow-lg" style={{ background: selectableRoles.find(r => r.name === permSelectedRole)?.color || '#64748b' }}>
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white shadow-[var(--elev-2)]" style={{ background: selectableRoles.find(r => r.name === permSelectedRole)?.color || '#64748b' }}>
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={DEFAULT_ROLE_ICON} />
                   </svg>
@@ -179,11 +179,11 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
             </CardContent>
           </Card>
 
-          <Card className="border-0 shadow-lg overflow-hidden">
+          <Card className="border-0 shadow-[var(--elev-2)] overflow-hidden">
             <div className="h-1 bg-gradient-to-r from-emerald-500 to-green-500" />
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center text-white shadow-lg">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center text-white shadow-[var(--elev-2)]">
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
@@ -196,12 +196,12 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
             </CardContent>
           </Card>
 
-          <Card className="border-0 shadow-lg overflow-hidden">
+          <Card className="border-0 shadow-[var(--elev-2)] overflow-hidden">
             <div className="h-1 bg-gradient-to-r from-blue-500 to-indigo-500" />
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white shadow-lg">
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white shadow-[var(--elev-2)]">
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                     </svg>
@@ -229,7 +229,7 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
         </div>
 
         {/* Permissions Tree — Sidebar → Page → Action */}
-        <Card className="border-0 shadow-xl overflow-hidden">
+        <Card className="border-0 shadow-[var(--elev-2)] overflow-hidden">
           <CardContent className="p-0">
             {permLoading ? (
               <div className="p-16 text-center">
@@ -307,8 +307,8 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
                                   key={node.id}
                                   className={`group relative flex items-center gap-4 p-4 rounded-xl border-2 transition-all duration-200 cursor-pointer ${
                                     permissions[node.id]
-                                      ? 'bg-gradient-to-r from-emerald-50 to-green-50 border-emerald-200 shadow-md'
-                                      : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-sm'
+                                      ? 'bg-gradient-to-r from-emerald-50 to-green-50 border-emerald-200 shadow-[var(--elev-1)]'
+                                      : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-[var(--elev-1)]'
                                   }`}
                                 >
                                   <input
@@ -320,7 +320,7 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
                                   {/* Custom checkbox */}
                                   <div className={`flex-shrink-0 w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${
                                     permissions[node.id]
-                                      ? 'bg-gradient-to-br from-emerald-500 to-green-600 border-emerald-500 shadow-md'
+                                      ? 'bg-gradient-to-br from-emerald-500 to-green-600 border-emerald-500 shadow-[var(--elev-1)]'
                                       : 'bg-white border-slate-300 group-hover:border-slate-400'
                                   }`}>
                                     {permissions[node.id] && (
@@ -400,8 +400,8 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
                           key={node.id}
                           className={`group relative flex items-center gap-4 p-4 rounded-xl border-2 transition-all duration-200 cursor-pointer ${
                             permissions[node.id]
-                              ? 'bg-gradient-to-r from-emerald-50 to-green-50 border-emerald-200 shadow-md'
-                              : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-sm'
+                              ? 'bg-gradient-to-r from-emerald-50 to-green-50 border-emerald-200 shadow-[var(--elev-1)]'
+                              : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-[var(--elev-1)]'
                           }`}
                         >
                           <input
@@ -412,7 +412,7 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
                           />
                           <div className={`flex-shrink-0 w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${
                             permissions[node.id]
-                              ? 'bg-gradient-to-br from-emerald-500 to-green-600 border-emerald-500 shadow-md'
+                              ? 'bg-gradient-to-br from-emerald-500 to-green-600 border-emerald-500 shadow-[var(--elev-1)]'
                               : 'bg-white border-slate-300 group-hover:border-slate-400'
                           }`}>
                             {permissions[node.id] && (
@@ -446,7 +446,7 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
         <div className="relative overflow-hidden rounded-[var(--radius-card)] bg-gradient-to-r from-amber-50 via-orange-50 to-red-50 border border-amber-100/50 p-5">
           <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-amber-500/10 to-orange-500/10 rounded-full blur-3xl" />
           <div className="relative flex items-start gap-4">
-            <div className="flex-shrink-0 p-3 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-lg shadow-amber-500/25">
+            <div className="flex-shrink-0 p-3 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-[var(--elev-2)]">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
               </svg>

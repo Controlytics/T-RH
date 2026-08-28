@@ -86,7 +86,7 @@ export function PwaReloadPrompt() {
     <div
       role="alertdialog"
       aria-labelledby="pwa-update-title"
-      className="fixed bottom-4 right-4 z-50 w-80 max-w-[92vw] bg-white border border-slate-200 rounded-xl shadow-2xl p-4 animate-fade-in"
+      className="fixed bottom-4 right-4 z-50 w-80 max-w-[92vw] bg-white border border-slate-200 rounded-xl shadow-[var(--elev-3)] p-4 animate-fade-in"
     >
       <div className="flex items-start gap-3">
         <div className="w-8 h-8 rounded-lg bg-cyan-50 flex items-center justify-center text-cyan-600 shrink-0">

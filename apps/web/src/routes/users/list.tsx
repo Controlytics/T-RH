@@ -264,7 +264,7 @@ export function UserListPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <div className="p-3 rounded-[var(--radius-card)] shadow-lg" style={{ backgroundImage: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
+          <div className="p-3 rounded-[var(--radius-card)] shadow-[var(--elev-2)]" style={{ backgroundImage: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
             <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
             </svg>
@@ -283,7 +283,7 @@ export function UserListPage() {
               </svg>
               Password Reset Requests
               {pendingData && pendingData.count > 0 && (
-                <span className="absolute -top-2 -right-2 w-6 h-6 flex items-center justify-center text-xs font-bold bg-gradient-to-r from-red-500 to-rose-500 text-white rounded-full shadow-lg shadow-red-500/30">
+                <span className="absolute -top-2 -right-2 w-6 h-6 flex items-center justify-center text-xs font-bold bg-gradient-to-r from-red-500 to-rose-500 text-white rounded-full shadow-[var(--elev-2)]">
                   {pendingData.count}
                 </span>
               )}
@@ -292,7 +292,7 @@ export function UserListPage() {
           )}
           {canCreateUsers && (
           <Link to="/users/create">
-            <Button className="gap-2 shadow-lg text-white hover:opacity-90" style={{ backgroundImage: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
+            <Button className="gap-2 shadow-[var(--elev-2)] text-white hover:opacity-90" style={{ backgroundImage: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
               </svg>
@@ -384,7 +384,7 @@ export function UserListPage() {
 
       {/* Pagination — always rendered so the rows-per-page selector is available */}
       {data && data.total > 0 && (
-        <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-sm">
+        <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-[var(--elev-1)]">
           <Pagination
             page={page}
             pageSize={perPage}

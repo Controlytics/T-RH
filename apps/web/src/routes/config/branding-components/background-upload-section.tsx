@@ -75,7 +75,7 @@ export function BackgroundUploadSection({
   };
 
   return (
-    <Card className="border-0 shadow-xl overflow-hidden">
+    <Card className="border-0 shadow-[var(--elev-2)] overflow-hidden">
       <div className="h-1 bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500" />
       <CardContent className="p-6 space-y-4">
         <h3 className="text-sm font-semibold text-slate-800">Background Image</h3>

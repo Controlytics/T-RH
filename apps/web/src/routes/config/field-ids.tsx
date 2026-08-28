@@ -143,7 +143,7 @@ export function FieldIdsPage() {
           onClick={() => setActiveModule(null)}
           className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
             !activeModule
-              ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/25'
+              ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-[var(--elev-2)]'
               : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
           }`}
         >
@@ -158,7 +158,7 @@ export function FieldIdsPage() {
               onClick={() => setActiveModule(activeModule === mod ? null : mod)}
               className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
                 activeModule === mod
-                  ? `bg-gradient-to-r ${colors.from} ${colors.to} text-white shadow-lg`
+                  ? `bg-gradient-to-r ${colors.from} ${colors.to} text-white shadow-[var(--elev-2)]`
                   : `${colors.bg} ${colors.text} hover:opacity-80 border border-transparent`
               }`}
             >
@@ -169,7 +169,7 @@ export function FieldIdsPage() {
       </div>
 
       {/* Search Section */}
-      <Card className="border-0 shadow-xl bg-gradient-to-br from-white via-white to-slate-50/50 overflow-hidden">
+      <Card className="border-0 shadow-[var(--elev-2)] bg-gradient-to-br from-white via-white to-slate-50/50 overflow-hidden">
         <div className="h-1 bg-gradient-to-r from-cyan-500 via-blue-500 to-indigo-500" />
         <CardContent className="p-5">
           <div className="flex items-center gap-4">
@@ -203,7 +203,7 @@ export function FieldIdsPage() {
 
       {/* Fields grouped by module */}
       {isLoading ? (
-        <Card className="border-0 shadow-xl overflow-hidden">
+        <Card className="border-0 shadow-[var(--elev-2)] overflow-hidden">
           <CardContent className="p-16 text-center">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 mb-4 animate-pulse">
               <svg className="w-8 h-8 text-white animate-spin" fill="none" viewBox="0 0 24 24">
@@ -215,7 +215,7 @@ export function FieldIdsPage() {
           </CardContent>
         </Card>
       ) : Object.keys(groupedFields).length === 0 ? (
-        <Card className="border-0 shadow-xl overflow-hidden">
+        <Card className="border-0 shadow-[var(--elev-2)] overflow-hidden">
           <CardContent className="p-16 text-center">
             <p className="text-slate-700 font-semibold text-lg">No fields found</p>
             <p className="text-sm text-slate-400 mt-1">
@@ -228,10 +228,10 @@ export function FieldIdsPage() {
           const colors = MODULE_COLORS[module] || { from: 'from-slate-500', to: 'to-slate-600', text: 'text-slate-700', bg: 'bg-slate-50' };
           const iconPath = MODULE_ICONS[module] || 'M4 6h16M4 10h16M4 14h16M4 18h16';
           return (
-            <Card key={module} className="border-0 shadow-xl overflow-hidden">
+            <Card key={module} className="border-0 shadow-[var(--elev-2)] overflow-hidden">
               <div className={`h-1 bg-gradient-to-r ${colors.from} ${colors.to}`} />
               <div className="px-6 py-4 bg-gradient-to-r from-slate-50 to-white border-b border-slate-100 flex items-center gap-3">
-                <div className={`p-2.5 rounded-xl bg-gradient-to-br ${colors.from} ${colors.to} text-white shadow-md`}>
+                <div className={`p-2.5 rounded-xl bg-gradient-to-br ${colors.from} ${colors.to} text-white shadow-[var(--elev-1)]`}>
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={iconPath} />
                   </svg>
@@ -339,7 +339,7 @@ export function FieldIdsPage() {
       <div className="relative overflow-hidden rounded-[var(--radius-card)] bg-gradient-to-r from-cyan-50 via-blue-50 to-indigo-50 border border-cyan-100/50 p-5">
         <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-cyan-500/10 to-blue-500/10 rounded-full blur-3xl" />
         <div className="relative flex items-start gap-4">
-          <div className="flex-shrink-0 p-3 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/25">
+          <div className="flex-shrink-0 p-3 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-[var(--elev-2)]">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>

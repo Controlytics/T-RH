@@ -269,13 +269,13 @@ export function ActionReauthPage() {
         <div className="flex items-center gap-4">
           <Link
             to="/config"
-            className="p-2 rounded-xl bg-white border border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300 hover:shadow-md transition-all"
+            className="p-2 rounded-xl bg-white border border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300 hover:shadow-[var(--elev-1)] transition-all"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </Link>
-          <div className="p-3 rounded-[var(--radius-card)] bg-gradient-to-br from-red-500 to-orange-600 shadow-lg shadow-red-500/25">
+          <div className="p-3 rounded-[var(--radius-card)] bg-gradient-to-br from-red-500 to-orange-600 shadow-[var(--elev-2)]">
             <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
             </svg>
@@ -298,7 +298,7 @@ export function ActionReauthPage() {
 
       {/* ── Stats Cards ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-[var(--elev-1)]">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-blue-50">
               <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -311,7 +311,7 @@ export function ActionReauthPage() {
             </div>
           </div>
         </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-[var(--elev-1)]">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-emerald-50">
               <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -324,7 +324,7 @@ export function ActionReauthPage() {
             </div>
           </div>
         </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-[var(--elev-1)]">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-purple-50">
               <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -337,7 +337,7 @@ export function ActionReauthPage() {
             </div>
           </div>
         </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-[var(--elev-1)]">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-orange-50">
               <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -429,7 +429,7 @@ export function ActionReauthPage() {
       </div>
 
       {/* ── Matrix Table ── */}
-      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-xl shadow-slate-200/40">
+      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-[var(--elev-2)]">
         <div className="overflow-x-auto rounded-[var(--radius-card)]">
           <table className="w-full">
             <thead>
@@ -441,7 +441,7 @@ export function ActionReauthPage() {
                   <th key={role.name} className="px-2 pt-4 pb-3 text-center" style={{ minWidth: visibleRoles.length > 3 ? '105px' : '140px' }}>
                     <div className="flex flex-col items-center gap-1">
                       <div
-                        className={`inline-flex items-center rounded-lg font-bold text-white shadow-sm whitespace-nowrap ${visibleRoles.length > 3 ? 'px-2 py-1 text-[10px]' : 'px-3 py-1.5 text-[11px]'} ${role.color || 'bg-slate-500'}`}
+                        className={`inline-flex items-center rounded-lg font-bold text-white shadow-[var(--elev-1)] whitespace-nowrap ${visibleRoles.length > 3 ? 'px-2 py-1 text-[10px]' : 'px-3 py-1.5 text-[11px]'} ${role.color || 'bg-slate-500'}`}
                       >
                         {role.displayName}
                       </div>
@@ -510,7 +510,7 @@ export function ActionReauthPage() {
       <div className="fixed bottom-0 left-0 right-0 z-50 pointer-events-none">
         <div className="max-w-[calc(100%-16rem)] ml-auto">
           <div className="mx-6 mb-4 pointer-events-auto">
-            <div className="bg-white/95 backdrop-blur-sm rounded-xl border border-slate-200 shadow-lg shadow-slate-200/50 px-5 py-3 flex items-center justify-between">
+            <div className="bg-white/95 backdrop-blur-sm rounded-xl border border-slate-200 shadow-[var(--elev-2)] px-5 py-3 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 {hasChanges ? (
                   <>
@@ -607,7 +607,7 @@ function CategorySection({
               onClick={onToggleCollapse}
               className="flex items-center gap-3 flex-1 text-left"
             >
-              <div className={`p-1.5 rounded-lg bg-gradient-to-br ${meta.gradient} shadow-sm`}>
+              <div className={`p-1.5 rounded-lg bg-gradient-to-br ${meta.gradient} shadow-[var(--elev-1)]`}>
                 <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={meta.icon} />
                 </svg>
@@ -674,7 +674,7 @@ function CategorySection({
                     />
                     <div className={`w-5 h-5 rounded-md border-2 transition-all duration-150 flex items-center justify-center
                       ${checked
-                        ? 'border-blue-500 bg-blue-500 shadow-sm shadow-blue-500/25'
+                        ? 'border-blue-500 bg-blue-500 shadow-[var(--elev-1)]'
                         : 'border-slate-300 bg-white group-hover/check:border-slate-400 group-hover/check:bg-slate-50'
                       }`}
                     >

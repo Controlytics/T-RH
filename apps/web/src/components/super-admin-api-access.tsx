@@ -46,7 +46,7 @@ export function SuperAdminLockdownScreen() {
 
   return (
     <div className="flex h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 p-6">
-      <div className="w-full max-w-md bg-white rounded-[var(--radius-card)] shadow-2xl border border-slate-200 overflow-hidden">
+      <div className="w-full max-w-md bg-white rounded-[var(--radius-card)] shadow-[var(--elev-3)] border border-slate-200 overflow-hidden">
         <div className="bg-gradient-to-r from-rose-500 to-red-600 px-6 py-5 text-white">
           <div className="flex items-center gap-3">
             <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>

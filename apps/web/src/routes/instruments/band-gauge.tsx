@@ -181,7 +181,7 @@ export function BandGauge({
   const breached = state.kind === 'banded' && state.breach !== null;
 
   return (
-    <section className="rounded-[var(--radius-card)] border border-slate-200 bg-white p-5 shadow-sm">
+    <section className="rounded-[var(--radius-card)] border border-slate-200 bg-white p-5 shadow-[var(--elev-1)]">
       <div className="flex items-start justify-between gap-3">
         <span className="flex items-center gap-2">
           {/* Series identity — the colour that means this quantity everywhere in

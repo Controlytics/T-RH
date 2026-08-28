@@ -173,7 +173,7 @@ export function PaginationConfigPage() {
                   <span
                     key={i}
                     className={`px-2.5 py-1 rounded-md text-sm font-medium ${
-                      i === 0 ? 'bg-indigo-500 text-white shadow-sm' : 'text-slate-600 bg-white border border-slate-200'
+                      i === 0 ? 'bg-indigo-500 text-white shadow-[var(--elev-1)]' : 'text-slate-600 bg-white border border-slate-200'
                     }`}
                   >
                     {opt}

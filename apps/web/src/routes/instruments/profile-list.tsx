@@ -84,7 +84,7 @@ export function InstrumentProfileListPage() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-4">
-          <div className="p-3 rounded-[var(--radius-card)] shadow-lg" style={themeGradientBr}>
+          <div className="p-3 rounded-[var(--radius-card)] shadow-[var(--elev-2)]" style={themeGradientBr}>
             <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
             </svg>
@@ -105,7 +105,7 @@ export function InstrumentProfileListPage() {
 
       {/* Create form */}
       {creating && (
-        <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-sm p-6 space-y-4">
+        <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-[var(--elev-1)] p-6 space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <label className="block space-y-1">
               <span className="text-sm font-medium text-slate-700">Profile Name</span>
@@ -152,7 +152,7 @@ export function InstrumentProfileListPage() {
           {profiles.map((p) => (
             <div
               key={p.id}
-              className="group relative bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200"
+              className="group relative bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-[var(--elev-1)] hover:shadow-[var(--elev-1)] hover:-translate-y-0.5 transition-all duration-200"
             >
               <Link to={`/instruments/profiles/${p.id}`} className="block p-5">
                 <h3 className="font-semibold text-slate-800 pr-8 truncate" title={p.name}>{p.name}</h3>

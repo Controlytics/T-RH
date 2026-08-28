@@ -93,7 +93,7 @@ function MultiSelectEventTypes({ eventTypes, selected, onChange }: {
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute z-20 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+          <div className="absolute z-20 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-[var(--elev-2)] max-h-64 overflow-y-auto">
             {Object.entries(grouped).map(([module, types]) => (
               <div key={module}>
                 <div className="px-3 py-1.5 bg-slate-50 text-xs font-semibold text-slate-500 uppercase sticky top-0">{module}</div>
@@ -144,7 +144,7 @@ export function NotificationRulesPage() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </Link>
-        <div className="p-3 rounded-[var(--radius-card)] bg-gradient-to-br from-amber-500 to-orange-600 shadow-lg shadow-amber-500/25">
+        <div className="p-3 rounded-[var(--radius-card)] bg-gradient-to-br from-amber-500 to-orange-600 shadow-[var(--elev-2)]">
           <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
           </svg>
@@ -167,7 +167,7 @@ export function NotificationRulesPage() {
             key={t.key}
             onClick={() => setTab(t.key)}
             className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-medium transition-all ${
-              tab === t.key ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              tab === t.key ? 'bg-white text-slate-800 shadow-[var(--elev-1)]' : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -273,7 +273,7 @@ function RulesTab() {
   // Rule editor dialog
   if (editing) {
     return (
-      <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm space-y-5">
+      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 p-6 shadow-[var(--elev-1)] space-y-5">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-slate-800">{editing.id ? 'Edit Rule' : 'New Notification Rule'}</h3>
           <button onClick={() => setEditing(null)} className="p-2 rounded-lg hover:bg-slate-100">
@@ -593,7 +593,7 @@ function GroupsTab() {
   if (managingId) {
     const group = groups?.find(g => g.id === managingId);
     return (
-      <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm space-y-4">
+      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 p-6 shadow-[var(--elev-1)] space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-slate-800">Members of &quot;{group?.name}&quot;</h3>
           <button onClick={() => setManagingId(null)} className="p-2 rounded-lg hover:bg-slate-100">
@@ -659,7 +659,7 @@ function GroupsTab() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {groups?.map(group => (
-            <div key={group.id} className="bg-white rounded-xl border-2 border-slate-200 p-4">
+            <div key={group.id} className="bg-white rounded-xl border border-slate-200 p-4">
               <div className="flex items-start justify-between">
                 <div>
                   <h4 className="font-semibold text-slate-800">{group.name}</h4>
@@ -739,7 +739,7 @@ function TemplatesTab() {
   if (editing) {
     const selectedEvent = eventTypes?.find(e => e.value === (editing as any).eventType);
     return (
-      <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm space-y-4">
+      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 p-6 shadow-[var(--elev-1)] space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-slate-800">{editing.id ? 'Edit Template' : 'New Template'}</h3>
           <button onClick={() => setEditing(null)} className="p-2 rounded-lg hover:bg-slate-100">
@@ -815,7 +815,7 @@ function TemplatesTab() {
       ) : (
         <div className="space-y-2">
           {templates.map(t => (
-            <div key={t.id} className="bg-white rounded-xl border-2 border-slate-200 p-4 flex items-center justify-between">
+            <div key={t.id} className="bg-white rounded-xl border border-slate-200 p-4 flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-2">
                   <h4 className="font-medium text-slate-800">{t.name}</h4>
@@ -913,7 +913,7 @@ function LogsTab() {
       )}
 
       {/* Filters */}
-      <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-4 shadow-sm">
+      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 p-4 shadow-[var(--elev-1)]">
         <div className="flex flex-wrap gap-3 items-end">
           <div className="flex-1 min-w-[200px]">
             <label className="block text-xs font-medium text-slate-600 mb-1">Search</label>
@@ -953,7 +953,7 @@ function LogsTab() {
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 shadow-[var(--elev-1)] overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b border-slate-200">

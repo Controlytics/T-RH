@@ -62,7 +62,7 @@ export function ExportMenu({ surface, onExportPdf, onExportExcel, busy, classNam
         </svg>
       </button>
       {open && (
-        <div className="absolute right-0 mt-1 w-44 bg-white border border-slate-200 rounded-lg shadow-lg z-30 overflow-hidden">
+        <div className="absolute right-0 mt-1 w-44 bg-white border border-slate-200 rounded-lg shadow-[var(--elev-2)] z-30 overflow-hidden">
           <button onClick={() => { setOpen(false); onExportPdf?.(); }}
             className="w-full flex items-center gap-2 text-left px-3.5 py-2.5 text-[13px] text-slate-700 hover:bg-slate-50">
             <span className="text-red-500 font-bold text-[11px]">PDF</span> Export as PDF

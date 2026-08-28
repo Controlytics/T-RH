@@ -51,7 +51,7 @@ export function Dialog({ open, onClose, children, className, priority }: DialogP
         className={cn(
           `relative w-full max-w-lg rounded-[var(--radius-card)] bg-white p-6`,
           zContent,
-          'shadow-2xl border border-slate-200/60',
+          'shadow-[var(--elev-3)] border border-slate-200/60',
           'animate-fade-in',
           'max-h-[90vh] overflow-y-auto',
           className

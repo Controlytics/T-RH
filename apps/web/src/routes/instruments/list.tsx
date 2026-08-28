@@ -75,8 +75,8 @@ function SummaryTile({
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`group relative overflow-hidden rounded-[var(--radius-card)] border bg-white p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 ${
-        active ? 'border-slate-400 shadow-md' : 'border-slate-200'
+      className={`group relative overflow-hidden rounded-[var(--radius-card)] border bg-white p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[var(--elev-1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 ${
+        active ? 'border-slate-400 shadow-[var(--elev-1)]' : 'border-slate-200'
       }`}
     >
       {tone === 'brand'
@@ -157,7 +157,7 @@ export function InstrumentListPage() {
   return (
     <div className="space-y-6">
       {/* The one place the brand gradient is spent on this page. */}
-      <div className="relative overflow-hidden rounded-[var(--radius-card)] p-6 text-white shadow-lg" style={themeGradient}>
+      <div className="relative overflow-hidden rounded-[var(--radius-card)] p-6 text-white shadow-[var(--elev-2)]" style={themeGradient}>
         <div className="relative z-10 flex flex-wrap items-start justify-between gap-4">
           <div>
             {profileId ? (
@@ -248,7 +248,7 @@ export function InstrumentListPage() {
               <tr>
                 <td colSpan={3} className="px-4 py-14 text-center">
                   <div
-                    className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-[var(--radius-card)] text-white shadow-md"
+                    className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-[var(--radius-card)] text-white shadow-[var(--elev-1)]"
                     style={themeGradientBr}
                   >
                     <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
