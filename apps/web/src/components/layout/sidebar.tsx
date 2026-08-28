@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import useSWR from 'swr';
 import { cn } from '@/lib/cn';
@@ -148,7 +149,37 @@ export const allNavItems: NavItem[] = [
   },
 ];
 
-export function Sidebar({ userRole: _userRole, open, onClose, collapsed = false }: SidebarProps) {
+/**
+ * True while the viewport is at least Tailwind's `md` (768px).
+ *
+ * The rail is a WIDE-viewport state, and it has to be one in JavaScript as well
+ * as in CSS. Its width is a `md:` class, but what it renders — icon without
+ * label, mark without app name, "§11" instead of the compliance line — is
+ * decided in JS. Gating only the width would produce a 256px panel showing
+ * icon-only content on a tablet, with no control to expand it, because the
+ * toggle in the header is itself `md:flex`.
+ */
+function useIsWideViewport(): boolean {
+  const query = '(min-width: 768px)';
+  const [isWide, setIsWide] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(query).matches,
+  );
+
+  useEffect(() => {
+    const mql = window.matchMedia(query);
+    const onChange = (e: MediaQueryListEvent) => setIsWide(e.matches);
+    setIsWide(mql.matches);
+    mql.addEventListener('change', onChange);
+    return () => mql.removeEventListener('change', onChange);
+  }, []);
+
+  return isWide;
+}
+
+export function Sidebar({ userRole: _userRole, open, onClose, collapsed: collapsedPref = false }: SidebarProps) {
+  const isWide = useIsWideViewport();
+  // The preference only takes effect where it can be reversed.
+  const collapsed = collapsedPref && isWide;
   const location = useLocation();
   const { branding } = useBranding();
   const { user } = useAuth();
@@ -201,7 +232,16 @@ export function Sidebar({ userRole: _userRole, open, onClose, collapsed = false 
           // The rail is 72px: enough for a 20px icon with a real hit target
           // around it, and narrow enough that giving up the labels buys back
           // meaningful width for the charts and tables beside it.
-          collapsed ? 'w-[72px]' : 'w-64',
+          //
+          // `md:` IS REQUIRED. The control that toggles this lives in the header
+          // as `md:flex`, so below that breakpoint there is no way to expand
+          // again — an operator who collapsed the rail on a desktop panel PC
+          // would open the app on a tablet in portrait and find a 72px
+          // icon-only drawer with no control to undo it. Collapsed is a
+          // wide-viewport state only; narrow always gets the full-width
+          // off-canvas panel.
+          'w-64',
+          collapsed && 'md:w-[72px]',
           open ? 'translate-x-0' : '-translate-x-full',
         )}
         style={{ background: `linear-gradient(180deg, ${branding.primaryColor} 0%, ${branding.loginBgStart} 100%)` }}

@@ -68,7 +68,10 @@ function ToastEntry({ toast, onDismiss }: { toast: ToastItem; onDismiss: (id: st
   return (
     <div
       className={cn(
-        'flex items-start gap-3 px-4 py-3 rounded-[var(--radius-card)] border shadow-[var(--elev-2)] max-w-sm transition-all duration-200',
+        // pointer-events restored on the toast itself: the WRAPPER is inert so
+        // the empty live region cannot swallow clicks in that corner, but the
+        // dismiss button still has to be clickable.
+        'pointer-events-auto flex items-start gap-3 px-4 py-3 rounded-[var(--radius-card)] border shadow-[var(--elev-2)] max-w-sm transition-all duration-200',
         VARIANT_STYLES[toast.variant],
         visible ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0',
       )}
@@ -95,8 +98,19 @@ function ToastEntry({ toast, onDismiss }: { toast: ToastItem; onDismiss: (id: st
 }
 
 export function ToastContainer({ toasts, onDismiss }: { toasts: ToastItem[]; onDismiss: (id: string) => void }) {
-  if (toasts.length === 0) return null;
-
+  /*
+   * NO EARLY RETURN ON AN EMPTY LIST, and that is the whole point.
+   *
+   * This read `if (toasts.length === 0) return null`, which made the live region
+   * below useless: a screen reader announces MUTATIONS to a region that was
+   * already in the document, and mounting the region together with its first
+   * child in one commit generally announces nothing at all. The container has to
+   * be present and empty, waiting, before the first toast arrives.
+   *
+   * An empty div with no size costs nothing; `pointer-events-none` on the
+   * wrapper keeps it from covering the top-right corner of every screen while
+   * it sits there empty.
+   */
   return (
     /*
       ANNOUNCED. Without a live region the toast is a purely visual event: a
@@ -109,7 +123,7 @@ export function ToastContainer({ toasts, onDismiss }: { toasts: ToastItem[]; onD
       role="status"
       aria-live="polite"
       aria-atomic="false"
-      className="fixed top-4 right-4 z-[100] flex flex-col gap-2"
+      className="pointer-events-none fixed top-4 right-4 z-[100] flex flex-col gap-2"
     >
       {toasts.map((t) => (
         <ToastEntry key={t.id} toast={t} onDismiss={onDismiss} />

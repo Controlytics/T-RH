@@ -87,13 +87,13 @@ export function AuditFilters({
           {/* From Date & Time - Combined */}
           <div className="space-y-2">
             <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-              <svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
               From Date & Time
             </label>
             <div className="relative group">
-              <div className="relative bg-white rounded-xl border border-slate-200 hover:border-emerald-400 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/20 transition-all overflow-hidden">
+              <div className="relative bg-white rounded-xl border border-slate-200 hover:border-slate-400 focus-within:border-[var(--theme-primary,#2a78d6)] focus-within:ring-2 focus-within:ring-[var(--theme-primary,#2a78d6)]/25 transition-all overflow-hidden">
                 <div className="flex items-center">
                   <div className="flex-shrink-0 p-3 bg-slate-100 text-slate-500">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -104,13 +104,13 @@ export function AuditFilters({
                     type="datetime-local"
                     value={fromDateTime}
                     onChange={(e) => { setFromDateTime(e.target.value); setPage(1); }}
-                    className="ctl flex-1 font-medium [color-scheme:light]"
+                    className="h-11 flex-1 border-0 bg-transparent px-3 text-[14px] font-medium text-slate-700 focus:outline-none focus:ring-0 [color-scheme:light]"
                   />
                 </div>
               </div>
             </div>
             {fromDateTime && (
-              <p className="text-xs text-emerald-600 font-medium flex items-center gap-1">
+              <p className="text-xs text-slate-500 font-medium flex items-center gap-1">
                 <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
@@ -122,13 +122,13 @@ export function AuditFilters({
           {/* To Date & Time - Combined */}
           <div className="space-y-2">
             <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-              <svg className="w-4 h-4 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
               To Date & Time
             </label>
             <div className="relative group">
-              <div className="relative bg-white rounded-xl border border-slate-200 hover:border-rose-400 focus-within:border-rose-500 focus-within:ring-2 focus-within:ring-rose-500/20 transition-all overflow-hidden">
+              <div className="relative bg-white rounded-xl border border-slate-200 hover:border-slate-400 focus-within:border-[var(--theme-primary,#2a78d6)] focus-within:ring-2 focus-within:ring-[var(--theme-primary,#2a78d6)]/25 transition-all overflow-hidden">
                 <div className="flex items-center">
                   <div className="flex-shrink-0 p-3 bg-slate-100 text-slate-500">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -139,13 +139,13 @@ export function AuditFilters({
                     type="datetime-local"
                     value={toDateTime}
                     onChange={(e) => { setToDateTime(e.target.value); setPage(1); }}
-                    className="ctl flex-1 font-medium [color-scheme:light]"
+                    className="h-11 flex-1 border-0 bg-transparent px-3 text-[14px] font-medium text-slate-700 focus:outline-none focus:ring-0 [color-scheme:light]"
                   />
                 </div>
               </div>
             </div>
             {toDateTime && (
-              <p className="text-xs text-rose-600 font-medium flex items-center gap-1">
+              <p className="text-xs text-slate-500 font-medium flex items-center gap-1">
                 <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
@@ -177,14 +177,14 @@ export function AuditFilters({
                 </span>
               )}
               {fromDateTime && (
-                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 text-xs font-medium border border-emerald-100">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 text-slate-700 text-xs font-medium border border-slate-200">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
                   From: {formatDateTimeDisplay(fromDateTime)}
                   <button
                     onClick={() => setFromDateTime('')}
-                    className="ml-1 hover:text-emerald-900 transition-colors"
+                    className="ml-1 hover:text-slate-900 transition-colors"
                   >
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -193,14 +193,14 @@ export function AuditFilters({
                 </span>
               )}
               {toDateTime && (
-                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-rose-50 text-rose-700 text-xs font-medium border border-rose-100">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 text-slate-700 text-xs font-medium border border-slate-200">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
                   To: {formatDateTimeDisplay(toDateTime)}
                   <button
                     onClick={() => setToDateTime('')}
-                    className="ml-1 hover:text-rose-900 transition-colors"
+                    className="ml-1 hover:text-slate-900 transition-colors"
                   >
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

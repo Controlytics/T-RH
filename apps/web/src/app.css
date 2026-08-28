@@ -190,194 +190,232 @@ body {
 .font-display { font-family: var(--font-display); font-feature-settings: 'ss01'; letter-spacing: -0.01em; }
 .font-mono-tab { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-feature-settings: 'zero', 'ss01'; }
 
-/* ===========================================================================
-   FORM CONTROLS — `.ctl`, `.ctl-check`, `.ctl-radio`
-   ===========================================================================
+/*
+   EVERYTHING BELOW IS INSIDE @layer components, AND THAT IS LOAD-BEARING.
 
-   WHY THIS EXISTS, given that Input/Select/Checkbox primitives also exist.
+   Tailwind v4 emits its utilities into `@layer utilities`. In the CSS cascade,
+   an UNLAYERED rule beats every layered rule regardless of specificity — so
+   while these lived outside a layer they silently outranked every Tailwind
+   class on the same element, no matter how the selector was written. That was
+   not theoretical: `.tbl` zebra was overriding the `bg-amber-50/20` tint that
+   Admin Requests puts on a PENDING row, and it kept overriding it even after
+   the selectors were wrapped in :where(), because specificity was never what
+   was deciding it.
 
-   The primitives are the right answer for a control a page renders directly,
-   and pages should keep migrating onto them. But 183 raw <input>/<select>/
-   <textarea> remain across the route tree, and they were not inconsistent by
-   accident — each screen had written its own focus ring. Measured before this
-   change, the same text field appeared as `focus:ring-green-500/30` on one
-   screen, `focus:ring-cyan-500` on another, `focus:ring-blue-500/30` on a
-   third and `focus:ring-indigo-500` on a fourth, with four different radii and
-   three different paddings. Six of those accents matched no theme the product
-   ships.
-
-   Converting all 183 call sites to JSX primitives by hand is a large, risky
-   edit to files whose behaviour is not being changed. Giving them ONE class
-   whose appearance is defined in ONE place gets the same visual result at a
-   fraction of the risk, and is what §31 of the brief asks for in as many
-   words: reusable CSS classes rather than duplicated styles.
-
-   TWO RULES for anyone editing this:
-
-   1. `.ctl` deliberately sets NO width. It is plain CSS declared after
-      Tailwind's utilities, so it would beat `w-full`/`w-32`/`flex-1` on the
-      same element — every call site relies on keeping its own width.
-   2. The focus ring is a `box-shadow`, not an `outline`, so it follows the
-      control's border-radius. It reads `--theme-primary` and therefore
-      follows all ten of the product's colour themes, which is exactly what
-      the hardcoded rings above did not do.
+   `components` is declared before `utilities`, so now any utility at a call
+   site wins — which is the whole contract these classes are supposed to have:
+   a DEFAULT look that a page can always override. The :where() wrappers are
+   kept as a second, independent guarantee.
 */
-.ctl {
-  height: var(--control-h);
-  border-radius: var(--radius-control);
-  border: 1px solid #cbd5e1;                 /* slate-300, a hairline */
-  background-color: #fff;
-  padding-inline: 0.75rem;
-  font-size: 0.875rem;                        /* --text-control */
-  color: #1e293b;
-  transition: border-color 150ms ease, box-shadow 150ms ease;
+@layer components {
+  /* ===========================================================================
+     FORM CONTROLS — `.ctl`, `.ctl-check`, `.ctl-radio`
+     ===========================================================================
+
+     WHY THIS EXISTS, given that Input/Select/Checkbox primitives also exist.
+
+     The primitives are the right answer for a control a page renders directly,
+     and pages should keep migrating onto them. But 183 raw <input>/<select>/
+     <textarea> remain across the route tree, and they were not inconsistent by
+     accident — each screen had written its own focus ring. Measured before this
+     change, the same text field appeared as `focus:ring-green-500/30` on one
+     screen, `focus:ring-cyan-500` on another, `focus:ring-blue-500/30` on a
+     third and `focus:ring-indigo-500` on a fourth, with four different radii and
+     three different paddings. Six of those accents matched no theme the product
+     ships.
+
+     Converting all 183 call sites to JSX primitives by hand is a large, risky
+     edit to files whose behaviour is not being changed. Giving them ONE class
+     whose appearance is defined in ONE place gets the same visual result at a
+     fraction of the risk, and is what §31 of the brief asks for in as many
+     words: reusable CSS classes rather than duplicated styles.
+
+     TWO RULES for anyone editing this:
+
+     1. `.ctl` still sets NO width, even though the `@layer` above now means a
+        `w-full`/`w-32`/`flex-1` at the call site WOULD override it. Width is
+        the one property every one of these 90-odd call sites specifies for
+        itself, so stating a default here could only ever be noise.
+     2. The focus ring is a `box-shadow`, not an `outline`, so it follows the
+        control's border-radius. It reads `--theme-primary` and therefore
+        follows all ten of the product's colour themes, which is exactly what
+        the hardcoded rings above did not do.
+  */
+  .ctl {
+    height: var(--control-h);
+    border-radius: var(--radius-control);
+    border: 1px solid #cbd5e1;                 /* slate-300, a hairline */
+    background-color: #fff;
+    padding-inline: 0.75rem;
+    font-size: 0.875rem;                        /* --text-control */
+    color: #1e293b;
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+  }
+  .ctl::placeholder { color: #94a3b8; }
+  .ctl:hover:not(:disabled):not([readonly]) { border-color: #94a3b8; }
+  .ctl:focus {
+    outline: none;
+    border-color: var(--theme-primary, #2a78d6);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--theme-primary, #2a78d6) 25%, transparent);
+  }
+  .ctl:disabled,
+  .ctl[readonly] {
+    background-color: #f8fafc;
+    color: #64748b;
+  }
+  .ctl:disabled { cursor: not-allowed; }
+  /* An invalid field is bordered on its own, so the state does not depend on a
+     message the operator may have scrolled past. */
+  .ctl[aria-invalid="true"] { border-color: #fb7185; }
+  .ctl[aria-invalid="true"]:focus { box-shadow: 0 0 0 2px rgb(251 113 133 / 0.25); }
+
+  /* A textarea grows; a fixed 40px height would make it a very short input. Its
+     own `rows`, or an `h-*` utility at the call site, decides the height. */
+  textarea.ctl {
+    height: auto;
+    min-height: 5rem;
+    padding-block: 0.5rem;
+    line-height: 1.5;
+  }
+
+  /* The chevron is drawn here rather than left to the browser: a native select
+     arrow is one of the loudest "unstyled form" tells, and it differs on every
+     platform this runs on. Same grey chevron as the Select primitive. */
+  select.ctl {
+    appearance: none;
+    cursor: pointer;
+    padding-right: 2.25rem;
+    background-repeat: no-repeat;
+    background-position: right 0.6rem center;
+    background-size: 1.15rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24'%3E%3Cpath stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  }
+  select.ctl:disabled { cursor: not-allowed; }
+
+  /* A control that sits inside a toolbar row rather than in a form. */
+  .ctl-sm { height: var(--control-h-sm); font-size: 0.8125rem; padding-inline: 0.625rem; }
+  select.ctl-sm { padding-right: 2rem; background-size: 1rem; background-position: right 0.5rem center; }
+
+  /* ── Checkbox and radio ─────────────────────────────────────────────────────
+     Drawn on the REAL input via `appearance: none`, never replaced by a styled
+     div: keyboard operation, form participation, `:indeterminate` and
+     screen-reader semantics all survive, which a div re-implementation always
+     ends up missing. Same construction as the Checkbox/Radio primitives.
+
+     The shapes differ on purpose — a square for "any of these", a circle for
+     "one of these". That is the only cue an operator has about whether a choice
+     is exclusive, so they must never be made to look alike. */
+  .ctl-check,
+  .ctl-radio {
+    appearance: none;
+    flex-shrink: 0;
+    /* 20px — the SAME size as the Checkbox/Radio primitives (h-5 w-5). These two
+       routes to a checkbox must not produce two different checkboxes; that is the
+       exact inconsistency this whole pass exists to remove, and it would be
+       visible on any screen that happens to use both. */
+    width: 1.25rem;
+    height: 1.25rem;
+    border: 1px solid #cbd5e1;
+    background-color: #fff;
+    cursor: pointer;
+    transition: background-color 150ms ease, border-color 150ms ease;
+  }
+  .ctl-check { border-radius: 5px; }
+  .ctl-radio { border-radius: 9999px; }
+
+  .ctl-check:hover:not(:disabled),
+  .ctl-radio:hover:not(:disabled) { border-color: #94a3b8; }
+
+  .ctl-check:checked {
+    border-color: transparent;
+    background-color: var(--theme-primary, #2a78d6);
+    /* The tick is a background image so no extra element is needed beside an
+       input a page may already be positioning. */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='white' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-size: 0.875rem;
+    background-position: center;
+    background-repeat: no-repeat;
+  }
+  .ctl-check:indeterminate {
+    border-color: transparent;
+    background-color: var(--theme-primary, #2a78d6);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8h8' fill='none' stroke='white' stroke-width='2.25' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-size: 0.875rem;
+    background-position: center;
+    background-repeat: no-repeat;
+  }
+  .ctl-radio:checked {
+    border-width: 5px;
+    border-color: var(--theme-primary, #2a78d6);
+  }
+
+  .ctl-check:focus-visible,
+  .ctl-radio:focus-visible {
+    outline: 2px solid var(--theme-primary, #2a78d6);
+    outline-offset: 2px;
+  }
+  .ctl-check:disabled,
+  .ctl-radio:disabled {
+    cursor: not-allowed;
+    border-color: #e2e8f0;
+    background-color: #f1f5f9;
+  }
+  .ctl-check:disabled:checked { background-color: #94a3b8; border-color: transparent; }
+  .ctl-radio:disabled:checked { border-color: #94a3b8; }
+
+  /* ===========================================================================
+     DATA TABLES — `.tbl`
+     ===========================================================================
+
+     Fifteen screens render a raw <table>. They agreed on nothing: some had a
+     hover state, some did not; some separated rows with a border, some with
+     nothing; header bands ranged from white to slate-100 to a gradient.
+
+     This deliberately styles ONLY what a call site almost never sets itself —
+     the header band, the row separator, the hover, and the row rhythm. It sets
+     no text alignment, no font size and no cell colour, because `.tbl th` is a
+     descendant selector and would BEAT a `text-right` or `text-xs` utility on
+     the cell, silently undoing alignment a screen chose on purpose. Anything a
+     page might reasonably decide per-cell is left to the page.
+
+     Not applied to routes/dashboard/telemetry-table.tsx: that table is
+     deliberately DARK on operator preference, with contrast measured across all
+     ten themes (see the .tv-* block below). It keeps its own styling.
+  */
+  /*
+     EVERY RULE BELOW IS WRAPPED IN :where(), WHICH IS LOAD-BEARING.
+
+     `:where()` contributes ZERO specificity, so each of these is a DEFAULT that
+     any utility class at the call site overrides. Without it, `.tbl tbody
+     tr:nth-child(even)` scores (0,2,1) and beats a `bg-amber-50` utility (0,1,0)
+     sitting on the <tr> — which is real: Admin Requests tints PENDING rows amber,
+     and a plain descendant selector here would have erased that tint on every
+     even row while looking perfectly fine in review. The same trap applies to a
+     page's own `hover:bg-cyan-50` and to a tinted <th>.
+
+     Rule of thumb for anything added here: this block may state what a table
+     looks like when the page says nothing. It may never outrank the page.
+  */
+  :where(.tbl) { width: 100%; border-collapse: separate; border-spacing: 0; }
+
+  :where(.tbl thead th) {
+    background-color: #f8fafc;                     /* slate-50 */
+    border-bottom: 1px solid #e2e8f0;
+    /* A header that survives scrolling inside a tall table. Harmless when the
+       table is short or its container does not scroll. */
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+
+  /* Zebra, kept very light. At a stronger tint the banding competes with the
+     status colours in the cells, which are the only colour in a table that
+     should carry meaning. */
+  :where(.tbl tbody tr:nth-child(even)) { background-color: #fcfdfe; }
+  :where(.tbl tbody tr) { border-top: 1px solid #f1f5f9; }
+  :where(.tbl tbody tr:hover) { background-color: #f1f5f9; }
+  :where(.tbl tbody td) { vertical-align: middle; }
 }
-.ctl::placeholder { color: #94a3b8; }
-.ctl:hover:not(:disabled):not([readonly]) { border-color: #94a3b8; }
-.ctl:focus {
-  outline: none;
-  border-color: var(--theme-primary, #2a78d6);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme-primary, #2a78d6) 22%, transparent);
-}
-.ctl:disabled,
-.ctl[readonly] {
-  background-color: #f8fafc;
-  color: #64748b;
-}
-.ctl:disabled { cursor: not-allowed; }
-/* An invalid field is bordered on its own, so the state does not depend on a
-   message the operator may have scrolled past. */
-.ctl[aria-invalid="true"] { border-color: #fb7185; }
-.ctl[aria-invalid="true"]:focus { box-shadow: 0 0 0 3px rgb(251 113 133 / 0.25); }
-
-/* A textarea grows; a fixed 40px height would make it a very short input. Its
-   own `rows`, or an `h-*` utility at the call site, decides the height. */
-textarea.ctl {
-  height: auto;
-  min-height: 5rem;
-  padding-block: 0.5rem;
-  line-height: 1.5;
-}
-
-/* The chevron is drawn here rather than left to the browser: a native select
-   arrow is one of the loudest "unstyled form" tells, and it differs on every
-   platform this runs on. Same grey chevron as the Select primitive. */
-select.ctl {
-  appearance: none;
-  cursor: pointer;
-  padding-right: 2.25rem;
-  background-repeat: no-repeat;
-  background-position: right 0.6rem center;
-  background-size: 1.15rem;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24'%3E%3Cpath stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-}
-select.ctl:disabled { cursor: not-allowed; }
-
-/* A control that sits inside a toolbar row rather than in a form. */
-.ctl-sm { height: var(--control-h-sm); font-size: 0.8125rem; padding-inline: 0.625rem; }
-select.ctl-sm { padding-right: 2rem; background-size: 1rem; background-position: right 0.5rem center; }
-
-/* ── Checkbox and radio ─────────────────────────────────────────────────────
-   Drawn on the REAL input via `appearance: none`, never replaced by a styled
-   div: keyboard operation, form participation, `:indeterminate` and
-   screen-reader semantics all survive, which a div re-implementation always
-   ends up missing. Same construction as the Checkbox/Radio primitives.
-
-   The shapes differ on purpose — a square for "any of these", a circle for
-   "one of these". That is the only cue an operator has about whether a choice
-   is exclusive, so they must never be made to look alike. */
-.ctl-check,
-.ctl-radio {
-  appearance: none;
-  flex-shrink: 0;
-  width: 1.125rem;
-  height: 1.125rem;
-  border: 1px solid #cbd5e1;
-  background-color: #fff;
-  cursor: pointer;
-  transition: background-color 150ms ease, border-color 150ms ease;
-}
-.ctl-check { border-radius: 5px; }
-.ctl-radio { border-radius: 9999px; }
-
-.ctl-check:hover:not(:disabled),
-.ctl-radio:hover:not(:disabled) { border-color: #94a3b8; }
-
-.ctl-check:checked {
-  border-color: transparent;
-  background-color: var(--theme-primary, #2a78d6);
-  /* The tick is a background image so no extra element is needed beside an
-     input a page may already be positioning. */
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='white' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  background-size: 0.875rem;
-  background-position: center;
-  background-repeat: no-repeat;
-}
-.ctl-check:indeterminate {
-  border-color: transparent;
-  background-color: var(--theme-primary, #2a78d6);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8h8' fill='none' stroke='white' stroke-width='2.25' stroke-linecap='round'/%3E%3C/svg%3E");
-  background-size: 0.875rem;
-  background-position: center;
-  background-repeat: no-repeat;
-}
-.ctl-radio:checked {
-  border-width: 5px;
-  border-color: var(--theme-primary, #2a78d6);
-}
-
-.ctl-check:focus-visible,
-.ctl-radio:focus-visible {
-  outline: 2px solid var(--theme-primary, #2a78d6);
-  outline-offset: 2px;
-}
-.ctl-check:disabled,
-.ctl-radio:disabled {
-  cursor: not-allowed;
-  border-color: #e2e8f0;
-  background-color: #f1f5f9;
-}
-.ctl-check:disabled:checked { background-color: #94a3b8; border-color: transparent; }
-.ctl-radio:disabled:checked { border-color: #94a3b8; }
-
-/* ===========================================================================
-   DATA TABLES — `.tbl`
-   ===========================================================================
-
-   Fifteen screens render a raw <table>. They agreed on nothing: some had a
-   hover state, some did not; some separated rows with a border, some with
-   nothing; header bands ranged from white to slate-100 to a gradient.
-
-   This deliberately styles ONLY what a call site almost never sets itself —
-   the header band, the row separator, the hover, and the row rhythm. It sets
-   no text alignment, no font size and no cell colour, because `.tbl th` is a
-   descendant selector and would BEAT a `text-right` or `text-xs` utility on
-   the cell, silently undoing alignment a screen chose on purpose. Anything a
-   page might reasonably decide per-cell is left to the page.
-
-   Not applied to routes/dashboard/telemetry-table.tsx: that table is
-   deliberately DARK on operator preference, with contrast measured across all
-   ten themes (see the .tv-* block below). It keeps its own styling.
-*/
-.tbl { width: 100%; border-collapse: separate; border-spacing: 0; }
-
-.tbl thead th {
-  background-color: #f8fafc;                     /* slate-50 */
-  border-bottom: 1px solid #e2e8f0;
-  /* A header that survives scrolling inside a tall table. Harmless when the
-     table is short or its container does not scroll. */
-  position: sticky;
-  top: 0;
-  z-index: 1;
-}
-
-/* Zebra, kept very light. At a stronger tint the banding competes with the
-   status colours in the cells, which are the only colour in a table that
-   should carry meaning. */
-.tbl tbody tr:nth-child(even) { background-color: #fcfdfe; }
-.tbl tbody tr { border-top: 1px solid #f1f5f9; }
-.tbl tbody tr:hover { background-color: #f1f5f9; }
-.tbl tbody td { vertical-align: middle; }
 
 /* Professional focus styles */
 :focus-visible {
