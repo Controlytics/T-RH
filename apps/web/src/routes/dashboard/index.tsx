@@ -6,6 +6,8 @@ import { TelemetryTable } from './telemetry-table';
 import { FloorplanView } from './floorplan-view';
 import { resolveNav, ALL_INSTRUMENTS, type NavNode } from './location-nav';
 import { usePanels } from '@/hooks/use-panels';
+import { AggregateTrendCard } from './aggregate-trend-card';
+import { SelectionAlarms } from './selection-alarms';
 
 /** A CSS gradient STRING for `backgroundImage`. Not lib/theme-styles' themeGradient,
  *  which is a CSSProperties object and cannot be assigned to that property. */
@@ -46,6 +48,15 @@ export function DashboardPage() {
   const [params, setParams] = useSearchParams();
   const selected = params.get('fl');
   const view = params.get('view') === 'graphical' ? 'graphical' : 'table';
+  // In the URL, like `fl` and `view`: the whole dashboard state is linkable and
+  // survives a refresh, which is the convention this page already set.
+  const aggWindow = (['1h', '6h', '24h', '7d'] as const)
+    .find((w) => w === params.get('agg')) ?? '24h';
+  const setAggWindow = (w: '1h' | '6h' | '24h' | '7d') => {
+    const next = new URLSearchParams(params);
+    next.set('agg', w);
+    setParams(next);
+  };
 
   // Resolved server-side, per role AND per user. Replaces the old
   // /api/config/dashboard-cards/current fetch, which had no per-user layer and
@@ -229,6 +240,23 @@ export function DashboardPage() {
             <FloorplanView functionalLocationId={nav.functionalLocationId} directOnly={nav.directOnly} />
           )}
         </div>
+      )}
+
+      {/* The aggregate widgets follow the drill-down, so they live with the views
+          rather than beside the entry cards. Both are panel-assignable; a role
+          holding an explicit panel list does not get them until an admin ticks
+          them, which is the intended default for new capability. */}
+      {nav.showViews && showPanel('dashboard_trend') && (
+        <AggregateTrendCard
+          functionalLocationId={nav.functionalLocationId}
+          directOnly={nav.directOnly}
+          window={aggWindow}
+          onWindowChange={setAggWindow}
+        />
+      )}
+
+      {nav.showViews && showPanel('dashboard_alarms') && (
+        <SelectionAlarms functionalLocationId={nav.functionalLocationId} />
       )}
 
       {nav.level === 0 && locations.length === 0 && (
