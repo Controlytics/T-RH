@@ -46,6 +46,14 @@ export const PANEL_PAGES: readonly { page: PanelPage; label: string }[] = [
  * `/api/filters/dashboard-stats` feed behind them was removed in the Phase 0
  * strip, so those toggles controlled cards that could never render. Recorded here
  * because it is the same failure twice — a catalogue outliving what it describes.
+ *
+ * `dashboard_trend` and `dashboard_alarms` were APPENDED to the dashboard group on
+ * 2026-08-28 rather than inserted, because the order above is asserted and churning
+ * it buys nothing. A role holding an explicit list does NOT get them until an admin
+ * ticks them, and there is no migration: absence of a key already means "not
+ * shown", which is the right default for new capability. That is the opposite of
+ * what the trend keys needed in Project A, where the panels were already visible
+ * and carrying only the dashboard keys would have TAKEN something away.
  */
 export const PANELS: readonly PanelDefinition[] = [
   {
@@ -59,6 +67,18 @@ export const PANELS: readonly PanelDefinition[] = [
     page: 'dashboard',
     label: 'Instrument Readings — Floorplan',
     description: 'Rooms drawn on the floor layout, coloured by whether they are in limit',
+  },
+  {
+    key: 'dashboard_trend',
+    page: 'dashboard',
+    label: 'Trend — spread across the selection',
+    description: 'Minimum, mean and maximum across every instrument in the current drill-down. Computed values, not stored readings',
+  },
+  {
+    key: 'dashboard_alarms',
+    page: 'dashboard',
+    label: 'Active alarms in this selection',
+    description: 'Alarms currently raised on the instruments in the current drill-down',
   },
   {
     key: 'trend_gauges',
