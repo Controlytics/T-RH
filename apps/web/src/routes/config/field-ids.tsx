@@ -129,11 +129,11 @@ export function FieldIdsPage() {
             </svg>
           </div>
           <p className="text-sm text-red-700">{error}</p>
-          <button onClick={() => setError('')} className="ml-auto p-1 rounded-lg hover:bg-red-100 transition-colors">
+          <Button variant="ghost" size="icon" className="ml-auto" onClick={() => setError('')}>
             <svg className="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
-          </button>
+          </Button>
         </div>
       )}
 

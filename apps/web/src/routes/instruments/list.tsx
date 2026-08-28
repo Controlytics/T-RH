@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Pagination } from '@/components/ui/pagination';
+import { StatusBadge } from '@/components/ui/status-badge';
 
 /**
  * The instruments register, laid out around the question it is actually opened
@@ -219,13 +220,12 @@ export function InstrumentListPage() {
             <option value="false">Inactive</option>
           </Select>
           {tileFilter && (
-            <button
+            <Button variant="ghost" size="sm"
               type="button"
               onClick={() => setTileFilter(null)}
-              className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
             >
               Clear {tileFilter} filter
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -308,16 +308,9 @@ export function InstrumentListPage() {
                 </td>
                 <td className="px-4 py-3">
                   <span className="flex flex-wrap items-center gap-1.5">
-                    <span
-                      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
-                        reporting
-                          ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
-                          : 'bg-slate-100 text-slate-500 ring-1 ring-slate-200'
-                      }`}
-                    >
-                      <span className={`h-1.5 w-1.5 rounded-full ${reporting ? 'bg-emerald-500' : 'bg-slate-400'}`} />
-                      {reporting ? 'Active' : 'Inactive'}
-                    </span>
+                    {/* Hand-rolled dot-plus-word before this: the same construction
+                        StatusBadge exists to provide, in its own greens. */}
+                    <StatusBadge tone={reporting ? 'ok' : 'idle'} label={reporting ? 'Active' : 'Inactive'} />
                     {/* The ADMIN flag, which is a different fact: this device is
                         switched off, so it cannot report even if it wanted to.
                         Shown separately so a deliberate shutdown is never

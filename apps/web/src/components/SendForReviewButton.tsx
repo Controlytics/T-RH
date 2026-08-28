@@ -3,6 +3,7 @@ import useSWR from 'swr';
 import { useToast } from '@/hooks/use-toast';
 import { submitForReview } from '@/lib/report-review';
 import type { ReportSnapshot } from '@/lib/pdf-report';
+import { Button } from '@/components/ui/button';
 
 interface Role { name: string; displayName: string; }
 interface User { id: string; username: string; role?: string; fullName?: string; }
@@ -99,8 +100,8 @@ export function SendForReviewButton({ buildSnapshot, className }: {
               )}
             </div>
             <div className="px-6 py-4 bg-slate-50 rounded-b-2xl flex justify-end gap-2">
-              <button onClick={() => setOpen(false)} disabled={busy} className="px-4 py-2 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-100">Cancel</button>
-              <button onClick={send} disabled={busy} className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-teal-500 to-cyan-600 disabled:opacity-50">{busy ? 'Sending…' : 'Send'}</button>
+              <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>Cancel</Button>
+              <Button  onClick={send} disabled={busy}>{busy ? 'Sending…' : 'Send'}</Button>
             </div>
           </div>
         </div>

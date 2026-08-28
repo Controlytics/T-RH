@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api-client';
 import { REAUTH_ACTIONS, REAUTH_ACTION_CATEGORIES } from '@digilog/shared';
 import type { RoleData, ReauthAction, ReauthActionCategory } from '@digilog/shared';
+import { Button } from '@/components/ui/button';
 
 // ── Re-auth tab constants ──
 const REAUTH_CATEGORY_META: Record<ReauthActionCategory, { gradient: string; bgLight: string; icon: string; description: string }> = {
@@ -405,12 +406,11 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
                               >
                                 All
                               </button>
-                              <button
+                              <Button variant="secondary" size="sm"
                                 onClick={() => reauthClearRole(role.name)}
-                                className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 hover:bg-slate-200 font-medium transition-colors"
                               >
                                 None
-                              </button>
+                              </Button>
                             </div>
                           </div>
                         </th>

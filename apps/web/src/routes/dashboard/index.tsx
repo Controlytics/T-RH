@@ -11,6 +11,7 @@ import { SelectionAlarms } from './selection-alarms';
 import { PanelGrid } from './panel-grid';
 import { PanelCard } from './panel-card';
 import { useDashboardLayout } from '@/hooks/use-dashboard-layout';
+import { Button } from '@/components/ui/button';
 
 /** A CSS gradient STRING for `backgroundImage`. Not lib/theme-styles' themeGradient,
  *  which is a CSSProperties object and cannot be assigned to that property. */
@@ -132,9 +133,9 @@ export function DashboardPage() {
                   {i === nav.breadcrumb.length - 1 ? (
                     <span className="font-semibold text-slate-700">{c.label}</span>
                   ) : (
-                    <button type="button" onClick={() => go(c.id)} className="hover:underline">
+                    <Button variant="ghost" type="button" onClick={() => go(c.id)}>
                       {c.label}
-                    </button>
+                    </Button>
                   )}
                 </span>
               ))}

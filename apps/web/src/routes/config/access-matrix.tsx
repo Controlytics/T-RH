@@ -4,6 +4,7 @@ import { apiClient, api } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
+import { Button } from '@/components/ui/button';
 
 type Matrix = Record<string, string[]>;
 
@@ -148,22 +149,20 @@ export function AccessMatrixPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button
+          <Button variant="ghost"
             type="button"
             onClick={reset}
             disabled={!dirty || saving}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 border border-slate-200 hover:bg-slate-50 disabled:opacity-50 transition-colors"
           >
             Reset
-          </button>
-          <button
+          </Button>
+          <Button 
             type="button"
             onClick={save}
             disabled={!dirty || saving}
-            className="px-5 py-2 rounded-lg text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 transition-colors"
           >
             {saving ? 'Saving...' : 'Save Changes'}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -182,13 +181,12 @@ export function AccessMatrixPage() {
                     <th key={r.name} className="px-3 py-3 text-center text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">
                       <div className="flex flex-col items-center gap-1">
                         <span>{r.displayName}</span>
-                        <button
+                        <Button variant="ghost" size="sm"
                           type="button"
                           onClick={() => toggleColumnAll(r.name)}
-                          className="text-[10px] font-semibold text-indigo-600 hover:text-indigo-700"
                         >
                           toggle all
-                        </button>
+                        </Button>
                       </div>
                     </th>
                   ))}
@@ -220,13 +218,12 @@ export function AccessMatrixPage() {
                           </td>
                         ))}
                         <td className="px-3 py-3 text-center">
-                          <button
+                          <Button variant="ghost" size="sm"
                             type="button"
                             onClick={() => toggleRowAll(m.moduleKey)}
-                            className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-700"
                           >
                             all
-                          </button>
+                          </Button>
                         </td>
                       </tr>
                     ))}

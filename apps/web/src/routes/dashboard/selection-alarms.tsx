@@ -1,6 +1,8 @@
 import useSWR from 'swr';
 import { Link } from 'react-router-dom';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { severityTone } from '@/routes/alarms/alarm-display';
 
 /**
  * Active alarms on the instruments in the current drill-down.
@@ -26,12 +28,16 @@ interface AlarmRow {
   acknowledgedAt: string | null;
 }
 
-const SEVERITY_STYLE: Record<string, string> = {
-  CRITICAL: 'bg-red-100 text-red-700',
-  MAJOR: 'bg-orange-100 text-orange-700',
-  MINOR: 'bg-amber-100 text-amber-700',
-  INFO: 'bg-slate-100 text-slate-600',
-};
+/*
+ * Severity is rendered by StatusBadge, from the ONE mapping in
+ * routes/alarms/alarm-display.ts.
+ *
+ * This file used to carry a fourth severity palette of its own — red/orange/
+ * amber/slate — which disagreed with the Alarms page (red/amber/sky) on two of
+ * the four levels. The same CRITICAL alarm therefore appeared in one colour on
+ * the dashboard and another on the alarms screen, and MAJOR and MINOR were
+ * adjacent oranges that were genuinely hard to tell apart in a list.
+ */
 
 export function SelectionAlarms({ functionalLocationId }: { functionalLocationId?: string }) {
   const { formatDateTime } = useDatetimeFormat();
@@ -73,11 +79,7 @@ export function SelectionAlarms({ functionalLocationId }: { functionalLocationId
           <ul className="divide-y divide-slate-100">
             {rows.map((a) => (
               <li key={a.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 p-3 text-sm">
-                <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-                  SEVERITY_STYLE[a.severity] ?? SEVERITY_STYLE.INFO
-                }`}>
-                  {a.severity}
-                </span>
+                <StatusBadge tone={severityTone(a.severity)} label={a.severity} className="shrink-0" />
                 <Link
                   to={`/instruments/${a.instrumentId}/trend`}
                   className="font-medium text-slate-800 hover:underline"

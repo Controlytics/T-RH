@@ -81,9 +81,9 @@ function MultiSelectEventTypes({ eventTypes, selected, onChange }: {
             return (
               <span key={val} className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-700 rounded text-xs font-medium">
                 {et?.label ?? val}
-                <button type="button" onClick={() => toggle(val)} className="hover:text-amber-900">
+                <Button variant="ghost" type="button" onClick={() => toggle(val)}>
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                </button>
+                </Button>
               </span>
             );
           })}
@@ -276,9 +276,9 @@ function RulesTab() {
       <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 p-6 shadow-[var(--elev-1)] space-y-5">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-slate-800">{editing.id ? 'Edit Rule' : 'New Notification Rule'}</h3>
-          <button onClick={() => setEditing(null)} className="p-2 rounded-lg hover:bg-slate-100">
+          <Button variant="ghost" size="icon" onClick={() => setEditing(null)}>
             <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-          </button>
+          </Button>
         </div>
 
         {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg text-sm">{error}</div>}
@@ -409,9 +409,9 @@ function RulesTab() {
                   </select>
                 )}
 
-                <button onClick={() => removeRecipient(idx)} className="p-1.5 rounded-lg hover:bg-red-100 text-red-500">
+                <Button variant="ghost" size="icon" onClick={() => removeRecipient(idx)}>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                </button>
+                </Button>
               </div>
             ))}
           </div>
@@ -502,18 +502,18 @@ function RulesTab() {
                   )}
                 </div>
                 <div className="flex items-center gap-1">
-                  <button onClick={() => testRule(rule.id)} className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-blue-600" title="Test">
+                  <Button variant="ghost" size="icon" onClick={() => testRule(rule.id)} title="Test">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                  </button>
-                  <button onClick={() => toggleRule(rule.id)} className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-amber-600" title="Toggle">
+                  </Button>
+                  <Button variant="ghost" size="icon" onClick={() => toggleRule(rule.id)} title="Toggle">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={rule.isActive ? "M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" : "M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"} /></svg>
-                  </button>
-                  <button onClick={() => setEditing(rule)} className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600" title="Edit">
+                  </Button>
+                  <Button variant="ghost" size="icon" onClick={() => setEditing(rule)} title="Edit">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                  </button>
-                  <button onClick={() => setPendingDelete(rule)} className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600" title="Delete">
+                  </Button>
+                  <Button variant="ghost" size="icon" onClick={() => setPendingDelete(rule)} title="Delete">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                  </button>
+                  </Button>
                 </div>
               </div>
             </div>
@@ -596,9 +596,9 @@ function GroupsTab() {
       <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 p-6 shadow-[var(--elev-1)] space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-slate-800">Members of &quot;{group?.name}&quot;</h3>
-          <button onClick={() => setManagingId(null)} className="p-2 rounded-lg hover:bg-slate-100">
+          <Button variant="ghost" size="icon" onClick={() => setManagingId(null)}>
             <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-          </button>
+          </Button>
         </div>
 
         <div className="flex gap-2">
@@ -622,9 +622,9 @@ function GroupsTab() {
                   <span className="text-sm text-slate-400 ml-2">{m.user?.username} - {m.user?.email}</span>
                   <span className="ml-2 px-2 py-0.5 bg-slate-100 rounded text-xs text-slate-500">{m.user?.role}</span>
                 </div>
-                <button onClick={() => removeMember(m.userId)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-400 hover:text-red-600">
+                <Button variant="ghost" size="icon" onClick={() => removeMember(m.userId)}>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                </button>
+                </Button>
               </div>
             ))}
           </div>
@@ -667,12 +667,12 @@ function GroupsTab() {
                   <p className="text-sm text-slate-500 mt-1">{group.memberCount} member{group.memberCount !== 1 ? 's' : ''}</p>
                 </div>
                 <div className="flex gap-1">
-                  <button onClick={() => loadMembers(group.id)} className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600" title="Manage Members">
+                  <Button variant="ghost" size="icon" onClick={() => loadMembers(group.id)} title="Manage Members">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
-                  </button>
-                  <button onClick={() => setPendingDelete(group)} className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600" title="Delete">
+                  </Button>
+                  <Button variant="ghost" size="icon" onClick={() => setPendingDelete(group)} title="Delete">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                  </button>
+                  </Button>
                 </div>
               </div>
             </div>
@@ -742,9 +742,9 @@ function TemplatesTab() {
       <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 p-6 shadow-[var(--elev-1)] space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-slate-800">{editing.id ? 'Edit Template' : 'New Template'}</h3>
-          <button onClick={() => setEditing(null)} className="p-2 rounded-lg hover:bg-slate-100">
+          <Button variant="ghost" size="icon" onClick={() => setEditing(null)}>
             <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-          </button>
+          </Button>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -824,12 +824,12 @@ function TemplatesTab() {
                 {t.subject && <p className="text-sm text-slate-400 mt-0.5">Subject: {t.subject}</p>}
               </div>
               <div className="flex gap-1">
-                <button onClick={() => setEditing(t)} className="p-2 rounded-lg hover:bg-slate-100 text-slate-400">
+                <Button variant="ghost" size="icon" onClick={() => setEditing(t)}>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                </button>
-                <button onClick={() => setPendingDelete(t)} className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600">
+                </Button>
+                <Button variant="ghost" size="icon" onClick={() => setPendingDelete(t)}>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                </button>
+                </Button>
               </div>
             </div>
           ))}
@@ -985,12 +985,11 @@ function LogsTab() {
                   <td className="px-4 py-3 text-slate-500 text-xs">{log.triggeredBy ?? '-'}</td>
                   <td className="px-4 py-3 text-slate-500 text-xs">{formatDateTime(log.createdAt)}</td>
                   <td className="px-4 py-3">
-                    <button
+                    <Button variant="ghost" size="sm"
                       onClick={(e) => { e.stopPropagation(); handleDelete(log.id); }}
-                      className="text-red-500 hover:text-red-700 text-xs"
                     >
                       Delete
-                    </button>
+                    </Button>
                   </td>
                 </tr>
               ))}

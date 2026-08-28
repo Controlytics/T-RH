@@ -1,14 +1,29 @@
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { StatusBadge, type StatusTone } from '@/components/ui/status-badge';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import type { PasswordPolicyConfig } from '@digilog/shared';
 
-const statusBadge: Record<string, string> = {
-  ENABLED: 'bg-gradient-to-r from-emerald-400 to-teal-400 text-white border-0',
-  DISABLED: 'bg-gradient-to-r from-red-400 to-rose-400 text-white border-0',
-  LOCKED: 'bg-gradient-to-r from-amber-400 to-orange-400 text-white border-0',
-  EXPIRED: 'bg-gradient-to-r from-slate-400 to-gray-400 text-white border-0',
+/**
+ * A user's account state, as one of the five tones every status in this product
+ * uses.
+ *
+ * These were four saturated gradients in white type. Two problems with that,
+ * beyond looking unlike every other status on the screen: the colour travelled
+ * ALONE — no dot, no shape, nothing but hue separating "enabled" from
+ * "disabled" for someone who does not distinguish red from green — and a
+ * full-strength gradient on a routine steady state shouted as loudly as an
+ * instrument in alarm.
+ *
+ * LOCKED is `warn` rather than `danger` deliberately: it is recoverable by an
+ * administrator, where DISABLED is a decision someone made.
+ */
+const STATUS_TONE: Record<string, StatusTone> = {
+  ENABLED: 'ok',
+  DISABLED: 'danger',
+  LOCKED: 'warn',
+  EXPIRED: 'idle',
 };
 
 interface RoleData {
@@ -145,7 +160,7 @@ export function UserTable({
                 </Badge>
               </TableCell>
               <TableCell>
-                <Badge className={`${statusBadge[user.status] ?? 'bg-slate-100 text-slate-600'} shadow-[var(--elev-1)]`}>{user.status}</Badge>
+                <StatusBadge tone={STATUS_TONE[user.status] ?? 'idle'} label={user.status} />
               </TableCell>
               <TableCell>
                 {user.lastLogin ? (
@@ -189,7 +204,14 @@ export function UserTable({
                     <Button
                       variant="outline"
                       size="sm"
-                      className="gap-1.5 border-red-200 text-red-600 hover:bg-red-50"
+                      // AMBER, not red. Disable and Delete sat side by side in
+                      // the same red, and they are not the same kind of act:
+                      // disabling is reversible with one click, deleting is not.
+                      // Two identical-looking buttons an inch apart, one of them
+                      // irreversible, is how the wrong one gets pressed. The
+                      // design system already assigns amber to "recoverable, but
+                      // not routine".
+                      className="gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50"
                       onClick={() => onAction({ type: 'disable', userId: user.id, username: user.username })}
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

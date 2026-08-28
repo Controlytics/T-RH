@@ -4,6 +4,7 @@ import useSWR from 'swr';
 import { Badge } from '../ui/badge';
 import { useBranding } from '@/hooks/use-branding';
 import { getPhotoUrl } from '../../lib/url-utils';
+import { Button } from '@/components/ui/button';
 
 interface HeaderProps {
   user: {
@@ -91,20 +92,18 @@ export function Header({ user, onLogout, onMenuToggle, onCollapseToggle, collaps
           navigation toggles — and the identity the sidebar surrenders when it
           collapses to a rail. */}
       <div className="flex min-w-0 items-center gap-2">
-        <button
+        <Button variant="ghost" size="icon" className="md:hidden"
           onClick={onMenuToggle}
-          className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-control)] text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-primary,#2a78d6)] md:hidden"
           aria-label="Open navigation menu"
         >
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M4 6h16M4 12h16M4 18h16" />
           </svg>
-        </button>
+        </Button>
 
         {onCollapseToggle && (
-          <button
+          <Button variant="ghost" size="icon" className="hidden md:flex"
             onClick={onCollapseToggle}
-            className="hidden h-10 w-10 items-center justify-center rounded-[var(--radius-control)] text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-primary,#2a78d6)] md:flex"
             aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             aria-pressed={collapsed}
             title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
@@ -113,7 +112,7 @@ export function Header({ user, onLogout, onMenuToggle, onCollapseToggle, collaps
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M3.75 5.25h16.5v13.5H3.75z" />
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M9.75 5.25v13.5" />
             </svg>
-          </button>
+          </Button>
         )}
 
         {/* The application's name, shown here only once the sidebar has stopped
@@ -132,9 +131,8 @@ export function Header({ user, onLogout, onMenuToggle, onCollapseToggle, collaps
         {user && (
           <>
             {/* Notifications - Show for all users */}
-            <button
+            <Button variant="ghost" size="icon"
               onClick={() => navigate('/notifications')}
-              className="relative p-2 rounded-[var(--radius-control)] text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
               title={unreadCount > 0 ? `${unreadCount} unread notification(s)` : 'Notifications'}
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -146,7 +144,7 @@ export function Header({ user, onLogout, onMenuToggle, onCollapseToggle, collaps
                   {unreadCount > 99 ? '99+' : unreadCount}
                 </span>
               )}
-            </button>
+            </Button>
 
             {/* Divider */}
             <div className="h-8 w-px bg-slate-200" />
@@ -273,18 +271,17 @@ export function Header({ user, onLogout, onMenuToggle, onCollapseToggle, collaps
 
                     {/* Logout */}
                     <div className="border-t border-slate-100 py-2">
-                      <button
+                      <Button variant="ghost" className="w-full"
                         onClick={() => {
                           setShowMenu(false);
                           onLogout();
                         }}
-                        className="flex items-center gap-3 w-full px-5 py-3 text-sm text-red-600 hover:bg-red-50 transition-colors"
                       >
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                         </svg>
                         <span>Logout</span>
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 </>

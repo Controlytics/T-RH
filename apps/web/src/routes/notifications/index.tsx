@@ -315,9 +315,9 @@ export function NotificationsPage() {
               </svg>
             </div>
             <span className="text-sm font-semibold text-slate-700">{selectedIds.size} selected</span>
-            <button onClick={() => setSelectedIds(new Set())} className="text-xs text-slate-500 hover:text-slate-700 underline">
+            <Button variant="link" size="sm" onClick={() => setSelectedIds(new Set())}>
               Clear Selection
-            </button>
+            </Button>
           </div>
           <div className="flex items-center gap-2">
             {can('notifications.mark') && (
@@ -437,11 +437,11 @@ export function NotificationsPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
                 {period === 'today' ? 'Today' : period === 'week' ? 'Last 7 Days' : period === 'month' ? 'This Month' : period === 'quarter' ? 'Last 90 Days' : 'This Year'}
-                <button onClick={() => { setPeriod('all'); setPage(1); }} className="hover:text-indigo-900">
+                <Button variant="ghost" onClick={() => { setPeriod('all'); setPage(1); }}>
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
-                </button>
+                </Button>
               </span>
             )}
             {readFilter && (
@@ -450,11 +450,11 @@ export function NotificationsPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
                 {readFilter === 'false' ? 'Unread' : 'Read'}
-                <button onClick={() => { setReadFilter(''); setPage(1); }} className="hover:text-amber-900">
+                <Button variant="ghost" onClick={() => { setReadFilter(''); setPage(1); }}>
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
-                </button>
+                </Button>
               </span>
             )}
           </div>

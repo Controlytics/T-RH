@@ -8,6 +8,7 @@ import { useToast } from '@/hooks/use-toast';
 import { api } from '@/lib/api-client';
 import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
 import { Pagination } from '@/components/ui/pagination';
+import { Button } from '@/components/ui/button';
 
 const TYPE_CFG: Record<string, { label: string; bg: string; text: string; border: string; icon: string }> = {
   CREATE_USER: { label: 'Create User', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', icon: '+' },
@@ -287,8 +288,7 @@ export function AdminRequestsPage() {
               <>
                 <span className="text-slate-400 font-medium text-[14px]">No matching requests</span>
                 <span className="text-[13px] text-slate-300">Try a different filter or search term</span>
-                <button onClick={() => { setStatusFilter(''); setSearch(''); }}
-                  className="mt-1 text-[12px] font-semibold text-cyan-600 hover:text-cyan-700">Clear filters</button>
+                <Button variant="ghost" size="sm" className="mt-1" onClick={() => { setStatusFilter(''); setSearch(''); }}>Clear filters</Button>
               </>
             )}
           </div>
@@ -406,11 +406,11 @@ export function AdminRequestsPage() {
                     <p className="text-[11px] text-slate-400">{timeAgo(selectedRequest.requestedAt)}</p>
                   </div>
                 </div>
-                <button onClick={() => setSelectedRequest(null)} aria-label="Close request details" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
+                <Button variant="ghost" size="icon" onClick={() => setSelectedRequest(null)} aria-label="Close request details">
                   <svg aria-hidden="true" className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
-                </button>
+                </Button>
               </div>
               {/* Status badge */}
               <span className={`inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full border font-bold ${STATUS_CFG[selectedRequest.status]?.bg ?? ''} ${STATUS_CFG[selectedRequest.status]?.text ?? ''} ${STATUS_CFG[selectedRequest.status]?.border ?? ''}`}>
@@ -505,16 +505,14 @@ export function AdminRequestsPage() {
             {(canApprove || canReject) && selectedRequest.status === 'PENDING' && (
               <div className="px-6 py-4 border-t border-slate-100 bg-white flex items-center gap-3">
                 {canReject && (
-                  <button onClick={() => handleProcess('reject')} disabled={processing}
-                    className="flex-1 px-4 py-2.5 rounded-xl text-[13px] font-semibold text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50 shadow-[var(--elev-1)]">
+                  <Button variant="destructive" className="flex-1" onClick={() => handleProcess('reject')} disabled={processing}>
                     {processing ? 'Processing...' : 'Reject'}
-                  </button>
+                  </Button>
                 )}
                 {canApprove && (
-                  <button onClick={() => handleProcess('approve')} disabled={processing}
-                    className="flex-1 px-4 py-2.5 rounded-xl text-[13px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors disabled:opacity-50 shadow-[var(--elev-1)]">
+                  <Button variant="success" className="flex-1" onClick={() => handleProcess('approve')} disabled={processing}>
                     {processing ? 'Processing...' : 'Approve'}
-                  </button>
+                  </Button>
                 )}
               </div>
             )}
@@ -570,15 +568,14 @@ export function AdminRequestsPage() {
                     <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Username</label>
                     <div className="mt-1 flex items-center gap-2">
                       <code className="flex-1 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-[13px] text-slate-800 font-mono">{approvalResult.username}</code>
-                      <button
+                      <Button variant="secondary" size="sm"
                         onClick={() => copyToClipboard(approvalResult.username!, 'username')}
                         // Both copy buttons render the bare word "Copy" — without
                         // a label they are indistinguishable out of visual context.
                         aria-label="Copy username"
-                        className="px-3 py-2.5 rounded-lg text-[12px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
                       >
                         {copied === 'username' ? 'Copied' : 'Copy'}
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 )}
@@ -587,24 +584,22 @@ export function AdminRequestsPage() {
                     <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Temporary Password</label>
                     <div className="mt-1 flex items-center gap-2">
                       <code className="flex-1 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-[13px] text-slate-800 font-mono">{approvalResult.temporaryPassword}</code>
-                      <button
+                      <Button variant="secondary" size="sm"
                         onClick={() => copyToClipboard(approvalResult.temporaryPassword!, 'password')}
                         aria-label="Copy temporary password"
-                        className="px-3 py-2.5 rounded-lg text-[12px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
                       >
                         {copied === 'password' ? 'Copied' : 'Copy'}
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 )}
               </div>
               <div className="px-6 py-4 border-t border-slate-100 flex justify-end">
-                <button
+                <Button 
                   onClick={() => { setApprovalResult(null); setCopied(''); }}
-                  className="px-5 py-2 rounded-lg text-[13px] font-semibold text-white bg-cyan-600 hover:bg-cyan-700 transition-colors"
                 >
                   Done
-                </button>
+                </Button>
               </div>
             </div>
           </div>

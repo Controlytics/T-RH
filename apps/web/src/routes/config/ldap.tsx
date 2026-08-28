@@ -5,6 +5,7 @@ import { api } from '../../lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
+import { Button } from '@/components/ui/button';
 
 interface RoleMappingRow {
   ldapGroup: string;
@@ -251,15 +252,14 @@ export default function LdapConfigPage() {
 
           {/* Test Connection */}
           <div className="flex items-center gap-4 pt-2">
-            <button onClick={handleTest} disabled={testing || !config.serverUrl || !canWrite}
-              title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl text-sm font-medium hover:from-green-600 hover:to-emerald-700 disabled:opacity-50 shadow-[var(--elev-1)]">
+            <Button variant="success" onClick={handleTest} disabled={testing || !config.serverUrl || !canWrite}
+              title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}>
               {testing ? (
                 <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>Testing...</>
               ) : (
                 <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>Test Connection</>
               )}
-            </button>
+            </Button>
             {testResult && (
               <span className={`text-sm font-medium ${testResult.success ? 'text-emerald-600' : 'text-red-600'}`}>
                 {testResult.message}
@@ -392,9 +392,9 @@ export default function LdapConfigPage() {
               <div key={i} className="flex items-center gap-3">
                 <input value={group} onChange={e => updateRequiredGroup(i, e.target.value)} placeholder="CN=DigiLog-Users,OU=Groups,DC=company,DC=com"
                   className="ctl flex-1 font-mono" />
-                <button onClick={() => removeRequiredGroup(i)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
+                <Button variant="ghost" size="icon" onClick={() => removeRequiredGroup(i)}>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                </button>
+                </Button>
               </div>
             ))
           )}
@@ -443,9 +443,9 @@ export default function LdapConfigPage() {
                   className="ctl w-48">
                   {rolesData?.map(r => <option key={r.name} value={r.name}>{r.displayName}</option>)}
                 </select>
-                <button onClick={() => removeRoleMapping(i)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
+                <Button variant="ghost" size="icon" onClick={() => removeRoleMapping(i)}>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                </button>
+                </Button>
               </div>
             ))
           )}
@@ -462,13 +462,12 @@ export default function LdapConfigPage() {
       {/* Save Button */}
       <div className="flex justify-end gap-3 pb-6">
         <Link to="/config">
-          <button className="px-5 py-2.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50">Cancel</button>
+          <Button variant="ghost">Cancel</Button>
         </Link>
-        <button onClick={handleSave} disabled={saving || !canWrite}
-          title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}
-          className="inline-flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl text-sm font-medium hover:from-green-600 hover:to-emerald-700 disabled:opacity-50 shadow-[var(--elev-2)]">
+        <Button variant="success" onClick={handleSave} disabled={saving || !canWrite}
+          title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}>
           {saving ? 'Saving...' : 'Save Configuration'}
-        </button>
+        </Button>
       </div>
 
       <ReauthDialog

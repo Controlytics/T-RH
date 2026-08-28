@@ -455,12 +455,11 @@ export function ActionReauthPage() {
                         >
                           All
                         </button>
-                        <button
+                        <Button variant="secondary" size="sm"
                           onClick={() => clearRole(role.name)}
-                          className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 hover:bg-slate-200 font-medium transition-colors"
                         >
                           None
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   </th>

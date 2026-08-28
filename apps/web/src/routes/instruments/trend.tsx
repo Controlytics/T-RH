@@ -38,6 +38,7 @@ import { TrendHeader } from './trend-header';
 import { SampledNote } from './sampled-note';
 import { ChartSummaryStrip } from './chart-summary-strip';
 import { usePanels } from '@/hooks/use-panels';
+import { StatusBadge } from '@/components/ui/status-badge';
 
 /**
  * Series identity, fixed. Temperature is palette slot 1 and humidity slot 2
@@ -190,7 +191,7 @@ function ChartPanel({
       <>
         <p className="mb-1 flex flex-wrap items-center gap-2 text-xs text-amber-700">
           <span>These readings could not be refreshed. Showing the last ones that loaded.</span>
-          <button type="button" onClick={onRetry} className="font-semibold underline underline-offset-2">Retry</button>
+          <Button variant="link" type="button" onClick={onRetry}>Retry</Button>
         </p>
         {children}
       </>
@@ -239,7 +240,7 @@ function ExtraKeyPicker({
       {extraKeys.map((k) => (
         <span key={k} className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
           {k}
-          <button type="button" onClick={() => onRemove(k)} aria-label={`Remove ${k}`} className="text-slate-400 hover:text-slate-700">×</button>
+          <Button variant="ghost" type="button" onClick={() => onRemove(k)} aria-label={`Remove ${k}`}>×</Button>
         </span>
       ))}
       {offerable.length > 0 && (
@@ -320,18 +321,14 @@ export function AlarmsWidget({
                 <TableRow key={a.id}>
                   <TableCell>{alarmTypeText(a)}</TableCell>
                   <TableCell>
-                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${severityTone(a.severity)}`}>
-                      {a.severity}
-                    </span>
+                    <StatusBadge tone={severityTone(a.severity)} label={a.severity} />
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-sm">{stamp(a.raisedAt)}</TableCell>
                   <TableCell className="tabular-nums">{triggeredText(a)}</TableCell>
                   <TableCell className="tabular-nums">{limitText(a)}</TableCell>
                   <TableCell className="whitespace-nowrap text-sm">{a.clearedAt ? stamp(a.clearedAt) : '—'}{' '}{a.clearedAt && <span className="tabular-nums text-slate-500">({clearedText(a)})</span>}</TableCell>
                   <TableCell>
-                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${severityTone(a.severity)}`}>
-                      {statusText(a, statusTexts)}
-                    </span>
+                    <StatusBadge tone={severityTone(a.severity)} label={statusText(a, statusTexts)} />
                   </TableCell>
                 </TableRow>
               ))}

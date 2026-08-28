@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Pagination } from '@/components/ui/pagination';
 import { useDatetimeFormat } from '../../../hooks/use-datetime-format';
 import { usePaginationConfig } from '../../../hooks/use-pagination-config';
+import { Button } from '@/components/ui/button';
 
 interface LogEntry {
   id: string;
@@ -183,12 +184,11 @@ export function NotificationLogsPage() {
                   <td className="px-4 py-3 text-slate-500 text-xs">{log.triggeredBy ?? '-'}</td>
                   <td className="px-4 py-3 text-slate-500 text-xs">{formatDateTime(log.createdAt)}</td>
                   <td className="px-4 py-3">
-                    <button
+                    <Button variant="ghost" size="sm"
                       onClick={(e) => { e.stopPropagation(); handleDelete(log.id); }}
-                      className="text-red-500 hover:text-red-700 text-xs"
                     >
                       Delete
-                    </button>
+                    </Button>
                   </td>
                 </tr>
               ))}

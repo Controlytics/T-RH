@@ -116,13 +116,12 @@ export function InstrumentPanel({ locationId, locationPath, canEdit, onChanged }
                 <p className="truncate text-xs text-slate-500">{i.name}</p>
               </div>
               {canEdit && (
-                <button
+                <Button variant="ghost" size="sm" className="shrink-0"
                   type="button"
                   onClick={() => unlink(i)}
-                  className="shrink-0 text-xs font-semibold text-red-600 hover:underline"
                 >
                   Unlink
-                </button>
+                </Button>
               )}
             </div>
           ))}

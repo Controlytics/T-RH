@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useSuperAdminLock } from '@/hooks/use-super-admin-lock';
+import { Button } from '@/components/ui/button';
 
 /**
  * Super Admin API kill-switch UI.
@@ -75,19 +76,17 @@ export function SuperAdminLockdownScreen() {
             />
           </div>
           {error && <div className="rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-sm text-rose-700">{error}</div>}
-          <button
+          <Button variant="success" className="w-full"
             onClick={enable}
             disabled={busy || !password.trim()}
-            className="w-full py-2.5 rounded-xl text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {busy ? 'Enabling…' : 'Enable Super Admin APIs'}
-          </button>
-          <button
+          </Button>
+          <Button variant="ghost" className="w-full"
             onClick={() => logout('manual')}
-            className="w-full py-2.5 rounded-xl text-sm font-semibold text-slate-600 border border-slate-300 hover:bg-slate-100"
           >
             Log out
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -176,12 +175,11 @@ export function SuperAdminApiAccessCard() {
             >
               {busy ? 'Saving…' : target ? 'Enable' : 'Disable'}
             </button>
-            <button
+            <Button variant="ghost"
               onClick={() => { setConfirming(false); setPassword(''); setError(''); }}
-              className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 border border-slate-300 hover:bg-slate-100"
             >
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       )}

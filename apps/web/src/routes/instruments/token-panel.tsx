@@ -145,16 +145,15 @@ export function TokenPanel({
         )}
 
         {!editing && canEdit && tokenRevealable && (
-          <button
+          <Button variant="outline"
             type="button"
             disabled={busy}
             onClick={() => (shown ? onHide() : void run(onReveal))}
             aria-label={shown ? 'Hide token' : 'Show token'}
             title={shown ? 'Hide token' : 'Show token — asks for your password and is recorded in the audit trail'}
-            className="rounded-lg border border-slate-200 bg-white p-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
           >
             <EyeIcon open={shown} />
-          </button>
+          </Button>
         )}
 
         {!editing && shown && (

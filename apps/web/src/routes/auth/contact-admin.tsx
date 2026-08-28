@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useBranding } from '@/hooks/use-branding';
 import { apiUrl } from '@/lib/url-utils';
+import { Button } from '@/components/ui/button';
 
 const REQUEST_TYPES = [
   { value: 'CREATE_USER', label: 'Create User Account' },
@@ -309,14 +310,13 @@ export function ContactAdminPage() {
                   placeholder="EMP-001"
                   className="ctl flex-1"
                 />
-                <button
+                <Button 
                   type="button"
                   onClick={performRequesterLookup}
                   disabled={!requesterEmployeeId.trim() || requesterLookingUp}
-                  className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 transition-colors"
                 >
                   {requesterLookingUp ? 'Verifying...' : 'Verify'}
-                </button>
+                </Button>
               </div>
               {requesterLookupError && (
                 <p className="mt-2 text-sm text-red-600">{requesterLookupError}</p>
@@ -423,14 +423,13 @@ export function ContactAdminPage() {
                     placeholder="Enter employee ID"
                     className="ctl flex-1"
                   />
-                  <button
+                  <Button 
                     type="button"
                     onClick={performLookup}
                     disabled={!username.trim() || lookingUp}
-                    className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 transition-colors"
                   >
                     {lookingUp ? 'Looking up...' : 'Lookup'}
-                  </button>
+                  </Button>
                 </div>
                 {lookupError && (
                   <p className="mt-2 text-sm text-red-600">{lookupError}</p>
@@ -540,13 +539,12 @@ export function ContactAdminPage() {
           <a href="/login" className="flex-1 px-4 py-2.5 border border-slate-300 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors text-center">
             Cancel
           </a>
-          <button
+          <Button className="flex-1"
             onClick={handleSubmit}
             disabled={submitting}
-            className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium text-white bg-cyan-600 hover:bg-cyan-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {submitting ? 'Submitting...' : 'Submit Request'}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

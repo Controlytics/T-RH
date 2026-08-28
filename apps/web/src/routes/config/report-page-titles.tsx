@@ -4,6 +4,7 @@ import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { useBranding } from '@/hooks/use-branding';
+import { Button } from '@/components/ui/button';
 
 type Draft = { companyName?: string; appName?: string };
 
@@ -50,11 +51,10 @@ export function ReportPageTitlesPage() {
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <p className="text-sm text-slate-500 max-w-2xl">Company &amp; application name shown in the header and footer of every report. Leave blank to use the values from <span className="font-medium text-slate-600">Branding</span>; the logo always comes from Branding.</p>
-        <button onClick={save} disabled={!canWrite || !dirty || saving}
-          title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}
-          className="shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-teal-500 to-cyan-600 shadow-[var(--elev-1)] disabled:opacity-40 disabled:cursor-not-allowed">
+        <Button className="shrink-0" onClick={save} disabled={!canWrite || !dirty || saving}
+          title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}>
           {saving ? 'Saving…' : 'Save Changes'}
-        </button>
+        </Button>
       </div>
 
       <div className="bg-white border border-slate-200 rounded-[var(--radius-card)] shadow-[var(--elev-1)] divide-y divide-slate-100">

@@ -12,13 +12,22 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { getPhotoUrl } from '../../lib/url-utils';
 
+/**
+ * Role chips: a tint and a hairline, matching components/layout/header.tsx
+ * exactly. The same role must not be a saturated gradient here and a quiet chip
+ * in the header two inches above it.
+ *
+ * (The Users TABLE is different on purpose: its role colours come from the
+ * database, where an operator picks them per role in Config -> Roles. Those are
+ * a configured choice and are left alone.)
+ */
 const roleColors: Record<string, string> = {
-  SUPER_ADMIN: 'bg-gradient-to-r from-red-500 to-pink-500 text-white border-0',
-  ADMIN: 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white border-0',
-  SUPERVISOR: 'bg-gradient-to-r from-amber-500 to-orange-500 text-white border-0',
-  MAINTENANCE: 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white border-0',
-  OPERATOR: 'bg-gradient-to-r from-slate-500 to-gray-500 text-white border-0',
-  VIEWER: 'bg-gradient-to-r from-gray-400 to-slate-400 text-white border-0',
+  SUPER_ADMIN: 'bg-rose-50 text-rose-700 border border-rose-200',
+  ADMIN: 'bg-sky-50 text-sky-700 border border-sky-200',
+  SUPERVISOR: 'bg-amber-50 text-amber-800 border border-amber-200',
+  MAINTENANCE: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
+  OPERATOR: 'bg-slate-100 text-slate-700 border border-slate-200',
+  VIEWER: 'bg-slate-50 text-slate-600 border border-slate-200',
 };
 
 const roleLabels: Record<string, string> = {

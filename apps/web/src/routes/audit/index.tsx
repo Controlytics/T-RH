@@ -453,9 +453,9 @@ export function AuditTrailPage() {
               </svg>
             </div>
             <span className="text-sm font-semibold text-slate-700">{selectedCount} audit record{selectedCount > 1 ? 's' : ''} selected</span>
-            <button onClick={() => setSelectedIds(new Set())} className="text-xs text-slate-500 hover:text-slate-700 underline">
+            <Button variant="link" size="sm" onClick={() => setSelectedIds(new Set())}>
               Clear Selection
-            </button>
+            </Button>
           </div>
           <div className="flex items-center gap-2">
             {canRedact && (

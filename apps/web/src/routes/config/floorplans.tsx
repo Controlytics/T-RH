@@ -686,13 +686,12 @@ export function FloorplansConfigPage() {
                         <option value="EXIT">Exit</option>
                         <option value="PASSAGE">Passage</option>
                       </select>
-                      <button
+                      <Button variant="ghost"
                         type="button"
                         onClick={() => setForm((f) => ({ ...f, doors: f.doors.filter((_, ix) => ix !== i) }))}
-                        className="text-red-600 hover:underline"
                       >
                         Remove
-                      </button>
+                      </Button>
                     </li>
                   ))}
                 </ul>

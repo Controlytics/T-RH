@@ -166,14 +166,13 @@ export function AuditFilters({
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                   </svg>
                   Search: {search}
-                  <button
+                  <Button variant="ghost" className="ml-1"
                     onClick={() => setSearch('')}
-                    className="ml-1 hover:text-indigo-900 transition-colors"
                   >
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
-                  </button>
+                  </Button>
                 </span>
               )}
               {fromDateTime && (
@@ -182,14 +181,13 @@ export function AuditFilters({
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
                   From: {formatDateTimeDisplay(fromDateTime)}
-                  <button
+                  <Button variant="ghost" className="ml-1"
                     onClick={() => setFromDateTime('')}
-                    className="ml-1 hover:text-slate-900 transition-colors"
                   >
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
-                  </button>
+                  </Button>
                 </span>
               )}
               {toDateTime && (
@@ -198,14 +196,13 @@ export function AuditFilters({
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
                   To: {formatDateTimeDisplay(toDateTime)}
-                  <button
+                  <Button variant="ghost" className="ml-1"
                     onClick={() => setToDateTime('')}
-                    className="ml-1 hover:text-slate-900 transition-colors"
                   >
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
-                  </button>
+                  </Button>
                 </span>
               )}
             </div>

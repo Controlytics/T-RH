@@ -267,33 +267,30 @@ export function InstrumentAttributesConfigPage() {
                 />
                 {/* Order is the order the fields appear on the New Instrument
                     form, so it is worth being able to change without retyping. */}
-                <button
+                <Button variant="ghost" size="icon"
                   type="button" aria-label={`Move ${row.key || `key ${i + 1}`} up`}
                   disabled={i === 0} onClick={() => move(row.id, -1)}
-                  className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-50 disabled:opacity-30"
                 >
                   <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
                   </svg>
-                </button>
-                <button
+                </Button>
+                <Button variant="ghost" size="icon"
                   type="button" aria-label={`Move ${row.key || `key ${i + 1}`} down`}
                   disabled={i === rows.length - 1} onClick={() => move(row.id, 1)}
-                  className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-50 disabled:opacity-30"
                 >
                   <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
-                </button>
-                <button
+                </Button>
+                <Button variant="ghost" size="icon"
                   type="button" aria-label={`Delete ${row.key || `key ${i + 1}`}`}
                   onClick={() => remove(row.id)}
-                  className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:border-red-200 hover:bg-red-50 hover:text-red-600"
                 >
                   <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                   </svg>
-                </button>
+                </Button>
               </div>
               {dupIds.has(row.id) && (
                 <p className="pl-8 text-xs text-red-600">

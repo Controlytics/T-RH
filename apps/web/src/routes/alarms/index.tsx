@@ -6,6 +6,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { Button } from '@/components/ui/button';
 import { AcknowledgeDialog } from './acknowledge-dialog';
+import { StatusBadge } from '@/components/ui/status-badge';
 import {
   filterByTab, needsAcknowledgement, severityTone, triggeredText,
   instrumentLabel, statusText, alarmTypeText, limitText, clearedText,
@@ -175,9 +176,7 @@ export default function AlarmsPage() {
                 <td className="px-4 py-3 font-medium text-slate-900">{instrumentLabel(a)}</td>
                 <td className="px-4 py-3 text-slate-700">{alarmTypeText(a)}</td>
                 <td className="px-4 py-3">
-                  <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${severityTone(a.severity)}`}>
-                    {a.severity}
-                  </span>
+                  <StatusBadge tone={severityTone(a.severity)} label={a.severity} />
                 </td>
                 <td className="px-4 py-3 whitespace-nowrap text-slate-600">{formatDateTime(a.raisedAt)}</td>
                 <td className="px-4 py-3 tabular-nums text-slate-900">{triggeredText(a)}</td>
@@ -187,9 +186,7 @@ export default function AlarmsPage() {
                 </td>
                 <td className="px-4 py-3 tabular-nums text-slate-600">{clearedText(a)}</td>
                 <td className="px-4 py-3">
-                  <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${severityTone(a.severity)}`}>
-                    {statusText(a, statusTexts)}
-                  </span>
+                  <StatusBadge tone={severityTone(a.severity)} label={statusText(a, statusTexts)} />
                 </td>
                 <td className="px-4 py-3">
                   {a.acknowledgedAt ? (

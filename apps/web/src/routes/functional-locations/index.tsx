@@ -127,13 +127,12 @@ export default function FunctionalLocationsPage() {
           <p className="text-sm text-slate-600">
             Nothing matches “{query.trim()}”.
           </p>
-          <button
+          <Button variant="ghost" className="mt-2"
             type="button"
             onClick={() => setQuery('')}
-            className="mt-2 text-sm font-semibold text-blue-600 hover:underline"
           >
             Clear search
-          </button>
+          </Button>
         </Card>
       )}
 

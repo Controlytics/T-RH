@@ -247,10 +247,9 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
       setEnabledItems(flattenUnits(units)); setSidebarDirty(true);
     };
     const arrowBtn = (onClick: () => void, disabled: boolean, dir: 'up' | 'down') => (
-      <button type="button" onClick={onClick} disabled={disabled}
-        className="w-7 h-7 rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center">
+      <Button variant="outline" className="w-7" type="button" onClick={onClick} disabled={disabled}>
         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d={dir === 'up' ? 'M5 15l7-7 7 7' : 'M19 9l-7 7-7-7'} /></svg>
-      </button>
+      </Button>
     );
     const renderOrderPanel = () => {
       const units = buildOrderUnits(enabledItems);

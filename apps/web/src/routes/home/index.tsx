@@ -4,6 +4,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { MODULE_FLOWS, CATEGORY_ORDER } from './module-flows';
 import { FlowChart } from './FlowChart';
 import { viewerCanSeeModule, type RoleAccess, type ViewerCtx } from './viewer-access';
+import { Button } from '@/components/ui/button';
 
 function slug(id: string) { return `mod-${id}`; }
 
@@ -94,12 +95,11 @@ export default function HomePage() {
               </button>
             </div>
             {/* Manual refresh of the live role matrix. */}
-            <button
+            <Button variant="outline" size="sm"
               type="button"
               onClick={handleRefresh}
               disabled={refreshing}
               title="Reload roles from the latest configuration"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 shadow-[var(--elev-1)] transition-colors hover:bg-slate-50 disabled:opacity-60"
             >
               <svg
                 className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`}
@@ -108,7 +108,7 @@ export default function HomePage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
               {refreshing ? 'Refreshing…' : 'Refresh'}
-            </button>
+            </Button>
           </div>
         </div>
         <p className="mt-2 text-slate-600">

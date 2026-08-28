@@ -24,6 +24,7 @@ import { useState, useEffect } from 'react';
 // lifecycle callbacks. The .d.ts ships with the plugin.
 // eslint-disable-next-line import/no-unresolved
 import { useRegisterSW } from 'virtual:pwa-register/react';
+import { Button } from '@/components/ui/button';
 
 export function PwaReloadPrompt() {
   const {
@@ -103,20 +104,18 @@ export function PwaReloadPrompt() {
             Refresh to load the latest UI and pick up server-contract changes.
           </p>
           <div className="flex items-center gap-2 mt-3">
-            <button
+            <Button size="sm"
               type="button"
               onClick={() => { void updateServiceWorker(true); }}
-              className="px-3 py-1.5 bg-cyan-600 text-white text-xs font-semibold rounded-lg hover:bg-cyan-700 transition-colors"
             >
               Refresh now
-            </button>
-            <button
+            </Button>
+            <Button variant="ghost" size="sm"
               type="button"
               onClick={() => { setDismissedAt(Date.now()); setNeedRefresh(false); }}
-              className="px-3 py-1.5 text-slate-500 text-xs font-medium hover:text-slate-700"
             >
               Later
-            </button>
+            </Button>
           </div>
         </div>
       </div>

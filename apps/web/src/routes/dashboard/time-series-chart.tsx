@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { formatDecimals } from '@digilog/shared';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { pixelToTime, normalizeSelection } from './chart-zoom';
+import { Button } from '@/components/ui/button';
 
 /**
  * Hand-rolled SVG line chart. No dependency — this repo has deliberately removed
@@ -322,22 +323,20 @@ export function TimeSeriesChart({ series, envelope, unit, min, max, spanMs, titl
           {interactive && (
             <>
               {onResetZoom && (
-                <button
+                <Button variant="ghost" size="sm"
                   type="button"
                   onClick={onResetZoom}
-                  className="rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
                 >
                   Reset zoom
-                </button>
+                </Button>
               )}
-              <button
+              <Button variant="ghost" size="sm"
                 type="button"
                 onClick={() => setFullscreen((v) => !v)}
                 aria-pressed={fullscreen}
-                className="rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
               >
                 {fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-              </button>
+              </Button>
             </>
           )}
         </div>

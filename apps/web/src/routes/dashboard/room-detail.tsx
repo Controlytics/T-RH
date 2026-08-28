@@ -12,6 +12,7 @@ import {
   type HistoryWindow,
 } from './use-telemetry';
 import { TimeSeriesChart, type ChartSeries } from './time-series-chart';
+import { Button } from '@/components/ui/button';
 
 /**
  * One room: which instruments are in it, what they read now, and what they have
@@ -119,12 +120,11 @@ export function RoomDetail({ floorplanId, roomId, onBack }: Props) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <button
+          <Button variant="ghost" className="mb-1"
             onClick={onBack}
-            className="mb-1 text-sm font-medium text-slate-500 hover:text-slate-800"
           >
             ← Back to floor
-          </button>
+          </Button>
           <h3 className="text-lg font-semibold text-slate-800">
             {room?.code ?? 'Room'}
             {room?.label && <span className="ml-2 font-normal text-slate-500">{room.label}</span>}

@@ -3,6 +3,7 @@ import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { EXPORT_SURFACES, type ExportFormat } from '@/lib/export-surfaces';
+import { Button } from '@/components/ui/button';
 
 type Matrix = Record<string, Record<string, string>>; // role -> surfaceKey -> format
 
@@ -63,10 +64,9 @@ export function ExportOptionsPage() {
           Choose which export formats each role can use on each page. Unset cells default to
           <span className="font-semibold text-emerald-700"> Both</span>. SUPER_ADMIN always has both.
         </p>
-        <button onClick={save} disabled={saving}
-          className="shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-teal-500 to-cyan-600 shadow-[var(--elev-1)] disabled:opacity-40 disabled:cursor-not-allowed">
+        <Button className="shrink-0" onClick={save} disabled={saving}>
           {saving ? 'Saving…' : 'Save Changes'}
-        </button>
+        </Button>
       </div>
 
       {roles.length === 0 ? (

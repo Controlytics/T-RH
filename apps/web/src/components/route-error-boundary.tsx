@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from 'react';
+import { Button } from '@/components/ui/button';
 
 interface Props { children: ReactNode; }
 interface State { hasError: boolean; error?: Error; }
@@ -22,10 +23,9 @@ export class RouteErrorBoundary extends Component<Props, State> {
             </div>
             <h2 className="text-[19px] font-semibold leading-tight text-slate-800">Something went wrong</h2>
             <p className="text-sm text-slate-500">{this.state.error?.message || 'An unexpected error occurred'}</p>
-            <button onClick={() => { this.setState({ hasError: false }); window.location.reload(); }}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-500">
+            <Button  onClick={() => { this.setState({ hasError: false }); window.location.reload(); }}>
               Reload Page
-            </button>
+            </Button>
           </div>
         </div>
       );

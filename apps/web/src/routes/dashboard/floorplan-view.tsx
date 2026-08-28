@@ -19,6 +19,7 @@ import {
 } from './use-telemetry';
 import { RoomDetail } from './room-detail';
 import { wallSegments, doorPlacements, tileLayout } from './room-geometry';
+import { Button } from '@/components/ui/button';
 
 /**
  * The floor, DRAWN.
@@ -223,14 +224,13 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
         <h3 className="text-sm font-bold tracking-wide text-white">{plan?.name ?? 'Floor plan'}</h3>
         <div className="flex flex-wrap items-center gap-1">
           {plans.filter((p) => p.id !== plan?.id).map((p) => (
-            <button
+            <Button variant="ghost" size="sm"
               key={p.id}
               type="button"
               onClick={() => setPlanId(p.id)}
-              className="rounded px-2 py-1 text-xs font-semibold text-white/80 hover:bg-white/15 hover:text-white"
             >
               {p.name}
-            </button>
+            </Button>
           ))}
           <span className="ml-2 text-[11px] text-white/70">
             updates every {Math.round(refreshMs / 1000)}s

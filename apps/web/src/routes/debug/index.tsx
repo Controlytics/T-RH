@@ -614,16 +614,15 @@ export function DebugTracesPage() {
                   <span className="text-xs font-semibold text-slate-600 w-12 text-right">
                     {err.count.toLocaleString()}
                   </span>
-                  <button
+                  <Button variant="ghost" size="sm"
                     onClick={() => {
                       setErrorCodeFilter(err.code);
                       setPage(1);
                     }}
-                    className="text-xs text-cyan-600 hover:text-cyan-700 hover:underline flex-shrink-0"
                     title={`Filter by ${err.code}`}
                   >
                     Filter
-                  </button>
+                  </Button>
                 </div>
               );
             })}

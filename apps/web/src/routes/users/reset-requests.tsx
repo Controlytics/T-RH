@@ -7,7 +7,7 @@ import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { StatusBadge } from '@/components/ui/status-badge';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { type PasswordPolicyConfig } from '@digilog/shared';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
@@ -144,16 +144,23 @@ export function ResetRequestsPage() {
     }
   };
 
+  /**
+   * The state of a password-reset request, in the product's five tones.
+   *
+   * Was three saturated gradients in white type — the same treatment an alarm
+   * would get, for a request sitting quietly in a queue. StatusBadge also pairs
+   * each with a dot, so the state is not carried by hue alone.
+   */
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'PENDING':
-        return <Badge className="bg-gradient-to-r from-amber-400 to-orange-400 text-white border-0 shadow-[var(--elev-1)]">Pending</Badge>;
+        return <StatusBadge tone="warn" label="Pending" />;
       case 'APPROVED':
-        return <Badge className="bg-gradient-to-r from-emerald-400 to-teal-400 text-white border-0 shadow-[var(--elev-1)]">Approved</Badge>;
+        return <StatusBadge tone="ok" label="Approved" />;
       case 'REJECTED':
-        return <Badge className="bg-gradient-to-r from-red-400 to-rose-400 text-white border-0 shadow-[var(--elev-1)]">Rejected</Badge>;
+        return <StatusBadge tone="danger" label="Rejected" />;
       default:
-        return <Badge variant="outline">{status}</Badge>;
+        return <StatusBadge tone="idle" label={status} />;
     }
   };
 
@@ -193,14 +200,13 @@ export function ResetRequestsPage() {
             </svg>
           </div>
           <p className="text-sm text-emerald-700 flex-1">{successMessage}</p>
-          <button
-            className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-100 transition-colors"
+          <Button variant="ghost" size="icon"
             onClick={() => setSuccessMessage('')}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
-          </button>
+          </Button>
         </div>
       )}
 

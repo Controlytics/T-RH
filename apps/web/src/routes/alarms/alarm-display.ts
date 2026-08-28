@@ -54,13 +54,28 @@ export function filterByTab(rows: AlarmRow[], tab: AlarmTab, unacknowledgedOnly 
   return rows.filter((a) => tabFor(a) === tab && (!unacknowledgedOnly || needsAcknowledgement(a)));
 }
 
-/** Tailwind classes per severity. CRITICAL must not be mistakable for MINOR at a glance. */
-export function severityTone(severity: string): string {
+/**
+ * Alarm severity as one of the product's five status tones.
+ *
+ * This used to return Tailwind classes directly, which meant alarm severity was
+ * painted from a palette only this file knew about — so the most important
+ * status in a monitoring application was the one status that did not look like
+ * the others. Returning a tone hands the rendering to `StatusBadge`, which also
+ * supplies the DOT: severity now carries colour, a shape and a word, instead of
+ * colour and a word.
+ *
+ * CRITICAL must not be mistakable for MINOR at a glance — that constraint is
+ * why the mapping is explicit rather than alphabetical, and it survives the
+ * change: danger and info are the furthest-apart pair in the tone set.
+ */
+export type SeverityTone = 'danger' | 'warn' | 'info' | 'idle';
+
+export function severityTone(severity: string): SeverityTone {
   switch (severity) {
-    case 'CRITICAL': return 'bg-red-100 text-red-800 border-red-300';
-    case 'MAJOR': return 'bg-amber-100 text-amber-900 border-amber-300';
-    case 'MINOR': return 'bg-sky-100 text-sky-800 border-sky-300';
-    default: return 'bg-slate-100 text-slate-700 border-slate-300';
+    case 'CRITICAL': return 'danger';
+    case 'MAJOR': return 'warn';
+    case 'MINOR': return 'info';
+    default: return 'idle';
   }
 }
 
