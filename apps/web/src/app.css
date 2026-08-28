@@ -252,3 +252,47 @@ table {
      travel says. */
   .band-marker { animation: none; }
 }
+
+/* ── Dashboard grid: the resize handle ──────────────────────────────────────
+ *
+ * react-grid-layout's own CSS gives the handle `opacity: 0` and reveals it only
+ * while the grid ITEM is hovered, and draws it as a 5×5px corner mark. On a card
+ * with `rounded-2xl` that mark lands on the rounded corner, over the page rather
+ * than over the card — so it was, in practice, invisible. The operator reported
+ * exactly that.
+ *
+ * Hover-to-reveal is also the wrong behaviour here: dragging is already behind an
+ * explicit Arrange mode, so once you are in that mode the handles should simply be
+ * visible. Nothing is hidden that could be dragged by accident, because outside
+ * edit mode there are no handles at all.
+ *
+ * Scoped to `.panel-grid--editing` so nothing here can affect a grid that is not
+ * in edit mode.
+ */
+.panel-grid--editing .react-grid-item > .react-resizable-handle {
+  opacity: 1;
+  /* Above the card, which is opaque and fills the grid item. */
+  z-index: 5;
+  width: 24px;
+  height: 24px;
+  /* Drop the library's tiny background mark; the ::after below replaces it. */
+  background-image: none;
+}
+
+/* Inset far enough to sit ON the card rather than on its rounded corner. */
+.panel-grid--editing .react-grid-item > .react-resizable-handle::after {
+  content: '';
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  width: 11px;
+  height: 11px;
+  border-right: 3px solid #0f172a;
+  border-bottom: 3px solid #0f172a;
+  border-bottom-right-radius: 4px;
+  opacity: 0.75;
+}
+
+.panel-grid--editing .react-grid-item > .react-resizable-handle:hover::after {
+  opacity: 1;
+}

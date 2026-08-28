@@ -70,9 +70,13 @@ export function PanelGrid({
         )}
       </div>
 
+      {/* `panel-grid--editing` is what app.css hangs the visible resize handle off.
+          The library's own handle is opacity:0 until the grid item is hovered and
+          draws a 5px mark that lands on a rounded card's corner — invisible in
+          practice, which is what the operator reported. */}
       <div
         ref={containerRef}
-        className={editing ? 'rounded-xl bg-slate-100/70 p-1 ring-1 ring-inset ring-slate-300' : ''}
+        className={editing ? 'panel-grid--editing rounded-xl bg-slate-100/70 p-1 ring-1 ring-inset ring-slate-300' : ''}
       >
         {/* Nothing is rendered until the container has been measured once.
             Laying out against a width of 0 puts every card in column 0 for a
