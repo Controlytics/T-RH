@@ -83,7 +83,7 @@ export function UserTable({
                   checked={allSelected}
                   ref={(el) => { if (el) el.indeterminate = someSelected && !allSelected; }}
                   onChange={toggleSelectAll}
-                  className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  className="ctl-check"
                 />
               </TableHead>
             )}
@@ -105,7 +105,7 @@ export function UserTable({
                       type="checkbox"
                       checked={selectedIds.has(user.id)}
                       onChange={() => toggleSelect(user.id)}
-                      className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      className="ctl-check"
                     />
                   ) : (
                     <span className="w-4 h-4 block" />

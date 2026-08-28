@@ -544,7 +544,7 @@ function TargetDetail({
         <h2 className="text-sm font-semibold text-slate-800">{target.name}</h2>
         <div className="flex items-center gap-2">
           <select
-            className="rounded-md border border-slate-300 px-2 py-1 text-sm"
+            className="ctl ctl-sm"
             value={status}
             aria-label="Delivery status"
             // Back to the first page: offset 25 of the unfiltered log is not offset 25
@@ -832,11 +832,11 @@ function TargetDialog({
                   separate controls rather than the same set of empty checkboxes. */}
               <div className="flex flex-wrap items-center gap-3 text-sm text-slate-700">
                 <label className="flex items-center gap-1.5">
-                  <input type="radio" checked={draft.severities === null} onChange={() => set('severities', null)} />
+                  <input type="radio" checked={draft.severities === null} onChange={() => set('severities', null)} className="ctl-radio" />
                   All severities
                 </label>
                 <label className="flex items-center gap-1.5">
-                  <input type="radio" checked={draft.severities !== null} onChange={() => set('severities', [])} />
+                  <input type="radio" checked={draft.severities !== null} onChange={() => set('severities', [])} className="ctl-radio" />
                   Selected
                 </label>
               </div>
@@ -846,7 +846,7 @@ function TargetDialog({
                     <label key={s} className="flex items-center gap-1.5 text-sm text-slate-700">
                       <input
                         type="checkbox"
-                        className="h-4 w-4 rounded border-slate-300"
+                        className="ctl-check"
                         checked={draft.severities!.includes(s)}
                         onChange={() => set('severities', toggleIn(draft.severities!, s))}
                       />
@@ -870,7 +870,7 @@ function TargetDialog({
                   <label key={key} className="flex items-center gap-1.5 text-sm text-slate-700">
                     <input
                       type="checkbox"
-                      className="h-4 w-4 rounded border-slate-300"
+                      className="ctl-check"
                       checked={draft[key]}
                       onChange={(e) => set(key, e.target.checked)}
                     />
@@ -894,7 +894,7 @@ function TargetDialog({
                   <label key={node.id} className={`flex items-center gap-2 text-sm ${depth ? 'pl-6' : 'font-medium'}`}>
                     <input
                       type="checkbox"
-                      className="h-4 w-4 rounded border-slate-300"
+                      className="ctl-check"
                       checked={draft.scopeLocationIds.includes(node.id)}
                       onChange={() => set('scopeLocationIds', toggleIn(draft.scopeLocationIds, node.id))}
                     />
@@ -915,7 +915,7 @@ function TargetDialog({
                   <label key={i.id} className="flex items-center gap-2 text-sm text-slate-700">
                     <input
                       type="checkbox"
-                      className="h-4 w-4 rounded border-slate-300"
+                      className="ctl-check"
                       checked={draft.scopeInstrumentIds.includes(i.id)}
                       onChange={() => set('scopeInstrumentIds', toggleIn(draft.scopeInstrumentIds, i.id))}
                     />
@@ -929,7 +929,7 @@ function TargetDialog({
           <label className="flex items-center gap-2 text-sm text-slate-700">
             <input
               type="checkbox"
-              className="h-4 w-4 rounded border-slate-300"
+              className="ctl-check"
               checked={draft.isActive}
               onChange={(e) => set('isActive', e.target.checked)}
             />

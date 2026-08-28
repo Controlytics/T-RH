@@ -337,14 +337,14 @@ export function PasswordPolicyPage() {
               </h3>
               <div className="space-y-3">
                 <label className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer">
-                  <input type="checkbox" {...register('cannotBeUserId')} className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+                  <input type="checkbox" {...register('cannotBeUserId')} className="ctl-check" />
                   <div>
                     <span className="text-sm font-medium text-slate-700">Password cannot be same as User ID</span>
                     <p className="text-xs text-slate-500">Prevents users from using their username as password</p>
                   </div>
                 </label>
                 <label className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer">
-                  <input type="checkbox" {...register('cannotContainUserId')} className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+                  <input type="checkbox" {...register('cannotContainUserId')} className="ctl-check" />
                   <div>
                     <span className="text-sm font-medium text-slate-700">Password cannot contain User ID</span>
                     <p className="text-xs text-slate-500">Prevents passwords that include the username</p>

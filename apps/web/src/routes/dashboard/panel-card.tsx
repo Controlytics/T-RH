@@ -210,7 +210,7 @@ function PanelStyleEditor({
               does not have would be worse than admitting it has no name.
             */}
             <select
-              className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+              className="ctl ctl-sm w-full"
               value={namedWidth(width) ?? 0}
               onChange={(e) => onSizeChange(Number(e.target.value), height)}
             >
@@ -223,7 +223,7 @@ function PanelStyleEditor({
               Card height
             </p>
             <select
-              className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+              className="ctl ctl-sm w-full"
               value={namedHeight(height) ?? 0}
               onChange={(e) => onSizeChange(width, Number(e.target.value))}
             >
@@ -243,7 +243,7 @@ function PanelStyleEditor({
               and glyphs along with the text. Calling it what it is beats a label
               that promises something narrower than it delivers. */}
           <select
-            className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+            className="ctl ctl-sm w-full"
             value={style?.size ?? 'normal'}
             onChange={(e) => set({ size: e.target.value })}
           >
@@ -255,7 +255,7 @@ function PanelStyleEditor({
             Padding
           </p>
           <select
-            className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+            className="ctl ctl-sm w-full"
             value={style?.pad ?? 'normal'}
             onChange={(e) => set({ pad: e.target.value })}
           >
@@ -269,7 +269,7 @@ function PanelStyleEditor({
           Heading
         </label>
         <input
-          className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+          className="ctl ctl-sm w-full"
           maxLength={MAX_PANEL_TITLE}
           placeholder={title}
           value={style?.title ?? ''}

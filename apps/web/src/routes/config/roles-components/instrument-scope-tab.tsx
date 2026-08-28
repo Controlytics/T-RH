@@ -70,7 +70,7 @@ function LocationPicker({
             type="checkbox"
             checked={value.includes(node.id)}
             onChange={(e) => onChange(toggle(value, node.id, e.target.checked))}
-          />
+          className="ctl-check" />
           <span>{node.name}</span>
           <span className="text-xs text-slate-500">
             {node.type === 'BLOCK' ? `Block · ${node.totalCount} incl. areas` : `Area · ${node.ownCount}`}
@@ -130,7 +130,7 @@ function InstrumentPicker({
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">By instrument</p>
         <span className="text-xs text-slate-500">{value.length} picked individually</span>
         <input
-          className="ml-auto w-44 rounded-md border border-slate-200 px-2 py-1 text-xs"
+          className="ctl ctl-sm ml-auto w-44"
           placeholder="Search code, name, location"
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -163,7 +163,7 @@ function InstrumentPicker({
                 checked={via !== null || value.includes(i.id)}
                 disabled={via !== null}
                 onChange={(e) => onChange(toggle(value, i.id, e.target.checked))}
-              />
+              className="ctl-check" />
               <span className="font-medium">{i.code}</span>
               <span className="truncate">{i.name}</span>
               {via ? (
@@ -216,11 +216,11 @@ function ScopeEditor({
     <div className="mt-2">
       <div className="flex flex-wrap items-center gap-3 text-sm">
         <label className="flex items-center gap-1.5">
-          <input type="radio" checked={!limited} onChange={() => setLimited(false)} />
+          <input type="radio" checked={!limited} onChange={() => setLimited(false)} className="ctl-radio" />
           <span>{unlimitedLabel}</span>
         </label>
         <label className="flex items-center gap-1.5">
-          <input type="radio" checked={limited} onChange={() => setLimited(true)} />
+          <input type="radio" checked={limited} onChange={() => setLimited(true)} className="ctl-radio" />
           <span>Only what I select</span>
         </label>
         <Button className="ml-auto" disabled={busy} onClick={() => onSave(limited ? picked : null)}>

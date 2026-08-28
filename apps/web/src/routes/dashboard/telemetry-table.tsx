@@ -148,7 +148,7 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Filter by instrument, name or room&hellip;"
-          className="w-full max-w-sm rounded-lg border border-slate-500 px-3 py-2 text-sm focus:outline-none focus:ring-2"
+          className="ctl w-full max-w-sm"
           style={{ ['--tw-ring-color' as string]: 'var(--theme-primary)' } as React.CSSProperties}
         />
         {/* Stated, not implied: this is a poll, not a live stream. */}

@@ -124,7 +124,7 @@ export function AttributeAccessTab() {
                     name={`mode-${r.role}`}
                     checked={now.mode === m}
                     onChange={() => edit(r.role, { mode: m })}
-                  />
+                  className="ctl-radio" />
                   {m === null ? 'Not configured' : MODE_LABEL[m]}
                 </label>
               ))}
@@ -148,7 +148,7 @@ export function AttributeAccessTab() {
                           type="checkbox"
                           checked={now.keys.some((s) => s.trim().toLowerCase() === k.trim().toLowerCase())}
                           onChange={() => toggleKey(r, k)}
-                        />
+                        className="ctl-check" />
                         <span className="truncate" title={k}>{k}</span>
                       </label>
                     ))}
@@ -171,7 +171,7 @@ export function AttributeAccessTab() {
                 checked={now.requireReauth}
                 disabled={now.mode === 'ALL_VIEW'}
                 onChange={(e) => edit(r.role, { requireReauth: e.target.checked })}
-              />
+              className="ctl-check" />
               Ask for the operator&apos;s password on every attribute change
             </label>
           </div>

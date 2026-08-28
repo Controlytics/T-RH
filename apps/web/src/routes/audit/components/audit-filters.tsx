@@ -105,7 +105,7 @@ export function AuditFilters({
                     type="datetime-local"
                     value={fromDateTime}
                     onChange={(e) => { setFromDateTime(e.target.value); setPage(1); }}
-                    className="flex-1 h-12 px-4 text-sm font-medium text-slate-700 bg-transparent border-0 focus:outline-none focus:ring-0 [color-scheme:light]"
+                    className="ctl flex-1 font-medium [color-scheme:light]"
                   />
                 </div>
               </div>
@@ -141,7 +141,7 @@ export function AuditFilters({
                     type="datetime-local"
                     value={toDateTime}
                     onChange={(e) => { setToDateTime(e.target.value); setPage(1); }}
-                    className="flex-1 h-12 px-4 text-sm font-medium text-slate-700 bg-transparent border-0 focus:outline-none focus:ring-0 [color-scheme:light]"
+                    className="ctl flex-1 font-medium [color-scheme:light]"
                   />
                 </div>
               </div>

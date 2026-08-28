@@ -432,7 +432,7 @@ export function FloorplansConfigPage() {
             <select
               value={planId}
               onChange={(e) => { setPlanId(e.target.value); setSelectedRoomId(null); setDraft(null); }}
-              className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              className="ctl"
             >
               {plans.length === 0 && <option value="">No floorplans yet</option>}
               {plans.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -620,7 +620,7 @@ export function FloorplansConfigPage() {
                 <select
                   value={form.grade}
                   onChange={(e) => setForm((f) => ({ ...f, grade: e.target.value }))}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  className="ctl w-full"
                 >
                   <option value="">Not classified</option>
                   {ROOM_GRADES.map((g) => (
@@ -680,7 +680,7 @@ export function FloorplansConfigPage() {
                             doors: f.doors.map((door, ix) => (ix === i ? { ...door, kind } : door)),
                           }));
                         }}
-                        className="rounded border border-slate-200 px-1.5 py-1"
+                        className="ctl ctl-sm"
                       >
                         <option value="ENTRY">Entry</option>
                         <option value="EXIT">Exit</option>
@@ -717,7 +717,7 @@ export function FloorplansConfigPage() {
                         type="checkbox"
                         checked={form.instrumentIds.includes(i.id)}
                         onChange={() => toggleInstrument(i.id)}
-                      />
+                      className="ctl-check" />
                       <span className="text-sm font-medium text-slate-800">{i.code}</span>
                       <span className="text-xs text-slate-500">{i.name}</span>
                       {/* Say where it already is, so a move is visible BEFORE

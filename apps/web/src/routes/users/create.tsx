@@ -298,8 +298,8 @@ export function CreateUserPage() {
                   {showPassword ? 'Hide' : 'Show'}
                 </button>
               </div>
-              <input type="hidden" {...register('password')} />
-              <input type="hidden" {...register('confirmPassword')} />
+              <input type="hidden" {...register('password')} className="ctl" />
+              <input type="hidden" {...register('confirmPassword')} className="ctl" />
               {errors.password && (
                 <p className="text-sm text-red-500 flex items-center gap-1">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

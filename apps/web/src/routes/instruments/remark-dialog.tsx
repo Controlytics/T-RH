@@ -84,7 +84,7 @@ export function RemarkDialog({
             maxLength={ATTRIBUTE_REMARK_MAX}
             onChange={(e) => setRemark(e.target.value)}
             onBlur={() => setTouched(true)}
-            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none"
+            className="ctl w-full"
             placeholder="Why is this changing?"
           />
           {/* One line, and it stays: this is the §11 disclosure — an operator

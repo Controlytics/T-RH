@@ -32,7 +32,7 @@ function PanelPicker({ value, onChange }: { value: string[]; onChange: (next: st
               <label key={p.key} className="flex items-start gap-2 text-sm">
                 <input
                   type="checkbox"
-                  className="mt-1"
+                  className="ctl-check mt-1"
                   checked={value.includes(p.key)}
                   onChange={(e) => onChange(toggle(value, p.key, e.target.checked))}
                 />
@@ -68,11 +68,11 @@ function PanelEditor({
     <div className="mt-2">
       <div className="flex flex-wrap items-center gap-3 text-sm">
         <label className="flex items-center gap-1.5">
-          <input type="radio" checked={!limited} onChange={() => setLimited(false)} />
+          <input type="radio" checked={!limited} onChange={() => setLimited(false)} className="ctl-radio" />
           <span>{unlimitedLabel}</span>
         </label>
         <label className="flex items-center gap-1.5">
-          <input type="radio" checked={limited} onChange={() => setLimited(true)} />
+          <input type="radio" checked={limited} onChange={() => setLimited(true)} className="ctl-radio" />
           <span>Only selected panels</span>
         </label>
         <Button className="ml-auto" disabled={busy} onClick={() => onSave(limited ? picked : null)}>

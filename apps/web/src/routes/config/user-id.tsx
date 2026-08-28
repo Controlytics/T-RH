@@ -335,7 +335,7 @@ export function UserIdConfigPage() {
                   checked={form.autoGenerate}
                   onChange={(e) => setForm({ ...form, autoGenerate: e.target.checked })}
                   disabled={!isSuperAdmin}
-                  className="w-5 h-5 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                  className="ctl-check"
                 />
                 <span className="text-sm font-medium text-slate-700">
                   Enable auto-generation of User IDs

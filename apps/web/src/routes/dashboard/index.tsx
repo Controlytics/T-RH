@@ -134,7 +134,7 @@ export function DashboardPage() {
           <select
             value={selected ?? ''}
             onChange={(e) => go(e.target.value || null)}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+            className="ctl"
           >
             <option value="">— Overview —</option>
             <option value={ALL_INSTRUMENTS}>All Instruments</option>

@@ -87,12 +87,12 @@ export function SendForReviewButton({ buildSnapshot, className }: {
                 <button onClick={() => setMode('user')} className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold ${mode === 'user' ? 'text-white bg-cyan-600' : 'text-slate-600 bg-slate-100'}`}>To a user</button>
               </div>
               {mode === 'role' ? (
-                <select value={role} onChange={(e) => setRole(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500/30">
+                <select value={role} onChange={(e) => setRole(e.target.value)} className="ctl w-full">
                   <option value="">Select a role…</option>
                   {roles.map((r) => <option key={r.name} value={r.name}>{r.displayName || r.name}</option>)}
                 </select>
               ) : (
-                <select value={userId} onChange={(e) => setUserId(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500/30">
+                <select value={userId} onChange={(e) => setUserId(e.target.value)} className="ctl w-full">
                   <option value="">Select a user…</option>
                   {users.map((u) => <option key={u.id} value={u.id}>{u.username}{u.role ? ` (${u.role})` : ''}</option>)}
                 </select>

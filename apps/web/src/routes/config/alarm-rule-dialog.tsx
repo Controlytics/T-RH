@@ -251,7 +251,7 @@ export function RuleDialog({
                 type="checkbox"
                 checked={draft.isActive}
                 onChange={(e) => set('isActive', e.target.checked)}
-                className="h-4 w-4 rounded border-slate-300"
+                className="ctl-check"
               />
               Active
             </label>

@@ -103,7 +103,7 @@ function MultiSelectEventTypes({ eventTypes, selected, onChange }: {
                       type="checkbox"
                       checked={selected.includes(et.value)}
                       onChange={() => toggle(et.value)}
-                      className="rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                      className="ctl-check"
                     />
                     <span className="text-sm text-slate-700">{et.label}</span>
                   </label>
@@ -334,7 +334,7 @@ function RulesTab() {
               <select
                 value={editing.emailTemplateId ?? ''}
                 onChange={e => setEditing({ ...editing, emailTemplateId: e.target.value || undefined })}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                className="ctl w-full"
               >
                 <option value="">Use default template</option>
                 {templates?.filter(t => t.channel === 'EMAIL' && t.isActive).map(t => (
@@ -349,7 +349,7 @@ function RulesTab() {
               <select
                 value={editing.smsTemplateId ?? ''}
                 onChange={e => setEditing({ ...editing, smsTemplateId: e.target.value || undefined })}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                className="ctl w-full"
               >
                 <option value="">Use default template</option>
                 {templates?.filter(t => t.channel === 'SMS' && t.isActive).map(t => (
@@ -369,7 +369,7 @@ function RulesTab() {
                 <select
                   value={r.recipientType}
                   onChange={e => updateRecipient(idx, 'recipientType', e.target.value)}
-                  className="px-3 py-1.5 border border-slate-300 rounded-lg text-sm w-28"
+                  className="ctl ctl-sm w-28"
                 >
                   <option value="ROLE">Role</option>
                   <option value="GROUP">Group</option>
@@ -380,7 +380,7 @@ function RulesTab() {
                   <select
                     value={r.roleValue ?? ''}
                     onChange={e => updateRecipient(idx, 'roleValue', e.target.value)}
-                    className="flex-1 px-3 py-1.5 border border-slate-300 rounded-lg text-sm"
+                    className="ctl ctl-sm flex-1"
                   >
                     <option value="">Select role...</option>
                     {roles.map(role => <option key={role.name} value={role.name}>{role.displayName}</option>)}
@@ -391,7 +391,7 @@ function RulesTab() {
                   <select
                     value={r.groupId ?? ''}
                     onChange={e => updateRecipient(idx, 'groupId', e.target.value)}
-                    className="flex-1 px-3 py-1.5 border border-slate-300 rounded-lg text-sm"
+                    className="ctl ctl-sm flex-1"
                   >
                     <option value="">Select group...</option>
                     {groups?.map(g => <option key={g.id} value={g.id}>{g.name} ({g.memberCount} members)</option>)}
@@ -402,7 +402,7 @@ function RulesTab() {
                   <select
                     value={r.userId ?? ''}
                     onChange={e => updateRecipient(idx, 'userId', e.target.value)}
-                    className="flex-1 px-3 py-1.5 border border-slate-300 rounded-lg text-sm"
+                    className="ctl ctl-sm flex-1"
                   >
                     <option value="">Select user...</option>
                     {users.map((u: UserOption) => <option key={u.id} value={u.id}>{u.fullName} ({u.username})</option>)}
@@ -602,7 +602,7 @@ function GroupsTab() {
         </div>
 
         <div className="flex gap-2">
-          <select value={addUserId} onChange={e => setAddUserId(e.target.value)} className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm">
+          <select value={addUserId} onChange={e => setAddUserId(e.target.value)} className="ctl flex-1">
             <option value="">Select user to add...</option>
             {users.filter((u: UserOption) => !members.some(m => m.userId === u.id)).map((u: UserOption) => (
               <option key={u.id} value={u.id}>{u.fullName} ({u.username}) - {u.role}</option>
@@ -754,7 +754,7 @@ function TemplatesTab() {
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Channel *</label>
-            <select value={editing.channel ?? 'EMAIL'} onChange={e => setEditing({ ...editing, channel: e.target.value })} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+            <select value={editing.channel ?? 'EMAIL'} onChange={e => setEditing({ ...editing, channel: e.target.value })} className="ctl w-full">
               <option value="EMAIL">Email</option>
               <option value="SMS">SMS</option>
             </select>
@@ -774,7 +774,7 @@ function TemplatesTab() {
             value={editing.bodyTemplate ?? ''}
             onChange={e => setEditing({ ...editing, bodyTemplate: e.target.value })}
             rows={8}
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono"
+            className="ctl w-full font-mono"
             placeholder={editing.channel === 'EMAIL' ? '<h2>${eventType}</h2>\n<p>Filter: ${entityName}</p>' : 'DigiLog Alert: ${eventType} on ${entityName}'}
           />
         </div>
@@ -928,7 +928,7 @@ function LogsTab() {
             <select
               value={channel}
               onChange={(e) => { setChannel(e.target.value); setPage(1); }}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="ctl"
             >
               <option value="">All</option>
               <option value="EMAIL">Email</option>
@@ -940,7 +940,7 @@ function LogsTab() {
             <select
               value={status}
               onChange={(e) => { setStatus(e.target.value); setPage(1); }}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="ctl"
             >
               <option value="">All</option>
               <option value="SENT">Sent</option>

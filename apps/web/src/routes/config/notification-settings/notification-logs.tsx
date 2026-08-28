@@ -126,7 +126,7 @@ export function NotificationLogsPage() {
             <select
               value={channel}
               onChange={(e) => { setChannel(e.target.value); setPage(1); }}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="ctl"
             >
               <option value="">All</option>
               <option value="EMAIL">Email</option>
@@ -138,7 +138,7 @@ export function NotificationLogsPage() {
             <select
               value={status}
               onChange={(e) => { setStatus(e.target.value); setPage(1); }}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="ctl"
             >
               <option value="">All</option>
               <option value="SENT">Sent</option>

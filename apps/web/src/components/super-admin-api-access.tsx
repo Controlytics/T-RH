@@ -71,7 +71,7 @@ export function SuperAdminLockdownScreen() {
               autoFocus
               autoComplete="current-password"
               placeholder="Enter your password"
-              className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 focus:border-rose-500"
+              className="ctl w-full"
             />
           </div>
           {error && <div className="rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-sm text-rose-700">{error}</div>}
@@ -164,7 +164,7 @@ export function SuperAdminApiAccessCard() {
               autoFocus
               autoComplete="current-password"
               placeholder="Enter your password"
-              className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+              className="ctl w-full"
             />
           </div>
           {error && <div className="rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-sm text-rose-700">{error}</div>}

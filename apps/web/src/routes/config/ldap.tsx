@@ -220,30 +220,30 @@ export default function LdapConfigPage() {
             <div className="col-span-2">
               <label className="block text-sm font-medium text-slate-700 mb-1">Server URL <span className="text-red-500">*</span></label>
               <input value={config.serverUrl} onChange={e => updateField('serverUrl', e.target.value)} placeholder="ldaps://ad.company.com:636"
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500/30" />
+                className="ctl w-full font-mono" />
               <p className="text-xs text-slate-400 mt-1">Use ldaps:// for secure connection (port 636) or ldap:// for plain (port 389)</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Bind DN <span className="text-red-500">*</span></label>
               <input value={config.bindDN} onChange={e => updateField('bindDN', e.target.value)} placeholder="CN=svc_digilog,OU=Service Accounts,DC=company,DC=com"
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500/30" />
+                className="ctl w-full font-mono" />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Bind Password <span className="text-red-500">*</span></label>
               <input type="password" value={config.bindPassword} onChange={e => updateField('bindPassword', e.target.value)} placeholder="Service account password"
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500/30" />
+                className="ctl w-full" />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Connection Timeout (ms)</label>
               <input type="number" value={config.connectionTimeout} onChange={e => updateField('connectionTimeout', Number(e.target.value))}
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500/30" />
+                className="ctl w-full" />
             </div>
             <div className="flex items-end pb-1">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={config.tlsRejectUnauthorized} onChange={e => updateField('tlsRejectUnauthorized', e.target.checked)}
-                  className="w-4 h-4 rounded border-slate-300 text-green-600 focus:ring-green-500" />
+                  className="ctl-check" />
                 <span className="text-sm text-slate-700">Verify TLS Certificate</span>
               </label>
             </div>
@@ -281,12 +281,12 @@ export default function LdapConfigPage() {
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Search Base DN <span className="text-red-500">*</span></label>
             <input value={config.searchBase} onChange={e => updateField('searchBase', e.target.value)} placeholder="OU=Users,DC=company,DC=com"
-              className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500/30" />
+              className="ctl w-full font-mono" />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Search Filter</label>
             <input value={config.searchFilter} onChange={e => updateField('searchFilter', e.target.value)} placeholder="(sAMAccountName={{username}})"
-              className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500/30" />
+              className="ctl w-full font-mono" />
             <p className="text-xs text-slate-400 mt-1">Use {'{{username}}'} as placeholder for the login username</p>
             <p className="text-xs text-slate-500 mt-1.5">
               To restrict sign-in to one Active Directory group, add a <span className="font-mono">memberOf</span> clause:
@@ -303,13 +303,13 @@ export default function LdapConfigPage() {
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Username Attribute</label>
               <input value={config.usernameAttribute} onChange={e => updateField('usernameAttribute', e.target.value)}
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500/30" />
+                className="ctl w-full font-mono" />
               <p className="text-xs text-slate-400 mt-1">AD: sAMAccountName, OpenLDAP: uid</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Group Attribute</label>
               <input value={config.groupAttribute} onChange={e => updateField('groupAttribute', e.target.value)}
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500/30" />
+                className="ctl w-full font-mono" />
             </div>
           </div>
         </div>
@@ -328,23 +328,23 @@ export default function LdapConfigPage() {
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label>
               <input value={config.fullNameAttribute} onChange={e => updateField('fullNameAttribute', e.target.value)}
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500/30" />
+                className="ctl w-full font-mono" />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
               <input value={config.emailAttribute} onChange={e => updateField('emailAttribute', e.target.value)}
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500/30" />
+                className="ctl w-full font-mono" />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Department</label>
               <input value={config.departmentAttribute} onChange={e => updateField('departmentAttribute', e.target.value)}
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500/30" />
+                className="ctl w-full font-mono" />
             </div>
           </div>
           <div className="mt-4">
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" checked={config.syncAttributes} onChange={e => updateField('syncAttributes', e.target.checked)}
-                className="w-4 h-4 rounded border-slate-300 text-green-600 focus:ring-green-500" />
+                className="ctl-check" />
               <span className="text-sm text-slate-700">Sync attributes on every login</span>
             </label>
           </div>
@@ -391,7 +391,7 @@ export default function LdapConfigPage() {
             config.requiredGroups.map((group, i) => (
               <div key={i} className="flex items-center gap-3">
                 <input value={group} onChange={e => updateRequiredGroup(i, e.target.value)} placeholder="CN=DigiLog-Users,OU=Groups,DC=company,DC=com"
-                  className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500/30" />
+                  className="ctl flex-1 font-mono" />
                 <button onClick={() => removeRequiredGroup(i)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
@@ -401,7 +401,7 @@ export default function LdapConfigPage() {
           <div className="pt-2 border-t border-slate-100">
             <label className="flex items-start gap-2 cursor-pointer">
               <input type="checkbox" checked={config.strictRoleMapping} onChange={e => updateField('strictRoleMapping', e.target.checked)}
-                className="w-4 h-4 mt-0.5 rounded border-slate-300 text-green-600 focus:ring-green-500" />
+                className="ctl-check mt-0.5" />
               <span className="text-sm text-slate-700">
                 Refuse login when a mapped role does not exist
                 <span className="block text-xs text-slate-400 mt-0.5">
@@ -436,11 +436,11 @@ export default function LdapConfigPage() {
               <div key={i} className="flex items-center gap-3">
                 <div className="flex-1">
                   <input value={mapping.ldapGroup} onChange={e => updateRoleMapping(i, 'ldapGroup', e.target.value)} placeholder="CN=Admins,OU=Groups,DC=company,DC=com"
-                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500/30" />
+                    className="ctl w-full font-mono" />
                 </div>
                 <svg className="w-5 h-5 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
                 <select value={mapping.role} onChange={e => updateRoleMapping(i, 'role', e.target.value)}
-                  className="w-48 px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500/30">
+                  className="ctl w-48">
                   {rolesData?.map(r => <option key={r.name} value={r.name}>{r.displayName}</option>)}
                 </select>
                 <button onClick={() => removeRoleMapping(i)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
@@ -452,7 +452,7 @@ export default function LdapConfigPage() {
           <div className="pt-2">
             <label className="block text-sm font-medium text-slate-700 mb-1">Default Role (when no group matches)</label>
             <select value={config.defaultRole} onChange={e => updateField('defaultRole', e.target.value)}
-              className="w-64 px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500/30">
+              className="ctl w-64">
               {rolesData?.map(r => <option key={r.name} value={r.name}>{r.displayName}</option>)}
             </select>
           </div>

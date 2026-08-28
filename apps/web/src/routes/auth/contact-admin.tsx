@@ -307,7 +307,7 @@ export function ContactAdminPage() {
                   }}
                   onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); performRequesterLookup(); } }}
                   placeholder="EMP-001"
-                  className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                  className="ctl flex-1"
                 />
                 <button
                   type="button"
@@ -350,7 +350,7 @@ export function ContactAdminPage() {
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1">Request Type <span className="text-red-500">*</span></label>
                 <select value={requestType} onChange={e => setRequestType(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500">
+                  className="ctl w-full">
                   <option value="">Select request type...</option>
                   {REQUEST_TYPES.map(rt => <option key={rt.value} value={rt.value}>{rt.label}</option>)}
                 </select>
@@ -366,30 +366,30 @@ export function ContactAdminPage() {
                 <label className="block text-sm font-medium text-slate-600 mb-1">User ID <span className="text-red-500">*</span></label>
                 <input type="text" value={newUserId} onChange={e => setNewUserId(e.target.value)}
                   placeholder="e.g. jdoe01" autoComplete="off"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500" />
+                  className="ctl w-full" />
                 <p className="mt-1 text-xs text-slate-500">Login ID for the new account (minimum 6 characters).</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1">Full Name <span className="text-red-500">*</span></label>
                 <input type="text" value={fullName} onChange={e => setFullName(e.target.value)}
-                  placeholder="John Doe" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500" />
+                  placeholder="John Doe" className="ctl w-full" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1">Department</label>
                   <input type="text" value={department} onChange={e => setDepartment(e.target.value)}
-                    placeholder="Engineering" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500" />
+                    placeholder="Engineering" className="ctl w-full" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1">Email <span className="text-xs font-normal text-slate-400">(optional)</span></label>
                   <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-                    placeholder="user@company.com (optional)" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500" />
+                    placeholder="user@company.com (optional)" className="ctl w-full" />
                 </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1">Requested Role <span className="text-red-500">*</span></label>
                 <select value={requestedRole} onChange={e => setRequestedRole(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500">
+                  className="ctl w-full">
                   <option value="">Select role...</option>
                   {roles.map(r => <option key={r.name} value={r.name}>{r.displayName}</option>)}
                 </select>
@@ -421,7 +421,7 @@ export function ContactAdminPage() {
                     onChange={e => { setUsername(e.target.value); setLookupUser(null); setLookupError(''); }}
                     onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); performLookup(); } }}
                     placeholder="Enter employee ID"
-                    className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                    className="ctl flex-1"
                   />
                   <button
                     type="button"
@@ -479,7 +479,7 @@ export function ContactAdminPage() {
                   <div>
                     <label className="block text-sm font-medium text-slate-600 mb-1">What to Modify <span className="text-red-500">*</span></label>
                     <select value={modifyField} onChange={e => { setModifyField(e.target.value); setNewValue(''); }}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500">
+                      className="ctl w-full">
                       <option value="">Select field...</option>
                       <option value="fullName">Full Name</option>
                       <option value="email">Email</option>
@@ -492,13 +492,13 @@ export function ContactAdminPage() {
                       <div>
                         <label className="block text-sm font-medium text-slate-600 mb-1">Current Value</label>
                         <input type="text" value={currentFieldValue(modifyField)} disabled
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-100 text-slate-500" />
+                          className="ctl w-full" />
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-slate-600 mb-1">New Value <span className="text-red-500">*</span></label>
                         {modifyField === 'role' ? (
                           <select value={newValue} onChange={e => setNewValue(e.target.value)}
-                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500">
+                            className="ctl w-full">
                             <option value="">Select new role...</option>
                             {roles.filter(r => r.name !== lookupUser.role).map(r => (
                               <option key={r.name} value={r.name}>{r.displayName}</option>
@@ -510,7 +510,7 @@ export function ContactAdminPage() {
                             value={newValue}
                             onChange={e => setNewValue(e.target.value)}
                             placeholder={`Enter new ${modifyField === 'fullName' ? 'full name' : modifyField}`}
-                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                            className="ctl w-full"
                           />
                         )}
                         {newValue && newValue === currentFieldValue(modifyField) && (
@@ -530,7 +530,7 @@ export function ContactAdminPage() {
               <label className="block text-sm font-medium text-slate-600 mb-1">Reason / Remarks <span className="text-red-500">*</span></label>
               <textarea value={remarks} onChange={e => setRemarks(e.target.value)}
                 placeholder="Explain why you need this request..."
-                rows={3} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm resize-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500" />
+                rows={3} className="ctl w-full resize-none" />
             </div>
           )}
         </div>

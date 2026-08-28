@@ -117,7 +117,7 @@ export default function AlarmsPage() {
             type="checkbox"
             checked={unacknowledgedOnly}
             onChange={(e) => setUnacknowledgedOnly(e.target.checked)}
-            className="h-4 w-4 rounded border-slate-300"
+            className="ctl-check"
           />
           Unacknowledged only
         </label>

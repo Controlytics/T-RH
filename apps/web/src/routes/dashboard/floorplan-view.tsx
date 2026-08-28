@@ -217,7 +217,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
           right — the reference drawing's chrome. A <select> hid which other plans
           existed behind a click; these are visible at a glance. */}
       <div
-        className="flex flex-wrap items-center justify-between gap-3 rounded-t-2xl px-4 py-2.5"
+        className="ctl"
         style={{ background: 'linear-gradient(135deg, var(--theme-sidebar-bg), var(--theme-primary-dark))' }}
       >
         <h3 className="text-sm font-bold tracking-wide text-white">{plan?.name ?? 'Floor plan'}</h3>

@@ -185,11 +185,160 @@ body {
   font-feature-settings: 'ss01', 'cv11';
 }
 
-/* Distinctive display face for headings + operator-name. Bricolage Grotesque
-   has a slight editorial character (taller x-height, sharper terminals) that
-   reads as deliberate-design rather than "default sans". */
+/* The display face. Now the same family as body text (see the type block
+   above), separated by tracking and weight rather than by a second download. */
 .font-display { font-family: var(--font-display); font-feature-settings: 'ss01'; letter-spacing: -0.01em; }
 .font-mono-tab { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-feature-settings: 'zero', 'ss01'; }
+
+/* ===========================================================================
+   FORM CONTROLS — `.ctl`, `.ctl-check`, `.ctl-radio`
+   ===========================================================================
+
+   WHY THIS EXISTS, given that Input/Select/Checkbox primitives also exist.
+
+   The primitives are the right answer for a control a page renders directly,
+   and pages should keep migrating onto them. But 183 raw <input>/<select>/
+   <textarea> remain across the route tree, and they were not inconsistent by
+   accident — each screen had written its own focus ring. Measured before this
+   change, the same text field appeared as `focus:ring-green-500/30` on one
+   screen, `focus:ring-cyan-500` on another, `focus:ring-blue-500/30` on a
+   third and `focus:ring-indigo-500` on a fourth, with four different radii and
+   three different paddings. Six of those accents matched no theme the product
+   ships.
+
+   Converting all 183 call sites to JSX primitives by hand is a large, risky
+   edit to files whose behaviour is not being changed. Giving them ONE class
+   whose appearance is defined in ONE place gets the same visual result at a
+   fraction of the risk, and is what §31 of the brief asks for in as many
+   words: reusable CSS classes rather than duplicated styles.
+
+   TWO RULES for anyone editing this:
+
+   1. `.ctl` deliberately sets NO width. It is plain CSS declared after
+      Tailwind's utilities, so it would beat `w-full`/`w-32`/`flex-1` on the
+      same element — every call site relies on keeping its own width.
+   2. The focus ring is a `box-shadow`, not an `outline`, so it follows the
+      control's border-radius. It reads `--theme-primary` and therefore
+      follows all ten of the product's colour themes, which is exactly what
+      the hardcoded rings above did not do.
+*/
+.ctl {
+  height: var(--control-h);
+  border-radius: var(--radius-control);
+  border: 1px solid #cbd5e1;                 /* slate-300, a hairline */
+  background-color: #fff;
+  padding-inline: 0.75rem;
+  font-size: 0.875rem;                        /* --text-control */
+  color: #1e293b;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.ctl::placeholder { color: #94a3b8; }
+.ctl:hover:not(:disabled):not([readonly]) { border-color: #94a3b8; }
+.ctl:focus {
+  outline: none;
+  border-color: var(--theme-primary, #2a78d6);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme-primary, #2a78d6) 22%, transparent);
+}
+.ctl:disabled,
+.ctl[readonly] {
+  background-color: #f8fafc;
+  color: #64748b;
+}
+.ctl:disabled { cursor: not-allowed; }
+/* An invalid field is bordered on its own, so the state does not depend on a
+   message the operator may have scrolled past. */
+.ctl[aria-invalid="true"] { border-color: #fb7185; }
+.ctl[aria-invalid="true"]:focus { box-shadow: 0 0 0 3px rgb(251 113 133 / 0.25); }
+
+/* A textarea grows; a fixed 40px height would make it a very short input. Its
+   own `rows`, or an `h-*` utility at the call site, decides the height. */
+textarea.ctl {
+  height: auto;
+  min-height: 5rem;
+  padding-block: 0.5rem;
+  line-height: 1.5;
+}
+
+/* The chevron is drawn here rather than left to the browser: a native select
+   arrow is one of the loudest "unstyled form" tells, and it differs on every
+   platform this runs on. Same grey chevron as the Select primitive. */
+select.ctl {
+  appearance: none;
+  cursor: pointer;
+  padding-right: 2.25rem;
+  background-repeat: no-repeat;
+  background-position: right 0.6rem center;
+  background-size: 1.15rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24'%3E%3Cpath stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+}
+select.ctl:disabled { cursor: not-allowed; }
+
+/* A control that sits inside a toolbar row rather than in a form. */
+.ctl-sm { height: var(--control-h-sm); font-size: 0.8125rem; padding-inline: 0.625rem; }
+select.ctl-sm { padding-right: 2rem; background-size: 1rem; background-position: right 0.5rem center; }
+
+/* ── Checkbox and radio ─────────────────────────────────────────────────────
+   Drawn on the REAL input via `appearance: none`, never replaced by a styled
+   div: keyboard operation, form participation, `:indeterminate` and
+   screen-reader semantics all survive, which a div re-implementation always
+   ends up missing. Same construction as the Checkbox/Radio primitives.
+
+   The shapes differ on purpose — a square for "any of these", a circle for
+   "one of these". That is the only cue an operator has about whether a choice
+   is exclusive, so they must never be made to look alike. */
+.ctl-check,
+.ctl-radio {
+  appearance: none;
+  flex-shrink: 0;
+  width: 1.125rem;
+  height: 1.125rem;
+  border: 1px solid #cbd5e1;
+  background-color: #fff;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+.ctl-check { border-radius: 5px; }
+.ctl-radio { border-radius: 9999px; }
+
+.ctl-check:hover:not(:disabled),
+.ctl-radio:hover:not(:disabled) { border-color: #94a3b8; }
+
+.ctl-check:checked {
+  border-color: transparent;
+  background-color: var(--theme-primary, #2a78d6);
+  /* The tick is a background image so no extra element is needed beside an
+     input a page may already be positioning. */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='white' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-size: 0.875rem;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+.ctl-check:indeterminate {
+  border-color: transparent;
+  background-color: var(--theme-primary, #2a78d6);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8h8' fill='none' stroke='white' stroke-width='2.25' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-size: 0.875rem;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+.ctl-radio:checked {
+  border-width: 5px;
+  border-color: var(--theme-primary, #2a78d6);
+}
+
+.ctl-check:focus-visible,
+.ctl-radio:focus-visible {
+  outline: 2px solid var(--theme-primary, #2a78d6);
+  outline-offset: 2px;
+}
+.ctl-check:disabled,
+.ctl-radio:disabled {
+  cursor: not-allowed;
+  border-color: #e2e8f0;
+  background-color: #f1f5f9;
+}
+.ctl-check:disabled:checked { background-color: #94a3b8; border-color: transparent; }
+.ctl-radio:disabled:checked { border-color: #94a3b8; }
 
 /* Professional focus styles */
 :focus-visible {

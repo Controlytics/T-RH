@@ -373,7 +373,7 @@ export function HelpArticlesPage() {
                   placeholder="Search by title, key, or content..."
                   value={rawSearch}
                   onChange={(e) => setRawSearch(e.target.value)}
-                  className="w-full pl-12 pr-4 h-11 rounded-xl border-2 border-slate-200 text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all"
+                  className="ctl w-full"
                 />
               </div>
             </div>
@@ -386,7 +386,7 @@ export function HelpArticlesPage() {
               <select
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
-                className="appearance-none pl-10 pr-9 h-11 rounded-xl border-2 border-slate-200 text-sm text-slate-700 font-medium bg-white focus:outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all cursor-pointer min-w-[160px]"
+                className="ctl font-medium min-w-[160px]"
               >
                 <option value="">All Categories</option>
                 {CATEGORIES.map((cat) => (
@@ -909,7 +909,7 @@ function ArticleFormFields({ form, onChange, error, keyReadOnly }: ArticleFormFi
           value={form.title}
           onChange={(e) => set({ title: e.target.value })}
           placeholder="e.g. Getting Started with Entities"
-          className="w-full h-10 px-3.5 rounded-xl border-2 border-slate-200 bg-white text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all"
+          className="ctl w-full"
         />
       </div>
 
@@ -920,7 +920,7 @@ function ArticleFormFields({ form, onChange, error, keyReadOnly }: ArticleFormFi
           <select
             value={form.category}
             onChange={(e) => set({ category: e.target.value })}
-            className="w-full h-10 px-3.5 rounded-xl border-2 border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all appearance-none cursor-pointer"
+            className="ctl w-full"
           >
             {CATEGORIES.map((cat) => (
               <option key={cat} value={cat}>
@@ -936,7 +936,7 @@ function ArticleFormFields({ form, onChange, error, keyReadOnly }: ArticleFormFi
             min={0}
             value={form.sortOrder}
             onChange={(e) => set({ sortOrder: parseInt(e.target.value) || 0 })}
-            className="w-full h-10 px-3.5 rounded-xl border-2 border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all"
+            className="ctl w-full"
           />
         </div>
       </div>
@@ -956,7 +956,7 @@ function ArticleFormFields({ form, onChange, error, keyReadOnly }: ArticleFormFi
               : 'Write article content here. Markdown formatting is supported...'
           }
           rows={8}
-          className="w-full px-3.5 py-3 rounded-xl border-2 border-slate-200 bg-white text-sm text-slate-700 placeholder-slate-400 font-mono leading-relaxed focus:outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all resize-y min-h-[160px]"
+          className="ctl w-full font-mono resize-y"
         />
       </div>
     </div>

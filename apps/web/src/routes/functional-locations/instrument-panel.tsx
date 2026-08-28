@@ -141,7 +141,7 @@ export function InstrumentPanel({ locationId, locationPath, canEdit, onChanged }
                 <label key={i.id} className="flex items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-slate-50">
                   <input
                     type="checkbox"
-                    className="mt-1"
+                    className="ctl-check mt-1"
                     checked={selected.has(i.id)}
                     onChange={(e) => {
                       const next = new Set(selected);

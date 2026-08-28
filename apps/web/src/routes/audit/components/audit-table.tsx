@@ -98,7 +98,7 @@ export function AuditTable({
                         type="checkbox"
                         checked={isAllSelected}
                         onChange={toggleSelectAll}
-                        className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        className="ctl-check"
                       />
                     </TableHead>
                   )}
@@ -145,7 +145,7 @@ export function AuditTable({
                           type="checkbox"
                           checked={selectedIds.has(record.id)}
                           onChange={() => toggleSelect(record.id)}
-                          className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                          className="ctl-check"
                         />
                       </TableCell>
                     )}

@@ -247,7 +247,7 @@ function ExtraKeyPicker({
           <select
             value={pending}
             onChange={(e) => setPending(e.target.value)}
-            className="rounded-lg border border-slate-200 px-2 py-1 text-xs"
+            className="ctl ctl-sm"
             aria-label="Additional telemetry key"
           >
             <option value="">Choose a key…</option>
@@ -820,7 +820,7 @@ export function InstrumentTrend() {
             type="datetime-local"
             value={fromLocal}
             onChange={(e) => e.target.value && setCustom(new Date(e.target.value).toISOString(), period.to)}
-            className="rounded-lg border border-slate-200 px-2 py-1.5 font-mono text-xs tabular-nums [color-scheme:light]"
+            className="ctl ctl-sm font-mono tabular-nums [color-scheme:light]"
             aria-label="From"
           />
         </label>
@@ -830,7 +830,7 @@ export function InstrumentTrend() {
             type="datetime-local"
             value={toLocal}
             onChange={(e) => e.target.value && setCustom(period.from, new Date(e.target.value).toISOString())}
-            className="rounded-lg border border-slate-200 px-2 py-1.5 font-mono text-xs tabular-nums [color-scheme:light]"
+            className="ctl ctl-sm font-mono tabular-nums [color-scheme:light]"
             aria-label="To"
           />
         </label>
@@ -843,7 +843,7 @@ export function InstrumentTrend() {
           <select
             value={period.intervalMs ?? ''}
             onChange={(e) => setInterval(e.target.value === '' ? null : Number(e.target.value))}
-            className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
+            className="ctl ctl-sm"
             aria-label="Chart interval"
           >
             {INTERVALS.map((i) => (

@@ -469,7 +469,7 @@ export function NotificationsPage() {
               type="checkbox"
               checked={isAllSelected}
               onChange={toggleSelectAll}
-              className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+              className="ctl-check"
             />
             <span className="text-sm font-medium text-slate-600 group-hover:text-slate-800">
               Select All on Page
@@ -503,7 +503,7 @@ export function NotificationsPage() {
                   type="checkbox"
                   checked={isSelected}
                   onChange={() => toggleSelect(notification.id)}
-                  className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                  className="ctl-check"
                 />
               </div>
               <div className={`p-3 rounded-xl ${typeColors[notification.type] ?? 'bg-slate-500 text-white'} shadow-lg`}>

@@ -116,7 +116,7 @@ export function InstrumentBulkCreatePage() {
               <span className="text-sm font-medium text-slate-700">Profile *</span>
               <select
                 value={profileId} onChange={(e) => setProfileId(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                className="ctl w-full"
               >
                 <option value="">Select a profile…</option>
                 {profiles?.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}

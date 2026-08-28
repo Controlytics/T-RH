@@ -237,7 +237,7 @@ export function AdminRequestsPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search requester or ID…"
-              className="w-full pl-9 pr-8 py-2 text-[13px] border border-slate-200 rounded-lg bg-white text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-400"
+              className="ctl w-full"
             />
             {search && (
               <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 text-lg leading-none">×</button>
@@ -495,7 +495,7 @@ export function AdminRequestsPage() {
                     onChange={e => setAdminRemarks(e.target.value)}
                     placeholder="Enter notes about your decision (required)..."
                     rows={3}
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-[13px] text-slate-700 resize-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 bg-white"
+                    className="ctl w-full resize-none"
                   />
                 </div>
               )}

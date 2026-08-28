@@ -81,7 +81,7 @@ export function ExportOptionsPage() {
                   <th key={r.name} className="px-3 py-2 text-center min-w-[130px]">
                     <div className="text-[12px] font-bold text-slate-700">{r.displayName || r.name}</div>
                     <select value="" onChange={(e) => { if (e.target.value) setWholeRole(r.name, e.target.value); }}
-                      className="mt-1 text-[10px] text-slate-400 bg-transparent border border-slate-200 rounded px-1 py-0.5 cursor-pointer">
+                      className="ctl mt-1">
                       <option value="">set all…</option>
                       {FORMATS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
                     </select>

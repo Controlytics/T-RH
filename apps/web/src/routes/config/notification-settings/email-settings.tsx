@@ -346,7 +346,7 @@ function EmailTab() {
             </div>
           </div>
           <label className="flex items-center gap-2 text-sm text-slate-600">
-            <input type="checkbox" {...register('secure')} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+            <input type="checkbox" {...register('secure')} className="ctl-check" />
             Enable TLS (use for port 465, leave unchecked for STARTTLS on port 587)
           </label>
         </div>
@@ -501,7 +501,7 @@ function EmailTab() {
                         type="text"
                         readOnly
                         value={redirectData?.redirectUri ?? 'Loading...'}
-                        className="flex-1 px-3 py-2 bg-white border border-indigo-200 rounded-lg text-sm text-slate-700 font-mono"
+                        className="ctl flex-1 font-mono"
                       />
                       <button
                         type="button"
@@ -754,7 +754,7 @@ function SmsTab() {
                 key={p.value}
                 className={`flex items-start gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all ${provider === p.value ? 'border-green-500 bg-green-50' : 'border-slate-200 hover:border-slate-300'}`}
               >
-                <input type="radio" value={p.value} {...register('provider')} className="mt-1" />
+                <input type="radio" value={p.value} {...register('provider')} className="ctl-radio mt-1" />
                 <div>
                   <div className="font-medium text-slate-800">{p.label}</div>
                   <div className="text-xs text-slate-500">{p.description}</div>
@@ -834,7 +834,7 @@ function SmsTab() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">HTTP Method</label>
-                <select {...register('httpGatewayMethod')} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                <select {...register('httpGatewayMethod')} className="ctl w-full">
                   <option value="POST">POST</option>
                   <option value="GET">GET</option>
                 </select>
@@ -843,7 +843,7 @@ function SmsTab() {
                 <label className="block text-sm font-medium text-slate-700 mb-1">Body Template (for POST)</label>
                 <textarea
                   {...register('httpGatewayBodyTemplate')}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono h-24"
+                  className="ctl w-full font-mono"
                   placeholder={'{"to": "{phone}", "message": "{message}"}'}
                 />
               </div>

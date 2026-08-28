@@ -430,7 +430,7 @@ export function InstrumentDetailPage() {
                   <select
                     value={draft.profileId ?? inst.profileId}
                     onChange={(e) => setDraft({ ...draft, profileId: e.target.value })}
-                    className="w-full rounded-lg border border-slate-200 px-2 py-2 text-sm"
+                    className="ctl w-full"
                     aria-label="Profile"
                   >
                     {profiles?.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -441,7 +441,7 @@ export function InstrumentDetailPage() {
                     type="checkbox"
                     checked={draft.isActive ?? false}
                     onChange={(e) => setDraft({ ...draft, isActive: e.target.checked })}
-                  />
+                  className="ctl-check" />
                   Active — unchecking stops this device&apos;s data being accepted immediately
                 </label>
                 <label className="block space-y-1">
@@ -475,7 +475,7 @@ export function InstrumentDetailPage() {
                     type="checkbox"
                     checked={draft.isGateway ?? false}
                     onChange={(e) => setDraft({ ...draft, isGateway: e.target.checked })}
-                  />
+                  className="ctl-check" />
                   Is Gateway — reports telemetry on behalf of the instruments linked to it
                 </label>
                 <div className="flex justify-end gap-2">

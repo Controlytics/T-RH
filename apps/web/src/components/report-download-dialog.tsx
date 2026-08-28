@@ -99,7 +99,7 @@ export function ReportDownloadDialog({
                   type="datetime-local"
                   value={toLocalInput(from)}
                   onChange={(e) => setFrom(fromLocalInput(e.target.value))}
-                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
+                  className="ctl w-full"
                 />
               </div>
               <div>
@@ -111,7 +111,7 @@ export function ReportDownloadDialog({
                   type="datetime-local"
                   value={toLocalInput(to)}
                   onChange={(e) => setTo(fromLocalInput(e.target.value))}
-                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
+                  className="ctl w-full"
                 />
               </div>
             </div>
@@ -129,7 +129,7 @@ export function ReportDownloadDialog({
               onBlur={() => setTouched(true)}
               maxLength={MAX_REMARKS}
               disabled={busy}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none disabled:bg-slate-50"
+              className="ctl w-full"
               placeholder="Why this report is being generated"
             />
             <p className="mt-1 text-xs text-slate-500">

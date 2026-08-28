@@ -80,7 +80,7 @@ export function UserUnlockDialog({
                 type={showUnlockPassword ? 'text' : 'password'}
                 value={unlockPassword}
                 readOnly
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-mono text-sm focus:outline-none"
+                className="ctl w-full font-mono"
               />
               <button
                 type="button"

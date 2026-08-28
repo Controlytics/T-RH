@@ -87,7 +87,7 @@ export function TokenDialog({
         <label className="flex items-start gap-2 text-sm text-slate-700">
           <input
             type="checkbox"
-            className="mt-0.5"
+            className="ctl-check mt-0.5"
             checked={acknowledged}
             onChange={(e) => setAcknowledged(e.target.checked)}
           />

@@ -88,7 +88,7 @@ export function EditUserPage() {
   //
   // react-hook-form pushes `values` into the DOM when `userData` arrives, but
   // the options come from a SEPARATE SWR request (/roles/:role/creatable) that
-  // usually resolves later. Setting a <select>'s value to an option that isn't
+  // usually resolves later. Setting a <select className="ctl">'s value to an option that isn't
   // rendered yet is a no-op, and when the options do appear the browser falls
   // back to the first one — so every user's edit page displayed "Super Admin"
   // regardless of their actual role. Verified 2026-08-08 on both a directory

@@ -66,7 +66,7 @@ export function AcknowledgeDialog({
               onChange={(e) => setReason(e.target.value)}
               onBlur={() => setTouched(true)}
               maxLength={MAX_ACK_REASON}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
+              className="ctl w-full"
               placeholder="What happened, and what was done about it"
             />
             <p className="mt-1 text-xs text-slate-500">
@@ -89,7 +89,7 @@ export function AcknowledgeDialog({
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
+              className="ctl w-full"
               autoComplete="off"
             />
           </div>

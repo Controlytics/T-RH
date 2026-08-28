@@ -215,7 +215,7 @@ export function AccessMatrixPage() {
                               type="checkbox"
                               checked={isAssigned(m.moduleKey, r.name)}
                               onChange={() => toggle(m.moduleKey, r.name)}
-                              className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                              className="ctl-check"
                             />
                           </td>
                         ))}
