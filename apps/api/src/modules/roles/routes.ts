@@ -7,8 +7,13 @@ import { roleService } from './role.service.js';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
+import { normalizeScope, type ScopeSelection } from '../instruments/visibility.js';
+import { buildCoveringIndex, type FlNode } from '../functional-locations/tree.js';
 import {
   ATTRIBUTE_ACCESS_MODES,
+  PANELS,
+  PANEL_KEYS,
+  normalizePanels,
   parseAttributeAccess,
   parseInstrumentAttributeKeys,
 } from '@digilog/shared';
@@ -414,17 +419,45 @@ export default async function roleRoutes(app: FastifyInstance) {
   // than instruments: this is an ADMINISTRATIVE surface about who may see what,
   // gated on ROLE_MANAGE, not an instrument read.
   //
-  // NULL vs [] is preserved end to end. `scope: null` means inherit; `scope: []`
-  // means SEE NOTHING. Collapsing them anywhere turns a deny into a grant — see
-  // modules/instruments/visibility.ts.
+  // NULL vs an empty selection is preserved end to end. `scope: null` means
+  // inherit; a selection with both lists empty means SEE NOTHING. Collapsing them
+  // anywhere turns a deny into a grant — see modules/instruments/visibility.ts.
+  //
+  // The wire shape is `{locationIds, instrumentIds}` (2026-08-28). Rows written
+  // before that date hold a bare array of location ids and are NOT migrated —
+  // `normalizeScope` reads both, and it is the only reader on this path for the
+  // same reason it is the only one in visibility.ts: a second `Array.isArray`
+  // test here would report a legacy restricted row as unrestricted.
+
+  const scopeShape = {
+    type: 'object',
+    nullable: true,
+    properties: {
+      locationIds: { type: 'array', items: { type: 'string' } },
+      instrumentIds: { type: 'array', items: { type: 'string' } },
+    },
+    required: ['locationIds', 'instrumentIds'],
+  } as const;
 
   const scopeItem = {
     type: 'object',
     properties: {
       role: { type: 'string' },
-      scope: { type: 'array', items: { type: 'string' }, nullable: true },
+      scope: scopeShape,
     },
   } as const;
+
+  /**
+   * The §11 signature line. Bounded on purpose: `signature_meaning` is
+   * VARCHAR(255) and auditLog does not truncate, so this must stay short however
+   * many ids were picked. It names BOTH counts — saying "N functional location(s)"
+   * became a false statement the moment instruments could be named, the same way
+   * the trend PDF's banner did when its data path was fixed.
+   */
+  const describeScope = (s: { locationIds: string[]; instrumentIds: string[] }) =>
+    s.locationIds.length === 0 && s.instrumentIds.length === 0
+      ? 'NO instruments at all'
+      : `${s.locationIds.length} functional location(s) and ${s.instrumentIds.length} instrument(s)`;
 
   app.get('/instrument-scope', {
     preHandler: [app.requirePermission('ROLE_MANAGE')],
@@ -445,7 +478,7 @@ export default async function roleRoutes(app: FastifyInstance) {
                   username: { type: 'string' },
                   fullName: { type: 'string', nullable: true },
                   role: { type: 'string' },
-                  scope: { type: 'array', items: { type: 'string' }, nullable: true },
+                  scope: scopeShape,
                 },
               },
             },
@@ -462,12 +495,92 @@ export default async function roleRoutes(app: FastifyInstance) {
     ]);
     const byRole = new Map(roleCfgs.map((c) => [c.role, c.instrumentScope]));
     const byUser = new Map(userCfgs.map((c) => [c.userId, c.instrumentScope]));
-    const asScope = (v: unknown) => (Array.isArray(v) ? (v as string[]) : null);
+    // normalizeScope, NOT a local Array.isArray: this endpoint feeds the admin
+    // screen, and a legacy row read as "nothing stored" would render as "All
+    // instruments" beside a user who is in fact restricted — and then be saved
+    // back that way.
+    const asScope = (v: unknown) => normalizeScope(v) ?? null;
     return {
       roles: roles.map((r) => ({ role: r.name, scope: asScope(byRole.get(r.name)) })),
       users: users.map((u) => ({
         userId: u.id, username: u.username, fullName: u.fullName, role: u.role,
         scope: asScope(byUser.get(u.id)),
+      })),
+    };
+  });
+
+  /**
+   * Every instrument, for the scope picker. DELIBERATELY NOT visibility-scoped.
+   *
+   * An admin configuring someone else's scope is themselves subject to
+   * `instrument_scope`. A scoped listing here would show them only their own
+   * instruments, so they would build a scope that silently omitted the rest and
+   * have no way to tell — the same reasoning already recorded for why the alarm
+   * webhook CONFIG routes are unscoped. ROLE_MANAGE is the gate; anyone holding it
+   * can already grant themselves the whole estate through this very screen.
+   *
+   * Returns identity and placement only — no credentials, no readings.
+   */
+  app.get('/instrument-scope/instruments', {
+    preHandler: [app.requirePermission('ROLE_MANAGE')],
+    schema: {
+      tags: ['Roles'],
+      summary: 'Every instrument, for building a visibility scope',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            data: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  code: { type: 'string' },
+                  name: { type: 'string' },
+                  isActive: { type: 'boolean' },
+                  functionalLocationId: { type: 'string', nullable: true },
+                  functionalLocationName: { type: 'string', nullable: true },
+                  coveringLocationIds: { type: 'array', items: { type: 'string' } },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  }, async () => {
+    const [rows, locations] = await Promise.all([
+      prisma.instrument.findMany({
+        select: {
+          id: true, code: true, name: true, isActive: true, functionalLocationId: true,
+          functionalLocation: { select: { name: true } },
+        },
+        orderBy: { code: 'asc' },
+      }),
+      prisma.functionalLocation.findMany({ select: { id: true, name: true, type: true, parentId: true } }),
+    ]);
+
+    /**
+     * `coveringLocationIds` answers "which locations, if selected, already grant
+     * this instrument" — an Area's instruments are covered by that Area AND by its
+     * Block. It is computed HERE, from the same `resolveLocationIds` the query
+     * uses, and shipped to the client.
+     *
+     * The editor needs it to show a location's instruments as already included.
+     * The browser must NOT work it out from the tree: that is the containment
+     * rule, it is a policy decision, and a second copy of it in the client is the
+     * exact drift this repo has been bitten by before.
+     */
+    const covering = buildCoveringIndex(locations as FlNode[]);
+    return {
+      data: rows.map((r) => ({
+        id: r.id, code: r.code, name: r.name, isActive: r.isActive,
+        functionalLocationId: r.functionalLocationId,
+        functionalLocationName: r.functionalLocation?.name ?? null,
+        // An instrument with no location is covered by nothing — it can only be
+        // reached by being named outright.
+        coveringLocationIds: r.functionalLocationId ? covering.get(r.functionalLocationId) ?? [] : [],
       })),
     };
   });
@@ -478,16 +591,13 @@ export default async function roleRoutes(app: FastifyInstance) {
       tags: ['Roles'],
       summary: 'Set a role\'s instrument visibility scope',
       params: { type: 'object', properties: { name: { type: 'string' } } },
-      body: {
-        type: 'object',
-        properties: { scope: { type: 'array', items: { type: 'string' }, nullable: true } },
-      },
+      body: { type: 'object', properties: { scope: scopeShape } },
     },
   }, async (req, reply) => {
     const { ok } = await enforceReauth('UPDATE_ROLE_CONFIG', req, reply);
     if (!ok) return;
     const { name } = req.params as { name: string };
-    const { scope } = req.body as { scope: string[] | null };
+    const { scope } = req.body as { scope: ScopeSelection | null };
     const ctx = buildContext(req);
 
     const before = await prisma.roleConfig.findUnique({ where: { role: name }, select: { instrumentScope: true } });
@@ -498,8 +608,8 @@ export default async function roleRoutes(app: FastifyInstance) {
       // Prisma.DbNull writes a real SQL NULL. Prisma.JsonNull would store the JSON
       // value `null`, a DIFFERENT thing — and this feature's contract rests on NULL
       // (inherit) being distinguishable from [] (see nothing).
-      create: { role: name, instrumentScope: scope ?? Prisma.DbNull, updatedBy: ctx.userId },
-      update: { instrumentScope: scope ?? Prisma.DbNull, updatedBy: ctx.userId },
+      create: { role: name, instrumentScope: (scope as Prisma.InputJsonObject | null) ?? Prisma.DbNull, updatedBy: ctx.userId },
+      update: { instrumentScope: (scope as Prisma.InputJsonObject | null) ?? Prisma.DbNull, updatedBy: ctx.userId },
     });
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole,
@@ -508,8 +618,8 @@ export default async function roleRoutes(app: FastifyInstance) {
       beforeValue: { instrumentScope: before?.instrumentScope ?? null },
       afterValue: { instrumentScope: scope },
       signatureMeaning: scope === null
-        ? `Role "${name}" instrument visibility set to ALL instruments`
-        : `Role "${name}" instrument visibility set to ${scope.length} functional location(s)`,
+        ? `Role "${name.slice(0, 60)}" instrument visibility set to ALL instruments`
+        : `Role "${name.slice(0, 60)}" instrument visibility set to ${describeScope(scope)}`,
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
     return { role: name, scope };
@@ -689,16 +799,13 @@ export default async function roleRoutes(app: FastifyInstance) {
       tags: ['Roles'],
       summary: 'Set one user\'s instrument visibility scope, overriding their role',
       params: { type: 'object', properties: { userId: { type: 'string' } } },
-      body: {
-        type: 'object',
-        properties: { scope: { type: 'array', items: { type: 'string' }, nullable: true } },
-      },
+      body: { type: 'object', properties: { scope: scopeShape } },
     },
   }, async (req, reply) => {
     const { ok } = await enforceReauth('UPDATE_ROLE_CONFIG', req, reply);
     if (!ok) return;
     const { userId } = req.params as { userId: string };
-    const { scope } = req.body as { scope: string[] | null };
+    const { scope } = req.body as { scope: ScopeSelection | null };
     const ctx = buildContext(req);
 
     const user = await prisma.user.findUnique({ where: { id: userId }, select: { username: true, role: true } });
@@ -708,8 +815,8 @@ export default async function roleRoutes(app: FastifyInstance) {
     await prisma.userConfig.upsert({
       where: { userId },
       // See the role endpoint above: DbNull, not JsonNull.
-      create: { userId, instrumentScope: scope ?? Prisma.DbNull, updatedBy: ctx.userId },
-      update: { instrumentScope: scope ?? Prisma.DbNull, updatedBy: ctx.userId },
+      create: { userId, instrumentScope: (scope as Prisma.InputJsonObject | null) ?? Prisma.DbNull, updatedBy: ctx.userId },
+      update: { instrumentScope: (scope as Prisma.InputJsonObject | null) ?? Prisma.DbNull, updatedBy: ctx.userId },
     });
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole,
@@ -718,13 +825,171 @@ export default async function roleRoutes(app: FastifyInstance) {
       beforeValue: { instrumentScope: before?.instrumentScope ?? null },
       afterValue: { instrumentScope: scope },
       // An override REPLACES the role scope and can therefore WIDEN it, so the
-      // signature says which user and how many locations rather than just "changed".
+      // signature says which user and what they were given rather than just "changed".
       signatureMeaning: scope === null
-        ? `User "${user.username}" instrument visibility reset to inherit role "${user.role}"`
-        : `User "${user.username}" instrument visibility overridden to ${scope.length} functional location(s)`,
+        ? `User "${user.username.slice(0, 60)}" instrument visibility reset to inherit role "${user.role.slice(0, 60)}"`
+        : `User "${user.username.slice(0, 60)}" instrument visibility overridden to ${describeScope(scope)}`,
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
     return { userId, scope };
+  });
+
+
+  // --- Panel assignment (2026-08-28) ----------------------------------------
+  //
+  // Same module, permission, reauth action and audit action as instrument scope
+  // above, deliberately: panels and instruments are assigned on one screen, so a
+  // second set of conventions would give "why does this user see nothing?" two
+  // answers instead of one.
+  //
+  // A hidden panel is a DISPLAY decision, NOT an access control - it does not stop
+  // the data being fetched. instrument_scope is what restricts data, and the editor
+  // screen says so.
+
+  const panelsShape = {
+    type: 'array',
+    nullable: true,
+    items: { type: 'string', enum: [...PANEL_KEYS] },
+  } as const;
+
+  /**
+   * The 21 CFR Part 11 signature line. Bounded on purpose: `signature_meaning` is
+   * VARCHAR(255) and auditLog does not truncate, so this must stay short however
+   * many panels were picked. "NO panels" is spelled out rather than rendered as
+   * "0 of 7", which invites the reader to wonder whether the save failed.
+   */
+  const describePanels = (panels: string[] | null) =>
+    panels === null ? 'ALL panels'
+      : panels.length === 0 ? 'NO panels'
+        : `${panels.length} of ${PANELS.length}`;
+
+  app.get('/panel-access', {
+    preHandler: [app.requirePermission('ROLE_MANAGE')],
+    schema: {
+      tags: ['Roles'],
+      summary: 'Panel assignment for every role and every user override',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            roles: {
+              type: 'array',
+              items: { type: 'object', properties: { role: { type: 'string' }, panels: panelsShape } },
+            },
+            users: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  userId: { type: 'string' },
+                  username: { type: 'string' },
+                  fullName: { type: 'string', nullable: true },
+                  role: { type: 'string' },
+                  panels: panelsShape,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  }, async () => {
+    const [roles, roleCfgs, users, userCfgs] = await Promise.all([
+      prisma.role.findMany({ where: { isActive: true }, select: { name: true }, orderBy: { name: 'asc' } }),
+      prisma.roleConfig.findMany({ select: { role: true, dashboardCards: true } }),
+      prisma.user.findMany({ select: { id: true, username: true, fullName: true, role: true }, orderBy: { username: 'asc' } }),
+      prisma.userConfig.findMany({ select: { userId: true, dashboardCards: true } }),
+    ]);
+    const byRole = new Map(roleCfgs.map((c) => [c.role, c.dashboardCards]));
+    const byUser = new Map(userCfgs.map((c) => [c.userId, c.dashboardCards]));
+    // normalizePanels, never a local Array.isArray: this endpoint feeds the admin
+    // screen, and a stored row read as "nothing set" would render as "All panels"
+    // beside a role that is in fact restricted - and then be saved back that way.
+    const read = (v: unknown) => normalizePanels(v) ?? null;
+    return {
+      roles: roles.map((r) => ({ role: r.name, panels: read(byRole.get(r.name)) })),
+      users: users.map((u) => ({
+        userId: u.id, username: u.username, fullName: u.fullName, role: u.role,
+        panels: read(byUser.get(u.id)),
+      })),
+    };
+  });
+
+  app.put('/panel-access/role/:name', {
+    preHandler: [app.requirePermission('ROLE_MANAGE')],
+    schema: {
+      tags: ['Roles'],
+      summary: "Set a role's assignable panels",
+      params: { type: 'object', properties: { name: { type: 'string' } } },
+      body: { type: 'object', properties: { panels: panelsShape } },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('UPDATE_ROLE_CONFIG', req, reply);
+    if (!ok) return;
+    const { name } = req.params as { name: string };
+    const { panels } = req.body as { panels: string[] | null };
+    const ctx = buildContext(req);
+
+    const before = await prisma.roleConfig.findUnique({ where: { role: name }, select: { dashboardCards: true } });
+    await prisma.roleConfig.upsert({
+      where: { role: name },
+      // Prisma.DbNull writes a real SQL NULL. Prisma.JsonNull would store the JSON
+      // value `null`, a DIFFERENT thing - and this feature rests on NULL (inherit)
+      // being distinguishable from [] (no panels).
+      create: { role: name, dashboardCards: (panels as Prisma.InputJsonValue | null) ?? Prisma.DbNull, updatedBy: ctx.userId },
+      update: { dashboardCards: (panels as Prisma.InputJsonValue | null) ?? Prisma.DbNull, updatedBy: ctx.userId },
+    });
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole,
+      action: 'CONFIG_CHANGED',
+      targetType: 'role_config', targetId: name,
+      beforeValue: { dashboardCards: before?.dashboardCards ?? null },
+      afterValue: { dashboardCards: panels },
+      signatureMeaning: `Role "${name.slice(0, 60)}" panels set to ${describePanels(panels)}`,
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    });
+    return { role: name, panels };
+  });
+
+  app.put('/panel-access/user/:userId', {
+    preHandler: [app.requirePermission('ROLE_MANAGE')],
+    schema: {
+      tags: ['Roles'],
+      summary: "Set one user's assignable panels, overriding their role",
+      params: { type: 'object', properties: { userId: { type: 'string' } } },
+      body: { type: 'object', properties: { panels: panelsShape } },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('UPDATE_ROLE_CONFIG', req, reply);
+    if (!ok) return;
+    const { userId } = req.params as { userId: string };
+    const { panels } = req.body as { panels: string[] | null };
+    const ctx = buildContext(req);
+
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { username: true, role: true } });
+    if (!user) return reply.code(404).send({ error: 'NOT_FOUND', message: 'User not found.' });
+
+    const before = await prisma.userConfig.findUnique({ where: { userId }, select: { dashboardCards: true } });
+    await prisma.userConfig.upsert({
+      where: { userId },
+      // See the role endpoint above: DbNull, not JsonNull.
+      create: { userId, dashboardCards: (panels as Prisma.InputJsonValue | null) ?? Prisma.DbNull, updatedBy: ctx.userId },
+      update: { dashboardCards: (panels as Prisma.InputJsonValue | null) ?? Prisma.DbNull, updatedBy: ctx.userId },
+    });
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole,
+      action: 'CONFIG_CHANGED',
+      targetType: 'user_config', targetId: userId,
+      beforeValue: { dashboardCards: before?.dashboardCards ?? null },
+      afterValue: { dashboardCards: panels },
+      // An override REPLACES the role's list and can therefore WIDEN it, so the
+      // signature names the user and what they were given, not just "changed".
+      signatureMeaning: panels === null
+        ? `User "${user.username.slice(0, 60)}" panels reset to inherit role "${user.role.slice(0, 60)}"`
+        : `User "${user.username.slice(0, 60)}" panels overridden to ${describePanels(panels)}`,
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    });
+    return { userId, panels };
   });
 
 }
