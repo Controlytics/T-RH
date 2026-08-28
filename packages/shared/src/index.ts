@@ -22,6 +22,11 @@ export {
 } from './types/panels.js';
 export type { PanelDefinition, PanelKey, PanelPage } from './types/panels.js';
 
+export {
+  DEFAULT_DASHBOARD_LAYOUT, LAYOUT_VERSION, GRID_COLUMNS, normalizeLayout, resolveLayout,
+} from './types/dashboard-layout.js';
+export type { DashboardLayout, LayoutItem } from './types/dashboard-layout.js';
+
 export { SIDEBAR_PRIVILEGE_MAP, getPrivilegesForSection } from './types/sidebar-privilege-map.js';
 export type { SidebarSection } from './types/sidebar-privilege-map.js';
 
