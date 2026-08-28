@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 
 // Global dialog stack: only the topmost dialog should handle Escape key
@@ -14,6 +14,28 @@ interface DialogProps {
 }
 
 export function Dialog({ open, onClose, children, className, priority }: DialogProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  /*
+   * Focus, on open and on close.
+   *
+   * This dialog had none. Opening one left focus on the button behind it, so a
+   * keyboard user's next Tab walked the page UNDERNEATH the overlay — including,
+   * on the governed config screens, the form they had just been asked to
+   * re-authenticate for. Closing it dropped focus to the top of the document,
+   * losing their place entirely.
+   *
+   * The panel takes focus on open (tabIndex={-1}, so it is focusable
+   * programmatically without joining the tab order) and the previously focused
+   * element gets it back on close.
+   */
+  useEffect(() => {
+    if (!open) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    panelRef.current?.focus();
+    return () => previouslyFocused?.focus?.();
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
 
@@ -48,8 +70,15 @@ export function Dialog({ open, onClose, children, className, priority }: DialogP
         onMouseDown={(e) => e.preventDefault()}
       />
       <div
+        ref={panelRef}
+        // A dialog that is not announced as one is, to a screen reader, simply
+        // more page: aria-modal tells assistive technology the content behind
+        // it is inert, which is what the overlay already says visually.
+        role="dialog"
+        aria-modal="true"
+        tabIndex={-1}
         className={cn(
-          `relative w-full max-w-lg rounded-[var(--radius-card)] bg-white p-6`,
+          `relative w-full max-w-lg rounded-[var(--radius-card)] bg-white p-6 focus:outline-none`,
           zContent,
           'shadow-[var(--elev-3)] border border-slate-200/60',
           'animate-fade-in',
@@ -71,7 +100,7 @@ export function DialogTitle({ className, ...props }: React.HTMLAttributes<HTMLHe
   return (
     <h2
       className={cn(
-        'text-xl font-semibold text-slate-800',
+        'text-[19px] font-semibold leading-tight text-slate-800',
         className
       )}
       {...props}
