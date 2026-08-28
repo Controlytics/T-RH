@@ -17,6 +17,11 @@ export type { FeaturePrivilege } from './types/feature-privileges.js';
 export { SIDEBAR_ITEMS } from './types/sidebar-items.js';
 export type { SidebarItem } from './types/sidebar-items.js';
 
+export {
+  PANELS, PANEL_KEYS, PANEL_PAGES, isPanelKey, normalizePanels, resolvePanels, panelVisible,
+} from './types/panels.js';
+export type { PanelDefinition, PanelKey, PanelPage } from './types/panels.js';
+
 export { SIDEBAR_PRIVILEGE_MAP, getPrivilegesForSection } from './types/sidebar-privilege-map.js';
 export type { SidebarSection } from './types/sidebar-privilege-map.js';
 
