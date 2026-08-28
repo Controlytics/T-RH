@@ -10,7 +10,7 @@ interface UserStatsBarProps {
 export function UserStatsBar({ stats }: UserStatsBarProps) {
   return (
     <div className="grid grid-cols-4 gap-4">
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-4">
+      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-sm p-4">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-xl bg-blue-100">
             <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -23,7 +23,7 @@ export function UserStatsBar({ stats }: UserStatsBarProps) {
           </div>
         </div>
       </div>
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-4">
+      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-sm p-4">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-xl bg-emerald-100">
             <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -36,7 +36,7 @@ export function UserStatsBar({ stats }: UserStatsBarProps) {
           </div>
         </div>
       </div>
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-4">
+      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-sm p-4">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-xl bg-amber-100">
             <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -49,7 +49,7 @@ export function UserStatsBar({ stats }: UserStatsBarProps) {
           </div>
         </div>
       </div>
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-4">
+      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-sm p-4">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-xl bg-red-100">
             <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -107,11 +107,23 @@
   --color-sidebar-accent: #2d4a6f;
   --color-sidebar-muted: #94a3b8;
 
-  /* Border radius */
-  --radius-sm: 0.375rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.75rem;
-  --radius-xl: 1rem;
+  /* ── Border radius: the LEGACY scale, aliased onto the new one ───────────
+     These four are not a second vocabulary any more. Tailwind generates
+     `rounded-sm/md/lg/xl` from them and those utilities appear ~760 times
+     across the route tree, so DELETING them would silently drop the radius
+     from every one of those elements. Pointing them at --radius-control and
+     --radius-card instead converges the whole application on two radii
+     without touching a single page, and takes `rounded-xl` from 16px down to
+     10px — most of why the old screens read as rounded rather than
+     industrial.
+
+     `rounded-2xl` is deliberately NOT aliased: it is the dashboard panel
+     cards, whose geometry was tuned with the operator (see .panel-card), and
+     `rounded-full` stays full for pills and avatars. */
+  --radius-sm: var(--radius-control);   /*  6px */
+  --radius-md: var(--radius-control);   /*  6px */
+  --radius-lg: var(--radius-card);      /* 10px */
+  --radius-xl: var(--radius-card);      /* 10px */
 }
 
 * {
@@ -137,11 +149,31 @@
   background-color: #94a3b8;
 }
 
-/* 2026-05-21 UI refresh font stack */
+/* ── The application's type, corrected 2026-08-28 ────────────────────────────
+   This block used to name Bricolage Grotesque and Sora, both fetched from
+   fonts.googleapis.com by a <link> in index.html. Two things were wrong with
+   that, and they compounded:
+
+     1. Inter was added as a self-hosted dependency (@fontsource-variable/inter)
+        and set as --font-sans, but `body` below reads --font-body. So Inter was
+        downloaded, bundled, and NEVER APPLIED to anything.
+     2. The faces that WERE applied came from a CDN. On the factory network this
+        runs on there may be no route to the internet, so those machines fell
+        back to system-ui and rendered a face nobody chose — which is exactly the
+        failure the self-hosted Inter was added to prevent.
+
+   One face now, self-hosted, offline-correct: Inter. The display slot is kept
+   as a named variable (rather than deleted) because ~40 files use
+   `.font-display`; it now differs from body text by tracking and weight, which
+   is how a single family carries a hierarchy.
+
+   Mono is a SYSTEM stack. Numerals in a §11 record must line up in columns, and
+   `font-variant-numeric: tabular-nums` on .font-mono-tab delivers that from the
+   operating system's own face without a second network dependency. */
 :root {
-  --font-display: 'Bricolage Grotesque', 'SF Pro Display', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  --font-body: 'Sora', 'SF Pro Text', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, 'Cascadia Code', Menlo, monospace;
+  --font-display: 'Inter Variable', Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-body: 'Inter Variable', Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', 'SF Mono', Menlo, Consolas, monospace;
 }
 
 body {

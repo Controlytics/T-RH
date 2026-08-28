@@ -7,8 +7,18 @@ import { isSidebarItemVisible } from './sidebar-visibility';
 
 interface SidebarProps {
   userRole: string;
+  /** Off-canvas state on a narrow viewport. */
   open: boolean;
   onClose: () => void;
+  /**
+   * Rail mode on a wide viewport: icons only, labels on hover.
+   *
+   * Separate from `open` on purpose. `open` is a phone sliding the whole panel
+   * in over the content; `collapsed` is a desktop trading label width for chart
+   * width while keeping every destination reachable. Conflating them gives a
+   * tablet a sidebar that is both half-width and half-off-screen.
+   */
+  collapsed?: boolean;
 }
 
 interface NavItem {
@@ -138,7 +148,7 @@ export const allNavItems: NavItem[] = [
   },
 ];
 
-export function Sidebar({ userRole: _userRole, open, onClose }: SidebarProps) {
+export function Sidebar({ userRole: _userRole, open, onClose, collapsed = false }: SidebarProps) {
   const location = useLocation();
   const { branding } = useBranding();
   const { user } = useAuth();
@@ -183,41 +193,66 @@ export function Sidebar({ userRole: _userRole, open, onClose }: SidebarProps) {
     <>
       {/* Backdrop overlay — visible on viewports < 768 px when sidebar is open. */}
       {open && (
-        <div className="fixed inset-0 bg-black/30 z-40 md:hidden" onClick={onClose} />
+        <div className="fixed inset-0 z-40 bg-slate-900/45 backdrop-blur-[2px] md:hidden" onClick={onClose} />
       )}
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-50 flex w-64 max-w-[85vw] flex-col transition-transform duration-300 md:static md:max-w-none md:translate-x-0',
-          open ? 'translate-x-0' : '-translate-x-full'
+          'fixed inset-y-0 left-0 z-50 flex max-w-[85vw] flex-col transition-[transform,width] duration-300 md:static md:max-w-none md:translate-x-0',
+          // The rail is 72px: enough for a 20px icon with a real hit target
+          // around it, and narrow enough that giving up the labels buys back
+          // meaningful width for the charts and tables beside it.
+          collapsed ? 'w-[72px]' : 'w-64',
+          open ? 'translate-x-0' : '-translate-x-full',
         )}
         style={{ background: `linear-gradient(180deg, ${branding.primaryColor} 0%, ${branding.loginBgStart} 100%)` }}
       >
-      {/* Logo Section */}
-      <div className="flex flex-col items-center py-3 border-b border-white/10">
-        <Link to="/" className="flex flex-col items-center w-full px-3">
+      {/* ── Brand ───────────────────────────────────────────────────────────
+          Collapsed, this drops to the mark alone. The application NAME is the
+          first thing to go: it is the one piece of the sidebar that the header
+          repeats, so losing it here costs nothing. */}
+      <div className={cn('flex flex-col items-center border-b border-white/10', collapsed ? 'py-3' : 'py-3.5')}>
+        <Link
+          to="/"
+          className="flex w-full flex-col items-center rounded-[var(--radius-card)] px-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/70"
+          title={collapsed ? branding.appName : undefined}
+        >
           {branding.logoUrl ? (
-            <div className="bg-white rounded-xl px-3 py-2 shadow-sm max-w-full flex items-center justify-center">
+            <div className="flex max-w-full items-center justify-center rounded-[var(--radius-card)] bg-white px-2.5 py-1.5 shadow-[var(--elev-1)]">
               <img
                 src={branding.logoUrl}
                 alt={branding.appName}
-                className="max-w-full max-h-12 w-auto h-auto object-contain"
+                className={cn('h-auto w-auto max-w-full object-contain', collapsed ? 'max-h-8' : 'max-h-12')}
               />
             </div>
           ) : (
             <div
-              className="flex h-12 w-12 items-center justify-center rounded-xl text-white text-sm font-bold shadow-lg"
+              className={cn(
+                'flex items-center justify-center rounded-[var(--radius-card)] font-bold text-white shadow-[var(--elev-2)]',
+                collapsed ? 'h-10 w-10 text-xs' : 'h-12 w-12 text-sm',
+              )}
               style={{ background: `linear-gradient(135deg, ${branding.secondaryColor} 0%, ${branding.accentColor} 100%)` }}
             >
               {branding.logoText}
             </div>
           )}
-          <span className="text-sm font-semibold text-white text-center leading-tight mt-2 px-1 break-words">{branding.appName}</span>
+          {!collapsed && (
+            <span className="mt-2 break-words px-1 text-center text-[13px] font-semibold leading-tight text-white">
+              {branding.appName}
+            </span>
+          )}
         </Link>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 space-y-1 p-4 overflow-y-auto">
-        <p className="px-3 mb-3 text-xs font-semibold text-white/40 uppercase tracking-wider">Menu</p>
+      {/* ── Navigation ──────────────────────────────────────────────────────
+          A FLAT list, deliberately NOT grouped into sections. The order here is
+          the operator's: `config.sidebarItems` is an ordered array that Config →
+          Roles & Access → Sidebar rearranges. Imposing "Operations / Admin /
+          System" headings would silently override an arrangement someone chose
+          on purpose — a worse outcome than a longer list. */}
+      <nav className={cn('flex-1 space-y-1 overflow-y-auto py-4', collapsed ? 'px-2' : 'px-3')}>
+        {!collapsed && (
+          <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/40">Menu</p>
+        )}
         {orderedItems.map((item) => {
           const active = item.href === '/'
             ? location.pathname === '/'
@@ -228,31 +263,59 @@ export function Sidebar({ userRole: _userRole, open, onClose }: SidebarProps) {
               key={item.href}
               to={item.href}
               onClick={onClose}
+              aria-current={active ? 'page' : undefined}
+              // The native tooltip IS the label when there is no label. Not a
+              // custom popover: this has to work for someone tabbing through
+              // without a pointer, and `title` is what gets announced.
+              title={collapsed ? item.label : undefined}
               className={cn(
-                'flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200',
+                'group relative flex items-center rounded-[var(--radius-card)] text-[14px] font-medium transition-colors duration-150',
+                'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/70',
+                collapsed ? 'h-11 justify-center' : 'gap-3 px-3 py-2.5',
                 active
-                  ? 'bg-white/15 text-white shadow-lg backdrop-blur-sm'
+                  ? 'bg-white/15 text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.08)]'
                   : 'text-white/70 hover:bg-white/10 hover:text-white',
               )}
             >
-              <span className={cn('transition-colors', active ? 'text-white' : 'text-white/60')}>
+              {/* The active RAIL is positioned, not a border-left: a border
+                  would be clipped by this item's own rounded corners and read
+                  as a smear — the same reason .panel-card__rail is positioned. */}
+              {active && (
+                <span
+                  aria-hidden
+                  className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-white"
+                />
+              )}
+              <span className={cn('shrink-0 transition-colors', active ? 'text-white' : 'text-white/60 group-hover:text-white')}>
                 {item.icon}
               </span>
-              {item.label}
-              {active && (
-                <div className="ml-auto w-1.5 h-1.5 rounded-full bg-white" />
-              )}
+              {!collapsed && <span className="truncate">{item.label}</span>}
             </Link>
           );
         })}
       </nav>
 
-      {/* Footer */}
-      <div className="p-4 border-t border-white/10">
-        <div className="rounded-xl bg-white/5 p-4 backdrop-blur-sm">
-          <p className="text-xs font-medium text-white/80">{branding.companyName}</p>
-          <p className="text-xs text-white/40 mt-1">21 CFR Part 11 Compliant</p>
-        </div>
+      {/* ── Footer ──────────────────────────────────────────────────────────
+          The compliance statement is the reason this product exists, so it
+          stays visible. Collapsed, it reduces to the §11 mark with the full
+          sentence on hover. */}
+      <div className={cn('border-t border-white/10', collapsed ? 'p-2' : 'p-3')}>
+        {collapsed ? (
+          <div
+            className="flex h-10 items-center justify-center rounded-[var(--radius-card)] bg-white/5 text-[10px] font-semibold tracking-wide text-white/70"
+            title={`${branding.companyName} — 21 CFR Part 11 Compliant`}
+          >
+            §11
+          </div>
+        ) : (
+          <div className="rounded-[var(--radius-card)] bg-white/5 p-3">
+            <p className="truncate text-[12px] font-medium text-white/80">{branding.companyName}</p>
+            <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-white/45">
+              <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />
+              21 CFR Part 11 Compliant
+            </p>
+          </div>
+        )}
       </div>
     </aside>
     </>

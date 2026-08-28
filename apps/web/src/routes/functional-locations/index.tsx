@@ -102,7 +102,7 @@ export default function FunctionalLocationsPage() {
       {isLoading && tree.length === 0 && (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {[0, 1, 2].map((i) => (
-            <div key={i} className="h-40 animate-pulse rounded-2xl border border-slate-200 bg-slate-50" />
+            <div key={i} className="h-40 animate-pulse rounded-[var(--radius-card)] border border-slate-200 bg-slate-50" />
           ))}
         </div>
       )}

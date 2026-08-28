@@ -49,7 +49,7 @@ export function Dialog({ open, onClose, children, className, priority }: DialogP
       />
       <div
         className={cn(
-          `relative w-full max-w-lg rounded-2xl bg-white p-6`,
+          `relative w-full max-w-lg rounded-[var(--radius-card)] bg-white p-6`,
           zContent,
           'shadow-2xl border border-slate-200/60',
           'animate-fade-in',

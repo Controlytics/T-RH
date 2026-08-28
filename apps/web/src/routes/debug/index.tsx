@@ -184,7 +184,7 @@ export function DebugTracesPage() {
       {/* Page Header */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-4">
-          <div className="p-3 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/25">
+          <div className="p-3 rounded-[var(--radius-card)] bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/25">
             <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" />
             </svg>
@@ -229,7 +229,7 @@ export function DebugTracesPage() {
       <StatsCards stats={stats} total={total} />
 
       {/* Filters Card */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl shadow-slate-200/40 p-6">
+      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-xl shadow-slate-200/40 p-6">
         <div className="flex items-center gap-2 mb-4">
           <div className="p-2 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600">
             <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -344,7 +344,7 @@ export function DebugTracesPage() {
       </div>
 
       {/* Traces Table Card */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl shadow-slate-200/40 overflow-hidden">
+      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-xl shadow-slate-200/40 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -381,7 +381,7 @@ export function DebugTracesPage() {
                 <tr>
                   <td colSpan={9} className="px-5 py-16 text-center">
                     <div className="flex flex-col items-center gap-4">
-                      <div className="p-4 rounded-2xl bg-slate-100">
+                      <div className="p-4 rounded-[var(--radius-card)] bg-slate-100">
                         <svg className="w-10 h-10 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" />
                         </svg>
@@ -525,7 +525,7 @@ export function DebugTracesPage() {
 
       {/* Pagination */}
       {data && totalPages > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-4">
+        <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-sm p-4">
           <div className="flex items-center justify-between flex-wrap gap-4">
             {/* Rows per page + page info */}
             <div className="flex items-center gap-3 text-sm text-slate-600 flex-wrap">
@@ -586,7 +586,7 @@ export function DebugTracesPage() {
 
       {/* Top Errors Panel (shown when stats available) */}
       {stats && stats.topErrors.length > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl shadow-slate-200/40 p-6">
+        <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-xl shadow-slate-200/40 p-6">
           <div className="flex items-center gap-2 mb-4">
             <div className="p-2 rounded-lg bg-gradient-to-br from-red-500 to-rose-600">
               <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -633,7 +633,7 @@ export function DebugTracesPage() {
 
       {/* Transport Breakdown (shown when stats available) */}
       {stats && Object.keys(stats.byTransport).length > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl shadow-slate-200/40 p-6">
+        <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-xl shadow-slate-200/40 p-6">
           <div className="flex items-center gap-2 mb-4">
             <div className="p-2 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600">
               <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">

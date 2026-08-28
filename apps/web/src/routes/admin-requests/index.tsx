@@ -544,7 +544,7 @@ export function AdminRequestsPage() {
               role="dialog"
               aria-modal="true"
               aria-label="Request processed"
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden focus:outline-none"
+              className="bg-white rounded-[var(--radius-card)] shadow-2xl w-full max-w-md overflow-hidden focus:outline-none"
             >
               <div className="px-6 py-5 bg-gradient-to-br from-emerald-500 to-teal-600 text-white">
                 <div className="flex items-center gap-3">

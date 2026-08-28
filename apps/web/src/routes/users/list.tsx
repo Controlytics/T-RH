@@ -264,7 +264,7 @@ export function UserListPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <div className="p-3 rounded-2xl shadow-lg" style={{ backgroundImage: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
+          <div className="p-3 rounded-[var(--radius-card)] shadow-lg" style={{ backgroundImage: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
             <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
             </svg>
@@ -323,7 +323,7 @@ export function UserListPage() {
 
       {/* Bulk Selection Toolbar */}
       {canDeleteUsers && selectedIds.size > 0 && (
-        <div className="bg-gradient-to-r from-red-50 to-rose-50 rounded-2xl border border-red-200 p-4 flex items-center justify-between">
+        <div className="bg-gradient-to-r from-red-50 to-rose-50 rounded-[var(--radius-card)] border border-red-200 p-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-xl bg-red-100">
               <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -384,7 +384,7 @@ export function UserListPage() {
 
       {/* Pagination — always rendered so the rows-per-page selector is available */}
       {data && data.total > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm">
+        <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-sm">
           <Pagination
             page={page}
             pageSize={perPage}

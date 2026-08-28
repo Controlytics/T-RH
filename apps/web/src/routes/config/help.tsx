@@ -314,7 +314,7 @@ export function HelpArticlesPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* ── Header ── */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-500 via-teal-600 to-cyan-700 p-6 text-white shadow-2xl">
+      <div className="relative overflow-hidden rounded-[var(--radius-card)] bg-gradient-to-br from-emerald-500 via-teal-600 to-cyan-700 p-6 text-white shadow-2xl">
         <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxwYXRoIGQ9Ik0zNiAxOGMzLjMxNCAwIDYgMi42ODYgNiA2cy0yLjY4NiA2LTYgNi02LTIuNjg2LTYtNiAyLjY4Ni02IDYtNiIgc3Ryb2tlPSJyZ2JhKDI1NSwyNTUsMjU1LDAuMSkiIHN0cm9rZS13aWR0aD0iMiIvPjwvZz48L3N2Zz4=')] opacity-30" />
         <div className="relative flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -357,7 +357,7 @@ export function HelpArticlesPage() {
       </div>
 
       {/* ── Filters ── */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl shadow-slate-200/40 overflow-hidden">
+      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-xl shadow-slate-200/40 overflow-hidden">
         <div className="h-1 bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500" />
         <div className="p-5">
           <div className="flex items-center gap-4">
@@ -420,7 +420,7 @@ export function HelpArticlesPage() {
       </div>
 
       {/* ── Table ── */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl shadow-slate-200/40 overflow-hidden">
+      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-xl shadow-slate-200/40 overflow-hidden">
         {isLoading ? (
           <div className="p-16 text-center">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 mb-4 animate-pulse">
@@ -434,7 +434,7 @@ export function HelpArticlesPage() {
           </div>
         ) : articleList.length === 0 ? (
           <div className="p-16 text-center">
-            <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 mb-4">
+            <div className="inline-flex items-center justify-center w-20 h-20 rounded-[var(--radius-card)] bg-gradient-to-br from-slate-100 to-slate-200 mb-4">
               <svg className="w-10 h-10 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
@@ -556,7 +556,7 @@ export function HelpArticlesPage() {
       </div>
 
       {/* ── Info Banner ── */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-50 via-teal-50 to-cyan-50 border border-emerald-100/50 p-5">
+      <div className="relative overflow-hidden rounded-[var(--radius-card)] bg-gradient-to-r from-emerald-50 via-teal-50 to-cyan-50 border border-emerald-100/50 p-5">
         <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-emerald-500/10 to-teal-500/10 rounded-full blur-3xl" />
         <div className="relative flex items-start gap-4">
           <div className="flex-shrink-0 p-3 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/25">

@@ -41,7 +41,7 @@ export function ForgotPasswordPage() {
       }}
     >
       <div className="w-full max-w-md">
-        <div className="relative bg-white/95 backdrop-blur-sm rounded-3xl shadow-2xl overflow-hidden">
+        <div className="relative bg-white/95 backdrop-blur-sm rounded-[var(--radius-card)] shadow-2xl overflow-hidden">
           <div
             className="h-2"
             style={{
@@ -62,7 +62,7 @@ export function ForgotPasswordPage() {
                 </div>
               ) : (
                 <div
-                  className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 shadow-xl"
+                  className="inline-flex items-center justify-center w-16 h-16 rounded-[var(--radius-card)] mb-4 shadow-xl"
                   style={{
                     background: `linear-gradient(to bottom right, ${branding.primaryColor}, ${branding.secondaryColor})`,
                     boxShadow: `0 10px 40px -10px ${branding.secondaryColor}50`

@@ -231,7 +231,7 @@ export function AuditTemplatesConfigPage() {
       {/* Bottom Save Bar */}
       {hasChanges && (
         <div className="sticky bottom-4 z-10">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl p-4 flex items-center justify-between border-t border-t-slate-100">
+          <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 shadow-xl p-4 flex items-center justify-between border-t border-t-slate-100">
             <p className="text-sm text-slate-500">You have unsaved changes.</p>
             <div className="flex items-center gap-3">
               <Button variant="outline" size="sm" onClick={() => { setTemplates(null); setSuccessMsg(''); }}>

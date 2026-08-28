@@ -169,7 +169,7 @@ export default function LdapConfigPage() {
           <Link to="/config" className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           </Link>
-          <div className="p-3 rounded-2xl bg-gradient-to-br from-green-500 to-emerald-600 shadow-lg shadow-green-500/25">
+          <div className="p-3 rounded-[var(--radius-card)] bg-gradient-to-br from-green-500 to-emerald-600 shadow-lg shadow-green-500/25">
             <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
             </svg>
@@ -194,7 +194,7 @@ export default function LdapConfigPage() {
       )}
 
       {/* Enable Toggle */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-6">
+      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-sm p-6">
         <div className="flex items-center justify-between">
           <div>
             <h3 className="font-semibold text-slate-800">Enable LDAP Authentication</h3>
@@ -208,7 +208,7 @@ export default function LdapConfigPage() {
       </div>
 
       {/* Connection Settings */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
           <h3 className="font-semibold text-slate-800 flex items-center gap-2">
             <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101" /></svg>
@@ -270,7 +270,7 @@ export default function LdapConfigPage() {
       </div>
 
       {/* Search Settings */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
           <h3 className="font-semibold text-slate-800 flex items-center gap-2">
             <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
@@ -316,7 +316,7 @@ export default function LdapConfigPage() {
       </div>
 
       {/* Attribute Mapping */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
           <h3 className="font-semibold text-slate-800 flex items-center gap-2">
             <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
@@ -352,7 +352,7 @@ export default function LdapConfigPage() {
       </div>
 
       {/* Access Restriction */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
           <div className="flex items-center justify-between">
             <h3 className="font-semibold text-slate-800 flex items-center gap-2">
@@ -415,7 +415,7 @@ export default function LdapConfigPage() {
       </div>
 
       {/* Group-to-Role Mapping */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
           <div className="flex items-center justify-between">
             <h3 className="font-semibold text-slate-800 flex items-center gap-2">

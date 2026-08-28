@@ -24,7 +24,7 @@ export function DisplaySettingsPage() {
     <div className="p-6 max-w-5xl mx-auto space-y-5">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <span className="grid place-items-center w-11 h-11 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/20">
+        <span className="grid place-items-center w-11 h-11 rounded-[var(--radius-card)] bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/20">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M4 6h16M4 12h16M4 18h10" />
           </svg>

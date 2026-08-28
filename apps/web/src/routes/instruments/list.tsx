@@ -75,7 +75,7 @@ function SummaryTile({
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`group relative overflow-hidden rounded-2xl border bg-white p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 ${
+      className={`group relative overflow-hidden rounded-[var(--radius-card)] border bg-white p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 ${
         active ? 'border-slate-400 shadow-md' : 'border-slate-200'
       }`}
     >
@@ -157,7 +157,7 @@ export function InstrumentListPage() {
   return (
     <div className="space-y-6">
       {/* The one place the brand gradient is spent on this page. */}
-      <div className="relative overflow-hidden rounded-2xl p-6 text-white shadow-lg" style={themeGradient}>
+      <div className="relative overflow-hidden rounded-[var(--radius-card)] p-6 text-white shadow-lg" style={themeGradient}>
         <div className="relative z-10 flex flex-wrap items-start justify-between gap-4">
           <div>
             {profileId ? (
@@ -205,7 +205,7 @@ export function InstrumentListPage() {
         {activeWindow} minute{activeWindow === 1 ? '' : 's'} when it declares none.
       </p>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+      <div className="rounded-[var(--radius-card)] border border-slate-200 bg-white p-4">
         <div className="flex flex-wrap gap-3">
           <Input
             className="w-64"
@@ -230,7 +230,7 @@ export function InstrumentListPage() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+      <div className="overflow-hidden rounded-[var(--radius-card)] border border-slate-200 bg-white">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50/80 text-left">
@@ -248,7 +248,7 @@ export function InstrumentListPage() {
               <tr>
                 <td colSpan={3} className="px-4 py-14 text-center">
                   <div
-                    className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl text-white shadow-md"
+                    className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-[var(--radius-card)] text-white shadow-md"
                     style={themeGradientBr}
                   >
                     <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">

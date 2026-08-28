@@ -31,7 +31,7 @@ export function UserFilters({
   rolesData,
 }: UserFiltersProps) {
   return (
-    <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl shadow-slate-200/40 p-6">
+    <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-xl shadow-slate-200/40 p-6">
       <div className="flex items-center gap-2 mb-4">
         <div className="p-2 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-500">
           <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">

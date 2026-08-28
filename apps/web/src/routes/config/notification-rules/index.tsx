@@ -144,7 +144,7 @@ export function NotificationRulesPage() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </Link>
-        <div className="p-3 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 shadow-lg shadow-amber-500/25">
+        <div className="p-3 rounded-[var(--radius-card)] bg-gradient-to-br from-amber-500 to-orange-600 shadow-lg shadow-amber-500/25">
           <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
           </svg>
@@ -273,7 +273,7 @@ function RulesTab() {
   // Rule editor dialog
   if (editing) {
     return (
-      <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-5">
+      <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm space-y-5">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-slate-800">{editing.id ? 'Edit Rule' : 'New Notification Rule'}</h3>
           <button onClick={() => setEditing(null)} className="p-2 rounded-lg hover:bg-slate-100">
@@ -457,7 +457,7 @@ function RulesTab() {
       </div>
 
       {!rules?.length ? (
-        <div className="bg-white rounded-2xl border-2 border-dashed border-slate-200 p-12 text-center">
+        <div className="bg-white rounded-[var(--radius-card)] border-2 border-dashed border-slate-200 p-12 text-center">
           <svg className="w-12 h-12 text-slate-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
           <p className="text-slate-500 font-medium">No notification rules yet</p>
           <p className="text-sm text-slate-400 mt-1">Create rules to send alerts when events occur</p>
@@ -593,7 +593,7 @@ function GroupsTab() {
   if (managingId) {
     const group = groups?.find(g => g.id === managingId);
     return (
-      <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
+      <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-slate-800">Members of &quot;{group?.name}&quot;</h3>
           <button onClick={() => setManagingId(null)} className="p-2 rounded-lg hover:bg-slate-100">
@@ -652,7 +652,7 @@ function GroupsTab() {
       )}
 
       {!groups?.length && !creating ? (
-        <div className="bg-white rounded-2xl border-2 border-dashed border-slate-200 p-12 text-center">
+        <div className="bg-white rounded-[var(--radius-card)] border-2 border-dashed border-slate-200 p-12 text-center">
           <p className="text-slate-500 font-medium">No user groups yet</p>
           <p className="text-sm text-slate-400 mt-1">Create groups to organize notification recipients</p>
         </div>
@@ -739,7 +739,7 @@ function TemplatesTab() {
   if (editing) {
     const selectedEvent = eventTypes?.find(e => e.value === (editing as any).eventType);
     return (
-      <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
+      <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-slate-800">{editing.id ? 'Edit Template' : 'New Template'}</h3>
           <button onClick={() => setEditing(null)} className="p-2 rounded-lg hover:bg-slate-100">
@@ -808,7 +808,7 @@ function TemplatesTab() {
       </div>
 
       {!templates?.length ? (
-        <div className="bg-white rounded-2xl border-2 border-dashed border-slate-200 p-12 text-center">
+        <div className="bg-white rounded-[var(--radius-card)] border-2 border-dashed border-slate-200 p-12 text-center">
           <p className="text-slate-500 font-medium">No templates yet</p>
           <p className="text-sm text-slate-400 mt-1">Create email and SMS templates for your notification rules</p>
         </div>
@@ -913,7 +913,7 @@ function LogsTab() {
       )}
 
       {/* Filters */}
-      <div className="bg-white rounded-2xl border-2 border-slate-200 p-4 shadow-sm">
+      <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-4 shadow-sm">
         <div className="flex flex-wrap gap-3 items-end">
           <div className="flex-1 min-w-[200px]">
             <label className="block text-xs font-medium text-slate-600 mb-1">Search</label>
@@ -953,7 +953,7 @@ function LogsTab() {
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-2xl border-2 border-slate-200 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b border-slate-200">

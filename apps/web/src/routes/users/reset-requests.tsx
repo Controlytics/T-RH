@@ -186,7 +186,7 @@ export function ResetRequestsPage() {
 
       {/* Success Message */}
       {successMessage && (
-        <div className="flex items-center gap-3 rounded-2xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200/60 p-4 shadow-sm">
+        <div className="flex items-center gap-3 rounded-[var(--radius-card)] bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200/60 p-4 shadow-sm">
           <div className="p-2 rounded-xl bg-emerald-100">
             <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -205,7 +205,7 @@ export function ResetRequestsPage() {
       )}
 
       {/* Pending Requests */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl shadow-slate-200/40 overflow-hidden">
+      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-xl shadow-slate-200/40 overflow-hidden">
         <div className="px-6 py-5 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-amber-100">
@@ -226,7 +226,7 @@ export function ResetRequestsPage() {
         <div className="p-6">
           {pendingRequests.length === 0 ? (
             <div className="text-center py-12">
-              <div className="w-16 h-16 mx-auto rounded-2xl bg-slate-100 flex items-center justify-center mb-4">
+              <div className="w-16 h-16 mx-auto rounded-[var(--radius-card)] bg-slate-100 flex items-center justify-center mb-4">
                 <svg className="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
@@ -239,10 +239,10 @@ export function ResetRequestsPage() {
               {pendingRequests.map((request) => (
                 <div
                   key={request.id}
-                  className="group flex items-center justify-between p-5 rounded-2xl bg-gradient-to-r from-slate-50 to-white border border-slate-200/60 hover:border-amber-200 hover:shadow-lg hover:shadow-amber-100/50 transition-all duration-200"
+                  className="group flex items-center justify-between p-5 rounded-[var(--radius-card)] bg-gradient-to-r from-slate-50 to-white border border-slate-200/60 hover:border-amber-200 hover:shadow-lg hover:shadow-amber-100/50 transition-all duration-200"
                 >
                   <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg shadow-amber-500/20">
+                    <div className="w-14 h-14 rounded-[var(--radius-card)] bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg shadow-amber-500/20">
                       <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
                       </svg>
@@ -312,7 +312,7 @@ export function ResetRequestsPage() {
       </div>
 
       {/* Processed Requests History */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl shadow-slate-200/40 overflow-hidden">
+      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-xl shadow-slate-200/40 overflow-hidden">
         <div className="px-6 py-5 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-slate-100">
@@ -326,7 +326,7 @@ export function ResetRequestsPage() {
         <div className="p-6">
           {processedRequests.length === 0 ? (
             <div className="text-center py-12">
-              <div className="w-16 h-16 mx-auto rounded-2xl bg-slate-100 flex items-center justify-center mb-4">
+              <div className="w-16 h-16 mx-auto rounded-[var(--radius-card)] bg-slate-100 flex items-center justify-center mb-4">
                 <svg className="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                 </svg>

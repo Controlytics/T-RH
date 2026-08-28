@@ -14,9 +14,43 @@ import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Button } from '../ui/button';
 import useSWR from 'swr';
 
+/**
+ * Where the sidebar's collapsed state lives.
+ *
+ * `localStorage`, not `sessionStorage`: this is a per-workstation display
+ * preference, not session data. An operator who collapses the rail on a 1366px
+ * panel PC wants it collapsed tomorrow morning too, and nothing here identifies
+ * anybody — the auth token deliberately stays in `sessionStorage`, and this must
+ * not be mistaken for it.
+ */
+const SIDEBAR_COLLAPSED_KEY = 'compliance-core.sidebarCollapsed';
+
+function readCollapsedPreference(): boolean {
+  // Wrapped: a browser set to block site data throws on ACCESS, not on read, and
+  // an exception here would take the whole application shell down with it.
+  try {
+    return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 export function AppLayout() {
   useDragScroll(); // App-wide click-drag horizontal panning for wide tables/grids
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(readCollapsedPreference);
+
+  const toggleCollapsed = () => {
+    setSidebarCollapsed(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? '1' : '0');
+      } catch {
+        // Preference not persisted; the toggle still works for this session.
+      }
+      return next;
+    });
+  };
   const { user, isAuthenticated, isLoading, logout } = useAuth();
   // Super Admin API kill-switch. When OFF and the current user is a SUPER_ADMIN,
   // we replace the whole app with the lockdown screen below (the only escape
@@ -78,7 +112,7 @@ export function AppLayout() {
         }}
       >
         <div className="w-full max-w-md">
-          <div className="relative bg-white/95 backdrop-blur-sm rounded-3xl shadow-2xl overflow-hidden">
+          <div className="relative bg-white/95 backdrop-blur-sm rounded-[var(--radius-card)] shadow-2xl overflow-hidden">
             <div
               className="h-2"
               style={{
@@ -179,9 +213,20 @@ export function AppLayout() {
 
   return (
     <div className="flex h-screen bg-slate-50">
-      <Sidebar userRole={user?.role ?? ''} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <Header user={user} onLogout={logout} onMenuToggle={() => setSidebarOpen(o => !o)} />
+      <Sidebar
+        userRole={user?.role ?? ''}
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        collapsed={sidebarCollapsed}
+      />
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <Header
+          user={user}
+          onLogout={logout}
+          onMenuToggle={() => setSidebarOpen(o => !o)}
+          onCollapseToggle={toggleCollapsed}
+          collapsed={sidebarCollapsed}
+        />
         {/*
           The content pane. The wallpaper lives HERE — after the sidebar and below the
           header — not behind the chrome, and not on the viewport.
@@ -226,7 +271,7 @@ export function AppLayout() {
             Your session will expire due to inactivity in
           </p>
           <div className="mt-3 flex items-center justify-center">
-            <div className="px-6 py-3 rounded-2xl bg-red-50 border border-red-100">
+            <div className="px-6 py-3 rounded-[var(--radius-card)] bg-red-50 border border-red-100">
               <span className="text-4xl font-bold text-red-600">{countdown}</span>
               <span className="text-sm text-red-500 ml-2">seconds</span>
             </div>

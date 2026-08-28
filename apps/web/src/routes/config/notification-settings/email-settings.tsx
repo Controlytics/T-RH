@@ -95,7 +95,7 @@ function ChannelSettingsPage({ defaultTab = 'email' }: { defaultTab?: 'email' | 
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </Link>
-        <div className="p-3 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/25">
+        <div className="p-3 rounded-[var(--radius-card)] bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/25">
           <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
           </svg>
@@ -272,7 +272,7 @@ function EmailTab() {
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Enable toggle */}
-        <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm">
+        <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="font-semibold text-slate-800">Email Notifications</h3>
@@ -286,7 +286,7 @@ function EmailTab() {
         </div>
 
         {/* Mail From */}
-        <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
+        <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm space-y-4">
           <h3 className="font-semibold text-slate-800">Mail From</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -302,7 +302,7 @@ function EmailTab() {
         </div>
 
         {/* SMTP Provider */}
-        <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
+        <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm space-y-4">
           <h3 className="font-semibold text-slate-800">SMTP Provider</h3>
           <div className="flex flex-wrap gap-2">
             {Object.entries(SMTP_PRESETS).map(([key]) => (
@@ -323,7 +323,7 @@ function EmailTab() {
         </div>
 
         {/* SMTP Server Settings */}
-        <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
+        <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm space-y-4">
           <h3 className="font-semibold text-slate-800">SMTP Server Settings</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="md:col-span-2">
@@ -352,7 +352,7 @@ function EmailTab() {
         </div>
 
         {/* Authentication */}
-        <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-5">
+        <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm space-y-5">
           <h3 className="font-semibold text-slate-800">Authentication</h3>
 
           {/* Auth Type Toggle */}
@@ -576,7 +576,7 @@ function EmailTab() {
       </form>
 
       {/* Test Section */}
-      <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
+      <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm space-y-4">
         <h3 className="font-semibold text-slate-800">Send Test Email</h3>
         <p className="text-sm text-slate-500">Enter a recipient email and send a test message to verify your configuration works.</p>
         <div className="flex gap-3 items-end">
@@ -601,7 +601,7 @@ function EmailTab() {
 
       {/* Setup Guides */}
       {authType === 'oauth2' && (oauth2Provider === 'microsoft' || oauth2Provider === 'office365') && (
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl border border-blue-200 p-6">
+        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-[var(--radius-card)] border border-blue-200 p-6">
           <h3 className="font-semibold text-blue-800 mb-3">Microsoft Azure AD OAuth2 Setup Guide</h3>
           <ol className="space-y-2 text-sm text-blue-700 list-decimal list-inside">
             <li>Go to <strong>Azure Portal</strong> &gt; Azure Active Directory &gt; App Registrations</li>
@@ -619,7 +619,7 @@ function EmailTab() {
       )}
 
       {authType === 'oauth2' && oauth2Provider === 'google' && (
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl border border-blue-200 p-6">
+        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-[var(--radius-card)] border border-blue-200 p-6">
           <h3 className="font-semibold text-blue-800 mb-3">Google OAuth2 Setup Guide</h3>
           <ol className="space-y-2 text-sm text-blue-700 list-decimal list-inside">
             <li>Go to <strong>Google Cloud Console</strong> &gt; APIs &amp; Services &gt; Credentials</li>
@@ -633,7 +633,7 @@ function EmailTab() {
       )}
 
       {authType === 'basic' && (
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl border border-blue-200 p-6">
+        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-[var(--radius-card)] border border-blue-200 p-6">
           <h3 className="font-semibold text-blue-800 mb-3">Provider Setup Guide</h3>
           <div className="grid gap-3 text-sm text-blue-700">
             <div><strong>Gmail:</strong> Use App Passwords (Settings &gt; Security &gt; App passwords). Host: smtp.gmail.com, Port: 587</div>
@@ -732,7 +732,7 @@ function SmsTab() {
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Enable toggle */}
-        <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm">
+        <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="font-semibold text-slate-800">SMS Notifications</h3>
@@ -746,7 +746,7 @@ function SmsTab() {
         </div>
 
         {/* Provider Selection */}
-        <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
+        <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm space-y-4">
           <h3 className="font-semibold text-slate-800">SMS Provider</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {SMS_PROVIDERS.map((p) => (
@@ -765,7 +765,7 @@ function SmsTab() {
         </div>
 
         {/* Common Settings */}
-        <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
+        <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm space-y-4">
           <h3 className="font-semibold text-slate-800">Common Settings</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -781,7 +781,7 @@ function SmsTab() {
 
         {/* Provider-specific settings */}
         {provider === 'twilio' && (
-          <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
+          <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm space-y-4">
             <h3 className="font-semibold text-slate-800">Twilio Settings</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -804,7 +804,7 @@ function SmsTab() {
             AWS SNS use the HTTP Gateway pointed at the SNS REST endpoint. */}
 
         {provider === 'vonage' && (
-          <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
+          <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm space-y-4">
             <h3 className="font-semibold text-slate-800">Vonage (Nexmo) Settings</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -824,7 +824,7 @@ function SmsTab() {
         )}
 
         {provider === 'http-gateway' && (
-          <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
+          <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm space-y-4">
             <h3 className="font-semibold text-slate-800">HTTP Gateway Settings</h3>
             <div className="space-y-4">
               <div>
@@ -868,7 +868,7 @@ function SmsTab() {
       </form>
 
       {/* Test Section */}
-      <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
+      <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-6 shadow-sm space-y-4">
         <h3 className="font-semibold text-slate-800">Test SMS Configuration</h3>
         <p className="text-sm text-slate-500">Send a test SMS to verify your settings.</p>
         <div className="flex gap-3 items-end">

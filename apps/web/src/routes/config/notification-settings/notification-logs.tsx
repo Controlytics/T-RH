@@ -72,7 +72,7 @@ export function NotificationLogsPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </Link>
-          <div className="p-3 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 shadow-lg shadow-amber-500/25">
+          <div className="p-3 rounded-[var(--radius-card)] bg-gradient-to-br from-amber-500 to-orange-600 shadow-lg shadow-amber-500/25">
             <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
             </svg>
@@ -111,7 +111,7 @@ export function NotificationLogsPage() {
       )}
 
       {/* Filters */}
-      <div className="bg-white rounded-2xl border-2 border-slate-200 p-4 shadow-sm">
+      <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 p-4 shadow-sm">
         <div className="flex flex-wrap gap-3 items-end">
           <div className="flex-1 min-w-[200px]">
             <label className="block text-xs font-medium text-slate-600 mb-1">Search</label>
@@ -151,7 +151,7 @@ export function NotificationLogsPage() {
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-2xl border-2 border-slate-200 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-[var(--radius-card)] border-2 border-slate-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b border-slate-200">

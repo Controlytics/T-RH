@@ -107,7 +107,7 @@ function MetricCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-2xl bg-white border border-slate-200/60 shadow-soft">
+    <div className="relative overflow-hidden rounded-[var(--radius-card)] bg-white border border-slate-200/60 shadow-soft">
       <div className={`absolute top-0 left-0 right-0 h-1 ${gradient}`} />
       <div className="p-6">
         <div className="flex items-center gap-3 mb-4">

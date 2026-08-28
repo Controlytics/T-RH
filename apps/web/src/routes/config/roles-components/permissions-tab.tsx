@@ -115,10 +115,10 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
                 const color = role.color || '#64748b';
                 return (
                   <button key={role.name} onClick={() => { setPermSelectedRole(role.name); setPermDirty(false); }}
-                    className={`relative group p-4 rounded-2xl border-2 transition-all duration-300 ${
+                    className={`relative group p-4 rounded-[var(--radius-card)] border-2 transition-all duration-300 ${
                       permSelectedRole === role.name ? 'border-transparent shadow-xl scale-[1.02]' : 'border-slate-200 hover:border-slate-300 hover:shadow-lg'
                     }`}>
-                    {permSelectedRole === role.name && <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-slate-500 to-slate-600 opacity-10" />}
+                    {permSelectedRole === role.name && <div className="absolute inset-0 rounded-[var(--radius-card)] bg-gradient-to-br from-slate-500 to-slate-600 opacity-10" />}
                     <div className="relative">
                       <div className={`w-12 h-12 mx-auto rounded-xl flex items-center justify-center mb-3 transition-all ${
                         permSelectedRole === role.name ? 'text-white shadow-lg' : 'bg-slate-100 text-slate-500 group-hover:bg-slate-200'
@@ -443,7 +443,7 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
         </Card>
 
         {/* Security Notice */}
-        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-amber-50 via-orange-50 to-red-50 border border-amber-100/50 p-5">
+        <div className="relative overflow-hidden rounded-[var(--radius-card)] bg-gradient-to-r from-amber-50 via-orange-50 to-red-50 border border-amber-100/50 p-5">
           <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-amber-500/10 to-orange-500/10 rounded-full blur-3xl" />
           <div className="relative flex items-start gap-4">
             <div className="flex-shrink-0 p-3 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-lg shadow-amber-500/25">

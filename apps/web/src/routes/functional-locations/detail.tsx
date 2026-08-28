@@ -161,8 +161,8 @@ export function FunctionalLocationDetailPage() {
     return (
       <div className="space-y-4">
         {backLink}
-        <div className="h-32 animate-pulse rounded-2xl border border-slate-200 bg-slate-50" />
-        <div className="h-48 animate-pulse rounded-2xl border border-slate-200 bg-slate-50" />
+        <div className="h-32 animate-pulse rounded-[var(--radius-card)] border border-slate-200 bg-slate-50" />
+        <div className="h-48 animate-pulse rounded-[var(--radius-card)] border border-slate-200 bg-slate-50" />
       </div>
     );
   }

@@ -196,7 +196,7 @@ export function EditUserPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#1e3a5f] to-[#3b82f6] flex items-center justify-center text-white text-xl font-bold shadow-lg shadow-blue-500/25">
+          <div className="w-16 h-16 rounded-[var(--radius-card)] bg-gradient-to-br from-[#1e3a5f] to-[#3b82f6] flex items-center justify-center text-white text-xl font-bold shadow-lg shadow-blue-500/25">
             {userData.fullName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
           </div>
           <div>
@@ -227,7 +227,7 @@ export function EditUserPage() {
       </div>
 
       {/* Form Card */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl shadow-slate-200/40 overflow-hidden">
+      <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-xl shadow-slate-200/40 overflow-hidden">
         <form onSubmit={handleSubmit(onSubmit)}>
           {/* Error Message */}
           {error && (

@@ -379,8 +379,8 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
             </div>
 
             {/* Matrix Table */}
-            <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl shadow-slate-200/40">
-              <div className="overflow-x-auto rounded-2xl">
+            <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-xl shadow-slate-200/40">
+              <div className="overflow-x-auto rounded-[var(--radius-card)]">
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-slate-200" style={{ background: 'linear-gradient(to right, #f8fafc, #f1f5f9)' }}>

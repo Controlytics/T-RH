@@ -1,9 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import useSWR from 'swr';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
+import { FormField, FormSection, FormActions } from '@/components/ui/form-field';
+import { PageHeader } from '@/components/ui/page-header';
+import { EmptyState, ErrorState } from '@/components/ui/empty-state';
 import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
@@ -159,12 +163,19 @@ export function DynamicConfigPage() {
   }, [savedValues, moduleDef]);
 
   if (!moduleDef) {
+    // A module that is not in the manifest is a FAULT, not an empty screen —
+    // either the URL is wrong or the registry did not load — so this is an
+    // ErrorState rather than an EmptyState. Telling someone "nothing to
+    // configure here" when the registry failed to arrive sends them looking for
+    // a setting that exists.
     return (
-      <div className="flex items-center justify-center py-20">
-        <div className="text-center space-y-3">
-          <h2 className="text-lg font-semibold text-slate-800">Configuration Not Found</h2>
-          <p className="text-sm text-slate-500">Module "{moduleKey}" is not registered.</p>
-          <Button variant="outline" onClick={() => navigate('/config')}>Back to Settings</Button>
+      <div className="mx-auto max-w-2xl py-16">
+        <ErrorState
+          title="Configuration not found"
+          detail={`No configuration module is registered under "${moduleKey}". It may have been renamed or removed.`}
+        />
+        <div className="mt-4 flex justify-center">
+          <Button variant="outline" onClick={() => navigate('/config')}>Back to Configuration</Button>
         </div>
       </div>
     );
@@ -183,11 +194,13 @@ export function DynamicConfigPage() {
       savedValuesError?.error === 'INSUFFICIENT_PERMISSIONS';
     if (isPermissionError) {
       return (
-        <div className="flex items-center justify-center py-20">
-          <div className="text-center space-y-3">
-            <h2 className="text-lg font-semibold text-slate-800">{moduleDef.moduleName}</h2>
-            <p className="text-sm text-slate-500">Insufficient permissions to view this configuration.</p>
-            <Button variant="outline" onClick={() => navigate('/config')}>Back to Settings</Button>
+        <div className="mx-auto max-w-2xl py-16">
+          <ErrorState
+            title={`${moduleDef.moduleName} is not available to you`}
+            detail="Your role does not carry permission to view this configuration. An administrator can grant it under Roles & Access."
+          />
+          <div className="mt-4 flex justify-center">
+            <Button variant="outline" onClick={() => navigate('/config')}>Back to Configuration</Button>
           </div>
         </div>
       );
@@ -195,13 +208,15 @@ export function DynamicConfigPage() {
   }
 
   if (moduleDef.settings.length === 0) {
+    // Genuinely empty rather than broken: the module exists and simply keeps its
+    // settings on a page of its own.
     return (
-      <div className="flex items-center justify-center py-20">
-        <div className="text-center space-y-3">
-          <h2 className="text-lg font-semibold text-slate-800">{moduleDef.moduleName}</h2>
-          <p className="text-sm text-slate-500">This module uses a custom configuration page.</p>
-          <Button variant="outline" onClick={() => navigate('/config')}>Back to Settings</Button>
-        </div>
+      <div className="mx-auto max-w-2xl py-10">
+        <EmptyState
+          title={`${moduleDef.moduleName} has its own page`}
+          description="This module is configured on a dedicated screen rather than through the standard settings form."
+          action={<Button variant="outline" onClick={() => navigate('/config')}>Back to Configuration</Button>}
+        />
       </div>
     );
   }
@@ -263,53 +278,84 @@ export function DynamicConfigPage() {
   const dirty = JSON.stringify(values) !== baseline;
 
   return (
-    <div className="max-w-4xl mx-auto p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">{moduleDef.moduleName}</h1>
-          <p className="text-sm text-slate-500 mt-1">{moduleDef.description}</p>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => navigate('/config')}>
-          Back to Settings
-        </Button>
-      </div>
+    <div className="mx-auto max-w-5xl space-y-6 pb-4">
+      <PageHeader
+        title={moduleDef.moduleName}
+        description={moduleDef.description}
+        crumbs={[{ label: 'Home', to: '/' }, { label: 'Configuration', to: '/config' }, { label: moduleDef.moduleName }]}
+        actions={
+          <Button variant="outline" onClick={() => navigate('/config')}>
+            Back to Configuration
+          </Button>
+        }
+      />
 
+      {/* Save feedback sits ABOVE the form, where the eye returns after pressing
+          a button at the foot of it — not beside the button, which a long form
+          has already scrolled past. */}
       {success && (
-        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm">
+        <div
+          role="status"
+          className="flex items-center gap-2.5 rounded-[var(--radius-card)] border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] text-emerald-800"
+        >
+          <svg aria-hidden viewBox="0 0 16 16" className="h-4 w-4 shrink-0 fill-emerald-600">
+            <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm3.53 5.28-4 4a.75.75 0 0 1-1.06 0l-2-2a.75.75 0 1 1 1.06-1.06L7 8.69l3.47-3.47a.75.75 0 1 1 1.06 1.06Z" />
+          </svg>
           {success}
         </div>
       )}
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+        <div
+          role="alert"
+          className="flex items-center gap-2.5 rounded-[var(--radius-card)] border border-rose-200 bg-rose-50 px-4 py-3 text-[13px] text-rose-800"
+        >
+          <svg aria-hidden viewBox="0 0 16 16" className="h-4 w-4 shrink-0 fill-rose-600">
+            <path d="M8 1.5 15 14H1L8 1.5Zm0 4.25a.75.75 0 0 0-.75.75v3a.75.75 0 0 0 1.5 0v-3A.75.75 0 0 0 8 5.75Zm0 5.5a.9.9 0 1 0 0 1.8.9.9 0 0 0 0-1.8Z" />
+          </svg>
           {error}
         </div>
       )}
 
       {groups.map(group => (
-        <Card key={group.name}>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">{group.name}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <FormSection key={group.name} title={group.name} columns={2}>
             {group.items
               .filter(s => isVisible(s, values))
-              .map(setting => (
-                <div key={setting.key} className={setting.width === 'half' ? 'w-1/2' : 'w-full'}>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    {setting.label}
-                    {setting.required && <span className="text-red-500 ml-1">*</span>}
-                  </label>
+              .map(setting => {
+                /*
+                 * How a setting claims its width.
+                 *
+                 * The old page put every field on its own full-width row, which
+                 * is what made these screens read as a questionnaire. They are a
+                 * two-column grid now, so the rule is inverted: a field takes ONE
+                 * cell unless it needs both.
+                 *
+                 * The types listed here are not a style preference — a JSON
+                 * blob, a multi-line template or a list of checkboxes squeezed
+                 * into half a row is unusable, and `width: 'full'` remains the
+                 * def author's explicit override.
+                 */
+                const spansBothColumns =
+                  setting.width === 'full' ||
+                  setting.type === 'textarea' ||
+                  setting.type === 'json' ||
+                  setting.type === 'multiselect';
+
+                return (
+                <div key={setting.key} className={spansBothColumns ? 'md:col-span-2' : undefined}>
+                  <FormField
+                    label={setting.label}
+                    required={setting.required}
+                    helper={setting.helpText}
+                    htmlFor={`cfg-${setting.key}`}
+                  >
 
                   {setting.type === 'boolean' ? (
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={values[setting.key] ?? false}
-                        onChange={e => handleChange(setting.key, e.target.checked)}
-                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      <span className="text-sm text-slate-600">{setting.description || `Enable ${setting.label.toLowerCase()}`}</span>
-                    </label>
+                    <Checkbox
+                      id={`cfg-${setting.key}`}
+                      checked={values[setting.key] ?? false}
+                      onChange={e => handleChange(setting.key, e.target.checked)}
+                      label={setting.description || `Enable ${setting.label.toLowerCase()}`}
+                    />
                   ) : setting.type === 'select' ? (
                     (() => {
                       const liveOptions = setting.dynamicOptionsSource ? (dynamicOptions[setting.dynamicOptionsSource] ?? []) : [];
@@ -326,13 +372,17 @@ export function DynamicConfigPage() {
                       const currentValue = values[setting.key] ?? '';
                       const loading = setting.dynamicOptionsSource && !(setting.dynamicOptionsSource in dynamicOptions);
                       return (
-                        <select
+                        <Select
+                          id={`cfg-${setting.key}`}
                           value={currentValue}
                           onChange={e => handleChange(setting.key, e.target.value)}
                           disabled={!!loading}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-60 disabled:cursor-wait"
                         >
-                          <option value="">{loading ? 'Loading…' : 'Select...'}</option>
+                          {/* The placeholder NAMES the thing being chosen rather
+                              than saying "Select...", which tells an operator
+                              scanning a long form nothing about which field
+                              they are on. */}
+                          <option value="">{loading ? 'Loading…' : `Select ${setting.label.toLowerCase()}`}</option>
                           {!loading && finalOptions.length === 0 && (
                             <option value="" disabled>No options available</option>
                           )}
@@ -343,7 +393,7 @@ export function DynamicConfigPage() {
                           {currentValue && !finalOptions.some(o => String(o.value) === String(currentValue)) && !loading && (
                             <option key={`stale-${currentValue}`} value={currentValue}>{currentValue} (not found)</option>
                           )}
-                        </select>
+                        </Select>
                       );
                     })()
                   ) : setting.type === 'multiselect' ? (
@@ -360,96 +410,115 @@ export function DynamicConfigPage() {
                         handleChange(setting.key, next);
                       };
                       return (
-                        <div className="space-y-1.5 border border-slate-200 rounded-lg p-3">
-                          {loading && <p className="text-sm text-slate-400">Loading…</p>}
-                          {!loading && finalOptions.length === 0 && <p className="text-sm text-slate-400">No options available</p>}
+                        // A bordered, scroll-capped group rather than an
+                        // unbounded stack: a dynamic source can return dozens of
+                        // options, and letting them push the Save button off the
+                        // screen is how a form loses someone's work.
+                        <div className="max-h-56 space-y-2.5 overflow-y-auto rounded-[var(--radius-control)] border border-slate-300 bg-white p-3">
+                          {loading && <p className="text-[13px] text-slate-400">Loading…</p>}
+                          {!loading && finalOptions.length === 0 && (
+                            <p className="text-[13px] text-slate-400">No options available</p>
+                          )}
                           {finalOptions.map(opt => (
-                            <label key={opt.value} className="flex items-center gap-2 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={selected.includes(String(opt.value))}
-                                onChange={() => toggle(String(opt.value))}
-                                className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                              />
-                              <span className="text-sm text-slate-600">{opt.label}</span>
-                            </label>
+                            <Checkbox
+                              key={opt.value}
+                              checked={selected.includes(String(opt.value))}
+                              onChange={() => toggle(String(opt.value))}
+                              label={opt.label}
+                            />
                           ))}
                         </div>
                       );
                     })()
                   ) : setting.type === 'number' ? (
-                    <input
+                    <Input
+                      id={`cfg-${setting.key}`}
                       type="number"
                       value={values[setting.key] ?? ''}
                       min={setting.min}
                       max={setting.max}
                       onChange={e => handleChange(setting.key, e.target.value ? Number(e.target.value) : '')}
                       placeholder={setting.placeholder}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
                   ) : setting.type === 'secret' ? (
-                    <input
+                    <Input
+                      id={`cfg-${setting.key}`}
                       type="password"
                       value={values[setting.key] ?? ''}
                       onChange={e => handleChange(setting.key, e.target.value)}
                       placeholder={setting.placeholder || '••••••••'}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
                   ) : setting.type === 'textarea' || setting.type === 'json' ? (
                     <textarea
+                      id={`cfg-${setting.key}`}
                       value={typeof values[setting.key] === 'object' ? JSON.stringify(values[setting.key], null, 2) : (values[setting.key] ?? '')}
                       onChange={e => {
                         try { handleChange(setting.key, JSON.parse(e.target.value)); }
                         catch { handleChange(setting.key, e.target.value); }
                       }}
-                      rows={4}
+                      rows={setting.type === 'json' ? 8 : 4}
                       placeholder={setting.placeholder}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      // Matches Input's treatment exactly — hairline border, the
+                      // themed focus ring, the same radius. There is no Textarea
+                      // primitive yet and this is the only place that needs one.
+                      className="w-full rounded-[var(--radius-control)] border border-slate-300 bg-white px-3 py-2 text-[14px] text-slate-800 transition-colors placeholder:text-slate-400 hover:border-slate-400 focus:border-[var(--theme-primary,#2a78d6)] focus:outline-none focus:ring-2 focus:ring-[var(--theme-primary,#2a78d6)]/25 font-[family-name:var(--font-mono)]"
                     />
                   ) : setting.type === 'color' ? (
                     <div className="flex items-center gap-2">
                       <input
+                        id={`cfg-${setting.key}`}
                         type="color"
                         value={values[setting.key] ?? '#000000'}
                         onChange={e => handleChange(setting.key, e.target.value)}
-                        className="w-10 h-10 rounded border border-slate-300 cursor-pointer"
+                        // h-10 so the swatch matches the text field beside it;
+                        // they were 40px and 38px before, which is visible.
+                        className="h-10 w-12 cursor-pointer rounded-[var(--radius-control)] border border-slate-300 bg-white p-1"
                       />
-                      <input
-                        type="text"
+                      <Input
                         value={values[setting.key] ?? ''}
                         onChange={e => handleChange(setting.key, e.target.value)}
-                        className="w-32 px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                        placeholder="#000000"
+                        className="w-36 font-[family-name:var(--font-mono)]"
                       />
                     </div>
                   ) : (
-                    <input
+                    <Input
+                      id={`cfg-${setting.key}`}
                       type={setting.type === 'email' ? 'email' : setting.type === 'url' ? 'url' : 'text'}
                       value={values[setting.key] ?? ''}
                       onChange={e => handleChange(setting.key, e.target.value)}
                       placeholder={setting.placeholder}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
                   )}
-
-                  {setting.helpText && (
-                    <p className="text-xs text-slate-400 mt-1">{setting.helpText}</p>
-                  )}
+                  </FormField>
                 </div>
-              ))}
-          </CardContent>
-        </Card>
+                );
+              })}
+        </FormSection>
       ))}
 
-      <div className="flex justify-end gap-3">
+      {/*
+        STICKY. These forms run past a screenful on most modules, and a Save
+        button below the fold on a page an operator has scrolled through is the
+        single most common way a configuration change is lost. The note carries
+        the §11 consequence, because saving here is an audited act.
+      */}
+      <FormActions
+        sticky
+        className="rounded-[var(--radius-card)] border border-slate-200 shadow-[var(--elev-1)]"
+        note={dirty ? 'Unsaved changes. Saving is recorded in the audit trail.' : 'Changes are recorded in the audit trail.'}
+      >
         <Button variant="outline" onClick={() => navigate('/config')}>Cancel</Button>
         <Button
           onClick={handleSave}
-          disabled={saving || !canWrite || !dirty}
+          loading={saving}
+          loadingText="Saving…"
+          disabled={!canWrite || !dirty}
           title={!canWrite ? 'CONFIG_UPDATE permission required' : !dirty ? 'No unsaved changes' : undefined}
         >
-          {saving ? 'Saving...' : dirty ? 'Save Changes' : 'Saved'}
+          {dirty ? 'Save Changes' : 'Saved'}
         </Button>
-      </div>
+      </FormActions>
 
       <ReauthDialog
         open={reauth.isOpen}

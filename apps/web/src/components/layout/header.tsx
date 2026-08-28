@@ -15,16 +15,50 @@ interface HeaderProps {
     department?: string;
   } | undefined;
   onLogout: () => void;
+  /** Slides the off-canvas sidebar in on a narrow viewport. */
   onMenuToggle?: () => void;
+  /** Collapses the sidebar to its icon rail on a wide viewport. */
+  onCollapseToggle?: () => void;
+  collapsed?: boolean;
 }
 
+/**
+ * The build this browser is running.
+ *
+ * Shown ONLY when it is not a production build. An environment chip that says
+ * "PRODUCTION" on every screen is decoration; one that appears solely to warn
+ * you that you are looking at a development build is information. The value is
+ * Vite's own `MODE`, so it cannot drift from what was actually built.
+ */
+function EnvironmentChip() {
+  if (import.meta.env.PROD) return null;
+  return (
+    <span
+      className="hidden items-center gap-1.5 rounded-[var(--radius-pill)] border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-800 sm:inline-flex"
+      title="This is a development build, not the validated production system."
+    >
+      <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+      {import.meta.env.MODE}
+    </span>
+  );
+}
+
+/**
+ * Role chips: a tint and a hairline, not a saturated gradient.
+ *
+ * These were six two-stop gradients in full-strength brand colours. Beside a
+ * status badge that means something — an instrument in alarm, a delivery that
+ * failed — a red gradient on a job title competes with it for the same alarm
+ * reflex. Role is context, not condition, so it is drawn quietly and the strong
+ * colour is left to the things an operator has to act on.
+ */
 const roleColors: Record<string, string> = {
-  SUPER_ADMIN: 'bg-gradient-to-r from-red-500 to-pink-500 text-white border-0',
-  ADMIN: 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white border-0',
-  SUPERVISOR: 'bg-gradient-to-r from-amber-500 to-orange-500 text-white border-0',
-  MAINTENANCE: 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white border-0',
-  OPERATOR: 'bg-gradient-to-r from-slate-500 to-gray-500 text-white border-0',
-  VIEWER: 'bg-gradient-to-r from-gray-400 to-slate-400 text-white border-0',
+  SUPER_ADMIN: 'bg-rose-50 text-rose-700 border border-rose-200',
+  ADMIN: 'bg-sky-50 text-sky-700 border border-sky-200',
+  SUPERVISOR: 'bg-amber-50 text-amber-800 border border-amber-200',
+  MAINTENANCE: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
+  OPERATOR: 'bg-slate-100 text-slate-700 border border-slate-200',
+  VIEWER: 'bg-slate-50 text-slate-600 border border-slate-200',
 };
 
 const roleLabels: Record<string, string> = {
@@ -36,7 +70,7 @@ const roleLabels: Record<string, string> = {
   VIEWER: 'Viewer',
 };
 
-export function Header({ user, onLogout, onMenuToggle }: HeaderProps) {
+export function Header({ user, onLogout, onMenuToggle, onCollapseToggle, collapsed }: HeaderProps) {
   const [showMenu, setShowMenu] = useState(false);
   const { branding } = useBranding();
   const navigate = useNavigate();
@@ -49,26 +83,58 @@ export function Header({ user, onLogout, onMenuToggle }: HeaderProps) {
   const unreadCount = notificationData?.count ?? 0;
 
   return (
-    <header className="flex h-14 lg:h-16 items-center justify-between border-b border-slate-200 bg-white px-4 lg:px-6 shadow-sm">
-      {/* Left side - Hamburger menu (mobile only) */}
-      <button
-        onClick={onMenuToggle}
-        className="p-2 rounded-xl text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors lg:hidden"
-        aria-label="Toggle menu"
-      >
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-        </svg>
-      </button>
-      <div className="hidden lg:block" /> {/* Spacer for desktop */}
+    <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-3 shadow-[var(--elev-1)] lg:h-16 lg:px-5">
+      {/* ── Left cluster ─────────────────────────────────────────────────────
+          This was an empty spacer on desktop, which is why the top of every
+          wide screen read as an unfinished strip. It now carries the two
+          controls that belong to the shell rather than to the page — the
+          navigation toggles — and the identity the sidebar surrenders when it
+          collapses to a rail. */}
+      <div className="flex min-w-0 items-center gap-2">
+        <button
+          onClick={onMenuToggle}
+          className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-control)] text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-primary,#2a78d6)] md:hidden"
+          aria-label="Open navigation menu"
+        >
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+
+        {onCollapseToggle && (
+          <button
+            onClick={onCollapseToggle}
+            className="hidden h-10 w-10 items-center justify-center rounded-[var(--radius-control)] text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-primary,#2a78d6)] md:flex"
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-pressed={collapsed}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M3.75 5.25h16.5v13.5H3.75z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M9.75 5.25v13.5" />
+            </svg>
+          </button>
+        )}
+
+        {/* The application's name, shown here only once the sidebar has stopped
+            showing it — never both at once. */}
+        {collapsed && (
+          <span className="hidden min-w-0 truncate text-[15px] font-semibold text-slate-800 md:block">
+            {branding.appName}
+          </span>
+        )}
+
+        <EnvironmentChip />
+      </div>
+
       {/* Right side - User info */}
-      <div className="flex items-center gap-3">
+      <div className="flex shrink-0 items-center gap-2">
         {user && (
           <>
             {/* Notifications - Show for all users */}
             <button
               onClick={() => navigate('/notifications')}
-              className="relative p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              className="relative p-2 rounded-[var(--radius-control)] text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
               title={unreadCount > 0 ? `${unreadCount} unread notification(s)` : 'Notifications'}
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -89,18 +155,18 @@ export function Header({ user, onLogout, onMenuToggle }: HeaderProps) {
             <div className="relative">
               <button
                 onClick={() => setShowMenu(!showMenu)}
-                className="flex items-center gap-3 p-2 rounded-xl hover:bg-slate-100 transition-colors"
+                className="flex items-center gap-3 p-2 rounded-[var(--radius-control)] hover:bg-slate-100 transition-colors"
               >
                 {/* Avatar/Photo */}
                 {user.photoUrl ? (
                   <img
                     src={getPhotoUrl(user.photoUrl)}
                     alt={user.fullName}
-                    className="w-10 h-10 rounded-xl object-cover shadow-md border-2 border-white"
+                    className="w-10 h-10 rounded-[var(--radius-control)] object-cover shadow-[var(--elev-1)] border-2 border-white"
                   />
                 ) : (
                   <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-semibold text-sm shadow-md"
+                    className="w-10 h-10 rounded-[var(--radius-control)] flex items-center justify-center text-white font-semibold text-sm shadow-[var(--elev-1)]"
                     style={{ background: `linear-gradient(135deg, ${branding.primaryColor}, ${branding.secondaryColor})` }}
                   >
                     {user.fullName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
@@ -123,7 +189,7 @@ export function Header({ user, onLogout, onMenuToggle }: HeaderProps) {
               {showMenu && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
-                  <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden z-50 animate-fade-in">
+                  <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-[var(--radius-card)] shadow-[var(--elev-3)] border border-slate-200 overflow-hidden z-50 animate-fade-in">
                     {/* User Info Header */}
                     <div
                       className="px-5 py-4 text-white"
@@ -134,10 +200,10 @@ export function Header({ user, onLogout, onMenuToggle }: HeaderProps) {
                           <img
                             src={getPhotoUrl(user.photoUrl)}
                             alt={user.fullName}
-                            className="w-14 h-14 rounded-xl object-cover border-2 border-white/30"
+                            className="w-14 h-14 rounded-[var(--radius-control)] object-cover border-2 border-white/30"
                           />
                         ) : (
-                          <div className="w-14 h-14 rounded-xl bg-white/20 flex items-center justify-center text-white font-bold text-xl">
+                          <div className="w-14 h-14 rounded-[var(--radius-control)] bg-white/20 flex items-center justify-center text-white font-bold text-xl">
                             {user.fullName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
                           </div>
                         )}

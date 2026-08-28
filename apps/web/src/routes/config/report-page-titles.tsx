@@ -57,7 +57,7 @@ export function ReportPageTitlesPage() {
         </button>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm divide-y divide-slate-100">
+      <div className="bg-white border border-slate-200 rounded-[var(--radius-card)] shadow-sm divide-y divide-slate-100">
         {FIELDS.map((f) => {
           const value = draft[f.key] ?? '';
           return (

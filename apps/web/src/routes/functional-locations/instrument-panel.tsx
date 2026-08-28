@@ -97,7 +97,7 @@ export function InstrumentPanel({ locationId, locationPath, canEdit, onChanged }
   };
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+    <div className="rounded-[var(--radius-card)] border border-slate-200 bg-white p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold text-slate-800">
           Instruments in {locationPath} <span className="font-normal text-slate-500">({linked.length})</span>

@@ -114,7 +114,7 @@ export function LoginPage() {
     >
       <div className="w-full max-w-md">
         {/* Login Card */}
-        <div className="relative bg-white/95 backdrop-blur-sm rounded-3xl shadow-2xl overflow-hidden">
+        <div className="relative bg-white/95 backdrop-blur-sm rounded-[var(--radius-card)] shadow-2xl overflow-hidden">
           {/* Decorative gradient header */}
           <div
             className="h-2"
@@ -136,7 +136,7 @@ export function LoginPage() {
                 </div>
               ) : (
                 <div
-                  className="inline-flex items-center justify-center w-20 h-20 rounded-2xl mb-4 shadow-xl"
+                  className="inline-flex items-center justify-center w-20 h-20 rounded-[var(--radius-card)] mb-4 shadow-xl"
                   style={{
                     background: `linear-gradient(to bottom right, ${branding.primaryColor}, ${branding.secondaryColor})`,
                     boxShadow: `0 10px 40px -10px ${branding.secondaryColor}50`

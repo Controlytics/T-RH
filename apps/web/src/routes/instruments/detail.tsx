@@ -309,7 +309,7 @@ export function InstrumentDetailPage() {
           authenticates as, what its topics are built from, and what a
           technician is holding on a label. The name is for people; the code is
           the identity everything else on this page is keyed to. */}
-      <div className="relative overflow-hidden rounded-2xl p-6 text-white shadow-lg" style={themeGradient}>
+      <div className="relative overflow-hidden rounded-[var(--radius-card)] p-6 text-white shadow-lg" style={themeGradient}>
         <div className="relative z-10 flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">

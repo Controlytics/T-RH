@@ -2,30 +2,33 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>DigiLog — Digital Filter Management System</title>
+    <!-- ZOOM IS ALLOWED. `maximum-scale=1.0, user-scalable=no` was here until
+         2026-08-28; it stops a tablet operator pinching in on a reading, and
+         WCAG 1.4.4 treats blocking that as a failure. Nothing in this UI needs
+         it: the layouts below are responsive rather than fixed-width. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Compliance Core — Instrument Monitoring &amp; 21 CFR Part 11</title>
 
     <!-- PWA Meta -->
     <meta name="theme-color" content="#0891b2" />
-    <meta name="description" content="DigiLog - 21 CFR Part 11 Compliant Digital Filter Management System" />
+    <meta name="description" content="Compliance Core — 21 CFR Part 11 instrument monitoring and administration" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="DigiLog" />
+    <meta name="apple-mobile-web-app-title" content="Compliance Core" />
 
     <!-- Icons -->
     <link rel="icon" type="image/png" href="/pwa-192x192.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
-    <!-- 2026-05-21 UI refresh: distinctive font stack. Bricolage Grotesque for
-         display (operator-name, headings), Sora for body, JetBrains Mono for
-         numbers/timestamps. Tablet operators are gloved + working under bright
-         fluorescent light; these faces stay legible while giving the dashboard
-         a deliberate, instrument-grade feel. preconnect lets the fonts arrive
-         before first paint when online; offline falls back to system sans. -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..800&family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" />
+    <!-- FONTS: none fetched here, deliberately (2026-08-28).
+         This head used to <link> Bricolage Grotesque, Sora and JetBrains Mono
+         from fonts.googleapis.com. The application runs on a factory network
+         that may have no route to the internet, so on exactly the machines
+         that matter those three silently fell back to a system face and the
+         product rendered in a typeface nobody chose. Inter is now bundled
+         instead (@fontsource-variable/inter, imported by src/app.css), so the
+         type is identical online and off. Do not reintroduce a CDN font link. -->
   </head>
   <body>
     <div id="root"></div>

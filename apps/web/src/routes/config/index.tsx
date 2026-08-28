@@ -1,10 +1,107 @@
+import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import useSWR from 'swr';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { useAuth } from '@/hooks/use-auth';
-import { Badge } from '@/components/ui/badge';
+import { PageHeader } from '@/components/ui/page-header';
 import { SuperAdminApiAccessCard } from '@/components/super-admin-api-access';
 import { canAccessConfigModule } from './can-access-module';
+
+/**
+ * One configuration destination.
+ *
+ * Every card on this screen was previously its own composition: a two-stop
+ * gradient across the whole tile on hover, a coloured drop shadow keyed to that
+ * gradient, a `scale-110` on the icon, a `border-2`, and an arrow row in a
+ * different colour per section. Fourteen cards, fourteen slightly different
+ * treatments, and colour spent on decoration rather than meaning.
+ *
+ * The colour is KEPT — this screen should not be grey — but it is spent in one
+ * place: the icon tile. That is enough to tell Backup from Branding at a glance,
+ * which is the only job the colour had. Everything structural (border, radius,
+ * elevation, the Configure affordance) is now identical on every card, so the
+ * grid reads as one set of things rather than fourteen.
+ */
+function ConfigCard({
+  card, compact = false,
+}: {
+  card: { title: string; description: string; href: string; reauth?: boolean; icon: ReactNode; gradient: string };
+  /** The denser layout used by the four-up Super Admin grid. */
+  compact?: boolean;
+}) {
+  return (
+    <Link
+      to={card.href}
+      className="group flex h-full flex-col rounded-[var(--radius-card)] border border-slate-200 bg-white p-4 shadow-[var(--elev-1)] transition-[box-shadow,border-color] duration-150 hover:border-slate-300 hover:shadow-[var(--elev-2)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-primary,#2a78d6)]"
+    >
+      <div className={compact ? 'space-y-3' : 'flex items-start gap-3.5'}>
+        <span
+          className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-gradient-to-br ${card.gradient} text-white shadow-[var(--elev-1)]`}
+        >
+          {card.icon}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-[15px] font-semibold text-slate-800">{card.title}</h3>
+            {card.reauth && (
+              // Says WHY it is marked, not just that it is. "Re-auth" alone
+              // meant nothing to anyone who had not met the dialog yet.
+              <span
+                className="inline-flex items-center rounded-[var(--radius-pill)] border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800"
+                title="Saving here asks for your password again and is recorded in the audit trail."
+              >
+                Re-authentication
+              </span>
+            )}
+          </div>
+          <p className="mt-1 text-[13px] leading-relaxed text-slate-500">{card.description}</p>
+        </div>
+      </div>
+      <span className="mt-3 flex items-center gap-1 text-[13px] font-medium text-[var(--theme-primary,#2a78d6)]">
+        Configure
+        <svg aria-hidden className="h-4 w-4 transition-transform duration-150 group-hover:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+      </span>
+    </Link>
+  );
+}
+
+/**
+ * A titled band of configuration cards.
+ *
+ * One shell for all three groups, so "Security & General", "Super Admin" and
+ * "Additional Modules" stop being three different-looking containers.
+ */
+function ConfigGroup({
+  title, description, icon, tone = 'neutral', badge, children,
+}: {
+  title: string;
+  description?: string;
+  icon: ReactNode;
+  /** `restricted` tints the header only — the cards inside stay identical. */
+  tone?: 'neutral' | 'restricted';
+  badge?: ReactNode;
+  children: ReactNode;
+}) {
+  const restricted = tone === 'restricted';
+  return (
+    <section className="overflow-hidden rounded-[var(--radius-card)] border border-slate-200 bg-white shadow-[var(--elev-1)]">
+      <header className={`flex items-start gap-3 border-b px-5 py-4 ${restricted ? 'border-rose-100 bg-rose-50/60' : 'border-slate-100 bg-slate-50/70'}`}>
+        <span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-control)] ${restricted ? 'bg-rose-600' : 'bg-slate-700'} text-white`}>
+          {icon}
+        </span>
+        <div className="min-w-0">
+          <h2 className="flex flex-wrap items-center gap-2 text-[19px] font-semibold leading-tight text-slate-800">
+            {title}
+            {badge}
+          </h2>
+          {description && <p className="mt-0.5 text-[13px] text-slate-500">{description}</p>}
+        </div>
+      </header>
+      <div className="p-5">{children}</div>
+    </section>
+  );
+}
 
 const configCards = [
   {
@@ -304,197 +401,135 @@ export function ConfigIndexPage() {
   const visibleSuperAdminCards = isSuperAdmin ? superAdminCards : [];
 
   return (
-    <div className="space-y-8 animate-fade-in">
-      {/* Header */}
-      <div className="flex items-center gap-4">
-        <div className="p-4 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-xl shadow-indigo-500/25">
-          <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+    <div className="space-y-6 animate-fade-in">
+      <PageHeader
+        title="System Configuration"
+        description="Manage system settings, security policies and instrument behaviour."
+        crumbs={[{ label: 'Home', to: '/' }, { label: 'Configuration' }]}
+      />
+
+      <ConfigGroup
+        title="Security & General Settings"
+        description="Security policies and general application settings"
+        icon={
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
           </svg>
+        }
+      >
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {visibleConfigCards.map(card => (
+            <ConfigCard key={card.href} card={card} />
+          ))}
         </div>
-        <div>
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">System Configuration</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Manage system settings and security policies</p>
-        </div>
-      </div>
+      </ConfigGroup>
 
-      {/* Security & General Settings */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl shadow-slate-200/40 overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
-          <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600">
-              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
+      {/* Super Admin Settings */}
+      {(isSuperAdmin || visibleSuperAdminCards.length > 0) && (
+        <ConfigGroup
+          title="Super Admin Settings"
+          description="Advanced configuration reserved for super administrators"
+          tone="restricted"
+          badge={
+            <span className="inline-flex items-center rounded-[var(--radius-pill)] border border-rose-200 bg-white px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-rose-700">
+              Restricted
+            </span>
+          }
+          icon={
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+            </svg>
+          }
+        >
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {visibleSuperAdminCards.map(card => (
+              <ConfigCard key={card.href} card={card} compact />
+            ))}
+          </div>
+
+          {/* Master kill-switch for all Super Admin API access. */}
+          <div className="mt-4">
+            <SuperAdminApiAccessCard />
+          </div>
+        </ConfigGroup>
+      )}
+
+      {/* ── Compliance note ─────────────────────────────────────────────────
+          A note, not a hero. This was a full-width gradient panel with a large
+          gradient icon tile, and it sat visually LOUDER than the configuration
+          cards it was explaining — it is standing information that never
+          changes, so it now reads as the quietest thing on the screen. */}
+      <aside className="rounded-[var(--radius-card)] border border-sky-200 bg-sky-50/70 p-4">
+        <div className="flex items-start gap-3">
+          <svg aria-hidden className="mt-0.5 h-5 w-5 shrink-0 text-sky-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+          </svg>
+          <div className="min-w-0">
+            <h3 className="text-[14px] font-semibold text-sky-900">21 CFR Part 11 Compliance</h3>
+            <p className="mt-1 text-[13px] leading-relaxed text-sky-800">
+              Security-critical settings require re-authentication and are written to the audit trail with a timestamp and the
+              user who made the change.
+            </p>
+            <div className="mt-2.5 flex flex-wrap gap-1.5">
+              {['Electronic Signatures', 'Audit Trail', 'Access Control'].map(label => (
+                <span
+                  key={label}
+                  className="inline-flex items-center gap-1.5 rounded-[var(--radius-pill)] border border-sky-200 bg-white px-2.5 py-0.5 text-[11px] font-medium text-sky-800"
+                >
+                  <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-sky-500" />
+                  {label}
+                </span>
+              ))}
             </div>
-            Security & General Settings
-          </h2>
-          <p className="text-sm text-slate-500 mt-1">Configure security policies and general application settings</p>
+          </div>
         </div>
-        <div className="p-6">
-          <div className="grid gap-5 sm:grid-cols-2">
-            {visibleConfigCards.map((card) => (
-              <Link key={card.href} to={card.href}>
-                <div className={`group relative overflow-hidden rounded-2xl border-2 border-slate-200 bg-white p-6 transition-all duration-300 hover:border-slate-300 hover:shadow-xl ${card.shadowColor}`}>
-                  {/* Background gradient on hover */}
-                  <div className={`absolute inset-0 bg-gradient-to-br ${card.gradient} opacity-0 group-hover:opacity-5 transition-opacity duration-300`} />
-
-                  <div className="relative flex items-start gap-4">
-                    <div className={`p-3 rounded-xl bg-gradient-to-br ${card.gradient} text-white shadow-lg ${card.shadowColor} group-hover:scale-110 group-hover:shadow-xl transition-all duration-300`}>
-                      {card.icon}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-semibold text-slate-800 group-hover:text-slate-900">{card.title}</h3>
-                        {card.reauth && (
-                          <Badge variant="secondary" className="text-xs bg-amber-100 text-amber-700 border-0">
-                            Re-auth
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="text-sm text-slate-500 mt-1">{card.description}</p>
-                      <div className="flex items-center text-sm text-indigo-600 mt-3 font-medium group-hover:text-indigo-700">
-                        <span>Configure</span>
-                        <svg className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                      </div>
-                    </div>
+      </aside>
+      {/* Dynamic Config Modules (auto-discovered) — Super Admin only */}
+      {user?.role === 'SUPER_ADMIN' && dynamicModules && dynamicModules.length > 0 && (
+        <ConfigGroup
+          title="Additional Modules"
+          description="Configuration modules discovered automatically from the registry"
+          icon={
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M4 6h16M4 12h16M4 18h10" />
+            </svg>
+          }
+        >
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {dynamicModules.map(mod => (
+              <Link
+                key={mod.moduleKey}
+                to={mod.customPagePath || `/config/dynamic/${mod.moduleKey}`}
+                className="group flex h-full flex-col rounded-[var(--radius-card)] border border-slate-200 bg-white p-4 shadow-[var(--elev-1)] transition-[box-shadow,border-color] duration-150 hover:border-slate-300 hover:shadow-[var(--elev-2)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-primary,#2a78d6)]"
+              >
+                <div className="flex items-start gap-3.5">
+                  <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-slate-100 text-slate-600">
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-[15px] font-semibold text-slate-800">{mod.moduleName}</h3>
+                    <p className="mt-1 line-clamp-2 text-[13px] leading-relaxed text-slate-500">{mod.description}</p>
                   </div>
+                </div>
+                <div className="mt-3 flex items-center justify-between">
+                  <span className="text-[12px] text-slate-400">
+                    {mod.settings.length} {mod.settings.length === 1 ? 'setting' : 'settings'}
+                  </span>
+                  <span className="flex items-center gap-1 text-[13px] font-medium text-[var(--theme-primary,#2a78d6)]">
+                    Configure
+                    <svg aria-hidden className="h-4 w-4 transition-transform duration-150 group-hover:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </span>
                 </div>
               </Link>
             ))}
           </div>
-        </div>
-      </div>
-
-      {/* Super Admin Settings */}
-      {(isSuperAdmin || visibleSuperAdminCards.length > 0) && (
-        <div className="bg-white rounded-2xl border-2 border-red-100 shadow-xl shadow-red-200/30 overflow-hidden">
-          <div className="px-6 py-4 border-b border-red-100 bg-gradient-to-r from-red-50 to-pink-50">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-gradient-to-br from-red-500 to-pink-600">
-                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                </svg>
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-                  Super Admin Settings
-                  <Badge className="bg-gradient-to-r from-red-500 to-pink-500 text-white text-xs border-0 shadow-sm">
-                    Restricted Access
-                  </Badge>
-                </h2>
-                <p className="text-sm text-slate-500 mt-0.5">Advanced configuration options for super administrators</p>
-              </div>
-            </div>
-          </div>
-          <div className="p-6">
-            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-              {visibleSuperAdminCards.map((card) => (
-                <Link key={card.href} to={card.href}>
-                  <div className={`group relative overflow-hidden rounded-2xl border-2 border-slate-200 bg-white p-5 transition-all duration-300 hover:border-red-200 hover:shadow-xl ${card.shadowColor}`}>
-                    {/* Background gradient on hover */}
-                    <div className={`absolute inset-0 bg-gradient-to-br ${card.gradient} opacity-0 group-hover:opacity-5 transition-opacity duration-300`} />
-
-                    <div className="relative">
-                      <div className={`p-3 rounded-xl bg-gradient-to-br ${card.gradient} text-white shadow-lg ${card.shadowColor} group-hover:scale-110 group-hover:shadow-xl transition-all duration-300 inline-flex`}>
-                        {card.icon}
-                      </div>
-                      <h3 className="font-semibold text-slate-800 mt-4 group-hover:text-slate-900">{card.title}</h3>
-                      <p className="text-xs text-slate-500 mt-1">{card.description}</p>
-                      <div className="flex items-center text-sm text-red-600 mt-3 font-medium group-hover:text-red-700">
-                        <span>Configure</span>
-                        <svg className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                      </div>
-                    </div>
-                  </div>
-                </Link>
-              ))}
-            </div>
-
-            {/* Master kill-switch for all Super Admin API access. */}
-            <div className="mt-5">
-              <SuperAdminApiAccessCard />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Info Banner */}
-      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl border border-blue-200 p-6 shadow-sm">
-        <div className="flex items-start gap-4">
-          <div className="p-3 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/25">
-            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-            </svg>
-          </div>
-          <div>
-            <h3 className="font-semibold text-blue-800">21 CFR Part 11 Compliance</h3>
-            <p className="text-sm text-blue-700 mt-1">
-              All security-critical settings require re-authentication and are logged in the audit trail for compliance purposes. Changes to these settings are recorded with timestamps and user information.
-            </p>
-            <div className="flex flex-wrap gap-2 mt-3">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-medium">
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                Electronic Signatures
-              </span>
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-medium">
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                </svg>
-                Audit Trail
-              </span>
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-medium">
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-                </svg>
-                Access Control
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-      {/* Dynamic Config Modules (auto-discovered) — Super Admin only */}
-      {user?.role === 'SUPER_ADMIN' && dynamicModules && dynamicModules.length > 0 && (
-        <section>
-          <div className="mb-6">
-            <h2 className="text-lg font-semibold text-slate-800">Additional Modules</h2>
-            <p className="text-sm text-slate-500 mt-1">Auto-discovered configuration modules</p>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {dynamicModules.map((mod) => (
-              <Link key={mod.moduleKey} to={mod.customPagePath || `/config/dynamic/${mod.moduleKey}`} className="group">
-                <Card className="relative overflow-hidden border border-slate-200 transition-all duration-200 hover:shadow-lg hover:border-slate-300 hover:-translate-y-0.5">
-                  <CardContent className="pt-6 pb-4 px-6">
-                    <div className="flex items-start gap-4">
-                      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg flex items-center justify-center text-white flex-shrink-0">
-                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        </svg>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-semibold text-slate-800 group-hover:text-blue-600 transition-colors">{mod.moduleName}</h3>
-                        <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{mod.description}</p>
-                      </div>
-                    </div>
-                    <div className="mt-4 flex items-center justify-between">
-                      <span className="text-xs text-slate-400">{mod.settings.length} settings</span>
-                      <span className="text-xs text-blue-600 font-medium group-hover:translate-x-0.5 transition-transform">Configure →</span>
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
-            ))}
-          </div>
-        </section>
+        </ConfigGroup>
       )}
     </div>
   );

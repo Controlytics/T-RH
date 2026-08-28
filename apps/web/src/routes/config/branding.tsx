@@ -279,7 +279,7 @@ export function BrandingConfigPage() {
             </Card>
 
             {/* Info Banner */}
-            <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-violet-50 via-purple-50 to-fuchsia-50 border border-violet-100/50 p-5">
+            <div className="relative overflow-hidden rounded-[var(--radius-card)] bg-gradient-to-r from-violet-50 via-purple-50 to-fuchsia-50 border border-violet-100/50 p-5">
               <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-violet-500/10 to-purple-500/10 rounded-full blur-3xl" />
               <div className="relative flex items-start gap-4">
                 <div className="flex-shrink-0 p-3 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 text-white shadow-lg shadow-violet-500/25">
@@ -303,7 +303,7 @@ export function BrandingConfigPage() {
       <Dialog open={showSuccessPopup} onClose={() => setShowSuccessPopup(false)}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center shadow-lg shadow-emerald-500/25">
+            <div className="w-14 h-14 rounded-[var(--radius-card)] bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center shadow-lg shadow-emerald-500/25">
               <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
@@ -325,7 +325,7 @@ export function BrandingConfigPage() {
       <Dialog open={showErrorPopup} onClose={() => setShowErrorPopup(false)}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-red-500 to-rose-600 flex items-center justify-center shadow-lg shadow-red-500/25">
+            <div className="w-14 h-14 rounded-[var(--radius-card)] bg-gradient-to-br from-red-500 to-rose-600 flex items-center justify-center shadow-lg shadow-red-500/25">
               <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>

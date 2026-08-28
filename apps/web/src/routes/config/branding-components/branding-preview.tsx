@@ -25,12 +25,12 @@ export function BrandingPreview({ watchedValues }: BrandingPreviewProps) {
 
         {/* Login Preview */}
         <div
-          className="rounded-2xl p-8 shadow-2xl"
+          className="rounded-[var(--radius-card)] p-8 shadow-2xl"
           style={{
             background: `linear-gradient(to bottom right, ${watchedValues.loginBgStart || '#0f172a'}, ${watchedValues.loginBgEnd || '#1e3a5f'})`
           }}
         >
-          <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl overflow-hidden max-w-sm mx-auto">
+          <div className="bg-white/95 backdrop-blur-sm rounded-[var(--radius-card)] shadow-2xl overflow-hidden max-w-sm mx-auto">
             <div
               className="h-2"
               style={{

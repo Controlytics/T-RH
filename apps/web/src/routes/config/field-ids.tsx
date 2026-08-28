@@ -336,7 +336,7 @@ export function FieldIdsPage() {
       )}
 
       {/* Info Banner */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-cyan-50 via-blue-50 to-indigo-50 border border-cyan-100/50 p-5">
+      <div className="relative overflow-hidden rounded-[var(--radius-card)] bg-gradient-to-r from-cyan-50 via-blue-50 to-indigo-50 border border-cyan-100/50 p-5">
         <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-cyan-500/10 to-blue-500/10 rounded-full blur-3xl" />
         <div className="relative flex items-start gap-4">
           <div className="flex-shrink-0 p-3 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/25">

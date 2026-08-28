@@ -167,7 +167,7 @@ export function FlowChart({ steps, moduleId, roles, auditMode = false, layout }:
   // that would falsely imply an order (Create → Edit → Delete is not a flow).
   if (layout !== 'sequence') {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="rounded-[var(--radius-card)] border border-slate-200 bg-white p-4 shadow-sm">
         <ul className="flex flex-wrap gap-3">
           {steps.map((step, i) => (
             <li key={i}>
@@ -180,7 +180,7 @@ export function FlowChart({ steps, moduleId, roles, auditMode = false, layout }:
   }
 
   return (
-    <div className="relative rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="relative rounded-[var(--radius-card)] border border-slate-200 bg-white p-4 shadow-sm">
       {/* Scroll region. Cards top-align (items-start); the arrow connectors pin
           themselves to the header line, so uneven card heights never knock the
           row out of alignment. */}

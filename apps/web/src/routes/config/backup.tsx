@@ -214,7 +214,7 @@ export function BackupRestorePage() {
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex items-center gap-4">
-        <div className="p-3 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 shadow-lg shadow-emerald-500/25">
+        <div className="p-3 rounded-[var(--radius-card)] bg-gradient-to-br from-emerald-500 to-teal-600 shadow-lg shadow-emerald-500/25">
           <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
           </svg>
@@ -326,7 +326,7 @@ export function BackupRestorePage() {
         <CardContent className="space-y-4">
           {/* File upload area */}
           <div
-            className="border-2 border-dashed border-slate-300 rounded-2xl p-8 text-center hover:border-blue-400 hover:bg-blue-50/30 transition-colors cursor-pointer"
+            className="border-2 border-dashed border-slate-300 rounded-[var(--radius-card)] p-8 text-center hover:border-blue-400 hover:bg-blue-50/30 transition-colors cursor-pointer"
             onClick={() => fileInputRef.current?.click()}
           >
             <input
@@ -337,7 +337,7 @@ export function BackupRestorePage() {
               className="hidden"
             />
             <div className="flex flex-col items-center gap-3">
-              <div className="p-3 rounded-2xl bg-slate-100">
+              <div className="p-3 rounded-[var(--radius-card)] bg-slate-100">
                 <svg className="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                 </svg>
@@ -383,7 +383,7 @@ export function BackupRestorePage() {
               : csState === 'fail' ? 'bg-red-50/50 border-red-200'
               : 'bg-amber-50/50 border-amber-200';
             return (
-            <div className={`rounded-2xl border p-5 space-y-4 ${box}`}>
+            <div className={`rounded-[var(--radius-card)] border p-5 space-y-4 ${box}`}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   {csState === 'ok' ? (

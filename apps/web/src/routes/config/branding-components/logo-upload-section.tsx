@@ -45,7 +45,7 @@ export function LogoUploadSection({
         <div className="flex items-start gap-6">
           {/* Logo Preview */}
           <div className="flex-shrink-0">
-            <div className="w-28 h-28 rounded-2xl border-2 border-dashed border-slate-300 hover:border-violet-400 flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 overflow-hidden transition-all">
+            <div className="w-28 h-28 rounded-[var(--radius-card)] border-2 border-dashed border-slate-300 hover:border-violet-400 flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 overflow-hidden transition-all">
               {logoUrl ? (
                 <img
                   src={logoUrl}
