@@ -1,4 +1,4 @@
-import { isPanelKey } from './panels.js';
+import { PANELS, isPanelKey } from './panels.js';
 
 /**
  * Where each dashboard panel sits, and how big it is.
@@ -61,6 +61,16 @@ export const DEFAULT_DASHBOARD_LAYOUT: DashboardLayout = {
     { i: 'dashboard_alarms', x: 0, y: 29, w: 12, h: 6 },
   ],
 };
+
+/**
+ * The panels that live ON THE DASHBOARD.
+ *
+ * The layout is a dashboard concern; the trend page's panels are assignable too
+ * but are laid out by that page, not by this grid.
+ */
+const DASHBOARD_PANEL_KEYS = new Set(
+  PANELS.filter((p) => p.page === 'dashboard').map((p) => p.key),
+);
 
 /** Default size for a panel the default layout does not place — see appendMissing. */
 const FALLBACK_SIZE = { w: 12, h: 8 };
@@ -145,7 +155,13 @@ export function resolveLayout(
   visiblePanels: string[],
 ): DashboardLayout {
   const chosen = userLayout ?? roleLayout ?? DEFAULT_DASHBOARD_LAYOUT;
-  const allowed = new Set(visiblePanels);
+  // Dashboard panels only. `visiblePanels` answers "what may this person see"
+  // across the WHOLE product, and five of those keys belong to the instrument
+  // trend page. Placing them here produced empty boxes occupying grid space — the
+  // dashboard has no renderer for them — so a viewer with unrestricted panels got
+  // four cards and five holes. Caught on the first live run, not by a test.
+  const allowed = new Set(visiblePanels.filter((k) => DASHBOARD_PANEL_KEYS.has(k)));
+  const ordered = visiblePanels.filter((k) => allowed.has(k));
   const items = chosen.items.filter((it) => allowed.has(it.i));
-  return { version: LAYOUT_VERSION, items: appendMissing(items, visiblePanels) };
+  return { version: LAYOUT_VERSION, items: appendMissing(items, ordered) };
 }

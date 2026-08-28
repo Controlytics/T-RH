@@ -102,6 +102,16 @@ profile photo upload silently 401'd until 2026-08-11.
 ## Architecture
 - React Router v6 with AppLayout wrapper for auth + session management
 - SWR for data fetching with auto-revalidation
+- **`react-grid-layout` was ADDED 2026-08-28** — the first UI dependency taken on
+  here in a long time, and a deliberate reversal of the habit recorded below. It
+  powers the draggable/resizable dashboard; drag, resize, collision and
+  responsive reflow are weeks of fiddly work and a half-working drag is worse
+  than none. **Written against the 2.x API, not the v1 one every example shows:**
+  v2 replaced `isDraggable`/`isResizable`/`draggableCancel` with
+  `dragConfig`/`resizeConfig`, dropped `WidthProvider` for `useContainerWidth`,
+  and requires an explicit `width`. A `legacy` entry point keeps the v1 shape;
+  `routes/dashboard/panel-grid.tsx` does NOT use it. Both its CSS and
+  `react-resizable`'s must be imported or the resize corner is invisible.
 - Cleaning-profile pipeline editor uses a custom hand-rolled canvas (the
   `reactflow` + `@monaco-editor/react` deps were removed 2026-05-30 — 0 imports
   remained after the 2026-05-17 rule-chain tear-out)

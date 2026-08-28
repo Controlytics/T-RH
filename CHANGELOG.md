@@ -1,5 +1,92 @@
 # Changelog
 
+## [Unreleased] - Draggable, resizable dashboard (2026-08-28)
+
+Every assignable dashboard panel is now a grid item: drag to move, drag the corner
+to resize, saved per user with a role default beneath. Project C1 of two; C2 (the
+per-card edit dialog — bounded palette, status colours locked) is separate and
+slots into the same edit mode. Spec:
+`docs/superpowers/specs/2026-08-28-dashboard-layout-design.md`.
+
+**One new dependency, one migration, no other count moved.** Models **36**, enums
+**13**, permissions **42**, reauth actions **48**, audit actions **97**, API
+modules **24**, config defs **25**, config pages **24**, `<Route>`s **50** —
+re-derived, unchanged. Shared type files **18 → 19**.
+
+### The Table | Graphical toggle is gone
+
+Operator's call. A grid where each panel is independently placeable cannot also
+have two of them sharing one slot behind a switch, and they were already two
+separate keys in the panel catalogue. Both readings views can now be on screen at
+once, or either dragged away. The `?view=` URL parameter went with it, and each
+readings card now names the location in its own heading — under one shared heading
+that was implicit; as separate cards it would otherwise be unclear which location
+the numbers belong to.
+
+### react-grid-layout, and the version trap
+
+The first UI dependency this app has taken on in a long time, after `reactflow`,
+`monaco` and `chartjs` were each removed. Deliberate: drag, resize, collision and
+responsive reflow are weeks of fiddly work, and a half-working drag is worse than
+none.
+
+**Written against the 2.x API, which differs from every example online.** v2
+replaced `isDraggable` / `isResizable` / `draggableCancel` with `dragConfig` /
+`resizeConfig`, dropped `WidthProvider` for the `useContainerWidth` hook, and
+requires an explicit `width`. It ships a `legacy` entry point keeping the v1
+shape; this does not use it. Both stylesheets are imported — omitting
+`react-resizable`'s leaves the drag working while the resize corner is invisible,
+which looks like a broken feature rather than a missing import.
+
+### Storage: two states, not three
+
+Nullable `dashboard_layout` JSONB on `user_configs` and `role_configs` (migration
+`20260828100000_dashboard_layout`, drift guard PASS, both databases). NULL on the
+user row means "use the role default"; NULL on the role row means "use the
+built-in". **Deliberately unlike `dashboard_cards` in the same tables**, where
+`[]` is a deny that must never read as inherit — an empty layout is not an
+instruction, and treating a corrupted value as "show nothing" would blank a
+dashboard over a bad JSON write. The schema comments say so at both columns.
+
+### A user's own layout is NOT audited
+
+A role's default is. The split is the point: a hash-chained immutable §11 trail
+filling with "moved a card 40px left" is one in which the records that matter get
+harder to find, while an admin setting a role's default IS acting on other people
+— the line this codebase draws everywhere else. The route carries a comment saying
+the missing `auditLog` is deliberate, and the e2e asserts the absence in both
+directions, so neither mistake can be made quietly.
+
+### The bug the checkpoint caught
+
+The first live run showed an unrestricted viewer resolving to **all nine** panel
+keys — including the five that belong to the instrument *trend page*, which the
+dashboard has no renderer for. They became empty boxes occupying grid space: four
+cards and five holes. `resolveLayout` now considers dashboard panels only. Found
+by running it against the real database, not by a test, which is why the
+checkpoint was there.
+
+### Also
+
+Drag is off until **Arrange** is pressed, and off entirely below the `md`
+breakpoint — a dashboard someone can rearrange by accidentally dragging while
+scrolling on a touchscreen is one whose layout nobody trusts again. Only the `lg`
+arrangement is stored; narrower breakpoints are derived, so nobody has to arrange
+a phone view they never look at. Nothing renders until the container is measured
+once, because laying out against a width of 0 puts every card in column 0 for a
+frame and reads as the layout having been lost.
+
+### Verification
+
+API **1598 passing / 127 files** (single-fork), web **813 / 61**, shared 16 new
+unit tests, `tsc --noEmit` clean on all three projects, `vite build` succeeds,
+migration drift guard PASS. End-to-end against the live database: save, the
+append-missing rule, zero audit rows on a personal save, and DELETE restoring the
+role default.
+
+Not verified in a browser — Playwright cannot authenticate against this install's
+certificate. **The drag interaction itself has not been seen by anyone yet.**
+
 ## [Unreleased] - Dashboard aggregate widgets (2026-08-28)
 
 A trend card showing the spread across the current drill-down, a list of active

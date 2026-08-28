@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_DASHBOARD_LAYOUT, LAYOUT_VERSION, normalizeLayout, resolveLayout,
 } from './dashboard-layout.js';
+import { PANELS } from './panels.js';
 
 const item = (i: string, y: number) => ({ i, x: 0, y, w: 12, h: 6 });
 
@@ -108,5 +109,33 @@ describe('resolveLayout', () => {
       expect(it.x).toBeGreaterThanOrEqual(0);
       expect(it.x + it.w).toBeLessThanOrEqual(12);
     }
+  });
+});
+
+describe('the layout is about the DASHBOARD only', () => {
+  it('never places a trend-page panel, even when the viewer may see it', () => {
+    // Caught live: an unrestricted viewer resolves to EVERY panel key, five of
+    // which belong to the instrument trend page. The dashboard has no renderer for
+    // those, so appending them produced empty boxes occupying grid space — a
+    // dashboard with four cards and five holes in it.
+    const everyPanel = PANELS.map((p) => p.key);
+    const out = resolveLayout(undefined, undefined, everyPanel);
+    expect(out.items.map((i) => i.i)).toEqual(
+      PANELS.filter((p) => p.page === 'dashboard').map((p) => p.key),
+    );
+  });
+
+  it('drops a trend-page entry someone managed to store', () => {
+    const stored = {
+      version: LAYOUT_VERSION,
+      items: [{ i: 'trend_charts', x: 0, y: 0, w: 12, h: 6 }, { i: 'telemetry_table', x: 0, y: 6, w: 12, h: 6 }],
+    };
+    expect(resolveLayout(stored, undefined, PANELS.map((p) => p.key)).items.map((i) => i.i))
+      .toEqual(['telemetry_table', 'telemetry_floorplan', 'dashboard_trend', 'dashboard_alarms']);
+  });
+
+  it('the built-in default contains only dashboard panels', () => {
+    const dashboardKeys = new Set(PANELS.filter((p) => p.page === 'dashboard').map((p) => p.key));
+    for (const it of DEFAULT_DASHBOARD_LAYOUT.items) expect(dashboardKeys.has(it.i)).toBe(true);
   });
 });

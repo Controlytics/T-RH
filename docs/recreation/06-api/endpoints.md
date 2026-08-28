@@ -19,6 +19,8 @@ curl -sk https://localhost:3001/docs/json
 | GET | `/api/config/action-reauth/my-actions` | Get re-auth actions for current user |
 | GET | `/api/instruments/telemetry-aggregate` | Min/mean/max across the instruments in a selection, bucketed. ALL VALUES DERIVED; limit bounds returned only when every instrument in the selection agrees |
 | GET | `/api/alarms?functionalLocationId=` | Alarm list narrowed to one functional location (a Block covering its Areas), ANDed with the caller's visibility scope |
+| PUT · DELETE | `/api/config/my-dashboard-layout` | The caller's own dashboard arrangement. Authenticated only, NOT audited — a preference, not governance |
+| PUT | `/api/roles/dashboard-layout/role/:name` | A role's DEFAULT arrangement (ROLE_MANAGE + reauth, audited) |
 | GET · PUT | `/api/config/audit-templates` | Get audit text templates |
 | GET | `/api/roles/panel-access` | Panel assignment for every role and every user override (ROLE_MANAGE) |
 | PUT | `/api/roles/panel-access/role/:name` | Set a role's assignable panels (reauth, audited) |
