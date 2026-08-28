@@ -234,3 +234,80 @@ describe('telemetry aggregate — the numbers', () => {
     expect(mixed.limitsMixed.temperature).toBe(true);
   });
 });
+
+/**
+ * `GET /api/alarms?functionalLocationId=` — the dashboard alarm widget's feed.
+ *
+ * Lives here rather than in its own file because it shares this file's fixtures:
+ * one instrument the OPERATOR may see, one it may not, in different Blocks. The
+ * inversion that matters is the same one — a selection filter must NARROW within
+ * the caller's scope, never escape it.
+ */
+describe('alarms — location filter', () => {
+  const alarms = async (qs: string, headers = operator) => {
+    const res = await app.inject({ method: 'GET', url: `/api/alarms${qs}`, headers });
+    expect(res.statusCode).toBe(200);
+    return (res.json() as { data: { instrumentId: string }[] }).data;
+  };
+
+  beforeAll(async () => {
+    const role = await prisma.role.findFirstOrThrow({ where: { name: 'OPERATOR' } });
+    await prisma.role.update({
+      where: { id: role.id },
+      data: { permissions: [...new Set([...(role.permissions as string[]), 'ALARM_READ'])] },
+    });
+    invalidateRolePermsCache('OPERATOR');
+
+    // One alarm on each instrument, so "did the filter work" and "did the scope
+    // hold" are distinguishable.
+    for (const instrumentId of [inAreaId, elsewhereId]) {
+      await prisma.alarm.create({
+        data: {
+          instrumentId, metric: 'TEMPERATURE', severity: 'CRITICAL', state: 'ACTIVE',
+          source: 'INSTRUMENT_LIMIT', limitKind: 'HIGH', triggeredValue: 99,
+          // ruleSnapshot is NOT NULL and carries what the record was judged
+          // against; the tag is how afterAll finds these rows again, since Alarm
+          // has no free-text column.
+          ruleSnapshot: { fixture: `agg-e2e-${s}` },
+          raisedAt: new Date(),
+        } as never,
+      });
+    }
+  });
+
+  afterAll(async () => {
+    await prisma.alarm.deleteMany({
+      where: { ruleSnapshot: { equals: { fixture: `agg-e2e-${s}` } } },
+    });
+  });
+
+  it('narrows to the named location', async () => {
+    const rows = await alarms(`?state=ACTIVE&functionalLocationId=${blockId}`);
+    expect(rows.map((a) => a.instrumentId)).toContain(inAreaId);
+    expect(rows.map((a) => a.instrumentId)).not.toContain(elsewhereId);
+  });
+
+  it('a BLOCK covers its Areas', async () => {
+    // The instrument sits in the Area, not on the Block itself. Querying
+    // functionalLocationId directly would silently return nothing.
+    expect((await alarms(`?state=ACTIVE&functionalLocationId=${blockId}`)).length).toBeGreaterThan(0);
+  });
+
+  it('naming a location the caller cannot see returns nothing, not everything', async () => {
+    const rows = await alarms(`?state=ACTIVE&functionalLocationId=${otherBlockId}`);
+    expect(rows.map((a) => a.instrumentId)).not.toContain(elsewhereId);
+    expect(rows).toEqual([]);
+  });
+
+  it('without the filter the caller still sees only their own scope', async () => {
+    // The control on the other side: removing the filter must not remove the scope.
+    const rows = await alarms('?state=ACTIVE');
+    expect(rows.map((a) => a.instrumentId)).not.toContain(elsewhereId);
+  });
+
+  it('an unrestricted caller sees the out-of-scope alarm', async () => {
+    // And the control that proves the fixture alarm exists at all.
+    const rows = await alarms('?state=ACTIVE', auth);
+    expect(rows.map((a) => a.instrumentId)).toContain(elsewhereId);
+  });
+});

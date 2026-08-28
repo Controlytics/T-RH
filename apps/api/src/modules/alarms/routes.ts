@@ -6,6 +6,7 @@ import { enforceReauth } from '../../lib/reauth-check.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { resolveVisibility } from '../instruments/visibility.js';
+import { resolveLocationIds, type FlNode } from '../functional-locations/tree.js';
 import { describeRule } from './decide.js';
 import { enqueueAlarmWebhook } from '../alarm-webhooks/enqueue.js';
 import { describeSnapshot, decimalsFromSnapshot } from '../alarm-webhooks/build-variables.js';
@@ -247,6 +248,11 @@ export default async function alarmRoutes(app: FastifyInstance) {
         type: 'object',
         properties: {
           state: { type: 'string', enum: ['ACTIVE', 'CLEARED'] },
+          // Narrows to one functional location, a Block covering its Areas. It is
+          // ANDed with the caller's visibility scope below, never substituted for
+          // it: a location filter that widened visibility would be the exact
+          // inversion of what both filters are for.
+          functionalLocationId: { type: 'string' },
           acknowledged: { type: 'string', enum: ['true', 'false'] },
           instrumentId: { type: 'string' },
           limit: { type: 'integer' },
@@ -258,7 +264,10 @@ export default async function alarmRoutes(app: FastifyInstance) {
       },
     },
   }, async (req) => {
-    const q = req.query as { state?: string; acknowledged?: string; instrumentId?: string; limit?: number };
+    const q = req.query as {
+      state?: string; acknowledged?: string; instrumentId?: string;
+      functionalLocationId?: string; limit?: number;
+    };
     const { where: visibility } = await resolveVisibility(buildContext(req));
 
     const filters: Record<string, unknown> = {};
@@ -266,6 +275,20 @@ export default async function alarmRoutes(app: FastifyInstance) {
     if (q.acknowledged === 'true') filters.acknowledgedAt = { not: null };
     if (q.acknowledged === 'false') filters.acknowledgedAt = null;
     if (q.instrumentId) filters.instrumentId = q.instrumentId;
+    if (q.functionalLocationId) {
+      // resolveLocationIds, never a bare equality: an alarm on an instrument in a
+      // Block's AREA must appear when the Block is selected. Querying the id
+      // directly returns only what is pinned to the Block itself, which on this
+      // installation is nothing at all.
+      const nodes = await prisma.functionalLocation.findMany({
+        select: { id: true, name: true, type: true, parentId: true },
+      });
+      const ids = resolveLocationIds(q.functionalLocationId, nodes as FlNode[]);
+      filters.instrument = { functionalLocationId: { in: ids } };
+    }
+    // scopedToVisible ANDs, so the location filter above narrows WITHIN the
+    // caller's scope and cannot escape it — including when it names a location the
+    // caller cannot see, which then matches nothing.
     const where = scopedToVisible(filters, visibility);
 
     const rows = await prisma.alarm.findMany({
