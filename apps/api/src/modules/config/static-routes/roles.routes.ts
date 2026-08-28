@@ -3,6 +3,11 @@ import { enforceReauth } from '../../../lib/reauth-check.js';
 import { buildContext } from '../../../lib/build-context.js';
 import { configService } from '../config.service.js';
 import { resolvePanelsFor } from '../panel-access.js';
+import { resolveLayoutFor } from '../dashboard-layout.js';
+import { normalizeLayout } from '@digilog/shared';
+import { Prisma } from '@prisma/client';
+import { prisma } from '../../../lib/prisma.js';
+import { errorResponses } from '../../../lib/error-schemas.js';
 
 export async function rolesConfigRoutes(app: FastifyInstance) {
   app.get('/roles', {
@@ -194,15 +199,127 @@ export async function rolesConfigRoutes(app: FastifyInstance) {
             // so a field added to the handler without a line here never reaches
             // the wire — the same trap the trend-page work hit in August.
             panels: { type: 'array', items: { type: 'string' }, nullable: true },
+            // Where those panels sit. Resolved server-side (user -> role ->
+            // built-in) so the browser arranges what it is given rather than
+            // re-deriving the fallback.
+            layout: {
+              type: 'object',
+              properties: {
+                version: { type: 'integer' },
+                items: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      i: { type: 'string' },
+                      x: { type: 'integer' },
+                      y: { type: 'integer' },
+                      w: { type: 'integer' },
+                      h: { type: 'integer' },
+                    },
+                  },
+                },
+              },
+            },
           },
         },
       },
     },
   }, async (req) => {
-    const [config, panels] = await Promise.all([
+    const [config, panels, layout] = await Promise.all([
       configService.getMyConfig(req.user.username),
       resolvePanelsFor(req.user.username),
+      resolveLayoutFor(req.user.username),
     ]);
-    return { ...config, panels };
+    return { ...config, panels, layout };
+  });
+
+  // ── The caller's OWN dashboard layout ──────────────────────────────────────
+  //
+  // Authenticated only: no permission, no re-authentication, and DELIBERATELY NO
+  // auditLog CALL.
+  //
+  // A layout grants nothing — panel assignment decides what a user may see, and
+  // that surface is audited and reauth-gated. This is where someone's cards sit
+  // on their own screen. Writing a hash-chained, immutable §11 audit row every
+  // time an operator nudges a card would fill the trail with noise and make the
+  // records that matter harder to find.
+  //
+  // If you are here because the missing auditLog looks like an oversight: it is
+  // not, and `src/e2e/dashboard-layout.test.ts` asserts the absence in both
+  // directions. Setting a ROLE's default IS audited — see
+  // `PUT /api/roles/dashboard-layout/role/:name`.
+  const layoutBody = {
+    type: 'object',
+    required: ['layout'],
+    properties: {
+      layout: {
+        type: 'object',
+        required: ['version', 'items'],
+        properties: {
+          version: { type: 'integer' },
+          items: {
+            type: 'array',
+            items: {
+              type: 'object',
+              required: ['i', 'x', 'y', 'w', 'h'],
+              properties: {
+                i: { type: 'string' },
+                x: { type: 'integer' },
+                y: { type: 'integer' },
+                w: { type: 'integer' },
+                h: { type: 'integer' },
+              },
+            },
+          },
+        },
+      },
+    },
+  } as const;
+
+  app.put('/my-dashboard-layout', {
+    schema: {
+      tags: ['Config'],
+      summary: "Save the caller's own dashboard arrangement",
+      description: 'A personal preference. Not audited, and it grants nothing — panel assignment decides what a user may see.',
+      body: layoutBody,
+      response: { 200: { type: 'object', properties: { success: { type: 'boolean' } } }, ...errorResponses },
+    },
+  }, async (req, reply) => {
+    const { layout } = req.body as { layout: unknown };
+    // Validated through the SAME normalizer the reader uses, so a value that
+    // would be rejected on read can never be stored in the first place.
+    const parsed = normalizeLayout(layout);
+    if (!parsed) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'Layout is not in a form this server can store.' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { username: req.user.username }, select: { id: true } });
+    if (!user) return reply.code(404).send({ error: 'NOT_FOUND', message: 'User not found.' });
+
+    await prisma.userConfig.upsert({
+      where: { userId: user.id },
+      create: { userId: user.id, dashboardLayout: parsed as unknown as Prisma.InputJsonObject, updatedBy: req.user.username },
+      update: { dashboardLayout: parsed as unknown as Prisma.InputJsonObject, updatedBy: req.user.username },
+    });
+    return { success: true };
+  });
+
+  app.delete('/my-dashboard-layout', {
+    schema: {
+      tags: ['Config'],
+      summary: "Reset the caller's dashboard to their role's default",
+      response: { 200: { type: 'object', properties: { success: { type: 'boolean' } } }, ...errorResponses },
+    },
+  }, async (req, reply) => {
+    const user = await prisma.user.findUnique({ where: { username: req.user.username }, select: { id: true } });
+    if (!user) return reply.code(404).send({ error: 'NOT_FOUND', message: 'User not found.' });
+    // DbNull, not JsonNull: NULL is what "inherit the role default" means here,
+    // and the JSON value `null` is a different stored thing.
+    await prisma.userConfig.updateMany({
+      where: { userId: user.id },
+      data: { dashboardLayout: Prisma.DbNull, updatedBy: req.user.username },
+    });
+    return { success: true };
   });
 }

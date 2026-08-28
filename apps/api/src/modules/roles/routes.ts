@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { normalizeScope, type ScopeSelection } from '../instruments/visibility.js';
+import { normalizeLayout } from '@digilog/shared';
 import { buildCoveringIndex, type FlNode } from '../functional-locations/tree.js';
 import {
   ATTRIBUTE_ACCESS_MODES,
@@ -990,6 +991,85 @@ export default async function roleRoutes(app: FastifyInstance) {
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
     return { userId, panels };
+  });
+
+
+  // ─── A role's DEFAULT dashboard layout (2026-08-28) ────────────────────────
+  //
+  // AUDITED, unlike a user saving their own arrangement, because this is an
+  // administrator acting on other people — the line this codebase draws
+  // everywhere else. Same permission and reauth action as the panel assignment
+  // routes above.
+  //
+  // It is a DEFAULT, not an enforcement: any user's own layout overrides it, and
+  // they can return to it with DELETE /api/config/my-dashboard-layout.
+  app.put('/dashboard-layout/role/:name', {
+    preHandler: [app.requirePermission('ROLE_MANAGE')],
+    schema: {
+      tags: ['Roles'],
+      summary: "Set a role's default dashboard arrangement",
+      params: { type: 'object', properties: { name: { type: 'string' } } },
+      body: {
+        type: 'object',
+        required: ['layout'],
+        properties: {
+          layout: {
+            type: 'object',
+            nullable: true,
+            required: ['version', 'items'],
+            properties: {
+              version: { type: 'integer' },
+              items: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  required: ['i', 'x', 'y', 'w', 'h'],
+                  properties: {
+                    i: { type: 'string' },
+                    x: { type: 'integer' },
+                    y: { type: 'integer' },
+                    w: { type: 'integer' },
+                    h: { type: 'integer' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('UPDATE_ROLE_CONFIG', req, reply);
+    if (!ok) return;
+    const { name } = req.params as { name: string };
+    const { layout } = req.body as { layout: unknown };
+    const ctx = buildContext(req);
+
+    // null clears the default; anything else must pass the SAME normalizer the
+    // reader uses, so an unreadable value cannot be stored.
+    const parsed = layout === null ? null : normalizeLayout(layout) ?? null;
+    if (layout !== null && parsed === null) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'Layout is not in a form this server can store.' });
+    }
+
+    const before = await prisma.roleConfig.findUnique({ where: { role: name }, select: { dashboardLayout: true } });
+    await prisma.roleConfig.upsert({
+      where: { role: name },
+      create: { role: name, dashboardLayout: (parsed as Prisma.InputJsonObject | null) ?? Prisma.DbNull, updatedBy: ctx.userId },
+      update: { dashboardLayout: (parsed as Prisma.InputJsonObject | null) ?? Prisma.DbNull, updatedBy: ctx.userId },
+    });
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole,
+      action: 'CONFIG_CHANGED',
+      targetType: 'role_config', targetId: name,
+      beforeValue: { dashboardLayout: before?.dashboardLayout ?? null },
+      afterValue: { dashboardLayout: parsed },
+      signatureMeaning: parsed === null
+        ? `Role "${name.slice(0, 60)}" default dashboard layout cleared`
+        : `Role "${name.slice(0, 60)}" default dashboard layout set, ${parsed.items.length} panel(s) placed`,
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    });
+    return { role: name, layout: parsed };
   });
 
 }
