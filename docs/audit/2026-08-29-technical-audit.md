@@ -2268,6 +2268,68 @@ grep -rn "console.log" apps/web/src --include=*.tsx | grep -v test  # 0
 grep -rn "NODE_TLS_REJECT_UNAUTHORIZED" apps packages scripts       # 3, all scripts
 ```
 
+### 🟠 NEW FINDING — `npm audit` run 2026-08-29, was UNKNOWN in this report
+
+The Dependency Audit (§19) recorded confirmed vulnerabilities as
+**"UNKNOWN — `npm audit` not run"**. It has now been run. It is not clean.
+
+```
+npm audit --omit=dev
+19 vulnerabilities (4 moderate, 14 high, 1 critical)
+```
+
+Two matter for THIS application specifically, and one is a lockfile fault
+rather than an upstream one:
+
+**D1 — `@fastify/static` is installed at 9.3.0 while `package.json` declares
+`^10.1.0`.** `package-lock.json:3674` pins 9.3.0 at the top level, so `npm ci`
+installs a version the manifest does not permit. 9.3.0 carries
+*"Authorization Bypass via Non-Canonical URL Paths"* (HIGH). This is not
+abstract here: `app.ts:179` serves `UPLOADS_ROOT` at `/uploads/`, and
+`/uploads/photos/`, `/uploads/branding/` and `/uploads/floorplans/` are all in
+`PUBLIC_GET_PATHS` — unauthenticated. A path-canonicalisation bypass on that
+handler is the one advisory in this list with a public, unauthenticated reader
+in front of it. **Severity: HIGH. Fix first.**
+
+**D2 — `adm-zip` 0.5.16**: *"Crafted ZIP file triggers 4GB memory allocation"*
+(HIGH). `POST /api/backup/restore` accepts an uploaded archive and unzips it.
+Permission-gated and reauth'd, so the caller is an authenticated admin, but it
+is a one-request OOM of the API process. Latest is 0.6.0 (a major bump).
+
+**D3 — `tar` (CRITICAL, transitive)**: arbitrary file write via hardlink path
+traversal, reached through `@mapbox/node-pre-gyp` — build tooling for `bcrypt`,
+not a runtime request path. Lower real-world exposure than D1 despite the
+higher label.
+
+Also flagged: `find-my-way` (HTTP/2 DoS — this server does not enable HTTP/2),
+`react-router`/`react-router-dom` (RSC-mode CSRF — this app does not use RSC),
+`js-yaml`, `postcss`, `nanoid`, `brace-expansion`, `fast-uri`, `deepmerge-ts`.
+
+**`npm audit fix` CANNOT RUN, and the reason is its own finding.** It aborts
+with ERESOLVE:
+
+```
+peer vite@"^3.1.0 || ^4.0.0 || ^5.0.0" from vite-plugin-pwa@0.20.5
+Found: vite@6.4.3
+```
+
+`vite-plugin-pwa@0.20` does not support Vite 6. The dependency tree is already
+in a state npm will not reproduce, which is why the lockfile has drifted from
+the manifest (D1) and why no automated remediation can proceed. §19 flagged
+`vite-plugin-pwa ^0.20.0` as a "potential concern" because a `^` on a 0.x major
+is not a compatibility guarantee; this is that concern having already happened.
+
+**Recommended order:** resolve the `vite-plugin-pwa` / Vite 6 peer conflict
+first (upgrade it, or drop the PWA plugin — the offline domain it was added for
+no longer exists), then regenerate the lockfile so `@fastify/static` matches its
+declared `^10.1.0`, then re-run `npm audit`. Do not `npm audit fix --force`:
+it wants to install `exceljs@3.4.0`, a breaking downgrade of the library both
+the PDF and Excel report paths depend on.
+
+**Not fixed in this session** — an unresolvable-by-tooling dependency upgrade
+touching the build plugin, the router and the ZIP reader is not a change to
+make in a cleanup pass without a full regression run behind it.
+
 ### Corrections made during this audit
 
 Recorded in the spirit of `CLAUDE.md`'s own dated self-corrections. Four
