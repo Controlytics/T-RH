@@ -7,7 +7,13 @@ REM  safely can, then starts the API and the web dev server.
 REM
 REM  Safe to run repeatedly - every step is skipped when already satisfied.
 REM
+REM  ALREADY RUNNING? Use restart-app.bat (or start-app.bat -Restart).
+REM  Starting on top of a running instance correctly refuses on the port check
+REM  and starts nothing - and a running `tsx watch` also locks the Prisma query
+REM  engine, which fails the generate step before anything launches.
+REM
 REM  Optional:
+REM     start-app.bat -Restart           stop this checkout first, then start
 REM     start-app.bat -WebPort 5180      use a specific web port
 REM     start-app.bat -SkipBrowser       do not open the browser
 REM

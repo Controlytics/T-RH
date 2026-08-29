@@ -39,11 +39,27 @@
 
 .PARAMETER SkipBrowser
     Do not open the browser when the stack is up.
+
+.PARAMETER Restart
+    Stop this checkout's own API/web first, then start.
+
+    Without it a second run stops at "API port already in use" and starts
+    NOTHING - correct, but unhelpful when what you meant was "pick up my code
+    changes". It also clears the most common failure downstream: a running
+    `tsx watch` holds node_modules\.prisma\client\query_engine-windows.dll.node,
+    so `prisma generate` fails EPERM and the script dies before launching
+    anything.
+
+    Only ever stops processes whose command line or working directory is inside
+    THIS repo - scripts\stop-app.ps1 owns that scoping and this reuses it rather
+    than duplicating the rule, so a sibling checkout on a neighbouring port is
+    left alone.
 #>
 [CmdletBinding()]
 param(
     [int]$WebPort = 0,
-    [switch]$SkipBrowser
+    [switch]$SkipBrowser,
+    [switch]$Restart
 )
 
 $ErrorActionPreference = 'Stop'
@@ -241,11 +257,31 @@ function Get-PortOwner([int]$Port) {
     return "PID $($owner.OwningProcess)"
 }
 
+# -Restart stops this checkout's own processes BEFORE the port checks below, so
+# the checks then see genuinely free ports and a leftover of our own can never
+# be reported as "someone else owns this port".
+if ($Restart) {
+    Info "Restart requested - stopping this checkout's services first"
+    $stopScript = Join-Path $PSScriptRoot 'stop-app.ps1'
+    if (Test-Path $stopScript) {
+        & $stopScript | Out-Null
+        # Windows releases a listening socket a moment after the owner exits;
+        # checking immediately can still see it bound.
+        Start-Sleep -Seconds 2
+        Ok "Previous instance stopped"
+    } else {
+        Warn "stop-app.ps1 not found - continuing without stopping anything"
+    }
+}
+
 if (Test-PortBusy $ApiPort) {
     Die "API port $ApiPort is already in use by $(Get-PortOwner $ApiPort)." @(
         "This checkout is probably already running.",
-        "Stop it first:  stop-app.bat",
-        "Or change PORT in apps\api\.env if a different app owns that port."
+        "",
+        "  Restart it with your latest code:   start-app.bat -Restart",
+        "  Just stop it:                       stop-app.bat",
+        "",
+        "If a DIFFERENT application owns that port, change PORT in apps\api\.env."
     )
 }
 Ok "API port $ApiPort free"
@@ -331,7 +367,7 @@ if ($clientFresh) {
                 "Usual suspects: an API started outside this script (tsx watch), a vitest run,",
                 "or an editor TypeScript server.",
                 "",
-                "  1. stop-app.bat",
+                "  1. start-app.bat -Restart     (stops this checkout, then starts)",
                 "  2. If it persists:  powershell -Command ""Get-Process node | Stop-Process -Force""",
                 "  3. Re-run start-app.bat"
             )
