@@ -118,12 +118,14 @@ export function useTelemetryOverview(opts?: string | { floorplanId?: string; fun
     dedupingInterval: 1000,
   });
 
-  // No `mutate` is exported. The table had a manual refresh button for one commit
-  // (2026-08-29) and the operator removed it: this hook already polls on
-  // `overviewRefreshMs` and revalidates on focus, so the button only re-asked a
-  // question that was being asked anyway. `refreshMs` stays because callers may
-  // want to SAY how often it polls, even though the table no longer does.
-  return { rows: data?.data ?? [], isLoading, error, refreshMs: overviewRefreshMs };
+  // Neither `mutate` NOR `refreshMs` is exported, and both absences are deliberate.
+  // The table had a manual refresh button for one commit (2026-08-29) and the
+  // operator removed it: this hook already polls on `overviewRefreshMs` and
+  // revalidates on focus, so the button only re-asked a question that was being
+  // asked anyway. The "updates every 5s" captions that `refreshMs` fed went the
+  // same way, from the table and then the floorplan, leaving it with no consumer.
+  // The POLL itself is unchanged — only the captions announcing it are gone.
+  return { rows: data?.data ?? [], isLoading, error };
 }
 
 /**

@@ -150,7 +150,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
   const { plans, isLoading: plansLoading } = useFloorplans();
   // Scoped server-side. When a functional location is selected the rows are only
   // that location's instruments, so the rooms drawn below narrow with it.
-  const { rows, refreshMs } = useTelemetryOverview({ functionalLocationId, directOnly });
+  const { rows } = useTelemetryOverview({ functionalLocationId, directOnly });
 
   const [planId, setPlanId] = useState<string>('');
   const [openRoomId, setOpenRoomId] = useState<string | null>(null);
@@ -238,9 +238,6 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
               {p.name}
             </Button>
           ))}
-          <span className="ml-2 text-[0.6875rem] text-white/70">
-            updates every {Math.round(refreshMs / 1000)}s
-          </span>
         </div>
       </div>
 
