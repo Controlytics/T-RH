@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased] - Dashboard bar: title removed, height halved (2026-08-29)
+
+Operator: *"remove the dashboard text and decrease the dashboard size"*.
+**No count moved.** One file: `routes/dashboard/index.tsx`.
+
+- **The `<h1>Dashboard</h1>` is gone.** The sidebar already marks Dashboard as the
+  current page, so the title restated it while setting the bar's height — removing
+  it is most of the size cut. The bar is now a single row: breadcrumb left,
+  location picker right (`items-end` -> `items-center`, since there is no longer a
+  two-line stack to bottom-align).
+- Padding `px-4 py-3` -> `px-3 py-2`; the breadcrumb's `mt-1` went with the h1.
+
+**The word "Dashboard" still appears as the breadcrumb's ROOT LINK** (`Dashboard >
+CWH Block`). That one is navigation, not a label — it is the only way back to the
+top level — so it was deliberately kept. If it should also go, the root crumb
+needs a different label rather than deletion.
+
+Measured on :5176 at Block level: bar height **88px -> 49px**, and the card grid
+now starts at y=137 instead of y=157. No console errors; tsc clean; 131 dashboard
+tests pass. The top level is unaffected — the bar is not rendered there at all.
+
 ## [Unreleased] - Dashboard Areas heading removed, plate-to-cards gap closed (2026-08-29)
 
 Operator: *"Areas / Areas in CWH Block, remove this text and decrease the gap

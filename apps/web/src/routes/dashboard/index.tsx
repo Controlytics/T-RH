@@ -140,13 +140,18 @@ export function DashboardPage() {
         is the only way back up.
       */}
       {nav.level > 0 && (
-      <div className="flex flex-wrap items-end justify-between gap-3 rounded-[var(--radius-card)] border border-white/70 bg-white/85 px-4 py-3 shadow-[var(--elev-1)] backdrop-blur-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-card)] border border-white/70 bg-white/85 px-3 py-2 shadow-[var(--elev-1)] backdrop-blur-sm">
         <div>
-          <h1 className="text-[1.625rem] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Dashboard</h1>
+          {/* The "Dashboard" <h1> was REMOVED 2026-08-29 (operator: "remove the
+              dashboard text and decrease the dashboard size"). The sidebar already
+              marks Dashboard as the current page, so the title only restated it
+              while setting the bar's height — losing it is most of the size cut.
+              The breadcrumb keeps the word as its ROOT LINK; that one is
+              navigation, not a label, and is the only way back to the top level. */}
           {/* Breadcrumb: the only way back up, so it is always rendered once a
               selection exists rather than only at the deepest level. */}
           {nav.breadcrumb.length > 0 && (
-            <nav className="mt-1 flex flex-wrap items-center gap-1 text-sm text-slate-500">
+            <nav className="flex flex-wrap items-center gap-1 text-sm text-slate-500">
               {nav.breadcrumb.map((c, i) => (
                 <span key={`${c.id ?? 'root'}-${i}`} className="flex items-center gap-1">
                   {i > 0 && <span className="text-slate-400">›</span>}
