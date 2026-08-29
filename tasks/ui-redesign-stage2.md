@@ -108,11 +108,26 @@ done as passes rather than page by page:
   Worth migrating one day; each needs a judgement about what the crumb trail
   says for a record that may have been renamed.
 
-## Tier 6 — still open
+## Tier 6 — loading states (done)
 
-- [ ] **~30 non-table loading strings** ("Loading configuration…", "Loading user
-      data…") outside a table body. Each needs a skeleton shaped like the thing
-      it is replacing, which is a per-screen judgement, not a pattern.
+- [x] **17 spinners → skeletons**, each shaped like what it replaces: table
+      bodies at their REAL column count, card grids in their real grid, System
+      Health as four stat tiles above a two-column card grid. Seven screens
+      shared one loader (a tinted circle around a spinner, each in its own
+      accent), which is why they converted together.
+- [x] Verified in the browser, not assumed: sampling the DOM during navigation
+      shows the skeleton appear, a `role="status"` live region announce it, and
+      the skeleton clear to ZERO with real rows in place.
+
+**Three loading affordances stay, on purpose** (reasons are in the code):
+the app boot splash (nothing is known yet — the session has not resolved, so
+this may become the dashboard, a login redirect, a forced password change or the
+lockdown screen; a skeleton would promise a layout that usually never appears),
+`<option>Loading…</option>` inside a select, and the multiselect's inline
+caption.
+
+## Tier 7 — still open
+
 - [ ] **Per-page section-icon colour** — pages give each SECTION (not the page
       header) its own tinted icon tile. It reads as deliberate, but no rule
       governs which colour means what.

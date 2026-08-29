@@ -143,6 +143,23 @@ Table "Loading…" rows became `SkeletonRows`; empty rows became `EmptyState` wi
 a title, the consequence, and the action that fixes it — an empty Alarm Rules
 table is not a neutral state, it means nothing is being watched.
 
+**All 17 remaining spinners became skeletons**, each shaped like what it
+replaces — the rule already written on the primitive is that a skeleton only
+beats a spinner when it PREDICTS the layout. Table bodies use their real column
+count (nine on the debug traces table, not a tidy five); card grids use their
+real grid; System Health draws four stat tiles above a two-column card grid,
+because a three-column grid of six would have been a placeholder for a layout
+that never appears. Seven screens shared one loader — a tinted circle around a
+spinner, each in its own accent — which is why they converted together.
+
+Three are deliberately kept, with the reason in the code: the **app boot
+splash** (nothing is known yet — the session has not resolved, so the page may
+become the dashboard, a login redirect, a forced password change or the
+super-admin lockdown screen), `<option>Loading…</option>` inside a select, and
+the multiselect's inline caption. Verified by sampling the DOM during
+navigation: the skeleton appears, a `role="status"` region announces it, and it
+clears to zero with real rows in place.
+
 ### Deliberately excluded
 
 `routes/dashboard/` panel-card geometry (tuned with the operator days earlier),
