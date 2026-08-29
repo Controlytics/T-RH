@@ -14,6 +14,7 @@ import { authRepository } from './auth.repository.js';
 import { createNotification } from '../notifications/notification.service.js';
 import { dispatchNotification } from '../notification-delivery/notification-dispatcher.js';
 import { invalidateSessionAuthCache } from '../../plugins/auth.js';
+import { logger } from '../../lib/logger.js';
 
 const DUMMY_HASH = '$2b$12$7fXFzVUc/0SLHtxesM41PODN09mcQBJ0QB/uy7BQHDWzsklxK9yh6';
 
@@ -80,7 +81,7 @@ export async function applyFailedPasswordAttempt(
       reason: 'Multiple failed login attempts', failedAttempts: String(newAttempts),
       ipAddress: ip ?? 'N/A', timestamp: new Date().toISOString(),
     },
-  }).catch(err => console.error('[UserLocked] Notification dispatch failed:', err.message));
+  }).catch(err => logger.error('[UserLocked] Notification dispatch failed:', err.message));
 
   return { locked: true };
 }
@@ -117,7 +118,7 @@ export const authService = {
           }
         }
       } catch (ldapErr: any) {
-        console.error('[LDAP] Auto-provision error:', ldapErr.message);
+        logger.error('[LDAP] Auto-provision error:', ldapErr.message);
       }
 
       if (!user) {
@@ -216,7 +217,7 @@ export const authService = {
         }
       } catch (err: any) {
         if (err instanceof AppError) throw err;
-        console.error('[LDAP] Auth error: LDAP authentication failed');
+        logger.error('[LDAP] Auth error: LDAP authentication failed');
         throw new AppError(401, 'LDAP_ERROR', 'LDAP authentication failed. Contact administrator.');
       }
     }
@@ -357,7 +358,7 @@ export const authService = {
         role: user.role, ipAddress: ip ?? 'N/A',
         timestamp: new Date().toISOString(),
       },
-    }).catch(err => console.error('[UserLogin] Notification dispatch failed:', err.message));
+    }).catch(err => logger.error('[UserLogin] Notification dispatch failed:', err.message));
 
     return {
       success: true, token,
@@ -547,7 +548,7 @@ export const authService = {
     if (!user) throw new NotFoundError('User not found');
     const { ok, lockoutDelegated, unavailableReason } = await verifyCredential(user as any, password);
     if (!ok) {
-      if (unavailableReason) console.error(`[Reauth] ${user.username}: ${unavailableReason}`);
+      if (unavailableReason) logger.error(`[Reauth] ${user.username}: ${unavailableReason}`);
       // Reauth password guesses count toward the SAME lockout as login — except
       // for directory users, whose lockout the directory owns (see the login
       // branch above for the double-lockout rationale). The audit record is
@@ -592,7 +593,7 @@ export const authService = {
     // deliberate. The AD-specific guidance belongs on the login screen, where it
     // reaches the right person without answering questions for an attacker.
     if (isLdapUser(user as any)) {
-      console.info(`[Auth] Ignoring forgot-password for directory-managed account "${user.username}".`);
+      logger.info(`[Auth] Ignoring forgot-password for directory-managed account "${user.username}".`);
       return;
     }
 

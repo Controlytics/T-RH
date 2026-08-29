@@ -1,4 +1,5 @@
 import { getProducer } from '@digilog/queue';
+import { logger } from '../../lib/logger.js';
 
 /**
  * Asks for an alarm evaluation because a reading just arrived.
@@ -33,7 +34,7 @@ import { getProducer } from '@digilog/queue';
 export const ALARM_EVALUATION_JOB_KEY = 'alarm_evaluation:on-ingest';
 
 export async function enqueueAlarmEvaluation(
-  log: (msg: string) => void = (m) => console.error(m),
+  log: (msg: string) => void = (m) => logger.error(m),
 ): Promise<boolean> {
   try {
     const producer = await getProducer();

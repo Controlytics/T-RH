@@ -6,6 +6,7 @@ import type { WebSocket } from 'ws';
 import type {} from '@fastify/websocket';
 import { resolveInstrumentByToken, type IngestIdentity } from '../ingest-auth.js';
 import { ingestPayload } from '../ingest-core.js';
+import { logger } from '../../../lib/logger.js';
 
 /**
  * WebSocket ingest listener — `GET /api/ingest/v1/ws`.
@@ -132,7 +133,7 @@ export default async function wsIngestRoutes(
   const maxQueued = opts.maxQueued ?? DEFAULT_MAX_QUEUED;
   const maxConnections = opts.maxConnections ?? DEFAULT_MAX_CONNECTIONS;
   const log = opts.log ?? ((msg: string, meta?: Record<string, unknown>) =>
-    console.warn(`[ingest:ws] ${msg}`, meta ?? ''));
+    logger.warn(`[ingest:ws] ${msg}`, meta ?? ''));
 
   // Scoped to THIS plugin registration, not the module: the test helper builds
   // several apps in one process, and a module-level counter would leak between

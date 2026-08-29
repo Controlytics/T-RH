@@ -6,6 +6,7 @@ import { prisma } from '../../lib/prisma.js';
 import { sendNotification } from './delivery.service.js';
 import { resolveTemplate } from './template-engine.js';
 import { formatConfiguredDateTime } from '../../lib/format-datetime.js';
+import { logger } from '../../lib/logger.js';
 
 interface DispatchEvent {
   eventType: string;
@@ -152,7 +153,7 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
           message: body,
           triggeredBy: 'notification-rule',
           metadata: { ruleName: rule.name, eventType, userId: user.id, ruleId: rule.id },
-        }).catch(err => console.error(`[Dispatcher] Email to ${user.email} failed:`, err.message));
+        }).catch(err => logger.error(`[Dispatcher] Email to ${user.email} failed:`, err.message));
       }
 
       // SMS
@@ -168,7 +169,7 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
             message: body,
             triggeredBy: 'notification-rule',
             metadata: { ruleName: rule.name, eventType, userId: user.id, ruleId: rule.id },
-          }).catch(err => console.error(`[Dispatcher] SMS to ${phone} failed:`, err.message));
+          }).catch(err => logger.error(`[Dispatcher] SMS to ${phone} failed:`, err.message));
         }
       }
 
@@ -192,7 +193,7 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
             },
           });
         } catch (err: any) {
-          console.error(`[Dispatcher] In-app notification for ${user.username} failed:`, err.message);
+          logger.error(`[Dispatcher] In-app notification for ${user.username} failed:`, err.message);
         }
       }
     }

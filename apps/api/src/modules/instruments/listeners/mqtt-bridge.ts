@@ -2,6 +2,7 @@ import mqtt, { type MqttClient, type IClientOptions } from 'mqtt';
 import { prisma } from '../../../lib/prisma.js';
 import type { IngestIdentity } from '../ingest-auth.js';
 import { ingestPayload } from '../ingest-core.js';
+import { logger } from '../../../lib/logger.js';
 
 /**
  * MQTT ingest bridge — subscribes `instruments/+/telemetry` on an EXTERNAL
@@ -196,7 +197,7 @@ export async function startMqttBridge(
   const maxMessageBytes = opts.maxMessageBytes ?? DEFAULT_MAX_MESSAGE_BYTES;
   const maxQueued = opts.maxQueued ?? DEFAULT_MAX_QUEUED;
   const log = opts.log ?? ((msg: string, meta?: Record<string, unknown>) =>
-    console.warn(`[ingest:mqtt] ${msg}`, meta ?? ''));
+    logger.warn(`[ingest:mqtt] ${msg}`, meta ?? ''));
 
   const client = mqtt.connect(url, {
     // The bridge's own identity on the broker, distinct from any device. EMQX

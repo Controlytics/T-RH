@@ -1,4 +1,5 @@
 import { configRegistry } from './config-registry.js';
+import { logger } from './logger.js';
 
 /**
  * Discover and register all module config definitions.
@@ -57,7 +58,7 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
   // (offline-sync + rfid-scanner settings were never read; role-privileges + sidebar-config pages never existed)
   await cleanupDeadConfigKeys();
 
-  console.info(`[config-registry] ${configRegistry.size} modules registered`);
+  logger.info(`[config-registry] ${configRegistry.size} modules registered`);
 }
 
 async function cleanupDeadConfigKeys(): Promise<void> {
@@ -76,7 +77,7 @@ async function cleanupDeadConfigKeys(): Promise<void> {
   ];
   const res = await prisma.systemConfig.deleteMany({ where: { configKey: { in: deadKeys } } });
   if (res.count > 0) {
-    console.info(`[config-migration] removed ${res.count} dead config row(s): ${deadKeys.join(', ')}`);
+    logger.info(`[config-migration] removed ${res.count} dead config row(s): ${deadKeys.join(', ')}`);
   }
 }
 

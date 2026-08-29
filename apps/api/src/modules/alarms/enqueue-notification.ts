@@ -1,5 +1,6 @@
 import { getProducer } from '@digilog/queue';
 import { alarmNotificationJob, type AlarmNotificationInput, type AlarmNotificationKind } from './notify.js';
+import { logger } from '../../lib/logger.js';
 
 /**
  * Enqueues an alarm notification onto the existing `notification` queue.
@@ -15,7 +16,7 @@ import { alarmNotificationJob, type AlarmNotificationInput, type AlarmNotificati
 export async function enqueueAlarmNotification(
   kind: AlarmNotificationKind,
   input: AlarmNotificationInput,
-  log: (msg: string) => void = (m) => console.error(m),
+  log: (msg: string) => void = (m) => logger.error(m),
 ): Promise<boolean> {
   try {
     const producer = await getProducer();

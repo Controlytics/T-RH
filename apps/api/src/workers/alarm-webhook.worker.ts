@@ -15,6 +15,7 @@ import type { AlarmWebhookTargetShape } from '@digilog/shared';
 import { expandLocations, targetMatches } from '../modules/alarm-webhooks/target-scope.js';
 import { shouldFire } from '../modules/alarm-webhooks/cooldown.js';
 import { deliverToTarget } from '../modules/alarm-webhooks/send.js';
+import { logger } from '../lib/logger.js';
 
 const asStringArray = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
@@ -39,7 +40,7 @@ export async function attemptTarget(
   try {
     return await deliver(target, event, alarmId, variables);
   } catch (err) {
-    console.error(
+    logger.error(
       `[alarm-webhook] target ${target.id} threw during delivery:`,
       err instanceof Error ? err.message : String(err),
     );

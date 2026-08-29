@@ -3,6 +3,7 @@ import { prisma } from './prisma.js';
 import { verifyCredential } from './ldap-identity.js';
 import { applyFailedPasswordAttempt } from '../modules/auth/auth.service.js';
 import type { ActionReauthConfig } from '@digilog/shared';
+import { logger } from './logger.js';
 
 /**
  * Reauth password verification shared by enforceReauth / enforceReauthAlways.
@@ -26,7 +27,7 @@ async function verifyReauthPassword(
   if (!user) return { error: 'REAUTH_FAILED', message: 'User not found.' };
   const { ok, lockoutDelegated, unavailableReason } = await verifyCredential(user, password);
   if (!ok) {
-    if (unavailableReason) console.error(`[Reauth] ${user.username}: ${unavailableReason}`);
+    if (unavailableReason) logger.error(`[Reauth] ${user.username}: ${unavailableReason}`);
     if (lockoutDelegated) {
       return { error: 'REAUTH_FAILED', message: 'Incorrect password. Please try again.' };
     }
@@ -105,7 +106,7 @@ function normalizeActionReauthConfig(raw: unknown): ActionReauthConfig {
     // go unnoticed — the previous silent `{}` was itself a finding.
     if (!legacyShapeWarned) {
       legacyShapeWarned = true;
-      console.warn(
+      logger.warn(
         '[reauth] action-reauth config is in the legacy nested shape — ALL re-authentication gates are currently DISABLED. Re-save the policy via the Action Re-auth config page to restore enforcement.',
       );
     }

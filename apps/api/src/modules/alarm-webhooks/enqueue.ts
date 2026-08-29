@@ -1,6 +1,7 @@
 import { getProducer } from '@digilog/queue';
 import type { AlarmWebhookEvent } from '@digilog/shared';
 import { buildWebhookVariables, type WebhookAlarmInput } from './build-variables.js';
+import { logger } from '../../lib/logger.js';
 
 /**
  * Enqueues an alarm webhook job.
@@ -17,7 +18,7 @@ import { buildWebhookVariables, type WebhookAlarmInput } from './build-variables
 export async function enqueueAlarmWebhook(
   event: Exclude<AlarmWebhookEvent, 'TEST'>,
   input: WebhookAlarmInput,
-  log: (msg: string) => void = (m) => console.error(m),
+  log: (msg: string) => void = (m) => logger.error(m),
 ): Promise<boolean> {
   try {
     const producer = await getProducer();

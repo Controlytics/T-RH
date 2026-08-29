@@ -61,6 +61,7 @@ import instrumentRoutes from './modules/instruments/routes.js';
 import { startTcpListener, type TcpListenerHandle } from './modules/instruments/listeners/tcp-listener.js';
 import { startMqttBridge, plaintextRemoteBrokerWarning, type MqttBridgeHandle } from './modules/instruments/listeners/mqtt-bridge.js';
 import { setDownlinkPublisher } from './modules/instruments/attribute-downlink.js';
+import { logger, attachLogger } from './lib/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -106,6 +107,14 @@ const app = Fastify({
   },
   ...(httpsOptions ? { https: httpsOptions } : {}),
 });
+
+// Point lib/logger.ts at Fastify's pino instance (audit M5). Until this runs —
+// in graphile-worker tasks, in scripts, and during module top-level evaluation
+// — `logger` writes JSON to stdout at the same configured level. After it, the
+// ~40 sites that used to call console.* directly share one logger with the ~38
+// that used app.log, so a single stream carries one format and honours one
+// level setting.
+attachLogger(app.log);
 
 // Block dangerous HTTP methods early — before any route or plugin (audit S-11)
 app.addHook('onRequest', async (req, reply) => {
@@ -583,7 +592,7 @@ if (mqttBrokerUrl) {
 const shutdown = async (signal: string) => {
   app.log.info(`Received ${signal}, shutting down gracefully...`);
   const shutdownTimeout = setTimeout(() => {
-    console.error('[SHUTDOWN] Timed out after 15s, forcing exit');
+    logger.error('[SHUTDOWN] Timed out after 15s, forcing exit');
     process.exit(1);
   }, 15000);
   shutdownTimeout.unref();

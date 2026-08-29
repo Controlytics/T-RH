@@ -2,6 +2,7 @@ import { Client } from 'ldapts';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { invalidateUserAuthCache } from '../../plugins/auth.js';
+import { logger } from '../../lib/logger.js';
 
 /**
  * Placeholder written to `users.password_hash` for directory-authenticated
@@ -312,7 +313,7 @@ export const ldapService = {
           return wanted !== '' && groups.some((g) => matchesLdapGroup(g, wanted));
         });
         if (!permitted) {
-          console.warn(
+          logger.warn(
             `[LDAP] "${username}" authenticated but is not a member of any required group `
             + `(${cfg.requiredGroups.join(', ')}) — access refused.`,
           );
@@ -327,7 +328,7 @@ export const ldapService = {
         groups,
       };
     } catch (err: any) {
-      console.error('[LDAP] Authentication error:', err.message);
+      logger.error('[LDAP] Authentication error:', err.message);
       // Best-effort unbind. If the socket is already torn down by the
       // server (common on auth failures), unbind() rejects with "client
       // is not connected" — that's not an actionable error for the caller,
@@ -336,7 +337,7 @@ export const ldapService = {
       try {
         await client.unbind();
       } catch (unbindErr: any) {
-        console.warn('[LDAP] unbind after auth error failed:', unbindErr?.message ?? unbindErr);
+        logger.warn('[LDAP] unbind after auth error failed:', unbindErr?.message ?? unbindErr);
       }
       return null;
     }
@@ -405,7 +406,7 @@ export const ldapService = {
       where: { name: fallback, isActive: true },
       select: { name: true },
     });
-    console.error(
+    logger.error(
       `[LDAP] Mapped role "${mappedRole}" does not exist or is inactive. `
       + (fallbackExists
         ? `Falling back to default role "${fallback}".`
@@ -463,7 +464,7 @@ export const ldapService = {
           : `User "${username}" auto-provisioned from LDAP with role "${role}"`,
       });
     } catch (auditErr: any) {
-      console.error('[LDAP] Audit write failed for auto-provisioned user:', auditErr?.message ?? auditErr);
+      logger.error('[LDAP] Audit write failed for auto-provisioned user:', auditErr?.message ?? auditErr);
     }
 
     return user;
@@ -518,7 +519,7 @@ export const ldapService = {
               : `User "${before?.username ?? userId}" attributes synced from LDAP`,
           });
         } catch (auditErr: any) {
-          console.error('[LDAP] Audit write failed for attribute sync:', auditErr?.message ?? auditErr);
+          logger.error('[LDAP] Audit write failed for attribute sync:', auditErr?.message ?? auditErr);
         }
       }
     }

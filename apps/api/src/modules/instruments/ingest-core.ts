@@ -6,6 +6,7 @@ import { enqueueAlarmEvaluation } from '../alarms/enqueue-evaluation.js';
 import { fanoutDevices } from './gateway-fanout.js';
 import { childMapFor } from './gateway-children.js';
 import type { IngestIdentity } from './ingest-auth.js';
+import { logger } from '../../lib/logger.js';
 
 /**
  * Transport-agnostic ingest core.
@@ -64,7 +65,7 @@ async function safeWriteDeadLetters(rows: DeadLetterRow[]): Promise<void> {
   try {
     await writeDeadLetters(rows);
   } catch (e) {
-    console.error('[ingest] dead-letter write failed', e);
+    logger.error('[ingest] dead-letter write failed', e);
   }
 }
 

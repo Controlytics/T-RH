@@ -38,6 +38,7 @@ import {
 } from './telemetry.repository.js';
 import { publishAttributeDownlink } from './attribute-downlink.js';
 import { publishChildRoster, clearChildRoster } from './child-roster.js';
+import { logger } from '../../lib/logger.js';
 
 /**
  * Registry (operator-facing, JWT + permission gated). The device-facing ingest
@@ -303,7 +304,7 @@ async function announceRoster(gatewayId: string | null | undefined): Promise<voi
     // every roster unreadable for no safety gain.
     await publishChildRoster(gatewayId, children, new Date());
   } catch (e) {
-    console.warn('[downlink:children] roster NOT DELIVERED — could not read the membership', {
+    logger.warn('[downlink:children] roster NOT DELIVERED — could not read the membership', {
       gatewayId, err: (e as Error).message,
     });
   }

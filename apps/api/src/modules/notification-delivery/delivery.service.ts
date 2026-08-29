@@ -9,6 +9,7 @@ import { smsChannel } from './channels/sms-channel.js';
 import { resolveTemplate } from './template-engine.js';
 import { formatConfiguredDateTime } from '../../lib/format-datetime.js';
 import type { NotificationPayload, DeliveryResult, NotificationChannel } from './types.js';
+import { logger } from '../../lib/logger.js';
 
 const channels: Record<string, NotificationChannel> = {
   EMAIL: emailChannel,
@@ -80,7 +81,7 @@ export async function sendNotification(payload: NotificationPayload): Promise<De
     // Fire-and-forget retry (don't block the caller) — but log failures so
     // a broken retry path doesn't silently drop notifications.
     scheduleRetry(log.id, resolvedPayload, 1).catch((schedErr) => {
-      console.error(
+      logger.error(
         `[notification-delivery] scheduleRetry failed for log ${log.id} (attempt 1):`,
         schedErr,
       );
@@ -147,7 +148,7 @@ async function scheduleRetry(logId: string, payload: NotificationPayload, attemp
         },
       });
       scheduleRetry(logId, payload, nextAttempt).catch((schedErr) => {
-        console.error(
+        logger.error(
           `[notification-delivery] scheduleRetry failed for log ${logId} (attempt ${nextAttempt}):`,
           schedErr,
         );

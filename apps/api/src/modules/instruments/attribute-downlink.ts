@@ -1,3 +1,4 @@
+import { logger } from '../../lib/logger.js';
 /**
  * Attribute DOWNLINK — the first platform→device path in this codebase.
  *
@@ -167,7 +168,7 @@ const PUBLISH_TIMEOUT_MS = 2_000;
 
 export type PublishLogger = (msg: string, meta?: Record<string, unknown>) => void;
 
-const defaultLog: PublishLogger = (msg, meta) => console.warn(`[downlink:attributes] ${msg}`, meta ?? '');
+const defaultLog: PublishLogger = (msg, meta) => logger.warn(`[downlink:attributes] ${msg}`, meta ?? '');
 
 /**
  * The one retained-publish primitive. NEVER THROWS, NEVER REJECTS.

@@ -23,6 +23,7 @@ import {
 } from '../modules/alarms/limit-decide.js';
 import { loadLimitConfig, limitsFor } from '../modules/alarms/load-limits.js';
 import type { LimitBound } from '@digilog/shared';
+import { logger } from '../lib/logger.js';
 
 /**
  * Alarm evaluation. graphile-worker task, registered as `alarm_evaluation`.
@@ -396,7 +397,7 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
             created = await prisma.alarm.create({ data });
           } catch (e) {
             if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-              console.warn(
+              logger.warn(
                 `[alarms] ${row.code ?? row.instrumentId} ${check.metric} ${check.limitKind}: ` +
                   'an ACTIVE limit alarm was opened concurrently; skipping the duplicate',
               );

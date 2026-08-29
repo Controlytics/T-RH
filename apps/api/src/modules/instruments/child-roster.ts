@@ -21,6 +21,7 @@
  */
 
 import { publishRetained, type PublishLogger } from './attribute-downlink.js';
+import { logger } from '../../lib/logger.js';
 
 /** One line of the roster. */
 export interface RosterChild {
@@ -56,7 +57,7 @@ export function childRosterTopic(gatewayId: string): string {
  * path's `[downlink:attributes]` tag — an operator grepping the log for why a
  * gateway is out of date should not be told the wrong subsystem.
  */
-const rosterLog: PublishLogger = (msg, meta) => console.warn(`[downlink:children] ${msg}`, meta ?? '');
+const rosterLog: PublishLogger = (msg, meta) => logger.warn(`[downlink:children] ${msg}`, meta ?? '');
 
 export interface ChildRosterPayload {
   children: RosterChild[];

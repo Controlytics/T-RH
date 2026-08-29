@@ -2,6 +2,7 @@ import net from 'node:net';
 import { LineFramer } from './line-framer.js';
 import { resolveInstrumentByToken, type IngestIdentity } from '../ingest-auth.js';
 import { ingestPayload } from '../ingest-core.js';
+import { logger } from '../../../lib/logger.js';
 
 /**
  * Raw-TCP ingest listener — for instruments that speak neither HTTP nor MQTT.
@@ -91,7 +92,7 @@ export async function startTcpListener(
   const maxLineBytes = opts.maxLineBytes ?? DEFAULT_MAX_LINE_BYTES;
   const maxConnections = opts.maxConnections ?? DEFAULT_MAX_CONNECTIONS;
   const log = opts.log ?? ((msg: string, meta?: Record<string, unknown>) =>
-    console.warn(`[ingest:tcp] ${msg}`, meta ?? ''));
+    logger.warn(`[ingest:tcp] ${msg}`, meta ?? ''));
 
   // Tracked so `close()` can destroy them. `server.close()` alone stops
   // ACCEPTING but waits for open connections to end on their own, which for a

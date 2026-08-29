@@ -13,6 +13,7 @@ import { dispatchNotification } from '../notification-delivery/notification-disp
 // Drop the per-user auth cache on every mutation so a role/status/password
 // change takes effect immediately instead of after the 30s TTL (audit M-7).
 import { invalidateUserAuthCache } from '../../plugins/auth.js';
+import { logger } from '../../lib/logger.js';
 
 /**
  * Privilege-boundary guard for user-mutating operations (audit C2 fix).
@@ -160,7 +161,7 @@ export const userService = {
         createdBy: ctx.userId ?? 'system',
         timestamp: new Date().toISOString(),
       },
-    }).catch(err => console.error('[UserCreated] Notification dispatch failed:', err.message));
+    }).catch(err => logger.error('[UserCreated] Notification dispatch failed:', err.message));
 
     return {
       id: user.id, username: user.username, fullName: user.fullName,
