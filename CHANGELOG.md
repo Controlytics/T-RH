@@ -1,5 +1,30 @@
 # Changelog
 
+## [Unreleased] - Dashboard first page: title plate and location picker removed (2026-08-29)
+
+Operator: "remove the dashboard text box and functional location selection on
+dashboard first page". **No count moved** — no model, enum, permission, reauth
+action, audit action, module, config def, config page or `<Route>`; one
+conditional in `apps/web/src/routes/dashboard/index.tsx`, no other file touched.
+
+At the top level (`nav.level === 0`) the header plate carried only the word
+"Dashboard" and the Functional-location `<select>`: the breadcrumb inside it is
+empty by construction there (`location-nav.ts` returns `breadcrumb: []` for a
+null selection), and the entry cards below already are the drill-down. The plate
+is now gated on `nav.level > 0`.
+
+**Gated, not deleted.** From level 1 down that same plate holds the breadcrumb,
+which is the only way back up the tree, and the picker, which is the only jump to
+an arbitrary depth. Deleting it outright would have stranded every drilled-in
+view. If the operator meant "everywhere", the change is to drop the condition.
+
+Known and unchanged by this: the "Blocks Overview" heading in `entry-cards.tsx`
+is `text-slate-900` directly on the page background, so on an install with an
+operator wallpaper it has no contrast guarantee — the same class of defect the
+plate itself was added to fix. That heading was already unplated beneath the
+plate; this change did not introduce it, but level 0 now has no plated element
+at all, so it is the surface to watch if legibility is reported.
+
 ## [Unreleased] - Technical audit remediation: backup, migrations, audit immutability (2026-08-29)
 
 Acts on the CRITICAL and HIGH findings of `docs/audit/2026-08-29-technical-audit.md`.
