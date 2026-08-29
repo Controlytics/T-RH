@@ -2,6 +2,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { formatActionLabel, diffAuditValues, isRedacted, redactionDetail } from '../audit-helpers';
+import { StatusBadge } from '@/components/ui/status-badge';
 
 type SortField = 'timestamp' | 'action' | 'userId' | 'userRole';
 
@@ -247,21 +248,14 @@ export function AuditTable({
                       </div>
                     </TableCell>
                     <TableCell>
-                      {status === 'Success' ? (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700 border border-green-200">
-                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                          </svg>
-                          Success
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700 border border-red-200">
-                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                          </svg>
-                          Fail
-                        </span>
-                      )}
+                      {/* The outcome of an audited action, in the product's
+                          status tones. Was two hand-built pills in green-100 /
+                          red-100 with their own glyphs — a third green and a
+                          third red, on the one screen an inspector reads. */}
+                      <StatusBadge
+                        tone={status === 'Success' ? 'ok' : 'danger'}
+                        label={status === 'Success' ? 'Success' : 'Fail'}
+                      />
                     </TableCell>
                     <TableCell className="text-center">
                       <div className="flex items-center justify-center gap-1">

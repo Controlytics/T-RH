@@ -81,6 +81,38 @@ way to expand it; `.ctl` had been applied to the audit date fields, which sit
 inside an already-bordered wrapper and so drew a second border and focus ring;
 and `.ctl-check` was 18px against the `Checkbox` primitive's 20px.
 
+### Buttons and status badges
+
+**94 of 172 raw `<button>` migrated to `<Button>`** across 41 files, which is
+what finally makes §9 true: one height, one radius, one focus ring, one disabled
+treatment. The remaining 78 are *categorised, not skipped* — positioned overlays
+inside another control, clickable cards, rows carrying a `group` class their
+descendants style against, and inline micro-chips in dense rows where even the
+32px size would not fit. See `tasks/ui-redesign-stage2.md`.
+
+Three defects the migration script had to be taught, each caught by a gate or by
+looking rather than by assuming: `hover:bg-slate-100` was being read as a
+resting ground (handing bare icon buttons a permanent grey); collapsing
+whitespace in the attribute region swallowed a `//` comment; and **the body
+decides** — the dashboard's location entry cards are `<button>`s wrapping a
+heading and a count, and `<Button>` collapsed them into 40px strips with the
+text overlapping. That one was visible only in the browser.
+
+**Segmented controls** (`.seg` / `.seg-btn`) replace four different treatments of
+"pick one of these views". The active state is painted by `aria-pressed`, so a
+segment cannot look selected while announcing nothing — most set no ARIA state
+at all before.
+
+**Status badges** onto `StatusBadge` (4 → 9 files), which pairs every status with
+a dot as well as a word. The dashboard had carried a *fourth* alarm-severity
+palette disagreeing with the Alarms page on two of four levels. The Users
+table's role colours are deliberately untouched: those come from the database,
+where an operator picks them per role.
+
+Separately: **Disable and Delete** sat side by side in the same red on every user
+row. Disable is amber now — two identical buttons an inch apart, one
+irreversible, is how the wrong one gets pressed.
+
 ### Deliberately excluded
 
 `routes/dashboard/` panel-card geometry (tuned with the operator days earlier),

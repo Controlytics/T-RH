@@ -58,28 +58,47 @@ done as passes rather than page by page:
 - [x] **Audit filters** — green "From" / red "To" date tiles neutralised; a date
       range has no good end and no bad end, and red is spent on limit breaches.
 
-## Tier 4 — NOT DONE. What a follow-up session should pick up
+## Tier 4 — buttons and status badges (done)
 
-Honest list. These are structural, per-page edits that no safe scripted pass
-reaches:
+- [x] **Buttons: 94 of 172 raw `<button>` migrated to `<Button>`** across 41
+      files. The remainder is *categorised, not skipped* — re-derive any time with
+      `scan_buttons.py`:
+      - 32 dynamic className (state ternaries) — of which the segmented
+        controls are now `.seg`; the rest are per-page colour codings.
+      - 15 positioned overlays inside another control (a clear-`x` inside an
+        input): giving these a control height breaks the composition.
+      - 5 wrap block content — clickable **cards**, not buttons.
+      - 3 carry a `group` class their descendants depend on (`group-hover:`).
+      - 3 left-aligned rows / menu items.
+      - ~16 inline micro-chips (`text-[10px] px-1.5`) in dense text rows, where
+        even `size="sm"` (32px) would not fit. A 4th button size would be the
+        principled fix and is deliberately NOT taken — "sizes nobody decided" is
+        what Stage 1 removed.
+- [x] **Segmented controls / tabs → `.seg` + `.seg-btn`**, active state painted
+      by `aria-pressed` so the look cannot drift from the announced state.
+- [x] **Status badges → `StatusBadge`** (4 → 9 files): user account state, alarm
+      severity (incl. the dashboard's divergent fourth palette), password-reset
+      request state, webhook target + delivery state, instrument reporting state,
+      audit Success/Fail.
+- [x] Users row actions: **Disable is amber, Delete is red.** They were both red,
+      side by side, one of them irreversible.
+
+## Tier 5 — NOT DONE. What a follow-up session should pick up
 
 - [ ] **`PageHeader` + breadcrumbs adoption: 2 of ~42 pages.** Most pages still
       assemble their own header (icon tile + title + actions). They are now
       CONSISTENT with each other — the h1 pass saw to that — but they carry no
       breadcrumbs, so §24/§25 of the brief are only partly met. `dynamic-config`
       and `config/index` show the target shape.
-- [ ] **Buttons: ~180 raw `<button>` across 68 files.** Nearly all build their
-      className from a template literal, so they cannot be converted by a string
-      pass; each needs migrating to `<Button>` by hand. The primitive itself is
-      correct and `whitespace-nowrap` is fixed, so the damage is bounded.
-- [ ] **Status badges: 43 bespoke pills** against 4 uses of `StatusBadge`. Same
-      reason — the tone is computed per call site.
 - [ ] **Empty and loading states (§18/§19)** — `EmptyState`, `ErrorState`,
       `Skeleton` exist and are barely adopted. Several lists still render nothing,
       or a bare "Loading…", where a skeleton belongs.
 - [ ] **Per-page section-icon colour** — pages give each section its own tinted
       icon tile (orange/purple/green). It reads as deliberate, but no rule governs
       which colour means what.
+- [ ] **Remaining filter/action chips** — Field IDs' module filter and the audit
+      `ACTION_COLORS` map are per-item colour codings, not statuses. They are
+      internally consistent; unifying them would destroy the coding.
 - [ ] **23 dynamic classNames + 12 hidden/custom-widget controls** the `.ctl` pass
       skipped by design; each needs a human decision.
 
