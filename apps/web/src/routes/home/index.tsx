@@ -76,12 +76,12 @@ export default function HomePage() {
           <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Module Guide</h1>
           <div className="flex items-center gap-2">
             {/* View toggle: personalized vs full audit view. */}
-            <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-sm" role="group" aria-label="Guide view">
+            <div className="seg" role="group" aria-label="Guide view">
               <button
                 type="button"
                 onClick={() => setAuditView(false)}
                 aria-pressed={!auditView}
-                className={`rounded-md px-3 py-1.5 font-medium transition-colors ${!auditView ? 'bg-white text-cyan-700 shadow-[var(--elev-1)]' : 'text-slate-500 hover:text-slate-700'}`}
+                className="seg-btn"
               >
                 My modules
               </button>
@@ -89,7 +89,7 @@ export default function HomePage() {
                 type="button"
                 onClick={() => setAuditView(true)}
                 aria-pressed={auditView}
-                className={`rounded-md px-3 py-1.5 font-medium transition-colors ${auditView ? 'bg-white text-cyan-700 shadow-[var(--elev-1)]' : 'text-slate-500 hover:text-slate-700'}`}
+                className="seg-btn"
               >
                 All modules (audit)
               </button>

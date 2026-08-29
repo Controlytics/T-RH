@@ -363,6 +363,63 @@ body {
   .ctl-check:disabled:checked { background-color: #94a3b8; border-color: transparent; }
   .ctl-radio:disabled:checked { border-color: #94a3b8; }
 
+  /* ── Segmented control / tabs — `.seg` + `.seg-btn` ───────────────────────
+     One treatment for "pick one of these few views".
+
+     Every screen that needed this had invented its own. Measured: the active
+     segment was `bg-cyan-600` on one screen, `bg-slate-900` on the next, a
+     `from-cyan-500 to-blue-600` gradient on a third, and a white chip with a
+     shadow on a fourth — four answers to one question, on four screens an
+     operator moves between in a single sitting.
+
+     THE ACTIVE STATE IS DRIVEN BY `aria-pressed` (or `aria-selected`), not by a
+     class. That is deliberate: it makes the accessible state the thing that
+     paints the button, so a segment cannot LOOK selected while announcing
+     nothing. Most of these controls previously set no ARIA state at all, which
+     left the current view invisible to a screen reader. */
+  .seg {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    border-radius: var(--radius-control);
+    background-color: #f1f5f9;                  /* slate-100 */
+  }
+
+  .seg-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    height: var(--control-h-sm);
+    padding-inline: 0.75rem;
+    border: 0;
+    border-radius: calc(var(--radius-control) - 2px);
+    background-color: transparent;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: #475569;                             /* slate-600 */
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
+  }
+
+  .seg-btn:hover:not(:disabled) { color: #0f172a; }
+
+  .seg-btn[aria-pressed="true"],
+  .seg-btn[aria-selected="true"] {
+    background-color: #fff;
+    color: #0f172a;
+    box-shadow: var(--elev-1);
+  }
+
+  .seg-btn:focus-visible {
+    outline: 2px solid var(--theme-primary, #2a78d6);
+    outline-offset: 2px;
+  }
+
+  .seg-btn:disabled { cursor: not-allowed; opacity: 0.55; }
+
   /* ===========================================================================
      DATA TABLES — `.tbl`
      ===========================================================================

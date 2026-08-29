@@ -139,13 +139,14 @@ export function RuleDialog({
 
           <div>
             <span className="mb-1 block text-sm font-medium text-slate-700">Applies to</span>
-            <div className="mb-2 inline-flex rounded-md border border-slate-200 p-1">
+            <div className="seg mb-2">
               {(['instrument', 'location'] as const).map((k) => (
                 <button
                   key={k}
                   type="button"
                   onClick={() => setDraft((d) => ({ ...d, targetKind: k, targetId: '' }))}
-                  className={`rounded px-3 py-1 text-sm ${draft.targetKind === k ? 'bg-slate-900 text-white' : 'text-slate-600'}`}
+                  aria-pressed={draft.targetKind === k}
+                  className="seg-btn"
                 >
                   {k === 'instrument' ? 'One instrument' : 'A functional location'}
                 </button>

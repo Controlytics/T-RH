@@ -100,14 +100,16 @@ export default function AlarmsPage() {
       </div>
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="inline-flex rounded-md border border-slate-200 bg-white p-1">
+        <div className="seg">
           {(['active', 'history'] as const).map((t) => (
             <button
               key={t}
+              type="button"
               onClick={() => setTab(t)}
-              className={`rounded px-4 py-1.5 text-sm font-medium capitalize ${
-                tab === t ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
-              }`}
+              // aria-pressed is what PAINTS the active segment (see .seg-btn in
+              // app.css), so the look and the announced state cannot drift apart.
+              aria-pressed={tab === t}
+              className="seg-btn capitalize"
             >
               {t}
             </button>

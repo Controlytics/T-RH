@@ -83,9 +83,17 @@ export function SendForReviewButton({ buildSnapshot, className }: {
               <p className="text-white/80 text-[12px] mt-0.5">{snapshot?.title}</p>
             </div>
             <div className="p-6 space-y-4">
-              <div className="flex items-center gap-2">
-                <button onClick={() => setMode('role')} className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold ${mode === 'role' ? 'text-white bg-cyan-600' : 'text-slate-600 bg-slate-100'}`}>To a role</button>
-                <button onClick={() => setMode('user')} className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold ${mode === 'user' ? 'text-white bg-cyan-600' : 'text-slate-600 bg-slate-100'}`}>To a user</button>
+              <div className="seg">
+                {/* aria-pressed paints the active segment (.seg-btn in app.css),
+                    so the look and the announced state cannot drift apart. This
+                    pair previously set no ARIA state at all, leaving the chosen
+                    recipient kind invisible to a screen reader. */}
+                <button type="button" onClick={() => setMode('role')} aria-pressed={mode === 'role'} className="seg-btn">
+                  To a role
+                </button>
+                <button type="button" onClick={() => setMode('user')} aria-pressed={mode === 'user'} className="seg-btn">
+                  To a user
+                </button>
               </div>
               {mode === 'role' ? (
                 <select value={role} onChange={(e) => setRole(e.target.value)} className="ctl w-full">

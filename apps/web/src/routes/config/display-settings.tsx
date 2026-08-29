@@ -36,12 +36,17 @@ export function DisplaySettingsPage() {
       </div>
 
       {/* Tab bar */}
-      <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-full sm:w-fit">
+      <div className="seg w-full sm:w-fit">
         {TABS.map((t) => (
-          <button key={t.key} onClick={() => setTab(t.key)}
-            className={`flex-1 sm:flex-none px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
-              tab === t.key ? 'bg-white text-slate-800 shadow-[var(--elev-1)]' : 'text-slate-500 hover:text-slate-700'
-            }`}>
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => setTab(t.key)}
+            // aria-pressed is what PAINTS the active segment (see .seg-btn in
+            // app.css), so the look and the announced state cannot drift apart.
+            aria-pressed={tab === t.key}
+            className="seg-btn flex-1 sm:flex-none"
+          >
             {t.label}
           </button>
         ))}
