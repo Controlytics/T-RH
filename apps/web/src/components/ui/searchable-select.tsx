@@ -157,7 +157,8 @@ export function SearchableSelect({
         </span>
         <ChevronDown
           className={cn(
-            'ml-1 h-4 w-4 shrink-0 text-indigo-500 transition-transform duration-200',
+            // Slate, like Select's chevron. This is an affordance, not an accent.
+            'ml-1 h-4 w-4 shrink-0 text-slate-400 transition-transform duration-200',
             open && 'rotate-180',
           )}
         />
@@ -218,10 +219,14 @@ export function SearchableSelect({
                   aria-selected={option.value === value}
                   onClick={() => select(option.value)}
                   className={cn(
-                    'flex h-11 w-full items-center px-4 text-left text-sm',
-                    'transition-colors duration-150 hover:bg-indigo-50',
+                    // 90d6f2c themed this primitive's TRIGGER and search box and
+                    // stopped at the popup, so the control still answered indigo
+                    // the moment it was opened. The option row is the theme now,
+                    // at the system's 40px rather than 44px.
+                    'flex h-10 w-full items-center px-3 text-left text-sm',
+                    'transition-colors duration-150 hover:bg-slate-50',
                     option.value === value
-                      ? 'bg-indigo-50 font-semibold text-indigo-700'
+                      ? 'bg-[var(--theme-primary,#2a78d6)]/10 font-semibold text-[var(--theme-primary,#2a78d6)]'
                       : 'text-slate-700',
                   )}
                 >

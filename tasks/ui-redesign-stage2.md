@@ -61,8 +61,11 @@ done as passes rather than page by page:
 ## Tier 4 — buttons and status badges (done)
 
 - [x] **Buttons: 94 of 172 raw `<button>` migrated to `<Button>`** across 41
-      files. The remainder is *categorised, not skipped* — re-derive any time with
-      `scan_buttons.py`:
+      files. The remainder is *categorised, not skipped* — re-derive with
+      `grep -rcE '<button' apps/web/src --include='*.tsx'`. (This line named a
+      `scan_buttons.py`; **no such file was ever committed** — `find . -name
+      '*.py'` returns nothing. The sweep it belonged to lived only in a session.
+      That is why `scripts/ui-conformance-sweep.sh` now exists.)
       - 32 dynamic className (state ternaries) — of which the segmented
         controls are now `.seg`; the rest are per-page colour codings.
       - 15 positioned overlays inside another control (a clear-`x` inside an
@@ -180,6 +183,40 @@ gradients went.
       listed so nobody "fixes" them.
 - [ ] `routes/config/export-options.tsx` is now reachable but has never been
       exercised by anyone. Worth an operator's eye before it is trusted.
+
+## Tier 10 — the sweep, re-run and made repeatable (done)
+
+`scripts/ui-conformance-sweep.sh` — eleven checks over the WHOLE `apps/web/src`
+tree, with the deliberate keeps encoded so a run shows only the delta. Re-running
+90d6f2c's sweep confirmed sections 4/6/8/10 clean (bg-clip-text, raw shadows,
+rounded-2xl, all three toggles themed) and found four things it had missed:
+
+- [x] **`notification-rules` channel checkboxes were styled with INTERPOLATED
+      Tailwind classes** — `text-${ch.color}-600 focus:ring-${ch.color}-500`.
+      Tailwind scans source as text and cannot see those, so **zero
+      `focus:ring-{blue,green,purple}-500` rules exist in the built CSS**
+      (verified against `dist/assets/*.css`): the three checkboxes had NO visible
+      focus ring, so a keyboard user could not tell which channel was focused.
+      The colour half worked only by accident, because unrelated files happen to
+      use the same literals. Now `.ctl-check`. **This is the defect class to
+      watch for: an interpolated class is not a style, it is a no-op.**
+- [x] **Config → Roles & Access's seven-tab bar** — the largest tab bar in the
+      product — set no ARIA state at all and answered VIOLET, a colour the design
+      system does not contain. `role="tablist"`/`role="tab"`/`aria-selected` now,
+      accent on the theme.
+- [x] **`SearchableSelect` was themed only half-way by 90d6f2c** — its trigger
+      and search box took the theme while the chevron and every option row stayed
+      indigo at `h-11`, so the primitive answered indigo the moment it was opened.
+- [x] **15 `<Input>`/`<Select>` call sites still overrode the primitive** with
+      `h-11` (44px vs the system's 40px) and 7 with `rounded-xl` (card radius on
+      a control) — branding ×5, login-bg ×2, password-policy ×8. 90d6f2c fixed
+      two of this class; these were the rest.
+
+Deliberate keeps the sweep re-confirmed: the primitives' own inline styling, the
+`.tv-*` dark tabular view, `dynamic-config`'s hand-rolled textarea (no Textarea
+primitive yet, reason in code), the floorplan tracing-guide `type=range`, the
+audit date inputs inside their bordered composite, and `toast.tsx`'s blue `info`
+tint (a status colour, not an accent).
 
 ## Verification
 `npx tsc -p apps/web/tsconfig.json --noEmit` after each tier — vitest never

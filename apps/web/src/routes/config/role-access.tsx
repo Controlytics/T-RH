@@ -214,14 +214,26 @@ export function RoleAccessPage() {
 
       {/* Tab Bar */}
       <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-soft overflow-hidden">
-        <div className="flex border-b border-slate-200">
+        {/*
+          The .seg pass and 90d6f2c's sweep both missed this one — the largest
+          tab bar in the product, and it set NO ARIA state, so which of the seven
+          tabs was active was invisible to a screen reader. It also answered
+          VIOLET, a colour the design system does not contain and no theme
+          changes. aria-selected now paints the active tab, so the look and the
+          announced state are one fact, and the accent is the site theme.
+          Not `.seg`: this is a full-width underlined bar inside a card, not a
+          chip group, and reshaping it is a design change rather than a fix.
+        */}
+        <div role="tablist" aria-label="Roles and access sections" className="flex border-b border-slate-200">
           {tabs.map((tab) => (
             <button
               key={tab.id}
+              role="tab"
+              aria-selected={activeTab === tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={`flex-1 px-6 py-4 text-sm font-medium transition-all flex items-center justify-center gap-2 ${
                 activeTab === tab.id
-                  ? 'bg-violet-50 text-violet-700 border-b-2 border-violet-500'
+                  ? 'bg-[var(--theme-primary,#2a78d6)]/10 text-[var(--theme-primary,#2a78d6)] border-b-2 border-[var(--theme-primary,#2a78d6)]'
                   : 'text-slate-600 hover:bg-slate-50'
               }`}
             >

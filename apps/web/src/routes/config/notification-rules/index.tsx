@@ -303,17 +303,29 @@ function RulesTab() {
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-2">Notification Channels</label>
           <div className="flex gap-4">
+            {/*
+              These carried `text-${ch.color}-600 focus:ring-${ch.color}-500`.
+              Tailwind scans source as TEXT and cannot see an interpolated class,
+              so `focus:ring-blue-500` and its two siblings were NEVER GENERATED
+              — verified: zero such rules in the built CSS. These three checkboxes
+              had no visible focus ring at all, so a keyboard user could not tell
+              which channel was focused. The colour half only appeared to work
+              because unrelated files happen to use the same literals.
+              One control, one appearance: `.ctl-check` already themes the tick
+              and the ring off --theme-primary. The per-channel colour said
+              nothing the adjacent label did not.
+            */}
             {[
-              { key: 'emailEnabled', label: 'Email', color: 'blue' },
-              { key: 'smsEnabled', label: 'SMS', color: 'green' },
-              { key: 'inAppEnabled', label: 'In-App', color: 'purple' },
+              { key: 'emailEnabled', label: 'Email' },
+              { key: 'smsEnabled', label: 'SMS' },
+              { key: 'inAppEnabled', label: 'In-App' },
             ].map(ch => (
               <label key={ch.key} className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={(editing as any)[ch.key] ?? (ch.key === 'inAppEnabled')}
                   onChange={e => setEditing({ ...editing, [ch.key]: e.target.checked })}
-                  className={`rounded border-gray-300 text-${ch.color}-600 focus:ring-${ch.color}-500`}
+                  className="ctl-check"
                 />
                 <span className="text-sm text-slate-700">{ch.label}</span>
               </label>

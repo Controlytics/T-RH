@@ -131,7 +131,7 @@ export function PasswordPolicyPage() {
                   </svg>
                   Max Failed Login Attempts
                 </label>
-                <Input {...register('maxFailedAttempts', { valueAsNumber: true })} type="number" min={3} max={10} className="h-11" />
+                <Input {...register('maxFailedAttempts', { valueAsNumber: true })} type="number" min={3} max={10} />
                 <p className="text-xs text-slate-500 flex items-center gap-1">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -159,7 +159,7 @@ export function PasswordPolicyPage() {
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-slate-600">Idle Timeout</label>
                     <div className="relative">
-                      <Input {...register('idleTimeoutMinutes', { valueAsNumber: true })} type="number" min={5} max={60} className="h-11 pr-16" />
+                      <Input {...register('idleTimeoutMinutes', { valueAsNumber: true })} type="number" min={5} max={60} className="pr-16" />
                       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">minutes</span>
                     </div>
                     <p className="text-xs text-slate-400">5-60 minutes</p>
@@ -167,7 +167,7 @@ export function PasswordPolicyPage() {
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-slate-600">Warning Before Logout</label>
                     <div className="relative">
-                      <Input {...register('warningMinutes', { valueAsNumber: true })} type="number" min={1} max={5} className="h-11 pr-16" />
+                      <Input {...register('warningMinutes', { valueAsNumber: true })} type="number" min={1} max={5} className="pr-16" />
                       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">minutes</span>
                     </div>
                     <p className="text-xs text-slate-400">1-5 minutes</p>
@@ -208,7 +208,7 @@ export function PasswordPolicyPage() {
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-slate-600">Minimum Length</label>
                   <div className="relative">
-                    <Input {...register('minLength', { valueAsNumber: true })} type="number" min={8} max={32} className="h-11 pr-20" />
+                    <Input {...register('minLength', { valueAsNumber: true })} type="number" min={8} max={32} className="pr-20" />
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">characters</span>
                   </div>
                   <p className="text-xs text-slate-400">8-32 characters</p>
@@ -216,7 +216,7 @@ export function PasswordPolicyPage() {
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-slate-600">Maximum Length</label>
                   <div className="relative">
-                    <Input {...register('maxLength', { valueAsNumber: true })} type="number" min={32} max={128} className="h-11 pr-20" />
+                    <Input {...register('maxLength', { valueAsNumber: true })} type="number" min={32} max={128} className="pr-20" />
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">characters</span>
                   </div>
                   <p className="text-xs text-slate-400">32-128 characters</p>
@@ -283,7 +283,7 @@ export function PasswordPolicyPage() {
               <div className="max-w-md space-y-2">
                 <label className="text-sm font-medium text-slate-600">Prevent Password Reuse</label>
                 <div className="relative">
-                  <Input {...register('preventReuseCount', { valueAsNumber: true })} type="number" min={1} max={24} className="h-11 pr-28" />
+                  <Input {...register('preventReuseCount', { valueAsNumber: true })} type="number" min={1} max={24} className="pr-28" />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">past passwords</span>
                 </div>
                 <p className="text-xs text-slate-500">Users cannot reuse any of their last N passwords (1-24)</p>
@@ -304,7 +304,7 @@ export function PasswordPolicyPage() {
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-slate-600">Password Expiry Period</label>
                   <div className="relative">
-                    <Input {...register('passwordExpiryDays', { valueAsNumber: true })} type="number" min={0} max={365} className="h-11 pr-16" />
+                    <Input {...register('passwordExpiryDays', { valueAsNumber: true })} type="number" min={0} max={365} className="pr-16" />
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">days</span>
                   </div>
                   <p className="text-xs text-slate-500">Users must change their password after this many days. Set to 0 to disable password expiry. (0–365, default: 90)</p>
@@ -312,7 +312,7 @@ export function PasswordPolicyPage() {
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-slate-600">Expiry Notification</label>
                   <div className="relative">
-                    <Input {...register('expiryNotificationDays', { valueAsNumber: true })} type="number" min={0} max={90} className="h-11 pr-16" />
+                    <Input {...register('expiryNotificationDays', { valueAsNumber: true })} type="number" min={0} max={90} className="pr-16" />
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">days</span>
                   </div>
                   <p className="text-xs text-slate-500">Warn each user daily for this many days before their password expires (plus a one-time notice on the expiry day). Set to 0 to disable. Requires a password expiry period above. (0–90, default: 0)</p>

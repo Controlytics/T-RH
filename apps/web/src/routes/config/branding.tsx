@@ -141,18 +141,18 @@ export function BrandingConfigPage() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-slate-700">Logo Text (fallback)</label>
-                    <Input {...register('logoText')} maxLength={5} placeholder="DL" className="rounded-xl h-11" />
+                    <Input {...register('logoText')} maxLength={5} placeholder="DL" />
                     <p className="text-xs text-slate-400">Used when no logo is set</p>
                     {errors.logoText && <p className="text-xs text-red-500">{errors.logoText.message}</p>}
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-slate-700">App Name</label>
-                    <Input {...register('appName')} placeholder="DigiLog" className="rounded-xl h-11" />
+                    <Input {...register('appName')} placeholder="DigiLog" />
                     {errors.appName && <p className="text-xs text-red-500">{errors.appName.message}</p>}
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-slate-700">App Tagline</label>
-                    <Input {...register('appTagline')} placeholder="21 CFR Part 11 Compliant" className="rounded-xl h-11" />
+                    <Input {...register('appTagline')} placeholder="21 CFR Part 11 Compliant" />
                     {errors.appTagline && <p className="text-xs text-red-500">{errors.appTagline.message}</p>}
                   </div>
                 </div>
@@ -178,12 +178,12 @@ export function BrandingConfigPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-slate-700">Company Name</label>
-                    <Input {...register('companyName')} placeholder="Company Name" className="rounded-xl h-11" />
+                    <Input {...register('companyName')} placeholder="Company Name" />
                     {errors.companyName && <p className="text-xs text-red-500">{errors.companyName.message}</p>}
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-slate-700">Version</label>
-                    <Input {...register('version')} placeholder="1.0" className="rounded-xl h-11" />
+                    <Input {...register('version')} placeholder="1.0" />
                     {errors.version && <p className="text-xs text-red-500">{errors.version.message}</p>}
                   </div>
                 </div>

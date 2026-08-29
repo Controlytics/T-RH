@@ -34,7 +34,7 @@ export function LoginBgSection({ register, watchedValues }: LoginBgSectionProps)
                 {...register('loginBgStart')}
                 className="h-10 w-14 cursor-pointer rounded-[var(--radius-control)] border border-slate-300 bg-white p-1 transition-colors hover:border-slate-400"
               />
-              <Input {...register('loginBgStart')} placeholder="#0f172a" className="flex-1 rounded-xl h-11 font-mono text-sm" />
+              <Input {...register('loginBgStart')} placeholder="#0f172a" className="flex-1 font-mono text-sm" />
             </div>
           </div>
           <div className="space-y-2">
@@ -45,7 +45,7 @@ export function LoginBgSection({ register, watchedValues }: LoginBgSectionProps)
                 {...register('loginBgEnd')}
                 className="h-10 w-14 cursor-pointer rounded-[var(--radius-control)] border border-slate-300 bg-white p-1 transition-colors hover:border-slate-400"
               />
-              <Input {...register('loginBgEnd')} placeholder="#1e3a5f" className="flex-1 rounded-xl h-11 font-mono text-sm" />
+              <Input {...register('loginBgEnd')} placeholder="#1e3a5f" className="flex-1 font-mono text-sm" />
             </div>
           </div>
         </div>
