@@ -1,5 +1,34 @@
 # Changelog
 
+## [Unreleased] - Readings: green in spec, red box on a breach (2026-08-29)
+
+Operator: "temperature and humidity font colors should be green colors, if it
+cross the limit then it should be red color and make box background red".
+**No count moved.** One file: the `.tv-*` block in `app.css`.
+
+- Both channels read **green** while within limits. This replaces the rule from
+  earlier the same day where the value took its COLUMN's hue, so temperature read
+  **orange while perfectly in spec** — and orange is the colour of a warning
+  everywhere else in this product, so a good reading looked like a mild alarm.
+- A breach now takes the **whole cell**: red ink on a red field (#991b1b on
+  #fecaca, 5.9:1) with a bar down the edge, instead of red text alone.
+- `.tv-val-temp` and `.tv-val-rh` stay separate although currently identical —
+  they are the hooks for per-channel treatment if it is wanted again; merging them
+  would mean re-threading the component to bring it back.
+
+**⚠ The specificity here is load-bearing.** The zebra rules are
+`.tv-row:nth-child(odd) > td` — weight (0,2,1) — which OUTRANKS a bare
+`.tv-val-bad` at (0,1,0), so the obvious one-class rule would have been overruled
+and a breach would have kept its striped background. The breach selectors are
+written as `.tv-row > td.tv-val-bad` (and a `:hover` twin) so they match that
+weight, and they sit after both the zebra and hover rules, which settles the tie.
+If a future edit "simplifies" these back to `.tv-val-bad`, the red field silently
+stops appearing on every other row.
+
+Unchanged and deliberate: which readings count as a breach still comes from
+`outOfSpec`, the same rule the alarms agree with, so the colouring and the
+"out of spec only" filter cannot disagree.
+
 ## [Unreleased] - View toggle moved onto the Arrange row (2026-08-29)
 
 Operator: "put arrange and tabular view/graphical view in same line". **No count

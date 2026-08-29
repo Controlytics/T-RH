@@ -678,15 +678,36 @@ table {
 /* Group separator — reinforces which ACTUAL belongs to which SET POINT. */
 .tv-group { border-left: 2px solid #e2e8f0; }
 
-/* THE READING. Its colour is its COLUMN'S hue while the value is within limits —
-   that is what the reference shows, and every row in that image happens to be in
-   spec. A BREACH still overrides to red with a bar down the cell edge: it is the
-   only limit signal left on this screen now that Status reports online/offline,
-   so hue must never be allowed to swallow it. Both states are decided by
-   `outOfSpec`, the same rule the alarms agree with. */
-.tv-val-temp { color: #c2410c; font-weight: 700; }
+/* THE READING — GREEN IN SPEC, RED BOX ON A BREACH (operator, 2026-08-29).
+
+   This replaces the previous rule, where the value took its COLUMN'S hue and
+   temperature therefore read orange while in spec. Orange is the colour of a
+   warning in every other part of this product, so a perfectly good temperature
+   looked like a mild alarm. Green now means "within limits" for BOTH channels,
+   which makes the two columns answer the same question the same way.
+
+   The temp/rh classes are kept apart even though they are currently identical:
+   they are the hooks for per-channel treatment if it is ever wanted again, and
+   merging them would mean re-threading the component to bring it back.
+
+   A BREACH is the only limit signal left on this screen now that Status reports
+   online/offline, so it takes the whole cell: red ink on a red field with a bar
+   down the edge. Decided by `outOfSpec`, the same rule the alarms agree with. */
+.tv-val-temp { color: #15803d; font-weight: 700; }
 .tv-val-rh   { color: #15803d; font-weight: 700; }
-.tv-val-bad  { color: #b91c1c; font-weight: 700; box-shadow: inset 3px 0 0 #ef4444; }
+
+/* ⚠ SPECIFICITY: the zebra rules above are `.tv-row:nth-child(odd) > td` (0,2,1),
+   which OUTRANKS a bare `.tv-val-bad` (0,1,0) — a breach would have kept the
+   striped background. Both selectors below match that weight or beat it, and sit
+   after the zebra AND hover rules, so the red field wins in every row and on
+   hover too. #991b1b on #fecaca measures 5.9:1. */
+.tv-row > td.tv-val-bad,
+.tv-row:hover > td.tv-val-bad {
+  background: #fecaca;
+  color: #991b1b;
+  font-weight: 700;
+  box-shadow: inset 3px 0 0 #dc2626;
+}
 /* The unit rides with the number but must not compete with it. */
 .tv-unit { font-size: 0.6875rem; font-weight: 600; opacity: 0.75; margin-left: 0.125rem; }
 .tv-spec { color: #64748b; }
