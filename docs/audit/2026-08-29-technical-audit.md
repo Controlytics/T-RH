@@ -2281,7 +2281,7 @@ npm audit --omit=dev
 Two matter for THIS application specifically, and one is a lockfile fault
 rather than an upstream one:
 
-**D1 — `@fastify/static` is installed at 9.3.0 while `package.json` declares
+**D1 — ✅ FIXED 2026-08-29 (see below). Originally: `@fastify/static` installed at 9.3.0 while `package.json` declared
 `^10.1.0`.** `package-lock.json:3674` pins 9.3.0 at the top level, so `npm ci`
 installs a version the manifest does not permit. 9.3.0 carries
 *"Authorization Bypass via Non-Canonical URL Paths"* (HIGH). This is not
@@ -2318,6 +2318,48 @@ in a state npm will not reproduce, which is why the lockfile has drifted from
 the manifest (D1) and why no automated remediation can proceed. §19 flagged
 `vite-plugin-pwa ^0.20.0` as a "potential concern" because a `^` on a 0.x major
 is not a compatibility guarantee; this is that concern having already happened.
+
+### ✅ D1 RESOLVED — and the root cause was not what it looked like
+
+`npm install @fastify/static@^10.1.0` did **not** fix it: the manifest moved to
+`^10.1.3` and the lockfile stayed on 9.3.0. The reason:
+
+```
+@fastify/swagger-ui@5.2.5 → "@fastify/static": "^9.0.0"
+```
+
+npm hoisted 9.3.0 to satisfy swagger-ui, and the API's `^10` was quietly left
+unsatisfied rather than nested. So the drift was not a stale lockfile that
+needed regenerating — it was a **transitive constraint pinning the tree one
+major behind**, and any attempt to fix it by bumping `@fastify/static` alone
+would have kept appearing to fail for no visible reason.
+
+Fixed by upgrading the thing that held it back:
+`@fastify/swagger-ui` **5.2.5 → 6.1.1**, which depends on
+`@fastify/static ^10.1.0`. `@fastify/static` now resolves to **10.1.3** and the
+advisory is gone. **19 → 17 vulnerabilities.**
+
+Verified beyond the test suite, because nothing in it covers static serving or
+`/docs` — the two things this upgrade actually touches. Booted the API on a
+spare port and probed:
+
+| Check | Result |
+|---|---|
+| `GET /api/health` | 200 |
+| `GET /docs` | 200, Swagger UI HTML renders |
+| `GET /uploads/photos/<file>` (public path) | 200, correct content |
+| `GET /uploads/<file>` (non-public path) | 401 — auth layer still gates it |
+| `GET /uploads/photos/../secret.txt` | 401, file NOT served |
+| `%2e%2e` encoded traversal | 401, file NOT served |
+| `..%5c` backslash traversal | 403 |
+| `%252e%252e` double-encoded | 404 |
+
+Also confirmed incidentally: the boot log is now structured JSON from the M5
+logger (`{"level":40,...,"msg":"[ingest:mqtt] client error"}`), so that
+migration works through the real pino path and not just under test.
+
+**Still open: D2 (`adm-zip`), D3 (`tar`), and the `vite-plugin-pwa` / Vite 6
+peer conflict that still blocks `npm audit fix` wholesale.**
 
 **Recommended order:** resolve the `vite-plugin-pwa` / Vite 6 peer conflict
 first (upgrade it, or drop the PWA plugin — the offline domain it was added for
