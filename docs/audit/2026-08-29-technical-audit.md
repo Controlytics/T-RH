@@ -2034,7 +2034,7 @@ what the module does.
 | M6 | `PROJECT_ARCHITECTURE.md` / `PROJECT_SUMMARY.md` document a nonexistent Android/RFID subsystem | repo root | Actively misleads new engineers; invents a phantom keystore incident. §24 |
 | M7 | Production infrastructure has no IaC or versioned build sheet | repo-wide | The validated environment cannot be rebuilt from the repo. §25 |
 | M8 | `CLAUDE.md` states the config-page count as **both 24 and 25** | `CLAUDE.md` | A self-contradiction in the designated source of truth. §24 |
-| M9 | Dead frontend module calling a nonexistent API | `lib/report-review.ts` | §10 |
+| ~~M9~~ | ⚠️ **PARTLY WRONG — the recommendation was.** `lib/report-review.ts` is NOT dead: `submitForReview` is imported by `components/SendForReviewButton.tsx`, which IS mounted at `routes/audit/index.tsx:428`, and `canDownloadReview` has its own test. What is true is that the backend `/api/report-reviews` is gone. What makes it harmless is `SEND_FOR_REVIEW_ENABLED = false` (dated 2026-06-22) — the component returns `null` before rendering, so nothing can call the dead route. This is RETAINED UI for a removed feature, not dead code, and deleting it would have thrown away a deliberate re-enable path. Fixed 2026-08-29 by warning at the flag that re-enabling is a backend job first. Only `fetchReview`/`reviewSignatures`/`downloadReview`/`ReviewFull` are genuinely unused. | `lib/report-review.ts` | §10 |
 
 ### 🔵 LOW
 

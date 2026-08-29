@@ -14,27 +14,30 @@
  * navigations without re-establishing contact. Key is namespaced so it
  * doesn't collide with other digilog_* keys.
  *
- * Subscriber API: the W4 blocker needs to know when contact resumes so it can
- * dismiss itself. `subscribe(cb)` registers a callback fired on every
- * `markContact()` AND every `clearContact()` (on logout, etc.). The callback
- * receives the new timestamp (0 means "cleared").
+ * WRITE-ONLY as of 2026-08-29 (audit cleanup). This module had a reader half —
+ * `getLastServerContact()` and a `subscribe(cb)` API — built for the W4
+ * hard-cutoff blocker, which does not exist in this fork. Nothing imported
+ * either, so the module maintained a listener Set and notified it on every
+ * single HTTP response for an audience of zero.
+ *
+ * The write half IS live: `api-client.ts` calls `markServerContactFromResponse`
+ * on each response and `use-auth.ts` clears it on logout. The timestamp is
+ * therefore kept accurate in localStorage and is ready for a reader whenever
+ * one is written — which is why the storage itself was not removed with the
+ * notifier.
  */
 
 const STORAGE_KEY = 'digilog_last_server_contact';
 
-type Listener = (timestampMs: number) => void;
-const listeners = new Set<Listener>();
-
-/** Internal helper — write + notify. */
+/** Internal helper — persist the timestamp. */
 function emit(timestampMs: number) {
   try {
     localStorage.setItem(STORAGE_KEY, String(timestampMs));
   } catch {
     // localStorage may be unavailable in private-mode or quota-exhausted
-    // environments. The in-memory listeners still fire, so the UI reacts
-    // correctly even if persistence fails — just won't survive a reload.
+    // environments. Nothing else depends on this write succeeding, so a
+    // failure is simply a timestamp that will not survive a reload.
   }
-  for (const cb of listeners) cb(timestampMs);
 }
 
 /**
@@ -77,30 +80,6 @@ export function clearServerContact(): void {
   } catch {
     /* ignore */
   }
-  for (const cb of listeners) cb(0);
 }
 
-/**
- * Read the last-contact timestamp. Returns 0 if never set. Useful for the
- * initial render of components that need to compute staleness synchronously.
- */
-export function getLastServerContact(): number {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return 0;
-    const n = Number(raw);
-    return Number.isFinite(n) && n > 0 ? n : 0;
-  } catch {
-    return 0;
-  }
-}
 
-/**
- * Subscribe to contact updates. Returns an unsubscribe function. The callback
- * is NOT invoked immediately — call `getLastServerContact()` for the initial
- * value if you need it.
- */
-export function subscribeToServerContact(cb: Listener): () => void {
-  listeners.add(cb);
-  return () => { listeners.delete(cb); };
-}

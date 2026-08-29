@@ -20,6 +20,17 @@ interface User { id: string; username: string; role?: string; fullName?: string;
 // out of the flex row, so the Export button lands on the right instead of being
 // stranded in the middle). The review-workflow UI below is retained for easy
 // re-enable — flip this flag back to true.
+//
+// ⚠ DO NOT FLIP THIS TO true WITHOUT RESTORING THE BACKEND (checked 2026-08-29).
+// The review workflow's API is GONE: `grep -rn "report-reviews" apps/api/src`
+// returns 0 hits and app.ts registers no `/api/report-reviews` prefix, so
+// `submitForReview` below POSTs to a route that does not exist. With the flag
+// off nothing calls it and there is no live defect — the component returns null
+// at the top of its render. Turn it on and the dialog opens, collects a
+// recipient, and fails on send.
+//
+// So this is retained UI for a removed feature, not dead code: re-enabling is a
+// backend job first. The 2026-06-22 note below explains why it was hidden.
 const SEND_FOR_REVIEW_ENABLED = false;
 
 export function SendForReviewButton({ buildSnapshot, className }: {
