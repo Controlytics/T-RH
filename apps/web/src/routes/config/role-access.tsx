@@ -197,6 +197,7 @@ export function RoleAccessPage() {
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
             </Link>
             <PageHeader
+              inverted
               title='Role & Access Configuration'
               description='Manage roles, permissions, sidebar visibility, and re-authentication'
               crumbs={[{ label: 'Home', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Role & Access Configuration' }]}

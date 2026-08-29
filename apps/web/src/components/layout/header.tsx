@@ -131,7 +131,7 @@ export function Header({ user, onLogout, onMenuToggle, onCollapseToggle, collaps
         {user && (
           <>
             {/* Notifications - Show for all users */}
-            <Button variant="ghost" size="icon"
+            <Button variant="ghost" size="icon" className="relative"
               onClick={() => navigate('/notifications')}
               title={unreadCount > 0 ? `${unreadCount} unread notification(s)` : 'Notifications'}
             >

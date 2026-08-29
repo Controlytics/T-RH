@@ -133,7 +133,7 @@ export function DashboardPage() {
                   {i === nav.breadcrumb.length - 1 ? (
                     <span className="font-semibold text-slate-700">{c.label}</span>
                   ) : (
-                    <Button variant="ghost" type="button" onClick={() => go(c.id)}>
+                    <Button variant="link" size="inline" type="button" onClick={() => go(c.id)}>
                       {c.label}
                     </Button>
                   )}

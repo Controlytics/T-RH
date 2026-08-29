@@ -18,7 +18,7 @@ export interface Crumb {
  * several products.
  */
 export function PageHeader({
-  title, description, crumbs, actions, meta, icon, className,
+  title, description, crumbs, actions, meta, icon, inverted = false, className,
 }: {
   title: string;
   /** One sentence on what the screen is for. Not a tagline. */
@@ -41,11 +41,21 @@ export function PageHeader({
    * Pass the bare <svg>; the tile around it belongs to this component.
    */
   icon?: ReactNode;
+  /**
+   * For a header that sits on a DARK ground.
+   *
+   * Two screens (Help Articles, Roles & Access) keep a saturated gradient
+   * banner and put this header inside it. The default ink is slate-900 on
+   * slate-500, which on a teal or violet gradient is unreadable — the banners
+   * used to carry their own white type. This inverts the ink rather than
+   * asking those pages to give up their banner.
+   */
+  inverted?: boolean;
   className?: string;
 }) {
   return (
     <header className={cn('space-y-3', className)}>
-      {crumbs && crumbs.length > 0 && <Breadcrumbs crumbs={crumbs} />}
+      {crumbs && crumbs.length > 0 && <Breadcrumbs crumbs={crumbs} inverted={inverted} />}
 
       <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
         <div className="flex min-w-0 items-start gap-3.5">
@@ -55,19 +65,32 @@ export function PageHeader({
             // the page's author reached for — and at 12% it sits behind the
             // title instead of competing with it.
             <span
-              className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-card)] text-[var(--theme-primary,#2a78d6)]"
-              style={{ backgroundColor: 'color-mix(in srgb, var(--theme-primary, #2a78d6) 12%, white)' }}
+              className={cn(
+                'mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-card)]',
+                inverted ? 'bg-white/20 text-white backdrop-blur-sm' : 'text-[var(--theme-primary,#2a78d6)]',
+              )}
+              style={inverted ? undefined : { backgroundColor: 'color-mix(in srgb, var(--theme-primary, #2a78d6) 12%, white)' }}
               aria-hidden
             >
               {icon}
             </span>
           )}
           <div className="min-w-0">
-            <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">
+            <h1
+              className={cn(
+                'text-[26px] font-semibold leading-tight tracking-[-0.01em]',
+                inverted ? 'text-white' : 'text-slate-900',
+              )}
+            >
               {title}
             </h1>
             {description && (
-              <p className="mt-1 max-w-2xl text-[14px] leading-relaxed text-slate-500">{description}</p>
+              <p className={cn(
+                'mt-1 max-w-2xl text-[14px] leading-relaxed',
+                inverted ? 'text-white/80' : 'text-slate-500',
+              )}>
+                {description}
+              </p>
             )}
             {meta && <div className="mt-2 flex flex-wrap items-center gap-2">{meta}</div>}
           </div>
@@ -84,19 +107,22 @@ export function PageHeader({
  * The separator is decorative and hidden from screen readers; an `<ol>` already
  * conveys the sequence, and hearing "slash" between every level is noise.
  */
-export function Breadcrumbs({ crumbs, className }: { crumbs: Crumb[]; className?: string }) {
+export function Breadcrumbs({ crumbs, inverted = false, className }: { crumbs: Crumb[]; inverted?: boolean; className?: string }) {
   return (
     <nav aria-label="Breadcrumb" className={className}>
-      <ol className="flex flex-wrap items-center gap-1 text-[12px] text-slate-500">
+      <ol className={cn('flex flex-wrap items-center gap-1 text-[12px]', inverted ? 'text-white/70' : 'text-slate-500')}>
         {crumbs.map((c, i) => (
           <li key={`${c.label}-${i}`} className="flex items-center gap-1">
-            {i > 0 && <span aria-hidden className="text-slate-300">/</span>}
+            {i > 0 && <span aria-hidden className={inverted ? 'text-white/40' : 'text-slate-300'}>/</span>}
             {c.to && i < crumbs.length - 1 ? (
-              <Link to={c.to} className="rounded px-0.5 hover:text-slate-700 hover:underline">
+              <Link to={c.to} className={cn('rounded px-0.5 hover:underline', inverted ? 'hover:text-white' : 'hover:text-slate-700')}>
                 {c.label}
               </Link>
             ) : (
-              <span aria-current={i === crumbs.length - 1 ? 'page' : undefined} className="font-medium text-slate-700">
+              <span
+                aria-current={i === crumbs.length - 1 ? 'page' : undefined}
+                className={cn('font-medium', inverted ? 'text-white' : 'text-slate-700')}
+              >
                 {c.label}
               </span>
             )}

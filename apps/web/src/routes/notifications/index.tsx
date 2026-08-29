@@ -430,7 +430,7 @@ export function NotificationsPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
                 {period === 'today' ? 'Today' : period === 'week' ? 'Last 7 Days' : period === 'month' ? 'This Month' : period === 'quarter' ? 'Last 90 Days' : 'This Year'}
-                <Button variant="ghost" onClick={() => { setPeriod('all'); setPage(1); }}>
+                <Button variant="ghost" size="chip" onClick={() => { setPeriod('all'); setPage(1); }}>
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
@@ -443,7 +443,7 @@ export function NotificationsPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
                 {readFilter === 'false' ? 'Unread' : 'Read'}
-                <Button variant="ghost" onClick={() => { setReadFilter(''); setPage(1); }}>
+                <Button variant="ghost" size="chip" onClick={() => { setReadFilter(''); setPage(1); }}>
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>

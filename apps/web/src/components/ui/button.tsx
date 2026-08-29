@@ -46,6 +46,19 @@ const sizes = {
   /** Square. For an icon-only action — which must still carry a title/aria-label. */
   icon: 'h-10 w-10',
   'icon-sm': 'h-8 w-8',
+  /**
+   * The action INSIDE a chip, pill or tag — a dismiss X, at the chip's own
+   * height. A `default` Button here is 40px tall and inflates a 22px chip
+   * around it, which is what the primitive sweep left behind on the audit,
+   * user, notification and trend filter chips.
+   */
+  chip: 'h-4 w-4 shrink-0 rounded-full p-0 text-[12px]',
+  /**
+   * A control that lives INSIDE running text — a Retry inside a sentence, a
+   * breadcrumb step. No box, no fixed height, so it does not break the line it
+   * sits in.
+   */
+  inline: 'h-auto rounded-[4px] px-0.5 py-0 text-[13px]',
 } as const;
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

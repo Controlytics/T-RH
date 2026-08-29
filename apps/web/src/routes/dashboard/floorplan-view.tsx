@@ -218,16 +218,22 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
           right — the reference drawing's chrome. A <select> hid which other plans
           existed behind a click; these are visible at a glance. */}
       <div
-        className="ctl"
+        className="flex flex-wrap items-center justify-between gap-3 rounded-t-2xl px-4 py-2.5"
         style={{ background: 'linear-gradient(135deg, var(--theme-sidebar-bg), var(--theme-primary-dark))' }}
       >
         <h3 className="text-sm font-bold tracking-wide text-white">{plan?.name ?? 'Floor plan'}</h3>
         <div className="flex flex-wrap items-center gap-1">
           {plans.filter((p) => p.id !== plan?.id).map((p) => (
-            <Button variant="ghost" size="sm"
+            <Button
+              variant="ghost"
+              size="sm"
               key={p.id}
               type="button"
               onClick={() => setPlanId(p.id)}
+              // This bar is a dark gradient, so ghost's slate ink is invisible
+              // on it. The variant is still right — no fill, no border — it just
+              // has to be the inverse ink here.
+              className="text-white/80 hover:bg-white/15 hover:text-white"
             >
               {p.name}
             </Button>

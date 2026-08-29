@@ -82,7 +82,7 @@ function MultiSelectEventTypes({ eventTypes, selected, onChange }: {
             return (
               <span key={val} className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-700 rounded text-xs font-medium">
                 {et?.label ?? val}
-                <Button variant="ghost" type="button" onClick={() => toggle(val)}>
+                <Button variant="ghost" size="chip" type="button" onClick={() => toggle(val)}>
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                 </Button>
               </span>

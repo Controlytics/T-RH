@@ -195,7 +195,7 @@ function ChartPanel({
       <>
         <p className="mb-1 flex flex-wrap items-center gap-2 text-xs text-amber-700">
           <span>These readings could not be refreshed. Showing the last ones that loaded.</span>
-          <Button variant="link" type="button" onClick={onRetry}>Retry</Button>
+          <Button variant="link" size="inline" type="button" onClick={onRetry}>Retry</Button>
         </p>
         {children}
       </>
@@ -244,7 +244,7 @@ function ExtraKeyPicker({
       {extraKeys.map((k) => (
         <span key={k} className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
           {k}
-          <Button variant="ghost" type="button" onClick={() => onRemove(k)} aria-label={`Remove ${k}`}>×</Button>
+          <Button variant="ghost" size="chip" type="button" onClick={() => onRemove(k)} aria-label={`Remove ${k}`}>×</Button>
         </span>
       ))}
       {offerable.length > 0 && (

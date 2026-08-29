@@ -166,7 +166,7 @@ export function AuditFilters({
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                   </svg>
                   Search: {search}
-                  <Button variant="ghost" className="ml-1"
+                  <Button variant="ghost" size="chip" className="ml-1"
                     onClick={() => setSearch('')}
                   >
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -181,7 +181,7 @@ export function AuditFilters({
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
                   From: {formatDateTimeDisplay(fromDateTime)}
-                  <Button variant="ghost" className="ml-1"
+                  <Button variant="ghost" size="chip" className="ml-1"
                     onClick={() => setFromDateTime('')}
                   >
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -196,7 +196,7 @@ export function AuditFilters({
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
                   To: {formatDateTimeDisplay(toDateTime)}
-                  <Button variant="ghost" className="ml-1"
+                  <Button variant="ghost" size="chip" className="ml-1"
                     onClick={() => setToDateTime('')}
                   >
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">

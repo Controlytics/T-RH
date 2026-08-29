@@ -329,6 +329,7 @@ export function HelpArticlesPage() {
               </svg>
             </Link>
             <PageHeader
+              inverted
               title='Help Articles'
               description='Manage in-app help content and documentation'
               crumbs={[{ label: 'Home', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Help Articles' }]}

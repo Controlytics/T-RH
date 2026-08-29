@@ -13,7 +13,7 @@ import { cn } from '@/lib/cn';
  * announced with the field, which is most of what a label is for.
  */
 export function FormField({
-  label, required, helper, error, success, htmlFor, children, className,
+  label, required, helper, error, success, htmlFor, group = false, children, className,
 }: {
   label: string;
   required?: boolean;
@@ -25,6 +25,18 @@ export function FormField({
    *  field is noise, and noise is what an operator learns to ignore. */
   success?: string | null;
   htmlFor?: string;
+  /**
+   * The field is a GROUP of controls (a set of checkboxes, a radio group), not
+   * one control.
+   *
+   * `<label htmlFor>` can only point at a single labelable element, so on a
+   * multiselect it pointed at an id nothing carried: clicking the label did
+   * nothing and the group was announced without its name. With `group`, the
+   * label becomes a referenced `<span>` and the wrapper becomes a real
+   * `role="group"` that names itself from it — which is what a set of
+   * checkboxes needs — and it is where `aria-describedby` lands too.
+   */
+  group?: boolean;
   children: ReactNode;
   className?: string;
 }) {
@@ -32,22 +44,38 @@ export function FormField({
   const id = htmlFor ?? auto;
   const describedBy = error ? `${id}-error` : helper ? `${id}-helper` : undefined;
 
+  const labelBody = (
+    <>
+      {label}
+      {required && (
+        // Marked with a symbol AND a screen-reader word: an asterisk alone is
+        // silent to anyone not looking at it.
+        <span className="ml-0.5 text-rose-600" aria-hidden>*</span>
+      )}
+      {required && <span className="sr-only"> (required)</span>}
+    </>
+  );
+  const labelCls = 'block text-[13px] font-medium text-slate-700';
+
   return (
     <div className={cn('space-y-1.5', className)}>
-      <label htmlFor={id} className="block text-[13px] font-medium text-slate-700">
-        {label}
-        {required && (
-          // Marked with a symbol AND a screen-reader word: an asterisk alone is
-          // silent to anyone not looking at it.
-          <span className="ml-0.5 text-rose-600" aria-hidden>*</span>
-        )}
-        {required && <span className="sr-only"> (required)</span>}
-      </label>
+      {group ? (
+        <span id={`${id}-label`} className={labelCls}>{labelBody}</span>
+      ) : (
+        <label htmlFor={id} className={labelCls}>{labelBody}</label>
+      )}
 
-      {/* The control is cloned nothing — callers pass whatever control they need
-          and wire `id`/`aria-describedby` from what this returns. Keeping this
-          dumb means a searchable select and a plain input can both live here. */}
-      <div data-field-id={id} data-described-by={describedBy}>
+      {/* The control is cloned nothing — for a single control the caller passes
+          the matching `id`/`aria-describedby`. Keeping this dumb means a
+          searchable select and a plain input can both live here. A GROUP has no
+          single control to point at, so the wrapper carries the semantics. */}
+      <div
+        data-field-id={id}
+        data-described-by={describedBy}
+        role={group ? 'group' : undefined}
+        aria-labelledby={group ? `${id}-label` : undefined}
+        aria-describedby={group ? describedBy : undefined}
+      >
         {children}
       </div>
 

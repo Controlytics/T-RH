@@ -347,6 +347,11 @@ export function DynamicConfigPage() {
                     required={setting.required}
                     helper={setting.helpText}
                     htmlFor={`cfg-${setting.key}`}
+                    // A multiselect renders a SET of checkboxes, so there is no
+                    // single element for `htmlFor` to name — it pointed at an id
+                    // nothing carried. `group` makes the wrapper a labelled
+                    // role="group" instead.
+                    group={setting.type === 'multiselect'}
                   >
 
                   {setting.type === 'boolean' ? (
