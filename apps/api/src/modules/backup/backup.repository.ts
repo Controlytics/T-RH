@@ -482,83 +482,92 @@ export async function restoreFromBackup(backup: BackupData, opts: { force?: bool
       await tx.$executeRawUnsafe(`ALTER TABLE "${t.relname}" DISABLE TRIGGER "${t.tgname}"`);
     }
 
-    // #backup-critical fix: the export replaces every users.password_hash with the
-    // stripped sentinel (so a leaked backup can't be cracked — §11.10(d)). But the
-    // TRUNCATE+reinsert below would write that sentinel over EVERY user's real hash,
-    // bricking all login — including SUPER_ADMIN, so the "recover via Reset Requests"
-    // path is itself unreachable. Snapshot the CURRENT hashes before truncate and
-    // re-apply them to the sentinel rows on reinsert (see the users special-case in
-    // the insert loop), so existing users keep their login across a restore.
-    // NOTE — do NOT wrap probe queries here in try/catch. A failed statement
-    // aborts the whole Postgres transaction (25P02: "current transaction is
-    // aborted"); catching the JS error does not un-abort it, so every later
-    // statement fails too. That is exactly how this block used to break restore
-    // outright: it selected a `users.password_history_hashes` column that has
-    // never existed (password history lives in its own table), the catch hid the
-    // 42703, and the transaction was already poisoned — so restore ALWAYS failed
-    // from the moment that preservation logic was added. Query real columns only.
-    const currentUserSecrets = new Map<string, unknown>();
-    const cur: any[] = await tx.$queryRawUnsafe(`SELECT id, password_hash FROM "users"`);
-    for (const u of cur) currentUserSecrets.set(u.id, u.password_hash);
+    // The re-enable below is in a `finally`, not on the success path.
+    // Postgres DDL is transactional, so a throw here would roll the ALTERs
+    // back with everything else and the triggers would come back anyway —
+    // but that makes §11 immutability depend on an invariant nothing states.
+    // Move this block outside its transaction during some future refactor and
+    // every trigger in the database stays disabled, silently. Same reasoning,
+    // and the same fix, as lib/audit-immutability.ts:withTriggersDisabled.
+    try {
 
-    // Same story for the password_history TABLE, whose hashes are now stripped
-    // on export too: without this, a restore would write sentinels over real
-    // history and quietly defeat the password-reuse check.
-    const currentPasswordHistory = new Map<string, unknown>();
-    const curHist: any[] = await tx.$queryRawUnsafe(`SELECT id, password_hash FROM "password_history"`);
-    for (const h of curHist) currentPasswordHistory.set(h.id, h.password_hash);
+      // #backup-critical fix: the export replaces every users.password_hash with the
+      // stripped sentinel (so a leaked backup can't be cracked — §11.10(d)). But the
+      // TRUNCATE+reinsert below would write that sentinel over EVERY user's real hash,
+      // bricking all login — including SUPER_ADMIN, so the "recover via Reset Requests"
+      // path is itself unreachable. Snapshot the CURRENT hashes before truncate and
+      // re-apply them to the sentinel rows on reinsert (see the users special-case in
+      // the insert loop), so existing users keep their login across a restore.
+      // NOTE — do NOT wrap probe queries here in try/catch. A failed statement
+      // aborts the whole Postgres transaction (25P02: "current transaction is
+      // aborted"); catching the JS error does not un-abort it, so every later
+      // statement fails too. That is exactly how this block used to break restore
+      // outright: it selected a `users.password_history_hashes` column that has
+      // never existed (password history lives in its own table), the catch hid the
+      // 42703, and the transaction was already poisoned — so restore ALWAYS failed
+      // from the moment that preservation logic was added. Query real columns only.
+      const currentUserSecrets = new Map<string, unknown>();
+      const cur: any[] = await tx.$queryRawUnsafe(`SELECT id, password_hash FROM "users"`);
+      for (const u of cur) currentUserSecrets.set(u.id, u.password_hash);
 
-    // Truncate every DB table in one statement — CASCADE handles all FKs in a single pass
-    for (const t of dbTables) assertSafeIdentifier(t);
-    await tx.$executeRawUnsafe(
-      `TRUNCATE TABLE ${dbTables.map(t => `"${t}"`).join(', ')} CASCADE`,
-    );
+      // Same story for the password_history TABLE, whose hashes are now stripped
+      // on export too: without this, a restore would write sentinels over real
+      // history and quietly defeat the password-reuse check.
+      const currentPasswordHistory = new Map<string, unknown>();
+      const curHist: any[] = await tx.$queryRawUnsafe(`SELECT id, password_hash FROM "password_history"`);
+      for (const h of curHist) currentPasswordHistory.set(h.id, h.password_hash);
 
-    // Insert in FK-safe order. Self-referential rows are inserted in two passes:
-    //   1) INSERT with the self-ref column(s) NULLed out
-    //   2) UPDATE to set the real self-ref values
-    for (const table of restoreTables) {
-      let rows = data[table];
-      if (!rows || rows.length === 0) continue;
-      if (table === 'users') {
-        // Re-apply the pre-truncate hash for any user whose backup row carries the
-        // stripped sentinel and who still exists — otherwise the sentinel stands (a
-        // backup-only user that never existed here must reset via the admin workflow).
-        rows = rows.map((r: Record<string, any>) => {
-          if (r.password_hash === PASSWORD_STRIPPED_SENTINEL && currentUserSecrets.has(r.id)) {
-            return { ...r, password_hash: currentUserSecrets.get(r.id) };
-          }
-          return r;
-        });
-      } else if (table === 'password_history') {
-        // Re-apply the pre-truncate hash for any history row that still exists;
-        // a backup-only row keeps the sentinel (it can never match a real
-        // password, so it just makes that one reuse check inert).
-        rows = rows.map((r: Record<string, any>) => {
-          if (r.password_hash === PASSWORD_STRIPPED_SENTINEL && currentPasswordHistory.has(r.id)) {
-            return { ...r, password_hash: currentPasswordHistory.get(r.id) };
-          }
-          return r;
-        });
+      // Truncate every DB table in one statement — CASCADE handles all FKs in a single pass
+      for (const t of dbTables) assertSafeIdentifier(t);
+      await tx.$executeRawUnsafe(
+        `TRUNCATE TABLE ${dbTables.map(t => `"${t}"`).join(', ')} CASCADE`,
+      );
+
+      // Insert in FK-safe order. Self-referential rows are inserted in two passes:
+      //   1) INSERT with the self-ref column(s) NULLed out
+      //   2) UPDATE to set the real self-ref values
+      for (const table of restoreTables) {
+        let rows = data[table];
+        if (!rows || rows.length === 0) continue;
+        if (table === 'users') {
+          // Re-apply the pre-truncate hash for any user whose backup row carries the
+          // stripped sentinel and who still exists — otherwise the sentinel stands (a
+          // backup-only user that never existed here must reset via the admin workflow).
+          rows = rows.map((r: Record<string, any>) => {
+            if (r.password_hash === PASSWORD_STRIPPED_SENTINEL && currentUserSecrets.has(r.id)) {
+              return { ...r, password_hash: currentUserSecrets.get(r.id) };
+            }
+            return r;
+          });
+        } else if (table === 'password_history') {
+          // Re-apply the pre-truncate hash for any history row that still exists;
+          // a backup-only row keeps the sentinel (it can never match a real
+          // password, so it just makes that one reuse check inert).
+          rows = rows.map((r: Record<string, any>) => {
+            if (r.password_hash === PASSWORD_STRIPPED_SENTINEL && currentPasswordHistory.has(r.id)) {
+              return { ...r, password_hash: currentPasswordHistory.get(r.id) };
+            }
+            return r;
+          });
+        }
+        const selfRefCols = selfRefs[table] ?? [];
+        await insertRows(tx, table, rows, selfRefCols);
+        if (selfRefCols.length > 0) {
+          await fixupSelfRefs(tx, table, rows, selfRefCols);
+        }
       }
-      const selfRefCols = selfRefs[table] ?? [];
-      await insertRows(tx, table, rows, selfRefCols);
-      if (selfRefCols.length > 0) {
-        await fixupSelfRefs(tx, table, rows, selfRefCols);
-      }
-    }
 
-    // Warn on backup tables not present in the DB (e.g., migrated-out tables)
-    for (const key of Object.keys(data)) {
-      if (!dbTableSet.has(key) && !EXCLUDED_TABLES.has(key)) {
-        console.warn(`[backup/restore] Skipping unknown table in backup: ${key}`);
+      // Warn on backup tables not present in the DB (e.g., migrated-out tables)
+      for (const key of Object.keys(data)) {
+        if (!dbTableSet.has(key) && !EXCLUDED_TABLES.has(key)) {
+          console.warn(`[backup/restore] Skipping unknown table in backup: ${key}`);
+        }
       }
-    }
 
-    // Re-enable every trigger we disabled. (A rollback would restore trigger
-    // state anyway, since ALTER TABLE is transactional here.)
-    for (const t of triggers) {
-      await tx.$executeRawUnsafe(`ALTER TABLE "${t.relname}" ENABLE TRIGGER "${t.tgname}"`);
+    } finally {
+      for (const t of triggers) {
+        await tx.$executeRawUnsafe(`ALTER TABLE "${t.relname}" ENABLE TRIGGER "${t.tgname}"`);
+      }
     }
 
     // Realign manual sequences with the data we just restored. Without this the

@@ -6,6 +6,11 @@ import { auditQuerySchema } from '@digilog/shared';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { verifyAuditChain } from '../../lib/audit-verify.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
+import {
+  withAuditDeletesAllowed,
+  isHardDeleteEnabled,
+  HARD_DELETE_DISABLED_MESSAGE,
+} from '../../lib/audit-immutability.js';
 
 /**
  * Path-param guard for audit record ids.
@@ -542,6 +547,15 @@ export default async function auditRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    // Checked BEFORE reauth: an installation that has switched this capability
+    // off should not prompt an operator for their password to perform an
+    // action that is going to be refused anyway.
+    if (!isHardDeleteEnabled()) {
+      return reply.code(403).send({
+        error: 'AUDIT_HARD_DELETE_DISABLED',
+        message: HARD_DELETE_DISABLED_MESSAGE,
+      });
+    }
     const { ok } = await enforceReauth('DELETE_AUDIT_RECORD', req, reply);
     if (!ok) return;
     const { id } = req.params as { id: string };
@@ -574,16 +588,12 @@ export default async function auditRoutes(app: FastifyInstance) {
         signatureMeaning: `Audit record ${id} PHYSICALLY DELETED; hash chain broken at this position`,
         ipAddress: req.ip, sessionId: req.user.sessionId,
       }, tx);
-      // The audit_trail_no_delete trigger blocks physical deletes. Disable it for
-      // the scope of this tx (ALTER TABLE takes an ACCESS EXCLUSIVE lock, so no
-      // other connection can slip an unguarded delete through the window), then
-      // re-enable. Query first so a DB without the trigger still deletes cleanly.
-      const triggers = await tx.$queryRawUnsafe<Array<{ tgname: string }>>(
-        `SELECT tgname FROM pg_trigger WHERE tgrelid = '"audit_trail"'::regclass AND tgname = 'audit_trail_no_delete'`,
-      );
-      for (const t of triggers) await tx.$executeRawUnsafe(`ALTER TABLE "audit_trail" DISABLE TRIGGER "${t.tgname}"`);
-      await tx.auditTrail.delete({ where: { id } });
-      for (const t of triggers) await tx.$executeRawUnsafe(`ALTER TABLE "audit_trail" ENABLE TRIGGER "${t.tgname}"`);
+      // The audit_trail_no_delete trigger blocks physical deletes. Suspend it
+      // for the scope of this tx only — see lib/audit-immutability.ts for the
+      // locking rationale and why the re-enable lives in a `finally`.
+      await withAuditDeletesAllowed(tx, async () => {
+        await tx.auditTrail.delete({ where: { id } });
+      });
     });
 
     return { success: true };
@@ -611,6 +621,13 @@ export default async function auditRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    // See the single-delete route: refused before reauth, not after.
+    if (!isHardDeleteEnabled()) {
+      return reply.code(403).send({
+        error: 'AUDIT_HARD_DELETE_DISABLED',
+        message: HARD_DELETE_DISABLED_MESSAGE,
+      });
+    }
     const { ok } = await enforceReauth('BULK_DELETE_AUDIT_RECORDS', req, reply);
     if (!ok) return;
     const { ids, reason } = req.body as { ids: string[]; reason: string };
@@ -643,14 +660,11 @@ export default async function auditRoutes(app: FastifyInstance) {
         signatureMeaning: `${records.length} audit records PHYSICALLY DELETED; hash chain broken`,
         ipAddress: req.ip, sessionId: req.user.sessionId,
       }, tx);
-      // Disable the immutability trigger for this tx (see single-delete above).
-      const triggers = await tx.$queryRawUnsafe<Array<{ tgname: string }>>(
-        `SELECT tgname FROM pg_trigger WHERE tgrelid = '"audit_trail"'::regclass AND tgname = 'audit_trail_no_delete'`,
-      );
-      for (const t of triggers) await tx.$executeRawUnsafe(`ALTER TABLE "audit_trail" DISABLE TRIGGER "${t.tgname}"`);
-      const del = await tx.auditTrail.deleteMany({ where: { id: { in: matchedIds } } });
-      for (const t of triggers) await tx.$executeRawUnsafe(`ALTER TABLE "audit_trail" ENABLE TRIGGER "${t.tgname}"`);
-      return del.count;
+      // Suspend the immutability trigger for this tx (see single-delete above).
+      return await withAuditDeletesAllowed(tx, async () => {
+        const del = await tx.auditTrail.deleteMany({ where: { id: { in: matchedIds } } });
+        return del.count;
+      });
     });
 
     return { success: true, count: result };
