@@ -15,6 +15,14 @@ export interface FlNode {
   name: string;
   type: FlType;
   parentId: string | null;
+  /**
+   * Manual display order among siblings. Optional on the interface so the many
+   * callers that build an FlNode for a path or scope calculation — where order
+   * is irrelevant — do not all have to supply it. Missing is treated as 0,
+   * which is also the column default, so an omitted value sorts exactly as an
+   * unarranged row does.
+   */
+  sortOrder?: number;
 }
 
 export interface FlTreeNode extends FlNode {
@@ -72,10 +80,24 @@ export function buildCoveringIndex(all: FlNode[]): Map<string, string[]> {
   return covering;
 }
 
-const byName = (a: FlNode, b: FlNode) => a.name.localeCompare(b.name);
+/**
+ * Siblings sort by manual order first, then name.
+ *
+ * The name tiebreak is what makes the feature safe to ship against existing
+ * data: every row defaults to sortOrder 0, so before anyone arranges anything
+ * they all tie and the result is the pure alphabetical list this used to
+ * return. Ordering only starts to differ once an operator sets it.
+ *
+ * localeCompare, not `<`, so "Área" files where a reader expects it rather
+ * than after "Z" on its code point.
+ */
+const bySortThenName = (a: FlNode, b: FlNode) => {
+  const d = (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+  return d !== 0 ? d : a.name.localeCompare(b.name);
+};
 
 /**
- * Blocks with their Areas nested, both sorted by name, with instrument counts
+ * Blocks with their Areas nested, both sorted by manual order then name, with counts
  * rolled up. `counts` maps location id → instruments linked directly to it.
  *
  * An Area whose parent is absent is DROPPED rather than promoted to the top level:
@@ -83,7 +105,7 @@ const byName = (a: FlNode, b: FlNode) => a.name.localeCompare(b.name);
  * misrepresent the hierarchy to whoever is reading it.
  */
 export function buildTree(all: FlNode[], counts: Map<string, number>): FlTreeNode[] {
-  const blocks = all.filter((n) => n.type === 'BLOCK').sort(byName);
+  const blocks = all.filter((n) => n.type === 'BLOCK').sort(bySortThenName);
 
   // Only BLOCKs become roots, so an AREA whose parent is missing is simply never
   // emitted — dropped rather than promoted to the top level, where it would
@@ -91,7 +113,7 @@ export function buildTree(all: FlNode[], counts: Map<string, number>): FlTreeNod
   return blocks.map((block) => {
     const children: FlTreeNode[] = all
       .filter((n) => n.type === 'AREA' && n.parentId === block.id)
-      .sort(byName)
+      .sort(bySortThenName)
       .map((area) => ({
         ...area,
         ownCount: counts.get(area.id) ?? 0,

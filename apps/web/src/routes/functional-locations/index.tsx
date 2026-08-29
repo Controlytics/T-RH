@@ -9,6 +9,9 @@ import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { LocationDialog, type LocationDraft } from './location-dialog';
+import { ArrangeDialog } from './arrange-dialog';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import type { FlNode } from './types';
 import { PageHeader } from '@/components/ui/page-header';
 
@@ -69,6 +72,45 @@ export default function FunctionalLocationsPage() {
     await mutate();
   };
 
+  const [arrangeOpen, setArrangeOpen] = useState(false);
+  // Which block's AREAS are being arranged. null = the dialog is closed.
+  // Holding the block id rather than a boolean means one dialog serves every
+  // card, and it always knows whose siblings it is reordering.
+  const [arrangeAreasOf, setArrangeAreasOf] = useState<string | null>(null);
+  // The backend gates PUT /order on UPDATE_FUNCTIONAL_LOCATION reauth, so the
+  // frontend has to be able to supply it or the save 401s with no way forward.
+  const reauth = useReauth();
+
+  /**
+   * Saves a manual sibling order — Blocks, or one Block's Areas.
+   *
+   * One handler for both because the endpoint takes one sibling set and does
+   * not care which level it is: Blocks are siblings of each other, and a
+   * Block's Areas are siblings of one another. Adding a second, near-identical
+   * function for Areas would be two places to fix the next time this changes.
+   *
+   * Sends EVERY sibling, not just the ones that moved: the endpoint assigns
+   * 1..N over the set it is given and rejects a partial list, because rows
+   * left out would keep stale numbers and jump somewhere nobody chose the next
+   * time the list rendered.
+   */
+  const saveOrder = async (ids: string[]) => {
+    try {
+      await reauth.execute('UPDATE_FUNCTIONAL_LOCATION', async (password?: string) => {
+        if (password) {
+          await apiClient.putWithReauth('/api/functional-locations/order', { ids }, password);
+        } else {
+          await apiClient.put('/api/functional-locations/order', { ids });
+        }
+      });
+      toast.success('Order saved', 'They now appear in the order you chose.');
+      await mutate();
+    } catch (e: any) {
+      toast.error('Could not save the order', e?.message ?? 'Please try again.');
+      throw e;
+    }
+  };
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -80,8 +122,20 @@ export default function FunctionalLocationsPage() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
           </svg>
         }
-        actions={can('functional_locations.create') && (
-          <Button onClick={() => setDialogOpen(true)}>Create functional location</Button>
+        actions={(
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Arranging is an EDIT to these rows, so it is gated on the same
+                permission as renaming them — and hidden entirely below two
+                blocks, where there is no order to choose. */}
+            {can('functional_locations.update') && tree.length > 1 && (
+              <Button variant="outline" onClick={() => setArrangeOpen(true)}>
+                Arrange order
+              </Button>
+            )}
+            {can('functional_locations.create') && (
+              <Button onClick={() => setDialogOpen(true)}>Create functional location</Button>
+            )}
+          </div>
         )}
       />
 
@@ -170,7 +224,24 @@ export default function FunctionalLocationsPage() {
               </Link>
 
               {areas.length > 0 ? (
-                <div className="mt-auto space-y-0.5 border-t border-slate-100 bg-slate-50/70 p-2">
+                <div className="mt-auto border-t border-slate-100 bg-slate-50/70 p-2">
+                  {/* Arranging Areas is per BLOCK, because Areas are siblings only
+                      within their own Block. Shown from two Areas up — with one
+                      there is no order to choose. */}
+                  {can('functional_locations.update') && areas.length > 1 && (
+                    <div className="flex justify-end px-1 pb-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setArrangeAreasOf(b.id)}
+                        title={`Arrange the areas of ${b.name}`}
+                      >
+                        Arrange areas
+                      </Button>
+                    </div>
+                  )}
+                  <div className="space-y-0.5">
                   {areas.map((a) => (
                     <Link
                       key={a.id}
@@ -183,6 +254,7 @@ export default function FunctionalLocationsPage() {
                       </span>
                     </Link>
                   ))}
+                  </div>
                 </div>
               ) : (
                 <p className="mt-auto border-t border-slate-100 bg-slate-50/70 px-5 py-3 text-xs text-slate-500">
@@ -193,6 +265,51 @@ export default function FunctionalLocationsPage() {
           );
         })}
       </div>
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+        actionLabel="Functional Locations"
+      />
+
+      {/* Areas of one Block. Keyed on the block id so React rebuilds the list
+          when a different card is opened, rather than reusing the previous
+          block's order state. */}
+      {arrangeAreasOf && (() => {
+        const block = tree.find((b) => b.id === arrangeAreasOf);
+        if (!block) return null;
+        return (
+          <ArrangeDialog
+            key={block.id}
+            open
+            onClose={() => setArrangeAreasOf(null)}
+            title={`Arrange areas — ${block.name}`}
+            items={(block.children ?? []).map((a) => ({
+              id: a.id,
+              name: a.name,
+              meta: `${a.ownCount} instrument${a.ownCount === 1 ? '' : 's'}`,
+            }))}
+            onSave={saveOrder}
+          />
+        );
+      })()}
+
+      <ArrangeDialog
+        open={arrangeOpen}
+        onClose={() => setArrangeOpen(false)}
+        title="Arrange blocks"
+        items={tree.map((b) => ({
+          id: b.id,
+          name: b.name,
+          meta: `${b.totalCount} instrument${b.totalCount === 1 ? '' : 's'}`,
+        }))}
+        onSave={saveOrder}
+      />
 
       <LocationDialog
         open={dialogOpen}

@@ -895,6 +895,17 @@ model FunctionalLocation {
   type     FunctionalLocationType
   /// NULL for a BLOCK, required for an AREA.
   parentId String?                @map("parent_id")
+  /// Manual display order among siblings, lowest first; ties break on name.
+  ///
+  /// DEFAULT 0 means "unordered", which is why every existing row keeps the
+  /// exact alphabetical order it had before this column existed — 0 ties
+  /// everywhere, and the name tiebreak decides. Nothing moves until someone
+  /// actually arranges them.
+  ///
+  /// Ordering is PER PARENT, not global: Blocks are ordered among Blocks, and
+  /// each Block's Areas among themselves. A single global sequence would mean
+  /// inserting one Block renumbered every Area in the plant.
+  sortOrder Int                   @default(0) @map("sort_order")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -911,6 +922,9 @@ model FunctionalLocation {
   /// unique — that check lives in the service layer.
   @@unique([parentId, name])
   @@index([type])
+  /// The list and tree queries both read siblings in (parentId, sortOrder, name)
+  /// order; without this the reorder screen table-scans on every render.
+  @@index([parentId, sortOrder])
   @@map("functional_locations")
 }
 

@@ -44,7 +44,7 @@ const flTreeProps = {
 
 async function loadNodes(): Promise<FlNode[]> {
   const rows = await prisma.functionalLocation.findMany({
-    select: { id: true, name: true, type: true, parentId: true },
+    select: { id: true, name: true, type: true, parentId: true, sortOrder: true },
   });
   return rows.map((r) => ({ ...r, type: r.type as FlType }));
 }
@@ -253,6 +253,137 @@ export default async function functionalLocationRoutes(app: FastifyInstance) {
   });
 
   // PUT /:id — rename / re-parent.
+  // REGISTERED BEFORE `/:id` ON PURPOSE.
+  //
+  // Not a style choice: with `/:id` first, `PUT /api/functional-locations/order`
+  // was matched as "update the location whose id is 'order'" and answered 404.
+  // That was verified, not assumed - the first version of this route sat at the
+  // bottom of the file and its own test caught it. The same rule is written at
+  // the `/:id` route in modules/debug-traces/routes.ts for the same reason.
+  // PUT /order — set the manual display order of a set of SIBLINGS.
+  //
+  // Reuses FUNCTIONAL_LOCATION_UPDATE and the UPDATE_FUNCTIONAL_LOCATION reauth
+  // action rather than inventing a permission: this changes a property of
+  // locations the caller can already rename, and a separate permission for
+  // "may reorder but not rename" is a distinction no operator asked for.
+  //
+  // Takes the WHOLE sibling set, not a single move. A "move item up" endpoint
+  // has to renumber its neighbour too, so two concurrent moves interleave into
+  // an order neither operator chose. Sending the full list makes the request
+  // the operator's intended arrangement, and the last writer wins visibly
+  // rather than silently merging.
+  app.put('/order', {
+    preHandler: [app.requirePermission('FUNCTIONAL_LOCATION_UPDATE')],
+    schema: {
+      tags: ['Functional Locations'],
+      summary: 'Set the display order of sibling functional locations',
+      description:
+        'Assigns sort_order 1..N to the supplied ids, in the order given. All ids '
+        + 'must be siblings (same parent). Blocks are siblings of each other; an '
+        + "Area's siblings are the other Areas of its Block.",
+      body: {
+        type: 'object',
+        required: ['ids'],
+        properties: {
+          ids: { type: 'array', items: { type: 'string' }, minItems: 1 },
+        },
+        additionalProperties: false,
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            updated: { type: 'integer' },
+            order: { type: 'array', items: { type: 'string' } },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('UPDATE_FUNCTIONAL_LOCATION', req, reply);
+    if (!ok) return;
+
+    const { ids } = req.body as { ids: string[] };
+    const ctx = buildContext(req);
+
+    if (new Set(ids).size !== ids.length) {
+      return reply.code(400).send({
+        error: 'VALIDATION_ERROR',
+        message: 'The same location appears more than once in the requested order.',
+      });
+    }
+
+    const rows = await prisma.functionalLocation.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, name: true, parentId: true, sortOrder: true },
+    });
+    if (rows.length !== ids.length) {
+      return reply.code(404).send({
+        error: 'NOT_FOUND',
+        message: 'One or more of the supplied locations does not exist.',
+      });
+    }
+
+    // All one parent. Mixing levels would let a caller interleave a Block with
+    // another Block's Areas, producing an order the tree cannot render.
+    const parents = new Set(rows.map((r) => r.parentId ?? '@root'));
+    if (parents.size > 1) {
+      return reply.code(400).send({
+        error: 'VALIDATION_ERROR',
+        message: 'All locations in one reorder must share the same parent.',
+      });
+    }
+
+    // The full sibling set must be present, or the omitted ones keep stale
+    // numbers and jump somewhere nobody asked for the next time the list renders.
+    const parentId = rows[0].parentId ?? null;
+    const siblingCount = await prisma.functionalLocation.count({ where: { parentId } });
+    if (siblingCount !== ids.length) {
+      return reply.code(400).send({
+        error: 'VALIDATION_ERROR',
+        message:
+          `Send the complete set of siblings: ${siblingCount} exist, ${ids.length} supplied.`,
+      });
+    }
+
+    const before = [...rows]
+      .sort((a, b) => (a.sortOrder - b.sortOrder) || a.name.localeCompare(b.name))
+      .map((r) => r.name);
+    const nameById = new Map(rows.map((r) => [r.id, r.name]));
+    const after = ids.map((id) => nameById.get(id) ?? id);
+
+    // 1-based: 0 is the "never arranged" default, and keeping it distinct means
+    // an arranged set can never be confused with an untouched one.
+    await prisma.$transaction(
+      ids.map((id, i) =>
+        prisma.functionalLocation.update({
+          where: { id },
+          data: { sortOrder: i + 1, updatedBy: ctx.userId },
+        }),
+      ),
+    );
+
+    const nodes = await loadNodes();
+    const path = parentId ? locationPath(parentId, nodes) : null;
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole,
+      action: 'FUNCTIONAL_LOCATION_UPDATED',
+      targetType: 'functional_location',
+      targetId: parentId ?? 'root',
+      // Names, not ids. Someone reading this row a year from now is asking
+      // "what order did they choose?", and a list of uuids cannot answer it.
+      beforeValue: { scope: path ?? 'Blocks', order: before },
+      afterValue: { scope: path ?? 'Blocks', order: after },
+      signatureMeaning:
+        `Display order of ${ids.length} functional location(s) under `
+        + `"${path ?? 'Blocks'}" changed to: ${after.join(', ')}`,
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    });
+
+    return { updated: ids.length, order: ids };
+  });
+
   app.put('/:id', {
     preHandler: [app.requirePermission('FUNCTIONAL_LOCATION_UPDATE')],
     schema: {
