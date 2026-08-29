@@ -3,7 +3,7 @@ import {
   needsAcknowledgement, tabFor, filterByTab, conditionText, triggeredText,
   instrumentLabel, ackReasonError, MIN_ACK_REASON, MAX_ACK_REASON,
   quadrantFor, filterByQuadrant, quadrantCounts, ALARM_QUADRANTS,
-  metricUnit, triggeredWithUnit, clearedWithUnit, alarmDurationText,
+  alarmDurationText,
   type AlarmRow,
 } from '../alarm-display';
 
@@ -303,34 +303,6 @@ describe('alarm quadrants — the four filter boxes', () => {
     expect(counts).toEqual({ 'active-ack': 1, 'active-unack': 2, 'cleared-ack': 1, 'cleared-unack': 1 });
     const total = ALARM_QUADRANTS.reduce((n, q) => n + counts[q.id], 0);
     expect(total).toBe(rows.length);
-  });
-});
-
-describe('readings carry their unit', () => {
-  it('uses the metric to pick the symbol', () => {
-    expect(metricUnit('TEMPERATURE')).toBe('°C');
-    expect(metricUnit('HUMIDITY')).toBe('%RH');
-    expect(metricUnit('PRESSURE')).toBe('');
-  });
-
-  it('brackets the unit after the value', () => {
-    expect(triggeredWithUnit(alarm({ triggeredValue: 28 }))).toBe('28.0 (°C)');
-    expect(triggeredWithUnit(alarm({ metric: 'HUMIDITY', triggeredValue: 47 }))).toBe('47.0 (%RH)');
-  });
-
-  it('does the same for the reading that CLEARED it', () => {
-    expect(clearedWithUnit(alarm({ clearedValue: 24.2 }))).toBe('24.2 (°C)');
-    expect(clearedWithUnit(alarm({ metric: 'HUMIDITY', clearedValue: 55 }))).toBe('55.0 (%RH)');
-  });
-
-  it('leaves the em dash alone rather than bracketing a missing reading', () => {
-    // "— (°C)" would read as a unit attached to nothing.
-    expect(triggeredWithUnit(alarm({ triggeredValue: null }))).toBe('—');
-    expect(clearedWithUnit(alarm({ clearedValue: null }))).toBe('—');
-  });
-
-  it('keeps a metric with no known unit unbracketed', () => {
-    expect(triggeredWithUnit(alarm({ metric: 'PRESSURE', triggeredValue: 3 }))).toBe('3.0');
   });
 });
 

@@ -1,5 +1,34 @@
 # Changelog
 
+## [Unreleased] - Alarms: units into the headers, table fills the page (2026-08-29)
+
+Operator, three corrections to the rework committed an hour earlier.
+**No count moved.** Files: `apps/web/src/routes/alarms/{index,alarm-display}.tsx|ts`
+and its tests.
+
+- **The °C / %RH symbols moved into the column headers** — `Value (°C / %RH)`,
+  `Cleared (°C / %RH)` — and the cells are bare numbers again. One legend serves
+  both units because each row's metric is already named in the Type column.
+  **The `metricUnit` / `triggeredWithUnit` / `clearedWithUnit` helpers added for
+  the per-cell version were DELETED, along with their six tests**, rather than
+  left unreferenced: they were an hour old, so there was no history to preserve
+  and no case for carrying dead code.
+- **`Duration (H = hours, m = minutes)` shortened to `Duration (H/m)`**, legend
+  moved to a `title`. That spelled-out header was the widest cell on the page and
+  was setting the column's width, pushing the table past the viewport.
+- **The table now reaches the page edges.** Root cause, not a width tweak: `<main>`
+  in `app-layout.tsx` already applies `p-3 sm:p-4 lg:p-6`, and this page wrapped
+  itself in ANOTHER `p-6` — about 48px of dead margin down each side. The
+  dashboard adds no padding of its own, which is why only some pages looked
+  inset. The page's own padding is removed.
+
+⚠ **The same double padding exists on other pages** — `config/alarm-rules.tsx` and
+`config/alarm-webhooks.tsx` both open with `<div className="p-6">` (the other
+`p-6` hits are `CardContent`, which is correct). They were left alone because
+they were not asked about, but they will look inset in exactly the same way.
+
+Verified: web 860 tests / 62 files, tsc clean.
+
 ## [Unreleased] - Alarms page reworked: four-state filter, units, duration (2026-08-29)
 
 Operator request, several parts. **No count moved.** Files:

@@ -276,36 +276,6 @@ export function quadrantCounts(rows: AlarmRow[]): Record<AlarmQuadrant, number> 
   return out;
 }
 
-/** °C for a temperature alarm, %RH for a humidity one. Empty for anything else. */
-export function metricUnit(metric: string): string {
-  if (metric === 'TEMPERATURE') return '°C';
-  if (metric === 'HUMIDITY') return '%RH';
-  return '';
-}
-
-/**
- * A reading as the table shows it: the number, then its unit in brackets —
- * `28.0 (°C)`, `47 (%RH)`.
- *
- * Separate from `triggeredText`/`clearedText`, which still return the bare number
- * and are what the unit tests pin. Keeping "the value" and "the value as
- * displayed" apart means a change to the wording cannot quietly change what the
- * §11 record is understood to SAY the reading was.
- */
-function withUnit(text: string, metric: string): string {
-  if (text === '—') return text;
-  const unit = metricUnit(metric);
-  return unit ? `${text} (${unit})` : text;
-}
-
-export function triggeredWithUnit(a: AlarmRow): string {
-  return withUnit(triggeredText(a), a.metric);
-}
-
-export function clearedWithUnit(a: AlarmRow): string {
-  return withUnit(clearedText(a), a.metric);
-}
-
 /**
  * How long the alarm lasted: raised -> cleared, as `HH:MM` with a unit letter.
  *

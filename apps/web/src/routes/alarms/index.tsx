@@ -14,7 +14,7 @@ import {
   instrumentLabel, statusText, alarmTypeText, limitText,
   mapStatusTextsResponse,
   filterByQuadrant, quadrantCounts, ALARM_QUADRANTS,
-  triggeredWithUnit, clearedWithUnit, alarmDurationText,
+  triggeredText, clearedText, alarmDurationText,
   type AlarmRow, type AlarmQuadrant, type AlarmStatusTextsResponse,
 } from './alarm-display';
 
@@ -90,7 +90,11 @@ export default function AlarmsPage() {
   };
 
   return (
-    <div className="p-6">
+    // NO padding here. `<main>` in app-layout already applies `p-3 sm:p-4 lg:p-6`,
+    // so this page's own `p-6` was DOUBLE-padding it — ~48px of dead margin down
+    // each side, which is why the table appeared not to reach the page edges while
+    // the dashboard (which adds none) did. Removed 2026-08-29.
+    <div>
       <PageHeader
         className="mb-6"
         title="Alarms"
@@ -131,14 +135,15 @@ export default function AlarmsPage() {
               <th className="px-4 py-3">Instrument ID</th>
               <th className="px-4 py-3">Type</th>
               <th className="px-4 py-3">Raised</th>
-              <th className="px-4 py-3">Value</th>
+              <th className="px-4 py-3 whitespace-nowrap">Value (°C / %RH)</th>
               <th className="px-4 py-3">Limit</th>
               <th className="px-4 py-3">Cleared</th>
-              <th className="px-4 py-3">Cleared value</th>
+              <th className="px-4 py-3 whitespace-nowrap">Cleared (°C / %RH)</th>
               <th className="px-4 py-3">Status</th>
-              {/* The letters are the legend: H = hours, m = minutes. Spelling it
-                  out here is what lets the cells stay as short as 00:01M. */}
-              <th className="px-4 py-3 whitespace-nowrap">Duration (H = hours, m = minutes)</th>
+              {/* H = hours, m = minutes. Abbreviated because the spelled-out
+                  legend was the widest header on the page and pushed the table
+                  past the viewport. */}
+              <th className="px-4 py-3 whitespace-nowrap" title="H = hours, m = minutes">Duration (H/m)</th>
               <th className="px-4 py-3">Acknowledged</th>
               <th className="px-4 py-3" />
             </tr>
@@ -161,12 +166,12 @@ export default function AlarmsPage() {
                 <td className="px-4 py-3 font-medium text-slate-900">{instrumentLabel(a)}</td>
                 <td className="px-4 py-3 text-slate-700">{alarmTypeText(a)}</td>
                 <td className="px-4 py-3 whitespace-nowrap text-slate-600">{formatDateTime(a.raisedAt)}</td>
-                <td className="px-4 py-3 tabular-nums text-slate-900">{triggeredWithUnit(a)}</td>
+                <td className="px-4 py-3 tabular-nums text-slate-900">{triggeredText(a)}</td>
                 <td className="px-4 py-3 tabular-nums text-slate-600">{limitText(a)}</td>
                 <td className="px-4 py-3 whitespace-nowrap text-slate-600">
                   {a.clearedAt ? formatDateTime(a.clearedAt) : <span className="font-medium text-amber-700">—</span>}
                 </td>
-                <td className="px-4 py-3 tabular-nums text-slate-600">{clearedWithUnit(a)}</td>
+                <td className="px-4 py-3 tabular-nums text-slate-600">{clearedText(a)}</td>
                 <td className="px-4 py-3">
                   <StatusBadge tone={severityTone(a.severity)} label={statusText(a, statusTexts)} />
                 </td>
