@@ -710,7 +710,13 @@ table {
 }
 /* The unit rides with the number but must not compete with it. */
 .tv-unit { font-size: 0.6875rem; font-weight: 600; opacity: 0.75; margin-left: 0.125rem; }
-.tv-spec { color: #64748b; }
+/* SET POINT. Was #64748b (slate-500) at 12px: 4.76:1, which passes AA on paper and
+   was still reported as hard to read — a limit is the number you compare the
+   reading against, so it has to be legible, not merely compliant. #334155 at
+   13px measures 10.4:1 on both zebra tones. The size is set HERE rather than with
+   a Tailwind size utility on the cell, because these rules are unlayered and would
+   override it anyway — one place to look. */
+.tv-spec { color: #334155; font-weight: 600; font-size: 0.8125rem; }
 
 /* Status pill. */
 .tv-pill {

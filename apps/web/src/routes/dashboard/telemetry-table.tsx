@@ -383,7 +383,9 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
               // Hue while in spec, red on breach — see the `.tv-val-*` note in app.css.
               const val = (bad: boolean, hue: 'temp' | 'rh') =>
                 `tv-group tv-cell ${CELL} tabular-nums text-[0.9375rem] ${bad ? 'tv-val-bad' : `tv-val-${hue}`}`;
-              const spec = `tv-cell ${CELL} tabular-nums text-[0.75rem] tv-spec`;
+              // No size utility: `.tv-spec` is unlayered and sets the size itself, so a
+              // Tailwind text-[...] here would be overridden and read as if it applied.
+              const spec = `tv-cell ${CELL} tabular-nums tv-spec`;
 
               return (
                 <tr key={r.instrumentId} className="tv-row transition-colors">

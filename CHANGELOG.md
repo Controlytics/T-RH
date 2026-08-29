@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased] - Set Point text darkened (2026-08-29)
+
+Operator: the limits are too light to read. **No count moved.** Files:
+`app.css`, `routes/dashboard/telemetry-table.tsx`.
+
+`.tv-spec` was `#64748b` (slate-500) at 12px — **4.76:1, which passes AA on
+paper** and was still reported as hard to read. Worth recording as a judgement,
+not just a value change: a set point is the number the reading is compared
+against, so it has to be legible, not merely compliant. Now `#334155` at 13px,
+semibold: 10.4:1 on both zebra tones.
+
+The size moved INTO `.tv-spec`. The cell previously carried a Tailwind
+`text-[0.75rem]`, which could never have taken effect — these rules are unlayered
+and outrank every utility (see the block header). A utility that cannot win reads
+as if it applies and is worse than none, so it is gone and the size has one home.
+
 ## [Unreleased] - Readings: green in spec, red box on a breach (2026-08-29)
 
 Operator: "temperature and humidity font colors should be green colors, if it
