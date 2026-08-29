@@ -112,13 +112,17 @@ export function useTelemetryOverview(opts?: string | { floorplanId?: string; fun
     ? `/api/instruments/telemetry-overview?${qs.toString()}`
     : '/api/instruments/telemetry-overview';
 
-  const { data, error, isLoading } = useSWR<{ data: OverviewRow[] }>(url, {
+  const { data, error, isLoading, mutate, isValidating } = useSWR<{ data: OverviewRow[] }>(url, {
     refreshInterval: overviewRefreshMs,
     revalidateOnFocus: true,
     dedupingInterval: 1000,
   });
 
-  return { rows: data?.data ?? [], isLoading, error, refreshMs: overviewRefreshMs };
+  // `mutate`/`isValidating` back the table's manual refresh control. The poll
+  // already runs on `overviewRefreshMs`; this is for the reader who wants to know
+  // NOW rather than wait out the interval, and it revalidates the same SWR key
+  // rather than issuing a second, competing fetch.
+  return { rows: data?.data ?? [], isLoading, error, refreshMs: overviewRefreshMs, refresh: mutate, isValidating };
 }
 
 /**

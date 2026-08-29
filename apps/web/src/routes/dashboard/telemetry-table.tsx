@@ -10,14 +10,16 @@ import {
 
 /**
  * TABULAR VIEW — the room-condition overview, laid out to the operator's
- * reference table (`Tabular View.png`): a two-row grouped header where each
- * measurement is split into ACTUAL and SET POINT, a solid status cell, and a
- * trend link per row.
+ * reference table (`screen-2.png`, 2026-08-29): a two-row grouped header where
+ * each measurement is split into ACTUAL and SET POINT, a status pill, and a trend
+ * link per row.
  *
- * ROWS ARE INSTRUMENTS and INSTRUMENT ID leads (operator request). The room still
- * appears beneath the ID because the SET POINT columns come FROM the room — remove
- * it and a spec of "18.0 - 25.0" has no visible source, and an unplaced instrument
- * becomes indistinguishable from one whose room simply has no specification.
+ * ROWS ARE INSTRUMENTS and INSTRUMENT ID leads (operator request). The room has
+ * its OWN column as of 2026-08-29 — it was a sub-line under the ID before. It has
+ * to appear somewhere either way, because the SET POINT columns come FROM the
+ * room: remove it and a spec of "18.0 - 25.0" has no visible source, and an
+ * unplaced instrument becomes indistinguishable from one whose room simply has no
+ * specification.
  *
  * STATUS IS ONLINE / OFFLINE ONLY (operator request, 2026-08-13), replacing the
  * five-state in-spec/out-of-spec/not-reporting/partial/no-data cell. It reports
@@ -33,19 +35,31 @@ import {
  * system produces differential pressure — no schema field for it — so the
  * column only ever showed NA. Re-adding it means adding the data first.
  *
- * DARK TABLE, on operator preference — a light themed version was tried and this
- * was preferred. The styling lives in the `.tv-*` block at the end of app.css, not
- * here, so the palette is one edit. The HEADER follows the app theme using its two
- * DARK tones (sidebar-bg, primary-dark), measured at worst 5.02:1 for white across
- * all 10 presets. Never put white text on `--theme-primary`: several presets
- * measure ~3.7:1, which fails at 11px.
+ * LIGHT AND COLOUR-CODED to `screen-2.png` (2026-08-29). This REPLACED the dark
+ * table chosen on 2026-08-13; the operator supplied the new reference and asked
+ * for it, so that earlier preference is superseded. Each column carries its own
+ * hue — identity blue, location teal, temperature orange, humidity green, status
+ * violet — which is what lets the eye find a column in a dense grid.
+ *
+ * The palette lives in the `.tv-*` block at the end of app.css, NOT here, so it is
+ * one edit. Two constraints are recorded there and matter: those rules are
+ * UNLAYERED and therefore beat every Tailwind utility, so cell backgrounds must
+ * come from `.tv-*` and never from a `bg-*` class; and the header hues are one
+ * step darker than the reference image because 11px bold uppercase needs 4.5:1
+ * against white and the image's brighter tones do not reach it.
+ *
+ * NO AMBER "NEAR LIMIT" STATE, despite one appearing in the reference image (a
+ * humidity of 44 shown amber inside a 0-70 band). Nothing in this system defines
+ * a near-limit threshold, and inventing one in the browser would be exactly the
+ * client-side policy re-derivation this codebase forbids. Values are in-spec green
+ * or breach red, decided by the same `outOfSpec` the alarms agree with.
  *
  * The column set is declared once in COLUMN_GROUPS; the operator is defining the
  * final content separately, so changing columns should be an edit to that list.
  */
 
-const CELL = 'px-3 py-2.5 text-center text-[0.8125rem] whitespace-nowrap';
-const HEAD = 'px-3 py-2.5 text-[0.6875rem] font-bold uppercase tracking-wider';
+const CELL = 'px-2 py-2 text-center text-[0.8125rem] whitespace-nowrap';
+const HEAD = 'px-2 py-2 text-[0.6875rem] font-bold uppercase tracking-wider';
 
 /**
  * `width` is per COLUMN (so a group with two subs occupies 2 x width). Declared
@@ -56,16 +70,34 @@ const HEAD = 'px-3 py-2.5 text-[0.6875rem] font-bold uppercase tracking-wider';
  * instrument sub-line ("Child A · not placed") stretched the ID column to roughly
  * 400px while squeezing the readings the table exists to show.
  */
-const COLUMN_GROUPS = [
-  { key: 'code', label: 'Instrument ID', align: 'left' as const, width: '24%' },
-  { key: 'temp', label: 'Temp. (°C)', sub: ['Actual', 'Set Point'], width: '13%' },
-  { key: 'rh', label: 'RH (%)', sub: ['Actual', 'Set Point'], width: '13%' },
-  { key: 'status', label: 'Status', width: '12%' },
+interface ColumnGroup {
+  key: string;
+  label: string;
+  align?: 'left';
+  width: string;
+  /** Solid header colour for this column — see the `.tv-h-*` block in app.css. */
+  head: string;
+  sub?: string[];
+  /** Light tint for the ACTUAL / SET POINT row beneath a grouped header. */
+  subHead?: string;
+}
+
+const COLUMN_GROUPS: ColumnGroup[] = [
+  { key: 'code', label: 'Instrument ID', align: 'left', width: '16%', head: 'tv-h-id' },
+  // Its OWN column since 2026-08-29, as the reference has it. It used to be a
+  // sub-line under the ID. The reason it must appear somewhere is unchanged: the
+  // SET POINT columns come FROM the room, so without it "18.0 - 27.0" has no
+  // visible source and an unplaced instrument looks like one whose room simply
+  // has no specification.
+  { key: 'room', label: 'Location / Room', align: 'left', width: '18%', head: 'tv-h-loc' },
+  { key: 'temp', label: 'Temperature (°C)', sub: ['Actual', 'Set Point'], width: '10%', head: 'tv-h-temp', subHead: 'tv-sub-temp' },
+  { key: 'rh', label: 'Humidity (%)', sub: ['Actual', 'Set Point'], width: '10%', head: 'tv-h-rh', subHead: 'tv-sub-rh' },
+  { key: 'status', label: 'Status', width: '10%', head: 'tv-h-status' },
   // Added 2026-08-28. The payload always carried the reading timestamps and this
   // table only ever showed them in a tooltip, so a value that stopped updating an
   // hour ago looked exactly like a live one.
-  { key: 'asOf', label: 'As of', width: '10%' },
-  { key: 'trend', label: 'Mimic / Trend', width: '12%' },
+  { key: 'asOf', label: 'As Of', width: '9%', head: 'tv-h-asof' },
+  { key: 'trend', label: 'Trend', width: '7%', head: 'tv-h-trend' },
 ];
 
 const COLSPAN = COLUMN_GROUPS.reduce((n, g) => n + (g.sub ? g.sub.length : 1), 0);
@@ -102,7 +134,7 @@ function setPointSource(source: OverviewRow['limitSource']): string | undefined 
 }
 
 export function TelemetryTable({ functionalLocationId, directOnly }: { functionalLocationId?: string; directOnly?: boolean } = {}) {
-  const { rows, isLoading, error, refreshMs } = useTelemetryOverview({ functionalLocationId, directOnly });
+  const { rows, isLoading, error, refreshMs, refresh, isValidating } = useTelemetryOverview({ functionalLocationId, directOnly });
   const [sort, setSort] = useState<SortKey>('code');
   const [asc, setAsc] = useState(true);
   const [query, setQuery] = useState('');
@@ -144,27 +176,55 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Filter by instrument, name or room&hellip;"
-          className="ctl w-full max-w-sm"
-          style={{ ['--tw-ring-color' as string]: 'var(--theme-primary)' } as React.CSSProperties}
-        />
-        {/* Stated, not implied: this is a poll, not a live stream. */}
-        <p className="text-xs text-slate-500">
-          {shown.length} of {rows.length} instruments
-          {offlineCount > 0 && (
-            <> &middot; <span className="font-semibold text-red-700">{offlineCount} offline</span></>
-          )}
-          {' '}&middot; updates every {Math.round(refreshMs / 1000)}s
-        </p>
+        {/* Search, with the magnifier inside the field as the reference has it. */}
+        <div className="relative w-full max-w-sm">
+          <svg
+            aria-hidden="true"
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" />
+          </svg>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Filter by instrument, name or room&hellip;"
+            className="ctl w-full !pl-9"
+            style={{ ['--tw-ring-color' as string]: 'var(--theme-primary)' } as React.CSSProperties}
+          />
+        </div>
+
+        <div className="flex items-center gap-3">
+          {/* Stated, not implied: this is a poll, not a live stream. */}
+          <p className="text-xs text-slate-500">
+            {shown.length} of {rows.length} instruments
+            {offlineCount > 0 && (
+              <> &middot; <span className="font-semibold text-red-700">{offlineCount} offline</span></>
+            )}
+            {' '}&middot; updates every {Math.round(refreshMs / 1000)}s
+          </p>
+          {/* Manual refresh. The poll above still runs — this is for the reader who
+              wants the answer now rather than at the end of the interval. It
+              revalidates the SAME SWR key, so it cannot race the poll. */}
+          <button
+            type="button"
+            onClick={() => { void refresh(); }}
+            disabled={isValidating}
+            title="Refresh readings now"
+            aria-label="Refresh readings now"
+            className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:opacity-50"
+          >
+            <svg
+              className={`h-4 w-4 ${isValidating ? 'animate-spin' : ''}`}
+              fill="none" stroke="currentColor" viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h5M20 20v-5h-5M20 9A8 8 0 006 5.3M4 15a8 8 0 0014 3.7" />
+            </svg>
+          </button>
+        </div>
       </div>
 
-      <div
-        className="overflow-hidden overflow-x-auto rounded-xl bg-slate-700 shadow-elevated"
-        style={{ border: '1px solid color-mix(in srgb, var(--theme-primary) 30%, white)' }}
-      >
+      <div className="overflow-hidden overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-elevated">
         <table className="min-w-full table-fixed border-collapse">
           <colgroup>
             {COLUMN_GROUPS.flatMap((g) =>
@@ -174,7 +234,7 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
             )}
           </colgroup>
           <thead>
-            {/* Row 1 — measurement groups. */}
+            {/* Row 1 — measurement groups, each in its own hue. */}
             <tr>
               {COLUMN_GROUPS.map((g) => (
                 <th
@@ -182,7 +242,7 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
                   colSpan={g.sub ? g.sub.length : 1}
                   rowSpan={g.sub ? 1 : 2}
                   onClick={g.key === 'code' ? () => toggle('code') : undefined}
-                  className={`tv-head ${HEAD} border border-white/20 ${
+                  className={`${g.head} ${HEAD} border border-white/25 ${
                     g.align === 'left' ? 'text-left' : 'text-center'
                   } ${g.key === 'code' ? sortable : ''}`}
                 >
@@ -202,7 +262,7 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
                     <th
                       key={`${g.key}-${label}`}
                       onClick={key ? () => toggle(key) : undefined}
-                      className={`tv-subhead ${HEAD} border border-white/40 text-center ${
+                      className={`${g.subHead} ${HEAD} border border-white/40 text-center ${
                         label === 'Actual' ? 'tv-group' : ''
                       } ${key ? sortable : ''}`}
                     >
@@ -216,14 +276,14 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
           <tbody>
             {isLoading && rows.length === 0 && (
               <tr>
-                <td colSpan={COLSPAN} className="bg-slate-700 px-4 py-8 text-center text-sm text-slate-200">
+                <td colSpan={COLSPAN} className="px-4 py-8 text-center text-sm text-slate-500">
                   Loading&hellip;
                 </td>
               </tr>
             )}
             {!isLoading && shown.length === 0 && (
               <tr>
-                <td colSpan={COLSPAN} className="bg-slate-700 px-4 py-8 text-center text-sm text-slate-200">
+                <td colSpan={COLSPAN} className="px-4 py-8 text-center text-sm text-slate-500">
                   {rows.length === 0
                     ? 'No instruments registered yet.'
                     : 'No instruments match that filter.'}
@@ -244,35 +304,47 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
               const rhBad = outOfSpec(r.humidity?.value, r.limits?.rhMin, r.limits?.rhMax);
               // ACTUAL is the number people read; SET POINT is reference. Weight
               // and size carry that, so the eye lands on the reading first.
-              const val = (bad: boolean) =>
-                `tv-group ${CELL} tabular-nums border border-slate-500 text-[0.9375rem] font-semibold ${
-                  bad ? 'bg-red-900/60 text-rose-100' : 'text-white'
-                }`;
-              const spec = `${CELL} tabular-nums border border-slate-500 text-[0.75rem] text-slate-200`;
+              const val = (bad: boolean, tint: string) =>
+                `tv-group tv-cell ${tint} ${CELL} tabular-nums text-[0.9375rem] ${bad ? 'tv-val-bad' : 'tv-val'}`;
+              const spec = (tint: string) =>
+                `tv-cell ${tint} ${CELL} tabular-nums text-[0.75rem] tv-spec`;
 
               return (
                 <tr key={r.instrumentId} className="tv-row transition-colors">
-                  <td className={`${CELL} border border-slate-500 text-left !whitespace-normal`}>
+                  <td className={`tv-cell tv-c-id ${CELL} text-left`}>
                     <Link
                       to={`/instruments/${r.instrumentId}`}
-                      className="font-semibold text-white hover:underline"
+                      className="font-bold text-blue-700 hover:underline"
                     >
                       {r.code}
                     </Link>
-                    {/* Name, and the room the SET POINT comes from. Without the
-                        room here, "18.0 - 25.0" has no visible source and an
-                        unplaced instrument looks identical to one with no spec. */}
-                    <div className="truncate text-[0.6875rem] text-slate-300">
-                      {r.name}
-                      {r.room
-                        ? <> &middot; {r.room.code}{r.room.label ? ` (${r.room.label})` : ''}</>
-                        : <span className="italic"> &middot; not placed</span>}
-                    </div>
+                  </td>
+
+                  {/* Location / Room. The PRIMARY text is the instrument's `name`,
+                      which is what the reference shows here and what actually
+                      names the location in this data: verified against the
+                      database 2026-08-29, every `floorplan_rooms.label` is NULL
+                      and every `floorplan_rooms.code` is a verbatim copy of the
+                      instrument code, so `room.code` would just repeat the ID
+                      column. The room is still shown when it says something the
+                      ID does not — that is the SET POINT's visible source, and
+                      without it "18.0 - 27.0" comes from nowhere.
+
+                      "Not placed" stays explicit: a blank cell would read as a
+                      missing value rather than an unplaced instrument. */}
+                  <td className={`tv-cell tv-c-loc ${CELL} text-left !whitespace-normal`}>
+                    <span className="font-medium text-slate-700">{r.name}</span>
+                    {r.room
+                      ? (r.room.label ?? (r.room.code === r.code ? null : r.room.code)) && (
+                          <div className="text-[0.6875rem] text-slate-500">
+                            {r.room.label ?? r.room.code}
+                          </div>
+                        )
+                      : <div className="text-[0.6875rem] italic text-slate-400">Not placed</div>}
                   </td>
 
                   <td
-                    className={val(tempBad)}
-                    style={tempBad ? { boxShadow: 'inset 3px 0 0 #fca5a5' } : undefined}
+                    className={val(tempBad, 'tv-c-temp')}
                     title={tempBad ? 'Outside the room specification' : undefined}
                   >
                     {actual(r.temperature, r.decimals.temperature)}
@@ -280,37 +352,32 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
                   {/* `title` only — the source is a tooltip, not a visible column:
                       it answers "why do two probes in one room show different
                       bands" when asked, without another cell to read past. */}
-                  <td className={spec} title={setPointSource(r.limitSource)}>
+                  <td className={spec('tv-c-temp-sp')} title={setPointSource(r.limitSource)}>
                     {formatSetPoint(r.limits?.tempMin, r.limits?.tempMax, r.decimals.temperature)}
                   </td>
 
                   <td
-                    className={val(rhBad)}
-                    style={rhBad ? { boxShadow: 'inset 3px 0 0 #fca5a5' } : undefined}
+                    className={val(rhBad, 'tv-c-rh')}
                     title={rhBad ? 'Outside the room specification' : undefined}
                   >
                     {actual(r.humidity, r.decimals.humidity)}
                   </td>
-                  <td className={spec} title={setPointSource(r.limitSource)}>
+                  <td className={spec('tv-c-rh-sp')} title={setPointSource(r.limitSource)}>
                     {formatSetPoint(r.limits?.rhMin, r.limits?.rhMax, r.decimals.humidity)}
                   </td>
 
-                  {/* ONLINE / OFFLINE — solid cell, as the reference table does it.
-                      The word carries the meaning; the colour only reinforces it. */}
-                  <td className="tv-group border border-slate-500 p-0">
-                    <div
-                      className={`flex items-center justify-center gap-1.5 px-3 py-2.5 text-[0.75rem] font-bold uppercase tracking-wider text-white ${
-                        r.reporting
-                          ? 'bg-gradient-to-b from-emerald-500 to-emerald-700'
-                          : 'bg-gradient-to-b from-red-500 to-red-700'
-                      }`}
+                  {/* ONLINE / OFFLINE as a pill, per the reference. The word carries
+                      the meaning; the colour only reinforces it. */}
+                  <td className={`tv-group tv-cell tv-c-status ${CELL}`}>
+                    <span
+                      className={`tv-pill ${r.reporting ? 'tv-pill-on' : 'tv-pill-off'}`}
                       title={r.reporting
                         ? `Reporting — last reading ${readingAge(latest)}`
                         : `No telemetry within the expected interval — last reading ${readingAge(latest)}`}
                     >
-                      <span className={`h-1.5 w-1.5 rounded-full ${r.reporting ? 'bg-emerald-200' : 'bg-red-200'}`} />
+                      <span className="tv-dot" />
                       {r.reporting ? 'Online' : 'Offline'}
-                    </div>
+                    </span>
                   </td>
 
                   {/* How stale the readings on this row are. The absolute time is on
@@ -318,44 +385,27 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
                       this current?" and a to-the-second figure on a 30-second cadence
                       changes on every poll for no information gained. */}
                   <td
-                    className={`tv-group ${CELL} border border-slate-500 text-center`}
+                    className={`tv-cell tv-c-asof ${CELL} text-slate-600`}
                     title={asOf ? new Date(asOf).toLocaleString() : 'This instrument has never reported'}
                   >
                     {readingAge(asOf)}
                   </td>
 
-                  <td className={`tv-group ${CELL} border border-slate-500`}>
-                    <div className="flex items-center justify-center gap-2">
-                      {/* BOTH links in this cell go to the trend page. The
-                          column is headed "Mimic / Trend", so every target in
-                          it must be a trend — this code link pointed at the
-                          instrument's config page until 2026-08-24, which meant
-                          clicking the obvious thing (the instrument's name) in a
-                          column labelled Trend silently took you somewhere else.
-                          The identity column on the far left is where you go to
-                          CONFIGURE an instrument; this column is where you go to
-                          LOOK at it. */}
-                      <Link
-                        to={`/instruments/${r.instrumentId}/trend`}
-                        title={`Trend page for ${r.code}`}
-                        className="font-semibold text-sky-200 hover:text-white hover:underline"
-                      >
-                        {r.code}
-                      </Link>
-                      {/* Not gated on `r.room`: an instrument's history does not
-                          depend on whether anyone has drawn it on a floorplan —
-                          an unplaced instrument still has readings to trend. */}
-                      <Link
-                        to={`/instruments/${r.instrumentId}/trend`}
-                        title={`Trend page — last reading ${readingAge(latest)}`}
-                        aria-label={`Open trend page for ${r.code}`}
-                        className="text-slate-200 hover:text-white"
-                      >
-                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 17l4-6 4 3 5-8 5 6" />
-                        </svg>
-                      </Link>
-                    </div>
+                  {/* Just the arrow, as the reference has it. The duplicate code
+                      link that used to sit beside it pointed at the SAME trend
+                      page as the arrow, and the identity column already carries
+                      the code — it was a third link to two destinations. */}
+                  <td className={`tv-cell tv-c-trend ${CELL}`}>
+                    <Link
+                      to={`/instruments/${r.instrumentId}/trend`}
+                      title={`Trend page for ${r.code} — last reading ${readingAge(latest)}`}
+                      aria-label={`Open trend page for ${r.code}`}
+                      className="inline-flex text-blue-600 transition-colors hover:text-blue-800"
+                    >
+                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 17l4-6 4 3 5-8 5 6" />
+                      </svg>
+                    </Link>
                   </td>
                 </tr>
               );

@@ -1,5 +1,51 @@
 # Changelog
 
+## [Unreleased] - Instrument Readings table restyled to `screen-2.png` (2026-08-29)
+
+Operator supplied `screen-2.png` and asked for the table's UI to match its theme.
+**No count moved.** Three files: `routes/dashboard/{telemetry-table,use-telemetry}.tsx`
+and the `.tv-*` block in `app.css`.
+
+- **Light and colour-coded, replacing the dark table.** Each column carries its own
+  hue — identity blue, location teal, temperature orange, humidity green, status
+  violet — solid in the header, a light wash down the body. **This reverses the
+  operator preference recorded on 2026-08-13** ("a light themed version was tried
+  and the dark one was preferred"); they supplied the new reference and asked for
+  it, so that note is superseded rather than forgotten, and both files now say so.
+
+- **Header hues are one step darker than the image, deliberately.** The header type
+  is 11px bold uppercase and needs 4.5:1 against white; the reference's tones do not
+  reach it (teal-600 3.3:1, orange-600 3.6:1, green-600 3.1:1). Each uses the next
+  step down the ramp. Do not "restore" the brighter values from the image.
+
+- **Location / Room is now its own column**, as the reference has it, instead of a
+  sub-line under the ID. Its primary text is the instrument's `name`. That is not a
+  guess — verified against the database: every `floorplan_rooms.label` is NULL and
+  every `floorplan_rooms.code` is a **verbatim copy of the instrument code**, so
+  showing `room.code` here would simply repeat the ID column. The room is still
+  rendered whenever it says something the ID does not, because it is the SET
+  POINT's visible source.
+
+- Status is a pill; Trend is the arrow alone (the code link beside it pointed at
+  the same trend page, and the ID column already carries the code); the filter box
+  has the reference's inline magnifier; a manual refresh button revalidates the
+  same SWR key (`useTelemetryOverview` now returns `refresh`/`isValidating`).
+
+- **No amber "near limit" state, despite one in the image** (humidity 44 shown amber
+  inside a 0-70 band). Nothing in this system defines a near-limit threshold and
+  inventing one in the browser is the client-side policy re-derivation this
+  codebase forbids. Values stay in-spec green / breach red via the same `outOfSpec`
+  the alarms agree with — the breach signal the dark table carried is preserved.
+
+⚠ The `.tv-*` rules are **unlayered**, so they beat every Tailwind utility whatever
+its specificity. Every cell background comes from `.tv-*` and never from a `bg-*`
+class; mixing the two means the utility silently loses.
+
+Verified on :5176 against 101 live rows: all nine columns fit without horizontal
+scroll, codes stay on one line, 101 status pills and 101 trend links render, the
+refresh button revalidates, and the console is clean. tsc clean; 131 dashboard
+tests pass.
+
 ## [Unreleased] - Dashboard bar: title removed, height halved (2026-08-29)
 
 Operator: *"remove the dashboard text and decrease the dashboard size"*.

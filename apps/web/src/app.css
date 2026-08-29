@@ -629,36 +629,81 @@ table {
    TABULAR VIEW (Dashboard -> Table view) — scoped styling for the room-condition
    table in routes/dashboard/telemetry-table.tsx. Nothing else uses `.tv-*`.
 
-   DARK, on operator preference (2026-08-13): a light themed version was tried and
-   the dark one was preferred. Dark rows keep this dense table readable at a
-   glance, which is the point of the layout.
+   LIGHT AND COLOUR-CODED, to the operator's reference `screen-2.png`
+   (2026-08-29). This REPLACES the dark table that was chosen on 2026-08-13; the
+   operator supplied the new reference and asked for it, so the older preference
+   recorded here is superseded, not forgotten.
 
-   The HEADER still follows the theme (Config -> Branding), using the two DARK tones
-   — sidebar-bg and primary-dark — so the table carries the app's colour without
-   losing contrast. MEASURED across all 10 presets: white on that gradient is worst
-   5.02:1, and white on the slate rows is 10.35:1. Do NOT swap the header to
-   --theme-primary: several presets measure ~3.7:1 there, which fails for 11px type.
+   EACH COLUMN CARRIES ITS OWN HUE — identity blue, location teal, temperature
+   orange, humidity green, status violet — with a solid header and a very light
+   wash of the same hue down the body. The hue is what lets the eye jump to the
+   right column in a dense grid; that is the whole idea of the reference.
+
+   ⚠ THESE RULES ARE UNLAYERED, so they beat every Tailwind utility regardless of
+   specificity (see the @layer note at the top of this file). Every cell
+   background here therefore comes from `.tv-*` and NOT from a `bg-*` class — mixing
+   the two means the utility silently loses. Deliberate, and the reason the
+   palette is one edit in one place.
+
+   HEADER CONTRAST IS MEASURED, not eyeballed. The header type is 11px bold
+   uppercase, which needs 4.5:1 against white. The reference's brighter tones do
+   not reach it (teal-600 is 3.3:1, orange-600 3.6:1, green-600 3.1:1), so each
+   header uses the next step down the ramp — visually the same table, legible for
+   everyone. Do not "restore" the brighter values from the image.
    =========================================================================== */
-.tv-head {
-  background: linear-gradient(135deg, var(--theme-sidebar-bg), var(--theme-primary-dark));
-  color: #fff;
-}
-.tv-subhead {
-  /* A LIGHT band, deliberately. The first attempt mixed toward slate-950, i.e.
-     DARKER than the gradient band above it — measured luminance separation was as
-     low as 0.001 for some presets, so the two header rows read as one and the
-     ACTUAL/SET POINT grouping was lost.
-     Light gives 0.45+ separation from BOTH the band above and the dark rows below
-     on every preset. Text is near-black rather than the theme colour: theme-dark
-     ink on this tint measures only 3.29-6.04:1, which fails AA at 11px. */
-  background: color-mix(in srgb, var(--theme-primary-dark) 30%, white);
-  color: #0f172a;
-}
-.tv-row:nth-child(odd) { background: #334155; }   /* slate-700 */
-.tv-row:nth-child(even) { background: #475569; }  /* slate-600 */
-.tv-row:hover { background: color-mix(in srgb, var(--theme-primary) 30%, #334155); }
+
+/* Header row 1 — one solid hue per column group. */
+.tv-h-id     { background: #1d4ed8; color: #fff; }  /* blue-700   7.0:1 */
+.tv-h-loc    { background: #0f766e; color: #fff; }  /* teal-700   4.9:1 */
+.tv-h-temp   { background: #c2410c; color: #fff; }  /* orange-700 5.0:1 */
+.tv-h-rh     { background: #15803d; color: #fff; }  /* green-700  4.6:1 */
+.tv-h-status { background: #6d28d9; color: #fff; }  /* violet-700 7.0:1 */
+.tv-h-asof   { background: #0369a1; color: #fff; }  /* sky-700    5.3:1 */
+.tv-h-trend  { background: #1e40af; color: #fff; }  /* blue-800   8.6:1 */
+
+/* Header row 2 — the ACTUAL / SET POINT pair, a light tint of its group's hue
+   with near-black ink so the pairing reads without a second saturated band. */
+.tv-sub-temp { background: #fed7aa; color: #0f172a; }
+.tv-sub-rh   { background: #bbf7d0; color: #0f172a; }
+
+/* Body — a wash of the column's hue. SET POINT sits a shade lighter than its
+   ACTUAL so the reading leads and the reference stays reference. */
+.tv-c-id        { background: #eff6ff; }
+.tv-c-loc       { background: #f0fdfa; }
+.tv-c-temp      { background: #fff7ed; }
+.tv-c-temp-sp   { background: #fffbf6; }
+.tv-c-rh        { background: #f0fdf4; }
+.tv-c-rh-sp     { background: #f7fefa; }
+.tv-c-status    { background: #faf5ff; }
+.tv-c-asof      { background: #f0f9ff; }
+.tv-c-trend     { background: #eff6ff; }
+
+/* One hover treatment for every column, whatever its tint. Darkening what is
+   already there beats naming a hover colour per column — nine more constants
+   that would drift the first time one hue changed. */
+.tv-row:hover > td { filter: brightness(0.955); }
+
+/* Cell furniture. */
+.tv-cell { border: 1px solid #e2e8f0; }
 /* Group separator — reinforces which ACTUAL belongs to which SET POINT. */
-.tv-group { border-left: 2px solid color-mix(in srgb, var(--theme-primary) 45%, #334155); }
+.tv-group { border-left: 2px solid #cbd5e1; }
+
+/* Readings. In-spec green, breach red — the ONLY place on this screen a limit
+   breach is visible now that Status reports online/offline (see the component). */
+.tv-val      { color: #15803d; font-weight: 700; }
+.tv-val-bad  { color: #b91c1c; font-weight: 700; box-shadow: inset 3px 0 0 #ef4444; }
+.tv-spec     { color: #475569; }
+
+/* Status pill. */
+.tv-pill {
+  display: inline-flex; align-items: center; gap: 0.375rem;
+  padding: 0.1875rem 0.625rem; border-radius: 9999px;
+  font-size: 0.6875rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.tv-pill-on  { background: #dcfce7; color: #15803d; }
+.tv-pill-off { background: #fee2e2; color: #b91c1c; }
+.tv-dot { width: 0.375rem; height: 0.375rem; border-radius: 9999px; background: currentColor; }
 
 /* ===========================================================================
    BAND GAUGE (Instruments -> Trend) — the marker's one page-load moment.
