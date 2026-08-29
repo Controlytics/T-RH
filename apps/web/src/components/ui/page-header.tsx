@@ -18,7 +18,7 @@ export interface Crumb {
  * several products.
  */
 export function PageHeader({
-  title, description, crumbs, actions, meta, className,
+  title, description, crumbs, actions, meta, icon, className,
 }: {
   title: string;
   /** One sentence on what the screen is for. Not a tagline. */
@@ -28,6 +28,19 @@ export function PageHeader({
   actions?: ReactNode;
   /** Status or counts belonging to the screen as a whole. */
   meta?: ReactNode;
+  /**
+   * The screen's glyph. Optional, and drawn in ONE treatment for every page.
+   *
+   * Nineteen pages carried an icon tile of their own and each picked its own
+   * two-stop gradient — blue-to-indigo on Password Policy, a themed gradient on
+   * Users, emerald on LDAP. The icon is worth keeping: it is a fast
+   * "which screen am I on" cue, especially for the config pages, which are
+   * otherwise a wall of forms. The nineteen gradients are not — they made the
+   * page title compete with the status colours that carry meaning.
+   *
+   * Pass the bare <svg>; the tile around it belongs to this component.
+   */
+  icon?: ReactNode;
   className?: string;
 }) {
   return (
@@ -35,14 +48,29 @@ export function PageHeader({
       {crumbs && crumbs.length > 0 && <Breadcrumbs crumbs={crumbs} />}
 
       <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
-        <div className="min-w-0">
-          <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">
-            {title}
-          </h1>
-          {description && (
-            <p className="mt-1 max-w-2xl text-[14px] leading-relaxed text-slate-500">{description}</p>
+        <div className="flex min-w-0 items-start gap-3.5">
+          {icon && (
+            // The theme's own colour, at a tint. It follows all ten presets, so
+            // the header belongs to the site rather than to whichever palette
+            // the page's author reached for — and at 12% it sits behind the
+            // title instead of competing with it.
+            <span
+              className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-card)] text-[var(--theme-primary,#2a78d6)]"
+              style={{ backgroundColor: 'color-mix(in srgb, var(--theme-primary, #2a78d6) 12%, white)' }}
+              aria-hidden
+            >
+              {icon}
+            </span>
           )}
-          {meta && <div className="mt-2 flex flex-wrap items-center gap-2">{meta}</div>}
+          <div className="min-w-0">
+            <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">
+              {title}
+            </h1>
+            {description && (
+              <p className="mt-1 max-w-2xl text-[14px] leading-relaxed text-slate-500">{description}</p>
+            )}
+            {meta && <div className="mt-2 flex flex-wrap items-center gap-2">{meta}</div>}
+          </div>
         </div>
         {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
       </div>

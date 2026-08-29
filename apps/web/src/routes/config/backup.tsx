@@ -8,6 +8,7 @@ import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { apiUrl } from '@/lib/url-utils';
+import { PageHeader } from '@/components/ui/page-header';
 
 interface ValidationResult {
   valid: boolean;
@@ -213,17 +214,16 @@ export function BackupRestorePage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center gap-4">
-        <div className="p-3 rounded-[var(--radius-card)] bg-gradient-to-br from-emerald-500 to-teal-600 shadow-[var(--elev-2)]">
-          <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+      <PageHeader
+        title='Backup & Restore'
+        description='Export or restore the entire database'
+        crumbs={[{ label: 'Home', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Backup & Restore' }]}
+        icon={
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
           </svg>
-        </div>
-        <div>
-          <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Backup & Restore</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Export or restore the entire database</p>
-        </div>
-      </div>
+        }
+      />
 
       {/* Create Backup */}
       <Card>

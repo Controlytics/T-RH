@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { passwordPolicySchema, type PasswordPolicyConfig } from '@digilog/shared';
@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
+import { PageHeader } from '@/components/ui/page-header';
 
 export function PasswordPolicyPage() {
   const navigate = useNavigate();
@@ -51,25 +52,19 @@ export function PasswordPolicyPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link to="/config" className="p-2 rounded-xl hover:bg-slate-100 transition-colors">
-            <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </Link>
-          <div className="p-3 rounded-[var(--radius-card)] bg-gradient-to-br from-blue-500 to-indigo-600 shadow-[var(--elev-2)]">
-            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-            </svg>
-          </div>
-          <div>
-            <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">General & Password Settings</h1>
-            <p className="text-sm text-slate-500 mt-0.5">Configure security and authentication policies</p>
-          </div>
-        </div>
-      </div>
+      {/* The back-chevron that used to sit here is gone: the breadcrumb's
+          "Configuration" link is the way back, and two ways back a centimetre
+          apart is one more than a screen needs. */}
+      <PageHeader
+        title="General & Password Settings"
+        description="Configure security and authentication policies"
+        crumbs={[{ label: 'Home', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'General & Password' }]}
+        icon={
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+          </svg>
+        }
+      />
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Status Messages */}

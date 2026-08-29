@@ -7,6 +7,7 @@ import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { Button } from '@/components/ui/button';
 import { AcknowledgeDialog } from './acknowledge-dialog';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { PageHeader } from '@/components/ui/page-header';
 import {
   filterByTab, needsAcknowledgement, severityTone, triggeredText,
   instrumentLabel, statusText, alarmTypeText, limitText, clearedText,
@@ -85,13 +86,17 @@ export default function AlarmsPage() {
 
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Alarms</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Raised when an instrument reading crosses a limit — either an instrument's configured
-          limit attributes or an alarm rule. Acknowledging one is an electronic signature.
-        </p>
-      </div>
+      <PageHeader
+        className="mb-6"
+        title="Alarms"
+        description="Raised when an instrument reading crosses a limit — either an instrument's configured limit attributes or an alarm rule. Acknowledging one is an electronic signature."
+        crumbs={[{ label: 'Home', to: '/' }, { label: 'Alarms' }]}
+        icon={
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+          </svg>
+        }
+      />
 
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <SummaryTile label="Active" value={counts.active} tone="bg-amber-50 border-amber-200 text-amber-900" />

@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import useSWR from 'swr';
 import { apiClient, api } from '@/lib/api-client';
@@ -9,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useDatetimeFormat } from '../../../hooks/use-datetime-format';
 import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
+import { PageHeader } from '@/components/ui/page-header';
 
 // ─── Email Types & Constants ──────────────────────────────────────────
 interface EmailConfig {
@@ -89,22 +89,16 @@ function ChannelSettingsPage({ defaultTab = 'email' }: { defaultTab?: 'email' | 
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center gap-4">
-        <Link to="/config" className="p-2 rounded-xl hover:bg-slate-100 transition-colors">
-          <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-        </Link>
-        <div className="p-3 rounded-[var(--radius-card)] bg-gradient-to-br from-blue-500 to-indigo-600 shadow-[var(--elev-2)]">
-          <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <PageHeader
+        title='Notification Channels'
+        description='Configure email SMTP and SMS provider settings'
+        crumbs={[{ label: 'Home', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Notification Channels' }]}
+        icon={
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
           </svg>
-        </div>
-        <div>
-          <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Notification Channels</h1>
-          <p className="text-sm text-slate-500">Configure email SMTP and SMS provider settings</p>
-        </div>
-      </div>
+        }
+      />
 
       {/* Tabs */}
       <div className="flex gap-1 bg-slate-100 rounded-xl p-1">

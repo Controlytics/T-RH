@@ -1,5 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render as rtlRender, screen, fireEvent, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+
+/*
+ * The page renders a PageHeader whose breadcrumbs are real <Link>s, so it now
+ * needs a Router in scope — it has always had one in the application, where
+ * every route is mounted inside the router. Wrapping here makes the harness
+ * match reality rather than relaxing what the test checks: every assertion
+ * below is unchanged.
+ */
+const render = (ui: React.ReactElement) => rtlRender(<MemoryRouter>{ui}</MemoryRouter>);
 
 /**
  * Regression tests for M83 — the admin approval queue was keyboard-inaccessible.

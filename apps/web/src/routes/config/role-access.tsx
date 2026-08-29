@@ -21,6 +21,7 @@ import { InstrumentScopeTab } from './roles-components/instrument-scope-tab';
 import { PanelAccessTab } from './roles-components/panel-access-tab';
 import { AttributeAccessTab } from './roles-components/attribute-access-tab';
 import type { ReauthTabHandle } from './roles-components/reauth-tab';
+import { PageHeader } from '@/components/ui/page-header';
 
 type TabId = 'roles' | 'permissions' | 'sidebar' | 'reauth' | 'instrument-scope' | 'attribute-access' | 'panels';
 
@@ -195,17 +196,16 @@ export function RoleAccessPage() {
             <Link to="/config" className="p-2.5 rounded-xl bg-white/10 hover:bg-white/20 backdrop-blur-sm transition-all duration-200 border border-white/10">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
             </Link>
-            <div className="flex items-center gap-3 mb-1">
-              <div className="p-3 rounded-xl bg-white/20 backdrop-blur-sm shadow-[var(--elev-2)]">
-                <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+            <PageHeader
+              title='Role & Access Configuration'
+              description='Manage roles, permissions, sidebar visibility, and re-authentication'
+              crumbs={[{ label: 'Home', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Role & Access Configuration' }]}
+              icon={
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
                 </svg>
-              </div>
-              <div>
-                <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Role & Access Configuration</h1>
-                <p className="text-purple-100/80 text-sm">Manage roles, permissions, sidebar visibility, and re-authentication</p>
-              </div>
-            </div>
+              }
+            />
           </div>
           {/* Context-sensitive header action */}
           {renderHeaderActions()}

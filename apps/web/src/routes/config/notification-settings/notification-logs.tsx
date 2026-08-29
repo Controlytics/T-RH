@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { Input } from '@/components/ui/input';
@@ -7,6 +6,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { useDatetimeFormat } from '../../../hooks/use-datetime-format';
 import { usePaginationConfig } from '../../../hooks/use-pagination-config';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/page-header';
 
 interface LogEntry {
   id: string;
@@ -67,22 +67,16 @@ export function NotificationLogsPage() {
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link to="/config" className="p-2 rounded-xl hover:bg-slate-100 transition-colors">
-            <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </Link>
-          <div className="p-3 rounded-[var(--radius-card)] bg-gradient-to-br from-amber-500 to-orange-600 shadow-[var(--elev-2)]">
-            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <PageHeader
+          title='Notification Logs'
+          description='View email and SMS delivery history'
+          crumbs={[{ label: 'Home', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Notification Logs' }]}
+          icon={
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
             </svg>
-          </div>
-          <div>
-            <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Notification Logs</h1>
-            <p className="text-sm text-slate-500">View email and SMS delivery history</p>
-          </div>
-        </div>
+          }
+        />
       </div>
 
       {/* Stats */}

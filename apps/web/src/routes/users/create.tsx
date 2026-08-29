@@ -15,6 +15,7 @@ import { Select } from '@/components/ui/select';
 import useSWR from 'swr';
 import { generatePassword, DEFAULT_PASSWORD_POLICY } from "../../lib/password-utils";
 import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
+import { PageHeader } from '@/components/ui/page-header';
 
 export function CreateUserPage() {
   const { user } = useAuth();
@@ -97,17 +98,16 @@ export function CreateUserPage() {
     <div className="space-y-8 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="p-3 rounded-[var(--radius-card)] bg-gradient-to-br from-blue-500 to-indigo-600 shadow-[var(--elev-2)]">
-            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+        <PageHeader
+          title='Create New User'
+          description='Add a new user to the system'
+          crumbs={[{ label: 'Home', to: '/' }, { label: 'Users', to: '/users' }, { label: 'Create New User' }]}
+          icon={
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
             </svg>
-          </div>
-          <div>
-            <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Create New User</h1>
-            <p className="text-sm text-slate-500 mt-0.5">Add a new user to the system</p>
-          </div>
-        </div>
+          }
+        />
         <Link to="/users">
           <Button variant="outline" className="gap-2">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

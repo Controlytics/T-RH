@@ -9,6 +9,7 @@ import { api } from '@/lib/api-client';
 import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
 import { Pagination } from '@/components/ui/pagination';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/page-header';
 
 const TYPE_CFG: Record<string, { label: string; bg: string; text: string; border: string; icon: string }> = {
   CREATE_USER: { label: 'Create User', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', icon: '+' },
@@ -213,21 +214,15 @@ export function AdminRequestsPage() {
       {/* Header */}
       <div className="px-6 pt-5 pb-4 border-b border-slate-100 bg-white shrink-0 space-y-4">
         <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl shadow-[var(--elev-2)]" style={{ backgroundImage: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
-              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <PageHeader
+            title='Admin Requests'
+            crumbs={[{ label: 'Home', to: '/' }, { label: 'Admin Requests' }]}
+            icon={
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
               </svg>
-            </div>
-            <div>
-              <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Admin Requests</h1>
-              <p className="text-[13px] text-slate-400 mt-0.5">
-                {pendingCount > 0 ? (
-                  <><span className="text-amber-600 font-semibold">{pendingCount} pending</span> request{pendingCount !== 1 ? 's' : ''} awaiting review</>
-                ) : 'All requests have been processed'}
-              </p>
-            </div>
-          </div>
+            }
+          />
 
           {/* Search */}
           <div className="relative w-full sm:w-72">

@@ -7,6 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 import { themeGradient, themeGradientBr } from '@/lib/theme-styles';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PageHeader } from '@/components/ui/page-header';
 
 /**
  * The Instruments landing page: profiles first, instruments inside them.
@@ -83,19 +84,16 @@ export function InstrumentProfileListPage() {
     <div className="p-6 space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <div className="p-3 rounded-[var(--radius-card)] shadow-[var(--elev-2)]" style={themeGradientBr}>
-            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+        <PageHeader
+          title='Instrument Profiles'
+          description='Group instruments by area, system or purpose. Open a profile to see and add its instruments.'
+          crumbs={[{ label: 'Home', to: '/' }, { label: 'Instruments', to: '/instruments' }, { label: 'Instrument Profiles' }]}
+          icon={
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
             </svg>
-          </div>
-          <div>
-            <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Instrument Profiles</h1>
-            <p className="text-sm text-slate-500 mt-0.5">
-              Group instruments by area, system or purpose. Open a profile to see and add its instruments.
-            </p>
-          </div>
-        </div>
+          }
+        />
         {canCreate && (
           <Button onClick={() => setCreating((c) => !c)} style={creating ? undefined : themeGradient}>
             {creating ? 'Cancel' : '+ New Profile'}

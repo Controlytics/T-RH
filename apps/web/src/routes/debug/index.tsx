@@ -20,6 +20,7 @@ import { PipelineProgressBar } from './components/PipelineProgressBar';
 import { StatusIcon } from './components/StatusIcon';
 import { TraceDetailPanel } from './components/TraceDetailPanel';
 import { StatsCards } from './components/StatsCards';
+import { PageHeader } from '@/components/ui/page-header';
 
 // ---------------------------------------------------------------------------
 // Main Page Component
@@ -183,21 +184,16 @@ export function DebugTracesPage() {
     <div className="space-y-6 animate-fade-in">
       {/* Page Header */}
       <div className="flex items-start justify-between">
-        <div className="flex items-center gap-4">
-          <div className="p-3 rounded-[var(--radius-card)] bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-[var(--elev-2)]">
-            <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <PageHeader
+          title='Pipeline Debug Traces'
+          description='Every API write operation — SUCCESS / FAILED'
+          crumbs={[{ label: 'Home', to: '/' }, { label: 'Debug Traces', to: '/debug/traces' }, { label: 'Pipeline Debug Traces' }]}
+          icon={
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" />
             </svg>
-          </div>
-          <div>
-            <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">
-              Pipeline Debug Traces
-            </h1>
-            <p className="text-sm text-slate-500 mt-0.5">
-              Every API write operation — SUCCESS / FAILED
-            </p>
-          </div>
-        </div>
+          }
+        />
         <div className="flex items-center gap-2">
           <button
             onClick={toggleOpTrace}

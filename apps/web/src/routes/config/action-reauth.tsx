@@ -1,5 +1,4 @@
 import { useState, useMemo, useCallback } from 'react';
-import { Link } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -10,6 +9,7 @@ import { ReauthDialog } from '@/components/reauth-dialog';
 import { REAUTH_ACTIONS, REAUTH_ACTION_CATEGORIES } from '@digilog/shared';
 import type { ReauthAction, ReauthActionCategory } from '@digilog/shared';
 import type { RoleData } from '@digilog/shared';
+import { PageHeader } from '@/components/ui/page-header';
 
 type ActionReauthConfig = Record<string, string[]>;
 
@@ -266,29 +266,16 @@ export function ActionReauthPage() {
     <div className="space-y-6 animate-fade-in pb-24">
       {/* ── Header ── */}
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <Link
-            to="/config"
-            className="p-2 rounded-xl bg-white border border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300 hover:shadow-[var(--elev-1)] transition-all"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </Link>
-          <div className="p-3 rounded-[var(--radius-card)] bg-gradient-to-br from-red-500 to-orange-600 shadow-[var(--elev-2)]">
-            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <PageHeader
+          title='Action Re-authentication'
+          description='Require password verification for sensitive actions per role'
+          crumbs={[{ label: 'Home', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Action Re-authentication' }]}
+          icon={
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
             </svg>
-          </div>
-          <div>
-            <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">
-              Action Re-authentication
-            </h1>
-            <p className="text-sm text-slate-500 mt-0.5">
-              Require password verification for sensitive actions per role
-            </p>
-          </div>
-        </div>
+          }
+        />
         {hasChanges && (
           <Badge className="bg-amber-100 text-amber-700 border border-amber-300 animate-pulse text-xs px-3 py-1">
             Unsaved Changes

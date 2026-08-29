@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { datetimeConfigSchema, type DatetimeConfig } from '@digilog/shared';
@@ -10,6 +10,7 @@ import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
+import { PageHeader } from '@/components/ui/page-header';
 
 export function DatetimeConfigPage() {
   const navigate = useNavigate();
@@ -89,22 +90,16 @@ export function DatetimeConfigPage() {
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link to="/config" className="p-2 rounded-xl hover:bg-slate-100 transition-colors">
-            <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </Link>
-          <div className="p-3 rounded-[var(--radius-card)] bg-gradient-to-br from-purple-500 to-pink-600 shadow-[var(--elev-2)]">
-            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <PageHeader
+          title='Date/Time Format'
+          description='Configure how dates and times are displayed'
+          crumbs={[{ label: 'Home', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Date/Time Format' }]}
+          icon={
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
-          </div>
-          <div>
-            <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Date/Time Format</h1>
-            <p className="text-sm text-slate-500 mt-0.5">Configure how dates and times are displayed</p>
-          </div>
-        </div>
+          }
+        />
       </div>
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">

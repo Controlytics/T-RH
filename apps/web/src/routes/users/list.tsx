@@ -23,6 +23,7 @@ import { UserActionDialog } from './components/user-action-dialog';
 import { UserBulkDeleteDialog } from './components/user-bulk-delete-dialog';
 import { UserUnlockDialog } from './components/user-unlock-dialog';
 import { Pagination } from '@/components/ui/pagination';
+import { PageHeader } from '@/components/ui/page-header';
 
 type PendingCount = { count: number };
 
@@ -263,17 +264,16 @@ export function UserListPage() {
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="p-3 rounded-[var(--radius-card)] shadow-[var(--elev-2)]" style={{ backgroundImage: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
-            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+        <PageHeader
+          title='User Management'
+          description='Manage system users and their access permissions'
+          crumbs={[{ label: 'Home', to: '/' }, { label: 'Users', to: '/users' }, { label: 'User Management' }]}
+          icon={
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
             </svg>
-          </div>
-          <div>
-            <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">User Management</h1>
-            <p className="text-sm text-slate-500 mt-0.5">Manage system users and their access permissions</p>
-          </div>
-        </div>
+          }
+        />
         <div className="flex items-center gap-3">
           {can('users.reset_password') && (
           <Link to="/users/reset-requests">

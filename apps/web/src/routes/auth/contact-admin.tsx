@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useBranding } from '@/hooks/use-branding';
 import { apiUrl } from '@/lib/url-utils';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/page-header';
 
 const REQUEST_TYPES = [
   { value: 'CREATE_USER', label: 'Create User Account' },
@@ -274,14 +275,15 @@ export function ContactAdminPage() {
       <div className="bg-white rounded-[var(--radius-card)] shadow-[var(--elev-2)] w-full max-w-lg overflow-hidden">
         {/* Header */}
         <div className="px-8 py-6 border-b border-slate-200">
-          <div className="flex items-center gap-3 mb-1">
-            <a href="/login" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          <PageHeader
+            title='Contact Admin'
+            crumbs={[{ label: 'Home', to: '/' }, { label: 'Contact Admin' }]}
+            icon={
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M15 19l-7-7 7-7" />
               </svg>
-            </a>
-            <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Contact Admin</h1>
-          </div>
+            }
+          />
           <p className="text-sm text-slate-500 ml-9">Submit a request to the system administrator</p>
         </div>
 

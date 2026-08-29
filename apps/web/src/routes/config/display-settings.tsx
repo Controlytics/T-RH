@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { FieldIdsPage } from './field-ids';
 import { AuditTemplatesConfigPage } from './audit-templates';
 import { PaginationConfigPage } from './pagination';
+import { PageHeader } from '@/components/ui/page-header';
 
 /**
  * Display Settings — one SUPER_ADMIN page combining Field ID Names, Audit Text
@@ -23,17 +24,16 @@ export function DisplaySettingsPage() {
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-5">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <span className="grid place-items-center w-11 h-11 rounded-[var(--radius-card)] bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-[var(--elev-2)]">
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <PageHeader
+        title='Display Settings'
+        description='Field display names, audit-trail wording, and list page sizes.'
+        crumbs={[{ label: 'Home', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Display Settings' }]}
+        icon={
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M4 6h16M4 12h16M4 18h10" />
           </svg>
-        </span>
-        <div>
-          <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Display Settings</h1>
-          <p className="text-sm text-slate-500">Field display names, audit-trail wording, and list page sizes.</p>
-        </div>
-      </div>
+        }
+      />
 
       {/* Tab bar */}
       <div className="seg w-full sm:w-fit">

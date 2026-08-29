@@ -13,6 +13,7 @@ import { type PasswordPolicyConfig } from '@digilog/shared';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { generatePassword, DEFAULT_PASSWORD_POLICY } from '../../lib/password-utils';
 import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
+import { PageHeader } from '@/components/ui/page-header';
 
 interface ResetRequest {
   id: string;
@@ -169,17 +170,16 @@ export function ResetRequestsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 shadow-[var(--elev-2)]">
-              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+          <PageHeader
+            title='Password Reset Requests'
+            description='Review and process password reset requests from users'
+            crumbs={[{ label: 'Home', to: '/' }, { label: 'Users', to: '/users' }, { label: 'Password Reset Requests' }]}
+            icon={
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
               </svg>
-            </div>
-            <div>
-              <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Password Reset Requests</h1>
-              <p className="text-sm text-slate-500 mt-0.5">Review and process password reset requests from users</p>
-            </div>
-          </div>
+            }
+          />
         </div>
         <Link to="/users">
           <Button variant="outline" className="gap-2">
