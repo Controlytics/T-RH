@@ -39,7 +39,7 @@ export function UserBulkDeleteDialog({
             .filter((u: any) => selectedIds.has(u.id))
             .map((u: any) => (
               <div key={u.id} className="flex items-center gap-3 px-4 py-2">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#1e3a5f] to-[#3b82f6] flex items-center justify-center text-white text-xs font-semibold">
+                <div className="w-8 h-8 rounded-lg bg-[var(--theme-primary,#2a78d6)] flex items-center justify-center text-white text-xs font-semibold">
                   {u.fullName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
                 </div>
                 <div>
@@ -67,10 +67,10 @@ export function UserBulkDeleteDialog({
         <Button
           variant="destructive"
           onClick={onConfirm}
-          disabled={bulkDeleting}
-          className="bg-gradient-to-r from-red-500 to-rose-500 hover:from-red-600 hover:to-rose-600"
+          loading={bulkDeleting}
+          loadingText="Deleting…"
         >
-          {bulkDeleting ? 'Deleting...' : `Delete ${selectedIds.size} User${selectedIds.size !== 1 ? 's' : ''}`}
+          {`Delete ${selectedIds.size} User${selectedIds.size !== 1 ? 's' : ''}`}
         </Button>
       </DialogFooter>
     </Dialog>

@@ -19,6 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { generatePassword, DEFAULT_PASSWORD_POLICY } from '../../lib/password-utils';
 import { SkeletonCard } from '@/components/ui/skeleton';
+import { Breadcrumbs } from '@/components/ui/page-header';
 
 const statusConfig: Record<string, { color: string; bg: string; icon: string }> = {
   ENABLED: { color: 'text-emerald-700', bg: 'bg-gradient-to-r from-emerald-400 to-teal-400', icon: 'M5 13l4 4L19 7' },
@@ -188,10 +189,18 @@ export function EditUserPage() {
 
   return (
     <div className="space-y-8 animate-fade-in">
-      {/* Header */}
+      {/* The avatar identity block stays — it is how you confirm you are editing
+          the right person. What was missing is the trail back to the list. */}
+      <Breadcrumbs
+        crumbs={[
+          { label: 'Home', to: '/' },
+          { label: 'Users', to: '/users' },
+          { label: userData.fullName },
+        ]}
+      />
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-[var(--radius-card)] bg-gradient-to-br from-[#1e3a5f] to-[#3b82f6] flex items-center justify-center text-white text-xl font-bold shadow-[var(--elev-2)]">
+          <div className="w-16 h-16 rounded-[var(--radius-card)] bg-[var(--theme-primary,#2a78d6)] flex items-center justify-center text-white text-xl font-bold shadow-[var(--elev-2)]">
             {userData.fullName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
           </div>
           <div>

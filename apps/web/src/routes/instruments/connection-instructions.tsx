@@ -320,7 +320,7 @@ export function ConnectionInstructions({
 
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Protocol">
+      <div className="seg flex-wrap" role="tablist" aria-label="Protocol">
         {ALL_TRANSPORTS.map((t) => {
           const isSelected = t === selected;
           const isLive = isTransportLive(t);
@@ -331,19 +331,16 @@ export function ConnectionInstructions({
               role="tab"
               aria-selected={isSelected}
               onClick={() => setSelected(t)}
-              className={`rounded-md border px-2.5 py-1 text-xs font-medium ${
-                isSelected
-                  ? 'border-slate-800 bg-slate-800 text-white'
-                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-              }`}
+              className="seg-btn"
             >
               {t.toUpperCase()}
+              {/* One amber, not two: the selected tab used to be a dark slate
+                  chip and needed a lighter dot to stay visible on it. It is a
+                  white chip now, so the same amber works on both states. */}
               {!isLive && (
                 <span
                   aria-hidden="true"
-                  className={`ml-1 inline-block h-1.5 w-1.5 rounded-full align-middle ${
-                    isSelected ? 'bg-amber-300' : 'bg-amber-500'
-                  }`}
+                  className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-amber-500 align-middle"
                   title="Not accepting connections yet"
                 />
               )}

@@ -11,6 +11,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { LocationDialog, type LocationDraft } from './location-dialog';
 import { InstrumentPanel } from './instrument-panel';
 import type { FlNode } from './types';
+import { Breadcrumbs } from '@/components/ui/page-header';
 
 interface FlDetail {
   id: string;
@@ -134,19 +135,16 @@ export function FunctionalLocationDetailPage() {
     }
   };
 
-  const backLink = (
-    <Link
-      to="/functional-locations"
-      className="inline-flex items-center gap-1 text-sm font-semibold text-slate-600 hover:text-slate-900"
-    >
-      <span aria-hidden>←</span> All functional locations
-    </Link>
-  );
+  /** Before the record loads there is nothing to name it with. */
+  const baseCrumbs = [
+    { label: 'Home', to: '/' },
+    { label: 'Functional Locations', to: '/functional-locations' },
+  ];
 
   if (error) {
     return (
       <div className="space-y-4">
-        {backLink}
+        <Breadcrumbs crumbs={baseCrumbs} />
         <Card className="px-6 py-14 text-center">
           <p className="text-base font-semibold text-slate-700">This functional location is not available</p>
           <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
@@ -160,7 +158,7 @@ export function FunctionalLocationDetailPage() {
   if (isLoading || !data) {
     return (
       <div className="space-y-4">
-        {backLink}
+        <Breadcrumbs crumbs={baseCrumbs} />
         <div className="h-32 animate-pulse rounded-[var(--radius-card)] border border-slate-200 bg-slate-50" />
         <div className="h-48 animate-pulse rounded-[var(--radius-card)] border border-slate-200 bg-slate-50" />
       </div>
@@ -171,21 +169,20 @@ export function FunctionalLocationDetailPage() {
 
   return (
     <div className="space-y-5">
-      {backLink}
+      <Breadcrumbs
+        crumbs={[
+          ...baseCrumbs,
+          ...(parentName && data.parentId
+            ? [{ label: parentName, to: `/functional-locations/${data.parentId}` }]
+            : []),
+          { label: data.name },
+        ]}
+      />
 
       <Card className="p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            {parentName && (
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <Link to={`/functional-locations/${data.parentId}`} className="hover:text-slate-800 hover:underline">
-                  {parentName}
-                </Link>
-                <span className="mx-1 text-slate-300">›</span>
-                <span className="text-slate-400">{data.name}</span>
-              </p>
-            )}
-            <div className="mt-1 flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">{data.name}</h1>
               <Badge variant={isBlock ? 'default' : 'secondary'}>{data.type}</Badge>
             </div>

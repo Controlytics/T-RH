@@ -40,6 +40,7 @@ import { ChartSummaryStrip } from './chart-summary-strip';
 import { usePanels } from '@/hooks/use-panels';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Breadcrumbs } from '@/components/ui/page-header';
 
 /**
  * Series identity, fixed. Temperature is palette slot 1 and humidity slot 2
@@ -776,6 +777,18 @@ export function InstrumentTrend() {
       className="-m-3 min-h-full space-y-5 p-3 sm:-m-4 sm:p-4 lg:-m-6 lg:p-6"
       style={{ backgroundColor: '#F7F8FA' }}
     >
+      {/* Above the strip, not inside it: Breadcrumbs is styled for a light
+          ground and TrendHeader is a dark gradient. The strip keeps its own
+          'Back to instrument' link — that is the one hop people take most. */}
+      <Breadcrumbs
+        className="mb-3"
+        crumbs={[
+          { label: 'Home', to: '/' },
+          { label: 'Instruments', to: '/instruments' },
+          ...(id ? [{ label: inst?.code ?? 'Instrument', to: `/instruments/${id}` }] : []),
+          { label: 'Trend' },
+        ]}
+      />
       {/* The identity strip. What record is this, where is it, and is it
           reporting right now — before a single number is read. */}
       <TrendHeader

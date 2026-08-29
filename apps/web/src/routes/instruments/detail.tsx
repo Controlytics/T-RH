@@ -23,6 +23,7 @@ import { GatewayPanel } from './gateway-panel';
 import { TokenPanel } from './token-panel';
 import { AttributesPanel } from './attributes-panel';
 import { SkeletonCard } from '@/components/ui/skeleton';
+import { Breadcrumbs } from '@/components/ui/page-header';
 
 interface Instrument {
   id: string; name: string; code: string; isActive: boolean;
@@ -313,6 +314,17 @@ export function InstrumentDetailPage() {
 
   return (
     <div className="space-y-6">
+      {/* The profile is deliberately NOT a crumb: the hero already links to it
+          ('in {profileName}'), and two identical links an inch apart is one
+          more than the page needs. The trail answers 'how do I get back out',
+          which is Instruments. */}
+      <Breadcrumbs
+        crumbs={[
+          { label: 'Home', to: '/' },
+          { label: 'Instruments', to: '/instruments' },
+          { label: inst.code },
+        ]}
+      />
       {/* The hero leads with the CODE, not the name: the code is what the device
           authenticates as, what its topics are built from, and what a
           technician is holding on a label. The name is for people; the code is

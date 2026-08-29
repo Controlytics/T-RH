@@ -169,13 +169,10 @@ export function RoleFormDialog({
           </Button>
           <Button
             onClick={onSubmit}
-            disabled={saving}
-            className="bg-gradient-to-r from-purple-500 to-indigo-600"
+            loading={saving}
+            loadingText={isEdit ? 'Saving…' : 'Creating…'}
           >
-            {saving
-              ? (isEdit ? 'Saving...' : 'Creating...')
-              : (isEdit ? 'Save Changes' : 'Create Role')
-            }
+            {isEdit ? 'Save Changes' : 'Create Role'}
           </Button>
         </div>
       </div>

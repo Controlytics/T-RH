@@ -55,8 +55,8 @@ export function AuditDetailModal({
         return (
         <div className="space-y-4 max-h-[70vh] overflow-y-auto">
           {/* Action Summary */}
-          <div className="p-4 rounded-xl bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-100">
-            <p className="text-sm font-semibold text-indigo-900">
+          <div className="rounded-[var(--radius-card)] border border-sky-200 bg-sky-50 p-4">
+            <p className="text-sm font-semibold text-sky-900">
               {getAuditSummary(selectedRecord, templates)}
             </p>
             <div className="flex items-center gap-3 mt-2">

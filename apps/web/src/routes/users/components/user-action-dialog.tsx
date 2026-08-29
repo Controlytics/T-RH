@@ -78,12 +78,8 @@ export function UserActionDialog({ actionDialog, onClose, onConfirm }: UserActio
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Cancel</Button>
         <Button
-          variant={(actionDialog?.type === 'disable' || actionDialog?.type === 'delete') ? 'destructive' : 'default'}
+          variant={(actionDialog?.type === 'disable' || actionDialog?.type === 'delete') ? 'destructive' : 'success'}
           onClick={onConfirm}
-          className={(actionDialog?.type === 'disable' || actionDialog?.type === 'delete')
-            ? 'bg-gradient-to-r from-red-500 to-rose-500 hover:from-red-600 hover:to-rose-600'
-            : 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600'
-          }
         >
           {actionDialog?.type === 'enable' && (
             <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
