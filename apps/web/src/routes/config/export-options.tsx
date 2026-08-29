@@ -4,6 +4,7 @@ import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { EXPORT_SURFACES, type ExportFormat } from '@/lib/export-surfaces';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/page-header';
 
 type Matrix = Record<string, Record<string, string>>; // role -> surfaceKey -> format
 
@@ -59,15 +60,24 @@ export function ExportOptionsPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-start justify-between gap-4">
-        <p className="text-sm text-slate-500 max-w-2xl">
-          Choose which export formats each role can use on each page. Unset cells default to
-          <span className="font-semibold text-emerald-700"> Both</span>. SUPER_ADMIN always has both.
-        </p>
-        <Button className="shrink-0" onClick={save} disabled={saving}>
-          {saving ? 'Saving…' : 'Save Changes'}
-        </Button>
-      </div>
+      {/* This page had no header because it had no ROUTE — the config def
+          pointed at /config/export-options and nothing was registered there, so
+          nobody ever arrived. It gets the same header as its siblings now. */}
+      <PageHeader
+        title="Export Options"
+        description="Which export formats each role may use on each page. Unset cells default to Both, and SUPER_ADMIN always has both."
+        crumbs={[{ label: 'Home', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Export Options' }]}
+        icon={
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+          </svg>
+        }
+        actions={
+          <Button onClick={save} loading={saving} loadingText="Saving…">
+            Save Changes
+          </Button>
+        }
+      />
 
       {roles.length === 0 ? (
         <div className="text-sm text-slate-400 py-12 text-center">No roles to configure.</div>
@@ -98,7 +108,7 @@ export function ExportOptionsPage() {
                     return (
                       <td key={r.name} className="px-3 py-2 text-center">
                         <select value={val} onChange={(e) => setCell(r.name, s.key, e.target.value)}
-                          className={`text-[12px] font-semibold rounded-md border px-2 py-1 cursor-pointer outline-none ${FMT_CLS[val] ?? FMT_CLS.BOTH}`}>
+                          className={`ctl ctl-sm w-full font-semibold ${FMT_CLS[val] ?? FMT_CLS.BOTH}`}>
                           {FORMATS.map((f) => <option key={f.value} value={f.value} className="bg-white text-slate-700">{f.label}</option>)}
                         </select>
                       </td>

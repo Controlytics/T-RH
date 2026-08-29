@@ -32,7 +32,7 @@ export function LoginBgSection({ register, watchedValues }: LoginBgSectionProps)
               <input
                 type="color"
                 {...register('loginBgStart')}
-                className="h-11 w-14 rounded-xl border border-slate-200 cursor-pointer hover:border-slate-300 transition-colors"
+                className="h-10 w-14 cursor-pointer rounded-[var(--radius-control)] border border-slate-300 bg-white p-1 transition-colors hover:border-slate-400"
               />
               <Input {...register('loginBgStart')} placeholder="#0f172a" className="flex-1 rounded-xl h-11 font-mono text-sm" />
             </div>
@@ -43,7 +43,7 @@ export function LoginBgSection({ register, watchedValues }: LoginBgSectionProps)
               <input
                 type="color"
                 {...register('loginBgEnd')}
-                className="h-11 w-14 rounded-xl border border-slate-200 cursor-pointer hover:border-slate-300 transition-colors"
+                className="h-10 w-14 cursor-pointer rounded-[var(--radius-control)] border border-slate-300 bg-white p-1 transition-colors hover:border-slate-400"
               />
               <Input {...register('loginBgEnd')} placeholder="#1e3a5f" className="flex-1 rounded-xl h-11 font-mono text-sm" />
             </div>

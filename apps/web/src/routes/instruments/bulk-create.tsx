@@ -127,7 +127,22 @@ export function InstrumentBulkCreatePage() {
       <Card>
         <CardHeader><CardTitle>3. Upload</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          <input type="file" accept=".csv,text/csv" onChange={onFile} className="text-sm" />
+          {/* The one file input in the product that is actually VISIBLE — the
+              other five sit behind a drop zone with `hidden`. Left bare it
+              rendered the browser's default "Choose File" button, which is the
+              single most obviously unstyled control an operator meets. The
+              `file:` variants style that button without replacing the input, so
+              keyboard operation and the native file dialog are untouched. */}
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            onChange={onFile}
+            className="block w-full text-[13px] text-slate-600
+              file:mr-3 file:cursor-pointer file:rounded-[var(--radius-control)] file:border-0
+              file:bg-[var(--theme-primary,#2a78d6)] file:px-4 file:py-2
+              file:text-[13px] file:font-medium file:text-white
+              hover:file:brightness-110"
+          />
           {fileName && <p className="text-xs text-slate-500">Selected: {fileName}</p>}
           <Button onClick={upload} disabled={!csv.trim() || !profileId || uploading}>
             {uploading ? 'Uploading…' : 'Create instruments'}

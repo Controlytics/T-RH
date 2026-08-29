@@ -77,7 +77,12 @@ const SEVERITIES = ['CRITICAL', 'MAJOR', 'MINOR'] as const;
 
 const DELIVERY_PAGE = 25;
 
-const field = 'w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none';
+// One shared class string per file was how these two dialogs avoided the
+// per-field drift the rest of the app had — the right instinct, one layer too
+// low. Pointing it at `.ctl` keeps the single definition AND joins the
+// application's one control appearance, so these fields now follow the site
+// theme's focus ring like every other field instead of a hardcoded slate one.
+const field = 'ctl w-full';
 const labelCls = 'mb-1 block text-sm font-medium text-slate-700';
 
 interface Draft {
@@ -466,9 +471,9 @@ export function AlarmWebhooksConfigPage() {
 
       {confirmDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-md rounded-lg bg-white shadow-[var(--elev-2)]">
+          <div role="dialog" aria-modal="true" aria-labelledby="wh-delete-title" className="w-full max-w-md rounded-lg bg-white shadow-[var(--elev-2)]">
             <div className="rounded-t-lg bg-gradient-to-r from-rose-500 to-red-600 px-5 py-3">
-              <h2 className="text-base font-semibold text-white">Delete “{confirmDelete.name}”</h2>
+              <h2 id="wh-delete-title" className="text-base font-semibold text-white">Delete “{confirmDelete.name}”</h2>
             </div>
             <div className="space-y-3 px-5 py-4">
               <div>
@@ -704,9 +709,9 @@ function TargetDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-lg bg-white shadow-[var(--elev-2)]">
+      <div role="dialog" aria-modal="true" aria-labelledby="wh-dialog-title" className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-lg bg-white shadow-[var(--elev-2)]">
         <div className="rounded-t-lg bg-gradient-to-r from-sky-500 to-blue-600 px-5 py-3">
-          <h2 className="text-base font-semibold text-white">{draft.id ? 'Edit Target' : 'New Target'}</h2>
+          <h2 id="wh-dialog-title" className="text-base font-semibold text-white">{draft.id ? 'Edit Target' : 'New Target'}</h2>
         </div>
 
         <div className="space-y-4 px-5 py-4">

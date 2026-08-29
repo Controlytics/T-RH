@@ -121,7 +121,12 @@ export function RuleDialog({
   const needsLow = draft.metric !== 'OFFLINE' && (draft.comparison === 'BELOW' || draft.comparison === 'OUTSIDE_RANGE');
   const needsHigh = draft.metric !== 'OFFLINE' && (draft.comparison === 'ABOVE' || draft.comparison === 'OUTSIDE_RANGE');
 
-  const field = 'w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none';
+  // One shared class string per file was how these two dialogs avoided the
+  // per-field drift the rest of the app had — the right instinct, one layer too
+  // low. Pointing it at `.ctl` keeps the single definition AND joins the
+  // application's one control appearance, so these fields now follow the site
+  // theme's focus ring like every other field instead of a hardcoded slate one.
+  const field = 'ctl w-full';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">

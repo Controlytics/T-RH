@@ -480,6 +480,24 @@ body {
   outline-offset: 2px;
 }
 
+/*
+   ...but NOT on a dialog panel.
+ 
+   The Dialog primitive focuses its own panel on open so that Tab and Escape land
+   inside it rather than walking the page underneath. That focus is
+   PROGRAMMATIC, and the rule above then drew a 2px accent ring around the whole
+   panel — which reads as an error state on a container that the operator never
+   focused by hand.
+ 
+   The panel's own `focus:outline-none` utility cannot win this: it is a Tailwind
+   utility (layered) and the rule above is unlayered, and unlayered beats layered
+   at any specificity — the same trap documented on the .ctl block above. So the
+   exception has to live here, unlayered, alongside the rule it is excepting. */
+[role="dialog"]:focus-visible,
+[role="dialog"]:focus {
+  outline: none;
+}
+
 /* Smooth transitions for interactive elements */
 button, a, input, select, textarea {
   transition: all 0.2s ease;

@@ -29,6 +29,7 @@ import { AlarmRulesConfigPage } from './routes/config/alarm-rules';
 import { AlarmWebhooksConfigPage } from './routes/config/alarm-webhooks';
 import { DatetimeConfigPage } from './routes/config/datetime';
 const ReportPageTitlesPage = lazy(() => import('./routes/config/report-page-titles').then(m => ({ default: m.ReportPageTitlesPage })));
+const ExportOptionsPage = lazy(() => import('./routes/config/export-options').then(m => ({ default: m.ExportOptionsPage })));
 const AppearanceConfigPage = lazy(() => import("./routes/config/appearance").then(m => ({ default: m.AppearanceConfigPage })));
 import { RoleAccessPage } from './routes/config/role-access';
 const DisplaySettingsPage = lazy(() => import("./routes/config/display-settings").then(m => ({ default: m.DisplaySettingsPage })));
@@ -118,6 +119,12 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/config/alarm-rules" element={<RequireRole permissions={[PERMISSIONS.ALARM_RULE_READ]}><AlarmRulesConfigPage /></RequireRole>} />
             <Route path="/config/alarm-webhooks" element={<RequireRole permissions={[PERMISSIONS.ALARM_RULE_READ]}><AlarmWebhooksConfigPage /></RequireRole>} />
             <Route path="/config/report-page-titles" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><ReportPageTitlesPage /></Suspense></RequireRole>} />
+            {/* The export-options config def declares customPagePath
+                '/config/export-options', and the Configuration dashboard renders
+                a card that links there — but no route was ever registered, so
+                the card fell through to the dashboard. Same guard as its
+                siblings. */}
+            <Route path="/config/export-options" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><ExportOptionsPage /></Suspense></RequireRole>} />
             <Route path="/config/ldap" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><LdapConfigPage /></Suspense></RequireRole>} />
             <Route path="/config/datetime" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><DatetimeConfigPage /></RequireRole>} />
             <Route path="/config/backup" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><BackupRestorePage /></RequireRole>} />

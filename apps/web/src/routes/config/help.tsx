@@ -878,11 +878,9 @@ function ArticleFormFields({ form, onChange, error, keyReadOnly }: ArticleFormFi
           readOnly={keyReadOnly}
           disabled={keyReadOnly}
           placeholder="e.g. entity-overview, audit-guide"
-          className={`w-full h-10 px-3.5 rounded-xl border-2 text-sm font-mono text-slate-700 placeholder-slate-400 focus:outline-none transition-all ${
-            keyReadOnly
-              ? 'border-slate-200 bg-slate-50 text-slate-500 cursor-not-allowed'
-              : 'border-slate-200 bg-white focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10'
-          }`}
+          // No ternary: .ctl already styles [readonly] and :disabled, and its
+          // focus ring follows the site theme rather than a hardcoded emerald.
+          className="ctl w-full font-mono"
         />
         {!keyReadOnly && (
           <p className="mt-1 text-xs text-slate-400">Unique identifier used to retrieve this article in code. Use lowercase with hyphens.</p>
