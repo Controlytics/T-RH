@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased] - View toggle moved onto the Arrange row (2026-08-29)
+
+Operator: "put arrange and tabular view/graphical view in same line". **No count
+moved.** One file: `routes/dashboard/panel-grid.tsx`.
+
+The toggle was on its own row beneath the controls; it now shares the row —
+toggle left, Arrange right. `justify-end` is gone from that row and the right-hand
+group is pushed over with an auto margin instead: `mr-auto` on the editing hint
+(unchanged), `ml-auto` on Arrange. **With no toolbar passed, both branches land
+exactly where they did before**, so the row is unchanged for any caller that does
+not use the slot.
+
+Measured on :5176: toggle top 140px, Arrange top 137px — one line, Arrange to the
+right. 131 dashboard tests pass; tsc clean.
+
 ## [Unreleased] - Tabular / Graphical toggle restored; Arrange is SUPER_ADMIN-only (2026-08-29)
 
 Two operator requests. **No count moved.** Files:

@@ -63,9 +63,15 @@ export function PanelGrid({
 
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-center justify-end gap-2">
+      {/* ONE ROW: the view toggle on the left, Arrange (or the edit controls) on
+          the right — operator, 2026-08-29. `justify-end` is gone and the right
+          hand group is pushed over by an auto margin instead: `mr-auto` on the
+          editing hint, `ml-auto` on Arrange. With no toolbar both branches land
+          exactly where they did before. */}
+      <div className="flex flex-wrap items-center gap-2">
+        {toolbar}
         {!editing ? (
-          canArrange ? <Button variant="outline" onClick={onStart}>Arrange</Button> : null
+          canArrange ? <Button variant="outline" className="ml-auto" onClick={onStart}>Arrange</Button> : null
         ) : (
           <>
             <span className="mr-auto text-xs text-slate-500">
@@ -79,8 +85,6 @@ export function PanelGrid({
           </>
         )}
       </div>
-
-      {toolbar && <div className="flex flex-wrap items-center gap-2">{toolbar}</div>}
 
       {/* `panel-grid--editing` is what app.css hangs the visible resize handle off.
           The library's own handle is opacity:0 until the grid item is hovered and
