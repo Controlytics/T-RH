@@ -96,9 +96,18 @@ const giveRemark = (text = REMARK) => {
   fireEvent.change(screen.getByRole('textbox', { name: /remarks/i }), { target: { value: text } });
 };
 
-/** Row Delete opens the remark dialog; the dialog's own button does the work. */
-const confirmDelete = (remark = REMARK) => {
-  fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+/**
+ * Row Delete opens the remark dialog; the dialog's own button does the work.
+ *
+ * The row button is matched by "Delete <key>", not a bare "Delete": it is an
+ * icon button whose accessible name names the attribute it removes, because an
+ * instrument carries two dozen of these and buttons that all announce "Delete"
+ * are indistinguishable to anyone not looking at the row. Naming the key here
+ * also makes the test stricter than it was — it now proves the RIGHT row's
+ * button was pressed.
+ */
+const confirmDelete = (key: string, remark = REMARK) => {
+  fireEvent.click(screen.getByRole('button', { name: `Delete ${key}` }));
   giveRemark(remark);
   fireEvent.click(screen.getByRole('button', { name: /^remove attribute$/i }));
 };
@@ -145,7 +154,7 @@ describe('AttributesPanel', () => {
   it('URL-encodes the key on edit and delete', async () => {
     rows.current = [attr('Flow kg/h', '12')];
     render(<AttributesPanel instrumentId="i-1" profileId="p-1" canEdit />);
-    confirmDelete();
+    confirmDelete('Flow kg/h');
     await waitFor(() => expect(del).toHaveBeenCalledWith(
       '/api/instruments/i-1/attributes/Flow%20kg%2Fh', { reason: REMARK },
     ));
@@ -154,7 +163,7 @@ describe('AttributesPanel', () => {
   it('deletes an attribute after confirming in the dialog', async () => {
     rows.current = [attr('Room', '204')];
     render(<AttributesPanel instrumentId="i-1" profileId="p-1" canEdit />);
-    fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Room' }));
     // The row button only opens the dialog — nothing is destroyed by it alone.
     expect(del).not.toHaveBeenCalled();
     expect(screen.getByRole('textbox', { name: /remarks/i })).toBeInTheDocument();
@@ -177,7 +186,7 @@ describe('AttributesPanel', () => {
   it('deletes nothing when the confirm dialog is cancelled', async () => {
     rows.current = [attr('Room', '204')];
     render(<AttributesPanel instrumentId="i-1" profileId="p-1" canEdit />);
-    fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Room' }));
     fireEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
     await waitFor(() => expect(screen.queryByText(/kept in the audit trail/i)).not.toBeInTheDocument());
     expect(del).not.toHaveBeenCalled();
@@ -188,7 +197,7 @@ describe('AttributesPanel', () => {
   it('closes the dialog after a successful delete', async () => {
     rows.current = [attr('Room', '204')];
     render(<AttributesPanel instrumentId="i-1" profileId="p-1" canEdit />);
-    confirmDelete();
+    confirmDelete('Room');
     await waitFor(() => expect(del).toHaveBeenCalled());
     await waitFor(() => expect(screen.queryByRole('textbox', { name: /remarks/i })).not.toBeInTheDocument());
   });
@@ -208,7 +217,7 @@ describe('AttributesPanel', () => {
     expect(screen.getByText('204')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /add attribute/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^delete$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete Room' })).not.toBeInTheDocument();
   });
 });
 
@@ -439,7 +448,7 @@ describe('AttributesPanel — per-role attribute access', () => {
     rows.current = [attr('Room', '204')];
     render(<AttributesPanel instrumentId="i-1" profileId="p-1" canEdit />);
     expect(screen.getByRole('button', { name: /^edit$/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^delete$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete Room' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /add attribute/i })).toBeInTheDocument();
   });
 
@@ -448,7 +457,7 @@ describe('AttributesPanel — per-role attribute access', () => {
     rows.current = [attr('Room', '204')];
     render(<AttributesPanel instrumentId="i-1" profileId="p-1" canEdit />);
     expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^delete$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete Room' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /add attribute/i })).not.toBeInTheDocument();
     // The Actions COLUMN is gone entirely, rather than a column of "View only"
     // against every row. The per-row marker exists for the SELECTED case below,

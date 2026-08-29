@@ -434,14 +434,41 @@ export function AttributesPanel(
                           >
                             Edit
                           </Button>
+                          {/*
+                            A GHOST ICON, not a solid red button.
+
+                            An instrument commonly carries two dozen attributes,
+                            and a filled destructive button on every row turned
+                            the panel into a wall of red — which spends the
+                            alarm colour on a routine list and leaves nothing
+                            louder for the states that are actually wrong.
+
+                            Quieting it is safe here specifically because the
+                            act is NOT one click: this opens the remark dialog,
+                            and removing an attribute requires a typed reason
+                            that goes to the audit trail. The button is the door,
+                            not the deletion.
+
+                            The accessible name carries the KEY. Twenty-four
+                            buttons all announcing "Delete" are indistinguishable
+                            to anyone not looking at the row they sit in.
+                          */}
                           <Button
-                            type="button" size="sm" variant="destructive" disabled={busy}
+                            type="button"
+                            size="icon-sm"
+                            variant="ghost"
+                            disabled={busy}
+                            title={`Delete ${a.key}`}
+                            aria-label={`Delete ${a.key}`}
+                            className="text-slate-400 hover:bg-rose-50 hover:text-rose-600"
                             onClick={() => {
                               setPendingDelete(a.key);
                               setPendingRemark({ kind: 'remove', key: a.key, from: a.value });
                             }}
                           >
-                            Delete
+                            <svg aria-hidden className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
                           </Button>
                         </div>
                       ) : (
