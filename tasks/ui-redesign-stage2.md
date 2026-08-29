@@ -202,8 +202,19 @@ rounded-2xl, all three toggles themed) and found four things it had missed:
       watch for: an interpolated class is not a style, it is a no-op.**
 - [x] **Config → Roles & Access's seven-tab bar** — the largest tab bar in the
       product — set no ARIA state at all and answered VIOLET, a colour the design
-      system does not contain. `role="tablist"`/`role="tab"`/`aria-selected` now,
-      accent on the theme.
+      system does not contain. `aria-pressed` now, accent on the theme.
+      **This first shipped as `role="tablist"`/`role="tab"`/`aria-selected` and
+      that was wrong**: the tab role advertises a keyboard contract — arrow keys,
+      roving tabindex, `aria-controls` onto seven tabpanels — that the bar does
+      not implement, so an AT user would be told to press arrow keys that do
+      nothing. **ARIA that promises a behaviour it does not have is worse than
+      no ARIA at all.** `aria-pressed` is also what `.seg` already uses, so the
+      answer was settled precedent rather than a new pattern.
+- [x] **A THIRD hand-rolled segmented control** — notification-rules' four
+      section tabs (Rules / User Groups / Templates / Delivery Logs): slate-100
+      tray, white active chip, `elev-1`, the exact shape `.seg` describes, and
+      again no ARIA state. `.seg` + `.seg-btn` + `aria-pressed` now. Three passes
+      have now each found one more of these; the sweep's §9 check exists for it.
 - [x] **`SearchableSelect` was themed only half-way by 90d6f2c** — its trigger
       and search box took the theme while the chevron and every option row stayed
       indigo at `h-11`, so the primitive answered indigo the moment it was opened.
@@ -211,6 +222,14 @@ rounded-2xl, all three toggles themed) and found four things it had missed:
       `h-11` (44px vs the system's 40px) and 7 with `rounded-xl` (card radius on
       a control) — branding ×5, login-bg ×2, password-policy ×8. 90d6f2c fixed
       two of this class; these were the rest.
+
+**§5 (hardcoded hex) triaged in full and clean**: every `#3b82f6` / `#8b5cf6` /
+`#ec4899` / `#1e3a5f` is a branding PLACEHOLDER or the `||` fallback for a colour
+the operator picks on that very page, so a literal default is the correct thing
+there; `permissions-tab.tsx:221` is an SVG `<stop stopColor>`, which needs a
+literal for the same reason the `--chart-*` fallbacks do. The `#2a78d6` count
+moved 43 → 48 with this work — that is the `var(--theme-primary,#2a78d6)`
+fallback, the established convention, not new hardcoding.
 
 Deliberate keeps the sweep re-confirmed: the primitives' own inline styling, the
 `.tv-*` dark tabular view, `dynamic-config`'s hand-rolled textarea (no Textarea

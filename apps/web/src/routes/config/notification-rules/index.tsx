@@ -151,7 +151,14 @@ export function NotificationRulesPage() {
       />
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-slate-100 rounded-xl p-1">
+      {/*
+        A THIRD segmented control the .seg pass missed — slate-100 tray, white
+        active chip, elev-1: the exact shape `.seg` describes, hand-rolled, and
+        setting no ARIA state, so which of the four sections was active was
+        invisible to a screen reader. `aria-pressed` is what paints the chip
+        now, so the look and the announced state cannot drift apart.
+      */}
+      <div className="seg flex w-full">
         {[
           { key: 'rules' as const, label: 'Rules', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
           { key: 'groups' as const, label: 'User Groups', icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z' },
@@ -161,9 +168,8 @@ export function NotificationRulesPage() {
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-medium transition-all ${
-              tab === t.key ? 'bg-white text-slate-800 shadow-[var(--elev-1)]' : 'text-slate-500 hover:text-slate-700'
-            }`}
+            aria-pressed={tab === t.key}
+            className="seg-btn flex-1"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={t.icon} />

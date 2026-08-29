@@ -221,15 +221,19 @@ export function RoleAccessPage() {
           VIOLET, a colour the design system does not contain and no theme
           changes. aria-selected now paints the active tab, so the look and the
           announced state are one fact, and the accent is the site theme.
-          Not `.seg`: this is a full-width underlined bar inside a card, not a
-          chip group, and reshaping it is a design change rather than a fix.
+          `aria-pressed`, NOT `role="tab"`: the tab role advertises a keyboard
+          contract — arrow keys, roving tabindex, aria-controls onto seven
+          tabpanels — that this bar does not implement, and ARIA that promises a
+          behaviour it does not have is worse than none. aria-pressed is also
+          what `.seg` uses, so this matches the precedent 90d6f2c set.
+          Not `.seg` itself: this is a full-width underlined bar inside a card,
+          not a chip group, and reshaping it is a design change, not a fix.
         */}
-        <div role="tablist" aria-label="Roles and access sections" className="flex border-b border-slate-200">
+        <div className="flex border-b border-slate-200">
           {tabs.map((tab) => (
             <button
               key={tab.id}
-              role="tab"
-              aria-selected={activeTab === tab.id}
+              aria-pressed={activeTab === tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={`flex-1 px-6 py-4 text-sm font-medium transition-all flex items-center justify-center gap-2 ${
                 activeTab === tab.id
