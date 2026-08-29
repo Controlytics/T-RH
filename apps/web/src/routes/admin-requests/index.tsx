@@ -10,6 +10,7 @@ import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
 import { Pagination } from '@/components/ui/pagination';
 import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/ui/page-header';
+import { SkeletonRows } from '@/components/ui/skeleton';
 
 const TYPE_CFG: Record<string, { label: string; bg: string; text: string; border: string; icon: string }> = {
   CREATE_USER: { label: 'Create User', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', icon: '+' },
@@ -265,9 +266,10 @@ export function AdminRequestsPage() {
       {/* Content */}
       <div className="flex-1 overflow-auto">
         {isLoading ? (
-          <div className="flex flex-col items-center justify-center py-20 gap-3">
-            <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
-            <span className="text-[13px] text-slate-400">Loading requests...</span>
+          // The request rows are what is coming, so that is what stands in for
+          // them — a centred spinner in a tall empty pane predicts nothing.
+          <div className="p-4">
+            <SkeletonRows rows={5} columns={4} />
           </div>
         ) : requests.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3">

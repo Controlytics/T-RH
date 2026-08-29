@@ -3,6 +3,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { formatActionLabel, diffAuditValues, isRedacted, redactionDetail } from '../audit-helpers';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { SkeletonRows } from '@/components/ui/skeleton';
 
 type SortField = 'timestamp' | 'action' | 'userId' | 'userRole';
 
@@ -81,12 +82,10 @@ export function AuditTable({
     <Card className="border-slate-200/60 shadow-soft overflow-hidden">
       <CardContent className="p-0">
         {isLoading ? (
-          <div className="p-12 text-center">
-            <svg className="w-8 h-8 animate-spin mx-auto mb-3 text-indigo-500" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-            </svg>
-            <p className="text-slate-500">Loading audit records...</p>
+          // Rows where rows are coming, at the table's real column count, so
+          // the page does not jump when the records land.
+          <div className="p-4">
+            <SkeletonRows rows={6} columns={columnCount} />
           </div>
         ) : (
           <div className="overflow-x-auto">

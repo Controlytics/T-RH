@@ -491,10 +491,18 @@ function EmailTab() {
                       Redirect URI <span className="text-indigo-400">(copy this to your {oauth2Provider === 'google' ? 'Google Cloud Console' : 'Azure AD App Registration'})</span>
                     </label>
                     <div className="flex gap-2">
+                      {/* "Loading…" belongs in the placeholder, not the VALUE.
+                          The Copy button is safe either way — it guards on
+                          `redirectData?.redirectUri` — but a read-only field
+                          whose value is the word "Loading..." is still text an
+                          operator can select and paste into their OAuth
+                          provider's redirect-URI box, and it reads as a value
+                          rather than as an absence. */}
                       <input
                         type="text"
                         readOnly
-                        value={redirectData?.redirectUri ?? 'Loading...'}
+                        value={redirectData?.redirectUri ?? ''}
+                        placeholder="Loading…"
                         className="ctl flex-1 font-mono"
                       />
                       <Button 

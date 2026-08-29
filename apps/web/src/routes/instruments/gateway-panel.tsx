@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { SkeletonRows } from '@/components/ui/skeleton';
 
 interface ChildInstrument { id: string; code: string; name: string; isActive: boolean; profileName: string | null }
 
@@ -124,7 +125,7 @@ export function GatewayPanel({ instrumentId, canEdit }: { instrumentId: string; 
         </DialogHeader>
         <div className="space-y-3">
           {!eligible ? (
-            <p className="text-sm text-slate-500">Loading…</p>
+            <SkeletonRows rows={3} columns={2} />
           ) : eligible.data.length === 0 ? (
             <p className="text-sm text-slate-500">
               No eligible instruments — every active instrument is either a gateway itself

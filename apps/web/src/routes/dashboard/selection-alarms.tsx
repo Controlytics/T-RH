@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { severityTone } from '@/routes/alarms/alarm-display';
+import { SkeletonRows } from '@/components/ui/skeleton';
 
 /**
  * Active alarms on the instruments in the current drill-down.
@@ -71,10 +72,12 @@ export function SelectionAlarms({ functionalLocationId }: { functionalLocationId
           operator's chosen tint. An opaque box here painted over the tint, so
           only the card's border appeared to change colour. */}
       <div className="rounded-xl border border-slate-200/70">
-        {rows.length === 0 ? (
-          <p className="p-4 text-sm text-slate-500">
-            {data ? 'No active alarms here.' : 'Loading…'}
-          </p>
+        {!data ? (
+          <div className="p-4">
+            <SkeletonRows rows={3} columns={3} />
+          </div>
+        ) : rows.length === 0 ? (
+          <p className="p-4 text-sm text-slate-500">No active alarms here.</p>
         ) : (
           <ul className="divide-y divide-slate-100">
             {rows.map((a) => (

@@ -3,6 +3,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import type { RoleData } from '@digilog/shared';
+import { SkeletonRows } from '@/components/ui/skeleton';
 
 interface RoleTableProps {
   roles: RoleData[] | undefined;
@@ -17,12 +18,8 @@ export function RoleTable({ roles, isLoading, isSuperAdmin, onEdit, onDelete }: 
     <Card className="border-0 shadow-[var(--elev-2)] overflow-hidden">
       <CardContent className="p-0">
         {isLoading ? (
-          <div className="p-16 text-center">
-            <svg className="w-8 h-8 animate-spin mx-auto mb-3 text-purple-500" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-            </svg>
-            <p className="text-slate-500">Loading roles...</p>
+          <div className="p-4">
+            <SkeletonRows rows={5} columns={4} />
           </div>
         ) : (
           <Table>

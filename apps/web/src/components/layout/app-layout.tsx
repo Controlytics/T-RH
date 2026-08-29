@@ -78,13 +78,26 @@ export function AppLayout() {
 
   if (isLoading) {
     return (
+      /*
+        THE ONE PLACE A SPINNER IS STILL RIGHT, and it is worth saying why so
+        nobody "finishes the job" by replacing it.
+
+        A skeleton is a promise about the shape of what is coming. Here nothing
+        is known yet — the session has not resolved, so we do not know whether
+        this becomes the dashboard, a login redirect, a forced password change
+        or the super-admin lockdown screen. Drawing card outlines would promise
+        a layout that four times out of five never appears.
+
+        The mark also stops using the hardcoded #1e3a5f/#3b82f6 pair: this is
+        the first thing an operator sees, and it should be their site's colour.
+      */
       <div className="flex h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
         <div className="flex flex-col items-center gap-4">
           <div className="relative">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-r from-[#1e3a5f] to-[#3b82f6] animate-pulse" />
-            <div className="absolute inset-0 w-12 h-12 rounded-xl bg-gradient-to-r from-[#1e3a5f] to-[#3b82f6] animate-ping opacity-20" />
+            <div className="h-12 w-12 animate-pulse rounded-[var(--radius-card)] bg-[var(--theme-primary,#2a78d6)]" />
+            <div className="absolute inset-0 h-12 w-12 animate-ping rounded-[var(--radius-card)] bg-[var(--theme-primary,#2a78d6)] opacity-20" />
           </div>
-          <p className="text-sm text-slate-500 font-medium">Loading...</p>
+          <p role="status" className="text-sm font-medium text-slate-500">Loading…</p>
         </div>
       </div>
     );

@@ -18,6 +18,7 @@ import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { generatePassword, DEFAULT_PASSWORD_POLICY } from '../../lib/password-utils';
+import { SkeletonCard } from '@/components/ui/skeleton';
 
 const statusConfig: Record<string, { color: string; bg: string; icon: string }> = {
   ENABLED: { color: 'text-emerald-700', bg: 'bg-gradient-to-r from-emerald-400 to-teal-400', icon: 'M5 13l4 4L19 7' },
@@ -167,14 +168,8 @@ export function EditUserPage() {
 
   if (!userData) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="flex items-center gap-3 text-slate-500">
-          <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-          </svg>
-          <span>Loading user data...</span>
-        </div>
+      <div className="space-y-6">
+        {Array.from({ length: 2 }, (_, i) => <SkeletonCard key={i} lines={4} />)}
       </div>
     );
   }

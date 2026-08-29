@@ -5,6 +5,7 @@ import { api } from '@/lib/api-client';
 import { REAUTH_ACTIONS, REAUTH_ACTION_CATEGORIES } from '@digilog/shared';
 import type { RoleData, ReauthAction, ReauthActionCategory } from '@digilog/shared';
 import { Button } from '@/components/ui/button';
+import { SkeletonCard } from '@/components/ui/skeleton';
 
 // ── Re-auth tab constants ──
 const REAUTH_CATEGORY_META: Record<ReauthActionCategory, { gradient: string; bgLight: string; icon: string; description: string }> = {
@@ -237,13 +238,13 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
     return (
       <>
         {reauthLoading ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="flex flex-col items-center gap-3 text-slate-500">
-              <div className="relative">
-                <div className="w-12 h-12 rounded-full border-4 border-slate-200 border-t-red-500 animate-spin" />
-              </div>
-              <p className="text-sm font-medium">Loading re-authentication configuration...</p>
+          <div className="space-y-6">
+            {/* Four stat tiles then the action cards — the shape this screen
+                actually resolves to, so nothing jumps when it arrives. */}
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              {Array.from({ length: 4 }, (_, i) => <SkeletonCard key={i} lines={1} />)}
             </div>
+            {Array.from({ length: 3 }, (_, i) => <SkeletonCard key={i} lines={3} />)}
           </div>
         ) : (
           <div className="space-y-6">

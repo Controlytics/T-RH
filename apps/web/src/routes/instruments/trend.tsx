@@ -39,6 +39,7 @@ import { SampledNote } from './sampled-note';
 import { ChartSummaryStrip } from './chart-summary-strip';
 import { usePanels } from '@/hooks/use-panels';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { Skeleton } from '@/components/ui/skeleton';
 
 /**
  * Series identity, fixed. Temperature is palette slot 1 and humidity slot 2
@@ -134,7 +135,9 @@ function GaugeSkeleton({ title }: { title: string }) {
   return (
     <section className="rounded-[var(--radius-card)] border border-slate-200 bg-white p-5 shadow-[var(--elev-1)]">
       <p className="text-[11px] font-semibold uppercase tracking-[0.09em] text-slate-500">{title}</p>
-      <p className="mt-3 text-sm text-slate-400">Loading…</p>
+      <span className="sr-only" role="status">Loading…</span>
+      <Skeleton className="mt-3 h-7 w-24" />
+      <Skeleton className="mt-3 h-2.5 w-full" />
     </section>
   );
 }
@@ -199,10 +202,10 @@ function ChartPanel({
   }
   if (isLoading) {
     return (
-      <div className="rounded-xl border border-slate-200 bg-white p-6 text-center">
+      <div className="rounded-xl border border-slate-200 bg-white p-6">
         <p className="text-sm font-medium text-slate-700">{title}</p>
-        <p className="mt-1 text-xs text-slate-500">Loading…</p>
-        <div className="mt-4 h-40 animate-pulse rounded-lg bg-slate-100" />
+        <span className="sr-only" role="status">Loading…</span>
+        <Skeleton className="mt-4 h-40 w-full" />
       </div>
     );
   }

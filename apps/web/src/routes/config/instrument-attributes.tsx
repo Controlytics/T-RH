@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { PageHeader } from '@/components/ui/page-header';
+import { SkeletonCard } from '@/components/ui/skeleton';
 
 /**
  * The attribute keys the New Instrument form asks for — PER PROFILE, one field
@@ -111,7 +112,13 @@ export function InstrumentAttributesConfigPage() {
     );
   }
 
-  if (rows === null) return <div className="py-10 text-center text-slate-400">Loading…</div>;
+  if (rows === null) {
+    return (
+      <div className="space-y-3">
+        {Array.from({ length: 4 }, (_, i) => <SkeletonCard key={i} lines={1} />)}
+      </div>
+    );
+  }
 
   const trimmed = rows.map((r) => r.key.trim());
   /**

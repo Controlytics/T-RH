@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/ui/page-header';
+import { SkeletonCard } from '@/components/ui/skeleton';
 
 interface SystemHealthData {
   os: {
@@ -143,10 +144,15 @@ export function SystemHealthPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex flex-col items-center gap-3">
-          <div className="animate-spin rounded-full h-8 w-8 border border-slate-300 border-t-blue-600" />
-          <p className="text-sm text-slate-500">Loading system metrics...</p>
+      // FOUR stat tiles across the top, then a two-column card grid — the shape
+      // this screen actually resolves to. A three-column grid of six would have
+      // been a placeholder for a layout that never appears.
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          {Array.from({ length: 4 }, (_, i) => <SkeletonCard key={i} lines={1} />)}
+        </div>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {Array.from({ length: 4 }, (_, i) => <SkeletonCard key={i} lines={3} />)}
         </div>
       </div>
     );

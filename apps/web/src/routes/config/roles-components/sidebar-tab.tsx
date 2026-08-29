@@ -7,6 +7,7 @@ import { api } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { SIDEBAR_ITEMS } from '@digilog/shared';
 import type { RoleData } from '@digilog/shared';
+import { SkeletonCard } from '@/components/ui/skeleton';
 
 interface User {
   id: string;
@@ -340,9 +341,8 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
               </div>
 
               {sidebarIsLoading ? (
-                <div className="p-8 text-center">
-                  <svg className="w-6 h-6 animate-spin mx-auto mb-2 text-violet-500" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                  <p className="text-slate-500">Loading configuration...</p>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {Array.from({ length: 6 }, (_, i) => <SkeletonCard key={i} lines={2} />)}
                 </div>
               ) : (
                 <div className="space-y-5">
@@ -431,9 +431,8 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
                     </div>
 
                     {sidebarIsLoading ? (
-                      <div className="p-8 text-center">
-                        <svg className="w-6 h-6 animate-spin mx-auto mb-2 text-violet-500" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                        <p className="text-slate-500">Loading configuration...</p>
+                      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                        {Array.from({ length: 4 }, (_, i) => <SkeletonCard key={i} lines={2} />)}
                       </div>
                     ) : (
                       <div className="space-y-4">

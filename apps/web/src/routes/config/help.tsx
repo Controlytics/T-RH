@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { PageHeader } from '@/components/ui/page-header';
+import { SkeletonRows } from '@/components/ui/skeleton';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -423,15 +424,8 @@ export function HelpArticlesPage() {
       <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-[var(--elev-2)] overflow-hidden">
         {isLoading ? (
           <div className="p-16 text-center">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 mb-4 animate-pulse">
-              <svg className="w-8 h-8 text-white animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-            </div>
-            <p className="text-slate-600 font-medium">Loading help articles...</p>
-            <p className="text-sm text-slate-400 mt-1">Please wait a moment</p>
-          </div>
+<SkeletonRows rows={5} columns={3} />
+</div>
         ) : articleList.length === 0 ? (
           <div className="p-16 text-center">
             <div className="inline-flex items-center justify-center w-20 h-20 rounded-[var(--radius-card)] bg-gradient-to-br from-slate-100 to-slate-200 mb-4">

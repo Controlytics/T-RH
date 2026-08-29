@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { api } from '@/lib/api-client';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
+import { SkeletonRows } from '@/components/ui/skeleton';
 
 interface FieldConfig {
   id: string;
@@ -205,14 +206,8 @@ export function FieldIdsPage() {
       {isLoading ? (
         <Card className="border-0 shadow-[var(--elev-2)] overflow-hidden">
           <CardContent className="p-16 text-center">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 mb-4 animate-pulse">
-              <svg className="w-8 h-8 text-white animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-              </svg>
-            </div>
-            <p className="text-slate-600 font-medium">Loading field configurations...</p>
-          </CardContent>
+<SkeletonRows rows={5} columns={3} />
+</CardContent>
         </Card>
       ) : Object.keys(groupedFields).length === 0 ? (
         <Card className="border-0 shadow-[var(--elev-2)] overflow-hidden">

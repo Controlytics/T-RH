@@ -10,6 +10,7 @@ import { REAUTH_ACTIONS, REAUTH_ACTION_CATEGORIES } from '@digilog/shared';
 import type { ReauthAction, ReauthActionCategory } from '@digilog/shared';
 import type { RoleData } from '@digilog/shared';
 import { PageHeader } from '@/components/ui/page-header';
+import { SkeletonCard } from '@/components/ui/skeleton';
 
 type ActionReauthConfig = Record<string, string[]>;
 
@@ -247,13 +248,8 @@ export function ActionReauthPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex flex-col items-center gap-3 text-slate-500">
-          <div className="relative">
-            <div className="w-12 h-12 rounded-full border-4 border-slate-200 border-t-red-500 animate-spin" />
-          </div>
-          <p className="text-sm font-medium">Loading re-authentication configuration...</p>
-        </div>
+      <div className="space-y-4">
+        {Array.from({ length: 3 }, (_, i) => <SkeletonCard key={i} lines={3} />)}
       </div>
     );
   }

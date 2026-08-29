@@ -7,6 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 import { FEATURE_PRIVILEGES } from '@digilog/shared';
 import type { RoleData } from '@digilog/shared';
 import { groupFeaturePrivilegesByTree } from './permission-tree-grouping';
+import { SkeletonRows } from '@/components/ui/skeleton';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -233,14 +234,8 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
           <CardContent className="p-0">
             {permLoading ? (
               <div className="p-16 text-center">
-                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 mb-4 animate-pulse">
-                  <svg className="w-8 h-8 text-white animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                </div>
-                <p className="text-slate-600 font-medium">Loading permissions...</p>
-              </div>
+<SkeletonRows rows={6} columns={2} />
+</div>
             ) : (
               <div className="divide-y divide-slate-100">
 

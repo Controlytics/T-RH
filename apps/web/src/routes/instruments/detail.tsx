@@ -22,6 +22,7 @@ import { TokenDialog } from './token-dialog';
 import { GatewayPanel } from './gateway-panel';
 import { TokenPanel } from './token-panel';
 import { AttributesPanel } from './attributes-panel';
+import { SkeletonCard } from '@/components/ui/skeleton';
 
 interface Instrument {
   id: string; name: string; code: string; isActive: boolean;
@@ -146,7 +147,14 @@ export function InstrumentDetailPage() {
   const [confirmToggle, setConfirmToggle] = useState(false);
   const [toggling, setToggling] = useState(false);
 
-  if (!inst) return <div className="py-10 text-center text-slate-400">Loading…</div>;
+  // The detail page resolves to an identity block over stacked panels.
+  if (!inst) {
+    return (
+      <div className="space-y-6">
+        {Array.from({ length: 3 }, (_, i) => <SkeletonCard key={i} lines={3} />)}
+      </div>
+    );
+  }
 
   const startEdit = () => { setDraft({ ...inst }); setEditing(true); };
 

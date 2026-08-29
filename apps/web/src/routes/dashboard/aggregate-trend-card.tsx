@@ -1,5 +1,6 @@
 import useSWR from 'swr';
 import { TimeSeriesChart } from './time-series-chart';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   derivedNote, limitNote, shouldDrawBand, sparseMessage, peakReporting,
   type AggregateBounds, type AggregatePoint,
@@ -140,7 +141,15 @@ export function AggregateTrendCard({
       </div>
 
       {isLoading && !data ? (
-        <div className="rounded-xl border border-slate-200/70 p-6 text-sm text-slate-500">Loading…</div>
+        <div className="grid gap-4 lg:grid-cols-2">
+          {Array.from({ length: 2 }, (_, i) => (
+            <div key={i} className="rounded-xl border border-slate-200/70 p-4">
+              <span className="sr-only" role="status">Loading…</span>
+              <Skeleton className="h-3 w-32" />
+              <Skeleton className="mt-3 h-40 w-full" />
+            </div>
+          ))}
+        </div>
       ) : data ? (
         <div className="grid gap-4 lg:grid-cols-2">
           <SlotChart

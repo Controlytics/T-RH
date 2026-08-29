@@ -11,6 +11,7 @@ import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/componen
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { getPhotoUrl } from '../../lib/url-utils';
+import { SkeletonCard } from '@/components/ui/skeleton';
 
 /**
  * Role chips: a tint and a hairline, matching components/layout/header.tsx
@@ -148,7 +149,11 @@ export function ProfilePage() {
   };
 
   if (!user) {
-    return <div className="text-muted-foreground">Loading...</div>;
+    return (
+      <div className="space-y-6">
+        {Array.from({ length: 2 }, (_, i) => <SkeletonCard key={i} lines={3} />)}
+      </div>
+    );
   }
 
   return (

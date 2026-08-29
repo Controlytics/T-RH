@@ -21,6 +21,7 @@ import { StatusIcon } from './components/StatusIcon';
 import { TraceDetailPanel } from './components/TraceDetailPanel';
 import { StatsCards } from './components/StatsCards';
 import { PageHeader } from '@/components/ui/page-header';
+import { SkeletonRows } from '@/components/ui/skeleton';
 
 // ---------------------------------------------------------------------------
 // Main Page Component
@@ -360,14 +361,8 @@ export function DebugTracesPage() {
               {/* Loading state */}
               {isLoading && (
                 <tr>
-                  <td colSpan={9} className="px-5 py-16 text-center">
-                    <div className="flex flex-col items-center gap-3">
-                      <svg className="w-8 h-8 animate-spin text-cyan-500" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                      </svg>
-                      <p className="text-sm text-slate-500">Loading traces...</p>
-                    </div>
+                  <td colSpan={9} className="px-5 py-4">
+                    <SkeletonRows rows={5} columns={9} />
                   </td>
                 </tr>
               )}
@@ -499,12 +494,8 @@ export function DebugTracesPage() {
                       <tr key={`detail-${trace.id}`} className="bg-slate-50/60">
                         <td colSpan={9} className="p-0">
                           {loadingDetail && !cachedDetail ? (
-                            <div className="flex items-center gap-3 px-5 py-6">
-                              <svg className="w-5 h-5 animate-spin text-cyan-500" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                              </svg>
-                              <span className="text-sm text-slate-500">Loading trace details…</span>
+                            <div className="px-5 py-4">
+                              <SkeletonRows rows={3} columns={4} />
                             </div>
                           ) : (
                             <TraceDetailPanel trace={cachedDetail ?? trace} />
