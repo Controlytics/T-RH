@@ -10,6 +10,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { LocationDialog, type LocationDraft } from './location-dialog';
 import type { FlNode } from './types';
+import { PageHeader } from '@/components/ui/page-header';
 
 /**
  * Functional Locations — the browse view: one card per BLOCK, its Areas listed
@@ -70,17 +71,19 @@ export default function FunctionalLocationsPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Functional Locations</h1>
-          <p className="mt-1 text-sm text-slate-600">
-            Block and Area grouping. An instrument belongs to exactly one location.
-          </p>
-        </div>
-        {can('functional_locations.create') && (
+      <PageHeader
+        title="Functional Locations"
+        description="Block and Area grouping. An instrument belongs to exactly one location."
+        crumbs={[{ label: 'Home', to: '/' }, { label: 'Functional Locations' }]}
+        icon={
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+          </svg>
+        }
+        actions={can('functional_locations.create') && (
           <Button onClick={() => setDialogOpen(true)}>Create functional location</Button>
         )}
-      </div>
+      />
 
       {tree.length > 0 && (
         <div className="flex flex-wrap items-center gap-3">

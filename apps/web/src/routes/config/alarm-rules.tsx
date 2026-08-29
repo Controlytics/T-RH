@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { RuleDialog, type RuleDraft } from './alarm-rule-dialog';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatusBadge } from '@/components/ui/status-badge';
 
 export interface AlarmRule {
   id: string;
@@ -120,18 +122,20 @@ export function AlarmRulesConfigPage() {
 
   return (
     <div className="p-6">
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Alarm Rules</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Conditions the evaluator checks every minute. Raising and clearing are automatic;
-            acknowledgement happens on the Alarms page.
-          </p>
-        </div>
-        {canManage && (
+      <PageHeader
+        className="mb-6"
+        title="Alarm Rules"
+        description="Conditions the evaluator checks every minute. Raising and clearing are automatic; acknowledgement happens on the Alarms page."
+        crumbs={[{ label: 'Home', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Alarm Rules' }]}
+        icon={
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+          </svg>
+        }
+        actions={canManage && (
           <Button onClick={() => { setEditing(undefined); setDialogOpen(true); }}>New Rule</Button>
         )}
-      </div>
+      />
 
       <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
         <table className="tbl w-full text-sm">
@@ -165,11 +169,7 @@ export function AlarmRulesConfigPage() {
                 </td>
                 <td className="px-4 py-3 tabular-nums text-slate-600">{r.alarmCount}</td>
                 <td className="px-4 py-3">
-                  <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${
-                    r.isActive ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-slate-300 bg-slate-100 text-slate-600'
-                  }`}>
-                    {r.isActive ? 'Active' : 'Inactive'}
-                  </span>
+                  <StatusBadge tone={r.isActive ? 'ok' : 'idle'} label={r.isActive ? 'Active' : 'Inactive'} />
                 </td>
                 <td className="px-4 py-3">
                   {canManage && (

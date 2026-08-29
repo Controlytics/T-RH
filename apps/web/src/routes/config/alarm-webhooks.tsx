@@ -14,6 +14,7 @@ import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { Button } from '@/components/ui/button';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { PageHeader } from '@/components/ui/page-header';
 
 export interface WebhookTarget {
   id: string;
@@ -324,12 +325,20 @@ export function AlarmWebhooksConfigPage() {
 
   return (
     <div className="p-6">
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
-        <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Alarm Webhooks</h1>
-        {canManage && (
+      <PageHeader
+        className="mb-6"
+        title="Alarm Webhooks"
+        description="Send an alarm to a device as well as a person — an IP-addressable hooter, a panel, any endpoint on the plant network."
+        crumbs={[{ label: 'Home', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Alarm Webhooks' }]}
+        icon={
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
+          </svg>
+        }
+        actions={canManage && (
           <Button onClick={() => { setEditing(undefined); setDialogOpen(true); }}>New Target</Button>
         )}
-      </div>
+      />
 
       <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
         <table className="tbl w-full text-sm">

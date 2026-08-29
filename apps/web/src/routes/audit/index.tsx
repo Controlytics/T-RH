@@ -27,6 +27,7 @@ import { ExportMenu } from '@/components/ExportMenu';
 import { ReportDownloadDialog, type ReportDownloadRequest } from '@/components/report-download-dialog';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { useReportLabels } from '../../hooks/use-report-labels';
+import { PageHeader } from '@/components/ui/page-header';
 
 const AUDIT_COLS = ['timestamp', 'action', 'user', 'role', 'targetType', 'description', 'ipAddress'];
 
@@ -399,17 +400,20 @@ export function AuditTrailPage() {
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="p-3 rounded-[var(--radius-card)] text-white shadow-[var(--elev-2)]" style={{ backgroundImage: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
-            <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        {/* The title is CONFIGURABLE (Config → Report Configuration → Labels),
+            so the crumb takes the same value rather than a hardcoded one — an
+            operator who renames this screen should not find the breadcrumb
+            still calling it something else. */}
+        <PageHeader
+          title={auditL.title}
+          description="21 CFR Part 11 Compliant Activity Log"
+          crumbs={[{ label: 'Home', to: '/' }, { label: auditL.title }]}
+          icon={
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
-          </div>
-          <div>
-            <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">{auditL.title}</h1>
-            <p className="text-sm text-slate-500">21 CFR Part 11 Compliant Activity Log</p>
-          </div>
-        </div>
+          }
+        />
         <div className="flex items-center gap-4">
           {data && (
             <div className="text-right">

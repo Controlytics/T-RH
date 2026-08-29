@@ -2,6 +2,7 @@ import useSWR from 'swr';
 import { useEffect, useState } from 'react';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/page-header';
 
 interface SystemHealthData {
   os: {
@@ -168,13 +169,23 @@ export function SystemHealthPage() {
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">System Health</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Server: {data.os.hostname} &middot; Last updated:{' '}
-            {formatTime(data.timestamp)}
-          </p>
-        </div>
+        {/* The server name and refresh stamp are live values, so they ride on
+            `meta` rather than `description` — a description is what the screen
+            is FOR, and it should not change every ten seconds. */}
+        <PageHeader
+          title="System Health"
+          crumbs={[{ label: 'Home', to: '/' }, { label: 'System Health' }]}
+          meta={
+            <span className="text-[13px] text-slate-500">
+              Server: {data.os.hostname} &middot; Last updated: {formatTime(data.timestamp)}
+            </span>
+          }
+          icon={
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+          }
+        />
         <div className="flex items-center gap-3">
           <Button variant="outline"
             onClick={() => mutate()}

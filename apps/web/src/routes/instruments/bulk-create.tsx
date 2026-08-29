@@ -7,6 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
+import { PageHeader } from '@/components/ui/page-header';
 
 interface CreatedRow { id: string; code: string; name: string; token: string }
 interface ErrorRow { row: number; message: string }
@@ -76,15 +77,12 @@ export function InstrumentBulkCreatePage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Bulk Upload Instruments</h1>
-          <p className="text-sm text-slate-500">
-            Valid rows are created even when others fail — one typo does not reject the file.
-          </p>
-        </div>
-        <Link to="/instruments"><Button variant="secondary">Back to list</Button></Link>
-      </div>
+      {/* "Back to list" is gone: the Instruments breadcrumb goes to the same place. */}
+      <PageHeader
+        title="Bulk Upload Instruments"
+        description="Valid rows are created even when others fail — one typo does not reject the file."
+        crumbs={[{ label: 'Home', to: '/' }, { label: 'Instruments', to: '/instruments' }, { label: 'Bulk Upload' }]}
+      />
 
       <Card>
         <CardHeader><CardTitle>1. Prepare the file</CardTitle></CardHeader>

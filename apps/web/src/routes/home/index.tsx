@@ -5,6 +5,7 @@ import { MODULE_FLOWS, CATEGORY_ORDER } from './module-flows';
 import { FlowChart } from './FlowChart';
 import { viewerCanSeeModule, type RoleAccess, type ViewerCtx } from './viewer-access';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/page-header';
 
 function slug(id: string) { return `mod-${id}`; }
 
@@ -71,10 +72,15 @@ export default function HomePage() {
 
   return (
     <div className="w-full p-4 sm:p-6">
-      <header className="mb-6">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Module Guide</h1>
-          <div className="flex items-center gap-2">
+      <PageHeader
+        className="mb-6"
+        title="Module Guide"
+        description={auditView
+          ? 'Audit view — every module and every role permitted to perform each operation, from your live role configuration (independent of any role’s sidebar).'
+          : 'How each module works, step by step, with the role(s) configured to perform each operation. Roles come live from your role configuration, so custom roles and permission changes are reflected. You see the modules your role can access.'}
+        crumbs={[{ label: 'Home', to: '/' }, { label: 'Module Guide' }]}
+        actions={
+          <>
             {/* View toggle: personalized vs full audit view. */}
             <div className="seg" role="group" aria-label="Guide view">
               <button
@@ -109,14 +115,9 @@ export default function HomePage() {
               </svg>
               {refreshing ? 'Refreshing…' : 'Refresh'}
             </Button>
-          </div>
-        </div>
-        <p className="mt-2 text-slate-600">
-          {auditView
-            ? 'Audit view — every module and every role permitted to perform each operation, from your live role configuration (independent of any role’s sidebar).'
-            : 'How each module works, step by step, with the role(s) configured to perform each operation. Roles come live from your role configuration, so custom roles and permission changes are reflected. You see the modules your role can access.'}
-        </p>
-      </header>
+          </>
+        }
+      />
 
       {loading ? (
         <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-slate-500">

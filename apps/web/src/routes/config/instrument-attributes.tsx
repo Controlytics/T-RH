@@ -7,6 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { PageHeader } from '@/components/ui/page-header';
 
 /**
  * The attribute keys the New Instrument form asks for — PER PROFILE, one field
@@ -203,16 +204,18 @@ export function InstrumentAttributesConfigPage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Instrument Attributes</h1>
-          <p className="text-sm text-slate-500">
-            The attributes the New Instrument form asks for, per profile. You set
-            the keys here; whoever registers a device fills in the values.
-          </p>
-        </div>
-        <Link to="/config"><Button variant="secondary">Back to Settings</Button></Link>
-      </div>
+      {/* The "Back to Settings" button is gone: the breadcrumb's Configuration
+          link goes to the same place, and a page does not need two. */}
+      <PageHeader
+        title="Instrument Attributes"
+        description="The attributes the New Instrument form asks for, per profile. You set the keys here; whoever registers a device fills in the values."
+        crumbs={[{ label: 'Home', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Instrument Attributes' }]}
+        icon={
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M4 6h16M4 12h16M4 18h10" />
+          </svg>
+        }
+      />
 
       <Card>
         <CardContent className="py-4">

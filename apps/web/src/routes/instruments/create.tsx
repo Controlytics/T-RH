@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { TokenDialog } from './token-dialog';
+import { PageHeader } from '@/components/ui/page-header';
 
 interface CreatedInstrument { id: string; code: string; token: string }
 
@@ -164,7 +165,11 @@ export function InstrumentCreatePage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">New Instrument</h1>
+      <PageHeader
+        title="New Instrument"
+        description="Register a device so its readings, limits and alarms have somewhere to live."
+        crumbs={[{ label: 'Home', to: '/' }, { label: 'Instruments', to: '/instruments' }, { label: 'New Instrument' }]}
+      />
 
       <form onSubmit={submit} className="space-y-6">
         <Card>
