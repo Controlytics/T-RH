@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-// fetchAllTablesRaw discovers tables via pg_tables, then queries each. We
+// fetchAllTablesRaw discovers tables via a pg_class scan (partition children
+// excluded — see getAllTables), then queries each. We
 // stub $queryRawUnsafe with two response shapes:
-//   1. The pg_tables / information_schema introspection queries return rows
+//   1. The pg_class / information_schema introspection queries return rows
 //      describing the schema (table list + FK list).
 //   2. Subsequent SELECT * FROM "<table>" queries return [].
 // To keep the stub simple and intent-revealing, mockResolvedValueOnce()
@@ -37,7 +38,7 @@ describe('backup.repository', () => {
    * annihilated all 21 CFR history and returned 200.
    */
   describe('restoreFromBackup — omitted-table guard', () => {
-    // getAllTables() does two introspection queries: pg_tables, then FKs.
+    // getAllTables() does two introspection queries: pg_class, then FKs.
     const stubSchema = (tables: string[]) => {
       mockPrisma.$queryRawUnsafe
         .mockResolvedValueOnce(tables.map((t) => ({ tablename: t })))

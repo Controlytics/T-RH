@@ -9,7 +9,7 @@ import type { BackupData } from './backup.helpers.js';
 /**
  * Validate any PostgreSQL identifier (table or column name) that gets
  * interpolated into $queryRawUnsafe / $executeRawUnsafe.  Names are sourced
- * from pg_tables and pg_attribute — not user input — so the chance of an
+ * from pg_class and pg_attribute — not user input — so the chance of an
  * unsafe name is near-zero, but guarding here makes the safe-API contract
  * explicit and protects against any future change in how getAllTables() is
  * built.
@@ -33,9 +33,11 @@ function assertSafeIdentifier(name: string): void {
 // that recorded the rationale — the original design listed every table by
 // name with hand-written JOIN code, and a new Prisma model was silently
 // missing from every backup until someone remembered to add it):
-//   - `pg_tables` enumerates every table in `public` at call time, so a new
-//     model is covered automatically the moment its migration runs — no
-//     backup-module edit needed.
+//   - the `pg_class` scan in `getAllTables()` enumerates every table in
+//     `public` at call time, so a new model is covered automatically the
+//     moment its migration runs — no backup-module edit needed. (It was a
+//     bare `pg_tables` query until 2026-08-29; see that function's comment
+//     for why partition children must be filtered out of it.)
 //   - `jsonb_populate_recordset` (see `insertRows` / `fixupSelfRefs` below)
 //     round-trips rows generically through each column's own text-input
 //     type coercion (uuid, timestamptz, enum, jsonb, arrays, …), so restore
@@ -52,10 +54,57 @@ const EXCLUDED_TABLES = new Set(['_prisma_migrations']);
  * List every user table in the public schema at call time.
  * Returned in FK-safe insert order (parent tables before children).
  * The reverse of this order is FK-safe for delete/truncate.
+ *
+ * PARTITION CHILDREN ARE EXCLUDED — this is load-bearing, not tidiness.
+ *
+ * `instrument_telemetry_history` is PARTITION BY RANGE (ts) with one child
+ * per month (created ahead by `telemetry_partition_maintenance`, dropped on
+ * retention). `pg_tables` — and `pg_class` unfiltered — lists the partitioned
+ * PARENT *and* every child as separate tables, because a partition IS an
+ * ordinary table. The previous query used bare `pg_tables`, so every child
+ * came back alongside its parent and the consequences were silent:
+ *
+ *   - EXPORT dumped each telemetry row TWICE — once from the parent
+ *     (`SELECT * FROM instrument_telemetry_history` returns all children's
+ *     rows) and again from the child. Measured on this database 2026-08-29:
+ *     226,582 rows in the parent, the same 226,582 in
+ *     `instrument_telemetry_history_2026_08` — 453,164 rows in the archive
+ *     for 226,582 real readings.
+ *   - RESTORE then inserted both copies. Inserting into the parent routes
+ *     rows into the child; inserting the child's dump adds them a second
+ *     time. A §11 telemetry record silently doubled on every restore.
+ *   - The BACKUP_MAX_ROWS_PER_TABLE pre-flight counted both, so the guard
+ *     tripped at half the real row budget.
+ *
+ * Note this did NOT fail loudly — it produced a plausible archive with
+ * corrupt contents, which is the worse failure mode.
+ *
+ * Backing up the PARENT (and only the parent) is correct and version-proof:
+ * a row inserted into the parent is routed to whichever partition covers its
+ * `ts`, so an archive taken in August restores cleanly into a database whose
+ * partition set has since rolled forward. Naming children explicitly would
+ * bind the archive to the partition layout at export time.
+ *
+ * `relkind` filter: 'r' = ordinary table, 'p' = partitioned parent. Both are
+ * wanted. `relispartition = false` drops the children. Views ('v'), matviews
+ * ('m') and foreign tables ('f') are excluded by not being listed — the old
+ * `pg_tables` query excluded them too, so this is not a behaviour change.
+ *
+ * Backward compatibility: restore derives its work list from
+ * `dbTables.filter(t => Array.isArray(data[t]))`, so an OLDER archive that
+ * still carries partition keys is now handled correctly — the child keys are
+ * simply not in `dbTables`, get skipped with the "unknown table" warning, and
+ * only the parent's rows are inserted. Old backups are repaired by this fix,
+ * not broken by it.
  */
 export async function getAllTables(): Promise<string[]> {
   const rows = await prisma.$queryRawUnsafe<{ tablename: string }[]>(
-    `SELECT tablename FROM pg_tables WHERE schemaname = 'public'`,
+    `SELECT c.relname::text AS tablename
+       FROM pg_class c
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public'
+        AND c.relkind IN ('r', 'p')
+        AND c.relispartition = false`,
   );
   const tables = rows
     .map(r => r.tablename)
