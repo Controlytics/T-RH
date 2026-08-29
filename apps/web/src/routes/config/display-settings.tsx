@@ -3,6 +3,7 @@ import { FieldIdsPage } from './field-ids';
 import { AuditTemplatesConfigPage } from './audit-templates';
 import { PaginationConfigPage } from './pagination';
 import { PageHeader } from '@/components/ui/page-header';
+import { Tabs, TabPanel } from '@/components/ui/tabs';
 
 /**
  * Display Settings — one SUPER_ADMIN page combining Field ID Names, Audit Text
@@ -35,29 +36,26 @@ export function DisplaySettingsPage() {
         }
       />
 
-      {/* Tab bar */}
-      <div className="seg w-full sm:w-fit">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            onClick={() => setTab(t.key)}
-            // aria-pressed is what PAINTS the active segment (see .seg-btn in
-            // app.css), so the look and the announced state cannot drift apart.
-            aria-pressed={tab === t.key}
-            className="seg-btn flex-1 sm:flex-none"
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {/* Tab bar — <Tabs> since 2026-08-29 (audit M4). Keeps the `.seg`
+          treatment via variant="segmented"; what it adds is the keyboard
+          contract (arrow keys, roving tabindex, real aria-controls) that four
+          other hand-rolled bars were each missing in their own way. */}
+      <Tabs
+        tabs={TABS.map((t) => ({ id: t.key, label: t.label }))}
+        active={tab}
+        onChange={setTab}
+        idPrefix="display-settings"
+        variant="segmented"
+        aria-label="Display settings sections"
+        className="w-full sm:w-fit"
+      />
 
       {/* Active panel */}
-      <div>
+      <TabPanel id={tab} idPrefix="display-settings">
         {tab === 'fields' && <FieldIdsPage />}
         {tab === 'audit' && <AuditTemplatesConfigPage />}
         {tab === 'pagination' && <PaginationConfigPage />}
-      </div>
+      </TabPanel>
     </div>
   );
 }

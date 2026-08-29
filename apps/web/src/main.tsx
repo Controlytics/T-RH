@@ -23,21 +23,27 @@ import { EditUserPage } from './routes/users/edit';
 import { ResetRequestsPage } from './routes/users/reset-requests';
 import { ConfigIndexPage } from './routes/config/index';
 import { PasswordPolicyPage } from './routes/config/password-policy';
-import { InstrumentAttributesConfigPage } from './routes/config/instrument-attributes';
-import { FloorplansConfigPage } from './routes/config/floorplans';
-import { AlarmRulesConfigPage } from './routes/config/alarm-rules';
-import { AlarmWebhooksConfigPage } from './routes/config/alarm-webhooks';
+const InstrumentAttributesConfigPage = lazy(() => import('./routes/config/instrument-attributes').then(m => ({ default: m.InstrumentAttributesConfigPage })));
+const FloorplansConfigPage = lazy(() => import('./routes/config/floorplans').then(m => ({ default: m.FloorplansConfigPage })));
+const AlarmRulesConfigPage = lazy(() => import('./routes/config/alarm-rules').then(m => ({ default: m.AlarmRulesConfigPage })));
+const AlarmWebhooksConfigPage = lazy(() => import('./routes/config/alarm-webhooks').then(m => ({ default: m.AlarmWebhooksConfigPage })));
 import { DatetimeConfigPage } from './routes/config/datetime';
+// 2026-08-29 (audit L7, corrected): route-level splitting was ALREADY here —
+// 23 routes were lazy. What the audit got wrong was "none"; what was true is
+// that the heaviest CONFIG pages were still eager, including
+// alarm-webhooks.tsx (959 lines), floorplans.tsx (772) and role-access.tsx.
+// Those are the least frequently visited screens in the product and they were
+// being parsed on every login, including on the tablets. Moved below.
 const ReportPageTitlesPage = lazy(() => import('./routes/config/report-page-titles').then(m => ({ default: m.ReportPageTitlesPage })));
 const ExportOptionsPage = lazy(() => import('./routes/config/export-options').then(m => ({ default: m.ExportOptionsPage })));
 const AppearanceConfigPage = lazy(() => import("./routes/config/appearance").then(m => ({ default: m.AppearanceConfigPage })));
-import { RoleAccessPage } from './routes/config/role-access';
+const RoleAccessPage = lazy(() => import('./routes/config/role-access').then(m => ({ default: m.RoleAccessPage })));
 const DisplaySettingsPage = lazy(() => import("./routes/config/display-settings").then(m => ({ default: m.DisplaySettingsPage })));
 import { UserIdConfigPage } from './routes/config/user-id';
-import { AccessMatrixPage } from './routes/config/access-matrix';
-import { BackupRestorePage } from './routes/config/backup';
+const AccessMatrixPage = lazy(() => import('./routes/config/access-matrix').then(m => ({ default: m.AccessMatrixPage })));
+const BackupRestorePage = lazy(() => import('./routes/config/backup').then(m => ({ default: m.BackupRestorePage })));
 import { DynamicConfigPage } from './routes/config/dynamic-config';
-import { ActionReauthPage } from './routes/config/action-reauth';
+const ActionReauthPage = lazy(() => import('./routes/config/action-reauth').then(m => ({ default: m.ActionReauthPage })));
 import { NotificationsPage } from './routes/notifications/index';
 import { ProfilePage } from './routes/profile/index';
 import { ToastProvider } from './components/toast-provider';

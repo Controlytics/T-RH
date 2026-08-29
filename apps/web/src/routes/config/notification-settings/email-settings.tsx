@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { useDatetimeFormat } from '../../../hooks/use-datetime-format';
 import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
 import { PageHeader } from '@/components/ui/page-header';
+import { Tabs } from '@/components/ui/tabs';
 
 // ─── Email Types & Constants ──────────────────────────────────────────
 interface EmailConfig {
@@ -100,29 +101,36 @@ function ChannelSettingsPage({ defaultTab = 'email' }: { defaultTab?: 'email' | 
         }
       />
 
-      {/* Tabs */}
-      <div className="seg" role="group" aria-label="Channel">
-        <button
-          onClick={() => setTab('email')}
-          aria-pressed={tab === 'email'}
-          className="seg-btn flex-1"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-          </svg>
-          Email (SMTP)
-        </button>
-        <button
-          onClick={() => setTab('sms')}
-          aria-pressed={tab === 'sms'}
-          className="seg-btn flex-1"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
-          </svg>
-          SMS
-        </button>
-      </div>
+      {/* <Tabs> since 2026-08-29 (audit M4). This was `role="group"` +
+          aria-pressed, which announced correctly but offered no arrow-key
+          movement; the primitive supplies it. */}
+      <Tabs
+        tabs={[
+          {
+            id: 'email' as const,
+            label: 'Email (SMTP)',
+            icon: (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+            ),
+          },
+          {
+            id: 'sms' as const,
+            label: 'SMS',
+            icon: (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+              </svg>
+            ),
+          },
+        ]}
+        active={tab}
+        onChange={setTab}
+        idPrefix="notification-channel"
+        variant="segmented"
+        aria-label="Channel"
+      />
 
       {tab === 'email' && <EmailTab />}
       {tab === 'sms' && <SmsTab />}

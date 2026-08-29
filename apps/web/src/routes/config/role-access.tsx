@@ -22,6 +22,7 @@ import { PanelAccessTab } from './roles-components/panel-access-tab';
 import { AttributeAccessTab } from './roles-components/attribute-access-tab';
 import type { ReauthTabHandle } from './roles-components/reauth-tab';
 import { PageHeader } from '@/components/ui/page-header';
+import { Tabs, TabPanel } from '@/components/ui/tabs';
 
 type TabId = 'roles' | 'permissions' | 'sidebar' | 'reauth' | 'instrument-scope' | 'attribute-access' | 'panels';
 
@@ -125,6 +126,7 @@ export function RoleAccessPage() {
   };
 
   // ── Tab definitions ──
+  const TABS_ID = 'role-access';
   const tabs: { id: TabId; label: string; icon: string }[] = [
     { id: 'roles', label: 'Roles', icon: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z' },
     { id: 'permissions', label: 'Permissions', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
@@ -216,94 +218,89 @@ export function RoleAccessPage() {
       {/* Tab Bar */}
       <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-soft overflow-hidden">
         {/*
-          The .seg pass and 90d6f2c's sweep both missed this one — the largest
-          tab bar in the product, and it set NO ARIA state, so which of the seven
-          tabs was active was invisible to a screen reader. It also answered
-          VIOLET, a colour the design system does not contain and no theme
-          changes. aria-selected now paints the active tab, so the look and the
-          announced state are one fact, and the accent is the site theme.
-          `aria-pressed`, NOT `role="tab"`: the tab role advertises a keyboard
-          contract — arrow keys, roving tabindex, aria-controls onto seven
-          tabpanels — that this bar does not implement, and ARIA that promises a
-          behaviour it does not have is worse than none. aria-pressed is also
-          what `.seg` uses, so this matches the precedent 90d6f2c set.
-          Not `.seg` itself: this is a full-width underlined bar inside a card,
-          not a chip group, and reshaping it is a design change, not a fix.
+          Migrated to <Tabs> 2026-08-29 (audit M4). This was the largest of FIVE
+          hand-rolled tab bars in the product. `9a9bb9e` had reverted this bar
+          from role="tab" to aria-pressed, correctly, because the tab role
+          promises arrow keys, roving tabindex and aria-controls onto real
+          tabpanels and this bar implemented none of them. The primitive now
+          implements all three (components/ui/tabs.tsx, 17 tests), so the role
+          is honest and the reversal no longer applies.
         */}
-        <div className="flex border-b border-slate-200">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              aria-pressed={activeTab === tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 px-6 py-4 text-sm font-medium transition-all flex items-center justify-center gap-2 ${
-                activeTab === tab.id
-                  ? 'bg-[var(--theme-primary,#2a78d6)]/10 text-[var(--theme-primary,#2a78d6)] border-b-2 border-[var(--theme-primary,#2a78d6)]'
-                  : 'text-slate-600 hover:bg-slate-50'
-              }`}
-            >
+        <Tabs
+          tabs={tabs.map((t) => ({
+            id: t.id,
+            label: t.label,
+            icon: (
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={tab.icon} />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={t.icon} />
               </svg>
-              {tab.label}
-            </button>
-          ))}
-        </div>
+            ),
+          }))}
+          active={activeTab}
+          onChange={setActiveTab}
+          idPrefix={TABS_ID}
+          aria-label="Role configuration"
+        />
       </div>
 
-      {/* ═══════════════════ ROLES TAB ═══════════════════ */}
-      {activeTab === 'roles' && (
-        <>
-          <RoleTable roles={roles} isLoading={rolesLoading} isSuperAdmin={isSuperAdmin} onEdit={openEditDialog} onDelete={openDeleteDialog} />
+      {/* One TabPanel for the whole region: exactly one branch below is
+          mounted at a time, so the panel aria-controls names is the one
+          really in the tree. */}
+      <TabPanel id={activeTab} idPrefix={TABS_ID}>
+        {/* ═══════════════════ ROLES TAB ═══════════════════ */}
+        {activeTab === 'roles' && (
+          <>
+            <RoleTable roles={roles} isLoading={rolesLoading} isSuperAdmin={isSuperAdmin} onEdit={openEditDialog} onDelete={openDeleteDialog} />
 
-          {/* Info Banner */}
-          <div className="relative overflow-hidden rounded-[var(--radius-card)] bg-gradient-to-r from-purple-50 via-indigo-50 to-blue-50 border border-purple-100/50 p-5">
-            <div className="flex items-start gap-4">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-slate-100 text-slate-600">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-              </div>
-              <div>
-                <h3 className="font-bold text-purple-900 mb-1">Role Hierarchy</h3>
-                <p className="text-sm text-purple-700">
-                  Users can only create or manage users with roles of equal or lower hierarchy level.
-                  System roles (marked with the System badge) cannot be deleted but their permissions can be customized.
-                </p>
+            {/* Info Banner */}
+            <div className="relative overflow-hidden rounded-[var(--radius-card)] bg-gradient-to-r from-purple-50 via-indigo-50 to-blue-50 border border-purple-100/50 p-5">
+              <div className="flex items-start gap-4">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-slate-100 text-slate-600">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                </div>
+                <div>
+                  <h3 className="font-bold text-purple-900 mb-1">Role Hierarchy</h3>
+                  <p className="text-sm text-purple-700">
+                    Users can only create or manage users with roles of equal or lower hierarchy level.
+                    System roles (marked with the System badge) cannot be deleted but their permissions can be customized.
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
 
-          <RoleFormDialog open={showCreateDialog} onClose={() => setShowCreateDialog(false)} title="Create New Role" formData={formData} setFormData={setFormData} error={error} saving={saving} onSubmit={handleCreate} isEdit={false} />
-          <RoleDeleteDialog open={showDeleteDialog} role={deleteTarget} error={deleteError} deleting={deleting} onClose={() => setShowDeleteDialog(false)} onDelete={handleDelete} />
-          <RoleFormDialog open={showEditDialog} onClose={() => setShowEditDialog(false)} title={`Edit Role: ${selectedRoleForEdit?.displayName}`} formData={formData} setFormData={setFormData} error={error} saving={saving} onSubmit={handleUpdate} isEdit={true} isSystem={selectedRoleForEdit?.isSystem} />
-        </>
-      )}
+            <RoleFormDialog open={showCreateDialog} onClose={() => setShowCreateDialog(false)} title="Create New Role" formData={formData} setFormData={setFormData} error={error} saving={saving} onSubmit={handleCreate} isEdit={false} />
+            <RoleDeleteDialog open={showDeleteDialog} role={deleteTarget} error={deleteError} deleting={deleting} onClose={() => setShowDeleteDialog(false)} onDelete={handleDelete} />
+            <RoleFormDialog open={showEditDialog} onClose={() => setShowEditDialog(false)} title={`Edit Role: ${selectedRoleForEdit?.displayName}`} formData={formData} setFormData={setFormData} error={error} saving={saving} onSubmit={handleUpdate} isEdit={true} isSystem={selectedRoleForEdit?.isSystem} />
+          </>
+        )}
 
-      {/* ═══════════════════ PERMISSIONS TAB ═══════════════════ */}
-      {activeTab === 'permissions' && (
-        <PermissionsTab ref={permissionsRef} selectableRoles={selectableRoles} onStateChange={setPermState} />
-      )}
+        {/* ═══════════════════ PERMISSIONS TAB ═══════════════════ */}
+        {activeTab === 'permissions' && (
+          <PermissionsTab ref={permissionsRef} selectableRoles={selectableRoles} onStateChange={setPermState} />
+        )}
 
-      {/* ═══════════════════ SIDEBAR TAB ═══════════════════ */}
-      {activeTab === 'sidebar' && (
-        <SidebarTab ref={sidebarRef} activeRoles={activeRoles || []} onStateChange={setSidebarState} />
-      )}
+        {/* ═══════════════════ SIDEBAR TAB ═══════════════════ */}
+        {activeTab === 'sidebar' && (
+          <SidebarTab ref={sidebarRef} activeRoles={activeRoles || []} onStateChange={setSidebarState} />
+        )}
 
-      {/* ═══════════════════ RE-AUTH TAB ═══════════════════ */}
-      {activeTab === 'reauth' && (
-        <ReauthTab ref={reauthRef} selectableRoles={selectableRoles} onStateChange={setReauthState} />
-      )}
+        {/* ═══════════════════ RE-AUTH TAB ═══════════════════ */}
+        {activeTab === 'reauth' && (
+          <ReauthTab ref={reauthRef} selectableRoles={selectableRoles} onStateChange={setReauthState} />
+        )}
 
-      {/* Instrument Scope saves per row through its own endpoints (each save is
-          reauth-gated and audited server-side), so it deliberately does NOT
-          participate in this page's shared save/reset bar — a single Save covering
-          every role and user at once would make one careless click a mass
-          visibility change. */}
-      {activeTab === 'instrument-scope' && <InstrumentScopeTab />}
-      {activeTab === 'panels' && <PanelAccessTab />}
-      {/* Saves per row through its own endpoint, for the reason written in the
-          tab: a rule that names attribute KEYS must not ride in a bulk save where
-          an accidental clear looks like a deliberate one. */}
-      {activeTab === 'attribute-access' && <AttributeAccessTab />}
+        {/* Instrument Scope saves per row through its own endpoints (each save is
+            reauth-gated and audited server-side), so it deliberately does NOT
+            participate in this page's shared save/reset bar — a single Save covering
+            every role and user at once would make one careless click a mass
+            visibility change. */}
+        {activeTab === 'instrument-scope' && <InstrumentScopeTab />}
+        {activeTab === 'panels' && <PanelAccessTab />}
+        {/* Saves per row through its own endpoint, for the reason written in the
+            tab: a rule that names attribute KEYS must not ride in a bulk save where
+            an accidental clear looks like a deliberate one. */}
+        {activeTab === 'attribute-access' && <AttributeAccessTab />}
+      </TabPanel>
 
       {/* Reauth Dialog */}
       <ReauthDialog

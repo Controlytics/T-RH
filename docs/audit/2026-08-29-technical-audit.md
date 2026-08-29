@@ -2046,7 +2046,7 @@ what the module does.
 | L4 | In-memory rate limiter and webhook cooldown — single-instance ceiling | `app.ts:189`, `alarm-webhooks/` |
 | L5 | `certs/rootCA.pem` is a decoy that has already cost two investigations | `certs/` |
 | L6 | Hardcoded demo password in an operator script | `apps/api/scripts/demo-live-scenario.ts` |
-| L7 | No route-level code splitting — all 51 routes in the initial bundle | `apps/web/src/main.tsx` |
+| ~~L7~~ | ⚠️ **PARTLY WRONG.** "No route-level code splitting" was false — `main.tsx:1` imports `lazy`/`Suspense` and **23 routes were already lazy**. The audit's evidence line said "No `React.lazy` was found", which simply was not looked for hard enough. What WAS true is narrower: the heaviest **config** pages were still eager — `alarm-webhooks.tsx` (959 lines), `floorplans.tsx` (772), `role-access.tsx`, `alarm-rules.tsx` and four more — so the least-visited screens in the product were parsed on every login. Fixed 2026-08-29: 23 → 31 lazy routes. | `apps/web/src/main.tsx` |
 | L8 | 80 MB log retention may be short for §11 diagnostics | `scripts/register-services.ps1:78-82` |
 | L9 | 6 duplicate exports (two names per symbol) | `lib/api-client.ts`, `shared/types/roles.ts`, 3 pages |
 | L10 | Test URLs reference the removed filter domain | `api-client-reauth-shape.test.ts` |

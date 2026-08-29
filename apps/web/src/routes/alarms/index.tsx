@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { AcknowledgeDialog } from './acknowledge-dialog';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { PageHeader } from '@/components/ui/page-header';
+import { Tabs } from '@/components/ui/tabs';
 import { SkeletonRows } from '@/components/ui/skeleton';
 import {
   filterByTab, needsAcknowledgement, severityTone, triggeredText,
@@ -106,21 +107,19 @@ export default function AlarmsPage() {
       </div>
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="seg">
-          {(['active', 'history'] as const).map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setTab(t)}
-              // aria-pressed is what PAINTS the active segment (see .seg-btn in
-              // app.css), so the look and the announced state cannot drift apart.
-              aria-pressed={tab === t}
-              className="seg-btn capitalize"
-            >
-              {t}
-            </button>
-          ))}
-        </div>
+        {/* <Tabs> since 2026-08-29 (audit M4) — same `.seg` look, plus the
+            keyboard contract, in one place. */}
+        <Tabs
+          tabs={[
+            { id: 'active' as const, label: 'Active' },
+            { id: 'history' as const, label: 'History' },
+          ]}
+          active={tab}
+          onChange={setTab}
+          idPrefix="alarms"
+          variant="segmented"
+          aria-label="Alarm view"
+        />
         <label className="flex items-center gap-2 text-sm text-slate-700">
           <input
             type="checkbox"

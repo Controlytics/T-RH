@@ -7,6 +7,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useDatetimeFormat } from '../../../hooks/use-datetime-format';
 import { PageHeader } from '@/components/ui/page-header';
+import { Tabs } from '@/components/ui/tabs';
 import { EmptyState } from '@/components/ui/empty-state';
 
 // ─── Types ────────────────────────────────────────────────────────────
@@ -150,34 +151,33 @@ export function NotificationRulesPage() {
         }
       />
 
-      {/* Tabs */}
-      {/*
-        A THIRD segmented control the .seg pass missed — slate-100 tray, white
-        active chip, elev-1: the exact shape `.seg` describes, hand-rolled, and
-        setting no ARIA state, so which of the four sections was active was
-        invisible to a screen reader. `aria-pressed` is what paints the chip
-        now, so the look and the announced state cannot drift apart.
-      */}
-      <div className="seg flex w-full">
-        {[
+      {/* Tabs — <Tabs> since 2026-08-29 (audit M4).
+          This was the THIRD hand-rolled segmented control the .seg pass found,
+          which is the argument for a primitive rather than a fourth sweep. It
+          keeps the `.seg` look and gains arrow-key movement and real
+          aria-controls. */}
+      <Tabs
+        tabs={[
           { key: 'rules' as const, label: 'Rules', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
           { key: 'groups' as const, label: 'User Groups', icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z' },
           { key: 'templates' as const, label: 'Templates', icon: 'M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6z' },
           { key: 'logs' as const, label: 'Delivery Logs', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01' },
-        ].map(t => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            aria-pressed={tab === t.key}
-            className="seg-btn flex-1"
-          >
+        ].map((t) => ({
+          id: t.key,
+          label: t.label,
+          icon: (
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={t.icon} />
             </svg>
-            {t.label}
-          </button>
-        ))}
-      </div>
+          ),
+        }))}
+        active={tab}
+        onChange={setTab}
+        idPrefix="notification-rules"
+        variant="segmented"
+        aria-label="Notification sections"
+        className="flex w-full"
+      />
 
       {tab === 'rules' && <RulesTab />}
       {tab === 'groups' && <GroupsTab />}
