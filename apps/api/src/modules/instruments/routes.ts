@@ -21,11 +21,11 @@ import { sanitizeStrings } from '../../lib/sanitize.js';
 import { generateToken, hashToken, tokenPrefix, tokenMatches } from './token.js';
 import { encryptToken, decryptToken, tokenKeyConfigured } from './token-crypto.js';
 import { parseInstrumentCsv, type InstrumentDraft } from './bulk-csv.js';
-import { buildTelemetryOverview, loadAliases, instrumentLimits } from './telemetry-overview.js';
+import { buildTelemetryOverview, loadAliases, instrumentLimits, loadActiveWindowMinutes } from './telemetry-overview.js';
 import { loadLimitConfig } from '../alarms/load-limits.js';
 import { loadDecimalsConfig, decimalsFor, annotateAttribute } from './decimals.js';
 import { loadAttributeAccess, refuseAttributeWrite, needsReauth } from './attribute-access.js';
-import { ATTRIBUTE_REMARK_MAX, lttb } from '@digilog/shared';
+import { ATTRIBUTE_REMARK_MAX, lttb, isInstrumentReporting } from '@digilog/shared';
 import { invalidateIngestAuthCache } from './ingest-auth.js';
 import { invalidateChildMapCache } from './gateway-children.js';
 import {
@@ -549,6 +549,64 @@ export default async function instrumentRoutes(app: FastifyInstance) {
   // GET /api/instruments/telemetry-overview — every instrument's current
   // temperature and humidity, in one request.
   //
+  // GET /activity-summary — how many instruments exist, and how many are
+  // REPORTING. Registered before '/:id' for the same reason
+  // '/telemetry-overview' is.
+  //
+  // Exists because the dashboard's "All Instruments" card needs the same split
+  // the Block and Area cards show, and the location tree cannot supply it: the
+  // tree only counts PLACED instruments, and this installation has one with no
+  // functional location. Summing the tree would have quietly under-reported the
+  // headline while the cards beneath it added up to something else.
+  //
+  // Active means REPORTING, judged by `isInstrumentReporting` — the same rule
+  // Configuration → Instrument Activity describes and telemetry-overview
+  // applies. Deliberately not `isActive`: that is the administrator's
+  // enable/disable flag, and counting it produced "101 active" on a plant that
+  // had not reported for two days.
+  app.get('/activity-summary', {
+    preHandler: [app.requirePermission('INSTRUMENT_READ')],
+    schema: {
+      tags: ['Instruments'],
+      summary: 'How many instruments are visible, and how many are reporting',
+      description:
+        'Counts are narrowed to the caller\'s instrument visibility, so they never '
+        + 'disclose the size of an estate the caller cannot see. `active` counts '
+        + 'instruments reporting within their expected interval, or within the '
+        + 'site-wide active window when they declare none.',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            total: { type: 'integer' },
+            active: { type: 'integer' },
+            /** Minutes; the fallback window in force, so a caller can explain the split. */
+            activeWindowMinutes: { type: 'integer' },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req) => {
+    const { where: visibility } = await resolveVisibility(buildContext(req));
+    const [rows, activeWindowMinutes] = await Promise.all([
+      prisma.instrument.findMany({
+        where: withVisibility({}, visibility) as never,
+        select: { lastSeenAt: true, expectedIntervalSec: true },
+      }),
+      loadActiveWindowMinutes(),
+    ]);
+    // One `now` for the whole pass, so the window cannot move mid-count.
+    const now = new Date();
+    let active = 0;
+    for (const r of rows) {
+      if (isInstrumentReporting(r.lastSeenAt, r.expectedIntervalSec, activeWindowMinutes, now)) {
+        active += 1;
+      }
+    }
+    return { total: rows.length, active, activeWindowMinutes };
+  });
+
   // Registered BEFORE '/:id' so the static path wins the match, exactly as
   // '/eligible-children' does. Without that ordering the param route claims it
   // and rejects "telemetry-overview" as a malformed uuid — a 400, not a 404,

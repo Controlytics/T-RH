@@ -103,7 +103,7 @@ export async function loadAliases(): Promise<{ temperature: string[]; humidity: 
  * interval. `isInstrumentReporting` — the ONE definition of reporting in this
  * system — takes it in minutes.
  */
-async function loadActiveWindowMinutes(): Promise<number> {
+export async function loadActiveWindowMinutes(): Promise<number> {
   const row = await prisma.systemConfig.findUnique({ where: { configKey: 'instrument-activity' } });
   const cfg = (row?.configValue ?? {}) as Record<string, unknown>;
   return typeof cfg.activeWindowMinutes === 'number'

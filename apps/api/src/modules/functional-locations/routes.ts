@@ -7,6 +7,8 @@ import { errorResponses } from '../../lib/error-schemas.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { validateFlDraft, type FlType } from './validation.js';
 import { buildTree, locationPath, resolveLocationIds, type FlNode, type LocationCount } from './tree.js';
+import { isInstrumentReporting } from '@digilog/shared';
+import { loadActiveWindowMinutes } from '../instruments/telemetry-overview.js';
 import { resolveVisibility, withVisibility, type ScopeWhere } from '../instruments/visibility.js';
 
 /**
@@ -66,35 +68,59 @@ async function loadNodes(): Promise<FlNode[]> {
  * locations would make the plant's structure change depending on who is looking —
  * including for the admin picking locations to grant.
  */
+/**
+ * Instruments per location, split into total and ACTIVE.
+ *
+ * ACTIVE MEANS REPORTING, NOT ENABLED.
+ *
+ * The first cut of this counted `Instrument.isActive`, which is the
+ * enable/disable flag an administrator sets. Every instrument on this
+ * installation is enabled, so every card read "101 active · 0 inactive" while
+ * nothing had reported for two days — a number that was technically true of
+ * the column and useless, arguably worse than useless, to anyone reading the
+ * dashboard to see whether the plant was alive.
+ *
+ * The product already defines Active, in Configuration → Instrument Activity:
+ * "Active means it is sending telemetry ... reads Active while it has reported
+ * within this many minutes, and Inactive after. Instruments that declare an
+ * expected interval are judged against that instead." `isInstrumentReporting`
+ * in @digilog/shared is the ONE implementation of that rule, and
+ * telemetry-overview.ts already uses it, so the dashboard cards and the
+ * instrument list cannot disagree about who is reporting.
+ *
+ * Evaluated in JS rather than SQL because the rule is per-instrument: an
+ * instrument with its own `expectedIntervalSec` is judged against that
+ * contract, not against the site fallback, so there is no single interval a
+ * WHERE clause could compare against.
+ */
 async function loadOwnCounts(visibility?: ScopeWhere): Promise<Map<string, LocationCount>> {
-  // Two groupBys rather than one over (functionalLocationId, isActive): the
-  // pair shape would need flattening back into per-location totals anyway, and
-  // a location with only inactive instruments must still report total > 0 with
-  // active 0 — easy to lose when reducing a two-key grouping.
-  const [all, active] = await Promise.all([
-    prisma.instrument.groupBy({
-      by: ['functionalLocationId'],
-      _count: { _all: true },
+  const [rows, activeWindowMinutes] = await Promise.all([
+    prisma.instrument.findMany({
       where: withVisibility({ functionalLocationId: { not: null } }, visibility) as never,
+      select: {
+        functionalLocationId: true,
+        lastSeenAt: true,
+        expectedIntervalSec: true,
+      },
     }),
-    prisma.instrument.groupBy({
-      by: ['functionalLocationId'],
-      _count: { _all: true },
-      where: withVisibility(
-        { functionalLocationId: { not: null }, isActive: true },
-        visibility,
-      ) as never,
-    }),
+    loadActiveWindowMinutes(),
   ]);
-  const activeById = new Map(
-    active.map((g) => [g.functionalLocationId as string, g._count._all]),
-  );
-  return new Map(
-    all.map((g) => [
-      g.functionalLocationId as string,
-      { total: g._count._all, active: activeById.get(g.functionalLocationId as string) ?? 0 },
-    ]),
-  );
+
+  // One `now` for the whole pass. Calling new Date() per instrument would let
+  // the window move mid-count, so two instruments seen at the same instant
+  // could land on opposite sides of it.
+  const now = new Date();
+  const counts = new Map<string, LocationCount>();
+  for (const r of rows) {
+    const id = r.functionalLocationId as string;
+    const cur = counts.get(id) ?? { total: 0, active: 0 };
+    cur.total += 1;
+    if (isInstrumentReporting(r.lastSeenAt, r.expectedIntervalSec, activeWindowMinutes, now)) {
+      cur.active += 1;
+    }
+    counts.set(id, cur);
+  }
+  return counts;
 }
 
 export default async function functionalLocationRoutes(app: FastifyInstance) {

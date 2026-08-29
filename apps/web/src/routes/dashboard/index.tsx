@@ -74,12 +74,16 @@ export function DashboardPage() {
   // shows only the instruments that happen to be placed — 5 of 20 here — while its
   // own view shows all 20.
   const { data: allInstruments } = useSWR<{ total?: number }>('/api/instruments?limit=1');
-  // A second count query rather than a new endpoint: the list already filters
-  // on isActive and returns `total`, so `limit=1` is a count, not a page. Both
-  // are scoped by the caller's instrument visibility for free, which a bespoke
-  // aggregate would have had to reimplement.
-  const { data: activeInstruments } = useSWR<{ total?: number }>(
-    '/api/instruments?limit=1&isActive=true',
+  // ACTIVE = REPORTING, not `isActive`.
+  //
+  // This first used `/api/instruments?limit=1&isActive=true`, which counts the
+  // administrator's enable/disable flag. Every instrument here is enabled, so
+  // the card read "101 active · 0 inactive" while nothing had reported for two
+  // days. `/activity-summary` applies `isInstrumentReporting` — the same rule
+  // Configuration → Instrument Activity describes and the Block/Area cards use
+  // — so the headline and the cards beneath it cannot disagree.
+  const { data: activitySummary } = useSWR<{ total?: number; active?: number }>(
+    '/api/instruments/activity-summary',
   );
   // Alarm counts for the overview card. Fetched only when the viewer may read alarms —
   // the endpoint 403s otherwise, and a card showing 0 because of a permission error
@@ -89,8 +93,8 @@ export function DashboardPage() {
     canSeeAlarms ? '/api/alarms/summary' : null,
   );
   const nav = useMemo(
-    () => resolveNav(selected, tree?.data ?? [], allInstruments?.total, activeInstruments?.total),
-    [selected, tree, allInstruments?.total, activeInstruments?.total],
+    () => resolveNav(selected, tree?.data ?? [], allInstruments?.total, activitySummary?.active),
+    [selected, tree, allInstruments?.total, activitySummary?.active],
   );
 
   const go = (fl: string | null) => {
