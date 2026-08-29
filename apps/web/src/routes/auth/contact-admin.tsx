@@ -58,13 +58,15 @@ export function ContactAdminPage() {
       // Delta-audit (May 16 H1) — endpoint now returns minimal info to prevent
       // unauthenticated org enumeration. Email + role + department dropped;
       // operator must type them in the form below.
-      const data = await res.json() as { exists: boolean; username: string; fullName: string | null };
+      const data = await res.json() as { exists: boolean; username: string };
       if (!data.exists) {
         setRequesterLookupError('Employee ID does not exist in the application');
         return;
       }
-      setRequesterUser({ username: data.username, fullName: data.fullName ?? '', email: '', department: null, role: '', roleDisplayName: '', status: '' });
-      setRequesterName(data.fullName ?? '');
+      // fullName is no longer returned (audit M1 — PII to an anonymous caller);
+      // the operator types their own name in the field below.
+      setRequesterUser({ username: data.username, fullName: '', email: '', department: null, role: '', roleDisplayName: '', status: '' });
+      
     } catch (err: any) {
       setRequesterLookupError(err.message ?? 'Lookup failed');
     } finally {
@@ -116,12 +118,13 @@ export function ContactAdminPage() {
         setLookupError(data.message ?? `Lookup failed (${res.status})`);
         return;
       }
-      const data = await res.json() as { exists: boolean; username: string; fullName: string | null };
+      const data = await res.json() as { exists: boolean; username: string };
       if (!data.exists) {
         setLookupError('Employee ID does not exist in the application');
         return;
       }
-      setLookupUser({ username: data.username, fullName: data.fullName ?? '', email: '', department: null, role: '', roleDisplayName: '', status: '' });
+      // fullName is no longer returned (audit M1 — PII to an anonymous caller).
+      setLookupUser({ username: data.username, fullName: '', email: '', department: null, role: '', roleDisplayName: '', status: '' });
     } catch (err: any) {
       setLookupError(err.message ?? 'Lookup failed');
     } finally {

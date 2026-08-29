@@ -203,7 +203,20 @@ await app.register(fastifyStatic, {
 await app.register(authPlugin);
 await app.register(rbacPlugin);
 
-// Rate limiter for error notifications (max 1 per minute)
+// Rate limiter for error notifications (max 1 per minute).
+//
+// ⚠ SINGLE-INSTANCE STATE (audit L4). This counter, and the alarm-webhook
+// cooldown map in modules/alarm-webhooks/, are module-level variables. They are
+// correct for the ONE api process this system is deployed as (a Windows service
+// per host, see docs/deployment-methods/build-sheet.md) and silently wrong the
+// moment a second instance runs: N instances means N error notifications per
+// minute, and N buzzer fires per cooldown window.
+//
+// This is a deliberate accepted constraint, not an oversight. Moving it to
+// Postgres would be straightforward — an advisory lock or a
+// `last_fired_at` row — and is the FIRST thing to do if horizontal scaling is
+// ever wanted. Written here rather than in a design doc because this is the
+// line someone will be looking at when they wonder why the alerts doubled.
 let lastErrorNotification = 0;
 
 // Global error handler — maps AppError to HTTP responses

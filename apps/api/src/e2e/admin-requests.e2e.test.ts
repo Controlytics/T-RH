@@ -131,7 +131,9 @@ describe('admin-requests e2e', () => {
       expect(Object.keys(hit.body).sort()).toEqual(Object.keys(miss.body).sort());
     });
 
-    it.each(['email', 'department', 'role', 'status', 'passwordHash', 'id'])(
+    // fullName joined this list 2026-08-29 (audit M1) — it was the last real
+    // PII returned to an unauthenticated caller who guessed an employee id.
+    it.each(['email', 'department', 'role', 'status', 'passwordHash', 'id', 'fullName'])(
       'never returns %s',
       async (field) => {
         const { body } = await lookup(realUsername);

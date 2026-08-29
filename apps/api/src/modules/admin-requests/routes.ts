@@ -100,19 +100,32 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
           properties: {
             exists: { type: 'boolean' },
             username: { type: 'string' },
-            fullName: { type: ['string', 'null'] },
           },
         },
       },
     },
   }, async (req) => {
     const { username } = req.query as { username: string };
+    // 2026-08-29 (audit M1): `fullName` REMOVED from this response.
+    //
+    // The 2026-05-20 hardening dropped email/department/role/status and
+    // equalised the status code, but left the employee's real name being
+    // returned to an unauthenticated caller who guessed an id — 20 guesses per
+    // IP per 15 minutes, which distributed is not a brake. A name is the PII
+    // here; the form never needed it (it only prefilled a display field).
+    //
+    // `exists` STAYS, deliberately. It is a weaker oracle than a name, and the
+    // contact-admin form's whole job is to tell someone they typed their
+    // employee ID wrong before they wait days for an admin to reject the
+    // request. Removing it means accepting any id and resolving validity
+    // administratively — a product decision, recorded as the remaining half of
+    // M1 rather than taken here.
     const user = await prisma.user.findUnique({
       where: { username: username.trim() },
-      select: { username: true, fullName: true },
+      select: { username: true },
     });
-    if (!user) return { exists: false, username: username.trim(), fullName: null };
-    return { exists: true, username: user.username, fullName: user.fullName };
+    if (!user) return { exists: false, username: username.trim() };
+    return { exists: true, username: user.username };
   });
 
   // 2. GET / — List all requests (admin only)
