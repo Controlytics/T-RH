@@ -112,17 +112,18 @@ export function useTelemetryOverview(opts?: string | { floorplanId?: string; fun
     ? `/api/instruments/telemetry-overview?${qs.toString()}`
     : '/api/instruments/telemetry-overview';
 
-  const { data, error, isLoading, mutate, isValidating } = useSWR<{ data: OverviewRow[] }>(url, {
+  const { data, error, isLoading } = useSWR<{ data: OverviewRow[] }>(url, {
     refreshInterval: overviewRefreshMs,
     revalidateOnFocus: true,
     dedupingInterval: 1000,
   });
 
-  // `mutate`/`isValidating` back the table's manual refresh control. The poll
-  // already runs on `overviewRefreshMs`; this is for the reader who wants to know
-  // NOW rather than wait out the interval, and it revalidates the same SWR key
-  // rather than issuing a second, competing fetch.
-  return { rows: data?.data ?? [], isLoading, error, refreshMs: overviewRefreshMs, refresh: mutate, isValidating };
+  // No `mutate` is exported. The table had a manual refresh button for one commit
+  // (2026-08-29) and the operator removed it: this hook already polls on
+  // `overviewRefreshMs` and revalidates on focus, so the button only re-asked a
+  // question that was being asked anyway. `refreshMs` stays because callers may
+  // want to SAY how often it polls, even though the table no longer does.
+  return { rows: data?.data ?? [], isLoading, error, refreshMs: overviewRefreshMs };
 }
 
 /**

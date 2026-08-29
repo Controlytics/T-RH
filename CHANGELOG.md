@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased] - Readings table: counts line and refresh button removed (2026-08-29)
+
+Operator: the table already updates by itself, so a manual refresh only re-asks a
+question that is being asked anyway. Correct — `useTelemetryOverview` polls on
+`overviewRefreshMs` and revalidates on window focus. **No count moved.** Files:
+`routes/dashboard/{telemetry-table,use-telemetry}.tsx`.
+
+- Removed "N of N instruments · N offline · updates every 5s" and the refresh
+  button beside it. The toolbar is now search + Filters.
+- **The plumbing went with them, rather than being left dead:**
+  `useTelemetryOverview` no longer returns `refresh`/`isValidating` (added one
+  commit earlier for that button), and `offlineCount` is gone from the component.
+  `refreshMs` stays on the hook — the floorplan panel still uses it.
+- **The instrument count is not lost**: the pager already reads "1–25 of 101",
+  and it tracks the active filter, which the removed line also did.
+
+One precision, since the reasoning matters if this is ever revisited: the table
+**polls**, it is not pushed to. A new reading appears within one interval (5s),
+not the instant it lands — there is no websocket behind this panel. The
+behaviour the operator described is what they see; the mechanism is a poll.
+
+Still present and NOT touched, because it is a different panel: the Floorplan
+card carries its own "updates every 5s" line.
+
 ## [Unreleased] - Instrument Readings rebuilt to the SECOND screen-2 reference (2026-08-29)
 
 `screen-2.png` was **replaced at 18:29**, ten minutes after the table was built to

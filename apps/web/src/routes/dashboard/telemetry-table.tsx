@@ -158,7 +158,7 @@ function setPointSource(source: OverviewRow['limitSource']): string | undefined 
 }
 
 export function TelemetryTable({ functionalLocationId, directOnly }: { functionalLocationId?: string; directOnly?: boolean } = {}) {
-  const { rows, isLoading, error, refreshMs, refresh, isValidating } = useTelemetryOverview({ functionalLocationId, directOnly });
+  const { rows, isLoading, error } = useTelemetryOverview({ functionalLocationId, directOnly });
   const [sort, setSort] = useState<SortKey>('code');
   const [asc, setAsc] = useState(true);
   const [query, setQuery] = useState('');
@@ -224,7 +224,6 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
 
   const arrow = (k: SortKey) => (sort === k ? (asc ? ' ↑' : ' ↓') : '');
   const sortable = 'cursor-pointer select-none';
-  const offlineCount = shown.filter((r) => !r.reporting).length;
   const activeFilters = (statusFilter !== 'all' ? 1 : 0) + (breachOnly ? 1 : 0);
 
   return (
@@ -296,34 +295,6 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
           )}
         </div>
 
-        <div className="flex items-center gap-3">
-          {/* Stated, not implied: this is a poll, not a live stream. */}
-          <p className="text-xs text-slate-500">
-            {shown.length} of {rows.length} instruments
-            {offlineCount > 0 && (
-              <> &middot; <span className="font-semibold text-red-700">{offlineCount} offline</span></>
-            )}
-            {' '}&middot; updates every {Math.round(refreshMs / 1000)}s
-          </p>
-          {/* Manual refresh. The poll above still runs — this is for the reader who
-              wants the answer now rather than at the end of the interval. It
-              revalidates the SAME SWR key, so it cannot race the poll. */}
-          <button
-            type="button"
-            onClick={() => { void refresh(); }}
-            disabled={isValidating}
-            title="Refresh readings now"
-            aria-label="Refresh readings now"
-            className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:opacity-50"
-          >
-            <svg
-              className={`h-4 w-4 ${isValidating ? 'animate-spin' : ''}`}
-              fill="none" stroke="currentColor" viewBox="0 0 24 24"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h5M20 20v-5h-5M20 9A8 8 0 006 5.3M4 15a8 8 0 0014 3.7" />
-            </svg>
-          </button>
-        </div>
       </div>
 
       <div className="overflow-hidden overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-elevated">
