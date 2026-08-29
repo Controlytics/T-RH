@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Pagination } from '@/components/ui/pagination';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { SkeletonRows } from '@/components/ui/skeleton';
 
 /**
  * The instruments register, laid out around the question it is actually opened
@@ -241,7 +242,7 @@ export function InstrumentListPage() {
           </thead>
           <tbody className="divide-y divide-slate-100">
             {isLoading && (
-              <tr><td colSpan={3} className="py-10 text-center text-slate-400">Loading…</td></tr>
+              <tr><td colSpan={3} className="px-4 py-4"><SkeletonRows rows={4} columns={3} /></td></tr>
             )}
 
             {!isLoading && rows.length === 0 && (

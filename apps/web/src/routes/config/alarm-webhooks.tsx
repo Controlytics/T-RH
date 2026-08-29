@@ -15,6 +15,8 @@ import { Button } from '@/components/ui/button';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { PageHeader } from '@/components/ui/page-header';
+import { SkeletonRows } from '@/components/ui/skeleton';
+import { EmptyState } from '@/components/ui/empty-state';
 
 export interface WebhookTarget {
   id: string;
@@ -356,9 +358,9 @@ export function AlarmWebhooksConfigPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {isLoading && <tr><td colSpan={9} className="px-4 py-8 text-center text-slate-500">Loading…</td></tr>}
+            {isLoading && <tr><td colSpan={9} className="px-4 py-4"><SkeletonRows rows={4} columns={6} /></td></tr>}
             {!isLoading && targets.length === 0 && (
-              <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-500">No targets.</td></tr>
+              <tr><td colSpan={9} className="px-4 py-2"><EmptyState compact title="No targets" /></td></tr>
             )}
             {targets.map((t) => (
               <tr key={t.id} className="hover:bg-slate-50">
@@ -594,7 +596,7 @@ function TargetDetail({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {isLoading && <tr><td colSpan={6} className="px-4 py-6 text-center text-slate-500">Loading…</td></tr>}
+            {isLoading && <tr><td colSpan={6} className="px-4 py-4"><SkeletonRows rows={4} columns={6} /></td></tr>}
             {!isLoading && rows.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-4 py-6 text-center text-slate-500">

@@ -7,6 +7,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useDatetimeFormat } from '../../../hooks/use-datetime-format';
 import { PageHeader } from '@/components/ui/page-header';
+import { EmptyState } from '@/components/ui/empty-state';
 
 // ─── Types ────────────────────────────────────────────────────────────
 interface EventTypeMeta { value: string; label: string; module: string; variables: string[] }
@@ -963,7 +964,7 @@ function LogsTab() {
             </thead>
             <tbody>
               {logs.length === 0 && (
-                <tr><td colSpan={7} className="text-center py-12 text-slate-400">No notification logs found</td></tr>
+                <tr><td colSpan={7} className="px-4 py-2"><EmptyState compact title="No notification logs found" /></td></tr>
               )}
               {logs.map((log) => (
                 <tr key={log.id} className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer" onClick={() => setExpandedId(expandedId === log.id ? null : log.id)}>

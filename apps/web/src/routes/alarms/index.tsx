@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { AcknowledgeDialog } from './acknowledge-dialog';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { PageHeader } from '@/components/ui/page-header';
+import { SkeletonRows } from '@/components/ui/skeleton';
 import {
   filterByTab, needsAcknowledgement, severityTone, triggeredText,
   instrumentLabel, statusText, alarmTypeText, limitText, clearedText,
@@ -167,7 +168,7 @@ export default function AlarmsPage() {
           </thead>
           <tbody className="divide-y divide-slate-100">
             {isLoading && (
-              <tr><td colSpan={11} className="px-4 py-8 text-center text-slate-500">Loading…</td></tr>
+              <tr><td colSpan={11} className="px-4 py-4"><SkeletonRows rows={4} columns={6} /></td></tr>
             )}
             {!isLoading && rows.length === 0 && (
               <tr>

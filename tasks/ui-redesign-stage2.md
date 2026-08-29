@@ -83,19 +83,39 @@ done as passes rather than page by page:
 - [x] Users row actions: **Disable is amber, Delete is red.** They were both red,
       side by side, one of them irreversible.
 
-## Tier 5 — NOT DONE. What a follow-up session should pick up
+## Tier 5 — page headers and states (done)
 
-- [ ] **`PageHeader` + breadcrumbs adoption: 2 of ~42 pages.** Most pages still
-      assemble their own header (icon tile + title + actions). They are now
-      CONSISTENT with each other — the h1 pass saw to that — but they carry no
-      breadcrumbs, so §24/§25 of the brief are only partly met. `dynamic-config`
-      and `config/index` show the target shape.
-- [ ] **Empty and loading states (§18/§19)** — `EmptyState`, `ErrorState`,
-      `Skeleton` exist and are barely adopted. Several lists still render nothing,
-      or a bare "Loading…", where a skeleton belongs.
-- [ ] **Per-page section-icon colour** — pages give each section its own tinted
-      icon tile (orange/purple/green). It reads as deliberate, but no rule governs
-      which colour means what.
+- [x] **`PageHeader` + breadcrumbs: 2 → 32 pages** (breadcrumbs on 34). PageHeader
+      gained an optional `icon` drawn in ONE treatment — the theme's colour at a
+      12% tint — replacing nineteen per-page gradient tiles. The back-chevron
+      above the title went with it on the pages that had one: the breadcrumb's
+      parent link is the way back.
+- [x] **Empty and loading states** — table "Loading…" rows became `SkeletonRows`;
+      empty rows became `EmptyState` with a title, a consequence and an action.
+
+### Left un-migrated ON PURPOSE (not an oversight)
+
+- **Auth screens** (`login`, `forgot-password`, `contact-admin`) — no app chrome
+  and no breadcrumbs: a "Home" crumb on a logged-out page bounces the visitor
+  into a login redirect. `contact-admin` was migrated by the script and REVERTED
+  for exactly this, plus it had eaten the page's only link back to login.
+- **`routes/dashboard/index.tsx`** — its header sits on a translucent plate so
+  the title stays legible over the operator's wallpaper. PageHeader has no plate.
+- **`instruments/list` and `profile`** — white-on-gradient identity strips, not
+  page headers. Flattening them would remove a deliberate design.
+- **`instruments/detail`, `functional-locations/detail`, `users/edit`,
+  `trend-header`** — contextual identity headers whose title is the record.
+  Worth migrating one day; each needs a judgement about what the crumb trail
+  says for a record that may have been renamed.
+
+## Tier 6 — still open
+
+- [ ] **~30 non-table loading strings** ("Loading configuration…", "Loading user
+      data…") outside a table body. Each needs a skeleton shaped like the thing
+      it is replacing, which is a per-screen judgement, not a pattern.
+- [ ] **Per-page section-icon colour** — pages give each SECTION (not the page
+      header) its own tinted icon tile. It reads as deliberate, but no rule
+      governs which colour means what.
 - [ ] **Remaining filter/action chips** — Field IDs' module filter and the audit
       `ACTION_COLORS` map are per-item colour codings, not statuses. They are
       internally consistent; unifying them would destroy the coding.

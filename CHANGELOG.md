@@ -113,6 +113,36 @@ Separately: **Disable and Delete** sat side by side in the same red on every use
 row. Disable is amber now — two identical buttons an inch apart, one
 irreversible, is how the wrong one gets pressed.
 
+### Page headers, breadcrumbs, and empty states
+
+**PageHeader adoption 2 → 32 pages; breadcrumbs on 34.** §24/§25. PageHeader
+gained an optional `icon`, drawn in ONE treatment for every page — the theme's
+own colour at a 12% tint — replacing nineteen per-page gradient tiles that had
+made the page title compete with the status colours that carry meaning. The
+back-chevron above the title went with them: the breadcrumb's parent link is the
+way back, and two ways back a centimetre apart is one more than a screen needs.
+
+Migrated with a JSX tag-matcher after a regex managed 2 of 41. It had to be
+taught that the innermost `<div>` around an `<h1>` is the TITLE GROUP, not the
+header row (picking it turned the description into an "action" and dropped the
+icon), and that headers carrying action buttons are better done by hand than by
+a re-indenting heuristic that produced valid, unreadable JSX.
+
+**One functional regression, and how it was found.** On `contact-admin` the
+script read an `<a href="/login">` back-arrow as the page's icon and dropped the
+link — removing the only way back to login from a page a locked-out user
+reaches. It also gave that unauthenticated page a "Home" breadcrumb that would
+bounce a logged-out visitor into a login redirect. Caught by a script that
+compares every link in each migrated file before and after; it flagged eight
+files, seven of them false positives (the `/config` chevron, intentionally
+replaced by a breadcrumb that links to `/config` as data rather than markup).
+A check with seven false positives and one true one is still the check worth
+having. Auth screens are now excluded by rule.
+
+Table "Loading…" rows became `SkeletonRows`; empty rows became `EmptyState` with
+a title, the consequence, and the action that fixes it — an empty Alarm Rules
+table is not a neutral state, it means nothing is being watched.
+
 ### Deliberately excluded
 
 `routes/dashboard/` panel-card geometry (tuned with the operator days earlier),

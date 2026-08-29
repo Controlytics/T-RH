@@ -9,6 +9,8 @@ import { ReauthDialog } from '@/components/reauth-dialog';
 import { RuleDialog, type RuleDraft } from './alarm-rule-dialog';
 import { PageHeader } from '@/components/ui/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { SkeletonRows } from '@/components/ui/skeleton';
+import { EmptyState } from '@/components/ui/empty-state';
 
 export interface AlarmRule {
   id: string;
@@ -151,11 +153,22 @@ export function AlarmRulesConfigPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {isLoading && <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-500">Loading…</td></tr>}
+            {isLoading && <tr><td colSpan={7} className="px-4 py-4"><SkeletonRows rows={4} columns={6} /></td></tr>}
             {!isLoading && rules.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-slate-500">
-                  No alarm rules yet. Without one, nothing is watched and no alarm can ever be raised.
+                <td colSpan={7} className="px-4 py-2">
+                  {/* The consequence stays in the description: an empty rules
+                      table is not a neutral state here, it means nothing is
+                      being watched. */}
+                  <EmptyState
+                    title="No alarm rules yet"
+                    description="Without one, nothing is watched and no alarm can ever be raised."
+                    action={canManage && (
+                      <Button onClick={() => { setEditing(undefined); setDialogOpen(true); }}>
+                        New Rule
+                      </Button>
+                    )}
+                  />
                 </td>
               </tr>
             )}
