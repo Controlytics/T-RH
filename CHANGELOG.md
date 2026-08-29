@@ -1,5 +1,53 @@
 # Changelog
 
+## [Unreleased] - Instrument Readings rebuilt to the SECOND screen-2 reference (2026-08-29)
+
+`screen-2.png` was **replaced at 18:29**, ten minutes after the table was built to
+its first version, with a materially different design. This entry supersedes the
+previous one. Check the image's mtime before assuming the code drifted from it.
+**No count moved.** Files: `routes/dashboard/{telemetry-table,use-telemetry}.tsx`,
+`app.css`.
+
+What changed from the first version: **gradient headers, each with an icon**;
+**zebra rows** instead of per-column body washes; the hue moved **into the reading
+itself** rather than the cell behind it; **unit suffixes** (°C, %) on the values; a
+**Filters** control; and a **rows-per-page + pager** footer.
+
+- **The reading takes its column's hue while in spec — and red still wins on a
+  breach.** Every row in the reference happens to be within limits, so the image
+  cannot show what a breach looks like; adopting hue alone would have silently
+  deleted the only limit signal left on this screen (Status reports online/offline,
+  not spec). Both states are decided by `outOfSpec`, the rule the alarms agree with.
+  Verified live: "out of spec only" returns 17 rows carrying 18 red readings — one
+  row breaches on both channels — so the filter and the colouring cannot disagree.
+
+- **Header gradients run between two contrast-passing steps.** 11px bold uppercase
+  is NOT "large text" under WCAG, so it needs 4.5:1 on white; the reference's tones
+  measure 3.1-3.6:1. Each gradient's lightest end still passes. Do not flatten
+  these to the image's raw values.
+
+- **The trend cell is an ICON, not a sparkline.** The reference draws a little line
+  per row. A real one needs each instrument's HISTORY, which
+  `/api/instruments/telemetry-overview` does not return — 101 rows would mean 101
+  history requests — and a decorative squiggle shaped like a chart would be read as
+  data it is not. It links through to the true series.
+
+- **Room names are clamped to two lines.** This install's instrument names run past
+  70 characters ("Working standard & reference Standard storage Room (or) stability
+  Room"), which wrapped to six lines and made one row as tall as four. Full text on
+  hover.
+
+- Filters and paging are **client-side**: the overview payload is already the whole
+  visibility-scoped set in hand, so paging costs no request and cannot disagree
+  with the counts beside the search box. Page number is derived and clamped, never
+  stored — a stored page survives a filter that shortens the list and strands the
+  reader on an empty screen.
+
+Verified on :5176 against 101 live rows: 25 per page, pager advances (page 2 starts
+CWH/RDU/026-00), status filter returns 0 for Online (all 101 are offline, matching
+the header count), refresh revalidates, console clean. tsc clean; 131 dashboard
+tests pass.
+
 ## [Unreleased] - Instrument Readings table restyled to `screen-2.png` (2026-08-29)
 
 Operator supplied `screen-2.png` and asked for the table's UI to match its theme.
