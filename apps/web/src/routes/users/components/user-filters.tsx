@@ -33,8 +33,8 @@ export function UserFilters({
   return (
     <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-[var(--elev-2)] p-6">
       <div className="flex items-center gap-2 mb-4">
-        <div className="p-2 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-500">
-          <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-slate-100 text-slate-600">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
           </svg>
         </div>
@@ -66,8 +66,8 @@ export function UserFilters({
           <div className="min-w-[200px]">
             <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Role</label>
             <div className="relative group">
-              <div className="absolute left-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-gradient-to-br from-purple-100 to-indigo-100 z-10 pointer-events-none">
-                <svg className="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-slate-400">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                 </svg>
               </div>
@@ -75,7 +75,7 @@ export function UserFilters({
                 value={roleFilter}
                 onChange={(e) => { setRoleFilter(e.target.value); setPage(1); }}
                 variant="filled"
-                className="pl-12 h-12"
+                className="pl-10"
               >
                 <option value="">All Roles</option>
                 {availableRoles.map((r) => (
@@ -87,8 +87,8 @@ export function UserFilters({
           <div className="min-w-[180px]">
             <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Status</label>
             <div className="relative group">
-              <div className="absolute left-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-gradient-to-br from-emerald-100 to-teal-100 z-10 pointer-events-none">
-                <svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-slate-400">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
@@ -96,7 +96,7 @@ export function UserFilters({
                 value={statusFilter}
                 onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
                 variant="filled"
-                className="pl-12 h-12"
+                className="pl-10"
               >
                 <option value="">All Statuses</option>
                 {['ENABLED', 'DISABLED', 'LOCKED', 'EXPIRED'].map((s) => (

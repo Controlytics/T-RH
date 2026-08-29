@@ -100,7 +100,7 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
           <div className="h-1 bg-gradient-to-r from-violet-500 via-purple-500 to-indigo-500" />
           <CardContent className="p-6">
             <div className="flex items-center gap-3 mb-5">
-              <div className="p-2.5 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 text-white shadow-[var(--elev-2)]">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-slate-100 text-slate-600">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                 </svg>
@@ -134,7 +134,7 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
                       {permSelectedRole === role.name && (
                         <div className="absolute -top-1 -right-1">
                           <div className="w-5 h-5 rounded-full flex items-center justify-center shadow-[var(--elev-2)]" style={{ background: color }}>
-                            <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                             </svg>
                           </div>
@@ -319,7 +319,7 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
                                       : 'bg-white border-slate-300 group-hover:border-slate-400'
                                   }`}>
                                     {permissions[node.id] && (
-                                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                                       </svg>
                                     )}
@@ -411,7 +411,7 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
                               : 'bg-white border-slate-300 group-hover:border-slate-400'
                           }`}>
                             {permissions[node.id] && (
-                              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                               </svg>
                             )}
@@ -441,7 +441,7 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
         <div className="relative overflow-hidden rounded-[var(--radius-card)] bg-gradient-to-r from-amber-50 via-orange-50 to-red-50 border border-amber-100/50 p-5">
           <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-amber-500/10 to-orange-500/10 rounded-full blur-3xl" />
           <div className="relative flex items-start gap-4">
-            <div className="flex-shrink-0 p-3 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-[var(--elev-2)]">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-slate-100 text-slate-600">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
               </svg>

@@ -127,7 +127,7 @@ export function BrandingConfigPage() {
               <div className="h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-violet-500" />
               <CardContent className="p-6">
                 <div className="flex items-center gap-3 mb-5">
-                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-[var(--elev-2)]">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-slate-100 text-slate-600">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2" />
                     </svg>
@@ -164,7 +164,7 @@ export function BrandingConfigPage() {
               <div className="h-1 bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500" />
               <CardContent className="p-6">
                 <div className="flex items-center gap-3 mb-5">
-                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-[var(--elev-2)]">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-slate-100 text-slate-600">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                     </svg>
@@ -195,7 +195,7 @@ export function BrandingConfigPage() {
               <div className="h-1 bg-gradient-to-r from-cyan-500 via-blue-500 to-violet-500" />
               <CardContent className="p-6">
                 <div className="flex items-center gap-3 mb-5">
-                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-[var(--elev-2)]">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-slate-100 text-slate-600">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
                     </svg>
@@ -238,6 +238,9 @@ export function BrandingConfigPage() {
                         <p className="text-[10px] text-slate-400 leading-tight mt-0.5">{theme.description.split('—')[1]?.trim() || theme.description}</p>
                         {isSelected && (
                           <div className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center" style={{ backgroundColor: theme.colors.primary }}>
+                            {/* White because the ground is the THEME's own
+                                primary colour, set inline above — a class-based
+                                sweep cannot see that, so this one is explicit. */}
                             <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
                           </div>
                         )}
@@ -282,7 +285,7 @@ export function BrandingConfigPage() {
             <div className="relative overflow-hidden rounded-[var(--radius-card)] bg-gradient-to-r from-violet-50 via-purple-50 to-fuchsia-50 border border-violet-100/50 p-5">
               <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-violet-500/10 to-purple-500/10 rounded-full blur-3xl" />
               <div className="relative flex items-start gap-4">
-                <div className="flex-shrink-0 p-3 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 text-white shadow-[var(--elev-2)]">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-slate-100 text-slate-600">
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>

@@ -131,9 +131,9 @@ export function ForgotPasswordPage() {
                 )}
 
                 <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-slate-700">User ID</label>
+                  <label className="block text-[13px] font-medium text-slate-700">User ID</label>
                   <div className="relative">
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
+                    <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                       </svg>
@@ -143,7 +143,7 @@ export function ForgotPasswordPage() {
                       onChange={(e) => setUsername(e.target.value)}
                       placeholder="Enter your User ID"
                       autoFocus
-                      className="h-12 pl-12 pr-4 text-base rounded-xl border border-slate-200 bg-slate-50/50 transition-all"
+                      className="pl-11"
                     />
                   </div>
                 </div>
