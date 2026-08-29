@@ -135,15 +135,15 @@ export default function AlarmsPage() {
               <th className="px-4 py-3">Instrument ID</th>
               <th className="px-4 py-3">Type</th>
               <th className="px-4 py-3">Raised</th>
-              <th className="px-4 py-3 whitespace-nowrap">Value (°C / %RH)</th>
+              <th className="px-4 py-3 whitespace-nowrap">Value<UnitLine>(°C / %RH)</UnitLine></th>
               <th className="px-4 py-3">Limit</th>
               <th className="px-4 py-3">Cleared</th>
-              <th className="px-4 py-3 whitespace-nowrap">Cleared (°C / %RH)</th>
+              <th className="px-4 py-3 whitespace-nowrap">Cleared<UnitLine>(°C / %RH)</UnitLine></th>
               <th className="px-4 py-3">Status</th>
               {/* H = hours, m = minutes. Abbreviated because the spelled-out
                   legend was the widest header on the page and pushed the table
                   past the viewport. */}
-              <th className="px-4 py-3 whitespace-nowrap" title="H = hours, m = minutes">Duration (H/m)</th>
+              <th className="px-4 py-3 whitespace-nowrap" title="H = hours, m = minutes">Duration<UnitLine>(H/m)</UnitLine></th>
               <th className="px-4 py-3">Acknowledged</th>
               <th className="px-4 py-3" />
             </tr>
@@ -227,6 +227,16 @@ const QUADRANT_TONE: Record<AlarmQuadrant, string> = {
   'cleared-ack': 'bg-slate-50 border-slate-200 text-slate-900',
   'cleared-unack': 'bg-orange-50 border-orange-200 text-orange-900',
 };
+
+/**
+ * The bracketed legend under a column name rather than beside it (operator,
+ * 2026-08-29). `block` is what puts it on its own line; keeping it inside the
+ * same <th> means the two lines stay one sortable, one-cell heading rather than
+ * becoming a second header row that every colSpan would then have to know about.
+ */
+function UnitLine({ children }: { children: React.ReactNode }) {
+  return <span className="block font-normal normal-case tracking-normal opacity-70">{children}</span>;
+}
 
 function FilterTile({
   label, value, tone, selected, onClick,
