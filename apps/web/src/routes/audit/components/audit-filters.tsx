@@ -78,7 +78,7 @@ export function AuditFilters({
                   placeholder="Search by user, action, target..."
                   value={search}
                   onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-                  className="pl-10 h-12 rounded-xl border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
+                  className="pl-10"
                 />
               </div>
             </div>

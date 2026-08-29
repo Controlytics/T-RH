@@ -65,7 +65,7 @@ export function Pagination({ page, pageSize, totalItems, onPageChange, onPageSiz
             <select
               value={pageSize}
               onChange={(e) => { onPageSizeChange(Number(e.target.value)); onPageChange(1); }}
-              className="border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
+              className="ctl ctl-sm"
             >
               {sizeOptions.map((o) => <option key={o} value={o}>{o}</option>)}
             </select>

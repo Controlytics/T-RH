@@ -124,15 +124,14 @@ export function AggregateTrendCard({
             <p className="text-[11px] text-slate-500">{derivedNote(data.instrumentCount)}</p>
           )}
         </div>
-        <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
+        <div className="seg" role="group" aria-label="Aggregation window">
           {WINDOWS.map((w) => (
             <button
               key={w}
               type="button"
               onClick={() => onWindowChange(w)}
-              className={`rounded-md px-3 py-1 text-xs font-semibold transition-all ${
-                w === win ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-              }`}
+              aria-pressed={w === win}
+              className="seg-btn"
             >
               {w}
             </button>

@@ -262,7 +262,7 @@ export function FieldIdsPage() {
                                 <Input
                                   value={editValue}
                                   onChange={(e) => setEditValue(e.target.value)}
-                                  className="max-w-xs h-10 rounded-lg border-cyan-300 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20"
+                                  className="max-w-xs"
                                   autoFocus
                                   onKeyDown={(e) => {
                                     if (e.key === 'Enter') handleSave(field.fieldId);

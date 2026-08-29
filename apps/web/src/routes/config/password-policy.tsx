@@ -146,7 +146,7 @@ export function PasswordPolicyPage() {
               <label className="flex items-center gap-3 cursor-pointer group">
                 <div className="relative">
                   <input type="checkbox" {...register('autoLogoutEnabled')} className="sr-only peer" />
-                  <div className="w-11 h-6 bg-slate-200 peer-focus:ring-4 peer-focus:ring-indigo-500/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600 transition-colors"></div>
+                  <div className="w-11 h-6 bg-slate-200 peer-focus:ring-2 peer-focus:ring-[var(--theme-primary,#2a78d6)]/25 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--theme-primary,#2a78d6)] transition-colors"></div>
                 </div>
                 <div>
                   <span className="text-sm font-semibold text-slate-700 group-hover:text-slate-900">Enable Auto-Logout on Idle</span>

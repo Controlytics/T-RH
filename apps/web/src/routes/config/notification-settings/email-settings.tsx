@@ -101,12 +101,11 @@ function ChannelSettingsPage({ defaultTab = 'email' }: { defaultTab?: 'email' | 
       />
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-slate-100 rounded-xl p-1">
+      <div className="seg" role="group" aria-label="Channel">
         <button
           onClick={() => setTab('email')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-medium transition-all ${
-            tab === 'email' ? 'bg-white text-slate-800 shadow-[var(--elev-1)]' : 'text-slate-500 hover:text-slate-700'
-          }`}
+          aria-pressed={tab === 'email'}
+          className="seg-btn flex-1"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
@@ -115,9 +114,8 @@ function ChannelSettingsPage({ defaultTab = 'email' }: { defaultTab?: 'email' | 
         </button>
         <button
           onClick={() => setTab('sms')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-medium transition-all ${
-            tab === 'sms' ? 'bg-white text-slate-800 shadow-[var(--elev-1)]' : 'text-slate-500 hover:text-slate-700'
-          }`}
+          aria-pressed={tab === 'sms'}
+          className="seg-btn flex-1"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
@@ -274,7 +272,7 @@ function EmailTab() {
             </div>
             <label className="relative inline-flex items-center cursor-pointer">
               <input type="checkbox" {...register('enabled')} className="sr-only peer" />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-[var(--theme-primary,#2a78d6)]/25 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--theme-primary,#2a78d6)]"></div>
             </label>
           </div>
         </div>
@@ -740,7 +738,7 @@ function SmsTab() {
             </div>
             <label className="relative inline-flex items-center cursor-pointer">
               <input type="checkbox" {...register('enabled')} className="sr-only peer" />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-green-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-[var(--theme-primary,#2a78d6)]/25 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--theme-primary,#2a78d6)]"></div>
             </label>
           </div>
         </div>

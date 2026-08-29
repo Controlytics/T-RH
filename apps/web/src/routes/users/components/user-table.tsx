@@ -129,7 +129,7 @@ export function UserTable({
               )}
               <TableCell>
                 <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#1e3a5f] to-[#3b82f6] flex items-center justify-center text-white font-semibold text-sm shadow-[var(--elev-1)]">
+                  <div className="w-11 h-11 rounded-xl bg-[var(--theme-primary,#2a78d6)] flex items-center justify-center text-white font-semibold text-sm shadow-[var(--elev-1)]">
                     {user.fullName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
                   </div>
                   <div>

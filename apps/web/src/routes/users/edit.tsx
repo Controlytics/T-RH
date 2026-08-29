@@ -447,7 +447,7 @@ export function EditUserPage() {
         </DialogHeader>
         <div className="space-y-5">
           <div className="flex items-center gap-4 p-4 rounded-xl bg-slate-50 border border-slate-200">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#1e3a5f] to-[#3b82f6] flex items-center justify-center text-lg font-semibold text-white">
+            <div className="w-12 h-12 rounded-xl bg-[var(--theme-primary,#2a78d6)] flex items-center justify-center text-lg font-semibold text-white">
               {userData.fullName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
             </div>
             <div>

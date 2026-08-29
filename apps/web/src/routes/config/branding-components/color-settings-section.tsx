@@ -43,7 +43,7 @@ export function ColorSettingsSection({
                     className="h-10 w-14 cursor-pointer rounded-[var(--radius-control)] border border-slate-300 bg-white p-1 transition-colors hover:border-slate-400"
                   />
                 </div>
-                <Input {...register('primaryColor')} placeholder="#1e3a5f" className="flex-1 rounded-xl h-11 font-mono text-sm" />
+                <Input {...register('primaryColor')} placeholder="#1e3a5f" className="flex-1 font-mono" />
               </div>
               {errors.primaryColor && <p className="text-xs text-red-500">{errors.primaryColor.message}</p>}
             </div>
@@ -55,7 +55,7 @@ export function ColorSettingsSection({
                   {...register('secondaryColor')}
                   className="h-10 w-14 cursor-pointer rounded-[var(--radius-control)] border border-slate-300 bg-white p-1 transition-colors hover:border-slate-400"
                 />
-                <Input {...register('secondaryColor')} placeholder="#3b82f6" className="flex-1 rounded-xl h-11 font-mono text-sm" />
+                <Input {...register('secondaryColor')} placeholder="#3b82f6" className="flex-1 font-mono" />
               </div>
               {errors.secondaryColor && <p className="text-xs text-red-500">{errors.secondaryColor.message}</p>}
             </div>
@@ -67,7 +67,7 @@ export function ColorSettingsSection({
                   {...register('accentColor')}
                   className="h-10 w-14 cursor-pointer rounded-[var(--radius-control)] border border-slate-300 bg-white p-1 transition-colors hover:border-slate-400"
                 />
-                <Input {...register('accentColor')} placeholder="#8b5cf6" className="flex-1 rounded-xl h-11 font-mono text-sm" />
+                <Input {...register('accentColor')} placeholder="#8b5cf6" className="flex-1 font-mono" />
               </div>
               {errors.accentColor && <p className="text-xs text-red-500">{errors.accentColor.message}</p>}
             </div>
@@ -100,7 +100,7 @@ export function ColorSettingsSection({
                   {...register('gradientStart')}
                   className="h-10 w-14 cursor-pointer rounded-[var(--radius-control)] border border-slate-300 bg-white p-1 transition-colors hover:border-slate-400"
                 />
-                <Input {...register('gradientStart')} placeholder="#3b82f6" className="flex-1 rounded-xl h-11 font-mono text-sm" />
+                <Input {...register('gradientStart')} placeholder="#3b82f6" className="flex-1 font-mono" />
               </div>
             </div>
             <div className="space-y-2">
@@ -111,7 +111,7 @@ export function ColorSettingsSection({
                   {...register('gradientMiddle')}
                   className="h-10 w-14 cursor-pointer rounded-[var(--radius-control)] border border-slate-300 bg-white p-1 transition-colors hover:border-slate-400"
                 />
-                <Input {...register('gradientMiddle')} placeholder="#8b5cf6" className="flex-1 rounded-xl h-11 font-mono text-sm" />
+                <Input {...register('gradientMiddle')} placeholder="#8b5cf6" className="flex-1 font-mono" />
               </div>
             </div>
             <div className="space-y-2">
@@ -122,7 +122,7 @@ export function ColorSettingsSection({
                   {...register('gradientEnd')}
                   className="h-10 w-14 cursor-pointer rounded-[var(--radius-control)] border border-slate-300 bg-white p-1 transition-colors hover:border-slate-400"
                 />
-                <Input {...register('gradientEnd')} placeholder="#ec4899" className="flex-1 rounded-xl h-11 font-mono text-sm" />
+                <Input {...register('gradientEnd')} placeholder="#ec4899" className="flex-1 font-mono" />
               </div>
             </div>
           </div>
