@@ -16,6 +16,8 @@ export interface NavNode {
   ownCount: number;
   /** This node's instruments plus every descendant's. */
   totalCount: number;
+  /** Of totalCount, how many are active. Inactive is derived, never sent. */
+  activeCount: number;
   children: NavNode[];
 }
 
@@ -34,6 +36,13 @@ export interface NavCard {
   label: string;
   sublabel: string;
   count: number;
+  /**
+   * Of `count`, how many are active. Optional because the "directly linked"
+   * card is built from a Block's own instruments, where the split is not
+   * rolled up separately — a card without it simply shows no breakdown rather
+   * than showing a wrong one.
+   */
+  activeCount?: number;
 }
 
 export interface NavCrumb {
@@ -61,7 +70,12 @@ const flatten = (tree: NavNode[]): NavNode[] => tree.flatMap((b) => [b, ...b.chi
  *   the "All Instruments" card would read 5 while its own view showed 20. Omitted,
  *   it falls back to the tree sum and is explicitly wrong for unplaced instruments.
  */
-export function resolveNav(selected: string | null, tree: NavNode[], totalInstruments?: number): Nav {
+export function resolveNav(
+  selected: string | null,
+  tree: NavNode[],
+  totalInstruments?: number,
+  activeInstruments?: number,
+): Nav {
   const topLevel = (): Nav => ({
     level: 0,
     cards: [
@@ -70,6 +84,10 @@ export function resolveNav(selected: string | null, tree: NavNode[], totalInstru
         label: 'All Instruments',
         sublabel: 'Every registered instrument',
         count: totalInstruments ?? tree.reduce((sum, b) => sum + b.totalCount, 0),
+        // Same reasoning as `count` above: the tree only sums PLACED
+        // instruments, so an unplaced one would be missing from the split and
+        // "active + inactive" would not equal the total on the same card.
+        activeCount: activeInstruments ?? tree.reduce((sum, b) => sum + b.activeCount, 0),
       },
       ...tree.map((b) => ({
         id: b.id,
@@ -78,6 +96,7 @@ export function resolveNav(selected: string | null, tree: NavNode[], totalInstru
         // ROLLED-UP, not own: a card reading "1" for a Block holding 4 would
         // understate it and make the drill-down look pointless.
         count: b.totalCount,
+        activeCount: b.activeCount,
       })),
     ],
     breadcrumb: [],
@@ -156,12 +175,23 @@ export function resolveNav(selected: string | null, tree: NavNode[], totalInstru
         label: a.name,
         sublabel: 'Area',
         count: a.totalCount,
+        activeCount: a.activeCount,
       })),
     ],
     breadcrumb: [{ label: 'Dashboard', id: null }, { label: node.name, id: node.id }],
-    // Cards AND views: clicking a Block should answer "how is this Block doing?"
-    // straight away rather than forcing a second click into an Area.
-    showViews: true,
+    // CARDS ONLY at Block level (changed 2026-08-29, operator's call).
+    //
+    // This used to render the Area cards AND the whole panel grid — telemetry
+    // table, floor view, trend charts — on the reasoning that clicking a Block
+    // should answer "how is this Block doing?" without a second click. In
+    // practice it buried the Areas under a screen of widgets, so the one thing
+    // the click was for became the hardest thing to find.
+    //
+    // The panels are not gone: they still render for an AREA, and for the
+    // Block's own directly-linked instruments via the "direct" card above.
+    // A Block is now a chooser, and the level below it is where you look at
+    // readings.
+    showViews: false,
     functionalLocationId: node.id,
     directOnly: false,
   };

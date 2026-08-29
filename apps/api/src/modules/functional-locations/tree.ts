@@ -30,6 +30,15 @@ export interface FlTreeNode extends FlNode {
   ownCount: number;
   /** This location's instruments plus every descendant's. */
   totalCount: number;
+  /**
+   * Of `totalCount`, how many are active (`Instrument.isActive`).
+   *
+   * Only the ACTIVE figure is carried; inactive is derived as
+   * `totalCount - activeCount` at the point of display. Sending both invites
+   * the two to disagree after a filter change, and a card showing
+   * "100 total, 60 active, 30 inactive" is a bug report waiting to happen.
+   */
+  activeCount: number;
   children: FlTreeNode[];
 }
 
@@ -104,7 +113,12 @@ const bySortThenName = (a: FlNode, b: FlNode) => {
  * the FK is RESTRICT so it cannot happen, but rendering an orphan as a Block would
  * misrepresent the hierarchy to whoever is reading it.
  */
-export function buildTree(all: FlNode[], counts: Map<string, number>): FlTreeNode[] {
+export interface LocationCount {
+  total: number;
+  active: number;
+}
+
+export function buildTree(all: FlNode[], counts: Map<string, LocationCount>): FlTreeNode[] {
   const blocks = all.filter((n) => n.type === 'BLOCK').sort(bySortThenName);
 
   // Only BLOCKs become roots, so an AREA whose parent is missing is simply never
@@ -114,18 +128,26 @@ export function buildTree(all: FlNode[], counts: Map<string, number>): FlTreeNod
     const children: FlTreeNode[] = all
       .filter((n) => n.type === 'AREA' && n.parentId === block.id)
       .sort(bySortThenName)
-      .map((area) => ({
-        ...area,
-        ownCount: counts.get(area.id) ?? 0,
-        totalCount: counts.get(area.id) ?? 0,
-        children: [],
-      }));
+      .map((area) => {
+        const c = counts.get(area.id);
+        return {
+          ...area,
+          ownCount: c?.total ?? 0,
+          totalCount: c?.total ?? 0,
+          activeCount: c?.active ?? 0,
+          children: [],
+        };
+      });
 
-    const ownCount = counts.get(block.id) ?? 0;
+    const own = counts.get(block.id);
+    const ownCount = own?.total ?? 0;
     return {
       ...block,
       ownCount,
       totalCount: ownCount + children.reduce((sum, c) => sum + c.totalCount, 0),
+      // Rolled up the same way as totalCount, from the same children, so the
+      // two can never describe different populations.
+      activeCount: (own?.active ?? 0) + children.reduce((sum, c) => sum + c.activeCount, 0),
       children,
     };
   });

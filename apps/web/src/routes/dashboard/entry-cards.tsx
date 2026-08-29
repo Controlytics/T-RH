@@ -74,6 +74,37 @@ function CardWave({ color }: { color: string }) {
   );
 }
 
+/**
+ * The active / inactive split under a count.
+ *
+ * Takes the TOTAL and the ACTIVE figure and derives inactive, rather than
+ * accepting both: two independently supplied numbers can disagree with the
+ * headline, and "100 instruments — 60 active, 30 inactive" is a defect an
+ * operator has to reason about mid-shift.
+ *
+ * Colour is never the only signal. Inactive is greyed AND labelled, so the
+ * distinction survives a monochrome print of a §11 report and a colour-blind
+ * reader.
+ */
+function ActiveSplit({ total, active }: { total: number; active?: number }) {
+  // No split available (the "directly linked" card) — say nothing rather than
+  // implying everything is active.
+  if (active === undefined) return null;
+  const inactive = Math.max(0, total - active);
+  return (
+    <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.75rem]">
+      <span className="inline-flex items-center gap-1.5 font-medium text-emerald-700">
+        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+        {active.toLocaleString()} active
+      </span>
+      <span className="inline-flex items-center gap-1.5 font-medium text-slate-500">
+        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+        {inactive.toLocaleString()} inactive
+      </span>
+    </p>
+  );
+}
+
 function ViewDetails({ color }: { color: string }) {
   return (
     <span className="inline-flex items-center gap-1.5 text-[0.8125rem] font-semibold" style={{ color }}>
@@ -159,6 +190,7 @@ export function EntryCards({ cards, onSelect, alarms, onOpenAlarms }: EntryCards
             <p className="mt-2 text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-slate-500">
               Instruments
             </p>
+            <ActiveSplit total={all.count} active={all.activeCount} />
 
             <div className="mt-4 flex justify-end">
               <ViewDetails color="#2563eb" />
@@ -268,6 +300,7 @@ export function EntryCards({ cards, onSelect, alarms, onOpenAlarms }: EntryCards
                     <p className="mt-2 text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-slate-500">
                       Instruments
                     </p>
+                    <ActiveSplit total={b.count} active={b.activeCount} />
 
                     <div className="mt-5 flex justify-end xl:mt-6">
                       <ViewDetails color={accent.text} />

@@ -30,23 +30,36 @@ describe('resolveLocationIds', () => {
   });
 });
 
+/**
+ * `counts` is now {total, active} per location, not a bare number. The helper
+ * keeps the fixtures readable and forces each case to SAY what its active
+ * split is — a default of "all active" would have hidden the rollup bug this
+ * suite exists to catch.
+ */
+const c = (total: number, active: number = total) => ({ total, active });
+
 describe('buildTree', () => {
   it('nests Areas under their Block, sorted by name', () => {
-    const tree = buildTree(all, new Map([['cwh', 1], ['me', 3], ['mf', 0]]));
+    const tree = buildTree(all, new Map([['cwh', c(1, 1)], ['me', c(3, 2)], ['mf', c(0, 0)]]));
     expect(tree.map((n) => n.id)).toEqual(['bc', 'cwh']);
     expect(tree.find((n) => n.id === 'cwh')!.children.map((c) => c.id)).toEqual(['me', 'mf']);
   });
 
   it('rolls counts up: a Block total is its own plus its Areas', () => {
-    const cwh = buildTree(all, new Map([['cwh', 1], ['me', 3], ['mf', 0]])).find((n) => n.id === 'cwh')!;
+    const cwh = buildTree(all, new Map([['cwh', c(1, 1)], ['me', c(3, 2)], ['mf', c(0, 0)]])).find((n) => n.id === 'cwh')!;
     expect(cwh.ownCount).toBe(1);
     expect(cwh.totalCount).toBe(4);
+    // Active rolls up the same way and from the same children: 1 own + 2 in
+    // Module-E + 0 in Module-F. If these two ever came from different
+    // populations a card would show "4 instruments, 5 active".
+    expect(cwh.activeCount).toBe(3);
   });
 
   it('gives a location with no counts zero, not undefined', () => {
     const bc = buildTree(all, new Map()).find((n) => n.id === 'bc')!;
     expect(bc.ownCount).toBe(0);
     expect(bc.totalCount).toBe(0);
+    expect(bc.activeCount).toBe(0);
   });
 
   it('drops an Area whose parent is missing rather than losing it silently at the top level', () => {

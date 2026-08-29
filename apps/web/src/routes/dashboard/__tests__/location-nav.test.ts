@@ -1,16 +1,19 @@
 import { describe, it, expect } from 'vitest';
 import { resolveNav, ALL_INSTRUMENTS, type NavNode } from '../location-nav';
 
+// activeCount is carried alongside totalCount everywhere; the fixtures give a
+// MIX of active and inactive so a card that silently reported "all active"
+// would fail rather than look plausible.
 const tree: NavNode[] = [
   {
-    id: 'cwh', name: 'CWH', type: 'BLOCK', ownCount: 1, totalCount: 4,
+    id: 'cwh', name: 'CWH', type: 'BLOCK', ownCount: 1, totalCount: 4, activeCount: 3,
     children: [
-      { id: 'me', name: 'Module-E', type: 'AREA', ownCount: 3, totalCount: 3, children: [] },
-      { id: 'mf', name: 'Module-F', type: 'AREA', ownCount: 0, totalCount: 0, children: [] },
+      { id: 'me', name: 'Module-E', type: 'AREA', ownCount: 3, totalCount: 3, activeCount: 2, children: [] },
+      { id: 'mf', name: 'Module-F', type: 'AREA', ownCount: 0, totalCount: 0, activeCount: 0, children: [] },
     ],
   },
-  { id: 'bc', name: 'Block C', type: 'BLOCK', ownCount: 0, totalCount: 1,
-    children: [{ id: 'sc', name: 'Sterile Core', type: 'AREA', ownCount: 1, totalCount: 1, children: [] }] },
+  { id: 'bc', name: 'Block C', type: 'BLOCK', ownCount: 0, totalCount: 1, activeCount: 1,
+    children: [{ id: 'sc', name: 'Sterile Core', type: 'AREA', ownCount: 1, totalCount: 1, activeCount: 1, children: [] }] },
 ];
 
 describe('resolveNav — level 0', () => {
@@ -68,12 +71,39 @@ describe('resolveNav — a Block', () => {
     expect(resolveNav('bc', tree).cards.some((c) => c.id === 'bc:direct')).toBe(false);
   });
 
-  it('shows the views as well as the cards, scoped to the whole Block', () => {
-    // Clicking a Block must answer "how is this Block doing?" immediately, not
-    // force a second click into an Area first.
+  // CHANGED 2026-08-29 (operator's call). This asserted showViews === true, on
+  // the reasoning that clicking a Block should answer "how is this Block
+  // doing?" without a second click. In practice the panel grid — telemetry
+  // table, floor view, charts — buried the Area cards, so the one thing the
+  // click was for became the hardest thing to find. A Block is now a chooser.
+  it('shows ONLY cards at Block level, no panels', () => {
     const nav = resolveNav('cwh', tree);
-    expect(nav.showViews).toBe(true);
+    expect(nav.showViews).toBe(false);
+    expect(nav.cards.length).toBeGreaterThan(0);
+    // Still scoped, so the level below inherits the right filter.
     expect(nav.functionalLocationId).toBe('cwh');
+  });
+
+  // The panels are not gone — an Area still shows them, which is where you go
+  // to look at readings.
+  it('still shows the panels for an Area', () => {
+    expect(resolveNav('me', tree).showViews).toBe(true);
+  });
+
+  it('carries the active split onto the cards', () => {
+    const nav = resolveNav(null, tree);
+    const cwh = nav.cards.find((c) => c.id === 'cwh');
+    expect(cwh?.count).toBe(4);
+    expect(cwh?.activeCount).toBe(3);
+  });
+
+  it('prefers the supplied totals over the tree sum for All Instruments', () => {
+    // The tree only sums PLACED instruments, so an unplaced one would be
+    // missing from both halves and the split would not add up to the headline.
+    const nav = resolveNav(null, tree, 20, 12);
+    const all = nav.cards.find((c) => c.id === ALL_INSTRUMENTS);
+    expect(all?.count).toBe(20);
+    expect(all?.activeCount).toBe(12);
   });
 
   it('breadcrumbs back to the top', () => {

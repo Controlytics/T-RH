@@ -6,7 +6,7 @@ import { enforceReauth } from '../../lib/reauth-check.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { validateFlDraft, type FlType } from './validation.js';
-import { buildTree, locationPath, resolveLocationIds, type FlNode } from './tree.js';
+import { buildTree, locationPath, resolveLocationIds, type FlNode, type LocationCount } from './tree.js';
 import { resolveVisibility, withVisibility, type ScopeWhere } from '../instruments/visibility.js';
 
 /**
@@ -34,6 +34,8 @@ const flProps = {
   parentId: { type: 'string', nullable: true },
   ownCount: { type: 'integer' },
   totalCount: { type: 'integer' },
+  /** Of totalCount, how many are active. Inactive is derived at display time. */
+  activeCount: { type: 'integer' },
 } as const;
 
 /** Recursive shape is declared one level deep, which is all the depth cap allows. */
@@ -64,13 +66,35 @@ async function loadNodes(): Promise<FlNode[]> {
  * locations would make the plant's structure change depending on who is looking —
  * including for the admin picking locations to grant.
  */
-async function loadOwnCounts(visibility?: ScopeWhere): Promise<Map<string, number>> {
-  const grouped = await prisma.instrument.groupBy({
-    by: ['functionalLocationId'],
-    _count: { _all: true },
-    where: withVisibility({ functionalLocationId: { not: null } }, visibility) as never,
-  });
-  return new Map(grouped.map((g) => [g.functionalLocationId as string, g._count._all]));
+async function loadOwnCounts(visibility?: ScopeWhere): Promise<Map<string, LocationCount>> {
+  // Two groupBys rather than one over (functionalLocationId, isActive): the
+  // pair shape would need flattening back into per-location totals anyway, and
+  // a location with only inactive instruments must still report total > 0 with
+  // active 0 — easy to lose when reducing a two-key grouping.
+  const [all, active] = await Promise.all([
+    prisma.instrument.groupBy({
+      by: ['functionalLocationId'],
+      _count: { _all: true },
+      where: withVisibility({ functionalLocationId: { not: null } }, visibility) as never,
+    }),
+    prisma.instrument.groupBy({
+      by: ['functionalLocationId'],
+      _count: { _all: true },
+      where: withVisibility(
+        { functionalLocationId: { not: null }, isActive: true },
+        visibility,
+      ) as never,
+    }),
+  ]);
+  const activeById = new Map(
+    active.map((g) => [g.functionalLocationId as string, g._count._all]),
+  );
+  return new Map(
+    all.map((g) => [
+      g.functionalLocationId as string,
+      { total: g._count._all, active: activeById.get(g.functionalLocationId as string) ?? 0 },
+    ]),
+  );
 }
 
 export default async function functionalLocationRoutes(app: FastifyInstance) {
@@ -192,13 +216,23 @@ export default async function functionalLocationRoutes(app: FastifyInstance) {
     const children = nodes
       .filter((n) => n.parentId === id)
       .sort((a, b) => a.name.localeCompare(b.name))
-      .map((c) => ({ ...c, ownCount: counts.get(c.id) ?? 0, totalCount: counts.get(c.id) ?? 0 }));
+      .map((c) => {
+        const cc = counts.get(c.id);
+        return {
+          ...c,
+          ownCount: cc?.total ?? 0,
+          totalCount: cc?.total ?? 0,
+          activeCount: cc?.active ?? 0,
+        };
+      });
 
-    const ownCount = counts.get(id) ?? 0;
+    const own = counts.get(id);
+    const ownCount = own?.total ?? 0;
     return {
       ...self,
       ownCount,
       totalCount: ownCount + children.reduce((sum, c) => sum + c.totalCount, 0),
+      activeCount: (own?.active ?? 0) + children.reduce((sum, c) => sum + c.activeCount, 0),
       children,
       instruments,
     };
