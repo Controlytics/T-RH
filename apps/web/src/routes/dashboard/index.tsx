@@ -7,7 +7,6 @@ import { TelemetryTable } from './telemetry-table';
 import { FloorplanView } from './floorplan-view';
 import { resolveNav, ALL_INSTRUMENTS, type NavNode } from './location-nav';
 import { usePanels } from '@/hooks/use-panels';
-import { AggregateTrendCard } from './aggregate-trend-card';
 import { SelectionAlarms } from './selection-alarms';
 import { PanelGrid } from './panel-grid';
 import { PanelCard } from './panel-card';
@@ -55,15 +54,6 @@ export function DashboardPage() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const selected = params.get('fl');
-  // In the URL, like `fl` and `view`: the whole dashboard state is linkable and
-  // survives a refresh, which is the convention this page already set.
-  const aggWindow = (['1h', '6h', '24h', '7d'] as const)
-    .find((w) => w === params.get('agg')) ?? '24h';
-  const setAggWindow = (w: '1h' | '6h' | '24h' | '7d') => {
-    const next = new URLSearchParams(params);
-    next.set('agg', w);
-    setParams(next);
-  };
 
   // Resolved server-side, per role AND per user. Replaces the old
   // /api/config/dashboard-cards/current fetch, which had no per-user layer and
@@ -354,25 +344,6 @@ export function DashboardPage() {
                     onSizeChange={(w, h) => layout.setSize(it.i, w, h)}
                   >
                     <FloorplanView functionalLocationId={nav.functionalLocationId} directOnly={nav.directOnly} />
-                  </PanelCard>
-                )}
-                {it.i === 'dashboard_trend' && (
-                  <PanelCard
-                    title="Trend — spread across this selection"
-                    eyebrow="Trend"
-                    editing={layout.editing}
-                    style={it.style}
-                    width={it.w}
-                    height={it.h}
-                    onStyleChange={(next) => layout.setStyle(it.i, next)}
-                    onSizeChange={(w, h) => layout.setSize(it.i, w, h)}
-                  >
-                    <AggregateTrendCard
-                      functionalLocationId={nav.functionalLocationId}
-                      directOnly={nav.directOnly}
-                      window={aggWindow}
-                      onWindowChange={setAggWindow}
-                    />
                   </PanelCard>
                 )}
                 {it.i === 'dashboard_alarms' && (

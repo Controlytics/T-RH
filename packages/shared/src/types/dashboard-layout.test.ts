@@ -9,15 +9,15 @@ const item = (i: string, y: number) => ({ i, x: 0, y, w: 12, h: 6 });
 
 describe('normalizeLayout', () => {
   it('reads a stored layout', () => {
-    const stored = { version: LAYOUT_VERSION, items: [item('dashboard_trend', 0)] };
-    expect(normalizeLayout(stored)?.items).toEqual([item('dashboard_trend', 0)]);
+    const stored = { version: LAYOUT_VERSION, items: [item('dashboard_alarms', 0)] };
+    expect(normalizeLayout(stored)?.items).toEqual([item('dashboard_alarms', 0)]);
   });
 
   it('DROPS an item whose panel key no longer exists', () => {
     // Same rule normalizePanels follows: a retired key contributes nothing and is
     // never a wildcard.
-    const stored = { version: LAYOUT_VERSION, items: [item('total_users', 0), item('dashboard_trend', 1)] };
-    expect(normalizeLayout(stored)?.items.map((i) => i.i)).toEqual(['dashboard_trend']);
+    const stored = { version: LAYOUT_VERSION, items: [item('total_users', 0), item('dashboard_alarms', 1)] };
+    expect(normalizeLayout(stored)?.items.map((i) => i.i)).toEqual(['dashboard_alarms']);
   });
 
   it('returns undefined for absent or malformed values rather than an empty layout', () => {
@@ -29,15 +29,15 @@ describe('normalizeLayout', () => {
     expect(normalizeLayout(undefined)).toBeUndefined();
     expect(normalizeLayout('nonsense')).toBeUndefined();
     expect(normalizeLayout({ items: 'no' })).toBeUndefined();
-    expect(normalizeLayout({ version: LAYOUT_VERSION, items: [{ i: 'dashboard_trend' }] })).toBeUndefined();
-    expect(normalizeLayout({ version: LAYOUT_VERSION, items: [{ ...item('dashboard_trend', 0), w: 'wide' }] }))
+    expect(normalizeLayout({ version: LAYOUT_VERSION, items: [{ i: 'dashboard_alarms' }] })).toBeUndefined();
+    expect(normalizeLayout({ version: LAYOUT_VERSION, items: [{ ...item('dashboard_alarms', 0), w: 'wide' }] }))
       .toBeUndefined();
   });
 
   it('rejects a layout from a future version rather than guessing', () => {
     // `version` exists so a future grid change can migrate rather than
     // misinterpret. Guessing at an unknown shape would place cards at random.
-    expect(normalizeLayout({ version: LAYOUT_VERSION + 1, items: [item('dashboard_trend', 0)] }))
+    expect(normalizeLayout({ version: LAYOUT_VERSION + 1, items: [item('dashboard_alarms', 0)] }))
       .toBeUndefined();
   });
 
@@ -51,48 +51,48 @@ describe('normalizeLayout', () => {
 });
 
 describe('resolveLayout', () => {
-  const visible = ['telemetry_table', 'dashboard_trend'];
+  const visible = ['telemetry_table', 'dashboard_alarms'];
 
   it('prefers the user layout over the role default', () => {
-    const user = { version: LAYOUT_VERSION, items: [item('dashboard_trend', 0)] };
+    const user = { version: LAYOUT_VERSION, items: [item('dashboard_alarms', 0)] };
     const role = { version: LAYOUT_VERSION, items: [item('telemetry_table', 0)] };
-    expect(resolveLayout(user, role, visible).items[0].i).toBe('dashboard_trend');
+    expect(resolveLayout(user, role, visible).items[0].i).toBe('dashboard_alarms');
   });
 
   it('falls back to the role default, then to the built-in', () => {
-    const role = { version: LAYOUT_VERSION, items: [item('dashboard_trend', 0)] };
-    expect(resolveLayout(undefined, role, visible).items[0].i).toBe('dashboard_trend');
+    const role = { version: LAYOUT_VERSION, items: [item('dashboard_alarms', 0)] };
+    expect(resolveLayout(undefined, role, visible).items[0].i).toBe('dashboard_alarms');
     expect(resolveLayout(undefined, undefined, visible).items.length).toBeGreaterThan(0);
   });
 
   it('IGNORES an entry for a panel the viewer may not see', () => {
     // And reserves no space for it. A hole where a hidden panel would be discloses
     // that the panel exists, which is the opposite of hiding it.
-    const user = { version: LAYOUT_VERSION, items: [item('trend_alarms', 0), item('dashboard_trend', 1)] };
-    expect(resolveLayout(user, undefined, ['dashboard_trend']).items.map((i) => i.i))
-      .toEqual(['dashboard_trend']);
+    const user = { version: LAYOUT_VERSION, items: [item('trend_alarms', 0), item('dashboard_alarms', 1)] };
+    expect(resolveLayout(user, undefined, ['dashboard_alarms']).items.map((i) => i.i))
+      .toEqual(['dashboard_alarms']);
   });
 
   it('APPENDS a visible panel that has no entry, rather than losing it', () => {
     // A newly granted panel must appear. Silently vanishing would look like the
     // grant failed, and the operator would go looking in the wrong place.
-    const user = { version: LAYOUT_VERSION, items: [item('dashboard_trend', 0)] };
-    const out = resolveLayout(user, undefined, ['dashboard_trend', 'telemetry_table']);
-    expect(out.items.map((i) => i.i)).toEqual(['dashboard_trend', 'telemetry_table']);
+    const user = { version: LAYOUT_VERSION, items: [item('dashboard_alarms', 0)] };
+    const out = resolveLayout(user, undefined, ['dashboard_alarms', 'telemetry_table']);
+    expect(out.items.map((i) => i.i)).toEqual(['dashboard_alarms', 'telemetry_table']);
     // Below everything already placed, so it cannot land on top of something.
     expect(out.items[1].y).toBeGreaterThanOrEqual(out.items[0].y + out.items[0].h);
   });
 
   it('appends several missing panels without stacking them on each other', () => {
-    const user = { version: LAYOUT_VERSION, items: [item('dashboard_trend', 0)] };
-    const out = resolveLayout(user, undefined, ['dashboard_trend', 'telemetry_table', 'telemetry_floorplan']);
+    const user = { version: LAYOUT_VERSION, items: [item('dashboard_alarms', 0)] };
+    const out = resolveLayout(user, undefined, ['dashboard_alarms', 'telemetry_table', 'telemetry_floorplan']);
     expect(out.items).toHaveLength(3);
     expect(out.items[2].y).toBeGreaterThanOrEqual(out.items[1].y + out.items[1].h);
   });
 
   it('returns only visible panels when nothing is stored', () => {
-    expect(resolveLayout(undefined, undefined, ['dashboard_trend']).items.map((i) => i.i))
-      .toEqual(['dashboard_trend']);
+    expect(resolveLayout(undefined, undefined, ['dashboard_alarms']).items.map((i) => i.i))
+      .toEqual(['dashboard_alarms']);
   });
 
   it('returns an empty layout when the viewer may see no panels', () => {
@@ -132,7 +132,7 @@ describe('the layout is about the DASHBOARD only', () => {
       items: [{ i: 'trend_charts', x: 0, y: 0, w: 12, h: 6 }, { i: 'telemetry_table', x: 0, y: 6, w: 12, h: 6 }],
     };
     expect(resolveLayout(stored, undefined, PANELS.map((p) => p.key)).items.map((i) => i.i))
-      .toEqual(['telemetry_table', 'telemetry_floorplan', 'dashboard_trend', 'dashboard_alarms']);
+      .toEqual(['telemetry_table', 'telemetry_floorplan', 'dashboard_alarms']);
   });
 
   it('the built-in default contains only dashboard panels', () => {

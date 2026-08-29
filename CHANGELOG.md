@@ -1,5 +1,50 @@
 # Changelog
 
+## [Unreleased] - Trend panel removed from the dashboard; floorplan caption dropped (2026-08-29)
+
+Two operator requests. **Counts moved: the panel catalogue goes 9 -> 8.** Files:
+`packages/shared/src/types/{panels,dashboard-layout}.ts` (+ their tests),
+`apps/api/src/e2e/dashboard-layout.test.ts`,
+`apps/web/src/routes/dashboard/{index,floorplan-view,use-telemetry}.tsx`.
+
+### "updates every 5s" gone from the floorplan card
+
+Same reasoning as the table's, removed earlier today. With both captions gone the
+overview hook's `refreshMs` had no consumer left, so it is no longer exported.
+**The poll itself is unchanged** — only the captions announcing it. A third
+instance survives on the ROOM DETAIL panel ("Updates every 5s.",
+`room-detail.tsx:232`); it is fed by a different hook (`useRoomHistory`) and was
+not asked for.
+
+### `dashboard_trend` removed
+
+Removing it from `PANELS` is what takes it off the dashboard, and nothing needed
+migrating: `resolveLayout` narrows every stored layout to `DASHBOARD_PANEL_KEYS`
+(derived from that list) and `isPanelKey` rejects it when a saved layout is
+parsed. **A layout that still names it drops the entry AND its space**, so an
+existing saved layout does not render an empty card. `dashboard_alarms` moved up
+into the vacated rows of the built-in default rather than leaving a 9-row hole.
+
+**The frozen-keys test caught this, which is the point of it.** `PANEL_KEYS` is
+snapshotted in code because the keys are stored in the database, so a silent
+rename orphans saved rows. Ten assertions failed across two files. Nearly all
+were FIXTURES — `dashboard_trend` standing in for "some dashboard panel" — so
+they were re-pointed at `dashboard_alarms` and keep testing what they were written
+to test; only two were real claims about the catalogue and the built-in default,
+and those moved with the change. **The web suite alone was green throughout: it
+was the shared package's tests that failed.** Run both before believing a
+catalogue change.
+
+⚠ **Now orphaned, deliberately NOT deleted:** `aggregate-trend-card.tsx`,
+`aggregate-trend.ts` and `__tests__/aggregate-trend.test.ts` (12 passing tests)
+have no caller. They are a working, tested feature and this repo has already
+reversed one dashboard removal within a day, so deleting them is the operator's
+call, not a side effect of hiding a card. If the panel is not coming back, delete
+all three together.
+
+Verified: web 849 tests / 62 files, shared 335 / 23, API `dashboard-layout` e2e
+10/10, tsc clean on web and shared.
+
 ## [Unreleased] - Set Point text darkened (2026-08-29)
 
 Operator: the limits are too light to read. **No count moved.** Files:

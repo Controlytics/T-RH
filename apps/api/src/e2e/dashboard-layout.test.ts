@@ -70,11 +70,11 @@ describe('dashboard layout', () => {
   it('round-trips the caller own layout through my-config', async () => {
     const res = await app.inject({
       method: 'PUT', url: '/api/config/my-dashboard-layout',
-      headers: operator, payload: { layout: layout('dashboard_trend', 'telemetry_table') },
+      headers: operator, payload: { layout: layout('dashboard_alarms', 'telemetry_table') },
     });
     expect(res.statusCode).toBe(200);
     expect((await myLayout())!.items.map((i) => i.i).slice(0, 2))
-      .toEqual(['dashboard_trend', 'telemetry_table']);
+      .toEqual(['dashboard_alarms', 'telemetry_table']);
   });
 
   it('writes NO audit row for a user own layout', async () => {
@@ -111,7 +111,7 @@ describe('dashboard layout', () => {
     const before = await auditCount();
     const res = await app.inject({
       method: 'PUT', url: '/api/roles/dashboard-layout/role/OPERATOR',
-      headers: { ...auth, ...reauth }, payload: { layout: layout('dashboard_trend') },
+      headers: { ...auth, ...reauth }, payload: { layout: layout('dashboard_alarms') },
     });
     expect(res.statusCode).toBe(200);
     // An admin acting on other people, which is the line this codebase draws
@@ -128,7 +128,7 @@ describe('dashboard layout', () => {
   it('refuses a role default without ROLE_MANAGE', async () => {
     const res = await app.inject({
       method: 'PUT', url: '/api/roles/dashboard-layout/role/OPERATOR',
-      headers: operator, payload: { layout: layout('dashboard_trend') },
+      headers: operator, payload: { layout: layout('dashboard_alarms') },
     });
     expect(res.statusCode).toBe(403);
   });
@@ -141,7 +141,7 @@ describe('dashboard layout', () => {
     });
     await app.inject({
       method: 'PUT', url: '/api/config/my-dashboard-layout',
-      headers: operator, payload: { layout: layout('dashboard_trend', 'telemetry_table') },
+      headers: operator, payload: { layout: layout('dashboard_alarms', 'telemetry_table') },
     });
     const l = await myLayout();
     expect(l!.items.map((i) => i.i)).toEqual(['telemetry_table']);
@@ -154,7 +154,7 @@ describe('dashboard layout', () => {
   it('rejects a malformed layout rather than storing it', async () => {
     const res = await app.inject({
       method: 'PUT', url: '/api/config/my-dashboard-layout',
-      headers: operator, payload: { layout: { version: 1, items: [{ i: 'dashboard_trend' }] } },
+      headers: operator, payload: { layout: { version: 1, items: [{ i: 'dashboard_alarms' }] } },
     });
     expect(res.statusCode).toBe(400);
   });

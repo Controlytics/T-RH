@@ -74,8 +74,9 @@ export const DEFAULT_DASHBOARD_LAYOUT: DashboardLayout = {
     // margin — enough for a floor plan to be a plan rather than a thumbnail.
     // Raised from 11 on 2026-08-28 after the first look at it.
     { i: 'telemetry_floorplan', x: 0, y: 9, w: 12, h: 16 },
-    { i: 'dashboard_trend', x: 0, y: 25, w: 12, h: 9 },
-    { i: 'dashboard_alarms', x: 0, y: 34, w: 12, h: 6 },
+    // `dashboard_trend` sat at y:25 until 2026-08-29 and was removed with the panel
+    // itself; alarms moved up into the space rather than leaving a 9-row hole.
+    { i: 'dashboard_alarms', x: 0, y: 25, w: 12, h: 6 },
   ],
 };
 

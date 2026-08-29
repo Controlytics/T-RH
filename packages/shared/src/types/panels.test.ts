@@ -10,7 +10,6 @@ describe('PANELS catalogue', () => {
     expect(PANEL_KEYS).toEqual([
       'telemetry_table',
       'telemetry_floorplan',
-      'dashboard_trend',
       'dashboard_alarms',
       'trend_gauges',
       'trend_charts',

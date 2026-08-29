@@ -47,6 +47,13 @@ export const PANEL_PAGES: readonly { page: PanelPage; label: string }[] = [
  * strip, so those toggles controlled cards that could never render. Recorded here
  * because it is the same failure twice — a catalogue outliving what it describes.
  *
+ * `dashboard_trend` was REMOVED on 2026-08-29 (operator: "remove trend widgets
+ * below the tabular view"). Removing it from THIS list is what takes it off the
+ * dashboard: `resolveLayout` narrows every stored layout to `DASHBOARD_PANEL_KEYS`,
+ * which is derived from here, and `isPanelKey` rejects it when a saved layout is
+ * parsed — so an existing layout that still names it drops the entry AND its
+ * space, rather than rendering an empty card. Nothing needed migrating.
+ *
  * `dashboard_trend` and `dashboard_alarms` were APPENDED to the dashboard group on
  * 2026-08-28 rather than inserted, because the order above is asserted and churning
  * it buys nothing. A role holding an explicit list does NOT get them until an admin
@@ -67,12 +74,6 @@ export const PANELS: readonly PanelDefinition[] = [
     page: 'dashboard',
     label: 'Instrument Readings — Floorplan',
     description: 'Rooms drawn on the floor layout, coloured by whether they are in limit',
-  },
-  {
-    key: 'dashboard_trend',
-    page: 'dashboard',
-    label: 'Trend — spread across the selection',
-    description: 'Minimum, mean and maximum across every instrument in the current drill-down. Computed values, not stored readings',
   },
   {
     key: 'dashboard_alarms',
