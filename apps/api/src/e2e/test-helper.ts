@@ -25,8 +25,11 @@ import functionalLocationRoutes from '../modules/functional-locations/routes.js'
 import alarmRoutes from '../modules/alarms/routes.js';
 import alarmWebhookRoutes from '../modules/alarm-webhooks/routes.js';
 import floorplanRoutes from '../modules/floorplans/routes.js';
+import notificationRulesRoutes from '../modules/notification-rules/routes.js';
+import adminRequestRoutes from '../modules/admin-requests/routes.js';
+import debugTraceRoutes from '../modules/debug-traces/routes.js';
 import { prisma } from '../lib/prisma.js';
-import { AppError } from '../lib/errors.js';
+import { AppError, prismaErrorToResponse } from '../lib/errors.js';
 
 /** Default admin password used in tests */
 export const ADMIN_PASSWORD = 'Admin@123';
@@ -85,6 +88,15 @@ export async function buildApp(
     if (err.statusCode === 429) {
       return reply.code(429).send({ error: 'TOO_MANY_REQUESTS', message: err.message });
     }
+    // Shares app.ts's Prisma mapping rather than re-implementing it. This
+    // handler is a reduced copy of the real one, and it previously omitted the
+    // P2002 translation entirely — meaning no e2e could observe the status a
+    // client actually receives for a Prisma failure, and a regression in that
+    // mapping would have been invisible to the whole suite.
+    const prismaMapped = prismaErrorToResponse(err);
+    if (prismaMapped) {
+      return reply.code(prismaMapped.status).send(prismaMapped.body);
+    }
     const status = err.statusCode ?? 500;
     return reply.code(status).send({ error: err.message || 'Internal Server Error' });
   });
@@ -120,6 +132,12 @@ export async function buildApp(
   await app.register(functionalLocationRoutes, { prefix: '/api/functional-locations' });
   await app.register(alarmRoutes, { prefix: '/api/alarms' });
   await app.register(alarmWebhookRoutes, { prefix: '/api/alarm-webhooks' });
+  // Added 2026-08-29: these three were registered in app.ts but NOT here, so
+  // every route they expose was unreachable from the e2e suite and all three
+  // modules had zero HTTP-level coverage (audit finding H4).
+  await app.register(notificationRulesRoutes, { prefix: '/api/notification-rules' });
+  await app.register(adminRequestRoutes, { prefix: '/api/admin-requests' });
+  await app.register(debugTraceRoutes, { prefix: '/api/debug/traces' });
 
   await app.ready();
   return app;

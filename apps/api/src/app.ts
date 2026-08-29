@@ -44,7 +44,7 @@ import { passwordExpiryCheckTask } from './workers/password-expiry.worker.js';
 import { sessionSweepTask } from './workers/session-sweep.worker.js';
 import { telemetryPartitionTask } from './workers/telemetry-partition.worker.js';
 import { startJobRunner, stopJobRunner } from '@digilog/queue';
-import { AppError } from './lib/errors.js';
+import { AppError, prismaErrorToResponse } from './lib/errors.js';
 import { dispatchNotification } from './modules/notification-delivery/notification-dispatcher.js';
 import adminRequestRoutes from './modules/admin-requests/routes.js';
 import floorplanRoutes from './modules/floorplans/routes.js';
@@ -237,16 +237,14 @@ app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
       message: 'Request body is not valid JSON',
     });
   }
-  // Prisma unique-constraint violation → 409 (not 500). Two concurrent edits to
-  // the same record can collide on a unique index and the loser raises P2002.
-  // Surface it as a clean, retryable
-  // conflict instead of a 500 + a spurious SYSTEM_ERROR notification. Systemic —
-  // covers every current + future unique constraint.
-  if ((err as any).code === 'P2002') {
-    return reply.code(409).send({
-      error: 'CONFLICT',
-      message: 'This record was modified concurrently. Please reload and try again.',
-    });
+  // Prisma client errors we translate rather than 500 — P2002 (unique
+  // collision → retryable 409) and P2023 (malformed identifier → 400).
+  // Systemic: covers every current and future constraint / uuid column.
+  // Shared with src/e2e/test-helper.ts so the harness and the real server
+  // cannot drift on what a given Prisma failure looks like to a client.
+  const prismaMapped = prismaErrorToResponse(err);
+  if (prismaMapped) {
+    return reply.code(prismaMapped.status).send(prismaMapped.body);
   }
 
   // Genuine internal errors
