@@ -10,6 +10,7 @@ import { AggregateTrendCard } from './aggregate-trend-card';
 import { SelectionAlarms } from './selection-alarms';
 import { PanelGrid } from './panel-grid';
 import { PanelCard } from './panel-card';
+import { EntryCards } from './entry-cards';
 import { useDashboardLayout } from '@/hooks/use-dashboard-layout';
 import { Button } from '@/components/ui/button';
 
@@ -165,61 +166,26 @@ export function DashboardPage() {
       </div>
 
       {nav.cards.length > 0 && (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {nav.cards.map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              onClick={() => go(c.id)}
-              className="rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-soft transition-all hover:-translate-y-0.5 hover:shadow-elevated"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate text-lg font-bold text-slate-800">{c.label}</p>
-                  <p className="mt-0.5 text-xs uppercase tracking-wider text-slate-500">{c.sublabel}</p>
-                </div>
-                <span
-                  className="shrink-0 rounded-xl px-3 py-1.5 text-lg font-bold text-white"
-                  style={{ backgroundImage: themeGradient }}
-                >
-                  {c.count}
-                </span>
-              </div>
-              <p className="mt-3 text-xs text-slate-500">
-                {c.count === 1 ? '1 instrument' : `${c.count} instruments`}
-              </p>
-            </button>
-          ))}
+        /* The landing cards. Built to the supplied reference (Screen-1.png,
+           2026-08-29): two hero cards, then Blocks Overview. Every count comes
+           from the same `nav.cards` / alarm-summary data the previous uniform
+           grid used — this changed the presentation, not the numbers.
 
-          {/* Alarms sits beside the location cards at the top level only: it is a
-              destination, not a drill-down, so it navigates away rather than filtering.
-              Deeper levels are about one location's instruments, where a global alarm
-              count would be misleading. */}
-          {selected === null && canSeeAlarms && (
-            <button
-              type="button"
-              onClick={() => navigate('/alarms')}
-              className="rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-soft transition-all hover:-translate-y-0.5 hover:shadow-elevated"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate text-lg font-bold text-slate-800">Alarms</p>
-                  <p className="mt-0.5 text-xs uppercase tracking-wider text-slate-500">Active</p>
-                </div>
-                <span className={`shrink-0 rounded-xl px-3 py-1.5 text-lg font-bold text-white ${
-                  (alarmSummary?.active ?? 0) > 0 ? 'bg-red-600' : 'bg-emerald-600'
-                }`}>
-                  {alarmSummary?.active ?? 0}
-                </span>
-              </div>
-              <p className="mt-3 text-xs text-slate-500">
-                {(alarmSummary?.unacknowledged ?? 0) > 0
-                  ? `${alarmSummary?.unacknowledged} awaiting acknowledgement`
-                  : 'Nothing awaiting acknowledgement'}
-              </p>
-            </button>
-          )}
-        </div>
+           Alarms sits beside All Instruments at the TOP LEVEL ONLY: it is a
+           destination, not a drill-down, so it navigates away rather than
+           filtering. Deeper levels are about one location's instruments, where
+           a global alarm count would be misleading. */
+        <EntryCards
+          cards={nav.cards}
+          onSelect={go}
+          alarms={selected === null && canSeeAlarms
+            ? {
+                active: alarmSummary?.active ?? 0,
+                unacknowledged: alarmSummary?.unacknowledged ?? 0,
+              }
+            : null}
+          onOpenAlarms={() => navigate('/alarms')}
+        />
       )}
 
       {/*
