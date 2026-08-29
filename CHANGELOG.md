@@ -1,5 +1,157 @@
 # Changelog
 
+## [Unreleased] - Technical audit remediation: backup, migrations, audit immutability (2026-08-29)
+
+Acts on the CRITICAL and HIGH findings of `docs/audit/2026-08-29-technical-audit.md`.
+**No count moved**: no model, enum, permission, reauth action, audit action, module,
+config def, config page or `<Route>` was added or removed — re-derived, unchanged.
+One new env var (`AUDIT_HARD_DELETE_ENABLED`), one new npm script
+(`check:migrations`), and no migration.
+
+### Backup exported every telemetry reading twice (HIGH — silent data corruption)
+
+`getAllTables()` discovered tables with a bare
+`SELECT tablename FROM pg_tables WHERE schemaname='public'`.
+`instrument_telemetry_history` is `PARTITION BY RANGE (ts)` with one child per
+month, and **`pg_tables` lists the partitioned parent AND every child**, because a
+partition is an ordinary table. Measured on `compliance_core_db` on 2026-08-29:
+
+```
+instrument_telemetry_history           226,582 rows
+instrument_telemetry_history_2026_08   226,582 rows   ← the same rows
+pg_tables (public)                          42 relations
+after the fix                               38 relations
+```
+
+So export dumped each reading twice, restore inserted both copies (inserting into
+the parent routes the row into its child, then the child's own dump adds it again),
+and the `BACKUP_MAX_ROWS_PER_TABLE` pre-flight counted both, tripping at half the
+real budget.
+
+**It never threw.** It produced a plausible archive with corrupt contents and a
+restore that silently DOUBLED a 21 CFR Part 11 telemetry record. The original audit
+said backup would "likely fail outright" at production volume; that was wrong in the
+safe direction, and the report has been corrected. A silent corruption is worse than
+a loud failure.
+
+Discovery now scans `pg_class` with `relkind IN ('r','p') AND relispartition = false`
+— parent kept, children dropped. Backing up the parent is version-proof: a row
+inserted into it is routed to whichever partition covers its `ts`, so an August
+archive restores into a database whose partitions have since rolled forward.
+
+**Backward compatible, and self-healing:** restore derives its work list from
+`dbTables.filter(t => Array.isArray(data[t]))`, so an older archive still carrying
+partition keys now has those keys skipped and each reading inserted once. Old backups
+are repaired by this fix, not broken by it. **Forward direction needs care:** a new
+parent-only archive restored by PRE-fix code trips `BACKUP_INCOMPLETE` naming the
+partitions and needs `force=true`. Upgrade the code before relying on a new archive.
+
+### Backup/restore had zero e2e coverage (HIGH)
+
+The disaster-recovery path of a regulated system, the most raw-SQL-heavy module in
+the codebase, had 3 unit tests and no e2e. New `src/e2e/backup-restore.e2e.test.ts`:
+10 tests covering discovery, single-copy export, a full export→restore round trip
+asserting unchanged row counts, and a canary row proving the restore actually
+replaced data rather than no-opping.
+
+Confirmed non-vacuous by reverting the fix: 5 of the 10 fail, and the export
+assertion reports **9,844 rows for 4,922 real readings — exactly 2×**.
+
+### A migration guard for the table Prisma wants to drop (CRITICAL)
+
+`instrument_telemetry_history` is absent from `schema.prisma` because Prisma cannot
+express `PARTITION BY`, so `prisma migrate dev` / `db push` generate
+`DROP TABLE "instrument_telemetry_history"` for it — taking every stored reading,
+with no other copy in the system.
+
+This is **recurring, not theoretical**: fifteen committed migrations carry a comment
+from an author who had just stripped that DROP by hand. It has been generated on
+essentially every migration since 2026-08-08 and removed manually each time. It only
+has to be missed once.
+
+New `apps/api/src/lib/migration-guard.ts` (pure, no DB), asserted by
+`src/lib/__tests__/migration-guard.test.ts` so it runs inside `npm test`, plus
+`scripts/check-migration-safety.mjs` for CI and as a gate on `npm run db:migrate`.
+Proven to exit 1 on an injected violation and 0 on the clean tree.
+
+**It deliberately does NOT add a Prisma model to silence the DROP.** Prisma would
+then emit a plain `CREATE TABLE` for a fresh environment, producing an UNPARTITIONED
+table, and ingest would stop dead at the first month boundary when Postgres rejects
+every row falling outside a partition range. That trades a loud, one-off migration
+hazard for a quiet, recurring runtime one. The reasoning is written at the top of
+`migration-guard.ts`.
+
+### Audit hard-delete is now switchable, and the trigger dance has one home (HIGH)
+
+The product ships two endpoints that disable the `audit_trail_no_delete` trigger and
+physically delete §11 records, breaking the tamper-evident hash chain. They are well
+governed — `AUDIT_DELETE` permission, reauth, 5/min rate limit, meta-audit row
+written first — but 21 CFR Part 11 §11.10(e) calls for an audit trail that cannot be
+modified or obscured, and `bulk-redact` already covers the legitimate "this content
+must not be retained" case without breaking the chain.
+
+Whether to keep the capability is a QA/regulatory decision, so **the default is
+unchanged**. `AUDIT_HARD_DELETE_ENABLED=false` (that exact string only — a typo must
+not silently remove a governed capability) makes both routes answer
+403 `AUDIT_HARD_DELETE_DISABLED` and point at redact. Checked before reauth, so a
+disabled install does not prompt for a password to refuse the action anyway.
+
+**Known gap, recorded not hidden:** the switch is backend-only. The Audit Trail page
+gates its delete button on the AUDIT_DELETE *permission*, not the flag, so with the
+flag off a permitted user still sees a button that 403s. Closing it properly means
+the server telling the client, not the client re-deriving — see `.env.example`. An
+install turning the capability off should also revoke `AUDIT_DELETE` from every role.
+
+Also consolidates the trigger disable/enable dance, which existed in three copies,
+into `lib/audit-immutability.ts:withTriggersDisabled`, with the re-enable moved into
+a `finally`. Not a live bug — Postgres DDL is transactional, so a throw rolled the
+ALTERs back — but it made §11 immutability depend on an invariant nothing stated.
+
+### The four untested modules, and two 500s they exposed (HIGH)
+
+`notification-rules`, `user-groups`, `admin-requests` and `debug-traces` had **zero
+tests**. The first two decide who gets told when an instrument goes out of spec;
+their failure mode is silence. Three of the four were also **unreachable from the
+suite** — registered in `app.ts` but not in `src/e2e/test-helper.ts`, so no e2e could
+have called them even if one had been written.
+
+83 new e2e tests, concentrating on failures that would be invisible: that group
+membership is really persisted and that deleting a group audits the membership it
+destroyed; that a rule's recipients are REPLACED on update but left alone when the
+key is omitted, so renaming a rule cannot silently unsubscribe everyone; that
+`GET /:id` in debug-traces stays registered after the static routes it would
+otherwise shadow. For `admin-requests` the tests pin the 2026-05-20 enumeration
+hardening, which had none: identical response shape and 200 whether or not the user
+exists, and no email/department/role/status ever returned.
+
+Two real defects surfaced, both fixed centrally in `lib/errors.ts`:
+
+- **P2023 → 400** (was 500). `id` columns are `uuid`, so
+  `findUnique({ where: { id: 'not-a-uuid' } })` made Postgres fail to parse the value
+  and Prisma threw before the route's own 404 check could run. In production that
+  also dispatched a SYSTEM_ERROR notification for an ordinary bad request.
+- **P2025 → 404** (was 500). Routes letting Prisma signal "no such record"
+  (`findUniqueOrThrow`, bare `update`/`delete`) all answered 500 for a missing row.
+
+Both sit beside the existing P2002 → 409 in a new `prismaErrorToResponse`, covering
+every uuid-keyed route rather than the handful the tests touched. That function is
+now shared with `src/e2e/test-helper.ts`, whose error handler is a reduced copy of
+the real one and had **omitted the P2002 translation entirely** — meaning no e2e
+could observe the status a client actually receives for a Prisma failure. Pinned by
+`src/lib/__tests__/prisma-error-mapping.test.ts`; the suite's existing 409
+assertions all came from explicit `ConflictError` throws, never from a P2002 reaching
+the handler, so the mapping could have been deleted with every test still green.
+
+### Verification
+
+`apps/api` `tsc --noEmit` clean. Full API suite **1735 passed / 0 failed across 134
+files** (single-fork, against `compliance_core_db_test`).
+
+### Still open
+
+**H3's posture decision** — whether `AUDIT_HARD_DELETE_ENABLED` should default to
+`false` — is with QA/RA, along with the frontend affordance gap noted above.
+
 ## [Unreleased] - UI redesign, Stage 2: applying the design system (2026-08-28)
 
 Stage 1 (`7ed8329`) built the tokens and the missing primitives and migrated **no

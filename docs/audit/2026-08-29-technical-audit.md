@@ -1892,7 +1892,7 @@ what the module does.
 > | **C1** | ✅ **Fixed** | `lib/migration-guard.ts` + `scripts/check-migration-safety.mjs`, run by `npm test` and gating `npm run db:migrate`. Proven to exit 1 on an injected `DROP TABLE "instrument_telemetry_history"` and 0 on the clean tree. Deliberately does **not** add a Prisma model — see below. |
 > | **H1** | ✅ **Fixed** | `getAllTables()` now scans `pg_class` with `relkind IN ('r','p') AND relispartition = false`. |
 > | **H2** | ✅ **Fixed** | `src/e2e/backup-restore.e2e.test.ts`, 10 tests including a full export→restore round trip. |
-> | **H3** | ⚠️ **Half** — engineering done, **decision outstanding** | `AUDIT_HARD_DELETE_ENABLED` added, **defaulting to enabled (no behaviour change)**. The trigger-suspend dance is now one helper with the re-enable in a `finally`. **Whether to flip the default is still a QA/regulatory decision.** |
+> | **H3** | ⚠️ **Half** — engineering done, **decision outstanding**, **one known gap** | `AUDIT_HARD_DELETE_ENABLED` added, **defaulting to enabled (no behaviour change)**. The trigger-suspend dance is now one helper with the re-enable in a `finally`. **Whether to flip the default is still a QA/regulatory decision.** **Gap:** the switch is backend-only — see below. |
 > | **H4** | ✅ **Fixed** | 83 e2e tests across the four modules; three of them were also registered in `test-helper.ts`, without which no e2e could reach them at all. |
 >
 > **H1 was worse than this report originally stated, and the correction matters.**
@@ -1951,6 +1951,35 @@ what the module does.
 > already covers the legitimate "this content must not be retained" case
 > without breaking the chain. **Whether that becomes the default is a
 > QA/regulatory call.**
+>
+> **H3 also ships with a known, deliberate gap — recorded rather than hidden,
+> because this section is about capabilities nobody consciously owned.**
+> The switch is **backend-only**. `apps/web/src/routes/audit/index.tsx:54`
+> gates the delete affordance on the AUDIT_DELETE *permission*
+> (`can('audit.delete')`), not on the flag, so with
+> `AUDIT_HARD_DELETE_ENABLED=false` a user holding that permission still sees
+> the button and receives a 403 when they click it. Backend enforcement is
+> correct and complete; only the affordance is stale. This violates
+> `CLAUDE.md`'s "feature toggles need BOTH frontend visibility and backend
+> route permission".
+>
+> It was left open deliberately rather than patched: the right fix is for the
+> SERVER to tell the client the capability is off — the pattern
+> `GET /api/instruments/attribute-access/me` already uses — and **not** for the
+> client to re-derive it, which the "Never reconstruct server-side decision
+> logic in the client" rule forbids. That is a new API surface with its own
+> touchpoints, and it should not be bolted on in the same pass that added the
+> switch. Until it lands, an installation turning the capability off should
+> **also revoke `AUDIT_DELETE` from every role**, which removes the button and
+> the permission together.
+>
+> **A forward-compatibility note on H1, for whoever upgrades:** archives taken
+> AFTER the fix contain the telemetry parent but no partition children. Restore
+> them with pre-fix code and the omitted-table guard reports
+> `BACKUP_INCOMPLETE`, naming the partitions, and requires `force=true`. The
+> reverse direction is safe and self-healing — a pre-fix archive restored by
+> fixed code simply skips the child keys and inserts each reading once. Upgrade
+> the code before relying on a new archive.
 >
 > The findings below are the ORIGINAL audit, left unedited for the record.
 

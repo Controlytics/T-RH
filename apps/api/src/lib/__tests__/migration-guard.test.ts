@@ -79,13 +79,29 @@ describe('migration guard — schema.prisma invariants', () => {
   // table. Ingest then dies at the first month boundary, when Postgres
   // rejects any row whose `ts` falls outside a partition range.
   // Read src/lib/migration-guard.ts before changing this.
+  //
+  // Matches the DECLARATION, not the bare table name. A substring check would
+  // fail the moment anyone writes a COMMENT naming the table — and the audit's
+  // own cleanup plan recommends adding exactly such a comment beside
+  // InstrumentTelemetryLatest. The natural response to that spurious failure
+  // would be to delete the assertion, removing the guard on a §11 table. So
+  // look for `@@map("<table>")` or a model whose name maps to it.
   it.each(UNMODELLED_TABLES)(
-    'table %s is still deliberately absent from schema.prisma',
+    'table %s has no Prisma model in schema.prisma',
     (table) => {
       const schema = readFileSync(schemaPath, 'utf8');
-      expect(schema).not.toContain(table);
+      expect(schema).not.toMatch(
+        new RegExp(String.raw`@@map\(\s*"${table}"\s*\)`),
+      );
     },
   );
+
+  // Proves the assertion above is not vacuous: the same matcher DOES find a
+  // table that is modelled.
+  it('the @@map matcher finds a table that IS modelled', () => {
+    const schema = readFileSync(schemaPath, 'utf8');
+    expect(schema).toMatch(/@@map\(\s*"instrument_telemetry_latest"\s*\)/);
+  });
 });
 
 describe('findViolations', () => {
