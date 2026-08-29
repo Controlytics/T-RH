@@ -192,6 +192,14 @@ export function DashboardPage() {
               }
             : null}
           onOpenAlarms={() => navigate('/alarms')}
+          // The same component lists Blocks at the top and one Block's Areas a
+          // level down, so it has to be told which.
+          sectionTitle={nav.level === 0 ? 'Blocks Overview' : 'Areas'}
+          sectionSubtitle={
+            nav.level === 0
+              ? 'Overview of all functional blocks'
+              : `Areas in ${nav.breadcrumb[nav.breadcrumb.length - 1]?.label ?? 'this block'}`
+          }
         />
       )}
 

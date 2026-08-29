@@ -147,9 +147,20 @@ export interface EntryCardsProps {
   /** Null when the viewer cannot see alarms; the Alarms card is then omitted. */
   alarms: { active: number; unacknowledged: number } | null;
   onOpenAlarms: () => void;
+  /**
+   * Names what the lower section is listing. Required because the same
+   * component renders Blocks at the top level and one Block's AREAS a level
+   * down — it said "Blocks Overview" over a grid of Areas until 2026-08-29.
+   */
+  sectionTitle?: string;
+  sectionSubtitle?: string;
 }
 
-export function EntryCards({ cards, onSelect, alarms, onOpenAlarms }: EntryCardsProps) {
+export function EntryCards({
+  cards, onSelect, alarms, onOpenAlarms,
+  sectionTitle = 'Blocks Overview',
+  sectionSubtitle = 'Overview of all functional blocks',
+}: EntryCardsProps) {
   const all = cards.find((c) => c.id === ALL_INSTRUMENTS);
   const blocks = cards.filter((c) => c.id !== ALL_INSTRUMENTS);
   const activeAlarms = alarms?.active ?? 0;
@@ -255,8 +266,8 @@ export function EntryCards({ cards, onSelect, alarms, onOpenAlarms }: EntryCards
       {/* ── Blocks Overview ──────────────────────────────────────────────── */}
       {blocks.length > 0 && (
         <section>
-          <h2 className="text-[0.9375rem] font-bold text-slate-900 xl:text-[1.0625rem]">Blocks Overview</h2>
-          <p className="mt-0.5 text-[0.8125rem] text-slate-500">Overview of all functional blocks</p>
+          <h2 className="text-[0.9375rem] font-bold text-slate-900 xl:text-[1.0625rem]">{sectionTitle}</h2>
+          <p className="mt-0.5 text-[0.8125rem] text-slate-500">{sectionSubtitle}</p>
 
           <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4 xl:gap-5">
             {blocks.map((b, i) => {
