@@ -1881,6 +1881,81 @@ what the module does.
 
 ## 28. Critical Findings — Prioritised
 
+> ### ✅ REMEDIATION UPDATE — 2026-08-29, commits `7fde43e`, `28582fa`, `a87fd06`
+>
+> **C1, H1, H2 and H4 are fixed. H3's engineering work is done; one decision
+> remains with QA/RA.** Two additional defects were found while writing the
+> tests and fixed in the same pass.
+>
+> | # | Status | What was done |
+> |---|---|---|
+> | **C1** | ✅ **Fixed** | `lib/migration-guard.ts` + `scripts/check-migration-safety.mjs`, run by `npm test` and gating `npm run db:migrate`. Proven to exit 1 on an injected `DROP TABLE "instrument_telemetry_history"` and 0 on the clean tree. Deliberately does **not** add a Prisma model — see below. |
+> | **H1** | ✅ **Fixed** | `getAllTables()` now scans `pg_class` with `relkind IN ('r','p') AND relispartition = false`. |
+> | **H2** | ✅ **Fixed** | `src/e2e/backup-restore.e2e.test.ts`, 10 tests including a full export→restore round trip. |
+> | **H3** | ⚠️ **Half** — engineering done, **decision outstanding** | `AUDIT_HARD_DELETE_ENABLED` added, **defaulting to enabled (no behaviour change)**. The trigger-suspend dance is now one helper with the re-enable in a `finally`. **Whether to flip the default is still a QA/regulatory decision.** |
+> | **H4** | ✅ **Fixed** | 83 e2e tests across the four modules; three of them were also registered in `test-helper.ts`, without which no e2e could reach them at all. |
+>
+> **H1 was worse than this report originally stated, and the correction matters.**
+> The report said backup would "likely fail outright" at production volume.
+> Measured against the live database on 2026-08-29, it does **not** fail — it
+> succeeds and produces a corrupt archive:
+>
+> ```
+> instrument_telemetry_history           226,582 rows
+> instrument_telemetry_history_2026_08   226,582 rows   ← the same rows
+> pg_tables (public)                          42 relations
+> pg_class, partition children excluded       38 relations
+> ```
+>
+> Every reading was exported **twice**, and restore inserted both copies —
+> inserting into the parent routes the row into its child partition, then the
+> child's own dump adds it again. A §11 telemetry record silently **doubled**
+> on every restore. A silent corruption is a worse failure than a loud one, so
+> this was under-rated, not over-rated. The regression test fails at exactly
+> 2× (9,844 exported for 4,922 real readings on the test database) when the fix
+> is reverted, which is how it was confirmed non-vacuous.
+>
+> **C1 is real and recurring, not theoretical.** Fifteen committed migrations
+> carry a comment from an author who had just stripped Prisma's generated
+> `DROP TABLE "instrument_telemetry_history"` by hand. It has been generated on
+> essentially every migration since 2026-08-08 and removed manually each time.
+> The guard automates a step that has been performed correctly fifteen times
+> and only has to be forgotten once.
+>
+> **Two further defects, found by the new tests (neither in the original report):**
+>
+> - **P2023 → 500.** `id` columns are `uuid`, so `findUnique({ where: { id:
+>   'not-a-uuid' } })` made Postgres fail to parse the value and Prisma threw
+>   before the route's own 404 check could run. Every uuid-keyed route answered
+>   **500 INTERNAL_ERROR** — and in production dispatched a SYSTEM_ERROR
+>   notification — for an ordinary bad request. Now **400**.
+> - **P2025 → 500.** Routes that let Prisma signal "no such record"
+>   (`findUniqueOrThrow`, bare `update`/`delete`) answered **500** for a
+>   missing row. Now **404**.
+>
+> Both are mapped centrally in `lib/errors.ts:prismaErrorToResponse`, so the
+> fix covers every route rather than the handful the tests touched. That
+> function is now shared with `src/e2e/test-helper.ts`, whose error handler is
+> a reduced copy of the real one and had omitted the P2002 translation
+> entirely — meaning **no e2e could observe the status a client actually
+> receives for a Prisma failure**. That divergence is closed.
+>
+> **Verification:** `apps/api` `tsc --noEmit` clean; full suite **1735 passed /
+> 0 failed across 134 files** (single-fork, against `compliance_core_db_test`).
+>
+> **Still open — needs a human decision, not code:**
+> **H3.** The product can still permanently delete §11 audit records and break
+> the hash chain, because that is what it has always done and removing it in a
+> patch would break an operator workflow nobody agreed to change. Setting
+> `AUDIT_HARD_DELETE_ENABLED=false` removes the capability; `bulk-redact`
+> already covers the legitimate "this content must not be retained" case
+> without breaking the chain. **Whether that becomes the default is a
+> QA/regulatory call.**
+>
+> The findings below are the ORIGINAL audit, left unedited for the record.
+
+
+
 ### 🔴 CRITICAL
 
 | # | Finding | Location | Why |
