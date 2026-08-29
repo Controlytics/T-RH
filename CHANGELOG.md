@@ -160,6 +160,31 @@ the multiselect's inline caption. Verified by sampling the DOM during
 navigation: the skeleton appears, a `role="status"` region announces it, and it
 clears to zero with real rows in place.
 
+### Section icons
+
+**29 section-header tiles** onto the treatment Stage 1's `FormSection` primitive
+already defined — `bg-slate-100 text-slate-600` in a control-radius square. Each
+had picked its own saturated two-stop gradient (amber on one section of Password
+Policy and indigo on the next, violet on Branding, cyan on Debug), and none of it
+meant anything: these are parts of ONE screen, so what they need is hierarchy,
+not identity. The page icon now carries the theme colour and the section icons
+are quiet. Measured 6.92:1, past the 3:1 non-text graphics require.
+
+Eight gradient chips sitting **inside form fields** went too — a tinted box in
+front of a field competes with the value being typed into it, and the fields had
+grown `pl-12 h-12` to clear them, a 48px control the system does not have.
+
+**Semantic tints are untouched**: the red on an error banner and the emerald on a
+success one carry meaning rather than decoration.
+
+One bug introduced and caught here: the `text-white` strip ran file-wide rather
+than per-tile, leaving glyphs dark on grounds that had NOT been recoloured (a
+success dialog's emerald tile, an error dialog's red one). Repaired by diffing
+against HEAD rather than guessing from surrounding markup — a heuristic would
+have added white to icons that never had it — plus one by hand whose ground is an
+inline `backgroundColor` no class-based sweep can see. An audit then proved all
+30 remaining de-inked glyphs sit on quiet grounds.
+
 ### Deliberately excluded
 
 `routes/dashboard/` panel-card geometry (tuned with the operator days earlier),

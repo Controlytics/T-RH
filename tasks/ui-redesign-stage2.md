@@ -126,11 +126,22 @@ lockdown screen; a skeleton would promise a layout that usually never appears),
 `<option>Loading…</option>` inside a select, and the multiselect's inline
 caption.
 
-## Tier 7 — still open
+## Tier 7 — section icons (done)
 
-- [ ] **Per-page section-icon colour** — pages give each SECTION (not the page
-      header) its own tinted icon tile. It reads as deliberate, but no rule
-      governs which colour means what.
+- [x] **29 section-header tiles** onto the treatment Stage 1's `FormSection`
+      already defined: `bg-slate-100 text-slate-600` in a control-radius square.
+      The hierarchy is now legible — the PAGE icon carries the theme colour, the
+      SECTION icons are quiet. Measured 6.92:1, past the 3:1 graphics need.
+- [x] **8 gradient chips inside form fields** flattened to plain muted glyphs;
+      the `pl-12 h-12` clearance they had forced went back to the standard
+      control height. `forgot-password` also lost the `h-12 border rounded-xl`
+      override of the `Input` primitive that `login` had already been fixed for.
+
+**Semantic tints are deliberately untouched** — the red on an error banner and
+the emerald on a success one carry meaning, not decoration. Only the decorative
+gradients went.
+
+## Tier 8 — still open
 - [ ] **Remaining filter/action chips** — Field IDs' module filter and the audit
       `ACTION_COLORS` map are per-item colour codings, not statuses. They are
       internally consistent; unifying them would destroy the coding.
