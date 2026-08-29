@@ -131,7 +131,15 @@ export function DashboardPage() {
         the header does not know, and should not have to. Over a wallpaper it
         restores contrast; over the plain grey page it reads as an ordinary
         header band.
+
+        HIDDEN AT THE TOP LEVEL (operator, 2026-08-29: "remove the dashboard text
+        box and functional location selection on dashboard first page"). At level 0
+        the breadcrumb is empty by construction, so the plate carried nothing but
+        the word "Dashboard" and the location picker; the entry cards below are the
+        drill-down. From level 1 down the plate MUST stay — the breadcrumb inside it
+        is the only way back up.
       */}
+      {nav.level > 0 && (
       <div className="flex flex-wrap items-end justify-between gap-3 rounded-[var(--radius-card)] border border-white/70 bg-white/85 px-4 py-3 shadow-[var(--elev-1)] backdrop-blur-sm">
         <div>
           <h1 className="text-[1.625rem] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Dashboard</h1>
@@ -175,6 +183,7 @@ export function DashboardPage() {
           </select>
         </label>
       </div>
+      )}
 
       {nav.cards.length > 0 && (
         /* The landing cards. Built to the supplied reference (Screen-1.png,
