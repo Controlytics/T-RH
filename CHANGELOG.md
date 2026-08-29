@@ -185,6 +185,32 @@ have added white to icons that never had it — plus one by hand whose ground is
 inline `backgroundColor` no class-based sweep can see. An audit then proved all
 30 remaining de-inked glyphs sit on quiet grounds.
 
+### The last raw controls, and an unreachable page
+
+The 23 "dynamic classNames" the `.ctl` pass had skipped were mostly not
+conditional: 20 were `className={field}`, a single module-level constant per
+file. That was the right instinct one layer too low — each dialog avoided
+per-field drift internally while disagreeing with the rest of the application.
+Three constants now point at `.ctl`, so their hardcoded slate and cyan focus
+rings follow the site theme. Only two were genuinely conditional, and one of
+them keeps its colour: `export-options`' cell tint ENCODES the chosen format.
+
+**`/config/export-options` had no route.** Its config def declares
+`customPagePath: '/config/export-options'` and the Configuration dashboard
+renders a card pointing there, but nothing was ever registered — the card fell
+through to the dashboard, so the page had never been reachable, which is also
+why nobody had noticed it has no header. Registered with the sibling
+`CONFIG_READ` guard (**Routes 50 → 51**) and given the standard header. This is
+the failure mode memory already records: a config *page* existing here does not
+mean it works.
+
+Two more found on the way: the Dialog focus fix from earlier in this branch made
+the global `:focus-visible` rule draw an accent ring around the whole panel
+(unlayered rule beating a layered utility — the same cascade trap as `.ctl`), and
+`alarm-webhooks` has two **hand-rolled** modals that never used the Dialog
+primitive, so the `role`/`aria-modal` fix had missed them. Both now announced and
+labelled.
+
 ### Deliberately excluded
 
 `routes/dashboard/` panel-card geometry (tuned with the operator days earlier),

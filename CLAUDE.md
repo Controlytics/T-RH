@@ -178,7 +178,7 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   `alarm-webhooks.tsx`. **The def count did NOT move** — alarm webhooks are a
   real CRUD module with their own tables, not a `system_config` row, so there
   is no `*.def.ts` for them.
-- **Frontend:** **50** `<Route`s in `main.tsx` (49 → 50, 2026-08-27:
+- **Frontend:** **51** `<Route`s in `main.tsx` (50 → 51, 2026-08-29: `/config/export-options`, a page that had a config def and a dashboard card but no route, so it was unreachable. Earlier 49 → 50, 2026-08-27:
   `/config/alarm-webhooks`).
 - **Queue backend:** graphile-worker (Postgres-backed), **6** tasks.
 - **Tenancy:** single-tenant, single-site. JWT `scope` always stamps `GLOBAL`.
@@ -212,7 +212,7 @@ history; `docs/recreation/` holds the inventory.
   `reason` column; a first fill does not). Admin surface: Config → Roles & Access → Attribute Access.
   Migration `20260819120000_role_attribute_access`, drift guard PASS, applied to both databases.
 - **Themes:** 10 preset color themes (Ocean / Sapphire / Emerald / Amethyst / Sunset / Slate / Ruby / Forest / Midnight / Coral)
-- **Frontend:** **50** Routes in `main.tsx` (verified `grep -cE "<Route"` 2026-08-27 — 49 → 50: new `/config/alarm-webhooks` page; earlier 48 → 49 on 2026-08-24: the `/instruments/:id/trend` page; the "77" was inherited from upstream DigiLog and was never true in this fork; `/config/role-assignments` removed 2026-08-19 as dead code, 49 → 48), **18** custom hooks, **19** lib modules (`ls apps/web/src/hooks/ | wc -l` / `ls apps/web/src/lib/ | wc -l`, each including its own `__tests__` subfolder as one entry — lib 18 → 19 corrected 2026-08-27: `lib/background-style.ts` landed with the wallpaper work (`764fff5`) and this line was never re-synced; the 2026-08-27 trend-sampling work added NO lib module — the "26 / 30" this file carried for months was never true against the live tree and was never re-verified until now)
+- **Frontend:** **51** Routes in `main.tsx` (verified `grep -cE "<Route"` 2026-08-29 — 50 → 51: `/config/export-options` registered, having never been reachable. Earlier verified 2026-08-27 — 49 → 50: new `/config/alarm-webhooks` page; earlier 48 → 49 on 2026-08-24: the `/instruments/:id/trend` page; the "77" was inherited from upstream DigiLog and was never true in this fork; `/config/role-assignments` removed 2026-08-19 as dead code, 49 → 48), **18** custom hooks, **19** lib modules (`ls apps/web/src/hooks/ | wc -l` / `ls apps/web/src/lib/ | wc -l`, each including its own `__tests__` subfolder as one entry — lib 18 → 19 corrected 2026-08-27: `lib/background-style.ts` landed with the wallpaper work (`764fff5`) and this line was never re-synced; the 2026-08-27 trend-sampling work added NO lib module — the "26 / 30" this file carried for months was never true against the live tree and was never re-verified until now)
 - **Queue backend:** graphile-worker (Postgres-backed); **6** worker tasks —
   `notification`, `password_expiry_check`, `session_sweep`,
   `telemetry_partition_maintenance`, `alarm_evaluation`, `alarm_webhook`

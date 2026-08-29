@@ -141,12 +141,45 @@ caption.
 the emerald on a success one carry meaning, not decoration. Only the decorative
 gradients went.
 
-## Tier 8 — still open
+## Tier 8 — the last raw controls (done)
+
+- [x] **20 of the 23 "dynamic classNames" were not conditional at all** — they
+      were `className={field}`, one module-level constant per file. Pointing
+      three constants (`field` ×2, `inputCls`) at `.ctl` moved every call site,
+      and their hardcoded slate/cyan focus rings now follow the site theme.
+      Verified: all 8 controls in the webhook dialog measure 40px at 6px radius.
+- [x] **The two genuinely conditional ones**: `help.tsx` re-implemented
+      `[readonly]`/`:disabled` that `.ctl` already does (ternary removed);
+      `export-options` KEEPS its value tint (it encodes PDF/Excel/Both/None) but
+      gained a control shape and a real focus ring — it had `outline-none` with
+      nothing put back.
+- [x] The one VISIBLE file input styled via `file:` variants; colour swatches
+      44px → 40px.
+
+### Found while doing it
+
+- [x] **`/config/export-options` had no route.** The config def declares
+      `customPagePath` and the dashboard renders a card, but nothing was
+      registered — the card fell through to the dashboard and the page had never
+      been reachable. Registered with the sibling `CONFIG_READ` guard
+      (Routes 50 → 51) and given the standard header.
+- [x] **The Dialog focus fix drew a ring around the panel.** The global
+      `:focus-visible` rule is unlayered and beat the panel's own
+      `focus:outline-none` utility — the cascade-layer trap again. Exception now
+      lives unlayered beside the rule it excepts.
+- [x] **alarm-webhooks has two hand-rolled modals** that never used the Dialog
+      primitive, so the `role`/`aria-modal` fix missed them. Both announced and
+      labelled now.
+
+## Tier 9 — still open
 - [ ] **Remaining filter/action chips** — Field IDs' module filter and the audit
       `ACTION_COLORS` map are per-item colour codings, not statuses. They are
       internally consistent; unifying them would destroy the coding.
-- [ ] **23 dynamic classNames + 12 hidden/custom-widget controls** the `.ctl` pass
-      skipped by design; each needs a human decision.
+- [ ] **12 hidden/custom-widget controls** (`sr-only`, `peer`, `hidden`) — real
+      inputs deliberately drawn over by something else. Correct as they are;
+      listed so nobody "fixes" them.
+- [ ] `routes/config/export-options.tsx` is now reachable but has never been
+      exercised by anyone. Worth an operator's eye before it is trusted.
 
 ## Verification
 `npx tsc -p apps/web/tsconfig.json --noEmit` after each tier — vitest never
