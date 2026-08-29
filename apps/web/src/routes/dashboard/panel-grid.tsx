@@ -28,7 +28,8 @@ const COLS = { lg: GRID_COLUMNS, md: 6, sm: 1 };
 const ROW_HEIGHT = 40;
 
 export function PanelGrid({
-  items, editing, saving, children, onStart, onCancel, onSave, onReset, onChange,
+  items, editing, saving, children, onStart, onCancel, onSave, onReset, onChange, toolbar,
+  canArrange = true,
 }: {
   items: LayoutItem[];
   editing: boolean;
@@ -40,6 +41,15 @@ export function PanelGrid({
   onSave: () => void;
   onReset: () => void;
   onChange: (next: LayoutItem[]) => void;
+  /** Rendered on its own row BENEATH the Arrange controls — the view toggle. */
+  toolbar?: ReactNode;
+  /**
+   * SUPER_ADMIN only (operator, 2026-08-29). Gates the whole edit session, not
+   * just the button: `interactive` below is ANDed with it, so a layout cannot be
+   * dragged even if edit mode were somehow entered. The saved arrangement still
+   * APPLIES to everyone — this governs who may change it, not who may see it.
+   */
+  canArrange?: boolean;
 }) {
   const [breakpoint, setBreakpoint] = useState<keyof typeof COLS>('lg');
   // v2 requires an explicit width. `useContainerWidth` measures the element the
@@ -49,13 +59,13 @@ export function PanelGrid({
 
   // Precise dragging on a phone is a way to destroy a layout by accident, not a
   // feature. Resizing is off there for the same reason.
-  const interactive = editing && breakpoint !== 'sm';
+  const interactive = canArrange && editing && breakpoint !== 'sm';
 
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center justify-end gap-2">
         {!editing ? (
-          <Button variant="outline" onClick={onStart}>Arrange</Button>
+          canArrange ? <Button variant="outline" onClick={onStart}>Arrange</Button> : null
         ) : (
           <>
             <span className="mr-auto text-xs text-slate-500">
@@ -69,6 +79,8 @@ export function PanelGrid({
           </>
         )}
       </div>
+
+      {toolbar && <div className="flex flex-wrap items-center gap-2">{toolbar}</div>}
 
       {/* `panel-grid--editing` is what app.css hangs the visible resize handle off.
           The library's own handle is opacity:0 until the grid item is hovered and

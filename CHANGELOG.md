@@ -1,5 +1,51 @@
 # Changelog
 
+## [Unreleased] - Tabular / Graphical toggle restored; Arrange is SUPER_ADMIN-only (2026-08-29)
+
+Two operator requests. **No count moved.** Files:
+`routes/dashboard/{index,panel-grid}.tsx`.
+
+### The view toggle is back
+
+Removed on 2026-08-28, restored on 2026-08-29 on the row BENEATH Arrange (new
+optional `toolbar` slot on `PanelGrid`). **Tabular is the default**; Graphical
+swaps in the floorplan. It reads `?view=` again — in the URL like `fl` and `agg`,
+so a graphical view is linkable and survives a refresh. Anything other than
+`graphical` reads as table, so a hand-edited URL degrades to the default rather
+than a blank slot.
+
+- **It governs only the two READING panels.** Trend and Alarms show in both views:
+  they answer questions that are not about how you happen to be looking at the
+  readings.
+- **The toggle appears only when there is something to switch between** — a role
+  that cannot see the floorplan panel gets no toggle, rather than a button that
+  empties the grid.
+- **⚠ Hiding a panel must not delete it, and this is the trap:** react-grid-layout
+  reports only the items it was GIVEN, so filtering the items and then pressing
+  Arrange + Save would persist a layout with the other reading panel MISSING — and
+  a panel absent from the layout never comes back. `onGridChange` merges the hidden
+  item back into the draft at its stored position. **Exercised in the browser, not
+  just reasoned about:** switched to Graphical, saved a layout while the table was
+  hidden, switched back — the table returned.
+
+### Arrange is SUPER_ADMIN-only
+
+`canArrange` on `PanelGrid` gates the whole edit session, not just the button:
+`interactive` is ANDed with it, so nothing can be dragged even if edit mode were
+somehow entered. The saved arrangement still APPLIES to everyone — this governs
+who may CHANGE it, not who may see it.
+
+**Client-side only, and worth knowing:** `PUT /api/config/my-dashboard-layout`
+still accepts a user's own layout, so a non-super-admin could set one by calling
+the API directly. That is not a privilege escalation — the layout affects only
+that user's own dashboard — but if the intent is that non-super-admins can never
+have a custom layout, the route needs the same gate. Not done, because it was not
+asked for and it would change an endpoint every user currently relies on.
+
+**Not verified in the browser:** the non-SUPER_ADMIN path. There is no second
+account whose password is known here; the gate is a one-line role check and tsc
+passes, but nobody has watched a non-super-admin load the page.
+
 ## [Unreleased] - Readings table: counts line and refresh button removed (2026-08-29)
 
 Operator: the table already updates by itself, so a manual refresh only re-asks a

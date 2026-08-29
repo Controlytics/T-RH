@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useCan } from '@/hooks/use-can';
+import { useAuth } from '@/hooks/use-auth';
 import useSWR from 'swr';
 import { TelemetryTable } from './telemetry-table';
 import { FloorplanView } from './floorplan-view';
@@ -12,6 +13,7 @@ import { PanelGrid } from './panel-grid';
 import { PanelCard } from './panel-card';
 import { EntryCards } from './entry-cards';
 import { useDashboardLayout } from '@/hooks/use-dashboard-layout';
+import type { LayoutItem } from '@digilog/shared';
 import { Button } from '@/components/ui/button';
 
 /** A CSS gradient STRING for `backgroundImage`. Not lib/theme-styles' themeGradient,
@@ -49,6 +51,7 @@ const themeGradient = 'linear-gradient(to right, var(--theme-gradient-from), var
  */
 export function DashboardPage() {
   const can = useCan();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const selected = params.get('fl');
@@ -67,6 +70,17 @@ export function DashboardPage() {
   // which did the role lookup here in the browser.
   const { showPanel } = usePanels();
   const layout = useDashboardLayout();
+
+  // TABULAR by default; Graphical only when asked for. In the URL like `fl` and
+  // `agg`, so a graphical view is linkable and survives a refresh — the
+  // convention this page already set. Anything other than 'graphical' reads as
+  // table, so a hand-edited URL degrades to the default rather than a blank slot.
+  const view: 'table' | 'graphical' = params.get('view') === 'graphical' ? 'graphical' : 'table';
+  const setView = (v: 'table' | 'graphical') => {
+    const next = new URLSearchParams(params);
+    if (v === 'graphical') next.set('view', v); else next.delete('view');
+    setParams(next);
+  };
 
   const { data: tree } = useSWR<{ data: NavNode[] }>('/api/functional-locations');
   // The true instrument total, including instruments in NO location. limit=1 so
@@ -104,6 +118,36 @@ export function DashboardPage() {
   };
 
   const locations = tree?.data ?? [];
+
+  // ── Tabular / Graphical ────────────────────────────────────────────────────
+  // The toggle governs ONLY these two panels. Everything else in the grid (trend,
+  // alarms) is shown in both views — they answer questions that are not about how
+  // you happen to be looking at the readings.
+  const READING_PANELS = { table: 'telemetry_table', graphical: 'telemetry_floorplan' } as const;
+  const hasPanel = (key: string) => layout.items.some((it) => it.i === key) && showPanel(key);
+  // Offer the switch only when there is something to switch BETWEEN. A role that
+  // cannot see the floorplan gets no toggle rather than a button that blanks the
+  // grid.
+  const canToggleView = hasPanel(READING_PANELS.table) && hasPanel(READING_PANELS.graphical);
+  const hiddenPanel = !canToggleView
+    ? null
+    : view === 'table' ? READING_PANELS.graphical : READING_PANELS.table;
+
+  const visibleItems = hiddenPanel ? layout.items.filter((it) => it.i !== hiddenPanel) : layout.items;
+
+  /**
+   * Merge the hidden panel's stored position back into the draft.
+   *
+   * react-grid-layout reports only the items it was GIVEN, so saving while a view
+   * is filtered would persist a layout with the other reading panel missing — and
+   * a panel absent from the layout never comes back. The hidden item is carried
+   * through untouched, at whatever position it already held.
+   */
+  const onGridChange = (next: LayoutItem[]) => {
+    if (!hiddenPanel) return layout.setDraft(next);
+    const carried = layout.items.filter((it) => it.i === hiddenPanel);
+    layout.setDraft([...next, ...carried]);
+  };
 
   /**
    * The two readings panels used to sit under one heading naming the current
@@ -227,11 +271,16 @@ export function DashboardPage() {
         Every assignable panel is a grid item: draggable and resizable once
         "Arrange" is pressed, and persisted per user with a role default beneath.
 
-        The Table | Graphical TOGGLE WAS REMOVED on 2026-08-28 (operator's call).
-        A grid where each panel is independently placeable cannot also have two of
-        them sharing one slot behind a switch — and they were already two separate
-        keys in the panel catalogue. Both can now be on screen at once, or either
-        dragged away. The `?view=` URL parameter went with it.
+        The Table | Graphical TOGGLE IS BACK (operator, 2026-08-29), having been
+        removed on 2026-08-28. It reads the `?view=` parameter again. Tabular is the
+        default; Graphical swaps in the floorplan.
+
+        IT HIDES, IT DOES NOT DELETE. Only the two READING panels are affected, and
+        the hidden one keeps its stored position — see `onGridChange` below, which
+        merges hidden items back into the draft. Without that merge, arranging while
+        one view is showing would save a layout with the other panel MISSING, and
+        the panel would never come back. That is the trap in filtering the items you
+        hand to react-grid-layout: its onChange reports only what it was given.
 
         Each child's `key` MUST equal its layout item's `i`. That is how
         react-grid-layout matches a child to its position; a mismatch silently
@@ -239,16 +288,40 @@ export function DashboardPage() {
       */}
       {nav.showViews && layout.items.length > 0 && (
         <PanelGrid
-          items={layout.items}
+          items={visibleItems}
           editing={layout.editing}
           saving={layout.saving}
           onStart={layout.start}
           onCancel={layout.cancel}
           onSave={layout.save}
           onReset={layout.reset}
-          onChange={layout.setDraft}
+          onChange={onGridChange}
+          // Arrange is SUPER_ADMIN only (operator, 2026-08-29).
+          canArrange={user?.role === 'SUPER_ADMIN'}
+          toolbar={canToggleView ? (
+            <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
+              {([
+                { id: 'table' as const, label: 'Tabular view' },
+                { id: 'graphical' as const, label: 'Graphical view' },
+              ]).map((v) => (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => setView(v.id)}
+                  aria-pressed={view === v.id}
+                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                    view === v.id
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {v.label}
+                </button>
+              ))}
+            </div>
+          ) : undefined}
         >
-          {layout.items.map((it) => {
+          {visibleItems.map((it) => {
             // A layout item for a panel this viewer may not see never reaches the
             // browser — the server strips it — but the guard stays as the single
             // place that decides, so assignment and rendering cannot disagree.
