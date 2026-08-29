@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import useSWR from 'swr';
-import { api } from '@/lib/api-client';
+import { apiClient } from '@/lib/api-client';
 import { getApiBase } from '@/lib/api-base';
 import { useToast } from '@/hooks/use-toast';
 import { useReauth } from '@/hooks/use-reauth';
@@ -273,10 +273,10 @@ export function FloorplansConfigPage() {
 
       const fd = new FormData();
       fd.append('file', file);
-      const up = await api.postFormData<{ url: string }>('/api/uploads/floorplan', fd);
+      const up = await apiClient.postFormData<{ url: string }>('/api/uploads/floorplan', fd);
 
       const name = file.name.replace(/\.[^.]+$/, '');
-      await api.post('/api/floorplans', {
+      await apiClient.post('/api/floorplans', {
         name, imagePath: up.url, imageWidth: dims.w, imageHeight: dims.h,
       });
       await Promise.all([mutatePlans(), mutateDetail()]);
@@ -339,14 +339,14 @@ export function FloorplansConfigPage() {
           : `/api/floorplans/${plan.id}/rooms`;
 
         const saved = selectedRoom
-          ? (password ? await api.putWithReauth<Room>(roomUrl, body, password) : await api.put<Room>(roomUrl, body))
-          : (password ? await api.postWithReauth<Room>(roomUrl, body, password) : await api.post<Room>(roomUrl, body));
+          ? (password ? await apiClient.putWithReauth<Room>(roomUrl, body, password) : await apiClient.put<Room>(roomUrl, body))
+          : (password ? await apiClient.postWithReauth<Room>(roomUrl, body, password) : await apiClient.post<Room>(roomUrl, body));
 
         const memberUrl = `/api/floorplans/${plan.id}/rooms/${saved.id}/instruments`;
         const memberBody = { instrumentIds: form.instrumentIds };
         const res = password
-          ? await api.putWithReauth<{ moved: { code: string; fromRoom: { code: string } | null }[] }>(memberUrl, memberBody, password)
-          : await api.put<{ moved: { code: string; fromRoom: { code: string } | null }[] }>(memberUrl, memberBody);
+          ? await apiClient.putWithReauth<{ moved: { code: string; fromRoom: { code: string } | null }[] }>(memberUrl, memberBody, password)
+          : await apiClient.put<{ moved: { code: string; fromRoom: { code: string } | null }[] }>(memberUrl, memberBody);
 
         // An instrument can only be in one room, so assigning it here removed it
         // from wherever it was. Say so — discovering it later is worse.
@@ -384,8 +384,8 @@ export function FloorplansConfigPage() {
       'UPDATE_FLOORPLAN_ROOM',
       async (password?: string) => {
         const url = `/api/floorplans/${plan.id}/rooms/${room.id}`;
-        if (password) await api.deleteWithReauth(url, password);
-        else await api.delete(url);
+        if (password) await apiClient.deleteWithReauth(url, password);
+        else await apiClient.delete(url);
       },
       {
         onSuccess: async () => {

@@ -9,8 +9,11 @@ export const DEFAULT_ROLES = {
   VIEWER: 'VIEWER',
 } as const;
 
-// Keep ROLES export for backward compatibility
-export const ROLES = DEFAULT_ROLES;
+// `ROLES` alias removed 2026-08-29 (audit L9). It was kept "for backward
+// compatibility" with a caller that no longer exists — a whole-repo grep for
+// an import of it returns nothing. Two names for one symbol means a
+// find-all-usages search returns half the truth, which on the ROLE table is
+// exactly where that hurts.
 
 // Role is now a string type to support dynamic roles
 export type Role = string;
@@ -38,8 +41,8 @@ export const DEFAULT_ROLE_HIERARCHY: Record<string, number> = {
   VIEWER: 1,
 };
 
-// Keep ROLE_HIERARCHY export for backward compatibility
-export const ROLE_HIERARCHY = DEFAULT_ROLE_HIERARCHY;
+// `ROLE_HIERARCHY` alias removed 2026-08-29 (audit L9) — same reasoning as
+// the DEFAULT_ROLES alias above; no importer anywhere in the repo.
 
 /**
  * @deprecated Use API endpoint /api/roles/:name/creatable instead

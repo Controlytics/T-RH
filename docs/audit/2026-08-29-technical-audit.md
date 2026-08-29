@@ -854,22 +854,44 @@ string-literal grep, which cannot see:
 target environment and diff observed routes against the ~300 registered at runtime. That
 converts every POSSIBLY UNUSED above into a fact.
 
-### Dead allowlist entry
+### ~~Dead allowlist entry~~ — WITHDRAWN 2026-08-29, the finding was WRONG
 
 ```
-Finding:    '/api/health' is listed in PUBLIC_PATHS but no such route exists.
-File:       apps/api/src/plugins/auth.ts:179
-Evidence:   grep -rn "get('/health'" apps/api/src → 0 hits.
-            CLAUDE.md independently records "There is no /health route".
-            The health endpoint is /api/system-health, which is NOT public.
-Impact:     None today — it exempts a 404. It is the same class of cruft the
-            file itself documents removing on 2026-07-03 ("removed 6 stale
-            JWT-skip entries whose routes were deleted"), so the cleanup
-            precedent is already established in this very file.
-Severity:   LOW
-Confidence: HIGH
-Recommendation: Remove the entry, or point it at /api/system-health if an
-            unauthenticated liveness probe is actually wanted.
+ORIGINAL CLAIM (false): '/api/health' is listed in PUBLIC_PATHS but no such
+                        route exists.
+Original evidence:      grep -rn "get('/health'" apps/api/src → 0 hits.
+                        CLAUDE.md "There is no /health route".
+
+WHY IT WAS WRONG:
+  The route is registered in app.ts:297 as `app.get('/api/health', ...)`,
+  at the top level with NO route prefix. The grep pattern searched for
+  `get('/health'` — the path as it would appear INSIDE a prefixed module —
+  which cannot match `get('/api/health'`. The pattern was incapable of
+  finding the thing it was used to rule out, so the 0 hits meant nothing.
+  CLAUDE.md's identical claim traces to the same bad grep, and this audit
+  cited it as independent corroboration when it was the same error twice.
+
+WHAT THE ROUTE ACTUALLY DOES:
+  It is the tablet's liveness probe. apps/web/src/lib/connectivity.ts
+  probeServer treats any non-2xx as "server unreachable", and app.ts:320-323
+  documents deliberately returning 200 even when the job runner is down so a
+  background-job fault cannot flip every tablet into offline mode. Its
+  PUBLIC_PATHS entry is load-bearing: without it the probe 401s and every
+  client decides the server is gone.
+
+WHAT HAPPENED:
+  The entry was removed on 2026-08-29 while acting on this finding, and
+  reverted within minutes when the route was found. No commit carried it.
+
+THE LESSON, which is this audit's own rule turned back on itself:
+  a 0-hit grep is evidence only if the pattern COULD have matched. Every
+  "does not exist" claim in this report rests on a grep; this one rested on
+  a grep aimed at the wrong shape. Corroboration from a doc written by the
+  same method is not corroboration.
+
+Severity:   n/a — withdrawn
+Recommendation: NONE. Leave the entry. Fix CLAUDE.md's "There is no /health
+            route" line, which is still wrong.
 ```
 
 ---
@@ -1775,7 +1797,7 @@ Recommendation: Delete it, or rename it to rootCA.UNUSED.pem. The cost of
 | Orphaned DB table | — | **None.** All 36 models + both raw-SQL tables have live readers and writers. |
 | Orphaned model | `InstrumentTelemetryLatest` | ⚠️ **Model orphaned from the Prisma client, table fully alive.** Do not remove. |
 | Orphaned migration | — | None. 24 migrations, all applied. |
-| Orphaned configuration | `/api/health` in `PUBLIC_PATHS` | ✅ Dead allowlist entry |
+| Orphaned configuration | ~~`/api/health` in `PUBLIC_PATHS`~~ | ❌ **NOT orphaned — finding withdrawn.** The route exists (`app.ts:297`) and is the tablet's liveness probe. See §13. |
 | Orphaned configuration | `capacitor://localhost` in the CORS fallback | ✅ Removed-mobile leftover |
 | Orphaned service | — | None |
 | Orphaned script | `test-engine.mjs` (root) | ⚠️ Not referenced by any `package.json` script, `turbo.json`, or `vitest.workspace.ts`. Review. |
@@ -2018,7 +2040,7 @@ what the module does.
 
 | # | Finding | Location |
 |---|---|---|
-| L1 | `/api/health` — dead `PUBLIC_PATHS` entry | `plugins/auth.ts:179` |
+| ~~L1~~ | ❌ **WITHDRAWN — this finding was WRONG.** `/api/health` exists and is load-bearing: `app.ts:297` registers it directly (no route prefix), so the audit's evidence grep `get('/health'` could never have matched it. It is the tablet's liveness probe — `apps/web/src/lib/connectivity.ts probeServer` treats a non-2xx as "server unreachable" — and its `PUBLIC_PATHS` entry is required. Removing it was attempted on 2026-08-29 and reverted within minutes. `CLAUDE.md` carries the same false claim ("There is no `/health` route") from the same bad grep. **The lesson is the audit's own rule turned on itself: a 0-hit grep is evidence only if the pattern could have matched.** | `plugins/auth.ts:179`, `app.ts:297` |
 | L2 | `capacitor://localhost` in the CORS fallback; 5176 absent from it | `app.ts:127` |
 | L3 | Trigger re-enable not in `finally` | `audit/routes.ts`, `backup.repository.ts` |
 | L4 | In-memory rate limiter and webhook cooldown — single-instance ceiling | `app.ts:189`, `alarm-webhooks/` |

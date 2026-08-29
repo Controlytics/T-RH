@@ -5,7 +5,7 @@ import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { useToast } from '@/hooks/use-toast';
-import { api } from '@/lib/api-client';
+import { apiClient } from '@/lib/api-client';
 import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
 import { Pagination } from '@/components/ui/pagination';
 import { Button } from '@/components/ui/button';
@@ -129,9 +129,9 @@ export function AdminRequestsPage() {
       async (password?: string) => {
         const body = { action, adminRemarks: adminRemarks.trim() };
         if (password) {
-          response = await api.postWithReauth(`/api/admin-requests/${selectedRequest.id}/process`, body, password);
+          response = await apiClient.postWithReauth(`/api/admin-requests/${selectedRequest.id}/process`, body, password);
         } else {
-          response = await api.post(`/api/admin-requests/${selectedRequest.id}/process`, body);
+          response = await apiClient.post(`/api/admin-requests/${selectedRequest.id}/process`, body);
         }
       },
       {

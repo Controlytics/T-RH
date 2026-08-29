@@ -19,7 +19,12 @@ import { evaluateAlarms } from '../src/workers/alarm-evaluation.worker.js';
 
 const API = process.env.PROBE_API ?? 'https://localhost:3001';
 const BROKER = process.env.MQTT_BROKER_URL ?? 'mqtt://127.0.0.1:1883';
-const PW = 'Admin@123';
+// 2026-08-29 (audit L6): read from the environment instead of being baked in.
+// It was the only literal credential anywhere in apps/, packages/ or scripts/.
+// Harmless in itself — a dev script against localhost — but a hardcoded
+// password is the thing a secret scanner flags and a reader copies. DEMO_PASS
+// is the variable the sibling probe scripts already use.
+const PW = process.env.DEMO_PASS ?? 'Admin@123';
 const TAG = '[demo]';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

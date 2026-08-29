@@ -5,7 +5,6 @@ import { Select } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { apiClient } from '@/lib/api-client';
-import { api } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { useCan } from '@/hooks/use-can';
 import { useReauth } from '@/hooks/use-reauth';
@@ -210,7 +209,7 @@ export function NotificationsPage() {
       async (password?: string) => {
         const body = { ids: Array.from(selectedIds) };
         if (password) {
-          await api.postWithReauth('/api/notifications/bulk-delete', body, password);
+          await apiClient.postWithReauth('/api/notifications/bulk-delete', body, password);
         } else {
           await apiClient.post('/api/notifications/bulk-delete', body);
         }
@@ -234,7 +233,7 @@ export function NotificationsPage() {
       'DELETE_NOTIFICATION',
       async (password?: string) => {
         if (password) {
-          await api.deleteWithReauth(`/api/notifications/${id}`, password);
+          await apiClient.deleteWithReauth(`/api/notifications/${id}`, password);
         } else {
           await apiClient.delete(`/api/notifications/${id}`);
         }

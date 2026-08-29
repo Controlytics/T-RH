@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import useSWR from 'swr';
-import { apiClient, api } from '@/lib/api-client';
+import { apiClient } from '@/lib/api-client';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
@@ -196,7 +196,7 @@ function EmailTab() {
     reauth.execute(
       'UPDATE_EMAIL_CONFIG',
       async (password?: string) => {
-        if (password) await api.putWithReauth('/api/notification-settings/email', formData, password);
+        if (password) await apiClient.putWithReauth('/api/notification-settings/email', formData, password);
         else await apiClient.put('/api/notification-settings/email', formData);
       },
       {
@@ -693,7 +693,7 @@ function SmsTab() {
     reauth.execute(
       'UPDATE_SMS_CONFIG',
       async (password?: string) => {
-        if (password) await api.putWithReauth('/api/notification-settings/sms', formData, password);
+        if (password) await apiClient.putWithReauth('/api/notification-settings/sms', formData, password);
         else await apiClient.put('/api/notification-settings/sms', formData);
       },
       {
@@ -827,7 +827,7 @@ function SmsTab() {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Gateway URL</label>
-                <Input {...register('httpGatewayUrl')} placeholder="https://api.sms-provider.com/send?to={phone}&msg={message}" />
+                <Input {...register('httpGatewayUrl')} placeholder="https://apiClient.sms-provider.com/send?to={phone}&msg={message}" />
                 <p className="text-xs text-slate-500 mt-1">Use {'{phone}'} and {'{message}'} as placeholders</p>
               </div>
               <div>

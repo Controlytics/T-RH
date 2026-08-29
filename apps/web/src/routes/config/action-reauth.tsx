@@ -3,7 +3,7 @@ import useSWR, { mutate } from 'swr';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { api } from '@/lib/api-client';
+import { apiClient } from '@/lib/api-client';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { REAUTH_ACTIONS, REAUTH_ACTION_CATEGORIES } from '@digilog/shared';
@@ -218,9 +218,9 @@ export function ActionReauthPage() {
       'UPDATE_REAUTH_CONFIG',
       async (password?: string) => {
         if (password) {
-          await api.putWithReauth('/api/config/action-reauth', currentConfig, password);
+          await apiClient.putWithReauth('/api/config/action-reauth', currentConfig, password);
         } else {
-          await api.put('/api/config/action-reauth', currentConfig);
+          await apiClient.put('/api/config/action-reauth', currentConfig);
         }
       },
       {

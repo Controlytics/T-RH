@@ -2,7 +2,7 @@ import { useState, useRef, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import useSWR, { useSWRConfig } from 'swr';
 import { Button } from '@/components/ui/button';
-import { api } from '@/lib/api-client';
+import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
@@ -84,8 +84,8 @@ export function RoleAccessPage() {
     setSaving(true); setError('');
     const body = { name: formData.name.toUpperCase().replace(/\s+/g, '_'), displayName: formData.displayName, description: formData.description, hierarchyLevel: formData.hierarchyLevel, color: formData.color, permissions: formData.permissions };
     await reauth.execute('CREATE_ROLE', async (password?) => {
-      if (password) await api.postWithReauth('/api/roles', body, password);
-      else await api.post('/api/roles', body);
+      if (password) await apiClient.postWithReauth('/api/roles', body, password);
+      else await apiClient.post('/api/roles', body);
       mutateRoles();
       setShowCreateDialog(false); resetForm();
     }, {
@@ -99,8 +99,8 @@ export function RoleAccessPage() {
     const roleName = selectedRoleForEdit.name;
     const body = { displayName: formData.displayName, description: formData.description, hierarchyLevel: formData.hierarchyLevel, color: formData.color, permissions: formData.permissions };
     await reauth.execute('UPDATE_ROLE', async (password?) => {
-      if (password) await api.putWithReauth(`/api/roles/${roleName}`, body, password);
-      else await api.put(`/api/roles/${roleName}`, body);
+      if (password) await apiClient.putWithReauth(`/api/roles/${roleName}`, body, password);
+      else await apiClient.put(`/api/roles/${roleName}`, body);
       mutateRoles();
       setShowEditDialog(false); setSelectedRoleForEdit(null);
     }, {
@@ -114,8 +114,8 @@ export function RoleAccessPage() {
     setDeleting(true); setDeleteError('');
     const roleName = deleteTarget.name;
     await reauth.execute('DELETE_ROLE', async (password?) => {
-      if (password) await api.deleteWithReauth(`/api/roles/${roleName}`, password);
-      else await api.delete(`/api/roles/${roleName}`);
+      if (password) await apiClient.deleteWithReauth(`/api/roles/${roleName}`, password);
+      else await apiClient.delete(`/api/roles/${roleName}`);
       mutateRoles();
       setShowDeleteDialog(false); setDeleteTarget(null);
     }, {

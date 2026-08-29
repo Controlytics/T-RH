@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import { Input } from '@/components/ui/input';
-import { api } from '@/lib/api-client';
+import { apiClient } from '@/lib/api-client';
 import { REAUTH_ACTIONS, REAUTH_ACTION_CATEGORIES } from '@digilog/shared';
 import type { RoleData, ReauthAction, ReauthActionCategory } from '@digilog/shared';
 import { Button } from '@/components/ui/button';
@@ -205,7 +205,7 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
       setReauthSaving(true);
       setReauthSaveMessage(null);
       try {
-        await api.put('/api/config/action-reauth', reauthCurrentConfig);
+        await apiClient.put('/api/config/action-reauth', reauthCurrentConfig);
         mutate('/api/config/action-reauth');
         mutate('/api/config/action-reauth/my-actions');
         setReauthLocalConfig(null);

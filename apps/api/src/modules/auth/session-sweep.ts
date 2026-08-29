@@ -34,14 +34,28 @@ export async function sweepExpiredSessions(): Promise<{ swept: number }> {
     or.push({ lastActiveAt: { lt: cutoff } });
   }
 
+  // Bounded 2026-08-29 (audit M3). This was an unbounded findMany: after a
+  // service restart or a spell of DB maintenance it loaded EVERY stale session,
+  // each with its user relation, into memory at once. A batch keeps the working
+  // set flat; the caller runs on a cron, so anything left over is swept a
+  // minute later.
+  const SWEEP_BATCH = 1000;
   const stale = await prisma.session.findMany({
     where: { isActive: true, OR: or },
     include: { user: { select: { username: true, role: true } } },
+    take: SWEEP_BATCH,
   });
 
+  // The per-session audit row is NOT the N+1 — §11 needs one record per
+  // terminated session and the hash chain forces those writes to be serial.
+  // The session UPDATE is the batchable half, so it is hoisted into a single
+  // updateMany AFTER the audit writes: if the process dies mid-sweep the
+  // sessions stay active and are swept again next tick, which is recoverable.
+  // Marking them inactive first and then failing to audit would not be — it
+  // would lose the §11 record of a termination that had already happened.
   let swept = 0;
+  const sweptIds: string[] = [];
   for (const s of stale) {
-    await prisma.session.update({ where: { id: s.id }, data: { isActive: false, terminationReason: 'session_timeout' } });
     await auditLog({
       userId: s.user?.username ?? s.userId,
       userRole: s.user?.role ?? 'UNKNOWN',
@@ -55,7 +69,16 @@ export async function sweepExpiredSessions(): Promise<{ swept: number }> {
       userAgent: s.userAgent ?? undefined,
       sessionId: s.id,
     });
+    sweptIds.push(s.id);
     swept++;
   }
+
+  if (sweptIds.length > 0) {
+    await prisma.session.updateMany({
+      where: { id: { in: sweptIds } },
+      data: { isActive: false, terminationReason: 'session_timeout' },
+    });
+  }
+
   return { swept };
 }

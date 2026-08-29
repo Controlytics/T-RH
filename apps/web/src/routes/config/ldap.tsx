@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import useSWR from 'swr';
-import { api } from '../../lib/api-client';
+import { apiClient } from '../../lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
@@ -107,8 +107,8 @@ export default function LdapConfigPage() {
     reauth.execute(
       'UPDATE_LDAP_CONFIG',
       async (password?: string) => {
-        if (password) await api.putWithReauth('/api/ldap/config', config, password);
-        else await api.put('/api/ldap/config', config);
+        if (password) await apiClient.putWithReauth('/api/ldap/config', config, password);
+        else await apiClient.put('/api/ldap/config', config);
       },
       {
         onSuccess: () => {
@@ -129,7 +129,7 @@ export default function LdapConfigPage() {
     setTesting(true);
     setTestResult(null);
     try {
-      const result = await api.post<{ success: boolean; message: string }>('/api/ldap/test-connection', config);
+      const result = await apiClient.post<{ success: boolean; message: string }>('/api/ldap/test-connection', config);
       setTestResult(result);
     } catch (e: any) {
       setTestResult({ success: false, message: e.message || 'Test failed' });

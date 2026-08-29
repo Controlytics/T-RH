@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
-import { apiClient, api } from '@/lib/api-client';
+import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
@@ -110,7 +110,7 @@ export function AccessMatrixPage() {
     reauth.execute(
       'UPDATE_ROLE_CONFIG',
       async (password?: string) => {
-        if (password) await api.putWithReauth('/api/config/access-matrix', draft, password);
+        if (password) await apiClient.putWithReauth('/api/config/access-matrix', draft, password);
         else await apiClient.put('/api/config/access-matrix', draft);
       },
       {

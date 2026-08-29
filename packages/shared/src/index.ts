@@ -1,5 +1,5 @@
 // Types
-export { ROLES, DEFAULT_ROLES, ROLE_HIERARCHY, DEFAULT_ROLE_HIERARCHY, CREATABLE_ROLES, USER_STATUS } from './types/roles.js';
+export { DEFAULT_ROLES, DEFAULT_ROLE_HIERARCHY, CREATABLE_ROLES, USER_STATUS } from './types/roles.js';
 export type { Role, UserStatus, RoleData } from './types/roles.js';
 
 export { AUDIT_ACTIONS } from './types/audit-actions.js';

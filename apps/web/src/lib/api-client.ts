@@ -239,4 +239,8 @@ class ApiClient {
 }
 
 export const apiClient = new ApiClient();
-export const api = apiClient;
+// The `api` alias was removed 2026-08-29 (audit L9). The same singleton was
+// exported under two names and both were live — 63 files used `apiClient`,
+// 13 used `api` — so a "find all usages of apiClient" search silently missed
+// a fifth of the call sites, on the module every network call goes through.
+// One name, one search result.

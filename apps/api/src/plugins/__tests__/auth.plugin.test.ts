@@ -42,7 +42,7 @@ describe('matchesPublicPath — segment-boundary public-path matching', () => {
 
   it('does not match unrelated protected paths', () => {
     expect(matchesPublicPath('/api/users', PUBLIC)).toBe(false);
-    expect(matchesPublicPath('/api/filters/x/advance', PUBLIC)).toBe(false);
+    expect(matchesPublicPath('/api/instruments/x/attributes', PUBLIC)).toBe(false);
   });
 });
 

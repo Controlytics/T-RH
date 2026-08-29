@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, forwardRef, useImperativeHan
 import useSWR from 'swr';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { api } from '@/lib/api-client';
+import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { FEATURE_PRIVILEGES } from '@digilog/shared';
 import type { RoleData } from '@digilog/shared';
@@ -45,7 +45,7 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
     const handlePermSave = useCallback(async () => {
       setPermSaving(true);
       try {
-        await api.put(`/api/config/roles/${permSelectedRole}`, { permissions });
+        await apiClient.put(`/api/config/roles/${permSelectedRole}`, { permissions });
         setPermDirty(false);
       } catch (error: any) {
         toast.error('Save Failed', error.message || 'Failed to save permissions');

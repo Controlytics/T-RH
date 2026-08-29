@@ -51,7 +51,16 @@ function gatedAwareWhere(userRole: string, username: string, visibleGated: strin
 
 const notificationQuerySchema = z.object({
   page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).optional(),
+  // Bounded 2026-08-29 (audit M2). This was `.min(1).optional()` with no
+  // default and no ceiling, and the repository does
+  // `...(take ? { skip, take } : {})` — so a request omitting `limit` returned
+  // EVERY notification row the caller can see, and one asking for 10_000_000
+  // was obeyed. `notifications` is a high-growth table (system errors, alarm
+  // raises, clears, acknowledgements). Nothing was exploiting it because the
+  // only caller (routes/notifications/index.tsx:121) always sends a limit —
+  // i.e. the sole protection was a client habit. 500 matches the ceiling
+  // alarms/routes.ts:297 already uses for the same reason.
+  limit: z.coerce.number().min(1).max(500).default(50),
   isRead: z.enum(['true', 'false']).optional(),
   startDate: z.string().optional(),
   endDate: z.string().optional(),
@@ -131,7 +140,7 @@ export const notificationService = {
     }
 
     const [data, total, unreadCount] = await Promise.all([
-      notificationRepository.findMany(where, parsed.limit ? (parsed.page - 1) * parsed.limit : 0, parsed.limit),
+      notificationRepository.findMany(where, (parsed.page - 1) * parsed.limit, parsed.limit),
       notificationRepository.count(where),
       notificationRepository.count({ ...where, isRead: false }),
     ]);
@@ -141,8 +150,8 @@ export const notificationService = {
       total,
       unreadCount,
       page: parsed.page,
-      limit: parsed.limit ?? total,
-      totalPages: parsed.limit ? Math.ceil(total / parsed.limit) : 1,
+      limit: parsed.limit,
+      totalPages: Math.ceil(total / parsed.limit),
     };
   },
 

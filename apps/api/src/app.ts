@@ -123,7 +123,15 @@ if (!corsOrigins && process.env.NODE_ENV === 'production') {
   throw new Error('FATAL: ALLOWED_ORIGINS env var must be set in production');
 }
 await app.register(cors, {
-  origin: (corsOrigins ?? 'http://localhost:5173,http://localhost:5175,https://localhost,capacitor://localhost,http://localhost').split(','),
+  // Dev fallback only — the guard above THROWS in production if
+  // ALLOWED_ORIGINS is unset, so this list can never apply there.
+  // 2026-08-29 (audit L2): dropped `capacitor://localhost`, a leftover of the
+  // Capacitor mobile app that does not exist in this fork, and added 5176 —
+  // this repo's actual web port (see the root CLAUDE.md "Key Local URLs";
+  // 5175 belongs to the sibling DigiLog checkout). A developer running
+  // `npx vite` without start-app.bat previously got a CORS failure whose
+  // cause was two files away.
+  origin: (corsOrigins ?? 'http://localhost:5173,http://localhost:5175,http://localhost:5176,https://localhost,http://localhost').split(','),
   credentials: true,
   methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-reauth-password'],

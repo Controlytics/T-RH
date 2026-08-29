@@ -75,9 +75,14 @@ $xml = @"
   <env name="DOTENV_CONFIG_PATH" value="$EnvFile" />
   <startmode>Automatic</startmode>
   <onfailure action="restart" delay="10 sec" />
+  <!-- 2026-08-29 (audit L8): 8 x 10 MB = 80 MB retained was thin for a
+       regulated system. The audit trail is separate and safe; this is the
+       OPERATIONAL diagnostic record, and on a chatty ingest deployment 80 MB
+       can roll away the evidence for an incident within days. 32 x 10 MB =
+       ~320 MB, which is nothing on the target hardware and buys weeks. -->
   <log mode="roll-by-size">
     <sizeThreshold>10240</sizeThreshold>
-    <keepFiles>8</keepFiles>
+    <keepFiles>32</keepFiles>
   </log>
   <logpath>$LogDir</logpath>
 </service>

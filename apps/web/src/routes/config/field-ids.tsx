@@ -3,7 +3,7 @@ import useSWR, { mutate } from 'swr';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { api } from '@/lib/api-client';
+import { apiClient } from '@/lib/api-client';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { SkeletonRows } from '@/components/ui/skeleton';
 
@@ -89,7 +89,7 @@ export function FieldIdsPage() {
     setSaving(true);
     setError('');
     try {
-      await api.put(`/api/config/field-ids/${fieldId}`, { displayName: editValue.trim() });
+      await apiClient.put(`/api/config/field-ids/${fieldId}`, { displayName: editValue.trim() });
       mutate('/api/config/field-ids');
       setEditingField(null);
     } catch (err: any) {
@@ -108,7 +108,7 @@ export function FieldIdsPage() {
     setSaving(true);
     setError('');
     try {
-      await api.put(`/api/config/field-ids/${field.fieldId}`, { displayName: field.defaultName });
+      await apiClient.put(`/api/config/field-ids/${field.fieldId}`, { displayName: field.defaultName });
       mutate('/api/config/field-ids');
     } catch (err: any) {
       setError(err?.message || 'Failed to reset field name');

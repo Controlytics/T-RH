@@ -6,7 +6,7 @@ import { useCan } from '@/hooks/use-can';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { usePaginationDefaults } from '@/hooks/use-pagination-config';
 import { useRoleColors } from '@/hooks/use-role-colors';
-import { apiClient, api } from '@/lib/api-client';
+import { apiClient } from '@/lib/api-client';
 import { resolveBulkTargets } from '@/lib/resolve-bulk-targets';
 import { useReauth } from '@/hooks/use-reauth';
 import { useToast } from '@/hooks/use-toast';
@@ -158,7 +158,7 @@ export function AuditTrailPage() {
       'REDACT_AUDIT_RECORD',
       async (password?: string) => {
         const body = { reason: reason.trim() };
-        if (password) await api.postWithReauth(`/api/audit/${id}/redact`, body, password);
+        if (password) await apiClient.postWithReauth(`/api/audit/${id}/redact`, body, password);
         else await apiClient.post(`/api/audit/${id}/redact`, body);
       },
       {
@@ -187,7 +187,7 @@ export function AuditTrailPage() {
       'BULK_REDACT_AUDIT_RECORDS',
       async (password?: string) => {
         const body = { ids: selectedTargetIds, reason: reason.trim() };
-        if (password) await api.postWithReauth('/api/audit/bulk-redact', body, password);
+        if (password) await apiClient.postWithReauth('/api/audit/bulk-redact', body, password);
         else await apiClient.post('/api/audit/bulk-redact', body);
       },
       {
@@ -215,7 +215,7 @@ export function AuditTrailPage() {
       'DELETE_AUDIT_RECORD',
       async (password?: string) => {
         const body = { reason: reason.trim() };
-        if (password) await api.deleteWithReauth(`/api/audit/${id}`, password, body);
+        if (password) await apiClient.deleteWithReauth(`/api/audit/${id}`, password, body);
         else await apiClient.delete(`/api/audit/${id}`, body);
       },
       {
@@ -241,7 +241,7 @@ export function AuditTrailPage() {
       'BULK_DELETE_AUDIT_RECORDS',
       async (password?: string) => {
         const body = { ids: selectedTargetIds, reason: reason.trim() };
-        if (password) await api.postWithReauth('/api/audit/bulk-delete', body, password);
+        if (password) await apiClient.postWithReauth('/api/audit/bulk-delete', body, password);
         else await apiClient.post('/api/audit/bulk-delete', body);
       },
       {
