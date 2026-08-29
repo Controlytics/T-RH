@@ -8,13 +8,14 @@ import { Button } from '@/components/ui/button';
 import { AcknowledgeDialog } from './acknowledge-dialog';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { PageHeader } from '@/components/ui/page-header';
-import { Tabs } from '@/components/ui/tabs';
 import { SkeletonRows } from '@/components/ui/skeleton';
 import {
-  filterByTab, needsAcknowledgement, severityTone, triggeredText,
-  instrumentLabel, statusText, alarmTypeText, limitText, clearedText,
+  needsAcknowledgement, severityTone,
+  instrumentLabel, statusText, alarmTypeText, limitText,
   mapStatusTextsResponse,
-  type AlarmRow, type AlarmTab, type AlarmStatusTextsResponse,
+  filterByQuadrant, quadrantCounts, ALARM_QUADRANTS,
+  triggeredWithUnit, clearedWithUnit, alarmDurationText,
+  type AlarmRow, type AlarmQuadrant, type AlarmStatusTextsResponse,
 } from './alarm-display';
 
 /**
@@ -32,8 +33,11 @@ export default function AlarmsPage() {
   const { toast } = useToast();
   const { formatDateTime } = useDatetimeFormat();
 
-  const [tab, setTab] = useState<AlarmTab>('active');
-  const [unacknowledgedOnly, setUnacknowledgedOnly] = useState(false);
+  // ONE four-way filter replaces the Active/History tabs and the
+  // "Unacknowledged only" checkbox (operator, 2026-08-29). `null` = nothing
+  // chosen = show everything, so the page does not open having silently hidden
+  // three quarters of the alarms; clicking the chosen box again returns to it.
+  const [quadrant, setQuadrant] = useState<AlarmQuadrant | null>(null);
   const [target, setTarget] = useState<AlarmRow | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [dialogError, setDialogError] = useState('');
@@ -61,10 +65,11 @@ export default function AlarmsPage() {
   );
   const statusTexts = statusTextsResponse ? mapStatusTextsResponse(statusTextsResponse) : undefined;
 
-  const rows = useMemo(
-    () => filterByTab(data?.data ?? [], tab, unacknowledgedOnly),
-    [data, tab, unacknowledgedOnly],
-  );
+  const all = useMemo(() => data?.data ?? [], [data]);
+  const rows = useMemo(() => filterByQuadrant(all, quadrant), [all, quadrant]);
+  // Counted over the SAME rows the table can show (the request is capped at 500),
+  // so a box's number and the list under it can never disagree.
+  const counts = useMemo(() => quadrantCounts(all), [all]);
 
   const acknowledge = async (reason: string, password: string) => {
     if (!target) return;
@@ -84,14 +89,11 @@ export default function AlarmsPage() {
     }
   };
 
-  const counts = summary ?? { active: 0, unacknowledged: 0, critical: 0 };
-
   return (
     <div className="p-6">
       <PageHeader
         className="mb-6"
         title="Alarms"
-        description="Raised when an instrument reading crosses a limit — either an instrument's configured limit attributes or an alarm rule. Acknowledging one is an electronic signature."
         crumbs={[{ label: 'Home', to: '/' }, { label: 'Alarms' }]}
         icon={
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -100,35 +102,19 @@ export default function AlarmsPage() {
         }
       />
 
-      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <SummaryTile label="Active" value={counts.active} tone="bg-amber-50 border-amber-200 text-amber-900" />
-        <SummaryTile label="Unacknowledged" value={counts.unacknowledged} tone="bg-red-50 border-red-200 text-red-900" />
-        <SummaryTile label="Critical (active)" value={counts.critical} tone="bg-slate-50 border-slate-200 text-slate-900" />
-      </div>
-
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        {/* <Tabs> since 2026-08-29 (audit M4) — same `.seg` look, plus the
-            keyboard contract, in one place. */}
-        <Tabs
-          tabs={[
-            { id: 'active' as const, label: 'Active' },
-            { id: 'history' as const, label: 'History' },
-          ]}
-          active={tab}
-          onChange={setTab}
-          idPrefix="alarms"
-          variant="segmented"
-          aria-label="Alarm view"
-        />
-        <label className="flex items-center gap-2 text-sm text-slate-700">
-          <input
-            type="checkbox"
-            checked={unacknowledgedOnly}
-            onChange={(e) => setUnacknowledgedOnly(e.target.checked)}
-            className="ctl-check"
+      {/* The four boxes ARE the filter. Selected one filters the table; clicking it
+          again clears the selection and shows everything. */}
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {ALARM_QUADRANTS.map((q) => (
+          <FilterTile
+            key={q.id}
+            label={q.label}
+            value={counts[q.id]}
+            tone={QUADRANT_TONE[q.id]}
+            selected={quadrant === q.id}
+            onClick={() => setQuadrant(quadrant === q.id ? null : q.id)}
           />
-          Unacknowledged only
-        </label>
+        ))}
       </div>
 
       {summary?.limitAlarmsEnabled === false && (
@@ -137,30 +123,22 @@ export default function AlarmsPage() {
           Turn them on in Configuration → Instrument Limit Alarms.
         </div>
       )}
-      {(summary?.instrumentsWithoutLimits ?? 0) > 0 && (
-        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <strong>{summary?.instrumentsWithoutLimits}</strong> instrument
-          {summary?.instrumentsWithoutLimits === 1 ? ' has' : 's have'} no usable limits set — no
-          limit alarm can be raised for {summary?.instrumentsWithoutLimits === 1 ? 'it' : 'them'}.
-          <span className="ml-1 text-amber-800">
-            {(summary?.instrumentsWithoutLimitsCodes ?? []).join(', ')}
-          </span>
-        </div>
-      )}
 
       <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
         <table className="tbl w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
             <tr>
-              <th className="px-4 py-3">Instrument</th>
+              <th className="px-4 py-3">Instrument ID</th>
               <th className="px-4 py-3">Type</th>
-              <th className="px-4 py-3">Severity</th>
               <th className="px-4 py-3">Raised</th>
               <th className="px-4 py-3">Value</th>
               <th className="px-4 py-3">Limit</th>
               <th className="px-4 py-3">Cleared</th>
               <th className="px-4 py-3">Cleared value</th>
               <th className="px-4 py-3">Status</th>
+              {/* The letters are the legend: H = hours, m = minutes. Spelling it
+                  out here is what lets the cells stay as short as 00:01M. */}
+              <th className="px-4 py-3 whitespace-nowrap">Duration (H = hours, m = minutes)</th>
               <th className="px-4 py-3">Acknowledged</th>
               <th className="px-4 py-3" />
             </tr>
@@ -172,9 +150,9 @@ export default function AlarmsPage() {
             {!isLoading && rows.length === 0 && (
               <tr>
                 <td colSpan={11} className="px-4 py-10 text-center text-slate-500">
-                  {tab === 'active'
-                    ? (unacknowledgedOnly ? 'No unacknowledged active alarms.' : 'No active alarms — every rule is within limit.')
-                    : (unacknowledgedOnly ? 'Nothing in history is awaiting acknowledgement.' : 'No alarms have cleared yet.')}
+                  {quadrant
+                    ? 'No alarms in this state.'
+                    : 'No alarms have been raised.'}
                 </td>
               </tr>
             )}
@@ -182,18 +160,21 @@ export default function AlarmsPage() {
               <tr key={a.id} className="hover:bg-slate-50">
                 <td className="px-4 py-3 font-medium text-slate-900">{instrumentLabel(a)}</td>
                 <td className="px-4 py-3 text-slate-700">{alarmTypeText(a)}</td>
-                <td className="px-4 py-3">
-                  <StatusBadge tone={severityTone(a.severity)} label={a.severity} />
-                </td>
                 <td className="px-4 py-3 whitespace-nowrap text-slate-600">{formatDateTime(a.raisedAt)}</td>
-                <td className="px-4 py-3 tabular-nums text-slate-900">{triggeredText(a)}</td>
+                <td className="px-4 py-3 tabular-nums text-slate-900">{triggeredWithUnit(a)}</td>
                 <td className="px-4 py-3 tabular-nums text-slate-600">{limitText(a)}</td>
                 <td className="px-4 py-3 whitespace-nowrap text-slate-600">
                   {a.clearedAt ? formatDateTime(a.clearedAt) : <span className="font-medium text-amber-700">—</span>}
                 </td>
-                <td className="px-4 py-3 tabular-nums text-slate-600">{clearedText(a)}</td>
+                <td className="px-4 py-3 tabular-nums text-slate-600">{clearedWithUnit(a)}</td>
                 <td className="px-4 py-3">
                   <StatusBadge tone={severityTone(a.severity)} label={statusText(a, statusTexts)} />
+                </td>
+                <td
+                  className="px-4 py-3 tabular-nums whitespace-nowrap text-slate-700"
+                  title={a.clearedAt ? undefined : 'Still active — no cleared time yet'}
+                >
+                  {alarmDurationText(a)}
                 </td>
                 <td className="px-4 py-3">
                   {a.acknowledgedAt ? (
@@ -229,11 +210,33 @@ export default function AlarmsPage() {
   );
 }
 
-function SummaryTile({ label, value, tone }: { label: string; value: number; tone: string }) {
+/**
+ * Tone per state. Active-unacknowledged is the loudest because it is the one
+ * nobody has answered for yet; cleared-unacknowledged is still amber rather than
+ * neutral, because an excursion that ended without a signature is unfinished
+ * paperwork, not a closed matter.
+ */
+const QUADRANT_TONE: Record<AlarmQuadrant, string> = {
+  'active-ack': 'bg-amber-50 border-amber-200 text-amber-900',
+  'active-unack': 'bg-red-50 border-red-200 text-red-900',
+  'cleared-ack': 'bg-slate-50 border-slate-200 text-slate-900',
+  'cleared-unack': 'bg-orange-50 border-orange-200 text-orange-900',
+};
+
+function FilterTile({
+  label, value, tone, selected, onClick,
+}: { label: string; value: number; tone: string; selected: boolean; onClick: () => void }) {
   return (
-    <div className={`rounded-lg border px-4 py-3 ${tone}`}>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={selected}
+      className={`rounded-lg border px-4 py-3 text-left transition-shadow ${tone} ${
+        selected ? 'ring-2 ring-slate-900/70 shadow-sm' : 'hover:shadow-sm'
+      }`}
+    >
       <div className="text-xs uppercase tracking-wide opacity-70">{label}</div>
       <div className="mt-1 text-2xl font-semibold tabular-nums">{value}</div>
-    </div>
+    </button>
   );
 }

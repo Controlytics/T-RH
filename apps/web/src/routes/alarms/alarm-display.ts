@@ -235,3 +235,107 @@ export function limitText(a: AlarmRow): string {
 export function clearedText(a: AlarmRow): string {
   return formatDecimals(a.clearedValue, alarmDecimals(a)) ?? '—';
 }
+
+/**
+ * The four states an alarm can be in, as the operator's filter boxes name them
+ * (2026-08-29). This is the SAME two axes the page has always had — condition
+ * (still breaching / ended) and paperwork (signed / not) — presented as one
+ * four-way choice rather than a tab plus a checkbox.
+ *
+ * The axes stay separate in the model on purpose: a CLEARED-but-UNACKNOWLEDGED
+ * alarm, the overnight excursion nobody saw, is precisely the one that must not
+ * look finished, and collapsing the two would lose it.
+ */
+export type AlarmQuadrant = 'active-ack' | 'active-unack' | 'cleared-ack' | 'cleared-unack';
+
+export const ALARM_QUADRANTS: readonly { id: AlarmQuadrant; label: string }[] = [
+  { id: 'active-ack', label: 'Active Acknowledged' },
+  { id: 'active-unack', label: 'Active Unacknowledged' },
+  { id: 'cleared-ack', label: 'Cleared Acknowledged' },
+  { id: 'cleared-unack', label: 'Cleared Unacknowledged' },
+];
+
+export function quadrantFor(a: Pick<AlarmRow, 'state' | 'acknowledgedAt'>): AlarmQuadrant {
+  const active = tabFor(a) === 'active';
+  const acked = !needsAcknowledgement(a);
+  if (active) return acked ? 'active-ack' : 'active-unack';
+  return acked ? 'cleared-ack' : 'cleared-unack';
+}
+
+/** `null` means no box is chosen, which shows EVERYTHING — not nothing. */
+export function filterByQuadrant(rows: AlarmRow[], q: AlarmQuadrant | null): AlarmRow[] {
+  if (!q) return rows;
+  return rows.filter((a) => quadrantFor(a) === q);
+}
+
+export function quadrantCounts(rows: AlarmRow[]): Record<AlarmQuadrant, number> {
+  const out: Record<AlarmQuadrant, number> = {
+    'active-ack': 0, 'active-unack': 0, 'cleared-ack': 0, 'cleared-unack': 0,
+  };
+  for (const a of rows) out[quadrantFor(a)] += 1;
+  return out;
+}
+
+/** °C for a temperature alarm, %RH for a humidity one. Empty for anything else. */
+export function metricUnit(metric: string): string {
+  if (metric === 'TEMPERATURE') return '°C';
+  if (metric === 'HUMIDITY') return '%RH';
+  return '';
+}
+
+/**
+ * A reading as the table shows it: the number, then its unit in brackets —
+ * `28.0 (°C)`, `47 (%RH)`.
+ *
+ * Separate from `triggeredText`/`clearedText`, which still return the bare number
+ * and are what the unit tests pin. Keeping "the value" and "the value as
+ * displayed" apart means a change to the wording cannot quietly change what the
+ * §11 record is understood to SAY the reading was.
+ */
+function withUnit(text: string, metric: string): string {
+  if (text === '—') return text;
+  const unit = metricUnit(metric);
+  return unit ? `${text} (${unit})` : text;
+}
+
+export function triggeredWithUnit(a: AlarmRow): string {
+  return withUnit(triggeredText(a), a.metric);
+}
+
+export function clearedWithUnit(a: AlarmRow): string {
+  return withUnit(clearedText(a), a.metric);
+}
+
+/**
+ * How long the alarm lasted: raised -> cleared, as `HH:MM` with a unit letter.
+ *
+ * `00:01M` for one minute, `01:22H` for an hour and twenty-two. The pair is
+ * ALWAYS hours:minutes; the letter says which unit the reader should think in —
+ * M while it is under an hour, H once it is not.
+ *
+ * **DAYS ARE DELIBERATELY NOT USED** (operator, 2026-08-29). A three-day
+ * excursion reads `72:00H`, not `3d`. An hour count that keeps growing is
+ * directly comparable between rows; a mixed `3d 04:00` is not, and it is the
+ * comparison that matters when you are ranking excursions by severity of
+ * exposure.
+ *
+ * An alarm that has NOT cleared has no duration to state — the operator asked
+ * for the span between generated and cleared time, and there is no end yet.
+ * Returning a running total here would put a number that keeps moving into a
+ * column of settled ones, and a §11 table should not imply a closed figure that
+ * is still open.
+ */
+export function alarmDurationText(a: Pick<AlarmRow, 'raisedAt' | 'clearedAt'>): string {
+  if (!a.clearedAt) return '—';
+  const from = Date.parse(a.raisedAt);
+  const to = Date.parse(a.clearedAt);
+  // Unparseable or reversed timestamps: say nothing rather than render a
+  // negative or NaN duration as though it were measured.
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return '—';
+
+  const totalMinutes = Math.floor((to - from) / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(hours)}:${pad(minutes)}${hours >= 1 ? 'H' : 'M'}`;
+}

@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   needsAcknowledgement, tabFor, filterByTab, conditionText, triggeredText,
   instrumentLabel, ackReasonError, MIN_ACK_REASON, MAX_ACK_REASON,
+  quadrantFor, filterByQuadrant, quadrantCounts, ALARM_QUADRANTS,
+  metricUnit, triggeredWithUnit, clearedWithUnit, alarmDurationText,
   type AlarmRow,
 } from '../alarm-display';
 
@@ -251,5 +253,118 @@ describe('limitText', () => {
     expect(limitText(ruleAlarm({
       ruleSnapshot: { name: 'Broken snapshot', comparison: 'ABOVE', thresholdHigh: null, thresholdLow: null },
     }))).toBe('—');
+  });
+});
+
+describe('alarm quadrants — the four filter boxes', () => {
+  const cleared = { state: 'CLEARED', clearedAt: '2026-08-13T05:00:00Z' } as Partial<AlarmRow>;
+  const acked = { acknowledgedAt: '2026-08-13T04:30:00Z' } as Partial<AlarmRow>;
+
+  it('places an alarm by CONDITION and PAPERWORK independently', () => {
+    expect(quadrantFor(alarm())).toBe('active-unack');
+    expect(quadrantFor(alarm(acked))).toBe('active-ack');
+    expect(quadrantFor(alarm(cleared))).toBe('cleared-unack');
+    expect(quadrantFor(alarm({ ...cleared, ...acked }))).toBe('cleared-ack');
+  });
+
+  it('keeps the overnight excursion visible as its own state', () => {
+    // Cleared but never signed for. If this collapsed into "cleared" it would
+    // read as finished, which is the whole reason the two axes stay separate.
+    expect(quadrantFor(alarm(cleared))).toBe('cleared-unack');
+  });
+
+  it('shows EVERYTHING when no box is chosen, not nothing', () => {
+    const rows = [alarm({ id: 'a' }), alarm({ id: 'b', ...cleared })];
+    expect(filterByQuadrant(rows, null).map((r) => r.id)).toEqual(['a', 'b']);
+  });
+
+  it('filters to exactly one state when a box is chosen', () => {
+    const rows = [
+      alarm({ id: 'au' }),
+      alarm({ id: 'aa', ...acked }),
+      alarm({ id: 'cu', ...cleared }),
+      alarm({ id: 'ca', ...cleared, ...acked }),
+    ];
+    expect(filterByQuadrant(rows, 'active-unack').map((r) => r.id)).toEqual(['au']);
+    expect(filterByQuadrant(rows, 'active-ack').map((r) => r.id)).toEqual(['aa']);
+    expect(filterByQuadrant(rows, 'cleared-unack').map((r) => r.id)).toEqual(['cu']);
+    expect(filterByQuadrant(rows, 'cleared-ack').map((r) => r.id)).toEqual(['ca']);
+  });
+
+  it('counts every row into exactly one box, so the tiles sum to the total', () => {
+    const rows = [
+      alarm({ id: 'au' }),
+      alarm({ id: 'aa', ...acked }),
+      alarm({ id: 'cu', ...cleared }),
+      alarm({ id: 'ca', ...cleared, ...acked }),
+      alarm({ id: 'au2' }),
+    ];
+    const counts = quadrantCounts(rows);
+    expect(counts).toEqual({ 'active-ack': 1, 'active-unack': 2, 'cleared-ack': 1, 'cleared-unack': 1 });
+    const total = ALARM_QUADRANTS.reduce((n, q) => n + counts[q.id], 0);
+    expect(total).toBe(rows.length);
+  });
+});
+
+describe('readings carry their unit', () => {
+  it('uses the metric to pick the symbol', () => {
+    expect(metricUnit('TEMPERATURE')).toBe('°C');
+    expect(metricUnit('HUMIDITY')).toBe('%RH');
+    expect(metricUnit('PRESSURE')).toBe('');
+  });
+
+  it('brackets the unit after the value', () => {
+    expect(triggeredWithUnit(alarm({ triggeredValue: 28 }))).toBe('28.0 (°C)');
+    expect(triggeredWithUnit(alarm({ metric: 'HUMIDITY', triggeredValue: 47 }))).toBe('47.0 (%RH)');
+  });
+
+  it('does the same for the reading that CLEARED it', () => {
+    expect(clearedWithUnit(alarm({ clearedValue: 24.2 }))).toBe('24.2 (°C)');
+    expect(clearedWithUnit(alarm({ metric: 'HUMIDITY', clearedValue: 55 }))).toBe('55.0 (%RH)');
+  });
+
+  it('leaves the em dash alone rather than bracketing a missing reading', () => {
+    // "— (°C)" would read as a unit attached to nothing.
+    expect(triggeredWithUnit(alarm({ triggeredValue: null }))).toBe('—');
+    expect(clearedWithUnit(alarm({ clearedValue: null }))).toBe('—');
+  });
+
+  it('keeps a metric with no known unit unbracketed', () => {
+    expect(triggeredWithUnit(alarm({ metric: 'PRESSURE', triggeredValue: 3 }))).toBe('3.0');
+  });
+});
+
+describe('alarm duration', () => {
+  const span = (raisedAt: string, clearedAt: string | null) =>
+    alarmDurationText({ raisedAt, clearedAt });
+
+  it('reads as minutes under an hour', () => {
+    expect(span('2026-08-13T04:00:00Z', '2026-08-13T04:01:00Z')).toBe('00:01M');
+    expect(span('2026-08-13T04:00:00Z', '2026-08-13T04:59:00Z')).toBe('00:59M');
+  });
+
+  it('switches to hours at exactly one hour', () => {
+    expect(span('2026-08-13T04:00:00Z', '2026-08-13T05:00:00Z')).toBe('01:00H');
+    expect(span('2026-08-13T04:00:00Z', '2026-08-13T05:22:00Z')).toBe('01:22H');
+  });
+
+  it('NEVER rolls into days — a three-day excursion is 72 hours', () => {
+    // Deliberate: an hour count stays comparable between rows, "3d 04:00" does not.
+    expect(span('2026-08-10T04:00:00Z', '2026-08-13T04:00:00Z')).toBe('72:00H');
+    expect(span('2026-08-10T04:00:00Z', '2026-08-13T08:30:00Z')).toBe('76:30H');
+  });
+
+  it('floors partial minutes rather than rounding up to a minute that did not pass', () => {
+    expect(span('2026-08-13T04:00:00Z', '2026-08-13T04:00:59Z')).toBe('00:00M');
+  });
+
+  it('says nothing for an alarm that has not cleared', () => {
+    // There is no span to state yet; a running total would look settled.
+    expect(span('2026-08-13T04:00:00Z', null)).toBe('—');
+  });
+
+  it('refuses reversed or unparseable timestamps instead of showing a negative', () => {
+    expect(span('2026-08-13T05:00:00Z', '2026-08-13T04:00:00Z')).toBe('—');
+    expect(span('not-a-date', '2026-08-13T04:00:00Z')).toBe('—');
   });
 });

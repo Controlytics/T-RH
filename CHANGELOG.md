@@ -1,5 +1,56 @@
 # Changelog
 
+## [Unreleased] - Alarms page reworked: four-state filter, units, duration (2026-08-29)
+
+Operator request, several parts. **No count moved.** Files:
+`apps/web/src/routes/alarms/{index,alarm-display}.tsx|ts` and its tests.
+
+- **Heading only.** The descriptive paragraph under "Alarms" is gone. The
+  breadcrumb (`Home / Alarms`) was KEPT — it is navigation, not prose, and every
+  other page carries one; say so if it should go too.
+- **The Active/History tabs and the "Unacknowledged only" checkbox are replaced by
+  FOUR filter boxes**: Active Acknowledged, Active Unacknowledged, Cleared
+  Acknowledged, Cleared Unacknowledged. Selecting one filters the table; selecting
+  it again clears the choice. **Nothing selected shows EVERYTHING** — with only
+  four boxes and no "All", defaulting to one would have opened the page having
+  silently hidden three quarters of the alarms.
+  - The two axes stay separate in the model (`quadrantFor` composes `tabFor` and
+    `needsAcknowledgement`). Cleared-but-unacknowledged — the overnight excursion
+    nobody saw — remains its own state, which is the whole reason the page never
+    collapsed them.
+  - Counts come from the SAME rows the table can show (the request is capped at
+    500), so a box's number and the list beneath it cannot disagree.
+- **Severity column removed** from the table; `Instrument` renamed **Instrument ID**.
+- **Readings carry their unit**: `28.0 (°C)`, `47 (%RH)`, on the triggering value
+  AND the cleared value. Implemented as `triggeredWithUnit`/`clearedWithUnit`
+  ALONGSIDE the existing `triggeredText`/`clearedText`, which still return the bare
+  number and are what the tests pin — "the value" and "the value as displayed" stay
+  separate so a wording change cannot quietly alter what a §11 record is understood
+  to say the reading was. A missing reading stays as an em dash rather than
+  becoming "— (°C)".
+- **The "N instruments have no usable limits set … IOTGW01" banner is gone.** The
+  separate "Limit alarms are turned off" banner was KEPT — different message, and
+  it says no limits are being checked at all.
+- **New Duration column, after Status**: raised → cleared as `HH:MM` plus a unit
+  letter, `00:01M` / `01:22H`. Header carries the legend.
+  - **Days are deliberately never used**: a three-day excursion reads `72:00H`. An
+    hour count stays directly comparable between rows; `3d 04:00` does not, and
+    comparison is the point when ranking excursions by exposure.
+  - An alarm that has not cleared shows an em dash, not a running total: the
+    operator asked for the span between generated and cleared time, and a number
+    that keeps moving in a column of settled ones reads as a closed figure. Tooltip
+    says why. Easy to change to a live elapsed time if that is wanted.
+  - Reversed or unparseable timestamps return the dash rather than a negative.
+
+**The new pure logic is tested (44 in this file, up from 28) and the tests were
+mutation-checked**, not just observed green: breaking the paperwork axis in
+`quadrantFor` failed exactly 3 of them, and restoring it returned all 44. This
+repo has shipped vacuous tests before, so a green run on new logic is not by
+itself evidence.
+
+Verified: web 865 tests / 62 files, tsc clean. Not yet looked at in a browser —
+the operator is testing.
+
 ## [Unreleased] - Trend panel removed from the dashboard; floorplan caption dropped (2026-08-29)
 
 Two operator requests. **Counts moved: the panel catalogue goes 9 -> 8.** Files:
