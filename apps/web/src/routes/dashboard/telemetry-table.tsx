@@ -44,8 +44,8 @@ import {
  * final content separately, so changing columns should be an edit to that list.
  */
 
-const CELL = 'px-3 py-2.5 text-center text-[13px] whitespace-nowrap';
-const HEAD = 'px-3 py-2.5 text-[11px] font-bold uppercase tracking-wider';
+const CELL = 'px-3 py-2.5 text-center text-[0.8125rem] whitespace-nowrap';
+const HEAD = 'px-3 py-2.5 text-[0.6875rem] font-bold uppercase tracking-wider';
 
 /**
  * `width` is per COLUMN (so a group with two subs occupies 2 x width). Declared
@@ -245,10 +245,10 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
               // ACTUAL is the number people read; SET POINT is reference. Weight
               // and size carry that, so the eye lands on the reading first.
               const val = (bad: boolean) =>
-                `tv-group ${CELL} tabular-nums border border-slate-500 text-[15px] font-semibold ${
+                `tv-group ${CELL} tabular-nums border border-slate-500 text-[0.9375rem] font-semibold ${
                   bad ? 'bg-red-900/60 text-rose-100' : 'text-white'
                 }`;
-              const spec = `${CELL} tabular-nums border border-slate-500 text-[12px] text-slate-200`;
+              const spec = `${CELL} tabular-nums border border-slate-500 text-[0.75rem] text-slate-200`;
 
               return (
                 <tr key={r.instrumentId} className="tv-row transition-colors">
@@ -262,7 +262,7 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
                     {/* Name, and the room the SET POINT comes from. Without the
                         room here, "18.0 - 25.0" has no visible source and an
                         unplaced instrument looks identical to one with no spec. */}
-                    <div className="truncate text-[11px] text-slate-300">
+                    <div className="truncate text-[0.6875rem] text-slate-300">
                       {r.name}
                       {r.room
                         ? <> &middot; {r.room.code}{r.room.label ? ` (${r.room.label})` : ''}</>
@@ -299,7 +299,7 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
                       The word carries the meaning; the colour only reinforces it. */}
                   <td className="tv-group border border-slate-500 p-0">
                     <div
-                      className={`flex items-center justify-center gap-1.5 px-3 py-2.5 text-[12px] font-bold uppercase tracking-wider text-white ${
+                      className={`flex items-center justify-center gap-1.5 px-3 py-2.5 text-[0.75rem] font-bold uppercase tracking-wider text-white ${
                         r.reporting
                           ? 'bg-gradient-to-b from-emerald-500 to-emerald-700'
                           : 'bg-gradient-to-b from-red-500 to-red-700'

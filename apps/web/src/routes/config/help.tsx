@@ -735,7 +735,7 @@ export function HelpArticlesPage() {
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-semibold text-slate-800">Version {v.version}</span>
                         {idx === 0 && (
-                          <Badge className="bg-violet-100 text-violet-700 border-violet-200 text-[10px] py-0.5 px-1.5">
+                          <Badge className="bg-violet-100 text-violet-700 border-violet-200 text-[0.625rem] py-0.5 px-1.5">
                             Latest
                           </Badge>
                         )}

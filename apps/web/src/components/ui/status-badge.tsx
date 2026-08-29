@@ -38,7 +38,7 @@ export function StatusBadge({
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-[var(--radius-pill)] px-2.5 py-1 text-[12px] font-medium',
+        'inline-flex items-center gap-1.5 rounded-[var(--radius-pill)] px-2.5 py-1 text-[0.75rem] font-medium',
         t.bg, t.ink, className,
       )}
     >
@@ -57,7 +57,7 @@ export function MetaPill({ icon, children, className }: { icon?: ReactNode; chil
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-[var(--radius-control)] border border-slate-200 bg-slate-50 px-2 py-1 text-[12px] text-slate-600',
+        'inline-flex items-center gap-1.5 rounded-[var(--radius-control)] border border-slate-200 bg-slate-50 px-2 py-1 text-[0.75rem] text-slate-600',
         className,
       )}
     >

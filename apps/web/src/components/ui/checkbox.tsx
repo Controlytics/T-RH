@@ -62,8 +62,8 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
               disabled ? 'cursor-not-allowed text-slate-400' : 'cursor-pointer text-slate-700',
             )}
           >
-            {label && <span className="block text-[14px] font-medium">{label}</span>}
-            {helper && <span className="mt-0.5 block text-[12px] text-slate-500">{helper}</span>}
+            {label && <span className="block text-[0.875rem] font-medium">{label}</span>}
+            {helper && <span className="mt-0.5 block text-[0.75rem] text-slate-500">{helper}</span>}
           </label>
         )}
       </div>
@@ -90,8 +90,8 @@ export function CheckboxGroup({
 }) {
   return (
     <fieldset className={cn('rounded-[var(--radius-card)] border border-slate-200 bg-white p-4', className)}>
-      <legend className="px-1 text-[13px] font-semibold text-slate-700">{legend}</legend>
-      {helper && <p className="mb-3 text-[12px] text-slate-500">{helper}</p>}
+      <legend className="px-1 text-[0.8125rem] font-semibold text-slate-700">{legend}</legend>
+      {helper && <p className="mb-3 text-[0.75rem] text-slate-500">{helper}</p>}
       <div
         className={cn(
           'grid gap-3',

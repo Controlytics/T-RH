@@ -170,6 +170,40 @@
    Mono is a SYSTEM stack. Numerals in a §11 record must line up in columns, and
    `font-variant-numeric: tabular-nums` on .font-mono-tab delivers that from the
    operating system's own face without a second network dependency. */
+/* ── Fluid root type scale ────────────────────────────────────────────────
+   EVERY rem-based size in the application resolves against this: Tailwind's
+   spacing (p-4, gap-6), control heights, radii, and all type. Setting it once
+   here is what makes the whole app adjust to the viewport instead of each
+   screen having to be tuned by hand.
+
+   Why it was needed: the UI was built and eyeballed at one wide viewport, so
+   at 100% browser zoom on a 1280-1536px laptop the cards, numbers and padding
+   were oversized — the app only "looked right" at 80% zoom, which is the user
+   manually applying the scale this rule now applies for them.
+
+   The curve is linear between 1280px and 1920px and clamped at both ends:
+
+       1024px and below -> 13.5px   (floor; below this the app is scrolling anyway)
+       1280px           -> 14px
+       1536px           -> 15px
+       1920px and above -> 16px     (ceiling; the design's native size)
+
+   Derivation, so the magic numbers are checkable rather than tuned:
+       slope     = (16 - 14) / (1920 - 1280) = 0.003125  ->  0.3125vw
+       intercept = 16 - 0.003125 * 1920      = 10px
+   Hence clamp(13.5px, 0.3125vw + 10px, 16px).
+
+   A CEILING of 16px is deliberate. Letting type grow past the design's native
+   size on a 4K monitor makes a dense §11 table look like a presentation slide;
+   the extra width should buy more columns, not bigger glyphs.
+
+   Note this scales rem only. Any `text-[14px]` literal ignores it, which is
+   why those were converted to rem in the same change — a mix of the two is
+   what produces cramped padding around unchanged text. */
+html {
+  font-size: clamp(13.5px, 0.3125vw + 10px, 16px);
+}
+
 :root {
   --font-display: 'Inter Variable', Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-body: 'Inter Variable', Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;

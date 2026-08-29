@@ -238,7 +238,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
               {p.name}
             </Button>
           ))}
-          <span className="ml-2 text-[11px] text-white/70">
+          <span className="ml-2 text-[0.6875rem] text-white/70">
             updates every {Math.round(refreshMs / 1000)}s
           </span>
         </div>
@@ -547,7 +547,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
         {(['OK', 'OUT_OF_SPEC', 'STALE', 'PARTIAL', 'NO_DATA'] as InstrumentStatus[]).map((s) => (
           <span key={s} className="flex items-center gap-1.5 text-xs text-slate-600">
             <span
-              className="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10px] font-bold text-white"
+              className="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[0.625rem] font-bold text-white"
               style={{ backgroundColor: CHIP[s].bg }}
             >
               {CHIP[s].glyph || '21.7'}
@@ -576,7 +576,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                     <Link to={`/instruments/${r.instrumentId}`} className="text-sm font-medium text-slate-800 hover:underline">
                       {r.code}
                     </Link>
-                    <span className={`flex items-center gap-1 text-[11px] font-medium ${c.text}`}>
+                    <span className={`flex items-center gap-1 text-[0.6875rem] font-medium ${c.text}`}>
                       <span className={`h-2 w-2 rounded-full ${c.dot}`} />
                       {c.label}
                     </span>

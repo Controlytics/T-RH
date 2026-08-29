@@ -135,7 +135,7 @@ interface InstrumentSummary {
 function GaugeSkeleton({ title }: { title: string }) {
   return (
     <section className="rounded-[var(--radius-card)] border border-slate-200 bg-white p-5 shadow-[var(--elev-1)]">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.09em] text-slate-500">{title}</p>
+      <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.09em] text-slate-500">{title}</p>
       <span className="sr-only" role="status">Loading…</span>
       <Skeleton className="mt-3 h-7 w-24" />
       <Skeleton className="mt-3 h-2.5 w-full" />
@@ -924,7 +924,7 @@ export function InstrumentTrend() {
           regardless of the selection. */}
       {showPanel('trend_charts') && (
       <>
-      <h2 className="text-[11px] font-semibold uppercase tracking-[0.09em] text-slate-500">Charts</h2>
+      <h2 className="text-[0.6875rem] font-semibold uppercase tracking-[0.09em] text-slate-500">Charts</h2>
       <div className="space-y-5">
         {/* TimeSeriesChart has no subtitle/caption slot of its own (it is shared
             with the dashboard, which has no need of this disclosure), so the

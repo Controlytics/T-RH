@@ -83,7 +83,7 @@ function SlotChart({
           points: points.map((p) => ({ ts: p.ts, value: p.mean })),
         }]}
       />
-      <p className="mt-1 text-[11px] text-slate-500">
+      <p className="mt-1 text-[0.6875rem] text-slate-500">
         Shaded area is the minimum-to-maximum spread. Peak of{' '}
         <strong>{peakReporting(points)}</strong> of {selectionCount} instruments reporting.
         {note ? ` ${note}` : ''}
@@ -121,7 +121,7 @@ export function AggregateTrendCard({
             not decoration, and must not be renameable away. */}
         <div>
           {data && (
-            <p className="text-[11px] text-slate-500">{derivedNote(data.instrumentCount)}</p>
+            <p className="text-[0.6875rem] text-slate-500">{derivedNote(data.instrumentCount)}</p>
           )}
         </div>
         <div className="seg" role="group" aria-label="Aggregation window">

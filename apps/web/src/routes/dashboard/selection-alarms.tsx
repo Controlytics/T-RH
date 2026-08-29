@@ -101,7 +101,7 @@ export function SelectionAlarms({ functionalLocationId }: { functionalLocationId
                     badge. Marking the acknowledged ones instead would put emphasis
                     on the rows nobody needs to do anything about. */}
                 {!a.acknowledgedAt && (
-                  <span className="shrink-0 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                  <span className="shrink-0 rounded bg-slate-800 px-1.5 py-0.5 text-[0.625rem] font-semibold text-white">
                     unacknowledged
                   </span>
                 )}

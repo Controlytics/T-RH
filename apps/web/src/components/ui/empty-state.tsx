@@ -45,9 +45,9 @@ export function EmptyState({
           {icon}
         </span>
       )}
-      <p className={cn('font-semibold text-slate-800', compact ? 'text-[14px]' : 'text-[16px]')}>{title}</p>
+      <p className={cn('font-semibold text-slate-800', compact ? 'text-[0.875rem]' : 'text-[1rem]')}>{title}</p>
       {description && (
-        <p className={cn('max-w-sm text-slate-500', compact ? 'text-[12px]' : 'text-[13px]')}>{description}</p>
+        <p className={cn('max-w-sm text-slate-500', compact ? 'text-[0.75rem]' : 'text-[0.8125rem]')}>{description}</p>
       )}
       {action && <div className="mt-1">{action}</div>}
     </div>
@@ -79,13 +79,13 @@ export function ErrorState({
       <svg aria-hidden viewBox="0 0 20 20" className="h-6 w-6 fill-rose-600">
         <path d="M10 2 19 18H1L10 2Zm0 5.5a1 1 0 0 0-1 1v4a1 1 0 1 0 2 0v-4a1 1 0 0 0-1-1Zm0 7.25a1.1 1.1 0 1 0 0 2.2 1.1 1.1 0 0 0 0-2.2Z" />
       </svg>
-      <p className="text-[15px] font-semibold text-rose-900">{title}</p>
-      {detail && <p className="max-w-md text-[13px] text-rose-800">{detail}</p>}
+      <p className="text-[0.9375rem] font-semibold text-rose-900">{title}</p>
+      {detail && <p className="max-w-md text-[0.8125rem] text-rose-800">{detail}</p>}
       {onRetry && (
         <button
           type="button"
           onClick={onRetry}
-          className="mt-1 rounded-[var(--radius-control)] border border-rose-300 bg-white px-3 py-1.5 text-[13px] font-medium text-rose-800 hover:bg-rose-100"
+          className="mt-1 rounded-[var(--radius-control)] border border-rose-300 bg-white px-3 py-1.5 text-[0.8125rem] font-medium text-rose-800 hover:bg-rose-100"
         >
           Try again
         </button>

@@ -41,7 +41,7 @@ const variants = {
  */
 const sizes = {
   default: 'h-10 px-4',
-  sm: 'h-8 px-3 text-[13px]',
+  sm: 'h-8 px-3 text-[0.8125rem]',
   lg: 'h-11 px-6',
   /** Square. For an icon-only action — which must still carry a title/aria-label. */
   icon: 'h-10 w-10',
@@ -52,13 +52,13 @@ const sizes = {
    * around it, which is what the primitive sweep left behind on the audit,
    * user, notification and trend filter chips.
    */
-  chip: 'h-4 w-4 shrink-0 rounded-full p-0 text-[12px]',
+  chip: 'h-4 w-4 shrink-0 rounded-full p-0 text-[0.75rem]',
   /**
    * A control that lives INSIDE running text — a Retry inside a sentence, a
    * breadcrumb step. No box, no fixed height, so it does not break the line it
    * sits in.
    */
-  inline: 'h-auto rounded-[4px] px-0.5 py-0 text-[13px]',
+  inline: 'h-auto rounded-[4px] px-0.5 py-0 text-[0.8125rem]',
 } as const;
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -83,7 +83,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         // matches the height of the control beside it — which is the whole point
         // of having one control height. Observed on User Management, where
         // "Create User" and "Password Reset Requests" both wrapped.
-        'inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap rounded-[var(--radius-control)] text-[14px] font-medium',
+        'inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap rounded-[var(--radius-control)] text-[0.875rem] font-medium',
         'transition-[background-color,border-color,filter,box-shadow] duration-150',
         // A visible focus ring is not optional: this application is used with a
         // keyboard on a plant floor as often as with a mouse.

@@ -78,7 +78,7 @@ function LocationPicker({
         </label>
       ))}
       {flat.some((f) => f.depth === 0) && (
-        <p className="pt-1 text-[11px] text-slate-500">
+        <p className="pt-1 text-[0.6875rem] text-slate-500">
           Selecting a Block also grants its Areas.
         </p>
       )}
@@ -167,7 +167,7 @@ function InstrumentPicker({
               <span className="font-medium">{i.code}</span>
               <span className="truncate">{i.name}</span>
               {via ? (
-                <span className="ml-auto shrink-0 rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700">
+                <span className="ml-auto shrink-0 rounded bg-sky-100 px-1.5 py-0.5 text-[0.625rem] font-semibold text-sky-700">
                   via {locationNameOf(via)}
                 </span>
               ) : (
@@ -176,7 +176,7 @@ function InstrumentPicker({
                 </span>
               )}
               {!i.isActive && (
-                <span className="shrink-0 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+                <span className="shrink-0 rounded bg-slate-200 px-1.5 py-0.5 text-[0.625rem] font-semibold text-slate-600">
                   inactive
                 </span>
               )}
@@ -184,7 +184,7 @@ function InstrumentPicker({
           );
         })}
       </div>
-      <p className="pt-1 text-[11px] text-slate-500">
+      <p className="pt-1 text-[0.6875rem] text-slate-500">
         An instrument picked here is visible even if it has not been placed in a Block or Area yet.
       </p>
     </div>
@@ -243,7 +243,7 @@ function ScopeEditor({
               onChange={(instrumentIds) => setPicked((p) => ({ ...p, instrumentIds }))}
             />
           </div>
-          <p className="mt-2 text-[11px] text-slate-500">
+          <p className="mt-2 text-[0.6875rem] text-slate-500">
             The two lists ADD UP — an instrument is visible if it sits in a selected location
             <em> or </em> is selected by name.
           </p>
@@ -370,7 +370,7 @@ export function InstrumentScopeTab() {
                 <div className="flex flex-wrap items-baseline gap-2">
                   <span className="font-semibold text-slate-800">{u.username}</span>
                   {u.fullName && <span className="text-xs text-slate-500">{u.fullName}</span>}
-                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-slate-600">{u.role}</span>
+                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[0.6875rem] font-semibold text-slate-600">{u.role}</span>
                   <span className="text-xs text-slate-500">
                     currently: {describe(u.scope, u.scope === null ? u.role : undefined)}
                     {' · '}role default: {describe(roleScope)}

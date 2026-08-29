@@ -78,7 +78,7 @@ export function PageHeader({
           <div className="min-w-0">
             <h1
               className={cn(
-                'text-[26px] font-semibold leading-tight tracking-[-0.01em]',
+                'text-[1.625rem] font-semibold leading-tight tracking-[-0.01em]',
                 inverted ? 'text-white' : 'text-slate-900',
               )}
             >
@@ -86,7 +86,7 @@ export function PageHeader({
             </h1>
             {description && (
               <p className={cn(
-                'mt-1 max-w-2xl text-[14px] leading-relaxed',
+                'mt-1 max-w-2xl text-[0.875rem] leading-relaxed',
                 inverted ? 'text-white/80' : 'text-slate-500',
               )}>
                 {description}
@@ -110,7 +110,7 @@ export function PageHeader({
 export function Breadcrumbs({ crumbs, inverted = false, className }: { crumbs: Crumb[]; inverted?: boolean; className?: string }) {
   return (
     <nav aria-label="Breadcrumb" className={className}>
-      <ol className={cn('flex flex-wrap items-center gap-1 text-[12px]', inverted ? 'text-white/70' : 'text-slate-500')}>
+      <ol className={cn('flex flex-wrap items-center gap-1 text-[0.75rem]', inverted ? 'text-white/70' : 'text-slate-500')}>
         {crumbs.map((c, i) => (
           <li key={`${c.label}-${i}`} className="flex items-center gap-1">
             {i > 0 && <span aria-hidden className={inverted ? 'text-white/40' : 'text-slate-300'}>/</span>}

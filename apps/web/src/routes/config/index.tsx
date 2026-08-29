@@ -41,26 +41,26 @@ function ConfigCard({
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-[15px] font-semibold text-slate-800">{card.title}</h3>
+            <h3 className="text-[0.9375rem] font-semibold text-slate-800">{card.title}</h3>
             {card.reauth && (
               // Says WHY it is marked, not just that it is. "Re-auth" alone
               // meant nothing to anyone who had not met the dialog yet.
               <span
-                className="inline-flex items-center rounded-[var(--radius-pill)] border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800"
+                className="inline-flex items-center rounded-[var(--radius-pill)] border border-amber-200 bg-amber-50 px-2 py-0.5 text-[0.6875rem] font-medium text-amber-800"
                 title="Saving here asks for your password again and is recorded in the audit trail."
               >
                 Re-authentication
               </span>
             )}
           </div>
-          <p className="mt-1 text-[13px] leading-relaxed text-slate-500">{card.description}</p>
+          <p className="mt-1 text-[0.8125rem] leading-relaxed text-slate-500">{card.description}</p>
         </div>
       </div>
       {/* `mt-auto` pins this to the bottom of the card. Without it the affordance
           floats directly under the description, so in a row of cards with
           different description lengths it lands at a different height on each —
           which is what the grid looked like before. */}
-      <span className="mt-auto flex items-center gap-1 pt-3 text-[13px] font-medium text-[var(--theme-primary,#2a78d6)]">
+      <span className="mt-auto flex items-center gap-1 pt-3 text-[0.8125rem] font-medium text-[var(--theme-primary,#2a78d6)]">
         Configure
         <svg aria-hidden className="h-4 w-4 transition-transform duration-150 group-hover:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -95,11 +95,11 @@ function ConfigGroup({
           {icon}
         </span>
         <div className="min-w-0">
-          <h2 className="flex flex-wrap items-center gap-2 text-[19px] font-semibold leading-tight text-slate-800">
+          <h2 className="flex flex-wrap items-center gap-2 text-[1.1875rem] font-semibold leading-tight text-slate-800">
             {title}
             {badge}
           </h2>
-          {description && <p className="mt-0.5 text-[13px] text-slate-500">{description}</p>}
+          {description && <p className="mt-0.5 text-[0.8125rem] text-slate-500">{description}</p>}
         </div>
       </header>
       <div className="p-5">{children}</div>
@@ -418,7 +418,7 @@ export function ConfigIndexPage() {
           description="Advanced configuration reserved for super administrators"
           tone="restricted"
           badge={
-            <span className="inline-flex items-center rounded-[var(--radius-pill)] border border-rose-200 bg-white px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-rose-700">
+            <span className="inline-flex items-center rounded-[var(--radius-pill)] border border-rose-200 bg-white px-2 py-0.5 text-[0.6875rem] font-semibold uppercase tracking-wide text-rose-700">
               Restricted
             </span>
           }
@@ -452,8 +452,8 @@ export function ConfigIndexPage() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
           </svg>
           <div className="min-w-0">
-            <h3 className="text-[14px] font-semibold text-sky-900">21 CFR Part 11 Compliance</h3>
-            <p className="mt-1 text-[13px] leading-relaxed text-sky-800">
+            <h3 className="text-[0.875rem] font-semibold text-sky-900">21 CFR Part 11 Compliance</h3>
+            <p className="mt-1 text-[0.8125rem] leading-relaxed text-sky-800">
               Security-critical settings require re-authentication and are written to the audit trail with a timestamp and the
               user who made the change.
             </p>
@@ -461,7 +461,7 @@ export function ConfigIndexPage() {
               {['Electronic Signatures', 'Audit Trail', 'Access Control'].map(label => (
                 <span
                   key={label}
-                  className="inline-flex items-center gap-1.5 rounded-[var(--radius-pill)] border border-sky-200 bg-white px-2.5 py-0.5 text-[11px] font-medium text-sky-800"
+                  className="inline-flex items-center gap-1.5 rounded-[var(--radius-pill)] border border-sky-200 bg-white px-2.5 py-0.5 text-[0.6875rem] font-medium text-sky-800"
                 >
                   <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-sky-500" />
                   {label}
@@ -497,15 +497,15 @@ export function ConfigIndexPage() {
                     </svg>
                   </span>
                   <div className="min-w-0 flex-1">
-                    <h3 className="text-[15px] font-semibold text-slate-800">{mod.moduleName}</h3>
-                    <p className="mt-1 line-clamp-2 text-[13px] leading-relaxed text-slate-500">{mod.description}</p>
+                    <h3 className="text-[0.9375rem] font-semibold text-slate-800">{mod.moduleName}</h3>
+                    <p className="mt-1 line-clamp-2 text-[0.8125rem] leading-relaxed text-slate-500">{mod.description}</p>
                   </div>
                 </div>
                 <div className="mt-auto flex items-center justify-between pt-3">
-                  <span className="text-[12px] text-slate-400">
+                  <span className="text-[0.75rem] text-slate-400">
                     {mod.settings.length} {mod.settings.length === 1 ? 'setting' : 'settings'}
                   </span>
-                  <span className="flex items-center gap-1 text-[13px] font-medium text-[var(--theme-primary,#2a78d6)]">
+                  <span className="flex items-center gap-1 text-[0.8125rem] font-medium text-[var(--theme-primary,#2a78d6)]">
                     Configure
                     <svg aria-hidden className="h-4 w-4 transition-transform duration-150 group-hover:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />

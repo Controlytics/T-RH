@@ -104,7 +104,7 @@ export function AuditFilters({
                     type="datetime-local"
                     value={fromDateTime}
                     onChange={(e) => { setFromDateTime(e.target.value); setPage(1); }}
-                    className="h-11 flex-1 border-0 bg-transparent px-3 text-[14px] font-medium text-slate-700 focus:outline-none focus:ring-0 [color-scheme:light]"
+                    className="h-11 flex-1 border-0 bg-transparent px-3 text-[0.875rem] font-medium text-slate-700 focus:outline-none focus:ring-0 [color-scheme:light]"
                   />
                 </div>
               </div>
@@ -139,7 +139,7 @@ export function AuditFilters({
                     type="datetime-local"
                     value={toDateTime}
                     onChange={(e) => { setToDateTime(e.target.value); setPage(1); }}
-                    className="h-11 flex-1 border-0 bg-transparent px-3 text-[14px] font-medium text-slate-700 focus:outline-none focus:ring-0 [color-scheme:light]"
+                    className="h-11 flex-1 border-0 bg-transparent px-3 text-[0.875rem] font-medium text-slate-700 focus:outline-none focus:ring-0 [color-scheme:light]"
                   />
                 </div>
               </div>

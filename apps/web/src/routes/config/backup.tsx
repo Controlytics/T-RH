@@ -274,7 +274,7 @@ export function BackupRestorePage() {
                     <p className="text-sm font-semibold text-slate-800">{fmt.label}</p>
                     <p className="text-xs text-slate-500 mt-0.5 leading-relaxed pr-4">{fmt.description}</p>
                   </div>
-                  <span className="text-[10px] font-mono text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{fmt.ext}</span>
+                  <span className="text-[0.625rem] font-mono text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{fmt.ext}</span>
                 </button>
               ))}
             </div>

@@ -125,7 +125,7 @@ export function SuperAdminApiAccessCard() {
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-bold text-slate-800">Super Admin API Access</h3>
-            <span className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold ${enabled ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'}`}>
+            <span className={`text-[0.625rem] px-2 py-0.5 rounded-full border font-semibold ${enabled ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'}`}>
               {isLoading ? '…' : enabled ? 'ENABLED' : 'DISABLED'}
             </span>
           </div>

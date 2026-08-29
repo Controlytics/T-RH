@@ -183,7 +183,7 @@ export function PanelAccessTab() {
                 <div className="flex flex-wrap items-baseline gap-2">
                   <span className="font-semibold text-slate-800">{u.username}</span>
                   {u.fullName && <span className="text-xs text-slate-500">{u.fullName}</span>}
-                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-slate-600">{u.role}</span>
+                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[0.6875rem] font-semibold text-slate-600">{u.role}</span>
                   <span className="text-xs text-slate-500">
                     currently: {describe(u.panels, u.panels === null ? u.role : undefined)}
                     {' · '}role default: {describe(rolePanels)}

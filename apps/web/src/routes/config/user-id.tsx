@@ -177,7 +177,7 @@ export function UserIdConfigPage() {
         {/* Main Configuration */}
         <div className="lg:col-span-2 space-y-6">
           <Card className="p-6">
-            <h2 className="text-[19px] font-semibold leading-tight text-slate-800 mb-6 flex items-center gap-2">
+            <h2 className="text-[1.1875rem] font-semibold leading-tight text-slate-800 mb-6 flex items-center gap-2">
               <svg className="w-5 h-5 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
               </svg>
@@ -319,7 +319,7 @@ export function UserIdConfigPage() {
 
           {/* Auto-Generation Settings */}
           <Card className="p-6">
-            <h2 className="text-[19px] font-semibold leading-tight text-slate-800 mb-6 flex items-center gap-2">
+            <h2 className="text-[1.1875rem] font-semibold leading-tight text-slate-800 mb-6 flex items-center gap-2">
               <svg className="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
@@ -399,7 +399,7 @@ export function UserIdConfigPage() {
         <div className="space-y-6">
           {/* Preview */}
           <Card className="p-6">
-            <h2 className="text-[19px] font-semibold leading-tight text-slate-800 mb-4 flex items-center gap-2">
+            <h2 className="text-[1.1875rem] font-semibold leading-tight text-slate-800 mb-4 flex items-center gap-2">
               <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
@@ -438,7 +438,7 @@ export function UserIdConfigPage() {
 
           {/* Test Validation */}
           <Card className="p-6">
-            <h2 className="text-[19px] font-semibold leading-tight text-slate-800 mb-4 flex items-center gap-2">
+            <h2 className="text-[1.1875rem] font-semibold leading-tight text-slate-800 mb-4 flex items-center gap-2">
               <svg className="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>

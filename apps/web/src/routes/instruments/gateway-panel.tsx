@@ -141,7 +141,7 @@ export function GatewayPanel({ instrumentId, canEdit }: { instrumentId: string; 
                     {/* The child's OWN profile, which need not be this gateway's.
                         Linking across profiles is legitimate and unrestricted;
                         naming it here makes the choice deliberate. */}
-                    {c.profileName && <p className="text-[11px] text-slate-400">{c.profileName}</p>}
+                    {c.profileName && <p className="text-[0.6875rem] text-slate-400">{c.profileName}</p>}
                   </div>
                   <Button
                     disabled={linkingId === c.id}

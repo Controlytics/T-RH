@@ -205,7 +205,7 @@ export function EditUserPage() {
           </div>
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">{userData.fullName}</h1>
+              <h1 className="text-[1.625rem] font-semibold leading-tight tracking-[-0.01em] text-slate-900">{userData.fullName}</h1>
               <Badge className={`${status.bg} text-white border-0 shadow-[var(--elev-1)]`}>{userData.status}</Badge>
               {isDirectoryUser && (
                 <Badge className="bg-gradient-to-r from-sky-500 to-blue-600 text-white border-0 shadow-[var(--elev-1)] gap-1">
@@ -253,7 +253,7 @@ export function EditUserPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                 </svg>
               </div>
-              <h2 className="text-[19px] font-semibold leading-tight text-slate-800">User Information</h2>
+              <h2 className="text-[1.1875rem] font-semibold leading-tight text-slate-800">User Information</h2>
             </div>
 
             <div className="space-y-2 mb-6">
@@ -350,7 +350,7 @@ export function EditUserPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
-              <h2 className="text-[19px] font-semibold leading-tight text-slate-800">Account Activity</h2>
+              <h2 className="text-[1.1875rem] font-semibold leading-tight text-slate-800">Account Activity</h2>
             </div>
 
             <div className="grid grid-cols-3 gap-4">

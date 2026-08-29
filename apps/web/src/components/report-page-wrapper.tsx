@@ -39,7 +39,7 @@ export function ReportPageWrapper({ title, totalRecords, page, totalPages, child
     return branding.logoUrl ? (
       <img src={branding.logoUrl} alt="Logo" className={`${size === 'lg' ? 'h-10' : 'h-6'} w-auto object-contain`} />
     ) : (
-      <div className={`${dim} rounded-lg flex items-center justify-center text-white font-bold ${size === 'lg' ? 'text-sm' : 'text-[9px]'}`}
+      <div className={`${dim} rounded-lg flex items-center justify-center text-white font-bold ${size === 'lg' ? 'text-sm' : 'text-[0.5625rem]'}`}
         style={{ background: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
         {branding.logoText || 'DL'}
       </div>
@@ -56,8 +56,8 @@ export function ReportPageWrapper({ title, totalRecords, page, totalPages, child
           {/* Center: company + application name + report title */}
           <div className="flex-1 text-center">
             <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">{companyName}</p>
-            {appName && <p className="text-[11px] font-medium text-slate-500">{appName}</p>}
-            <h2 className="text-[19px] font-semibold leading-tight text-slate-800">{title}</h2>
+            {appName && <p className="text-[0.6875rem] font-medium text-slate-500">{appName}</p>}
+            <h2 className="text-[1.1875rem] font-semibold leading-tight text-slate-800">{title}</h2>
           </div>
           {/* Right: performed-by */}
           <div className="text-right text-xs text-slate-400 space-y-0.5 shrink-0 min-w-[110px]">
@@ -76,7 +76,7 @@ export function ReportPageWrapper({ title, totalRecords, page, totalPages, child
           `hideFooter` drops the whole footer. */}
       {!hideFooter && (
       <div className={`bg-white border border-slate-200 border-t-0 rounded-b-xl px-6 py-3 print:border-0 ${hideFooterStats ? '' : 'space-y-2'}`}>
-        <div className={`flex items-center justify-center gap-2 text-[11px] text-slate-400 ${hideFooterStats ? '' : 'pb-2 border-b border-slate-100'}`}>
+        <div className={`flex items-center justify-center gap-2 text-[0.6875rem] text-slate-400 ${hideFooterStats ? '' : 'pb-2 border-b border-slate-100'}`}>
           <Logo size="sm" />
           <span className="font-medium text-slate-500">{companyName}</span>
           {appName && <><span className="text-slate-300">·</span><span>{appName}</span></>}

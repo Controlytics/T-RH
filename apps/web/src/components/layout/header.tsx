@@ -35,7 +35,7 @@ function EnvironmentChip() {
   if (import.meta.env.PROD) return null;
   return (
     <span
-      className="hidden items-center gap-1.5 rounded-[var(--radius-pill)] border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-800 sm:inline-flex"
+      className="hidden items-center gap-1.5 rounded-[var(--radius-pill)] border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-[0.6875rem] font-semibold uppercase tracking-wide text-amber-800 sm:inline-flex"
       title="This is a development build, not the validated production system."
     >
       <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-amber-500" />
@@ -118,7 +118,7 @@ export function Header({ user, onLogout, onMenuToggle, onCollapseToggle, collaps
         {/* The application's name, shown here only once the sidebar has stopped
             showing it — never both at once. */}
         {collapsed && (
-          <span className="hidden min-w-0 truncate text-[15px] font-semibold text-slate-800 md:block">
+          <span className="hidden min-w-0 truncate text-[0.9375rem] font-semibold text-slate-800 md:block">
             {branding.appName}
           </span>
         )}

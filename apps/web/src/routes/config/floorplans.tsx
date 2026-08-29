@@ -502,11 +502,11 @@ export function FloorplansConfigPage() {
                     style={{ left: pct(box.x), top: pct(box.y), width: pct(box.w), height: pct(box.h), cursor: 'move' }}
                     title={`${room.code}${room.label ? ` — ${room.label}` : ''}`}
                   >
-                    <span className="max-w-full truncate px-1 text-[10px] font-bold leading-tight text-slate-800">
+                    <span className="max-w-full truncate px-1 text-[0.625rem] font-bold leading-tight text-slate-800">
                       {room.code}
                     </span>
                     {room.label && (
-                      <span className="max-w-full truncate px-1 text-[9px] leading-tight text-slate-500">
+                      <span className="max-w-full truncate px-1 text-[0.5625rem] leading-tight text-slate-500">
                         {room.label}
                       </span>
                     )}
@@ -726,7 +726,7 @@ export function FloorplansConfigPage() {
                       {/* Say where it already is, so a move is visible BEFORE
                           saving rather than discovered afterwards. */}
                       {elsewhere && !isHere && (
-                        <span className="ml-auto rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-700">
+                        <span className="ml-auto rounded bg-amber-50 px-1.5 py-0.5 text-[0.6875rem] font-medium text-amber-700">
                           in {elsewhere.code}
                         </span>
                       )}

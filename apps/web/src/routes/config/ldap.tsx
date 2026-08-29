@@ -288,7 +288,7 @@ export default function LdapConfigPage() {
             <p className="text-xs text-slate-500 mt-1.5">
               To restrict sign-in to one Active Directory group, add a <span className="font-mono">memberOf</span> clause:
             </p>
-            <code className="mt-1 block text-[11px] bg-slate-50 border border-slate-200 rounded-lg p-2 text-slate-600 break-all">
+            <code className="mt-1 block text-[0.6875rem] bg-slate-50 border border-slate-200 rounded-lg p-2 text-slate-600 break-all">
               (&amp;(sAMAccountName={'{{username}}'})(memberOf:1.2.840.113556.1.4.1941:=CN=DigiLog-Users,OU=Groups,DC=company,DC=com))
             </code>
             <p className="text-xs text-slate-400 mt-1">

@@ -64,14 +64,14 @@ export function ReportPageTitlesPage() {
           return (
             <div key={f.key} className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
               <div className="min-w-0">
-                <label className="block text-[13px] font-semibold text-slate-700">{f.label}</label>
+                <label className="block text-[0.8125rem] font-semibold text-slate-700">{f.label}</label>
                 <p className="text-xs text-slate-500 mt-0.5">Shown in the report header &amp; footer.</p>
               </div>
               <div>
                 <input type="text" value={value} disabled={!canWrite}
                   placeholder={f.brandingVal || '(from Branding)'}
                   onChange={(e) => set(f.key, e.target.value)} className={inputCls} />
-                <p className="text-[11px] text-slate-400 mt-1">
+                <p className="text-[0.6875rem] text-slate-400 mt-1">
                   {value.trim()
                     ? <>Reports show: <span className="text-slate-600 font-medium">{value}</span></>
                     : <>Blank — using Branding: <span className="text-slate-600 font-medium">{f.brandingVal || '—'}</span></>}

@@ -115,7 +115,7 @@ const MUTED_INK = '#64748B';
 
 /** The instrument-panel label idiom. Tracking is what makes it read as a panel
  *  rather than as a web form, so it appears on labels and nowhere else. */
-const FIELD_LABEL = 'text-[11px] font-semibold uppercase tracking-[0.09em] text-slate-500';
+const FIELD_LABEL = 'text-[0.6875rem] font-semibold uppercase tracking-[0.09em] text-slate-500';
 
 export interface BandGaugeProps {
   label: string;

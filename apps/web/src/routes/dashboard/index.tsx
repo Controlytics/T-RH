@@ -123,7 +123,7 @@ export function DashboardPage() {
       */}
       <div className="flex flex-wrap items-end justify-between gap-3 rounded-[var(--radius-card)] border border-white/70 bg-white/85 px-4 py-3 shadow-[var(--elev-1)] backdrop-blur-sm">
         <div>
-          <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Dashboard</h1>
+          <h1 className="text-[1.625rem] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Dashboard</h1>
           {/* Breadcrumb: the only way back up, so it is always rendered once a
               selection exists rather than only at the deepest level. */}
           {nav.breadcrumb.length > 0 && (

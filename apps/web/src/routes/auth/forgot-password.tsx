@@ -131,7 +131,7 @@ export function ForgotPasswordPage() {
                 )}
 
                 <div className="space-y-2">
-                  <label className="block text-[13px] font-medium text-slate-700">User ID</label>
+                  <label className="block text-[0.8125rem] font-medium text-slate-700">User ID</label>
                   <div className="relative">
                     <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

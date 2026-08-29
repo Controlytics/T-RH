@@ -34,9 +34,9 @@ const CHEVRON =
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(
   ({ className, children, selectSize = 'md', variant: _variant, icon: _icon, ...props }, ref) => {
     const size = {
-      sm: 'h-8 text-[13px] pl-2.5 pr-8 bg-[length:1rem] bg-[right_0.5rem_center]',
-      md: 'h-10 text-[14px] pl-3 pr-9 bg-[length:1.15rem] bg-[right_0.6rem_center]',
-      lg: 'h-11 text-[15px] pl-3.5 pr-10 bg-[length:1.25rem] bg-[right_0.7rem_center]',
+      sm: 'h-8 text-[0.8125rem] pl-2.5 pr-8 bg-[length:1rem] bg-[right_0.5rem_center]',
+      md: 'h-10 text-[0.875rem] pl-3 pr-9 bg-[length:1.15rem] bg-[right_0.6rem_center]',
+      lg: 'h-11 text-[0.9375rem] pl-3.5 pr-10 bg-[length:1.25rem] bg-[right_0.7rem_center]',
     }[selectSize];
 
     return (

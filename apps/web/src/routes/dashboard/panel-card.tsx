@@ -73,13 +73,13 @@ export function PanelCard({
       >
         <div className="min-w-0">
           <p
-            className="text-[10px] font-semibold uppercase leading-none tracking-[0.14em] opacity-60"
+            className="text-[0.625rem] font-semibold uppercase leading-none tracking-[0.14em] opacity-60"
             style={{ color: tint.text }}
           >
             {eyebrow}
           </p>
           <h2
-            className="mt-1 truncate text-[15px] font-semibold leading-tight"
+            className="mt-1 truncate text-[0.9375rem] font-semibold leading-tight"
             style={{ color: tint.text }}
             title={heading}
           >
@@ -90,7 +90,7 @@ export function PanelCard({
           <button
             type="button"
             onClick={() => setOpen((o) => !o)}
-            className="ml-auto shrink-0 self-center rounded-md border border-slate-300 bg-white/90 px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-white"
+            className="ml-auto shrink-0 self-center rounded-md border border-slate-300 bg-white/90 px-2 py-0.5 text-[0.6875rem] font-semibold text-slate-700 hover:bg-white"
           >
             {open ? 'Close' : 'Edit'}
           </button>
@@ -176,7 +176,7 @@ function PanelStyleEditor({
       onPointerDown={(e) => e.stopPropagation()}
     >
       <div>
-        <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Colour</p>
+        <p className="mb-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-slate-500">Colour</p>
         <div className="flex flex-wrap gap-1.5">
           {PANEL_TINTS.map((t) => (
             <button
@@ -186,7 +186,7 @@ function PanelStyleEditor({
               aria-label={t.label}
               aria-pressed={current === t.key}
               onClick={() => set({ tint: t.key })}
-              className={`h-7 w-10 rounded-md border text-[10px] font-bold ${
+              className={`h-7 w-10 rounded-md border text-[0.625rem] font-bold ${
                 current === t.key ? 'ring-2 ring-slate-800 ring-offset-1' : ''
               }`}
               style={{ backgroundColor: t.bg, borderColor: t.border, color: t.text }}
@@ -200,7 +200,7 @@ function PanelStyleEditor({
       {onSizeChange && (
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            <p className="mb-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-slate-500">
               Card width
             </p>
             {/*
@@ -219,7 +219,7 @@ function PanelStyleEditor({
             </select>
           </div>
           <div>
-            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            <p className="mb-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-slate-500">
               Card height
             </p>
             <select
@@ -236,7 +236,7 @@ function PanelStyleEditor({
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          <p className="mb-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-slate-500">
             Content size
           </p>
           {/* Named "Content size", not "Font size", because zoom scales spacing
@@ -251,7 +251,7 @@ function PanelStyleEditor({
           </select>
         </div>
         <div>
-          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          <p className="mb-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-slate-500">
             Padding
           </p>
           <select
@@ -265,7 +265,7 @@ function PanelStyleEditor({
       </div>
 
       <div>
-        <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+        <label className="mb-1 block text-[0.6875rem] font-semibold uppercase tracking-wide text-slate-500">
           Heading
         </label>
         <input
@@ -277,7 +277,7 @@ function PanelStyleEditor({
         />
         {/* Clearing the box restores the built-in heading rather than leaving a
             card with no title, which would give no clue which panel it is. */}
-        <p className="mt-1 text-[11px] text-slate-500">Leave empty to use “{title}”.</p>
+        <p className="mt-1 text-[0.6875rem] text-slate-500">Leave empty to use “{title}”.</p>
       </div>
 
       <div className="flex justify-end gap-2 pt-1">

@@ -182,7 +182,7 @@ export function RoomDetail({ floorplanId, roomId, onBack }: Props) {
                   <Link to={`/instruments/${r.instrumentId}`} className="text-sm font-semibold text-slate-800 hover:underline">
                     {r.code}
                   </Link>
-                  <span className={`flex items-center gap-1 text-[11px] font-medium ${c.text}`}>
+                  <span className={`flex items-center gap-1 text-[0.6875rem] font-medium ${c.text}`}>
                     <span className={`h-2 w-2 rounded-full ${c.dot}`} />
                     {c.label}
                   </span>

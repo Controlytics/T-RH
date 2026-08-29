@@ -55,7 +55,7 @@ export function FormField({
       {required && <span className="sr-only"> (required)</span>}
     </>
   );
-  const labelCls = 'block text-[13px] font-medium text-slate-700';
+  const labelCls = 'block text-[0.8125rem] font-medium text-slate-700';
 
   return (
     <div className={cn('space-y-1.5', className)}>
@@ -80,21 +80,21 @@ export function FormField({
       </div>
 
       {error ? (
-        <p id={`${id}-error`} className="flex items-start gap-1.5 text-[12px] text-rose-700" role="alert">
+        <p id={`${id}-error`} className="flex items-start gap-1.5 text-[0.75rem] text-rose-700" role="alert">
           <svg aria-hidden viewBox="0 0 16 16" className="mt-px h-3.5 w-3.5 shrink-0 fill-current">
             <path d="M8 1.5 15 14H1L8 1.5Zm0 4.25a.75.75 0 0 0-.75.75v3a.75.75 0 0 0 1.5 0v-3A.75.75 0 0 0 8 5.75Zm0 5.5a.9.9 0 1 0 0 1.8.9.9 0 0 0 0-1.8Z" />
           </svg>
           <span>{error}</span>
         </p>
       ) : success ? (
-        <p className="flex items-start gap-1.5 text-[12px] text-emerald-700">
+        <p className="flex items-start gap-1.5 text-[0.75rem] text-emerald-700">
           <svg aria-hidden viewBox="0 0 16 16" className="mt-px h-3.5 w-3.5 shrink-0 fill-current">
             <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm3.53 5.28-4 4a.75.75 0 0 1-1.06 0l-2-2a.75.75 0 1 1 1.06-1.06L7 8.69l3.47-3.47a.75.75 0 1 1 1.06 1.06Z" />
           </svg>
           <span>{success}</span>
         </p>
       ) : helper ? (
-        <p id={`${id}-helper`} className="text-[12px] text-slate-500">{helper}</p>
+        <p id={`${id}-helper`} className="text-[0.75rem] text-slate-500">{helper}</p>
       ) : null}
     </div>
   );
@@ -129,8 +129,8 @@ export function FormSection({
           </span>
         )}
         <div className="min-w-0">
-          <h3 className="text-[16px] font-semibold leading-tight text-slate-800">{title}</h3>
-          {description && <p className="mt-0.5 text-[12px] text-slate-500">{description}</p>}
+          <h3 className="text-[1rem] font-semibold leading-tight text-slate-800">{title}</h3>
+          {description && <p className="mt-0.5 text-[0.75rem] text-slate-500">{description}</p>}
         </div>
         {actions && <div className="ml-auto shrink-0">{actions}</div>}
       </header>
@@ -173,7 +173,7 @@ export function FormActions({
         className,
       )}
     >
-      {note && <p className="text-[12px] text-slate-500">{note}</p>}
+      {note && <p className="text-[0.75rem] text-slate-500">{note}</p>}
       <div className="ml-auto flex flex-wrap items-center gap-2">{children}</div>
     </div>
   );

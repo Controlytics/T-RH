@@ -38,7 +38,7 @@ export function ExportMenu({ surface, onExportPdf, onExportExcel, busy, classNam
   if (!showPdf && !showExcel) return null;
 
   const btnCls = className ??
-    'inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[13px] font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 transition-colors';
+    'inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[0.8125rem] font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 transition-colors';
 
   // Exactly one format allowed -> plain button.
   if (showPdf !== showExcel) {
@@ -64,12 +64,12 @@ export function ExportMenu({ surface, onExportPdf, onExportExcel, busy, classNam
       {open && (
         <div className="absolute right-0 mt-1 w-44 bg-white border border-slate-200 rounded-lg shadow-[var(--elev-2)] z-30 overflow-hidden">
           <button onClick={() => { setOpen(false); onExportPdf?.(); }}
-            className="w-full flex items-center gap-2 text-left px-3.5 py-2.5 text-[13px] text-slate-700 hover:bg-slate-50">
-            <span className="text-red-500 font-bold text-[11px]">PDF</span> Export as PDF
+            className="w-full flex items-center gap-2 text-left px-3.5 py-2.5 text-[0.8125rem] text-slate-700 hover:bg-slate-50">
+            <span className="text-red-500 font-bold text-[0.6875rem]">PDF</span> Export as PDF
           </button>
           <button onClick={() => { setOpen(false); onExportExcel?.(); }}
-            className="w-full flex items-center gap-2 text-left px-3.5 py-2.5 text-[13px] text-slate-700 hover:bg-slate-50 border-t border-slate-100">
-            <span className="text-emerald-600 font-bold text-[11px]">XLS</span> Export as Excel
+            className="w-full flex items-center gap-2 text-left px-3.5 py-2.5 text-[0.8125rem] text-slate-700 hover:bg-slate-50 border-t border-slate-100">
+            <span className="text-emerald-600 font-bold text-[0.6875rem]">XLS</span> Export as Excel
           </button>
         </div>
       )}

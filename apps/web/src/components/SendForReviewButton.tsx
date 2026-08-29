@@ -91,7 +91,7 @@ export function SendForReviewButton({ buildSnapshot, className }: {
           <div className="bg-white rounded-[var(--radius-card)] shadow-[var(--elev-3)] w-full max-w-md" onClick={(e) => e.stopPropagation()}>
             <div className="px-6 py-4 rounded-t-2xl text-white" style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
               <h3 className="font-bold">Send report for review</h3>
-              <p className="text-white/80 text-[12px] mt-0.5">{snapshot?.title}</p>
+              <p className="text-white/80 text-[0.75rem] mt-0.5">{snapshot?.title}</p>
             </div>
             <div className="p-6 space-y-4">
               <div className="seg">

@@ -276,7 +276,7 @@ export function Sidebar({ userRole: _userRole, open, onClose, collapsed: collaps
             </div>
           )}
           {!collapsed && (
-            <span className="mt-2 break-words px-1 text-center text-[13px] font-semibold leading-tight text-white">
+            <span className="mt-2 break-words px-1 text-center text-[0.8125rem] font-semibold leading-tight text-white">
               {branding.appName}
             </span>
           )}
@@ -291,7 +291,7 @@ export function Sidebar({ userRole: _userRole, open, onClose, collapsed: collaps
           on purpose — a worse outcome than a longer list. */}
       <nav className={cn('flex-1 space-y-1 overflow-y-auto py-4', collapsed ? 'px-2' : 'px-3')}>
         {!collapsed && (
-          <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/40">Menu</p>
+          <p className="mb-2 px-3 text-[0.625rem] font-semibold uppercase tracking-[0.12em] text-white/40">Menu</p>
         )}
         {orderedItems.map((item) => {
           const active = item.href === '/'
@@ -309,7 +309,7 @@ export function Sidebar({ userRole: _userRole, open, onClose, collapsed: collaps
               // without a pointer, and `title` is what gets announced.
               title={collapsed ? item.label : undefined}
               className={cn(
-                'group relative flex items-center rounded-[var(--radius-card)] text-[14px] font-medium transition-colors duration-150',
+                'group relative flex items-center rounded-[var(--radius-card)] text-[0.875rem] font-medium transition-colors duration-150',
                 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/70',
                 collapsed ? 'h-11 justify-center' : 'gap-3 px-3 py-2.5',
                 active
@@ -342,15 +342,15 @@ export function Sidebar({ userRole: _userRole, open, onClose, collapsed: collaps
       <div className={cn('border-t border-white/10', collapsed ? 'p-2' : 'p-3')}>
         {collapsed ? (
           <div
-            className="flex h-10 items-center justify-center rounded-[var(--radius-card)] bg-white/5 text-[10px] font-semibold tracking-wide text-white/70"
+            className="flex h-10 items-center justify-center rounded-[var(--radius-card)] bg-white/5 text-[0.625rem] font-semibold tracking-wide text-white/70"
             title={`${branding.companyName} — 21 CFR Part 11 Compliant`}
           >
             §11
           </div>
         ) : (
           <div className="rounded-[var(--radius-card)] bg-white/5 p-3">
-            <p className="truncate text-[12px] font-medium text-white/80">{branding.companyName}</p>
-            <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-white/45">
+            <p className="truncate text-[0.75rem] font-medium text-white/80">{branding.companyName}</p>
+            <p className="mt-0.5 flex items-center gap-1.5 text-[0.6875rem] text-white/45">
               <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />
               21 CFR Part 11 Compliant
             </p>

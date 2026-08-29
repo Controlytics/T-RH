@@ -146,7 +146,7 @@ export function LoginPage() {
                 </div>
               )}
               <h1
-                className="mb-2 text-[26px] font-semibold tracking-[-0.01em]"
+                className="mb-2 text-[1.625rem] font-semibold tracking-[-0.01em]"
                 style={{
                   backgroundImage: `linear-gradient(to right, ${branding.primaryColor}, ${branding.secondaryColor})`,
                   backgroundClip: 'text',
@@ -167,12 +167,12 @@ export function LoginPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </div>
-                  <p className="text-[13px] font-medium text-rose-800">{error}</p>
+                  <p className="text-[0.8125rem] font-medium text-rose-800">{error}</p>
                 </div>
               )}
 
               <div className="space-y-2">
-                <label className="block text-[13px] font-medium text-slate-700">User ID</label>
+                <label className="block text-[0.8125rem] font-medium text-slate-700">User ID</label>
                 <div className="relative">
                   <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
                     <svg className="h-[18px] w-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -188,7 +188,7 @@ export function LoginPage() {
                   />
                 </div>
                 {errors.username && (
-                  <p className="mt-1 flex items-center gap-1.5 text-[12px] text-rose-700">
+                  <p className="mt-1 flex items-center gap-1.5 text-[0.75rem] text-rose-700">
                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                     </svg>
@@ -198,7 +198,7 @@ export function LoginPage() {
               </div>
 
               <div className="space-y-2">
-                <label className="block text-[13px] font-medium text-slate-700">Password</label>
+                <label className="block text-[0.8125rem] font-medium text-slate-700">Password</label>
                 <div className="relative">
                   <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
                     <svg className="h-[18px] w-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -226,7 +226,7 @@ export function LoginPage() {
                   </button>
                 </div>
                 {errors.password && (
-                  <p className="mt-1 flex items-center gap-1.5 text-[12px] text-rose-700">
+                  <p className="mt-1 flex items-center gap-1.5 text-[0.75rem] text-rose-700">
                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                     </svg>

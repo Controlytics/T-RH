@@ -182,7 +182,7 @@ export function SystemHealthPage() {
           title="System Health"
           crumbs={[{ label: 'Home', to: '/' }, { label: 'System Health' }]}
           meta={
-            <span className="text-[13px] text-slate-500">
+            <span className="text-[0.8125rem] text-slate-500">
               Server: {data.os.hostname} &middot; Last updated: {formatTime(data.timestamp)}
             </span>
           }

@@ -137,10 +137,10 @@ export function InstrumentBulkCreatePage() {
             type="file"
             accept=".csv,text/csv"
             onChange={onFile}
-            className="block w-full text-[13px] text-slate-600
+            className="block w-full text-[0.8125rem] text-slate-600
               file:mr-3 file:cursor-pointer file:rounded-[var(--radius-control)] file:border-0
               file:bg-[var(--theme-primary,#2a78d6)] file:px-4 file:py-2
-              file:text-[13px] file:font-medium file:text-white
+              file:text-[0.8125rem] file:font-medium file:text-white
               hover:file:brightness-110"
           />
           {fileName && <p className="text-xs text-slate-500">Selected: {fileName}</p>}

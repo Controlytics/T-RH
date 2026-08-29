@@ -232,7 +232,7 @@ export function FieldIdsPage() {
                   </svg>
                 </div>
                 <div>
-                  <h2 className="text-[19px] font-semibold leading-tight text-slate-800">{module}</h2>
+                  <h2 className="text-[1.1875rem] font-semibold leading-tight text-slate-800">{module}</h2>
                   <p className="text-xs text-slate-500">{moduleFields.length} field{moduleFields.length > 1 ? 's' : ''}</p>
                 </div>
               </div>

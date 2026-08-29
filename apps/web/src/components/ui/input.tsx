@@ -24,7 +24,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           // Hairline, not border-2: a 2px border on a 40px control is most of
           // why the old forms read as heavy rather than precise. One height
           // (--control-h) so an input lines up with the button beside it.
-          'flex h-10 w-full rounded-[var(--radius-control)] border border-slate-300 bg-white px-3 text-[14px] text-slate-800',
+          'flex h-10 w-full rounded-[var(--radius-control)] border border-slate-300 bg-white px-3 text-[0.875rem] text-slate-800',
           'file:border-0 file:bg-transparent file:text-sm file:font-medium',
           'placeholder:text-slate-400',
           // Focus follows the site theme, like every other focusable control.

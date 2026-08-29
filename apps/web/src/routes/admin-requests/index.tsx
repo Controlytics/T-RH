@@ -202,8 +202,8 @@ export function AdminRequestsPage() {
       <div className="grid grid-cols-2 gap-3">
         {fields.map(([label, value]) => (
           <div key={label} className="space-y-0.5">
-            <div className="text-[11px] text-slate-400 uppercase tracking-wider font-medium">{label}</div>
-            <div className="text-[13px] font-medium text-slate-800">{value}</div>
+            <div className="text-[0.6875rem] text-slate-400 uppercase tracking-wider font-medium">{label}</div>
+            <div className="text-[0.8125rem] font-medium text-slate-800">{value}</div>
           </div>
         ))}
       </div>
@@ -255,7 +255,7 @@ export function AdminRequestsPage() {
                 <span className={`grid place-items-center w-10 h-10 rounded-lg shrink-0 ${a.iconBg}`}>{c.icon}</span>
                 <div className="min-w-0">
                   <div className="text-xl font-bold text-slate-800 tabular-nums leading-none">{counts[c.countKey]}</div>
-                  <div className="text-[12px] text-slate-500 mt-1 truncate">{c.label}</div>
+                  <div className="text-[0.75rem] text-slate-500 mt-1 truncate">{c.label}</div>
                 </div>
               </button>
             );
@@ -278,13 +278,13 @@ export function AdminRequestsPage() {
             </svg>
             {allRequests.length === 0 ? (
               <>
-                <span className="text-slate-400 font-medium text-[14px]">No requests found</span>
-                <span className="text-[13px] text-slate-300">Requests will appear when users submit them</span>
+                <span className="text-slate-400 font-medium text-[0.875rem]">No requests found</span>
+                <span className="text-[0.8125rem] text-slate-300">Requests will appear when users submit them</span>
               </>
             ) : (
               <>
-                <span className="text-slate-400 font-medium text-[14px]">No matching requests</span>
-                <span className="text-[13px] text-slate-300">Try a different filter or search term</span>
+                <span className="text-slate-400 font-medium text-[0.875rem]">No matching requests</span>
+                <span className="text-[0.8125rem] text-slate-300">Try a different filter or search term</span>
                 <Button variant="ghost" size="sm" className="mt-1" onClick={() => { setStatusFilter(''); setSearch(''); }}>Clear filters</Button>
               </>
             )}
@@ -297,7 +297,7 @@ export function AdminRequestsPage() {
                   // The last header is the empty action column — it labels no
                   // column of data, so it gets no scope (an unscoped empty th is
                   // announced as a stray column header by screen readers).
-                  <th key={i} scope={h ? 'col' : undefined} className="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap bg-slate-50">{h}</th>
+                  <th key={i} scope={h ? 'col' : undefined} className="text-left px-5 py-3 text-[0.6875rem] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap bg-slate-50">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -328,31 +328,31 @@ export function AdminRequestsPage() {
                     }}>
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-3">
-                        <span className="grid place-items-center w-9 h-9 rounded-full bg-cyan-100 text-cyan-700 font-bold text-[13px] shrink-0">
+                        <span className="grid place-items-center w-9 h-9 rounded-full bg-cyan-100 text-cyan-700 font-bold text-[0.8125rem] shrink-0">
                           {(req.requesterName ?? '?')[0].toUpperCase()}
                         </span>
                         <div className="min-w-0">
-                          <div className="text-[13px] font-semibold text-slate-800 truncate">{req.requesterName}</div>
-                          {req.requesterEmployeeId && <div className="text-[11px] text-slate-400">{req.requesterEmployeeId}</div>}
+                          <div className="text-[0.8125rem] font-semibold text-slate-800 truncate">{req.requesterName}</div>
+                          {req.requesterEmployeeId && <div className="text-[0.6875rem] text-slate-400">{req.requesterEmployeeId}</div>}
                         </div>
                       </div>
                     </td>
                     <td className="px-5 py-3.5">
-                      <span className={`inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full border font-bold ${tc.bg} ${tc.text} ${tc.border}`}>
-                        <span className="grid place-items-center w-4 h-4 rounded-full bg-white/70 text-[10px] leading-none">{tc.icon}</span>
+                      <span className={`inline-flex items-center gap-1.5 text-[0.6875rem] px-2.5 py-1 rounded-full border font-bold ${tc.bg} ${tc.text} ${tc.border}`}>
+                        <span className="grid place-items-center w-4 h-4 rounded-full bg-white/70 text-[0.625rem] leading-none">{tc.icon}</span>
                         {tc.label}
                       </span>
                     </td>
                     <td className="px-5 py-3.5">
-                      <span className={`inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full border font-bold ${sc.bg} ${sc.text} ${sc.border}`}>
+                      <span className={`inline-flex items-center gap-1.5 text-[0.6875rem] px-2.5 py-1 rounded-full border font-bold ${sc.bg} ${sc.text} ${sc.border}`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
                         {sc.label}
                       </span>
                     </td>
-                    <td className="px-5 py-3.5 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{formatDateTime(req.requestedAt)}</td>
-                    <td className="px-5 py-3.5 text-[12px] text-slate-400">{timeAgo(req.requestedAt)}</td>
+                    <td className="px-5 py-3.5 text-[0.8125rem] text-slate-600 whitespace-nowrap tabular-nums">{formatDateTime(req.requestedAt)}</td>
+                    <td className="px-5 py-3.5 text-[0.75rem] text-slate-400">{timeAgo(req.requestedAt)}</td>
                     <td className="px-5 py-3.5 text-right">
-                      <span className="inline-flex items-center gap-1 text-[12px] font-semibold text-cyan-600 opacity-60 group-hover:opacity-100 transition-opacity">
+                      <span className="inline-flex items-center gap-1 text-[0.75rem] font-semibold text-cyan-600 opacity-60 group-hover:opacity-100 transition-opacity">
                         {isPending ? 'Review' : 'View'}
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                       </span>
@@ -397,10 +397,10 @@ export function AdminRequestsPage() {
                     {TYPE_CFG[selectedRequest.requestType]?.icon ?? '?'}
                   </div>
                   <div>
-                    <h3 className="text-[15px] font-bold text-slate-800">
+                    <h3 className="text-[0.9375rem] font-bold text-slate-800">
                       {TYPE_CFG[selectedRequest.requestType]?.label ?? selectedRequest.requestType}
                     </h3>
-                    <p className="text-[11px] text-slate-400">{timeAgo(selectedRequest.requestedAt)}</p>
+                    <p className="text-[0.6875rem] text-slate-400">{timeAgo(selectedRequest.requestedAt)}</p>
                   </div>
                 </div>
                 <Button variant="ghost" size="icon" onClick={() => setSelectedRequest(null)} aria-label="Close request details">
@@ -410,7 +410,7 @@ export function AdminRequestsPage() {
                 </Button>
               </div>
               {/* Status badge */}
-              <span className={`inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full border font-bold ${STATUS_CFG[selectedRequest.status]?.bg ?? ''} ${STATUS_CFG[selectedRequest.status]?.text ?? ''} ${STATUS_CFG[selectedRequest.status]?.border ?? ''}`}>
+              <span className={`inline-flex items-center gap-1.5 text-[0.6875rem] px-2.5 py-1 rounded-full border font-bold ${STATUS_CFG[selectedRequest.status]?.bg ?? ''} ${STATUS_CFG[selectedRequest.status]?.text ?? ''} ${STATUS_CFG[selectedRequest.status]?.border ?? ''}`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${STATUS_CFG[selectedRequest.status]?.dot ?? ''}`} />
                 {STATUS_CFG[selectedRequest.status]?.label ?? selectedRequest.status}
               </span>
@@ -420,22 +420,22 @@ export function AdminRequestsPage() {
             <div className="flex-1 overflow-y-auto p-6 space-y-5">
               {/* Requester */}
               <div>
-                <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Requester</h4>
+                <h4 className="text-[0.6875rem] font-bold text-slate-400 uppercase tracking-wider mb-2">Requester</h4>
                 <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
                   <div className="w-10 h-10 rounded-full bg-cyan-100 flex items-center justify-center text-cyan-600 font-bold text-sm">
                     {(selectedRequest.requesterName ?? '?')[0].toUpperCase()}
                   </div>
                   <div>
-                    <div className="text-[13px] font-semibold text-slate-800">{selectedRequest.requesterName}</div>
-                    {selectedRequest.requesterEmployeeId && <div className="text-[11px] text-slate-400">{selectedRequest.requesterEmployeeId}</div>}
-                    {selectedRequest.requesterEmail && <div className="text-[11px] text-slate-400">{selectedRequest.requesterEmail}</div>}
+                    <div className="text-[0.8125rem] font-semibold text-slate-800">{selectedRequest.requesterName}</div>
+                    {selectedRequest.requesterEmployeeId && <div className="text-[0.6875rem] text-slate-400">{selectedRequest.requesterEmployeeId}</div>}
+                    {selectedRequest.requesterEmail && <div className="text-[0.6875rem] text-slate-400">{selectedRequest.requesterEmail}</div>}
                   </div>
                 </div>
               </div>
 
               {/* Request data */}
               <div>
-                <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Details</h4>
+                <h4 className="text-[0.6875rem] font-bold text-slate-400 uppercase tracking-wider mb-2">Details</h4>
                 <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
                   {renderRequestDetails(selectedRequest)}
                 </div>
@@ -443,22 +443,22 @@ export function AdminRequestsPage() {
 
               {/* Timestamps */}
               <div>
-                <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Timeline</h4>
+                <h4 className="text-[0.6875rem] font-bold text-slate-400 uppercase tracking-wider mb-2">Timeline</h4>
                 <div className="space-y-2">
-                  <div className="flex items-center gap-3 text-[13px]">
+                  <div className="flex items-center gap-3 text-[0.8125rem]">
                     <div className="w-2 h-2 rounded-full bg-blue-400" />
                     <span className="text-slate-500">Submitted</span>
                     <span className="text-slate-700 font-medium ml-auto tabular-nums">{formatDateTime(selectedRequest.requestedAt)}</span>
                   </div>
                   {selectedRequest.processedAt && (
-                    <div className="flex items-center gap-3 text-[13px]">
+                    <div className="flex items-center gap-3 text-[0.8125rem]">
                       <div className={`w-2 h-2 rounded-full ${selectedRequest.status === 'APPROVED' ? 'bg-emerald-400' : 'bg-red-400'}`} />
                       <span className="text-slate-500">{selectedRequest.status === 'APPROVED' ? 'Approved' : 'Rejected'}</span>
                       <span className="text-slate-700 font-medium ml-auto tabular-nums">{formatDateTime(selectedRequest.processedAt)}</span>
                     </div>
                   )}
                   {selectedRequest.processedBy && (
-                    <div className="flex items-center gap-3 text-[13px]">
+                    <div className="flex items-center gap-3 text-[0.8125rem]">
                       <div className="w-2 h-2 rounded-full bg-slate-300" />
                       <span className="text-slate-500">Processed by</span>
                       <span className="text-slate-700 font-medium ml-auto">{selectedRequest.processedBy}</span>
@@ -470,23 +470,23 @@ export function AdminRequestsPage() {
               {/* Requester remarks */}
               {selectedRequest.remarks && (
                 <div>
-                  <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Requester's Reason</h4>
-                  <p className="text-[13px] text-slate-600 p-3 rounded-xl bg-slate-50 border border-slate-100 italic">{selectedRequest.remarks}</p>
+                  <h4 className="text-[0.6875rem] font-bold text-slate-400 uppercase tracking-wider mb-2">Requester's Reason</h4>
+                  <p className="text-[0.8125rem] text-slate-600 p-3 rounded-xl bg-slate-50 border border-slate-100 italic">{selectedRequest.remarks}</p>
                 </div>
               )}
 
               {/* Admin remarks (processed) */}
               {selectedRequest.adminRemarks && (
                 <div>
-                  <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Admin Notes</h4>
-                  <p className="text-[13px] text-slate-600 p-3 rounded-xl bg-slate-50 border border-slate-100">{selectedRequest.adminRemarks}</p>
+                  <h4 className="text-[0.6875rem] font-bold text-slate-400 uppercase tracking-wider mb-2">Admin Notes</h4>
+                  <p className="text-[0.8125rem] text-slate-600 p-3 rounded-xl bg-slate-50 border border-slate-100">{selectedRequest.adminRemarks}</p>
                 </div>
               )}
 
               {/* Admin response textarea */}
               {(canApprove || canReject) && selectedRequest.status === 'PENDING' && (
                 <div>
-                  <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Your Response <span className="text-red-500">*</span></h4>
+                  <h4 className="text-[0.6875rem] font-bold text-slate-400 uppercase tracking-wider mb-2">Your Response <span className="text-red-500">*</span></h4>
                   <textarea
                     value={adminRemarks}
                     onChange={e => setAdminRemarks(e.target.value)}
@@ -550,21 +550,21 @@ export function AdminRequestsPage() {
                   </div>
                   <div>
                     <h3 className="text-lg font-bold">Request Approved</h3>
-                    <p className="text-[12px] text-white/80">{approvalResult.message ?? 'Action completed successfully.'}</p>
+                    <p className="text-[0.75rem] text-white/80">{approvalResult.message ?? 'Action completed successfully.'}</p>
                   </div>
                 </div>
               </div>
               <div className="p-6 space-y-4">
                 {approvalResult.temporaryPassword && (
-                  <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-[12px] text-amber-800">
+                  <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-[0.75rem] text-amber-800">
                     <strong>Share these credentials with the user.</strong> They won't be shown again. The user must change the password on first login.
                   </div>
                 )}
                 {approvalResult.username && (
                   <div>
-                    <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Username</label>
+                    <label className="text-[0.6875rem] font-bold text-slate-400 uppercase tracking-wider">Username</label>
                     <div className="mt-1 flex items-center gap-2">
-                      <code className="flex-1 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-[13px] text-slate-800 font-mono">{approvalResult.username}</code>
+                      <code className="flex-1 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-[0.8125rem] text-slate-800 font-mono">{approvalResult.username}</code>
                       <Button variant="secondary" size="sm"
                         onClick={() => copyToClipboard(approvalResult.username!, 'username')}
                         // Both copy buttons render the bare word "Copy" — without
@@ -578,9 +578,9 @@ export function AdminRequestsPage() {
                 )}
                 {approvalResult.temporaryPassword && (
                   <div>
-                    <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Temporary Password</label>
+                    <label className="text-[0.6875rem] font-bold text-slate-400 uppercase tracking-wider">Temporary Password</label>
                     <div className="mt-1 flex items-center gap-2">
-                      <code className="flex-1 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-[13px] text-slate-800 font-mono">{approvalResult.temporaryPassword}</code>
+                      <code className="flex-1 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-[0.8125rem] text-slate-800 font-mono">{approvalResult.temporaryPassword}</code>
                       <Button variant="secondary" size="sm"
                         onClick={() => copyToClipboard(approvalResult.temporaryPassword!, 'password')}
                         aria-label="Copy temporary password"

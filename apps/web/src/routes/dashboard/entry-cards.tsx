@@ -61,7 +61,7 @@ const BLOCK_GLYPHS: ReactNode[] = [
 function CardWave({ color }: { color: string }) {
   return (
     <svg
-      className="pointer-events-none absolute inset-x-0 bottom-0 h-20 w-full"
+      className="pointer-events-none absolute inset-x-0 bottom-0 h-16 w-full xl:h-20"
       viewBox="0 0 400 80" preserveAspectRatio="none" aria-hidden focusable="false"
     >
       {/* Two offset crests, both LOW and pale. The link sits over this, so the
@@ -76,7 +76,7 @@ function CardWave({ color }: { color: string }) {
 
 function ViewDetails({ color }: { color: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold" style={{ color }}>
+    <span className="inline-flex items-center gap-1.5 text-[0.8125rem] font-semibold" style={{ color }}>
       View Details
       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h13m0 0l-5-5m5 5l-5 5" />
@@ -126,37 +126,37 @@ export function EntryCards({ cards, onSelect, alarms, onOpenAlarms }: EntryCards
   return (
     <div className="space-y-8">
       {/* ── Hero row ─────────────────────────────────────────────────────── */}
-      <div className={`grid gap-5 ${alarms ? 'lg:grid-cols-2' : ''}`}>
+      <div className={`grid gap-4 xl:gap-5 ${alarms ? 'lg:grid-cols-2' : ''}`}>
         {all && (
           <CardShell
             onClick={() => onSelect(all.id)}
             label={`All instruments — ${all.count}. View details.`}
-            className="p-6 focus-visible:ring-blue-500"
+            className="p-5 focus-visible:ring-blue-500 xl:p-6"
           >
             <div className="flex items-start gap-4">
-              <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-sm">
-                <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-sm xl:h-14 xl:w-14">
+                <svg className="h-6 w-6 xl:h-7 xl:w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
                     d="M12 3l9 4.5-9 4.5-9-4.5L12 3zM3 12l9 4.5 9-4.5M3 16.5L12 21l9-4.5" />
                 </svg>
               </span>
               <div className="min-w-0 flex-1">
-                <h3 className="text-[17px] font-bold text-slate-900">All Instruments</h3>
-                <p className="mt-0.5 text-[13px] text-slate-500">
+                <h3 className="text-[0.9375rem] font-bold text-slate-900 xl:text-[1.0625rem]">All Instruments</h3>
+                <p className="mt-0.5 text-[0.8125rem] text-slate-500">
                   Every registered instrument across the system
                 </p>
               </div>
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 xl:h-11 xl:w-11">
                 <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 17l5-6 4 4 6-8" />
                 </svg>
               </span>
             </div>
 
-            <p className="mt-6 text-[46px] font-extrabold leading-none tracking-tight text-blue-600 tabular-nums">
+            <p className="mt-5 text-[2.125rem] font-extrabold leading-none tracking-tight text-blue-600 tabular-nums lg:text-[2.5rem] xl:text-[2.875rem]">
               {all.count.toLocaleString()}
             </p>
-            <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+            <p className="mt-2 text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-slate-500">
               Instruments
             </p>
 
@@ -170,26 +170,26 @@ export function EntryCards({ cards, onSelect, alarms, onOpenAlarms }: EntryCards
           <CardShell
             onClick={onOpenAlarms}
             label={`Active alarms — ${activeAlarms}. View details.`}
-            className="p-6 focus-visible:ring-rose-500"
+            className="p-5 focus-visible:ring-rose-500 xl:p-6"
             // The pink wash from the reference. It is the only card that carries
             // a tint, which is what makes it read as the exception on the page.
             style={{ backgroundImage: 'linear-gradient(135deg, #fff 40%, #fff1f2 100%)' }}
           >
             <div className="flex items-start gap-4">
-              <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-rose-500 to-red-600 text-white shadow-sm">
-                <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-rose-500 to-red-600 text-white shadow-sm xl:h-14 xl:w-14">
+                <svg className="h-6 w-6 xl:h-7 xl:w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
                     d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0a3 3 0 11-6 0m6 0H9" />
                 </svg>
               </span>
               <div className="min-w-0 flex-1">
-                <h3 className="text-[17px] font-bold text-slate-900">Active Alarms</h3>
-                <p className="mt-0.5 text-[13px] text-slate-500">
+                <h3 className="text-[0.9375rem] font-bold text-slate-900 xl:text-[1.0625rem]">Active Alarms</h3>
+                <p className="mt-0.5 text-[0.8125rem] text-slate-500">
                   {/* Says what to DO, and stays honest at zero. */}
                   {activeAlarms > 0 ? 'Require your attention' : 'Nothing to attend to'}
                 </p>
               </div>
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-600">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-600 xl:h-11 xl:w-11">
                 <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                     d="M12 9v4m0 4h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L14.7 3.9a2 2 0 00-3.4 0z" />
@@ -199,17 +199,17 @@ export function EntryCards({ cards, onSelect, alarms, onOpenAlarms }: EntryCards
 
             {/* Green at zero, red otherwise. A red 0 trains people to ignore red. */}
             <p
-              className="mt-6 text-[46px] font-extrabold leading-none tracking-tight tabular-nums"
+              className="mt-5 text-[2.125rem] font-extrabold leading-none tracking-tight tabular-nums lg:text-[2.5rem] xl:text-[2.875rem]"
               style={{ color: activeAlarms > 0 ? '#e11d48' : '#059669' }}
             >
               {activeAlarms.toLocaleString()}
             </p>
-            <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+            <p className="mt-2 text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-slate-500">
               Alarms
             </p>
 
             <div className="mt-4 flex items-end justify-between gap-3">
-              <p className="text-[12px] text-slate-500">
+              <p className="text-[0.75rem] text-slate-500">
                 {(alarms.unacknowledged ?? 0) > 0
                   ? `${alarms.unacknowledged} awaiting acknowledgement`
                   : ' '}
@@ -223,10 +223,10 @@ export function EntryCards({ cards, onSelect, alarms, onOpenAlarms }: EntryCards
       {/* ── Blocks Overview ──────────────────────────────────────────────── */}
       {blocks.length > 0 && (
         <section>
-          <h2 className="text-[17px] font-bold text-slate-900">Blocks Overview</h2>
-          <p className="mt-0.5 text-[13px] text-slate-500">Overview of all functional blocks</p>
+          <h2 className="text-[0.9375rem] font-bold text-slate-900 xl:text-[1.0625rem]">Blocks Overview</h2>
+          <p className="mt-0.5 text-[0.8125rem] text-slate-500">Overview of all functional blocks</p>
 
-          <div className="mt-4 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4 xl:gap-5">
             {blocks.map((b, i) => {
               const accent = BLOCK_ACCENTS[i % BLOCK_ACCENTS.length];
               const glyph = BLOCK_GLYPHS[i % BLOCK_GLYPHS.length];
@@ -235,7 +235,7 @@ export function EntryCards({ cards, onSelect, alarms, onOpenAlarms }: EntryCards
                   key={b.id}
                   onClick={() => onSelect(b.id)}
                   label={`${b.label} — ${b.count} instruments. View details.`}
-                  className="min-h-[18rem] p-6 pb-5"
+                  className="p-5 xl:p-6"
                   style={{ ['--tw-ring-color' as string]: accent.ring }}
                 >
                   <CardWave color={accent.wave} />
@@ -244,32 +244,32 @@ export function EntryCards({ cards, onSelect, alarms, onOpenAlarms }: EntryCards
                       swallow a number. */}
                   <div className="relative z-10 flex h-full flex-col">
                     <span
-                      className="flex h-14 w-14 items-center justify-center rounded-full text-white shadow-sm"
+                      className="flex h-12 w-12 items-center justify-center rounded-full text-white shadow-sm xl:h-14 xl:w-14"
                       style={{ backgroundColor: accent.ring }}
                     >
-                      <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
+                      <svg className="h-6 w-6 xl:h-7 xl:w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
                         {glyph}
                       </svg>
                     </span>
 
-                    <h3 className="mt-4 truncate text-[17px] font-bold text-slate-900" title={b.label}>
+                    <h3 className="mt-3.5 truncate text-[0.9375rem] font-bold text-slate-900 xl:text-[1.0625rem]" title={b.label}>
                       {b.label}
                     </h3>
-                    <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    <p className="mt-0.5 text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-slate-500">
                       {b.sublabel}
                     </p>
 
                     <p
-                      className="mt-5 text-[40px] font-extrabold leading-none tracking-tight tabular-nums"
+                      className="mt-4 text-[1.875rem] font-extrabold leading-none tracking-tight tabular-nums lg:text-[2.125rem] xl:text-[2.5rem]"
                       style={{ color: accent.text }}
                     >
                       {b.count.toLocaleString()}
                     </p>
-                    <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    <p className="mt-2 text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-slate-500">
                       Instruments
                     </p>
 
-                    <div className="mt-auto flex justify-end pt-6">
+                    <div className="mt-5 flex justify-end xl:mt-6">
                       <ViewDetails color={accent.text} />
                     </div>
                   </div>

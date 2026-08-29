@@ -183,7 +183,7 @@ export function FunctionalLocationDetailPage() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">{data.name}</h1>
+              <h1 className="text-[1.625rem] font-semibold leading-tight tracking-[-0.01em] text-slate-900">{data.name}</h1>
               <Badge variant={isBlock ? 'default' : 'secondary'}>{data.type}</Badge>
             </div>
           </div>
@@ -276,7 +276,7 @@ export function FunctionalLocationDetailPage() {
               <div key={i.id} className="rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2">
                 <p className="truncate font-mono text-sm font-medium text-slate-800">{i.code}</p>
                 <p className="truncate text-xs text-slate-500">{i.name}</p>
-                <p className="mt-0.5 truncate text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                <p className="mt-0.5 truncate text-[0.6875rem] font-semibold uppercase tracking-wide text-slate-400">
                   {i.areaName}
                 </p>
               </div>

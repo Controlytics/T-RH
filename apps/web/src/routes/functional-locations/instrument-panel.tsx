@@ -154,7 +154,7 @@ export function InstrumentPanel({ locationId, locationPath, canEdit, onChanged }
                     {/* Naming the current location is what stops a move being
                         accidental — the FK allows only one location per instrument. */}
                     {elsewhere && (
-                      <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800">
+                      <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[0.6875rem] font-semibold text-amber-800">
                         in {i.functionalLocationPath}
                       </span>
                     )}

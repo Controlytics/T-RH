@@ -141,7 +141,7 @@ export function AppLayout() {
 
               {isDifferentUser ? (
                 <>
-                  <h2 className="text-[19px] font-semibold leading-tight text-slate-800 mb-3">Another User is Logged In</h2>
+                  <h2 className="text-[1.1875rem] font-semibold leading-tight text-slate-800 mb-3">Another User is Logged In</h2>
                   <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 mb-6">
                     <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-3">Active Session</p>
                     <div className="flex items-center justify-center gap-3">
@@ -162,7 +162,7 @@ export function AppLayout() {
                 </>
               ) : (
                 <>
-                  <h2 className="text-[19px] font-semibold leading-tight text-slate-800 mb-3">Session Active in Another Tab</h2>
+                  <h2 className="text-[1.1875rem] font-semibold leading-tight text-slate-800 mb-3">Session Active in Another Tab</h2>
                   <p className="text-slate-600 mb-6">
                     You are already logged in another tab or browser window. For security reasons, only one active session is allowed per browser.
                   </p>

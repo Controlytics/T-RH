@@ -100,7 +100,7 @@ export function DialogTitle({ className, ...props }: React.HTMLAttributes<HTMLHe
   return (
     <h2
       className={cn(
-        'text-[19px] font-semibold leading-tight text-slate-800',
+        'text-[1.1875rem] font-semibold leading-tight text-slate-800',
         className
       )}
       {...props}

@@ -424,17 +424,17 @@ export function ActionReauthPage() {
                   <th key={role.name} className="px-2 pt-4 pb-3 text-center" style={{ minWidth: visibleRoles.length > 3 ? '105px' : '140px' }}>
                     <div className="flex flex-col items-center gap-1">
                       <div
-                        className={`inline-flex items-center rounded-lg font-bold text-white shadow-[var(--elev-1)] whitespace-nowrap ${visibleRoles.length > 3 ? 'px-2 py-1 text-[10px]' : 'px-3 py-1.5 text-[11px]'} ${role.color || 'bg-slate-500'}`}
+                        className={`inline-flex items-center rounded-lg font-bold text-white shadow-[var(--elev-1)] whitespace-nowrap ${visibleRoles.length > 3 ? 'px-2 py-1 text-[0.625rem]' : 'px-3 py-1.5 text-[0.6875rem]'} ${role.color || 'bg-slate-500'}`}
                       >
                         {role.displayName}
                       </div>
-                      <span className="text-[10px] text-slate-400 font-medium tabular-nums whitespace-nowrap">
+                      <span className="text-[0.625rem] text-slate-400 font-medium tabular-nums whitespace-nowrap">
                         {getRoleConfiguredCount(role.name)} / {stats.totalActions}
                       </span>
                       <div className="flex gap-1">
                         <button
                           onClick={() => selectAllRole(role.name)}
-                          className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 font-medium transition-colors"
+                          className="text-[0.625rem] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 font-medium transition-colors"
                         >
                           All
                         </button>
@@ -597,11 +597,11 @@ function CategorySection({
               <div className="flex-1">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-semibold text-slate-700">{category}</span>
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border ${meta.bgLight}`}>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[0.625rem] font-medium border ${meta.bgLight}`}>
                     {configuredCount}/{totalCount}
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-400 mt-0.5">{meta.description}</p>
+                <p className="text-[0.6875rem] text-slate-400 mt-0.5">{meta.description}</p>
               </div>
               <svg
                 className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${isCollapsed ? '' : 'rotate-180'}`}
@@ -613,13 +613,13 @@ function CategorySection({
             <div className="flex gap-1">
               <button
                 onClick={onSelectAll}
-                className="text-[10px] px-2 py-1 rounded-md bg-blue-50 text-blue-600 hover:bg-blue-100 font-medium transition-colors border border-blue-100"
+                className="text-[0.625rem] px-2 py-1 rounded-md bg-blue-50 text-blue-600 hover:bg-blue-100 font-medium transition-colors border border-blue-100"
               >
                 Select All
               </button>
               <button
                 onClick={onClear}
-                className="text-[10px] px-2 py-1 rounded-md bg-slate-50 text-slate-500 hover:bg-slate-100 font-medium transition-colors border border-slate-200"
+                className="text-[0.625rem] px-2 py-1 rounded-md bg-slate-50 text-slate-500 hover:bg-slate-100 font-medium transition-colors border border-slate-200"
               >
                 Clear
               </button>

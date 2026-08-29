@@ -174,9 +174,9 @@ export function AccessMatrixPage() {
             <table className="tbl w-full">
               <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 z-10">
                 <tr>
-                  <th className="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Module</th>
+                  <th className="text-left px-5 py-3 text-[0.6875rem] font-bold text-slate-500 uppercase tracking-wider">Module</th>
                   {roles.map(r => (
-                    <th key={r.name} className="px-3 py-3 text-center text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">
+                    <th key={r.name} className="px-3 py-3 text-center text-[0.6875rem] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">
                       <div className="flex flex-col items-center gap-1">
                         <span>{r.displayName}</span>
                         <Button variant="ghost" size="sm"
@@ -188,22 +188,22 @@ export function AccessMatrixPage() {
                       </div>
                     </th>
                   ))}
-                  <th className="px-3 py-3 text-center text-[11px] font-bold text-slate-500 uppercase tracking-wider">Row</th>
+                  <th className="px-3 py-3 text-center text-[0.6875rem] font-bold text-slate-500 uppercase tracking-wider">Row</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {[...modulesByCategory.entries()].map(([category, modules]) => (
                   <Fragment key={category}>
                     <tr className="bg-slate-50/50">
-                      <td colSpan={roles.length + 2} className="px-5 py-2 text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                      <td colSpan={roles.length + 2} className="px-5 py-2 text-[0.6875rem] font-bold text-slate-600 uppercase tracking-wider">
                         {category}
                       </td>
                     </tr>
                     {modules.map(m => (
                       <tr key={m.moduleKey} className="hover:bg-slate-50/50">
                         <td className="px-5 py-3">
-                          <div className="font-semibold text-[13px] text-slate-800">{m.moduleName}</div>
-                          <div className="text-[12px] text-slate-400 mt-0.5">{m.description}</div>
+                          <div className="font-semibold text-[0.8125rem] text-slate-800">{m.moduleName}</div>
+                          <div className="text-[0.75rem] text-slate-400 mt-0.5">{m.description}</div>
                         </td>
                         {roles.map(r => (
                           <td key={r.name} className="px-3 py-3 text-center">

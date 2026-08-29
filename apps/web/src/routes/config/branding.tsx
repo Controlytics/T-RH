@@ -235,7 +235,7 @@ export function BrandingConfigPage() {
                         {/* Gradient bar */}
                         <div className="h-1.5 rounded-full mb-2" style={{ background: `linear-gradient(to right, ${theme.colors.gradientFrom}, ${theme.colors.gradientTo})` }} />
                         <p className="text-xs font-semibold text-slate-700">{theme.name}</p>
-                        <p className="text-[10px] text-slate-400 leading-tight mt-0.5">{theme.description.split('—')[1]?.trim() || theme.description}</p>
+                        <p className="text-[0.625rem] text-slate-400 leading-tight mt-0.5">{theme.description.split('—')[1]?.trim() || theme.description}</p>
                         {isSelected && (
                           <div className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center" style={{ backgroundColor: theme.colors.primary }}>
                             {/* White because the ground is the THEME's own

@@ -142,7 +142,7 @@ export function SearchableSelect({
         aria-expanded={open}
         className={cn(
           'flex h-10 w-full items-center justify-between rounded-[var(--radius-control)] px-3',
-          'border border-slate-300 bg-white text-[14px] text-slate-800',
+          'border border-slate-300 bg-white text-[0.875rem] text-slate-800',
           'transition-colors duration-150',
           'hover:border-slate-400',
           // The site theme, like Select and every other control. A primitive

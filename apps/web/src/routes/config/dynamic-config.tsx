@@ -296,7 +296,7 @@ export function DynamicConfigPage() {
       {success && (
         <div
           role="status"
-          className="flex items-center gap-2.5 rounded-[var(--radius-card)] border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] text-emerald-800"
+          className="flex items-center gap-2.5 rounded-[var(--radius-card)] border border-emerald-200 bg-emerald-50 px-4 py-3 text-[0.8125rem] text-emerald-800"
         >
           <svg aria-hidden viewBox="0 0 16 16" className="h-4 w-4 shrink-0 fill-emerald-600">
             <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm3.53 5.28-4 4a.75.75 0 0 1-1.06 0l-2-2a.75.75 0 1 1 1.06-1.06L7 8.69l3.47-3.47a.75.75 0 1 1 1.06 1.06Z" />
@@ -307,7 +307,7 @@ export function DynamicConfigPage() {
       {error && (
         <div
           role="alert"
-          className="flex items-center gap-2.5 rounded-[var(--radius-card)] border border-rose-200 bg-rose-50 px-4 py-3 text-[13px] text-rose-800"
+          className="flex items-center gap-2.5 rounded-[var(--radius-card)] border border-rose-200 bg-rose-50 px-4 py-3 text-[0.8125rem] text-rose-800"
         >
           <svg aria-hidden viewBox="0 0 16 16" className="h-4 w-4 shrink-0 fill-rose-600">
             <path d="M8 1.5 15 14H1L8 1.5Zm0 4.25a.75.75 0 0 0-.75.75v3a.75.75 0 0 0 1.5 0v-3A.75.75 0 0 0 8 5.75Zm0 5.5a.9.9 0 1 0 0 1.8.9.9 0 0 0 0-1.8Z" />
@@ -420,9 +420,9 @@ export function DynamicConfigPage() {
                         // options, and letting them push the Save button off the
                         // screen is how a form loses someone's work.
                         <div className="max-h-56 space-y-2.5 overflow-y-auto rounded-[var(--radius-control)] border border-slate-300 bg-white p-3">
-                          {loading && <p className="text-[13px] text-slate-400">Loading…</p>}
+                          {loading && <p className="text-[0.8125rem] text-slate-400">Loading…</p>}
                           {!loading && finalOptions.length === 0 && (
-                            <p className="text-[13px] text-slate-400">No options available</p>
+                            <p className="text-[0.8125rem] text-slate-400">No options available</p>
                           )}
                           {finalOptions.map(opt => (
                             <Checkbox
@@ -466,7 +466,7 @@ export function DynamicConfigPage() {
                       // Matches Input's treatment exactly — hairline border, the
                       // themed focus ring, the same radius. There is no Textarea
                       // primitive yet and this is the only place that needs one.
-                      className="w-full rounded-[var(--radius-control)] border border-slate-300 bg-white px-3 py-2 text-[14px] text-slate-800 transition-colors placeholder:text-slate-400 hover:border-slate-400 focus:border-[var(--theme-primary,#2a78d6)] focus:outline-none focus:ring-2 focus:ring-[var(--theme-primary,#2a78d6)]/25 font-[family-name:var(--font-mono)]"
+                      className="w-full rounded-[var(--radius-control)] border border-slate-300 bg-white px-3 py-2 text-[0.875rem] text-slate-800 transition-colors placeholder:text-slate-400 hover:border-slate-400 focus:border-[var(--theme-primary,#2a78d6)] focus:outline-none focus:ring-2 focus:ring-[var(--theme-primary,#2a78d6)]/25 font-[family-name:var(--font-mono)]"
                     />
                   ) : setting.type === 'color' ? (
                     <div className="flex items-center gap-2">

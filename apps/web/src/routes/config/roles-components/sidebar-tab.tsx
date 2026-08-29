@@ -269,7 +269,7 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
                   <span className="text-lg w-6 text-center">{u.kind === 'item' ? u.item.icon : '📊'}</span>
                   <span className="flex-1 text-sm font-medium text-slate-700">
                     {u.kind === 'item' ? u.item.label : `${u.name}`}
-                    {u.kind === 'group' && <span className="ml-1.5 text-[11px] font-normal text-slate-400">({u.children.length} reports)</span>}
+                    {u.kind === 'group' && <span className="ml-1.5 text-[0.6875rem] font-normal text-slate-400">({u.children.length} reports)</span>}
                   </span>
                   {arrowBtn(() => moveUnit(idx, -1), idx === 0, 'up')}
                   {arrowBtn(() => moveUnit(idx, 1), idx === units.length - 1, 'down')}

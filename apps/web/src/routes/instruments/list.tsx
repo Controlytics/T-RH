@@ -86,7 +86,7 @@ function SummaryTile({
         : <span className={`absolute inset-x-0 top-0 h-1 ${bar}`} />}
       <div className="flex items-center gap-2">
         {dot && <span className={`h-2 w-2 rounded-full ${dot}`} />}
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{label}</span>
+        <span className="text-[0.6875rem] font-semibold uppercase tracking-wider text-slate-500">{label}</span>
       </div>
       <p className="mt-1 text-3xl font-bold tabular-nums text-slate-800">{value}</p>
     </button>
@@ -163,11 +163,11 @@ export function InstrumentListPage() {
         <div className="relative z-10 flex flex-wrap items-start justify-between gap-4">
           <div>
             {profileId ? (
-              <Link to="/instruments" className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/70 hover:text-white">
+              <Link to="/instruments" className="text-[0.6875rem] font-semibold uppercase tracking-[0.2em] text-white/70 hover:text-white">
                 ← All profiles
               </Link>
             ) : (
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/70">Register</p>
+              <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.2em] text-white/70">Register</p>
             )}
             <h1 className="mt-1 text-3xl font-bold">{profile?.name ?? 'Instruments'}</h1>
             <p className="mt-1 text-sm text-white/80">
@@ -235,8 +235,8 @@ export function InstrumentListPage() {
         <table className="tbl w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50/80 text-left">
-              <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Instrument ID</th>
-              <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Status</th>
+              <th className="px-4 py-3 text-[0.6875rem] font-semibold uppercase tracking-wider text-slate-500">Instrument ID</th>
+              <th className="px-4 py-3 text-[0.6875rem] font-semibold uppercase tracking-wider text-slate-500">Status</th>
               <th className="px-4 py-3" />
             </tr>
           </thead>
@@ -297,7 +297,7 @@ export function InstrumentListPage() {
                       {r.code}
                       {r.isGateway && (
                         <span
-                          className="rounded-md px-1.5 py-0.5 font-sans text-[10px] font-bold uppercase tracking-wide text-white"
+                          className="rounded-md px-1.5 py-0.5 font-sans text-[0.625rem] font-bold uppercase tracking-wide text-white"
                           style={themeGradient}
                         >
                           Gateway
@@ -317,7 +317,7 @@ export function InstrumentListPage() {
                         Shown separately so a deliberate shutdown is never
                         mistaken for a dead device. */}
                     {!r.isActive && (
-                      <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 ring-1 ring-amber-200">
+                      <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[0.6875rem] font-semibold text-amber-700 ring-1 ring-amber-200">
                         Disabled
                       </span>
                     )}

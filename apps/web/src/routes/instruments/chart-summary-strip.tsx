@@ -46,7 +46,7 @@ export function ChartSummaryStrip({
     <dl className="mt-2 grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-4">
       {cells.map((c) => (
         <div key={c.label}>
-          <dt className="text-[11px] font-semibold uppercase tracking-[0.09em] text-slate-500">{c.label}</dt>
+          <dt className="text-[0.6875rem] font-semibold uppercase tracking-[0.09em] text-slate-500">{c.label}</dt>
           <dd className="text-sm font-medium tabular-nums text-slate-800">{c.value}</dd>
         </div>
       ))}

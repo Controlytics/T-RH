@@ -170,7 +170,7 @@ export function AuditTemplatesConfigPage() {
           <Card key={category} className="border-slate-200/60 shadow-[var(--elev-2)] overflow-hidden">
             <div className={`h-1 bg-gradient-to-r ${categoryGradients[category] || 'from-slate-400 to-slate-500'}`} />
             <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/80">
-              <h2 className="text-[19px] font-semibold leading-tight text-slate-800">{category}</h2>
+              <h2 className="text-[1.1875rem] font-semibold leading-tight text-slate-800">{category}</h2>
               <p className="text-xs text-slate-500 mt-0.5">{items.length} action{items.length > 1 ? 's' : ''}</p>
             </div>
             <CardContent className="p-0">
@@ -187,7 +187,7 @@ export function AuditTemplatesConfigPage() {
                           <p className="text-xs text-slate-400 font-mono mt-0.5">{key}</p>
                           <div className="flex flex-wrap gap-1 mt-2">
                             {def.placeholders.map(p => (
-                              <span key={p} className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium border ${placeholderColors[p] || 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                              <span key={p} className={`inline-flex px-1.5 py-0.5 rounded text-[0.625rem] font-medium border ${placeholderColors[p] || 'bg-slate-100 text-slate-600 border-slate-200'}`}>
                                 {`{${p}}`}
                               </span>
                             ))}

@@ -24,7 +24,7 @@ function RoleBadge({ role }: { role: RoleAccess }) {
   return (
     <span
       style={isRaw ? { backgroundColor: role.color } : undefined}
-      className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium text-white shadow-[var(--elev-1)] ${isRaw ? '' : role.color}`}
+      className={`inline-block rounded-full px-2 py-0.5 text-[0.6875rem] font-medium text-white shadow-[var(--elev-1)] ${isRaw ? '' : role.color}`}
     >
       {role.displayName}
     </span>
@@ -33,7 +33,7 @@ function RoleBadge({ role }: { role: RoleAccess }) {
 
 function RoleBadges({ roles }: { roles: RoleAccess[] }) {
   if (roles.length === 0) {
-    return <span className="text-[11px] italic text-slate-400">no role configured</span>;
+    return <span className="text-[0.6875rem] italic text-slate-400">no role configured</span>;
   }
   return (
     <div className="flex flex-wrap gap-1">
@@ -46,7 +46,7 @@ function RoleBadges({ roles }: { roles: RoleAccess[] }) {
 
 function AccessChip({ access }: { access: AccessKind }) {
   return (
-    <span className="inline-block rounded-full border px-2 py-0.5 text-[11px] font-medium bg-slate-100 text-slate-600 border-slate-200">
+    <span className="inline-block rounded-full border px-2 py-0.5 text-[0.6875rem] font-medium bg-slate-100 text-slate-600 border-slate-200">
       {ACCESS_COPY[access]}
     </span>
   );
@@ -105,11 +105,11 @@ function StepCard({ step, index, moduleId, roles, auditMode, numbered = true }: 
               {index + 1}
             </span>
           )}
-          <span className="text-[15px] font-semibold leading-snug text-slate-800">{step.label}</span>
+          <span className="text-[0.9375rem] font-semibold leading-snug text-slate-800">{step.label}</span>
         </div>
         <StepAccess step={step} moduleId={moduleId} roles={roles} auditMode={auditMode} />
         {step.description && (
-          <p className="mt-2.5 text-[13px] leading-relaxed text-slate-500" style={CLAMP_3} title={step.description}>
+          <p className="mt-2.5 text-[0.8125rem] leading-relaxed text-slate-500" style={CLAMP_3} title={step.description}>
             {step.description}
           </p>
         )}
@@ -119,7 +119,7 @@ function StepCard({ step, index, moduleId, roles, auditMode, numbered = true }: 
         <div className="flex flex-col items-center">
           <DownArrow />
           <div className="w-full rounded-xl border border-dashed border-amber-300 bg-amber-50/50 p-3 shadow-[var(--elev-1)]">
-            <p className="mb-1.5 text-[13px] font-medium text-slate-600">{step.branch.label}</p>
+            <p className="mb-1.5 text-[0.8125rem] font-medium text-slate-600">{step.branch.label}</p>
             <RoleBadges roles={rolesForGate(step.branch.gate, moduleId, roles, auditMode)} />
           </div>
         </div>
@@ -206,7 +206,7 @@ export function FlowChart({ steps, moduleId, roles, auditMode = false, layout }:
 
       {/* Scroll cue — visible until the user reaches the end. */}
       {overflow && !atEnd && (
-        <div className="pointer-events-none absolute bottom-3 right-4 flex items-center gap-1 rounded-full bg-slate-800/80 px-2.5 py-1 text-[11px] font-medium text-white shadow-[var(--elev-1)]">
+        <div className="pointer-events-none absolute bottom-3 right-4 flex items-center gap-1 rounded-full bg-slate-800/80 px-2.5 py-1 text-[0.6875rem] font-medium text-white shadow-[var(--elev-1)]">
           Scroll for more
           <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 6l6 6-6 6" />

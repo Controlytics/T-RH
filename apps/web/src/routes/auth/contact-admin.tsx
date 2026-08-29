@@ -262,7 +262,7 @@ export function ContactAdminPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h2 className="text-[19px] font-semibold leading-tight text-slate-800 mb-2">Request Submitted</h2>
+          <h2 className="text-[1.1875rem] font-semibold leading-tight text-slate-800 mb-2">Request Submitted</h2>
           <p className="text-sm text-slate-500 mb-6">Your request has been sent to the administrator. You will be notified once it's processed.</p>
           <a href="/login" className="inline-block px-6 py-2 rounded-lg text-sm font-medium text-white bg-cyan-600 hover:bg-cyan-700 transition-colors">
             Back to Login
@@ -283,7 +283,7 @@ export function ContactAdminPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
             </a>
-            <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Contact Admin</h1>
+            <h1 className="text-[1.625rem] font-semibold leading-tight tracking-[-0.01em] text-slate-900">Contact Admin</h1>
           </div>
           <p className="text-sm text-slate-500 ml-9">Submit a request to the system administrator</p>
         </div>
@@ -332,7 +332,7 @@ export function ContactAdminPage() {
                     </svg>
                     <div>
                       <div className="font-semibold text-emerald-800">{requesterUser.fullName}</div>
-                      <div className="text-[12px] text-emerald-700">{requesterUser.roleDisplayName} · {requesterUser.email}</div>
+                      <div className="text-[0.75rem] text-emerald-700">{requesterUser.roleDisplayName} · {requesterUser.email}</div>
                     </div>
                   </div>
                 </div>
@@ -442,26 +442,26 @@ export function ContactAdminPage() {
               {/* Step 2: Show fetched user details */}
               {lookupUser && (
                 <div className="rounded-lg bg-white border border-slate-200 p-3">
-                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Current User Details</p>
+                  <p className="text-[0.6875rem] font-bold text-slate-400 uppercase tracking-wider mb-2">Current User Details</p>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                     <div>
-                      <div className="text-[11px] text-slate-400">Full Name</div>
+                      <div className="text-[0.6875rem] text-slate-400">Full Name</div>
                       <div className="font-medium text-slate-800">{lookupUser.fullName}</div>
                     </div>
                     <div>
-                      <div className="text-[11px] text-slate-400">Email</div>
+                      <div className="text-[0.6875rem] text-slate-400">Email</div>
                       <div className="font-medium text-slate-800 break-all">{lookupUser.email}</div>
                     </div>
                     <div>
-                      <div className="text-[11px] text-slate-400">Department</div>
+                      <div className="text-[0.6875rem] text-slate-400">Department</div>
                       <div className="font-medium text-slate-800">{lookupUser.department || '—'}</div>
                     </div>
                     <div>
-                      <div className="text-[11px] text-slate-400">Role</div>
+                      <div className="text-[0.6875rem] text-slate-400">Role</div>
                       <div className="font-medium text-slate-800">{lookupUser.roleDisplayName}</div>
                     </div>
                     <div>
-                      <div className="text-[11px] text-slate-400">Status</div>
+                      <div className="text-[0.6875rem] text-slate-400">Status</div>
                       <div className="font-medium text-slate-800">{lookupUser.status}</div>
                     </div>
                   </div>

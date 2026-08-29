@@ -333,16 +333,16 @@ export function InstrumentDetailPage() {
         <div className="relative z-10 flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/70">Instrument ID</p>
+              <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.2em] text-white/70">Instrument ID</p>
               {inst.isGateway && (
-                <span className="rounded-md border border-white/40 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide">
+                <span className="rounded-md border border-white/40 px-1.5 py-0.5 text-[0.625rem] font-bold uppercase tracking-wide">
                   Gateway
                 </span>
               )}
               {gatewayInst && (
                 <Link
                   to={`/instruments/${gatewayInst.id}`}
-                  className="rounded-md border border-white/40 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide hover:bg-white/10"
+                  className="rounded-md border border-white/40 px-1.5 py-0.5 text-[0.625rem] font-bold uppercase tracking-wide hover:bg-white/10"
                 >
                   Child of {gatewayInst.code}
                 </Link>

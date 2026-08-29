@@ -137,7 +137,7 @@ export function DatetimeConfigPage() {
                   </svg>
                 </div>
                 <div>
-                  <h2 className="text-[19px] font-semibold leading-tight text-slate-800">Format Settings</h2>
+                  <h2 className="text-[1.1875rem] font-semibold leading-tight text-slate-800">Format Settings</h2>
                   <p className="text-sm text-slate-500">Choose your preferred display formats</p>
                 </div>
               </div>
@@ -206,7 +206,7 @@ export function DatetimeConfigPage() {
                   </svg>
                 </div>
                 <div>
-                  <h2 className="text-[19px] font-semibold leading-tight text-slate-800">Live Preview</h2>
+                  <h2 className="text-[1.1875rem] font-semibold leading-tight text-slate-800">Live Preview</h2>
                   <p className="text-sm text-slate-500">See how dates and times will appear</p>
                 </div>
               </div>

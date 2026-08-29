@@ -41,7 +41,7 @@ export function TrendHeader({
         <div className="min-w-0">
           <Link
             to={backTo}
-            className="text-[11px] font-medium text-white/70 underline-offset-2 hover:text-white hover:underline focus-visible:underline focus-visible:outline-none"
+            className="text-[0.6875rem] font-medium text-white/70 underline-offset-2 hover:text-white hover:underline focus-visible:underline focus-visible:outline-none"
           >
             &larr; Back to instrument
           </Link>
