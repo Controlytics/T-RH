@@ -151,9 +151,15 @@ export interface EntryCardsProps {
    * Names what the lower section is listing. Required because the same
    * component renders Blocks at the top level and one Block's AREAS a level
    * down — it said "Blocks Overview" over a grid of Areas until 2026-08-29.
+   *
+   * `null` SUPPRESSES the heading entirely (operator, 2026-08-29: the "Areas /
+   * Areas in CWH Block" pair inside a Block was restating the breadcrumb
+   * directly above it). A default parameter only fires on `undefined`, so
+   * passing null is what turns it off — omitting the prop still gets
+   * "Blocks Overview".
    */
-  sectionTitle?: string;
-  sectionSubtitle?: string;
+  sectionTitle?: string | null;
+  sectionSubtitle?: string | null;
 }
 
 export function EntryCards({
@@ -167,7 +173,12 @@ export function EntryCards({
 
   return (
     <div className="space-y-8">
-      {/* ── Hero row ─────────────────────────────────────────────────────── */}
+      {/* ── Hero row ─────────────────────────────────────────────────────────
+          Rendered ONLY when it has a card to hold. Below the top level there is
+          no All Instruments card and no alarms tile, and an empty grid div still
+          collects the parent's `space-y-8` — 2rem of dead space above the grid
+          with nothing drawn in it. */}
+      {(all || alarms) && (
       <div className={`grid gap-4 xl:gap-5 ${alarms ? 'lg:grid-cols-2' : ''}`}>
         {all && (
           <CardShell
@@ -262,14 +273,21 @@ export function EntryCards({
           </CardShell>
         )}
       </div>
+      )}
 
       {/* ── Blocks Overview ──────────────────────────────────────────────── */}
       {blocks.length > 0 && (
         <section>
-          <h2 className="text-[0.9375rem] font-bold text-slate-900 xl:text-[1.0625rem]">{sectionTitle}</h2>
-          <p className="mt-0.5 text-[0.8125rem] text-slate-500">{sectionSubtitle}</p>
+          {sectionTitle && (
+            <>
+              <h2 className="text-[0.9375rem] font-bold text-slate-900 xl:text-[1.0625rem]">{sectionTitle}</h2>
+              {sectionSubtitle && (
+                <p className="mt-0.5 text-[0.8125rem] text-slate-500">{sectionSubtitle}</p>
+              )}
+            </>
+          )}
 
-          <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4 xl:gap-5">
+          <div className={`${sectionTitle ? 'mt-4 ' : ''}grid gap-4 sm:grid-cols-2 xl:grid-cols-4 xl:gap-5`}>
             {blocks.map((b, i) => {
               const accent = BLOCK_ACCENTS[i % BLOCK_ACCENTS.length];
               const glyph = BLOCK_GLYPHS[i % BLOCK_GLYPHS.length];

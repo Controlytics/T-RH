@@ -117,7 +117,7 @@ export function DashboardPage() {
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-4 animate-fade-in">
       {/*
         THE PLATE behind this header is a legibility fix, not decoration.
 
@@ -207,12 +207,12 @@ export function DashboardPage() {
           onOpenAlarms={() => navigate('/alarms')}
           // The same component lists Blocks at the top and one Block's Areas a
           // level down, so it has to be told which.
-          sectionTitle={nav.level === 0 ? 'Blocks Overview' : 'Areas'}
-          sectionSubtitle={
-            nav.level === 0
-              ? 'Overview of all functional blocks'
-              : `Areas in ${nav.breadcrumb[nav.breadcrumb.length - 1]?.label ?? 'this block'}`
-          }
+          // Below the top level the heading is SUPPRESSED (operator, 2026-08-29).
+          // "Areas / Areas in CWH Block" sat directly under a breadcrumb already
+          // reading "Dashboard › CWH Block", so it named what the line above it
+          // had just named. null, not '' — the default only fires on undefined.
+          sectionTitle={nav.level === 0 ? 'Blocks Overview' : null}
+          sectionSubtitle={nav.level === 0 ? 'Overview of all functional blocks' : null}
         />
       )}
 

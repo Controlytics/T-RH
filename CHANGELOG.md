@@ -1,5 +1,34 @@
 # Changelog
 
+## [Unreleased] - Dashboard Areas heading removed, plate-to-cards gap closed (2026-08-29)
+
+Operator: *"Areas / Areas in CWH Block, remove this text and decrease the gap
+between cards and dashboard bar"*. **No count moved.** Two files:
+`routes/dashboard/{index,entry-cards}.tsx`.
+
+- **The section heading is suppressed below the top level.** Inside a Block it
+  read "Areas" over "Areas in CWH Block" while the breadcrumb immediately above
+  it already said `Dashboard > CWH Block` — it named what the line above had just
+  named. `sectionTitle`/`sectionSubtitle` now accept `null` to switch the heading
+  off; `index.tsx` passes null for `nav.level > 0`. **`null`, not `''`** — a
+  default parameter only fires on `undefined`, so omitting the prop still yields
+  "Blocks Overview", which is what the top level continues to show.
+
+- **The empty hero row is no longer rendered.** Below the top level there is no
+  All Instruments card and no alarms tile, so that grid `<div>` was drawn with no
+  children — but it still collected the parent's `space-y-8`, contributing **2rem
+  of blank space above the Areas grid with nothing in it**. Now gated on
+  `(all || alarms)`. This was the larger half of the gap the operator was
+  pointing at; the heading was the visible half.
+
+- Page rhythm tightened `space-y-6` -> `space-y-4`.
+
+Measured on :5176 after the change: plate bottom to card-grid top is **13px**,
+down from roughly 100px (24px page gap + 32px dead hero + ~44px heading block).
+Verified in the browser at both levels — top level keeps "Blocks Overview", its
+hero row and its two cards; Block level shows cards directly under the bar with
+the breadcrumb and location picker intact. No console errors.
+
 ## [Unreleased] - Dashboard first page: title plate and location picker removed (2026-08-29)
 
 Operator: "remove the dashboard text box and functional location selection on
