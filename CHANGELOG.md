@@ -1,5 +1,39 @@
 # Changelog
 
+## [Unreleased] - Config toggles: green for on, red for off, with the word beside it (2026-08-31)
+
+Operator. **No count moved.** Files: `apps/web/src/components/ui/toggle.tsx`
+and a new test file beside it.
+
+- The switch is **green when on and red when off**, painted from the
+  application's own `--status-ok-dot` / `--status-danger-dot` tokens rather than
+  raw hex, so it matches the badges on every other screen.
+- **It deliberately stops following `--theme-primary`.** Every other control here
+  takes the site palette; this one is reporting a STATE, and a state colour that
+  changes with the palette stops meaning anything. The focus ring still follows
+  the theme.
+- **The word "On" / "Off" sits beside it in the same colour**, at a fixed width so
+  the label does not shift when the state changes. That is not decoration: this
+  application's rule is that status colour never travels alone, and red/green is
+  precisely the pair a colour-blind reader is most likely to lose. Switch
+  position, colour and word each carry the whole answer.
+- Disabled greys out rather than showing red, so an unavailable control does not
+  read as a live warning.
+
+**One consequence worth stating**, since this component serves every dynamic
+config page: a setting that is merely switched off now reads RED. On Inactivity
+Alarms that is right — alarms not being raised is the risky state — but
+"require an uppercase letter: Off" will read red too, which is a stronger signal
+than that setting deserves. Say so and off becomes `--status-idle-*` instead.
+
+New `components/ui/__tests__/toggle.test.tsx` (7 tests) asserts the position, the
+colour and the word SEPARATELY, because a change that drops the word still leaves
+the colours passing. Mutation-checked: removing the word and reverting the track
+to the theme colour failed four tests.
+
+Verified: web 905 tests / 65 files, `tsc --noEmit` clean, `vite build` clean.
+Still not visually verified — the operator's session was live.
+
 ## [Unreleased] - Inactivity alarms: raised when an instrument goes quiet, cleared when it returns (2026-08-31)
 
 Operator request. A THIRD alarm source beside `RULE` and `INSTRUMENT_LIMIT`.

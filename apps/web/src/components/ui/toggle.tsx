@@ -19,6 +19,24 @@ import { cn } from '@/lib/cn';
  *
  * `role="switch"` is what tells a screen reader this is on/off rather than
  * checked/unchecked — the same distinction the visual makes.
+ *
+ * **Green for on, red for off** (operator, 2026-08-31), painted from the
+ * application's own `--status-ok-*` / `--status-danger-*` tokens rather than raw
+ * hex, so a switch matches the badges everywhere else. It does NOT follow
+ * `--theme-primary` like the other controls: this one is reporting a STATE, and
+ * a state colour that changes with the site palette stops meaning anything.
+ *
+ * The word "On" / "Off" sits beside it in the same colour, and that pairing is
+ * not decoration — this application's rule is that **status colour never travels
+ * alone**, because red and green are the pair a colour-blind reader is most
+ * likely to lose. The switch position, the colour and the word all say the same
+ * thing, so any one of them is enough.
+ *
+ * Note the consequence, since this component serves every dynamic config page:
+ * a setting that is simply switched off now reads RED. On this page that is
+ * right — alarms not being raised is the risky state — but "require an uppercase
+ * letter: Off" will also read red, which is a stronger signal than that setting
+ * deserves. Say so if it should be `--status-idle-*` for off instead.
  */
 export interface ToggleProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'size' | 'type'> {
   label?: string;
@@ -42,11 +60,11 @@ export const Toggle = forwardRef<HTMLInputElement, ToggleProps>(
             checked={checked}
             disabled={disabled}
             className={cn(
-              'peer h-6 w-11 cursor-pointer appearance-none rounded-full bg-slate-300 transition-colors',
-              'checked:bg-[var(--theme-primary,#2a78d6)]',
-              'hover:bg-slate-400 checked:hover:opacity-90',
+              'peer h-6 w-11 cursor-pointer appearance-none rounded-full transition-colors',
+              'bg-[var(--status-danger-dot)] checked:bg-[var(--status-ok-dot)]',
+              'hover:opacity-90',
               'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-primary,#2a78d6)]',
-              'disabled:cursor-not-allowed disabled:bg-slate-200 checked:disabled:bg-slate-400',
+              'disabled:cursor-not-allowed disabled:bg-slate-300 checked:disabled:bg-slate-400',
             )}
             {...props}
           />
@@ -59,6 +77,22 @@ export const Toggle = forwardRef<HTMLInputElement, ToggleProps>(
               'transition-transform peer-checked:translate-x-5',
             )}
           />
+        </span>
+
+        {/* The word, beside the switch, in the switch's colour. Fixed width so
+            the label after it does not shift left when On becomes Off. */}
+        <span
+          aria-hidden
+          className={cn(
+            'w-7 shrink-0 pt-0.5 text-[0.75rem] font-bold uppercase tracking-wide',
+            disabled
+              ? 'text-slate-400'
+              : checked
+                ? 'text-[var(--status-ok-ink)]'
+                : 'text-[var(--status-danger-ink)]',
+          )}
+        >
+          {checked ? 'On' : 'Off'}
         </span>
 
         {(label || helper) && (

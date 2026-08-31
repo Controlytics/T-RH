@@ -191,6 +191,16 @@ over with `peer-*` styles, for the same reason `Checkbox` is: keyboard operation
 form participation and screen-reader semantics come from the platform rather than
 from a re-implementation that always misses one of them.
 
+**Green for on, red for off** (operator, 2026-08-31), from `--status-ok-dot` /
+`--status-danger-dot`. `Toggle` is the ONE control here that deliberately does
+NOT follow `--theme-primary`: it reports a STATE, and a state colour that changes
+with the site palette stops meaning anything. The word "On"/"Off" sits beside it
+in the same colour — status colour never travels alone, and red/green is the pair
+a colour-blind reader is most likely to lose. **Consequence to know:** a setting
+merely switched off now reads RED on every config page, which is right for
+"alarms are not being raised" and stronger than "require an uppercase letter" 
+deserves. Change off to `--status-idle-*` if that becomes a problem.
+
 ## Design system (Stage 1 `7ed8329`, Stage 2 2026-08-28)
 
 Tokens live in `src/app.css` `@theme`; primitives in `src/components/ui/`.
