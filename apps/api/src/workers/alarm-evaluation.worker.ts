@@ -22,6 +22,10 @@ import {
   type LimitMetric,
 } from '../modules/alarms/limit-decide.js';
 import { loadLimitConfig, limitsFor } from '../modules/alarms/load-limits.js';
+import { loadInactivityConfig } from '../modules/alarms/load-inactivity.js';
+import { decideInactivity, quietMinutes } from '../modules/alarms/inactivity-decide.js';
+import { loadActiveWindowMinutes } from '../modules/instruments/telemetry-overview.js';
+import { describeInactivity, type InactivitySnapshot } from '@digilog/shared';
 import type { LimitBound } from '@digilog/shared';
 import { logger } from '../lib/logger.js';
 
@@ -118,6 +122,13 @@ export interface AlarmEvaluationResult {
    * Zero when the pass is disabled by config.
    */
   instrumentsEvaluated: number;
+  /**
+   * How many instruments the INACTIVITY pass examined. Separate from
+   * `instrumentsEvaluated` for the same reason that number exists at all: the
+   * two passes are independently switchable, and one number could not say
+   * which of them ran.
+   */
+  inactivityEvaluated: number;
 }
 
 export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationResult> {
@@ -513,7 +524,157 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
     }
   }
 
-  return { rulesEvaluated: rules.length, raised, cleared, instrumentsEvaluated };
+  // ─── Inactivity pass ──────────────────────────────────────────────────────
+  //
+  // Additive to the other two, the way the limit pass is additive to the rule
+  // pass: an instrument can hold a limit alarm and an inactivity alarm at once,
+  // and neither clears the other. A probe that was breaching when it went quiet
+  // SHOULD hold both — the excursion is unresolved AND the record now has a hole
+  // in it, and those are two different facts.
+  //
+  // Identity is the INSTRUMENT alone. There is no metric or bound to key on: an
+  // instrument is either reporting or it is not.
+  let inactivityEvaluated = 0;
+  const inactivityCfg = await loadInactivityConfig();
+  if (inactivityCfg.enabled) {
+    const [activeWindowMinutes, seen, openInactivity] = await Promise.all([
+      loadActiveWindowMinutes(),
+      // `reporting` is NOT recomputed from these — that comes from the overview,
+      // which carries the ONE definition. These two are for the GRACE period and
+      // for the frozen snapshot, neither of which the overview holds.
+      prisma.instrument.findMany({ select: { id: true, lastSeenAt: true, expectedIntervalSec: true } }),
+      prisma.alarm.findMany({
+        where: { source: 'INACTIVITY', state: 'ACTIVE' },
+        select: { id: true, instrumentId: true },
+      }),
+    ]);
+    const seenById = new Map(seen.map((i) => [i.id, i]));
+    const openById = new Map(openInactivity.map((a) => [a.instrumentId, a]));
+
+    for (const row of overview) {
+      inactivityEvaluated += 1;
+      const inst = seenById.get(row.instrumentId);
+      const open = openById.get(row.instrumentId);
+
+      const action = decideInactivity(
+        {
+          reporting: row.reporting,
+          lastSeenAt: inst?.lastSeenAt ?? null,
+          isActive: row.isActive,
+          hasOpenAlarm: Boolean(open),
+        },
+        inactivityCfg.graceMinutes,
+        now,
+      );
+
+      if (action === 'raise') {
+        const condition = describeInactivity(inactivityCfg.graceMinutes);
+        const snapshot: InactivitySnapshot = {
+          kind: 'INACTIVITY',
+          graceMinutes: inactivityCfg.graceMinutes,
+          // FROZEN because it is administered live: someone can change what
+          // "offline" means tomorrow, and an inspector asking why this fired must
+          // get the threshold as it stood, not as it stands.
+          activeWindowMinutes,
+          expectedIntervalSec: inst?.expectedIntervalSec ?? null,
+          lastSeenAt: inst?.lastSeenAt?.toISOString() ?? null,
+          description: condition,
+          snapshotAt: now.toISOString(),
+        };
+
+        // Same guard and the same reasoning as the limit pass: the partial unique
+        // index is what actually stops two overlapping cycles opening one outage,
+        // and a P2002 here means somebody else opened it — a success for the
+        // system. Caught rather than thrown, because an uncaught throw abandons
+        // every remaining instrument in the cycle.
+        let created;
+        try {
+          created = await prisma.alarm.create({
+            data: {
+              ruleId: null,
+              source: 'INACTIVITY',
+              limitKind: null,
+              // OFFLINE already means "not reporting". Reusing it keeps the Alarms
+              // page's type filter matching these alongside any rule-based offline
+              // alarm, which is what an operator means when they pick it.
+              metric: 'OFFLINE',
+              // No reading. This alarm is raised by the ABSENCE of one, so a
+              // number here would be an invention.
+              triggeredValue: null,
+              ruleSnapshot: snapshot as unknown as Prisma.InputJsonObject,
+              instrumentId: row.instrumentId,
+              severity: inactivityCfg.severity,
+              state: 'ACTIVE',
+              raisedAt: now,
+            },
+          });
+        } catch (e) {
+          if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+            logger.warn(
+              `[alarms] ${row.code ?? row.instrumentId}: an ACTIVE inactivity alarm was opened concurrently; skipping the duplicate`,
+            );
+            continue;
+          }
+          throw e;
+        }
+        raised += 1;
+
+        const quiet = quietMinutes(inst?.lastSeenAt ?? null, now);
+        const payload = {
+          alarmId: created.id,
+          instrumentId: row.instrumentId,
+          instrumentCode: row.code,
+          instrumentName: row.name,
+          metric: 'OFFLINE',
+          severity: inactivityCfg.severity,
+          ruleName: 'Inactivity',
+          condition: quiet === null ? condition : `${condition} (silent for ${quiet} minutes)`,
+          triggeredValue: null,
+          decimals: row.decimals.temperature,
+          raisedAt: created.raisedAt,
+        };
+        await enqueueAlarmNotification('raised', payload);
+        await enqueueAlarmWebhook('RAISED', payload);
+      } else if (action === 'clear' && open) {
+        // Acknowledgement fields untouched: an outage that ended without a
+        // signature is still owed an answer.
+        const closed = await prisma.alarm.update({
+          where: { id: open.id },
+          data: { state: 'CLEARED', clearedAt: now },
+        });
+        cleared += 1;
+
+        // From the FROZEN snapshot, not the live config. If someone lengthened the
+        // grace while the instrument was down, naming the CURRENT grace here would
+        // describe a threshold this alarm was never raised against.
+        const snapshotDescription = closed.ruleSnapshot
+          && typeof closed.ruleSnapshot === 'object'
+          && !Array.isArray(closed.ruleSnapshot)
+          ? (closed.ruleSnapshot as Record<string, unknown>).description
+          : undefined;
+        const payload = {
+          alarmId: closed.id,
+          instrumentId: row.instrumentId,
+          instrumentCode: row.code,
+          instrumentName: row.name,
+          metric: closed.metric,
+          severity: closed.severity,
+          ruleName: 'Inactivity',
+          condition: typeof snapshotDescription === 'string' && snapshotDescription
+            ? snapshotDescription
+            : describeInactivity(inactivityCfg.graceMinutes),
+          triggeredValue: null,
+          decimals: row.decimals.temperature,
+          raisedAt: closed.raisedAt,
+          clearedAt: closed.clearedAt,
+        };
+        await enqueueAlarmNotification('cleared', payload);
+        await enqueueAlarmWebhook('CLEARED', payload);
+      }
+    }
+  }
+
+  return { rulesEvaluated: rules.length, raised, cleared, instrumentsEvaluated, inactivityEvaluated };
 }
 
 /** graphile-worker task. Registered as `alarm_evaluation`. */

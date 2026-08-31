@@ -157,6 +157,47 @@ node apps/api/dist/app.js
     restricted case paired with a positive control, driven through the seeded
     OPERATOR because SUPER_ADMIN short-circuits visibility) and 26 unit tests in
     `modules/instruments/__tests__/visibility.test.ts`.
+- **2026-08-31 — inactivity alarms, a THIRD alarm source.** `AlarmSource` gains
+  `INACTIVITY` — a new enum VALUE, so **36 models / 13 enums are UNCHANGED**.
+  Config defs **25 → 26** (`inactivity-alarms.def.ts`, rendered by the dynamic
+  page so no `routes/config/*.tsx`). No new permission, reauth action, module,
+  audit action or route.
+  - **TWO hand-authored migrations, and they must stay two.**
+    `20260831120000_inactivity_alarms` adds the enum value;
+    `20260831120001_inactivity_unique_active` adds
+    `alarms_active_inactivity_unique` on `(instrument_id) WHERE state='ACTIVE'
+    AND source='INACTIVITY'`. Postgres REFUSES to use a newly added enum value in
+    the transaction that added it, so merging them fails. Both applied to
+    `compliance_core_db` and `compliance_core_db_test`; the `DROP TABLE
+    instrument_telemetry_history` Prisma emitted was stripped as usual; drift
+    guard PASS.
+  - **`loadInactivityConfig` reads `enabled === true`, NOT `!== false`.** That is
+    the opposite of `loadLimitConfig` and is the single most important line in the
+    feature: an absent or half-seeded row must mean OFF. Failing open raises one
+    alarm per silent instrument — 101 here — each with a notification and a
+    webhook fire. `graceMinutes` is clamped on read, so a hand-edited row cannot
+    carry a negative (raise on everything) or a NaN (raise on nothing, silently).
+  - **The clear signal is PRESENCE, inverting `limit-decide.ts`'s rule** that a
+    missing reading HOLDS an alarm open. Absence IS this alarm, so presence is the
+    proof of recovery. `inactivity-decide.ts` is a separate pure module and both
+    files carry the asymmetry in their comments; a pass copied from the limit
+    pass's shape strands every inactivity alarm ACTIVE for good.
+  - The pass does NOT recompute `reporting` — it reads `row.reporting` from
+    `buildTelemetryOverview()`, the ONE definition, so an alarm and the dashboard
+    can never disagree about whether an instrument is offline. It queries
+    `lastSeenAt`/`expectedIntervalSec` separately, only for the grace and the
+    frozen snapshot.
+  - The snapshot freezes `activeWindowMinutes` because that config is administered
+    LIVE — same reasoning as freezing a limit onto an instrument-limit alarm.
+  - `AlarmEvaluationResult` gains `inactivityEvaluated`, separate from
+    `instrumentsEvaluated`: the two passes are independently switchable and one
+    number could not say which of them ran.
+  - Pinned by `modules/alarms/__tests__/inactivity-decide.test.ts` (17 unit) and
+    `src/e2e/alarm-inactivity.e2e.test.ts` (14 e2e, driving the REAL pass).
+    **That e2e file PINS `instrument-activity`** — its first version passed every
+    "does not raise" case for the wrong reason, because the test database carries
+    the 1440-minute default window while the live install carries 3, so a
+    120-minute silence still counted as reporting.
 - **2026-08-31 — the alarm list filters, counts, sorts and pages SERVER-side.**
   **No count moved** (re-derived that day: 36 models / 13 enums, 42 permissions,
   48 reauth actions, 24 modules, 25 config defs) and there is **no migration**:
@@ -197,7 +238,7 @@ node apps/api/dist/app.js
   - Pinned by `src/modules/alarms/__tests__/list-query.test.ts` (28 unit tests,
     mutation-checked) and `src/e2e/alarm-list-filters.e2e.test.ts` (17 e2e,
     every request scoped to a fixture Block so the numbers are exact).
-- Config definitions: `apps/api/src/modules/config/defs/` (**25 files** — verified by `ls` 2026-08-17; `alarm-limits.def` added 2026-08-17 (which attribute keys carry each temperature/humidity limit, the limit-alarm severity, the master switch, and the four alarm status wordings). `telemetry-slots.def` added 2026-08-11. Earlier note: the previous "36" was inherited from DigiLog and was never true here. `instrument-attributes.def` added 2026-08-07)
+- Config definitions: `apps/api/src/modules/config/defs/` (**26 files** — `ls` 2026-08-31; `inactivity-alarms.def` added that day for the inactivity-alarm source, rendered by the dynamic config page so it adds no `routes/config/*.tsx`. Earlier **25 files** — verified by `ls` 2026-08-17; `alarm-limits.def` added 2026-08-17 (which attribute keys carry each temperature/humidity limit, the limit-alarm severity, the master switch, and the four alarm status wordings). `telemetry-slots.def` added 2026-08-11. Earlier note: the previous "36" was inherited from DigiLog and was never true here. `instrument-attributes.def` added 2026-08-07)
 - Route modules: `apps/api/src/modules/` (**24 modules**, verified `ls | wc -l` 2026-08-27 — `alarm-webhooks` added 2026-08-27; earlier 23, verified `ls` 2026-08-14 — `functional-locations` + `alarms` added 2026-08-13. **A new module must be registered in BOTH `app.ts` AND `src/e2e/test-helper.ts`** — the helper builds its own app, so a module missing from it 404s in every e2e test. Earlier: 21 modules verified `ls` 2026-08-11 — `floorplans` added 2026-08-11. The previous "33" was already stale and the shortfall has NOT been individually reconciled; treat the removal notes below as history, not an inventory — `org-admin`/`tenant-admin` deleted in MT removal; `rule-chain` deleted 2026-05-17; `qr-code` deleted 2026-06-06; **`data-ingestion`, `uns`, `connectivity`, `queries` deleted 2026-06-11..2026-06-17** with the ingestion tear-out; **`reports`, `report-templates` deleted 2026-07-04** with the reports generate/sign tear-out (`report-reviews` survives); `debug-traces` re-added 2026-06-12 reading from `audit_trail` instead of dropped `ts_pipeline_traces`)
 - Config routes: monolith split into `apps/api/src/modules/config/static-routes/<surface>.routes.ts` per tab; top-level `routes.ts` is just a registration loop (~170 LOC, was 1003)
 

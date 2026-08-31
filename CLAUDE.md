@@ -171,7 +171,8 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
 - **Audit registries:** **97** audit actions, **91** audit templates in **7**
   categories. 93 → 97 / 87 → 91 (2026-08-27): create / update / delete / test
   for alarm webhook targets; categories unchanged.
-- **Config:** **25** definitions (`config/defs/*.def.ts`) + auto-discovery,
+- **Config:** **26** definitions (`config/defs/*.def.ts`) + auto-discovery (25 → 26 on
+  2026-08-31: `inactivity-alarms.def.ts`),
   **24** pages under `apps/web/src/routes/config/` (25 -> 24 on 2026-08-28:
   `dashboard-cards.tsx` deleted with the panel-assignment work; that surface is
   now a tab inside `role-access.tsx`). 24 → 25 (2026-08-27):
@@ -303,6 +304,38 @@ POST   /api/alarm-webhooks/:id/test             — test fire (reauth, audited �
 GET    /api/alarm-webhooks/:id/deliveries?status= — paged §11 delivery log, filtered server-side
 ```
 
+- **Inactivity alarms — a THIRD alarm source (2026-08-31).** `AlarmSource` gains
+  `INACTIVITY` (a new enum VALUE — models stay 36, enums stay 13). Raised
+  automatically when an instrument stops reporting, cleared when it starts again,
+  with NO rule row: `AlarmRule` can already do `metric: 'OFFLINE'`, but a
+  location-targeted rule cannot reach an instrument with no functional location,
+  and there is one. Config def `inactivity-alarms` (25 → 26 defs), rendered by the
+  dynamic config page so the page count stays 24.
+  - **It ships OFF, unlike `alarm-limits`.** `loadInactivityConfig` reads
+    `enabled === true` where `loadLimitConfig` reads `enabled !== false`.
+    Deliberate and not a style difference: this one failing OPEN raises one alarm
+    per silent instrument, which on this installation is 101 in a single pass,
+    each with a notification and a webhook fire.
+  - **The clear signal is PRESENCE — the INVERSE of the instrument-limit rule**,
+    where a missing reading HOLDS an alarm open because absence cannot prove
+    recovery. Here absence IS the alarm. A pass copied from the limit pass's shape
+    strands every inactivity alarm ACTIVE for good. `inactivity-decide.ts` is
+    separate for exactly this reason.
+  - The effective raise threshold is the **LATER** of `graceMinutes` and
+    `instrument-activity`'s `activeWindowMinutes` — the pass needs both
+    conditions, so a grace shorter than the window changes nothing.
+  - Never raises for an instrument that has NEVER reported (it was not active) or
+    a decommissioned one; an alarm already open on a decommissioned instrument
+    still clears if it reports.
+  - Two hand-authored migrations, SEPARATE because Postgres refuses to use a new
+    enum value in the transaction that added it. The second adds
+    `alarms_active_inactivity_unique`, a partial unique index Prisma cannot
+    express and will propose dropping — do not accept that.
+- **Boolean config settings render as an on/off TOGGLE, not a checkbox
+  (2026-08-31, operator).** `components/ui/toggle.tsx`, swapped in at
+  `dynamic-config.tsx`'s boolean branch, so it changes EVERY dynamic config page
+  — one control style everywhere. `Checkbox` stays for selecting items from a
+  list, which the same page still does for dynamic option sets.
 - **Alarms page: the counts were window-limited, and are not any more
   (2026-08-31).** The page filtered and counted IN THE BROWSER over
   `?limit=500`, so the four state boxes described the newest 500 alarms while

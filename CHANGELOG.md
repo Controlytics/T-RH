@@ -1,5 +1,108 @@
 # Changelog
 
+## [Unreleased] - Inactivity alarms: raised when an instrument goes quiet, cleared when it returns (2026-08-31)
+
+Operator request. A THIRD alarm source beside `RULE` and `INSTRUMENT_LIMIT`.
+
+**Why this is not four alarm rules.** `AlarmRule` already supports
+`metric: 'OFFLINE'` and the evaluator already handles it — it has simply never
+been switched on (the database holds ZERO alarm rules). Four rules, one per
+Block, would have worked with no code. They were not chosen because a
+location-targeted rule cannot reach an instrument with no functional location —
+there is one today, and every freshly commissioned device is one until somebody
+assigns it AND remembers the rule exists. This source covers every instrument
+with nothing to author.
+
+**Counts.** Config defs **25 → 26**. Shared type files **18 → 21** — one is this
+feature (`inactivity-alarms.ts`); the other two (`dashboard-layout.ts`,
+`panel-style.ts`, `telemetry-period.ts` net) were already stale in
+`packages/shared/CLAUDE.md` and are corrected here, not caused here. Everything
+else UNMOVED and re-derived: 36 models, 13 enums, 42 permissions, 48 reauth
+actions, 24 API modules, 24 config pages, 51 routes, 20 hooks, 19 lib modules.
+`AlarmSource` gains a VALUE, which is not a new enum.
+
+**Two hand-authored migrations**, `20260831120000_inactivity_alarms` (the enum
+value) and `20260831120001_inactivity_unique_active` (a partial unique index,
+one ACTIVE inactivity alarm per instrument, mirroring
+`alarms_active_instrument_limit_unique`). SEPARATE on purpose: Postgres refuses
+to use a newly added enum value in the transaction that added it. Both applied to
+`compliance_core_db` and `compliance_core_db_test`; the `DROP TABLE
+instrument_telemetry_history` Prisma emitted was stripped, as in the previous
+fifteen; drift guard **PASS**.
+
+**It ships OFF, and that is the opposite of `alarm-limits`.** `loadLimitConfig`
+reads `enabled !== false`, so an absent row means ON. `loadInactivityConfig`
+reads `enabled === true`. The failure modes are not symmetrical: a limit feature
+failing closed stops watching for excursions, while this one failing OPEN raises
+one alarm per silent instrument — 101 on this installation right now, each with a
+notification, a webhook fire and its own e-signature to acknowledge.
+
+**The clear signal is PRESENCE, and this inverts the instrument-limit rule.**
+There, a missing reading HOLDS an alarm open, because absence cannot prove
+recovery. Here absence IS the alarm, so presence is the proof. A pass written by
+copying the limit pass's shape inherits its `continue`-on-null and strands every
+inactivity alarm ACTIVE for good — which looks like working software until
+somebody asks why nothing clears. `inactivity-decide.ts` is a separate module
+with the asymmetry written into both, and five e2e cases fail if it is lost.
+
+Also decided and tested:
+- **A grace period, default 15 minutes**, because `activeWindowMinutes` is 3 here
+  and no instrument declares an interval, so a 30-second blip crosses it. The
+  grace delays RAISING only — a returning instrument clears on the next pass.
+  **The effective threshold is the LATER of the grace and the activity window**,
+  since the pass needs both conditions; setting a grace shorter than the window
+  changes nothing. Said so on the config page.
+- **An instrument that has NEVER reported does not raise.** It has not gone
+  inactive; it was never active, and no telemetry is coming to clear it.
+  Decommissioned instruments do not raise either — but an alarm already open on
+  one still CLEARS if it starts reporting, because retiring an instrument must
+  not strand an unanswered outage.
+- **Severity defaults to MAJOR, not CRITICAL.** Losing sight of an instrument
+  says the record has a hole in it; an instrument-limit alarm says the product
+  went out of specification. Ranking them the same makes the ranking useless.
+- `graceMinutes` is **clamped** on read, not trusted: a row edited by hand could
+  otherwise carry a negative (raise on everything) or a NaN (compares false
+  against every threshold and raises on nothing, silently).
+- The snapshot freezes `graceMinutes`, the `activeWindowMinutes` in force,
+  `expectedIntervalSec` and `lastSeenAt`. The window is administered live, so an
+  inspector asking why an alarm fired must get the threshold as it stood.
+
+**On the Alarms page:** Type reads `Inactivity` (checked BEFORE the limit branch,
+or it falls through to "offline out of limit", which is not a limit); Value is
+"—" because it was raised by the absence of a reading; Limit reads `quiet > 15m`
+from the frozen snapshot. The `OFFLINE` type filter is relabelled `Inactivity`
+and still matches on `metric`, so ONE token catches both these and any
+rule-based offline alarm — two overlapping tokens would make an operator choose
+between two spellings of one question.
+
+**Boolean config settings are now an on/off TOGGLE, not a checkbox** (operator).
+New `components/ui/toggle.tsx`, swapped in at `dynamic-config.tsx`'s boolean
+branch — which changes EVERY dynamic config page, deliberately: one control
+style everywhere is the point. A checkbox states an intention a Save button
+commits; a toggle reads as something already done, which is the right reading for
+"raise alarms when an instrument stops reporting". `Checkbox` stays where it
+belongs — the multi-select option list on the same page still uses it. Built on a
+real `<input type="checkbox">` with `role="switch"`, so keyboard and
+screen-reader behaviour is the platform's rather than re-implemented.
+
+**One test-design bug found and fixed while writing this.** The first e2e file
+passed every "does not raise" case for the wrong reason: the TEST database
+carries the default 1440-minute activity window, not the live 3, so an instrument
+silent for 120 minutes still counted as REPORTING. It now pins
+`instrument-activity` and restores it, the same discipline
+`instrument-scope-selection.test.ts` applies to `telemetry-slots`. Worth naming
+because a green suite was hiding it.
+
+Verified: api `tsc` clean, web `tsc` clean, `vite build` clean, shared rebuilt.
+API **210 tests / 17 files** over the alarm modules, workers and every alarm e2e,
+including 17 new unit and 14 new e2e tests. Web **898 tests / 64 files**.
+`verify-migrations.ps1`: **PASS — migrations reproduce the reference schema
+exactly**. Mutation-checked: replacing the clear branch with the limit pass's
+"absence holds it open" failed 8 tests across both files.
+
+**NOT visually verified** — the operator's session was live throughout, so the
+new config page and the toggle have not been seen rendered.
+
 ## [Unreleased] - Alarms: the Type column loses its metric glyph (2026-08-31)
 
 Operator. **No count moved.** File:

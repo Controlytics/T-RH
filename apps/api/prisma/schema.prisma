@@ -758,6 +758,14 @@ model Alarm {
   /// unreachable by every code path and would stay ACTIVE for good. PARTIAL because
   /// many CLEARED rows for one bound are legitimate, one per excursion.
   /// `prisma migrate diff` proposes dropping it; do not accept that.
+  ///
+  /// SECOND DB-MANAGED PARTIAL UNIQUE INDEX, same category and same warning:
+  /// `alarms_active_inactivity_unique` on (instrument_id)
+  /// WHERE state = 'ACTIVE' AND source = 'INACTIVITY' (migration
+  /// 20260831120000_inactivity_alarms). One open inactivity alarm per instrument —
+  /// the pass reads its open set once and cannot see a row another process
+  /// inserts mid-cycle. PARTIAL because many CLEARED rows for one instrument are
+  /// legitimate, one per outage.
   @@map("alarms")
 }
 
@@ -882,6 +890,12 @@ enum AlarmState {
 enum AlarmSource {
   RULE
   INSTRUMENT_LIMIT
+  /// Raised automatically when an instrument stops reporting, cleared when it
+  /// starts again. No rule row: like INSTRUMENT_LIMIT it is derived from the
+  /// instrument itself, so every instrument is covered without anyone authoring
+  /// anything — including one with no functional location, which a
+  /// location-targeted OFFLINE rule could never reach.
+  INACTIVITY
 }
 
 enum AlarmLimitKind {

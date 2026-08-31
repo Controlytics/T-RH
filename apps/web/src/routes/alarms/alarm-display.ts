@@ -7,7 +7,7 @@
  * the UI must not let "Cleared" read as "dealt with".
  */
 
-import { ALARM_STATUS_TEXT_DEFAULT, formatDecimals, TELEMETRY_DECIMALS_FALLBACK } from '@digilog/shared';
+import { ALARM_STATUS_TEXT_DEFAULT, formatDecimals, TELEMETRY_DECIMALS_FALLBACK, INACTIVITY_TYPE_LABEL, inactivityLimitText } from '@digilog/shared';
 
 export interface AlarmRow {
   id: string;
@@ -34,6 +34,9 @@ export interface AlarmRow {
     /** The instrument's display precision AT RAISE TIME. Null on rows raised before
      *  the field existed. */
     decimals?: number | null;
+    /** Present only on an INACTIVITY alarm — the grace it was raised against. */
+    kind?: string;
+    graceMinutes?: number;
   } | null;
 }
 
@@ -189,8 +192,14 @@ export function statusText(
 
 const METRIC_WORD: Record<string, string> = { TEMPERATURE: 'Temperature', HUMIDITY: 'Humidity' };
 
-/** `High Temperature` for a limit alarm; the rule's name for a rule alarm. */
+/** `Inactivity` for an inactivity alarm; `High Temperature` for a limit alarm;
+ *  the rule's name for a rule alarm. */
 export function alarmTypeText(a: AlarmRow): string {
+  // Checked FIRST. An inactivity alarm's metric is OFFLINE and it has no
+  // limitKind, so it would otherwise fall through to conditionText() and render
+  // as "offline out of limit" — which is not a limit, and is not what the
+  // operator asked this column to say.
+  if (a.source === 'INACTIVITY') return INACTIVITY_TYPE_LABEL;
   if (a.source === 'INSTRUMENT_LIMIT' && a.limitKind) {
     const kind = a.limitKind === 'HIGH' ? 'High' : 'Low';
     return `${kind} ${METRIC_WORD[a.metric] ?? a.metric}`;
@@ -210,6 +219,14 @@ export function alarmTypeText(a: AlarmRow): string {
  * `thresholdLow`/`thresholdHigh` instead. Both must render a bound here.
  */
 export function limitText(a: AlarmRow): string {
+  // An inactivity alarm has no numeric bound — the threshold it breached is a
+  // DURATION of silence. From the frozen snapshot, so lengthening the grace today
+  // does not rewrite what a past outage says it breached.
+  if (a.source === 'INACTIVITY') {
+    const g = a.ruleSnapshot?.graceMinutes;
+    return typeof g === 'number' && Number.isFinite(g) ? inactivityLimitText(g) : '—';
+  }
+
   // The bound is quoted at the same precision as the reading it was compared
   // against — "24.0 breached > 24" reads as a bug in the comparison.
   const dp = alarmDecimals(a);
@@ -393,7 +410,10 @@ export const ALARM_TYPE_OPTIONS: readonly { value: string; label: string }[] = [
   { value: 'TEMP_LOW', label: 'Low Temperature' },
   { value: 'RH_HIGH', label: 'High Humidity' },
   { value: 'RH_LOW', label: 'Low Humidity' },
-  { value: 'OFFLINE', label: 'Offline' },
+  // ONE token, matching on `metric: 'OFFLINE'`, so it catches both the automatic
+  // inactivity alarms and any rule-based offline alarm. Two overlapping tokens
+  // would make an operator choose between two spellings of the same question.
+  { value: 'OFFLINE', label: 'Inactivity' },
   { value: 'RULE', label: 'Rule alarms' },
 ];
 

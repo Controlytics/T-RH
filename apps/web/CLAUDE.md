@@ -130,6 +130,13 @@ again the moment this installation passes one page of alarms.
   hundred.
 - The date range is sent as an INSTANT (`localInputToIso`): `datetime-local` gives
   zoneless text, and sending it raw would let the API resolve it in its own zone.
+- **Inactivity alarms** (source `INACTIVITY`, 2026-08-31) render as Type
+  `Inactivity`, Value `—` (raised by the absence of a reading) and Limit
+  `quiet > 15m` from the frozen snapshot. `alarmTypeText()` checks the source
+  FIRST — their metric is OFFLINE with no limitKind, so they would otherwise fall
+  through to `conditionText()` and read "offline out of limit", which is not a
+  limit. The `OFFLINE` filter token is labelled `Inactivity` and still matches on
+  METRIC, so one token catches both these and any rule-based offline alarm.
 - **The Location column shows the FUNCTIONAL location alone.** The drawn room was
   removed 2026-08-31: it is geometry, not a grouping, and every `floorplan_rooms.code`
   in this installation is its instrument's own code with `label` blank, so the line
@@ -166,6 +173,23 @@ mount as `type="text"` and switch to `password` a tick later (the one that
 actually stops the fill); `autoComplete="one-time-code"`; a `name` generated per
 MOUNT; `secureField`. Pinned by `components/ui/__tests__/signature-password-input.test.tsx`,
 which asserts all four separately and has been mutation-checked.
+
+## Boolean config settings are TOGGLES, not checkboxes (2026-08-31)
+
+`dynamic-config.tsx` renders `type: 'boolean'` with `components/ui/toggle.tsx`.
+That covers EVERY dynamic config page — one control style everywhere, which is
+the point rather than a side effect.
+
+The distinction is about when a change takes effect: a **checkbox** states an
+intention a Save button later commits, a **toggle** reads as something you have
+just done. Use `Toggle` for a setting that turns a behaviour on or off; keep
+`Checkbox` for selecting items from a list or a set of options submitted
+together — which the same page still does for dynamic option sets.
+
+`Toggle` is built on a real `<input type="checkbox">` with `role="switch"`, drawn
+over with `peer-*` styles, for the same reason `Checkbox` is: keyboard operation,
+form participation and screen-reader semantics come from the platform rather than
+from a re-implementation that always misses one of them.
 
 ## Design system (Stage 1 `7ed8329`, Stage 2 2026-08-28)
 

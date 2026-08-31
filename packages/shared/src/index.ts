@@ -113,6 +113,14 @@ export {
 export type { LimitBound } from './types/alarm-limits.js';
 
 export {
+  INACTIVITY_ALARMS_DEFAULT, INACTIVITY_GRACE_MIN, INACTIVITY_GRACE_MAX,
+  INACTIVITY_TYPE_LABEL, describeInactivity, inactivityLimitText,
+} from './types/inactivity-alarms.js';
+export type {
+  InactivityAlarmConfig, InactivitySeverity, InactivitySnapshot,
+} from './types/inactivity-alarms.js';
+
+export {
   ATTRIBUTE_ACCESS_MODES,
   ATTRIBUTE_REMARK_MIN,
   ATTRIBUTE_REMARK_MAX,

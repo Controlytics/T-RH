@@ -390,3 +390,56 @@ describe('localInputToIso', () => {
     expect(localInputToIso('not a date')).toBeUndefined();
   });
 });
+
+
+describe('inactivity alarms', () => {
+  const inactivity = (over: Partial<AlarmRow> = {}) => alarm({
+    source: 'INACTIVITY',
+    metric: 'OFFLINE',
+    limitKind: null,
+    triggeredValue: null,
+    clearedValue: null,
+    ruleSnapshot: { kind: 'INACTIVITY', graceMinutes: 15, description: 'no telemetry for more than 15 minutes' },
+    ...over,
+  });
+
+  it('is called Inactivity in the Type column', () => {
+    // Checked before the limit branch. Its metric is OFFLINE with no limitKind,
+    // so it would otherwise fall to conditionText() and read "offline out of
+    // limit" — which is not a limit and not what was asked for.
+    expect(alarmTypeText(inactivity())).toBe('Inactivity');
+  });
+
+  it('states the silence it breached, not a temperature bound', () => {
+    expect(limitText(inactivity())).toBe('quiet > 15m');
+  });
+
+  it('reads the grace from the FROZEN snapshot', () => {
+    // Lengthening the grace today must not rewrite what a past outage says it
+    // breached — the same rule as an instrument limit.
+    expect(limitText(inactivity({ ruleSnapshot: { kind: 'INACTIVITY', graceMinutes: 60 } }))).toBe('quiet > 60m');
+  });
+
+  it('says nothing rather than inventing a bound when the snapshot has no grace', () => {
+    expect(limitText(inactivity({ ruleSnapshot: { kind: 'INACTIVITY' } }))).toBe('—');
+  });
+
+  it('shows no reading, because it was raised by the absence of one', () => {
+    expect(triggeredText(inactivity())).toBe('—');
+  });
+
+  it('takes the same four state tones as every other alarm', () => {
+    // The status axis is independent of the source: an outage that ended without
+    // a signature is the same unfinished paperwork as an excursion that did.
+    expect(quadrantTone(inactivity({ state: 'CLEARED', acknowledgedAt: null }))).toBe('warn');
+    expect(quadrantTone(inactivity({ state: 'ACTIVE', acknowledgedAt: null }))).toBe('danger');
+  });
+
+  it('is reachable from the type filter under one token, with both sources', () => {
+    // `OFFLINE` matches on metric, so it catches the automatic inactivity alarms
+    // AND any rule-based offline alarm. Two tokens would make an operator choose
+    // between two spellings of one question.
+    const offline = ALARM_TYPE_OPTIONS.find((o) => o.value === 'OFFLINE')!;
+    expect(offline.label).toBe('Inactivity');
+  });
+});

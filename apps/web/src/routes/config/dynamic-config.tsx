@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Toggle } from '@/components/ui/toggle';
 import { FormField, FormSection, FormActions } from '@/components/ui/form-field';
 import { PageHeader } from '@/components/ui/page-header';
 import { EmptyState, ErrorState } from '@/components/ui/empty-state';
@@ -354,8 +355,15 @@ export function DynamicConfigPage() {
                     group={setting.type === 'multiselect'}
                   >
 
+                  {/* A TOGGLE, not a checkbox (operator, 2026-08-31). Every
+                      boolean on these pages turns a behaviour on or off — a
+                      checkbox states an intention that a Save button commits,
+                      which is the wrong reading for "raise alarms when an
+                      instrument stops reporting". `Checkbox` stays for selecting
+                      items from a list. This changes EVERY dynamic config page,
+                      deliberately: one control style everywhere is the point. */}
                   {setting.type === 'boolean' ? (
-                    <Checkbox
+                    <Toggle
                       id={`cfg-${setting.key}`}
                       checked={values[setting.key] ?? false}
                       onChange={e => handleChange(setting.key, e.target.checked)}

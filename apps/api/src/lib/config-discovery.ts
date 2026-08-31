@@ -39,6 +39,7 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
     import('../modules/config/defs/export-options.def.js'),
     import('../modules/config/defs/report-page-titles.def.js'),
     import('../modules/config/defs/alarm-limits.def.js'),
+    import('../modules/config/defs/inactivity-alarms.def.js'),
     // ─── Add new module configs below this line ───
   ]);
 
