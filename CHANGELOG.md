@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased] - Alarms: the Type column loses its metric glyph (2026-08-31)
+
+Operator. **No count moved.** File:
+`apps/web/src/routes/alarms/index.tsx` (`MetricGlyph` deleted with it).
+
+The thermometer / droplet on every Type cell repeated the word beside it —
+"High Temperature" next to a thermometer says the same thing twice — and bought
+a column of width for nothing on a table that had already pushed its only action
+off the screen.
+
+**The status pill keeps ITS dot.** That is not the same thing: the pill's dot is
+what carries meaning alongside colour, and this app's rule is that status colour
+never travels alone (`components/ui/status-badge.tsx`). The Type cell was a word
+with no colour, so the glyph was decoration.
+
+Verified: web 891 tests / 64 files, `tsc --noEmit` clean, `vite build` clean.
+
 ## [Unreleased] - Alarms: a browser-fillable e-signature, and the Acknowledge button off-screen (2026-08-31)
 
 Operator, reporting three things. Two of them were one bug.

@@ -268,13 +268,12 @@ export default function AlarmsPage() {
                       {instrumentLabel(a)}
                     </td>
                     {/* Wraps to two lines, as the mockup draws it — "High
-                        Temperature" on one line is a wide column for two words. */}
-                    <td className="px-4 py-3">
-                      <span className="flex items-start gap-2 text-slate-700">
-                        <MetricGlyph metric={a.metric} />
-                        <span className="min-w-0">{alarmTypeText(a)}</span>
-                      </span>
-                    </td>
+                        Temperature" on one line is a wide column for two words.
+                        No metric glyph: it repeated the word beside it on every
+                        row and bought a column of width for nothing (operator,
+                        2026-08-31). The status pill keeps ITS dot — that one is
+                        carrying colour, which must never travel alone. */}
+                    <td className="px-4 py-3 text-slate-700">{alarmTypeText(a)}</td>
                     <td className="px-4 py-3 text-slate-700">{locationText(a)}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-slate-600">
                       <span className="block">{formatDate(a.raisedAt)}</span>
@@ -383,17 +382,6 @@ const VALUE_INK: Record<'high' | 'low' | 'none', string> = {
   low: 'text-sky-600',
   none: 'text-slate-900',
 };
-
-function MetricGlyph({ metric }: { metric: string }) {
-  const path = metric === 'HUMIDITY'
-    ? 'M12 21a6.75 6.75 0 006.75-6.75c0-3.75-4.5-9.75-6.75-11.25C9.75 4.5 5.25 10.5 5.25 14.25A6.75 6.75 0 0012 21z'
-    : 'M9.75 3.75a2.25 2.25 0 014.5 0v9.026a4.5 4.5 0 11-4.5 0V3.75z';
-  return (
-    <svg className="h-4 w-4 shrink-0 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={path} />
-    </svg>
-  );
-}
 
 /**
  * The bracketed legend under a column name rather than beside it (operator,
