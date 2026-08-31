@@ -18,7 +18,7 @@ curl -sk https://localhost:3001/docs/json
 | GET | `/api/config/action-reauth/check` | Check if action requires re-authentication |
 | GET | `/api/config/action-reauth/my-actions` | Get re-auth actions for current user |
 | GET | `/api/instruments/telemetry-aggregate` | Min/mean/max across the instruments in a selection, bucketed. ALL VALUES DERIVED; limit bounds returned only when every instrument in the selection agrees |
-| GET | `/api/alarms?functionalLocationId=` | Alarm list narrowed to one functional location (a Block covering its Areas), ANDed with the caller's visibility scope |
+| GET | `/api/alarms?search=&from=&to=&type=&status=&severity=&functionalLocationId=&page=&pageSize=&sort=&dir=` | Alarm list. Filters, counts, sorts and pages SERVER-side (2026-08-31); returns `data`, `total` and `counts` (the four state counts, from one `groupBy`). `total` is DERIVED by summing `counts`, and `status` is excluded from the count query alone so choosing a state box does not zero the others. Every filter, the counts included, is ANDed INSIDE the caller's visibility scope — a location filter narrows within it and cannot escape it. A bad date or reversed range is a 400 by field; an unknown `sort` falls back. Legacy `state`/`acknowledged`/`instrumentId`/`limit` still accepted, `limit` being an alias for `pageSize` (ceiling 500). Filter algebra: `modules/alarms/list-query.ts` |
 | PUT · DELETE | `/api/config/my-dashboard-layout` | The caller's own dashboard arrangement. Authenticated only, NOT audited — a preference, not governance |
 | PUT | `/api/roles/dashboard-layout/role/:name` | A role's DEFAULT arrangement (ROLE_MANAGE + reauth, audited) |
 | GET · PUT | `/api/config/audit-templates` | Get audit text templates |

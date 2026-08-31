@@ -13,6 +13,11 @@ export interface AlarmRow {
   id: string;
   instrumentCode: string | null;
   instrumentId: string;
+  instrumentName?: string | null;
+  /** The instrument's FUNCTIONAL location — the authoritative grouping. */
+  locationName?: string | null;
+  /** The drawn room, when the instrument is placed on a floorplan. */
+  roomLabel?: string | null;
   metric: string;
   triggeredValue: number | null;
   severity: string;
@@ -50,9 +55,6 @@ export function tabFor(a: Pick<AlarmRow, 'state'>): AlarmTab {
   return a.state === 'ACTIVE' ? 'active' : 'history';
 }
 
-export function filterByTab(rows: AlarmRow[], tab: AlarmTab, unacknowledgedOnly = false): AlarmRow[] {
-  return rows.filter((a) => tabFor(a) === tab && (!unacknowledgedOnly || needsAcknowledgement(a)));
-}
 
 /**
  * Alarm severity as one of the product's five status tones.
@@ -262,19 +264,19 @@ export function quadrantFor(a: Pick<AlarmRow, 'state' | 'acknowledgedAt'>): Alar
   return acked ? 'cleared-ack' : 'cleared-unack';
 }
 
-/** `null` means no box is chosen, which shows EVERYTHING — not nothing. */
-export function filterByQuadrant(rows: AlarmRow[], q: AlarmQuadrant | null): AlarmRow[] {
-  if (!q) return rows;
-  return rows.filter((a) => quadrantFor(a) === q);
-}
-
-export function quadrantCounts(rows: AlarmRow[]): Record<AlarmQuadrant, number> {
-  const out: Record<AlarmQuadrant, number> = {
-    'active-ack': 0, 'active-unack': 0, 'cleared-ack': 0, 'cleared-unack': 0,
-  };
-  for (const a of rows) out[quadrantFor(a)] += 1;
-  return out;
-}
+/**
+ * **There is deliberately no `filterByQuadrant()` or `quadrantCounts()` here.**
+ *
+ * Both existed until 2026-08-31 and both filtered and counted the rows already in
+ * the browser — which the list endpoint capped at 500. The four count boxes
+ * therefore described the newest 500 alarms while reading as plant-wide totals,
+ * and a filter could never reach an alarm outside that window. `status`, `search`,
+ * `from`/`to`, `type`, sorting and paging are all query parameters now
+ * (`apps/api/src/modules/alarms/list-query.ts`), and the counts come back in the
+ * same response as the rows, so a box and the table under it answer the same
+ * question. Do not reintroduce a client-side count; it will be wrong again the
+ * moment this installation passes one page of alarms.
+ */
 
 /**
  * How long the alarm lasted: raised -> cleared, as `HH:MM` with a unit letter.
@@ -308,4 +310,110 @@ export function alarmDurationText(a: Pick<AlarmRow, 'raisedAt' | 'clearedAt'>): 
   const minutes = totalMinutes % 60;
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${pad(hours)}:${pad(minutes)}${hours >= 1 ? 'H' : 'M'}`;
+}
+
+/**
+ * Where the alarm happened.
+ *
+ * The FUNCTIONAL location is the authoritative logical grouping (see the root
+ * CLAUDE.md note on the three grouping concepts); the drawn room is geometry and
+ * is shown underneath it when the two differ. When the room's name would only
+ * repeat the location or the instrument's own code — which is what almost every
+ * row in this installation looks like — it is dropped rather than rendered as a
+ * second line saying the same thing twice.
+ */
+export function locationText(a: AlarmRow): { location: string; room: string | null } {
+  const location = a.locationName?.trim() || 'Unassigned';
+  const room = a.roomLabel?.trim() ?? '';
+  const redundant = !room || room === location || room === a.instrumentCode;
+  return { location, room: redundant ? null : room };
+}
+
+/**
+ * The unit this alarm's numbers are in. Rendered ON the value, not only in the
+ * column head, because temperature and humidity rows share one column and the
+ * head can only name both.
+ */
+export function alarmUnit(a: Pick<AlarmRow, 'metric'>): string {
+  if (a.metric === 'TEMPERATURE') return '°C';
+  if (a.metric === 'HUMIDITY') return '%RH';
+  return '';
+}
+
+/**
+ * Which way the reading broke.
+ *
+ * Colours the value alone — warm for a high breach, cold for a low one — so the
+ * direction is readable without parsing the Limit column. It comes from
+ * `limitKind` (or the snapshot's comparison for a rule alarm), NEVER from
+ * comparing the value to the limit here: re-deriving a decision the server
+ * already made is how the two drift apart.
+ */
+export type BreachDirection = 'high' | 'low' | 'none';
+
+export function breachDirection(a: AlarmRow): BreachDirection {
+  const kind = a.limitKind ?? a.ruleSnapshot?.limitKind;
+  if (kind === 'HIGH') return 'high';
+  if (kind === 'LOW') return 'low';
+  const cmp = a.ruleSnapshot?.comparison;
+  if (cmp === 'ABOVE') return 'high';
+  if (cmp === 'BELOW') return 'low';
+  return 'none';
+}
+
+/**
+ * The tone each of the four states is painted in, everywhere it appears — the
+ * count box, the row's edge marker and the status pill all read this, so a state
+ * cannot be one colour at the top of the page and another in the table.
+ *
+ * **Cleared-Unacknowledged is AMBER, not a neutral or informational colour.** It
+ * is the overnight excursion that ended before anyone saw it, and it is the one
+ * row on this page that most needs not to look finished. Active-Acknowledged
+ * takes the calm colour instead: the condition is live, but somebody has signed
+ * for it and is working it.
+ */
+export type QuadrantTone = 'danger' | 'info' | 'warn' | 'ok';
+
+export const QUADRANT_TONE: Record<AlarmQuadrant, QuadrantTone> = {
+  'active-unack': 'danger',
+  'active-ack': 'info',
+  'cleared-unack': 'warn',
+  'cleared-ack': 'ok',
+};
+
+export function quadrantTone(a: Pick<AlarmRow, 'state' | 'acknowledgedAt'>): QuadrantTone {
+  return QUADRANT_TONE[quadrantFor(a)];
+}
+
+/**
+ * The Type dropdown's vocabulary. These tokens are the API's — `list-query.ts`
+ * maps each one onto the enum columns that define it — so the filter cannot
+ * offer a type the server does not recognise.
+ */
+export const ALARM_TYPE_OPTIONS: readonly { value: string; label: string }[] = [
+  { value: 'TEMP_HIGH', label: 'High Temperature' },
+  { value: 'TEMP_LOW', label: 'Low Temperature' },
+  { value: 'RH_HIGH', label: 'High Humidity' },
+  { value: 'RH_LOW', label: 'Low Humidity' },
+  { value: 'OFFLINE', label: 'Offline' },
+  { value: 'RULE', label: 'Rule alarms' },
+];
+
+/** Columns the server can sort on, paired with what the header says. */
+export const ALARM_SORT_KEYS = ['raisedAt', 'clearedAt', 'instrumentCode', 'type', 'status'] as const;
+export type AlarmSortKey = (typeof ALARM_SORT_KEYS)[number];
+
+/**
+ * A `datetime-local` value as an instant.
+ *
+ * The input gives back wall-clock text with no zone (`2026-08-27T00:00`). Sending
+ * that raw would leave the server to guess a timezone, and it would guess its
+ * own — so a range typed at a plant in one zone would select a different window
+ * once the API moved to a server in another. Resolved here, where the operator's
+ * clock is.
+ */
+export function localInputToIso(value: string): string | undefined {
+  if (!value) return undefined;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
 }

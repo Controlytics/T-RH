@@ -1,5 +1,129 @@
 # Changelog
 
+## [Unreleased] - Alarms page rebuilt: server-side search, range, sort and paging (2026-08-31)
+
+Operator supplied `Alarms.png` and asked for the page to look like it.
+**No count moved** — re-derived 2026-08-31: 36 models / 13 enums, 42 permissions,
+48 reauth actions, 24 API modules, 25 config defs / 24 config pages, 51 routes,
+20 hooks / 19 lib modules. No migration.
+
+Files: new `apps/api/src/modules/alarms/list-query.ts` (+ tests) and
+`apps/api/src/e2e/alarm-list-filters.e2e.test.ts`; new
+`apps/web/src/routes/alarms/{alarm-stat-cards,alarm-filters}.tsx`;
+rewritten `apps/web/src/routes/alarms/index.tsx`; extended
+`alarm-display.ts` and its tests; `apps/api/src/modules/alarms/routes.ts`.
+
+**The bug the redesign exposed.** The page filtered and counted IN THE BROWSER
+over `GET /api/alarms?limit=500`. The four state boxes therefore counted the
+newest 500 alarms while reading as plant-wide totals, and the existing comment
+defended this as a feature ("a box's number and the list under it can never
+disagree"). Adding a date range inverts that reasoning: a range that predates the
+oldest fetched row would have returned nothing while looking like it had
+searched. This is the same shape as the `GET /:id/telemetry` truncation fixed
+2026-08-27 — a `limit` and a range meeting in one query.
+
+**`GET /api/alarms` now filters, counts, sorts and pages server-side.** New
+params `search`, `from`, `to`, `type`, `status`, `severity`, `page`, `pageSize`,
+`sort`, `dir`; the response gains `total` and `counts`. The legacy `state`,
+`acknowledged`, `instrumentId`, `functionalLocationId` and `limit` params all
+still work — the dashboard's selection panel and the trend page's alarms widget
+send `limit`, and it is now an alias for `pageSize` with the same 500 ceiling.
+
+- **`total` is DERIVED by summing the four quadrant counts, never counted
+  separately.** The quadrants partition the filtered set exactly (unit-tested), so
+  a card's number and "showing N of M" are answers to one question and cannot
+  race each other against a live evaluator.
+- **The status filter is excluded from the count query and only the count query.**
+  Choosing a box must not zero the other three, or an operator could never see
+  what they were about to switch to. Every other filter narrows the counts too, so
+  the boxes always describe what is listed.
+- **A bad filter is a 400, not a shrug.** An unreadable date or a reversed range is
+  refused by field; silently dropping the bound would list alarms from outside the
+  range under a header saying the range was applied. An unknown SORT key falls back
+  instead — it changes the order, not which rows.
+- **Every fragment is ANDed, never merged** (`buildAlarmWhere`). Search and the
+  location filter both want an `instrument` key; merged, a later key would replace
+  an earlier one and widen the result — which, since visibility scoping composes
+  the same way, is the shape of an access-control bug.
+- Row payload gains `instrumentName`, `locationName` (the FUNCTIONAL location) and
+  `roomLabel`, for the new Location / Room column.
+
+**The page**, per the mock: four gradient state cards with icons, a filter bar
+(search, raised-between, type, status, a Filters button revealing location and
+severity), a dark-banner table with sortable headers, a Location / Room column,
+two-line timestamps, unit-bearing values, a per-row state accent, and pagination.
+
+Seven deliberate departures from the mock, each agreed with the operator first:
+
+1. **No sparkline and no "↑ 2 from yesterday".** Nothing in this system stores
+   alarm-state history, so both would have to be inferred from the rows on screen.
+   An invented trend on a monitoring screen is worse than no trend.
+2. **No ⋮ row menu.** The page has one row action; a menu that opens to a single
+   item is more clicks than the button it replaced.
+3. **Pagination is the canonical `<Pagination>`**, not the mock's `« ‹ 1 2 › »` —
+   `pagination.tsx` documents one style everywhere.
+4. **The table's dark banner is painted from `var(--theme-primary)`**, not a
+   hardcoded indigo, so it follows all ten colour presets.
+5. **The page icon keeps `PageHeader`'s theme-tinted tile**, not a crimson gradient
+   shield; that component exists to stop per-page gradients.
+6. **Cleared-Unacknowledged is AMBER, not the mock's blue** (the mock's own table
+   pills were amber; only its card was blue). It is the overnight excursion nobody
+   answered for and must not read as neutral. Active-Acknowledged takes the blue.
+7. **The Instrument ID stays dark, not severity-coloured.** Every alarm on this
+   installation is CRITICAL, so a coloured ID would be red on every row — no
+   information, and it makes an identifier look like a status. The left accent bar
+   and the status pill carry state instead.
+
+**Two more defects fixed on the way.** The status pill was keyed off `severity`,
+so on an installation where every alarm is CRITICAL every pill on the page rendered
+red regardless of state; it now takes the four-state tone. And a FAILED request
+rendered "No alarms have been raised." in the table underneath the error banner —
+a statement about the record, made while the record could not be read, which on a
+monitoring screen reads as "nothing is wrong". That one was found by the new render
+test, not by looking. The Status dropdown and the four cards read and write the same
+value, so they cannot disagree.
+
+A third: SWR's `keepPreviousData` leaves the last good rows on screen with `error`
+set on any failed revalidation, and calling that "could not load alarms" over a full
+table is plainly false. The two failures are now worded apart — a stale refresh says
+the list may be out of date; only a first load with no data says it could not be
+loaded.
+
+New `apps/web/src/routes/alarms/__tests__/alarms-page.test.tsx` mounts the real page
+(13 tests). Its fixture deliberately returns ONE row against counts of 16/2/8/0 —
+what a paged response actually looks like — so a card that counted the rows in hand
+would show 1 and fail.
+
+**Removed as dead:** `filterByQuadrant()`, `quadrantCounts()` and `filterByTab()`
+from `alarm-display.ts`, with their tests. The first two are what produced the
+window-limited counts; a comment stands in their place saying so, because the
+obvious "improvement" for a future reader is to reintroduce them.
+
+The four state counts come from ONE `groupBy` rather than four `count()`s:
+`_count.acknowledgedAt` counts non-null values, which IS the signature axis, so
+grouping by `state` and reading `_all` against it yields the whole 2x2 in a single
+pass — and four separate counts would be four separate points in time beside a live
+evaluator.
+
+**The counts are visibility-scoped, and that is proved rather than assumed.** They
+come from a `groupBy`, which is a different query path from the `findMany` behind the
+rows, so "the rows are scoped" is not evidence the boxes are — and this module's own
+docstring names the summary counts as part of what the scope withholds. Five e2e
+cases drive the seeded OPERATOR (SUPER_ADMIN short-circuits visibility, so an
+admin-driven version would pass against a route with no scoping at all) with a
+one-instrument scope, and assert that `counts` and `total` describe three alarms
+rather than six, that another filter does not widen it, that searching for an
+out-of-scope instrument code returns nothing, that an EMPTY selection means see
+nothing, and — as a positive control — that an unrestricted role still sees all six.
+
+Verified: web 887 tests / 63 files, `vite build` clean, `tsc --noEmit` clean on
+both apps; API 172 tests over the alarm modules and e2e including 22 new ones in
+`alarm-list-filters.e2e.test.ts`. Both new test files were mutation-checked rather
+than trusted for being green — four deliberate breaks (orderBy tiebreak removed,
+empty location array dropped, reversed-range guard disabled, visibility dropped from
+the count query) each failed the tests written for them, and the positive control
+kept passing.
+
 ## [Unreleased] - Alarms: units into the headers, table fills the page (2026-08-29)
 
 Operator, three corrections to the rework committed an hour earlier.

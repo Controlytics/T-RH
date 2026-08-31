@@ -99,6 +99,38 @@ single definition of where the session token lives (`sessionStorage`). A
 hand-rolled `fetch` reading `localStorage.getItem('access_token')` is why
 profile photo upload silently 401'd until 2026-08-11.
 
+## Alarms page (rebuilt 2026-08-31)
+
+`routes/alarms/` is `index.tsx` + `alarm-stat-cards.tsx` + `alarm-filters.tsx` +
+`acknowledge-dialog.tsx`, over the pure `alarm-display.ts`.
+
+**Nothing on this page filters, counts, sorts or pages in the browser.** It used
+to do all four over `GET /api/alarms?limit=500`, which made the four state boxes
+count the newest 500 alarms while reading as plant-wide totals. `filterByQuadrant()`
+and `quadrantCounts()` were DELETED and a comment stands where they were —
+reintroducing a client-side count is the obvious "improvement" and it will be wrong
+again the moment this installation passes one page of alarms.
+
+- The four cards and the Status dropdown read and write ONE value, so they cannot
+  claim different things about what is shown.
+- `counts` and `total` come from the same response as the rows.
+- **There is deliberately no sparkline and no "from yesterday"**, though the
+  supplied mock had both: nothing in this system stores alarm-state history.
+- **Cleared-Unacknowledged is AMBER, never neutral** — the overnight excursion
+  nobody answered for is the one row that must not look finished. `QUADRANT_TONE`
+  in `alarm-display.ts` is the single source for that, read by the card, the row's
+  left accent and the status pill.
+- The status pill takes the four-state tone. It was keyed off `severity` until
+  2026-08-31, so on an installation where every alarm is CRITICAL every pill on
+  the page rendered red.
+- The dark table banner is `color-mix(... var(--theme-primary) ...)`, not a
+  hardcoded indigo, so it follows all ten colour presets.
+- Sortable headers offer only the columns the SERVER can order on — sorting one
+  page of a paged result would rearrange twelve rows and call it a sort of five
+  hundred.
+- The date range is sent as an INSTANT (`localInputToIso`): `datetime-local` gives
+  zoneless text, and sending it raw would let the API resolve it in its own zone.
+
 ## Design system (Stage 1 `7ed8329`, Stage 2 2026-08-28)
 
 Tokens live in `src/app.css` `@theme`; primitives in `src/components/ui/`.

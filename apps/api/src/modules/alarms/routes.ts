@@ -12,6 +12,10 @@ import { enqueueAlarmWebhook } from '../alarm-webhooks/enqueue.js';
 import { describeSnapshot, decimalsFromSnapshot } from '../alarm-webhooks/build-variables.js';
 import { validateRuleDraft, validateAcknowledgement, clampSignature, type RuleDraft } from './validation.js';
 import { loadLimitConfig, countWithoutLimits } from './load-limits.js';
+import {
+  ALARM_TYPE_TOKENS, ALARM_STATUS_TOKENS,
+  parseAlarmListQuery, buildAlarmWhere, buildAlarmOrderBy, pageBounds,
+} from './list-query.js';
 
 /**
  * Alarm rules and the alarms they raise.
@@ -47,6 +51,14 @@ const alarmProps = {
   ruleSnapshot: { type: 'object', additionalProperties: true },
   instrumentId: { type: 'string' },
   instrumentCode: { type: 'string', nullable: true },
+  instrumentName: { type: 'string', nullable: true },
+  /** The instrument's FUNCTIONAL location — the authoritative logical grouping,
+   *  not the free-text `instruments.location` column, which is superseded. */
+  locationName: { type: 'string', nullable: true },
+  /** The drawn room, when the instrument is placed on a floorplan. Its `label`
+   *  where one is set, otherwise its `code`; null when unplaced, which is a
+   *  normal state and is rendered as such rather than as an empty string. */
+  roomLabel: { type: 'string', nullable: true },
   metric: { type: 'string' },
   triggeredValue: { type: 'number', nullable: true },
   severity: { type: 'string' },
@@ -247,35 +259,64 @@ export default async function alarmRoutes(app: FastifyInstance) {
       querystring: {
         type: 'object',
         properties: {
+          // Legacy single-axis filters, still sent by the dashboard's selection
+          // panel and the trend page's alarms widget. Kept working.
           state: { type: 'string', enum: ['ACTIVE', 'CLEARED'] },
+          acknowledged: { type: 'string', enum: ['true', 'false'] },
+          limit: { type: 'integer' },
           // Narrows to one functional location, a Block covering its Areas. It is
           // ANDed with the caller's visibility scope below, never substituted for
           // it: a location filter that widened visibility would be the exact
           // inversion of what both filters are for.
           functionalLocationId: { type: 'string' },
-          acknowledged: { type: 'string', enum: ['true', 'false'] },
           instrumentId: { type: 'string' },
-          limit: { type: 'integer' },
+          // The Alarms page's own filters.
+          search: { type: 'string' },
+          from: { type: 'string' },
+          to: { type: 'string' },
+          type: { type: 'string', enum: [...ALARM_TYPE_TOKENS] },
+          status: { type: 'string', enum: [...ALARM_STATUS_TOKENS] },
+          severity: { type: 'string', enum: ['CRITICAL', 'MAJOR', 'MINOR'] },
+          page: { type: 'integer' },
+          pageSize: { type: 'integer' },
+          sort: { type: 'string' },
+          dir: { type: 'string', enum: ['asc', 'desc'] },
         },
       },
       response: {
-        200: { type: 'object', properties: { data: { type: 'array', items: { type: 'object', properties: alarmProps } } } },
+        200: {
+          type: 'object',
+          properties: {
+            data: { type: 'array', items: { type: 'object', properties: alarmProps } },
+            /** Rows matching every filter INCLUDING status — what the table pages over. */
+            total: { type: 'integer' },
+            /** The four state counts over every filter EXCEPT status, so choosing a
+             *  box does not zero the other three. */
+            counts: {
+              type: 'object',
+              properties: {
+                'active-unack': { type: 'integer' },
+                'active-ack': { type: 'integer' },
+                'cleared-unack': { type: 'integer' },
+                'cleared-ack': { type: 'integer' },
+              },
+            },
+          },
+        },
         ...errorResponses,
       },
     },
-  }, async (req) => {
-    const q = req.query as {
-      state?: string; acknowledged?: string; instrumentId?: string;
-      functionalLocationId?: string; limit?: number;
-    };
+  }, async (req, reply) => {
+    const q = parseAlarmListQuery((req.query ?? {}) as Record<string, unknown>);
+    if (q.error) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: q.error.message, field: q.error.field });
+    }
+
     const { where: visibility } = await resolveVisibility(buildContext(req));
 
-    const filters: Record<string, unknown> = {};
-    if (q.state) filters.state = q.state;
-    if (q.acknowledged === 'true') filters.acknowledgedAt = { not: null };
-    if (q.acknowledged === 'false') filters.acknowledgedAt = null;
-    if (q.instrumentId) filters.instrumentId = q.instrumentId;
-    if (q.functionalLocationId) {
+    let locationIds: string[] | undefined;
+    const askedLocation = (req.query as { functionalLocationId?: string }).functionalLocationId;
+    if (askedLocation) {
       // resolveLocationIds, never a bare equality: an alarm on an instrument in a
       // Block's AREA must appear when the Block is selected. Querying the id
       // directly returns only what is pinned to the Block itself, which on this
@@ -283,28 +324,73 @@ export default async function alarmRoutes(app: FastifyInstance) {
       const nodes = await prisma.functionalLocation.findMany({
         select: { id: true, name: true, type: true, parentId: true },
       });
-      const ids = resolveLocationIds(q.functionalLocationId, nodes as FlNode[]);
-      filters.instrument = { functionalLocationId: { in: ids } };
+      locationIds = resolveLocationIds(askedLocation, nodes as FlNode[]);
     }
-    // scopedToVisible ANDs, so the location filter above narrows WITHIN the
-    // caller's scope and cannot escape it — including when it names a location the
-    // caller cannot see, which then matches nothing.
-    const where = scopedToVisible(filters, visibility);
 
-    const rows = await prisma.alarm.findMany({
-      where,
-      orderBy: { raisedAt: 'desc' },
-      take: Math.min(q.limit ?? 200, 500),
-      include: { instrument: { select: { code: true } } },
-    });
+    // scopedToVisible ANDs, so every filter narrows WITHIN the caller's scope and
+    // cannot escape it — including a location the caller cannot see, which then
+    // matches nothing.
+    const baseWhere = scopedToVisible(buildAlarmWhere(q, { locationIds }), visibility);
+    const rowWhere = scopedToVisible(buildAlarmWhere(q, { locationIds, includeStatus: true }), visibility);
+
+    const [rows, byState] = await Promise.all([
+      prisma.alarm.findMany({
+        where: rowWhere,
+        orderBy: buildAlarmOrderBy(q.sort, q.dir) as never,
+        ...pageBounds(q.page, q.pageSize),
+        include: {
+          instrument: {
+            select: {
+              code: true, name: true,
+              functionalLocation: { select: { name: true } },
+              room: { select: { code: true, label: true } },
+            },
+          },
+        },
+      }),
+      // ONE query for all four boxes, not four counts.
+      // `_count.acknowledgedAt` counts rows where that column is NOT NULL, which
+      // IS the signature axis — so grouping by `state` and reading `_all` against
+      // it yields the whole 2x2 with a single pass. Four separate counts would
+      // also be four separate points in time, and this page polls beside a live
+      // evaluator.
+      prisma.alarm.groupBy({
+        by: ['state'],
+        where: baseWhere as never,
+        _count: { _all: true, acknowledgedAt: true },
+      }),
+    ]);
+
+    const counts = { 'active-unack': 0, 'active-ack': 0, 'cleared-unack': 0, 'cleared-ack': 0 };
+    for (const g of byState) {
+      const acked = g._count.acknowledgedAt;
+      const prefix = g.state === 'ACTIVE' ? 'active' : 'cleared';
+      counts[`${prefix}-ack` as keyof typeof counts] = acked;
+      counts[`${prefix}-unack` as keyof typeof counts] = g._count._all - acked;
+    }
+
+    // DERIVED from the counts, never counted separately. The four quadrants
+    // partition the base set exactly (see list-query.test.ts), so a card's number
+    // and "showing N" are answers to the same question and cannot disagree —
+    // which a fifth count(), racing the other four against a live evaluator,
+    // could not guarantee.
+    const total = q.status ? counts[q.status] : ALARM_STATUS_TOKENS.reduce((n, t) => n + counts[t], 0);
+
     return {
       data: rows.map((a) => ({
         ...a,
         instrumentCode: a.instrument?.code ?? null,
+        instrumentName: a.instrument?.name ?? null,
+        locationName: a.instrument?.functionalLocation?.name ?? null,
+        // Prefer the drawn label; fall back to the room code. Nothing here
+        // invents a placement — an unplaced instrument stays null.
+        roomLabel: a.instrument?.room?.label?.trim() || a.instrument?.room?.code || null,
         raisedAt: a.raisedAt.toISOString(),
         clearedAt: a.clearedAt?.toISOString() ?? null,
         acknowledgedAt: a.acknowledgedAt?.toISOString() ?? null,
       })),
+      total,
+      counts,
     };
   });
 

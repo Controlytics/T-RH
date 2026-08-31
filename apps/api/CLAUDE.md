@@ -157,6 +157,46 @@ node apps/api/dist/app.js
     restricted case paired with a positive control, driven through the seeded
     OPERATOR because SUPER_ADMIN short-circuits visibility) and 26 unit tests in
     `modules/instruments/__tests__/visibility.test.ts`.
+- **2026-08-31 — the alarm list filters, counts, sorts and pages SERVER-side.**
+  **No count moved** (re-derived that day: 36 models / 13 enums, 42 permissions,
+  48 reauth actions, 24 modules, 25 config defs) and there is **no migration**:
+  one existing route gained query parameters and two response fields.
+  - **The defect.** The Alarms page filtered and counted in the BROWSER over
+    `GET /api/alarms?limit=500`. The four state boxes therefore counted the
+    newest 500 alarms while reading as plant-wide totals. Same shape as the
+    `GET /:id/telemetry` truncation fixed 2026-08-27 — a `limit` and a range
+    meeting in one query — and the page's own comment defended it as a feature.
+  - New pure module `modules/alarms/list-query.ts` holds the whole filter
+    algebra: `parseAlarmListQuery` / `buildAlarmWhere` / `buildAlarmOrderBy` /
+    `quadrantWhere` / `pageBounds`. Two properties it exists to guarantee:
+    **every fragment is ANDed, never merged** (search and the location filter
+    both want an `instrument` key, and a merged key would silently WIDEN the
+    result, which composes with visibility scoping into an access-control bug);
+    and **a bad filter is a 400, not a shrug** (an unreadable date or a reversed
+    range is refused by field — dropping the bound would list alarms from
+    outside the range under a header claiming it applied). An unknown `sort`
+    falls back instead of erroring: it changes the order, not which rows.
+  - **All four state counts come from ONE `groupBy`, and `total` is DERIVED by
+    summing them.** `_count.acknowledgedAt` counts rows where that column is NOT
+    NULL, which IS the signature axis, so grouping by `state` and reading `_all`
+    against it yields the whole 2x2 in a single pass. Four separate `count()`s
+    would be four separate points in time, and this page polls beside a live
+    evaluator. The `status` filter is excluded from that query ALONE — every
+    other filter narrows it — so choosing a box does not zero the other three,
+    and a card's number and "showing N of M" answer the same question.
+  - **Legacy parameters all still work.** `state`, `acknowledged`,
+    `instrumentId`, `functionalLocationId`, and `limit` — the last now an alias
+    for `pageSize` with the same 500 ceiling, which is why
+    `ALARM_PAGE_SIZE_MAX` is 500 and not something tidier: the dashboard's
+    selection panel and the trend page's alarms widget both send `limit=500`,
+    and a lower ceiling would silently truncate them.
+  - Response gains `instrumentName`, `locationName` (the FUNCTIONAL location,
+    not the superseded free-text `instruments.location`) and `roomLabel`.
+    Declared in `alarmProps` — Fastify strips any field the response schema
+    does not name, which has cost this repo twice.
+  - Pinned by `src/modules/alarms/__tests__/list-query.test.ts` (28 unit tests,
+    mutation-checked) and `src/e2e/alarm-list-filters.e2e.test.ts` (17 e2e,
+    every request scoped to a fixture Block so the numbers are exact).
 - Config definitions: `apps/api/src/modules/config/defs/` (**25 files** — verified by `ls` 2026-08-17; `alarm-limits.def` added 2026-08-17 (which attribute keys carry each temperature/humidity limit, the limit-alarm severity, the master switch, and the four alarm status wordings). `telemetry-slots.def` added 2026-08-11. Earlier note: the previous "36" was inherited from DigiLog and was never true here. `instrument-attributes.def` added 2026-08-07)
 - Route modules: `apps/api/src/modules/` (**24 modules**, verified `ls | wc -l` 2026-08-27 — `alarm-webhooks` added 2026-08-27; earlier 23, verified `ls` 2026-08-14 — `functional-locations` + `alarms` added 2026-08-13. **A new module must be registered in BOTH `app.ts` AND `src/e2e/test-helper.ts`** — the helper builds its own app, so a module missing from it 404s in every e2e test. Earlier: 21 modules verified `ls` 2026-08-11 — `floorplans` added 2026-08-11. The previous "33" was already stale and the shortfall has NOT been individually reconciled; treat the removal notes below as history, not an inventory — `org-admin`/`tenant-admin` deleted in MT removal; `rule-chain` deleted 2026-05-17; `qr-code` deleted 2026-06-06; **`data-ingestion`, `uns`, `connectivity`, `queries` deleted 2026-06-11..2026-06-17** with the ingestion tear-out; **`reports`, `report-templates` deleted 2026-07-04** with the reports generate/sign tear-out (`report-reviews` survives); `debug-traces` re-added 2026-06-12 reading from `audit_trail` instead of dropped `ts_pipeline_traces`)
 - Config routes: monolith split into `apps/api/src/modules/config/static-routes/<surface>.routes.ts` per tab; top-level `routes.ts` is just a registration loop (~170 LOC, was 1003)

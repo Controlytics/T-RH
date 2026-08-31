@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
-  needsAcknowledgement, tabFor, filterByTab, conditionText, triggeredText,
+  needsAcknowledgement, tabFor, conditionText, triggeredText,
   instrumentLabel, ackReasonError, MIN_ACK_REASON, MAX_ACK_REASON,
-  quadrantFor, filterByQuadrant, quadrantCounts, ALARM_QUADRANTS,
+  quadrantFor, ALARM_QUADRANTS,
   alarmDurationText,
+  locationText, alarmUnit, breachDirection, quadrantTone, QUADRANT_TONE,
+  ALARM_TYPE_OPTIONS, localInputToIso,
   type AlarmRow,
 } from '../alarm-display';
 
@@ -43,25 +45,6 @@ describe('tabFor', () => {
     expect(tabFor(alarm({ state: 'CLEARED' }))).toBe('history');
     // Unacknowledged does not hold an alarm in the active tab.
     expect(tabFor(alarm({ state: 'CLEARED', acknowledgedAt: null }))).toBe('history');
-  });
-});
-
-describe('filterByTab', () => {
-  const rows = [
-    alarm({ id: 'a', state: 'ACTIVE', acknowledgedAt: null }),
-    alarm({ id: 'b', state: 'ACTIVE', acknowledgedAt: '2026-08-13T04:30:00Z' }),
-    alarm({ id: 'c', state: 'CLEARED', acknowledgedAt: null }),
-    alarm({ id: 'd', state: 'CLEARED', acknowledgedAt: '2026-08-13T06:00:00Z' }),
-  ];
-
-  it('returns only that tab', () => {
-    expect(filterByTab(rows, 'active').map((r) => r.id)).toEqual(['a', 'b']);
-    expect(filterByTab(rows, 'history').map((r) => r.id)).toEqual(['c', 'd']);
-  });
-
-  it('the unacknowledged filter works within a tab, including history', () => {
-    expect(filterByTab(rows, 'active', true).map((r) => r.id)).toEqual(['a']);
-    expect(filterByTab(rows, 'history', true).map((r) => r.id)).toEqual(['c']);
   });
 });
 
@@ -273,36 +256,20 @@ describe('alarm quadrants — the four filter boxes', () => {
     expect(quadrantFor(alarm(cleared))).toBe('cleared-unack');
   });
 
-  it('shows EVERYTHING when no box is chosen, not nothing', () => {
-    const rows = [alarm({ id: 'a' }), alarm({ id: 'b', ...cleared })];
-    expect(filterByQuadrant(rows, null).map((r) => r.id)).toEqual(['a', 'b']);
-  });
-
-  it('filters to exactly one state when a box is chosen', () => {
+  it('assigns every alarm to exactly one of the four states', () => {
+    // The server counts each state separately (modules/alarms/list-query.ts) and
+    // DERIVES the total by summing them. That is only correct while the four
+    // states partition the set — which this asserts on the display side too, since
+    // the same four ids drive the cards.
     const rows = [
       alarm({ id: 'au' }),
       alarm({ id: 'aa', ...acked }),
       alarm({ id: 'cu', ...cleared }),
       alarm({ id: 'ca', ...cleared, ...acked }),
     ];
-    expect(filterByQuadrant(rows, 'active-unack').map((r) => r.id)).toEqual(['au']);
-    expect(filterByQuadrant(rows, 'active-ack').map((r) => r.id)).toEqual(['aa']);
-    expect(filterByQuadrant(rows, 'cleared-unack').map((r) => r.id)).toEqual(['cu']);
-    expect(filterByQuadrant(rows, 'cleared-ack').map((r) => r.id)).toEqual(['ca']);
-  });
-
-  it('counts every row into exactly one box, so the tiles sum to the total', () => {
-    const rows = [
-      alarm({ id: 'au' }),
-      alarm({ id: 'aa', ...acked }),
-      alarm({ id: 'cu', ...cleared }),
-      alarm({ id: 'ca', ...cleared, ...acked }),
-      alarm({ id: 'au2' }),
-    ];
-    const counts = quadrantCounts(rows);
-    expect(counts).toEqual({ 'active-ack': 1, 'active-unack': 2, 'cleared-ack': 1, 'cleared-unack': 1 });
-    const total = ALARM_QUADRANTS.reduce((n, q) => n + counts[q.id], 0);
-    expect(total).toBe(rows.length);
+    const seen = rows.map((r) => quadrantFor(r));
+    expect(new Set(seen).size).toBe(4);
+    expect(seen.every((q) => ALARM_QUADRANTS.some((x) => x.id === q))).toBe(true);
   });
 });
 
@@ -338,5 +305,117 @@ describe('alarm duration', () => {
   it('refuses reversed or unparseable timestamps instead of showing a negative', () => {
     expect(span('2026-08-13T05:00:00Z', '2026-08-13T04:00:00Z')).toBe('—');
     expect(span('not-a-date', '2026-08-13T04:00:00Z')).toBe('—');
+  });
+});
+
+describe('locationText', () => {
+  it('names the functional location', () => {
+    expect(locationText(alarm({ locationName: 'Blender Area' })).location).toBe('Blender Area');
+  });
+
+  it('says Unassigned rather than leaving the cell blank', () => {
+    // A blank cell reads as a rendering fault. An instrument with no functional
+    // location is a real, normal state and should say so.
+    expect(locationText(alarm({ locationName: null })).location).toBe('Unassigned');
+    expect(locationText(alarm({ locationName: '   ' })).location).toBe('Unassigned');
+  });
+
+  it('shows the room under the location when it adds something', () => {
+    const { room } = locationText(alarm({ locationName: 'Stability', roomLabel: 'Chamber 4' }));
+    expect(room).toBe('Chamber 4');
+  });
+
+  it('drops a room that only repeats the instrument code', () => {
+    // Every placed instrument in this installation sits in a room CODED with its
+    // own code. Printing it again under the location says nothing twice.
+    const { room } = locationText(alarm({
+      instrumentCode: 'CWH/RDU/001-00', locationName: 'Stability', roomLabel: 'CWH/RDU/001-00',
+    }));
+    expect(room).toBeNull();
+  });
+
+  it('drops a room that only repeats the location', () => {
+    expect(locationText(alarm({ locationName: 'QC 3', roomLabel: 'QC 3' })).room).toBeNull();
+  });
+});
+
+describe('alarmUnit', () => {
+  it('gives each metric its own unit, because one column carries both', () => {
+    expect(alarmUnit({ metric: 'TEMPERATURE' })).toBe('°C');
+    expect(alarmUnit({ metric: 'HUMIDITY' })).toBe('%RH');
+  });
+
+  it('gives OFFLINE no unit — it has no reading to carry one', () => {
+    expect(alarmUnit({ metric: 'OFFLINE' })).toBe('');
+  });
+});
+
+describe('breachDirection', () => {
+  it('reads the direction the server recorded, for a limit alarm', () => {
+    expect(breachDirection(alarm({ limitKind: 'HIGH' }))).toBe('high');
+    expect(breachDirection(alarm({ limitKind: 'LOW' }))).toBe('low');
+  });
+
+  it('falls back to the frozen snapshot for a rule alarm', () => {
+    expect(breachDirection(alarm({ limitKind: null, ruleSnapshot: { comparison: 'BELOW' } }))).toBe('low');
+    expect(breachDirection(alarm({ limitKind: null, ruleSnapshot: { comparison: 'ABOVE' } }))).toBe('high');
+  });
+
+  it('says nothing rather than guessing when neither is recorded', () => {
+    // Comparing triggeredValue against the limit here would be re-deriving a
+    // decision the evaluator already made, which is how the two drift apart.
+    expect(breachDirection(alarm({
+      limitKind: null, triggeredValue: 99, ruleSnapshot: { comparison: 'OUTSIDE_RANGE', thresholdLow: 1, thresholdHigh: 2 },
+    }))).toBe('none');
+  });
+});
+
+describe('quadrantTone', () => {
+  it('paints a cleared-but-unsigned alarm as a warning, not as neutral', () => {
+    // The overnight excursion nobody answered for. It is the one row on the page
+    // that most needs not to look finished.
+    expect(quadrantTone({ state: 'CLEARED', acknowledgedAt: null })).toBe('warn');
+  });
+
+  it('reserves the loudest tone for the alarm nobody has answered yet', () => {
+    expect(quadrantTone({ state: 'ACTIVE', acknowledgedAt: null })).toBe('danger');
+  });
+
+  it('gives a signed-for live alarm the calm tone, and a closed one the settled tone', () => {
+    expect(quadrantTone({ state: 'ACTIVE', acknowledgedAt: '2026-08-27T10:00:00Z' })).toBe('info');
+    expect(quadrantTone({ state: 'CLEARED', acknowledgedAt: '2026-08-27T10:00:00Z' })).toBe('ok');
+  });
+
+  it('gives all four states a distinct tone', () => {
+    expect(new Set(ALARM_QUADRANTS.map((q) => QUADRANT_TONE[q.id])).size).toBe(4);
+  });
+});
+
+describe('ALARM_TYPE_OPTIONS', () => {
+  it('offers only tokens the API recognises', () => {
+    // The server rejects an unknown token with a 400. A dropdown that could offer
+    // one would look like the filter was broken.
+    const serverTokens = ['TEMP_HIGH', 'TEMP_LOW', 'RH_HIGH', 'RH_LOW', 'OFFLINE', 'RULE'];
+    expect(ALARM_TYPE_OPTIONS.map((o) => o.value)).toEqual(serverTokens);
+  });
+
+  it('labels each token the way the Type column renders it', () => {
+    const high = alarm({ source: 'INSTRUMENT_LIMIT', limitKind: 'HIGH', metric: 'TEMPERATURE' });
+    expect(ALARM_TYPE_OPTIONS.find((o) => o.value === 'TEMP_HIGH')!.label).toBe(alarmTypeText(high));
+  });
+});
+
+describe('localInputToIso', () => {
+  it('resolves the browser wall-clock value to an instant', () => {
+    // `datetime-local` yields zoneless text. Sent raw, the server would resolve it
+    // in ITS timezone, so the same typed range would select a different window
+    // once the API moved to another machine.
+    const iso = localInputToIso('2026-08-27T00:00');
+    expect(iso).toBe(new Date(2026, 7, 27, 0, 0, 0).toISOString());
+  });
+
+  it('treats an empty or unreadable value as no bound at all', () => {
+    expect(localInputToIso('')).toBeUndefined();
+    expect(localInputToIso('not a date')).toBeUndefined();
   });
 });

@@ -254,6 +254,20 @@ history; `docs/recreation/` holds the inventory.
 ## Key API Endpoints (instrument dashboard — updated 2026-08-27)
 ```
 GET  /api/instruments/telemetry-overview        — every instrument's current temp + RH, one request
+GET  /api/alarms?search=&from=&to=&type=&status=&severity=&page=&pageSize=&sort=&dir=
+                                                — the Alarms page. Filters, counts, sorts and pages
+                                                  SERVER-side (2026-08-31); returns `data`, `total`
+                                                  and `counts` (the four state counts). `total` is
+                                                  DERIVED by summing `counts`, never counted
+                                                  separately, and the `status` filter is excluded
+                                                  from the count query alone so choosing a box does
+                                                  not zero the other three. A bad date or reversed
+                                                  range is a 400 by field; an unknown `sort` falls
+                                                  back. Legacy `state`/`acknowledged`/`instrumentId`/
+                                                  `functionalLocationId`/`limit` still work — `limit`
+                                                  is an alias for `pageSize` (ceiling 500) and the
+                                                  dashboard panel + trend widget still send it.
+                                                  Filter algebra: `modules/alarms/list-query.ts`.
 GET  /api/instruments/:id/telemetry?from=&to=&offset=  — per-instrument history, paged (offset added 2026-08-24)
 GET  /api/instruments/:id/telemetry?from=&to=&points=N — the CHART path (added 2026-08-27): every
                                                   reading in the range, LTTB-downsampled to N per key
@@ -284,6 +298,20 @@ POST   /api/alarm-webhooks/:id/test             — test fire (reauth, audited �
 GET    /api/alarm-webhooks/:id/deliveries?status= — paged §11 delivery log, filtered server-side
 ```
 
+- **Alarms page: the counts were window-limited, and are not any more
+  (2026-08-31).** The page filtered and counted IN THE BROWSER over
+  `?limit=500`, so the four state boxes described the newest 500 alarms while
+  reading as plant-wide totals — the same defect shape as the 2026-08-27
+  telemetry truncation, a `limit` and a range meeting in one query. All of it
+  moved server-side. **Do not reintroduce a client-side count**;
+  `filterByQuadrant()` / `quadrantCounts()` were deleted and a comment stands
+  where they were. Deliberate departures from the supplied mock (no sparkline or
+  "from yesterday" — nothing stores alarm-state history; no row kebab; canonical
+  `<Pagination>`; theme-primary table banner rather than hardcoded indigo;
+  cleared-unacknowledged stays AMBER, never neutral) are recorded in
+  `CHANGELOG.md` with their reasons. Also fixed: the status pill was keyed off
+  `severity`, so every pill rendered red on an installation where every alarm is
+  CRITICAL.
 - **On `PUT /api/floorplans/:id/rooms/:roomId`, an omitted `doors` key leaves the
   column unchanged; only an explicit `null`/`[]` clears it.** Deliberate §11
   data-loss guard so a client that predates doors can't silently wipe them.
