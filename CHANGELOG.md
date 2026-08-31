@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased] - Alarms: the Location column drops the room (2026-08-31)
+
+Operator. **No count moved.** Files: `apps/api/src/modules/alarms/routes.ts`,
+`apps/web/src/routes/alarms/{index.tsx,alarm-display.ts}` and their tests.
+
+- **`Location / Room` is now `Location`**, and the room line under the location
+  is gone. The room is GEOMETRY, not a grouping — and in this installation every
+  `floorplan_rooms.code` is its instrument's own code with `label` blank, so the
+  line either repeated the Instrument ID column or was suppressed as redundant.
+  `locationText()` now returns a plain string.
+- **`roomLabel` was dropped from the `GET /api/alarms` response with it**, along
+  with the `room` include, rather than left as a field nothing reads. Put it back
+  only if rooms are ever named independently of the instruments in them.
+- **The room CODE stays SEARCHABLE.** Deliberate, and noted in `list-query.ts`:
+  matching more than is displayed costs a caller nothing and can only return rows
+  they could already see, whereas dropping it would silently stop a plan code
+  someone typed from finding anything.
+
+Verified: web 882 tests / 63 files, API 135 tests / 9 files over the alarm
+modules and the list e2e, `tsc --noEmit` clean on both apps, `vite build` clean.
+Still not visually verified — the operator's session was live.
+
 ## [Unreleased] - Alarms: "Generated Value", and the per-cell units come back out (2026-08-31)
 
 Operator, immediately after the rebuild. **No count moved.** Files:

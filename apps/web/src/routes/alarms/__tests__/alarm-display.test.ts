@@ -310,32 +310,14 @@ describe('alarm duration', () => {
 
 describe('locationText', () => {
   it('names the functional location', () => {
-    expect(locationText(alarm({ locationName: 'Blender Area' })).location).toBe('Blender Area');
+    expect(locationText(alarm({ locationName: 'Blender Area' }))).toBe('Blender Area');
   });
 
   it('says Unassigned rather than leaving the cell blank', () => {
     // A blank cell reads as a rendering fault. An instrument with no functional
     // location is a real, normal state and should say so.
-    expect(locationText(alarm({ locationName: null })).location).toBe('Unassigned');
-    expect(locationText(alarm({ locationName: '   ' })).location).toBe('Unassigned');
-  });
-
-  it('shows the room under the location when it adds something', () => {
-    const { room } = locationText(alarm({ locationName: 'Stability', roomLabel: 'Chamber 4' }));
-    expect(room).toBe('Chamber 4');
-  });
-
-  it('drops a room that only repeats the instrument code', () => {
-    // Every placed instrument in this installation sits in a room CODED with its
-    // own code. Printing it again under the location says nothing twice.
-    const { room } = locationText(alarm({
-      instrumentCode: 'CWH/RDU/001-00', locationName: 'Stability', roomLabel: 'CWH/RDU/001-00',
-    }));
-    expect(room).toBeNull();
-  });
-
-  it('drops a room that only repeats the location', () => {
-    expect(locationText(alarm({ locationName: 'QC 3', roomLabel: 'QC 3' })).room).toBeNull();
+    expect(locationText(alarm({ locationName: null }))).toBe('Unassigned');
+    expect(locationText(alarm({ locationName: '   ' }))).toBe('Unassigned');
   });
 });
 

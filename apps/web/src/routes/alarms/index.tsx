@@ -207,7 +207,7 @@ export default function AlarmsPage() {
               <tr>
                 <Th sortKey="instrumentCode" sort={sort} dir={dir} onSort={toggleSort}>Instrument ID</Th>
                 <Th sortKey="type" sort={sort} dir={dir} onSort={toggleSort}>Type</Th>
-                <Th>Location / Room</Th>
+                <Th>Location</Th>
                 <Th sortKey="raisedAt" sort={sort} dir={dir} onSort={toggleSort}>Raised</Th>
                 <Th>Generated Value<UnitLine>(°C / %RH)</UnitLine></Th>
                 <Th>Limit</Th>
@@ -248,7 +248,6 @@ export default function AlarmsPage() {
               )}
               {rows.map((a) => {
                 const tone = quadrantTone(a);
-                const place = locationText(a);
                 return (
                   <tr key={a.id} className="group hover:bg-slate-50/70">
                     {/* The state marker. A wide table puts the status pill off to
@@ -264,10 +263,7 @@ export default function AlarmsPage() {
                         {alarmTypeText(a)}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-slate-700">
-                      {place.location}
-                      {place.room && <span className="block text-xs text-slate-400">{place.room}</span>}
-                    </td>
+                    <td className="px-4 py-3 text-slate-700">{locationText(a)}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-slate-600">
                       <span className="block">{formatDate(a.raisedAt)}</span>
                       <span className="block text-xs text-slate-400">{formatTime(a.raisedAt)}</span>

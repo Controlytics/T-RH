@@ -33,7 +33,6 @@ const activeUnack = {
   instrumentId: 'i-1',
   instrumentName: 'Stability chamber 1',
   locationName: 'Excipient Dispensing Area',
-  roomLabel: null,
   metric: 'TEMPERATURE',
   triggeredValue: 28,
   severity: 'CRITICAL',
@@ -140,9 +139,13 @@ describe('the count cards describe the plant, not the page', () => {
 });
 
 describe('the row', () => {
-  it('names where the alarm happened', () => {
+  it('names where the alarm happened, from the functional location', () => {
     mount();
     expect(screen.getByText('Excipient Dispensing Area')).toBeInTheDocument();
+    // The column is Location, not Location / Room — the drawn room is geometry,
+    // and here every room is coded with the instrument's own code.
+    expect(screen.queryByText('Location / Room')).toBeNull();
+    expect(screen.getByText('Location')).toBeInTheDocument();
   });
 
   it('quotes the reading bare, with the unit left in the column head', () => {

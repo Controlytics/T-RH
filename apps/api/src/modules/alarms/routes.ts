@@ -55,10 +55,6 @@ const alarmProps = {
   /** The instrument's FUNCTIONAL location — the authoritative logical grouping,
    *  not the free-text `instruments.location` column, which is superseded. */
   locationName: { type: 'string', nullable: true },
-  /** The drawn room, when the instrument is placed on a floorplan. Its `label`
-   *  where one is set, otherwise its `code`; null when unplaced, which is a
-   *  normal state and is rendered as such rather than as an empty string. */
-  roomLabel: { type: 'string', nullable: true },
   metric: { type: 'string' },
   triggeredValue: { type: 'number', nullable: true },
   severity: { type: 'string' },
@@ -343,7 +339,6 @@ export default async function alarmRoutes(app: FastifyInstance) {
             select: {
               code: true, name: true,
               functionalLocation: { select: { name: true } },
-              room: { select: { code: true, label: true } },
             },
           },
         },
@@ -382,9 +377,6 @@ export default async function alarmRoutes(app: FastifyInstance) {
         instrumentCode: a.instrument?.code ?? null,
         instrumentName: a.instrument?.name ?? null,
         locationName: a.instrument?.functionalLocation?.name ?? null,
-        // Prefer the drawn label; fall back to the room code. Nothing here
-        // invents a placement — an unplaced instrument stays null.
-        roomLabel: a.instrument?.room?.label?.trim() || a.instrument?.room?.code || null,
         raisedAt: a.raisedAt.toISOString(),
         clearedAt: a.clearedAt?.toISOString() ?? null,
         acknowledgedAt: a.acknowledgedAt?.toISOString() ?? null,

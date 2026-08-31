@@ -287,9 +287,11 @@ describe('GET /api/alarms — row payload', () => {
     expect(row.instrumentName).toContain('alarm-list');
   });
 
-  it('reports an unplaced instrument as unplaced rather than as an empty room', async () => {
+  it('does not carry a room — the column shows the functional location alone', async () => {
+    // Dropped 2026-08-31 with the Location column's second line. The room is
+    // geometry, and every room here is coded with its instrument's own code.
     const row = (await list({ pageSize: 1 })).json().data[0];
-    expect(row.roomLabel).toBeNull();
+    expect(row.roomLabel).toBeUndefined();
   });
 });
 

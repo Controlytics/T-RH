@@ -16,8 +16,6 @@ export interface AlarmRow {
   instrumentName?: string | null;
   /** The instrument's FUNCTIONAL location — the authoritative grouping. */
   locationName?: string | null;
-  /** The drawn room, when the instrument is placed on a floorplan. */
-  roomLabel?: string | null;
   metric: string;
   triggeredValue: number | null;
   severity: string;
@@ -313,20 +311,21 @@ export function alarmDurationText(a: Pick<AlarmRow, 'raisedAt' | 'clearedAt'>): 
 }
 
 /**
- * Where the alarm happened.
+ * Where the alarm happened: the instrument's FUNCTIONAL location, which is the
+ * authoritative logical grouping (see the root CLAUDE.md note on the three
+ * grouping concepts).
  *
- * The FUNCTIONAL location is the authoritative logical grouping (see the root
- * CLAUDE.md note on the three grouping concepts); the drawn room is geometry and
- * is shown underneath it when the two differ. When the room's name would only
- * repeat the location or the instrument's own code — which is what almost every
- * row in this installation looks like — it is dropped rather than rendered as a
- * second line saying the same thing twice.
+ * **The drawn ROOM is deliberately not shown** (operator, 2026-08-31). It is
+ * geometry, not a grouping, and in this installation every room is coded with
+ * the instrument's own code — so a room line under the location repeated the
+ * Instrument ID column and said nothing. `roomLabel` was dropped from the API
+ * response with it; put it back only if rooms are ever named independently of
+ * the instruments in them.
  */
-export function locationText(a: AlarmRow): { location: string; room: string | null } {
-  const location = a.locationName?.trim() || 'Unassigned';
-  const room = a.roomLabel?.trim() ?? '';
-  const redundant = !room || room === location || room === a.instrumentCode;
-  return { location, room: redundant ? null : room };
+export function locationText(a: Pick<AlarmRow, 'locationName'>): string {
+  // Not an empty cell: an instrument with no functional location is a real and
+  // normal state, and a blank reads as a rendering fault.
+  return a.locationName?.trim() || 'Unassigned';
 }
 
 /**

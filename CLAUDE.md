@@ -268,6 +268,11 @@ GET  /api/alarms?search=&from=&to=&type=&status=&severity=&page=&pageSize=&sort=
                                                   is an alias for `pageSize` (ceiling 500) and the
                                                   dashboard panel + trend widget still send it.
                                                   Filter algebra: `modules/alarms/list-query.ts`.
+                                                  Rows carry `locationName` (the FUNCTIONAL
+                                                  location). NOT `roomLabel` — dropped 2026-08-31
+                                                  with the column's room line, since every room
+                                                  here is coded with its instrument's own code.
+                                                  The room CODE is still SEARCHABLE.
 GET  /api/instruments/:id/telemetry?from=&to=&offset=  — per-instrument history, paged (offset added 2026-08-24)
 GET  /api/instruments/:id/telemetry?from=&to=&points=N — the CHART path (added 2026-08-27): every
                                                   reading in the range, LTTB-downsampled to N per key

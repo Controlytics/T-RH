@@ -172,6 +172,11 @@ export function buildAlarmWhere(q: AlarmListQuery, opts: WhereOptions = {}): { A
     // Instrument identity and where it sits. NOT the Type column: that is an enum
     // pair rendered into words at display time, so there is no text to match — it
     // has its own dropdown, and the placeholder says what this box actually reads.
+    //
+    // The room CODE stays searchable even though the Location column no longer
+    // displays a room (2026-08-31): matching more than is shown costs a caller
+    // nothing and can only return rows they could already see, whereas dropping
+    // it would silently stop a plan code someone typed from finding anything.
     const contains = { contains: q.search, mode: 'insensitive' as const };
     AND.push({
       instrument: {

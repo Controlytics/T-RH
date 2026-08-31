@@ -130,6 +130,10 @@ again the moment this installation passes one page of alarms.
   hundred.
 - The date range is sent as an INSTANT (`localInputToIso`): `datetime-local` gives
   zoneless text, and sending it raw would let the API resolve it in its own zone.
+- **The Location column shows the FUNCTIONAL location alone.** The drawn room was
+  removed 2026-08-31: it is geometry, not a grouping, and every `floorplan_rooms.code`
+  in this installation is its instrument's own code with `label` blank, so the line
+  repeated the Instrument ID column. `roomLabel` went from the API response with it.
 - **Units live in the column HEADERS only** — `Generated Value (°C / %RH)`,
   `Cleared value (°C / %RH)` — never on the cells. The row's metric is already
   named in the Type column, so a per-cell unit repeats it and widens the widest
