@@ -4,7 +4,7 @@ import {
   instrumentLabel, ackReasonError, MIN_ACK_REASON, MAX_ACK_REASON,
   quadrantFor, ALARM_QUADRANTS,
   alarmDurationText,
-  locationText, alarmUnit, breachDirection, quadrantTone, QUADRANT_TONE,
+  locationText, breachDirection, quadrantTone, QUADRANT_TONE,
   ALARM_TYPE_OPTIONS, localInputToIso,
   type AlarmRow,
 } from '../alarm-display';
@@ -336,17 +336,6 @@ describe('locationText', () => {
 
   it('drops a room that only repeats the location', () => {
     expect(locationText(alarm({ locationName: 'QC 3', roomLabel: 'QC 3' })).room).toBeNull();
-  });
-});
-
-describe('alarmUnit', () => {
-  it('gives each metric its own unit, because one column carries both', () => {
-    expect(alarmUnit({ metric: 'TEMPERATURE' })).toBe('°C');
-    expect(alarmUnit({ metric: 'HUMIDITY' })).toBe('%RH');
-  });
-
-  it('gives OFFLINE no unit — it has no reading to carry one', () => {
-    expect(alarmUnit({ metric: 'OFFLINE' })).toBe('');
   });
 });
 

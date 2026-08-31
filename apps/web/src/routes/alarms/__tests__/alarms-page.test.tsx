@@ -145,10 +145,15 @@ describe('the row', () => {
     expect(screen.getByText('Excipient Dispensing Area')).toBeInTheDocument();
   });
 
-  it('carries the unit on the reading, since one column holds both metrics', () => {
+  it('quotes the reading bare, with the unit left in the column head', () => {
+    // Operator's rule, set 2026-08-29 and restated 2026-08-31: the °C / %RH
+    // legend belongs to the header, and the row's metric is already named in the
+    // Type column. A per-cell unit repeats it and widens the column.
     mount();
     const row = screen.getByText('CWH/RDU/001-00').closest('tr')!;
-    expect(within(row).getByText('°C')).toBeInTheDocument();
+    expect(within(row).getByText('28.0')).toBeInTheDocument();
+    expect(within(row).queryByText('°C')).toBeNull();
+    expect(screen.getByText('Generated Value').closest('th')!.textContent).toContain('°C');
   });
 
   it('states the limit that was breached, from the frozen snapshot', () => {

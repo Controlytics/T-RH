@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased] - Alarms: "Generated Value", and the per-cell units come back out (2026-08-31)
+
+Operator, immediately after the rebuild. **No count moved.** Files:
+`apps/web/src/routes/alarms/{index.tsx,alarm-display.ts}` and their tests.
+
+- **The Value column header is now `Generated Value`.** The `(°C / %RH)` legend
+  under it is unchanged.
+- **The unit suffix is off the Generated Value and Cleared Value CELLS.** They
+  are bare numbers again; the legend lives in the header and each row's metric is
+  already named in the Type column.
+
+**This is the same call the operator made on 2026-08-29, and the per-cell version
+had been reintroduced from `Alarms.png` earlier the same day.** `alarmUnit()` has
+now been deleted twice — once as `metricUnit`/`triggeredWithUnit`/`clearedWithUnit`
+on 2026-08-29, and again here. A comment stands where it was saying so, because
+a mockup showing units in the cells is what put it back the second time. If a
+third is proposed: the unit goes in the header.
+
+Verified: web 885 tests / 63 files, `tsc --noEmit` clean, `vite build` clean.
+Still not visually verified — the operator's session was live.
+
 ## [Unreleased] - Alarms page rebuilt: server-side search, range, sort and paging (2026-08-31)
 
 Operator supplied `Alarms.png` and asked for the page to look like it.

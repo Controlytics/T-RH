@@ -330,15 +330,14 @@ export function locationText(a: AlarmRow): { location: string; room: string | nu
 }
 
 /**
- * The unit this alarm's numbers are in. Rendered ON the value, not only in the
- * column head, because temperature and humidity rows share one column and the
- * head can only name both.
+ * **There is deliberately no `alarmUnit()` here.** The °C / %RH legend lives in
+ * the column HEADERS, and each row's metric is already named in the Type column,
+ * so a per-cell unit says the same thing twice and widens the widest columns on
+ * the page. This is the operator's call, made on 2026-08-29 and made again on
+ * 2026-08-31 after a per-cell version was reintroduced from a mockup. A helper
+ * for it has now been deleted twice; if you are about to add a third, add the
+ * unit to the header instead.
  */
-export function alarmUnit(a: Pick<AlarmRow, 'metric'>): string {
-  if (a.metric === 'TEMPERATURE') return '°C';
-  if (a.metric === 'HUMIDITY') return '%RH';
-  return '';
-}
 
 /**
  * Which way the reading broke.

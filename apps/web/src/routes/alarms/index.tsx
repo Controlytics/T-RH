@@ -16,7 +16,7 @@ import { AlarmFilters, EMPTY_FILTERS, hasAnyFilter, type AlarmFilterState } from
 import {
   needsAcknowledgement, instrumentLabel, statusText, alarmTypeText, limitText,
   mapStatusTextsResponse, triggeredText, clearedText, alarmDurationText,
-  locationText, alarmUnit, breachDirection, quadrantTone, localInputToIso,
+  locationText, breachDirection, quadrantTone, localInputToIso,
   type AlarmRow, type AlarmQuadrant, type AlarmStatusTextsResponse, type AlarmSortKey,
 } from './alarm-display';
 
@@ -209,7 +209,7 @@ export default function AlarmsPage() {
                 <Th sortKey="type" sort={sort} dir={dir} onSort={toggleSort}>Type</Th>
                 <Th>Location / Room</Th>
                 <Th sortKey="raisedAt" sort={sort} dir={dir} onSort={toggleSort}>Raised</Th>
-                <Th>Value<UnitLine>(°C / %RH)</UnitLine></Th>
+                <Th>Generated Value<UnitLine>(°C / %RH)</UnitLine></Th>
                 <Th>Limit</Th>
                 <Th sortKey="clearedAt" sort={sort} dir={dir} onSort={toggleSort}>Cleared</Th>
                 <Th>Cleared value<UnitLine>(°C / %RH)</UnitLine></Th>
@@ -249,7 +249,6 @@ export default function AlarmsPage() {
               {rows.map((a) => {
                 const tone = quadrantTone(a);
                 const place = locationText(a);
-                const unit = alarmUnit(a);
                 return (
                   <tr key={a.id} className="group hover:bg-slate-50/70">
                     {/* The state marker. A wide table puts the status pill off to
@@ -273,8 +272,12 @@ export default function AlarmsPage() {
                       <span className="block">{formatDate(a.raisedAt)}</span>
                       <span className="block text-xs text-slate-400">{formatTime(a.raisedAt)}</span>
                     </td>
+                    {/* Bare number. The unit is in the column head and the row's
+                        metric is already named in the Type column, so repeating
+                        it per cell says the same thing twice and widens the
+                        column (operator, 2026-08-29 and again 2026-08-31). */}
                     <td className={`whitespace-nowrap px-4 py-3 font-semibold tabular-nums ${VALUE_INK[breachDirection(a)]}`}>
-                      {triggeredText(a)}{unit && <span className="ml-1 text-xs font-normal opacity-80">{unit}</span>}
+                      {triggeredText(a)}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-500">{limitText(a)}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-slate-600">
@@ -289,9 +292,6 @@ export default function AlarmsPage() {
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">
                       {clearedText(a)}
-                      {a.clearedValue !== null && a.clearedValue !== undefined && unit && (
-                        <span className="ml-1 text-xs opacity-70">{unit}</span>
-                      )}
                     </td>
                     <td className="px-4 py-3">
                       <StatusBadge

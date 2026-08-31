@@ -130,6 +130,13 @@ again the moment this installation passes one page of alarms.
   hundred.
 - The date range is sent as an INSTANT (`localInputToIso`): `datetime-local` gives
   zoneless text, and sending it raw would let the API resolve it in its own zone.
+- **Units live in the column HEADERS only** — `Generated Value (°C / %RH)`,
+  `Cleared value (°C / %RH)` — never on the cells. The row's metric is already
+  named in the Type column, so a per-cell unit repeats it and widens the widest
+  columns on the page. A helper for per-cell units has been written and deleted
+  TWICE (2026-08-29 as `metricUnit`/`triggeredWithUnit`/`clearedWithUnit`,
+  2026-08-31 as `alarmUnit`, the second time after a mockup showed them in the
+  cells). Do not add a third; put the unit in the header.
 
 ## Design system (Stage 1 `7ed8329`, Stage 2 2026-08-28)
 
