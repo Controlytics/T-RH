@@ -156,7 +156,12 @@ describe('the row', () => {
     const row = screen.getByText('CWH/RDU/001-00').closest('tr')!;
     expect(within(row).getByText('28.0')).toBeInTheDocument();
     expect(within(row).queryByText('°C')).toBeNull();
-    expect(screen.getByText('Generated Value').closest('th')!.textContent).toContain('°C');
+    // The heading is stacked onto three lines — "Generated" / "Value" /
+    // "(°C / %RH)" — so it cannot set the column's width and push the
+    // Acknowledge button off the screen. Asserted through the <th>, not the
+    // string, because the words are separate elements by design.
+    const head = screen.getByText('Generated').closest('th')!;
+    expect(head.textContent).toBe('GeneratedValue(°C / %RH)');
   });
 
   it('states the limit that was breached, from the frozen snapshot', () => {

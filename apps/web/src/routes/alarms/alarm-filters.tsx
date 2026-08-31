@@ -85,6 +85,13 @@ export function AlarmFilters({
             placeholder="Search by instrument ID, name or location…"
             aria-label="Search alarms by instrument ID, name or location"
             className="ctl w-full pl-10"
+            /* Belt and braces against the browser's credential heuristics. The
+               real cause of the username landing here was the acknowledge
+               dialog's unguarded password field (see SignaturePasswordInput),
+               but an unnamed text box with no autocomplete hint is exactly what
+               Chrome reaches for when it goes looking for a username to fill. */
+            name="alarm-search"
+            autoComplete="off"
           />
         </div>
 

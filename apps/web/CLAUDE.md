@@ -134,6 +134,11 @@ again the moment this installation passes one page of alarms.
   removed 2026-08-31: it is geometry, not a grouping, and every `floorplan_rooms.code`
   in this installation is its instrument's own code with `label` blank, so the line
   repeated the Instrument ID column. `roomLabel` went from the API response with it.
+- **The action column is `sticky right-0`** and the `Generated Value` /
+  `Cleared Value` / `Acknowledged by` headings are stacked one word per line.
+  Twelve columns overflow a laptop screen and the page's ONLY action was what
+  fell off the end of it. The stacking narrows the table; the pinned column is
+  what guarantees the button is reachable at any width.
 - **Units live in the column HEADERS only** — `Generated Value (°C / %RH)`,
   `Cleared value (°C / %RH)` — never on the cells. The row's metric is already
   named in the Type column, so a per-cell unit repeats it and widens the widest
@@ -141,6 +146,26 @@ again the moment this installation passes one page of alarms.
   TWICE (2026-08-29 as `metricUnit`/`triggeredWithUnit`/`clearedWithUnit`,
   2026-08-31 as `alarmUnit`, the second time after a mockup showed them in the
   cells). Do not add a third; put the unit in the header.
+
+## E-signature password fields — `autocomplete="off"` DOES NOT WORK
+
+Every §11 password box must be `components/ui/signature-password-input.tsx`.
+Never a bare `<input type="password">`, with or without `autoComplete="off"` —
+**Chrome deliberately ignores that attribute on credential fields.** The Alarms
+acknowledge dialog shipped one on 2026-08-31 and the browser filled the saved
+password into it, which makes a §11.200 signature executable by whoever is at an
+unlocked workstation. The field looks entirely normal while this happens.
+
+Second symptom, which is how it was found: a `type="password"` input that is NOT
+inside a `<form>` makes Chrome scan the whole document for a username field and
+fill an unrelated text box. It typed the logged-in username into the Alarms
+search box. That looks like a bug in the search box and is not.
+
+Four measures, each defeating a different heuristic — do not drop any one:
+mount as `type="text"` and switch to `password` a tick later (the one that
+actually stops the fill); `autoComplete="one-time-code"`; a `name` generated per
+MOUNT; `secureField`. Pinned by `components/ui/__tests__/signature-password-input.test.tsx`,
+which asserts all four separately and has been mutation-checked.
 
 ## Design system (Stage 1 `7ed8329`, Stage 2 2026-08-28)
 

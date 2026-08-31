@@ -1,5 +1,68 @@
 # Changelog
 
+## [Unreleased] - Alarms: a browser-fillable e-signature, and the Acknowledge button off-screen (2026-08-31)
+
+Operator, reporting three things. Two of them were one bug.
+
+### The e-signature password was being filled by the browser
+
+**This has regulatory weight.** 21 CFR §11.200 requires a signature to be
+executed by its owner; a password the browser types means anyone standing at an
+unlocked workstation can acknowledge an alarm as whoever the browser remembers.
+The field looks completely normal while it happens.
+
+`routes/alarms/acknowledge-dialog.tsx` used
+`<input type="password" autoComplete="off">`. **Chrome deliberately ignores
+`autocomplete="off"` on credential fields** — the password manager was built to
+override sites that opt out. That is the whole bug, and it also explains the
+second report: a `type="password"` input that is NOT inside a `<form>` makes
+Chrome scan the entire document for something to treat as the username field. It
+found the Alarms **search box** and typed the logged-in username into it the
+moment the dialog opened. That looked like a defect in the search box and was
+not.
+
+`components/reauth-dialog.tsx` already carried the defence — the acknowledge
+dialog, written later, simply did not. It has been extracted to
+**`components/ui/signature-password-input.tsx`** and BOTH now use it, so there is
+one implementation rather than a protected copy and an unprotected one. Four
+measures, each defeating a different heuristic and all needed together: mount as
+`type="text"` and become `type="password"` a tick later (this is the one that
+actually stops the fill); `autoComplete="one-time-code"`, which Chrome honours;
+a `name` generated per mount, since a stable name is a key a credential can be
+saved against; and `secureField`, blocking copy/cut/paste/drag.
+
+New `components/ui/__tests__/signature-password-input.test.tsx` asserts the four
+**separately**, because a simplification that drops one still passes a test that
+only checks the others. Mutation-checked: disabling each measure in turn failed
+its own test and no others.
+
+The search input also gained `name="alarm-search"` and `autoComplete="off"` —
+belt and braces, not the fix. An unnamed text box with no autocomplete hint is
+what Chrome reaches for when it goes looking for a username.
+
+### The Acknowledge button was off the right of the screen
+
+- **`Generated Value` and `Cleared Value` headers are stacked onto three lines**
+  (word / word / unit legend). On one line they were the widest headings on the
+  page and set their columns' width. Separate blocks, not a wrap, so the break is
+  identical at every viewport width. `Acknowledged by` stacks too, and the Type
+  cell now wraps to two lines as the mockup draws it.
+- **The action column is PINNED to the right edge** (`sticky right-0`, with its
+  own background and an edge shadow). The stacking above narrows the table, but
+  twelve columns will still overflow a small enough screen — and the one thing
+  that fell off the end was the page's only action. A table you must scroll
+  sideways to acknowledge an alarm from is a table nobody acknowledges alarms
+  from. This makes the button reachable regardless of width, rather than hoping
+  the width now fits.
+
+**No count moved** — `signature-password-input.tsx` is under `components/`, which
+is not one of the counted directories (`hooks/`, `lib/`).
+
+Verified: web 891 tests / 64 files, `tsc --noEmit` clean, `vite build` clean.
+**The width fix is NOT visually verified** — the operator's session was live, so
+whether the button now sits on screen at their viewport is unconfirmed; the
+pinned column is what guarantees it is reachable either way.
+
 ## [Unreleased] - Alarms: the Location column drops the room (2026-08-31)
 
 Operator. **No count moved.** Files: `apps/api/src/modules/alarms/routes.ts`,

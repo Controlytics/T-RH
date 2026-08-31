@@ -209,17 +209,27 @@ export default function AlarmsPage() {
                 <Th sortKey="type" sort={sort} dir={dir} onSort={toggleSort}>Type</Th>
                 <Th>Location</Th>
                 <Th sortKey="raisedAt" sort={sort} dir={dir} onSort={toggleSort}>Raised</Th>
-                <Th>Generated Value<UnitLine>(°C / %RH)</UnitLine></Th>
+                {/* Stacked onto three lines DELIBERATELY. On one line these two were the
+                    widest headings on the page and set their columns' width, which
+                    pushed the Acknowledge button off the right of the screen
+                    (operator, 2026-08-31). Separate blocks rather than a wrap, so
+                    the break is the same at every viewport width. */}
+                <Th><Stack>Generated</Stack><Stack>Value</Stack><UnitLine>(°C / %RH)</UnitLine></Th>
                 <Th>Limit</Th>
                 <Th sortKey="clearedAt" sort={sort} dir={dir} onSort={toggleSort}>Cleared</Th>
-                <Th>Cleared value<UnitLine>(°C / %RH)</UnitLine></Th>
+                <Th><Stack>Cleared</Stack><Stack>Value</Stack><UnitLine>(°C / %RH)</UnitLine></Th>
                 <Th sortKey="status" sort={sort} dir={dir} onSort={toggleSort}>Status</Th>
                 {/* H = hours, m = minutes. Abbreviated because the spelled-out
                     legend was the widest header on the page and pushed the table
                     past the viewport. */}
                 <Th title="H = hours, m = minutes">Duration<UnitLine>(H/m)</UnitLine></Th>
-                <Th>Acknowledged by</Th>
-                <Th />
+                <Th><Stack>Acknowledged</Stack><Stack>by</Stack></Th>
+                {/* Pinned to the right edge. Twelve columns do not fit a laptop
+                    screen, and the ONE action on the page was the thing that fell
+                    off the end of it — a table you must scroll sideways to
+                    acknowledge an alarm from is a table nobody acknowledges alarms
+                    from. Its own background, or the rows scroll through it. */}
+                <Th className="sticky right-0 shadow-[-8px_0_8px_-8px_rgba(15,23,42,0.25)]" style={{ backgroundColor: 'var(--theme-primary, #2a78d6)' }} />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -257,10 +267,12 @@ export default function AlarmsPage() {
                       <span className={`absolute inset-y-0 left-0 w-1 ${ACCENT[tone]}`} aria-hidden />
                       {instrumentLabel(a)}
                     </td>
+                    {/* Wraps to two lines, as the mockup draws it — "High
+                        Temperature" on one line is a wide column for two words. */}
                     <td className="px-4 py-3">
-                      <span className="flex items-center gap-2 text-slate-700">
+                      <span className="flex items-start gap-2 text-slate-700">
                         <MetricGlyph metric={a.metric} />
-                        {alarmTypeText(a)}
+                        <span className="min-w-0">{alarmTypeText(a)}</span>
                       </span>
                     </td>
                     <td className="px-4 py-3 text-slate-700">{locationText(a)}</td>
@@ -312,7 +324,7 @@ export default function AlarmsPage() {
                         <span className="font-medium text-rose-600">Awaiting</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-right">
+                    <td className="sticky right-0 bg-white px-4 py-3 text-right shadow-[-8px_0_8px_-8px_rgba(15,23,42,0.15)] group-hover:bg-slate-50">
                       {needsAcknowledgement(a) && can('alarms.acknowledge') && (
                         <Button size="sm" variant="outline" onClick={() => { setDialogError(''); setTarget(a); }}>
                           Acknowledge
@@ -393,13 +405,18 @@ function UnitLine({ children }: { children: React.ReactNode }) {
   return <span className="block font-normal normal-case tracking-normal opacity-70">{children}</span>;
 }
 
+/** One word of a heading, on its own line. */
+function Stack({ children }: { children: React.ReactNode }) {
+  return <span className="block">{children}</span>;
+}
+
 /**
  * A header cell. Sortable when given a `sortKey` — and only for the columns the
  * SERVER can order on, since sorting one page of a paged result would rearrange
  * twelve rows and call it a sort of five hundred.
  */
 function Th({
-  children, sortKey, sort, dir, onSort, title,
+  children, sortKey, sort, dir, onSort, title, className, style,
 }: {
   children?: React.ReactNode;
   sortKey?: AlarmSortKey;
@@ -407,13 +424,16 @@ function Th({
   dir?: 'asc' | 'desc';
   onSort?: (k: AlarmSortKey) => void;
   title?: string;
+  className?: string;
+  style?: React.CSSProperties;
 }) {
+  const base = `whitespace-nowrap px-4 py-3.5 align-top ${className ?? ''}`;
   if (!sortKey || !onSort) {
-    return <th className="whitespace-nowrap px-4 py-3.5 align-top" title={title}>{children}</th>;
+    return <th className={base} title={title} style={style}>{children}</th>;
   }
   const active = sort === sortKey;
   return (
-    <th className="whitespace-nowrap px-4 py-3.5 align-top" title={title} aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+    <th className={base} title={title} style={style} aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
       <button
         type="button"
         onClick={() => onSort(sortKey)}

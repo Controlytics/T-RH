@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { SignaturePasswordInput } from '@/components/ui/signature-password-input';
 import { ackReasonError, conditionText, instrumentLabel, triggeredText, MAX_ACK_REASON, type AlarmRow } from './alarm-display';
 
 /**
@@ -84,13 +85,19 @@ export function AcknowledgeDialog({
             <label htmlFor="ack-password" className="mb-1 block text-sm font-medium text-slate-700">
               Password <span className="text-red-600">*</span>
             </label>
-            <input
+            {/* NOT a bare `<input type="password" autoComplete="off">`, which is
+                what this was until 2026-08-31. Chrome ignores `autocomplete="off"`
+                on credential fields, so it pre-filled the saved password — and,
+                because the input is not inside a `<form>`, went looking across
+                the document for a username field and typed the logged-in
+                username into the Alarms search box. A browser-filled §11
+                signature is signable by whoever is standing at the workstation.
+                See SignaturePasswordInput for the four measures. */}
+            <SignaturePasswordInput
               id="ack-password"
-              type="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="ctl w-full"
-              autoComplete="off"
+              onChange={setPassword}
+              placeholder="Enter your password"
             />
           </div>
 
