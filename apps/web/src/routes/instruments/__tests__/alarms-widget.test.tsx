@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
+import { resolveTrendWidgetTexts } from '@digilog/shared';
 
 /**
  * The trend page's "Alarms in this period" widget.
@@ -85,8 +86,27 @@ const clearedAcked = {
 };
 
 let swrRows: unknown[] = [alarm];
+let canAcknowledge = true;
+vi.mock('@/hooks/use-can', () => ({ useCan: () => () => canAcknowledge }));
+vi.mock('@/hooks/use-toast', () => ({
+  useToast: () => ({ toast: { success: vi.fn(), error: vi.fn() } }),
+}));
+
+/**
+ * Every URL requested this render. The period, the page and the page size are all
+ * SERVER-side now, so the REQUEST is where those behaviours are observable.
+ *
+ * All of them, not just the last: `usePaginationDefaults` fetches through SWR too,
+ * and it runs after the widget's own call, so a single `let` holds the config
+ * URL and every assertion below reads `null`.
+ */
+const swrKeys: string[] = [];
+const alarmsKey = () => swrKeys.find((k) => k.startsWith('/api/alarms'));
 vi.mock('swr', () => ({
-  default: () => ({ data: { data: swrRows } }),
+  default: (key: string | null) => {
+    if (key) swrKeys.push(key);
+    return { data: { data: swrRows, total: swrRows.length } };
+  },
 }));
 
 vi.mock('@/hooks/use-datetime-format', () => ({
@@ -108,6 +128,7 @@ function renderWith(
   props: Partial<Parameters<typeof AlarmsWidget>[0]> = {},
 ) {
   swrRows = rows;
+  swrKeys.length = 0;
   try {
     return render(
       <AlarmsWidget
@@ -116,6 +137,9 @@ function renderWith(
         onExportPdf={() => {}}
         statusTexts={undefined}
         inactivityTexts={undefined}
+        // The ADMINISTERED headings, from the shared resolver rather than
+        // literals — a test that types its own defaults stops testing them.
+        labels={resolveTrendWidgetTexts({}).labels}
         {...props}
       />,
     );
@@ -215,8 +239,13 @@ describe('AlarmsWidget — inactivity column wording', () => {
   it('renders the shipped wording while the config has not loaded', () => {
     renderWith([inactivityAlarm]);
     expect(screen.getByText('No data')).toBeInTheDocument();
-    expect(screen.getByText('quiet > 15m')).toBeInTheDocument();
     expect(screen.getByText('Data resumed')).toBeInTheDocument();
+    // The Limit cell no longer carries the inactivity threshold (operator,
+    // 2026-09-01): that column shows the INSTRUMENT's bound for every type, and
+    // an OFFLINE alarm names no metric, so it reads a dash. The wording itself
+    // is not gone — it still renders in the signed PDF, which has no Condition
+    // column and would otherwise lose the threshold entirely.
+    expect(screen.queryByText('quiet > 15m')).toBeNull();
   });
 
   it('renders the CONFIGURED wording when the config has loaded — not the default', () => {
@@ -224,40 +253,97 @@ describe('AlarmsWidget — inactivity column wording', () => {
       inactivityTexts: { generatedValue: 'Silent', limit: 'no signal {minutes}m', clearedValue: 'Back online' },
     });
     expect(screen.getByText('Silent')).toBeInTheDocument();
-    // The frozen grace still comes from the alarm, substituted into the wording.
-    expect(screen.getByText('no signal 15m')).toBeInTheDocument();
+    // Configured or not, the Limit cell is the instrument's bound — see above.
+    // The assertion that the configured wording APPEARS was removed with it: the
+    // substitution of the frozen grace into that template is still exercised, in
+    // `alarm-display.test.ts` and on the PDF path, which is where it now renders.
+    expect(screen.queryByText('no signal 15m')).toBeNull();
     expect(screen.getByText('Back online')).toBeInTheDocument();
     expect(screen.queryByText('No data')).toBeNull();
   });
 });
 
 describe('AlarmsWidget — the type name is administered', () => {
+  /**
+   * Scoped to the TABLE since 2026-09-01, when a type filter joined the header.
+   * The administered name now appears twice on this widget — in the Type column
+   * and as an <option> in that filter — so an unscoped `getByText` throws on
+   * "multiple elements". Asserting the CELL is also the stricter claim: the two
+   * must agree, and only one of them is the record.
+   */
+  const inTable = () => screen.getByRole('table');
+
   it('renders the shipped type name while the config has not loaded', () => {
     renderWith([alarm]);
-    expect(screen.getByText('High Temperature')).toBeInTheDocument();
+    expect(within(inTable()).getByText('High Temperature')).toBeInTheDocument();
   });
 
   it('renders the CONFIGURED type name — the same rename the Alarms page shows', () => {
     renderWith([alarm], {
       inactivityTexts: { typeNames: { limitTemperatureHigh: 'Temp Over Spec' } },
     });
-    expect(screen.getByText('Temp Over Spec')).toBeInTheDocument();
+    expect(within(inTable()).getByText('Temp Over Spec')).toBeInTheDocument();
     expect(screen.queryByText('High Temperature')).toBeNull();
   });
 });
 
-describe('AlarmsWidget — the period is applied to the rows', () => {
+describe('AlarmsWidget — the period is applied by the SERVER', () => {
   it('says so when the window holds no alarms, rather than showing an empty table', () => {
     renderWith([]);
     expect(screen.getByText('No alarms raised in this window.')).toBeInTheDocument();
   });
 
-  it('excludes an alarm raised outside the window', () => {
-    // Raised a year before `period.from`. The widget windows on `raisedAt` in
-    // the browser; this pins that it still does.
-    renderWith([{ ...alarm, raisedAt: '2025-08-10T00:00:00.000Z' }]);
-    expect(screen.getByText('No alarms raised in this window.')).toBeInTheDocument();
-    expect(screen.queryByText('Still pending Unacknowledged')).toBeNull();
+  /**
+   * This widget used to fetch `limit=500` and drop out-of-window rows with an
+   * `Array.filter`, and the test here asserted that filter by feeding it a row a
+   * year outside the period. That is exactly the shape the Alarms page was rebuilt
+   * on 2026-08-31 to remove — a `limit` and a range meeting in one query — so on
+   * an instrument with more than 500 alarms the "period" was really its newest
+   * 500. It also made paging impossible: the server would page 500-row windows and
+   * the browser would thin each one.
+   *
+   * The window moved to the server on 2026-09-01, so the assertion moved with it.
+   * Feeding a row outside the period no longer proves anything — the mock returns
+   * whatever it is given, and a real server would not have returned that row. What
+   * IS provable, and what actually protects the behaviour, is that the range is
+   * SENT.
+   */
+  it('sends the period as from/to rather than filtering in the browser', () => {
+    renderWith([alarm]);
+    const url = new URL(alarmsKey()!, 'https://x');
+    expect(url.searchParams.get('from')).toBe(period.from);
+    expect(url.searchParams.get('to')).toBe(period.to);
+    expect(url.searchParams.get('instrumentId')).toBe('i-1');
+  });
+
+  it('does NOT send the old 500-row limit', () => {
+    // The cap this replaced. Its return would silently reinstate the truncation.
+    renderWith([alarm]);
+    expect(new URL(alarmsKey()!, 'https://x').searchParams.get('limit')).toBeNull();
+  });
+});
+
+describe('AlarmsWidget — pagination', () => {
+  it('asks the server for a page, not for everything', () => {
+    renderWith([alarm]);
+    const q = new URL(alarmsKey()!, 'https://x').searchParams;
+    expect(q.get('page')).toBe('1');
+    expect(Number(q.get('pageSize'))).toBeGreaterThan(0);
+  });
+
+  it('shows the pager, counting the SERVER total', () => {
+    renderWith([alarm]);
+    // "Showing 1–1 of 1" — the numbers come from `total`, not from the rows in
+    // hand, which are one page.
+    expect(screen.getByText(/Showing/)).toBeInTheDocument();
+    expect(screen.getByText('Rows:')).toBeInTheDocument();
+  });
+
+  it('renders no pager at all when the window is empty', () => {
+    // "Showing 0–0 of 0" under a "No alarms raised in this window." line is two
+    // ways of saying nothing, one of them noisier.
+    renderWith([]);
+    expect(screen.queryByText(/Showing/)).toBeNull();
   });
 });
 
@@ -280,5 +366,138 @@ describe('AlarmsWidget — the export menu is untouched', () => {
     // By ACCESSIBLE NAME, which is what catches an icon button that lost its
     // name — the same rule `trend-downloads.test.tsx` follows.
     expect(screen.getByRole('button', { name: /export/i })).toBeInTheDocument();
+  });
+});
+
+/**
+ * Acknowledging from the widget is the SAME §11 signature as from the Alarms
+ * page. It was deliberately absent when this widget shipped — it had no gate, no
+ * re-auth dialog and no revalidation, and a button that renders but cannot
+ * complete a signature invites an operator to try and fail. These pin the four
+ * things that had to arrive with it.
+ */
+describe('AlarmsWidget — acknowledging', () => {
+  it('offers Acknowledge on an alarm that still needs answering for', () => {
+    canAcknowledge = true;
+    renderWith([{ ...alarm, state: 'ACTIVE', acknowledgedAt: null }]);
+    expect(screen.getByRole('button', { name: 'Acknowledge' })).toBeInTheDocument();
+  });
+
+  it('does NOT offer it on an alarm already signed for', () => {
+    // Cleared AND acknowledged: nothing is owed, so the button would be an
+    // invitation to sign twice for one event.
+    canAcknowledge = true;
+    renderWith([{
+      ...alarm, state: 'CLEARED', clearedAt: '2026-08-13T05:00:00Z',
+      acknowledgedAt: '2026-08-13T06:00:00Z', acknowledgedBy: 'aoperator',
+    }]);
+    expect(screen.queryByRole('button', { name: 'Acknowledge' })).toBeNull();
+  });
+
+  it('HIDES it from a role without the permission', () => {
+    // The gate, asserted rather than assumed. Mocking `useCan` to a constant
+    // `true` would leave the one control between an operator and a signature
+    // untested on this surface.
+    canAcknowledge = false;
+    renderWith([{ ...alarm, state: 'ACTIVE', acknowledgedAt: null }]);
+    expect(screen.queryByRole('button', { name: 'Acknowledge' })).toBeNull();
+    canAcknowledge = true;
+  });
+
+  it('opens the re-authentication dialog rather than signing on one click', () => {
+    // A §11 signature needs the password and a reason. A button that acknowledged
+    // directly would be a signature nobody authenticated.
+    canAcknowledge = true;
+    renderWith([{ ...alarm, state: 'ACTIVE', acknowledgedAt: null }]);
+    fireEvent.click(screen.getByRole('button', { name: 'Acknowledge' }));
+    // Asserted on the dialog's own heading and its two required inputs rather
+    // than on `role="dialog"`, which this component does not set. Both inputs
+    // matter: a reason without a password is not a signature, and a password
+    // without a reason is a signature with no stated meaning.
+    expect(screen.getByRole('heading', { name: 'Acknowledge Alarm' })).toBeInTheDocument();
+    expect(screen.getByLabelText(/Reason/)).toBeInTheDocument();
+  });
+});
+
+/**
+ * Administered wording (2026-09-01).
+ *
+ * The title and all nine headings come from `system_config['trend-widgets']`
+ * through `resolveTrendWidgetTexts`, and the widget must not carry a literal of
+ * its own for any of them. Two failures are pinned here, and both look like
+ * styling on a rendered page: a rename that never reaches the table, and a blank
+ * that leaves a column with no name.
+ */
+describe('AlarmsWidget — administered wording', () => {
+  const shipped = resolveTrendWidgetTexts({}).labels;
+
+  it('prints the shipped wording when nothing is administered', () => {
+    renderWith([alarm]);
+    expect(screen.getByText(shipped.alarmsTitle)).toBeInTheDocument();
+    const head = document.querySelector('thead')!;
+    for (const key of ['alarmsTypeHeading', 'alarmsRaisedHeading', 'alarmsLimitHeading',
+      'alarmsStatusHeading', 'alarmsDurationHeading'] as const) {
+      expect(within(head).getByText(shipped[key]), key).toBeInTheDocument();
+    }
+  });
+
+  it('a RENAMED heading actually reaches the table', () => {
+    // The rename has to arrive in the DOM, not merely be accepted by the config
+    // page. Renaming five at once, including a stacked one, so a wiring that
+    // reached only the easy single-word headings fails.
+    const labels = resolveTrendWidgetTexts({
+      alarmsTitle: 'Events in this period',
+      alarmsTypeHeading: 'Kind',
+      alarmsStatusHeading: 'State',
+      alarmsDurationHeading: 'Open for',
+      alarmsAcknowledgedByHeading: 'Signed by',
+    }).labels;
+    renderWith([alarm], { labels });
+
+    expect(screen.getByText('Events in this period')).toBeInTheDocument();
+    const head = document.querySelector('thead')!;
+    expect(within(head).getByText('Kind')).toBeInTheDocument();
+    expect(within(head).getByText('State')).toBeInTheDocument();
+    // The shipped words are GONE, not merely joined by the new ones — a widget
+    // that rendered both would satisfy a presence-only assertion.
+    expect(within(head).queryByText('Type')).toBeNull();
+    expect(within(head).queryByText('Status')).toBeNull();
+  });
+
+  it('a multi-word heading stacks one word per line, as the shipped ones do', () => {
+    // `Th` is `whitespace-nowrap`, so an unstacked two-word heading is the widest
+    // cell in the table and drags its column out with it. The three shipped
+    // multi-word headings were hand-stacked for that reason; a renamed one must
+    // be stacked too, or the rename silently widens the table.
+    const labels = resolveTrendWidgetTexts({ alarmsStatusHeading: 'Current State' }).labels;
+    renderWith([alarm], { labels });
+    const head = document.querySelector('thead')!;
+    // Two separate block spans, not one text node.
+    expect(within(head).getByText('Current')).toBeInTheDocument();
+    expect(within(head).getByText('State')).toBeInTheDocument();
+    expect(within(head).queryByText('Current State')).toBeNull();
+  });
+
+  it('a BLANK heading falls back to the shipped wording, never an empty column', () => {
+    // The resolver is what guarantees this, and the widget is asserted against it
+    // rather than trusted to have called it.
+    const labels = resolveTrendWidgetTexts({ alarmsStatusHeading: '   ', alarmsTitle: '' }).labels;
+    renderWith([alarm], { labels });
+    expect(screen.getByText(shipped.alarmsTitle)).toBeInTheDocument();
+    expect(within(document.querySelector('thead')!).getByText(shipped.alarmsStatusHeading))
+      .toBeInTheDocument();
+  });
+
+  it('KEEPS the unit legends and the duration tooltip through a rename', () => {
+    // They explain the CELLS, not the column's name. A rename that dropped them
+    // would leave a column of bare numbers with no units on a §11 surface.
+    const labels = resolveTrendWidgetTexts({
+      alarmsGeneratedValueHeading: 'Reading', alarmsDurationHeading: 'Open for',
+    }).labels;
+    renderWith([alarm], { labels });
+    const head = document.querySelector('thead')!;
+    expect(within(head).getAllByText('(°C / %RH)').length).toBe(2);
+    expect(within(head).getByText('(H/m)')).toBeInTheDocument();
+    expect(head.querySelector('th[title="H = hours, m = minutes"]')).not.toBeNull();
   });
 });

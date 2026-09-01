@@ -259,6 +259,23 @@ const superAdminCards = [
     gradient: 'from-sky-500 to-indigo-600',
   },
   {
+    // Every field here is also editable in place, from a pencil in each
+    // widget's own header on the trend page — the same `system_config` row,
+    // reached two ways. This card is the one that lists all six widgets
+    // together, which is what you want when renaming a word that appears on
+    // several of them.
+    title: 'Trend Page Widgets',
+    description: 'What each widget on the instrument trend page is called, and how it prints dates and times',
+    href: '/config/dynamic/trend-widgets',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+      </svg>
+    ),
+    gradient: 'from-violet-500 to-fuchsia-600',
+  },
+  {
     title: 'Alarm Webhooks',
     description: 'Hooters and HTTP endpoints alarms are announced to, and what body to send',
     href: '/config/alarm-webhooks',

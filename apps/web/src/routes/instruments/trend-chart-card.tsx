@@ -83,11 +83,19 @@ export interface TrendChartCardProps {
   code: string;
   /** Fires the per-chart §11 report download. */
   onExportPdf: () => void;
+  /**
+   * The SUPER_ADMIN edit affordance for this card's administered `title`, passed
+   * in rather than rendered here — same reason as `BandGauge`'s: this card is a
+   * presentation of values it is handed, and a role check plus a config write
+   * inside it would make it something else.
+   */
+  settingsButton?: ReactNode;
   children: ReactNode;
 }
 
 export function TrendChartCard({
-  title, icon, accent, status, locationParts, code, onExportPdf, children,
+  title, icon, accent, status, locationParts, code, onExportPdf,
+  settingsButton = null, children,
 }: TrendChartCardProps) {
   const [fullscreen, setFullscreen] = useState(false);
   const sc = status ? statusClasses(status) : null;
@@ -153,6 +161,7 @@ export function TrendChartCard({
               downloads on this page all logged as "Instrument Trend" would leave
               a §11 audit trail that cannot say which report a row was. */}
           <ExportMenu surface="instrument-trend" iconOnly onExportPdf={onExportPdf} />
+          {settingsButton}
           <button
             type="button"
             className={iconBtn}

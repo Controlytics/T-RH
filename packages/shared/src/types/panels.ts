@@ -94,12 +94,6 @@ export const PANELS: readonly PanelDefinition[] = [
     description: 'Temperature and humidity plotted over the selected period',
   },
   {
-    key: 'trend_summary',
-    page: 'trend',
-    label: 'Chart summary strips',
-    description: 'Min / max / average and out-of-limit counts beneath each chart',
-  },
-  {
     key: 'trend_historian_table',
     page: 'trend',
     label: 'Time series (raw readings)',

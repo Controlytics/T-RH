@@ -23,6 +23,8 @@ export interface AlarmRow {
   instrumentName?: string | null;
   /** The instrument's FUNCTIONAL location — the authoritative grouping. */
   locationName?: string | null;
+  /** The instrument's own `Location` attribute — the space it names. */
+  locationAttribute?: string | null;
   metric: string;
   triggeredValue: number | null;
   state: string;
@@ -294,6 +296,54 @@ export function alarmTypeText(a: AlarmRow, texts?: AlarmDisplayTexts): string {
  * decide.ts` `ruleSnapshot()`) never has `limit` — it carries `comparison` +
  * `thresholdLow`/`thresholdHigh` instead. Both must render a bound here.
  */
+/**
+ * The Limit column ON SCREEN: the INSTRUMENT's bound, for every alarm type.
+ *
+ * Operator, 2026-09-01 — "for all types instrument limits only", then "show the
+ * limits only, don't make empty". Each source used to answer "what did this
+ * breach?" its own way: a duration of silence for INACTIVITY, the constant
+ * `numeric` for RS485_FAILURE, the probe's span for SENSOR_RANGE, a real bound
+ * only for INSTRUMENT_LIMIT. Four kinds of answer down one column read as
+ * inconsistency rather than precision.
+ *
+ * Resolution order, and the reason for it:
+ *  1. The alarm's OWN frozen bound, where it has one. A closed excursion must
+ *     keep quoting what it actually fired against — re-reading today's
+ *     attribute would let an edit rewrite history.
+ *  2. Otherwise the instrument's CURRENT bound for that alarm's metric, when
+ *     the caller supplies it. This is what fills the cell for the three sources
+ *     that have no bound of their own.
+ *  3. Otherwise a dash. Never a blank cell: an empty td reads as a rendering
+ *     fault, and never a BORROWED bound for a metric the alarm does not name —
+ *     an OFFLINE alarm did not breach a temperature limit and must not appear
+ *     to have.
+ *
+ * NOT used by the signed PDF, which still calls {@link limitText}. That report
+ * has no Condition column, so its Limit cell is the ONLY place the threshold an
+ * alarm fired against survives in the document; collapsing it there would
+ * remove regulated evidence to tidy a column.
+ */
+export function screenLimitText(
+  a: AlarmRow,
+  texts?: AlarmDisplayTexts,
+  limits?: { tempMin?: number | null; tempMax?: number | null; rhMin?: number | null; rhMax?: number | null } | null,
+): string {
+  if (a.source === 'INSTRUMENT_LIMIT') return limitText(a, texts);
+
+  const dp = alarmDecimals(a);
+  const f = (n: number) => formatDecimals(n, dp) ?? String(n);
+  const metric = a.metric === 'TEMPERATURE' ? 'temp' : a.metric === 'HUMIDITY' ? 'rh' : null;
+  if (metric && limits) {
+    const lo = metric === 'temp' ? limits.tempMin : limits.rhMin;
+    const hi = metric === 'temp' ? limits.tempMax : limits.rhMax;
+    const parts: string[] = [];
+    if (typeof hi === 'number' && Number.isFinite(hi)) parts.push(`> ${f(hi)}`);
+    if (typeof lo === 'number' && Number.isFinite(lo)) parts.push(`< ${f(lo)}`);
+    if (parts.length) return parts.join(' / ');
+  }
+  return '—';
+}
+
 export function limitText(a: AlarmRow, texts?: AlarmDisplayTexts): string {
   // An inactivity alarm has no numeric bound — the threshold it breached is a
   // DURATION of silence. From the frozen snapshot, so lengthening the grace today
@@ -492,7 +542,21 @@ export function alarmDurationText(a: Pick<AlarmRow, 'raisedAt' | 'clearedAt'>): 
  * response with it; put it back only if rooms are ever named independently of
  * the instruments in them.
  */
-export function locationText(a: Pick<AlarmRow, 'locationName'>): string {
+export function locationText(a: Pick<AlarmRow, 'locationName' | 'locationAttribute'>): string {
+  /**
+   * THE SPACE, not the grouping (operator, 2026-09-01).
+   *
+   * This returned `locationName` — the FUNCTIONAL location — so a column headed
+   * "Location" printed an AREA ("QC 3") while the dashboard table's own Location
+   * column, added the same day, printed the room-level text
+   * ("Dissolution & UV Room"). Two columns with one heading and two meanings.
+   *
+   * The functional location is still the fallback rather than being dropped: it
+   * is the only placement fact an instrument with no `Location` attribute has,
+   * and an Area is a better answer than "Unassigned".
+   */
+  const typed = a.locationAttribute?.trim();
+  if (typed) return typed;
   // Not an empty cell: an instrument with no functional location is a real and
   // normal state, and a blank reads as a rendering fault.
   return a.locationName?.trim() || 'Unassigned';

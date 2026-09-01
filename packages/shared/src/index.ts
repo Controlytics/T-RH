@@ -203,3 +203,15 @@ export type {
   AlarmWebhookTargetShape,
 } from './types/alarm-webhook.js';
 
+
+export {
+  TREND_WIDGET_IDS, TREND_WIDGET_LABEL_KEYS, TREND_WIDGET_LABEL_DEFAULT,
+  TREND_WIDGET_LABEL_MAX, TREND_WIDGET_DATE_FORMATS, TREND_WIDGET_TIME_FORMATS,
+  TREND_WIDGET_FORMAT_INHERIT, TREND_WIDGET_FIELDS, TREND_WIDGET_FIELD_LABEL,
+  trendWidgetLabel, trendWidgetFormat, resolveTrendWidgetTexts, coerceTrendWidgetTexts,
+  trendWidgetDateFormatKey, trendWidgetTimeFormatKey,
+} from './types/trend-widgets.js';
+export type {
+  TrendWidgetId, TrendWidgetLabelKey, TrendWidgetConfig,
+  TrendWidgetFormat, TrendWidgetTexts,
+} from './types/trend-widgets.js';

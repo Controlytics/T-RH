@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  needsAcknowledgement, tabFor, conditionText, triggeredText, clearedText,
+  needsAcknowledgement, tabFor, conditionText, triggeredText, clearedText, screenLimitText,
   mapInactivityTextsResponse,
   instrumentLabel, ackReasonError, MIN_ACK_REASON, MAX_ACK_REASON,
   quadrantFor, ALARM_QUADRANTS,
@@ -798,5 +798,93 @@ describe('alarm type names are administered in ONE place', () => {
     // vocabulary and an unknown one is a 400.
     expect(alarmTypeOptions(names).map((o) => o.value))
       .toEqual(['TEMP_HIGH', 'TEMP_LOW', 'RH_HIGH', 'RH_LOW', 'OFFLINE', 'RS485', 'RANGE']);
+  });
+});
+
+/**
+ * The on-screen Limit column shows the instrument's bound and nothing else
+ * (operator, 2026-09-01).
+ *
+ * The load-bearing half is the PDF: `limitText` is UNCHANGED and the signed
+ * report still calls it, because that document has no Condition column and its
+ * Limit cell is the only place the threshold survives. A change that quietly
+ * blanked it there would remove regulated evidence to tidy a column.
+ */
+describe('screenLimitText', () => {
+  const inst = (over: Partial<AlarmRow> = {}) => alarm({
+    source: 'INSTRUMENT_LIMIT', limitKind: 'HIGH',
+    ruleSnapshot: { limit: 25, decimals: 1 },
+    ...over,
+  });
+
+  it('shows the bound for an instrument-limit alarm', () => {
+    expect(screenLimitText(inst())).toBe('> 25.0');
+    expect(screenLimitText(inst({ limitKind: 'LOW' }))).toBe('< 25.0');
+  });
+
+  it('shows the INSTRUMENT bound for a source that has none of its own', () => {
+    // The operator's rule: one kind of answer down the column. A range or RS485
+    // alarm names a metric, so the instrument's bound for that metric is what
+    // fills the cell.
+    const a = alarm({ source: 'SENSOR_RANGE', metric: 'TEMPERATURE', ruleSnapshot: { decimals: 1 } });
+    expect(screenLimitText(a, undefined, { tempMin: 18, tempMax: 27 })).toBe('> 27.0 / < 18.0');
+  });
+
+  it('falls back to a DASH, never an empty cell', () => {
+    // An empty td reads as a rendering fault. And never a borrowed bound: an
+    // OFFLINE alarm names no metric, so there is no instrument limit it can
+    // honestly be said to have breached.
+    const offline = alarm({ source: 'INACTIVITY', metric: 'OFFLINE', ruleSnapshot: { graceMinutes: 15 } });
+    expect(screenLimitText(offline, undefined, { tempMin: 18, tempMax: 27 })).toBe('—');
+    // And with no limits supplied at all — the Alarms page's case.
+    expect(screenLimitText(alarm({ source: 'RS485_FAILURE', metric: 'TEMPERATURE' }))).toBe('—');
+  });
+
+  it('leaves the SIGNED PDF path untouched', () => {
+    // The same three rows still render their threshold through `limitText`,
+    // which is what `trend-report.ts` calls. If these ever go blank, the
+    // report has silently lost the only record of what each alarm fired
+    // against.
+    expect(limitText(alarm({ source: 'INACTIVITY', ruleSnapshot: { graceMinutes: 15 } })))
+      .toContain('15');
+    expect(limitText(alarm({ source: 'SENSOR_RANGE', ruleSnapshot: { rangeLow: -40, rangeHigh: 50 } })))
+      .toContain('50');
+  });
+});
+
+/**
+ * The Location column names the SPACE, not the grouping (operator, 2026-09-01).
+ *
+ * It returned `locationName` — the FUNCTIONAL location — so a column headed
+ * "Location" printed an AREA ("QC 3") while the dashboard table's own Location
+ * column, added the same day, printed the room-level text. One heading, two
+ * meanings, on two screens an operator reads side by side.
+ */
+describe('locationText', () => {
+  it('prints the instrument’s own Location attribute', () => {
+    expect(locationText({
+      locationName: 'QC 3',
+      locationAttribute: 'Dissolution & UV Room',
+    })).toBe('Dissolution & UV Room');
+  });
+
+  it('does NOT print the Area when a typed location exists', () => {
+    // The defect, stated directly.
+    expect(locationText({
+      locationName: 'QC 3',
+      locationAttribute: 'Dissolution & UV Room',
+    })).not.toBe('QC 3');
+  });
+
+  it('falls back to the functional location when nobody typed one', () => {
+    // Kept rather than dropped: it is the only placement fact such an
+    // instrument has, and an Area beats "Unassigned".
+    expect(locationText({ locationName: 'QC 3', locationAttribute: null })).toBe('QC 3');
+    expect(locationText({ locationName: 'QC 3', locationAttribute: '   ' })).toBe('QC 3');
+  });
+
+  it('says Unassigned only when there is neither', () => {
+    // Never an empty cell — a blank reads as a rendering fault.
+    expect(locationText({ locationName: null, locationAttribute: null })).toBe('Unassigned');
   });
 });

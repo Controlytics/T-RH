@@ -54,6 +54,9 @@ const alarmProps = {
   /** The instrument's FUNCTIONAL location — the authoritative logical grouping,
    *  not the free-text `instruments.location` column, which is superseded. */
   locationName: { type: 'string', nullable: true },
+  // DECLARED, or Fastify strips it silently — this repo has lost a field that
+  // way five times, most recently `rangeBounds` on the telemetry overview.
+  locationAttribute: { type: 'string', nullable: true },
   metric: { type: 'string' },
   triggeredValue: { type: 'number', nullable: true },
   state: { type: 'string' },
@@ -193,6 +196,33 @@ export default async function alarmRoutes(app: FastifyInstance) {
             select: {
               code: true, name: true,
               functionalLocation: { select: { name: true } },
+              /**
+               * The instrument's OWN `Location` attribute — the free-text
+               * placement somebody typed ("Dissolution & UV Room").
+               *
+               * A THIRD placement fact beside the functional location above:
+               * that one is the Block > Area grouping alarms and visibility
+               * resolve through, this one names the space. The Location COLUMN
+               * showed the functional location until 2026-09-01, so a column
+               * headed "Location" printed an AREA — which is what the operator
+               * reported. Filtered in SQL rather than loading every attribute:
+               * an instrument here carries a dozen.
+               */
+              attributes: {
+                where: { key: { equals: 'Location', mode: 'insensitive' } },
+                select: { value: true },
+                /**
+                 * ORDERED, because `take: 1` without one is whatever Postgres
+                 * hands back first — and the match is case-INSENSITIVE precisely
+                 * because this installation's keys have drifted, so an instrument
+                 * carrying both `Location` and `location` is the case that
+                 * actually arises. Unordered, the cell would show an arbitrary one
+                 * of the two and could flip between requests with nothing changed.
+                 * A §11 screen does not get to be non-deterministic.
+                 */
+                orderBy: { key: 'asc' },
+                take: 1,
+              },
             },
           },
         },
@@ -231,6 +261,10 @@ export default async function alarmRoutes(app: FastifyInstance) {
         instrumentCode: a.instrument?.code ?? null,
         instrumentName: a.instrument?.name ?? null,
         locationName: a.instrument?.functionalLocation?.name ?? null,
+        // The space, not the grouping. `locationText()` prefers this and falls
+        // back to `locationName`, so a row keeps saying something useful when
+        // nobody has typed one.
+        locationAttribute: a.instrument?.attributes?.[0]?.value?.trim() || null,
         raisedAt: a.raisedAt.toISOString(),
         clearedAt: a.clearedAt?.toISOString() ?? null,
         acknowledgedAt: a.acknowledgedAt?.toISOString() ?? null,

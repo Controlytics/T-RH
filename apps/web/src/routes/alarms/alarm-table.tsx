@@ -1,7 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { StatusBadge } from '@/components/ui/status-badge';
 import {
-  quadrantTone, statusText, breachDirection, triggeredText, clearedText, limitText,
+  quadrantTone, statusText, breachDirection, triggeredText, clearedText, screenLimitText,
   alarmTypeText, alarmDurationText, instrumentLabel, locationText,
   type AlarmRow, type AlarmSortKey, type AlarmStatusTexts, type AlarmDisplayTexts,
   type QuadrantTone, type BreachDirection,
@@ -249,8 +249,18 @@ export function AlarmValueCell({ a, texts }: { a: AlarmRow; texts?: AlarmDisplay
 }
 
 /** The bound it fired against, from the FROZEN snapshot. */
-export function AlarmLimitCell({ a, texts }: { a: AlarmRow; texts?: AlarmDisplayTexts }) {
-  return <td className={`whitespace-nowrap ${ALARM_CELL} tabular-nums text-slate-500`}>{limitText(a, texts)}</td>;
+export function AlarmLimitCell({ a, texts, limits }: {
+  a: AlarmRow;
+  texts?: AlarmDisplayTexts;
+  /**
+   * The instrument's CURRENT bounds, for the sources that carry no bound of
+   * their own. Optional because the Alarms page spans many instruments and has
+   * no single set to pass — there the cell falls back to a dash, which is what
+   * it showed for those rows before the alarm's own thresholds were suppressed.
+   */
+  limits?: { tempMin?: number | null; tempMax?: number | null; rhMin?: number | null; rhMax?: number | null } | null;
+}) {
+  return <td className={`whitespace-nowrap ${ALARM_CELL} tabular-nums text-slate-500`}>{screenLimitText(a, texts, limits)}</td>;
 }
 
 /** The reading that brought it back in limit. */

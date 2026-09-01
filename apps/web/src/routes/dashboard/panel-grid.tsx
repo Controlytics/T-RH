@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { ResponsiveGridLayout, useContainerWidth, type Layout } from 'react-grid-layout';
 import { GRID_COLUMNS, type LayoutItem } from '@digilog/shared';
+import { AUTO_HEIGHT_PANELS, ROW_HEIGHT, MARGIN_Y } from './panel-auto-height';
 import { Button } from '@/components/ui/button';
 
 // react-grid-layout ships its own CSS AND expects react-resizable's. Omit either
@@ -25,7 +26,29 @@ import 'react-resizable/css/styles.css';
 
 const BREAKPOINTS = { lg: 1200, md: 900, sm: 0 };
 const COLS = { lg: GRID_COLUMNS, md: 6, sm: 1 };
-const ROW_HEIGHT = 40;
+// ROW_HEIGHT / MARGIN_Y come from `panel-auto-height` so the geometry the grid
+// DRAWS with and the geometry the auto-height maths SOLVES with are the same two
+// numbers. Two copies would mis-size every measured panel by a constant, and it
+// would look like a rounding bug rather than a duplicated constant.
+
+/**
+ * Give every AUTO-HEIGHT panel a WIDTH-ONLY handle.
+ *
+ * The library's default is `['se']` — the bottom-right corner, which drags both
+ * axes. On a card whose height is measured, the vertical half of that drag is
+ * immediately undone by the next measurement, so the corner would look broken.
+ * `['e']` is the right EDGE: width still drags, height cannot.
+ *
+ * Per-item `resizeHandles` overrides the grid-level `resizeConfig.handles` in
+ * react-grid-layout 2.x. The floorplan is deliberately not listed in
+ * `AUTO_HEIGHT_PANELS`, so it keeps the corner and stays draggable in both axes —
+ * it is the one panel here where a taller box genuinely shows more.
+ */
+export function withResizeHandles(items: readonly LayoutItem[]) {
+  return items.map((it) => (
+    AUTO_HEIGHT_PANELS.has(it.i) ? { ...it, resizeHandles: ['e' as const] } : it
+  ));
+}
 
 export function PanelGrid({
   items, editing, saving, children, onStart, onCancel, onSave, onReset, onChange, toolbar,
@@ -101,11 +124,11 @@ export function PanelGrid({
         <ResponsiveGridLayout
           width={width}
           className="layout"
-          layouts={{ lg: items as Layout }}
+          layouts={{ lg: withResizeHandles(items) as Layout }}
           breakpoints={BREAKPOINTS}
           cols={COLS}
           rowHeight={ROW_HEIGHT}
-          margin={[16, 16]}
+          margin={[16, MARGIN_Y]}
           // react-grid-layout 2.x replaced the flat isDraggable / isResizable /
           // draggableCancel props with these config objects. The v1 names are
           // still accepted by its `legacy` entry point, which this does NOT use.

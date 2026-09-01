@@ -116,7 +116,26 @@ function figure(n: number, decimals: number): string {
 const OUT_OF_LIMIT = '#DC2626';
 
 /** The three footer captions, which carry their own colour at each call site. */
-const CELL_LABEL = 'flex items-center gap-1.5 text-[0.8125rem] font-semibold uppercase tracking-[0.06em]';
+const CELL_LABEL = 'flex items-center gap-1.5 text-[0.75rem] font-semibold uppercase tracking-[0.06em]';
+
+/**
+ * The reading's three size steps, EXPORTED because the tests assert two of them
+ * as absences.
+ *
+ * `steps the reading down a size` checks that a long value is NOT rendered at
+ * `big`. Written as a literal, that assertion silently stops testing anything
+ * the moment the sizes change — it would pass against a card whose big size no
+ * longer exists. Importing the constant makes the test move with the design.
+ *
+ * Shrunk 2026-09-01 (operator: decrease the latest-value card size). Every
+ * dimension on this card came down together; changing the number alone would
+ * have left it crowding an icon and a panel built around the old scale.
+ */
+export const READING_SIZE = {
+  big: 'text-[3.25rem]',
+  mid: 'text-[2.25rem]',
+  small: 'text-[1.5rem]',
+} as const;
 
 /** The arc geometry, in the icon's own 84×84 viewBox. */
 const ARC_R = 40;
@@ -192,12 +211,23 @@ export interface BandGaugeProps {
   sensorWords?: { failure: string; outOfRange: string };
   /** Page-load stagger, ms. The sweep itself is in CSS (`.band-arc`). */
   delayMs?: number;
+  /**
+   * The SUPER_ADMIN edit affordance for this card's administered `label`, passed
+   * in rather than rendered here.
+   *
+   * The card stays what it was — a pure presentation of one slot, with every
+   * word handed to it. Reaching for `useAuth` and a config PUT inside it would
+   * put a role check and a write path into a component whose whole test suite is
+   * built on it having neither.
+   */
+  settingsButton?: ReactNode;
 }
 
 export function BandGauge({
   label, unit, reading, decimals, min, max, limitSource, roomCode,
   instrumentStatus = null, accent, icon = null,
   sensorError = false, rangeError = false, sensorWords, formatTs, delayMs = 0,
+  settingsButton = null,
 }: BandGaugeProps) {
   const state = bandGaugeState(reading?.value, min, max, decimals);
 
@@ -265,8 +295,8 @@ export function BandGauge({
   // ceiling of 10. Stepping the size down is the only option that neither wraps
   // the line nor clips digits off a §11 reading.
   const valueSize = valueText.length <= 6
-    ? 'text-[4.25rem]'
-    : valueText.length <= 9 ? 'text-[3rem]' : 'text-[2rem]';
+    ? READING_SIZE.big
+    : valueText.length <= 9 ? READING_SIZE.mid : READING_SIZE.small;
 
   // Same problem in the third of a card each bound gets, and ONE size for both:
   // two bounds of one quantity set at different sizes would read as different
@@ -324,7 +354,7 @@ export function BandGauge({
           <span className={CELL_LABEL + ' text-slate-500'}>Status</span>
           <span
             data-testid="band-status-word"
-            className={`text-[0.8125rem] font-bold uppercase tracking-[0.04em] ${assessed ? sc.text : 'text-slate-500'}`}
+            className={`text-[0.75rem] font-bold uppercase tracking-[0.04em] ${assessed ? sc.text : 'text-slate-500'}`}
           >
             {assessed ? sc.label : 'Not assessed'}
           </span>
@@ -344,11 +374,11 @@ export function BandGauge({
       <span className="absolute inset-x-0 top-0 h-[3px]" style={{ backgroundColor: accent, opacity: 0.2 }} aria-hidden="true" />
       <span className="absolute left-0 top-0 h-[3px] w-1/5 rounded-r-full" style={{ backgroundColor: accent }} aria-hidden="true" />
 
-      <div className="relative p-4 pt-6">
+      <div className="relative p-3 pt-5">
         {/* The reading block, bled back out to the card edges so the hills can
             reach them. `overflow-hidden` is what stops those hills running on
             under the footer panel, which in the reference sits on clean white. */}
-        <div className="relative -mx-4 -mt-6 overflow-hidden px-4 pb-6 pt-6">
+        <div className="relative -mx-3 -mt-5 overflow-hidden px-3 pb-4 pt-5">
           {/* Two soft hills in the series colour, from the reference. */}
           <svg
             viewBox="0 0 200 100" preserveAspectRatio="none" aria-hidden="true"
@@ -359,10 +389,10 @@ export function BandGauge({
             <path d="M0,100 C45,100 75,80 110,66 C140,54 158,64 200,52 L200,100 Z" fill="currentColor" fillOpacity={0.16} />
           </svg>
 
-          <div className="relative flex items-start gap-7">
+          <div className="relative flex items-start gap-5">
             {/* The ring: a full track, and an arc swept from the low bound to
                 where this reading sits between the two. */}
-            <span className="relative grid h-[84px] w-[84px] shrink-0 place-items-center">
+            <span className="relative grid h-[64px] w-[64px] shrink-0 place-items-center">
               <svg viewBox="0 0 84 84" className="absolute inset-0 h-full w-full" aria-hidden="true">
                 <circle cx="42" cy="42" r="37" fill={accent} fillOpacity={0.06} />
                 <circle
@@ -403,25 +433,37 @@ export function BandGauge({
                     panel below print the same `statusClasses` label, because a
                     card saying "Offline" and "In limit" at once is two
                     judgements of one instrument on one screen. */}
-                <span
-                  data-testid="band-status"
-                  className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-[0.8125rem] font-semibold ${
-                    assessed ? `${sc.bg} ${sc.text} ${sc.border}` : 'border-slate-200 bg-slate-50 text-slate-500'
-                  }`}
-                >
-                  <span className={`h-1.5 w-1.5 rounded-full ${assessed ? sc.dot : 'bg-slate-400'}`} aria-hidden="true" />
-                  {assessed ? sc.label : 'Not assessed'}
+                {/* The pill and the (SUPER_ADMIN-only) pencil share the corner.
+                    `items-center`, so a 36px button does not drag the pill's
+                    baseline off the title's. */}
+                <span className="flex shrink-0 items-center gap-2">
+                  <span
+                    data-testid="band-status"
+                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[0.75rem] font-semibold ${
+                      assessed ? `${sc.bg} ${sc.text} ${sc.border}` : 'border-slate-200 bg-slate-50 text-slate-500'
+                    }`}
+                  >
+                    <span className={`h-1.5 w-1.5 rounded-full ${assessed ? sc.dot : 'bg-slate-400'}`} aria-hidden="true" />
+                    {assessed ? sc.label : 'Not assessed'}
+                  </span>
+                  {settingsButton}
                 </span>
               </div>
 
               {/* Tabular figures: a number that changes in place must not reflow.
                   Proportional (not mono) to match the reference's weight —
                   `tabular-nums` is a font feature and holds on the sans stack. */}
-              <p data-testid="band-reading" className={`mt-2 whitespace-nowrap font-extrabold leading-none tracking-tight tabular-nums text-slate-900 ${valueSize}`}>
+              {/* RED when the value is a fault word (operator, 2026-09-01): `Error` or
+                  `OL` in the same ink as a healthy reading understates a probe
+                  that is measuring nothing. */}
+              <p
+                data-testid="band-reading"
+                className={`mt-2 whitespace-nowrap font-extrabold leading-none tracking-tight tabular-nums ${fault ? 'text-red-600' : 'text-slate-900'} ${valueSize}`}
+              >
                 <span data-testid="band-value">{valueText}</span>
                 {showUnit && <span className="ml-2 text-2xl font-semibold text-slate-400">{unit}</span>}
               </p>
-              <p className="mt-4 flex items-center gap-1.5 text-sm text-slate-500">
+              <p className="mt-3 flex items-center gap-1.5 text-[0.8125rem] text-slate-500">
                 <Clock className="h-4 w-4 shrink-0" aria-hidden="true" />
                 {subline}
               </p>
@@ -436,7 +478,7 @@ export function BandGauge({
             cell reading "—" would give a withheld bound the same weight on
             screen as a live one. Status keeps the middle whatever survives. */}
         <div
-          className="relative grid overflow-hidden rounded-lg border border-slate-200 bg-white py-4"
+          className="relative grid overflow-hidden rounded-lg border border-slate-200 bg-white py-3"
           style={{ gridTemplateColumns: `repeat(${cells.length}, minmax(0, 1fr))` }}
           title={`Limits ${formatSetPoint(min, max, decimals)} (${sourceText})`}
         >

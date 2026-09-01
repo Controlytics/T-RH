@@ -70,6 +70,31 @@ export interface OverviewRow {
   isActive: boolean;
   room: { id: string; code: string; label: string | null; floorplanId: string } | null;
   /**
+   * The instrument's FUNCTIONAL location — the authoritative Block > Area
+   * grouping (root CLAUDE.md, "Instrument grouping — THREE concepts").
+   *
+   * A THIRD placement fact beside `room` above and `locationAttribute` below,
+   * and all three are real and different: this is the logical grouping alarms
+   * and visibility scopes resolve through, `room` is geometry on a drawn plan,
+   * and the attribute is free text somebody typed. NULL for an unassigned
+   * instrument, which is a normal state here.
+   *
+   * The NAME only — the id is not returned, because nothing on the dashboard
+   * navigates from a row to its location and an unused id is a decoy.
+   */
+  functionalLocationName: string | null;
+  /**
+   * The instrument's own `Location` ATTRIBUTE — the free-text placement the
+   * plant administers per device ("Dissolution & UV Room"), and what
+   * `scripts/draw-cwh-floorplan.ts` names each drawn room from.
+   *
+   * **Not `Instrument.location`**, the free-text COLUMN of the same name, which
+   * is superseded and read by nothing. Named for its source rather than `location`
+   * for exactly that reason: the two would be indistinguishable at every call
+   * site, and the column is the one that is dead.
+   */
+  locationAttribute: string | null;
+  /**
    * The specification this instrument is judged against — the "set point" beside
    * each actual reading, and the bounds `status` uses to decide OUT_OF_SPEC.
    *
@@ -206,6 +231,24 @@ function toSlot(reading: RawReading | null): SlotValue | null {
   return { key: reading.key, value: n, ts: reading.ts.toISOString() };
 }
 
+/**
+ * One attribute's value, or null.
+ *
+ * Matched the way EVERY other attribute lookup in this system matches —
+ * trimmed and case-insensitive, exactly as `resolveLimit()` in `@digilog/shared`
+ * does. The live rows are keyed `Location`, but a hand-typed `location` names
+ * the same fact and must not read as unset.
+ *
+ * A blank value is treated as ABSENT. An attribute somebody created and left
+ * empty says nothing, and letting it through would render an empty cell that
+ * looks like a rendering fault rather than a stated absence.
+ */
+function attributeValue(attributes: { key: string; value: string }[], key: string): string | null {
+  const hit = attributes.find((a) => a.key.trim().toLowerCase() === key);
+  const value = hit?.value.trim();
+  return value ? value : null;
+}
+
 /** The same resolved reading, kept whole. Null only when the instrument sent
  *  nothing on any alias for the slot — which is silence, not a bad value. */
 function toRawSlot(reading: RawReading | null): RawSlotValue | null {
@@ -335,6 +378,10 @@ export async function buildTelemetryOverview(
       // function purely to save a join over a table that holds single-digit rows
       // here. Revisit if the estate grows enough for the join to show.
       attributes: { select: { key: true, value: true } },
+      // The NAME of the authoritative grouping. One extra join on a query that
+      // already joins the room and the attributes; the alternative is the browser
+      // resolving the Block > Area tree itself, which is a server decision.
+      functionalLocation: { select: { name: true } },
       room: {
         select: {
           id: true, code: true, label: true, floorplanId: true,
@@ -468,6 +515,11 @@ export async function buildTelemetryOverview(
       name: inst.name,
       isActive: inst.isActive,
       room,
+      functionalLocationName: inst.functionalLocation?.name ?? null,
+      // From the attribute rows already selected above for the limits — no
+      // second query, and no `where` on the relation, so one pass over the same
+      // list answers every attribute question this function asks.
+      locationAttribute: attributeValue(inst.attributes, 'location'),
       limits,
       limitEnabled,
       limitSource,

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { RS485_FAILURE_TEXT_DEFAULT, SENSOR_RANGE_TEXT_DEFAULT } from '@digilog/shared';
-import { BandGauge, bandGaugeState } from '../band-gauge';
+import { BandGauge, bandGaugeState, READING_SIZE } from '../band-gauge';
 
 /**
  * The latest-value card is the one element on the trend page that says
@@ -277,16 +277,16 @@ describe('BandGauge render', () => {
    */
   it('steps the reading down a size rather than overflowing the card', () => {
     const big = renderGauge().container.querySelector('[data-testid="band-reading"]')!;
-    expect(big.className).toContain('text-[4.25rem]');
+    expect(big.className).toContain(READING_SIZE.big);
     expect(big.className).toContain('whitespace-nowrap');
 
     // 22.4 at the clamped ceiling of 10 decimals: "22.4000000000".
     renderGauge({ decimals: 900 });
-    expect(screen.getAllByTestId('band-reading')[1].className).not.toContain('text-[4.25rem]');
+    expect(screen.getAllByTestId('band-reading')[1].className).not.toContain(READING_SIZE.big);
 
     // An administered word nobody kept short.
     renderGauge({ reading: null, sensorError: true, sensorWords: { failure: 'SENSOR BUS FAULT', outOfRange: 'OL' } });
-    expect(screen.getAllByTestId('band-reading')[2].className).not.toContain('text-[4.25rem]');
+    expect(screen.getAllByTestId('band-reading')[2].className).not.toContain(READING_SIZE.big);
   });
 
   it('steps the bounds down together, so the two never read as different kinds of number', () => {

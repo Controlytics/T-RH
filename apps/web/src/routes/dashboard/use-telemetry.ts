@@ -20,6 +20,29 @@ export interface OverviewRow {
   isActive: boolean;
   room: { id: string; code: string; label: string | null; floorplanId: string } | null;
   /**
+   * The instrument's FUNCTIONAL location — the authoritative Block > Area
+   * grouping, shown as the dashboard table's **Area** column.
+   *
+   * A different fact from `room` above and from `locationAttribute` below, and
+   * all three are real: this is the logical grouping, `room` is geometry on a
+   * drawn plan, and the attribute is free text. Null for an unassigned
+   * instrument, which is normal here.
+   *
+   * Optional so a cached response from before this field existed still renders.
+   */
+  functionalLocationName?: string | null;
+  /**
+   * The instrument's own `Location` ATTRIBUTE — the free-text placement
+   * ("Dissolution & UV Room"), shown as the **Location** column.
+   *
+   * **Not `Instrument.location`**, the superseded column of the same name.
+   * Resolved server-side from the attribute rows; never re-derived here, and
+   * there is no attributes payload on this row to re-derive it from.
+   *
+   * Optional so a cached response from before this field existed still renders.
+   */
+  locationAttribute?: string | null;
+  /**
    * The spec this instrument is judged against — the "set point" beside each
    * actual reading, and the bounds that decide OUT_OF_SPEC.
    *
@@ -80,6 +103,12 @@ export interface OverviewRow {
    * saturated probe, `Error` for one sending nonsense.
    */
   rangeError?: { temperature: boolean; humidity: boolean };
+  /** The probe's declared span, so a HISTORICAL reading can be judged too —
+   *  `rangeError` only describes the latest one. */
+  rangeBounds?: {
+    temperatureHigh: number | null; temperatureLow: number | null;
+    humidityHigh: number | null; humidityLow: number | null;
+  };
 }
 
 export interface TelemetrySettings {

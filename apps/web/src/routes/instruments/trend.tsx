@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useLocation } from 'react-router-dom';
 import useSWR from 'swr';
 import { Droplet, Thermometer } from 'lucide-react';
 import {
@@ -18,6 +18,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
+import { useTrendWidgets } from '@/hooks/use-trend-widgets';
+import { WidgetSettingsButton } from './widget-settings-button';
 import { formatSetPoint } from '@/routes/dashboard/set-point';
 import { TimeSeriesChart, SERIES_COLORS } from '@/routes/dashboard/time-series-chart';
 import {
@@ -29,8 +31,7 @@ import {
 import { useTrendPeriod, useInstrumentTrend, TREND_PRESETS, TABLE_PAGE_SIZE, type TelemetryLongRow } from './use-trend-data';
 import { toChartSeries, toTableRows, toTableRowsWithErrors, rawCountForKey, type TableRow as PivotRow } from './trend-series';
 import { summariseSlot, withServerSummary, type ServerSlotSummary } from './trend-summary';
-import { ChartIntervalNote, intervalLabel } from './chart-interval-note';
-import { useExtraKeys } from './use-extra-keys';
+import { intervalLabel } from './chart-interval-note';
 import {
   renderTrendReport, renderTimeSeriesReport, renderAlarmsReport,
   type ReportInstrument, type TrendChartSection,
@@ -41,12 +42,11 @@ import { TrendChartCard } from './trend-chart-card';
 import { TimeseriesTableCard } from './timeseries-table-card';
 import { AlarmsWidget } from './alarms-widget';
 import { TrendHeader } from './trend-header';
-import { SampledNote } from './sampled-note';
-import { ChartSummaryStrip } from './chart-summary-strip';
 import { usePanels } from '@/hooks/use-panels';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Breadcrumbs } from '@/components/ui/page-header';
+import { trendCrumbs, originFrom } from './trend-breadcrumbs';
 
 /**
  * Series identity, fixed. Temperature is palette slot 1 and humidity slot 2
@@ -96,25 +96,22 @@ function numericRows(rows: TelemetryLongRow[]): { key: string; value: number; ts
   });
 }
 
-/**
- * The LATEST STORED reading for one key in the rows in hand — the summary
- * strip's "Current".
+/*
+ * `latestValueForKey()` was removed 2026-09-01, with the last of its callers.
  *
- * Taken from the raw rows, never from a chart series: `toChartSeries` bucket-
- * averages when an interval is selected, so its last point is a mean, and a
- * mean labelled "Current" is a derived number presented as a reading. The
- * server summary cannot supply this either — it returns `first`/`last` as
- * timestamps, not value+timestamp pairs. LTTB keeps the range's last point
- * verbatim, so this IS the period's last stored reading.
+ * It answered "the latest STORED reading for this key", for the summary strips'
+ * "Current" and the time-series card's last-reading band. Both surfaces were
+ * removed earlier the same day; the two consts feeding it went with the card's
+ * dead `last` prop, leaving the helper reachable from nothing.
+ *
+ * **The rule it existed to enforce is NOT gone and must not be relearned the
+ * hard way:** a "last reading" is taken from the RAW rows, never from a chart
+ * series, because `toChartSeries` bucket-averages when an interval is selected
+ * and a mean labelled "Current" is a derived number presented as a stored one.
+ * That reasoning now lives in one place only — the doc comment on
+ * `TimeSeriesChart`'s own `lastReading` prop (`dashboard/time-series-chart.tsx`).
+ * Read it there before reinstating any last-reading readout on this page.
  */
-function latestValueForKey(rows: { key: string; value: number; ts: string }[], key: string): number | null {
-  let best: { value: number; ts: string } | null = null;
-  for (const r of rows) {
-    if (r.key !== key) continue;
-    if (best === null || r.ts > best.ts) best = r;
-  }
-  return best === null ? null : best.value;
-}
 
 /** The raw key this instrument reports a slot under, from whichever annotated
  *  rows are in hand. Administered server-side (`loadAliases()`); never guessed here. */
@@ -237,53 +234,6 @@ interface TelemetryKeyOption {
   lastSeen: string;
 }
 
-/**
- * The per-user "add a key" picker.
- *
- * Offers ONLY what `GET /:id/telemetry-keys` says this instrument has actually
- * sent — a free-text field would invite a key that has never existed and a
- * chart that can never draw. The two administered slots are excluded: they
- * already have their own cards/charts above and must not be offerable twice.
- */
-function ExtraKeyPicker({
-  options, extraKeys, onAdd, onRemove,
-}: {
-  options: TelemetryKeyOption[];
-  extraKeys: string[];
-  onAdd: (k: string) => void;
-  onRemove: (k: string) => void;
-}) {
-  const [pending, setPending] = useState('');
-  const offerable = options.filter((o) => o.slot === null && !extraKeys.includes(o.key));
-
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="text-xs font-medium text-slate-600">Additional keys:</span>
-      {extraKeys.map((k) => (
-        <span key={k} className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
-          {k}
-          <Button variant="ghost" size="chip" type="button" onClick={() => onRemove(k)} aria-label={`Remove ${k}`}>×</Button>
-        </span>
-      ))}
-      {offerable.length > 0 && (
-        <span className="flex items-center gap-1.5">
-          <select
-            value={pending}
-            onChange={(e) => setPending(e.target.value)}
-            className="ctl ctl-sm"
-            aria-label="Additional telemetry key"
-          >
-            <option value="">Choose a key…</option>
-            {offerable.map((o) => <option key={o.key} value={o.key}>{o.key}</option>)}
-          </select>
-          <Button size="sm" variant="secondary" disabled={!pending} onClick={() => { onAdd(pending); setPending(''); }}>
-            Add
-          </Button>
-        </span>
-      )}
-    </div>
-  );
-}
 
 // The alarms widget moved to ./alarms-widget on 2026-09-01, when it was
 // rebuilt on the Alarms page's own table (routes/alarms/alarm-table.tsx) so
@@ -296,6 +246,8 @@ export function InstrumentTrend() {
   // fetching below is untouched, so a hidden panel changes what is shown while
   // the signed PDF report still covers the whole record.
   const { showPanel } = usePanels();
+  // Where the reader came from, for the breadcrumb. See trend-breadcrumbs.ts.
+  const location = useLocation();
   const { data: inst } = useSWR<InstrumentSummary>(id ? `/api/instruments/${id}` : null);
   const { period, setPreset, setCustom, setInterval } = useTrendPeriod();
   const [page, setPage] = useState(1);
@@ -345,8 +297,7 @@ export function InstrumentTrend() {
    * that is one signal, not two, and resetting it is just as sensible.
    */
   const onResetZoom = period.label === 'Custom' ? () => choosePreset(lastPresetMs) : undefined;
-  const extra = useExtraKeys(id ?? '');
-  const trend = useInstrumentTrend(id ?? '', period, page, extra.keys);
+  const trend = useInstrumentTrend(id ?? '', period, page, []);
   /**
    * Error + retry for the chart fetch, from the hook that OWNS the request.
    *
@@ -360,6 +311,32 @@ export function InstrumentTrend() {
   const retryTrend = trend.retry;
   const { data: keyOptions } = useSWR<{ data: TelemetryKeyOption[] }>(id ? `/api/instruments/${id}/telemetry-keys` : null);
   const { formatDateTime } = useDatetimeFormat();
+  /**
+   * The administered wording and per-widget date/time formats for the five
+   * widgets below.
+   *
+   * ONE read for the page, passed DOWN as props — the same way `sensorWords`,
+   * `statusTexts`, `inactivityTexts` and `failureWord` already reach them. The
+   * widgets stay presentational and cannot render a word the page has not
+   * resolved.
+   *
+   * Every value here is already non-blank: `resolveTrendWidgetTexts` applies the
+   * shipped default to an empty field, on the server and again in the browser
+   * while the request is in flight. **No component below may default a label.**
+   */
+  const widgets = useTrendWidgets();
+  /**
+   * A formatter per widget, each carrying that widget's own format override.
+   *
+   * `useDatetimeFormat` falls through to the site-wide setting for any field the
+   * override leaves blank, and an unconfigured widget's override IS blank — so
+   * these five are the page's one formatter until somebody sets one. SWR dedupes
+   * on the config key, so this is still a single request. The TIMEZONE is not
+   * overridable and is the same in all of them.
+   */
+  const fmtTempCard = useDatetimeFormat(widgets.formats.tempCard);
+  const fmtHumidCard = useDatetimeFormat(widgets.formats.humidCard);
+  const fmtTimeseries = useDatetimeFormat(widgets.formats.timeseries);
   const reauth = useReauth();
   // Same endpoint, same mapping, as `routes/alarms/index.tsx` — the ONE place
   // the API's `status*`-prefixed keys are reconciled with the unprefixed
@@ -418,15 +395,11 @@ export function InstrumentTrend() {
    */
   const tempRawCount = tempKey ? rawCountForKey(trend.chartRows, tempKey) : 0;
   const humidRawCount = humidKey ? rawCountForKey(trend.chartRows, humidKey) : 0;
-  // "Current" for each summary strip — the latest STORED reading in the range.
-  // See `latestValueForKey` for why it is not read off the plotted series.
-  const tempCurrent = tempKey ? latestValueForKey(chartRows, tempKey) : null;
-  const humidCurrent = humidKey ? latestValueForKey(chartRows, humidKey) : null;
 
   // Extra keys carry no administered decimals/limits — there is nothing
   // resolved server-side for a key nobody has declared as a slot, so they
   // render at the shared fallback precision and with no in-spec band.
-  const tableKeys = [tempKey, humidKey, ...extra.keys].filter((k): k is string => k !== null);
+  const tableKeys = [tempKey, humidKey].filter((k): k is string => k !== null);
   // RAW rows, NOT `numericRows`. This table says it lists every reading in the
   // range, and filtering here silently dropped exactly the broken ones an
   // engineer opens it to find. The CHART above still filters — you cannot plot a
@@ -674,7 +647,6 @@ export function InstrumentTrend() {
         const keysMeta = [
           tempKey ? { key: tempKey, label: 'Temperature (°C)', decimals: tempDecimals } : null,
           humidKey ? { key: humidKey, label: 'Humidity (%RH)', decimals: humidDecimals } : null,
-          ...extra.keys.map((k) => ({ key: k, label: k, decimals: TELEMETRY_DECIMALS_FALLBACK })),
         ].filter((k): k is { key: string; label: string; decimals: number } => k !== null);
         const pivoted: PivotRow[] = toTableRows(rows, keysMeta.map((k) => k.key));
         // Same `fetched.history.length` vs `historyTotal` comparison the trend
@@ -762,12 +734,7 @@ export function InstrumentTrend() {
           'Back to instrument' link — that is the one hop people take most. */}
       <Breadcrumbs
         className="mb-3"
-        crumbs={[
-          { label: 'Home', to: '/' },
-          { label: 'Instruments', to: '/instruments' },
-          ...(id ? [{ label: inst?.code ?? 'Instrument', to: `/instruments/${id}` }] : []),
-          { label: 'Trend' },
-        ]}
+        crumbs={trendCrumbs(originFrom(location.state), id ?? null, inst?.code ?? null)}
       />
       {/* The identity strip. What record is this, where is it, and is it
           reporting right now — before a single number is read. */}
@@ -861,7 +828,8 @@ export function InstrumentTrend() {
         {trend.overview ? (
           <>
             <BandGauge
-              label="Temperature"
+              label={widgets.labels.tempCardTitle}
+              settingsButton={<WidgetSettingsButton widget="tempCard" />}
               unit="°C"
               reading={trend.overview.temperature}
               decimals={trend.overview.decimals.temperature ?? TELEMETRY_DECIMALS_FALLBACK}
@@ -877,12 +845,14 @@ export function InstrumentTrend() {
               sensorError={trend.overview.sensorError?.temperature}
               rangeError={trend.overview.rangeError?.temperature}
               sensorWords={sensorWords}
-              // The page's own administered formatter — date format, clock and
-              // timezone all come from `/api/config/datetime/current`.
-              formatTs={formatDateTime}
+              // This CARD's own administered formatter. The date format and the
+              // clock may be overridden per widget; the timezone never is, and
+              // still comes from `/api/config/datetime/current`.
+              formatTs={fmtTempCard.formatDateTime}
             />
             <BandGauge
-              label="Humidity"
+              label={widgets.labels.humidCardTitle}
+              settingsButton={<WidgetSettingsButton widget="humidCard" />}
               unit="%RH"
               reading={trend.overview.humidity}
               decimals={trend.overview.decimals.humidity ?? TELEMETRY_DECIMALS_FALLBACK}
@@ -896,25 +866,36 @@ export function InstrumentTrend() {
               sensorError={trend.overview.sensorError?.humidity}
               rangeError={trend.overview.rangeError?.humidity}
               sensorWords={sensorWords}
-              // The page's own administered formatter — date format, clock and
-              // timezone all come from `/api/config/datetime/current`.
-              formatTs={formatDateTime}
+              // This card's own administered formatter — see the temperature
+              // card above.
+              formatTs={fmtHumidCard.formatDateTime}
               // The one page-load moment, staggered between the two slots.
               delayMs={80}
             />
           </>
         ) : (
           <>
-            <GaugeSkeleton title="Temperature" />
-            <GaugeSkeleton title="Humidity" />
+            {/* The loading placeholders carry the ADMINISTERED titles too, or
+                the card would visibly rename itself once the overview lands. */}
+            <GaugeSkeleton title={widgets.labels.tempCardTitle} />
+            <GaugeSkeleton title={widgets.labels.humidCardTitle} />
           </>
         )}
       </div>
       )}
 
-      {/* Charts, FULL WIDTH and stacked — never side by side. A trend is read
-          along the time axis; halving that axis to fit two charts on a row
-          costs the page the very thing it is for.
+{      /* Charts SIDE BY SIDE at `lg` and up (operator, 2026-09-01). This
+          REVERSES the rule that stood here before, which read "FULL WIDTH and
+          stacked — never side by side", on the ground that a trend is read along
+          the time axis and halving that axis costs the page its purpose.
+
+          That cost is real and is now accepted: each chart gets roughly half the
+          horizontal resolution, so short excursions are harder to separate by
+          eye. Two things blunt it — the axis still spans the SAME period, so
+          nothing is hidden, only compressed; and drag-to-zoom REFETCHES at the
+          narrower range rather than magnifying, so reading a detail is one drag
+          away and returns true readings rather than bigger dots. They stack
+          again below `lg`, where half a viewport would be unreadable.
 
           Limits come straight off the overview row — never re-derived here —
           which is what makes the in-limit band agree with the gauge above it.
@@ -923,7 +904,7 @@ export function InstrumentTrend() {
       {showPanel('trend_charts') && (
       <>
       <h2 className="text-[0.6875rem] font-semibold uppercase tracking-[0.09em] text-slate-500">Charts</h2>
-      <div className="space-y-5">
+      <div className="grid gap-5 lg:grid-cols-2 lg:items-start">
         {/* TimeSeriesChart has no subtitle/caption slot of its own (it is shared
             with the dashboard, which has no need of this disclosure), so the
             note renders immediately above it — right against the chart's own
@@ -934,7 +915,8 @@ export function InstrumentTrend() {
             alone and keeps its own reportType, so the §11 audit trail can still
             tell the three downloads apart. */}
         <TrendChartCard
-          title="Temperature Trend"
+          title={widgets.labels.tempChartTitle}
+          settingsButton={<WidgetSettingsButton widget="tempChart" />}
           icon={<Thermometer className="h-6 w-6" strokeWidth={2} aria-hidden="true" />}
           accent={TEMP_COLOR}
           // Server-resolved and taken as given — the same value the page header
@@ -944,9 +926,24 @@ export function InstrumentTrend() {
           code={inst?.code ?? '—'}
           onExportPdf={() => setPendingReport({ kind: 'trend', slot: 'temperature' })}
         >
-          <ChartIntervalNote intervalMs={period.intervalMs} />
+          {/* The averaging disclosure was REMOVED 2026-09-01 (operator). It
+              read "Averaged over {label} — the table below shows every reading."
+              and it said that a plotted point in an averaged chart is a DERIVED
+              number, not a stored one.
+
+              What still carries that, and is why the record is unharmed:
+              averaging is OPT-IN and defaults to raw, so an untouched chart
+              plots stored readings; the interval control on this page names the
+              bucket the reader chose; and the SIGNED PDF keeps its own
+              independent disclosure (`averagedLabel` in `trend-report.ts`),
+              which is the copy that outlives the screen.
+
+              What is genuinely lost: someone reading this screen over another
+              person's shoulder, or a screenshot of it, no longer sees that the
+              line is means rather than measurements. Restore
+              `<ChartIntervalNote>` here if that matters. */}
           <ChartPanel
-            title="Temperature Trend"
+            title={widgets.labels.tempChartTitle}
             isLoading={trend.chartsLoading}
             error={trendError}
             hasData={trend.chartRows.length > 0}
@@ -954,7 +951,11 @@ export function InstrumentTrend() {
           >
             <TimeSeriesChart
               variant="trend"
-              title="Temperature Trend"
+              title={widgets.labels.tempChartTitle}
+              // This CHART's own date/time format override, for its tooltip.
+              // Blank fields inherit the site-wide setting; the timezone always
+              // does. Every other caller of this component passes nothing.
+              dateTimeFormat={widgets.formats.tempChart}
               unit="°C"
               spanMs={spanMs}
               min={trend.overview?.limits?.tempMin}
@@ -963,28 +964,14 @@ export function InstrumentTrend() {
               // The latest STORED reading, not the last plotted point — which is
               // a bucket MEAN whenever a chart interval is selected. Same value
               // the summary strip's "Current" prints, from the same helper.
-              lastReading={tempCurrent === null ? null : { value: tempCurrent, decimals: tempDecimals }}
               onZoom={onZoom}
               onResetZoom={onResetZoom}
             />
-            <SampledNote
-              shown={tempRawCount}
-              total={tempKey ? (trend.summaries[tempKey]?.count ?? 0) : 0}
-            />
-            {/* Min/Max/Average over the WHOLE range, from the server — never
-                from the plotted (sampled, possibly bucket-averaged) points. */}
-            {showPanel('trend_summary') && (
-              <ChartSummaryStrip
-                summary={tempKey ? trend.summaries[tempKey] : undefined}
-                current={tempCurrent}
-                decimals={tempDecimals}
-                unit="°C"
-              />
-            )}
           </ChartPanel>
         </TrendChartCard>
         <TrendChartCard
-          title="Humidity Trend"
+          title={widgets.labels.humidChartTitle}
+          settingsButton={<WidgetSettingsButton widget="humidChart" />}
           icon={<Droplet className="h-6 w-6" strokeWidth={2} aria-hidden="true" />}
           accent={HUMID_COLOR}
           status={trend.overview?.status ?? null}
@@ -992,9 +979,8 @@ export function InstrumentTrend() {
           code={inst?.code ?? '—'}
           onExportPdf={() => setPendingReport({ kind: 'trend', slot: 'humidity' })}
         >
-          <ChartIntervalNote intervalMs={period.intervalMs} />
           <ChartPanel
-            title="Humidity Trend"
+            title={widgets.labels.humidChartTitle}
             isLoading={trend.chartsLoading}
             error={trendError}
             hasData={trend.chartRows.length > 0}
@@ -1002,100 +988,47 @@ export function InstrumentTrend() {
           >
             <TimeSeriesChart
               variant="trend"
-              title="Humidity Trend"
+              title={widgets.labels.humidChartTitle}
+              dateTimeFormat={widgets.formats.humidChart}
               unit="%RH"
               spanMs={spanMs}
               min={trend.overview?.limits?.rhMin}
               max={trend.overview?.limits?.rhMax}
               series={humidSeries ? [{ ...humidSeries, color: HUMID_COLOR }] : []}
-              lastReading={humidCurrent === null ? null : { value: humidCurrent, decimals: humidDecimals }}
               onZoom={onZoom}
               onResetZoom={onResetZoom}
             />
-            <SampledNote
-              shown={humidRawCount}
-              total={humidKey ? (trend.summaries[humidKey]?.count ?? 0) : 0}
-            />
-            {showPanel('trend_summary') && (
-              <ChartSummaryStrip
-                summary={humidKey ? trend.summaries[humidKey] : undefined}
-                current={humidCurrent}
-                decimals={humidDecimals}
-                unit="%RH"
-              />
-            )}
+            {/* The sampling disclosure was REMOVED 2026-09-01 (operator).
+                It read "Showing N of M readings. Zoom in to see every reading
+                for a shorter period." and it was a deliberate §11 statement:
+                a wide range is DOWNSAMPLED, so the chart plots a subset and the
+                line said so.
+
+                What is unchanged, and is what keeps the page honest without it:
+                sampling is by SELECTION (`lttb`), so every plotted point is a
+                STORED reading at its stored timestamp — never an average
+                dressed as a measurement; the axis still spans the whole period;
+                drag-to-zoom REFETCHES the narrower window and returns the true
+                readings; and the out-of-limit counts and min/max come from SQL
+                over EVERY reading in the range, so a sampled chart still cannot
+                understate an excursion. The signed PDF keeps its own wording.
+
+                Restore `<SampledNote>` here if a chart ever plots a subset in a
+                way those four do not cover. */}
           </ChartPanel>
         </TrendChartCard>
       </div>
 
-      {/* The per-user extra keys, with their charts, kept together and below
-          the two administered slots — they are an addition to the record this
-          page governs, not part of it. */}
-      <div className="rounded-[var(--radius-card)] border border-slate-200 bg-white px-5 py-4 shadow-[var(--elev-1)]">
-        <ExtraKeyPicker
-          options={keyOptions?.data ?? []}
-          extraKeys={extra.keys}
-          onAdd={extra.add}
-          onRemove={extra.remove}
-        />
-        {/* Extra keys carry no administered limits, so no in-limit band — the
-            picker only offers keys that are not one of the two governed slots,
-            so there is nothing resolved to draw here. Nor any series colour:
-            these have no app-wide identity to keep. */}
-        {extra.keys.length > 0 && (
-          <div className="mt-4 space-y-5">
-            {extra.keys.map((k) => (
-              <div key={k}>
-                <ChartIntervalNote intervalMs={period.intervalMs} />
-                <ChartPanel
-                  title={k}
-                  isLoading={trend.chartsLoading}
-                  error={trendError}
-                  hasData={trend.chartRows.length > 0}
-                  onRetry={retryTrend}
-                >
-                  <TimeSeriesChart
-                    title={k}
-                    unit=""
-                    spanMs={spanMs}
-                    series={[toChartSeries(chartRows, k, TELEMETRY_DECIMALS_FALLBACK, k, period.intervalMs)]}
-                    // Same page range, so the extra-key charts zoom it too —
-                    // otherwise a drag would work on two charts of a stack and
-                    // silently do nothing on the rest.
-                    onZoom={onZoom}
-                    onResetZoom={onResetZoom}
-                  />
-                  {/* The server samples EVERY key on the chart path, not just
-                      the two administered slots, so an extra-key chart drops
-                      readings exactly as they do — and until 2026-08-27 it was
-                      the one chart on this page that did so without saying so.
-                      Same `shown`/`total` pair as the two above: raw readings
-                      represented, against the server's `count(*)` for the key. */}
-                  <SampledNote
-                    shown={rawCountForKey(trend.chartRows, k)}
-                    total={trend.summaries[k]?.count ?? 0}
-                  />
-                  {/* Extra keys carry no administered precision, so the strip
-                      renders at the same shared fallback the chart and the table
-                      column for this key already use. */}
-                  {showPanel('trend_summary') && (
-                    <ChartSummaryStrip
-                      summary={trend.summaries[k]}
-                      current={latestValueForKey(chartRows, k)}
-                      decimals={TELEMETRY_DECIMALS_FALLBACK}
-                      unit=""
-                    />
-                  )}
-                </ChartPanel>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
       </>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
+      {/* STACKED, not side by side (operator, 2026-09-01). Both of these are
+          wide tables — the time series carries a timestamp plus a column per
+          administered slot, the alarms widget nine columns — and at half a page
+          each they scrolled sideways inside their own cards. A table you have to
+          scroll horizontally to read is one nobody reads. The two band gauges
+          above stay two-up: they are a pair of single figures, not tables. */}
+      <div className="grid gap-4">
       {/* Raw paged time-series. RAW ONLY — no averaging, no gap filling: a gap
           in the record stays a gap, never the previous value repeated. */}
       {showPanel('trend_historian_table') && (
@@ -1103,26 +1036,36 @@ export function InstrumentTrend() {
           rows={tableRows}
           slots={[
             {
-              key: tempKey, heading: 'Temperature (°C)', unit: '°C', decimals: tempDecimals,
+              key: tempKey, heading: widgets.labels.timeseriesTemperatureHeading, decimals: tempDecimals,
               // Straight off the server-resolved overview. A bound the
               // instrument switches off (`Enable_Temp_NMT` = 0) arrives NULL,
               // and the card treats a NULL as "not judged" — it must never be
               // filled back in here.
               min: trend.overview?.limits?.tempMin, max: trend.overview?.limits?.tempMax,
-              accent: TEMP_COLOR, icon: <Thermometer className="h-7 w-7" />, last: tempCurrent,
+              // The probe's SPAN, distinct from the spec limits above it. A
+              // reading outside the span is not a measurement, so the table
+              // prints the administered word rather than the number — and the
+              // word comes from config, never a literal here.
+              rangeLow: trend.overview?.rangeBounds?.temperatureLow ?? null,
+              rangeHigh: trend.overview?.rangeBounds?.temperatureHigh ?? null,
+              outOfRangeWord: sensorWords.outOfRange,
             },
             {
-              key: humidKey, heading: 'Humidity (%RH)', unit: '%RH', decimals: humidDecimals,
+              key: humidKey, heading: widgets.labels.timeseriesHumidityHeading, decimals: humidDecimals,
               min: trend.overview?.limits?.rhMin, max: trend.overview?.limits?.rhMax,
-              accent: HUMID_COLOR, icon: <Droplet className="h-7 w-7" />, last: humidCurrent,
+              rangeLow: trend.overview?.rangeBounds?.humidityLow ?? null,
+              rangeHigh: trend.overview?.rangeBounds?.humidityHigh ?? null,
+              outOfRangeWord: sensorWords.outOfRange,
             },
           ]}
-          extraKeys={extra.keys}
-          extraDecimals={TELEMETRY_DECIMALS_FALLBACK}
           failureWord={failureWord}
-          // The page's own administered formatter — see the card's doc comment
-          // for why this cell may not call `toLocaleString`.
-          formatTs={formatDateTime}
+          title={widgets.labels.timeseriesTitle}
+          subtitle={widgets.labels.timeseriesSubtitle}
+          timestampHeading={widgets.labels.timeseriesTimestampHeading}
+          settingsButton={<WidgetSettingsButton widget="timeseries" />}
+          // This WIDGET's own administered formatter — see the card's doc
+          // comment for why this cell may not call `toLocaleString`.
+          formatTs={fmtTimeseries.formatDateTime}
           onExportPdf={() => setPendingReport({ kind: 'timeseries' })}
           page={page}
           pageSize={TABLE_PAGE_SIZE}
@@ -1135,9 +1078,13 @@ export function InstrumentTrend() {
         <AlarmsWidget
           instrumentId={id}
           period={period}
+          limits={trend.overview?.limits}
           onExportPdf={() => setPendingReport({ kind: 'alarms' })}
           statusTexts={statusTexts}
           inactivityTexts={inactivityTexts}
+          labels={widgets.labels}
+          dateTimeFormat={widgets.formats.alarms}
+          settingsButton={<WidgetSettingsButton widget="alarms" />}
         />
       )}
       </div>

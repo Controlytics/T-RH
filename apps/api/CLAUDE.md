@@ -318,6 +318,31 @@ node apps/api/dist/app.js
     never breached"). The gate is per-bound: disabling the high limit must not
     silence the low one.
 
+- **2026-09-01 — `telemetry-overview` returns the two placement facts it was
+  missing.** **No count moved** (35 models, 12 enums, 42 permissions, 48 reauth
+  actions, 24 modules) and there is **no migration**: one existing endpoint
+  returns two more fields.
+  - `functionalLocationName` (from a new `functionalLocation: { select: { name:
+    true } }` on the existing query) and `locationAttribute` (the `Location`
+    ATTRIBUTE, read from the attribute rows the query ALREADY selects for the
+    limits — no second query, no `where` on the relation).
+  - **`locationAttribute` is named for its source and must never be called
+    `location`.** `Instrument.location` is a live free-text COLUMN of the same
+    name, superseded and read by nothing; a bare `location` would be
+    indistinguishable from it at every call site. An e2e case sets that column
+    to different text and asserts it is NOT what comes back.
+  - Attribute matching is trimmed and case-insensitive, the same rule
+    `resolveLimit()` in `@digilog/shared` uses. A blank value is treated as
+    ABSENT — an attribute somebody created and left empty says nothing, and
+    letting it through renders a cell that looks like a rendering fault.
+  - **Both are DECLARED in the route's 200 block, and this is the FIFTH time an
+    undeclared field has bitten this repo** — after `historySampled`/`summaries`,
+    the alarm list's `locationName`, the floorplan `meta`/`annotations`, and
+    `rangeBounds`. The guard is `src/e2e/telemetry-overview.e2e.test.ts`, which
+    asserts through `app.inject`, never off the builder's return value.
+    **Mutation-check it by deleting the field from the SCHEMA, not the builder**:
+    a builder mutation exercises a path that was never in doubt. Deleting both
+    schema lines fails all 5.
 - **2026-08-31 — a quoted number is a reading.** `coerceReading()` in
   `@digilog/shared` replaced four independent `typeof v === 'number'` tests
   (`telemetry-overview.asNumber`, the chart's plottable filter, the web

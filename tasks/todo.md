@@ -3003,3 +3003,40 @@ saying `NA`; only a BROKEN sensor says the configured word.
 
 Room detail was NOT changed: it renders room limits, not per-instrument slot
 readings, so there is no failed-value cell in it.
+
+### Dashboard (Areas drill-down): Area/Location columns + selection alarms rebuilt (2026-09-01) — DONE
+
+Two changes to the dashboard drilled into a Block or Area. No count moved
+(35 models, 12 enums, 42 permissions, 48 reauth, 24 modules, 50 routes,
+re-derived); no migration.
+
+- [x] `functionalLocationName` + `locationAttribute` on `buildTelemetryOverview`
+      (one added Prisma relation select; the `Location` attribute comes off the
+      attribute rows already selected for the limits — no second query)
+- [x] **DECLARED in the route's 200 block** — the fifth undeclared-field bite on
+      this repo. Pinned by 5 `app.inject` tests, mutation-checked by deleting
+      the SCHEMA lines, not the builder
+- [x] Area + Location columns; **"Location / Room" heading cut to "Room"**;
+      widths rebalanced to 100% and pinned by `columnWidthTotal()`; search and
+      its placeholder extended to both
+- [x] `selection-alarms.tsx` rebuilt on the shared `alarm-table.tsx` cells over
+      the administered wording — 8 columns + action, not 12 (its query is
+      `state=ACTIVE`, so Cleared/Cleared Value/Duration are structurally blank)
+- [x] Acknowledge, with ALL FOUR pieces (gate, dialog, `postWithReauth`,
+      `mutate()` on its own key) — added after the operator asked for it; the
+      panel shipped without the button first, correctly, when it had none
+- [x] Action column NOT sticky — the column count argued FOR pinning; the tint
+      argued against and won (a sticky cell needs an opaque background, the
+      panel is transparent so the PanelCard tint shows)
+- [x] 12 + 23 web tests (neither component had ANY test before) + 5 e2e; 12
+      mutations, each restored
+- [x] Docs: CHANGELOG, root/api/web CLAUDE.md
+
+**Two vacuous tests of my own, both caught by mutation rather than by review:**
+a zero-match table still renders one `<tr>` (the empty-state message), so
+`rows.length === 1` passed for a working search AND for one matching nothing;
+and an SWR mock with no `mutate` made `await mutate()` throw into the
+component's own catch, so the success path was broken under a green test.
+Both now assert rendered OUTPUT and carry negative controls. Also measured:
+**inverting a gate fails 6 tests where removing it fails 1** — invert, don't
+remove.

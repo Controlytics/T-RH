@@ -650,6 +650,13 @@ export default async function instrumentRoutes(app: FastifyInstance) {
                       floorplanId: { type: 'string' },
                     },
                   },
+                  // The two PLACEMENT facts beside `room` above: the authoritative
+                  // functional-location NAME, and the instrument's own `Location`
+                  // attribute. Declared here, like everything else, because Fastify
+                  // strips what this block does not name — `rangeBounds` below is
+                  // the fourth time that has bitten this endpoint.
+                  functionalLocationName: { type: 'string', nullable: true },
+                  locationAttribute: { type: 'string', nullable: true },
                   // Fastify STRIPS anything absent from this schema, so a field
                   // added to OverviewRow but not declared here silently never
                   // reaches the client. That is why limits is listed.
@@ -720,6 +727,26 @@ export default async function instrumentRoutes(app: FastifyInstance) {
                     properties: {
                       temperature: { type: 'boolean' },
                       humidity: { type: 'boolean' },
+                    },
+                  },
+                  /**
+                   * The probe's declared span. `buildTelemetryOverview` has
+                   * returned this since the sensor-range source shipped, but it
+                   * was never DECLARED here, so Fastify stripped it on the way
+                   * out and no browser surface could see it.
+                   *
+                   * That is why the trend page's raw table printed a saturated
+                   * reading as a number: `rangeError` answers only "is the
+                   * LATEST reading out of span", and a table of historical rows
+                   * needs the bounds themselves to judge each one.
+                   */
+                  rangeBounds: {
+                    type: 'object',
+                    properties: {
+                      temperatureHigh: { type: 'number', nullable: true },
+                      temperatureLow: { type: 'number', nullable: true },
+                      humidityHigh: { type: 'number', nullable: true },
+                      humidityLow: { type: 'number', nullable: true },
                     },
                   },
                 },

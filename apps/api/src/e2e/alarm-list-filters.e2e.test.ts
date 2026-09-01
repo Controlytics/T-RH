@@ -96,6 +96,29 @@ beforeAll(async () => {
   }
   const [A, B] = instrumentIds;
 
+  /**
+   * The Location COLUMN reads the instrument's own `Location` ATTRIBUTE, not its
+   * functional location (operator, 2026-09-01) — a column headed "Location" was
+   * printing an Area.
+   *
+   * Deliberately keyed LOWERCASE: the match is `mode: 'insensitive'` because this
+   * installation's attribute keys have already drifted, and an exact-case `where`
+   * would find nothing on half the plant while looking correct here.
+   *
+   * The two decoys are the point of the fixture. Without a `where` clause the
+   * handler would take `attributes[0]` — whichever row Postgres returned first —
+   * so a test with one attribute per instrument passes against a query that reads
+   * the wrong one. Instrument B gets NONE, which is how the null and the
+   * functional-location fallback are reached.
+   */
+  await prisma.instrumentAttribute.createMany({
+    data: [
+      { instrumentId: A, key: 'Area', value: 'WRONG — this is the decoy' },
+      { instrumentId: A, key: 'location', value: 'Dissolution & UV Room' },
+      { instrumentId: A, key: 'Room', value: 'WRONG — this is the decoy' },
+    ],
+  });
+
   // Two per quadrant-pair, spread over three days and four types.
   await raise({ instrumentId: A, metric: 'TEMPERATURE', limitKind: 'HIGH', state: 'ACTIVE', acknowledged: false, raisedAt: D(10) });
   await raise({ instrumentId: B, metric: 'TEMPERATURE', limitKind: 'HIGH', state: 'ACTIVE', acknowledged: false, raisedAt: D(11) });
@@ -213,6 +236,52 @@ describe('GET /api/alarms — filters', () => {
     expect((await list({ search: AREA_NAME.toLowerCase() })).json().total).toBe(6);
   });
 
+  it("searches the instrument's own Location attribute — the text the column shows", async () => {
+    /**
+     * A column the reader can SEE and cannot SEARCH reads as a broken search box.
+     * The Location cell printed the functional location until 2026-09-01; it now
+     * prints this attribute, so the search had to follow it or typing what is on
+     * screen would return nothing.
+     */
+    const body = (await list({ search: 'dissolution' })).json();
+    expect(body.total).toBe(3); // every alarm on instrument A
+    expect(body.data.every((r: { locationAttribute: string }) => r.locationAttribute === 'Dissolution & UV Room')).toBe(true);
+  });
+
+  it('still searches the functional location, which the column falls back to', async () => {
+    // Both of the things that cell can display must match, not just the newer one.
+    expect((await list({ search: 'Blender' })).json().total).toBe(6);
+  });
+
+  it('combines instrument + range + paging — the trend alarms widget query', async () => {
+    /**
+     * The shape that widget sends since 2026-09-01. It used to fetch
+     * `instrumentId=…&limit=500` and drop out-of-period rows in the BROWSER, so an
+     * instrument with more than 500 alarms showed a "period" that was really its
+     * newest 500 — the defect the Alarms page was rebuilt to remove, one surface
+     * down. Paging it required the window to move here first: a server paging
+     * 500-row blocks under a browser thinning each one gives page numbers and row
+     * counts that describe different populations.
+     */
+    const A = instrumentIds[0];
+    const range = { instrumentId: A, from: D(10, 0).toISOString(), to: D(11, 0).toISOString() };
+
+    // Instrument A holds three alarms; two of them fall on the 10th.
+    expect((await list({ ...range })).json().total).toBe(2);
+    // The other instrument's alarms in the same window are excluded.
+    expect((await list({ instrumentId: instrumentIds[1], ...{ from: range.from, to: range.to } })).json().total)
+      .toBe(0);
+
+    // And the total describes the WINDOW, not the page.
+    const paged = (await list({ ...range, page: 1, pageSize: 1 })).json();
+    expect(paged.data).toHaveLength(1);
+    expect(paged.total).toBe(2);
+    expect((await list({ ...range, page: 2, pageSize: 1 })).json().data).toHaveLength(1);
+    // Page 3 of a two-row result is empty rather than an error — the widget resets
+    // to page 1 on a filter change, but a stale request must not 500.
+    expect((await list({ ...range, page: 3, pageSize: 1 })).json().data).toHaveLength(0);
+  });
+
   it('applies the date range to raisedAt, inclusive at both ends', async () => {
     const on11 = await list({
       from: D(11, 0).toISOString(),
@@ -287,6 +356,23 @@ describe('GET /api/alarms — row payload', () => {
     const row = (await list({ pageSize: 1 })).json().data[0];
     expect(row.locationName).toBe(AREA_NAME);
     expect(row.instrumentName).toContain('alarm-list');
+  });
+
+  it("carries the instrument's own Location attribute, whatever the key's case", async () => {
+    // Fastify strips any undeclared field, so `locationAttribute` is asserted
+    // through the HTTP body. This is the fifth field in this repo to need that.
+    const row = (await list({ instrumentId: instrumentIds[0], pageSize: 1 })).json().data[0];
+    expect(row.locationAttribute).toBe('Dissolution & UV Room');
+    // And it is NOT one of the other attributes on the same instrument.
+    expect(row.locationAttribute).not.toContain('decoy');
+  });
+
+  it('sends null when nobody typed one, leaving the Area as the fallback', async () => {
+    // `locationText()` in the browser then prints `locationName`. Both facts
+    // travel, so the client chooses between them without re-deriving either.
+    const row = (await list({ instrumentId: instrumentIds[1], pageSize: 1 })).json().data[0];
+    expect(row.locationAttribute).toBeNull();
+    expect(row.locationName).toBe(AREA_NAME);
   });
 
   it('does not carry a room — the column shows the functional location alone', async () => {

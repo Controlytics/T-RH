@@ -101,13 +101,32 @@ describe('buildAlarmWhere', () => {
     expect(JSON.stringify(where)).toContain('CWH');
   });
 
-  it('searches instrument code, name, functional location and room code', () => {
+  it('searches instrument code, name, functional location, room code and the Location attribute', () => {
     const where = buildAlarmWhere(parseAlarmListQuery({ search: 'blender' }));
     const or = (where.AND[0] as { instrument: { OR: Record<string, unknown>[] } }).instrument.OR;
-    expect(or).toHaveLength(4);
+    // The COUNT is asserted on purpose: it fails when a branch is added without a
+    // thought about whether the column that displays it is now searchable, which is
+    // the direction the 2026-09-01 defect ran — the Location column's SOURCE changed
+    // and the search was not moved with it.
+    expect(or).toHaveLength(5);
     for (const clause of or) {
       expect(JSON.stringify(clause)).toContain('"mode":"insensitive"');
     }
+  });
+
+  it("searches the instrument's own Location attribute, matching the KEY insensitively too", () => {
+    // Both halves matter and they are separate mistakes: an exact-case KEY finds
+    // nothing on an installation whose attribute keys have drifted (which is why
+    // the select in `routes.ts` is insensitive as well), and an exact-case VALUE
+    // makes the search box case-sensitive on one column only.
+    const where = buildAlarmWhere(parseAlarmListQuery({ search: 'blender' }));
+    const or = (where.AND[0] as { instrument: { OR: Record<string, unknown>[] } }).instrument.OR;
+    const attr = or.find((c) => 'attributes' in c) as {
+      attributes: { some: { key: unknown; value: unknown } };
+    } | undefined;
+    expect(attr).toBeDefined();
+    expect(attr!.attributes.some.key).toEqual({ equals: 'Location', mode: 'insensitive' });
+    expect(attr!.attributes.some.value).toEqual({ contains: 'blender', mode: 'insensitive' });
   });
 
   it('maps each type token onto the enum columns that define it', () => {

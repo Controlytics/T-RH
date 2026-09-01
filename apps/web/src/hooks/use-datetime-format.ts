@@ -52,33 +52,69 @@ function formatTimeValue(date: Date, timeFormat: string, timezone: string): stri
   }
 }
 
-export function useDatetimeFormat() {
-  const { data } = useSWR<DatetimeConfig>('/api/config/datetime/current', {
-    revalidateOnFocus: false,
-    revalidateOnMount: true, dedupingInterval: 5000,
-  });
+/**
+ * A per-surface override of the FORMAT — never of the timezone.
+ *
+ * Each field falls through to the site-wide setting when it is absent or blank,
+ * which is what makes "this widget inherits" the do-nothing default: a surface
+ * that passes `{}`, or nothing at all, formats exactly as every other date on the
+ * page does.
+ *
+ * **There is deliberately no `timezone` here.** Two widgets on one screen naming
+ * different instants for the same stored reading would be a false statement about
+ * a §11 record, not a display choice. The zone always comes from
+ * `/api/config/datetime/current`.
+ */
+export interface DatetimeFormatOverride {
+  dateFormat?: string;
+  timeFormat?: string;
+}
 
-  const config = data ?? defaultConfig;
+/** Which format wins: the override if it names one, else the administered one. */
+function pick(override: string | undefined, siteWide: string): string {
+  return typeof override === 'string' && override.trim() ? override.trim() : siteWide;
+}
+
+/**
+ * The formatters themselves, as a pure function of the administered config and
+ * an optional override.
+ *
+ * Extracted from the hook so the inheritance rule can be tested without
+ * rendering anything — the interesting cases (an absent override, a blank one, a
+ * half-filled one) are all about which of two strings is chosen, and a render
+ * test of that is far easier to write vacuously than to write correctly.
+ *
+ * The hook is the only other caller and does nothing but supply `config`; there
+ * is ONE formatting implementation, which is the point. A second one anywhere
+ * would drift from this the first time a format is added to `datetime.def.ts`.
+ */
+export function makeDatetimeFormatters(
+  config: DatetimeConfig,
+  override?: DatetimeFormatOverride,
+) {
+  const dateFormat = pick(override?.dateFormat, config.dateFormat);
+  const timeFormat = pick(override?.timeFormat, config.timeFormat);
+  const { timezone } = config;
 
   const formatDate = (value: string | Date): string => {
     if (!value) return '';
     const date = value instanceof Date ? value : new Date(value);
     if (isNaN(date.getTime())) return '';
-    return formatDateValue(date, config.dateFormat, config.timezone);
+    return formatDateValue(date, dateFormat, timezone);
   };
 
   const formatTime = (value: string | Date): string => {
     if (!value) return '';
     const date = value instanceof Date ? value : new Date(value);
     if (isNaN(date.getTime())) return '';
-    return formatTimeValue(date, config.timeFormat, config.timezone);
+    return formatTimeValue(date, timeFormat, timezone);
   };
 
   const formatDateTime = (value: string | Date): string => {
     if (!value) return '';
     const date = value instanceof Date ? value : new Date(value);
     if (isNaN(date.getTime())) return '';
-    return `${formatDateValue(date, config.dateFormat, config.timezone)} ${formatTimeValue(date, config.timeFormat, config.timezone)}`;
+    return `${formatDateValue(date, dateFormat, timezone)} ${formatTimeValue(date, timeFormat, timezone)}`;
   };
 
   // Format a value ONLY if it is an ISO-8601 date/date-time STRING, else return
@@ -95,4 +131,21 @@ export function useDatetimeFormat() {
   };
 
   return { formatDate, formatTime, formatDateTime, formatIfDate, config };
+}
+
+/**
+ * The administered date/time formatters, optionally overridden for ONE surface.
+ *
+ * `override` is how the instrument trend page lets each widget carry its own
+ * format: an omitted or blank field inherits, so a widget that has never been
+ * configured renders exactly as it always did. SWR dedupes on the key, so the
+ * several calls one page makes are still one request.
+ */
+export function useDatetimeFormat(override?: DatetimeFormatOverride) {
+  const { data } = useSWR<DatetimeConfig>('/api/config/datetime/current', {
+    revalidateOnFocus: false,
+    revalidateOnMount: true, dedupingInterval: 5000,
+  });
+
+  return makeDatetimeFormatters(data ?? defaultConfig, override);
 }

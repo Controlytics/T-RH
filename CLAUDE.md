@@ -171,8 +171,12 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
 - **Audit registries:** **97** audit actions, **91** audit templates in **7**
   categories. 93 → 97 / 87 → 91 (2026-08-27): create / update / delete / test
   for alarm webhook targets; categories unchanged.
-- **Config:** **29** definitions (`config/defs/*.def.ts`) + auto-discovery (28 → 29 on
-  2026-08-31: `alarm-type-names.def.ts`; 27 → 28 on
+- **Config:** **30** definitions (`config/defs/*.def.ts`) + auto-discovery (29 → 30 on
+  2026-09-01: `trend-widgets.def.ts` — what every widget on the instrument trend
+  page is CALLED, and how each prints a date and a time. Rendered by the dynamic
+  config page, so the page count did NOT move; it also gets a hardcoded
+  `superAdminCards` card, which is a card, not a file under `routes/config/`.
+  28 → 29 on 2026-08-31: `alarm-type-names.def.ts`; 27 → 28 on
   2026-08-31: `sensor-range-alarms.def.ts`, the fifth alarm source; 26 → 27 on
   2026-08-31: `rs485-alarms.def.ts`, the fourth alarm source; 25 → 26 the same day:
   `inactivity-alarms.def.ts`),
@@ -199,7 +203,7 @@ history; `docs/recreation/` holds the inventory.
 - **Instrument VISIBILITY (2026-08-13, project D; extended 2026-08-28).** `instrument_scope` JSONB on **both** `role_configs` and `user_configs`. **`NULL` = inherit (user → role → unrestricted); an empty selection = SEE NOTHING; otherwise = those functional locations (Blocks expanding to their Areas) UNIONED with those explicitly named instruments.** **TWO SHAPES live in that column, permanently:** rows written before 2026-08-28 are a bare `string[]` of location ids; rows since are `{locationIds, instrumentIds}`. Legacy rows are deliberately NEVER migrated, so `normalizeScope()` in `modules/instruments/visibility.ts` is the ONE reader of both — a second `Array.isArray` test anywhere reads a legacy restricted row as "nothing stored", which means UNRESTRICTED. Resolved once in that same module; a user scope REPLACES the role's and can widen it. Enforced **on the query** — the list merges it into the same `where` the count uses, `GET /:id`, `/:id/telemetry`, `/:id/telemetry-keys` and `/:id/dead-letters` apply it in the lookup and 404 (never 403, which would confirm existence), the overview ANDs selection with visibility, and `GET /api/floorplans/:id/rooms/:roomId/history` filters the room's MEMBERSHIP query. `scopeToWhere` emits `{OR: [{functionalLocationId:{in}}, {id:{in}}]}` with **both branches always present** — `{OR: []}` matches nothing in Prisma while `{}` matches everything. **Unassigned instruments are invisible to the LOCATION branch but ARE reachable by being named outright** (changed 2026-08-28 — assigning a freshly commissioned device must not silently do nothing). Writing a NULL needs `Prisma.DbNull`, never `JsonNull`. Admin surface: Config → Roles & Access → Instrument Scope, whose instrument picker reads the deliberately UNSCOPED `GET /api/roles/instrument-scope/instruments` (ROLE_MANAGE) — a scoped picker would let a restricted admin build a scope silently omitting the rest of the plant. `GET /api/floorplans/:id` is knowingly unscoped: it lists instrument identity per room and is fetched ONLY by the Config → Floorplans editor (verified 2026-08-28), not by the dashboard, which uses `GET /api/floorplans` (rooms only). Prove behaviour with `apps/api/scripts/probe-visibility.ts` and `src/e2e/instrument-scope-selection.test.ts`.
 
 - **Instrument grouping — THREE concepts, one job each (2026-08-13).** Do not confuse them: **`FunctionalLocation`** (Block > Area tree, `Instrument.functionalLocationId`) is the AUTHORITATIVE logical grouping; **`roomId`** → `FloorplanRoom` is geometry on a drawn plan and drives the graphical view; **`profileId`** is device type. The free-text `Instrument.block` / `.area` columns are SUPERSEDED — no longer read for grouping, kept only so the migration stays comparable. A Block's instruments are its own PLUS its Areas', resolved by `functional-locations/tree.ts:resolveLocationIds()`; querying `functionalLocationId = :id` directly silently omits the Areas.
-- **Config:** **29 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **23** corresponding pages (both re-derived by `ls | wc -l` 2026-09-01; the page count read 24 here and in System Stats above until then and was **stale, not moved** — `alarm-rules.tsx` went with the 2026-08-31 rule removal and neither line was re-synced. This is the THIRD time this bullet has drifted from the one above it; the duplication itself is the defect it keeps warning about). **This bullet's def count went stale TWICE while the System Stats section above was current — 25 here against 26 then 27 there.** It is the same self-contradiction the 2026-08-29 audit raised as finding M8 for the page count, in the same bullet, and re-syncing only the half that was wrong that day is why it came back. Two live inventory lines for one number is the actual defect; re-derive both from `ls` whenever either moves. Defs 25 → 26 → 27 on 2026-08-31 (`inactivity-alarms.def.ts`, then `rs485-alarms.def.ts` — both render through the dynamic config page, so the page count did not move). Earlier note, still true: the 25 predated `dashboard-cards.tsx` being deleted on 2026-08-28. Defs verified `ls` 2026-08-27, unchanged at 25 — the def and page counts are NOT equal and should not be expected to be: `alarm-webhooks.tsx` is a page with no def (a CRUD module, not a `system_config` row), and several defs render through the dynamic config page with no file of their own. Earlier: pages 25 → 24 the same day — `routes/config/role-assignments.tsx` deleted as dead code: its 7 config defs went in the Phase 0 strip and `system_config` held 0 rows for them, so every section read an unregistered `/api/config/dynamic/<key>` route. Earlier counts VERIFIED by `ls` 2026-08-17 — `alarm-limits.def.ts` added 2026-08-17: super-admin config for the instrument-limit alarm work — an ordered alias list of attribute keys per bound (High/Low Temperature/Humidity Limit), since this install's keys have already drifted; plus a master switch and four status wordings. (It also carried a `severity`
+- **Config:** **30 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **23** corresponding pages (both re-derived by `ls | wc -l` 2026-09-01; defs 29 → 30 that day with `trend-widgets.def.ts`, which adds no page — it renders through the dynamic config page; the page count read 24 here and in System Stats above until then and was **stale, not moved** — `alarm-rules.tsx` went with the 2026-08-31 rule removal and neither line was re-synced. This is the THIRD time this bullet has drifted from the one above it; the duplication itself is the defect it keeps warning about). **This bullet's def count went stale TWICE while the System Stats section above was current — 25 here against 26 then 27 there.** It is the same self-contradiction the 2026-08-29 audit raised as finding M8 for the page count, in the same bullet, and re-syncing only the half that was wrong that day is why it came back. Two live inventory lines for one number is the actual defect; re-derive both from `ls` whenever either moves. Defs 25 → 26 → 27 on 2026-08-31 (`inactivity-alarms.def.ts`, then `rs485-alarms.def.ts` — both render through the dynamic config page, so the page count did not move). Earlier note, still true: the 25 predated `dashboard-cards.tsx` being deleted on 2026-08-28. Defs verified `ls` 2026-08-27, unchanged at 25 — the def and page counts are NOT equal and should not be expected to be: `alarm-webhooks.tsx` is a page with no def (a CRUD module, not a `system_config` row), and several defs render through the dynamic config page with no file of their own. Earlier: pages 25 → 24 the same day — `routes/config/role-assignments.tsx` deleted as dead code: its 7 config defs went in the Phase 0 strip and `system_config` held 0 rows for them, so every section read an unregistered `/api/config/dynamic/<key>` route. Earlier counts VERIFIED by `ls` 2026-08-17 — `alarm-limits.def.ts` added 2026-08-17: super-admin config for the instrument-limit alarm work — an ordered alias list of attribute keys per bound (High/Low Temperature/Humidity Limit), since this install's keys have already drifted; plus a master switch and four status wordings. (It also carried a `severity`
   select until 2026-09-01, when severity stopped being administered anywhere; the
   def count did not move — a setting was removed, not a def.) Renders through the dynamic config page, so no `routes/config/*.tsx` of its own — the page count stays 25. The "23 corresponding pages" recorded here 2026-08-11 was already stale before this change (the live page count was 25, per `apps/web/CLAUDE.md`'s 2026-08-14 verification); it was never re-synced here until now. Earlier: `telemetry-slots.def.ts` added 2026-08-11: which telemetry keys the dashboard reads as temperature and humidity, since ingest stores whatever key a device sends. Renders through the dynamic config page, so no `routes/config/*.tsx` of its own; the Floorplans placement editor IS a page. Earlier counts VERIFIED by `ls` 2026-08-07 — the previous "36 / 34" was inherited from DigiLog and was never true in this fork; `instrument-attributes.def.ts` added 2026-08-07 — the attribute keys the New Instrument form asks for, renders via the dynamic config page so no new `routes/config/*.tsx`)
 - **Display precision (2026-08-19):** decimal places for temperature/humidity come from each
@@ -262,7 +266,20 @@ history; `docs/recreation/` holds the inventory.
 
 ## Key API Endpoints (instrument dashboard — updated 2026-08-27)
 ```
-GET  /api/instruments/telemetry-overview        — every instrument's current temp + RH, one request
+GET  /api/instruments/telemetry-overview        — every instrument's current temp + RH, one request.
+                                                  Carries THREE placement facts per row and they are
+                                                  three DIFFERENT things (2026-09-01):
+                                                  `functionalLocationName` (the authoritative Block >
+                                                  Area grouping — the dashboard's **Area** column),
+                                                  `locationAttribute` (the instrument's own `Location`
+                                                  ATTRIBUTE, **not** the superseded `Instrument.location`
+                                                  COLUMN of the same name — the **Location** column),
+                                                  and `room` (geometry on a drawn plan — **Room**, and
+                                                  the visible source of the SET POINT columns).
+                                                  Both new fields are DECLARED in the 200 block; a
+                                                  field the builder returns and the schema omits is
+                                                  stripped silently, which has bitten this endpoint
+                                                  five times now.
 GET  /api/alarms?search=&from=&to=&type=&status=&severity=&page=&pageSize=&sort=&dir=
                                                 — the Alarms page. Filters, counts, sorts and pages
                                                   SERVER-side (2026-08-31); returns `data`, `total`
@@ -277,8 +294,14 @@ GET  /api/alarms?search=&from=&to=&type=&status=&severity=&page=&pageSize=&sort=
                                                   is an alias for `pageSize` (ceiling 500) and the
                                                   dashboard panel + trend widget still send it.
                                                   Filter algebra: `modules/alarms/list-query.ts`.
-                                                  Rows carry `locationName` (the FUNCTIONAL
-                                                  location). NOT `roomLabel` — dropped 2026-08-31
+                                                  Rows carry BOTH `locationAttribute` (the
+                                                  instrument's own `Location` ATTRIBUTE, which the
+                                                  Location column PRINTS since 2026-09-01) and
+                                                  `locationName` (the FUNCTIONAL location, which it
+                                                  falls back to). Both are SEARCHABLE — a column
+                                                  that displays one and searches the other reads as
+                                                  a broken search box.
+                                                  NOT `roomLabel` — dropped 2026-08-31
                                                   with the column's room line, because every room
                                                   was then coded with its instrument's own code.
                                                   The room CODE is still SEARCHABLE.
@@ -501,6 +524,48 @@ GET    /api/alarm-webhooks/:id/deliveries?status= — paged §11 delivery log, f
   - `alarms_active_sensor_range_unique` on `(instrument_id, metric)`, two
     hand-authored migrations as always (Postgres refuses a new enum value in the
     transaction that added it).
+- **Trend page widget wording is ADMINISTERED, and editable in place
+  (2026-09-01).** Config def `trend-widgets` (29 → 30 defs) holds every title,
+  subtitle and column heading on `/instruments/:id/trend`, plus a per-widget
+  date/time FORMAT override. Served to all authenticated users by
+  `GET /api/config/trend-widgets/current`, the **SIXTH** narrow-slice route
+  (`/alarm-limits/status-texts`, `/inactivity-alarms/display-texts`,
+  `/rs485-alarms/display-text`, `/sensor-range-alarms/display-text`,
+  `/alarm-type-names/current`). No migration, no model, no enum, no permission,
+  no reauth action, no route, and NO config page — it renders through the dynamic
+  config page and gets a `superAdminCards` card, which is not a file under
+  `routes/config/`. Pages stay 23.
+  - **A pencil in each widget's header edits just that widget**, SUPER_ADMIN only
+    (`user?.role === 'SUPER_ADMIN'`, the same check `routes/config/index.tsx`
+    makes — not `useCan`, since the gate is the def's own `requiredRole`). Hiding
+    it is presentation; the server refusing the PUT is the control, and that is
+    tested separately.
+  - **The dialog PUTs the WHOLE row, merged.** `/api/config/dynamic/:key`
+    REPLACES `configValue` — it does not patch it — so a PUT of one widget's
+    fields alone erases the other five. Pinned by a test, and mutation-checked.
+  - **`TREND_WIDGET_FIELDS` in `@digilog/shared` is the ONE widget → fields
+    mapping.** The def's 31 settings are BUILT from it and the dialog renders from
+    it, so a key cannot exist in one and not the other. A test asserts it accounts
+    for every label key exactly once.
+  - **Blank falls back to the SHIPPED wording, never an empty heading** — the same
+    rule as `alarmTypeName()`. No component may default a label to a literal; the
+    only fallback is the shared constant. `coerceTrendWidgetTexts()` applies it to
+    a malformed RESPONSE too, so a stale server cannot white-screen the trend page
+    over a column heading.
+  - **Format overrides default to INHERIT, and the TIMEZONE is not overridable.**
+    A per-widget zone would let two widgets name different instants for the same
+    stored reading — a §11 falsehood, not a display choice. `useDatetimeFormat`
+    gained an optional override and `makeDatetimeFormatters` was extracted from
+    it; there is still ONE formatter. **An unrecognised format INHERITS rather
+    than being passed on**, because `formatDateValue`'s `default:` branch prints
+    en-GB, so a stale override would silently render DD/MM/YYYY on a site set to
+    MM/DD/YYYY.
+  - The format vocabulary is LIFTED from `datetime.def.ts`, not invented — if a
+    format is added there, add it to `TREND_WIDGET_DATE_FORMATS` in the same
+    commit.
+  - The alarms table's **unit legends (`(°C / %RH)`, `(H/m)`) and the H/m tooltip
+    are NOT renameable** and survive a rename: they explain the cells, not the
+    column's name.
 - **Boolean config settings render as an on/off TOGGLE, not a checkbox
   (2026-08-31, operator).** `components/ui/toggle.tsx`, swapped in at
   `dynamic-config.tsx`'s boolean branch, so it changes EVERY dynamic config page
@@ -520,6 +585,49 @@ GET    /api/alarm-webhooks/:id/deliveries?status= — paged §11 delivery log, f
   `CHANGELOG.md` with their reasons. Also fixed: the status pill was keyed off
   `severity`, so every pill rendered red on an installation where every alarm is
   CRITICAL.
+- **Dashboard: the readings table shows Area and Location — there is NO Room
+  column (2026-09-01).** It briefly had all three, and the Room one was removed
+  the same day by the operator as a DUPLICATE. The measurement, not the eye:
+  the cell's primary text was the instrument's `name`, and `name` is
+  byte-identical to the `Location` attribute on **100 of the 100** instruments
+  that carry one; its secondary line was blank on 88 of 101 rows, and on the 12
+  traced QC rooms printed the room LABEL — the same room shouted. The room
+  NUMBER never rendered at all, because `label` won whenever it existed.
+  - **The justification it was kept under had already expired**, which is why it
+    survived a redesign: "the SET POINT columns come FROM the room, so without it
+    18.0-27.0 has no visible source". Provenance is the `setPointSource()`
+    TOOLTIP, and limits resolve from the instrument's own attributes first with
+    `limitSource` naming which. **Re-read a column's stated reason before quoting
+    it — this one had been false for weeks.**
+  - The room stays SEARCHABLE, the same call the Alarms page made: matching more
+    than is shown can only return rows the caller could already see. The drawn
+    room remains the graphical view's whole subject — it is the COLUMN that went,
+    not the concept, which is still one of the three named above.
+  - The freed 11% went mostly to Location (13% → 20%), which holds the longest
+    text on the row.
+  Both fields are resolved SERVER-side and the browser re-derives
+  neither: the `Location` attribute comes off the attribute rows the query
+  already selects for the limits, so no second query was added. Column widths are
+  hand-balanced to 100% and pinned by `columnWidthTotal()`; the `<colgroup>` is
+  generated from `COLUMN_GROUPS` so it cannot drift, but the percentages can.
+  Empty states are worded APART — "Unassigned" for no functional location (the
+  same word the Alarms page uses), "Not set" for an absent attribute. No CSS was
+  added: both columns take the existing `tv-h-loc` hue, because the `.tv-*` block
+  is deliberately UNLAYERED and a new rule there is not a free edit.
+- **The dashboard's selection alarms panel is the SHARED alarm table
+  (2026-09-01).** `routes/dashboard/selection-alarms.tsx` was a bespoke `<ul>`;
+  it now renders the cells from `routes/alarms/alarm-table.tsx`, the same ones
+  the Alarms page and the trend widget use — a THIRD copy would have drifted the
+  way the trend widget's copy did. It shows EIGHT columns plus an action cell,
+  not twelve: its query is `state=ACTIVE`, so Cleared, Cleared Value and Duration
+  would be structurally blank. **Acknowledging IS available and carries the whole
+  §11 flow** — the `alarms.acknowledge` gate, the re-auth dialog, `postWithReauth`
+  and a revalidation. It shipped without the button earlier the same day,
+  correctly, because it had none of those; if one is ever stripped, strip the
+  button with it. **Its action column is NOT sticky, and the column count argued
+  the other way** — what decides it is that a sticky cell needs an opaque
+  background, and this panel is deliberately transparent so the operator's
+  PanelCard tint shows.
 - **On `PUT /api/floorplans/:id/rooms/:roomId`, an omitted `doors` key leaves the
   column unchanged; only an explicit `null`/`[]` clears it.** Deliberate §11
   data-loss guard so a client that predates doors can't silently wipe them.

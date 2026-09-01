@@ -3,6 +3,7 @@ import { type FastifyInstance } from 'fastify';
 import {
   ALARM_STATUS_TEXT_DEFAULT, INACTIVITY_TEXT_DEFAULT, RS485_FAILURE_TEXT_DEFAULT,
   ALARM_TYPE_KEYS, ALARM_TYPE_NAME_DEFAULT,
+  TREND_WIDGET_LABEL_KEYS, TREND_WIDGET_LABEL_DEFAULT, TREND_WIDGET_IDS,
 } from '@digilog/shared';
 import { prisma } from '../lib/prisma.js';
 import {
@@ -361,6 +362,79 @@ describe('Config endpoints', () => {
         expect(body.limitTemperatureHigh).toBe('Temp Too Hot');
         // Blank never leaves the type nameless.
         expect(body.inactivity).toBe(ALARM_TYPE_NAME_DEFAULT.inactivity);
+      } finally {
+        if (existing) {
+          await prisma.systemConfig.update({ where: { configKey: KEY }, data: { configValue: existing.configValue as any } });
+        } else {
+          await prisma.systemConfig.deleteMany({ where: { configKey: KEY } });
+        }
+      }
+    });
+  });
+
+  // =============================================
+  // Trend page widget wording — the SIXTH narrow-slice route.
+  // =============================================
+  describe('GET /api/config/trend-widgets/current', () => {
+    const KEY = 'trend-widgets';
+
+    it('a non-SUPER_ADMIN user gets 200 with every label resolved', async () => {
+      // The def is SUPER_ADMIN-only; this slice is not. Without it an operator
+      // would read the shipped wording while the admin who set it read their
+      // own — one page, two vocabularies.
+      const operatorToken = await loginAs(app, 'RB0001', 'Test@1234');
+      const res = await authGet(app, '/api/config/trend-widgets/current', operatorToken);
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body);
+      for (const key of TREND_WIDGET_LABEL_KEYS) expect(typeof body.labels[key], key).toBe('string');
+      for (const id of TREND_WIDGET_IDS) {
+        expect(typeof body.formats[id].dateFormat, id).toBe('string');
+        expect(typeof body.formats[id].timeFormat, id).toBe('string');
+      }
+    });
+
+    it('the editor endpoint stays SUPER_ADMIN-only', async () => {
+      const operatorToken = await loginAs(app, 'RB0001', 'Test@1234');
+      const res = await authGet(app, '/api/config/dynamic/trend-widgets', operatorToken);
+      expect(res.statusCode).toBe(403);
+    });
+
+    it('refuses a non-SUPER_ADMIN WRITE — hiding the pencil is not the control', () => {
+      // Asserted separately from the read: the browser hides the edit button for
+      // a non-admin, but that is presentation. The server refusing the PUT is
+      // what actually governs the change.
+      return loginAs(app, 'RB0001', 'Test@1234').then(async (operatorToken) => {
+        const res = await authPut(app, '/api/config/dynamic/trend-widgets', operatorToken, {
+          alarmsStatusHeading: 'State',
+        });
+        expect(res.statusCode).toBe(403);
+      });
+    });
+
+    it('a rename saves and reads back; a blank falls back and a bad format inherits', async () => {
+      const existing = await prisma.systemConfig.findUnique({ where: { configKey: KEY } });
+      const base = (existing?.configValue as Record<string, unknown>) ?? {};
+      try {
+        const put = await authPut(app, '/api/config/dynamic/trend-widgets', adminToken, {
+          ...base,
+          alarmsStatusHeading: 'State',
+          alarmsTypeHeading: '   ',
+          alarmsDateFormat: 'YYYY-MM-DD',
+          // Not in the vocabulary. Passed on it would print en-GB and look like
+          // a deliberate setting; it has to come back as inherit.
+          alarmsTimeFormat: '36-hour',
+        });
+        expect(put.statusCode).toBe(200);
+
+        const res = await authGet(app, '/api/config/trend-widgets/current', adminToken);
+        const body = JSON.parse(res.body);
+        expect(body.labels.alarmsStatusHeading).toBe('State');
+        // A blank never leaves a table column nameless.
+        expect(body.labels.alarmsTypeHeading).toBe(TREND_WIDGET_LABEL_DEFAULT.alarmsTypeHeading);
+        expect(body.formats.alarms.dateFormat).toBe('YYYY-MM-DD');
+        expect(body.formats.alarms.timeFormat).toBe('');
+        // One widget's override does not leak onto another.
+        expect(body.formats.tempCard.dateFormat).toBe('');
       } finally {
         if (existing) {
           await prisma.systemConfig.update({ where: { configKey: KEY }, data: { configValue: existing.configValue as any } });

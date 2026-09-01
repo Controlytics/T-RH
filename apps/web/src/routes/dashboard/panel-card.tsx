@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
 import {
   PANEL_TINTS, PANEL_SIZES, PANEL_PADDINGS, PANEL_WIDTHS, PANEL_HEIGHTS, MAX_PANEL_TITLE,
   tintFor, sizeFor, paddingFor, namedWidth, namedHeight, type PanelStyle,
@@ -23,6 +23,7 @@ import {
  */
 export function PanelCard({
   title, eyebrow, editing, style, width, height, onStyleChange, onSizeChange, children,
+  autoHeight = false, onNaturalHeight,
 }: {
   /** The panel's built-in heading, used when the operator has not renamed it. */
   title: string;
@@ -43,8 +44,61 @@ export function PanelCard({
   onStyleChange?: (next: PanelStyle | undefined) => void;
   onSizeChange?: (w: number, h: number) => void;
   children: ReactNode;
+  /**
+   * This card's height FOLLOWS ITS CONTENT and is not dragged (operator,
+   * 2026-09-01). It reports its natural height upward and the dashboard turns
+   * that into grid rows; the Height control below is hidden, because a control
+   * that cannot change anything is a decoy.
+   */
+  autoHeight?: boolean;
+  /** Called with the height this card would like to be, in pixels. MUST be
+   *  referentially stable — it is an effect dependency. */
+  onNaturalHeight?: (px: number) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
+
+  /**
+   * Measure what this card WANTS to be, and report it.
+   *
+   * The observed element is the content wrapper INSIDE the scroll region — the
+   * one in natural flow. Observing the card or the scroll region instead is the
+   * trap here: both have their border box pinned by the grid cell, so going from
+   * 25 rows to 50 grows `scrollHeight` without changing either box, and
+   * **ResizeObserver does not fire on a scrollHeight change**. The panel would
+   * then only resize when the window did — which is the original complaint with
+   * extra steps.
+   *
+   * `chrome` is everything outside the scroll region's content box (header,
+   * borders, the style editor while it is open); `scrollHeight` is the content
+   * plus its padding. Their sum is the height at which nothing is clipped and
+   * nothing is spare.
+   */
+  useEffect(() => {
+    if (!autoHeight || !onNaturalHeight) return undefined;
+    const card = cardRef.current;
+    const scroll = scrollRef.current;
+    const content = contentRef.current;
+    if (!card || !scroll || !content) return undefined;
+
+    const report = () => {
+      const chrome = card.offsetHeight - scroll.clientHeight;
+      onNaturalHeight(chrome + scroll.scrollHeight);
+    };
+    report();
+
+    // jsdom has no ResizeObserver. The one measurement above still happens, so a
+    // test rendering this card is not left with a card that never reports.
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(report);
+    ro.observe(content);
+    return () => ro.disconnect();
+    // `open` is a dependency because the style editor sits between the header and
+    // the scroll region: opening it changes `chrome` and nothing else would
+    // re-measure.
+  }, [autoHeight, onNaturalHeight, open]);
   const tint = tintFor(style?.tint);
   const size = sizeFor(style?.size);
   const pad = paddingFor(style?.pad);
@@ -52,6 +106,7 @@ export function PanelCard({
 
   return (
     <div
+      ref={cardRef}
       className={`panel-card flex h-full flex-col overflow-hidden rounded-2xl border ${
         editing ? 'cursor-grab border-dashed active:cursor-grabbing' : ''
       }`}
@@ -105,6 +160,7 @@ export function PanelCard({
           height={height}
           onChange={onStyleChange}
           onSizeChange={onSizeChange}
+          autoHeight={autoHeight}
           onDone={() => setOpen(false)}
         />
       )}
@@ -124,8 +180,8 @@ export function PanelCard({
         It sits on the scroll container's CHILD, not the container, so scrolling
         still measures the scaled content correctly.
       */}
-      <div className="min-h-0 flex-1 overflow-auto" style={{ padding: pad.px }}>
-        <div style={size.zoom === 1 ? undefined : { zoom: size.zoom }}>
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto" style={{ padding: pad.px }}>
+        <div ref={contentRef} style={size.zoom === 1 ? undefined : { zoom: size.zoom }}>
           {children}
         </div>
       </div>
@@ -143,7 +199,7 @@ export function PanelCard({
  * cannot go around it.
  */
 function PanelStyleEditor({
-  title, style, width, height, onChange, onSizeChange, onDone,
+  title, style, width, height, onChange, onSizeChange, onDone, autoHeight = false,
 }: {
   title: string;
   style?: PanelStyle;
@@ -152,6 +208,8 @@ function PanelStyleEditor({
   onChange: (next: PanelStyle | undefined) => void;
   onSizeChange?: (w: number, h: number) => void;
   onDone: () => void;
+  /** Hides the Card height control — this card's height is measured, not chosen. */
+  autoHeight?: boolean;
 }) {
   const current = style?.tint ?? 'default';
 
@@ -198,7 +256,9 @@ function PanelStyleEditor({
       </div>
 
       {onSizeChange && (
-        <div className="grid grid-cols-2 gap-3">
+        // One column when there is no height control, or the width select sits in
+        // half a row with a gap beside it where a control used to be.
+        <div className={autoHeight ? '' : 'grid grid-cols-2 gap-3'}>
           <div>
             <p className="mb-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-slate-500">
               Card width
@@ -218,19 +278,34 @@ function PanelStyleEditor({
               {PANEL_WIDTHS.map((w) => <option key={w.w} value={w.w}>{w.label}</option>)}
             </select>
           </div>
-          <div>
-            <p className="mb-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-slate-500">
-              Card height
+          {/*
+            NO height control when the height is measured (operator, 2026-09-01).
+            Not tidiness: this select would set an `h` that the next measurement
+            overwrites within a frame, so it would appear to do nothing — and this
+            repo has already written down what an inert control costs (see the
+            `SlotColumn` unused-prop note in apps/web/CLAUDE.md). The caption says
+            why the control is absent, so its absence does not read as a bug.
+          */}
+          {autoHeight ? (
+            <p className="mt-2 text-[0.6875rem] leading-snug text-slate-500">
+              Height follows the content — the card ends at its pagination and
+              resizes itself when you change how many rows are shown.
             </p>
-            <select
-              className="ctl ctl-sm w-full"
-              value={namedHeight(height) ?? 0}
-              onChange={(e) => onSizeChange(width, Number(e.target.value))}
-            >
-              {namedHeight(height) === null && <option value={0}>Custom ({height} rows)</option>}
-              {PANEL_HEIGHTS.map((h) => <option key={h.h} value={h.h}>{h.label}</option>)}
-            </select>
-          </div>
+          ) : (
+            <div>
+              <p className="mb-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-slate-500">
+                Card height
+              </p>
+              <select
+                className="ctl ctl-sm w-full"
+                value={namedHeight(height) ?? 0}
+                onChange={(e) => onSizeChange(width, Number(e.target.value))}
+              >
+                {namedHeight(height) === null && <option value={0}>Custom ({height} rows)</option>}
+                {PANEL_HEIGHTS.map((h) => <option key={h.h} value={h.h}>{h.label}</option>)}
+              </select>
+            </div>
+          )}
         </div>
       )}
 

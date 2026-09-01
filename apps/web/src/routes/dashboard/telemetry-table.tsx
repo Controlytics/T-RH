@@ -78,7 +78,12 @@ const HEAD = 'px-2 py-2 text-[0.6875rem] font-bold uppercase tracking-wider';
  */
 const ICON: Record<string, ReactElement> = {
   code: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h10M7 16h6" />,
-  room: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 21s7-5.5 7-11a7 7 0 10-14 0c0 5.5 7 11 7 11z M12 10a1 1 0 100-2 1 1 0 000 2z" />,
+  // A building for the FUNCTIONAL location and a folded map for the free-text
+  // placement — two glyphs for two different facts, so the columns are not read
+  // as repeats. The Room pin went with its column; an icon nothing keys to is a
+  // decoy, and `ICON` is looked up by column key alone.
+  area: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 21h18M5 21V7l7-4 7 4v14M10 21v-5h4v5" />,
+  location: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-6 2V6l6-2m0 16 6 2m-6-2V4m6 18 6-2V4l-6 2m0 16V6" />,
   temp: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14V5a2 2 0 114 0v9a4 4 0 11-4 0z" />,
   rh: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3s6 6.5 6 10a6 6 0 11-12 0c0-3.5 6-10 6-10z" />,
   status: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0a3 3 0 11-6 0" />,
@@ -95,7 +100,7 @@ function HeadIcon({ name }: { name: string }) {
   );
 }
 
-interface ColumnGroup {
+export interface ColumnGroup {
   key: string;
   label: string;
   align?: 'left';
@@ -107,23 +112,92 @@ interface ColumnGroup {
   subHead?: string;
 }
 
+/**
+ * THREE PLACEMENT COLUMNS, and they are three different facts (root CLAUDE.md,
+ * "Instrument grouping — THREE concepts"). Do not collapse them:
+ *
+ *   **Area**     — `Instrument.functionalLocation.name`, the AUTHORITATIVE
+ *                  Block > Area grouping. It is what the dashboard drill-down
+ *                  navigates, what instrument visibility scopes resolve through,
+ *                  and what the Alarms page's own Location column shows.
+ *   **Location** — the instrument's own `Location` ATTRIBUTE, free text somebody
+ *                  administered ("Dissolution & UV Room"), and what
+ *                  `scripts/draw-cwh-floorplan.ts` names each drawn room from.
+ *   **Room**     — `FloorplanRoom`, geometry on a drawn plan.
+ *
+ * Room's heading was "Location / Room" until 2026-09-01 and was renamed to just
+ * **Room** when the other two arrived — a column called "Location / Room" beside
+ * a column called "Location" invites the reader to treat them as one fact.
+ * Everything the old heading justified still holds: the SET POINT columns come
+ * FROM the room, so it must stay visible or "18.0 - 27.0" has no source.
+ *
+ * Both new columns take `tv-h-loc`, the existing teal placement hue, so no CSS
+ * was added. That matters here: the `.tv-*` rules at the end of app.css are
+ * deliberately UNLAYERED (see the note there), so a new one is not a free edit.
+ *
+ * Widths are hand-balanced and MUST total 100 — a grouped column counts once per
+ * sub-column, so temp and rh contribute 8 x 2 each. `columnWidthTotal()` below
+ * computes it and a unit test asserts it, since the <colgroup> is generated from
+ * this list and a drifting total silently squeezes the readings.
+ */
 const COLUMN_GROUPS: ColumnGroup[] = [
-  { key: 'code', label: 'Instrument ID', align: 'left', width: '15%', head: 'tv-h-id' },
-  // Its OWN column since 2026-08-29, as the reference has it. It used to be a
-  // sub-line under the ID. The reason it must appear somewhere is unchanged: the
-  // SET POINT columns come FROM the room, so without it "18.0 - 27.0" has no
-  // visible source and an unplaced instrument looks like one whose room simply
-  // has no specification.
-  { key: 'room', label: 'Location / Room', align: 'left', width: '21%', head: 'tv-h-loc' },
-  { key: 'temp', label: 'Temperature (°C)', sub: ['Actual', 'Set Point'], width: '9.5%', head: 'tv-h-temp', subHead: 'tv-sub-temp' },
-  { key: 'rh', label: 'Humidity (%)', sub: ['Actual', 'Set Point'], width: '9.5%', head: 'tv-h-rh', subHead: 'tv-sub-rh' },
-  { key: 'status', label: 'Status', width: '10%', head: 'tv-h-status' },
+  { key: 'code', label: 'Instrument ID', align: 'left', width: '14%', head: 'tv-h-id' },
+  { key: 'area', label: 'Area', align: 'left', width: '14%', head: 'tv-h-loc' },
+  // The widest text on the row lands here — "Working standard & reference
+  // Standard storage Room (or) stability Room" — so the Room column's 11% went
+  // mostly to this one rather than being spread evenly.
+  { key: 'location', label: 'Location', align: 'left', width: '20%', head: 'tv-h-loc' },
+  /**
+   * There is NO Room column (operator, 2026-09-01). It was removed as a literal
+   * duplicate of Location, and the database says so rather than the eye:
+   *
+   *   - The cell's PRIMARY text was the instrument's `name`, and on this
+   *     installation `name` is byte-identical to the `Location` attribute on
+   *     100 of the 100 instruments that carry one. Two columns, one string.
+   *   - Its secondary line was blank on 88 of 101 rows (`room.code` equals the
+   *     instrument code, `label` NULL), and on the 12 traced QC rooms it printed
+   *     the room LABEL — "DISSOLUTION ROOM-II" against a name of "QC-II
+   *     (Dissolution lab-II)", the same room shouted. The room NUMBER
+   *     (`CWH-I/218`) never rendered at all: `label` won whenever it existed.
+   *   - The 101st instrument is the IOTGW01 gateway, whose name equals its code.
+   *
+   * The old justification — "the SET POINT columns come FROM the room, so
+   * without it 18.0-27.0 has no visible source" — had ALREADY lapsed: set-point
+   * provenance is the `setPointSource()` tooltip below, and limits now resolve
+   * from the instrument's own attributes first, with `limitSource` naming which.
+   * A column kept for a reason that has expired is the hardest kind to notice.
+   *
+   * The room stays SEARCHABLE. See the filter below.
+   */
+  { key: 'temp', label: 'Temperature (°C)', sub: ['Actual', 'Set Point'], width: '8%', head: 'tv-h-temp', subHead: 'tv-sub-temp' },
+  { key: 'rh', label: 'Humidity (%)', sub: ['Actual', 'Set Point'], width: '8%', head: 'tv-h-rh', subHead: 'tv-sub-rh' },
+  { key: 'status', label: 'Status', width: '9%', head: 'tv-h-status' },
   // Added 2026-08-28. The payload always carried the reading timestamps and this
   // table only ever showed them in a tooltip, so a value that stopped updating an
   // hour ago looked exactly like a live one.
-  { key: 'asOf', label: 'As Of', width: '9%', head: 'tv-h-asof' },
-  { key: 'trend', label: 'Trend', width: '7%', head: 'tv-h-trend' },
+  { key: 'asOf', label: 'As Of', width: '7%', head: 'tv-h-asof' },
+  { key: 'trend', label: 'Trend', width: '4%', head: 'tv-h-trend' },
 ];
+
+/**
+ * The declared widths, summed the way the browser sees them — once per rendered
+ * column, so a two-sub group counts twice.
+ *
+ * Exported for its test. The `<colgroup>` cannot drift from `COLUMN_GROUPS`
+ * because it is generated from it, but the PERCENTAGES are hand-balanced and a
+ * column added without rebalancing overflows silently: `table-fixed` just
+ * scales everything down, so nothing looks broken while every reading column
+ * gets narrower.
+ */
+export function columnWidthTotal(groups: ColumnGroup[] = COLUMN_GROUPS): number {
+  const total = groups.reduce(
+    (n, g) => n + parseFloat(g.width) * (g.sub ? g.sub.length : 1),
+    0,
+  );
+  // Two decimals: the widths are percentages with one, and floating-point
+  // addition of 8 + 12 + 13 … does not land on a whole number exactly.
+  return Math.round(total * 100) / 100;
+}
 
 const COLSPAN = COLUMN_GROUPS.reduce((n, g) => n + (g.sub ? g.sub.length : 1), 0);
 
@@ -196,10 +270,22 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
+    // Every VISIBLE text column is searchable — the reader can see the word on
+    // screen, so typing it must return the row.
+    //
+    // The ROOM is matched although no column shows it any more (2026-09-01), the
+    // same call the Alarms page made for the same reason: matching MORE than is
+    // shown costs the caller nothing and can only return rows they could already
+    // see, whereas dropping it would silently stop a plan code someone typed from
+    // finding anything. `name` is likewise kept — it is the same string the
+    // Location column prints on every instrument that carries the attribute, and
+    // the fallback for the one that does not.
     let filtered = q
       ? rows.filter((r) =>
           r.code.toLowerCase().includes(q) ||
           r.name.toLowerCase().includes(q) ||
+          (r.functionalLocationName?.toLowerCase().includes(q) ?? false) ||
+          (r.locationAttribute?.toLowerCase().includes(q) ?? false) ||
           (r.room?.code.toLowerCase().includes(q) ?? false) ||
           (r.room?.label?.toLowerCase().includes(q) ?? false))
       : rows;
@@ -263,7 +349,17 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
           <input
             value={query}
             onChange={(e) => { setQuery(e.target.value); setPage(1); }}
-            placeholder="Filter by instrument, name or room&hellip;"
+            /* The placeholder names every VISIBLE COLUMN the box matches — which
+               is the direction the rule runs. It exists to catch a column the
+               reader can see and the search silently ignores; it is NOT a
+               requirement to list fields with no column. `name` and the drawn
+               room are still matched (see the predicate above) and are
+               deliberately unnamed here: `name` prints the SAME string the
+               Location column does on every instrument carrying the attribute,
+               so naming it would advertise three things for one column. Same
+               call the Alarms page makes — it matches the room code and says
+               "instrument ID, name or location". */
+            placeholder="Filter by instrument, area or location&hellip;"
             className="ctl w-full !pl-9"
             style={{ ['--tw-ring-color' as string]: 'var(--theme-primary)' } as React.CSSProperties}
           />
@@ -420,37 +516,50 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
                     </Link>
                   </td>
 
-                  {/* Location / Room. The PRIMARY text is the instrument's `name`,
-                      which is what the reference shows here and what actually
-                      names the location in this data: verified against the
-                      database 2026-08-29, every `floorplan_rooms.label` is NULL
-                      and every `floorplan_rooms.code` is a verbatim copy of the
-                      instrument code, so `room.code` would just repeat the ID
-                      column. The room is still shown when it says something the
-                      ID does not — that is the SET POINT's visible source, and
-                      without it "18.0 - 27.0" comes from nowhere.
+                  {/* AREA — the FUNCTIONAL location. Resolved SERVER-side
+                      (`telemetry-overview.ts` selects the relation); this cell
+                      never walks the Block > Area tree itself, which is the same
+                      rule the `limits` and `decimals` on this row follow.
 
-                      "Not placed" stays explicit: a blank cell would read as a
-                      missing value rather than an unplaced instrument. */}
+                      "Unassigned" rather than a blank, and it is the SAME word
+                      `locationText()` prints on the Alarms page for the same
+                      absence — a blank reads as a rendering fault, and two words
+                      for one state would read as two states. */}
                   <td className={`tv-cell ${CELL} text-left !whitespace-normal`}>
-                    <span className="flex items-start gap-1.5 font-medium text-slate-700" title={r.name}>
-                      <svg aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <circle cx="12" cy="12" r="9" strokeWidth={2} />
-                        <circle cx="12" cy="12" r="3" strokeWidth={2} />
-                      </svg>
-                      <span className="line-clamp-2">{r.name}</span>
-                    </span>
-                    {r.room
-                      ? (r.room.label ?? (r.room.code === r.code ? null : r.room.code)) && (
-                          <div className="text-[0.6875rem] text-slate-500">
-                            {r.room.label ?? r.room.code}
-                          </div>
-                        )
-                      : <div className="text-[0.6875rem] italic text-slate-400">Not placed</div>}
+                    {r.functionalLocationName
+                      ? (
+                        <span className="line-clamp-2 font-medium text-slate-700" title={r.functionalLocationName}>
+                          {r.functionalLocationName}
+                        </span>
+                      )
+                      : <span className="text-[0.6875rem] italic text-slate-400">Unassigned</span>}
+                  </td>
+
+                  {/* LOCATION — the instrument's own `Location` ATTRIBUTE, the
+                      free-text placement. NOT `Instrument.location`, the
+                      superseded column of the same name, and not the drawn Room
+                      beside it. The server sends the resolved value; the row
+                      carries no attribute list to re-derive it from, deliberately.
+
+                      "Not set" rather than "Unassigned": an absent attribute is
+                      somebody not having typed one, which is a different absence
+                      from having no functional location. */}
+                  <td className={`tv-cell ${CELL} text-left !whitespace-normal`}>
+                    {r.locationAttribute
+                      ? (
+                        <span className="line-clamp-2 text-slate-700" title={r.locationAttribute}>
+                          {r.locationAttribute}
+                        </span>
+                      )
+                      : <span className="text-[0.6875rem] italic text-slate-400">Not set</span>}
                   </td>
 
                   <td
-                    className={val(tempBad, 'temp')}
+                    /* A FAULT paints red too (operator, 2026-09-01). `tempBad` is
+                       `outOfSpec`, which is false here because a fault NULLS the
+                       slot — so without this the administered word rendered in the
+                       ordinary temperature hue and read like a healthy value. */
+                    className={val(tempBad || Boolean(r.sensorError?.temperature || r.rangeError?.temperature), 'temp')}
                     title={tempBad ? 'Outside the room specification' : undefined}
                   >
                     {actual(r.temperature, r.decimals.temperature, { failed: r.sensorError?.temperature, outOfRange: r.rangeError?.temperature }, sensorWords)}
@@ -464,7 +573,7 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
                   </td>
 
                   <td
-                    className={val(rhBad, 'rh')}
+                    className={val(rhBad || Boolean(r.sensorError?.humidity || r.rangeError?.humidity), 'rh')}
                     title={rhBad ? 'Outside the room specification' : undefined}
                   >
                     {actual(r.humidity, r.decimals.humidity, { failed: r.sensorError?.humidity, outOfRange: r.rangeError?.humidity }, sensorWords)}
@@ -511,6 +620,10 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
                   <td className={`tv-cell ${CELL}`}>
                     <Link
                       to={`/instruments/${r.instrumentId}/trend`}
+                      // Tells the trend page's breadcrumb where the reader
+                      // actually came from; without it the trail claims a
+                      // path through Instruments that was never taken.
+                      state={{ from: 'dashboard' }}
                       title={`Trend page for ${r.code} — last reading ${readingAge(latest)}`}
                       aria-label={`Open trend page for ${r.code}`}
                       className="inline-flex text-blue-600 transition-colors hover:text-blue-800"

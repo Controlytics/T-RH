@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useState } from 'react';
 import { formatDecimals } from '@digilog/shared';
-import { useDatetimeFormat } from '@/hooks/use-datetime-format';
+import { useDatetimeFormat, type DatetimeFormatOverride } from '@/hooks/use-datetime-format';
 import { pixelToTime, normalizeSelection } from './chart-zoom';
 import { Button } from '@/components/ui/button';
 
@@ -197,6 +197,19 @@ interface Props {
    * disagree.
    */
   lastReading?: { value: number; decimals: number } | null;
+  /**
+   * A per-surface override of the DATE/TIME FORMAT for this chart's tooltip.
+   *
+   * Absent — which is every caller but the instrument trend page — formats
+   * exactly as before, from `/api/config/datetime/current` alone. The trend page
+   * passes each chart widget's own administered override, and an override with
+   * blank fields inherits, so a chart nobody has configured is untouched.
+   *
+   * **Format only. There is no timezone override and there must not be one:** two
+   * charts on one screen naming different instants for the same stored reading
+   * would be a false statement about a §11 record.
+   */
+  dateTimeFormat?: DatetimeFormatOverride;
 }
 
 const W = 900;
@@ -232,9 +245,9 @@ const MIN_ZOOM_SPAN_MS = 60_000;
 
 export function TimeSeriesChart({
   series, envelope, unit, min, max, spanMs, title, onZoom, onResetZoom,
-  variant = 'plain', lastReading = null,
+  variant = 'plain', lastReading = null, dateTimeFormat,
 }: Props) {
-  const { formatDateTime } = useDatetimeFormat();
+  const { formatDateTime } = useDatetimeFormat(dateTimeFormat);
   const [hoverX, setHoverX] = useState<number | null>(null);
   /** Drag in progress, in viewBox x — null when not dragging. */
   const [drag, setDrag] = useState<{ a: number; b: number } | null>(null);
@@ -735,21 +748,16 @@ export function TimeSeriesChart({
         )}
       </svg>
 
-      {/* The value row. In the `trend` variant the in-chart tooltip above IS the
-          readout, so only the affordance hint survives — dropped entirely once
-          the pointer is on the chart, where the tooltip is already answering.
-          The hint is NOT dropped with the rest: a drag that silently refetches
-          is undiscoverable, and the reference image shows no affordance for it. */}
+      {/* The value row.
+          In the `trend` variant this row renders NOTHING (operator, 2026-09-01):
+          the in-chart tooltip already answers what a hover would, and the hint
+          that named the drag affordance was asked for off the page. The drag
+          still works and still REFETCHES — only the sentence advertising it has
+          gone, so the gesture is now undiscoverable rather than absent. Every
+          other caller keeps the row exactly as it was. */}
       <div className="mt-1 flex min-h-[18px] flex-wrap items-center gap-3 text-xs">
-        {trend ? (
-          readout.length === 0 && (
-            <span className="text-slate-400">
-              {interactive
-                ? 'Hover the chart to read values · drag across it to zoom into that window'
-                : 'Hover the chart to read values'}
-            </span>
-          )
-        ) : readout.length > 0 ? readout.map((r) => (
+        {trend ? null
+          : readout.length > 0 ? readout.map((r) => (
           <span key={r.label} className="flex items-center gap-1.5 text-slate-600">
             <span className="inline-block h-2 w-2 rounded-sm" style={{ backgroundColor: r.color }} />
             {r.label}: <span className="font-semibold tabular-nums text-slate-800">{formatDecimals(r.value, r.decimals)} {unit}</span>

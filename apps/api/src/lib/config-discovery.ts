@@ -43,6 +43,7 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
     import('../modules/config/defs/rs485-alarms.def.js'),
     import('../modules/config/defs/sensor-range-alarms.def.js'),
     import('../modules/config/defs/alarm-type-names.def.js'),
+    import('../modules/config/defs/trend-widgets.def.js'),
     // ─── Add new module configs below this line ───
   ]);
 

@@ -85,6 +85,15 @@ function dataFor(key: string | null): any {
   return {};
 }
 
+// The trend page renders the alarms widget, which since 2026-09-01 carries the
+// Acknowledge flow — so it reaches `useCan` (permission gate) and `useToast`.
+// Neither has a provider in this harness; both are stubbed so these tests keep
+// failing on their own subject rather than on a context they do not set up.
+vi.mock('@/hooks/use-can', () => ({ useCan: () => () => true }));
+vi.mock('@/hooks/use-toast', () => ({
+  useToast: () => ({ toast: { success: vi.fn(), error: vi.fn() } }),
+}));
+
 vi.mock('swr', () => ({
   default: (key: any) => {
     const k = typeof key === 'function' ? key() : key;
@@ -128,70 +137,23 @@ function strips(label: string): string[] {
     .filter((t) => t !== '');
 }
 
-describe('trend page — per-chart summary strip', () => {
-  it('prints the server\'s whole-range Minimum/Maximum/Average, not the plotted points', () => {
-    chartState.isLoading = false; chartState.error = undefined;
-    renderPage();
-    // Temperature strip first, humidity second (chart order on the page).
-    expect(strips('Maximum')[0]).toBe('31.9 °C');
-    expect(strips('Minimum')[0]).toBe('17.2 °C');
-    expect(strips('Average')[0]).toBe('22.8 °C');
-    // The whole point: the drawn series never reaches this, so a strip fed
-    // from the chart would have printed 22.6 and hidden a real excursion.
-    expect(strips('Maximum')[0]).not.toBe('22.6 °C');
-  });
+// REMOVED 2026-09-01 with the per-chart summary strip itself (operator: drop
+// Current / Minimum / Maximum / Average from the trend widgets). Three tests
+// went with it, all asserting figures the page no longer prints:
+//   - the server's whole-range Min/Max/Average rather than the plotted points
+//   - the latest STORED reading as Current, never the last averaged point
+//   - the instrument's own decimals, and humidity in its own unit
+// The RULE they protected is not gone and is still enforced server-side:
+// `summaries` is computed in SQL over every reading in the range, pinned by
+// `apps/api/src/e2e/instrument-telemetry-range.test.ts`. What was lost here is
+// only the assertion that the browser PRINTS those figures, which it no
+// longer does. If a summary ever returns to this page, restore these three.
 
-  it('shows the latest STORED reading as Current, not the last averaged point', () => {
-    chartState.isLoading = false; chartState.error = undefined;
-    renderPage();
-    // The final 5-minute bucket holds 22.5 and 22.9 and PLOTS their mean, 22.7.
-    // The stored reading at the latest instant is 22.9, and that is what
-    // "Current" means. Pointing `latestValueForKey` at the series' last point
-    // instead prints 22.7 and fails here — which is the whole reason the
-    // fixture carries two readings in that bucket rather than one.
-    expect(strips('Current')[0]).toBe('22.9 °C');
-    expect(strips('Current')[0]).not.toBe('22.7 °C');
-  });
-
-  it('renders at the instrument\'s own decimals, and humidity in its own unit', () => {
-    chartState.isLoading = false; chartState.error = undefined;
-    renderPage();
-    expect(strips('Maximum')[1]).toBe('55.5 %RH');
-  });
-});
-
-describe('trend page — extra-key charts disclose sampling', () => {
-  it('says how many of the range\'s readings an extra-key chart is showing', () => {
-    localStorage.setItem('digilog.trendKeys.i-1', JSON.stringify(['co2']));
-    chartState.isLoading = false; chartState.error = undefined;
-    renderPage();
-    // Humidity and co2 each returned ONE of the range's 2,500 readings, so this
-    // wording matches exactly twice. Before the fix it matched once: the
-    // extra-key chart plotted its single sampled point and said nothing.
-    // (Temperature returned three, and carries its own "Showing 3 of 2,500".)
-    expect(screen.getAllByText(/Showing 1 of 2,500 readings/)).toHaveLength(2);
-    expect(screen.getAllByText(/Showing 4 of 2,500 readings/)).toHaveLength(1);
-    // And it is the EXTRA-KEY chart's own note, not one of the two above that
-    // happens to read the same. Scoped to the container holding the co2 chart
-    // title, so a note rendered anywhere else on the page cannot satisfy this.
-    // Anchored on the co2 STRIP's Average (512 — a value no other chart on this
-    // page carries), so the container found is unambiguously the co2 chart's.
-    // `screen.getByText('co2')` would not do: the picker renders a chip with
-    // the same text.
-    const co2Panel = screen.getByText(/^512/).closest('dl')!.parentElement!;
-    expect(within(co2Panel).getByText(/Showing 1 of 2,500 readings/)).toBeInTheDocument();
-    localStorage.clear();
-  });
-
-  it('and without the extra key that same wording appears only once', () => {
-    // The discriminating half: proves the count above moved BECAUSE of the
-    // extra-key chart, not because the two administered charts render twice.
-    localStorage.clear();
-    chartState.isLoading = false; chartState.error = undefined;
-    renderPage();
-    expect(screen.getAllByText(/Showing 1 of 2,500 readings/)).toHaveLength(1);
-  });
-});
+// REMOVED 2026-09-01 with the additional-keys section. Both tests were about
+// a chart that no longer exists: one asserted an extra-key chart discloses its
+// own sampling, the other was its discriminating control. The disclosure rule
+// itself still holds for the two administered charts and is asserted by
+// `SampledNote` usage in `trend-charts` coverage.
 
 describe('trend page — chart loading and error states', () => {
   it('does not claim "No data available" while the chart request is in flight', () => {
@@ -220,9 +182,19 @@ describe('trend page — chart loading and error states', () => {
     renderPage();
     expect(screen.queryByText(/These readings could not be loaded/)).toBeNull();
     expect(screen.getAllByText(/could not be refreshed/).length).toBeGreaterThanOrEqual(2);
-    // The readings really are still on screen: the strip still prints the
-    // server's figures rather than nothing.
-    expect(strips('Maximum')[0]).toBe('31.9 °C');
+    // The readings really are still on screen.
+    //
+    // Third probe for this one assertion, and the last one that should be
+    // needed. It read the summary strip's Maximum until that was removed, then
+    // the sampling note until that was removed too — both on 2026-09-01. Each
+    // time the PROPERTY held and only the surface it was read through went
+    // away, which is why the test was re-probed rather than deleted with them.
+    //
+    // It now reads the CHART ITSELF: `TimeSeriesChart` renders its SVG with
+    // `role="img"` only when it has points to plot, so this is as close to "the
+    // readings are still rendered" as the DOM gets, and there is nothing left
+    // above it to remove.
+    expect(screen.getAllByRole('img').length).toBeGreaterThanOrEqual(2);
     expect(screen.queryByText('No data available')).toBeNull();
     chartState.error = undefined; chartState.keepData = false;
   });

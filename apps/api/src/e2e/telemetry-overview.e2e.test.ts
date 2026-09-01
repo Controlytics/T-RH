@@ -262,3 +262,95 @@ describe('telemetry-overview and the per-bound enable attributes', () => {
     expect(row.limitSource).toBeNull();
   });
 });
+
+/**
+ * The dashboard table's AREA and LOCATION columns, asserted OVER THE WIRE.
+ *
+ * **These go through `app.inject`, never off `buildTelemetryOverview()`'s return
+ * value, and that is the entire point of the block.** Fastify STRIPS any
+ * response property the route's 200 schema does not name, silently and with no
+ * error anywhere — a field the builder computes and returns simply never reaches
+ * the browser. It has cost this repo four times: `historySampled`/`summaries`,
+ * the alarm list's `locationName`, the floorplan `meta`/`annotations`, and
+ * `rangeBounds`, which was computed and returned for weeks while the trend table
+ * could not tell a saturated reading from a real one. A test that called the
+ * builder directly would pass against every one of those.
+ *
+ * The two are DIFFERENT FACTS and the tests keep them apart deliberately: Area
+ * is `Instrument.functionalLocation.name`, the authoritative Block > Area
+ * grouping, and Location is the instrument's own `Location` ATTRIBUTE — not
+ * `Instrument.location`, the superseded free-text column of the same name, which
+ * is why one case sets that column to something different and asserts it is not
+ * what comes back.
+ */
+describe('telemetry-overview placement columns (Area and Location)', () => {
+  it('returns the FUNCTIONAL location name and the Location attribute over the wire', async () => {
+    const block = await prisma.functionalLocation.create({
+      data: { name: `TOV Block ${s}`, type: 'BLOCK' },
+    });
+    const area = await prisma.functionalLocation.create({
+      data: { name: `TOV Area ${s}`, type: 'AREA', parentId: block.id },
+    });
+    const inst = await createInstrument(`TOV-PLACE-${s}`);
+    await prisma.instrument.update({
+      where: { id: inst.id },
+      data: { functionalLocationId: area.id },
+    });
+    await prisma.instrumentAttribute.create({
+      data: { instrumentId: inst.id, key: 'Location', value: 'Dissolution & UV Room' },
+    });
+
+    const row = rowFor(await overview(), inst.id)!;
+    expect(row.functionalLocationName).toBe(`TOV Area ${s}`);
+    expect(row.locationAttribute).toBe('Dissolution & UV Room');
+  });
+
+  it('is the ATTRIBUTE, not the superseded Instrument.location column', async () => {
+    // Both are named "location" and they hold different things. If the builder
+    // ever reads the column, this is the case that says so.
+    const inst = await createInstrument(`TOV-COLUMN-${s}`);
+    await prisma.instrument.update({
+      where: { id: inst.id },
+      data: { location: 'the superseded column' },
+    });
+    await prisma.instrumentAttribute.create({
+      data: { instrumentId: inst.id, key: 'Location', value: 'the attribute' },
+    });
+
+    const row = rowFor(await overview(), inst.id)!;
+    expect(row.locationAttribute).toBe('the attribute');
+  });
+
+  it('matches the attribute key case-insensitively, as every other lookup here does', async () => {
+    // `resolveLimit()` in @digilog/shared trims and lowercases; a hand-typed
+    // `location` names the same fact as the live rows' `Location`.
+    const inst = await createInstrument(`TOV-CASE-${s}`);
+    await prisma.instrumentAttribute.create({
+      data: { instrumentId: inst.id, key: ' location ', value: 'Cold Room 2' },
+    });
+    const row = rowFor(await overview(), inst.id)!;
+    expect(row.locationAttribute).toBe('Cold Room 2');
+  });
+
+  it('sends null for both when neither is set, rather than omitting the keys', async () => {
+    // Null is a value the column can render as "Unassigned" / "Not set". An
+    // absent KEY is indistinguishable from a Fastify strip.
+    const inst = await createInstrument(`TOV-NOPLACE-${s}`);
+    const row = rowFor(await overview(), inst.id)!;
+    expect(row).toHaveProperty('functionalLocationName');
+    expect(row).toHaveProperty('locationAttribute');
+    expect(row.functionalLocationName).toBeNull();
+    expect(row.locationAttribute).toBeNull();
+  });
+
+  it('treats a blank attribute value as absent', async () => {
+    // An attribute somebody created and left empty says nothing; letting it
+    // through renders an empty cell that looks like a rendering fault.
+    const inst = await createInstrument(`TOV-BLANK-${s}`);
+    await prisma.instrumentAttribute.create({
+      data: { instrumentId: inst.id, key: 'Location', value: '   ' },
+    });
+    const row = rowFor(await overview(), inst.id)!;
+    expect(row.locationAttribute).toBeNull();
+  });
+});

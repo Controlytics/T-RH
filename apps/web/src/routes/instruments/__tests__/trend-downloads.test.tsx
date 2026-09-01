@@ -63,6 +63,15 @@ function dataFor(key: string | null): any {
   return {};
 }
 
+// The trend page renders the alarms widget, which since 2026-09-01 carries the
+// Acknowledge flow — so it reaches `useCan` (permission gate) and `useToast`.
+// Neither has a provider in this harness; both are stubbed so these tests keep
+// failing on their own subject rather than on a context they do not set up.
+vi.mock('@/hooks/use-can', () => ({ useCan: () => () => true }));
+vi.mock('@/hooks/use-toast', () => ({
+  useToast: () => ({ toast: { success: vi.fn(), error: vi.fn() } }),
+}));
+
 vi.mock('swr', () => ({
   default: (key: any) => ({ data: dataFor(typeof key === 'function' ? key() : key), isLoading: false, error: undefined }),
 }));
@@ -241,6 +250,35 @@ describe('trend page downloads', () => {
     renderPage('?interval=raw');
     await download(1);
     expect(logged[0].recordCount).toBe(3);
+  });
+
+  /**
+   * The PRINTED averaging disclosure, which nothing asserted until 2026-09-01.
+   *
+   * It matters more now than it did: the on-screen note ("Averaged over 1 hour —
+   * the table below shows every reading") was removed at the operator's request
+   * that day, and the justification for removing it was that the signed PDF
+   * carries its own independent disclosure. That justification was unguarded —
+   * setting `averagedLabel: null` passed all sixteen tests in this file.
+   *
+   * A plotted point in an averaged chart is a DERIVED number and the reader has
+   * no way to tell from the picture. On paper, which outlives the screen, the
+   * document has to say so itself.
+   */
+  it('SAYS on the printed report that its chart is averaged', async () => {
+    renderPage('?interval=5m');
+    await download(1);
+    // The disclosure's own phrase, not a loose word match: the report also
+    // carries an 'Average' summary row, which is a different statement.
+    expect(lastPdfText()).toMatch(/AVERAGED over/);
+  });
+
+  it('says nothing of the kind when the chart is raw', async () => {
+    // The discriminating half: the wording must follow the interval, not appear
+    // on every report. A disclosure that is always present states nothing.
+    renderPage('?interval=raw');
+    await download(1);
+    expect(lastPdfText()).not.toMatch(/AVERAGED over/);
   });
 
   it('never averages the Time Series report, whatever the chart interval is', async () => {

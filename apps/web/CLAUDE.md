@@ -63,6 +63,42 @@ read as a scan with rectangles stuck on top. The image now appears only in the
 editor, faded, as a tracing guide. Rooms store proportional `x/y/w/h`, so the
 drawn layout is resolution-independent.
 
+**The tabular view carries TWO placement columns (2026-09-01).**
+`telemetry-table.tsx`: **Area** is `functionalLocationName`, the authoritative
+Block > Area grouping; **Location** is `locationAttribute`, the instrument's own
+`Location` ATTRIBUTE — **never `Instrument.location`**, the superseded free-text
+COLUMN of the same name. Both arrive resolved from the server; nothing here
+re-derives them.
+
+**There is no Room column, and the reason is a query, not a preference**
+(operator, 2026-09-01). The cell's primary text was the instrument's `name`, and
+on this installation `name` equals the `Location` attribute on **100 of the 100**
+instruments that carry one — so the two columns printed the same string. Its
+secondary line was blank on 88 of 101 rows (`room.code` equals the instrument
+code, `label` NULL) and, on the 12 traced QC rooms, printed the room LABEL
+("DISSOLUTION ROOM-II" beside a name of "QC-II (Dissolution lab-II)"). The room
+NUMBER (`CWH-I/218`) never rendered: `label` won whenever it existed.
+
+**It had been kept under a reason that already lapsed** — "the SET POINT columns
+come FROM the room, so without it 18.0-27.0 has no visible source". That
+provenance is the `setPointSource()` TOOLTIP, and limits resolve from the
+instrument's own attributes first, with `limitSource` naming which. A column
+defended by an expired comment is the hardest kind to spot; re-read the reason
+before repeating it.
+
+The room stays SEARCHABLE with no column showing it — the same call the Alarms
+page made, and the search comment says so. The DRAWN room is untouched and is
+still the graphical view's entire subject.
+
+Two mechanical rules for that table. Columns are declared ONCE in
+`COLUMN_GROUPS` and the `<colgroup>` is generated from it, so the two cannot
+drift — but the WIDTH PERCENTAGES are hand-balanced and must total 100, which
+`columnWidthTotal()` computes and a test asserts; `table-fixed` silently scales
+an over-100 table down, so nothing looks broken while every reading column gets
+narrower. And the SEARCH must match every visible text column, with the
+placeholder naming them: a column the reader can see and cannot search reads as
+a broken search box.
+
 **"Live" is polling.** There is no browser-facing WebSocket or SSE channel here
 (the `@fastify/websocket` registration is INBOUND device ingest), so every live
 surface is an SWR `refreshInterval` and the UI says "updates every Ns".
@@ -120,14 +156,28 @@ rebuilt to an operator reference image.
   clock and TIMEZONE. This widget had zero tests before 2026-09-01, which is why
   that survived; look for the same mistake anywhere a date is rendered without
   the hook.
-- The band's glyph is an explicit `icon` prop, never sniffed from the unit
-  string — otherwise humidity gets a thermometer the day someone administers
-  `degC`.
-- Humidity is `--chart-series-2` (orange), not the mock's blue: a quantity's
-  colour is app-wide identity, shared with the charts and the PDF export.
-- The band is coloured by QUANTITY, not status — so a breaching latest reading
-  shows a calm band above a red pill. Deliberate; the judgement lives in the
-  pills.
+- **`SlotColumn` lost `unit`, `accent`, `icon` and `last` on 2026-09-01**, with
+  the last-reading BAND they fed and the per-value unit (the column heading
+  already carries it). All four survived the band's removal as props that were
+  passed, threaded through `ValueCell` and destructured, but never rendered —
+  and `last` kept `latestValueForKey()` alive in `trend.tsx` with no reachable
+  caller. **An unused prop is a decoy**: the next reader wires something to it
+  and cannot see why nothing happens. If you delete a surface, delete what fed
+  it in the same pass.
+  Two rules those props carried are still TRUE and now live elsewhere, so do not
+  relearn them here: a quantity's glyph is an explicit `icon` prop and is **never
+  sniffed from a unit string** (humidity gets a thermometer the day somebody
+  administers `degC`) — that prop is live on `BandGauge`; and humidity is
+  `--chart-series-2` (orange), not the mock's blue, because a quantity's colour is
+  app-wide identity shared with the charts and the PDF export.
+- **A "last reading" is taken from the RAW rows, never from a chart series.**
+  `toChartSeries` bucket-averages when an interval is selected, so its last point
+  is a MEAN, and a mean labelled "Current" states a derived number as a stored
+  one. `latestValueForKey()` enforced that and was removed with its callers; the
+  reasoning now lives in exactly one place — the doc comment on
+  `TimeSeriesChart`'s `lastReading` prop. Read it there before reinstating any
+  last-reading readout. **That prop currently has NO production caller** (only a
+  test passes it) — it is the next thing to check if it is still dead.
 - It uses a hand-rolled `<table>` rather than the shared `Table`/`.tbl`, whose
   header band and rhythm this design overrides. The one table in the app that
   does not follow the shared style.
@@ -202,23 +252,69 @@ Fastify's response filter.
 
 **`alarm-table.tsx` is the table's presentation, and it is SHARED (2026-09-01)**
 — the banner, `Th`/`Stack`/`UnitLine`, the state marker, the `ACCENT`/`VALUE_INK`
-tone maps and one component per cell, imported by this page AND by the trend
-page's `routes/instruments/alarms-widget.tsx`. Until then those were two
-hand-written tables, and the copy had drifted exactly as copies do: the widget
-keyed its status pill off `severity`, the defect this page had fixed one day
-earlier. `AlarmStatusCell` is the single reason that is now structurally
-impossible on either screen.
+tone maps and one component per cell, imported by this page, by the trend page's
+`routes/instruments/alarms-widget.tsx`, and by the dashboard's
+`routes/dashboard/selection-alarms.tsx`. Until then those were hand-written
+tables, and the copies had drifted exactly as copies do: the trend widget keyed
+its status pill off `severity`, the defect this page had fixed one day earlier.
+`AlarmStatusCell` is the single reason that is now structurally impossible on any
+of the three.
 
 It is **presentation only** — no fetch, no filter, no sort state, no acknowledge
-mutation. The two screens get their rows in genuinely different ways (this page
-filters, counts, sorts and pages SERVER-side; the widget windows one instrument's
-alarms on `raisedAt` in the browser), and a configurable `<AlarmTable
-columns={...}>` would have meant reshaping a data flow that is correct. **Do not
-move the query wiring into it.** The widget shows NINE of these twelve columns —
-Instrument ID and Location are redundant for a single-instrument view, and the
-sticky Acknowledge cell needs the gate, the re-auth dialog and a revalidation,
-none of which a read-only widget carries. Its state marker therefore rides on the
-TYPE cell, not Instrument ID.
+mutation. A configurable `<AlarmTable columns={...}>` would have meant reshaping
+three data flows that are correct. **Do not move the query wiring into it.**
+
+**All THREE now filter, count and page SERVER-side (2026-09-01).** They did not
+until then: this page did, while the trend widget fetched `limit=500` and windowed
+the period with an `Array.filter` in the browser, and the dashboard panel fetched a
+flat `limit=25` and showed whatever came back. Both are the shape this page was
+rebuilt on 2026-08-31 to remove — **a `limit` and a range meeting in one query** —
+and both were invisible: the widget's own comment claimed its filtering was
+server-side, and the panel had no count on screen to contradict its cap. Each
+counts the server's `total`; **`rows.length` is one page** and a count taken from
+it describes the page while reading as the period or the selection.
+
+Moving the trend widget's window to `from`/`to` was a PREREQUISITE for paging it,
+not a tidy-up: a server paging 500-row blocks under a browser thinning each one
+yields page numbers and row counts describing different populations.
+
+Each caller still shows a different subset and each subset has a reason:
+
+- **This page: twelve**, with the action column `sticky right-0`.
+- **The trend widget: ten.** Instrument ID and Location are redundant for a
+  single-instrument view named in the page header, so its state marker rides on
+  the TYPE cell instead. Not sticky — ten columns at full width do not overflow.
+- **The dashboard's selection panel: nine** (2026-09-01). It KEEPS Instrument ID
+  and Location — it spans every instrument in the drill-down — and drops Cleared,
+  Cleared Value and Duration, because its query is `state=ACTIVE` and `clearedAt`
+  is null on every row it can show. Three columns of dashes, in a panel narrower
+  than either full-width table. **If that query ever widens, add them back.**
+
+All three use the canonical `<Pagination>` at the administered `defaultLimit`, not
+a second hardcoded page size that would drift from the Alarms page. **The two
+widgets render no pager at all when `total` is 0** — "Showing 0–0 of 0" beneath a
+"No active alarms" line is two ways of saying nothing, one of them noisier — and
+both reset to page 1 when what they are filtering on changes, because page 3 of the
+previous selection is usually past the end of the next one. On the dashboard the
+Rows selector also resizes the panel, since panel height follows content.
+
+**Two of the three now acknowledge, and both got the WHOLE flow.** The button
+needs four things — the `alarms.acknowledge` gate, `AcknowledgeDialog`,
+`postWithReauth`, and a revalidation of that surface's own SWR key. Both the
+trend widget and the selection panel shipped WITHOUT it first, correctly, because
+they had none of the four: a button that renders but cannot complete a §11
+signature invites an operator to try and fail. **If you strip one of the four,
+strip the button in the same pass.** Each revalidates only its own key; do not
+reach for another surface's URL.
+
+**Only THIS page's action column is sticky, and the column count is not why.**
+Nine columns in a resizable `PanelCard` can overflow more easily than twelve at
+full width, so on the selection panel that heuristic pointed AT pinning. What
+decides against it there is the tint: a sticky cell needs an OPAQUE background or
+rows scroll through it, `ALARM_ROW_CLASS` is `hover:bg-slate-50/70` by design,
+and that panel's wrapper is deliberately transparent so the operator's chosen
+PanelCard colour shows. A white stripe down its right edge would paint over
+exactly what that transparency exists to reveal.
 
 **Nothing on this page filters, counts, sorts or pages in the browser.** It used
 to do all four over `GET /api/alarms?limit=500`, which made the four state boxes
@@ -298,10 +394,43 @@ again the moment this installation passes one page of alarms.
   into a module-level constant**, which is built once at import and never sees a
   rename. The option VALUES stay hardcoded: they are the API's tokens and an
   unknown one is a 400.
-- **The Location column shows the FUNCTIONAL location alone.** The drawn room was
-  removed 2026-08-31: it is geometry, not a grouping, and every `floorplan_rooms.code`
-  in this installation is its instrument's own code with `label` blank, so the line
-  repeated the Instrument ID column. `roomLabel` went from the API response with it.
+- **The Location column shows the instrument's own `Location` ATTRIBUTE, falling
+  back to the functional location (2026-09-01).** It showed the functional
+  location ALONE until then, so a column headed "Location" printed an AREA —
+  reported by the operator, and the same word meaning two things on two screens
+  they read side by side, since `telemetry-table.tsx`'s Location column already
+  printed the attribute. `locationText()` is the one resolver and
+  `AlarmLocationCell` its only caller, so **the two surfaces that HAVE a Location
+  column — this page and the dashboard's selection panel — changed from one
+  edit.** The trend page's alarms widget renders no Location cell at all (ten
+  columns; instrument identity is redundant on a page named for one instrument),
+  so it is untouched. Counting the shared-cell consumers rather than the cell's
+  actual call sites is how "three" gets written down; `grep -c AlarmLocationCell`
+  is the check.
+  - **The fallback is the Area, not "Not set", and that DIFFERS from the dashboard
+    table deliberately.** That table has a separate Area column beside this one, so
+    falling back there would duplicate the neighbouring cell; the alarms tables
+    have ONE placement column, so the Area is the only remaining fact and beats
+    "Unassigned".
+  - **Both of the things this cell can display are SEARCHABLE**, and the server
+    matches both (`list-query.ts`). Adding the attribute to the column without
+    adding it to the search made it visible-but-unsearchable for as long as it took
+    to notice — the exact failure this repo already wrote down for the dashboard
+    table. Check the search clause whenever a column's SOURCE changes, not only
+    when a column is added.
+  - The key match is case-INSENSITIVE and the pick is ORDERED (`orderBy: key`):
+    this installation's attribute keys have drifted, so an instrument carrying both
+    `Location` and `location` is a case that arises, and an unordered `take: 1`
+    would show an arbitrary one of the two and could flip between requests.
+  - The drawn room was removed 2026-08-31: it is geometry, not a grouping, and
+    every `floorplan_rooms.code` in this installation is its instrument's own code
+    with `label` blank, so the line repeated the Instrument ID column. `roomLabel`
+    went from the API response with it.
+  - **The signed trend PDF still prints the ROOM under a heading that says
+    "Location"** (`trend-report.ts`, fed from `overview.room`). Untouched here: it
+    is a separate path that consumes neither `locationText()` nor `AlarmRow`. If
+    it is ever addressed, RELABELLING the row `Room` is the smaller and more honest
+    change — it does not alter what a signed record asserts.
 - **The action column is `sticky right-0`** and the `Generated Value` /
   `Cleared Value` / `Acknowledged by` headings are stacked one word per line.
   Twelve columns overflow a laptop screen and the page's ONLY action was what
@@ -440,6 +569,46 @@ resting position is correct with the animation absent, disabled or finished.
 That block is deliberately UNLAYERED: it sets no colour and no spacing, so there
 is no utility for it to outrank.
 
+## Trend page widget labels are administered (2026-09-01)
+
+Every title, subtitle and column heading on `/instruments/:id/trend` comes from
+`system_config['trend-widgets']` through `hooks/use-trend-widgets.ts`, and each
+widget can override its DATE/TIME FORMAT. `routes/instruments/widget-settings-button.tsx`
+is the pencil in each widget's header.
+
+- **No component defaults a label.** The only fallback is
+  `TREND_WIDGET_LABEL_DEFAULT` in `@digilog/shared`, applied by
+  `trendWidgetLabel()` server-side and by `coerceTrendWidgetTexts()` in the hook.
+  A `?? 'Status'` anywhere in a widget is a second, drifting definition — the same
+  rule as `RS485_FAILURE_TEXT_DEFAULT` and the alarm type names.
+- **The widgets stay presentational.** They take their wording as props and take
+  the pencil as a `settingsButton` ReactNode; the role check and the config write
+  live in one component, not five. `BandGauge`, `TrendChartCard`,
+  `TimeseriesTableCard` and `AlarmsWidget` all follow this.
+- **The pencil is `user?.role === 'SUPER_ADMIN'`**, the same check
+  `routes/config/index.tsx` makes — NOT `useCan`, because the gate is the def's
+  own `requiredRole`, and two checks for one rule drift. Hiding it is
+  presentation; the server's 403 is the control and is tested separately.
+- **`useDatetimeFormat(override)` — there is still ONE formatter.**
+  `makeDatetimeFormatters(config, override)` is the pure core, extracted so the
+  inheritance rule can be unit-tested rather than inferred from a rendered date.
+  Each field falls through independently; **the TIMEZONE is not overridable**, and
+  the type has no field for one. `TimeSeriesChart` gained an optional
+  `dateTimeFormat` for its tooltip; every other caller passes nothing.
+- **An unrecognised format INHERITS.** `formatDateValue`'s `default:` branch
+  prints en-GB, so passing a stale override through would render DD/MM/YYYY on a
+  site set to MM/DD/YYYY — the mutation test for this fails with
+  `expected '04/03/2026' to be '3/4/2026'`, which is the bug itself.
+- **The alarms table's `<UnitLine>` legends and the H/m tooltip are NOT
+  renameable** and survive a rename. `Heading` stacks a multi-word heading one
+  word per line — `Th` is `whitespace-nowrap`, so an unstacked two-word heading
+  is the widest cell in the table and drags its column out with it. A single word
+  renders as a bare text node, so the shipped headings are byte-for-byte what
+  they were.
+- **A save MERGES the whole row.** `/api/config/dynamic/:key` replaces
+  `configValue` rather than patching it, so a PUT of one widget's fields erases
+  the other five. Pinned and mutation-checked.
+
 ## E-signature password fields — `autocomplete="off"` DOES NOT WORK
 
 Every §11 password box must be `components/ui/signature-password-input.tsx`.
@@ -529,6 +698,58 @@ Tokens live in `src/app.css` `@theme`; primitives in `src/components/ui/`.
   operator-ordered array (Config → Roles & Access → Sidebar), so adding section
   headings would silently override an arrangement someone chose.
 - SWR for data fetching with auto-revalidation
+## Dashboard panel height FOLLOWS THE CONTENT (2026-09-01)
+
+Operator: *"every widget size should be upto pagination only, when user dragged
+its showing empty space … if user increased 25 to 50 then widgets should adjust
+upto 50 records in one view, if again he made 25 then size should be adjusted
+automatically."* So a panel ends at its pagination bar and a page-size change
+resizes it with no drag. `routes/dashboard/panel-auto-height.ts` holds the maths.
+
+- **Only `telemetry_table` and `dashboard_alarms` are in `AUTO_HEIGHT_PANELS`.**
+  `telemetry_floorplan` is deliberately out (operator's call): a drawn plan has no
+  natural height — it SCALES to the box it is given — so "fit the content" is
+  undefined for it and a bigger box genuinely shows the rooms bigger. It keeps its
+  corner handle and its Height dropdown, and is the one panel here where dragging
+  taller does something.
+- **OBSERVE THE CONTENT WRAPPER, NEVER THE CARD OR THE SCROLL REGION.** This is
+  the whole feature and it fails silently. Both of those have their border box
+  pinned by the grid cell, so going 25 → 50 rows grows `scrollHeight` without
+  changing either box — and **ResizeObserver does not fire on a `scrollHeight`
+  change**. Observe one of them and the panel resizes only when the WINDOW does,
+  which is the original complaint with extra steps. A test that resizes the window
+  passes either way; `__tests__/panel-card-auto-height.test.tsx` asserts the
+  observed element BY IDENTITY and drives a content growth instead.
+- **The height is derived at RENDER and never STORED.** `applyAutoHeights`
+  overlays it for display; `keepStoredHeights` strips it back out in
+  `onGridChange` before anything reaches the draft. react-grid-layout reports
+  whatever height an item currently has, so without that strip every Save would
+  write one moment's page size into `role_configs` for every viewer to inherit.
+- **`nextRows` is damped, and the obvious version of the damping IS A NO-OP.**
+  "Grow when it overflows, shrink when a whole row is free" fires on the same
+  pixel in both directions, because `rowsForHeight` is the exact inverse of
+  `capacityPx` — the band it holds in is precisely the band that already maps to
+  the current row count. Found on 2026-09-01 by mutation testing: deleting the
+  entire branch changed nothing and failed no test. Shrinking is therefore made
+  STRICTLY harder than growing by `SHRINK_SLACK_PX`. The loop it prevents is real:
+  the readings table's Area/Location cells are `line-clamp-2`, so a width change
+  re-wraps them and moves the height, and a panel tall enough to summon the PAGE
+  scrollbar narrows its own container and re-wraps again.
+- **`ROW_HEIGHT` / `MARGIN_Y` are imported by `panel-grid.tsx` from that module**,
+  so the geometry the grid DRAWS with and the geometry the maths SOLVES with are
+  the same two numbers. `capacityPx` counts `rows - 1` gaps, not `rows`.
+- **Auto panels get `resizeHandles: ['e']`** — the right EDGE, width only. The
+  library default `['se']` is the corner and drags both axes; on a measured card
+  the vertical half would be undone by the next measurement and read as broken.
+  Per-item `resizeHandles` overrides `resizeConfig.handles` in 2.x.
+- **The Card height dropdown is HIDDEN on an auto panel**, replaced by a line
+  saying why. It would set an `h` the next measurement overwrites within a frame —
+  an inert control, which this file already has a rule about (the `SlotColumn`
+  unused-prop note above). Card width stays.
+- **The trend page needed NOTHING.** Its widget cards are not in a grid and carry
+  no `max-h`, `h-[…]` or `overflow-y` — verified by grep, not assumed — so they
+  already grow with their content.
+
 - **`react-grid-layout` was ADDED 2026-08-28** — the first UI dependency taken on
   here in a long time, and a deliberate reversal of the habit recorded below. It
   powers the draggable/resizable dashboard; drag, resize, collision and
@@ -555,7 +776,7 @@ Tokens live in `src/app.css` `@theme`; primitives in `src/components/ui/`.
 - Force login (`force: true`) to terminate existing sessions
 
 ## Key Features
-- **24** files in `routes/config/` (25 -> 24 on 2026-08-28: `dashboard-cards.tsx` deleted — panel assignment moved to a Panels tab on `role-access.tsx`, stored on `role_configs`/`user_configs` rather than in `system_config`, and gained a per-USER layer. Config -> Appearance lost its second tab with it.) Earlier: **25** files (re-verified `ls apps/web/src/routes/config/*.tsx | wc -l` 2026-08-27 — `alarm-webhooks.tsx` added 2026-08-27, 24 → 25. It has **no config def of its own**: alarm webhooks are a CRUD module with their own tables, not a `system_config` row, so the def count stays at 25 and this page is not driven by the dynamic config page. Its `/config` card is **SUPER_ADMIN-only** — `index.tsx` reads `const visibleSuperAdminCards = isSuperAdmin ? superAdminCards : []` (the delegation allow-list went 2026-08-19) and the card is in `superAdminCards`, so a non-SUPER_ADMIN NEVER sees it and no Configuration Access grant will surface it; `/config/alarm-webhooks` is still reachable by URL, where `RequireRole permissions={[ALARM_RULE_READ]}` admits them. Same as Alarm Rules, which is in the same array. **This line said "default-deny … until `alarm-webhooks` is granted under Configuration Access" until 2026-08-27; that was FALSE.** Earlier: re-verified `ls` 2026-08-19 — `role-assignments.tsx` removed as dead code, 25 → 24; `alarm-limits.def.ts`, added 2026-08-17 for the instrument-limit alarm work, is an auto-discovered def rendered by the dynamic config page, so it adds no file here. Earlier verified `ls` 2026-08-14; the "34" was inherited from DigiLog and was never true here). Most config surfaces are auto-discovered defs rendered by the dynamic page; `alarm-rules.tsx` (2026-08-14) is a real CRUD page, like `floorplans.tsx`
+- **23** files in `routes/config/` (re-derived `ls apps/web/src/routes/config/*.tsx | wc -l` 2026-09-01; 24 -> 23 on 2026-08-31 with the alarm-rules removal — this line was never re-synced then, and the two inventory lines in root CLAUDE.md carried the same stale 24 until 2026-09-01. `trend-widgets.def.ts`, added that day, adds NO file here: it renders through the dynamic config page. Earlier 25 -> 24 on 2026-08-28: `dashboard-cards.tsx` deleted — panel assignment moved to a Panels tab on `role-access.tsx`, stored on `role_configs`/`user_configs` rather than in `system_config`, and gained a per-USER layer. Config -> Appearance lost its second tab with it.) Earlier: **25** files (re-verified `ls apps/web/src/routes/config/*.tsx | wc -l` 2026-08-27 — `alarm-webhooks.tsx` added 2026-08-27, 24 → 25. It has **no config def of its own**: alarm webhooks are a CRUD module with their own tables, not a `system_config` row, so the def count stays at 25 and this page is not driven by the dynamic config page. Its `/config` card is **SUPER_ADMIN-only** — `index.tsx` reads `const visibleSuperAdminCards = isSuperAdmin ? superAdminCards : []` (the delegation allow-list went 2026-08-19) and the card is in `superAdminCards`, so a non-SUPER_ADMIN NEVER sees it and no Configuration Access grant will surface it; `/config/alarm-webhooks` is still reachable by URL, where `RequireRole permissions={[ALARM_RULE_READ]}` admits them. Same as Alarm Rules, which is in the same array. **This line said "default-deny … until `alarm-webhooks` is granted under Configuration Access" until 2026-08-27; that was FALSE.** Earlier: re-verified `ls` 2026-08-19 — `role-assignments.tsx` removed as dead code, 25 → 24; `alarm-limits.def.ts`, added 2026-08-17 for the instrument-limit alarm work, is an auto-discovered def rendered by the dynamic config page, so it adds no file here. Earlier verified `ls` 2026-08-14; the "34" was inherited from DigiLog and was never true here). Most config surfaces are auto-discovered defs rendered by the dynamic page; `alarm-rules.tsx` (2026-08-14) is a real CRUD page, like `floorplans.tsx`
 - Entity tree with drag-and-drop hierarchy
 - Cleaning-profile pipeline editor (STAGE / CHECKLIST nodes on a custom canvas)
 - Notification system (email/SMS/Telegram/Slack)

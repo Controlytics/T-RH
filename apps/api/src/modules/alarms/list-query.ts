@@ -193,6 +193,26 @@ export function buildAlarmWhere(q: AlarmListQuery, opts: WhereOptions = {}): { A
           { name: contains },
           { functionalLocation: { name: contains } },
           { room: { code: contains } },
+          /**
+           * The instrument's own `Location` ATTRIBUTE — what the Location column
+           * actually PRINTS since 2026-09-01. Without this the column became
+           * visible-but-unsearchable: an operator reads "Dissolution & UV Room"
+           * off the row, types it into the box above, and gets nothing back,
+           * which reads as a broken search rather than a missing clause.
+           *
+           * `functionalLocation` above STAYS: the cell falls back to it when
+           * nobody typed an attribute, so both of the things that column can
+           * display must match. Case-insensitive on the KEY as well as the value,
+           * for the same key-drift reason as the select in `routes.ts`.
+           */
+          {
+            attributes: {
+              some: {
+                key: { equals: 'Location', mode: 'insensitive' },
+                value: contains,
+              },
+            },
+          },
         ],
       },
     });

@@ -1,5 +1,449 @@
 # Changelog
 
+## [Unreleased] - The "All alarms →" link removed from the selection panel (2026-09-01)
+
+Operator: *"remove all alarms in active alarms in this selection widget"* —
+confirmed as the **"All alarms →" link** in that panel's header, not the alarm
+records. Asked before acting: the other reading deletes §11 records, and this
+repo's own rule is that an alarm is never dropped to tidy anything.
+
+**The justification recorded beside it had already half-expired.** The note called
+it the route to "the filters, the four state counts and the paging this panel
+deliberately does not have" — but the panel gained server-side paging and a stated
+total earlier the same day, so two thirds of that sentence had stopped being true
+before the link was removed. The Alarms page still owns the full record and its
+four state counts, and is still on the sidebar; it did not need a second door out
+of a dashboard panel.
+
+The panel is now heading-less and link-less by design: `PanelCard` supplies the
+title, and everything left in it acts on the rows it shows. The `Link` import went
+with it.
+
+**Tests** — the existing assertion pinned the link's PRESENCE, so it was removed
+rather than adjusted; three replace it (no "All alarms" text, no `a[href="/alarms"]`
+at all — the stricter form that survives a rewording — and a negative control
+asserting the rows and pager still render, since two passing "absence" tests look
+identical on a component that renders nothing). Mutation-checked: putting the link
+back fails two of them. 1171 → 1173.
+
+## [Unreleased] - Pagination on both alarm widgets (2026-09-01)
+
+Operator: *"add pagination for alarm widgets"*. Both now page SERVER-side, over
+the server's own `total`, with the administered default page size — the same
+`<Pagination>` the Alarms page uses.
+
+**No count moved.** No model, enum, endpoint, permission, route or migration:
+`GET /api/alarms` already took `page`/`pageSize`/`from`/`to` and already returned
+`total`. Both widgets were simply not asking.
+
+**The dashboard's "Active alarms in this selection" panel**
+- Fetched a flat `limit=25` and rendered whatever came back. On a selection with
+  more than 25 active alarms it showed the newest 25 **and said nothing** — no
+  count on screen to contradict it, and no way to reach the rest without leaving
+  for the Alarms page.
+- `state=ACTIVE` and the location scope are UNCHANGED. Only how many rows appear
+  at once has changed, and the total is now stated.
+- The page resets to 1 when the drill-down changes: page 3 of the previous
+  selection is usually past the end of the new one, so the panel would have opened
+  empty on a location that has alarms.
+
+**The trend page's "Alarms in this period" widget — this one had a real defect**
+- It fetched `instrumentId=…&limit=500` and then dropped out-of-period rows with
+  an `Array.filter` **in the browser**. That is precisely the shape the Alarms page
+  was rebuilt on 2026-08-31 to remove — a `limit` and a range meeting in one query
+  — reproduced one surface down, on a widget whose own comment said filtering
+  happened on the server. On an instrument with more than 500 alarms the "period"
+  was really its newest 500, silently.
+- **Fixing it was a prerequisite, not a bonus.** A server paging 500-row blocks
+  under a browser thinning each one gives page numbers and row counts that
+  describe different populations. The window had to move to `from`/`to` first.
+
+**Both count the SERVER's `total`, never `rows.length`** — that is one page, and a
+count taken from it describes the page while reading as the selection or the
+period. Neither renders a pager when there is nothing to page: "Showing 0–0 of 0"
+under a "No active alarms" line is two ways of saying nothing.
+
+**It completes the previous change.** Panel height follows content, so the Rows
+selector these widgets just gained also resizes the panel holding them — which is
+what the operator asked for one message earlier.
+
+**Tests** — 8 web (1163 → 1171) and 1 e2e pinning the widget's combined
+`instrumentId` + `from`/`to` + paging query, including that page 3 of a two-row
+result is empty rather than a 500. The widget's old test asserted the client-side
+window by feeding it a row a year outside the period; that proves nothing once the
+server does the filtering (the mock returns whatever it is given), so it was
+replaced by one asserting the range is SENT, plus one asserting the 500-row limit
+is NOT. Mutation-checked: removing `from`/`to` from the query fails the first;
+deriving `total` from `rows.length` fails the count test.
+
+## [Unreleased] - Dashboard panel height follows the content (2026-09-01)
+
+Operator: *"every widget size should be upto pagination only, when user dragged
+its showing empty space … if user increased 25 to 50 then widgets should adjust
+upto 50 records in one view, if again he made 25 then size should be adjusted
+automatically."* A panel now ends at its pagination bar and resizes itself when
+the page size changes. No drag required, and no empty band underneath.
+
+**No count moved.** One new web module and its tests; no model, enum, endpoint,
+permission, route or migration.
+
+**Added**
+- `apps/web/src/routes/dashboard/panel-auto-height.ts` — `capacityPx`,
+  `rowsForHeight`, `nextRows`, `applyAutoHeights`, `keepStoredHeights` and the
+  `AUTO_HEIGHT_PANELS` set. Pure; 18 unit tests.
+- `PanelCard` measures the height it wants and reports it; `PanelGrid` gives auto
+  panels a width-only resize handle.
+
+**Decisions worth keeping**
+- **Two panels auto-fit, one does not.** `telemetry_table` and `dashboard_alarms`
+  have a natural content height. `telemetry_floorplan` does NOT — a drawn plan
+  scales to whatever box it is given, so "fit the content" is undefined for it and
+  a bigger box genuinely shows the rooms bigger. It keeps its corner handle and
+  its Height dropdown (operator's call, asked and answered).
+- **The observed element is the content wrapper, never the card or the scroll
+  region.** Both of those have their border box pinned by the grid cell, so
+  25 → 50 rows grows `scrollHeight` without changing either — and ResizeObserver
+  does not fire on a `scrollHeight` change. Observing one of them yields a panel
+  that only resizes when the window does: the original complaint, with extra
+  steps. Pinned by identity, and by a content-growth test rather than a
+  window-resize one, which would pass either way.
+- **The measured height is never persisted.** `keepStoredHeights` strips it in
+  `onGridChange`, so a Save cannot write one moment's page size into
+  `role_configs` for every viewer to inherit.
+- **The Card height dropdown is hidden on auto panels**, with a line saying why.
+  It would set an `h` the next measurement overwrites within a frame.
+
+**A no-op found by mutation testing.** The first damping — "grow when it
+overflows, shrink when a whole row is free" — did nothing at all: `rowsForHeight`
+is the exact inverse of `capacityPx`, so the band it held in was precisely the
+band that already mapped to the current row count, and both rules fired on the
+same pixel. Deleting the whole branch changed no behaviour and failed no test.
+Shrinking is now made strictly harder than growing by `SHRINK_SLACK_PX`, and the
+test asserts the case that distinguishes them (`nextRows(9, capacityPx(8))` must
+hold at 9) plus a wobble loop that must settle to one value. **A deadband whose
+threshold coincides with the quantisation it is damping is not a deadband.**
+
+**Untouched: the trend page.** Its widget cards are not in a grid and carry no
+`max-h`, `h-[…]` or `overflow-y` — checked, not assumed — so they already grow
+with their content and show no empty band.
+
+**Two integration gaps the unit tests structurally could not see**, both closed:
+- **`onGridChange` now bails when nothing moved.** Every render step carries fresh
+  object identities even when the values are identical — `keepStoredHeights`,
+  `applyAutoHeights` and `withResizeHandles` all map, and the `layouts={{ lg }}`
+  literal is new each time — so react-grid-layout re-ran its layout, called back,
+  and started the cycle again. The classic RGL feedback loop, reachable only in
+  edit mode, which is why no test outside it would have shown it.
+- **`__tests__/panel-grid-height.test.tsx` pins rows -> RENDERED PIXELS.** Nothing
+  else covered that join: had RGL held its first layout in state and ignored later
+  `layouts` props (real behaviour in some versions), the measurement would run,
+  the row count would update, and the panel would never move — with every other
+  test still green. It also cross-validates `capacityPx` against the library's own
+  geometry: RGL renders `h: 8` at 432px and the formula independently says 432px.
+
+**Tests** — 30 added (18 pure + 7 component + 5 grid), 1133 → 1163 web tests.
+Mutation-checked five ways: the gap arithmetic (`rows` instead of `rows - 1`)
+fails 6 unit tests AND all 3 grid tests, which is what makes it a check against
+the library rather than against itself; removing the damping fails 2, one by
+observing the oscillation directly; and observing the scroll region instead of
+the content wrapper fails the structural test.
+
+## [Unreleased] - Dashboard: the Room column removed as a duplicate of Location (2026-09-01)
+
+Operator: "in all instruments dashboard remove room column already location was
+there right then why you added room". Correct on both counts — and the duplicate
+is measurable, not a matter of taste.
+
+**No count moved.** One column removed from one table; no model, enum, endpoint,
+permission or route touched, and no migration.
+
+**Why it was a duplicate** (queried against `compliance_core_db`, 101 instruments)
+- The cell's PRIMARY text was the instrument's `name`, not a room. `name` is
+  byte-identical to the `Location` attribute on **100 of the 100** instruments
+  that carry one, so the Room and Location columns printed the same string.
+- Its secondary line was blank on **88 of 101** rows: `floorplan_rooms.code`
+  equals the instrument code and `label` is NULL for every generated plan.
+- On the **12** traced QC rooms it printed the room LABEL — "DISSOLUTION ROOM-II"
+  against an instrument named "QC-II (Dissolution lab-II)", the same room
+  shouted. The room NUMBER (`CWH-I/218`) never rendered at all: `label` won
+  whenever it existed.
+- The 101st instrument is the `IOTGW01` gateway, whose `name` equals its `code`,
+  already in the Instrument ID column.
+
+**The reason it was being kept had already expired.** The comment above the
+column read: "the SET POINT columns come FROM the room, so without it
+18.0 - 27.0 has no visible source". Set-point provenance is the
+`setPointSource()` TOOLTIP, and limits resolve from the instrument's own
+attributes first with `limitSource` naming which — both true for weeks before
+this. **A column defended by a stale comment survives redesigns**; re-read a
+stated reason before repeating it.
+
+**Changed**
+- `COLUMN_GROUPS` loses its `room` entry and the freed 11% goes mostly to
+  Location (13% → 20%), which holds the longest text on the row — "Working
+  standard & reference Standard storage Room (or) stability Room". Widths still
+  total 100, asserted by `columnWidthTotal()` and mutation-checked (99 fails it).
+- The `room` header glyph went with the column. `ICON` is looked up by column key
+  alone, so an entry nothing keys to is a decoy.
+- **The room stays SEARCHABLE**, the same call the Alarms page made on
+  2026-08-31: matching more than is shown costs the caller nothing and can only
+  return rows they could already see, whereas dropping it would silently stop a
+  plan code someone typed from finding anything. `name` stays matched too.
+
+**Untouched:** the DRAWN room. It is still the graphical view's entire subject,
+still one of the three grouping concepts, and still the source of a room's own
+specification. The COLUMN went, not the concept.
+
+**Tests** — `__tests__/telemetry-table.test.tsx`, 12 → 14. The removal is pinned
+three ways rather than by a heading query alone: no "Room" (or "Location / Room")
+heading; the instrument NAME appears nowhere in `tbody`, which is what fails if
+the cell is reinstated elsewhere; and the column after Location holds a READING.
+A fourth asserts the room is still searchable with no column showing it.
+
+## [Unreleased] - Alarms: the Location column shows the instrument's Location, not its Area (2026-09-01)
+
+Reported by the operator: "in location column you are showing Area". A column
+headed **Location** printed the FUNCTIONAL location — the Block > Area grouping —
+while the dashboard readings table's own Location column, added hours earlier the
+same day, printed the instrument's `Location` ATTRIBUTE. One heading, two
+meanings, on two screens read side by side.
+
+**No count moved** — no model, enum, permission, reauth action, config def,
+module or route was added. No migration: the attribute rows already existed.
+
+**Changed**
+- `GET /api/alarms` rows carry `locationAttribute` — the instrument's own
+  `Location` attribute — beside the existing `locationName`. Both travel, so the
+  browser CHOOSES between them rather than re-deriving either.
+- `locationText()` prefers the typed attribute and **falls back to the functional
+  location**, not to "Not set" as the dashboard table does. That divergence is
+  deliberate: the dashboard has a separate Area column beside its Location one, so
+  falling back there would duplicate the neighbouring cell; the alarms tables have
+  ONE placement column, so the Area is the only remaining fact and beats
+  "Unassigned".
+- The search now matches the Location attribute as well (`list-query.ts`). **This
+  was a defect introduced by the fix and caught before it shipped**: the cell was
+  switched to the attribute while the server still searched only `locationName`,
+  so an operator could read "Dissolution & UV Room" off a row, type it into the
+  box above, and get nothing. `apps/web/CLAUDE.md` already stated the rule for the
+  dashboard table — *a column the reader can see and cannot search reads as a
+  broken search box*. **Check the search clause whenever a column's SOURCE
+  changes, not only when a column is added.**
+
+**Two surfaces changed from one edit** — the Alarms page and the dashboard's
+selection panel, the two that HAVE a Location column. `AlarmLocationCell` in the
+shared `routes/alarms/alarm-table.tsx` is `locationText()`'s only caller. The
+trend page's alarms widget renders no Location cell (ten columns; instrument
+identity is redundant on a page named for one instrument), so it is untouched.
+That is the payoff of the 2026-08-31/2026-09-01 consolidation: before it, two
+hand-written tables would have needed two edits and would have drifted again.
+
+**Two details that are correctness, not style**
+- The attribute key is matched **case-insensitively**, because this
+  installation's keys have already drifted.
+- The pick is **ORDERED** (`orderBy: { key: 'asc' }`). `take: 1` without one
+  returns whatever Postgres hands back first, and an instrument carrying both
+  `Location` and `location` — the very drift the insensitive match exists for —
+  would show an arbitrary one of the two, able to flip between requests with
+  nothing changed. Found because a mutation test did NOT fail when it should
+  have: the decoy attributes caught the dropped `where` clause only once the
+  order was deterministic.
+
+**Tests**
+- 4 unit tests on `locationText()` (attribute wins; the Area is not printed when
+  an attribute exists; both blank-string and null fall back; "Unassigned" only
+  when there is neither). Mutation-checked — deleting the attribute branch fails
+  two of them.
+- 4 e2e tests on `GET /api/alarms`, with two DECOY attributes on the fixture
+  instrument so a dropped `where` cannot pass. Mutation-checked three ways:
+  undeclaring the field in `alarmProps` fails with `expected undefined`
+  (Fastify's response filter, the sixth field in this repo to need that
+  assertion); dropping the key filter returns the decoy; removing the search
+  branch returns 0 rows.
+- The `buildAlarmWhere` search-breadth guard asserts **5** OR branches and pins
+  the attribute clause's key AND value matching separately.
+
+**Known, untouched:** the signed trend PDF still prints the drawn ROOM under a
+heading that says "Location" (`trend-report.ts`, fed from `overview.room`) — a
+separate path that consumes neither `locationText()` nor `AlarmRow`. On this
+installation every `floorplan_rooms.code` is a verbatim copy of its instrument's
+code, so that line largely repeats the Instrument row above it. Left alone
+deliberately: relabelling the row **Room** is the smaller and more honest change,
+since it does not alter what a signed §11 record asserts, and that is a decision
+for the operator rather than a silent edit to a regulated document.
+
+## [Unreleased] - Dashboard: Area and Location columns, and the selection alarms panel rebuilt (2026-09-01)
+
+Two changes to the dashboard drilled into a Block or Area. The readings table
+gained the two placement facts it was missing, and the "Active alarms in this
+selection" panel stopped being a bespoke list and became the same table the
+Alarms page and the trend page already render.
+
+**No count moved** — re-derived: 35 models, 12 enums, 42 permissions, 48 reauth
+actions, 24 API modules, 50 routes. No migration; one existing endpoint returns
+two more fields.
+
+**Added**
+- `OverviewRow.functionalLocationName` and `OverviewRow.locationAttribute` on
+  `GET /api/instruments/telemetry-overview`, rendered as the dashboard table's
+  **Area** and **Location** columns. `buildTelemetryOverview()` gained
+  `functionalLocation: { select: { name: true } }`; the `Location` attribute is
+  read from the attribute rows the query ALREADY selects for the limits, so
+  there is no second query.
+- The full §11 acknowledge flow on the selection alarms panel (operator,
+  2026-09-01): the `alarms.acknowledge` gate, `AcknowledgeDialog`,
+  `postWithReauth`, and a revalidation of the panel's own SWR key.
+- `apps/web/src/routes/dashboard/__tests__/telemetry-table.test.tsx` (12) and
+  `__tests__/selection-alarms.test.tsx` (23) — neither component had any test
+  before. 5 wire tests added to `src/e2e/telemetry-overview.e2e.test.ts`.
+
+**Changed**
+- `selection-alarms.tsx` renders the SHARED cells from
+  `routes/alarms/alarm-table.tsx` instead of a hand-written `<ul>`, over the same
+  administered wording (`/alarm-limits/status-texts`,
+  `/inactivity-alarms/display-texts`, `useSensorWords`, `useAlarmTypeNames`).
+- The dashboard table's **"Location / Room" heading is now just "Room"**. A
+  column called "Location / Room" beside a column called "Location" invites the
+  reader to treat them as one fact. Everything the old heading justified still
+  holds: the SET POINT columns come FROM the room.
+- Column widths rebalanced to total 100% across eleven rendered columns, pinned
+  by the new `columnWidthTotal()` and its test.
+- The table's search now matches Area and Location, and its placeholder names
+  them — a visible column the search box ignores reads as a broken search.
+
+**Decisions, on the record**
+- **THREE placement columns, and they are three different facts.** Area is
+  `functionalLocation.name`, the authoritative Block > Area grouping; Location is
+  the instrument's own `Location` ATTRIBUTE; Room is `FloorplanRoom`, geometry on
+  a drawn plan. The pressure on this table will always be to collapse them.
+- **`locationAttribute` is named for its source, never `location`.**
+  `Instrument.location` is a live free-text COLUMN of the same name (superseded,
+  read by nothing). A bare `location` would be indistinguishable from it at every
+  call site, and an e2e case sets the column to different text and asserts it is
+  not what comes back.
+- **The panel shows EIGHT columns plus the action cell, not twelve.** Its query
+  is `state=ACTIVE`, so `clearedAt` is null on every row it can show — Cleared,
+  Cleared Value and Duration would be structurally blank. If that query ever
+  widens, add them back.
+- **The action column is NOT sticky, and the column count argued the other way.**
+  Nine columns in a resizable `PanelCard` can overflow more easily than the
+  Alarms page's twelve at full width, so that heuristic pointed at pinning. What
+  decides against it is the TINT: a sticky cell needs an OPAQUE background or the
+  rows scroll through it, `ALARM_ROW_CLASS` is `hover:bg-slate-50/70` by design,
+  and the panel's wrapper is deliberately transparent so the operator's chosen
+  PanelCard colour shows. A white stripe pinned down the right edge would paint
+  over exactly that.
+- **Acknowledge arrived with its whole flow, not as a button.** The panel shipped
+  WITHOUT it earlier the same day, correctly, because it had none of the four
+  pieces — and a button that renders but cannot complete a signature invites an
+  operator to try and fail. That reasoning was not withdrawn; it was satisfied.
+  **If one of the four is ever stripped, strip the button in the same pass.**
+- Empty states are worded apart: **"Unassigned"** for no functional location (the
+  same word `locationText()` prints on the Alarms page) and **"Not set"** for an
+  absent attribute. Different absences.
+- No CSS was added. Both new columns take the existing `tv-h-loc` placement hue —
+  the `.tv-*` block is deliberately UNLAYERED, so a new rule there is not a free
+  edit.
+
+**Testing lessons, both found by mutation rather than by review**
+- **A zero-match table still renders one `<tr>`.** The search tests asserted
+  `rows.length === 1`, which is satisfied by a working search AND by one matching
+  nothing — the empty-state message is itself a row. Deleting `locationAttribute`
+  from the search predicate PASSED. They now assert CONTENT and carry a positive
+  control for the empty state. Same blindness as the `ROW_EDGE` incident recorded
+  in `apps/web/CLAUDE.md`: a test reading its input rather than its output.
+- **A missing `mutate` on an SWR mock hides a broken success path.** `await
+  mutate()` threw, the component's own catch swallowed it into `dialogError`, and
+  the success test still passed because it asserted only that `postWithReauth`
+  had been called. `mutate` is now a spy, with a negative control asserting it is
+  NOT called when the signature is refused.
+- **Invert a gate; do not remove it.** Measured on `can('alarms.acknowledge')`:
+  inverting it fails 6 tests, removing it fails 1. Removal proves only the
+  permitted direction.
+- **A schema-only mutation is the only check for a Fastify strip.** Removing the
+  two fields from the `/telemetry-overview` 200 block while leaving the builder
+  untouched fails all 5 wire tests. A builder mutation would have proved nothing —
+  this endpoint has now been bitten by an undeclared field five times.
+
+## [Unreleased] - Trend page widget labels are administered (2026-09-01)
+
+Every widget on `/instruments/:id/trend` — the two latest-value cards, the two
+trend charts, the raw time-series table and the alarms table — now takes its
+title, its subtitle and its column headings from configuration instead of from
+literals in six components, and each can override how it prints a date and a
+time. A pencil in each widget's header edits just that widget, for SUPER_ADMIN
+only.
+
+**Added**
+- Config def `trend-widgets` (defs 29 → 30). 31 settings: 19 labels and a
+  date/time format pair per widget. **No page** — it renders through the dynamic
+  config page (pages stay 23) and gets a `superAdminCards` card on `/config`.
+- `GET /api/config/trend-widgets/current` — the SIXTH narrow-slice route, serving
+  the resolved wording to every authenticated user while the def stays
+  SUPER_ADMIN-only to read raw and to write.
+- `packages/shared/src/types/trend-widgets.ts` — the shipped defaults, the
+  resolver, the format vocabulary, and `TREND_WIDGET_FIELDS`, the ONE widget →
+  fields mapping that both the def's settings and the edit dialog are built from.
+- `WidgetSettingsButton` (`routes/instruments/widget-settings-button.tsx`) and
+  `useTrendWidgets` (`hooks/use-trend-widgets.ts`).
+
+**Changed**
+- `useDatetimeFormat` takes an optional per-surface FORMAT override; the
+  formatter core was extracted as the pure `makeDatetimeFormatters(config,
+  override)`. One formatter, as before — the hook only supplies `config`.
+- `TimeSeriesChart` takes an optional `dateTimeFormat`; every other caller passes
+  nothing and is unchanged.
+- The five widget components take their wording as props. They hold no role check
+  and no write path — the page passes the pencil in as a `settingsButton` node.
+
+**Decisions, on the record**
+- **The timezone is NOT overridable, only the format.** A per-widget zone would
+  let two widgets on one screen name different instants for the same stored
+  reading, which is a false statement about a §11 record rather than a display
+  choice. `DatetimeFormatOverride` has no `timezone` field, so the guarantee is
+  structural.
+- **An unrecognised format inherits** rather than being passed through.
+  `formatDateValue`'s `default:` branch prints en-GB, so a stale or mistyped
+  override would render DD/MM/YYYY on a site administered as MM/DD/YYYY —
+  silently wrong, and wrong in a way that looks deliberate.
+- **`inherit` is a real option value, not an empty string.** The dynamic config
+  page already spends `value=""` on its own "Select …" placeholder, so a blank
+  sentinel would render there as an unlabelled non-choice. Blank and absent are
+  still accepted as inherit by the resolver.
+- **No re-auth**, matching `alarm-type-names`, `rs485-alarms` and
+  `sensor-range-alarms`: the dynamic PUT route demands a signature only when the
+  def sets `requiresReauth` or a `reauthAction`. `requiredRole: 'SUPER_ADMIN'` is
+  the gate. Adding one would make renaming a column heading heavier than renaming
+  an alarm TYPE.
+- **The dialog merges before it writes.** The dynamic route replaces
+  `configValue` wholesale, so a PUT of one widget's fields would erase the other
+  five — a silent loss that only surfaces on a different screen later.
+- **The alarms table's unit legends and the H/m tooltip are not renameable.** They
+  explain the cells, not the column's name; a rename that dropped them would leave
+  a column of bare numbers with no units.
+- **A blank falls back to the shipped wording, never an empty heading**, and
+  `coerceTrendWidgetTexts()` extends that to a malformed RESPONSE — a stale build
+  or a proxy error page must not white-screen a monitoring page over a caption.
+
+**Also removed in this pass (dead code left by the same day's band removal)**
+- `SlotColumn.unit`, `.accent`, `.icon`, `.last` on the time-series card, the
+  `unit` prop threaded through `ValueCell`, and the four literals feeding them in
+  `trend.tsx`. All were passed and destructured but never rendered once the
+  last-reading band and the per-value unit went.
+- `latestValueForKey()` in `trend.tsx` and the two consts that called it — `last`
+  was its only remaining consumer. **The §11 rule it enforced is preserved**, in
+  the doc comment on `TimeSeriesChart`'s `lastReading` prop: a "last reading"
+  comes from the RAW rows, never a chart series, because a bucket mean labelled
+  "Current" states a derived number as a stored one.
+- Noted, NOT changed: `TimeSeriesChart.lastReading` now has no production caller
+  either — only a test passes it. Left alone as a shared component outside this
+  change's scope.
+
+**Counts re-derived 2026-09-01:** models 35, enums 12, config defs 29 → **30**,
+config pages **23** (unchanged; the 24 in both root CLAUDE.md inventory lines was
+stale from the 2026-08-31 alarm-rules removal and is corrected), routes 50,
+permissions 42, reauth actions 48, API modules 24.
+
 ## [Unreleased] - Severity removed from configuration and the alarm surfaces (2026-09-01)
 
 Severity is no longer an administered concept. It was one selectable setting on

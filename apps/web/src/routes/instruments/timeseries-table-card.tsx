@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Activity } from 'lucide-react';
 import { formatDecimals } from '@digilog/shared';
 import { outOfSpec } from '@/routes/dashboard/set-point';
+import { isOutOfRange } from '@digilog/shared';
 import { ExportMenu } from '@/components/ExportMenu';
 import { Pagination } from '@/components/ui/pagination';
 import type { TableRow as PivotRow } from './trend-series';
@@ -20,7 +21,7 @@ import type { TableRow as PivotRow } from './trend-series';
  * Four rules survive the restyle. Read them before touching this file:
  *
  * - **The colours are the app's own status vocabulary, not the mock's.** Green
- *   is `emerald`, a breach is `red`, a fault is `amber`, unjudged is `slate` —
+ *   is `emerald`, a breach and a FAULT are both `red`, unjudged is `slate` —
  *   the same five-colour map `status.ts` defines and the floor plan, the
  *   dashboard table and the band gauges all print. A sixth palette invented
  *   here would have one reading look "green" on this card and a different green
@@ -122,7 +123,7 @@ const PILL_CLASS: Record<PillTone, string> = {
  *
  * Class names, not inline hexes. Two reasons, and the second is why this was
  * changed: the bar and the dot are the same mark in two shapes, so two colour
- * lists could drift and show a row a green bar beside an amber dot; and React
+ * lists could drift and show a row a green bar beside a red dot; and React
  * serialises an inline `#10b981` to `rgb(16, 185, 129)` in the DOM, which made
  * the "no pass-green on an unjudged row" guard silently unable to see the bar
  * it was supposed to be guarding. A class name appears in the markup verbatim.
@@ -130,29 +131,45 @@ const PILL_CLASS: Record<PillTone, string> = {
 const ROW_ACCENT: Record<RowTone, string> = {
   in: 'bg-emerald-500',
   out: 'bg-red-500',
-  fault: 'bg-amber-500',
+  fault: 'bg-red-500',
   unjudged: 'bg-slate-300',
 };
 
 /** One administered slot, as this card needs it. `null` key = not administered. */
 export interface SlotColumn {
+  /**
+   * The probe's declared span for this slot, and the word to print instead of a
+   * reading that falls outside it.
+   *
+   * A reading beyond the span is NOT a measurement — `telemetry-overview.ts`
+   * withholds it from the dashboard and the limit evaluator for exactly that
+   * reason. This table reads the RAW telemetry path, which applies no such
+   * filter, so until 2026-09-01 it was the one surface that printed a saturated
+   * probe's number as though it were a reading.
+   *
+   * Null bounds mean the span is not declared, and then nothing is withheld.
+   */
+  rangeLow?: number | null;
+  rangeHigh?: number | null;
+  outOfRangeWord?: string;
   key: string | null;
-  /** Column heading, units included — "Temperature (°C)". */
+  /**
+   * Column heading, units included — "Temperature (°C)". ADMINISTERED, from
+   * `trend-widgets`.
+   *
+   * This is the ONLY place a unit appears on this card. `unit`, `accent`, `icon`
+   * and `last` used to sit beside it, feeding the last-reading BAND above the
+   * table; the band went on 2026-09-01 and the per-value unit went with it,
+   * because the heading already carries it. All four were left behind as props
+   * that were passed, threaded and destructured but never rendered — removed
+   * here. An unused prop is a decoy: the next reader wires something to it and
+   * cannot see why nothing happens.
+   */
   heading: string;
-  /** The unit alone, for the summary band's big number. */
-  unit: string;
   /** Server-resolved display precision. Never derived in the browser. */
   decimals: number;
   min: number | null | undefined;
   max: number | null | undefined;
-  /** Series identity — the palette slot this quantity owns app-wide. */
-  accent: string;
-  /** The quantity's glyph, drawn in the band's disc. Passed in rather than
-   *  chosen here from `unit`: sniffing the string would hand humidity a
-   *  thermometer the day somebody administers "degC" or "°F". */
-  icon: ReactNode;
-  /** The latest STORED reading in the period, for the band. */
-  last: number | null;
 }
 
 export interface TimeseriesTableCardProps {
@@ -163,14 +180,29 @@ export interface TimeseriesTableCardProps {
   slots: SlotColumn[];
   /** User-selected extra telemetry keys, one column each. No administered
    *  limits or precision exist for these, so they render unjudged. */
-  extraKeys: string[];
   /** Fallback precision for the extra keys. */
-  extraDecimals: number;
   /** The ADMINISTERED word for a reading that arrived and was not a number.
    *  Never defaulted to a literal here — the page resolves it from config. */
   failureWord: string;
-  /** The page's own `useDatetimeFormat` formatter. */
+  /** The page's own `useDatetimeFormat` formatter, already carrying this
+   *  widget's administered format override. */
   formatTs: (ts: string) => string;
+  /**
+   * This card's ADMINISTERED wording — title, the line under it, and the first
+   * column's heading.
+   *
+   * Passed in, never defaulted here. `trendWidgetLabel()` has already resolved a
+   * blank field to the shipped wording, so these are guaranteed non-empty and a
+   * `?? 'Timestamp'` in this file would be a second, drifting definition of the
+   * default. The two slot columns carry their own `heading`, administered the
+   * same way.
+   */
+  title: string;
+  subtitle: string;
+  timestampHeading: string;
+  /** The SUPER_ADMIN edit affordance for the wording above. Rendered by the
+   *  page, so this card keeps no role check and no write path. */
+  settingsButton?: ReactNode;
   /** Fires the §11 time-series report download. */
   onExportPdf: () => void;
   page: number;
@@ -180,11 +212,11 @@ export interface TimeseriesTableCardProps {
 }
 
 export function TimeseriesTableCard({
-  rows, slots, extraKeys, extraDecimals, failureWord, formatTs,
+  rows, slots, failureWord, formatTs, title, subtitle, timestampHeading,
+  settingsButton = null,
   onExportPdf, page, pageSize, totalItems, onPageChange,
 }: TimeseriesTableCardProps) {
   const columns = slots.filter((s): s is SlotColumn & { key: string } => s.key !== null);
-  const bandSlots = columns.filter((s) => s.last !== null);
 
   const th = 'px-4 py-3 text-left text-[0.6875rem] font-bold uppercase tracking-[0.08em] text-slate-600';
 
@@ -208,10 +240,10 @@ export function TimeseriesTableCard({
           </span>
           <div className="min-w-0">
             <h3 className="truncate text-lg font-bold tracking-tight text-slate-900">
-              Time Series (Raw Readings)
+              {title}
             </h3>
             <p className="mt-0.5 truncate text-[0.8125rem] text-slate-500">
-              Detailed list of raw sensor readings
+              {subtitle}
             </p>
           </div>
         </div>
@@ -221,68 +253,13 @@ export function TimeseriesTableCard({
             report a given row was. */}
         <div className="flex shrink-0 items-center gap-2">
           <ExportMenu surface="instrument-trend" iconOnly onExportPdf={onExportPdf} />
+          {settingsButton}
         </div>
       </header>
 
-      {/* The last-reading band. It is what the reference's "Last Reading"
-          control was displaying, and it reads the SAME `latestValueForKey`
-          value the chart cards' "Last Reading" box does — never `rows[0]`,
-          which is only the newest row of the page currently shown and would
-          make this band change when the operator turns to page 2. */}
-      {bandSlots.length > 0 && (
-        <div
-          data-testid="ts-last-reading-band"
-          className={
-            'mx-5 mb-4 grid items-center gap-y-6 rounded-[var(--radius-card)] px-6 py-5'
-            // Each quantity takes half the band, with the rule between them —
-            // the two are peers and a packed-left pair reads as one block with
-            // an afterthought beside it. One slot keeps the full width.
-            + (bandSlots.length > 1 ? ' sm:grid-cols-2' : '')
-          }
-          style={{
-            backgroundImage:
-              `linear-gradient(100deg,`
-              + ` color-mix(in srgb, ${bandSlots[0].accent} 10%, #ffffff),`
-              + ` color-mix(in srgb, ${bandSlots[bandSlots.length - 1].accent} 12%, #ffffff))`,
-          }}
-        >
-          {bandSlots.map((slot, i) => (
-            <div
-              key={slot.key}
-              className={
-                'flex items-center gap-4'
-                + (i > 0 ? ' sm:border-l sm:border-slate-300/80 sm:pl-10' : '')
-              }
-            >
-              <span
-                className="grid h-14 w-14 shrink-0 place-items-center rounded-full"
-                style={{
-                  backgroundColor: `color-mix(in srgb, ${slot.accent} 16%, #ffffff)`,
-                  color: slot.accent,
-                }}
-                aria-hidden="true"
-              >
-                {slot.icon}
-              </span>
-              <div>
-                <p
-                  className="text-[0.6875rem] font-bold uppercase tracking-[0.08em]"
-                  style={{ color: slot.accent }}
-                >
-                  {slot.heading.replace(/\s*\(.*\)$/, '')}
-                </p>
-                <p className="mt-0.5 text-[1.75rem] font-bold leading-none tracking-tight text-slate-900 tabular-nums">
-                  {formatDecimals(slot.last, slot.decimals)}
-                  <span className="ml-1.5 text-base font-semibold" style={{ color: slot.accent }}>
-                    {slot.unit}
-                  </span>
-                </p>
-                <p className="mt-1.5 text-[0.8125rem] text-slate-500">Last Reading</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* The separate last-reading band was REMOVED 2026-09-01 (operator).
+          The table below already opens with the newest row, so the band
+          restated the same two numbers directly above them. */}
 
       {rows.length === 0 ? (
         <p className="px-6 pb-4 text-sm text-slate-500">No readings in this window.</p>
@@ -294,16 +271,33 @@ export function TimeseriesTableCard({
                   so the band follows all ten colour presets — the same call the
                   Alarms page's table banner makes. */}
               <tr style={{ backgroundColor: 'color-mix(in srgb, var(--theme-primary, #4f46e5) 8%, #ffffff)' }}>
-                <th scope="col" className={`${th} pl-6`}>Timestamp</th>
-                {columns.map((s) => <th key={s.key} scope="col" className={th}>{s.heading}</th>)}
-                {extraKeys.map((k) => <th key={k} scope="col" className={th}>{k}</th>)}
+                <th scope="col" className={`${th} pl-6`}>{timestampHeading}</th>
+                {/* Value columns are CENTRED, heading and cells together
+                    (operator, 2026-09-01). A reading, a fault word and an
+                    out-of-range word share one column and must sit on the same
+                    axis — centring only the fault left `OL` off-line from the
+                    numbers above and below it. The timestamp stays left: it is
+                    read as text, not compared down the column. */}
+                {columns.map((s) => (
+                  <th key={s.key} scope="col" className={`${th} !text-center`}>{s.heading}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => {
-                const tones = columns.map((s) => pillTone(row.values[s.key], s.min, s.max));
-                const faulted = [...columns.map((s) => s.key), ...extraKeys]
-                  .some((k) => row.errors?.[k]);
+                // Out of span FIRST: such a reading is withheld everywhere else,
+                // so it must not be judged against the spec limits here either —
+                // that would paint a saturated probe red for a breach nobody can
+                // act on, when the honest answer is that there is no measurement.
+                const outOfSpan = columns.map((s) => {
+                  const v = row.values[s.key];
+                  return typeof v === 'number'
+                    && isOutOfRange(v, s.rangeLow ?? null, s.rangeHigh ?? null);
+                });
+                const tones = columns.map((s, i) => (
+                  outOfSpan[i] ? 'unjudged' as const : pillTone(row.values[s.key], s.min, s.max)
+                ));
+                const faulted = columns.some((s, i) => outOfSpan[i] || row.errors?.[s.key]);
                 const tone = rowTone(tones, faulted);
                 return (
                   <tr
@@ -338,23 +332,9 @@ export function TimeseriesTableCard({
                         columnKey={s.key}
                         value={row.values[s.key]}
                         decimals={s.decimals}
-                        unit={s.unit}
                         tone={tones[i]}
                         faulted={row.errors?.[s.key] === true}
-                        failureWord={failureWord}
-                      />
-                    ))}
-                    {extraKeys.map((k) => (
-                      <ValueCell
-                        key={k}
-                        columnKey={k}
-                        value={row.values[k]}
-                        decimals={extraDecimals}
-                        unit=""
-                        // An extra key carries no administered bound, so nothing
-                        // is judging it and it is never painted as a pass.
-                        tone="unjudged"
-                        faulted={row.errors?.[k] === true}
+                        outOfRangeWord={outOfSpan[i] ? s.outOfRangeWord : null}
                         failureWord={failureWord}
                       />
                     ))}
@@ -371,29 +351,71 @@ export function TimeseriesTableCard({
   );
 }
 
+/**
+ * The fault pill. ONE definition, so `Error` and `OL` cannot drift apart in
+ * shape or tint — they are the same statement and must look the same.
+ * `justify-center` on the cell is what centres them.
+ */
+const FAULT_PILL = 'inline-flex rounded-lg px-3 py-1.5 text-sm font-semibold bg-red-50 text-red-700';
+
 interface ValueCellProps {
   columnKey: string;
   value: number | null | undefined;
   decimals: number;
-  unit: string;
   tone: PillTone;
   faulted: boolean;
   failureWord: string;
+  /** Set when this reading falls outside the probe's declared span. Carries the
+   *  administered word to print in place of it. */
+  outOfRangeWord?: string | null;
 }
 
 /**
  * One reading, in its pill.
  *
- * A fault is NOT a pill: the administered word stands in for a number that
- * never arrived, and putting it in the same rounded tint as a measurement would
- * dress a missing reading as a taken one. It keeps the amber the rest of the
- * app gives "cannot confirm this".
+ * A FAULT IS A PILL TOO, and the same pill for both words (operator,
+ * 2026-09-01). `Error` and `OL` now render identically — one box, one colour,
+ * centred — because they are one class of answer: this probe is not measuring.
+ *
+ * This REVERSES the rule that stood here before, which kept a fault unpilled so
+ * that "a word standing in for a number" could not be mistaken for a reading.
+ * That distinction is now carried by the WORD rather than the shape: no number
+ * appears, and both words are administered. Recorded because the reasoning was
+ * deliberate and someone will otherwise reinstate it.
+ *
+ * Red, not amber: a dead or saturated probe is not a caution — nothing is being
+ * measured, and on a monitoring screen that ranks with a breach, not below it.
  */
-function ValueCell({ columnKey, value, decimals, unit, tone, faulted, failureWord }: ValueCellProps) {
+function ValueCell({
+  columnKey, value, decimals, tone, faulted, failureWord, outOfRangeWord,
+}: ValueCellProps) {
+  /**
+   * OUT OF SPAN BEATS THE NUMBER, and is checked before the fault branch is
+   * reached for the same reason `faultWord()` puts range ahead of failure: an
+   * out-of-range value IS a number, it is simply not a measurement.
+   *
+   * Printing it would make this table the one surface disagreeing with the rest
+   * of the app — `telemetry-overview.ts` withholds such a reading from the
+   * dashboard, the tiles and the limit evaluator, and the alarm raised for it
+   * says the probe was saturated. A row showing `60.0` beside an alarm saying
+   * the same instant was out of range is a §11 record contradicting itself.
+   *
+   * Amber and unpilled, like a fault: both stand in for a reading that cannot
+   * be trusted, and a rounded tint is reserved for values that can.
+   */
+  if (outOfRangeWord) {
+    return (
+      <td className="px-4 py-3.5 text-center">
+        <span data-testid={`ts-value-${columnKey}`} data-tone="fault" className={FAULT_PILL}>
+          {outOfRangeWord}
+        </span>
+      </td>
+    );
+  }
   if (faulted) {
     return (
-      <td className="px-4 py-3.5">
-        <span data-testid={`ts-value-${columnKey}`} data-tone="fault" className="text-sm font-semibold text-amber-700">
+      <td className="px-4 py-3.5 text-center">
+        <span data-testid={`ts-value-${columnKey}`} data-tone="fault" className={FAULT_PILL}>
           {failureWord}
         </span>
       </td>
@@ -401,19 +423,23 @@ function ValueCell({ columnKey, value, decimals, unit, tone, faulted, failureWor
   }
   if (value == null) {
     return (
-      <td className="px-4 py-3.5">
+      <td className="px-4 py-3.5 text-center">
         <span data-testid={`ts-value-${columnKey}`} data-tone="none" className="text-sm text-slate-400">—</span>
       </td>
     );
   }
   return (
-    <td className="px-4 py-3.5">
+    <td className="px-4 py-3.5 text-center">
       <span
         data-testid={`ts-value-${columnKey}`}
         data-tone={tone}
         className={`inline-flex rounded-lg px-3 py-1.5 text-sm font-semibold tabular-nums ${PILL_CLASS[tone]}`}
       >
-        {formatDecimals(value, decimals)}{unit ? ` ${unit}` : ''}
+        {/* No unit here (operator, 2026-09-01): the column HEADING already
+            carries it — "Temperature (°C)" — and repeating it on every row
+            states one fact once per reading. It also crowds the pill, which now
+            has to hold a fault word of the operator's own length. */}
+        {formatDecimals(value, decimals)}
       </span>
     </td>
   );

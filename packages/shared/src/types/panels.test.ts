@@ -13,7 +13,11 @@ describe('PANELS catalogue', () => {
       'dashboard_alarms',
       'trend_gauges',
       'trend_charts',
-      'trend_summary',
+      // 'trend_summary' RETIRED 2026-09-01 with the per-chart summary strip
+      // (operator: drop Current / Minimum / Maximum / Average from the trend
+      // widgets). A toggle that controls nothing is a decoy, so the key went
+      // with the component rather than being left switchable. Stored role and
+      // user selections may still list it; an unknown key is inert.
       'trend_historian_table',
       'trend_alarms',
     ]);

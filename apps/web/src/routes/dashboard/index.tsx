@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useCallback, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useCan } from '@/hooks/use-can';
 import { useAuth } from '@/hooks/use-auth';
@@ -10,6 +10,7 @@ import { usePanels } from '@/hooks/use-panels';
 import { SelectionAlarms } from './selection-alarms';
 import { PanelGrid } from './panel-grid';
 import { PanelCard } from './panel-card';
+import { AUTO_HEIGHT_PANELS, applyAutoHeights, keepStoredHeights, nextRows } from './panel-auto-height';
 import { EntryCards } from './entry-cards';
 import { useDashboardLayout } from '@/hooks/use-dashboard-layout';
 import type { LayoutItem } from '@digilog/shared';
@@ -123,7 +124,35 @@ export function DashboardPage() {
     ? null
     : view === 'table' ? READING_PANELS.graphical : READING_PANELS.table;
 
-  const visibleItems = hiddenPanel ? layout.items.filter((it) => it.i !== hiddenPanel) : layout.items;
+  /**
+   * PANEL HEIGHTS THAT FOLLOW THEIR CONTENT (operator, 2026-09-01).
+   *
+   * Each auto card reports the height it wants; `nextRows` damps that into a grid
+   * row count and this state feeds it back as the item's `h`. The measured value
+   * is RENDER-ONLY — `onGridChange` below strips it out again before anything is
+   * saved, so `role_configs` never learns how many rows were on screen at the
+   * moment somebody pressed Save.
+   *
+   * `useCallback` per panel key, memoised in a ref: `onNaturalHeight` is an effect
+   * dependency inside PanelCard, so a fresh function each render would tear down
+   * and rebuild the ResizeObserver on every frame.
+   */
+  const [autoRows, setAutoRows] = useState<Record<string, number>>({});
+  const reporters = useRef(new Map<string, (px: number) => void>());
+  const reportHeight = useCallback((key: string) => {
+    const existing = reporters.current.get(key);
+    if (existing) return existing;
+    const fn = (px: number) => setAutoRows((prev) => {
+      const next = nextRows(prev[key] ?? null, px);
+      // Bail on an unchanged value or React re-renders for every observed frame.
+      return next === prev[key] ? prev : { ...prev, [key]: next };
+    });
+    reporters.current.set(key, fn);
+    return fn;
+  }, []);
+
+  const placedItems = hiddenPanel ? layout.items.filter((it) => it.i !== hiddenPanel) : layout.items;
+  const visibleItems = applyAutoHeights(placedItems, autoRows);
 
   /**
    * Merge the hidden panel's stored position back into the draft.
@@ -134,9 +163,35 @@ export function DashboardPage() {
    * through untouched, at whatever position it already held.
    */
   const onGridChange = (next: LayoutItem[]) => {
-    if (!hiddenPanel) return layout.setDraft(next);
+    // Discard the DERIVED heights before they reach the draft. The grid reports
+    // whatever height each item currently has, which for an auto panel is a
+    // measurement — saving it would pin every viewer to one page size's worth of
+    // rows, and it would go stale the first time anyone changed that page size.
+    const kept = keepStoredHeights(next, layout.items);
+
+    /**
+     * BAIL WHEN NOTHING MOVED, or edit mode writes the draft on every layout pass.
+     *
+     * Every step of the render carries fresh OBJECT IDENTITIES even when the
+     * values are identical — `keepStoredHeights` maps, `applyAutoHeights` maps,
+     * `withResizeHandles` maps, and the `layouts={{ lg: ... }}` literal is new each
+     * render. react-grid-layout re-runs its layout, calls back, and the cycle
+     * starts again: the classic RGL feedback loop, and at best a draft rewritten
+     * on every pass, which can flip the unsaved-changes state on its own.
+     *
+     * Only reachable in edit mode — `onLayoutChange` already returns early when
+     * `!editing` — which is exactly why nothing outside edit mode would show it.
+     */
+    const unchanged = kept.every((it) => {
+      const prev = layout.items.find((p) => p.i === it.i);
+      return prev !== undefined
+        && prev.x === it.x && prev.y === it.y && prev.w === it.w && prev.h === it.h;
+    });
+    if (unchanged) return;
+
+    if (!hiddenPanel) return layout.setDraft(kept);
     const carried = layout.items.filter((it) => it.i === hiddenPanel);
-    layout.setDraft([...next, ...carried]);
+    layout.setDraft([...kept, ...carried]);
   };
 
   /**
@@ -328,6 +383,8 @@ export function DashboardPage() {
                     height={it.h}
                     onStyleChange={(next) => layout.setStyle(it.i, next)}
                     onSizeChange={(w, h) => layout.setSize(it.i, w, h)}
+                    autoHeight={AUTO_HEIGHT_PANELS.has(it.i)}
+                    onNaturalHeight={reportHeight(it.i)}
                   >
                     <TelemetryTable functionalLocationId={nav.functionalLocationId} directOnly={nav.directOnly} />
                   </PanelCard>
@@ -356,6 +413,8 @@ export function DashboardPage() {
                     height={it.h}
                     onStyleChange={(next) => layout.setStyle(it.i, next)}
                     onSizeChange={(w, h) => layout.setSize(it.i, w, h)}
+                    autoHeight={AUTO_HEIGHT_PANELS.has(it.i)}
+                    onNaturalHeight={reportHeight(it.i)}
                   >
                     <SelectionAlarms functionalLocationId={nav.functionalLocationId} />
                   </PanelCard>
