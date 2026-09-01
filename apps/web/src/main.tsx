@@ -25,7 +25,6 @@ import { ConfigIndexPage } from './routes/config/index';
 import { PasswordPolicyPage } from './routes/config/password-policy';
 const InstrumentAttributesConfigPage = lazy(() => import('./routes/config/instrument-attributes').then(m => ({ default: m.InstrumentAttributesConfigPage })));
 const FloorplansConfigPage = lazy(() => import('./routes/config/floorplans').then(m => ({ default: m.FloorplansConfigPage })));
-const AlarmRulesConfigPage = lazy(() => import('./routes/config/alarm-rules').then(m => ({ default: m.AlarmRulesConfigPage })));
 const AlarmWebhooksConfigPage = lazy(() => import('./routes/config/alarm-webhooks').then(m => ({ default: m.AlarmWebhooksConfigPage })));
 import { DatetimeConfigPage } from './routes/config/datetime';
 // 2026-08-29 (audit L7, corrected): route-level splitting was ALREADY here —
@@ -122,7 +121,6 @@ createRoot(document.getElementById('root')!).render(
                 what every operator is asked for at registration. */}
             <Route path="/config/instrument-attributes" element={<RequireRole roles={['SUPER_ADMIN']}><InstrumentAttributesConfigPage /></RequireRole>} />
             <Route path="/config/floorplans" element={<RequireRole roles={['SUPER_ADMIN']}><FloorplansConfigPage /></RequireRole>} />
-            <Route path="/config/alarm-rules" element={<RequireRole permissions={[PERMISSIONS.ALARM_RULE_READ]}><AlarmRulesConfigPage /></RequireRole>} />
             <Route path="/config/alarm-webhooks" element={<RequireRole permissions={[PERMISSIONS.ALARM_RULE_READ]}><AlarmWebhooksConfigPage /></RequireRole>} />
             <Route path="/config/report-page-titles" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><ReportPageTitlesPage /></Suspense></RequireRole>} />
             {/* The export-options config def declares customPagePath

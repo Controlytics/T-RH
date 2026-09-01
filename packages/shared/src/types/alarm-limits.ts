@@ -28,6 +28,70 @@ export const ALARM_LIMIT_KEYS_DEFAULT: Record<LimitBound, string> = {
   humidityLow: 'Low Humidity Limit\nLow Humidity\nRH Low',
 };
 
+/**
+ * The attribute that says whether each bound is IN FORCE, most preferred first.
+ *
+ * **NMT / NLT is the plant's own vocabulary, not ours** — "not more than" is the
+ * high bound, "not less than" the low one. These are the keys this installation's
+ * instruments already carry, checked against `instrument_attributes` on
+ * 2026-08-31 rather than guessed.
+ *
+ * Why a bound needs a switch separate from its value: an instrument here can
+ * carry `High Humidity Limit = 0` while meaning "humidity is not judged", and a
+ * 0 is a REAL bound to this system — every reading above 0 %RH breaches it. On
+ * this database that was raising 17 CRITICAL alarms at 44-50 %RH against a limit
+ * nobody intended to enforce. The flag is what distinguishes "the bound is zero"
+ * from "there is no bound".
+ */
+export const ALARM_LIMIT_ENABLE_KEYS_DEFAULT: Record<LimitBound, string> = {
+  temperatureHigh: 'Enable_Temp_NMT',
+  temperatureLow: 'Enable_Temp_NLT',
+  humidityHigh: 'Enable_Humid_NMT',
+  humidityLow: 'Enable_Humid_NLT',
+};
+
+/**
+ * Is this bound switched on?
+ *
+ * **An absent, blank or unreadable flag means ENABLED**, and that default is the
+ * safety decision in this file. A monitoring system must fail toward alarming: a
+ * typo in an attribute value must not be able to silence a bound, and one
+ * instrument on this installation carries no flag at all. It also keeps the
+ * behaviour of every instrument that predates the flags exactly as it was.
+ *
+ * Both vocabularies are accepted because live data holds both — 99 instruments
+ * write `0`/`1` and one writes `True`.
+ */
+export function parseEnableFlag(raw: string | null | undefined): boolean {
+  if (raw === null || raw === undefined) return true;
+  const s = String(raw).trim().toLowerCase();
+  if (!s) return true;
+  if (['0', 'false', 'no', 'off', 'n', 'f', 'disabled'].includes(s)) return false;
+  if (['1', 'true', 'yes', 'on', 'y', 't', 'enabled'].includes(s)) return true;
+  // Unreadable. Alarm rather than go quiet — see above.
+  return true;
+}
+
+/**
+ * Whether each bound is in force, resolved from the instrument's attributes.
+ *
+ * Key precedence works exactly like `resolveLimit`: the first KEY any attribute
+ * matches wins, so an instrument carrying two spellings resolves deterministically.
+ * A bound whose flag key is absent entirely returns null, and every caller turns
+ * that into ENABLED.
+ */
+export function resolveEnableFlag(
+  keys: string[],
+  attributes: { key: string; value: string }[],
+): { key: string; enabled: boolean } | null {
+  for (const k of keys) {
+    const hit = attributes.find((a) => a.key.trim().toLowerCase() === k);
+    if (!hit) continue;
+    return { key: hit.key, enabled: parseEnableFlag(hit.value) };
+  }
+  return null;
+}
+
 export const ALARM_STATUS_TEXT_DEFAULT = {
   activeUnack: 'Still pending Unacknowledged',
   activeAck: 'Active — Acknowledged',

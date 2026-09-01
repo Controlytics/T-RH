@@ -15,7 +15,6 @@ import type { AlarmWebhookEvent, AlarmWebhookTargetShape } from '@digilog/shared
 
 export interface MatchContext {
   event: AlarmWebhookEvent;
-  severity: string;
   instrumentId: string;
   functionalLocationId: string | null;
   /** Pre-expanded from the target's scopeLocationIds — see expandLocations. */
@@ -46,9 +45,17 @@ export function targetMatches(t: AlarmWebhookTargetShape, ctx: MatchContext): bo
   if (!firesOn(t, ctx.event)) return false;
   if (ctx.event === 'TEST') return true;
 
-  // NULL severities = every severity. An EMPTY ARRAY is a deliberate "none" — the same
-  // asymmetry as the scope lists below, and for the same reason.
-  if (t.severities !== null && !t.severities.includes(ctx.severity)) return false;
+  // The severity filter that used to sit here was removed on 2026-09-01 with the
+  // severity concept. `alarm_webhook_targets.severities` still EXISTS and is simply
+  // never read — dropping it is a schema change on a table whose sibling holds §11
+  // delivery evidence, and nothing is gained by it.
+  //
+  // The column is `jsonb NULL` with NO default (verified against
+  // information_schema 2026-09-01 — the Prisma field is `Json?`). Nothing writes it
+  // any more, so every target created since carries SQL NULL. Under the old
+  // semantics NULL meant EVERY severity and `[]` meant none, so if this filter is
+  // ever restored those targets keep firing rather than going silently mute — the
+  // safe direction, but check it deliberately rather than inheriting it by luck.
 
   // BOTH LISTS EMPTY MATCHES NOTHING. Never everything. A silent target is a bug
   // someone finds and fixes; a target that buzzes every hooter in the plant gets the

@@ -1,3 +1,4 @@
+import { isSensorFailureValue, coerceReading } from '@digilog/shared';
 import type { ChartSeries } from '@/routes/dashboard/time-series-chart';
 
 /** One telemetry reading, LONG format — one row per key per timestamp. */
@@ -83,6 +84,10 @@ function bucketize(points: { ts: string; value: number }[], bucketMs: number): {
 export interface TableRow {
   ts: string;
   values: Record<string, number | null>;
+  /** Keys whose reading ARRIVED but was not a number. Absent on rows built
+   *  by `toTableRows`, which never sees them. */
+  errors?: Record<string, boolean>;
+
 }
 
 /**
@@ -92,6 +97,41 @@ export interface TableRow {
  * value — a §11 history must show only what was actually received. This is
  * the behaviour under test: do not "improve" it by filling gaps.
  */
+/**
+ * The same table, built from the RAW rows so a broken reading survives.
+ *
+ * `toTableRows` below takes rows that have already been through `numericRows`,
+ * which DROPS anything non-numeric. That is right for a chart — you cannot plot
+ * `NA` — and wrong for this table, which says it lists every reading in the
+ * range and was silently omitting exactly the ones an engineer is looking for.
+ *
+ * Numeric values land in `values` as before; a reading that arrived and is not a
+ * number sets `errors[key]`, and the cell renders the administered failure word.
+ * A key with neither is absent from both, which still means "no reading".
+ */
+export function toTableRowsWithErrors(
+  rows: readonly { key: string; value: unknown; ts: string }[],
+  keys: string[],
+): TableRow[] {
+  const byTs = new Map<string, { values: Record<string, number | null>; errors: Record<string, boolean> }>();
+  for (const r of rows) {
+    if (!keys.includes(r.key)) continue;
+    let entry = byTs.get(r.ts);
+    if (!entry) {
+      entry = { values: Object.fromEntries(keys.map((k) => [k, null])), errors: {} };
+      byTs.set(r.ts, entry);
+    }
+    const n = coerceReading(r.value);
+    if (n !== null) entry.values[r.key] = n;
+    // Judged by the SHARED predicate, the same one the server raises the alarm
+    // with — not by a local `typeof` test that could drift from it.
+    else if (isSensorFailureValue(r.value)) entry.errors[r.key] = true;
+  }
+  return [...byTs.entries()]
+    .map(([ts, e]) => ({ ts, values: e.values, errors: e.errors }))
+    .sort((a, b) => b.ts.localeCompare(a.ts));
+}
+
 export function toTableRows(rows: TelemetryLongRow[], keys: string[]): TableRow[] {
   const byTs = new Map<string, Record<string, number | null>>();
   for (const r of rows) {

@@ -1,5 +1,1084 @@
 # Changelog
 
+## [Unreleased] - Severity removed from configuration and the alarm surfaces (2026-09-01)
+
+Severity is no longer an administered concept. It was one selectable setting on
+four config defs, a filter on the Alarms page, a badge on the dashboard, a
+column in a signed PDF, a per-target match rule on alarm webhooks, and a
+`${severity}` placeholder in every notification and hooter payload. All of that
+is gone.
+
+**No count moved** — re-derived 2026-09-01: config defs **29**, config pages
+**23**, Prisma models **35**, enums **12**, API modules **24**, `<Route>`s
+**50**, permissions **42**, reauth actions **48**, worker tasks **6**. A setting
+was removed from four defs; no def was.
+
+### The database column and the enum were KEPT, and there is no migration
+
+`alarms.severity` is `AlarmSeverity NOT NULL` with no default and carries real,
+meaningful history — **148 rows on 2026-09-01: 105 MAJOR, 43 CRITICAL**,
+counted before anything was touched. An alarm is a 21 CFR Part 11 record. The
+precedent this follows is the alarm-RULES removal of 2026-08-31, which dropped
+`AlarmRule` **only after verifying 0 rows existed**; the same rule applied here
+forbids the drop. `AlarmSeverity` stays for the same reason, and
+`alarm_webhook_targets.severities` (`jsonb NULL`, no default) stays as well —
+its sibling table holds the §11 delivery evidence.
+
+New alarms still need a legal value for that NOT NULL column, so
+`ALARM_SEVERITY_FALLBACK` in `@digilog/shared` is the ONE place it is written
+from. It is `MAJOR`: the value is inert — nothing reads, filters, counts or
+displays it — so the only property that matters is that it misrepresents the
+retained history as little as possible, and MAJOR is what most retained rows
+already carry. The evaluation worker's four `prisma.alarm.create` calls are its
+only consumers; a literal in each would be four chances for the column to drift
+back into meaning something.
+
+**`ALARM_SEVERITY_FALLBACK` is checked against `schema.prisma` itself**
+(`modules/alarms/__tests__/alarm-severity-fallback.test.ts`), not against a list
+restated in the test. It is a plain string assigned into a Prisma enum column —
+TypeScript cannot catch a typo in it, and the failure would not be a wrong label
+on one screen: `prisma.alarm.create` throws on an invalid enum value, so every
+raise in all four alarm passes would fail, at runtime, on a live install.
+
+### `?severity=` is ACCEPTED AND IGNORED, not refused
+
+`list-query.ts` no longer parses, validates or applies it, and the parameter was
+**removed from the route's querystring schema rather than left declared** — a
+retained `enum: ['CRITICAL','MAJOR','MINOR']` would make `?severity=BOGUS` a 400
+on a parameter nothing reads. The querystring object sets no
+`additionalProperties: false`, so an undeclared key passes through and is
+dropped.
+
+This is a deliberate departure from the rule that a bad filter must be a 400.
+That rule exists so a filter cannot silently fail to apply; it does not cover a
+filter that no longer exists, and a 400 would blank the Alarms page for anyone
+holding a stale bookmark or still running the previous bundle. Pinned three ways
+(valid value, invalid value, and "does not reach the WHERE") and
+mutation-checked.
+
+### Notification and webhook bodies
+
+`${severity}` was removed from the renderer AND from the exported variable list
+in the same change, because those two halves must move together:
+`validateTargetDraft` builds its known-variable set from
+`ALARM_WEBHOOK_VARIABLES`, so a name advertised but not produced would be
+accepted into a body template and shipped to a hooter as a literal
+`${severity}`. Pinned as an absence in the shared contract test,
+mutation-checked.
+
+**Consequence worth knowing before deploying elsewhere:** a target whose stored
+`bodyTemplate` still contains `${severity}` — which the shipped default template
+did — is now refused on save with `Unknown variable ${severity}` until the token
+is deleted. The one target in `compliance_core_db` was checked first and does
+not contain it; **the AWS database was not probed**, the same caveat recorded
+beside `RS485_ALARMS_DEFAULT`. The query is
+`SELECT id, name, body_template FROM alarm_webhook_targets;`.
+
+The `severity` key also left `NotificationRule.conditions`' match context.
+Verified first that no rule filtered on it — there are **0 notification rules and
+0 notification templates** in this database. A `severities` narrowing on a
+webhook target is no longer read either; the column is untouched.
+
+### Also removed
+
+- `GET /api/alarms/summary` no longer returns `critical` (an
+  `{state:'ACTIVE', severity:'CRITICAL'}` count). Both consumers fetched it and
+  **neither rendered it**.
+- The Severity column in the trend page's signed alarm PDF
+  (`trend-report.ts`) — a §11 report, and not in the original brief.
+- The severity badge in the dashboard's selection panel, which was
+  `severityTone`'s only live caller. `trend.tsx` imported `severityTone` and
+  never called it.
+- `severity` from the alarm row response schema (`alarmProps`) and from the
+  webhook job payload — removed from `alarmWebhookJobSchema` in the SAME change
+  as the producer, since a required field the producer stopped sending would
+  fail every job. `z.object` strips unknown keys, so a job already queued with
+  one still parses.
+
+### `AlarmRow.severity` was dropped, not made optional
+
+Operator-side decision after the display removal landed. The alternative was
+`severity?: string`, and it was rejected for a good reason: an optional field the
+API never populates and no consumer reads is not "representable", it is a decoy —
+the next reader assumes it sometimes arrives and writes a branch for a case that
+cannot occur. A required field that is simply absent is a more honest lie than an
+optional one with a plausible story.
+
+**This is a display DTO on a display feed, not an evidence path.** What an
+inspector can obtain is unchanged: `alarms.severity` is still `NOT NULL` in
+Postgres with all 148 rows, `AlarmSeverity` survives, and the acknowledge audit's
+`afterValue.severity` still captures the row as signed for. `severityTone` and
+`SeverityTone` went with the field; a comment stands where they were, saying not
+to reintroduce a tone helper keyed off severity — `quadrantTone` is the one that
+colours a row, and keying a pill off severity is the bug this page already
+shipped once.
+
+Fixtures were cleaned in the SAME edit as the interface, since removing a
+required field breaks excess-property checking on every literal typed as
+`AlarmRow`: `alarm-display.test.ts` (2), `alarms-page.test.tsx` (1),
+`alarms-widget.test.tsx` (1). In the widget test the fixtures
+`clearedUnackedCritical`/`clearedAckedCritical` were renamed to
+`clearedUnacked`/`clearedAcked` — a name referencing a removed concept is the
+same decoy in a different place. Their comments now state the severity
+disagreement as history rather than as a live property of the fixture, and the
+assertions stay, because what they actually pin is that the tone follows the
+QUADRANT.
+
+### Documentation
+
+Root `CLAUDE.md` claimed **24** config pages in TWO places; `ls` returns 23.
+**Both were already stale before this work** — `alarm-rules.tsx` went with the
+2026-08-31 rule removal and neither line was re-synced. Nothing in the severity
+removal moved that count. Both corrected, and the duplication called out: it is
+the third time that bullet has drifted from the one above it, and the file
+already warns that two live inventory lines for one number is the actual defect.
+
+`apps/api/CLAUDE.md`'s single-fork section gained the other half of the shared-
+`admin` race. It documented `logout` invalidating a held bearer; it is **every
+login** — `src/e2e/test-helper.ts:loginAs()` terminates ALL sessions for the user
+before issuing its token. `singleFork` does not help when the other suite is in a
+different PROCESS. The vulnerable shape is a suite holding one bearer across a
+whole file, the symptom is `expected undefined to be N` rather than anything
+naming auth, and the one-step discriminator is the status code: 401 on unrelated
+routes is the race, 400 implicates your own schema.
+
+### The status pill was not disturbed
+
+`quadrantTone` and the four-state status logic are untouched. The pill was keyed
+off `severity` until 2026-08-31 and rendered red on every row of an installation
+where every alarm was CRITICAL; nothing in this change goes near it.
+
+### Test changes
+
+Five failing tests, each handled on its merits rather than deleted wholesale:
+- `notify.test.ts` "puts severity and metric in the context" — **rewritten**. The
+  context still exists; what changed is what is in it. Now asserts severity is
+  ABSENT, because `toMatchObject` ignores extra keys and merely dropping it from
+  the expectation would let it reappear silently.
+- `target-scope.test.ts` ×2, `validation.test.ts` ×2 — **deleted with their
+  bodies**, `it`s only, no describe block removed. The behaviour is gone and
+  there is nothing for them to assert; a comment stands where each pair was.
+- `alarm-webhooks.test.ts` "keeps a stored severities:[] through a PUT" —
+  **rewritten onto `headers` and `successRegex`**. The severities half is gone
+  but the guard is generic and still load-bearing: a partial update must not
+  overwrite a field it does not mention. Moved onto fields where the damage
+  would be real and invisible.
+- `alarm-webhooks.test.ts` "does not sanitise an XML body template" — the
+  FIXTURE used `${severity}`, so it started 400ing on the unknown-variable rule.
+  Swapped to `${metric}`; still tag-shaped and still damaged by `stripHtml`,
+  which is the property the test needs.
+
+Two tests added (`?severity=` accept-and-ignore; the fallback constant against
+`schema.prisma`) and one absence assertion. Three mutation checks, all caught:
+re-adding the `where` clause, typoing the constant to `MAJORR`, and
+re-advertising `severity` in the webhook variable list.
+
+## [Unreleased] - Time Series (Raw Readings), rebuilt to the operator's reference (2026-09-01)
+
+The raw-readings table on `/instruments/:id/trend` was a plain `<Table>`. It is
+now its own module, `apps/web/src/routes/instruments/timeseries-table-card.tsx`
+(55 lines out of `trend.tsx`, one `<TimeseriesTableCard/>` in), built to a
+supplied image: ringed icon, title and subtitle, an export control top right, a
+gradient band carrying both last readings, a tinted header row, and per-row
+coloured edge, status dot and value pills.
+
+**No count moved** — a new file under `routes/instruments/` is not a route, a
+config def, a page, a model or a permission, so no stale-stat sweep applies.
+
+### A bug this widget had had all along
+
+It rendered timestamps with `new Date(row.ts).toLocaleString()`, which ignores
+the administered date format, clock and **timezone** from
+`/api/config/datetime/current`. It now takes the page's `useDatetimeFormat`, as
+`band-gauge.tsx` was fixed to do earlier the same day. **This widget had NO test
+coverage at all before today**, which is exactly why that survived; it now has
+26 tests, and the formatter is one of them.
+
+### Where it deliberately does NOT match the image
+
+- **Row colours are COMPUTED, so on real data it will not look like the mock.**
+  The reference shows a red 24.2 °C beside a green 24.5 °C, and a row with a red
+  temperature next to a green humidity. Those are arbitrary. Reproducing them
+  would assert excursions that never happened, on a §11 record. Each pill is
+  coloured by its OWN slot's verdict from `outOfSpec()` against the server's
+  limits.
+- **`unjudged` (neutral) means NO bound is in force** — not "one bound is null".
+  The distinction is load-bearing and was got wrong in the first brief: with
+  `Enable_Temp_NMT` off and NLT on, the server nulls only `tempMax`, but the
+  evaluator IS still judging that reading against `tempMin` and will raise
+  CRITICAL on a breach. A neutral pill there would say "nothing is checking
+  this" about a reading the alarm system is checking. So: neutral iff no bound
+  survives; green iff at least one survives and the value passes it. Both-null,
+  extra telemetry keys, and the pre-load path are all neutral, each pinned.
+  Matches three existing precedents — `outOfSpec()` returns false for a passing
+  half-open band, `bandGaugeState()` returns `assessed: true` for one, and
+  `formatSetPoint()` prints `NMT 25.0` as a real spec.
+- **Humidity is ORANGE, not the mock's blue** — `--chart-series-2` is a
+  quantity's app-wide identity, shared with the charts and the PDF. The same
+  call `trend-chart-card.tsx` and `band-gauge.tsx` already made.
+- **The disc and header band are `--theme-primary` tints, not fixed lilac**, so
+  they follow all ten colour presets rather than being the one screen with a
+  palette of its own.
+- **No "Last Reading" dropdown and no funnel.** Neither has defined semantics in
+  the mock, and the page already has period and interval controls above; a
+  second selector for one decision is the duplication this repo keeps flagging.
+  The band IS what "Last Reading" was showing. Pinned by a test.
+- **Hand-rolled `<table>`, not the shared `Table`/`.tbl` primitive**, whose
+  header band and row rhythm this design overrides. Recorded because it makes
+  this the one table in the app not following the shared style.
+
+### One consequence worth knowing
+
+The band is coloured by QUANTITY, not by limit status. So when the latest
+reading is a breach, the band reads calm while the top table row shows that same
+number in a red pill. Identity was judged the right call for the band; the
+judgement lives in the pills.
+
+## [Unreleased] - The trend page's alarms widget now IS the Alarms table (2026-09-01)
+
+`/instruments/:id/trend`'s "Alarms in this period" widget was a small
+hand-written table of its own. It now draws from the SAME cell vocabulary as the
+Alarms page — new `apps/web/src/routes/alarms/alarm-table.tsx`, imported by both
+— and moved out of `trend.tsx` into its own module,
+`apps/web/src/routes/instruments/alarms-widget.tsx`.
+
+**No count moved.** No model, enum, migration, permission, reauth action, API
+module, config def, config page (23) or route (50). Two new files, neither a
+config page nor a registered route.
+
+### The copy had already drifted, in the way copies do
+
+The widget keyed its status pill off `severity`. That is the exact defect the
+Alarms page fixed on 2026-08-31, one day earlier — on this installation, where
+every alarm is CRITICAL, a severity-keyed pill renders red on every row and the
+one column separating an answered alarm from an unanswered one says nothing. It
+now takes `quadrantTone(a)`, which is the four-state tone the count cards and the
+row marker already read, so a cleared-but-unacknowledged CRITICAL alarm reads
+AMBER on both screens instead of red on one.
+
+**Asserting the label could never have caught this.** `statusText()` is
+state-keyed and reads correctly under both mappings; only the tone was wrong.
+The new tests assert the tone CLASS on fixtures where severity and quadrant
+disagree, and all five mutation checks were run.
+
+### A vocabulary of cells, not a configurable `<AlarmTable columns={...}>`
+
+`alarm-table.tsx` holds the banner, `Th`/`Stack`/`UnitLine`, the state marker,
+the tone maps and one component per cell. It holds **no fetch, no filter, no
+sort state and no acknowledge mutation** — the two screens get their rows in
+genuinely different ways (the Alarms page filters, counts, sorts and pages
+SERVER-side; the widget windows one instrument's alarms on `raisedAt` in the
+browser over `?instrumentId=…&limit=500`), and folding those into one component
+would have meant reshaping a data flow that is correct. The Alarms page's query
+wiring is untouched; it swapped presentation primitives for imports and nothing
+else.
+
+### What the widget deliberately does NOT show
+
+- **Instrument ID and Location.** It is scoped to ONE instrument, named in the
+  page header above it, so both would repeat one value on every row. The
+  remaining nine columns keep the Alarms page's ordering and wording exactly.
+- **The sticky Acknowledge column**, and that IS a capability lost: acknowledging
+  is a §11 signature needing the `alarms.acknowledge` gate, the re-auth dialog
+  and a revalidation afterwards, none of which a read-only widget carries. The
+  Alarms page is where an alarm gets signed for.
+- **Severity.** The old widget had a Severity column; the Alarms page does not,
+  so matching it drops one. Severity still reaches the reader through the tone of
+  the pill and the row marker, but it is no longer named in words on this screen.
+
+The state marker was RE-HOMED onto the Type cell. It rides on Instrument ID on
+the Alarms page, and dropping that column would otherwise have dropped the one
+cue that finds an unanswered row without reading across to the Status column.
+
+## [Unreleased] - The trend page's two CHARTS, rebuilt to the operator's reference (2026-08-31)
+
+`/instruments/:id/trend`'s Temperature and Humidity charts are now cards, per a
+supplied reference image (`trends.png`): a pastel ringed quantity icon, the
+title, a status pill, a `<room> • <code>` subtitle, and two square icon buttons
+at the right — DOWNLOAD and FULLSCREEN. Inside, an axis unit label, a boxed
+"Last Reading" readout, pilled dashed limit lines, a gradient area fill and an
+in-chart hover tooltip. New `routes/instruments/trend-chart-card.tsx`;
+`time-series-chart.tsx` gained a `variant` prop; `ExportMenu` gained `iconOnly`.
+
+**No count moved.** No model, enum, migration, permission, reauth action,
+module, config def, page or route.
+
+### The chart is SHARED, so every new visual is behind one opt-in prop
+
+`TimeSeriesChart` is also the dashboard's room view, the aggregate trend card
+and — the one that matters — the OFF-SCREEN mount `routes/instruments/chart-image.ts`
+rasterises into the signed §11 PDF. `variant` defaults to `'plain'` and every
+addition above is gated on `'trend'`. A "Live" pill or a download button printed
+into a regulated report would be absurd, and nothing about the default changed.
+
+`PADS` is per-variant and threaded through all ~12 `PAD.*` sites — `geom`, both
+`pixelToTime` calls, the pointer-bounds test, the drag clamp, the grid, the axis
+text, the limit lines, the crosshair and the drag rectangle. One site left on a
+module constant would make a drag select a window the chart never showed, with
+nothing on screen saying so.
+
+### Four things the reference got wrong, and were not copied
+
+- **The status pill is not "Live".** The reference hardcodes a green "Live" pill
+  on both cards. Most instruments on this installation are not reporting, and a
+  green "Live" over a silent probe is a false claim about a §11 record. The pill
+  prints `statusClasses(status).label` — "Offline", "Out of limit", "In limit" —
+  from the SERVER-resolved `overview.status`, the same value `TrendHeader` and
+  both band gauges already print. One instrument, one status word.
+- **The limit line is drawn at the TRUE limit.** The reference's green line sits
+  on the 28 gridline while its pill reads 27.0. A line at a rounded bound
+  evidences a limit nobody administered, on the one element the page exists to
+  prove a breach against. Pinned by a test that asserts the line's `y` is not on
+  any gridline.
+- **"Last Reading" is the latest STORED reading, passed in by the page**, not the
+  series' last point — which is a bucket MEAN whenever a chart interval is
+  selected. Same value, from the same helper, as the summary strip's "Current".
+- **The subtitle is deduped, not concatenated.** Every `floorplan_rooms.code`
+  here is its own instrument's code with `label` blank, so a literal
+  `<room> • <code>` renders `X • X` — the same defect the Alarms page's Location
+  column was fixed for the same day. `chartCardSubtitle` drops any part that
+  repeats the code.
+
+### Deliberate departures, recorded rather than silently taken
+
+- **Humidity stays ORANGE** (`--chart-series-2`), where the reference draws it
+  teal. A quantity's colour is app-wide identity — the same call the band-gauge
+  restyle made hours earlier, and changing it here alone would put an orange
+  gauge above a teal line.
+- **Green-high / red-low limit colours are the reference's, and they fight this
+  app's semantic** (red = out of limit everywhere else, so a compliant low bound
+  wears the alarm colour). Drawn as supplied; safe only because the pill beside
+  each line names the bound in words. Reversible in `app.css` alone.
+- **The x-axis time labels and the drag-to-zoom hint are KEPT**, though the
+  reference shows neither: a trend chart with no time axis cannot be read, and a
+  drag that silently refetches is otherwise undiscoverable.
+- **The high-limit pill sits below its line** where the reference puts it above —
+  a consequence of drawing at the true bound, which leaves under 24px of headroom.
+  It flips rather than clipping off the top of the plot.
+- **No in-limit band tint in this variant.** The reference has clean white
+  between its limit lines, and a second wash under the gradient area fill would
+  leave two tints to tell apart. Both bounds are still fully stated.
+
+### ExportMenu `iconOnly` is a real prop, not a hidden label
+
+The label is emitted in BOTH branches (single-format button and dropdown
+trigger), so a `className` that hides text would leave one of them drawn. The
+icon-only trigger carries `aria-label` + `title`; a button whose only content is
+an `aria-hidden` glyph has no accessible name, which would make a governed §11
+download unreachable to a screen reader with nothing on screen looking wrong.
+`trend-downloads.test.tsx` now queries by accessible name rather than visible
+text — strictly stronger, and it goes red if the name is dropped.
+
+Three of the five `ExportMenu` instances on the page are untouched; only the two
+per-chart ones moved into card headers, each keeping its own `reportType`.
+
+## [Unreleased] - The trend page's latest-value cards, rebuilt to the operator's reference (2026-08-31)
+
+`/instruments/:id/trend` leads with the number now, per a supplied reference
+image: a big reading beside a ringed quantity icon, the timestamp under it, the
+status as a pill, and a three-cell panel naming HIGH LIMIT / STATUS / LOW LIMIT.
+`band-gauge.tsx` and `app.css`'s one keyframe are the whole change.
+
+**No count moved.** No model, enum, migration, permission, reauth action,
+module, config def, page or route.
+
+### The band did not go away — it became the ring
+
+The horizontal track and the two headroom figures ("4.4 above low") are gone
+with the reference's layout. The ARC around the icon carries what the track
+carried: it sweeps from the low bound to the reading's position between the
+two, and it turns red on a breach.
+
+**The reference's own arc encodes nothing** — measured off the image, the
+temperature card draws two disjoint arcs (-3°..39° and 109°..230°) and the
+humidity card one (108°..183°), and none of the three matches its reading's
+place in its band. An arc around a number in a monitoring product reads as a
+gauge whether or not it is one, so this one is wired to the data rather than
+traced. `data-position` is pinned on the same worked numbers the old marker was
+(48.89% for 22.4 in 18–27).
+
+### One status word, not the reference's two
+
+The image shows a "Not reporting" pill above a green "WITHIN LIMITS" panel —
+one instrument, two judgements, on one screen. That is the exact contradiction
+`band-gauge.tsx` was written to prevent (a reading the server has already
+called stale cannot be asserted compliant), and a test has pinned it since the
+card shipped. The card resolves ONE status and prints that word in both places,
+so a stale instrument reads "Not reporting" in both. The wording is
+`statusClasses`' own — "In limit", not the mock's "WITHIN LIMITS" — because
+this app must not carry two vocabularies for one judgement.
+
+### A dead probe no longer reads as an unwired one
+
+Pre-existing defect, fixed here because the card had no path for it: a failed
+RS485 probe or a saturated one leaves the numeric slot NULL, so this card
+printed "No readings in this instrument's history" over an instrument that was
+talking. It now shows the ADMINISTERED word (`Error` / `OL`, from
+`useSensorWords()`) where the number goes, with no unit, and says which fault it
+is underneath. The precedence between the two — range before failure — moved to
+`faultWord()` in `routes/dashboard/set-point.ts`, which `telemetry-table.tsx`'s
+`actual()` now calls instead of keeping its own copy.
+
+### The card stops narrating a band it cannot draw
+
+Requested: remove *"Limits are not a usable band (0 - 0) — no band to draw"* and
+*"Limits 0 - 0 (from this instrument)"*. The second was already gone — it became
+a tooltip on the bounds panel earlier the same day, so anyone still seeing it as
+a visible line is on a stale build.
+
+The first is now gone too, along with its two siblings ("No limits set — not
+assessed", "Only one limit is set (…) — no band to draw"). All three were one
+rendering decision, and all three were redundant with what the panel above
+already shows: the bounds that survived are named, and the status word says
+whether anything is judging the reading.
+
+**`note` left `BandGaugeState` rather than being kept unrendered** — the card was
+its only consumer. The three mis-administration cases it distinguished (one bound
+only, `low === high`, `low > high`) are still enumerated and still unit-tested;
+they are now pinned on `kind` + `assessed`, which is the part that drives
+behaviour, with the reasoning kept in comments where it always was.
+
+**One caption survives**, and deliberately: *"The low limit is not enforced for
+this instrument"*. Nothing else on the card can carry it — the panel simply omits
+a switched-off bound, so without that line "never administered" and
+"administered but not enforced" look identical.
+
+### A card no longer inherits a breach that belongs to the OTHER slot
+
+Reported live: *"CWH/RDU/001-00 latest received value is 24.5, high limit 27.0,
+low limit 18.0 but why its showing out of limit its normal value right"*. It is
+a normal value. TWO defects were behind it, and only one of them was already
+fixed:
+
+1. **The humidity bound was never in force.** That instrument carries
+   `High Humidity Limit = 0` with `Enable_Humid_NMT = False`, so its 55 %RH
+   "breached" a bound nobody was enforcing. The enable-attribute withholding
+   above fixes this — verified by running `buildTelemetryOverview` against the
+   live row, which now returns `status: STALE`, `rhMax: null`.
+2. **The card inherited a whole-instrument verdict.** `computeInstrumentStatus`
+   returns `OUT_OF_SPEC` when EITHER slot breaches, and `band-gauge.tsx` fell
+   through to it for any status that was not OK or NO_DATA. So a temperature of
+   24.5 inside 18–27 printed "Out of limit" because the humidity beside it had
+   breached. **This would have survived the first fix** on any instrument whose
+   humidity genuinely leaves its band.
+
+The fall-through now admits **STALE only** — the one whole-instrument fact that
+applies to every slot on it, and the prop's documented reason for existing.
+`PARTIAL` is excluded on the same grounds: if the missing slot were THIS one,
+`no-reading` returns NO_DATA before the fall-through runs, so a PARTIAL reaching
+the card is always about the other one.
+
+**The header will now disagree with the card, and that is correct.**
+`trend-header.tsx` prints the instrument-level word, so a humidity breach reads
+"Out of limit" there and "In limit" on the temperature card. Different SUBJECTS
+— the instrument, and one slot of it. The reasoning is written at the
+fall-through so the next reader does not "fix" it back.
+
+### The reading's timestamp is an instant, not "6d ago"
+
+Requested: *"its showing hours ago, days ago, i want date & time when that value
+was received"*. The card now prints e.g. `31/08/2026 13:03` through the page's
+existing `useDatetimeFormat` formatter, passed in as `formatTs` — the date
+format, the clock and the TIMEZONE are all administered
+(`/api/config/datetime/current`), so a `toLocaleString` in the card would be a
+second opinion that drifts the moment the setting changes. It is also the better
+record: a relative age re-reads differently every time the page is opened.
+
+**`trend-header.tsx` still shows "updated 6d ago"** a few rows above. Left alone
+— it reports the instrument's freshness rather than a specific reading's arrival
+— but it is the obvious next thing to change if the relative form is unwanted
+anywhere.
+
+### A bound the instrument switches off is now WITHHELD, not just unenforced
+
+Third operator instruction: *"Enable_Temp_NLT is disabled dont show Low
+Temperature Limit only show high limit and status into center"*, and the same
+for the other three flags. It could not be done in the browser — resolving those
+alias lists is a server decision (`resolveEnableFlag`), and re-deriving it
+client-side is the pattern this repo bans.
+
+So the withholding went where the other withholdings already are:
+`telemetry-overview.ts`, the ONE place a stored number becomes "a bound this
+system enforces". A disabled bound now arrives as `null` in `limits`.
+
+**This is not display sugar, and it reaches four surfaces beyond the card.**
+`computeInstrumentStatus` reads `limits`, so leaving the bound in painted an
+instrument OUT_OF_SPEC against a bound the alarm evaluator will never raise on —
+on this installation, `High Humidity Limit = 0` meaning "not judged" did exactly
+that at every real humidity. The dashboard table, the floor tiles, the trend
+chart's limit line and the PDF all stop drawing a disabled bound too. That is
+the point rather than a side effect, but it was not asked for and is flagged as
+such.
+
+- **`limitEnabled` is a new field on the overview row** (declared in the Fastify
+  response schema, or it would be stripped silently). It says WHY a bound is
+  absent — switched off, versus never administered — and NOTHING gates display
+  on it. Without it the card printed `bandGaugeState`'s "Only one limit is set",
+  which is false for exactly the case this feature is for: both are administered
+  and one is off. It now reads "The low limit is not enforced for this
+  instrument", following the evaluator's own wording for the same act.
+- **`limitSource` goes null once no bound survives** — "from this instrument"
+  over an empty band asserts a source for something that is not there.
+- The bounds panel's columns follow the surviving bounds: two, one, or Status
+  alone. A cell reading "—" gave a withheld bound the same weight as a live one.
+- Mapping is `LIMIT_BOUND`'s — NMT is the HIGH bound, NLT the LOW one. Reversing
+  it silently withholds the opposite bound while looking correct, so the e2e
+  pins both directions separately and the mutation check confirms it (3 failures).
+
+### Two wording changes, BOTH requested by the operator
+
+**Provenance note, corrected.** An earlier draft of this section recorded these
+two as unrequested proposals "awaiting the operator's call". That was wrong, and
+it is corrected here rather than quietly — the instruction exists, verbatim:
+*"in place of reporting/not reporting change into Online/offline, remove the
+below line Limits 0.0 - 27.0 (from this onstrument) for both cards"* (operator,
+2026-08-31). What was NOT instructed is the SCOPE of the first one — changing it
+in `status.ts` makes it app-wide rather than card-local — and the reasoning for
+that is below. The caveats the earlier draft raised are real and are kept.
+
+- **STALE reads "Offline", not "Not reporting"** — changed in `status.ts`, the
+  one place that word is defined, so the trend header, the floor tiles and the
+  room panel follow. This DE-DUPLICATES a vocabulary rather than adding one:
+  `telemetry-table.tsx:487` renders `r.reporting ? 'Online' : 'Offline'` off the
+  SAME boolean — `computeInstrumentStatus` returns `STALE` for exactly
+  `!reporting` — so two words described one condition. Verified, not assumed.
+  Only the negative half was ever rendered: OK keeps "In limit", which answers a
+  different question, and "Online" there would drop the judgement the surface
+  exists for.
+  **One nuance the de-duplication does not remove:** on the table, reporting and
+  limit status are separate columns, so an offline instrument last seen out of
+  limits reads "Offline" there. On the composite surfaces `OUT_OF_SPEC` outranks
+  `STALE`, so the same instrument reads "Out of limit". Same word, same boolean,
+  different precedence — which is correct, but is why the two screens can still
+  disagree about one device.
+- **The visible `Limits 18.0 - 27.0 (from this instrument)` line is gone**, as
+  instructed. The fact is not gone: it moved onto the bounds panel as a
+  `title`, which is exactly where `telemetry-table.tsx` already keeps it ("the
+  source is a tooltip, not a visible column"). A set point with no source still
+  reads as asserted, so the test that pinned it was rewritten against the
+  tooltip, not deleted. **A tooltip is not reachable by touch or by keyboard**,
+  so if the provenance matters on a wall display this should go back to being
+  visible — that is the operator's call, not a settled decision.
+
+### Also deliberate
+
+- The provenance survives as a tooltip on the bounds panel (see above).
+- The series colours stay the app's own `--chart-series-1/2`, not the mock's
+  brighter blue and orange — a quantity's colour is app-wide identity.
+- `.band-marker` / `@keyframes band-marker-travel` became `.band-arc` /
+  `band-arc-sweep`, animating `stroke-dashoffset`. Both keep the old contract:
+  the keyframe's `to` is the value the element already carries statically, so
+  the resting position is right with the animation absent, disabled or done.
+
+Rendered and measured against the reference in headless Chrome, not eyeballed:
+card 532x283 against the image's 516x282, arc sweep 84.7% and 65.3% for
+readings whose true band positions are 82.6% and 62.9% (the excess is the two
+round line caps).
+
+## [Unreleased] - The QC floor plan is the real QC floor (2026-08-31)
+
+The `CWH — QC` plan now shows the actual QC layout, traced from the operator's
+drawing (`QC Layout.png`), instead of the twelve machine-generated boxes it
+carried before. 23 rooms replace 14; all 12 QC instruments are re-sited.
+
+Every other plan in this repo is INVENTED — `scripts/draw-cwh-floorplan.ts`
+cuts a rectangle into rooms with a guillotine split, which tessellates perfectly
+and reads as a building but is not the building. QC is the one floor there is a
+drawing of, so it is now authored as literal measured coordinates in
+`apps/api/src/modules/floorplans/qc-layout.ts`, and the generator is bypassed
+for that area alone. When the two disagree, the traced table wins.
+
+**No count moved.** No model, enum, migration, permission, reauth action,
+module, config def, page or route. 23 rows in `floorplan_rooms` changed, and the
+plan's canvas was reshaped 1600x800 → 1082x975 (the building's own proportions,
+not a shape derived from its room count).
+
+### How the numbers were obtained
+
+Measured, not eyeballed: dark-pixel runs were scanned column-by-column and
+row-by-row and the resulting lines clustered into a wall grid. Door openings
+came from gaps in those walls, cross-checked against the orange swing arcs,
+isolated by colour. The table keeps PNG pixel coordinates rather than
+pre-divided decimals so the next person can re-measure against the same image
+and compare like with like.
+
+The 12 instruments were matched to rooms through the `Location` attribute in
+`CWH.xlsx`, which maps 1:1 onto the drawing's room names. That mapping is
+written out explicitly in the test rather than derived in flight — a swapped
+pair puts one room's readings in another and looks entirely correct on screen.
+
+### What a test has to do that the generator got for free
+
+A guillotine cut cannot overlap or leave a gap. A hand-traced table has no such
+guarantee, and a single mistyped digit is invisible in a table and only shows up
+on screen — which is not available here, since the operator holds the browser
+session. `__tests__/qc-layout.test.ts` therefore asserts: no two rooms overlap,
+every edge is drawn from one canonical measured grid (so shared walls are
+byte-identical and no hairline seam can open), coverage exceeds 90%, no door
+overruns its wall, and each instrument lands where the registry says.
+Mutation-checked — overlapping two rooms fails two of them.
+
+### Deliberate departures from the drawing, and why
+
+- **Room codes are now ROOM numbers** (`CWH-I/216`..`/233`) with the room name
+  as the label, as the drawing has it. This reverses the premise recorded when
+  the Alarms page dropped its room line on 2026-08-31: on this floor a room code
+  is no longer its instrument's code, so searching an instrument code will not
+  match its room. The room line was NOT restored — it would be blank on the
+  seven generated plans.
+- **SAMPLE PREPARATION ROOM is stored as its bounding box.** It is an L, and a
+  room is one rectangle. The internal partition is lost. Splitting it would have
+  to invent a wall the drawing does not have, and a false wall is worse than a
+  missing one: it says a space is closed when it is open.
+- **CORRIDOR-08 IS split**, into `CWH-I/217` and `CWH-I/217 (2)`, because its
+  two legs read as two runs and the drawing dimensions them separately. The
+  `(2)` suffix is the precedent already used for SERVICE CORRIDOR on this plan.
+- **HPLC ROOM has no door**, because the drawing gives it none — all four walls
+  scan continuous. Reproduced rather than corrected: inventing a door on a GMP
+  plan is inventing a means of escape. The drawing is the place to fix that.
+- **Grades still come from each instrument's own limits**, so the floor reads
+  grade C throughout while the drawing is multi-coloured. The drawing's colours
+  encode room FUNCTION; grade is a cleanroom classification. Painting an office
+  blue to match would make the on-screen "grade" legend lie.
+- **WASH AREA-02 and CHANGE ROOM render without readings.** The drawing shows
+  numbers in both, but the registry has no instrument in either — those numbers
+  are illustrative. Inventing a sensor to fill them would fabricate a §11 record.
+
+### The rest of the drawing
+
+The operator asked three times for the plan exactly as drawn, so the annotation
+layer went in the same day. Migration `20260831220000_floorplan_annotations`
+adds two nullable JSONB columns and nothing else — `floorplan_rooms.meta`
+(`fill`, `fch`, `dims`) and `floorplans.annotations` (`equipment`, `hvac`,
+`water`, `airflow`, `labels`). **35 models and 12 enums are unchanged**, the
+same shape as the `doors` and `grade` additions: a drawing's vocabulary grows,
+and a migration per annotation kind is a tax on transcribing one. NULL on every
+generated plan, which renders exactly as before, legend included — the legend
+appears only for a plan that has an annotation layer, since naming symbols a
+plan never draws teaches a reader to look for equipment on a floor with none.
+
+Three decisions worth knowing:
+
+- **`meta.fill` overrides the grade hue.** The draughtsman's colours say what a
+  room is FOR; `grade` says how it is classified. Both are stored and `grade` is
+  still returned unchanged. This is only safe because the grade legend and tab
+  were removed in August — if a grade legend ever returns it must not key off
+  the fill, because on this plan the two disagree by design.
+- **`fch` and `dims` are transcribed strings, never computed.** The drawing is
+  schematic and not to scale; deriving a size from the stored `w`/`h` would
+  print a number the plan does not carry.
+- **Nothing in the layer takes a status colour, and none of it is clickable.**
+  An HVAC symbol marks where a unit is drawn; nothing in this install senses
+  one, and colouring it would assert a health nobody measured.
+
+**Readings beat captions, and `captionHeader()` is where that is decided.** A
+traced room wants four header lines where a generated one prints one, and that
+space comes out of the tile grid, so on a short room the ceiling height and the
+temperature are in direct competition. The helper costs the captions against
+`tileLayout` and drops them if reserving the space would show fewer instruments:
+a transcribed dimension is reference material, a temperature is why the screen
+exists, and a room that hid its reading behind a dimension line would be a
+monitoring screen that had stopped monitoring.
+
+The first version used a fixed `h >= 78` threshold instead. It happened to hold
+for all twelve QC instrument rooms — measured, the tightest is SAMPLE STORAGE at
+103 units against a 44-unit header — but it encoded no reason, and one resized
+room would have started hiding readings with nothing to catch it.
+`tileLayout()` gained the matching `headerH` parameter; it defaults, so no
+generated plan moves by a pixel.
+
+### Still not represented, on purpose
+
+The `EXHAUST` arrows and the two `W` circles are drawn OUTSIDE the building wall
+in the PNG (out to x=1190, past the wall at x=1108). The renderer strokes the
+viewBox border as that wall, so anything beyond it is clipped: the water points
+were moved onto the east wall where they connect, and the external exhaust
+arrows are omitted. Widening the canvas to fit them would detach the outline
+from the wall it represents.
+
+`DRAFT COPY` and `EXISTING LAYOUT` are drawing-status stamps rather than floor
+content, and a live monitoring screen captioned DRAFT COPY would be actively
+misleading about the readings on it.
+
+### `--only <area>`
+
+New flag on `draw-cwh-floorplan.ts`. Without it, changing one floor deletes and
+recreates every room on all eight plans. The generator is deterministic so the
+others would come back the same shape, but each room is a §11 record with its own
+delete and create audit rows, and re-signing a hundred rooms nobody touched makes
+the audit trail describe work that did not happen. Also fixed: the script printed
+the overview plan's summary line even when it had skipped drawing it.
+
+## [Unreleased] - Alarm rules removed; a quoted number is a number (2026-08-31)
+
+Two operator requests.
+
+### A quoted number is a reading, not a sensor fault
+
+`"23.5"` off a device now counts as 23.5 everywhere, instead of raising an RS485
+failure. **This reverses the earlier "judge by type, never parse" rule**, and the
+reversal is only safe because it was made in ONE place: `coerceReading()` in
+`@digilog/shared` is now the single definition of "is this stored value a
+reading", used by the dashboard, the limit evaluator, the range check, the trend
+chart and table, and the SQL range summaries. Changing only the alarm would have
+been the worst of both — the value rendering blank AND raising nothing, which is
+the exact silent hole the RS485 source exists to close.
+
+Still NOT readings: an empty string (`Number("")` is 0, a trap the repo already
+guards elsewhere), `NA`, `ERR`, `25 C`, booleans and objects. No exponent form,
+matching `parseLimitValue`.
+
+The SQL summary cast in `telemetry.repository.ts` accepts the same shape, or the
+min/max and out-of-limit counts would be computed over a different population
+than the chart drawn from the same range.
+
+### Alarm rules removed
+
+The operator does not use authored rules. Removed: the `AlarmRule` model, the
+`AlarmComparison` enum, `Alarm.ruleId`, the four `/api/alarms/rules` endpoints,
+`decide.ts`, the rule evaluation pass, the Alarm Rules config page and route, the
+`RULE` filter token and its type-name field.
+
+**Counts:** models **36 → 35**, enums **13 → 12**, config pages **24 → 23**,
+routes **51 → 50**. Config defs stay 29; modules stay 24.
+
+Checked before dropping anything: **0 rules and 0 RULE alarms** in the database.
+Had either been non-zero the model would have stayed and only the authoring
+surface would have gone — an alarm is a §11 record and is never dropped to tidy a
+schema. The migration says so, with the queries.
+
+Two things deliberately KEPT:
+- **`ALARM_RULE_READ` / `ALARM_RULE_MANAGE`** — they gate the alarm-webhooks
+  module, which has always reused them. The names read oddly now; renaming a
+  permission means rewriting every stored role config, which is not worth it.
+- **`AlarmSource.RULE`** — Postgres cannot drop an enum value without recreating
+  the type, and recreating one the `alarms` table depends on is not worth doing
+  for a value nothing writes. The display still names a legacy row sensibly.
+
+The four remaining sources are untouched: instrument limit, sensor range, RS485
+failure and inactivity.
+
+Verified: api 1931 tests / 143 files, web 945 / 65, `tsc --noEmit` clean on both,
+`vite build` clean, migration drift guard PASS, both databases migrated.
+`src/e2e/instruments.test.ts` still reports its pre-existing teardown-hook
+timeout — all its tests pass and it reproduces with these changes stashed.
+
+## [Unreleased] - One place to name every alarm type (2026-08-31)
+
+Operator request. **Configuration → Alarm Type Names** — one field per alarm
+type. Rename one and it changes everywhere that type is shown: the Alarms page's
+Type column, the Type filter's dropdown, the trend page's alarms widget, the
+signed PDF, and `${ruleName}` in every notification and webhook body.
+
+Config defs **28 → 29**. No model, enum, permission, route, page or migration.
+
+**Those were four separate hardcoded lists**, and the fourth did not agree with
+the others — a high-temperature breach printed `TEMPERATURE HIGH limit` in an
+email while the table beside it said `High Temperature`. Renaming a type meant
+editing code in four places or letting the surfaces drift.
+
+- `alarmTypeKeyFor()` in `@digilog/shared` is the **one** place source + metric +
+  limitKind become a type key, so the browser labelling a row and the worker
+  labelling the email about it cannot disagree.
+- **Names are read live, not frozen.** Renaming re-labels history too, which is
+  what "apply everywhere" means. Nothing a §11 record turns on moves with it —
+  the limit, the span, the reading and the precision stay frozen.
+- **An individual rule alarm keeps its own rule's name.** Only the Type filter's
+  collective "Rule alarms" wording is configurable; a rename must not replace
+  every operator-authored rule name on the page.
+- Blank falls back to the shipped name — a type is never nameless.
+- The filter's token VALUES stay fixed: they are the API's vocabulary and an
+  unknown one is a 400. Only what the option says is configurable.
+
+Tests: 8 display, 3 config e2e. Mutation-checked — ignoring the configured names
+fails 2. Verified: api 1973 tests, web 944 / 65 files, `tsc --noEmit` clean on
+both, `vite build` clean.
+
+**Pre-existing, not from this change:** `src/e2e/instruments.test.ts` reports a
+teardown hook exceeding vitest's 10s limit. All 36 of its tests pass; the failure
+is the cleanup hook, and it reproduces with these changes stashed.
+
+## [Unreleased] - Limit bounds honour their own enable attribute (2026-08-31)
+
+Operator request, and it fixes a live false-alarm condition. Each of the four
+instrument-limit bounds is now gated by the instrument's own switch:
+
+| Bound | Attribute |
+|---|---|
+| High temperature | `Enable_Temp_NMT` |
+| Low temperature | `Enable_Temp_NLT` |
+| High humidity | `Enable_Humid_NMT` |
+| Low humidity | `Enable_Humid_NLT` |
+
+NMT = "not more than" (high), NLT = "not less than" (low) — the plant's own
+vocabulary. Set the flag false and that bound raises nothing, however far the
+reading crosses it. The other three bounds are unaffected.
+
+**No count moved** — four settings joined the existing `alarm-limits` def. No new
+model, enum, permission, route, page or migration.
+
+**What this was already costing.** An instrument here can carry
+`High Humidity Limit = 0` meaning "humidity is not judged" — and a 0 is a REAL
+bound to this system, so every reading above 0 %RH breaches it. Sixteen
+instruments had exactly that pair, and **17 CRITICAL alarms were open at
+44–50 %RH** against a limit nobody intended to enforce. Their own
+`Enable_Humid_NMT = 0` had been saying so all along; nothing read it.
+
+- **An absent, blank or unreadable flag means ENABLED.** A monitoring system
+  fails toward alarming: a typo must not be able to silence a bound, and one
+  instrument here carries no flag at all. Every instrument that predates the
+  flags behaves exactly as before.
+- **Both vocabularies are accepted** — the live data holds `0`/`1` on 99
+  instruments and `True` on one.
+- **A bound switched OFF also CLEARS an alarm already open on it** (operator's
+  call). A deliberate departure from the rule that a config change never closes a
+  regulated record: those 17 could never clear on their own, because the reading
+  they waited for — humidity below 0 — cannot occur. A permanently red row
+  asserts an excursion that is not real. `raisedAt` and `triggeredValue` are
+  untouched and the acknowledgement is not signed, so the history is closed, not
+  erased; the notification says the bound is no longer enforced rather than
+  reusing "returned to spec".
+
+Tests: 5 unit in `alarm-limits.test.ts`, 8 e2e in `instrument-limit-alarms.e2e.test.ts`.
+Mutation-checked three ways — removing the gate fails 4 e2e, flipping the
+absent-flag default fails the unit test, and flipping the resolver's fallback
+breaks the whole limit suite.
+
+**A vacuous test caught while writing these:** the new e2e block inherited
+`High Temperature Limit = 99` from the test above it, so every "raises" assertion
+was failing for the wrong reason. It now pins its own bounds in `beforeEach`.
+
+Verified: api 1970 tests / 146 files, web 937 / 65, `tsc --noEmit` clean on both
+(it caught a snapshot field the green suite hid, again).
+
+## [Unreleased] - Sensor RANGE alarms: OL, and the limit alarm that defers to it (2026-08-31)
+
+Operator request. A reading above `High Temperature Range` or below
+`Low Temperature Range` now shows **`OL`** and raises a **Temperature Failure**
+alarm; likewise `High/Low Humidity Range` → **Humidity Failure**. A FIFTH alarm
+source, `SENSOR_RANGE` (a new enum VALUE — models stay 36, enums stay 13).
+Config defs **27 → 28**. Spec:
+`docs/superpowers/specs/2026-08-31-rs485-sensor-failure-alarms-design.md`.
+
+**Range is not a limit, and the whole design turns on that.** Every instrument
+here already carries both: `High Temperature Limit` = 25 is the product SPEC,
+`High Temperature Range` = 50 is the PROBE's span. A number beyond the span is
+not a measurement — a saturated probe displays `OL`, not the truth.
+
+**So an out-of-range reading is treated as NO READING** (operator's decision):
+
+- it raises a Temperature/Humidity Failure alarm;
+- it raises **no** limit alarm, even though 60 > 25;
+- it **cannot clear** an open limit alarm either. That follows necessarily from
+  the first two — `limit-decide.ts`'s standing rule is that absence never proves
+  recovery — so the two options offered collapse into one behaviour. An
+  excursion stays open until a trustworthy reading proves it ended;
+- the numeric slot is withheld on the overview, so nothing downstream plots or
+  judges it. The reading itself is frozen onto the alarm.
+
+A genuine excursion INSIDE the span (30 °C against a 25 limit) still raises a
+normal limit alarm — the suppression must not swallow real breaches, and that is
+pinned by its own test.
+
+Other decisions:
+- **`OL` is a second configurable word, kept separate from RS485's `Error`.**
+  They send an engineer to check different things: a wiring/bus fault versus a
+  saturated or mis-specified probe.
+- **Range bounds resolve through the SAME alias machinery as limits**
+  (`parseLimitKeys`/`resolveLimit`), so drifted key spellings keep working and
+  there is no second resolver to disagree with the first. Defaults are the exact
+  keys the 100 instruments already carry — checked, not guessed.
+- Its own filter token, `RANGE`; the Limit column shows the SPAN it left, from
+  the frozen snapshot, alongside the attribute key each bound came from.
+- Ships ON: not one of the 200 current slot readings on the local database is
+  outside its instrument's declared range, so enabling it raises nothing.
+  **Only the local database was probed** — re-derive before deploying to AWS.
+
+Tests: 17 unit, 15 e2e, 7 display. Mutation-checked — removing the suppression
+(`temperature = null`) fails 3 e2e, including the "no limit alarm" assertion.
+Verified: api 1961 tests / 146 files, web 937 / 65, `tsc --noEmit` clean on both,
+migration drift guard PASS, both databases migrated.
+
+**One flake seen and not reproduced:** `backup-restore.e2e` failed once in a full
+run and passed in isolation and on a clean full re-run. This is the shared-test-DB
+interaction already documented in `apps/api/CLAUDE.md`, not a regression from this
+change.
+
+## [Unreleased] - One configurable word for a failed sensor's value, shown everywhere (2026-08-31)
+
+Operator. **This reverses the "show the raw text" decision made earlier the same
+day**, and the reason is a good one: the raw text a broken probe sends is almost
+always `NA`, and `NA` is already what the dashboard shows for a slot with NO
+reading. A dead sensor and an instrument nobody had wired up rendered
+identically — in the one column that exists to tell them apart.
+
+**No evidence was lost.** The raw value is still frozen on
+`ruleSnapshot.rawValue`, still named in the alarm's condition line, and that
+condition is printed beside the value in every notification and webhook body.
+
+One new setting, `failureText` on `rs485-alarms` (default **`Error`**, and
+deliberately not `NA`). No new def, model, enum, permission, page or route —
+one setting and one narrow read endpoint.
+
+Shown wherever a failed sensor's reading would appear:
+
+- **Alarms** — Generated Value, on the page, in the acknowledge dialog, in the
+  trend widget and in the signed PDF.
+- **Notification and webhook payloads** — `${value}` printed `—` before, which
+  says "no reading" for a sensor that reported loudly and wrongly. New optional
+  `valueText` on both payload builders; every other alarm source still formats
+  its number, and an RS485 alarm's CLEARED value is still a real measurement.
+- **Dashboard** — the table cells and the floorplan tiles. A failed slot now gets
+  a tile of its own rather than being omitted, so a room whose probe died does
+  not look like a room with nothing in it.
+- **Trend page raw table** — which was **silently dropping broken readings
+  altogether**: it is built from `numericRows`, so a table claiming to list every
+  reading in the range was omitting exactly the ones an engineer opens it to
+  find. New `toTableRowsWithErrors` keeps them. The CHART still drops them — you
+  cannot plot a word — and that split is now deliberate and commented.
+
+Two rules worth keeping:
+
+- **The server decides, the browser renders.** `OverviewRow` gained
+  `sensorError: {temperature, humidity}`, declared in the response schema, from
+  the same predicate that raises the alarm. The browser cannot tell a broken
+  reading from a missing one — both leave the slot null — and re-deriving it
+  there is how a cell comes to contradict the alarm beside it.
+- **No `'Error'` literal in web code.** The word comes from
+  `GET /api/config/rs485-alarms/display-text` through one `useFailureText()`
+  hook; the only fallback is the shared constant, for "not loaded yet". A default
+  baked into a component is a second opinion about a value the server
+  administers.
+
+Absent readings keep saying `NA` (operator's call): a broken probe and an
+unwired instrument are different faults with different remedies.
+
+Tests: 4 display, 5 trend-series (mutation-checked — dropping the broken row
+fails 3), 5 notification, 3 webhook, 4 config e2e, 2 overview e2e. Verified: api
+1929 tests / 144 files, web 65 files, `tsc --noEmit` clean on both, `vite build`
+clean.
+
+## [Unreleased] - RS485 sensor-failure alarms: a FOURTH alarm source (2026-08-31)
+
+Operator request. A sensor reporting `NA` — or any non-numeric value — on a
+temperature or humidity slot key now raises an alarm, cleared when it reports a
+number again. Temperature and humidity are judged separately, so a logger with
+both probes dead raises TWO alarms.
+
+**Counts:** `AlarmSource` gains a fourth VALUE, so **36 models / 13 enums are
+unchanged**. Config defs **26 → 27** (`rs485-alarms.def.ts`, rendered by the
+dynamic config page so the page count stays 24). No new permission, reauth
+action, audit action, module or route. Spec:
+`docs/superpowers/specs/2026-08-31-rs485-sensor-failure-alarms-design.md`.
+
+**The gap it fills.** When an RS485 probe fails, the logger keeps talking. Before
+this source existed nothing noticed: INACTIVITY sees a reporting instrument
+(`last_seen_at` was stamped by the very payload carrying the bad value),
+INSTRUMENT_LIMIT sees `null` (a non-numeric reading is discarded before any
+comparison, and a null is deliberately not a breach), and the dashboard renders
+an empty cell indistinguishable from an instrument that has never reported. A
+dead probe looked exactly like a healthy plant with a gap in it.
+
+- **It ships ON, unlike `inactivity-alarms`** — measured, not assumed: every one
+  of the 226,570 retained readings on a slot key in the LOCAL development
+  database is numeric, and no instrument holds a non-numeric latest value, so
+  switching it on raises nothing. Inactivity ships off because it would have
+  raised 101 at once. **Only the local database was probed** — re-derive on AWS
+  before deploying, with the query recorded beside `RS485_ALARMS_DEFAULT`.
+- **Detection is by TYPE, never by parsing.** The string `"23.5"` IS a failure:
+  the dashboard already refuses to plot it and the limit evaluator already treats
+  it as no reading, so accepting it here would make the alarm disagree with the
+  screen beside it.
+- **The clear signal is a NUMBER, and silence HOLDS the alarm open** — the
+  inverse of the inactivity rule shipped the same day. You cannot prove a probe
+  was repaired from the fact that it stopped talking.
+- **`alarms_active_rs485_unique` is keyed on (instrument_id, metric)**, not the
+  instrument alone as the inactivity index is, so two failed probes on one logger
+  hold two open alarms. Two hand-authored migrations again, separate because
+  Postgres refuses a new enum value in the transaction that added it.
+- **The offending text is the record.** `triggeredValue` is a Float and cannot
+  hold `NA`, so it stays null and the value goes on the snapshot — and the
+  Generated Value column shows THAT, not an administered wording. The Limit
+  column shows the constant `numeric`; Cleared Value shows the real reading that
+  ended the fault.
+- `buildTelemetryOverview()` now returns `rawSlots` — each slot's reading before
+  the numeric filter — so the alarm and the dashboard resolve the slot ONCE and
+  cannot name different keys. Not exposed by the endpoint; Fastify strips what
+  the response schema does not name.
+- One type-filter token, `RS485`, matching on source: an RS485 alarm's metric is
+  TEMPERATURE or HUMIDITY, so metric cannot identify one, and two tokens would
+  make "what sensors have failed?" a choice between two spellings.
+
+Tests: 17 unit, 21 e2e driving the real pass, 12 display. Mutation-checked, which
+found **two defects in the tests themselves**: the worker's clear branch silently
+skipped a wrong decision (`&& slot` in the `else if`), making an e2e pass with the
+clear rule INVERTED; and the e2e's `beforeEach` cleared readings by name, leaving
+the second alias `temp` behind so the "goes silent" test was not testing silence.
+
+**Incident, recorded because the repo has now hit this twice.** The first version
+of the new e2e had a bad `::uuid` cast on a text column *in `afterAll`*, aborting
+teardown before its config restore and leaving `alarm-limits` disabled in the
+shared `compliance_core_db_test` — 8 failures across two unrelated suites, which
+then ratcheted in because each later run read the disabled value as its own
+"before". The restore loop now runs FIRST with every step independently guarded.
+
+Verified: api 1915 tests / 144 files, web 924 / 65, `tsc --noEmit` clean on both
+(it caught two things the green suites hid), `vite build` clean, migration drift
+guard PASS, both databases migrated.
+
+## [Unreleased] - Inactivity alarms: what the three value columns say, and who decides (2026-08-31)
+
+Operator. **No count moved** — no model, enum, permission, reauth action, config
+def, route or page was added; three settings joined the existing
+`inactivity-alarms` def, and one narrow read endpoint was added beside the
+existing `/alarm-limits/status-texts`.
+
+**The problem.** On an inactivity alarm, Generated Value and Cleared Value both
+rendered `—`, and they could never render anything else. The alarm is raised by
+the ABSENCE of a reading (`triggeredValue` is null by design — a number there
+would be an invention) and it clears because telemetry RETURNED, not because a
+reading came back inside a bound (`clearedValue` likewise). Two empty cells on a
+§11 table read as a rendering fault rather than as a fact about the record.
+
+- **Three new settings in Config → Inactivity Alarms**, under a new Column
+  Wording group: Generated Value (`No data`), Limit (`quiet > {minutes}m`) and
+  Cleared Value (`Data resumed`).
+- **The Limit cell is treated differently from the other two, and that asymmetry
+  is the point.** It is not a wording — it states the threshold the alarm
+  actually fired against, taken from the FROZEN snapshot. So it is a TEMPLATE
+  with a REQUIRED `{minutes}` token, and a configured string without one is
+  refused in favour of the shipped wording, in the browser
+  (`inactivityLimitText`) and again on the server. An admin can re-word the cell;
+  they cannot type the threshold out of a regulated record. The other two have no
+  number to lose and are plain strings.
+- **Cleared Value is gated on `clearedAt`.** While the alarm is still ACTIVE the
+  instrument has not come back, and "Data resumed" on an open outage would state
+  the opposite of what the row means.
+- **Read live, like the four status wordings**, not frozen onto the alarm:
+  re-wording a column re-phrases every row, while the threshold underneath the
+  Limit column stays frozen where it belongs.
+- New `GET /api/config/inactivity-alarms/display-texts` — all authenticated
+  users, the same narrow-slice pattern as `/alarm-limits/status-texts`. The
+  `inactivity-alarms` def itself stays SUPER_ADMIN-only, because `enabled`,
+  `graceMinutes` and `severity` decide what fires as a regulated alarm.
+  **Deliberately a second endpoint, not three more keys on `/status-texts`** —
+  that route's contract is a narrow slice of the `alarm-limits` row.
+- Threaded through all four surfaces that render an alarm row: the Alarms table,
+  the acknowledge dialog (where the §11 signature is actually executed), the
+  trend page's alarms widget, and the signed alarms PDF. A missing argument
+  degrades to the shipped wording, never to a blank cell.
+
+Tests: 8 new in `alarm-display.test.ts` (62 in file), 6 new e2e in
+`config.test.ts` (51 in file), 2 new in `alarms-widget.test.tsx`. One of those
+e2e drives the WHOLE round trip — save a wording through
+`PUT /api/config/dynamic/inactivity-alarms`, read it back from
+`/display-texts` — because reading the PUT handler is not proof that a key it
+has never heard of survives the write.
+Mutation-checked: removing the `{minutes}` guard fails the test that asserts it.
+Verified: `tsc --noEmit` clean on web and api — which is how the widget test's
+two missing props were found, since vitest never typechecks and the suite was
+green with them.
+
 ## [Unreleased] - Config toggles: green for on, red for off, with the word beside it (2026-08-31)
 
 Operator. **No count moved.** Files: `apps/web/src/components/ui/toggle.tsx`

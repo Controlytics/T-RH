@@ -126,9 +126,24 @@ function renderPage(query = '') {
   );
 }
 
+/**
+ * Every "Export as PDF" trigger on the page, in DOM order.
+ *
+ * By ACCESSIBLE NAME, not visible text (2026-08-31): the two per-chart triggers
+ * moved into their card headers as ICON-ONLY buttons, where the label lives on
+ * `aria-label`/`title` rather than in a text node. This query is strictly
+ * stronger than the `getAllByText` it replaced — it fails if an icon-only
+ * trigger has no accessible name at all, which is the one way that restyle
+ * could have made a §11 download unreachable to a screen reader without
+ * anything on screen looking wrong.
+ */
+function exportButtons() {
+  return screen.getAllByRole('button', { name: 'Export as PDF' });
+}
+
 /** Click the nth "Export as PDF" button, fill the required remarks, confirm. */
 async function download(buttonIndex: number) {
-  const buttons = screen.getAllByText('Export as PDF');
+  const buttons = exportButtons();
   fireEvent.click(buttons[buttonIndex]);
   fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: 'periodic review' } });
   fireEvent.click(screen.getByText('Download'));
@@ -141,7 +156,7 @@ describe('trend page downloads', () => {
   it('offers a download on the temperature widget, the humidity widget, the combined charts, the time series and the alarms', () => {
     renderPage();
     // combined (Charts header), temperature, humidity, time series, alarms
-    expect(screen.getAllByText('Export as PDF')).toHaveLength(5);
+    expect(exportButtons()).toHaveLength(5);
   });
 
   it('names the SLOT in the audit reportType for the temperature widget', async () => {

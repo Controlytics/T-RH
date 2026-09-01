@@ -1,12 +1,15 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import useSWR from 'swr';
+import { Droplet, Thermometer } from 'lucide-react';
 import {
-  formatDecimals, INTERVALS, MAX_SERIES_POINTS, TELEMETRY_DECIMALS_FALLBACK,
-  PERIOD_PRESETS, DEFAULT_PERIOD,
+  INTERVALS, MAX_SERIES_POINTS, TELEMETRY_DECIMALS_FALLBACK,
+  PERIOD_PRESETS, DEFAULT_PERIOD, coerceReading,
+  type InactivityColumnTexts,
 } from '@digilog/shared';
 import { apiClient } from '@/lib/api-client';
 import { useReauth } from '@/hooks/use-reauth';
+import { useSensorWords, useAlarmTypeNames } from '@/hooks/use-failure-text';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { ExportMenu } from '@/components/ExportMenu';
 import { ReportDownloadDialog, type ReportDownloadRequest } from '@/components/report-download-dialog';
@@ -14,17 +17,17 @@ import { logReportExport } from '@/lib/report-export-log';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
-import { Pagination } from '@/components/ui/pagination';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { formatSetPoint } from '@/routes/dashboard/set-point';
 import { TimeSeriesChart, SERIES_COLORS } from '@/routes/dashboard/time-series-chart';
 import {
-  severityTone, triggeredText, statusText, alarmTypeText, limitText, clearedText,
-  mapStatusTextsResponse,
+  triggeredText, statusText, alarmTypeText, limitText, clearedText,
+  mapStatusTextsResponse, mapInactivityTextsResponse,
   type AlarmRow, type AlarmStatusTexts, type AlarmStatusTextsResponse,
+  type InactivityTextsResponse, type AlarmDisplayTexts,
 } from '@/routes/alarms/alarm-display';
 import { useTrendPeriod, useInstrumentTrend, TREND_PRESETS, TABLE_PAGE_SIZE, type TelemetryLongRow } from './use-trend-data';
-import { toChartSeries, toTableRows, rawCountForKey, type TableRow as PivotRow } from './trend-series';
+import { toChartSeries, toTableRows, toTableRowsWithErrors, rawCountForKey, type TableRow as PivotRow } from './trend-series';
 import { summariseSlot, withServerSummary, type ServerSlotSummary } from './trend-summary';
 import { ChartIntervalNote, intervalLabel } from './chart-interval-note';
 import { useExtraKeys } from './use-extra-keys';
@@ -34,6 +37,9 @@ import {
 } from './trend-report';
 import { renderChartToPng } from './chart-image';
 import { BandGauge } from './band-gauge';
+import { TrendChartCard } from './trend-chart-card';
+import { TimeseriesTableCard } from './timeseries-table-card';
+import { AlarmsWidget } from './alarms-widget';
 import { TrendHeader } from './trend-header';
 import { SampledNote } from './sampled-note';
 import { ChartSummaryStrip } from './chart-summary-strip';
@@ -82,8 +88,12 @@ type PendingReport =
  *  reading (a raw JSON blob on some other key) has no place on an axis or in
  *  a numeric table column, so it is filtered out rather than coerced. */
 function numericRows(rows: TelemetryLongRow[]): { key: string; value: number; ts: string }[] {
-  return rows.filter((r): r is TelemetryLongRow & { value: number } => typeof r.value === 'number')
-    .map((r) => ({ key: r.key, value: r.value, ts: r.ts }));
+  // Through `coerceReading`, the ONE definition of a reading — so a QUOTED
+  // number plots here exactly as it does on the dashboard and in the alarms.
+  return rows.flatMap((r) => {
+    const value = coerceReading(r.value);
+    return value === null ? [] : [{ key: r.key, value, ts: r.ts }];
+  });
 }
 
 /**
@@ -132,13 +142,21 @@ interface InstrumentSummary {
   block?: string | null;
 }
 
+/** The latest-value card's own footprint, so the page does not jump when the
+ *  overview lands. Same padding, same ring, same footer band. */
 function GaugeSkeleton({ title }: { title: string }) {
   return (
-    <section className="rounded-[var(--radius-card)] border border-slate-200 bg-white p-5 shadow-[var(--elev-1)]">
-      <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.09em] text-slate-500">{title}</p>
-      <span className="sr-only" role="status">Loading…</span>
-      <Skeleton className="mt-3 h-7 w-24" />
-      <Skeleton className="mt-3 h-2.5 w-full" />
+    <section className="rounded-[var(--radius-card)] border border-slate-200 bg-white p-4 pt-6 shadow-[var(--elev-1)]">
+      <span className="sr-only" role="status">Loading {title}…</span>
+      <div className="flex items-start gap-7">
+        <Skeleton className="h-[84px] w-[84px] shrink-0 rounded-full" />
+        <div className="flex-1">
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="mt-2 h-16 w-40" />
+          <Skeleton className="mt-4 h-4 w-20" />
+        </div>
+      </div>
+      <Skeleton className="mt-6 h-[88px] w-full rounded-lg" />
     </section>
   );
 }
@@ -267,82 +285,10 @@ function ExtraKeyPicker({
   );
 }
 
-/**
- * This instrument's alarms for the current period.
- *
- * `GET /api/alarms` has no date filter yet (added by the separate Alarms
- * plan) — the period is applied CLIENT-SIDE here for now, filtering on
- * `raisedAt`. Every word on this row comes from `alarm-display.ts`, the same
- * vocabulary the Alarms page itself uses, so this widget cannot describe the
- * same event differently.
- */
-export function AlarmsWidget({
-  instrumentId, period, onExportPdf, statusTexts,
-}: {
-  instrumentId: string;
-  period: { from: string; to: string };
-  onExportPdf: () => void;
-  /** Configured status wording, from the same `/api/config/alarm-limits/status-texts`
-   *  the Alarms page reads — `undefined` while loading, in which case `statusText()`
-   *  falls back to the shipped defaults on its own. Never a second vocabulary. */
-  statusTexts: AlarmStatusTexts | undefined;
-}) {
-  const { formatDate, formatTime } = useDatetimeFormat();
-  const { data } = useSWR<{ data: AlarmRow[] }>(instrumentId ? `/api/alarms?instrumentId=${instrumentId}&limit=500` : null);
-  const stamp = (v: string) => `${formatDate(v)} ${formatTime(v)}`;
-
-  const from = new Date(period.from).getTime();
-  const to = new Date(period.to).getTime();
-  const rows = (data?.data ?? []).filter((a) => {
-    const raised = new Date(a.raisedAt).getTime();
-    return raised >= from && raised <= to;
-  });
-
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-2">
-        <CardTitle className="text-base">Alarms in this period</CardTitle>
-        <ExportMenu surface="instrument-trend" onExportPdf={onExportPdf} />
-      </CardHeader>
-      <CardContent className="px-0 pt-0">
-        {rows.length === 0 ? (
-          <p className="px-6 text-sm text-slate-500">No alarms raised in this window.</p>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Type</TableHead>
-                <TableHead>Severity</TableHead>
-                <TableHead>Raised</TableHead>
-                <TableHead>Value</TableHead>
-                <TableHead>Limit</TableHead>
-                <TableHead>Cleared</TableHead>
-                <TableHead>Status</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((a) => (
-                <TableRow key={a.id}>
-                  <TableCell>{alarmTypeText(a)}</TableCell>
-                  <TableCell>
-                    <StatusBadge tone={severityTone(a.severity)} label={a.severity} />
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap text-sm">{stamp(a.raisedAt)}</TableCell>
-                  <TableCell className="tabular-nums">{triggeredText(a)}</TableCell>
-                  <TableCell className="tabular-nums">{limitText(a)}</TableCell>
-                  <TableCell className="whitespace-nowrap text-sm">{a.clearedAt ? stamp(a.clearedAt) : '—'}{' '}{a.clearedAt && <span className="tabular-nums text-slate-500">({clearedText(a)})</span>}</TableCell>
-                  <TableCell>
-                    <StatusBadge tone={severityTone(a.severity)} label={statusText(a, statusTexts)} />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
+// The alarms widget moved to ./alarms-widget on 2026-09-01, when it was
+// rebuilt on the Alarms page's own table (routes/alarms/alarm-table.tsx) so
+// the two screens cannot describe one event differently. Its props are
+// unchanged; only the definition left this file.
 
 export function InstrumentTrend() {
   const { id } = useParams<{ id: string }>();
@@ -421,6 +367,21 @@ export function InstrumentTrend() {
   // fallback is `statusText()`'s own, not re-implemented here.
   const { data: statusTextsResponse } = useSWR<AlarmStatusTextsResponse>('/api/config/alarm-limits/status-texts');
   const statusTexts = statusTextsResponse ? mapStatusTextsResponse(statusTextsResponse) : undefined;
+  // Likewise for the three inactivity column wordings — same endpoint and same
+  // mapping as the Alarms page, so this widget and the signed PDF below cannot
+  // word an inactivity alarm differently from the page it was opened from.
+  const { data: inactivityTextsResponse } = useSWR<InactivityTextsResponse>('/api/config/inactivity-alarms/display-texts');
+  const sensorWords = useSensorWords();
+  const typeNames = useAlarmTypeNames();
+  const failureWord = sensorWords.failure;
+  // ONE bag of administered wordings for every alarm row on this page, so the
+  // widget and the signed PDF below cannot word the same alarm two ways.
+  const inactivityTexts: AlarmDisplayTexts = {
+    ...(inactivityTextsResponse ? mapInactivityTextsResponse(inactivityTextsResponse) : {}),
+    sensorFailure: sensorWords.failure,
+    outOfRange: sensorWords.outOfRange,
+    typeNames,
+  };
 
   const fromLocal = period.from.slice(0, 16);
   const toLocal = period.to.slice(0, 16);
@@ -466,7 +427,11 @@ export function InstrumentTrend() {
   // resolved server-side for a key nobody has declared as a slot, so they
   // render at the shared fallback precision and with no in-spec band.
   const tableKeys = [tempKey, humidKey, ...extra.keys].filter((k): k is string => k !== null);
-  const tableRows = toTableRows(numericRows(trend.tableRows), tableKeys);
+  // RAW rows, NOT `numericRows`. This table says it lists every reading in the
+  // range, and filtering here silently dropped exactly the broken ones an
+  // engineer opens it to find. The CHART above still filters — you cannot plot a
+  // word — which is why the two build their rows differently on purpose.
+  const tableRows = toTableRowsWithErrors(trend.tableRows, tableKeys);
 
   // ── Governed downloads (Task 8) ──────────────────────────────────────────
   // One dialog instance, reused for whichever of the three widgets the
@@ -728,7 +693,7 @@ export function InstrumentTrend() {
         report.save(`instrument-time-series-${instrument.code}-${stamp}.pdf`);
       } else {
         const rows = await fetchAlarmsForPeriod(reportPeriod.from, reportPeriod.to);
-        const report = await renderAlarmsReport(rows, instrument, reportPeriod, formatDateTime, statusTexts);
+        const report = await renderAlarmsReport(rows, instrument, reportPeriod, formatDateTime, statusTexts, inactivityTexts);
         await logReportExport({
           reportType: 'Instrument Alarms', format: 'PDF', recordCount: rows.length,
           period: reportPeriod.label, startDate: reportPeriod.from, endDate: reportPeriod.to,
@@ -759,6 +724,21 @@ export function InstrumentTrend() {
   const placementText = [inst?.location, inst?.area, inst?.block]
     .filter((part): part is string => typeof part === 'string' && part.trim() !== '')
     .join(' · ');
+
+  /**
+   * The chart cards' "<where> • <code>" subtitle, before deduplication.
+   *
+   * The drawn ROOM comes first because it is what the reference names
+   * ("Dissolution & UV Room"), then the free-text placement. `room.code` is
+   * offered as well but is very often the instrument's OWN code on this
+   * installation with `label` blank — `chartCardSubtitle` drops it in exactly
+   * that case rather than rendering `X • X`.
+   */
+  const chartCardLocationParts = [
+    trend.overview?.room?.label,
+    trend.overview?.room?.code,
+    placementText,
+  ];
 
   // "Is it talking?" is answered by the MOST RECENT of the two slots — an
   // instrument still sending humidity is reporting, whatever temperature did.
@@ -866,9 +846,11 @@ export function InstrumentTrend() {
         </label>
       </div>
 
-      {/* The band gauges. The page leads with the BAND, not the number: the
-          limits are what an alarm is a departure from and what the whole
-          record exists to evidence. Both are fed straight from the overview
+      {/* The latest-value cards. The number leads, per the operator's
+          reference, but it never travels alone: the arc places it between its
+          two bounds and the panel underneath names them, because the limits
+          are what an alarm is a departure from and what the whole record
+          exists to evidence. Both cards are fed straight from the overview
           row — limits, their source and the decimals all arrive resolved.
 
           Panel-gated: hiding this changes what is SHOWN. The readings behind it
@@ -889,6 +871,15 @@ export function InstrumentTrend() {
               roomCode={trend.overview.room?.code ?? null}
               instrumentStatus={trend.overview.status}
               accent={TEMP_COLOR}
+              icon={<Thermometer className="h-9 w-9" strokeWidth={2} aria-hidden="true" />}
+              // Both faults leave the numeric slot null. The SERVER decides
+              // which one it is; the card only picks the administered word.
+              sensorError={trend.overview.sensorError?.temperature}
+              rangeError={trend.overview.rangeError?.temperature}
+              sensorWords={sensorWords}
+              // The page's own administered formatter — date format, clock and
+              // timezone all come from `/api/config/datetime/current`.
+              formatTs={formatDateTime}
             />
             <BandGauge
               label="Humidity"
@@ -901,6 +892,13 @@ export function InstrumentTrend() {
               roomCode={trend.overview.room?.code ?? null}
               instrumentStatus={trend.overview.status}
               accent={HUMID_COLOR}
+              icon={<Droplet className="h-9 w-9" strokeWidth={2} aria-hidden="true" />}
+              sensorError={trend.overview.sensorError?.humidity}
+              rangeError={trend.overview.rangeError?.humidity}
+              sensorWords={sensorWords}
+              // The page's own administered formatter — date format, clock and
+              // timezone all come from `/api/config/datetime/current`.
+              formatTs={formatDateTime}
               // The one page-load moment, staggered between the two slots.
               delayMs={80}
             />
@@ -930,15 +928,23 @@ export function InstrumentTrend() {
             with the dashboard, which has no need of this disclosure), so the
             note renders immediately above it — right against the chart's own
             title — rather than changing the shared component for one caller. */}
-        <div>
-          {/* Per-slot download. The combined control in the header above covers
-              both slots in one signed document; this one produces a report for
-              THIS widget alone, and is logged under its own reportType so the
-              audit trail can tell the three apart. */}
-          <div className="mb-1 flex items-start justify-between gap-2">
-            <ChartIntervalNote intervalMs={period.intervalMs} />
-            <ExportMenu surface="instrument-trend" onExportPdf={() => setPendingReport({ kind: 'trend', slot: 'temperature' })} />
-          </div>
+        {/* Per-slot download, now the DOWNLOAD ICON in each card's own header.
+            The combined control in the page header above still covers both slots
+            in one signed document; this one produces a report for THIS widget
+            alone and keeps its own reportType, so the §11 audit trail can still
+            tell the three downloads apart. */}
+        <TrendChartCard
+          title="Temperature Trend"
+          icon={<Thermometer className="h-6 w-6" strokeWidth={2} aria-hidden="true" />}
+          accent={TEMP_COLOR}
+          // Server-resolved and taken as given — the same value the page header
+          // and both band gauges print. This page never re-judges a status.
+          status={trend.overview?.status ?? null}
+          locationParts={chartCardLocationParts}
+          code={inst?.code ?? '—'}
+          onExportPdf={() => setPendingReport({ kind: 'trend', slot: 'temperature' })}
+        >
+          <ChartIntervalNote intervalMs={period.intervalMs} />
           <ChartPanel
             title="Temperature Trend"
             isLoading={trend.chartsLoading}
@@ -947,12 +953,17 @@ export function InstrumentTrend() {
             onRetry={retryTrend}
           >
             <TimeSeriesChart
+              variant="trend"
               title="Temperature Trend"
               unit="°C"
               spanMs={spanMs}
               min={trend.overview?.limits?.tempMin}
               max={trend.overview?.limits?.tempMax}
               series={tempSeries ? [{ ...tempSeries, color: TEMP_COLOR }] : []}
+              // The latest STORED reading, not the last plotted point — which is
+              // a bucket MEAN whenever a chart interval is selected. Same value
+              // the summary strip's "Current" prints, from the same helper.
+              lastReading={tempCurrent === null ? null : { value: tempCurrent, decimals: tempDecimals }}
               onZoom={onZoom}
               onResetZoom={onResetZoom}
             />
@@ -971,12 +982,17 @@ export function InstrumentTrend() {
               />
             )}
           </ChartPanel>
-        </div>
-        <div>
-          <div className="mb-1 flex items-start justify-between gap-2">
-            <ChartIntervalNote intervalMs={period.intervalMs} />
-            <ExportMenu surface="instrument-trend" onExportPdf={() => setPendingReport({ kind: 'trend', slot: 'humidity' })} />
-          </div>
+        </TrendChartCard>
+        <TrendChartCard
+          title="Humidity Trend"
+          icon={<Droplet className="h-6 w-6" strokeWidth={2} aria-hidden="true" />}
+          accent={HUMID_COLOR}
+          status={trend.overview?.status ?? null}
+          locationParts={chartCardLocationParts}
+          code={inst?.code ?? '—'}
+          onExportPdf={() => setPendingReport({ kind: 'trend', slot: 'humidity' })}
+        >
+          <ChartIntervalNote intervalMs={period.intervalMs} />
           <ChartPanel
             title="Humidity Trend"
             isLoading={trend.chartsLoading}
@@ -985,12 +1001,14 @@ export function InstrumentTrend() {
             onRetry={retryTrend}
           >
             <TimeSeriesChart
+              variant="trend"
               title="Humidity Trend"
               unit="%RH"
               spanMs={spanMs}
               min={trend.overview?.limits?.rhMin}
               max={trend.overview?.limits?.rhMax}
               series={humidSeries ? [{ ...humidSeries, color: HUMID_COLOR }] : []}
+              lastReading={humidCurrent === null ? null : { value: humidCurrent, decimals: humidDecimals }}
               onZoom={onZoom}
               onResetZoom={onResetZoom}
             />
@@ -1007,7 +1025,7 @@ export function InstrumentTrend() {
               />
             )}
           </ChartPanel>
-        </div>
+        </TrendChartCard>
       </div>
 
       {/* The per-user extra keys, with their charts, kept together and below
@@ -1081,56 +1099,36 @@ export function InstrumentTrend() {
       {/* Raw paged time-series. RAW ONLY — no averaging, no gap filling: a gap
           in the record stays a gap, never the previous value repeated. */}
       {showPanel('trend_historian_table') && (
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-2">
-          <CardTitle className="text-base">Time series (raw readings)</CardTitle>
-          <ExportMenu surface="instrument-trend" onExportPdf={() => setPendingReport({ kind: 'timeseries' })} />
-        </CardHeader>
-        <CardContent className="px-0 pt-0">
-          {tableRows.length === 0 ? (
-            <p className="px-6 text-sm text-slate-500">No readings in this window.</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Timestamp</TableHead>
-                  {tempKey && <TableHead>Temperature (°C)</TableHead>}
-                  {humidKey && <TableHead>Humidity (%RH)</TableHead>}
-                  {extra.keys.map((k) => <TableHead key={k}>{k}</TableHead>)}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {tableRows.map((row) => (
-                  <TableRow key={row.ts}>
-                    <TableCell className="text-sm">{new Date(row.ts).toLocaleString()}</TableCell>
-                    {tempKey && (
-                      <TableCell className="tabular-nums">
-                        {row.values[tempKey] == null ? '—' : formatDecimals(row.values[tempKey], tempDecimals)}
-                      </TableCell>
-                    )}
-                    {humidKey && (
-                      <TableCell className="tabular-nums">
-                        {row.values[humidKey] == null ? '—' : formatDecimals(row.values[humidKey], humidDecimals)}
-                      </TableCell>
-                    )}
-                    {extra.keys.map((k) => (
-                      <TableCell key={k} className="tabular-nums">
-                        {row.values[k] == null ? '—' : formatDecimals(row.values[k], TELEMETRY_DECIMALS_FALLBACK)}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-          <Pagination
-            page={page}
-            pageSize={TABLE_PAGE_SIZE}
-            totalItems={trend.historyTotal}
-            onPageChange={setPage}
-          />
-        </CardContent>
-      </Card>
+        <TimeseriesTableCard
+          rows={tableRows}
+          slots={[
+            {
+              key: tempKey, heading: 'Temperature (°C)', unit: '°C', decimals: tempDecimals,
+              // Straight off the server-resolved overview. A bound the
+              // instrument switches off (`Enable_Temp_NMT` = 0) arrives NULL,
+              // and the card treats a NULL as "not judged" — it must never be
+              // filled back in here.
+              min: trend.overview?.limits?.tempMin, max: trend.overview?.limits?.tempMax,
+              accent: TEMP_COLOR, icon: <Thermometer className="h-7 w-7" />, last: tempCurrent,
+            },
+            {
+              key: humidKey, heading: 'Humidity (%RH)', unit: '%RH', decimals: humidDecimals,
+              min: trend.overview?.limits?.rhMin, max: trend.overview?.limits?.rhMax,
+              accent: HUMID_COLOR, icon: <Droplet className="h-7 w-7" />, last: humidCurrent,
+            },
+          ]}
+          extraKeys={extra.keys}
+          extraDecimals={TELEMETRY_DECIMALS_FALLBACK}
+          failureWord={failureWord}
+          // The page's own administered formatter — see the card's doc comment
+          // for why this cell may not call `toLocaleString`.
+          formatTs={formatDateTime}
+          onExportPdf={() => setPendingReport({ kind: 'timeseries' })}
+          page={page}
+          pageSize={TABLE_PAGE_SIZE}
+          totalItems={trend.historyTotal}
+          onPageChange={setPage}
+        />
       )}
 
       {id && showPanel('trend_alarms') && (
@@ -1139,6 +1137,7 @@ export function InstrumentTrend() {
           period={period}
           onExportPdf={() => setPendingReport({ kind: 'alarms' })}
           statusTexts={statusTexts}
+          inactivityTexts={inactivityTexts}
         />
       )}
       </div>

@@ -147,14 +147,17 @@ describe('alarm webhook targets', () => {
     for (const key of [
       'id', 'name', 'description', 'url', 'method', 'headers', 'contentType', 'bodyTemplate',
       'successRegex', 'timeoutMs', 'fireOnRaised', 'fireOnCleared', 'fireOnAcknowledged',
-      'severities', 'cooldownSeconds', 'isActive', 'scopeLocationIds', 'scopeInstrumentIds',
+      'cooldownSeconds', 'isActive', 'scopeLocationIds', 'scopeInstrumentIds',
       'instrumentCount', 'lastDeliveryStatus', 'lastDeliveryAt', 'createdAt', 'updatedAt',
     ]) {
       expect(body, `missing "${key}" — check the response schema`).toHaveProperty(key);
     }
     expect(body.method).toBe('POST');
     expect(body.bodyTemplate).toContain('${event}');
-    expect(body.severities).toBeNull();
+    // `severities` is deliberately NOT here: the column survives (§11 — see
+    // target-scope.ts) but stopped being served on 2026-09-01 with the severity
+    // concept. Asserted as an absence so it cannot drift back onto the wire.
+    expect(body).not.toHaveProperty('severities');
     expect(body.isActive).toBe(true);
     // Resolved server-side: the one instrument this target's scope names.
     expect(body.instrumentCount).toBe(1);
@@ -211,8 +214,12 @@ describe('alarm webhook targets', () => {
   it('does not sanitise an XML body template — `bodyTemplate` is exempt', async () => {
     // A genuinely supported configuration: contentType is operator-set and
     // renderWebhookBody honours it, so an XML hooter is the real case the exemption
-    // exists for. stripHtml reduces this to '${event}${severity}'.
-    const tpl = '<alarm><event>${event}</event><severity>${severity}</severity></alarm>';
+    // exists for. stripHtml reduces this to '${event}${metric}' — still DAMAGED,
+    // which is what this fixture has to be to prove anything.
+    // (It named ${severity} until 2026-09-01. That is no longer a known variable,
+    //  so the draft validator refused it and this test failed with a 400 — which
+    //  is the unknown-variable rule working, not the exemption breaking.)
+    const tpl = '<alarm><event>${event}</event><metric>${metric}</metric></alarm>';
     const res = await newTarget({ bodyTemplate: tpl, contentType: 'application/xml' });
     expect(res.statusCode).toBe(201);
     expect(res.json().bodyTemplate).toBe(tpl);
@@ -369,17 +376,26 @@ describe('alarm webhook targets', () => {
     expect(row.requestBody).toContain('"event":"TEST"');
   });
 
-  it('keeps a stored severities:[] through a PUT that changes only the url', async () => {
-    // The regression this pins: `[]` means "no severity, never fires" and is a state a
-    // seed or an import can produce. If a partial update ever re-read it as "unset" and
-    // wrote back null, the target would silently start firing for EVERY severity — and
-    // if the page refused to save it, its url could never be corrected at all. Neither
-    // is allowed; the value is data, and an update that does not mention it must not
-    // touch it.
-    const created = await newTarget({ severities: [] });
+  it('keeps stored headers and successRegex through a PUT that changes only the url', async () => {
+    // REWRITTEN 2026-09-01, not deleted. This used to pin the guard on
+    // `severities: []`; that field is no longer served, but the GUARD it was
+    // protecting is generic and still load-bearing — a partial update must not
+    // overwrite a field it does not mention, because the draft for an update is
+    // built from the CURRENT row and one `?? default` in the wrong place silently
+    // rewrites stored configuration.
+    //
+    // Moved onto two fields where the damage would be real and invisible: an auth
+    // header silently dropped makes every delivery 401 against a hooter that looks
+    // configured, and a success regex silently dropped makes every delivery judged
+    // by status code alone — so a device answering 200 with an error body reads as
+    // annunciated when it was not.
+    const authHeader = { Authorization: 'Bearer hooter-token' };
+    const regex = '^OK$';
+    const created = await newTarget({ headers: authHeader, successRegex: regex });
     expect(created.statusCode).toBe(201);
     const id = created.json().id;
-    expect(created.json().severities).toEqual([]);
+    expect(created.json().headers).toEqual(authHeader);
+    expect(created.json().successRegex).toBe(regex);
 
     const newUrl = `${hooterUrl}?moved=1`;
     const put = await app.inject({
@@ -387,16 +403,18 @@ describe('alarm webhook targets', () => {
     });
     expect(put.statusCode).toBe(200);
     expect(put.json().url).toBe(newUrl);
-    // Not null (= every severity) and not the three-value list.
-    expect(put.json().severities).toEqual([]);
+    expect(put.json().headers).toEqual(authHeader);
+    expect(put.json().successRegex).toBe(regex);
 
     // Asserted on the stored row too: a correct response over a wrong column would pass
     // the check above and still be a silent data change.
     const stored = await prisma.alarmWebhookTarget.findUnique({ where: { id } });
-    expect(stored!.severities).toEqual([]);
+    expect(stored!.headers).toEqual(authHeader);
+    expect(stored!.successRegex).toBe(regex);
 
     const fetched = await app.inject({ method: 'GET', url: `/api/alarm-webhooks/${id}`, headers: auth });
-    expect(fetched.json().severities).toEqual([]);
+    expect(fetched.json().headers).toEqual(authHeader);
+    expect(fetched.json().successRegex).toBe(regex);
   });
 
   it('breaks a same-millisecond delivery tie by attempt, agreeing with the delivery log', async () => {

@@ -26,18 +26,10 @@ export interface TargetDraft {
   bodyTemplate: string;
   successRegex: string | null;
   timeoutMs: number;
-  severities: string[] | null;
   cooldownSeconds: number;
   scopeLocationIds: string[];
   scopeInstrumentIds: string[];
 }
-
-/**
- * EXACTLY `enum AlarmSeverity` in prisma/schema.prisma (verified 2026-08-27). There is
- * no WARNING: a target narrowed to a severity the system never raises would look
- * configured and be silent forever.
- */
-const SEVERITIES = ['CRITICAL', 'MAJOR', 'MINOR'];
 
 /** Every variable any event can provide — the union the template may draw from. */
 const KNOWN_VARIABLES = new Set(Object.values(ALARM_WEBHOOK_VARIABLES).flatMap((v) => [...v]));
@@ -82,12 +74,6 @@ export function validateTargetDraft(d: TargetDraft): TargetFieldError | null {
   }
   if (!Number.isInteger(d.cooldownSeconds) || d.cooldownSeconds < 0 || d.cooldownSeconds > 86_400) {
     return { field: 'cooldownSeconds', message: 'Cooldown must be between 0 and 86400 seconds.' };
-  }
-
-  if (d.severities !== null) {
-    for (const s of d.severities) {
-      if (!SEVERITIES.includes(s)) return { field: 'severities', message: `Unknown severity "${s}".` };
-    }
   }
 
   // An empty scope is LEGAL and means the target fires for nothing. Deliberate: a

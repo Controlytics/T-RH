@@ -32,10 +32,15 @@ describe('alarmNotificationJob — raised', () => {
     expect(alarmNotificationJob('raised', input()).variables.timestamp).toBe('2026-08-14T04:00:00.000Z');
   });
 
-  it('puts severity and metric in the context a rule filters on', () => {
-    // Without these a rule saying "CRITICAL only" would match everything.
-    const job = alarmNotificationJob('raised', input({ severity: 'CRITICAL' }));
-    expect(job.context).toMatchObject({ severity: 'CRITICAL', metric: 'TEMPERATURE' });
+  it('puts metric and instrument in the context a rule filters on, and NOT severity', () => {
+    // `severity` was in this context until 2026-09-01 and went with the severity
+    // concept. Asserted as an ABSENCE, not just omitted from the expectation:
+    // `toMatchObject` ignores extra keys, so dropping the negative assertion would
+    // let severity reappear here silently — and a context key the config UI can no
+    // longer set is a filter nobody can turn off.
+    const job = alarmNotificationJob('raised', input());
+    expect(job.context).toMatchObject({ metric: 'TEMPERATURE' });
+    expect(job.context).not.toHaveProperty('severity');
   });
 });
 
@@ -111,5 +116,51 @@ describe('duration formatting', () => {
   it('never reports a negative duration if the clocks disagree', () => {
     const a = new Date('2026-08-14T04:00:00Z');
     expect(formatDuration(a, new Date('2026-08-14T03:00:00Z'))).toBe('0 min');
+  });
+});
+
+describe('valueText — an alarm whose value is not a number', () => {
+  const rs485 = {
+    alarmId: 'a-rs485',
+    instrumentId: 'i-1',
+    instrumentCode: 'CWH-I/142',
+    metric: 'TEMPERATURE',
+    severity: 'MAJOR',
+    ruleName: 'RS485 Temperature Failure',
+    condition: 'temperature reported NA instead of a number',
+    triggeredValue: null,
+    decimals: 1,
+    raisedAt: new Date('2026-08-31T10:00:00Z'),
+  };
+
+  it('prints the administered word instead of a dash', () => {
+    // Without this the value field reads '—', which says "no reading" for a
+    // sensor that reported loudly and wrongly.
+    const job = alarmNotificationJob('raised', { ...rs485, valueText: 'Error' });
+    expect(job.variables.value).toBe('Error');
+  });
+
+  it('still names the RAW value in the condition, so no evidence is lost', () => {
+    const job = alarmNotificationJob('raised', { ...rs485, valueText: 'Error' });
+    expect(job.variables.condition).toContain('NA');
+  });
+
+  it('falls back to the number when no valueText is given', () => {
+    // Every other alarm source formats its reading, unchanged.
+    const job = alarmNotificationJob('raised', { ...rs485, triggeredValue: 27.44 });
+    expect(job.variables.value).toBe('27.4');
+  });
+
+  it('ignores a blank valueText rather than rendering an empty value', () => {
+    const job = alarmNotificationJob('raised', { ...rs485, triggeredValue: 21.5, valueText: '   ' });
+    expect(job.variables.value).toBe('21.5');
+  });
+
+  it('formats a real number on the CLEARED side, because recovery IS a reading', () => {
+    // An RS485 alarm clears on an actual measurement, unlike an inactivity one.
+    const job = alarmNotificationJob('cleared', {
+      ...rs485, triggeredValue: 21.46, clearedAt: new Date('2026-08-31T11:00:00Z'),
+    });
+    expect(job.variables.value).toBe('21.5');
   });
 });

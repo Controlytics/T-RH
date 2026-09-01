@@ -198,7 +198,9 @@ describe('GET /api/alarms — filters', () => {
     expect((await list({ type: 'TEMP_LOW' })).json().total).toBe(1);
     expect((await list({ type: 'RH_HIGH' })).json().total).toBe(2);
     // Every alarm here is INSTRUMENT_LIMIT, so the RULE token must match none.
-    expect((await list({ type: 'RULE' })).json().total).toBe(0);
+    // 'RULE' went with the alarm-rules removal (2026-08-31); an unknown token
+    // is refused by field rather than silently listing everything.
+    expect((await list({ type: 'RULE' })).statusCode).toBe(400);
   });
 
   it('searches the instrument code', async () => {

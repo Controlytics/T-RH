@@ -14,9 +14,12 @@ import { MemoryRouter } from 'react-router-dom';
  *    would show 1, and that is precisely the defect this page was rebuilt to
  *    remove: the counts used to be derived in the browser from a capped window.
  * 2. **"Showing … of N" uses the server's `total`, for the same reason.**
- * 3. **The status pill is keyed off the four STATES, not off severity.** Every
- *    alarm on this installation is CRITICAL, so a severity-keyed pill rendered
- *    red on every row regardless of whether anyone had answered for it.
+ * 3. **The status pill is keyed off the four STATES.** It was keyed off
+ *    `severity` until 2026-08-31, and since every alarm on this installation was
+ *    CRITICAL that painted every row red regardless of whether anyone had
+ *    answered for it. The field itself went on 2026-09-01 with the severity
+ *    concept, so the bug is now unrepresentable — these assertions stay because
+ *    they pin the tone to the QUADRANT, which is the property that matters.
  * 4. **A failed request does not render as an empty table.** "No alarms" reads
  *    as "nothing is wrong" to someone who simply could not load them.
  *
@@ -35,7 +38,6 @@ const activeUnack = {
   locationName: 'Excipient Dispensing Area',
   metric: 'TEMPERATURE',
   triggeredValue: 28,
-  severity: 'CRITICAL',
   state: 'ACTIVE',
   source: 'INSTRUMENT_LIMIT',
   limitKind: 'HIGH',
@@ -178,9 +180,10 @@ describe('the row', () => {
   });
 
   it('gives a cleared-but-unsigned alarm a DIFFERENT status tone from a live one', () => {
-    // Both rows are CRITICAL. While the pill was keyed off severity these two
-    // were the same colour, so the page could not distinguish "nobody has
-    // answered this yet" from "the excursion ended and nobody answered".
+    // These two differ ONLY in whether anyone has signed for them. While the pill
+    // was keyed off severity they were the same colour, so the page could not
+    // distinguish "nobody has answered this yet" from "the excursion ended and
+    // nobody answered".
     listState.rows = [activeUnack, clearedUnack];
     mount();
     const pill = (code: string) => {
@@ -199,6 +202,59 @@ describe('the row', () => {
     const done = screen.getByText('CWH/RDU/030-00').closest('tr')!;
     expect(within(done).getByText('00:15M')).toBeInTheDocument();
     expect(within(live).queryByText(/^\d\d:\d\d[HM]$/)).toBeNull();
+  });
+});
+
+describe('the Acknowledge column stays reachable', () => {
+  /**
+   * Twelve columns overflow a laptop screen and the page's ONLY action is what
+   * falls off the end of it. The action column is pinned to the right edge, and
+   * its HEADER carries its own opaque background and the same edge shadow — a
+   * transparent header cell lets the rows scroll visibly THROUGH the banner,
+   * which only ever shows up once the table is scrolled sideways.
+   *
+   * Guarded here because the header cell gets those from `className` and `style`
+   * passed into the shared `Th` (`routes/alarms/alarm-table.tsx`). If that
+   * passthrough is ever dropped, nothing else on this page notices.
+   */
+  const actionHeader = () => {
+    const heads = [...document.querySelectorAll('thead th')];
+    const last = heads[heads.length - 1] as HTMLElement;
+    return last;
+  };
+
+  it('pins the action header to the right edge, with its own background', () => {
+    mount();
+    const th = actionHeader();
+    expect(th.className).toContain('sticky');
+    expect(th.className).toContain('right-0');
+    // Opaque, and painted from the site theme rather than a hardcoded colour, so
+    // it matches the banner it sits in under every one of the ten presets.
+    expect(th.getAttribute('style') ?? '').toContain('var(--theme-primary');
+    // The edge shadow that separates the pinned column from what scrolls under it.
+    expect(th.className).toContain('shadow-');
+  });
+
+  it('pins the action CELL to the same edge, opaque on hover as well as at rest', () => {
+    mount();
+    const row = screen.getByText('CWH/RDU/001-00').closest('tr')!;
+    const cell = row.querySelector('td:last-child') as HTMLElement;
+    expect(within(cell).getByRole('button', { name: 'Acknowledge' })).toBeInTheDocument();
+    expect(cell.className).toContain('sticky');
+    expect(cell.className).toContain('right-0');
+    // Both states, or the row's hover tint shows through the pinned column.
+    expect(cell.className).toContain('bg-white');
+    expect(cell.className).toContain('group-hover:bg-slate-50');
+  });
+
+  it('spans every column when it has a message instead of rows', () => {
+    // A colSpan one short of the header leaves a hairline of unpainted table
+    // beside the message, which reads as a broken row.
+    listState.rows = [];
+    mount();
+    const headCount = document.querySelectorAll('thead th').length;
+    const message = screen.getByText('No alarms have been raised.');
+    expect(message.getAttribute('colspan')).toBe(String(headCount));
   });
 });
 

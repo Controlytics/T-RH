@@ -588,8 +588,6 @@ model NotificationRuleRecipient {
 
   rule  NotificationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
   group UserGroup?       @relation(fields: [groupId], references: [id], onDelete: SetNull)
-
-  @@index([ruleId])
   @@map("notification_rule_recipients")
 }
 
@@ -657,44 +655,6 @@ model InstrumentProfile {
 /// room's spec permits 25 — legitimate as an early warning, but it means the table can
 /// show green while an alarm is active. Every Alarm therefore snapshots its rule, and
 /// the UI names the rule that fired. See the design spec before changing this.
-model AlarmRule {
-  id   String @id @default(uuid())
-  name String
-
-  /// EXACTLY ONE of these is set. Enforced in alarms/validation.ts rather than by a
-  /// constraint, so the error names the offending field instead of surfacing as an
-  /// opaque check violation.
-  instrumentId         String? @map("instrument_id")
-  functionalLocationId String? @map("functional_location_id")
-
-  metric     AlarmMetric
-  comparison AlarmComparison
-  /// ABOVE uses thresholdHigh; BELOW uses thresholdLow; OUTSIDE_RANGE uses both.
-  /// A missing threshold makes the rule NEVER fire — a rule that fires on every
-  /// reading is worse than one that never does.
-  thresholdLow  Float? @map("threshold_low")
-  thresholdHigh Float? @map("threshold_high")
-
-  /// Seconds the condition must persist before raising. 0 = immediately. Guards
-  /// against a one-sample telemetry spike producing an alarm nobody can act on.
-  delaySeconds Int           @default(0) @map("delay_seconds")
-  severity     AlarmSeverity @default(MAJOR)
-  isActive     Boolean       @default(true) @map("is_active")
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
-  createdBy String?  @map("created_by")
-  updatedBy String?  @map("updated_by")
-
-  instrument         Instrument?         @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
-  functionalLocation FunctionalLocation? @relation(fields: [functionalLocationId], references: [id], onDelete: Cascade)
-  alarms             Alarm[]
-
-  @@index([isActive])
-  @@index([instrumentId])
-  @@index([functionalLocationId])
-  @@map("alarm_rules")
-}
 
 /// One raised alarm. A REGULATED RECORD: never edited beyond clearedAt and the three
 /// acknowledgement fields, and never deleted.
@@ -704,7 +664,6 @@ model Alarm {
   /// attributes and has no rule row. Inventing a synthetic rule would put an
   /// editable row on the Alarm Rules page that silently disagrees with the
   /// attribute it came from.
-  ruleId String? @map("rule_id")
 
   /// The rule AS IT WAS when this fired. Editing or deleting the rule must not change
   /// what a historical alarm says about itself — an inspector asking "why did this fire
@@ -741,7 +700,6 @@ model Alarm {
 
   /// Restrict on BOTH: an alarm is a regulated record, so deleting an instrument or a
   /// rule must not erase the history of what it did.
-  rule       AlarmRule? @relation(fields: [ruleId], references: [id], onDelete: Restrict)
   instrument Instrument @relation(fields: [instrumentId], references: [id], onDelete: Restrict)
 
   webhookDeliveries AlarmWebhookDelivery[]
@@ -870,11 +828,6 @@ enum AlarmMetric {
   OFFLINE
 }
 
-enum AlarmComparison {
-  ABOVE
-  BELOW
-  OUTSIDE_RANGE
-}
 
 enum AlarmSeverity {
   CRITICAL
@@ -896,6 +849,19 @@ enum AlarmSource {
   /// anything — including one with no functional location, which a
   /// location-targeted OFFLINE rule could never reach.
   INACTIVITY
+  /// Raised when a sensor reports a NON-NUMERIC value (`NA`, `ERR`, a quoted
+  /// number) on a temperature or humidity slot key, cleared when it reports a
+  /// number again. The RS485 probe or its bus has failed while the logger keeps
+  /// talking, so INACTIVITY cannot see it (`last_seen_at` is stamped) and
+  /// INSTRUMENT_LIMIT cannot either (a non-numeric reading is discarded before
+  /// the comparison, and a null is deliberately not a breach).
+  RS485_FAILURE
+  /// Raised when a reading falls outside the probe's own declared measuring span
+  /// (`High/Low Temperature Range` attributes) — saturated or faulty hardware, as
+  /// distinct from INSTRUMENT_LIMIT, which is a genuine product excursion. While
+  /// one is open the reading is treated as NO READING: it raises no limit alarm
+  /// and cannot clear one.
+  SENSOR_RANGE
 }
 
 enum AlarmLimitKind {
@@ -929,7 +895,6 @@ model FunctionalLocation {
   parent      FunctionalLocation?  @relation("FlTree", fields: [parentId], references: [id], onDelete: Restrict)
   children    FunctionalLocation[] @relation("FlTree")
   instruments Instrument[]
-  alarmRules  AlarmRule[]
 
   /// Unique per parent, so two Blocks may each own an "QC" area. NOTE: Postgres
   /// treats NULLs as DISTINCT, so this does NOT make top-level Block names
@@ -1013,8 +978,6 @@ model Instrument {
   /// instruments fails loudly instead of orphaning them.
   functionalLocationId String?             @map("functional_location_id")
   functionalLocation   FunctionalLocation? @relation(fields: [functionalLocationId], references: [id], onDelete: Restrict)
-
-  alarmRules AlarmRule[]
   alarms     Alarm[]
 
   @@index([gatewayId])
@@ -1119,6 +1082,20 @@ model Floorplan {
   createdBy   String?  @map("created_by")
   updatedBy   String?  @map("updated_by")
 
+  /// Everything on the plan that is NOT a room: `{ equipment, hvac, water,
+  /// airflow, labels }`. Each entry carries coordinates normalized 0..1 against
+  /// the plan, the same convention as `FloorplanRoom.x/y/w/h`, so the whole
+  /// drawing scales together and nothing detaches at a different zoom.
+  ///
+  /// NULL = a plan with no annotation layer, which is every generated plan and
+  /// every row predating this column. The dashboard draws the legend only when
+  /// this is present, so a plan that annotates nothing gets no legend for
+  /// symbols it does not use.
+  ///
+  /// These are STATIC drawing content. Nothing here senses anything: an HVAC
+  /// symbol is where a unit is drawn, not a unit that reports.
+  annotations Json?
+
   rooms FloorplanRoom[]
 
   @@map("floorplans")
@@ -1173,6 +1150,23 @@ model FloorplanRoom {
   /// than a Postgres enum, so the classification vocabulary can be extended
   /// without a migration and the enum count stays at 13.
   grade String?
+
+  /// What the DRAWING says about this room that the schema has no other home
+  /// for: `{ fill, fch, dims }` — the room's fill colour as drawn, its finished
+  /// ceiling height ("2.7m") and its floor dimensions ("4993 x 2534"), both free
+  /// text because they are transcribed from a drawing, not computed.
+  ///
+  /// NULL = this room came from the generator, not a drawing, and renders
+  /// exactly as it did before this column existed. `fill` OVERRIDES the grade
+  /// hue: a traced plan reproduces the draughtsman's own colour coding, which
+  /// says what a room is FOR, while `grade` goes on carrying the cleanroom
+  /// classification for everything that reads it. The two are not the same
+  /// statement and neither replaces the other.
+  ///
+  /// Json rather than three columns, and TEXT rather than numbers, for the same
+  /// reason `doors` and `grade` are: the vocabulary of a drawing grows, and a
+  /// migration per annotation is a tax on transcribing one.
+  meta Json?
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)

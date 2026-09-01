@@ -11,12 +11,12 @@ const CONFIG_KEY = 'alarm-limits';
  * `alarm-limits` itself stays SUPER_ADMIN-only (`requiredRole: 'SUPER_ADMIN'` in
  * `defs/alarm-limits.def.ts`, enforced by the `/dynamic/alarm-limits` GET/PUT in
  * `dynamic-routes.ts`) because most of that config is sensitive: the attribute-key
- * mapping and severity decide what fires as a regulated alarm. This route does NOT
+ * mapping and the master switch decide what fires as a regulated alarm. This route does NOT
  * widen that gate — it exposes a narrower slice that is pure display wording, the
  * same way `/report-page-titles/current` exposes report chrome labels to all
  * authenticated users while the editor stays permission-gated.
  *
- * Deliberately excludes `enabled`, `severity`, and every `*Keys` field — those
+ * Deliberately excludes `enabled` and every `*Keys` field — those
  * govern whether/how an alarm is raised at all, which stays SUPER_ADMIN-only.
  */
 export async function alarmLimitsStatusTextsRoutes(app: FastifyInstance) {

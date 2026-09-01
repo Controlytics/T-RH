@@ -1,7 +1,8 @@
 import { useMemo, useState, type ReactElement } from 'react';
 import { Link } from 'react-router-dom';
 import { readingAge, oldestReadingTs } from './status';
-import { formatSetPoint, outOfSpec, NOT_AVAILABLE } from './set-point';
+import { formatSetPoint, outOfSpec, faultWord, NOT_AVAILABLE } from './set-point';
+import { useSensorWords } from '@/hooks/use-failure-text';
 import { formatDecimals } from '@digilog/shared';
 import {
   useTelemetryOverview,
@@ -139,13 +140,31 @@ function sortValue(row: OverviewRow, key: SortKey): string | number {
 }
 
 /**
- * An actual reading, or NA — never a dash, so the table reads consistently.
+ * An actual reading, the failure word, or NA — never a dash, so the table reads
+ * consistently.
+ *
+ * **Three states, not two.** `failed` means the sensor REPORTED something that
+ * is not a number (`NA` off a broken RS485 probe); NA means nothing arrived at
+ * all. They used to render identically, which made a dead probe look like an
+ * instrument nobody had wired up — the distinction is the point of the word.
+ * `failed` comes from the server's `sensorError`, never from inspecting the
+ * value here.
  *
  * `decimals` is the ROW's instrument precision (`r.decimals.temperature`), not a
  * page-wide setting. Through `formatDecimals`, which cannot throw — a stray
  * attribute value must not take the whole table down with a RangeError.
  */
-function actual(v: { value: number } | null | undefined, decimals: number): string {
+function actual(
+  v: { value: number } | null | undefined,
+  decimals: number,
+  fault?: { failed?: boolean; outOfRange?: boolean },
+  words?: { failure: string; outOfRange: string },
+): string {
+  // The precedence between the two faults is shared with the trend page's
+  // latest-value card — one rule, so a dead probe cannot be called `OL` here
+  // and `Error` there.
+  const word = faultWord(fault, words);
+  if (word) return word;
   if (!v) return NOT_AVAILABLE;
   return formatDecimals(v.value, decimals) ?? NOT_AVAILABLE;
 }
@@ -158,6 +177,9 @@ function setPointSource(source: OverviewRow['limitSource']): string | undefined 
 }
 
 export function TelemetryTable({ functionalLocationId, directOnly }: { functionalLocationId?: string; directOnly?: boolean } = {}) {
+  // The administered word for a failed sensor. One hook, so the table, the
+  // tiles and the Alarms page cannot show three different words for one fault.
+  const sensorWords = useSensorWords();
   const { rows, isLoading, error } = useTelemetryOverview({ functionalLocationId, directOnly });
   const [sort, setSort] = useState<SortKey>('code');
   const [asc, setAsc] = useState(true);
@@ -431,7 +453,7 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
                     className={val(tempBad, 'temp')}
                     title={tempBad ? 'Outside the room specification' : undefined}
                   >
-                    {actual(r.temperature, r.decimals.temperature)}
+                    {actual(r.temperature, r.decimals.temperature, { failed: r.sensorError?.temperature, outOfRange: r.rangeError?.temperature }, sensorWords)}
                     {r.temperature && <span className="tv-unit">°C</span>}
                   </td>
                   {/* `title` only — the source is a tooltip, not a visible column:
@@ -445,7 +467,7 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
                     className={val(rhBad, 'rh')}
                     title={rhBad ? 'Outside the room specification' : undefined}
                   >
-                    {actual(r.humidity, r.decimals.humidity)}
+                    {actual(r.humidity, r.decimals.humidity, { failed: r.sensorError?.humidity, outOfRange: r.rangeError?.humidity }, sensorWords)}
                     {r.humidity && <span className="tv-unit">%</span>}
                   </td>
                   <td className={spec} title={setPointSource(r.limitSource)}>

@@ -31,6 +31,25 @@ describe('parseAlarmListQuery', () => {
     expect(parseAlarmListQuery({}).acknowledged).toBeUndefined();
   });
 
+  it('ACCEPTS AND IGNORES the retired `severity` parameter instead of refusing it', () => {
+    // Severity stopped being administered on 2026-09-01 and the Alarms page filter
+    // went with it, but a stale bookmark or a browser still running the previous
+    // bundle can send `?severity=`. Three separate claims, because three separate
+    // things could go wrong:
+    //   1. a VALID old value is not an error — a 400 would blank the page for
+    //      someone mid-session over a filter that no longer selects anything;
+    //   2. an INVALID one is not an error either — re-declaring the old enum on the
+    //      route schema would 400 on a parameter nothing reads;
+    //   3. it does not reach the WHERE — accepted must mean ignored, not applied.
+    // (3) is the one that would be a real defect: silently filtering on a column
+    // the UI can no longer set would hide alarms under a header claiming otherwise.
+    for (const v of ['CRITICAL', 'LOUD', '']) {
+      const q = parseAlarmListQuery({ severity: v });
+      expect(q.error, `severity=${v} should not be an error`).toBeNull();
+      expect(buildAlarmWhere(q).AND, `severity=${v} should not reach the where`).toEqual([]);
+    }
+  });
+
   it('rejects an unparseable date rather than silently ignoring it', () => {
     // Silently dropping the bound would return alarms from outside the range the
     // operator asked for, under a header that says the range was applied.
@@ -98,9 +117,10 @@ describe('buildAlarmWhere', () => {
     expect(of('RH_HIGH')).toEqual({ metric: 'HUMIDITY', limitKind: 'HIGH' });
     expect(of('RH_LOW')).toEqual({ metric: 'HUMIDITY', limitKind: 'LOW' });
     expect(of('OFFLINE')).toEqual({ metric: 'OFFLINE' });
-    // A rule alarm describes itself through its snapshot and has no limitKind,
-    // so `source` is the only thing that identifies it.
-    expect(of('RULE')).toEqual({ source: 'RULE' });
+    // These two carry metric TEMPERATURE or HUMIDITY like a limit alarm does, so
+    // `source` is the only column that identifies them.
+    expect(of('RS485')).toEqual({ source: 'RS485_FAILURE' });
+    expect(of('RANGE')).toEqual({ source: 'SENSOR_RANGE' });
   });
 
   it('puts the date range on raisedAt, which is the column the operator can see', () => {

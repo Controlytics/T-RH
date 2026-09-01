@@ -53,7 +53,6 @@ const targetProps = {
   fireOnRaised: { type: 'boolean' },
   fireOnCleared: { type: 'boolean' },
   fireOnAcknowledged: { type: 'boolean' },
-  severities: { type: 'array', items: { type: 'string' }, nullable: true },
   cooldownSeconds: { type: 'integer' },
   isActive: { type: 'boolean' },
   scopeLocationIds: { type: 'array', items: { type: 'string' } },
@@ -96,8 +95,6 @@ const asStringArray = (v: unknown): string[] =>
 const asHeaders = (v: unknown): Record<string, string> =>
   v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, string>) : {};
 
-const asSeverities = (v: unknown): string[] | null => (v === null || v === undefined ? null : asStringArray(v));
-
 /**
  * ONE mapper, so "every targetProps key is emitted" is mechanical rather than a
  * property-by-property spread that quietly drops a field when the model grows.
@@ -117,7 +114,6 @@ function toTargetResponse(row: TargetRow, instrumentCount: number, last: LastDel
     fireOnRaised: row.fireOnRaised,
     fireOnCleared: row.fireOnCleared,
     fireOnAcknowledged: row.fireOnAcknowledged,
-    severities: asSeverities(row.severities),
     cooldownSeconds: row.cooldownSeconds,
     isActive: row.isActive,
     scopeLocationIds: asStringArray(row.scopeLocationIds),
@@ -180,7 +176,7 @@ function toDeliveryResponse(row: {
 /**
  * How many instruments this target's SCOPE names.
  *
- * Deliberately measured with the fire flags and severity filter held OPEN. The number
+ * Deliberately measured with the fire flags held OPEN. The number
  * exists so an accidentally empty scope is visible on the page; a deactivated target,
  * or one narrowed to MINOR, still has the scope it has, and reporting 0 for it would
  * hide the very mistake this count is here to expose. The matcher itself is reused
@@ -211,7 +207,6 @@ async function resolveInstrumentCounts(
       fireOnRaised: true,
       fireOnCleared: true,
       fireOnAcknowledged: true,
-      severities: null,
       scopeLocationIds,
       scopeInstrumentIds,
     };
@@ -219,7 +214,6 @@ async function resolveInstrumentCounts(
     for (const i of instruments) {
       if (targetMatches(gatesOpen, {
         event: 'RAISED',
-        severity: 'CRITICAL',
         instrumentId: i.id,
         functionalLocationId: i.functionalLocationId,
         locations: expanded,
@@ -229,9 +223,6 @@ async function resolveInstrumentCounts(
   }
   return counts;
 }
-
-/** Prisma needs DbNull for a nullable Json column; a plain null means "JSON null". */
-const severitiesForWrite = (v: string[] | null) => (v === null ? Prisma.DbNull : (v as Prisma.InputJsonValue));
 
 const targetBodyProps = {
   name: { type: 'string', maxLength: 200 },
@@ -246,7 +237,6 @@ const targetBodyProps = {
   fireOnRaised: { type: 'boolean' },
   fireOnCleared: { type: 'boolean' },
   fireOnAcknowledged: { type: 'boolean' },
-  severities: { type: 'array', items: { type: 'string' }, nullable: true },
   cooldownSeconds: { type: 'integer' },
   isActive: { type: 'boolean' },
   scopeLocationIds: { type: 'array', items: { type: 'string' } },
@@ -270,7 +260,6 @@ function draftFrom(body: Record<string, unknown>, base: Partial<TargetDraft>): T
     bodyTemplate: String(pick('bodyTemplate', base.bodyTemplate ?? DEFAULT_WEBHOOK_BODY_TEMPLATE)),
     successRegex: (pick('successRegex', base.successRegex ?? null) as string | null) || null,
     timeoutMs: pick('timeoutMs', base.timeoutMs ?? 5000) as number,
-    severities: asSeverities(pick('severities', base.severities ?? null)),
     cooldownSeconds: pick('cooldownSeconds', base.cooldownSeconds ?? 0) as number,
     scopeLocationIds: asStringArray(pick('scopeLocationIds', base.scopeLocationIds ?? [])),
     scopeInstrumentIds: asStringArray(pick('scopeInstrumentIds', base.scopeInstrumentIds ?? [])),
@@ -352,7 +341,6 @@ export default async function alarmWebhookRoutes(app: FastifyInstance) {
         bodyTemplate: draft.bodyTemplate,
         successRegex: draft.successRegex,
         timeoutMs: draft.timeoutMs,
-        severities: severitiesForWrite(draft.severities),
         cooldownSeconds: draft.cooldownSeconds,
         scopeLocationIds: draft.scopeLocationIds as Prisma.InputJsonValue,
         scopeInstrumentIds: draft.scopeInstrumentIds as Prisma.InputJsonValue,
@@ -411,7 +399,6 @@ export default async function alarmWebhookRoutes(app: FastifyInstance) {
       bodyTemplate: current.bodyTemplate,
       successRegex: current.successRegex,
       timeoutMs: current.timeoutMs,
-      severities: asSeverities(current.severities),
       cooldownSeconds: current.cooldownSeconds,
       scopeLocationIds: asStringArray(current.scopeLocationIds),
       scopeInstrumentIds: asStringArray(current.scopeInstrumentIds),
@@ -433,7 +420,6 @@ export default async function alarmWebhookRoutes(app: FastifyInstance) {
         bodyTemplate: draft.bodyTemplate,
         successRegex: draft.successRegex,
         timeoutMs: draft.timeoutMs,
-        severities: severitiesForWrite(draft.severities),
         cooldownSeconds: draft.cooldownSeconds,
         scopeLocationIds: draft.scopeLocationIds as Prisma.InputJsonValue,
         scopeInstrumentIds: draft.scopeInstrumentIds as Prisma.InputJsonValue,
@@ -547,7 +533,7 @@ export default async function alarmWebhookRoutes(app: FastifyInstance) {
     const target = await prisma.alarmWebhookTarget.findUnique({ where: { id } });
     if (!target) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Alarm webhook target not found.' });
 
-    // Fires REGARDLESS of scope, severity filter, isActive and the fire flags —
+    // Fires REGARDLESS of scope, isActive and the fire flags —
     // commissioning a hooter must not require first configuring the conditions you
     // are trying to test.
     const variables = buildWebhookVariables('TEST', {
@@ -556,7 +542,6 @@ export default async function alarmWebhookRoutes(app: FastifyInstance) {
       instrumentCode: 'TEST',
       instrumentName: 'Test fire',
       metric: 'TEMPERATURE',
-      severity: 'CRITICAL',
       ruleName: 'Manual test',
       condition: 'manual test from the alarm webhook page',
       triggeredValue: 0,

@@ -1,5 +1,5 @@
 import type { ModuleConfigDefinition } from '../../../lib/config-registry.js';
-import { INACTIVITY_ALARMS_DEFAULT, INACTIVITY_GRACE_MAX } from '@digilog/shared';
+import { INACTIVITY_ALARMS_DEFAULT, INACTIVITY_GRACE_MAX, INACTIVITY_TEXT_DEFAULT, INACTIVITY_MINUTES_TOKEN } from '@digilog/shared';
 
 /**
  * Inactivity alarms — raised when an instrument stops reporting, cleared when it
@@ -18,6 +18,14 @@ import { INACTIVITY_ALARMS_DEFAULT, INACTIVITY_GRACE_MAX } from '@digilog/shared
  * The four status wordings are NOT repeated here — they are read from
  * `alarm-limits` and are the display contract for all four alarm states. A second
  * copy would let the same status read two different ways on one table.
+ *
+ * The three COLUMN wordings below are a different matter and do belong here: they
+ * apply to inactivity rows only, and the cells they fill are empty on those rows
+ * for a structural reason (no reading raised the alarm, and no reading cleared
+ * it). Served to every authenticated user by
+ * `GET /api/config/inactivity-alarms/display-texts` — this def itself stays
+ * SUPER_ADMIN-only, because `enabled` and `graceMinutes` decide what fires as a
+ * regulated alarm.
  */
 export const inactivityAlarmsDef: ModuleConfigDefinition = {
   moduleKey: 'inactivity-alarms',
@@ -52,18 +60,34 @@ export const inactivityAlarmsDef: ModuleConfigDefinition = {
       group: 'Inactivity Alarms',
     },
     {
-      key: 'severity',
-      type: 'select',
-      label: 'Severity',
+      key: 'textGeneratedValue',
+      type: 'string',
+      label: 'Generated Value column',
       description:
-        'Defaults to Major rather than Critical: losing sight of an instrument means the record has a hole in it, which is not the same as knowing the product went out of specification. Ranking the two the same makes the ranking useless.',
-      default: INACTIVITY_ALARMS_DEFAULT.severity,
-      options: [
-        { value: 'CRITICAL', label: 'Critical' },
-        { value: 'MAJOR', label: 'Major' },
-        { value: 'MINOR', label: 'Minor' },
-      ],
-      group: 'Inactivity Alarms',
+        'What the Generated Value cell says on an inactivity alarm. There is no reading to show — this alarm is raised by the ABSENCE of one — so the cell carries a word instead of an empty dash. Blank falls back to the shipped wording.',
+      default: INACTIVITY_TEXT_DEFAULT.generatedValue,
+      maxLength: 40,
+      group: 'Column Wording',
+    },
+    {
+      key: 'textLimit',
+      type: 'string',
+      label: 'Limit column',
+      description:
+        `What the Limit cell says. Must contain ${INACTIVITY_MINUTES_TOKEN}, which is replaced with the grace period THIS alarm was raised against — not the one set today, so lengthening the grace never rewrites a past outage. A wording without ${INACTIVITY_MINUTES_TOKEN} is ignored and the shipped wording is used: the threshold an alarm fired against is a regulated record and cannot be typed away.`,
+      default: INACTIVITY_TEXT_DEFAULT.limit,
+      maxLength: 40,
+      group: 'Column Wording',
+    },
+    {
+      key: 'textClearedValue',
+      type: 'string',
+      label: 'Cleared Value column',
+      description:
+        'What the Cleared Value cell says once the instrument reports again. The alarm clears because telemetry RETURNED, not because a reading came back inside a bound, so there is no number to show. Blank falls back to the shipped wording.',
+      default: INACTIVITY_TEXT_DEFAULT.clearedValue,
+      maxLength: 40,
+      group: 'Column Wording',
     },
   ],
 };

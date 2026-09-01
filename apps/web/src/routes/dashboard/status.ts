@@ -16,6 +16,17 @@ import type { InstrumentStatus } from '@digilog/shared';
  * in limit" — one because the reading is old, one because a promised reading is
  * missing — and inventing a fifth colour for that distinction would cost more
  * legibility than it buys. The labels still tell them apart.
+ *
+ * STALE reads "Offline", not "Not reporting" (operator instruction, 2026-08-31).
+ * It also de-duplicates a vocabulary, which is why it was made HERE rather than
+ * in the one card that prompted it: `telemetry-table.tsx:487` renders
+ * `r.reporting ? 'Online' : 'Offline'` off the SAME boolean this status is
+ * derived from (`computeInstrumentStatus` returns STALE for exactly
+ * `!reporting`), so two words described one condition.
+ * Note only the NEGATIVE half was ever rendered:
+ * OK's word stays "In limit" because it answers a different question — whether
+ * the reading is inside its bounds — and "Online" there would drop the
+ * judgement this whole surface exists to make.
  */
 export interface StatusClasses {
   dot: string;
@@ -32,7 +43,7 @@ const MAP: Record<InstrumentStatus, StatusClasses> = {
   },
   STALE: {
     dot: 'bg-amber-500', text: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-300',
-    label: 'Not reporting',
+    label: 'Offline',
   },
   NO_DATA: {
     dot: 'bg-slate-400', text: 'text-slate-600', bg: 'bg-slate-50', border: 'border-slate-300',

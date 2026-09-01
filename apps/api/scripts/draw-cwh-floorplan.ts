@@ -37,6 +37,7 @@
 import { prisma } from '../src/lib/prisma.js';
 import { auditLog } from '../src/lib/audit.js';
 import { Prisma } from '@prisma/client';
+import { QC_ROOMS, QC_CANVAS, QC_ANNOTATIONS, normAnnotations, norm as qcNorm } from '../src/modules/floorplans/qc-layout.js';
 
 /**
  * Deterministic [0,1) from a string. Layout randomness comes from the room's
@@ -51,6 +52,21 @@ function hash01(seed: string): number {
 }
 
 const APPLY = process.argv.includes('--apply');
+/**
+ * Redraw ONE area instead of the whole block: `--only QC`.
+ *
+ * Without this the script deletes and recreates every room on all eight plans
+ * to change one of them. The generator is deterministic, so the other floors
+ * would come back the same shape — but each room is a §11 record with its own
+ * delete and create audit rows, and re-signing a hundred rooms nobody touched
+ * makes the audit trail describe work that did not happen. The overview plan is
+ * skipped with the same flag, since it holds no instruments and its geometry
+ * depends only on the area list.
+ */
+const ONLY = (() => {
+  const i = process.argv.indexOf('--only');
+  return i >= 0 ? process.argv[i + 1] ?? null : null;
+})();
 const ACTOR = 'superadmin';
 const OVERVIEW_PLAN = 'CWH - 3rd Floor';
 const REASON = 'Floors drawn from the instrument registry by scripts/draw-cwh-floorplan.ts. '
@@ -321,7 +337,56 @@ function doorTowardCorridorLocal(cell: Cell, corridorRows: Set<number>): Door[] 
   return [{ wall: 'bottom', offset: 0.36, width: 0.22, kind }];
 }
 
-interface RoomSpec { code: string; label: string | null; grade: Grade; rect: Rect; instruments: string[]; door?: Door[] }
+interface RoomSpec { code: string; label: string | null; grade: Grade; rect: Rect; instruments: string[]; door?: Door[]; meta?: Record<string, string> }
+
+/**
+ * The one area whose plan is TRACED from a drawing instead of generated.
+ *
+ * `buildingLayout()` invents a plausible floor from a room count. For QC we
+ * have the actual floor (`QC Layout.png`), so the generator is bypassed
+ * entirely rather than nudged: a real plan and a synthesised one cannot be
+ * blended, and a half-traced floor would be harder to trust than either.
+ */
+const TRACED_AREA = 'QC';
+
+/**
+ * Build the QC plan's rooms from the traced table.
+ *
+ * Grade still comes from the instrument's OWN limits, exactly as the generated
+ * plans do — the drawing's colours encode room FUNCTION, which is not the same
+ * thing as a cleanroom classification, and the legend on screen says "grade".
+ * Painting an office blue because the drawing tints it blue would make the
+ * legend lie. Rooms with no instrument carry the grade named in the table.
+ */
+function tracedQcRooms(
+  idByCode: Map<string, string>,
+  gradeOfInstrument: (id: string) => Grade,
+): RoomSpec[] {
+  const missing: string[] = [];
+  const rooms = QC_ROOMS.map((r) => {
+    const id = r.instrument ? idByCode.get(r.instrument) : undefined;
+    if (r.instrument && !id) missing.push(r.instrument);
+    return {
+      code: r.code,
+      label: r.label,
+      grade: r.grade ?? (id ? gradeOfInstrument(id) : 'UTILITY'),
+      rect: qcNorm(r.px),
+      instruments: id ? [id] : [],
+      // An explicit empty array is meaningful: it means the drawing shows no
+      // door on that room, and must not fall through to `doorFor()`'s default.
+      door: r.doors ?? [],
+      meta: r.meta as Record<string, string> | undefined,
+    } satisfies RoomSpec;
+  });
+  if (missing.length) {
+    // Loud, not silent. A renamed instrument would otherwise leave a room drawn
+    // correctly but permanently blank, which reads on the wall as a dead sensor.
+    throw new Error(
+      `traced QC layout references instruments that are not in the registry: ${missing.join(', ')}`,
+    );
+  }
+  return rooms;
+}
 
 /** Replace a plan's rooms wholesale, audited, and place its instruments. */
 async function drawPlan(planId: string, planName: string, rooms: RoomSpec[]): Promise<number> {
@@ -348,7 +413,12 @@ async function drawPlan(planId: string, planName: string, rooms: RoomSpec[]): Pr
           floorplanId: planId, code: spec.code, label: spec.label,
           x: spec.rect.x, y: spec.rect.y, w: spec.rect.w, h: spec.rect.h,
           doors: (spec.door ?? (spec.grade === 'CIRCULATION' ? [] : doorFor(spec.rect))) as unknown as Prisma.InputJsonValue,
-          grade: spec.grade, createdBy: ACTOR, updatedBy: ACTOR,
+          grade: spec.grade,
+          // A generated room has no drawing to transcribe, so it stores SQL NULL
+          // rather than an empty object — `Prisma.DbNull`, never `JsonNull`,
+          // which would write the JSON literal `null` and read back as present.
+          meta: spec.meta ? (spec.meta as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
+          createdBy: ACTOR, updatedBy: ACTOR,
         },
         select: { id: true },
       });
@@ -397,6 +467,9 @@ async function main() {
     select: { instrumentId: true, key: true, value: true },
   });
   const codeById = new Map<string, string>(instruments.map((i) => [i.id, i.code]));
+  // The traced QC table names instruments by CODE, because a code is what the
+  // drawing and the spreadsheet both carry; ids are local to this database.
+  const idByCode = new Map<string, string>(instruments.map((i) => [i.code, i.id]));
   const attrsByInstrument = new Map<string, Map<string, string>>();
   for (const a of attrRows) {
     let m = attrsByInstrument.get(a.instrumentId);
@@ -411,6 +484,12 @@ async function main() {
   const canvas: Rect = { x: 0.012, y: 0.012, w: 0.976, h: 0.976 };
 
   console.log(`MODE: ${APPLY ? 'APPLY (writes)' : 'DRY RUN (no writes)'}`);
+  if (ONLY) {
+    if (!areaList.some((a) => a.name === ONLY)) {
+      throw new Error(`--only "${ONLY}" matches no area. Areas: ${areaList.map((a) => a.name).join(', ')}`);
+    }
+    console.log(`scope: --only "${ONLY}" (other area plans and the overview are left untouched)`);
+  }
   console.log(`plans: ${areaList.length} area plans + 1 overview ("${OVERVIEW_PLAN}")`);
   for (const a of areaList) {
     console.log(`  ${a.name.padEnd(20)} rooms=${String(a.locs.length).padStart(2)}  grade=${gradeForArea(a.name)}`);
@@ -425,8 +504,14 @@ async function main() {
   let totalRooms = 0, totalPlaced = 0;
   for (let idx = 0; idx < areaList.length; idx++) {
     const area = areaList[idx];
+    if (ONLY && area.name !== ONLY) continue;
     const planName = `CWH — ${area.name}`;
-    const shape = canvasFor(area.locs.length);
+    // The traced plan's canvas is the BUILDING's own proportions, not a shape
+    // derived from its room count — the drawing already decided how tall the
+    // floor is, and `canvasFor()` would stretch it to a different aspect.
+    const shape = area.name === TRACED_AREA
+      ? { width: QC_CANVAS.width, height: QC_CANVAS.height }
+      : canvasFor(area.locs.length);
     let plan = await prisma.floorplan.findFirst({ where: { name: planName }, select: { id: true, imageWidth: true, imageHeight: true } });
     if (!plan) {
       plan = await prisma.floorplan.create({
@@ -454,19 +539,39 @@ async function main() {
 
     const grade = gradeForArea(area.name);
     const used = new Set<string>();
+    const gradeOfInstrument = (id: string): Grade => {
+      const attrs = attrsByInstrument.get(id);
+      return attrs ? gradeFromLimits(attrs) : grade;
+    };
     // Grade per ROOM from its instrument's own limits, so a floor carries
     // variety that means something rather than one flat hue.
-    const rooms = buildingLayout(area.name, area.locs, grade, used, (ids) => {
-      const first = ids[0];
-      const attrs = attrsByInstrument.get(first);
-      return attrs ? gradeFromLimits(attrs) : grade;
-    }, (ids) => {
-      // Two instruments in one location: name the room for the first and say
-      // there is another, rather than silently showing only one of them.
-      const codes = ids.map((id) => codeById.get(id)).filter(Boolean) as string[];
-      if (!codes.length) return null;
-      return codes.length === 1 ? codes[0] : `${codes[0]} +${codes.length - 1}`;
-    });
+    const rooms = area.name === TRACED_AREA
+      ? tracedQcRooms(idByCode, gradeOfInstrument)
+      : buildingLayout(
+        area.name, area.locs, grade, used,
+        (ids) => gradeOfInstrument(ids[0]),
+        (ids) => {
+          // Two instruments in one location: name the room for the first and
+          // say there is another, rather than silently showing only one.
+          const codes = ids.map((id) => codeById.get(id)).filter(Boolean) as string[];
+          if (!codes.length) return null;
+          return codes.length === 1 ? codes[0] : `${codes[0]} +${codes.length - 1}`;
+        },
+      );
+
+    // The annotation layer belongs to the PLAN, not to any room, so it is
+    // written here rather than inside drawPlan(). Only the traced plan has one;
+    // every generated plan keeps SQL NULL and renders with no legend, because a
+    // legend for symbols a plan never uses is furniture.
+    if (area.name === TRACED_AREA) {
+      await prisma.floorplan.update({
+        where: { id: plan.id },
+        data: {
+          annotations: normAnnotations(QC_ANNOTATIONS) as unknown as Prisma.InputJsonValue,
+          updatedBy: ACTOR,
+        },
+      });
+    }
 
     const placed = await drawPlan(plan.id, planName, rooms);
     totalRooms += rooms.length; totalPlaced += placed;
@@ -514,8 +619,12 @@ async function main() {
       door: [{ wall: 'bottom', offset: 0.4, width: 0.18, kind: 'PASSAGE' }],
     });
   }
-  await drawPlan(overview.id, OVERVIEW_PLAN, overviewRooms);
-  console.log(`  ${OVERVIEW_PLAN.padEnd(28)} rooms=${overviewRooms.length} placed=0 (overview — see the header note)`);
+  if (ONLY) {
+    console.log(`  ${OVERVIEW_PLAN.padEnd(28)} skipped (--only "${ONLY}")`);
+  } else {
+    await drawPlan(overview.id, OVERVIEW_PLAN, overviewRooms);
+    console.log(`  ${OVERVIEW_PLAN.padEnd(28)} rooms=${overviewRooms.length} placed=0 (overview — see the header note)`);
+  }
 
   console.log(`\n${areaList.length} area plans, ${totalRooms} rooms, ${totalPlaced} instruments placed`);
   const unplaced = await prisma.instrument.count({ where: { roomId: null, isGateway: false } });

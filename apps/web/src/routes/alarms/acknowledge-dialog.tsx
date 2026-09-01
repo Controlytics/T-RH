@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { SignaturePasswordInput } from '@/components/ui/signature-password-input';
-import { ackReasonError, conditionText, instrumentLabel, triggeredText, MAX_ACK_REASON, type AlarmRow } from './alarm-display';
+import {
+  ackReasonError, conditionText, instrumentLabel, triggeredText, MAX_ACK_REASON,
+  type AlarmRow, type AlarmDisplayTexts,
+} from './alarm-display';
 
 /**
  * Acknowledging an alarm is a 21 CFR §11 e-signature, so the reason and the password are
@@ -9,9 +12,14 @@ import { ackReasonError, conditionText, instrumentLabel, triggeredText, MAX_ACK_
  * someone type a reason, get a password box, and no longer see what they are signing.
  *
  * The alarm being signed for is restated in the dialog for the same reason.
+ *
+ * `inactivityTexts` is passed for that restatement and is not optional decoration:
+ * the Reading line must read the same here as in the row the operator clicked, and
+ * without it an inactivity alarm would say "—" on the screen where the signature is
+ * actually executed.
  */
 export function AcknowledgeDialog({
-  alarm, open, submitting, error, onSubmit, onClose,
+  alarm, open, submitting, error, onSubmit, onClose, inactivityTexts,
 }: {
   alarm: AlarmRow | null;
   open: boolean;
@@ -19,6 +27,7 @@ export function AcknowledgeDialog({
   error: string;
   onSubmit: (reason: string, password: string) => void;
   onClose: () => void;
+  inactivityTexts?: AlarmDisplayTexts;
 }) {
   const [reason, setReason] = useState('');
   const [password, setPassword] = useState('');
@@ -52,7 +61,7 @@ export function AcknowledgeDialog({
             </div>
             <div className="mt-1 flex justify-between gap-4">
               <dt className="text-slate-500">Reading</dt>
-              <dd className="text-slate-900">{triggeredText(alarm)}</dd>
+              <dd className="text-slate-900">{triggeredText(alarm, inactivityTexts)}</dd>
             </div>
           </dl>
 

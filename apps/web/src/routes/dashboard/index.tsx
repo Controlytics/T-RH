@@ -93,7 +93,7 @@ export function DashboardPage() {
   // the endpoint 403s otherwise, and a card showing 0 because of a permission error
   // would read as "nothing wrong" to someone who simply cannot see it.
   const canSeeAlarms = can('alarms.view');
-  const { data: alarmSummary } = useSWR<{ active: number; unacknowledged: number; critical: number }>(
+  const { data: alarmSummary } = useSWR<{ active: number; unacknowledged: number }>(
     canSeeAlarms ? '/api/alarms/summary' : null,
   );
   const nav = useMemo(

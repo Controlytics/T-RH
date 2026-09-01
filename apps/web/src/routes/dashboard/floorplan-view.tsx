@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useSensorWords } from '@/hooks/use-failure-text';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   worstStatus,
@@ -18,7 +19,7 @@ import {
   type OverviewRow,
 } from './use-telemetry';
 import { RoomDetail } from './room-detail';
-import { wallSegments, doorPlacements, tileLayout } from './room-geometry';
+import { wallSegments, doorPlacements, tileLayout, captionHeader } from './room-geometry';
 import { Button } from '@/components/ui/button';
 
 /**
@@ -87,7 +88,25 @@ const PALETTE = {
   alarm: '#dc2626',
   tile: '#ffffff',
   tileBorder: '#cbd5e1',
+  /* Annotation marks. Warm for equipment, green for plant, and NEITHER is a
+     status colour: the semantic reds and ambers live in CHIP and nowhere near
+     these, so a hatched block can never be misread as an alarm. */
+  equipFill: '#fdf0e3',
+  equipInk: '#d97757',
+  hvacFill: '#eaf5ec',
+  hvacInk: '#3f8f5c',
+  airflow: '#2f9e5e',
 } as const;
+
+/** The drawing's legend, in the drawing's own order. */
+const PLAN_SYMBOLS = [
+  { key: 'door', label: 'Door' },
+  { key: 'airflow', label: 'Airflow direction' },
+  { key: 'hvac', label: 'HVAC / exhaust' },
+  { key: 'equipment', label: 'Equipment' },
+  { key: 'water', label: 'Water' },
+  { key: 'wall', label: 'Wall' },
+] as const;
 
 /**
  * ZONE COLOUR — hue encodes cleanroom GRADE, saturation encodes STATUS.
@@ -146,6 +165,7 @@ interface RoomView {
 }
 
 export function FloorplanView({ functionalLocationId, directOnly }: { functionalLocationId?: string; directOnly?: boolean } = {}) {
+  const sensorWords = useSensorWords();
   const navigate = useNavigate();
   const { plans, isLoading: plansLoading } = useFloorplans();
   // Scoped server-side. When a functional location is selected the rows are only
@@ -289,6 +309,15 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
               const w = room.w * VB_W;
               const h = room.h * vbH;
               const zone = zoneOf(room.grade);
+              // What the drawing prints under the room name. `captionHeader`
+              // costs the lines against the tile grid and drops them if they
+              // would hide a reading — see the reasoning there.
+              const fit = captionHeader({ x, y, w, h }, roomRows.length, {
+                name: Boolean(room.label),
+                lines: (room.meta?.fch ? 1 : 0) + (room.meta?.dims ? 1 : 0),
+              });
+              const caption = fit.captions ? room.meta : undefined;
+              const headerH = fit.headerH;
               const gradeMeta = room.grade && room.grade in ROOM_GRADE_META
                 ? ROOM_GRADE_META[room.grade as RoomGrade]
                 : null;
@@ -315,9 +344,16 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                   {/* Fill only, and the ONE place zone colour is allowed to
                       cover area. The walls are separate segments below, because
                       a stroked rect cannot have a door cut out of it. */}
+                  {/* `meta.fill` is the colour the DRAUGHTSMAN used, and it wins
+                      on a traced plan. The two statements do not conflict: the
+                      drawing's colour says what a room is FOR, the zone tint says
+                      how it is classified, and since the grade legend and tab were
+                      both removed the tint is decoration anyway. On a generated
+                      plan `meta` is null and this is the zone tint exactly as
+                      before. */}
                   <rect
                     x={x} y={y} width={w} height={h}
-                    fill={zone.fill}
+                    fill={room.meta?.fill ?? zone.fill}
                     className="fp-room-fill"
                   />
 
@@ -406,7 +442,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                       is the thing carrying the values. */}
                   {!(roomRows.length === 1
                     && roomRows[0].code.toUpperCase() === room.code.toUpperCase()
-                    && tileLayout({ x, y, w, h }, roomRows.length).step === 'FULL') && (
+                    && tileLayout({ x, y, w, h }, roomRows.length, headerH).step === 'FULL') && (
                     <text
                       x={x + w / 2} y={y + 10} textAnchor="middle"
                       fontSize={Math.max(8, Math.min(12, w / 10, h / 6)) * 0.86} fontWeight={700}
@@ -415,7 +451,11 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                       {room.code.toUpperCase()}
                     </text>
                   )}
-                  {room.label && tileLayout({ x, y, w, h }, roomRows.length).step === 'CODE_ONLY' && (
+                  {/* The room NAME. On a traced plan it is always shown, because
+                      the drawing names every room and a plan of numbered boxes is
+                      not the drawing. On a generated plan the old rule stands: the
+                      name only appears where no tile is competing for the space. */}
+                  {room.label && (caption || tileLayout({ x, y, w, h }, roomRows.length, headerH).step === 'CODE_ONLY') && (
                     <text
                       x={x + w / 2} y={y + 22} textAnchor="middle"
                       fontSize={Math.max(8, Math.min(12, w / 10, h / 6)) * 0.8} fill={PALETTE.labelInk}
@@ -424,8 +464,29 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                     </text>
                   )}
 
+                  {/* Ceiling height and floor dimensions, exactly as written on
+                      the plan. Transcribed strings — NEVER computed from `w`/`h`,
+                      which would print a number the drawing does not carry, since
+                      the drawing is schematic and not to scale. */}
+                  {caption?.fch && (
+                    <text
+                      x={x + w / 2} y={y + 32} textAnchor="middle"
+                      fontSize={7.5} fill={PALETTE.labelInk}
+                    >
+                      FCH: {caption.fch}
+                    </text>
+                  )}
+                  {caption?.dims && (
+                    <text
+                      x={x + w / 2} y={y + (caption.fch ? 41.5 : 32)} textAnchor="middle"
+                      fontSize={7.5} fill={PALETTE.labelInk}
+                    >
+                      {caption.dims}
+                    </text>
+                  )}
+
                   {(() => {
-                    const layout = tileLayout({ x, y, w, h }, roomRows.length);
+                    const layout = tileLayout({ x, y, w, h }, roomRows.length, headerH);
                     if (layout.visible === 0) return null;
 
                     return roomRows.slice(0, layout.visible).map((row, i) => {
@@ -443,14 +504,26 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                       const chipFor = (bad: boolean): InstrumentStatus =>
                         bad ? 'OUT_OF_SPEC' : row.status === 'OUT_OF_SPEC' ? 'OK' : row.status;
 
+                      // A failed sensor gets a tile of its own rather than being
+                      // omitted: a room whose probe has died must not look like a
+                      // room with nothing in it. OUT_OF_SPEC tone, because a
+                      // reading nobody has is a condition nobody is watching.
                       const values: { text: string; st: InstrumentStatus }[] = [];
-                      if (tempV !== null) {
+                      if (row.rangeError?.temperature) {
+                        values.push({ text: sensorWords.outOfRange, st: 'OUT_OF_SPEC' });
+                      } else if (row.sensorError?.temperature) {
+                        values.push({ text: sensorWords.failure, st: 'OUT_OF_SPEC' });
+                      } else if (tempV !== null) {
                         values.push({
                           text: `${formatDecimals(tempV, row.decimals.temperature)}°`,
                           st: chipFor(tempBad),
                         });
                       }
-                      if (rhV !== null) {
+                      if (row.rangeError?.humidity) {
+                        values.push({ text: sensorWords.outOfRange, st: 'OUT_OF_SPEC' });
+                      } else if (row.sensorError?.humidity) {
+                        values.push({ text: sensorWords.failure, st: 'OUT_OF_SPEC' });
+                      } else if (rhV !== null) {
                         values.push({
                           text: `${formatDecimals(rhV, row.decimals.humidity)}%`,
                           st: chipFor(rhBad),
@@ -513,7 +586,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                   })()}
 
                   {(() => {
-                    const layout = tileLayout({ x, y, w, h }, roomRows.length);
+                    const layout = tileLayout({ x, y, w, h }, roomRows.length, headerH);
                     if (layout.hidden <= 0) return null;
                     const i = layout.visible;
                     const col = layout.cols > 0 ? i % layout.cols : 0;
@@ -532,7 +605,149 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                 </g>
               );
             })}
+
+            {/* -- THE ANNOTATION LAYER --------------------------------------
+                Everything the drawing carries that is not a room. Drawn AFTER
+                the rooms so a symbol sitting against a partition is not buried
+                under the neighbouring room fill, and pointerEvents="none"
+                throughout so none of it can swallow a click meant for the room
+                underneath - these are marks on a drawing, not controls.
+
+                None of it ever takes a status colour. An HVAC block is where a
+                unit is DRAWN; nothing in this install senses one, and colouring
+                it by health would assert a reading nobody measured. */}
+            {plan?.annotations && (
+              <g pointerEvents="none">
+                <defs>
+                  {/* Hatched, because a solid block at this size reads as an
+                      alarm swatch. The hatch is the drawing's own idiom. */}
+                  <pattern id="fp-equip" width={4} height={4} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                    <rect width={4} height={4} fill={PALETTE.equipFill} />
+                    <line x1={0} y1={0} x2={0} y2={4} stroke={PALETTE.equipInk} strokeWidth={1.4} />
+                  </pattern>
+                </defs>
+
+                {plan.annotations.equipment.map((e, i) => (
+                  <rect
+                    key={`eq${i}`}
+                    x={e.x * VB_W} y={e.y * vbH} width={e.w * VB_W} height={e.h * vbH}
+                    fill="url(#fp-equip)" stroke={PALETTE.equipInk} strokeWidth={1.2} rx={1.5}
+                  />
+                ))}
+
+                {plan.annotations.hvac.map((u, i) => {
+                  const ux = u.x * VB_W, uy = u.y * vbH, uw = u.w * VB_W, uh = u.h * vbH;
+                  return (
+                    <g key={`hv${i}`}>
+                      <rect x={ux} y={uy} width={uw} height={uh}
+                        fill={PALETTE.hvacFill} stroke={PALETTE.hvacInk} strokeWidth={1.2} rx={1.5} />
+                      {/* A fan: four blades round a hub. Legible at 10px, which
+                          a text label would not be. */}
+                      {uw > 6 && uh > 6 && [0, 90, 180, 270].map((deg) => (
+                        <line key={deg}
+                          x1={ux + uw / 2} y1={uy + uh / 2}
+                          x2={ux + uw / 2 + Math.cos((deg * Math.PI) / 180) * (uw / 2 - 1.5)}
+                          y2={uy + uh / 2 + Math.sin((deg * Math.PI) / 180) * (uh / 2 - 1.5)}
+                          stroke={PALETTE.hvacInk} strokeWidth={1.1} />
+                      ))}
+                    </g>
+                  );
+                })}
+
+                {plan.annotations.water.map((pt, i) => (
+                  <g key={`wt${i}`}>
+                    <circle cx={pt.x * VB_W} cy={pt.y * vbH} r={6}
+                      fill={PALETTE.paper} stroke={PALETTE.door} strokeWidth={1.3} />
+                    <text x={pt.x * VB_W} y={pt.y * vbH + 3} textAnchor="middle"
+                      fontSize={7.5} fontWeight={700} fill={PALETTE.door}>W</text>
+                  </g>
+                ))}
+
+                {/* Airflow: dashed, with a head at BOTH ends, because the
+                    drawing claims the corridor is swept in both directions. A
+                    single head would state a direction nobody specified. */}
+                {plan.annotations.airflow.map((f, i) => {
+                  const ay = f.y * vbH, ax0 = f.x0 * VB_W, ax1 = f.x1 * VB_W;
+                  return (
+                    <g key={`af${i}`}>
+                      <line x1={ax0 + 7} y1={ay} x2={ax1 - 7} y2={ay}
+                        stroke={PALETTE.airflow} strokeWidth={1.4} strokeDasharray="7 5" />
+                      <path d={`M ${ax0} ${ay} l 7 -3.5 l 0 7 Z`} fill={PALETTE.airflow} />
+                      <path d={`M ${ax1} ${ay} l -7 -3.5 l 0 7 Z`} fill={PALETTE.airflow} />
+                    </g>
+                  );
+                })}
+
+                {/* A note on a drawing sits wherever it needs to, including
+                    across a wall — so it gets a plate behind it, or the wall
+                    strikes through the word and neither is readable. */}
+                {plan.annotations.labels.map((l, i) => {
+                  const lx = l.x * VB_W, ly = l.y * vbH;
+                  const plateW = l.text.length * 5.4 + 10;
+                  return (
+                    <g key={`lb${i}`}>
+                      <rect
+                        x={lx - plateW / 2} y={ly - 7} width={plateW} height={12}
+                        fill={PALETTE.paper} stroke={PALETTE.wall} strokeWidth={0.8} rx={1.5}
+                      />
+                      <text
+                        x={lx} y={ly + 2} textAnchor="middle"
+                        fontSize={8} fontWeight={700} letterSpacing="0.06em" fill={PALETTE.ink}>
+                        {l.text}
+                      </text>
+                    </g>
+                  );
+                })}
+              </g>
+            )}
           </svg>
+        </div>
+      )}
+
+      {/* The drawing's own legend. Shown ONLY for a plan that has an annotation
+          layer: a legend naming symbols a plan never draws is furniture, and it
+          would teach a reader to look for equipment on a floor that has none. */}
+      {plan?.annotations && (
+        <div className="flex flex-wrap items-center gap-5 rounded-xl border border-slate-200/70 px-4 py-3">
+          <span className="text-xs font-semibold text-slate-700">Plan symbols:</span>
+          {PLAN_SYMBOLS.map((item) => (
+            <span key={item.key} className="flex items-center gap-1.5 text-xs text-slate-600">
+              <svg width={22} height={12} aria-hidden="true">
+                {item.key === 'door' && (
+                  <>
+                    <line x1={2} y1={10} x2={2} y2={2} stroke={PALETTE.door} strokeWidth={1.6} />
+                    <path d="M 2 2 A 8 8 0 0 1 10 10" fill="none" stroke={PALETTE.door} strokeWidth={1} strokeDasharray="3 2" />
+                  </>
+                )}
+                {item.key === 'airflow' && (
+                  <>
+                    <line x1={4} y1={6} x2={16} y2={6} stroke={PALETTE.airflow} strokeWidth={1.4} strokeDasharray="4 3" />
+                    <path d="M 21 6 l -5 -2.5 l 0 5 Z" fill={PALETTE.airflow} />
+                  </>
+                )}
+                {item.key === 'hvac' && (
+                  <>
+                    <rect x={5} y={1} width={11} height={10} fill={PALETTE.hvacFill} stroke={PALETTE.hvacInk} strokeWidth={1.1} rx={1.5} />
+                    <line x1={10.5} y1={2.5} x2={10.5} y2={9.5} stroke={PALETTE.hvacInk} strokeWidth={1} />
+                    <line x1={7} y1={6} x2={14} y2={6} stroke={PALETTE.hvacInk} strokeWidth={1} />
+                  </>
+                )}
+                {item.key === 'equipment' && (
+                  <rect x={5} y={1} width={11} height={10} fill={PALETTE.equipFill} stroke={PALETTE.equipInk} strokeWidth={1.2} rx={1.5} />
+                )}
+                {item.key === 'water' && (
+                  <>
+                    <circle cx={10.5} cy={6} r={5} fill={PALETTE.paper} stroke={PALETTE.door} strokeWidth={1.2} />
+                    <text x={10.5} y={8.5} textAnchor="middle" fontSize={7} fontWeight={700} fill={PALETTE.door}>W</text>
+                  </>
+                )}
+                {item.key === 'wall' && (
+                  <line x1={2} y1={6} x2={20} y2={6} stroke={PALETTE.wall} strokeWidth={2.5} />
+                )}
+              </svg>
+              {item.label}
+            </span>
+          ))}
         </div>
       )}
 

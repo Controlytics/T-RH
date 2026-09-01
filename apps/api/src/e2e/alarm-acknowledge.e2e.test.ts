@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp, loginAs } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
@@ -15,7 +15,6 @@ import { fixtureProfileId } from '../test-support/fixture-profile.js';
 let app: FastifyInstance;
 let auth: Record<string, string>;
 let instrumentId = '';
-let ruleId = '';
 const alarms: string[] = [];
 
 // enforceReauth('ACKNOWLEDGE_ALARM') is policy-driven, so a password is not always
@@ -36,27 +35,39 @@ beforeAll(async () => {
   expect(inst.statusCode).toBe(201);
   instrumentId = inst.json().id;
 
-  const rule = await app.inject({
-    method: 'POST', url: '/api/alarms/rules', headers: { ...auth, ...reauth },
-    payload: { name: `ack-e2e-rule-${Date.now()}`, instrumentId, metric: 'TEMPERATURE', comparison: 'ABOVE', thresholdHigh: 25, delaySeconds: 0 },
-  });
-  expect(rule.statusCode).toBe(201);
-  ruleId = rule.json().id;
 });
 
 afterAll(async () => {
-  // Restrict FKs on both rule and instrument, so the alarms must go first.
+  // A Restrict FK on the instrument, so the alarms must go first.
   if (alarms.length) await prisma.alarm.deleteMany({ where: { id: { in: alarms } } });
-  if (ruleId) await prisma.alarmRule.delete({ where: { id: ruleId } }).catch(() => {});
   if (instrumentId) await app.inject({ method: 'DELETE', url: `/api/instruments/${instrumentId}`, headers: { ...auth, ...reauth } });
   await app.close();
 });
 
-/** Alarms are only ever created by the evaluator, so a test one is inserted directly. */
+/**
+ * Alarms are only ever created by the evaluator, so a test one is inserted
+ * directly.
+ *
+ * Each call takes the NEXT (metric, bound) pair: `alarms_active_instrument_limit_unique`
+ * permits one ACTIVE alarm per instrument per metric per bound, and this file
+ * raises several. Cycling keeps every fixture row legal without an instrument each.
+ */
+const BOUNDS = [
+  { metric: 'TEMPERATURE', limitKind: 'HIGH' },
+  { metric: 'TEMPERATURE', limitKind: 'LOW' },
+  { metric: 'HUMIDITY', limitKind: 'HIGH' },
+  { metric: 'HUMIDITY', limitKind: 'LOW' },
+] as const;
+let nextBound = 0;
+
 async function raise(state: 'ACTIVE' | 'CLEARED' = 'ACTIVE') {
+  const bound = BOUNDS[nextBound++ % BOUNDS.length];
   const a = await prisma.alarm.create({
     data: {
-      ruleId, instrumentId, metric: 'TEMPERATURE', triggeredValue: 27.4,
+      // An INSTRUMENT_LIMIT alarm — authored rules were removed 2026-08-31, and
+      // acknowledgement is not source-specific anyway.
+      instrumentId, source: 'INSTRUMENT_LIMIT',
+      metric: bound.metric, limitKind: bound.limitKind, triggeredValue: 27.4,
       severity: 'MAJOR', state,
       ruleSnapshot: { description: 'temperature above 25' },
       clearedAt: state === 'CLEARED' ? new Date() : null,
@@ -65,6 +76,15 @@ async function raise(state: 'ACTIVE' | 'CLEARED' = 'ACTIVE') {
   alarms.push(a.id);
   return a.id;
 }
+
+// Each test starts with no ACTIVE alarm on the fixture instrument, so the
+// partial unique index (one per instrument/metric/bound while ACTIVE) cannot be
+// hit by fixtures left behind by the test before.
+beforeEach(async () => {
+  if (alarms.length) await prisma.alarm.deleteMany({ where: { id: { in: alarms } } });
+  alarms.length = 0;
+  nextBound = 0;
+});
 
 const ack = (id: string, reason: string) =>
   app.inject({ method: 'POST', url: `/api/alarms/${id}/acknowledge`, headers: { ...auth, ...reauth }, payload: { reason } });

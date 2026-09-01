@@ -16,7 +16,7 @@
  * only be checked by looking at it, and nobody can open the authenticated UI in
  * a browser from this dev environment.
  */
-import { clampDecimals } from '@digilog/shared';
+import { clampDecimals, RS485_FAILURE_TEXT_DEFAULT, SENSOR_RANGE_TEXT_DEFAULT } from '@digilog/shared';
 
 export const NOT_AVAILABLE = 'NA';
 
@@ -60,4 +60,30 @@ export function outOfSpec(
   if (typeof min === 'number' && Number.isFinite(min) && value < min) return true;
   if (typeof max === 'number' && Number.isFinite(max) && value > max) return true;
   return false;
+}
+
+/**
+ * The administered word that STANDS IN for this slot's number, or null when the
+ * slot has a number to show.
+ *
+ * ONE implementation, for the same reason `outOfSpec` is one: the dashboard
+ * table, the floor tiles and the trend page's latest-value card all have to call
+ * the same fault the same thing, and the precedence between the two faults is a
+ * decision, not a formatting detail.
+ *
+ * Range BEFORE failure: a saturated probe is a more specific finding than "not a
+ * number", and the two are mutually exclusive anyway — an out-of-range value IS
+ * a number.
+ *
+ * The fallbacks are the SHARED constants, never literals: a `'OL'` baked in here
+ * would be a second opinion about a value the server administers, and the two
+ * diverge the moment somebody edits the setting.
+ */
+export function faultWord(
+  fault: { failed?: boolean; outOfRange?: boolean } | undefined,
+  words: { failure: string; outOfRange: string } | undefined,
+): string | null {
+  if (fault?.outOfRange) return words?.outOfRange ?? SENSOR_RANGE_TEXT_DEFAULT;
+  if (fault?.failed) return words?.failure ?? RS485_FAILURE_TEXT_DEFAULT;
+  return null;
 }

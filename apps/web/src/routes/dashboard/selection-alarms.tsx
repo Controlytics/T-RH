@@ -1,8 +1,6 @@
 import useSWR from 'swr';
 import { Link } from 'react-router-dom';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
-import { StatusBadge } from '@/components/ui/status-badge';
-import { severityTone } from '@/routes/alarms/alarm-display';
 import { SkeletonRows } from '@/components/ui/skeleton';
 
 /**
@@ -22,7 +20,6 @@ interface AlarmRow {
   instrumentId: string;
   instrumentCode: string | null;
   metric: string;
-  severity: string;
   triggeredValue: number | null;
   limitKind: string | null;
   raisedAt: string;
@@ -30,14 +27,11 @@ interface AlarmRow {
 }
 
 /*
- * Severity is rendered by StatusBadge, from the ONE mapping in
- * routes/alarms/alarm-display.ts.
- *
- * This file used to carry a fourth severity palette of its own — red/orange/
- * amber/slate — which disagreed with the Alarms page (red/amber/sky) on two of
- * the four levels. The same CRITICAL alarm therefore appeared in one colour on
- * the dashboard and another on the alarms screen, and MAJOR and MINOR were
- * adjacent oranges that were genuinely hard to tell apart in a list.
+ * There is no severity badge here any more. Severity stopped being an
+ * administered concept on 2026-09-01 and was removed from every display surface;
+ * this row's badge was its last one on the dashboard. Every row in this panel is
+ * `state=ACTIVE` (see the query below), so the badge was not carrying the row's
+ * state either — do not re-add one keyed off `severity`.
  */
 
 export function SelectionAlarms({ functionalLocationId }: { functionalLocationId?: string }) {
@@ -82,7 +76,6 @@ export function SelectionAlarms({ functionalLocationId }: { functionalLocationId
           <ul className="divide-y divide-slate-100">
             {rows.map((a) => (
               <li key={a.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 p-3 text-sm">
-                <StatusBadge tone={severityTone(a.severity)} label={a.severity} className="shrink-0" />
                 <Link
                   to={`/instruments/${a.instrumentId}/trend`}
                   className="font-medium text-slate-800 hover:underline"

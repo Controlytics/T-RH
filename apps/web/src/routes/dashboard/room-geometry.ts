@@ -194,9 +194,59 @@ function twoChipsHeight(fontSize: number, topGap: number): number {
  * produces a floor where half the rooms are unreadable but none of them look
  * broken. The step is chosen from measured size, never guessed.
  */
-export function tileLayout(box: PixelBox, count: number): TileLayout {
-  const bodyTop = box.y + HEADER_H;
-  const bodyH = box.h - HEADER_H;
+/** One caption line, and the room name that sits above them. */
+const CAPTION_LINE_H = 9.5;
+const NAME_LINE_H = 11;
+
+/**
+ * How much header a TRACED room may reserve for its captions — and whether it
+ * gets them at all.
+ *
+ * A traced room wants to print four lines where a generated one prints one: the
+ * code, the room name, `FCH: 2.7m` and its floor dimensions. That space comes
+ * out of the tile grid, so on a short room the captions and the readings are in
+ * direct competition.
+ *
+ * **The readings win, always.** A transcribed ceiling height is reference
+ * material; a temperature is why the screen exists, and a room that hid its
+ * reading behind a dimension line would be a monitoring screen that had stopped
+ * monitoring. So the captions are costed first: if reserving their space would
+ * show fewer instruments than not reserving it, they are dropped and the room
+ * falls back to exactly what a generated room shows.
+ *
+ * This replaced a fixed `h >= 78` threshold in the view. That threshold happened
+ * to hold for all twelve instrument rooms on the QC plan, but it encoded no
+ * reason — resize one room, or add one with two instruments, and it would have
+ * started hiding readings with nothing to catch it.
+ */
+export function captionHeader(
+  box: PixelBox,
+  count: number,
+  opts: { name: boolean; lines: number },
+): { headerH: number; captions: boolean } {
+  const plain = { headerH: HEADER_H, captions: false };
+  if (opts.lines <= 0) return plain;
+  const wanted = HEADER_H + (opts.name ? NAME_LINE_H : 0) + opts.lines * CAPTION_LINE_H;
+  // A room with nothing in it has no readings to lose.
+  if (count <= 0) return { headerH: wanted, captions: true };
+  if (wanted >= box.h) return plain;
+  return tileLayout(box, count, wanted).visible >= tileLayout(box, count).visible
+    ? { headerH: wanted, captions: true }
+    : plain;
+}
+
+/**
+ * @param headerH how much vertical space the room's own captions need before
+ *   the tiles start. Defaults to one line for the code. A TRACED room also
+ *   prints its name, its ceiling height and its floor dimensions, and those
+ *   lines have to be reserved HERE rather than guessed at by the view — the
+ *   tile grid is sized from the leftover, so a view that drew four caption
+ *   lines into a 14px header would lay the first row of readings on top of
+ *   them.
+ */
+export function tileLayout(box: PixelBox, count: number, headerH: number = HEADER_H): TileLayout {
+  const bodyTop = box.y + headerH;
+  const bodyH = box.h - headerH;
   const empty: TileLayout = {
     step: 'CODE_ONLY', visible: 0, hidden: Math.max(0, count), cols: 0, rows: 0,
     tile: { w: 0, h: 0 }, fontSize: 8, bodyTop,

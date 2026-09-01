@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp, loginAs } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
@@ -78,7 +78,6 @@ describe('instrument-limit alarms (e2e)', () => {
     expect(alarms).toHaveLength(1);
     expect(alarms[0].source).toBe('INSTRUMENT_LIMIT');
     expect(alarms[0].limitKind).toBe('HIGH');
-    expect(alarms[0].ruleId).toBeNull();
     expect(alarms[0].triggeredValue).toBe(26.4);
     expect((alarms[0].ruleSnapshot as Record<string, unknown>).limit).toBe(25);
   });
@@ -175,4 +174,151 @@ describe('instrument-limit alarms (e2e)', () => {
   // A null reading HOLDING an open alarm (rather than clearing it) is already covered by
   // apps/api/src/workers/__tests__/alarm-limit-hold.test.ts at the worker level — not
   // repeated here, since it would not discriminate anything this file doesn't already.
+});
+
+/**
+ * Per-bound enable flags — `Enable_Temp_NMT` and friends.
+ *
+ * The behaviour these pin was worth a feature on its own: an instrument here can
+ * carry `High Humidity Limit = 0` meaning "humidity is not judged", and a 0 is a
+ * REAL bound to this system. When this was written, 17 CRITICAL alarms were open
+ * at 44-50 %RH against exactly that, on instruments whose own
+ * `Enable_Humid_NMT = 0` already said the bound was not in force. Nothing read
+ * the flag.
+ *
+ * NMT = "not more than" (the high bound), NLT = "not less than" (the low one) —
+ * the plant's vocabulary, not ours. Mapping them the wrong way round would
+ * disable the opposite bound silently, which is why the mapping is asserted in
+ * `alarm-limits.test.ts` as well.
+ */
+describe('per-bound enable flags', () => {
+  const setFlag = async (key: string, value: string) => {
+    await prisma.instrumentAttribute.upsert({
+      where: { instrumentId_key: { instrumentId, key } },
+      create: { instrumentId, key, value },
+      update: { value },
+    });
+  };
+  const dropFlag = (key: string) =>
+    prisma.instrumentAttribute.deleteMany({ where: { instrumentId, key } });
+
+  const openHigh = () => prisma.alarm.findMany({
+    where: { instrumentId, source: 'INSTRUMENT_LIMIT', metric: 'TEMPERATURE', limitKind: 'HIGH', state: 'ACTIVE' },
+  });
+
+  beforeEach(async () => {
+    await prisma.alarm.deleteMany({ where: { instrumentId } });
+    await dropFlag('Enable_Temp_NMT');
+    await dropFlag('Enable_Temp_NLT');
+    // Pin the BOUNDS as well as the flags. The test above this one leaves
+    // `High Temperature Limit` at 99 to prove the frozen-snapshot behaviour, and
+    // a block that inherited it would silently test nothing — every reading
+    // would be in spec and every "raises" assertion would fail for the wrong
+    // reason. Depending on file order is how a suite starts passing vacuously.
+    await prisma.instrumentAttribute.updateMany({
+      where: { instrumentId, key: 'High Temperature Limit' }, data: { value: '25' },
+    });
+    await prisma.instrumentAttribute.updateMany({
+      where: { instrumentId, key: 'Low Temperature Limit' }, data: { value: '18' },
+    });
+  });
+
+  it('raises nothing on a bound whose flag is 0, however far it is crossed', async () => {
+    await setFlag('Enable_Temp_NMT', '0');
+    await pushReading(99);
+    await evaluateAlarms();
+    expect(await openHigh()).toHaveLength(0);
+  });
+
+  it('still raises when the flag is 1', async () => {
+    await setFlag('Enable_Temp_NMT', '1');
+    await pushReading(26.4);
+    await evaluateAlarms();
+    expect(await openHigh()).toHaveLength(1);
+  });
+
+  it('accepts the word form the live data also holds', async () => {
+    await setFlag('Enable_Temp_NMT', 'True');
+    await pushReading(26.4);
+    await evaluateAlarms();
+    expect(await openHigh()).toHaveLength(1);
+  });
+
+  it('treats an ABSENT flag as enabled', async () => {
+    // A monitoring system fails toward alarming, and this keeps every instrument
+    // that predates the flags behaving exactly as it did.
+    await pushReading(26.4);
+    await evaluateAlarms();
+    expect(await openHigh()).toHaveLength(1);
+  });
+
+  it('treats an unreadable flag as enabled', async () => {
+    await setFlag('Enable_Temp_NMT', 'perhaps');
+    await pushReading(26.4);
+    await evaluateAlarms();
+    expect(await openHigh()).toHaveLength(1);
+  });
+
+  it('gates each bound INDEPENDENTLY — disabling high leaves low alarming', async () => {
+    await setFlag('Enable_Temp_NMT', '0');
+    await setFlag('Enable_Temp_NLT', '1');
+    await pushReading(5); // below the 18 low limit, above nothing
+    await evaluateAlarms();
+    const low = await prisma.alarm.findMany({
+      where: { instrumentId, source: 'INSTRUMENT_LIMIT', limitKind: 'LOW', state: 'ACTIVE' },
+    });
+    expect(low).toHaveLength(1);
+    expect(await openHigh()).toHaveLength(0);
+  });
+
+  it('CLEARS an alarm already open on a bound that is switched off', async () => {
+    // The operator's decision, 2026-08-31, and a deliberate departure from the
+    // rule that a config change never closes a regulated record. Those 17
+    // humidity alarms could never clear on their own — the reading they waited
+    // for (below 0 %RH) cannot occur — so leaving them open asserts an ongoing
+    // excursion that is not real and keeps the page permanently red.
+    await setFlag('Enable_Temp_NMT', '1');
+    await pushReading(26.4);
+    await evaluateAlarms();
+    expect(await openHigh()).toHaveLength(1);
+
+    await setFlag('Enable_Temp_NMT', '0');
+    await evaluateAlarms();
+    expect(await openHigh()).toHaveLength(0);
+
+    const [closed] = await prisma.alarm.findMany({
+      where: { instrumentId, source: 'INSTRUMENT_LIMIT', metric: 'TEMPERATURE', limitKind: 'HIGH' },
+      orderBy: { raisedAt: 'desc' }, take: 1,
+    });
+    expect(closed.state).toBe('CLEARED');
+    expect(closed.clearedAt).not.toBeNull();
+    // History closed, not erased: what it fired at is still on the record.
+    expect(Number(closed.triggeredValue)).toBeCloseTo(26.4, 5);
+    // And the signature is still owed — clearing never signs for anything.
+    expect(closed.acknowledgedAt).toBeNull();
+  });
+
+  it('clears a disabled bound even while the reading is still breaching', async () => {
+    // The clear is not "returned to spec" — the reading has not moved. The bound
+    // simply is not being enforced any more.
+    await setFlag('Enable_Temp_NMT', '1');
+    await pushReading(99);
+    await evaluateAlarms();
+    expect(await openHigh()).toHaveLength(1);
+
+    await setFlag('Enable_Temp_NMT', '0');
+    await evaluateAlarms();
+    expect(await openHigh()).toHaveLength(0);
+  });
+
+  it('re-raises if the bound is switched back on and still breaching', async () => {
+    await setFlag('Enable_Temp_NMT', '0');
+    await pushReading(99);
+    await evaluateAlarms();
+    expect(await openHigh()).toHaveLength(0);
+
+    await setFlag('Enable_Temp_NMT', '1');
+    await evaluateAlarms();
+    expect(await openHigh()).toHaveLength(1);
+  });
 });

@@ -30,7 +30,20 @@ export interface OverviewRow {
    * alarm printed beside it.
    */
   limits: { tempMin: number | null; tempMax: number | null; rhMin: number | null; rhMax: number | null } | null;
-  /** Which of the two said it. Null when `limits` is null. */
+  /**
+   * Which of the four bounds the instrument's own `Enable_*` attributes leave in
+   * force. A bound switched off is ALREADY absent from `limits` — the server
+   * withholds it, because the alarm evaluator will not raise on it and a bound
+   * drawn as live but never enforced is a misstatement.
+   *
+   * This says WHY a bound is missing, not WHETHER to show it: "no low limit is
+   * administered" and "the low limit is switched off" are different facts, and
+   * only this tells them apart. Never gate display on it.
+   *
+   * Optional so a cached response from before this field existed still renders.
+   */
+  limitEnabled?: { tempMin: boolean; tempMax: boolean; rhMin: boolean; rhMax: boolean };
+  /** Which of the two said it. Null when no bound survives. */
   limitSource: 'INSTRUMENT' | 'ROOM' | null;
   temperature: SlotValue | null;
   humidity: SlotValue | null;
@@ -46,6 +59,27 @@ export interface OverviewRow {
   decimals: { temperature: number; humidity: number };
   reporting: boolean;
   status: InstrumentStatus;
+  /**
+   * Which slots reported something that is NOT a number — a broken RS485 probe
+   * sending `NA`, rather than a slot with no reading at all.
+   *
+   * `temperature`/`humidity` are null in both cases, so without this the two are
+   * indistinguishable and the dashboard renders `NA` for a dead sensor. Decided
+   * on the SERVER by the same predicate the alarm evaluator uses; never
+   * re-derived here, or a cell will eventually contradict the alarm beside it.
+   *
+   * Optional so a cached response from before this field existed still renders.
+   */
+  sensorError?: { temperature: boolean; humidity: boolean };
+  /**
+   * Which slots reported a NUMBER outside the probe's measurable span.
+   *
+   * When true the numeric slot above is null — the server withholds a reading the
+   * sensor cannot stand behind, so nothing here plots or judges it. A different
+   * fault from `sensorError`, and a different word on screen: `OL` for a
+   * saturated probe, `Error` for one sending nonsense.
+   */
+  rangeError?: { temperature: boolean; humidity: boolean };
 }
 
 export interface TelemetrySettings {
@@ -182,6 +216,38 @@ export interface FloorplanRoomShape {
   rhMin: number | null; rhMax: number | null;
   /** Drawn openings. NULL for every room drawn before doors existed. */
   doors: RoomDoor[] | null;
+  /**
+   * What the DRAWING says about this room, on a TRACED plan. NULL on every
+   * generated plan, which renders exactly as it did before this existed.
+   *
+   * `fill` overrides the grade hue: the draughtsman's colours say what a room is
+   * FOR, `grade` says how it is classified, and both are true. `fch` and `dims`
+   * are transcribed strings, never re-derived — the drawing is schematic, so
+   * computing a size from `w`/`h` would print a different number from the plan.
+   */
+  meta: RoomMeta | null;
+}
+
+export interface RoomMeta {
+  fill?: string;
+  fch?: string;
+  dims?: string;
+}
+
+/**
+ * Everything on a plan that is not a room, in the same normalized 0..1 space as
+ * the rooms. NULL on a generated plan — and the legend is drawn only when this
+ * is present, since a legend for symbols a plan never uses is furniture.
+ *
+ * All of it is STATIC drawing content. An HVAC symbol marks where a unit is
+ * DRAWN; it is not a unit that reports, and it must never take a status colour.
+ */
+export interface PlanAnnotations {
+  equipment: { x: number; y: number; w: number; h: number }[];
+  hvac: { x: number; y: number; w: number; h: number }[];
+  water: { x: number; y: number }[];
+  airflow: { y: number; x0: number; x1: number }[];
+  labels: { x: number; y: number; text: string }[];
 }
 
 export interface FloorplanShape {
@@ -193,6 +259,7 @@ export interface FloorplanShape {
   isActive: boolean;
   sortOrder: number;
   rooms: FloorplanRoomShape[];
+  annotations: PlanAnnotations | null;
 }
 
 /**

@@ -2,7 +2,9 @@ import { prisma } from '../../lib/prisma.js';
 import {
   parseLimitKeys,
   resolveLimit,
+  resolveEnableFlag,
   ALARM_LIMIT_KEYS_DEFAULT,
+  ALARM_LIMIT_ENABLE_KEYS_DEFAULT,
   type LimitBound,
 } from '@digilog/shared';
 import type { InstrumentLimits } from './limit-decide.js';
@@ -16,11 +18,11 @@ import { limitsInverted } from './limit-decide.js';
  */
 export interface LimitConfig {
   enabled: boolean;
-  severity: 'CRITICAL' | 'MAJOR' | 'MINOR';
   keys: Record<LimitBound, string[]>;
+  /** Which attribute says whether each bound is IN FORCE. See
+   *  ALARM_LIMIT_ENABLE_KEYS_DEFAULT for why a bound needs a switch of its own. */
+  enableKeys: Record<LimitBound, string[]>;
 }
-
-const SEVERITIES = ['CRITICAL', 'MAJOR', 'MINOR'] as const;
 
 export async function loadLimitConfig(): Promise<LimitConfig> {
   const row = await prisma.systemConfig.findUnique({ where: { configKey: 'alarm-limits' } });
@@ -29,21 +31,41 @@ export async function loadLimitConfig(): Promise<LimitConfig> {
   const list = (key: string, fallback: string) =>
     parseLimitKeys(typeof cfg[key] === 'string' ? (cfg[key] as string) : fallback);
 
-  const severity = SEVERITIES.includes(cfg.severity as never)
-    ? (cfg.severity as LimitConfig['severity'])
-    : 'CRITICAL';
-
   return {
     // Absent config means enabled: the feature ships on, and a half-seeded row
     // must not silently stop every limit alarm.
     enabled: cfg.enabled !== false,
-    severity,
     keys: {
       temperatureHigh: list('temperatureHighKeys', ALARM_LIMIT_KEYS_DEFAULT.temperatureHigh),
       temperatureLow: list('temperatureLowKeys', ALARM_LIMIT_KEYS_DEFAULT.temperatureLow),
       humidityHigh: list('humidityHighKeys', ALARM_LIMIT_KEYS_DEFAULT.humidityHigh),
       humidityLow: list('humidityLowKeys', ALARM_LIMIT_KEYS_DEFAULT.humidityLow),
     },
+    enableKeys: {
+      temperatureHigh: list('temperatureHighEnableKeys', ALARM_LIMIT_ENABLE_KEYS_DEFAULT.temperatureHigh),
+      temperatureLow: list('temperatureLowEnableKeys', ALARM_LIMIT_ENABLE_KEYS_DEFAULT.temperatureLow),
+      humidityHigh: list('humidityHighEnableKeys', ALARM_LIMIT_ENABLE_KEYS_DEFAULT.humidityHigh),
+      humidityLow: list('humidityLowEnableKeys', ALARM_LIMIT_ENABLE_KEYS_DEFAULT.humidityLow),
+    },
+  };
+}
+
+/**
+ * Which of an instrument's four bounds are switched on.
+ *
+ * Absent flag = enabled, so an instrument that carries no flags at all behaves
+ * exactly as it did before this existed.
+ */
+export function enabledBoundsFor(
+  enableKeys: LimitConfig['enableKeys'],
+  attributes: { key: string; value: string }[],
+): Record<LimitBound, boolean> {
+  const on = (bound: LimitBound) => resolveEnableFlag(enableKeys[bound], attributes)?.enabled ?? true;
+  return {
+    temperatureHigh: on('temperatureHigh'),
+    temperatureLow: on('temperatureLow'),
+    humidityHigh: on('humidityHigh'),
+    humidityLow: on('humidityLow'),
   };
 }
 

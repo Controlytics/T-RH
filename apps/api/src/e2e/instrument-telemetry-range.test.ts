@@ -508,3 +508,209 @@ describe('chart path — instrument visibility', () => {
     expect(body.summaries!.temperature.max).toBe(21);
   });
 });
+
+/**
+ * A bound the instrument has switched OFF must not be reported, and must not be
+ * counted against.
+ *
+ * `Enable_Temp_NMT` / `_NLT` (NMT is the HIGH bound, NLT the LOW one) gate the
+ * four limits. `buildTelemetryOverview` has applied them since 2026-08-31, so
+ * the chart's limit LINE — which comes from the overview — disappeared
+ * correctly. This route resolved the SAME limits through the SAME helper and
+ * then did not apply the flags, so the summary strip beside that vanished line
+ * kept printing the bound AND counting breaches against it in SQL.
+ *
+ * That is not hypothetical here: an instrument carrying `High Humidity Limit =
+ * 0` with `Enable_Humid_NMT = 0` reported every reading as above limit, in a
+ * §11 report, against a bound no alarm on this system can raise.
+ *
+ * The distinction these cases turn on: a disabled bound must come back NULL —
+ * "not judged" — never `0`, which is the honest answer for a bound that IS in
+ * force and was never breached. The route already had to keep those apart.
+ */
+describe('a disabled bound is not a bound', () => {
+  let offId: string;
+
+  beforeAll(async () => {
+    offId = await createInstrument(`TRNG-OFF-${s}`);
+    await prisma.instrumentAttribute.createMany({
+      data: [
+        { instrumentId: offId, key: 'High Temperature Limit', value: String(TEMP_HIGH) },
+        { instrumentId: offId, key: 'Low Temperature Limit', value: String(TEMP_LOW) },
+        // The HIGH bound is switched off; the LOW one is left alone.
+        { instrumentId: offId, key: 'Enable_Temp_NMT', value: '0' },
+      ],
+    });
+    // One reading well above the (disabled) high bound and inside the low one.
+    await seed(offId, 'temperature', [
+      { ts: new Date(t0.getTime()), value: 20 },
+      { ts: new Date(t0.getTime() + STEP_MS), value: 99.9 },
+    ]);
+  });
+
+  const summary = async () => {
+    const res = await telemetry(offId, `?from=${FROM}&to=${TO}&points=100`);
+    expect(res.statusCode).toBe(200);
+    return (res.json() as ChartBody).summaries!.temperature;
+  };
+
+  it('does not report the disabled bound', async () => {
+    expect((await summary()).limitMax).toBeNull();
+  });
+
+  it('does not count breaches against it — null, not zero', async () => {
+    // NULL means "no bound was resolved". A 0 would be the claim "this bound
+    // was checked and never breached", which is false: it was not checked.
+    expect((await summary()).aboveCount).toBeNull();
+  });
+
+  it('but the COMBINED count stays a real zero while one bound survives', async () => {
+    // Deliberately not null. `outOfSpecCount` answers "did this leave the band
+    // that is in force?", and the low bound IS in force and was not breached.
+    // Nulling it because its sibling is disabled would report "not judged" for
+    // a range that was judged — the mirror of the defect above, and worse,
+    // because it hides a bound that IS enforced.
+    expect((await summary()).outOfSpecCount).toBe(0);
+  });
+
+  it('leaves the bound that is still ENABLED reporting and counting', async () => {
+    // The gate must be per-bound. Disabling the high one and losing the low one
+    // with it would hide a real excursion.
+    const s2 = await summary();
+    expect(s2.limitMin).toBe(TEMP_LOW);
+    expect(s2.belowCount).toBe(0);
+  });
+
+  it('still returns the readings themselves', async () => {
+    // The bound is not judged; the data is not withheld. The 99.9 reading is
+    // still a stored reading and still has to appear on the chart.
+    const res = await telemetry(offId, `?from=${FROM}&to=${TO}&points=100`);
+    const body = res.json() as ChartBody;
+    expect(rowsFor(body, 'temperature')).toHaveLength(2);
+    expect(body.summaries!.temperature.max).toBe(99.9);
+  });
+});
+
+/**
+ * Both bounds off — the shape this installation actually carries.
+ *
+ * Sixteen instruments here hold `Enable_Humid_NMT = 0` beside a `High Humidity
+ * Limit` of 0, and a 0 IS a real bound (that combination is what put 17 CRITICAL
+ * alarms on screen at 44-50 %RH before the alarm path was gated). With every
+ * bound disabled the summary must say NOTHING was judged, not that nothing was
+ * breached.
+ */
+describe('every bound disabled', () => {
+  let noneId: string;
+
+  beforeAll(async () => {
+    noneId = await createInstrument(`TRNG-NONE-${s}`);
+    await prisma.instrumentAttribute.createMany({
+      data: [
+        { instrumentId: noneId, key: 'High Humidity Limit', value: '0' },
+        { instrumentId: noneId, key: 'Low Humidity Limit', value: '0' },
+        { instrumentId: noneId, key: 'Enable_Humid_NMT', value: '0' },
+        { instrumentId: noneId, key: 'Enable_Humid_NLT', value: 'False' },
+      ],
+    });
+    await seed(noneId, 'humidity', [
+      { ts: new Date(t0.getTime()), value: 47 },
+      { ts: new Date(t0.getTime() + STEP_MS), value: 50 },
+    ]);
+  });
+
+  it('reports no bounds and judges nothing', async () => {
+    const res = await telemetry(noneId, `?from=${FROM}&to=${TO}&points=100`);
+    const h = (res.json() as ChartBody).summaries!.humidity;
+    expect(h.limitMin).toBeNull();
+    expect(h.limitMax).toBeNull();
+    expect(h.aboveCount).toBeNull();
+    expect(h.belowCount).toBeNull();
+    expect(h.outOfSpecCount).toBeNull();
+  });
+
+  it('accepts `False` as well as `0` — the live data holds both', async () => {
+    // `Enable_Humid_NLT` above is the word, not the digit. If only one spelling
+    // were honoured the low bound would still be judged here.
+    const res = await telemetry(noneId, `?from=${FROM}&to=${TO}&points=100`);
+    expect((res.json() as ChartBody).summaries!.humidity.belowCount).toBeNull();
+  });
+
+  it('still returns every reading', async () => {
+    const res = await telemetry(noneId, `?from=${FROM}&to=${TO}&points=100`);
+    expect(rowsFor(res.json() as ChartBody, 'humidity')).toHaveLength(2);
+  });
+});
+
+/**
+ * ONE test that makes the two server resolvers agree, rather than two that each
+ * check one.
+ *
+ * "A bound the instrument switches off is not enforced" was implemented three
+ * times on 2026-08-31 — in `buildTelemetryOverview` (which feeds the cards, the
+ * dashboard table, the floorplan tiles and the chart's limit LINE), in this
+ * route's `boundsFor` (which feeds the summary strip, the breach counts and the
+ * signed PDF), and in the trend card's own status fall-through. Each was written
+ * by someone who had verified their own and assumed the others were covered, and
+ * all three were separately wrong at some point in the same day.
+ *
+ * Two of those three are server-side and answer the SAME question about the SAME
+ * instrument from the SAME attributes, so they can be asserted together. That is
+ * the point of this block: N tests each pinning one resolver cannot catch two
+ * resolvers disagreeing, which is the only failure that actually reaches a
+ * screen — a limit line that has vanished sitting above a strip still counting
+ * breaches against the bound it stopped drawing.
+ *
+ * If a third server-side consumer of these bounds is ever added, add it here.
+ */
+describe('every server resolver agrees about a disabled bound', () => {
+  let agreeId: string;
+
+  beforeAll(async () => {
+    agreeId = await createInstrument(`TRNG-AGREE-${s}`);
+    await prisma.instrumentAttribute.createMany({
+      data: [
+        { instrumentId: agreeId, key: 'High Temperature Limit', value: '27' },
+        { instrumentId: agreeId, key: 'Low Temperature Limit', value: '18' },
+        { instrumentId: agreeId, key: 'Enable_Temp_NMT', value: '0' },
+      ],
+    });
+    await seed(agreeId, 'temperature', [
+      { ts: new Date(t0.getTime()), value: 24.5 },
+      { ts: new Date(t0.getTime() + STEP_MS), value: 99.9 },
+    ]);
+  });
+
+  it('the overview and the chart summary report the SAME bounds', async () => {
+    const ov = await app.inject({
+      method: 'GET', url: '/api/instruments/telemetry-overview', headers: auth,
+    });
+    expect(ov.statusCode).toBe(200);
+    // `instrumentId`, not `id` — the overview row is keyed by the instrument it
+    // describes, not by a row identity of its own.
+    const row = (ov.json().data as {
+      instrumentId: string; limits: { tempMin: number | null; tempMax: number | null } | null;
+    }[]).find((r) => r.instrumentId === agreeId)!;
+    expect(row, 'instrument missing from the overview').toBeDefined();
+
+    const res = await telemetry(agreeId, `?from=${FROM}&to=${TO}&points=100`);
+    const sum = (res.json() as ChartBody).summaries!.temperature;
+
+    // The assertion that matters: not that each is null, but that they MATCH.
+    // A future change to one resolver alone fails here even if that change is
+    // internally consistent and its own tests still pass.
+    expect(
+      { min: sum.limitMin, max: sum.limitMax },
+      'the chart summary and the overview disagree about this instrument\'s bounds',
+    ).toEqual({ min: row.limits!.tempMin, max: row.limits!.tempMax });
+  });
+
+  it('and both say the disabled bound is absent, not merely unbreached', async () => {
+    const res = await telemetry(agreeId, `?from=${FROM}&to=${TO}&points=100`);
+    const sum = (res.json() as ChartBody).summaries!.temperature;
+    expect(sum.limitMax).toBeNull();
+    // 99.9 is above 27. If the gate were lost this would be 1, and the strip
+    // would print a breach the chart above it draws no line for.
+    expect(sum.aboveCount).toBeNull();
+  });
+});

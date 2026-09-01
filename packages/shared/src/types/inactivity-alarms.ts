@@ -16,14 +16,11 @@
  * "Every instrument, automatically" is what this source is for.
  */
 
-export type InactivitySeverity = 'CRITICAL' | 'MAJOR' | 'MINOR';
-
 export interface InactivityAlarmConfig {
   /** Ships OFF. See INACTIVITY_ALARMS_DEFAULT. */
   enabled: boolean;
   /** Minutes an instrument must be quiet before an alarm is RAISED. */
   graceMinutes: number;
-  severity: InactivitySeverity;
 }
 
 export const INACTIVITY_GRACE_MIN = 0;
@@ -53,13 +50,6 @@ export const INACTIVITY_ALARMS_DEFAULT: InactivityAlarmConfig = {
    * installation with a 24-hour window does not raise after a minute.
    */
   graceMinutes: 15,
-  /**
-   * MAJOR, not CRITICAL. Losing sight of an instrument is not the same as knowing
-   * it is out of spec: an inactivity alarm says the record has a hole in it, an
-   * instrument-limit alarm (CRITICAL) says the product was outside its
-   * specification. Ranking them the same makes the ranking useless.
-   */
-  severity: 'MAJOR',
 };
 
 /** What the Alarms page's Type column calls one of these. */
@@ -93,7 +83,68 @@ export function describeInactivity(graceMinutes: number): string {
   return `no telemetry for more than ${m} minute${m === 1 ? '' : 's'}`;
 }
 
-/** The Limit column's cell for an inactivity alarm: `quiet > 15m`. */
-export function inactivityLimitText(graceMinutes: number): string {
-  return `quiet > ${Math.round(graceMinutes)}m`;
+
+/**
+ * What the three VALUE columns say for an inactivity alarm, all three
+ * administered in Config → Inactivity Alarms.
+ *
+ * These cells are empty on an inactivity row and cannot be anything else: the
+ * alarm is raised by the ABSENCE of a reading (`triggeredValue` is null by
+ * design — see the worker, where a number there "would be an invention") and it
+ * clears because telemetry RETURNED, not because a reading came back inside a
+ * bound (`clearedValue` is null for the same reason). A bare `—` in both reads
+ * as a rendering fault on a §11 table, so the cells carry a word instead.
+ *
+ * **Read LIVE, not frozen onto the alarm** — the same treatment as the four
+ * status wordings in `alarm-limits`. Re-wording a column re-phrases every row;
+ * the THRESHOLD underneath the Limit column stays frozen on the alarm, which is
+ * the part an inspector is entitled to see unchanged.
+ */
+export interface InactivityColumnTexts {
+  /** The Generated Value cell. */
+  generatedValue: string;
+  /** The Limit cell. A TEMPLATE — see INACTIVITY_MINUTES_TOKEN. */
+  limit: string;
+  /** The Cleared Value cell. */
+  clearedValue: string;
+}
+
+/**
+ * The placeholder the Limit template MUST contain, replaced with the grace this
+ * alarm was FROZEN against.
+ *
+ * It is required rather than optional on purpose. The other two cells are pure
+ * wording with no number to lose, but the Limit cell states the threshold the
+ * alarm actually fired against, and an admin must not be able to delete that by
+ * typing over it — the same reasoning that makes a blank status text fall back
+ * to the default instead of rendering an invisible status.
+ */
+export const INACTIVITY_MINUTES_TOKEN = '{minutes}';
+
+export const INACTIVITY_TEXT_DEFAULT: InactivityColumnTexts = {
+  /** Short on purpose: the Alarms table is twelve columns and width is the
+   *  constraint that pushed the Acknowledge button off screen once already. */
+  generatedValue: 'No data',
+  limit: `quiet > ${INACTIVITY_MINUTES_TOKEN}m`,
+  clearedValue: 'Data resumed',
+};
+
+/**
+ * The Limit column's cell for an inactivity alarm: `quiet > 15m` by default.
+ *
+ * `graceMinutes` comes from the alarm's FROZEN snapshot, so lengthening the
+ * grace today does not rewrite what a past outage says it breached.
+ *
+ * A template that does not contain {@link INACTIVITY_MINUTES_TOKEN} is REJECTED
+ * in favour of the shipped default — honouring it would let an admin erase the
+ * threshold from a regulated record by typing a fixed string into a config box.
+ * Same shape as the blank-falls-back-to-default rule on the status wordings.
+ */
+export function inactivityLimitText(graceMinutes: number, template?: string): string {
+  const minutes = String(Math.round(graceMinutes));
+  const t = template?.trim();
+  const usable = t && t.includes(INACTIVITY_MINUTES_TOKEN) ? t : INACTIVITY_TEXT_DEFAULT.limit;
+  // `split/join`, not `replace`, so a template naming the token twice
+  // ("quiet > {minutes}m ({minutes} min)") substitutes both.
+  return usable.split(INACTIVITY_MINUTES_TOKEN).join(minutes);
 }

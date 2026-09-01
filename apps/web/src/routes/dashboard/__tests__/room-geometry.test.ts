@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { wallSegments, doorPlacements, type RoomDoor } from '../room-geometry';
-import { tileLayout } from '../room-geometry';
+import { tileLayout, captionHeader } from '../room-geometry';
 
 /** A 100x100 box at the origin — every expected number below is readable by hand. */
 const box = { x: 0, y: 0, w: 100, h: 100 };
@@ -179,5 +179,94 @@ describe('tileLayout — column count', () => {
   it('never uses more columns than there are instruments', () => {
     const l = tileLayout({ x: 0, y: 0, w: 300, h: 200 }, 2);
     expect(l.cols).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('tileLayout header reservation', () => {
+  // A TRACED room prints four caption lines (code, name, ceiling height, floor
+  // dimensions) where a generated room prints one. The view passes the space
+  // those need; if tileLayout ignored it, the first row of readings would be
+  // drawn on top of the dimension text — legible enough in a screenshot to pass
+  // review, and wrong on a wall display at three metres.
+  const box = { x: 0, y: 0, w: 300, h: 200 };
+
+  it('starts the tiles below the space the caller reserved', () => {
+    expect(tileLayout(box, 1, 44).bodyTop).toBe(44);
+    expect(tileLayout(box, 1).bodyTop).toBe(14);
+  });
+
+  it('sizes the tile grid from what is LEFT, not from the whole box', () => {
+    // The bug this catches: reserving header space for the captions but still
+    // laying tiles out over the full height, so they overrun the bottom wall.
+    const generated = tileLayout(box, 2);
+    const traced = tileLayout(box, 2, 44);
+    expect(traced.tile.h).toBeLessThan(generated.tile.h);
+    expect(traced.bodyTop + traced.rows * traced.tile.h).toBeLessThanOrEqual(box.y + box.h + 0.001);
+  });
+
+  it('falls back to code-only when the captions leave no room for a tile', () => {
+    // A small room that would have shown its readings must not show them
+    // half-overlapping its own dimension line; it shows the captions and says
+    // how many instruments it is hiding.
+    const small = { x: 0, y: 0, w: 300, h: 50 };
+    expect(tileLayout(small, 1, 44).step).toBe('CODE_ONLY');
+    expect(tileLayout(small, 1, 44).hidden).toBe(1);
+  });
+
+  it('leaves every existing caller unchanged', () => {
+    // The parameter defaults, so no generated plan moves by a pixel.
+    for (const n of [0, 1, 2, 5, 9]) {
+      expect(tileLayout(box, n, 14)).toEqual(tileLayout(box, n));
+    }
+  });
+});
+
+describe('captionHeader', () => {
+  // The competition this resolves: a traced room wants four caption lines where
+  // a generated one prints one, and that space comes out of the tile grid.
+  const opts = { name: true, lines: 2 };
+
+  it('gives a tall room its captions', () => {
+    // SAMPLE PREPARATION-sized, 353x345 in viewBox units.
+    const fit = captionHeader({ x: 0, y: 0, w: 353, h: 345 }, 1, opts);
+    expect(fit.captions).toBe(true);
+    expect(fit.headerH).toBe(44);
+  });
+
+  it('gives the tightest real QC room its captions AND its reading', () => {
+    // SAMPLE STORAGE ROOM, 243x103 — the smallest instrument room on the plan,
+    // and the one that would break first if the caption cost grew.
+    const box = { x: 0, y: 0, w: 243, h: 103 };
+    const fit = captionHeader(box, 1, opts);
+    expect(fit.captions).toBe(true);
+    expect(tileLayout(box, 1, fit.headerH).visible).toBe(1);
+  });
+
+  it('drops the captions rather than hide a reading', () => {
+    // The whole point. A room short enough that reserving caption space costs
+    // an instrument shows the instrument, not the ceiling height.
+    const box = { x: 0, y: 0, w: 240, h: 62 };
+    const withCaptions = tileLayout(box, 1, 44).visible;
+    const fit = captionHeader(box, 1, opts);
+    if (withCaptions < tileLayout(box, 1).visible) {
+      expect(fit.captions).toBe(false);
+      expect(fit.headerH).toBe(14);
+    }
+    // Whichever branch was taken, the reading must survive it.
+    expect(tileLayout(box, 1, fit.headerH).visible).toBe(tileLayout(box, 1).visible);
+  });
+
+  it('never reserves more header than the room is tall', () => {
+    expect(captionHeader({ x: 0, y: 0, w: 200, h: 30 }, 1, opts).captions).toBe(false);
+  });
+
+  it('captions a room with no instruments, which has no readings to lose', () => {
+    // A corridor or an office still carries its dimensions on the drawing.
+    expect(captionHeader({ x: 0, y: 0, w: 300, h: 60 }, 0, opts).captions).toBe(true);
+  });
+
+  it('asks for nothing when the drawing gave the room no captions', () => {
+    const fit = captionHeader({ x: 0, y: 0, w: 353, h: 345 }, 1, { name: true, lines: 0 });
+    expect(fit).toEqual({ headerH: 14, captions: false });
   });
 });

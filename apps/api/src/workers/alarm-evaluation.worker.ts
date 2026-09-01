@@ -1,16 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { buildTelemetryOverview } from '../modules/instruments/telemetry-overview.js';
-import { resolveLocationIds } from '../modules/functional-locations/tree.js';
-import type { FlType } from '../modules/functional-locations/validation.js';
-import {
-  decide,
-  isBreaching,
-  describeRule,
-  ruleSnapshot,
-  type RuleShape,
-  type Sample,
-} from '../modules/alarms/decide.js';
 import { enqueueAlarmNotification } from '../modules/alarms/enqueue-notification.js';
 import { enqueueAlarmWebhook } from '../modules/alarm-webhooks/enqueue.js';
 import {
@@ -21,11 +11,24 @@ import {
   type LimitKind,
   type LimitMetric,
 } from '../modules/alarms/limit-decide.js';
-import { loadLimitConfig, limitsFor } from '../modules/alarms/load-limits.js';
+import { loadLimitConfig, limitsFor, enabledBoundsFor } from '../modules/alarms/load-limits.js';
 import { loadInactivityConfig } from '../modules/alarms/load-inactivity.js';
 import { decideInactivity, quietMinutes } from '../modules/alarms/inactivity-decide.js';
 import { loadActiveWindowMinutes } from '../modules/instruments/telemetry-overview.js';
-import { describeInactivity, type InactivitySnapshot } from '@digilog/shared';
+import { loadRs485Config } from '../modules/alarms/load-rs485.js';
+import { loadRangeConfig, rangeFor } from '../modules/alarms/load-range.js';
+import { loadAlarmTypeNames } from '../modules/alarms/load-type-names.js';
+import { decideRange } from '../modules/alarms/range-decide.js';
+import { decideRs485 } from '../modules/alarms/rs485-decide.js';
+import {
+  ALARM_SEVERITY_FALLBACK,
+  describeInactivity, type InactivitySnapshot,
+  describeRs485, renderRawValue, RS485_TYPE_LABEL,
+  type Rs485Metric, type Rs485Snapshot,
+  describeRangeFault, formatDecimals, SENSOR_RANGE_TYPE_LABEL,
+  alarmTypeKeyFor, alarmTypeName,
+  type RangeMetric, type SensorRangeSnapshot,
+} from '@digilog/shared';
 import type { LimitBound } from '@digilog/shared';
 import { logger } from '../lib/logger.js';
 
@@ -44,43 +47,6 @@ import { logger } from '../lib/logger.js';
  * is only I/O around it.
  */
 
-/**
- * When the current breach run started, for rules with a delay.
- *
- * Derived from history rather than kept as worker state: a restart must not reset every
- * pending delay, and there is nowhere to keep in-memory state in a single-process API
- * that is expected to be restarted freely.
- *
- * Returns null when no breach start can be established, which `decide()` treats as
- * "just started" — the safe direction, because it delays rather than raises.
- */
-async function breachStartedAt(
-  instrumentId: string,
-  keys: string[],
-  rule: RuleShape,
-  windowSeconds: number,
-): Promise<Date | null> {
-  if (keys.length === 0) return null;
-  const since = new Date(Date.now() - Math.max(windowSeconds, 60) * 1000);
-  const rows = await prisma.$queryRaw<{ value: unknown; ts: Date }[]>`
-    SELECT value, ts FROM instrument_telemetry_history
-    WHERE instrument_id = ${instrumentId}
-      AND key = ANY(${keys})
-      AND ts >= ${since}
-    ORDER BY ts DESC
-    LIMIT 500`;
-
-  // Walk newest → oldest. The breach began at the oldest consecutive breaching
-  // reading; the first NON-breaching reading ends the run.
-  let start: Date | null = null;
-  for (const r of rows) {
-    const v = typeof r.value === 'number' && Number.isFinite(r.value) ? r.value : null;
-    const breaching = isBreaching(rule, { value: v, offline: false, breachingSince: null });
-    if (!breaching) break;
-    start = r.ts;
-  }
-  return start;
-}
 
 /**
  * Which config bound a (metric, kind) pair names.
@@ -112,7 +78,6 @@ function snapshotDecimals(snapshot: unknown): number | null {
 }
 
 export interface AlarmEvaluationResult {
-  rulesEvaluated: number;
   raised: number;
   cleared: number;
   /**
@@ -129,193 +94,44 @@ export interface AlarmEvaluationResult {
    * which of them ran.
    */
   inactivityEvaluated: number;
+  /**
+   * How many instrument/metric PAIRS the RS485 pass examined — two per
+   * instrument, not one, because a failed temperature probe and a failed
+   * humidity probe on one logger are independent faults holding independent
+   * alarms. Separate from the other two counts for the same reason they are
+   * separate from each other: all three passes are independently switchable.
+   */
+  rs485Evaluated: number;
+  /**
+   * How many instrument/metric pairs the SENSOR RANGE pass examined. Separate
+   * from the other three for the same reason they are separate from each other:
+   * every pass is independently switchable, and one number could not say which
+   * of them ran.
+   */
+  rangeEvaluated: number;
 }
 
 export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationResult> {
-  const [rules, locations, overview] = await Promise.all([
-    prisma.alarmRule.findMany({ where: { isActive: true } }),
-    prisma.functionalLocation.findMany({ select: { id: true, name: true, type: true, parentId: true } }),
-    buildTelemetryOverview({}),
-  ]);
-  // NO early return on rules.length === 0. Instrument-limit alarms have no rules at
-  // all, so skipping here would disable the entire limit feature on exactly the sites
-  // that rely on it — the rule loop over an empty array is already a no-op.
-  const nodes = locations.map((l) => ({ ...l, type: l.type as FlType }));
-  const byInstrument = new Map(overview.map((r) => [r.instrumentId, r]));
+  // What each kind of alarm is CALLED. Read once per pass and stamped onto every
+  // notification and webhook payload, from the SAME resolver the browser labels
+  // the row with — so an email cannot call an alarm something the table does not.
+  // Before this, a limit breach printed `TEMPERATURE HIGH limit` in an email while
+  // the Alarms page beside it said `High Temperature`.
+  const typeNames = await loadAlarmTypeNames();
+  /** The administered name for an alarm, or a fallback for a rule alarm, which is
+   *  named by its own rule. */
+  const typeName = (source: string, metric: string, limitKind: string | null, fallback: string) => {
+    const key = alarmTypeKeyFor(source, metric, limitKind);
+    return key ? alarmTypeName(typeNames, key) : fallback;
+  };
 
-  // Which instruments already have an ACTIVE alarm for which rule. One query rather
-  // than one per instrument: this runs every minute.
-  const active = await prisma.alarm.findMany({
-    // `source: 'RULE'` is not redundant with the ruleId filter — it states the intent at
-    // the query, so a later widening of this where clause cannot silently pull
-    // instrument-limit alarms into a Map keyed on ruleId.
-    where: { state: 'ACTIVE', source: 'RULE', ruleId: { in: rules.map((r) => r.id) } },
-    select: { id: true, ruleId: true, instrumentId: true },
-  });
-  const activeKey = (ruleId: string, instrumentId: string) => `${ruleId}:${instrumentId}`;
-  // This worker only ever evaluates rule-based alarms (queried above by ruleId IN
-  // rule ids), so ruleId is never null here in practice — but the column is now
-  // nullable for instrument-limit alarms, so narrow explicitly rather than assert.
-  const activeMap = new Map(
-    active.filter((a): a is typeof a & { ruleId: string } => a.ruleId !== null)
-      .map((a) => [activeKey(a.ruleId, a.instrumentId), a.id])
-  );
+  // Alarm RULES were removed 2026-08-31 — see `modules/alarms/routes.ts` for
+  // the note. Every remaining source derives from the instrument itself, so
+  // this pass needs only the fleet overview.
+  const overview = await buildTelemetryOverview({});
 
   let raised = 0;
   let cleared = 0;
-
-  for (const rule of rules) {
-    // A rule targets ONE instrument or a functional location. A location expands
-    // through resolveLocationIds, so a rule on a Block covers its Areas — the same
-    // expansion the dashboard and visibility scope use.
-    let targetIds: string[] = [];
-    if (rule.instrumentId) {
-      targetIds = [rule.instrumentId];
-    } else if (rule.functionalLocationId) {
-      // Expanded through resolveLocationIds, so a rule on a BLOCK covers its Areas —
-      // the same expansion the dashboard and the visibility scope use. An unknown id
-      // resolves to [], which selects nothing rather than everything.
-      const scope = resolveLocationIds(rule.functionalLocationId, nodes);
-      const members = await prisma.instrument.findMany({
-        where: { functionalLocationId: { in: scope } },
-        select: { id: true },
-      });
-      targetIds = members.map((m) => m.id);
-    }
-
-    const shape: RuleShape = {
-      id: rule.id,
-      metric: rule.metric,
-      comparison: rule.comparison,
-      thresholdLow: rule.thresholdLow,
-      thresholdHigh: rule.thresholdHigh,
-      delaySeconds: rule.delaySeconds,
-    };
-
-    for (const instrumentId of targetIds) {
-      const row = byInstrument.get(instrumentId);
-      if (!row) continue;
-
-      const value = rule.metric === 'TEMPERATURE'
-        ? row.temperature?.value ?? null
-        : rule.metric === 'HUMIDITY'
-          ? row.humidity?.value ?? null
-          : null;
-
-      const sample: Sample = {
-        value,
-        offline: !row.reporting,
-        breachingSince: null,
-      };
-
-      // Only pay for the history query when a delay is configured AND the condition
-      // is currently met — otherwise it cannot change the outcome.
-      if (rule.delaySeconds > 0 && rule.metric !== 'OFFLINE' && isBreaching(shape, sample)) {
-        const keys = rule.metric === 'TEMPERATURE'
-          ? (row.temperature?.key ? [row.temperature.key] : [])
-          : (row.humidity?.key ? [row.humidity.key] : []);
-        sample.breachingSince = await breachStartedAt(instrumentId, keys, shape, rule.delaySeconds * 3);
-      }
-
-      const existing = activeMap.get(activeKey(rule.id, instrumentId));
-      const decision = decide(shape, sample, Boolean(existing), now);
-
-      if (decision.action === 'raise') {
-        const created = await prisma.alarm.create({
-          data: {
-            ruleId: rule.id,
-            // Frozen here, on purpose: editing or deleting the rule must not change
-            // what this alarm says about itself.
-            ruleSnapshot: {
-              ...ruleSnapshot({ ...shape, name: rule.name, severity: rule.severity }),
-              description: describeRule(shape),
-              // The instrument's display precision AS IT WAS. Frozen for the same
-              // reason the threshold is: an inspector reading "fired at 24.0"
-              // must see the number the operator saw, and editing
-              // `temp_decimals` today must not re-render a year-old excursion.
-              decimals: rule.metric === 'HUMIDITY' ? row.decimals.humidity : row.decimals.temperature,
-              snapshotAt: now.toISOString(),
-            },
-            instrumentId,
-            metric: rule.metric,
-            triggeredValue: rule.metric === 'OFFLINE' ? null : value,
-            severity: rule.severity,
-            state: 'ACTIVE',
-            raisedAt: now,
-          },
-        });
-        raised += 1;
-        // After the commit. Awaited, because this is a queue INSERT and not a delivery —
-        // it costs a round trip, not an SMTP handshake. It cannot fail the pass either
-        // way: enqueueAlarmNotification never throws, since the alarm is the regulated
-        // record and the notification is a courtesy on top of it.
-        await enqueueAlarmNotification('raised', {
-          alarmId: created.id,
-          instrumentId,
-          instrumentCode: row.code,
-          instrumentName: row.name,
-          metric: rule.metric,
-          severity: rule.severity,
-          ruleName: rule.name,
-          condition: describeRule(shape),
-          triggeredValue: created.triggeredValue,
-          decimals: rule.metric === 'HUMIDITY' ? row.decimals.humidity : row.decimals.temperature,
-          raisedAt: created.raisedAt,
-        });
-        await enqueueAlarmWebhook('RAISED', {
-          alarmId: created.id,
-          instrumentId,
-          instrumentCode: row.code,
-          instrumentName: row.name,
-          metric: rule.metric,
-          severity: rule.severity,
-          ruleName: rule.name,
-          condition: describeRule(shape),
-          triggeredValue: created.triggeredValue,
-          decimals: rule.metric === 'HUMIDITY' ? row.decimals.humidity : row.decimals.temperature,
-          raisedAt: created.raisedAt,
-        });
-      } else if (decision.action === 'clear' && existing) {
-        // Acknowledgement fields are untouched: a cleared-but-unacknowledged alarm is
-        // the overnight excursion someone must still answer for in the morning.
-        const closed = await prisma.alarm.update({
-          where: { id: existing },
-          data: { state: 'CLEARED', clearedAt: now },
-        });
-        cleared += 1;
-        await enqueueAlarmNotification('cleared', {
-          alarmId: closed.id,
-          instrumentId,
-          instrumentCode: row.code,
-          instrumentName: row.name,
-          metric: closed.metric,
-          severity: closed.severity,
-          ruleName: rule.name,
-          condition: describeRule(shape),
-          triggeredValue: closed.triggeredValue,
-          decimals: snapshotDecimals(closed.ruleSnapshot)
-            ?? (closed.metric === 'HUMIDITY' ? row.decimals.humidity : row.decimals.temperature),
-          raisedAt: closed.raisedAt,
-          clearedAt: closed.clearedAt,
-        });
-        await enqueueAlarmWebhook('CLEARED', {
-          alarmId: closed.id,
-          instrumentId,
-          instrumentCode: row.code,
-          instrumentName: row.name,
-          metric: closed.metric,
-          severity: closed.severity,
-          ruleName: rule.name,
-          condition: describeRule(shape),
-          triggeredValue: closed.triggeredValue,
-          decimals: snapshotDecimals(closed.ruleSnapshot)
-            ?? (closed.metric === 'HUMIDITY' ? row.decimals.humidity : row.decimals.temperature),
-          raisedAt: closed.raisedAt,
-          clearedAt: closed.clearedAt,
-        });
-      }
-    }
-  }
 
   // ─── Instrument-limit pass ────────────────────────────────────────────────
   //
@@ -360,14 +176,68 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
         humidity: row.humidity?.value ?? null,
       };
 
+      // Which of this instrument's four bounds are actually IN FORCE, from its own
+      // `Enable_Temp_NMT` / `Enable_Temp_NLT` / `Enable_Humid_NMT` /
+      // `Enable_Humid_NLT` attributes. Absent means enabled, so an instrument
+      // carrying no flags behaves exactly as it did before these existed.
+      const boundEnabled = enabledBoundsFor(limitCfg.enableKeys, attributes);
+
       for (const check of checkLimits(limits, reading)) {
         const key = openKey(row.instrumentId, check.metric, check.limitKind);
         const existingId = openMap.get(key);
+        const bound = LIMIT_BOUND[check.metric][check.limitKind];
+
+        // ── The bound is switched OFF ───────────────────────────────────────
+        //
+        // It cannot raise, whatever the reading does. That is the whole point:
+        // an instrument here can carry `High Humidity Limit = 0` meaning "not
+        // judged", and a 0 is a real bound to this system — 17 CRITICAL alarms
+        // were open at 44-50 %RH against exactly that when this was written.
+        //
+        // And an alarm ALREADY open on it is CLEARED (operator, 2026-08-31).
+        // This is a deliberate departure from the rule that a config change never
+        // closes a regulated record — the rule that leaves a renamed attribute's
+        // alarm stranded. The reasoning does not carry here: an alarm raised
+        // against a bound nobody is enforcing asserts an ongoing excursion that is
+        // not real, and it can NEVER clear on its own, because the reading it
+        // waits for (humidity below 0) cannot occur. A permanently red row is a
+        // worse record than an attributable close. `raisedAt` and
+        // `triggeredValue` are untouched, so the history is closed, not erased.
+        if (!boundEnabled[bound]) {
+          if (!existingId) continue;
+          const raw = check.metric === 'TEMPERATURE' ? reading.temperature : reading.humidity;
+          const closed = await prisma.alarm.update({
+            where: { id: existingId },
+            // Acknowledgement untouched, as on every other clear path: an
+            // excursion that ended without a signature is still owed an answer.
+            data: { state: 'CLEARED', clearedAt: now, clearedValue: finiteOrNull(raw) },
+          });
+          cleared += 1;
+          // Says WHY, rather than reusing the frozen "returned to spec" wording —
+          // this alarm did not end because the condition ended.
+          const condition = `${check.metric === 'TEMPERATURE' ? 'temperature' : 'humidity'} `
+            + `${check.limitKind === 'HIGH' ? 'high' : 'low'} limit is no longer enforced for this instrument`;
+          const payload = {
+            alarmId: closed.id,
+            instrumentId: row.instrumentId,
+            instrumentCode: row.code,
+            instrumentName: row.name,
+            metric: closed.metric,
+            ruleName: typeName('INSTRUMENT_LIMIT', check.metric, check.limitKind, `${check.metric} ${check.limitKind} limit`),
+            condition,
+            triggeredValue: closed.clearedValue,
+            decimals: snapshotDecimals(closed.ruleSnapshot)
+              ?? (check.metric === 'HUMIDITY' ? row.decimals.humidity : row.decimals.temperature),
+            raisedAt: closed.raisedAt,
+            clearedAt: closed.clearedAt,
+          };
+          await enqueueAlarmNotification('cleared', payload);
+          await enqueueAlarmWebhook('CLEARED', payload);
+          continue;
+        }
 
         if (check.breaching && !existingId) {
-          const bound = LIMIT_BOUND[check.metric][check.limitKind];
           const data: Prisma.AlarmUncheckedCreateInput = {
-              ruleId: null,
               source: 'INSTRUMENT_LIMIT',
               limitKind: check.limitKind,
               // Frozen here: changing the attribute later must not change what
@@ -388,7 +258,7 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
               instrumentId: row.instrumentId,
               metric: check.metric,
               triggeredValue: check.metric === 'TEMPERATURE' ? reading.temperature : reading.humidity,
-              severity: limitCfg.severity,
+              severity: ALARM_SEVERITY_FALLBACK,
               state: 'ACTIVE',
               raisedAt: now,
           };
@@ -423,8 +293,7 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
             instrumentCode: row.code,
             instrumentName: row.name,
             metric: check.metric,
-            severity: limitCfg.severity,
-            ruleName: `${check.metric} ${check.limitKind} limit`,
+            ruleName: typeName('INSTRUMENT_LIMIT', check.metric, check.limitKind, `${check.metric} ${check.limitKind} limit`),
             condition: describeLimit(check),
             triggeredValue: created.triggeredValue,
             decimals: check.metric === 'HUMIDITY' ? row.decimals.humidity : row.decimals.temperature,
@@ -436,8 +305,7 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
             instrumentCode: row.code,
             instrumentName: row.name,
             metric: check.metric,
-            severity: limitCfg.severity,
-            ruleName: `${check.metric} ${check.limitKind} limit`,
+            ruleName: typeName('INSTRUMENT_LIMIT', check.metric, check.limitKind, `${check.metric} ${check.limitKind} limit`),
             condition: describeLimit(check),
             triggeredValue: created.triggeredValue,
             decimals: check.metric === 'HUMIDITY' ? row.decimals.humidity : row.decimals.temperature,
@@ -495,8 +363,7 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
             instrumentCode: row.code,
             instrumentName: row.name,
             metric: closed.metric,
-            severity: closed.severity,
-            ruleName: `${check.metric} ${check.limitKind} limit`,
+            ruleName: typeName('INSTRUMENT_LIMIT', check.metric, check.limitKind, `${check.metric} ${check.limitKind} limit`),
             condition,
             triggeredValue: closed.triggeredValue,
             decimals: snapshotDecimals(closed.ruleSnapshot)
@@ -510,8 +377,7 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
             instrumentCode: row.code,
             instrumentName: row.name,
             metric: closed.metric,
-            severity: closed.severity,
-            ruleName: `${check.metric} ${check.limitKind} limit`,
+            ruleName: typeName('INSTRUMENT_LIMIT', check.metric, check.limitKind, `${check.metric} ${check.limitKind} limit`),
             condition,
             triggeredValue: closed.triggeredValue,
             decimals: snapshotDecimals(closed.ruleSnapshot)
@@ -545,7 +411,9 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
       prisma.instrument.findMany({ select: { id: true, lastSeenAt: true, expectedIntervalSec: true } }),
       prisma.alarm.findMany({
         where: { source: 'INACTIVITY', state: 'ACTIVE' },
-        select: { id: true, instrumentId: true },
+        // `ruleSnapshot` so the clear can MERGE onto the frozen raise fields
+        // rather than overwrite them — see the clear branch below.
+        select: { id: true, instrumentId: true, ruleSnapshot: true },
       }),
     ]);
     const seenById = new Map(seen.map((i) => [i.id, i]));
@@ -591,7 +459,6 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
         try {
           created = await prisma.alarm.create({
             data: {
-              ruleId: null,
               source: 'INACTIVITY',
               limitKind: null,
               // OFFLINE already means "not reporting". Reusing it keeps the Alarms
@@ -603,7 +470,7 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
               triggeredValue: null,
               ruleSnapshot: snapshot as unknown as Prisma.InputJsonObject,
               instrumentId: row.instrumentId,
-              severity: inactivityCfg.severity,
+              severity: ALARM_SEVERITY_FALLBACK,
               state: 'ACTIVE',
               raisedAt: now,
             },
@@ -626,8 +493,7 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
           instrumentCode: row.code,
           instrumentName: row.name,
           metric: 'OFFLINE',
-          severity: inactivityCfg.severity,
-          ruleName: 'Inactivity',
+          ruleName: typeName('INACTIVITY', 'OFFLINE', null, 'Inactivity'),
           condition: quiet === null ? condition : `${condition} (silent for ${quiet} minutes)`,
           triggeredValue: null,
           decimals: row.decimals.temperature,
@@ -636,11 +502,58 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
         await enqueueAlarmNotification('raised', payload);
         await enqueueAlarmWebhook('RAISED', payload);
       } else if (action === 'clear' && open) {
+        /**
+         * THE READING THAT ENDED THE OUTAGE.
+         *
+         * This alarm is raised by the ABSENCE of a reading, so the arrival of one
+         * is the clear signal — and until 2026-09-01 that arrival was reported as
+         * an administered word ("Data resumed") with no number behind it, because
+         * nothing wrote `clearedValue`. The operator asked for the value instead:
+         * a wording says the instrument came back, the number says what it came
+         * back reading.
+         *
+         * Temperature first, humidity second — the order the dashboard resolves a
+         * slot in, so the Cleared Value column and the tile agree about which
+         * quantity a bare number belongs to. NULL when the pass cleared on
+         * presence alone with no numeric slot yet; `clearedText()` falls back to
+         * the wording for exactly that case, which is why the wording stays in
+         * the config rather than being deleted with this change.
+         *
+         * The slot, its key and its precision are frozen alongside it. A Float in
+         * a column shared by five alarm sources is unattributable on its own, and
+         * a §11 record must not need today's alias configuration re-read to say
+         * what its own number meant.
+         */
+        const resumeSlot = row.temperature ? 'temperature' as const
+          : row.humidity ? 'humidity' as const
+            : null;
+        const resume = resumeSlot === 'temperature' ? row.temperature
+          : resumeSlot === 'humidity' ? row.humidity
+            : null;
+
+        // Merged onto the snapshot, never replacing it: everything already there
+        // describes why this alarm was RAISED and must survive untouched.
+        const clearSnapshot = open.ruleSnapshot
+          && typeof open.ruleSnapshot === 'object'
+          && !Array.isArray(open.ruleSnapshot)
+          ? { ...(open.ruleSnapshot as Record<string, unknown>) }
+          : {};
+        if (resume && resumeSlot) {
+          clearSnapshot.clearedSlot = resumeSlot;
+          clearSnapshot.clearedKey = resume.key;
+          clearSnapshot.clearedDecimals = row.decimals[resumeSlot];
+        }
+
         // Acknowledgement fields untouched: an outage that ended without a
         // signature is still owed an answer.
         const closed = await prisma.alarm.update({
           where: { id: open.id },
-          data: { state: 'CLEARED', clearedAt: now },
+          data: {
+            state: 'CLEARED',
+            clearedAt: now,
+            clearedValue: resume ? resume.value : null,
+            ruleSnapshot: clearSnapshot as unknown as Prisma.InputJsonObject,
+          },
         });
         cleared += 1;
 
@@ -658,13 +571,15 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
           instrumentCode: row.code,
           instrumentName: row.name,
           metric: closed.metric,
-          severity: closed.severity,
-          ruleName: 'Inactivity',
+          ruleName: typeName('INACTIVITY', 'OFFLINE', null, 'Inactivity'),
           condition: typeof snapshotDescription === 'string' && snapshotDescription
             ? snapshotDescription
             : describeInactivity(inactivityCfg.graceMinutes),
-          triggeredValue: null,
-          decimals: row.decimals.temperature,
+          // The reading that ended the outage, so the message and the row agree.
+          // Still null when nothing numeric arrived — `${value}` must not print a
+          // number the record does not hold.
+          triggeredValue: closed.clearedValue,
+          decimals: resumeSlot ? row.decimals[resumeSlot] : row.decimals.temperature,
           raisedAt: closed.raisedAt,
           clearedAt: closed.clearedAt,
         };
@@ -674,7 +589,338 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
     }
   }
 
-  return { rulesEvaluated: rules.length, raised, cleared, instrumentsEvaluated, inactivityEvaluated };
+  // ─── RS485 sensor-failure pass ────────────────────────────────────────────
+  //
+  // Additive to the other three, and the ONLY one that can see this fault. When
+  // an RS485 probe or its bus fails, the logger keeps talking and sends `NA`
+  // where the reading should be, so:
+  //   - the inactivity pass sees a REPORTING instrument — `last_seen_at` was
+  //     stamped by the very payload carrying the bad value;
+  //   - the limit pass sees `null`, because a non-numeric reading is discarded
+  //     before any comparison, and a null is deliberately not a breach;
+  //   - the dashboard renders an empty cell, indistinguishable from an
+  //     instrument that has never reported.
+  // Before this pass existed a dead probe looked exactly like a healthy plant
+  // with a gap in it, and nothing in the system said otherwise.
+  //
+  // Identity is the INSTRUMENT AND THE METRIC, unlike the inactivity pass. Two
+  // probes on one logger fail independently and must be able to hold two open
+  // alarms at once — which is what `alarms_active_rs485_unique` is keyed on.
+  let rs485Evaluated = 0;
+  const rs485Cfg = await loadRs485Config();
+  if (rs485Cfg.enabled) {
+    const openRs485 = await prisma.alarm.findMany({
+      where: { state: 'ACTIVE', source: 'RS485_FAILURE' },
+      select: { id: true, instrumentId: true, metric: true },
+    });
+    // Keyed by instrument AND metric. A map on instrumentId alone would let an
+    // open temperature failure hide a humidity one, and the second fault would
+    // never be recorded.
+    const openByKey = new Map(openRs485.map((a) => [`${a.instrumentId}:${a.metric}`, a]));
+    const METRICS: Rs485Metric[] = ['TEMPERATURE', 'HUMIDITY'];
+
+    for (const row of overview) {
+      for (const metric of METRICS) {
+        rs485Evaluated += 1;
+        // The slot as the OVERVIEW resolved it, value and all. Deliberately not
+        // re-resolved here: the alias mapping is administered, it has drifted on
+        // this installation before, and an alarm naming a different key than the
+        // dashboard shows would be unanswerable.
+        const slot = metric === 'TEMPERATURE' ? row.rawSlots.temperature : row.rawSlots.humidity;
+        const open = openByKey.get(`${row.instrumentId}:${metric}`);
+
+        const action = decideRs485({
+          // `undefined` means the instrument sent nothing on any alias for this
+          // slot — silence, which is the INACTIVITY source's question, not this
+          // one's. A value that actually arrived is judged, whatever it is.
+          value: slot ? slot.value : undefined,
+          isActive: row.isActive,
+          hasOpenAlarm: Boolean(open),
+        });
+
+        if (action === 'raise' && slot) {
+          const rawValue = renderRawValue(slot.value);
+          const condition = describeRs485(metric, rawValue);
+          const snapshot: Rs485Snapshot = {
+            kind: 'RS485',
+            metric,
+            key: slot.key,
+            // The evidence, and the reason the Generated Value column shows the
+            // offending text rather than an administered wording.
+            rawValue,
+            valueType: slot.valueType,
+            readingAt: slot.ts,
+            decimals: metric === 'TEMPERATURE' ? row.decimals.temperature : row.decimals.humidity,
+            description: condition,
+            snapshotAt: now.toISOString(),
+          };
+
+          // Same guard and the same reasoning as the other two passes: the
+          // partial unique index is what actually stops two overlapping cycles
+          // opening one fault, and a P2002 means somebody else opened it — a
+          // success for the system. Caught rather than thrown, because an
+          // uncaught throw abandons every remaining instrument in the cycle.
+          let created;
+          try {
+            created = await prisma.alarm.create({
+              data: {
+                source: 'RS485_FAILURE',
+                limitKind: null,
+                metric,
+                // No reading. The value that tripped this alarm is, by
+                // definition, not a number; it is on the snapshot instead.
+                triggeredValue: null,
+                ruleSnapshot: snapshot as unknown as Prisma.InputJsonObject,
+                instrumentId: row.instrumentId,
+                severity: ALARM_SEVERITY_FALLBACK,
+                state: 'ACTIVE',
+                raisedAt: now,
+              },
+            });
+          } catch (e) {
+            if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+              logger.warn(
+                `[alarms] ${row.code ?? row.instrumentId}: an ACTIVE RS485 ${metric} alarm was opened concurrently; skipping the duplicate`,
+              );
+              continue;
+            }
+            throw e;
+          }
+          raised += 1;
+
+          const payload = {
+            alarmId: created.id,
+            instrumentId: row.instrumentId,
+            instrumentCode: row.code,
+            instrumentName: row.name,
+            metric,
+            ruleName: typeName('RS485_FAILURE', metric, null, RS485_TYPE_LABEL[metric]),
+            condition,
+            // Null for the same reason the column is — there is no number.
+            triggeredValue: null,
+            // ...so the value FIELD prints the operator's configured word instead
+            // of '—'. The raw reading is still named in `condition`, which every
+            // template prints beside it.
+            valueText: rs485Cfg.failureText,
+            decimals: metric === 'TEMPERATURE' ? row.decimals.temperature : row.decimals.humidity,
+            raisedAt: created.raisedAt,
+          };
+          await enqueueAlarmNotification('raised', payload);
+          await enqueueAlarmWebhook('RAISED', payload);
+        } else if (action === 'clear' && open) {
+          // The reading that cleared this IS a number — unlike an inactivity
+          // alarm, which clears on the mere return of telemetry. Recording it
+          // makes the Cleared Value column a real measurement.
+          //
+          // `slot` is non-null whenever `decideRs485` says 'clear', because that
+          // answer requires a numeric value to have been read. The conditional is
+          // a type guard, NOT a second opinion: making it part of the `else if`
+          // would have this branch silently skip whenever the two disagreed, and
+          // a silent skip cannot be tested — it makes an e2e for the clear rule
+          // pass even when the rule is inverted, which is exactly how it was
+          // found.
+          const clearedValue = slot ? finiteOrNull(slot.value) : null;
+          const closed = await prisma.alarm.update({
+            where: { id: open.id },
+            // Acknowledgement fields untouched: a fault that ended without a
+            // signature is still owed an answer.
+            data: { state: 'CLEARED', clearedAt: now, clearedValue },
+          });
+          cleared += 1;
+
+          // From the FROZEN snapshot, never rebuilt from today's reading: the
+          // condition must describe what was wrong, not what is now right.
+          const snapshotDescription = closed.ruleSnapshot
+            && typeof closed.ruleSnapshot === 'object'
+            && !Array.isArray(closed.ruleSnapshot)
+            ? (closed.ruleSnapshot as Record<string, unknown>).description
+            : undefined;
+          const payload = {
+            alarmId: closed.id,
+            instrumentId: row.instrumentId,
+            instrumentCode: row.code,
+            instrumentName: row.name,
+            metric: closed.metric,
+            ruleName: typeName('RS485_FAILURE', metric, null, RS485_TYPE_LABEL[metric]),
+            condition: typeof snapshotDescription === 'string' && snapshotDescription
+              ? snapshotDescription
+              : `${metric === 'TEMPERATURE' ? 'temperature' : 'humidity'} sensor failure`,
+            triggeredValue: clearedValue,
+            decimals: metric === 'TEMPERATURE' ? row.decimals.temperature : row.decimals.humidity,
+            raisedAt: closed.raisedAt,
+            clearedAt: closed.clearedAt,
+          };
+          await enqueueAlarmNotification('cleared', payload);
+          await enqueueAlarmWebhook('CLEARED', payload);
+        }
+      }
+    }
+  }
+
+  // ─── Sensor RANGE pass ────────────────────────────────────────────────────
+  //
+  // A reading outside what the probe can physically measure — above
+  // `High Temperature Range` or below `Low Temperature Range`. NOT a limit
+  // breach: the limits (25 / 0 here) are the product SPEC, the range (50 / -40)
+  // is the hardware's span, and a number beyond it is not a measurement at all.
+  //
+  // **The overview has already withheld those readings** — `rangeError` is set
+  // and the numeric slot is null — so by the time the limit pass above ran, an
+  // out-of-range value could neither raise a spec alarm nor clear one. That
+  // suppression is the operator's decision (2026-08-31) and it lives in
+  // `telemetry-overview.ts`, at the single point where a stored value becomes
+  // "a reading"; this pass only records the fault.
+  //
+  // Identity is the INSTRUMENT AND THE METRIC, like the RS485 pass: two probes
+  // on one logger saturate independently.
+  let rangeEvaluated = 0;
+  const rangeCfg = await loadRangeConfig();
+  if (rangeCfg.enabled) {
+    const openRange = await prisma.alarm.findMany({
+      where: { state: 'ACTIVE', source: 'SENSOR_RANGE' },
+      select: { id: true, instrumentId: true, metric: true },
+    });
+    const openByKey = new Map(openRange.map((a) => [`${a.instrumentId}:${a.metric}`, a]));
+    const METRICS: RangeMetric[] = ['TEMPERATURE', 'HUMIDITY'];
+    // Attributes for the frozen snapshot's key names. The overview resolved the
+    // same bounds from the same rows; this re-reads only to name the KEYS, which
+    // it does not carry.
+    const attrRows = await prisma.instrumentAttribute.findMany({ select: { instrumentId: true, key: true, value: true } });
+    const attrsByInstrument = new Map<string, { key: string; value: string }[]>();
+    for (const a of attrRows) {
+      const list = attrsByInstrument.get(a.instrumentId);
+      if (list) list.push({ key: a.key, value: a.value });
+      else attrsByInstrument.set(a.instrumentId, [{ key: a.key, value: a.value }]);
+    }
+
+    for (const row of overview) {
+      for (const metric of METRICS) {
+        rangeEvaluated += 1;
+        const isTemp = metric === 'TEMPERATURE';
+        const raw = isTemp ? row.rawSlots.temperature : row.rawSlots.humidity;
+        const outOfRange = isTemp ? row.rangeError.temperature : row.rangeError.humidity;
+        // A usable reading is a NUMBER that arrived. A non-numeric value is the
+        // RS485 source's fault, and treating it as "no reading" here is what
+        // stops one broken probe raising two different alarms.
+        const hasReading = raw !== null && typeof raw.value === 'number' && Number.isFinite(raw.value);
+        const open = openByKey.get(`${row.instrumentId}:${metric}`);
+
+        const action = decideRange({
+          outOfRange,
+          hasReading,
+          isActive: row.isActive,
+          hasOpenAlarm: Boolean(open),
+        });
+
+        const decimals = isTemp ? row.decimals.temperature : row.decimals.humidity;
+        const low = isTemp ? row.rangeBounds.temperatureLow : row.rangeBounds.humidityLow;
+        const high = isTemp ? row.rangeBounds.temperatureHigh : row.rangeBounds.humidityHigh;
+
+        if (action === 'raise' && raw && typeof raw.value === 'number') {
+          const shown = formatDecimals(raw.value, decimals) ?? String(raw.value);
+          const condition = describeRangeFault(metric, shown, low, high);
+          const { attributeKeys } = rangeFor(rangeCfg.keys, attrsByInstrument.get(row.instrumentId) ?? []);
+          const snapshot: SensorRangeSnapshot = {
+            kind: 'SENSOR_RANGE',
+            metric,
+            key: raw.key,
+            reading: raw.value,
+            // FROZEN: editing the range attribute tomorrow must not rewrite what
+            // this fault says it exceeded.
+            rangeLow: low,
+            rangeHigh: high,
+            lowKey: isTemp ? attributeKeys.temperatureLow : attributeKeys.humidityLow,
+            highKey: isTemp ? attributeKeys.temperatureHigh : attributeKeys.humidityHigh,
+            decimals,
+            description: condition,
+            snapshotAt: now.toISOString(),
+          };
+
+          let created;
+          try {
+            created = await prisma.alarm.create({
+              data: {
+                source: 'SENSOR_RANGE',
+                limitKind: null,
+                metric,
+                // The reading IS a number, so it is recorded here as well as on
+                // the snapshot — unlike an RS485 failure, which has none.
+                triggeredValue: raw.value,
+                ruleSnapshot: snapshot as unknown as Prisma.InputJsonObject,
+                instrumentId: row.instrumentId,
+                severity: ALARM_SEVERITY_FALLBACK,
+                state: 'ACTIVE',
+                raisedAt: now,
+              },
+            });
+          } catch (e) {
+            if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+              logger.warn(
+                `[alarms] ${row.code ?? row.instrumentId}: an ACTIVE range ${metric} alarm was opened concurrently; skipping the duplicate`,
+              );
+              continue;
+            }
+            throw e;
+          }
+          raised += 1;
+
+          const payload = {
+            alarmId: created.id,
+            instrumentId: row.instrumentId,
+            instrumentCode: row.code,
+            instrumentName: row.name,
+            metric,
+            ruleName: typeName('SENSOR_RANGE', metric, null, SENSOR_RANGE_TYPE_LABEL[metric]),
+            condition,
+            triggeredValue: raw.value,
+            // The value FIELD shows the operator's word, not the unusable
+            // number. The condition beside it still quotes the reading and the
+            // span, so nothing is hidden.
+            valueText: rangeCfg.rangeText,
+            decimals,
+            raisedAt: created.raisedAt,
+          };
+          await enqueueAlarmNotification('raised', payload);
+          await enqueueAlarmWebhook('RAISED', payload);
+        } else if (action === 'clear' && open) {
+          // An in-range number arrived. `raw` is non-null whenever decideRange
+          // says 'clear' — the conditional below is a type guard, not a second
+          // opinion (see the same note on the RS485 pass).
+          const clearedValue = raw && typeof raw.value === 'number' ? raw.value : null;
+          const closed = await prisma.alarm.update({
+            where: { id: open.id },
+            data: { state: 'CLEARED', clearedAt: now, clearedValue },
+          });
+          cleared += 1;
+
+          const snapshotDescription = closed.ruleSnapshot
+            && typeof closed.ruleSnapshot === 'object'
+            && !Array.isArray(closed.ruleSnapshot)
+            ? (closed.ruleSnapshot as Record<string, unknown>).description
+            : undefined;
+          const payload = {
+            alarmId: closed.id,
+            instrumentId: row.instrumentId,
+            instrumentCode: row.code,
+            instrumentName: row.name,
+            metric: closed.metric,
+            ruleName: typeName('SENSOR_RANGE', metric, null, SENSOR_RANGE_TYPE_LABEL[metric]),
+            condition: typeof snapshotDescription === 'string' && snapshotDescription
+              ? snapshotDescription
+              : `${metric === 'TEMPERATURE' ? 'temperature' : 'humidity'} outside the sensor range`,
+            triggeredValue: clearedValue,
+            decimals,
+            raisedAt: closed.raisedAt,
+            clearedAt: closed.clearedAt,
+          };
+          await enqueueAlarmNotification('cleared', payload);
+          await enqueueAlarmWebhook('CLEARED', payload);
+        }
+      }
+    }
+  }
+
+  return { raised, cleared, instrumentsEvaluated, inactivityEvaluated, rs485Evaluated, rangeEvaluated };
 }
 
 /** graphile-worker task. Registered as `alarm_evaluation`. */
@@ -683,7 +929,7 @@ export const alarmEvaluationTask = async (
   helpers?: { logger?: { info: (m: string) => void; debug?: (m: string) => void } },
 ) => {
   const res = await evaluateAlarms();
-  const scope = `${res.rulesEvaluated} rule(s), ${res.instrumentsEvaluated} instrument(s)`;
+  const scope = `${res.instrumentsEvaluated} instrument(s)`;
   if (res.raised || res.cleared) {
     helpers?.logger?.info(`[alarms] ${scope}: raised ${res.raised}, cleared ${res.cleared}`);
   } else {

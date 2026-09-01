@@ -225,15 +225,38 @@ const superAdminCards = [
     gradient: 'from-slate-500 to-slate-700',
   },
   {
-    title: 'Alarm Rules',
-    description: 'Conditions the evaluator checks every minute, and the delay before raising',
-    href: '/config/alarm-rules',
+    title: 'RS485 Sensor Failure Alarms',
+    description: 'Raise an alarm when a sensor reports NA or any non-numeric value, and clear it when a number returns',
+    href: '/config/dynamic/rs485-alarms',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
       </svg>
     ),
-    gradient: 'from-amber-500 to-red-500',
+    gradient: 'from-amber-500 to-rose-600',
+  },
+  {
+    title: 'Sensor Range Alarms',
+    description: 'Raise an alarm when a reading is outside the sensor\'s measurable range, and show OL instead of the value',
+    href: '/config/dynamic/sensor-range-alarms',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+      </svg>
+    ),
+    gradient: 'from-orange-500 to-amber-600',
+  },
+  {
+    title: 'Alarm Type Names',
+    description: 'What each kind of alarm is called — one name per type, applied everywhere it is shown',
+    href: '/config/dynamic/alarm-type-names',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 6h.008v.008H6V6z" />
+      </svg>
+    ),
+    gradient: 'from-sky-500 to-indigo-600',
   },
   {
     title: 'Alarm Webhooks',

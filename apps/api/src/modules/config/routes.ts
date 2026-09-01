@@ -21,6 +21,10 @@ import { rolesConfigRoutes } from './static-routes/roles.routes.js';
 import { exportOptionsRoutes } from './static-routes/export-options.routes.js';
 import { reportPageTitlesRoutes } from './static-routes/report-page-titles.routes.js';
 import { alarmLimitsStatusTextsRoutes } from './static-routes/alarm-limits.routes.js';
+import { inactivityDisplayTextsRoutes } from './static-routes/inactivity-alarms.routes.js';
+import { rs485DisplayTextRoutes } from './static-routes/rs485-alarms.routes.js';
+import { sensorRangeDisplayTextRoutes } from './static-routes/sensor-range-alarms.routes.js';
+import { alarmTypeNamesRoutes } from './static-routes/alarm-type-names.routes.js';
 
 // Map config keys to reauth action names (consumed by the generic configEndpoint factory).
 const CONFIG_KEY_TO_ACTION: Record<string, string> = {
@@ -42,6 +46,10 @@ export default async function configRoutes(app: FastifyInstance) {
   await reportPageTitlesRoutes(app);
   await rolesConfigRoutes(app);
   await alarmLimitsStatusTextsRoutes(app);
+  await inactivityDisplayTextsRoutes(app);
+  await rs485DisplayTextRoutes(app);
+  await sensorRangeDisplayTextRoutes(app);
+  await alarmTypeNamesRoutes(app);
 
   // Generic CRUD factory for configs whose only work is get/update a typed blob.
   // Used for: password-policy, login-security, session, datetime, pagination.

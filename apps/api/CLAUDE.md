@@ -192,12 +192,187 @@ node apps/api/dist/app.js
   - `AlarmEvaluationResult` gains `inactivityEvaluated`, separate from
     `instrumentsEvaluated`: the two passes are independently switchable and one
     number could not say which of them ran.
+  - **Three column wordings joined the def later the same day** — the
+    `Generated Value` / `Limit` / `Cleared Value` cells an inactivity alarm has no
+    number to fill. Served by `GET /api/config/inactivity-alarms/display-texts`
+    (`static-routes/inactivity-alarms.routes.ts`), all authenticated users, the
+    same narrow-slice pattern as `/alarm-limits/status-texts` — a SECOND route on
+    purpose, since that one's contract is a slice of the `alarm-limits` row. The
+    def stays SUPER_ADMIN-only. **The Limit wording is validated, not just
+    defaulted:** it must contain `{minutes}`, which the browser substitutes from
+    the alarm's FROZEN snapshot, and a string without it is replaced by the
+    shipped wording HERE as well as in `inactivityLimitText()` — a caller that
+    skips that helper still cannot be handed a wording that drops the threshold.
+    No count moved. Pinned by 6 e2e in `src/e2e/config.test.ts`, one of which
+    drives the full save round trip through `PUT /dynamic/inactivity-alarms` —
+    the dynamic PUT writes `{...body}` wholesale and this def has no zodSchema,
+    so new keys persist, but that is a property worth a test rather than a read.
   - Pinned by `modules/alarms/__tests__/inactivity-decide.test.ts` (17 unit) and
     `src/e2e/alarm-inactivity.e2e.test.ts` (14 e2e, driving the REAL pass).
     **That e2e file PINS `instrument-activity`** — its first version passed every
     "does not raise" case for the wrong reason, because the test database carries
     the 1440-minute default window while the live install carries 3, so a
     120-minute silence still counted as reporting.
+- **2026-08-31 — RS485 sensor-failure alarms, a FOURTH alarm source.**
+  `AlarmSource` gains `RS485_FAILURE` — a new enum VALUE, so **36 models / 13
+  enums are UNCHANGED**. Config defs **26 → 27** (`rs485-alarms.def.ts`). No new
+  permission, reauth action, module, audit action or route.
+  - **TWO hand-authored migrations, and they must stay two**, same Postgres
+    constraint as the inactivity pair. `20260831160000_rs485_alarms` adds the enum
+    value; `20260831160001_rs485_unique_active` adds `alarms_active_rs485_unique`
+    on `(instrument_id, metric) WHERE state='ACTIVE' AND source='RS485_FAILURE'`.
+    **Keyed on the metric as well as the instrument**, unlike the inactivity
+    index: two probes on one logger fail independently and must hold two open
+    alarms, which is the behaviour the feature was asked for. Both applied to
+    `compliance_core_db` and `compliance_core_db_test`; the `DROP TABLE
+    instrument_telemetry_history` Prisma emitted was stripped as usual; drift
+    guard PASS.
+  - **`loadRs485Config` reads `enabled !== false` — the OPPOSITE of
+    `loadInactivityConfig`.** Deliberate: this one only fires for a sensor
+    actively reporting rubbish, measured at ZERO instruments here across every
+    retained slot-key reading, while inactivity failing open raises one alarm per
+    silent instrument. The two loaders are not a shared helper because that single
+    character encodes which way each feature should fail.
+  - **The clear signal is A NUMBER; silence HOLDS the alarm open** — the
+    `limit-decide.ts` rule, inverting `inactivity-decide.ts`. `rs485-decide.ts` is
+    a separate pure module and all three files carry the asymmetry.
+  - **`buildTelemetryOverview()` gained `rawSlots`** — each slot's reading BEFORE
+    the numeric filter, from the same single `resolveSlot()` call that produces
+    the numeric one. The pass must not re-resolve: the alias mapping is
+    administered and has drifted here, and an alarm naming a different key than
+    the dashboard would be unanswerable. Not exposed by the endpoint — the
+    response schema does not name it, and Fastify strips what it does not name.
+  - The offending value cannot go on `triggeredValue` (a Float), so it is frozen
+    onto `ruleSnapshot.rawValue` with its key, `valueType` and the display
+    precision.
+  - New list-query type token `RS485`, matching on `source` — an RS485 alarm's
+    metric is TEMPERATURE or HUMIDITY, the same values a limit alarm carries.
+  - Pinned by `modules/alarms/__tests__/rs485-decide.test.ts` (17 unit) and
+    `src/e2e/alarm-rs485.e2e.test.ts` (21 e2e, driving the REAL pass).
+    **Mutation-checking found two defects in the tests**: the worker's clear
+    branch silently skipped a wrong decision, which made the e2e pass with the
+    clear rule INVERTED; and the e2e's `beforeEach` cleared readings by name and
+    left the SECOND alias behind, so the "goes silent" test was not testing
+    silence. Both fixed; the guard is now inside the branch, and teardown deletes
+    every reading for the fixture.
+  - **INCIDENT — the second occurrence of a failure mode already recorded in this
+    file.** That e2e's first version had a bad `::uuid` cast on a text column in
+    `afterAll`, so teardown threw BEFORE its config restore and left
+    `alarm-limits` disabled in the shared `compliance_core_db_test`: 8 failures in
+    two unrelated suites, which then ratcheted in, because each later run read the
+    disabled value as its own "before" and faithfully restored it. **Put the
+    config restore FIRST in `afterAll` and guard every step independently** — a
+    suite must hand back the config it touched even while it is failing.
+- **2026-08-31 — alarm RULES removed.** Migration
+  `20260831200000_remove_alarm_rules` drops `alarm_rules`, `Alarm.rule_id` and the
+  `AlarmComparison` type (models 36 → **35**, enums 13 → **12**). Verified 0 rules
+  and 0 RULE alarms BEFORE dropping, and the migration records the queries —
+  had either been non-zero the model would have stayed and only the authoring
+  surface would have gone. **`ALARM_RULE_READ`/`MANAGE` are NOT dead**: they gate
+  `modules/alarm-webhooks`. **`AlarmSource.RULE` stays** — Postgres cannot drop an
+  enum value without recreating the type. `validation.ts` kept its
+  ACKNOWLEDGEMENT helpers; only the rule-draft half went.
+- **2026-08-31 — floorplan annotation layer.** Migration
+  `20260831220000_floorplan_annotations` adds `floorplan_rooms.meta JSONB` and
+  `floorplans.annotations JSONB`, both nullable. **35 models / 12 enums
+  UNCHANGED** — no new model, no new enum, the `doors`/`grade` precedent
+  exactly. Applied to `compliance_core_db` and `compliance_core_db_test`; the
+  `DROP TABLE instrument_telemetry_history` Prisma emits was stripped as always.
+  - Carries what a DRAWING says that a generated plan cannot: per-room fill
+    colour, ceiling height and floor dimensions; per-plan equipment blocks, HVAC
+    units, water points, airflow runs and free text. All coordinates normalized
+    0..1 against the plan, the same convention as `floorplan_rooms.x/y/w/h`.
+  - **Both had to be declared in `roomProps`/`planProps` to exist on the wire.**
+    Fastify strips undeclared response properties silently — the third time this
+    has mattered here, after `historySampled`/`summaries` and the alarm list's
+    `locationName`. Nested objects are the dangerous shape: the outer key passes
+    while an inner one is dropped, so `src/e2e/floorplan-annotations.e2e.test.ts`
+    asserts the inner keys individually and is mutation-checked.
+  - `meta` is written with `Prisma.DbNull` for a generated room, never
+    `JsonNull`, which would store the JSON literal `null` and read back present.
+  - Only the QC plan has either; every other plan keeps SQL NULL and renders
+    unchanged, including its legend, which is drawn only when annotations exist.
+
+- **2026-09-01 — the enable-flag rule spanned THREE resolvers, and all three
+  were wrong at some point on the same day.** "A bound the instrument switches
+  off is not enforced" was implemented independently in `buildTelemetryOverview`
+  (cards, dashboard table, floorplan tiles, the chart's limit LINE), in
+  `instruments/routes.ts:boundsFor` (the summary strip, the SQL breach counts and
+  the signed PDF), and in the trend card's own status fall-through. Each was
+  written by someone who verified their own and assumed the rest were covered.
+  - **The visible symptom was a number and a picture disagreeing on one screen**:
+    the limit line vanished correctly while the strip beside it went on counting
+    breaches in SQL against the bound it had stopped drawing — into a §11 report.
+    A second symptom was a normal 24.5 °C reading "Out of limit" because the card
+    inherited the OTHER slot's verdict against a humidity bound of `0` that the
+    instrument disables.
+  - **The generalisable lesson, and the test that now encodes it:** N tests each
+    pinning one resolver cannot catch two resolvers DISAGREEING, which is the
+    only failure that reaches a screen. `src/e2e/instrument-telemetry-range.test.ts`
+    → `every server resolver agrees about a disabled bound` asserts the overview
+    and the chart summary return the SAME bounds for one instrument, rather than
+    asserting each is independently null. Mutation-checked: diverging one
+    resolver fails it with "the chart summary and the overview disagree".
+    **If a third server-side consumer of these bounds is added, add it there.**
+  - A disabled bound comes back **NULL** ("not judged"), never `0` ("checked,
+    never breached"). The gate is per-bound: disabling the high limit must not
+    silence the low one.
+
+- **2026-08-31 — a quoted number is a reading.** `coerceReading()` in
+  `@digilog/shared` replaced four independent `typeof v === 'number'` tests
+  (`telemetry-overview.asNumber`, the chart's plottable filter, the web
+  `numericRows`, `toTableRowsWithErrors`) AND the `jsonb_typeof(value) = 'number'`
+  cast in `telemetry.repository.ts:getRangeSummary`. **If you widen one, widen the
+  SQL too** — otherwise the summaries are computed over a different population
+  than the chart drawn from the same range.
+- **2026-08-31 — alarm type names in one config.** Def `alarm-type-names`
+  (28 → 29), route `/api/config/alarm-type-names/current`, loader
+  `modules/alarms/load-type-names.ts`. **The loader lives with the alarm loaders,
+  NOT beside its route** — the evaluator reads it on every pass, and a worker
+  importing a Fastify route module drags the HTTP layer into the job runner.
+  `alarmTypeKeyFor()` in `@digilog/shared` is the one mapping both sides use.
+  Names are read live; nothing frozen moves with them.
+- **2026-08-31 — per-bound ENABLE attributes on instrument limits.** No count
+  moved and no migration: four alias-list settings on the existing `alarm-limits`
+  def, plus `enabledBoundsFor()` in `load-limits.ts` and a gate in the limit pass.
+  - `parseEnableFlag` / `resolveEnableFlag` live in `@digilog/shared` beside
+    `resolveLimit` and follow its key-precedence rule exactly.
+  - **Absent/blank/unreadable = ENABLED**, in BOTH places that decide it:
+    `parseEnableFlag` (attribute present, value unusable) and `enabledBoundsFor`'s
+    `?? true` (attribute absent). The second is the one that actually fires for a
+    missing attribute — the first is unreachable for that case, which a mutation
+    check exposed.
+  - **A disabled bound CLEARS an alarm open on it**, bypassing the
+    `value === null` hold guard, because the clear is not "returned to spec" — the
+    bound is simply no longer enforced. Notification wording says so.
+  - Pinned by 5 unit + 8 e2e; mutation-checked three ways. **The new e2e block
+    initially inherited `High Temperature Limit = 99` from the test above it and
+    every "raises" assertion failed for the wrong reason** — it now pins its own
+    bounds in `beforeEach`. Depending on file order is how a suite starts passing
+    vacuously.
+- **2026-08-31 — sensor RANGE alarms, a FIFTH alarm source.** `AlarmSource`
+  gains `SENSOR_RANGE`; **36 models / 13 enums UNCHANGED**. Config defs
+  **27 → 28** (`sensor-range-alarms.def.ts`). Migrations
+  `20260831180000_sensor_range_alarms` + `20260831180001_sensor_range_unique_active`
+  (`alarms_active_sensor_range_unique` on `(instrument_id, metric)`), separate for
+  the usual Postgres enum reason, applied to both databases, drift guard PASS.
+  - **The load-bearing behaviour is SUPPRESSION, not the alarm.** An out-of-range
+    reading is withheld in `telemetry-overview.ts` — `rangeError` set, numeric
+    slot nulled — so the limit pass neither raises nor clears from it. Done at the
+    single point where a stored value becomes "a reading"; anywhere else and one
+    consumer trusts a number the others rejected. Pinned by
+    `src/e2e/alarm-sensor-range.e2e.test.ts`, whose key assertions are "60 raises
+    a range alarm and NO limit alarm" and "30 still raises a normal limit alarm".
+    Mutation-checked: deleting the null-ing line fails 3.
+  - `loadRangeConfig`/`rangeFor` reuse `parseLimitKeys`/`resolveLimit` from
+    `load-limits.ts` on purpose — range bounds are attributes read by ordered
+    alias exactly as limits are, and a second resolver would drift.
+  - The snapshot freezes the reading, the span, AND the attribute key each bound
+    came from, so "it fired against `High Temperature Range` = 50" survives a
+    rename.
+  - `decideRange` holds the alarm open when the probe falls silent OR starts
+    sending `NA` — clearing on the arrival of a non-numeric value would declare a
+    saturated probe healthy at the moment it broke a second way.
 - **2026-08-31 — the alarm list filters, counts, sorts and pages SERVER-side.**
   **No count moved** (re-derived that day: 36 models / 13 enums, 42 permissions,
   48 reauth actions, 24 modules, 25 config defs) and there is **no migration**:
@@ -238,7 +413,7 @@ node apps/api/dist/app.js
   - Pinned by `src/modules/alarms/__tests__/list-query.test.ts` (28 unit tests,
     mutation-checked) and `src/e2e/alarm-list-filters.e2e.test.ts` (17 e2e,
     every request scoped to a fixture Block so the numbers are exact).
-- Config definitions: `apps/api/src/modules/config/defs/` (**26 files** — `ls` 2026-08-31; `inactivity-alarms.def` added that day for the inactivity-alarm source, rendered by the dynamic config page so it adds no `routes/config/*.tsx`. Earlier **25 files** — verified by `ls` 2026-08-17; `alarm-limits.def` added 2026-08-17 (which attribute keys carry each temperature/humidity limit, the limit-alarm severity, the master switch, and the four alarm status wordings). `telemetry-slots.def` added 2026-08-11. Earlier note: the previous "36" was inherited from DigiLog and was never true here. `instrument-attributes.def` added 2026-08-07)
+- Config definitions: `apps/api/src/modules/config/defs/` (**27 files** — `ls` 2026-08-31; `rs485-alarms.def` added that day for the RS485 sensor-failure source, also rendered by the dynamic config page. Earlier **26 files**; `inactivity-alarms.def` added that day for the inactivity-alarm source, rendered by the dynamic config page so it adds no `routes/config/*.tsx`. Earlier **25 files** — verified by `ls` 2026-08-17; `alarm-limits.def` added 2026-08-17 (which attribute keys carry each temperature/humidity limit, the limit-alarm severity, the master switch, and the four alarm status wordings). `telemetry-slots.def` added 2026-08-11. Earlier note: the previous "36" was inherited from DigiLog and was never true here. `instrument-attributes.def` added 2026-08-07)
 - Route modules: `apps/api/src/modules/` (**24 modules**, verified `ls | wc -l` 2026-08-27 — `alarm-webhooks` added 2026-08-27; earlier 23, verified `ls` 2026-08-14 — `functional-locations` + `alarms` added 2026-08-13. **A new module must be registered in BOTH `app.ts` AND `src/e2e/test-helper.ts`** — the helper builds its own app, so a module missing from it 404s in every e2e test. Earlier: 21 modules verified `ls` 2026-08-11 — `floorplans` added 2026-08-11. The previous "33" was already stale and the shortfall has NOT been individually reconciled; treat the removal notes below as history, not an inventory — `org-admin`/`tenant-admin` deleted in MT removal; `rule-chain` deleted 2026-05-17; `qr-code` deleted 2026-06-06; **`data-ingestion`, `uns`, `connectivity`, `queries` deleted 2026-06-11..2026-06-17** with the ingestion tear-out; **`reports`, `report-templates` deleted 2026-07-04** with the reports generate/sign tear-out (`report-reviews` survives); `debug-traces` re-added 2026-06-12 reading from `audit_trail` instead of dropped `ts_pipeline_traces`)
 - Config routes: monolith split into `apps/api/src/modules/config/static-routes/<surface>.routes.ts` per tab; top-level `routes.ts` is just a registration loop (~170 LOC, was 1003)
 
@@ -399,6 +574,34 @@ default pool, you will see flaky failures that are NOT real bugs.
    only serialises files *within* a worker — multiple worker processes
    can still be spawned. `singleFork: true` collapses everything into
    one process, which removes the race.
+
+   **It is NOT only `logout` — every LOGIN invalidates a held bearer too
+   (found 2026-09-01).** `src/e2e/test-helper.ts`'s `loginAs()` terminates ALL
+   sessions for the user before issuing its token. So any suite calling
+   `loginAs(app)` kills the `admin` bearer every other suite is holding, and
+   `singleFork` does NOT help when the second suite is in a DIFFERENT PROCESS —
+   another agent, another terminal, a `tsx watch` sharing
+   `compliance_core_db_test`.
+
+   **The vulnerable shape is a suite that acquires ONE bearer in `beforeAll` and
+   reuses it across the whole file.** That is most e2e files here. The symptom is
+   not an assertion failure that names auth: the request 401s, `res.json()` comes
+   back without the key the test reads, and you get `expected undefined to be 6`
+   on a dozen tests at once — which reads like a data or fixture bug and sends you
+   looking in the wrong place.
+
+   **How to tell it apart from a real failure, in one step:** look at the STATUS
+   CODE, not the assertion. 401 across tests that touch unrelated routes
+   (`/api/config/password-policy`, `/session`, `/datetime`) is this race and
+   nothing else — no product change can 401 the password-policy endpoint. A 400
+   would implicate your own querystring or body schema. Measured 2026-09-01:
+   `src/e2e/alarm-list-filters.e2e.test.ts` failed 17 of 22 at roughly a 50% rate
+   run entirely ALONE, while the same endpoint probed directly returned 200 six
+   times out of six, and the file's own unit-test neighbours were 204/204 stable.
+   Failing alone is the tell that the contention is another PROCESS.
+
+   Corollary for the baseline below: **a red run measured while another agent is
+   working is not evidence of anything.** Re-run serially before believing it.
 
 2. **Local dev server contention.** ~~If `tsx watch src/app.ts` is running
    on `:3000` against the same `digilog_db`, a test logout invalidates

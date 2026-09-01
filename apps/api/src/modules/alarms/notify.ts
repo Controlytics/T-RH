@@ -22,10 +22,22 @@ export interface AlarmNotificationInput {
   instrumentCode: string | null;
   instrumentName?: string | null;
   metric: string;
-  severity: string;
   ruleName: string;
   condition: string;
   triggeredValue: number | null;
+  /**
+   * A word to print INSTEAD of the numeric value, for an alarm whose value is not
+   * a number — today, an RS485 sensor failure, where the reading was `NA`.
+   *
+   * Set from the administered `rs485-alarms.failureText`, so the email, the
+   * hooter payload, the Alarms table and the dashboard cell all use the operator's
+   * one word. Absent for every other alarm source, which formats the number.
+   *
+   * The RAW value the sensor sent is not lost by this: it is named in `condition`
+   * ("temperature reported NA instead of a number"), which every template prints
+   * beside the value, and it is frozen on the alarm's own snapshot.
+   */
+  valueText?: string | null;
   /**
    * The instrument's display precision, so an email quotes the reading exactly as
    * the dashboard does. Optional: an absent one falls back to the site default
@@ -39,7 +51,7 @@ export interface AlarmNotificationInput {
 
 export interface AlarmNotificationJob {
   eventType: 'ALARM_RAISED' | 'ALARM_CLEARED';
-  /** Matched against NotificationRule.conditions, e.g. {"severity":["CRITICAL"]}. */
+  /** Matched against NotificationRule.conditions, e.g. {"metric":["TEMPERATURE"]}. */
   context: Record<string, unknown>;
   variables: Record<string, string>;
 }
@@ -63,23 +75,31 @@ export function alarmNotificationJob(
 ): AlarmNotificationJob {
   const instrument = a.instrumentCode || a.instrumentId;
   // A reading of 0 is real; only a genuinely absent value (OFFLINE has none) is '—'.
+  // `valueText` wins when set: an RS485 failure has no number to format, and
+  // printing '—' there says "no reading" for a sensor that reported loudly and
+  // wrongly.
   // Formatted to the instrument's own precision so the email, the alarm row and the
   // dashboard cell all quote one excursion the same way.
-  const value = formatDecimals(a.triggeredValue, a.decimals ?? TELEMETRY_DECIMALS_FALLBACK) ?? '—';
+  const value = a.valueText?.trim()
+    || formatDecimals(a.triggeredValue, a.decimals ?? TELEMETRY_DECIMALS_FALLBACK)
+    || '—';
 
   const base = {
     alarmId: a.alarmId,
     instrument,
     instrumentName: a.instrumentName || instrument,
     metric: a.metric,
-    severity: a.severity,
     ruleName: a.ruleName,
     condition: a.condition,
   };
 
-  // The context is what a rule's conditions filter on — severity and metric are the two
-  // an operator actually wants to narrow by ("page me for CRITICAL only").
-  const context = { severity: a.severity, metric: a.metric, instrumentId: a.instrumentId };
+  // The context is what a rule's conditions filter on. `severity` used to be here
+  // and was removed with the severity concept on 2026-09-01; verified first that no
+  // `notification_rules` row filtered on it (0 rules existed at all). A rule whose
+  // conditions name a key absent from the context is the matcher's problem, not
+  // this function's — but if severity conditions ever appear in a customer
+  // database, they will match nothing rather than everything.
+  const context = { metric: a.metric, instrumentId: a.instrumentId };
 
   if (kind === 'raised') {
     return {
@@ -108,6 +128,6 @@ export function alarmNotificationJob(
  * EVENT_TYPE_META rather than trusting that two hand-written lists agree.
  */
 export const ALARM_EVENT_VARIABLES = {
-  ALARM_RAISED: ['instrument', 'metric', 'value', 'condition', 'severity', 'ruleName', 'timestamp'],
-  ALARM_CLEARED: ['instrument', 'metric', 'condition', 'severity', 'ruleName', 'raisedAt', 'duration', 'timestamp'],
+  ALARM_RAISED: ['instrument', 'metric', 'value', 'condition', 'ruleName', 'timestamp'],
+  ALARM_CLEARED: ['instrument', 'metric', 'condition', 'ruleName', 'raisedAt', 'duration', 'timestamp'],
 } as const;

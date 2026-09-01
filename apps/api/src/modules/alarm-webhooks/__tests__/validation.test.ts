@@ -56,17 +56,10 @@ describe('validateTargetDraft', () => {
     expect(validateTargetDraft(draft({ scopeInstrumentIds: [] }) as never)).toBeNull();
   });
 
-  it('rejects an unknown severity', () => {
-    expect(validateTargetDraft(draft({ severities: ['LOUD'] }) as never)?.field).toBe('severities');
-    expect(validateTargetDraft(draft({ severities: ['CRITICAL', 'MAJOR'] }) as never)).toBeNull();
-  });
-
-  // The enum is CRITICAL | MAJOR | MINOR. WARNING is not a severity this system has,
-  // and a target narrowed to it would silently never fire.
-  it('rejects WARNING, which is not in the AlarmSeverity enum', () => {
-    expect(validateTargetDraft(draft({ severities: ['WARNING'] }) as never)?.field).toBe('severities');
-    expect(validateTargetDraft(draft({ severities: ['MINOR'] }) as never)).toBeNull();
-  });
+  // The two severity-validation cases that stood here were DELETED on 2026-09-01:
+  // `severities` is no longer part of a target draft, so there is nothing left to
+  // refuse. `${severity}` in a body template IS still refused — by the unknown-
+  // variable rule below, which is the case that now covers it.
 
   it('rejects a body template naming a variable no event provides', () => {
     expect(validateTargetDraft(draft({ bodyTemplate: '{"x":"${nonsense}"}' }) as never)?.field).toBe('bodyTemplate');

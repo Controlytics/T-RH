@@ -17,6 +17,11 @@ import type { FlType } from '../functional-locations/validation.js';
 import {
   parseTelemetryAliases,
   resolveSlot,
+  isSensorFailureValue,
+  coerceReading,
+  isOutOfRange,
+  type SensorRangeBounds,
+  type RangeBound,
   computeInstrumentStatus,
   isInstrumentReporting,
   INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN,
@@ -25,12 +30,36 @@ import {
   type RoomLimits,
 } from '@digilog/shared';
 import { loadDecimalsConfig, decimalsFor } from './decimals.js';
-import { loadLimitConfig, limitsFor } from '../alarms/load-limits.js';
+import { loadLimitConfig, limitsFor, enabledBoundsFor } from '../alarms/load-limits.js';
+import { loadRangeConfig, rangeFor } from '../alarms/load-range.js';
 import { limitsInverted } from '../alarms/limit-decide.js';
 
 export interface SlotValue {
   key: string;
   value: number;
+  ts: string;
+}
+
+/**
+ * The slot's reading BEFORE the numeric filter — whatever the device actually
+ * sent, with the type ingest assigned it.
+ *
+ * Here for the same reason `decimals` is (see its comment below): the alarm
+ * evaluator never touches the browser but needs an answer this function has
+ * already worked out. In this case it needs the OPPOSITE of what `temperature`
+ * and `humidity` carry — those are null when a sensor sends `NA`, which is
+ * precisely the value the RS485 source exists to record. Resolving the slot a
+ * second time in the worker would let the alarm and the dashboard disagree about
+ * which key is the temperature key, on an installation where that mapping is
+ * administered and has already drifted once.
+ *
+ * Not exposed by the dashboard endpoint — Fastify strips what its response
+ * schema does not name, and nothing there declares it.
+ */
+export interface RawSlotValue {
+  key: string;
+  value: unknown;
+  valueType: string;
   ts: string;
 }
 
@@ -55,6 +84,17 @@ export interface OverviewRow {
    */
   limits: RoomLimits | null;
   /**
+   * Which of the four bounds the instrument's own `Enable_*` attributes leave IN
+   * FORCE, before the switched-off ones were stripped out of `limits` above.
+   *
+   * `limits` is the answer to "what is enforced"; this says WHY a bound is
+   * missing from it. A UI needs the difference: "no low limit is administered"
+   * and "the low limit is switched off" are different facts about the record,
+   * and only this tells them apart. Never gate display on it — `limits` already
+   * withholds the bound.
+   */
+  limitEnabled: { tempMin: boolean; tempMax: boolean; rhMin: boolean; rhMax: boolean };
+  /**
    * Where `limits` came from, so the UI can say so rather than leaving an
    * operator to guess why two instruments in one room show different bands.
    */
@@ -74,12 +114,47 @@ export interface OverviewRow {
   decimals: { temperature: number; humidity: number };
   reporting: boolean;
   status: InstrumentStatus;
+  /** Each slot's reading as stored, numeric or not. See {@link RawSlotValue}. */
+  rawSlots: { temperature: RawSlotValue | null; humidity: RawSlotValue | null };
+  /**
+   * Did this slot report something that is not a number?
+   *
+   * `temperature`/`humidity` above are null in TWO different situations — the
+   * sensor sent `NA`, or nothing arrived at all — and the dashboard rendered both
+   * as `NA`, so a dead probe looked exactly like an instrument nobody had wired
+   * up. This flag separates them, and it is decided HERE rather than in the
+   * browser: `isSensorFailureValue()` is the one definition of a broken reading,
+   * the alarm evaluator judges by it, and a cell contradicting the alarm beside
+   * it is the failure mode this whole area keeps producing.
+   *
+   * Unlike `rawSlots`, this IS exposed by the dashboard endpoint — it is a
+   * decision, not the device's raw text.
+   */
+  sensorError: { temperature: boolean; humidity: boolean };
+  /**
+   * Which slots reported a number OUTSIDE the probe's declared measuring span.
+   *
+   * **When this is true the numeric slot above is NULL**, deliberately. A reading
+   * beyond what the sensor can measure is not a measurement — a saturated probe
+   * displays `OL`, not the truth — so it is withheld from everything that
+   * consumes a reading: the limit evaluator sees no value and therefore neither
+   * raises nor clears a spec alarm, the dashboard shows the configured word, and
+   * `computeInstrumentStatus` treats the slot as absent. That suppression is the
+   * operator's explicit decision (2026-08-31): one alarm for the fault, not a
+   * product excursion quoted from a number the sensor cannot stand behind.
+   *
+   * The reading itself is not lost — it is frozen onto the SENSOR_RANGE alarm.
+   */
+  rangeError: { temperature: boolean; humidity: boolean };
+  /** The span each slot was judged against, for the tooltip and the alarm. */
+  rangeBounds: SensorRangeBounds;
 }
 
 interface RawReading {
   instrumentId: string;
   key: string;
   value: unknown;
+  valueType: string;
   ts: Date;
 }
 
@@ -118,8 +193,10 @@ export async function loadActiveWindowMinutes(): Promise<number> {
  * that looks identical to "no data" while silently poisoning limit comparisons.
  */
 function asNumber(value: unknown): number | null {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-  return null;
+  // `coerceReading` from @digilog/shared — the ONE definition, shared with the
+  // alarm evaluator. A quoted number IS a number (operator, 2026-08-31); `NA`,
+  // an empty string, a boolean and an object are not.
+  return coerceReading(value);
 }
 
 function toSlot(reading: RawReading | null): SlotValue | null {
@@ -127,6 +204,18 @@ function toSlot(reading: RawReading | null): SlotValue | null {
   const n = asNumber(reading.value);
   if (n === null) return null;
   return { key: reading.key, value: n, ts: reading.ts.toISOString() };
+}
+
+/** The same resolved reading, kept whole. Null only when the instrument sent
+ *  nothing on any alias for the slot — which is silence, not a bad value. */
+function toRawSlot(reading: RawReading | null): RawSlotValue | null {
+  if (!reading) return null;
+  return {
+    key: reading.key,
+    value: reading.value,
+    valueType: reading.valueType,
+    ts: reading.ts.toISOString(),
+  };
 }
 
 /**
@@ -209,7 +298,7 @@ export async function buildTelemetryOverview(
     visibilityWhere?: object;
   } = {},
 ): Promise<OverviewRow[]> {
-  const [aliases, activeWindowMinutes, decimalsCfg, limitCfg] = await Promise.all([
+  const [aliases, activeWindowMinutes, decimalsCfg, limitCfg, rangeCfg] = await Promise.all([
     loadAliases(),
     loadActiveWindowMinutes(),
     loadDecimalsConfig(),
@@ -217,6 +306,10 @@ export async function buildTelemetryOverview(
     // One config, one resolver — two would drift, and the drift would be a table
     // contradicting the alarm sitting beside it.
     loadLimitConfig(),
+    // The range bounds are resolved from the SAME attribute rows the limits come
+    // from, by the same alias resolver — so "which key holds the high range" has
+    // one answer here, in the alarm, and on the dashboard.
+    loadRangeConfig(),
   ]);
 
   // SELECTION filter (what the caller asked for) AND VISIBILITY filter (what their
@@ -256,7 +349,7 @@ export async function buildTelemetryOverview(
   // One query for every latest reading, not one per instrument. The table is the
   // whole fleet and this is polled every few seconds.
   const readings = await prisma.$queryRaw<RawReading[]>`
-    SELECT instrument_id AS "instrumentId", key, value, ts
+    SELECT instrument_id AS "instrumentId", key, value, value_type AS "valueType", ts
     FROM instrument_telemetry_latest`;
 
   const byInstrument = new Map<string, RawReading[]>();
@@ -272,8 +365,26 @@ export async function buildTelemetryOverview(
 
   return instruments.map((inst) => {
     const mine = byInstrument.get(inst.id) ?? [];
-    const temperature = toSlot(resolveSlot(aliases.temperature, mine));
-    const humidity = toSlot(resolveSlot(aliases.humidity, mine));
+    // Resolved ONCE per slot and used for both shapes, so the numeric view and
+    // the raw view can never name different keys.
+    const rawTemperature = resolveSlot(aliases.temperature, mine);
+    const rawHumidity = resolveSlot(aliases.humidity, mine);
+    let temperature = toSlot(rawTemperature);
+    let humidity = toSlot(rawHumidity);
+
+    // Range check, and the WITHHOLDING that follows from it. Done here rather
+    // than in each consumer because this function is the one place a stored
+    // value becomes "a reading" — putting the test anywhere else would leave
+    // some consumer trusting a number the others had rejected.
+    const { bounds: rangeBounds } = rangeFor(rangeCfg.keys, inst.attributes);
+    const rangeError = {
+      temperature: rangeCfg.enabled && temperature !== null
+        && isOutOfRange(temperature.value, rangeBounds.temperatureLow, rangeBounds.temperatureHigh),
+      humidity: rangeCfg.enabled && humidity !== null
+        && isOutOfRange(humidity.value, rangeBounds.humidityLow, rangeBounds.humidityHigh),
+    };
+    if (rangeError.temperature) temperature = null;
+    if (rangeError.humidity) humidity = null;
 
     // The ONE staleness rule in this system, already defined in @digilog/shared:
     // the instrument's own declared interval (times its slack) where it has one,
@@ -307,9 +418,49 @@ export async function buildTelemetryOverview(
           rhMin: inst.room.rhMin, rhMax: inst.room.rhMax,
         }
       : null;
-    const limits: RoomLimits | null = own ?? roomBand;
+    const resolved: RoomLimits | null = own ?? roomBand;
+
+    /**
+     * A bound the instrument switches OFF is WITHHELD, exactly as an
+     * out-of-range reading is withheld a few lines above — one place where a
+     * stored number becomes "a bound this system enforces", so no consumer can
+     * trust one the others rejected.
+     *
+     * This is not display sugar. `computeInstrumentStatus` below reads `limits`,
+     * and the alarm evaluator will not raise on a disabled bound, so leaving it
+     * in would paint an instrument OUT_OF_SPEC against a bound that can never
+     * produce an alarm — and on this installation a `High Humidity Limit = 0`
+     * meaning "not judged" does exactly that at every real humidity.
+     *
+     * Mapping is `LIMIT_BOUND`'s (alarm-evaluation.worker.ts): NMT is the HIGH
+     * bound, NLT the LOW one. Reversing it silently hides the opposite bound.
+     *
+     * Applied whatever `limitSource` says, deliberately. The flags are the
+     * INSTRUMENT's statement about its own bounds, and the evaluator reads
+     * instrument attributes ONLY — on a room-sourced row it is enforcing nothing
+     * anyway, so a bound the instrument disowns has no claim to be drawn.
+     */
+    const boundEnabled = enabledBoundsFor(limitCfg.enableKeys, inst.attributes);
+    const limitEnabled = {
+      tempMax: boundEnabled.temperatureHigh,
+      tempMin: boundEnabled.temperatureLow,
+      rhMax: boundEnabled.humidityHigh,
+      rhMin: boundEnabled.humidityLow,
+    };
+    const limits: RoomLimits | null = resolved && {
+      tempMin: limitEnabled.tempMin ? resolved.tempMin : null,
+      tempMax: limitEnabled.tempMax ? resolved.tempMax : null,
+      rhMin: limitEnabled.rhMin ? resolved.rhMin : null,
+      rhMax: limitEnabled.rhMax ? resolved.rhMax : null,
+    };
+    // The source describes a band. Once every bound in it is gone there is no
+    // band left to attribute, and "from this instrument" over an empty set is a
+    // §11 string that contradicts itself.
+    const anyBound = limits !== null
+      && (limits.tempMin !== null || limits.tempMax !== null
+        || limits.rhMin !== null || limits.rhMax !== null);
     const limitSource: OverviewRow['limitSource'] =
-      own ? 'INSTRUMENT' : roomBand ? 'ROOM' : null;
+      !anyBound ? null : own ? 'INSTRUMENT' : roomBand ? 'ROOM' : null;
 
     return {
       instrumentId: inst.id,
@@ -318,6 +469,7 @@ export async function buildTelemetryOverview(
       isActive: inst.isActive,
       room,
       limits,
+      limitEnabled,
       limitSource,
       temperature,
       humidity,
@@ -329,6 +481,15 @@ export async function buildTelemetryOverview(
         limits,
         reporting,
       }),
+      rawSlots: { temperature: toRawSlot(rawTemperature), humidity: toRawSlot(rawHumidity) },
+      rangeError,
+      rangeBounds,
+      sensorError: {
+        // A reading that ARRIVED and is not a number. A missing slot is not an
+        // error here — that is silence, and it keeps saying NA.
+        temperature: rawTemperature !== null && isSensorFailureValue(rawTemperature.value),
+        humidity: rawHumidity !== null && isSensorFailureValue(rawHumidity.value),
+      },
     };
   });
 }

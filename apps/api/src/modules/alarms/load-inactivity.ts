@@ -26,7 +26,6 @@ export async function loadInactivityConfig(): Promise<InactivityAlarmConfig> {
   const cfg = (row?.configValue ?? {}) as Record<string, unknown>;
 
   const grace = Number(cfg.graceMinutes);
-  const severities = ['CRITICAL', 'MAJOR', 'MINOR'] as const;
 
   return {
     // See above: absent means OFF, never on.
@@ -38,8 +37,5 @@ export async function loadInactivityConfig(): Promise<InactivityAlarmConfig> {
       // threshold and would raise on nothing, silently).
       ? Math.min(INACTIVITY_GRACE_MAX, Math.max(INACTIVITY_GRACE_MIN, Math.trunc(grace)))
       : INACTIVITY_ALARMS_DEFAULT.graceMinutes,
-    severity: severities.includes(cfg.severity as never)
-      ? (cfg.severity as InactivityAlarmConfig['severity'])
-      : INACTIVITY_ALARMS_DEFAULT.severity,
   };
 }

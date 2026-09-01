@@ -8,7 +8,6 @@
 
 import { formatDecimals, TELEMETRY_DECIMALS_FALLBACK, type AlarmWebhookEvent } from '@digilog/shared';
 import { formatDuration } from '../alarms/notify.js';
-import { describeRule } from '../alarms/decide.js';
 import { describeLimit } from '../alarms/limit-decide.js';
 
 export interface WebhookAlarmInput {
@@ -17,10 +16,23 @@ export interface WebhookAlarmInput {
   instrumentCode: string | null;
   instrumentName?: string | null;
   metric: string;
-  severity: string;
   ruleName: string;
   condition: string;
   triggeredValue: number | null;
+  /**
+   * A word to print INSTEAD of the numeric value, for an alarm whose value is not
+   * a number — today, an RS485 sensor failure, where the reading was `NA`.
+   *
+   * Set from the administered `rs485-alarms.failureText`, so the email, the
+   * hooter payload, the Alarms table and the dashboard cell all use the operator's
+   * one word. Absent for every other alarm source, which formats the number.
+   *
+   * The RAW value the sensor sent is not lost by this: it is named in `condition`
+   * ("temperature reported NA instead of a number"), which every template prints
+   * beside the value, and it is frozen on the alarm's own snapshot.
+   */
+  valueText?: string | null;
+
   decimals?: number | null;
   raisedAt: Date;
   clearedAt?: Date | null;
@@ -34,7 +46,12 @@ export function buildWebhookVariables(
 ): Record<string, string> {
   const instrument = a.instrumentCode || a.instrumentId;
   // A reading of 0 is real; only a genuinely absent value (OFFLINE has none) is '—'.
-  const value = formatDecimals(a.triggeredValue, a.decimals ?? TELEMETRY_DECIMALS_FALLBACK) ?? '—';
+  // `valueText` wins when set: an RS485 failure has no number to format, and
+  // printing '—' there says "no reading" for a sensor that reported loudly and
+  // wrongly.
+  const value = a.valueText?.trim()
+    || formatDecimals(a.triggeredValue, a.decimals ?? TELEMETRY_DECIMALS_FALLBACK)
+    || '—';
   const endAt = a.clearedAt ?? a.raisedAt;
 
   const vars: Record<string, string> = {
@@ -45,7 +62,6 @@ export function buildWebhookVariables(
     instrumentId: a.instrumentId,
     metric: a.metric,
     value,
-    severity: a.severity,
     condition: a.condition,
     ruleName: a.ruleName,
     timestamp: (event === 'CLEARED' ? endAt : new Date()).toISOString(),
@@ -67,7 +83,8 @@ export function buildWebhookVariables(
  * `alarm.ruleSnapshot` carries one of two shapes depending on `Alarm.source`:
  *
  * - RULE alarms (`alarms/decide.ts:ruleSnapshot()`) — no `decimals` field;
- *   described by `describeRule()`.
+ *   (RULE alarms were removed 2026-08-31; the enum value survives because
+ *   Postgres cannot drop one, but nothing raises them any more.)
  * - INSTRUMENT_LIMIT alarms (`alarms/limit-decide.ts:limitSnapshot()`) — carries
  *   `source: 'INSTRUMENT_LIMIT'` and `decimals`; described by `describeLimit()`.
  *
@@ -90,7 +107,7 @@ export function describeSnapshot(snapshot: unknown): string {
   if (!isLimitSnapshot(snapshot)) {
     if (typeof snapshot !== 'object' || snapshot === null || Array.isArray(snapshot)) return '';
     try {
-      return describeRule(snapshot as never);
+      return '';
     } catch {
       return '';
     }

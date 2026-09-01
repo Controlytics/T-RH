@@ -20,7 +20,7 @@
  */
 
 /** The type vocabulary, derived from the enum pairs that actually define a type. */
-export const ALARM_TYPE_TOKENS = ['TEMP_HIGH', 'TEMP_LOW', 'RH_HIGH', 'RH_LOW', 'OFFLINE', 'RULE'] as const;
+export const ALARM_TYPE_TOKENS = ['TEMP_HIGH', 'TEMP_LOW', 'RH_HIGH', 'RH_LOW', 'OFFLINE', 'RS485', 'RANGE'] as const;
 export type AlarmTypeToken = (typeof ALARM_TYPE_TOKENS)[number];
 
 /**
@@ -52,7 +52,6 @@ export interface AlarmListQuery {
   to?: Date;
   type?: AlarmTypeToken;
   status?: AlarmStatusToken;
-  severity?: string;
   instrumentId?: string;
   /** Legacy, still used by the dashboard panel: filters the CONDITION axis alone. */
   state?: 'ACTIVE' | 'CLEARED';
@@ -65,8 +64,6 @@ export interface AlarmListQuery {
   /** Non-null when a filter is unusable; the route turns it into a 400. */
   error: { field: string; message: string } | null;
 }
-
-const SEVERITIES = ['CRITICAL', 'MAJOR', 'MINOR'];
 
 function parseDate(raw: unknown, field: string): { value?: Date; error?: { field: string; message: string } } {
   if (raw === undefined || raw === null || raw === '') return {};
@@ -98,9 +95,13 @@ export function parseAlarmListQuery(raw: Record<string, unknown>): AlarmListQuer
   if (!error && raw.status !== undefined && raw.status !== '' && !ALARM_STATUS_TOKENS.includes(raw.status as AlarmStatusToken)) {
     error = { field: 'status', message: `Unknown status. Expected one of: ${ALARM_STATUS_TOKENS.join(', ')}.` };
   }
-  if (!error && raw.severity !== undefined && raw.severity !== '' && !SEVERITIES.includes(String(raw.severity))) {
-    error = { field: 'severity', message: `Unknown severity. Expected one of: ${SEVERITIES.join(', ')}.` };
-  }
+  // `severity` is deliberately NOT validated and NOT read. Severity stopped being
+  // an administered concept on 2026-09-01 and the filter went with it, but a stale
+  // bookmark or a browser still running the previous bundle can send `?severity=`.
+  // ACCEPTED AND IGNORED rather than rejected: a 400 would blank the Alarms page
+  // for someone mid-session over a parameter that no longer selects anything, and
+  // the rule that a bad filter must be a 400 exists so a filter cannot silently
+  // fail to apply — it does not apply to a filter that no longer exists.
 
   // An unknown SORT key falls back rather than erroring: it changes the ORDER of
   // the rows, not which rows they are, so a stale bookmark should still list alarms.
@@ -118,7 +119,6 @@ export function parseAlarmListQuery(raw: Record<string, unknown>): AlarmListQuer
     to: to.value,
     type: raw.type ? (raw.type as AlarmTypeToken) : undefined,
     status: raw.status ? (raw.status as AlarmStatusToken) : undefined,
-    severity: raw.severity ? String(raw.severity) : undefined,
     instrumentId: typeof raw.instrumentId === 'string' && raw.instrumentId ? raw.instrumentId : undefined,
     state: raw.state === 'ACTIVE' || raw.state === 'CLEARED' ? raw.state : undefined,
     acknowledged: raw.acknowledged === 'true' ? true : raw.acknowledged === 'false' ? false : undefined,
@@ -137,9 +137,17 @@ const TYPE_WHERE: Record<AlarmTypeToken, Record<string, unknown>> = {
   RH_HIGH: { metric: 'HUMIDITY', limitKind: 'HIGH' },
   RH_LOW: { metric: 'HUMIDITY', limitKind: 'LOW' },
   OFFLINE: { metric: 'OFFLINE' },
-  // A rule alarm has no limitKind — it describes itself through its snapshot —
-  // so `source` is the only column that identifies one.
-  RULE: { source: 'RULE' },
+  // ONE token for both metrics, matching on `source`. An RS485 alarm's metric is
+  // TEMPERATURE or HUMIDITY — the same values a limit alarm uses — so metric
+  // alone cannot identify one, and splitting it into RS485_TEMP / RS485_RH would
+  // make an operator asking "what sensors have failed?" choose between two
+  // spellings of one question. The Type COLUMN still names the metric per row.
+  RS485: { source: 'RS485_FAILURE' },
+  // Also keyed on source, and for the same reason: a range failure carries
+  // metric TEMPERATURE or HUMIDITY, exactly as a limit breach does. Its own
+  // token rather than sharing the RS485 one — 'the probe is saturated' and
+  // 'the probe is sending nonsense' send an engineer to check different things.
+  RANGE: { source: 'SENSOR_RANGE' },
 };
 
 /**
@@ -196,7 +204,6 @@ export function buildAlarmWhere(q: AlarmListQuery, opts: WhereOptions = {}): { A
 
   if (q.instrumentId) AND.push({ instrumentId: q.instrumentId });
   if (q.type) AND.push({ ...TYPE_WHERE[q.type] });
-  if (q.severity) AND.push({ severity: q.severity });
 
   // The legacy single-axis filters. They stay in the BASE where — not behind
   // `includeStatus` — because they predate the four-way status token and the

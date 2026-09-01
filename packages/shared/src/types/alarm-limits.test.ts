@@ -4,7 +4,10 @@ import {
   parseLimitValue,
   resolveLimit,
   ALARM_LIMIT_KEYS_DEFAULT,
+  ALARM_LIMIT_ENABLE_KEYS_DEFAULT,
   ALARM_STATUS_TEXT_DEFAULT,
+  parseEnableFlag,
+  resolveEnableFlag,
 } from './alarm-limits.js';
 
 describe('parseLimitKeys', () => {
@@ -97,5 +100,53 @@ describe('resolveLimit', () => {
 describe('ALARM_STATUS_TEXT_DEFAULT', () => {
   it('keeps cleared-unacknowledged distinct from cleared', () => {
     expect(ALARM_STATUS_TEXT_DEFAULT.clearedUnack).not.toBe(ALARM_STATUS_TEXT_DEFAULT.clearedAck);
+  });
+});
+
+describe('per-bound enable flags', () => {
+  it('reads both vocabularies live data actually holds', () => {
+    // 99 instruments here write 0/1; one writes "True".
+    expect(parseEnableFlag('1')).toBe(true);
+    expect(parseEnableFlag('0')).toBe(false);
+    expect(parseEnableFlag('True')).toBe(true);
+    expect(parseEnableFlag('false')).toBe(false);
+    expect(parseEnableFlag(' YES ')).toBe(true);
+    expect(parseEnableFlag('Off')).toBe(false);
+  });
+
+  it('treats an absent, blank or unreadable flag as ENABLED', () => {
+    // The safety decision in this module: a monitoring system fails toward
+    // alarming. A typo must never be able to silence a bound.
+    expect(parseEnableFlag(undefined)).toBe(true);
+    expect(parseEnableFlag(null)).toBe(true);
+    expect(parseEnableFlag('')).toBe(true);
+    expect(parseEnableFlag('   ')).toBe(true);
+    expect(parseEnableFlag('maybe')).toBe(true);
+  });
+
+  it('resolves the flag by key precedence, like resolveLimit', () => {
+    const attrs = [
+      { key: 'Enable_Temp_NMT', value: '0' },
+      { key: 'Temp High Enabled', value: '1' },
+    ];
+    expect(resolveEnableFlag(['enable_temp_nmt', 'temp high enabled'], attrs))
+      .toEqual({ key: 'Enable_Temp_NMT', enabled: false });
+    // Reversed preference picks the other spelling, deterministically.
+    expect(resolveEnableFlag(['temp high enabled', 'enable_temp_nmt'], attrs))
+      .toEqual({ key: 'Temp High Enabled', enabled: true });
+  });
+
+  it('returns null when the instrument carries no flag at all', () => {
+    // The caller turns that into "enabled" — one instrument here has no flag.
+    expect(resolveEnableFlag(['enable_temp_nmt'], [{ key: 'Model', value: 'X' }])).toBeNull();
+  });
+
+  it('ships the keys the plant already uses, NMT high and NLT low', () => {
+    // "Not more than" is the high bound; "not less than" the low one. Getting
+    // these the wrong way round would disable the opposite bound silently.
+    expect(ALARM_LIMIT_ENABLE_KEYS_DEFAULT.temperatureHigh).toBe('Enable_Temp_NMT');
+    expect(ALARM_LIMIT_ENABLE_KEYS_DEFAULT.temperatureLow).toBe('Enable_Temp_NLT');
+    expect(ALARM_LIMIT_ENABLE_KEYS_DEFAULT.humidityHigh).toBe('Enable_Humid_NMT');
+    expect(ALARM_LIMIT_ENABLE_KEYS_DEFAULT.humidityLow).toBe('Enable_Humid_NLT');
   });
 });

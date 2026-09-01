@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { formatDecimals } from '@digilog/shared';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { pixelToTime, normalizeSelection } from './chart-zoom';
@@ -36,6 +36,22 @@ import { Button } from '@/components/ui/button';
 /** The in-limit semantic, shared with the trend page's band gauge. Fixed, not
  *  themed: a site that themes the app purple must not get a purple limit. */
 const LIMIT_LINE = 'var(--chart-limit-line, #15803D)';
+
+/**
+ * The `trend` variant's two limit colours, and its chrome accent.
+ *
+ * Green high / red low is the operator reference's coding, NOT this app's
+ * semantic — everywhere else red means out of limit, so a compliant low bound
+ * here wears the alarm colour. Drawn as supplied rather than silently
+ * "corrected", and safe only because the pill beside each line names the bound
+ * in words: colour never carries the meaning alone. Reasoning is repeated
+ * beside the variables in `app.css`.
+ *
+ * Literal fallbacks, like every other chart colour here — see SERIES_COLORS.
+ */
+const LIMIT_HIGH = 'var(--chart-limit-high, #15803D)';
+const LIMIT_LOW = 'var(--chart-limit-low, #DC2626)';
+const AXIS_ACCENT = 'var(--chart-axis-accent, #2563EB)';
 
 export const SERIES_COLORS = [
   'var(--chart-series-1, #2a78d6)',
@@ -154,11 +170,55 @@ interface Props {
   onZoom?: (from: Date, to: Date) => void;
   /** Provided only while the view IS zoomed — it is what renders "Reset zoom". */
   onResetZoom?: () => void;
+  /**
+   * Visual treatment. `plain` (the default) is the chart every existing caller
+   * gets, unchanged to the pixel — the dashboard's room view, the aggregate
+   * trend card, and the OFF-SCREEN mount behind the signed PDF
+   * (`routes/instruments/chart-image.ts`).
+   *
+   * `trend` is the per-quantity card on `/instruments/:id/trend`, restyled to
+   * an operator reference: an axis unit label, a "Last Reading" readout, pilled
+   * limit lines, a gradient area fill and an in-chart hover tooltip. EVERY one
+   * of those is gated on this prop, deliberately: a "Live" pill or a download
+   * button printed into a §11 report would be absurd, and this component is
+   * shared with the code path that prints it.
+   */
+  variant?: 'plain' | 'trend';
+  /**
+   * The `trend` variant's "Last Reading" readout — the latest STORED reading,
+   * supplied by the caller.
+   *
+   * NOT read off `series`, and this is the whole reason it is a prop. When a
+   * chart interval is selected `toChartSeries` bucket-AVERAGES, so the last
+   * plotted point is a mean; printing a mean under the words "Last Reading"
+   * states a derived number as a stored one on a §11 surface. The trend page
+   * already computes this correctly for its summary strip
+   * (`latestValueForKey`), so it hands the same value here and the two cannot
+   * disagree.
+   */
+  lastReading?: { value: number; decimals: number } | null;
 }
 
 const W = 900;
 const H = 260;
-const PAD = { top: 14, right: 62, bottom: 26, left: 46 };
+
+/**
+ * Plot padding, PER VARIANT.
+ *
+ * `trend` needs headroom for the unit label and the "Last Reading" box that sit
+ * ABOVE the plot, and needs almost no right margin because it draws no direct
+ * end-of-series label (the readout box replaces it).
+ *
+ * Threaded through every consumer rather than read as a module constant — the
+ * plot width, the y scale, the pointer-bounds test, the drag clamp and both
+ * `pixelToTime` calls all derive from it, and one site left on the old constant
+ * would make a drag select a window the chart never showed, with nothing on
+ * screen to say so.
+ */
+const PADS = {
+  plain: { top: 14, right: 62, bottom: 26, left: 46 },
+  trend: { top: 46, right: 18, bottom: 26, left: 46 },
+} as const;
 
 /**
  * The narrowest span a drag may select.
@@ -170,14 +230,23 @@ const PAD = { top: 14, right: 62, bottom: 26, left: 46 };
  */
 const MIN_ZOOM_SPAN_MS = 60_000;
 
-export function TimeSeriesChart({ series, envelope, unit, min, max, spanMs, title, onZoom, onResetZoom }: Props) {
+export function TimeSeriesChart({
+  series, envelope, unit, min, max, spanMs, title, onZoom, onResetZoom,
+  variant = 'plain', lastReading = null,
+}: Props) {
   const { formatDateTime } = useDatetimeFormat();
   const [hoverX, setHoverX] = useState<number | null>(null);
   /** Drag in progress, in viewBox x — null when not dragging. */
   const [drag, setDrag] = useState<{ a: number; b: number } | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
+  // React's own id, with the colons stripped: `useId()` yields `:r0:`, and a
+  // colon inside `url(#…)` is a fragment-reference footgun that also behaves
+  // differently once an SVG is serialised on its own.
+  const gradientId = `tsc-fill-${useId().replace(/:/g, '')}`;
 
   const interactive = typeof onZoom === 'function';
+  const trend = variant === 'trend';
+  const PAD = PADS[variant];
 
   // Escape leaves fullscreen. A fixed full-viewport overlay with no keyboard
   // way out is a trap for anyone not using a mouse.
@@ -216,14 +285,16 @@ export function TimeSeriesChart({ series, envelope, unit, min, max, spanMs, titl
     const sy = (v: number) => PAD.top + plotH - ((v - scale.min) / (scale.max - scale.min)) * plotH;
 
     return { t0, t1, scale, plotW, plotH, sx, sy };
-  }, [withPoints, envelope, min, max]);
+  }, [withPoints, envelope, min, max, PAD]);
 
   if (withPoints.length === 0) {
     // A chart with axes and no line reads as "flat". Say nothing is here.
+    // The `trend` variant's card already prints the title in its own header, so
+    // repeating it here would put the same heading on screen twice.
     return (
-      <div className="rounded-xl border border-slate-200 bg-white p-6 text-center">
-        <p className="text-sm font-medium text-slate-700">{title}</p>
-        <p className="mt-1 text-xs text-slate-500">No data available</p>
+      <div className={trend ? 'py-10 text-center' : 'rounded-xl border border-slate-200 bg-white p-6 text-center'}>
+        {!trend && <p className="text-sm font-medium text-slate-700">{title}</p>}
+        <p className={trend ? 'text-sm text-slate-500' : 'mt-1 text-xs text-slate-500'}>No data available</p>
       </div>
     );
   }
@@ -298,20 +369,73 @@ export function TimeSeriesChart({ series, envelope, unit, min, max, spanMs, titl
   const bandTop = max != null ? g.sy(Math.min(max, g.scale.max)) : null;
   const bandBottom = min != null ? g.sy(Math.max(min, g.scale.min)) : null;
 
+  /**
+   * The `trend` variant's pilled limit label.
+   *
+   * Drawn at `g.sy(value)` — the TRUE limit, never a gridline near it. The
+   * reference image puts its "High Limit 27.0" pill against the 28 gridline;
+   * that is a mock error and reproducing it would print a bound the record does
+   * not hold, on the one element the page exists to evidence a breach against.
+   *
+   * Width is estimated from the character count because SVG has no intrinsic
+   * text box; it only sizes the pill's background, so a few pixels either way
+   * costs nothing. The pill sits ABOVE its line, and flips below when there is
+   * no room — never clipped off the top of the plot.
+   */
+  const limitPill = (value: number, label: string, color: string) => {
+    const text = `${label} ${limitText(value)}${unit ? ` ${unit}` : ''}`;
+    const w = text.length * 5.9 + 16;
+    const y = g.sy(value);
+    const above = y - PAD.top >= 24;
+    const boxY = above ? y - 25 : y + 7;
+    return (
+      <g key={label}>
+        <line
+          x1={PAD.left} x2={W - PAD.right} y1={y} y2={y}
+          stroke={color} strokeWidth={1.5} strokeDasharray="7 5"
+        />
+        <rect
+          x={PAD.left + 8} y={boxY} width={w} height={18} rx={5}
+          fill={color} fillOpacity={0.12} stroke={color} strokeOpacity={0.35} strokeWidth={1}
+        />
+        <text
+          x={PAD.left + 8 + w / 2} y={boxY + 12.5} textAnchor="middle"
+          fontSize={10.5} fontWeight={600} fill={color}
+        >
+          {text}
+        </text>
+      </g>
+    );
+  };
+
   return (
     <div
       className={
         fullscreen
           ? 'fixed inset-0 z-50 flex flex-col overflow-auto bg-white p-5'
-          : 'rounded-xl border border-slate-200 bg-white p-3'
+          // The `trend` variant sits INSIDE a card that already draws the
+          // border, the ground and the padding — a second frame around the plot
+          // would box it twice. Its fullscreen is the card's, not this one's.
+          : trend ? '' : 'rounded-xl border border-slate-200 bg-white p-3'
       }
     >
-      <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-sm font-semibold text-slate-800">{title}</p>
+      {/* In the `trend` variant the card owns the title, the legend is moot on a
+          single-quantity chart and Fullscreen has moved into the card header —
+          so this row collapses to "Reset zoom", and disappears entirely when
+          the view is not zoomed. Reset zoom itself is NOT dropped: it is the
+          only way back from a drag-zoom. */}
+      <div
+        className={
+          trend
+            ? (onResetZoom ? 'mb-1 flex justify-end' : 'hidden')
+            : 'mb-1 flex flex-wrap items-baseline justify-between gap-2'
+        }
+      >
+        {!trend && <p className="text-sm font-semibold text-slate-800">{title}</p>}
         <div className="flex flex-wrap items-center gap-3">
           {/* Legend is always present for 2+ series; identity is never colour
               alone because the swatch sits beside a name. */}
-          {withPoints.length > 1 && withPoints.map((s, i) => (
+          {!trend && withPoints.length > 1 && withPoints.map((s, i) => (
             <span key={s.id} className="flex items-center gap-1.5 text-xs text-slate-600">
               <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: s.color ?? seriesColor(i) }} />
               {s.label}
@@ -330,13 +454,15 @@ export function TimeSeriesChart({ series, envelope, unit, min, max, spanMs, titl
                   Reset zoom
                 </Button>
               )}
-              <Button variant="ghost" size="sm"
-                type="button"
-                onClick={() => setFullscreen((v) => !v)}
-                aria-pressed={fullscreen}
-              >
-                {fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-              </Button>
+              {!trend && (
+                <Button variant="ghost" size="sm"
+                  type="button"
+                  onClick={() => setFullscreen((v) => !v)}
+                  aria-pressed={fullscreen}
+                >
+                  {fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                </Button>
+              )}
             </>
           )}
         </div>
@@ -377,6 +503,17 @@ export function TimeSeriesChart({ series, envelope, unit, min, max, spanMs, titl
         onPointerUp={interactive ? endDrag : undefined}
         onPointerCancel={interactive ? () => setDrag(null) : undefined}
       >
+        {/* The `trend` variant's area gradient — the series colour fading to
+            nothing at the foot of the plot. Emitted ONLY for that variant, so
+            the SVG the PDF export serialises carries no defs it cannot resolve. */}
+        {trend && (
+          <defs>
+            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={withPoints[0].color ?? seriesColor(0)} stopOpacity={0.28} />
+              <stop offset="100%" stopColor={withPoints[0].color ?? seriesColor(0)} stopOpacity={0.02} />
+            </linearGradient>
+          </defs>
+        )}
         {/* The aggregate envelope, BENEATH the in-spec band and the series: it is
             context for the lines, never the subject. Drawn as one closed path —
             highs left-to-right, then lows back — so a gap in the data leaves a gap
@@ -396,8 +533,12 @@ export function TimeSeriesChart({ series, envelope, unit, min, max, spanMs, titl
             stroke="none"
           />
         )}
-        {/* In-spec band, behind everything. */}
-        {(bandTop !== null || bandBottom !== null) && (
+        {/* In-spec band, behind everything. Not drawn in the `trend` variant:
+            the reference has clean white between its two limit lines, and with
+            a gradient area fill already under the series a second tint would
+            leave two overlapping washes to tell apart. The bounds are still
+            fully stated — a dashed line AND a pill naming the value. */}
+        {!trend && (bandTop !== null || bandBottom !== null) && (
           <rect
             x={PAD.left}
             y={bandTop ?? PAD.top}
@@ -414,7 +555,9 @@ export function TimeSeriesChart({ series, envelope, unit, min, max, spanMs, titl
             with a white halo (`paintOrder`) so it stays legible where the
             series crosses under it, rather than in the right margin where the
             direct series labels already sit. */}
-        {max != null && max <= g.scale.max && (
+        {trend && max != null && max <= g.scale.max && limitPill(max, 'High Limit', LIMIT_HIGH)}
+        {trend && min != null && min >= g.scale.min && limitPill(min, 'Low Limit', LIMIT_LOW)}
+        {!trend && max != null && max <= g.scale.max && (
           <g>
             <line x1={PAD.left} x2={W - PAD.right} y1={g.sy(max)} y2={g.sy(max)}
                   stroke={LIMIT_LINE} strokeWidth={1} strokeDasharray="4 3" opacity={0.75} />
@@ -426,7 +569,7 @@ export function TimeSeriesChart({ series, envelope, unit, min, max, spanMs, titl
             </text>
           </g>
         )}
-        {min != null && min >= g.scale.min && (
+        {!trend && min != null && min >= g.scale.min && (
           <g>
             <line x1={PAD.left} x2={W - PAD.right} y1={g.sy(min)} y2={g.sy(min)}
                   stroke={LIMIT_LINE} strokeWidth={1} strokeDasharray="4 3" opacity={0.75} />
@@ -442,7 +585,11 @@ export function TimeSeriesChart({ series, envelope, unit, min, max, spanMs, titl
         {/* Recessive grid + axis labels. */}
         {g.scale.ticks.map((t) => (
           <g key={t}>
-            <line x1={PAD.left} x2={W - PAD.right} y1={g.sy(t)} y2={g.sy(t)} stroke="var(--chart-grid-line, #e2e8f0)" strokeWidth={1} />
+            <line
+              x1={PAD.left} x2={W - PAD.right} y1={g.sy(t)} y2={g.sy(t)}
+              stroke="var(--chart-grid-line, #e2e8f0)" strokeWidth={1}
+              strokeDasharray={trend ? '3 4' : undefined}
+            />
             {/* The tick is a SCALE value, not a reading — it keeps niceScale's own
                 rounding rather than an instrument's precision. A 0-decimal probe on
                 a 0.5-step axis should still see 22.5 on the gridline. */}
@@ -451,8 +598,46 @@ export function TimeSeriesChart({ series, envelope, unit, min, max, spanMs, titl
             </text>
           </g>
         ))}
+        {/* Vertical grid, `trend` only — the reference's dashed lattice. Six
+            evenly spaced rules, purely for reading a value across; they are NOT
+            time ticks and carry no label, because a labelled column would be a
+            time axis and this chart already has one at its foot. */}
+        {trend && [1, 2, 3, 4, 5].map((n) => {
+          const x = PAD.left + (g.plotW * n) / 6;
+          return (
+            <line
+              key={`v${n}`} x1={x} x2={x} y1={PAD.top} y2={PAD.top + g.plotH}
+              stroke="var(--chart-grid-line, #e2e8f0)" strokeWidth={1} strokeDasharray="3 4"
+            />
+          );
+        })}
         <text x={PAD.left} y={H - 8} fontSize={10} fill="var(--chart-axis-text, #64748b)">{fmtTime(g.t0)}</text>
         <text x={W - PAD.right} y={H - 8} textAnchor="end" fontSize={10} fill="var(--chart-axis-text, #64748b)">{fmtTime(g.t1)}</text>
+
+        {/* The axis unit, top-left, and the latest STORED reading, top-right —
+            both `trend` only, both in the fixed chrome accent rather than the
+            series colour (see AXIS_ACCENT). They sit in the headroom `PADS.trend`
+            reserves, so neither overlaps the plot. */}
+        {trend && unit && (
+          <text x={PAD.left - 12} y={PAD.top - 26} fontSize={12} fontWeight={700} fill={AXIS_ACCENT}>{unit}</text>
+        )}
+        {trend && lastReading && (
+          <g>
+            <text x={W - PAD.right} y={PAD.top - 32} textAnchor="end" fontSize={9.5} fontWeight={600} fill="var(--chart-axis-text, #64748b)">
+              Last Reading
+            </text>
+            <rect
+              x={W - PAD.right - 108} y={PAD.top - 26} width={108} height={26} rx={6}
+              fill="#ffffff" stroke="var(--chart-grid-line, #e2e8f0)" strokeWidth={1}
+            />
+            <text
+              x={W - PAD.right - 54} y={PAD.top - 8} textAnchor="middle"
+              fontSize={13} fontWeight={700} fill={AXIS_ACCENT}
+            >
+              {`${formatDecimals(lastReading.value, lastReading.decimals) ?? '—'}${unit ? ` ${unit}` : ''}`}
+            </text>
+          </g>
+        )}
 
         {/* Series. 2px, no per-point markers — these are dense polls. */}
         {withPoints.map((s, i) => {
@@ -460,28 +645,82 @@ export function TimeSeriesChart({ series, envelope, unit, min, max, spanMs, titl
             .map((p, idx) => `${idx === 0 ? 'M' : 'L'}${g.sx(new Date(p.ts).getTime()).toFixed(1)},${g.sy(p.value).toFixed(1)}`)
             .join(' ');
           const last = s.points[s.points.length - 1];
+          const first = s.points[0];
           return (
             <g key={s.id}>
+              {/* The `trend` variant's area fill: the same path, closed down to
+                  the foot of the plot. Only for the FIRST series — a stack of
+                  translucent fills on an overlay chart hides the lines it is
+                  meant to sit under, and the trend page draws one quantity per
+                  chart. */}
+              {trend && i === 0 && s.points.length > 1 && (
+                <path
+                  d={`${d} L${g.sx(new Date(last.ts).getTime()).toFixed(1)},${(PAD.top + g.plotH).toFixed(1)}`
+                    + ` L${g.sx(new Date(first.ts).getTime()).toFixed(1)},${(PAD.top + g.plotH).toFixed(1)} Z`}
+                  fill={`url(#${gradientId})`}
+                  stroke="none"
+                />
+              )}
               <path d={d} fill="none" stroke={s.color ?? seriesColor(i)} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
               {/* Direct label at the last point — the relief the palette's
-                  low-contrast slot requires, and faster to read than a legend. */}
-              <text
-                x={W - PAD.right + 5}
-                y={g.sy(last.value) + 3}
-                fontSize={10}
-                fontWeight={600}
-                fill="var(--chart-value-label, #334155)"
-              >
-                {formatDecimals(last.value, s.decimals)}
-              </text>
+                  low-contrast slot requires, and faster to read than a legend.
+                  Dropped in the `trend` variant, where the "Last Reading" box
+                  above states the same thing (and states it from the latest
+                  STORED reading, which a bucket-averaged last point is not). */}
+              {!trend && (
+                <text
+                  x={W - PAD.right + 5}
+                  y={g.sy(last.value) + 3}
+                  fontSize={10}
+                  fontWeight={600}
+                  fill="var(--chart-value-label, #334155)"
+                >
+                  {formatDecimals(last.value, s.decimals)}
+                </text>
+              )}
             </g>
           );
         })}
 
-        {/* Hover crosshair. */}
+        {/* Hover crosshair. Dashed in the `trend` variant, per the reference. */}
         {hoverX !== null && (
-          <line x1={hoverX} x2={hoverX} y1={PAD.top} y2={PAD.top + g.plotH} stroke="var(--chart-crosshair, #94a3b8)" strokeWidth={1} />
+          <line
+            x1={hoverX} x2={hoverX} y1={PAD.top} y2={PAD.top + g.plotH}
+            stroke={trend ? (withPoints[0].color ?? seriesColor(0)) : 'var(--chart-crosshair, #94a3b8)'}
+            strokeWidth={1}
+            strokeDasharray={trend ? '4 4' : undefined}
+            opacity={trend ? 0.8 : 1}
+          />
         )}
+
+        {/* The `trend` variant's in-chart readout: a filled dot on the nearest
+            stored point, and a rounded tooltip in the series colour carrying
+            that reading's OWN timestamp and value. It replaces the text row
+            beneath the plot, which is why that row is suppressed below.
+
+            The box flips to the left of the crosshair near the right-hand edge —
+            otherwise the one reading an operator most often checks (the newest)
+            is the one whose tooltip runs off the chart. */}
+        {trend && readout.length > 0 && readout.map((r) => {
+          const px = g.sx(new Date(r.ts).getTime());
+          const py = g.sy(r.value);
+          const boxW = 158;
+          const flip = px + 12 + boxW > W - PAD.right;
+          const bx = flip ? px - 12 - boxW : px + 12;
+          const by = Math.min(PAD.top + g.plotH - 50, Math.max(PAD.top + 2, py - 46));
+          return (
+            <g key={`tip-${r.label}`} pointerEvents="none">
+              <circle cx={px} cy={py} r={5.5} fill={r.color} stroke="#ffffff" strokeWidth={2.5} />
+              <rect x={bx} y={by} width={boxW} height={46} rx={7} fill={r.color} />
+              <text x={bx + 12} y={by + 18} fontSize={10.5} fontWeight={500} fill="#ffffff" fillOpacity={0.88}>
+                {formatDateTime(r.ts)}
+              </text>
+              <text x={bx + 12} y={by + 36} fontSize={14} fontWeight={700} fill="#ffffff">
+                {`${formatDecimals(r.value, r.decimals) ?? '—'}${unit ? ` ${unit}` : ''}`}
+              </text>
+            </g>
+          );
+        })}
 
         {/* Selection, drawn only WHILE dragging — nothing is emitted otherwise,
             so the SVG the PDF export serialises is unchanged. Neutral ink: the
@@ -496,8 +735,21 @@ export function TimeSeriesChart({ series, envelope, unit, min, max, spanMs, titl
         )}
       </svg>
 
+      {/* The value row. In the `trend` variant the in-chart tooltip above IS the
+          readout, so only the affordance hint survives — dropped entirely once
+          the pointer is on the chart, where the tooltip is already answering.
+          The hint is NOT dropped with the rest: a drag that silently refetches
+          is undiscoverable, and the reference image shows no affordance for it. */}
       <div className="mt-1 flex min-h-[18px] flex-wrap items-center gap-3 text-xs">
-        {readout.length > 0 ? readout.map((r) => (
+        {trend ? (
+          readout.length === 0 && (
+            <span className="text-slate-400">
+              {interactive
+                ? 'Hover the chart to read values · drag across it to zoom into that window'
+                : 'Hover the chart to read values'}
+            </span>
+          )
+        ) : readout.length > 0 ? readout.map((r) => (
           <span key={r.label} className="flex items-center gap-1.5 text-slate-600">
             <span className="inline-block h-2 w-2 rounded-sm" style={{ backgroundColor: r.color }} />
             {r.label}: <span className="font-semibold tabular-nums text-slate-800">{formatDecimals(r.value, r.decimals)} {unit}</span>

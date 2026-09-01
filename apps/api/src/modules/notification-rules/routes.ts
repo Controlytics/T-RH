@@ -19,8 +19,8 @@ export const EVENT_TYPE_META: Record<string, { label: string; module: string; va
   SYSTEM_ERROR:         { label: 'System Error',          module: 'system',     variables: ['errorType', 'errorMessage', 'timestamp'] },
   // Project C4. The variable lists are held against alarms/notify.ts by a test — a
   // variable promised here but not produced there renders as an empty cell in the email.
-  ALARM_RAISED:         { label: 'Alarm Raised',          module: 'alarms',     variables: ['instrument', 'metric', 'value', 'condition', 'severity', 'ruleName', 'timestamp'] },
-  ALARM_CLEARED:        { label: 'Alarm Cleared',         module: 'alarms',     variables: ['instrument', 'metric', 'condition', 'severity', 'ruleName', 'raisedAt', 'duration', 'timestamp'] },
+  ALARM_RAISED:         { label: 'Alarm Raised',          module: 'alarms',     variables: ['instrument', 'metric', 'value', 'condition', 'ruleName', 'timestamp'] },
+  ALARM_CLEARED:        { label: 'Alarm Cleared',         module: 'alarms',     variables: ['instrument', 'metric', 'condition', 'ruleName', 'raisedAt', 'duration', 'timestamp'] },
 };
 
 export default async function notificationRulesRoutes(app: FastifyInstance) {

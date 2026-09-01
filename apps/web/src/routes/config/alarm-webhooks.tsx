@@ -32,7 +32,6 @@ export interface WebhookTarget {
   fireOnRaised: boolean;
   fireOnCleared: boolean;
   fireOnAcknowledged: boolean;
-  severities: string[] | null;
   cooldownSeconds: number;
   isActive: boolean;
   scopeLocationIds: string[];
@@ -72,9 +71,6 @@ interface TestResult { ok: boolean; httpStatus: number | null; responseSnippet: 
  */
 interface StampedTestResult extends TestResult { stamp: number }
 
-/** EXACTLY `enum AlarmSeverity` and the API's `SEVERITIES` — three, and there is no WARNING. */
-const SEVERITIES = ['CRITICAL', 'MAJOR', 'MINOR'] as const;
-
 const DELIVERY_PAGE = 25;
 
 // One shared class string per file was how these two dialogs avoided the
@@ -97,13 +93,6 @@ interface Draft {
   successRegex: string;
   timeoutMs: number;
   cooldownSeconds: number;
-  /**
-   * THREE STATES, carried verbatim rather than collapsed, because two of them are
-   * opposite behaviours: `null` = every severity, `[]` = NONE (permanently silent,
-   * see target-scope.ts), `[..]` = those. A UI that cannot tell the last two apart
-   * shows "fires for everything" and "fires for nothing" identically.
-   */
-  severities: string[] | null;
   fireOnRaised: boolean;
   fireOnCleared: boolean;
   fireOnAcknowledged: boolean;
@@ -117,7 +106,6 @@ const emptyDraft: Draft = {
   headerRows: [], contentType: 'application/json',
   bodyTemplate: DEFAULT_WEBHOOK_BODY_TEMPLATE,
   successRegex: '', timeoutMs: 5000, cooldownSeconds: 0,
-  severities: null,
   fireOnRaised: true, fireOnCleared: true, fireOnAcknowledged: true, isActive: true,
   scopeLocationIds: [], scopeInstrumentIds: [],
 };
@@ -135,7 +123,6 @@ function draftOf(t: WebhookTarget): Draft {
     successRegex: t.successRegex ?? '',
     timeoutMs: t.timeoutMs,
     cooldownSeconds: t.cooldownSeconds,
-    severities: t.severities,
     fireOnRaised: t.fireOnRaised,
     fireOnCleared: t.fireOnCleared,
     fireOnAcknowledged: t.fireOnAcknowledged,
@@ -199,7 +186,6 @@ function bodyOf(d: Draft) {
     successRegex: d.successRegex.trim() || null,
     timeoutMs: d.timeoutMs,
     cooldownSeconds: d.cooldownSeconds,
-    severities: d.severities,
     fireOnRaised: d.fireOnRaised,
     fireOnCleared: d.fireOnCleared,
     fireOnAcknowledged: d.fireOnAcknowledged,
@@ -214,7 +200,7 @@ function bodyOf(d: Draft) {
  *
  * `instrumentCount` is the SERVER's number and is only ever read off an API response.
  * It is not recomputed here from the location tree: the server resolves it with the
- * fire flags and severity filter deliberately held open, and a second implementation
+ * fire flags deliberately held open, and a second implementation
  * in the browser is exactly the drift CLAUDE.md forbids. The consequence is that the
  * count belongs on the list row, not inside the unsaved form — there is no endpoint
  * that resolves a count for a scope that has not been saved yet.
@@ -355,7 +341,6 @@ export function AlarmWebhooksConfigPage() {
               <th className="px-4 py-3">URL</th>
               <th className="px-4 py-3">Method</th>
               <th className="px-4 py-3">Events</th>
-              <th className="px-4 py-3">Severities</th>
               <th className="px-4 py-3">Scope</th>
               <th className="px-4 py-3">Last delivery</th>
               <th className="px-4 py-3">State</th>
@@ -363,9 +348,9 @@ export function AlarmWebhooksConfigPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {isLoading && <tr><td colSpan={9} className="px-4 py-4"><SkeletonRows rows={4} columns={6} /></td></tr>}
+            {isLoading && <tr><td colSpan={8} className="px-4 py-4"><SkeletonRows rows={4} columns={6} /></td></tr>}
             {!isLoading && targets.length === 0 && (
-              <tr><td colSpan={9} className="px-4 py-2"><EmptyState compact title="No targets" /></td></tr>
+              <tr><td colSpan={8} className="px-4 py-2"><EmptyState compact title="No targets" /></td></tr>
             )}
             {targets.map((t) => (
               <tr key={t.id} className="hover:bg-slate-50">
@@ -385,16 +370,6 @@ export function AlarmWebhooksConfigPage() {
                       ? <span className="text-amber-700">No events — this target will not fire</span>
                       : <span className="text-slate-700">{events.join(', ')}</span>;
                   })()}
-                </td>
-                <td className="px-4 py-3">
-                  {/* An empty severity list is accepted by the API and can never fire, while
-                      `instrumentCount` is resolved with severities held open — so the row would
-                      otherwise read "1 instrument in scope" for a permanently silent target. */}
-                  {t.severities !== null && t.severities.length === 0 ? (
-                    <span className="text-amber-700">No severities — this target will not fire</span>
-                  ) : (
-                    <span className="text-slate-700">{t.severities === null ? 'All' : t.severities.join(', ')}</span>
-                  )}
                 </td>
                 <td className="px-4 py-3">
                   {t.instrumentCount === 0 ? (
@@ -833,40 +808,7 @@ function TargetDialog({
             {showErr('successRegex') && <p className="mt-1 text-xs text-red-600">{err!.message}</p>}
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <span className={labelCls}>Severities</span>
-              {/* All (null) and Selected-with-none ([]) are opposite behaviours, so they get
-                  separate controls rather than the same set of empty checkboxes. */}
-              <div className="flex flex-wrap items-center gap-3 text-sm text-slate-700">
-                <label className="flex items-center gap-1.5">
-                  <input type="radio" checked={draft.severities === null} onChange={() => set('severities', null)} className="ctl-radio" />
-                  All severities
-                </label>
-                <label className="flex items-center gap-1.5">
-                  <input type="radio" checked={draft.severities !== null} onChange={() => set('severities', [])} className="ctl-radio" />
-                  Selected
-                </label>
-              </div>
-              {draft.severities !== null && (
-                <div className="mt-2 flex flex-wrap gap-3">
-                  {SEVERITIES.map((s) => (
-                    <label key={s} className="flex items-center gap-1.5 text-sm text-slate-700">
-                      <input
-                        type="checkbox"
-                        className="ctl-check"
-                        checked={draft.severities!.includes(s)}
-                        onChange={() => set('severities', toggleIn(draft.severities!, s))}
-                      />
-                      {s}
-                    </label>
-                  ))}
-                </div>
-              )}
-              {draft.severities !== null && draft.severities.length === 0 && (
-                <p className="mt-2 text-xs text-amber-700">No severities selected — this target will not fire</p>
-              )}
-            </div>
+          <div>
             <div>
               <span className={labelCls}>Fire on</span>
               <div className="flex flex-wrap gap-3">

@@ -618,6 +618,22 @@ table {
   /* The in-limit band + limit lines. Fixed, not themed — a purple-themed
      site must not get a purple limit. */
   --chart-limit-line: #15803d;
+  /* The trend variant's TWO limit colours (2026-08-31), green for the high
+     bound and red for the low one.
+
+     This is the operator reference's own coding and it is NOT this app's
+     semantic: everywhere else red means OUT OF LIMIT and green means in it, so
+     here a perfectly compliant low bound wears the alarm colour. It is drawn as
+     supplied rather than silently "corrected" — but the pill beside each line
+     spells out which bound it is (`Low Limit 18.0 °C`), so no reader has to
+     take the colour as the message. Colour never travels alone. */
+  --chart-limit-high: #15803d;
+  --chart-limit-low: #dc2626;
+  /* The trend variant's chrome accent — the axis unit label and the "Last
+     Reading" readout. Deliberately ONE colour on both charts, so it cannot be
+     mistaken for series identity the way a per-quantity colour on text would
+     be (see SERIES_COLORS: text wears ink, the line carries identity). */
+  --chart-axis-accent: #2563eb;
   --chart-grid-line: #e2e8f0;
   --chart-axis-text: #64748b;
   --chart-value-label: #334155;
@@ -730,27 +746,33 @@ table {
 .tv-dot { width: 0.375rem; height: 0.375rem; border-radius: 9999px; background: currentColor; }
 
 /* ===========================================================================
-   BAND GAUGE (Instruments -> Trend) — the marker's one page-load moment.
+   BAND GAUGE (Instruments -> Trend) — the arc's one page-load moment.
 
-   The marker travels from the LOW bound to its position: it shows the band
-   being traversed, which is that page's whole idea, and it happens once.
+   The arc sweeps from the LOW bound to the reading's position: it shows the
+   band being traversed, which is that page's whole idea, and it happens once.
 
    The keyframe's `to` is the SAME value the element carries statically
-   (`left: var(--band-marker-left)`), so the marker's resting position is
+   (`stroke-dashoffset: var(--band-arc-offset)`), so the reading's position is
    correct with the animation absent, disabled, or already finished — nothing
-   about where the reading sits depends on the animation having run.
+   about where the reading sits depends on the animation having run. Both vars
+   are set inline on the element: the circumference lives in the component, and
+   a second copy of it here would drift the moment the ring is resized.
+
+   Left UNLAYERED with the rules above it. These set no colour and no spacing,
+   so there is no utility at a call site for them to outrank — the `@layer
+   components` requirement at the top of this file is about that collision.
    =========================================================================== */
-@keyframes band-marker-travel {
-  from { left: 0%; }
-  to { left: var(--band-marker-left); }
+@keyframes band-arc-sweep {
+  from { stroke-dashoffset: var(--band-arc-full); }
+  to { stroke-dashoffset: var(--band-arc-offset); }
 }
-.band-marker {
-  animation: band-marker-travel 450ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+.band-arc {
+  animation: band-arc-sweep 450ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 @media (prefers-reduced-motion: reduce) {
-  /* Straight to position — the figures beside it already say everything the
-     travel says. */
-  .band-marker { animation: none; }
+  /* Straight to position — the bounds beside it already say everything the
+     sweep says. */
+  .band-arc { animation: none; }
 }
 
 /* ── Dashboard grid: the resize handle ──────────────────────────────────────

@@ -52,7 +52,7 @@ export async function runAlarmWebhookJob(
   payload: AlarmWebhookJob,
   now: number = Date.now(),
 ): Promise<{ targets: number; sent: number; failed: number }> {
-  const { event, alarmId, instrumentId, severity, variables } = payload;
+  const { event, alarmId, instrumentId, variables } = payload;
 
   const [instrument, targets, nodes] = await Promise.all([
     prisma.instrument.findUnique({ where: { id: instrumentId }, select: { functionalLocationId: true } }),
@@ -75,7 +75,6 @@ export async function runAlarmWebhookJob(
       fireOnRaised: t.fireOnRaised,
       fireOnCleared: t.fireOnCleared,
       fireOnAcknowledged: t.fireOnAcknowledged,
-      severities: t.severities === null ? null : asStringArray(t.severities),
       scopeLocationIds: asStringArray(t.scopeLocationIds),
       scopeInstrumentIds: asStringArray(t.scopeInstrumentIds),
     };
@@ -83,7 +82,6 @@ export async function runAlarmWebhookJob(
     const locations = expandLocations(shape.scopeLocationIds, nodes);
     if (!targetMatches(shape, {
       event,
-      severity,
       instrumentId,
       functionalLocationId: instrument?.functionalLocationId ?? null,
       locations,

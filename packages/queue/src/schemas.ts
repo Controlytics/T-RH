@@ -26,7 +26,7 @@ export type NotificationJob = z.infer<typeof notificationJobSchema>;
  */
 export const notificationEventJobSchema = z.object({
   eventType: z.string().min(1),
-  /** Matched against NotificationRule.conditions, e.g. {"severity":["CRITICAL"]}. */
+  /** Matched against NotificationRule.conditions, e.g. {"metric":["TEMPERATURE"]}. */
   context: z.record(z.unknown()).default({}),
   /** Template variables. Strings only — the template engine does no coercion. */
   variables: z.record(z.string()).default({}),
@@ -45,7 +45,10 @@ export const alarmWebhookJobSchema = z.object({
   event: z.enum(['RAISED', 'CLEARED', 'ACKNOWLEDGED']),
   alarmId: z.string().min(1),
   instrumentId: z.string().min(1),
-  severity: z.string().min(1),
+  // No `severity` since 2026-09-01. Removed from the schema in the same change as
+  // the enqueue: a required field the producer stopped sending would fail every
+  // job. `z.object` strips unknown keys, so a job already on the queue that still
+  // carries one parses unchanged.
   /** Template variables. Strings only — the renderer does no coercion. */
   variables: z.record(z.string()).default({}),
 });

@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type FastifyInstance } from 'fastify';
-import { ALARM_STATUS_TEXT_DEFAULT } from '@digilog/shared';
+import {
+  ALARM_STATUS_TEXT_DEFAULT, INACTIVITY_TEXT_DEFAULT, RS485_FAILURE_TEXT_DEFAULT,
+  ALARM_TYPE_KEYS, ALARM_TYPE_NAME_DEFAULT,
+} from '@digilog/shared';
 import { prisma } from '../lib/prisma.js';
 import {
   buildApp, loginAs, authGet, authPost, authPut, authDelete,
@@ -193,6 +196,251 @@ describe('Config endpoints', () => {
           await prisma.systemConfig.update({ where: { configKey: 'alarm-limits' }, data: { configValue: existing.configValue as any } });
         } else {
           await prisma.systemConfig.delete({ where: { configKey: 'alarm-limits' } }).catch(() => {});
+        }
+      }
+    });
+  });
+
+  // =============================================
+  // Inactivity column wordings — the same narrow all-authenticated-users read,
+  // for the three cells an INACTIVITY alarm has no number to fill.
+  // =============================================
+  describe('GET /api/config/inactivity-alarms/display-texts', () => {
+    const KEY = 'inactivity-alarms';
+    const withRow = async (value: Record<string, unknown>, run: () => Promise<void>) => {
+      const existing = await prisma.systemConfig.findUnique({ where: { configKey: KEY } });
+      const merged = { ...(existing?.configValue as Record<string, unknown> ?? {}), ...value };
+      await prisma.systemConfig.upsert({
+        where: { configKey: KEY },
+        create: { configKey: KEY, configValue: merged, configType: 'system', requiresReauth: false },
+        update: { configValue: merged },
+      });
+      try {
+        await run();
+      } finally {
+        // Restore whatever was there, INCLUDING "nothing" — the suite shares one
+        // database and this key decides whether alarms are raised at all.
+        if (existing) {
+          await prisma.systemConfig.update({ where: { configKey: KEY }, data: { configValue: existing.configValue as any } });
+        } else {
+          await prisma.systemConfig.delete({ where: { configKey: KEY } }).catch(() => {});
+        }
+      }
+    };
+
+    it('the editor endpoint stays SUPER_ADMIN-only for a non-SA user', async () => {
+      const operatorToken = await loginAs(app, 'RB0001', 'Test@1234');
+      const res = await authGet(app, '/api/config/dynamic/inactivity-alarms', operatorToken);
+      expect(res.statusCode).toBe(403);
+    });
+
+    it('a non-SUPER_ADMIN user gets 200 with the three wording strings', async () => {
+      const operatorToken = await loginAs(app, 'RB0001', 'Test@1234');
+      const res = await authGet(app, '/api/config/inactivity-alarms/display-texts', operatorToken);
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body)).toEqual({
+        textGeneratedValue: expect.any(String),
+        textLimit: expect.any(String),
+        textClearedValue: expect.any(String),
+      });
+    });
+
+    it('falls back to the shipped wording when the config row is unset', async () => {
+      const existing = await prisma.systemConfig.findUnique({ where: { configKey: KEY } });
+      await prisma.systemConfig.delete({ where: { configKey: KEY } }).catch(() => {});
+      try {
+        const res = await authGet(app, '/api/config/inactivity-alarms/display-texts', adminToken);
+        expect(res.statusCode).toBe(200);
+        expect(JSON.parse(res.body)).toEqual({
+          textGeneratedValue: INACTIVITY_TEXT_DEFAULT.generatedValue,
+          textLimit: INACTIVITY_TEXT_DEFAULT.limit,
+          textClearedValue: INACTIVITY_TEXT_DEFAULT.clearedValue,
+        });
+      } finally {
+        if (existing) await prisma.systemConfig.create({ data: existing as any });
+      }
+    });
+
+    it('falls back to the shipped wording when a field is blank', async () => {
+      await withRow({ textGeneratedValue: '   ', textClearedValue: '' }, async () => {
+        const res = await authGet(app, '/api/config/inactivity-alarms/display-texts', adminToken);
+        const body = JSON.parse(res.body);
+        expect(body.textGeneratedValue).toBe(INACTIVITY_TEXT_DEFAULT.generatedValue);
+        expect(body.textClearedValue).toBe(INACTIVITY_TEXT_DEFAULT.clearedValue);
+      });
+    });
+
+    it('passes a real configured wording through unchanged', async () => {
+      await withRow({ textGeneratedValue: 'Silent', textLimit: 'no signal {minutes}m' }, async () => {
+        const res = await authGet(app, '/api/config/inactivity-alarms/display-texts', adminToken);
+        const body = JSON.parse(res.body);
+        expect(body.textGeneratedValue).toBe('Silent');
+        expect(body.textLimit).toBe('no signal {minutes}m');
+      });
+    });
+
+    it('SAVES through the config page and reads back — the whole round trip', async () => {
+      // Reading the PUT handler is not proof that a key the handler has never
+      // heard of survives the write. `loadInactivityConfig` names only `enabled`,
+      // `graceMinutes` and `severity`, so a save path that round-tripped through
+      // it would drop every wording on every save while the page looked fine.
+      const existing = await prisma.systemConfig.findUnique({ where: { configKey: KEY } });
+      const base = (existing?.configValue as Record<string, unknown>) ?? {};
+      try {
+        // The PUT replaces the whole blob, so the three governing keys ride along
+        // — dropping them here would silently switch the feature on or off.
+        const put = await authPut(app, '/api/config/dynamic/inactivity-alarms', adminToken, {
+          ...base,
+          textGeneratedValue: 'Silent',
+          textLimit: 'no signal {minutes}m',
+          textClearedValue: 'Back online',
+        });
+        expect(put.statusCode).toBe(200);
+
+        const res = await authGet(app, '/api/config/inactivity-alarms/display-texts', adminToken);
+        expect(JSON.parse(res.body)).toEqual({
+          textGeneratedValue: 'Silent',
+          textLimit: 'no signal {minutes}m',
+          textClearedValue: 'Back online',
+        });
+      } finally {
+        if (existing) {
+          await prisma.systemConfig.update({ where: { configKey: KEY }, data: { configValue: existing.configValue as any } });
+        } else {
+          await prisma.systemConfig.delete({ where: { configKey: KEY } }).catch(() => {});
+        }
+      }
+    });
+
+    it('REFUSES a Limit wording with no {minutes} placeholder', async () => {
+      // The wording is administered; the THRESHOLD the alarm fired against is
+      // not. A template with nowhere to substitute it would delete it from the
+      // table, so the server hands back the shipped wording instead — refused
+      // here as well as in the browser's `inactivityLimitText()`, so a caller
+      // that skips that helper still cannot be given a wording that drops it.
+      await withRow({ textLimit: 'no signal at all' }, async () => {
+        const res = await authGet(app, '/api/config/inactivity-alarms/display-texts', adminToken);
+        expect(JSON.parse(res.body).textLimit).toBe(INACTIVITY_TEXT_DEFAULT.limit);
+      });
+    });
+  });
+
+  // =============================================
+  // Alarm type names — ONE config, applied wherever a type is shown.
+  // =============================================
+  describe('GET /api/config/alarm-type-names/current', () => {
+    const KEY = 'alarm-type-names';
+
+    it('a non-SUPER_ADMIN user gets 200 with every key resolved', async () => {
+      // Already defaulted server-side, so no caller has to know which fields are
+      // set — and an operator who cannot administer the names still reads them.
+      const operatorToken = await loginAs(app, 'RB0001', 'Test@1234');
+      const res = await authGet(app, '/api/config/alarm-type-names/current', operatorToken);
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body);
+      for (const key of ALARM_TYPE_KEYS) expect(typeof body[key]).toBe('string');
+      expect(body.limitTemperatureHigh).toBe(ALARM_TYPE_NAME_DEFAULT.limitTemperatureHigh);
+    });
+
+    it('the editor endpoint stays SUPER_ADMIN-only', async () => {
+      const operatorToken = await loginAs(app, 'RB0001', 'Test@1234');
+      const res = await authGet(app, '/api/config/dynamic/alarm-type-names', operatorToken);
+      expect(res.statusCode).toBe(403);
+    });
+
+    it('a rename saves and reads back, and a blank falls back', async () => {
+      const existing = await prisma.systemConfig.findUnique({ where: { configKey: KEY } });
+      const base = (existing?.configValue as Record<string, unknown>) ?? {};
+      try {
+        const put = await authPut(app, '/api/config/dynamic/alarm-type-names', adminToken, {
+          ...base, limitTemperatureHigh: 'Temp Too Hot', inactivity: '   ',
+        });
+        expect(put.statusCode).toBe(200);
+        const res = await authGet(app, '/api/config/alarm-type-names/current', adminToken);
+        const body = JSON.parse(res.body);
+        expect(body.limitTemperatureHigh).toBe('Temp Too Hot');
+        // Blank never leaves the type nameless.
+        expect(body.inactivity).toBe(ALARM_TYPE_NAME_DEFAULT.inactivity);
+      } finally {
+        if (existing) {
+          await prisma.systemConfig.update({ where: { configKey: KEY }, data: { configValue: existing.configValue as any } });
+        } else {
+          await prisma.systemConfig.deleteMany({ where: { configKey: KEY } });
+        }
+      }
+    });
+  });
+
+  // =============================================
+  // RS485 failure word — the ONE text shown wherever a failed sensor's reading
+  // would appear, on every surface.
+  // =============================================
+  describe('GET /api/config/rs485-alarms/display-text', () => {
+    const KEY = 'rs485-alarms';
+    const withRow = async (value: Record<string, unknown>, run: () => Promise<void>) => {
+      const existing = await prisma.systemConfig.findUnique({ where: { configKey: KEY } });
+      const merged = { ...(existing?.configValue as Record<string, unknown> ?? {}), ...value };
+      await prisma.systemConfig.upsert({
+        where: { configKey: KEY },
+        create: { configKey: KEY, configValue: merged, configType: 'system', requiresReauth: false },
+        update: { configValue: merged },
+      });
+      try {
+        await run();
+      } finally {
+        // Restored verbatim — this key also carries `enabled`, which decides
+        // whether a whole alarm source runs.
+        if (existing) {
+          await prisma.systemConfig.update({ where: { configKey: KEY }, data: { configValue: existing.configValue as any } });
+        } else {
+          await prisma.systemConfig.deleteMany({ where: { configKey: KEY } });
+        }
+      }
+    };
+
+    it('the editor endpoint stays SUPER_ADMIN-only for a non-SA user', async () => {
+      const operatorToken = await loginAs(app, 'RB0001', 'Test@1234');
+      const res = await authGet(app, '/api/config/dynamic/rs485-alarms', operatorToken);
+      expect(res.statusCode).toBe(403);
+    });
+
+    it('a non-SUPER_ADMIN user gets 200 with the word', async () => {
+      // An operator who cannot administer the word still has to be able to read
+      // it, or the dashboard would fall back to the shipped default for exactly
+      // the users who spend all day looking at it.
+      const operatorToken = await loginAs(app, 'RB0001', 'Test@1234');
+      const res = await authGet(app, '/api/config/rs485-alarms/display-text', operatorToken);
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body)).toEqual({ failureText: expect.any(String) });
+    });
+
+    it('passes a configured word through, and falls back when it is blank', async () => {
+      await withRow({ failureText: 'SENSOR FAULT' }, async () => {
+        const res = await authGet(app, '/api/config/rs485-alarms/display-text', adminToken);
+        expect(JSON.parse(res.body).failureText).toBe('SENSOR FAULT');
+      });
+      await withRow({ failureText: '   ' }, async () => {
+        // An empty value cell on a monitoring page reads as "nothing is wrong".
+        const res = await authGet(app, '/api/config/rs485-alarms/display-text', adminToken);
+        expect(JSON.parse(res.body).failureText).toBe(RS485_FAILURE_TEXT_DEFAULT);
+      });
+    });
+
+    it('SAVES through the config page and reads back', async () => {
+      const existing = await prisma.systemConfig.findUnique({ where: { configKey: KEY } });
+      const base = (existing?.configValue as Record<string, unknown>) ?? {};
+      try {
+        const put = await authPut(app, '/api/config/dynamic/rs485-alarms', adminToken, {
+          ...base, failureText: 'Error',
+        });
+        expect(put.statusCode).toBe(200);
+        const res = await authGet(app, '/api/config/rs485-alarms/display-text', adminToken);
+        expect(JSON.parse(res.body).failureText).toBe('Error');
+      } finally {
+        if (existing) {
+          await prisma.systemConfig.update({ where: { configKey: KEY }, data: { configValue: existing.configValue as any } });
+        } else {
+          await prisma.systemConfig.deleteMany({ where: { configKey: KEY } });
         }
       }
     });

@@ -8,7 +8,6 @@ const base = {
   instrumentCode: 'DEMO-TH-361',
   instrumentName: 'Stability chamber',
   metric: 'TEMPERATURE',
-  severity: 'CRITICAL',
   ruleName: 'High temperature limit',
   condition: 'above 25',
   triggeredValue: 26.456,
@@ -57,20 +56,6 @@ describe('buildWebhookVariables', () => {
 });
 
 describe('describeSnapshot', () => {
-  it('describes a RULE snapshot via describeRule', () => {
-    const snapshot = {
-      ruleId: 'r1',
-      name: 'High temperature limit',
-      metric: 'TEMPERATURE',
-      comparison: 'ABOVE',
-      thresholdLow: null,
-      thresholdHigh: 25,
-      delaySeconds: 0,
-      severity: 'CRITICAL',
-      snapshotAt: '2026-08-27T10:00:00.000Z',
-    };
-    expect(describeSnapshot(snapshot)).toBe('temperature above 25');
-  });
 
   it('describes an INSTRUMENT_LIMIT snapshot via describeLimit', () => {
     const snapshot = {
@@ -136,5 +121,34 @@ describe('decimalsFromSnapshot', () => {
     expect(decimalsFromSnapshot('not an object')).toBeNull();
     expect(decimalsFromSnapshot(42)).toBeNull();
     expect(decimalsFromSnapshot([])).toBeNull();
+  });
+});
+
+describe('valueText — the hooter payload for a non-numeric reading', () => {
+  const rs485 = {
+    alarmId: 'a-rs485',
+    instrumentId: 'i-1',
+    instrumentCode: 'CWH-I/142',
+    metric: 'TEMPERATURE',
+    ruleName: 'RS485 Temperature Failure',
+    condition: 'temperature reported NA instead of a number',
+    triggeredValue: null,
+    decimals: 1,
+    raisedAt: new Date('2026-08-31T10:00:00Z'),
+  };
+
+  it('substitutes the administered word into ${value}', () => {
+    const vars = buildWebhookVariables('RAISED', { ...rs485, valueText: 'Error' });
+    expect(vars.value).toBe('Error');
+  });
+
+  it('keeps the raw value in ${condition}', () => {
+    const vars = buildWebhookVariables('RAISED', { ...rs485, valueText: 'Error' });
+    expect(vars.condition).toContain('NA');
+  });
+
+  it('is inert for every other alarm source', () => {
+    const vars = buildWebhookVariables('RAISED', { ...rs485, triggeredValue: 27.44 });
+    expect(vars.value).toBe('27.4');
   });
 });

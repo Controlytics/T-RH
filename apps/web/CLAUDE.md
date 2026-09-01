@@ -45,7 +45,7 @@ cd apps/web && npx vitest run src/routes/version-history/__tests__/diff.test.ts
 ## Key Paths
 - Source: `apps/web/src/`
 - Entry: `apps/web/src/main.tsx`
-- Routes: `apps/web/src/routes/` (**51 `<Route>` definitions** in `main.tsx`, verified `grep -cE "<Route"` 2026-08-29. 50 -> 51 on 2026-08-29: `/config/export-options`, which had a config def declaring customPagePath and a card on the Configuration dashboard but NO registered route — the card fell through to the dashboard, so the page had never been reachable. Earlier, verified 2026-08-27 — 49 → 50: new `/config/alarm-webhooks` page (target form with a placeholder picker rendered from `ALARM_WEBHOOK_VARIABLES`, a scope picker reusing the functional-location tree widget, Send test, and a status-filterable delivery log). Earlier, 2026-08-24, 48 → 49: new `/instruments/:id/trend` page (gradient identity strip, one period/interval row, two BAND GAUGES, full-width limit-lined charts, raw paged time-series + alarms side by side). The latest-value cards it launched with were replaced by `band-gauge.tsx` on 2026-08-24 — a bare number cannot answer "how close to the limit is it?", which is the page's whole question. `/config/role-assignments` removed 2026-08-19 as dead code (its 7 config defs went in the Phase 0 strip and `system_config` held 0 rows for them), 49 → 48; the previous "23 folders / ~84 pages / 77 Routes" was stale before 2026-08-11 and the shortfall has NOT been reconciled. 2026-08-13 added `/functional-locations`; 2026-08-14 added `/alarms` and `/config/alarm-rules`; 2026-08-16 added `/functional-locations/:id`)
+- Routes: `apps/web/src/routes/` (**51 `<Route>` definitions** in `main.tsx`, verified `grep -cE "<Route"` 2026-08-29. 50 -> 51 on 2026-08-29: `/config/export-options`, which had a config def declaring customPagePath and a card on the Configuration dashboard but NO registered route — the card fell through to the dashboard, so the page had never been reachable. Earlier, verified 2026-08-27 — 49 → 50: new `/config/alarm-webhooks` page (target form with a placeholder picker rendered from `ALARM_WEBHOOK_VARIABLES`, a scope picker reusing the functional-location tree widget, Send test, and a status-filterable delivery log). Earlier, 2026-08-24, 48 → 49: new `/instruments/:id/trend` page (gradient identity strip, one period/interval row, two BAND GAUGES, full-width limit-lined charts, raw paged time-series + alarms side by side). The latest-value cards it launched with were replaced by `band-gauge.tsx` on 2026-08-24 — a bare number cannot answer "how close to the limit is it?", which is the page's whole question. **Restyled 2026-08-31 to an operator reference image, and the number leads again — but the band did NOT go away: the horizontal track became the ARC around the quantity icon (swept to the reading's place between its bounds, red on a breach) and the two bounds are named in a three-cell panel under it. See "The trend latest-value card" below.** `/config/role-assignments` removed 2026-08-19 as dead code (its 7 config defs went in the Phase 0 strip and `system_config` held 0 rows for them), 49 → 48; the previous "23 folders / ~84 pages / 77 Routes" was stale before 2026-08-11 and the shortfall has NOT been reconciled. 2026-08-13 added `/functional-locations`; 2026-08-14 added `/alarms` and `/config/alarm-rules`; 2026-08-16 added `/functional-locations/:id`)
 - Hooks: `apps/web/src/hooks/` (auth, branding, datetime, pagination, reauth, session, single-tab, toast, field-labels)
 - Components: `apps/web/src/components/` (layout, UI primitives, dialogs)
 - API Client: `apps/web/src/lib/api-client.ts`
@@ -99,10 +99,126 @@ single definition of where the session token lives (`sessionStorage`). A
 hand-rolled `fetch` reading `localStorage.getItem('access_token')` is why
 profile photo upload silently 401'd until 2026-08-11.
 
+## The trend page's Time Series (Raw Readings) card (2026-09-01)
+
+`routes/instruments/timeseries-table-card.tsx`, lifted out of `trend.tsx` and
+rebuilt to an operator reference image.
+
+- **`pillTone()` is the whole design.** `unjudged` (neutral) means NO bound is in
+  force — **not** "this bound is null". With `Enable_Temp_NMT` off and NLT on the
+  server nulls only `tempMax`, and the evaluator still raises CRITICAL on a low
+  breach; a neutral pill would tell the reader nothing is checking a value the
+  alarm system is checking. Neutral iff no bound survives; green iff one survives
+  and the value passes. **Both-bounds-null, extra telemetry keys, and the
+  pre-load path (`overview` undefined) are all neutral** — green during load
+  would flash "in limit" before anything had been checked. All pinned.
+- **Row colour is computed, never copied from the mock.** The reference's reds
+  are arbitrary (a red 24.2 beside a green 24.5); reproducing them would assert
+  excursions that did not happen.
+- **Timestamps go through `useDatetimeFormat`.** The old cell used
+  `new Date(...).toLocaleString()`, silently ignoring the administered format,
+  clock and TIMEZONE. This widget had zero tests before 2026-09-01, which is why
+  that survived; look for the same mistake anywhere a date is rendered without
+  the hook.
+- The band's glyph is an explicit `icon` prop, never sniffed from the unit
+  string — otherwise humidity gets a thermometer the day someone administers
+  `degC`.
+- Humidity is `--chart-series-2` (orange), not the mock's blue: a quantity's
+  colour is app-wide identity, shared with the charts and the PDF export.
+- The band is coloured by QUANTITY, not status — so a breaching latest reading
+  shows a calm band above a red pill. Deliberate; the judgement lives in the
+  pills.
+- It uses a hand-rolled `<table>` rather than the shared `Table`/`.tbl`, whose
+  header band and rhythm this design overrides. The one table in the app that
+  does not follow the shared style.
+
+**MUTATE THE CONSTANT, NOT JUST THE BRANCH.** This card is where that rule was
+learned, on 2026-09-01. Its guard "a value nothing is judging must never render
+green" PASSED while the one green mark it existed to catch went unseen: the
+row's edge bar carried an inline hex, React serialises `#10b981` to
+`rgb(16, 185, 129)` in the DOM, and the assertion tested the source string
+rather than the rendered value. Mutating `pillTone` failed the test; mutating
+the colour MAP did not — the bar was invisible to it.
+
+- The fix was the cause, not a cleverer matcher: `ROW_EDGE` (inline hexes) and
+  `ROW_DOT` (Tailwind classes) were two colour vocabularies for ONE mark, free
+  to drift into a green bar beside an amber dot. They are now one class-based
+  `ROW_ACCENT` used by both, so a class name appears in the markup verbatim and
+  an assertion can actually see it.
+- The general rule: a **logic** mutation proves the tests read the right values;
+  a **data/palette** mutation proves they read the RENDERED OUTPUT. They catch
+  different blindness, and a test that reads its input rather than its output is
+  indistinguishable from a working one until something breaks.
+- Same shape, same day, in the tooling rather than the tests: a file watcher
+  that globbed `routes/instruments/*.tsx` reported a tree "quiet" while a file
+  in `__tests__/` had been written seconds earlier. Neither instrument errored.
+  Both reported success while looking at the wrong surface.
+
+## The QC floor plan is TRACED, and carries an annotation layer (2026-08-31)
+
+Every other plan is generated by `apps/api/scripts/draw-cwh-floorplan.ts`. The
+`CWH — QC` plan is transcribed from a real drawing (`QC Layout.png`), and that
+made `floorplan-view.tsx` render three things it never had to before.
+
+- **`room.meta.fill` OVERRIDES the zone tint.** The draughtsman's colours say
+  what a room is FOR; `grade` says how it is classified. Both are stored, and
+  `grade` is still returned and still correct. This is only safe because the
+  grade legend and the grade tab were both removed in August — **if a grade
+  legend ever comes back it must not be keyed off the fill**, because on a
+  traced plan the two disagree by design. NULL `meta` = the zone tint exactly as
+  before.
+- **`room.meta.fch` / `.dims` are printed verbatim, never computed.** The
+  drawing is schematic and not to scale; deriving a size from `w`/`h` would put
+  a number on screen that the plan does not carry.
+- **`plan.annotations` is the rest of the drawing** — equipment, HVAC/exhaust,
+  water points, airflow runs, free text — drawn AFTER the rooms so a symbol
+  against a partition is not buried, and `pointerEvents="none"` throughout so
+  none of it swallows a click meant for the room beneath. **Nothing in it ever
+  takes a status colour**: an HVAC block marks where a unit is DRAWN, nothing in
+  this install senses one, and colouring it would assert a health nobody
+  measured. The plan-symbol legend renders only when `annotations` is present —
+  a legend for symbols a plan never draws teaches a reader to look for equipment
+  on a floor that has none.
+
+**`captionHeader()` in `room-geometry.ts` is where the readings-vs-captions
+fight is settled, and READINGS WIN.** A traced room wants four header lines
+where a generated one prints one, and that space comes out of the tile grid. The
+helper costs the captions against `tileLayout` and DROPS them if reserving the
+space would show fewer instruments. It replaced a fixed `h >= 78` threshold that
+happened to hold for all twelve QC instrument rooms but encoded no reason — one
+resize and it would have hidden a temperature behind a ceiling height with
+nothing to catch it. `tileLayout()` gained a matching `headerH` parameter; it
+defaults, so no generated plan moves by a pixel.
+
+Pinned in `__tests__/room-geometry.test.ts` (mutation-checked: removing the
+readings-win comparison fails it) and, on the API side, by
+`src/e2e/floorplan-annotations.e2e.test.ts`, which asserts the data survives
+Fastify's response filter.
+
 ## Alarms page (rebuilt 2026-08-31)
 
 `routes/alarms/` is `index.tsx` + `alarm-stat-cards.tsx` + `alarm-filters.tsx` +
-`acknowledge-dialog.tsx`, over the pure `alarm-display.ts`.
+`acknowledge-dialog.tsx` + `alarm-table.tsx`, over the pure `alarm-display.ts`.
+
+**`alarm-table.tsx` is the table's presentation, and it is SHARED (2026-09-01)**
+— the banner, `Th`/`Stack`/`UnitLine`, the state marker, the `ACCENT`/`VALUE_INK`
+tone maps and one component per cell, imported by this page AND by the trend
+page's `routes/instruments/alarms-widget.tsx`. Until then those were two
+hand-written tables, and the copy had drifted exactly as copies do: the widget
+keyed its status pill off `severity`, the defect this page had fixed one day
+earlier. `AlarmStatusCell` is the single reason that is now structurally
+impossible on either screen.
+
+It is **presentation only** — no fetch, no filter, no sort state, no acknowledge
+mutation. The two screens get their rows in genuinely different ways (this page
+filters, counts, sorts and pages SERVER-side; the widget windows one instrument's
+alarms on `raisedAt` in the browser), and a configurable `<AlarmTable
+columns={...}>` would have meant reshaping a data flow that is correct. **Do not
+move the query wiring into it.** The widget shows NINE of these twelve columns —
+Instrument ID and Location are redundant for a single-instrument view, and the
+sticky Acknowledge cell needs the gate, the re-auth dialog and a revalidation,
+none of which a read-only widget carries. Its state marker therefore rides on the
+TYPE cell, not Instrument ID.
 
 **Nothing on this page filters, counts, sorts or pages in the browser.** It used
 to do all four over `GET /api/alarms?limit=500`, which made the four state boxes
@@ -131,12 +247,57 @@ again the moment this installation passes one page of alarms.
 - The date range is sent as an INSTANT (`localInputToIso`): `datetime-local` gives
   zoneless text, and sending it raw would let the API resolve it in its own zone.
 - **Inactivity alarms** (source `INACTIVITY`, 2026-08-31) render as Type
-  `Inactivity`, Value `—` (raised by the absence of a reading) and Limit
-  `quiet > 15m` from the frozen snapshot. `alarmTypeText()` checks the source
+  `Inactivity`, Value `No data` (raised by the absence of a reading), Limit
+  `quiet > 15m` from the frozen snapshot and Cleared Value `Data resumed`.
+  **All three of those wordings are administered** (Config → Inactivity Alarms →
+  Column Wording, served by `GET /api/config/inactivity-alarms/display-texts`
+  to every authenticated user), and all three helpers take an optional trailing
+  texts argument — omit it and you get the shipped wording, never a blank.
+  Two rules that are not style: the **Limit** wording is a TEMPLATE with a
+  REQUIRED `{minutes}` token substituted from the frozen snapshot, and one
+  without it is refused in favour of the default — it states the threshold the
+  alarm fired against, and that cannot be typed out of a §11 record; and
+  **Cleared Value is gated on `clearedAt`**, because "Data resumed" on a still-
+  open outage says the opposite of what the row means.
+  `alarmTypeText()` checks the source
   FIRST — their metric is OFFLINE with no limitKind, so they would otherwise fall
   through to `conditionText()` and read "offline out of limit", which is not a
   limit. The `OFFLINE` filter token is labelled `Inactivity` and still matches on
   METRIC, so one token catches both these and any rule-based offline alarm.
+- **RS485 sensor-failure alarms** (source `RS485_FAILURE`, 2026-08-31) render as
+  Type `RS485 Temperature Failure` / `RS485 Humidity Failure`, Generated Value
+  **the administered failure word** (`Error` by default, from `useFailureText()`),
+  Limit the constant `numeric`, and Cleared Value the real reading that ended the
+  fault. That word is used by the dashboard table, the floorplan tiles and the
+  trend raw table too — one hook, so they cannot show three words for one fault.
+  **Never hard-code `'Error'` in a component**: the only fallback is the shared
+  `RS485_FAILURE_TEXT_DEFAULT`, for "not loaded yet". It briefly showed the raw
+  `NA` the sensor sent; that read identically to a slot with no reading, which is
+  what `NOT_AVAILABLE` already means.
+  `alarmTypeText()` checks this source FIRST as well — these carry metric
+  TEMPERATURE or HUMIDITY, the SAME values a limit alarm carries, so without the
+  check a dead probe would read "High Temperature" and name a breach that never
+  happened. The evidence is deliberately NOT administered wording (unlike the
+  three inactivity cells): no configurable phrase beats the value itself. One
+  filter token, `RS485`, matching on source.
+- **Sensor range failures** (source `SENSOR_RANGE`, 2026-08-31) render as Type
+  `Temperature Failure` / `Humidity Failure`, value **`OL`** (administered,
+  separate from RS485's `Error`), and Limit the SPAN the reading left, from the
+  frozen snapshot. `alarmTypeText()` checks this source early for the same reason
+  it checks RS485: the metric is TEMPERATURE or HUMIDITY, so a saturated probe
+  would otherwise read "High Temperature" — naming an excursion the system
+  deliberately declined to call. `useSensorWords()` serves both words; the
+  dashboard cells and floorplan tiles read `rangeError` from the server, never
+  re-deriving it, and the numeric slot arrives null in that case.
+- **Alarm RULES are gone (2026-08-31)** — no `/config/alarm-rules` page, no RULE
+  filter token. `alarmTypeText()` still names a legacy RULE row from its snapshot,
+  because the enum value survives in the database.
+- **Alarm type names come from config** (`useAlarmTypeNames()`, 2026-08-31) and
+  are passed through the same `AlarmDisplayTexts` bag as the other wordings.
+  `ALARM_TYPE_OPTIONS` is now `alarmTypeOptions(names)` — **do not turn it back
+  into a module-level constant**, which is built once at import and never sees a
+  rename. The option VALUES stay hardcoded: they are the API's tokens and an
+  unknown one is a 400.
 - **The Location column shows the FUNCTIONAL location alone.** The drawn room was
   removed 2026-08-31: it is geometry, not a grouping, and every `floorplan_rooms.code`
   in this installation is its instrument's own code with `label` blank, so the line
@@ -153,6 +314,131 @@ again the moment this installation passes one page of alarms.
   TWICE (2026-08-29 as `metricUnit`/`triggeredWithUnit`/`clearedWithUnit`,
   2026-08-31 as `alarmUnit`, the second time after a mockup showed them in the
   cells). Do not add a third; put the unit in the header.
+
+## The trend CHART cards (restyled 2026-08-31)
+
+`routes/instruments/trend-chart-card.tsx`, over `TimeSeriesChart`'s new
+`variant="trend"`. Built to an operator reference (`trends.png` at the repo
+root). Read these four before touching either file:
+
+- **`TimeSeriesChart` IS SHARED — every new visual is behind `variant`.** Its
+  other callers are `dashboard/aggregate-trend-card.tsx`,
+  `dashboard/room-detail.tsx` (×2) and `instruments/chart-image.ts`, which mounts
+  it OFF-SCREEN to rasterise the signed §11 PDF. `variant` defaults to `'plain'`
+  and nothing about that path changed. A download button or a status pill printed
+  into a regulated report would be absurd.
+- **`PADS` is per-variant and must be threaded EVERYWHERE.** ~12 sites read
+  `PAD.*` — `geom`, both `pixelToTime` calls, the pointer-bounds test, the drag
+  clamp, grid, axis text, limit lines, crosshair, drag rect. One left on a module
+  constant and a drag selects a window the chart never showed, silently.
+- **The status pill is NOT "Live"** (the reference hardcodes one on both cards).
+  It prints `statusClasses(status).label` from the SERVER-resolved
+  `overview.status` — the same value `TrendHeader` and both band gauges print, so
+  one instrument cannot carry four status words on one page. Green only when
+  genuinely in limit; STALE reads "Offline".
+- **`lastReading` is a PROP, and that is the point.** The "Last Reading" box must
+  show the latest STORED reading, which the page supplies from
+  `latestValueForKey` — the same source as the summary strip's "Current". Reading
+  it off `series` would print a bucket MEAN under those words whenever a chart
+  interval is selected.
+
+Also: the limit line is drawn at the TRUE bound, never the gridline nearest it
+(the reference's own pill and line disagree — that is a mock error, pinned by a
+test); a null bound draws no line and no pill, because the server has already
+withheld a switched-off bound and the browser must never fill one back in; the
+subtitle is deduped against the instrument code by `chartCardSubtitle`, since
+every `floorplan_rooms.code` here IS its instrument's code; and humidity stays
+`--chart-series-2` (orange), not the reference's teal — a quantity's colour is
+app-wide identity, the same call the band gauge made. Green-high/red-low limit
+colours ARE the reference's and DO fight this app's red-means-out-of-limit
+semantic; they are drawn as supplied only because the pill names each bound in
+words, and they are reversible in `app.css` alone.
+
+`ExportMenu` gained a real `iconOnly` prop — not a `className` that hides text,
+because the label is emitted in BOTH branches. It carries `aria-label` + `title`;
+`trend-downloads.test.tsx` now queries the five export triggers by ACCESSIBLE
+NAME, which is what catches an icon button that lost its name.
+
+## The trend latest-value card (restyled 2026-08-31)
+
+`routes/instruments/band-gauge.tsx`, rebuilt to an operator reference image
+(`latest value cards.png` at the repo root). Big reading beside a ringed
+quantity icon, timestamp under it, status pill top-right, and a three-cell
+HIGH LIMIT / STATUS / LOW LIMIT panel. Four rules survive the restyle and are
+the ones to read before touching it:
+
+- **The ARC is the band, and it is real data.** It sweeps clockwise from 12
+  o'clock for `state.position` — the reading's place between its two bounds —
+  and goes red on a breach. **The reference's own arc encodes nothing**: measured
+  off the image, the temperature card carries two disjoint arcs and the humidity
+  card one, and none matches its reading. An arc around a number reads as a
+  gauge whether or not it is one, so this one is wired to the band. No arc at all
+  for a slot with no reading or no usable band — an empty ring would draw a band
+  nobody administered.
+- **ONE status word, printed twice.** The reference shows a "Not reporting" pill
+  above a green "WITHIN LIMITS" panel — one instrument, two judgements, one
+  screen. The card resolves a single status (breach wins; otherwise the
+  instrument's own server-resolved status wins over a local "In limit") and the
+  pill and the panel print that same `statusClasses` label. The wording is
+  `statusClasses`' own, never a second vocabulary. `data-testid="band-status"` is
+  on the PILL ONLY; the panel cell is `band-status-word`.
+- **A dead probe is not an unwired one.** `sensorError` / `rangeError` come from
+  the server; the card shows the ADMINISTERED word (`Error` / `OL`, via
+  `useSensorWords()`) where the number goes, with no unit. **Never a literal** —
+  `faultWord()` in `routes/dashboard/set-point.ts` is the ONE place the
+  range-before-failure precedence lives, shared with `telemetry-table.tsx`.
+- **ONLY `STALE` is inherited from the instrument's status** (fixed 2026-08-31).
+  `computeInstrumentStatus` judges BOTH slots, so its `OUT_OF_SPEC` means "one of
+  them breached" — inheriting it printed "Out of limit" over a temperature of
+  24.5 inside 18–27 whose HUMIDITY had breached (CWH/RDU/001-00, reported live).
+  `PARTIAL` is excluded too: if the missing slot were this one, `no-reading`
+  returns NO_DATA first, so a PARTIAL here is always about the other slot.
+  **`TrendHeader` still prints the instrument-level word, so it can legitimately
+  read "Out of limit" above a card reading "In limit"** — different subjects, and
+  that is why the card narrowed rather than the header.
+- **The timestamp is an INSTANT, not a relative age** (2026-08-31). `formatTs` is
+  the page's own `useDatetimeFormat` formatter, passed in — format, clock and
+  TIMEZONE are administered, so never `toLocaleString` here. `TrendHeader` still
+  shows "updated Nd ago"; that is about instrument freshness, not one reading.
+- **The card does NOT narrate a band it cannot draw** (operator, 2026-08-31).
+  "Limits are not a usable band (0 - 0)", "No limits set" and "Only one limit is
+  set" are gone, and `BandGaugeState` no longer carries a `note` at all — the
+  panel names the surviving bounds and the status word says whether anything is
+  judging the reading, so all three were redundant. **The one caption that
+  remains is the switched-off-bound line**, because nothing else on the card can
+  distinguish "never administered" from "administered but not enforced".
+- **The panel names only the bounds IN FORCE, and its columns follow them.** A
+  bound the instrument switches off (`Enable_Temp_NLT` = 0) arrives as a NULL —
+  the SERVER withholds it — so the cell is not drawn at all and the grid becomes
+  two columns, or Status alone. `boundEnabled` is passed for WORDING only:
+  without it the note read `bandGaugeState`'s "Only one limit is set", false when
+  both are administered and one is off. **Never gate display on it.**
+- **The provenance is a TOOLTIP on the bounds panel**, not a visible line
+  (operator, 2026-08-31). A set point with no source reads as asserted, so the
+  fact is kept;
+  `telemetry-table.tsx` already keeps the same fact the same way. Note a tooltip
+  is reachable by neither touch nor keyboard, so on a wall display this is a
+  downgrade, not a neutral move.
+- **STALE's word is "Offline"** (operator, 2026-08-31), set in `status.ts` and
+  therefore app-wide. It also de-duplicates a vocabulary, which is why it was
+  made there rather than in the one card that prompted it:
+  `telemetry-table.tsx:487` renders
+  `r.reporting ? 'Online' : 'Offline'` off the SAME boolean, since
+  `computeInstrumentStatus` returns STALE for exactly `!reporting` (verified, not
+  assumed). OK stays "In limit" — a different question, and "Online" there would
+  drop the limit judgement. **The two screens can still disagree about one
+  device**: the table has separate reporting and limit columns, while on the
+  composite surfaces `OUT_OF_SPEC` outranks `STALE`, so an offline instrument
+  last seen out of limits reads "Out of limit" on the floor plan and "Offline" in
+  the table.
+
+Series colours are the app's own `--chart-series-1/2`, not the mock's brighter
+pair — a quantity's colour is app-wide identity. `.band-arc` /
+`@keyframes band-arc-sweep` in `app.css` animate `stroke-dashoffset`; the
+keyframe's `to` is the value the element already carries statically, so the
+resting position is correct with the animation absent, disabled or finished.
+That block is deliberately UNLAYERED: it sets no colour and no spacing, so there
+is no utility for it to outrank.
 
 ## E-signature password fields — `autocomplete="off"` DOES NOT WORK
 

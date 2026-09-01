@@ -212,7 +212,16 @@ export async function getRangeSummary(opts: {
   // repeated: a bare `(value #>> '{}')::float8` in the FILTER would throw on
   // this database's one non-numeric reading under any plan that projects
   // before it filters.
-  const numeric = Prisma.sql`CASE WHEN jsonb_typeof(value) = 'number' THEN (value #>> '{}')::float8 END`;
+  // A QUOTED number counts too (operator, 2026-08-31), matching `coerceReading`
+  // in @digilog/shared. The regex is that function's NUMERIC_STRING: if you widen
+  // one, widen the other, or the summaries here would be computed over a
+  // different population than the chart drawn from the same range.
+  const numeric = Prisma.sql`CASE
+    WHEN jsonb_typeof(value) = 'number' THEN (value #>> '{}')::float8
+    WHEN jsonb_typeof(value) = 'string'
+      AND btrim(value #>> '{}') ~ '^[+-]?([0-9]+\.?[0-9]*|\.[0-9]+)$'
+      THEN btrim(value #>> '{}')::float8
+  END`;
   const below = opts.low == null
     ? Prisma.sql`NULL::bigint`
     : Prisma.sql`count(*) FILTER (WHERE ${numeric} < ${opts.low})::bigint`;

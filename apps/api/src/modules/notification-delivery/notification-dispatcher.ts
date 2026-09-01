@@ -50,8 +50,8 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
     USER_CREATED: [['Username','username'],['Full Name','fullName'],['Email','email'],['Role','role'],['Created By','createdBy'],['Time','timestamp']],
     USER_LOCKED: [['Username','username'],['Full Name','fullName'],['Reason','reason'],['Failed Attempts','failedAttempts'],['IP Address','ipAddress'],['Time','timestamp']],
     SYSTEM_ERROR: [['Error Type','errorType'],['Message','errorMessage'],['URL','url'],['Time','timestamp']],
-    ALARM_RAISED: [['Instrument','instrument'],['Metric','metric'],['Reading','value'],['Condition','condition'],['Severity','severity'],['Rule','ruleName'],['Time','timestamp']],
-    ALARM_CLEARED: [['Instrument','instrument'],['Metric','metric'],['Condition','condition'],['Severity','severity'],['Rule','ruleName'],['Raised At','raisedAt'],['Duration','duration'],['Time','timestamp']],
+    ALARM_RAISED: [['Instrument','instrument'],['Metric','metric'],['Reading','value'],['Condition','condition'],['Rule','ruleName'],['Time','timestamp']],
+    ALARM_CLEARED: [['Instrument','instrument'],['Metric','metric'],['Condition','condition'],['Rule','ruleName'],['Raised At','raisedAt'],['Duration','duration'],['Time','timestamp']],
   };
   variables.eventLabel = EVENT_LABELS[eventType] ?? eventType;
   variables.summary = variables.message ?? variables.username ?? variables.deviceName ?? variables.errorType ?? variables.instrument ?? eventType;
@@ -318,7 +318,6 @@ function getDefaultEmailTemplate(eventType: string): { subject: string; bodyTemp
 <tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Instrument</td><td style="padding:6px 12px;border:1px solid #ddd">\${instrument}</td></tr>
 <tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Condition</td><td style="padding:6px 12px;border:1px solid #ddd">\${condition}</td></tr>
 <tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Reading</td><td style="padding:6px 12px;border:1px solid #ddd">\${value}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Severity</td><td style="padding:6px 12px;border:1px solid #ddd">\${severity}</td></tr>
 <tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Rule</td><td style="padding:6px 12px;border:1px solid #ddd">\${ruleName}</td></tr>
 <tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Time</td><td style="padding:6px 12px;border:1px solid #ddd">\${timestamp}</td></tr>
 </table>

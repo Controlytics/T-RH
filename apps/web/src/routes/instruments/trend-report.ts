@@ -2,7 +2,7 @@ import { formatDecimals } from '@digilog/shared';
 import { createReport, type ReportDoc } from '@/lib/pdf-report';
 import {
   alarmTypeText, triggeredText, limitText, clearedText, statusText,
-  type AlarmRow, type AlarmStatusTexts,
+  type AlarmRow, type AlarmStatusTexts, type AlarmDisplayTexts,
 } from '@/routes/alarms/alarm-display';
 import type { TableRow } from './trend-series';
 import type { ChartImage } from './chart-image';
@@ -12,7 +12,7 @@ import type { SlotSummary } from './trend-summary';
  * The PDF renderers behind the trend page's governed downloads — the trend
  * charts (per slot, or both), the raw time series, and the alarms.
  *
- * None of this re-derives limits/decimals/severity wording: everything is
+ * None of this re-derives limits or decimals wording: everything is
  * passed in already resolved, the same values the screen shows. That now
  * extends to the picture itself — the chart arrives as a PNG rasterised from
  * the real `TimeSeriesChart`, not redrawn here from the same numbers. See
@@ -442,6 +442,13 @@ export async function renderTimeSeriesReport(
  * record that does not match the system it documents. `undefined` is only
  * correct while that config is still loading; `statusText()` itself falls
  * back to the defaults in that case.
+ *
+ * `inactivityTexts` carries every OTHER administered wording for the same
+ * reason, one column over: the inactivity alarm's three value cells and the
+ * RS485 failure word. A report printed without it says "—" and "Error" where the
+ * screen says whatever the operator configured — and a §11 record that describes
+ * an alarm differently from the screen it was generated from is a record that
+ * does not match the system it documents.
  */
 export async function renderAlarmsReport(
   rows: AlarmRow[],
@@ -449,6 +456,7 @@ export async function renderAlarmsReport(
   period: ReportPeriod,
   formatDateTime: (d: string) => string,
   statusTexts?: AlarmStatusTexts,
+  inactivityTexts?: AlarmDisplayTexts,
 ): Promise<ReportDoc> {
   const { shown, capped, total } = capRows(rows);
   const report = await createReport({
@@ -460,14 +468,13 @@ export async function renderAlarmsReport(
   addInstrumentDetails(report, instrument, period);
   addCapNotice(report, capped, shown.length, total, period);
   report.addTable({
-    head: ['Type', 'Severity', 'Raised', 'Value', 'Limit', 'Cleared', 'Status'],
+    head: ['Type', 'Raised', 'Value', 'Limit', 'Cleared', 'Status'],
     body: shown.map((a) => [
-      alarmTypeText(a),
-      a.severity,
+      alarmTypeText(a, inactivityTexts),
       formatDateTime(a.raisedAt),
-      triggeredText(a),
-      limitText(a),
-      a.clearedAt ? `${formatDateTime(a.clearedAt)} (${clearedText(a)})` : '—',
+      triggeredText(a, inactivityTexts),
+      limitText(a, inactivityTexts),
+      a.clearedAt ? `${formatDateTime(a.clearedAt)} (${clearedText(a, inactivityTexts)})` : '—',
       statusText(a, statusTexts),
     ]),
   });

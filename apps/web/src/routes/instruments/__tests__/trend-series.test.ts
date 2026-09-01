@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toChartSeries, toTableRows, rawCountForKey } from '../trend-series';
+import { toChartSeries, toTableRows, rawCountForKey , toTableRowsWithErrors } from '../trend-series';
 
 const rows = [
   { key: 'temp', value: 21.5, ts: '2026-08-24T10:00:00.000Z' },
@@ -117,5 +117,72 @@ describe('toTableRows', () => {
   it('orders newest first, as a history list reads', () => {
     const out = toTableRows(rows, ['temp']);
     expect(out[0].ts > out[1].ts).toBe(true);
+  });
+});
+
+describe('toTableRowsWithErrors — the raw table must not hide broken readings', () => {
+  it('keeps a non-numeric reading as an error instead of dropping the row', () => {
+    // The defect this exists for: the table says it lists every reading in the
+    // range, and it was built from `numericRows`, which DROPS anything that is
+    // not a number — silently omitting exactly the readings an engineer opens
+    // this table to find.
+    const rows = toTableRowsWithErrors([
+      { key: 'temperature', value: 'NA', ts: '2026-08-31T10:00:00Z' },
+      { key: 'humidity', value: 45.2, ts: '2026-08-31T10:00:00Z' },
+    ], ['temperature', 'humidity']);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].errors?.temperature).toBe(true);
+    expect(rows[0].values.temperature).toBeNull();
+    expect(rows[0].values.humidity).toBe(45.2);
+    expect(rows[0].errors?.humidity).toBeUndefined();
+  });
+
+  it('distinguishes a broken reading from no reading at all', () => {
+    // Both leave `values[key]` null. Only one is a fault, and the table has to
+    // say which — that distinction is the whole point of the word.
+    const rows = toTableRowsWithErrors(
+      [{ key: 'temperature', value: 'NA', ts: '2026-08-31T10:00:00Z' }],
+      ['temperature', 'humidity'],
+    );
+    expect(rows[0].errors?.temperature).toBe(true);
+    expect(rows[0].errors?.humidity).toBeUndefined();
+    expect(rows[0].values.humidity).toBeNull();
+  });
+
+  it('reads a QUOTED number as a value, not an error', () => {
+    // The one definition (`coerceReading`) the dashboard and the alarms share.
+    const rows = toTableRowsWithErrors(
+      [{ key: 'temperature', value: '23.5', ts: '2026-08-31T10:00:00Z' }],
+      ['temperature'],
+    );
+    expect(rows[0].values.temperature).toBe(23.5);
+    expect(rows[0].errors?.temperature).toBeUndefined();
+  });
+
+  it('still flags an empty string as an error, never as 0', () => {
+    const rows = toTableRowsWithErrors(
+      [{ key: 'temperature', value: '', ts: '2026-08-31T10:00:00Z' }],
+      ['temperature'],
+    );
+    expect(rows[0].errors?.temperature).toBe(true);
+    expect(rows[0].values.temperature).toBeNull();
+  });
+
+  it('keeps 0 as a real reading, not an error', () => {
+    const rows = toTableRowsWithErrors(
+      [{ key: 'temperature', value: 0, ts: '2026-08-31T10:00:00Z' }],
+      ['temperature'],
+    );
+    expect(rows[0].values.temperature).toBe(0);
+    expect(rows[0].errors?.temperature).toBeUndefined();
+  });
+
+  it('still sorts newest first, like the numeric builder', () => {
+    const rows = toTableRowsWithErrors([
+      { key: 'temperature', value: 'NA', ts: '2026-08-31T10:00:00Z' },
+      { key: 'temperature', value: 21, ts: '2026-08-31T11:00:00Z' },
+    ], ['temperature']);
+    expect(rows.map((r) => r.ts)).toEqual(['2026-08-31T11:00:00Z', '2026-08-31T10:00:00Z']);
   });
 });

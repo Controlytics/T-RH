@@ -1,5 +1,5 @@
 import type { ModuleConfigDefinition } from '../../../lib/config-registry.js';
-import { ALARM_LIMIT_KEYS_DEFAULT, ALARM_STATUS_TEXT_DEFAULT } from '@digilog/shared';
+import { ALARM_LIMIT_KEYS_DEFAULT, ALARM_LIMIT_ENABLE_KEYS_DEFAULT, ALARM_STATUS_TEXT_DEFAULT } from '@digilog/shared';
 
 /**
  * Which instrument attributes carry the four limits, and what the alarm status
@@ -37,19 +37,6 @@ export const alarmLimitsDef: ModuleConfigDefinition = {
       group: 'Limit Alarms',
     },
     {
-      key: 'severity',
-      type: 'select',
-      label: 'Severity',
-      description: 'Severity carried by every instrument-limit alarm.',
-      default: 'CRITICAL',
-      options: [
-        { value: 'CRITICAL', label: 'Critical' },
-        { value: 'MAJOR', label: 'Major' },
-        { value: 'MINOR', label: 'Minor' },
-      ],
-      group: 'Limit Alarms',
-    },
-    {
       key: 'temperatureHighKeys',
       type: 'textarea',
       label: 'High temperature limit — attribute keys',
@@ -84,6 +71,42 @@ export const alarmLimitsDef: ModuleConfigDefinition = {
       default: ALARM_LIMIT_KEYS_DEFAULT.humidityLow,
       maxLength: 500,
       group: 'Attribute Keys',
+    },
+    {
+      key: 'temperatureHighEnableKeys',
+      type: 'textarea',
+      label: 'High temperature limit — enable attribute',
+      description: 'The attribute that says whether this bound is in force. NMT = "not more than". Set to 0/false on an instrument and its high temperature limit stops raising alarms, whatever the limit value says — and any alarm already open on that bound is cleared. Absent or unreadable means ENABLED, so a typo can never silence a bound.',
+      default: ALARM_LIMIT_ENABLE_KEYS_DEFAULT.temperatureHigh,
+      maxLength: 500,
+      group: 'Enable Attribute Keys',
+    },
+    {
+      key: 'temperatureLowEnableKeys',
+      type: 'textarea',
+      label: 'Low temperature limit — enable attribute',
+      description: 'NLT = "not less than". One attribute key per line, most preferred first.',
+      default: ALARM_LIMIT_ENABLE_KEYS_DEFAULT.temperatureLow,
+      maxLength: 500,
+      group: 'Enable Attribute Keys',
+    },
+    {
+      key: 'humidityHighEnableKeys',
+      type: 'textarea',
+      label: 'High humidity limit — enable attribute',
+      description: 'One attribute key per line, most preferred first.',
+      default: ALARM_LIMIT_ENABLE_KEYS_DEFAULT.humidityHigh,
+      maxLength: 500,
+      group: 'Enable Attribute Keys',
+    },
+    {
+      key: 'humidityLowEnableKeys',
+      type: 'textarea',
+      label: 'Low humidity limit — enable attribute',
+      description: 'One attribute key per line, most preferred first.',
+      default: ALARM_LIMIT_ENABLE_KEYS_DEFAULT.humidityLow,
+      maxLength: 500,
+      group: 'Enable Attribute Keys',
     },
     {
       key: 'statusActiveUnack',

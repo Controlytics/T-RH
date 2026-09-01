@@ -56,7 +56,7 @@ const roomSelect = {
   id: true, code: true, label: true,
   x: true, y: true, w: true, h: true,
   tempMin: true, tempMax: true, rhMin: true, rhMax: true,
-  doors: true, grade: true,
+  doors: true, grade: true, meta: true,
 } as const;
 
 const roomProps = {
@@ -86,6 +86,18 @@ const roomProps = {
   // field existed. Fastify strips undeclared response properties, so this
   // entry is what actually lets the value reach the browser.
   grade: { type: 'string', nullable: true },
+  // What the DRAWING says about this room: its drawn fill colour, finished
+  // ceiling height and floor dimensions. NULL on every generated plan.
+  // `fill` overrides the grade hue on a traced plan — see qc-layout.ts.
+  meta: {
+    type: 'object',
+    nullable: true,
+    properties: {
+      fill: { type: 'string' },
+      fch: { type: 'string' },
+      dims: { type: 'string' },
+    },
+  },
 } as const;
 
 const planProps = {
@@ -96,6 +108,26 @@ const planProps = {
   imageHeight: { type: 'integer' },
   isActive: { type: 'boolean' },
   sortOrder: { type: 'integer' },
+  // Everything on the plan that is not a room. NULL on a generated plan, and
+  // the dashboard draws no legend when it is absent. Declared here because
+  // Fastify strips undeclared response properties — the same omission has cost
+  // this repo twice before.
+  annotations: {
+    type: 'object',
+    nullable: true,
+    properties: {
+      equipment: { type: 'array', items: { type: 'object', properties: {
+        x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' } } } },
+      hvac: { type: 'array', items: { type: 'object', properties: {
+        x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' } } } },
+      water: { type: 'array', items: { type: 'object', properties: {
+        x: { type: 'number' }, y: { type: 'number' } } } },
+      airflow: { type: 'array', items: { type: 'object', properties: {
+        y: { type: 'number' }, x0: { type: 'number' }, x1: { type: 'number' } } } },
+      labels: { type: 'array', items: { type: 'object', properties: {
+        x: { type: 'number' }, y: { type: 'number' }, text: { type: 'string' } } } },
+    },
+  },
 } as const;
 
 export default async function floorplanRoutes(app: FastifyInstance) {

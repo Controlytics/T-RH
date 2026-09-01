@@ -151,7 +151,6 @@ describe('raising', () => {
     // invention.
     expect(a!.triggeredValue).toBeNull();
     expect(a!.limitKind).toBeNull();
-    expect(a!.ruleId).toBeNull();
     expect(result.inactivityEvaluated).toBeGreaterThan(0);
   });
 

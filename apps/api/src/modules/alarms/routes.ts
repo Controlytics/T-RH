@@ -5,12 +5,11 @@ import { buildContext } from '../../lib/build-context.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
-import { resolveVisibility } from '../instruments/visibility.js';
 import { resolveLocationIds, type FlNode } from '../functional-locations/tree.js';
-import { describeRule } from './decide.js';
+import { resolveVisibility } from '../instruments/visibility.js';
 import { enqueueAlarmWebhook } from '../alarm-webhooks/enqueue.js';
 import { describeSnapshot, decimalsFromSnapshot } from '../alarm-webhooks/build-variables.js';
-import { validateRuleDraft, validateAcknowledgement, clampSignature, type RuleDraft } from './validation.js';
+import { validateAcknowledgement, clampSignature } from './validation.js';
 import { loadLimitConfig, countWithoutLimits } from './load-limits.js';
 import {
   ALARM_TYPE_TOKENS, ALARM_STATUS_TOKENS,
@@ -57,7 +56,6 @@ const alarmProps = {
   locationName: { type: 'string', nullable: true },
   metric: { type: 'string' },
   triggeredValue: { type: 'number', nullable: true },
-  severity: { type: 'string' },
   state: { type: 'string' },
   raisedAt: { type: 'string' },
   clearedAt: { type: 'string', nullable: true },
@@ -69,19 +67,6 @@ const alarmProps = {
   clearedValue: { type: 'number', nullable: true },
 } as const;
 
-function draftFrom(body: Record<string, unknown>): RuleDraft {
-  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : v === null ? null : Number.NaN);
-  return {
-    name: String(body.name ?? ''),
-    instrumentId: (body.instrumentId as string) ?? null,
-    functionalLocationId: (body.functionalLocationId as string) ?? null,
-    metric: (body.metric ?? 'TEMPERATURE') as RuleDraft['metric'],
-    comparison: (body.comparison ?? 'ABOVE') as RuleDraft['comparison'],
-    thresholdLow: body.thresholdLow === undefined ? null : num(body.thresholdLow),
-    thresholdHigh: body.thresholdHigh === undefined ? null : num(body.thresholdHigh),
-    delaySeconds: typeof body.delaySeconds === 'number' ? body.delaySeconds : 0,
-  };
-}
 
 /**
  * Visibility is a filter on the INSTRUMENT, so on an alarm query it nests under the
@@ -99,153 +84,18 @@ function scopedToVisible(
 export default async function alarmRoutes(app: FastifyInstance) {
   // ─── Rules ────────────────────────────────────────────────────────────────
 
-  app.get('/rules', {
-    preHandler: [app.requirePermission('ALARM_RULE_READ')],
-    schema: {
-      tags: ['Alarms'],
-      summary: 'List alarm rules',
-      response: {
-        200: { type: 'object', properties: { data: { type: 'array', items: { type: 'object', properties: ruleProps } } } },
-        ...errorResponses,
-      },
-    },
-  }, async () => {
-    const rows = await prisma.alarmRule.findMany({
-      orderBy: { name: 'asc' },
-      include: {
-        instrument: { select: { code: true } },
-        functionalLocation: { select: { name: true } },
-        _count: { select: { alarms: true } },
-      },
-    });
-    return {
-      data: rows.map((r) => ({
-        id: r.id, name: r.name,
-        instrumentId: r.instrumentId, functionalLocationId: r.functionalLocationId,
-        metric: r.metric, comparison: r.comparison,
-        thresholdLow: r.thresholdLow, thresholdHigh: r.thresholdHigh,
-        delaySeconds: r.delaySeconds, severity: r.severity, isActive: r.isActive,
-        description: describeRule(r),
-        targetLabel: r.instrument?.code ?? r.functionalLocation?.name ?? null,
-        alarmCount: r._count.alarms,
-      })),
-    };
-  });
-
-  app.post('/rules', {
-    preHandler: [app.requirePermission('ALARM_RULE_MANAGE')],
-    schema: {
-      tags: ['Alarms'],
-      summary: 'Create an alarm rule',
-      response: { 201: { type: 'object', properties: ruleProps }, ...errorResponses },
-    },
-  }, async (req, reply) => {
-    const { ok } = await enforceReauth('MANAGE_ALARM_RULE', req, reply);
-    if (!ok) return;
-    const ctx = buildContext(req);
-    const draft = draftFrom(sanitizeStrings((req.body ?? {}) as Record<string, unknown>, ['name']));
-    const err = validateRuleDraft(draft);
-    if (err) return reply.code(400).send({ error: 'VALIDATION_ERROR', message: err.message, field: err.field });
-
-    const created = await prisma.alarmRule.create({
-      data: { ...draft, name: draft.name.trim(), severity: 'MAJOR', createdBy: ctx.userId, updatedBy: ctx.userId },
-    });
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole,
-      action: 'CONFIG_CHANGED',
-      targetType: 'alarm_rule', targetId: created.id,
-      afterValue: { name: created.name, condition: describeRule(created), delaySeconds: created.delaySeconds },
-      signatureMeaning: clampSignature(`Alarm rule "${created.name}" created — ${describeRule(created)}`),
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
-    });
-    return reply.code(201).send({ ...created, description: describeRule(created), targetLabel: null, alarmCount: 0 });
-  });
-
-  app.put('/rules/:id', {
-    preHandler: [app.requirePermission('ALARM_RULE_MANAGE')],
-    schema: {
-      tags: ['Alarms'],
-      summary: 'Update an alarm rule',
-      params: { type: 'object', properties: { id: { type: 'string' } } },
-      response: { 200: { type: 'object', properties: ruleProps }, ...errorResponses },
-    },
-  }, async (req, reply) => {
-    const { ok } = await enforceReauth('MANAGE_ALARM_RULE', req, reply);
-    if (!ok) return;
-    const { id } = req.params as { id: string };
-    const ctx = buildContext(req);
-    const current = await prisma.alarmRule.findUnique({ where: { id } });
-    if (!current) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Alarm rule not found.' });
-
-    const body = sanitizeStrings((req.body ?? {}) as Record<string, unknown>, ['name']);
-    const merged: RuleDraft = {
-      ...draftFrom({ ...current, ...body } as Record<string, unknown>),
-      // isActive is not part of the draft shape; carried through separately below.
-    };
-    const err = validateRuleDraft(merged);
-    if (err) return reply.code(400).send({ error: 'VALIDATION_ERROR', message: err.message, field: err.field });
-
-    const updated = await prisma.alarmRule.update({
-      where: { id },
-      data: {
-        ...merged,
-        name: merged.name.trim(),
-        isActive: typeof body.isActive === 'boolean' ? body.isActive : current.isActive,
-        updatedBy: ctx.userId,
-      },
-    });
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole,
-      action: 'CONFIG_CHANGED',
-      targetType: 'alarm_rule', targetId: id,
-      beforeValue: { name: current.name, condition: describeRule(current), isActive: current.isActive },
-      afterValue: { name: updated.name, condition: describeRule(updated), isActive: updated.isActive },
-      // Naming the OLD and NEW condition matters: alarms raised before this edit carry
-      // their own snapshot, and this row is what ties the two together.
-      signatureMeaning: clampSignature(`Alarm rule "${updated.name}" changed from "${describeRule(current)}" to "${describeRule(updated)}"`),
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
-    });
-    return { ...updated, description: describeRule(updated), targetLabel: null, alarmCount: 0 };
-  });
-
-  app.delete('/rules/:id', {
-    preHandler: [app.requirePermission('ALARM_RULE_MANAGE')],
-    schema: {
-      tags: ['Alarms'],
-      summary: 'Delete an alarm rule',
-      params: { type: 'object', properties: { id: { type: 'string' } } },
-      response: { 204: { type: 'null' }, ...errorResponses },
-    },
-  }, async (req, reply) => {
-    const { ok } = await enforceReauth('MANAGE_ALARM_RULE', req, reply);
-    if (!ok) return;
-    const { id } = req.params as { id: string };
-    const ctx = buildContext(req);
-    const current = await prisma.alarmRule.findUnique({ where: { id }, include: { _count: { select: { alarms: true } } } });
-    if (!current) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Alarm rule not found.' });
-
-    // The FK is RESTRICT because alarms are regulated records. A constraint error is
-    // not actionable, so this says what to do instead: deactivate.
-    if (current._count.alarms > 0) {
-      return reply.code(409).send({
-        error: 'HAS_ALARMS',
-        message: `"${current.name}" has raised ${current._count.alarms} alarm(s), which are permanent records and cannot be deleted. Deactivate the rule instead.`,
-      });
-    }
-
-    await prisma.alarmRule.delete({ where: { id } });
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole,
-      action: 'CONFIG_CHANGED',
-      targetType: 'alarm_rule', targetId: id,
-      beforeValue: { name: current.name, condition: describeRule(current) },
-      signatureMeaning: clampSignature(`Alarm rule "${current.name}" deleted`),
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
-    });
-    return reply.code(204).send();
-  });
-
-  // ─── Alarms ───────────────────────────────────────────────────────────────
+  // ── Alarm RULES were removed 2026-08-31 ────────────────────────────────
+  //
+  // The operator does not use authored rules: alarms here come from the
+  // instrument's own limits, its sensor range, a non-numeric reading, or
+  // silence. The model, the four CRUD endpoints, the evaluation pass and the
+  // config page all went with it, against 0 rules and 0 RULE alarms in the
+  // database — nothing regulated was closed or deleted.
+  //
+  // `ALARM_RULE_READ` / `ALARM_RULE_MANAGE` deliberately SURVIVE: they gate
+  // the alarm-webhooks module (`modules/alarm-webhooks/routes.ts`), which has
+  // always reused them. The names now read oddly; renaming a permission means
+  // rewriting every stored role config, which is not worth it for a label.
 
   app.get('/', {
     preHandler: [app.requirePermission('ALARM_READ')],
@@ -272,7 +122,11 @@ export default async function alarmRoutes(app: FastifyInstance) {
           to: { type: 'string' },
           type: { type: 'string', enum: [...ALARM_TYPE_TOKENS] },
           status: { type: 'string', enum: [...ALARM_STATUS_TOKENS] },
-          severity: { type: 'string', enum: ['CRITICAL', 'MAJOR', 'MINOR'] },
+          // No `severity`. It is not declared here ON PURPOSE: the querystring
+          // schema sets no `additionalProperties: false`, so an undeclared key is
+          // passed through and ignored, whereas re-declaring it with its old enum
+          // would make `?severity=BOGUS` a 400 on a parameter nothing reads.
+          // See parseAlarmListQuery for why it is tolerated rather than refused.
           page: { type: 'integer' },
           pageSize: { type: 'integer' },
           sort: { type: 'string' },
@@ -466,6 +320,12 @@ export default async function alarmRoutes(app: FastifyInstance) {
         name: `${updated.instrument?.code ?? updated.instrumentId} / ${updated.metric}`,
         instrumentId: updated.instrumentId,
         state: updated.state,
+        // KEPT when severity left every display and config surface on 2026-09-01.
+        // This is an audit `afterValue` — the §11 snapshot of the row as it stood
+        // at the moment it was signed for — and the column still exists and still
+        // carries meaningful history on the 148 alarms raised before that date.
+        // Narrowing what an audit record captures is a reduction in the regulated
+        // evidence, which is the opposite of what removing a config surface is for.
         severity: updated.severity,
         triggeredValue: updated.triggeredValue,
         raisedAt: updated.raisedAt.toISOString(),
@@ -488,7 +348,6 @@ export default async function alarmRoutes(app: FastifyInstance) {
       instrumentCode: updated.instrument?.code ?? null,
       instrumentName: updated.instrument?.name ?? null,
       metric: updated.metric,
-      severity: updated.severity,
       ruleName: (updated.ruleSnapshot as { name?: string } | null)?.name ?? '',
       condition: describeSnapshot(updated.ruleSnapshot),
       triggeredValue: updated.triggeredValue,
@@ -519,7 +378,6 @@ export default async function alarmRoutes(app: FastifyInstance) {
           properties: {
             active: { type: 'integer' },
             unacknowledged: { type: 'integer' },
-            critical: { type: 'integer' },
             instrumentsWithoutLimits: { type: 'integer' },
             instrumentsWithoutLimitsCodes: { type: 'array', items: { type: 'string' } },
             limitAlarmsEnabled: { type: 'boolean' },
@@ -536,10 +394,9 @@ export default async function alarmRoutes(app: FastifyInstance) {
     // more alarms than the page will show. The instrument lookup for the no-limits
     // count uses that same visibility filter directly (it targets Instrument, not
     // Alarm, so it doesn't go through scoped()/scopedToVisible's nested form).
-    const [active, unacknowledged, critical, cfg, visibleInstruments] = await Promise.all([
+    const [active, unacknowledged, cfg, visibleInstruments] = await Promise.all([
       prisma.alarm.count({ where: scoped({ state: 'ACTIVE' }) }),
       prisma.alarm.count({ where: scoped({ acknowledgedAt: null }) }),
-      prisma.alarm.count({ where: scoped({ state: 'ACTIVE', severity: 'CRITICAL' }) }),
       loadLimitConfig(),
       prisma.instrument.findMany({
         where: visibility ?? {},
@@ -552,7 +409,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
     );
 
     return {
-      active, unacknowledged, critical,
+      active, unacknowledged,
       instrumentsWithoutLimits: without.count,
       instrumentsWithoutLimitsCodes: without.codes,
       // The worker gates the whole limit-alarm pass on this flag (alarm-evaluation.worker.ts).

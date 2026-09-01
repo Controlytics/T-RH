@@ -27,7 +27,6 @@ const COMMON = [
   'instrumentId',
   'metric',
   'value',
-  'severity',
   'condition',
   'ruleName',
   'timestamp',
@@ -45,7 +44,7 @@ export const ALARM_WEBHOOK_VARIABLES: Record<AlarmWebhookEvent, readonly string[
  * never edited renders a complete body. Whitespace inside a JSON string literal is
  * insignificant, so the line breaks here are safe.
  */
-export const DEFAULT_WEBHOOK_BODY_TEMPLATE = `{"event":"\${event}","instrument":"\${instrument}","metric":"\${metric}","value":"\${value}","severity":"\${severity}","condition":"\${condition}","alarmId":"\${alarmId}","timestamp":"\${timestamp}"}`;
+export const DEFAULT_WEBHOOK_BODY_TEMPLATE = `{"event":"\${event}","instrument":"\${instrument}","metric":"\${metric}","value":"\${value}","condition":"\${condition}","alarmId":"\${alarmId}","timestamp":"\${timestamp}"}`;
 
 /** Both lists empty means the target matches NOTHING. Never "all". */
 export interface AlarmWebhookScope {
@@ -63,6 +62,4 @@ export interface AlarmWebhookTargetShape extends AlarmWebhookScope {
   fireOnRaised: boolean;
   fireOnCleared: boolean;
   fireOnAcknowledged: boolean;
-  /** null = every severity. */
-  severities: string[] | null;
 }

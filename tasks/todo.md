@@ -2,6 +2,60 @@
 
 ## Audit log
 
+- **2026-08-31 — "why is 24.5 out of limit" — TWO defects behind one symptom, plus absolute timestamps** — Report: *"CWH/RDU/001-00 latest received value is 24.5, high limit 27.0, low limit 18.0 but why its showing out of limit its normal value right"*. It is a normal value, and the question was right.
+
+  **Diagnosed against the live database before touching anything.** That instrument carries `High Temperature Limit = 27` / `Low = 18` with both temperature flags `True`, and `High Humidity Limit = 0` / `Low Humidity Limit = 0` with **both humidity flags `False`**. Latest readings: temperature 24.5, humidity 55, both at 2026-08-31T07:33:51Z. So humidity 55 "breached" a high bound of 0 — the exact live case root `CLAUDE.md` documents — and `computeInstrumentStatus`, which judges BOTH slots together, returned `OUT_OF_SPEC` for the instrument.
+
+  **Two independent defects, and only one was already fixed.** (1) The humidity bound was never in force; the enable-attribute withholding added earlier the same day fixes it — proved by running `buildTelemetryOverview` in-process against the live row, which now returns `status: STALE`, `rhMax: null`, `limitEnabled.rhMax: false`. (2) **The card inherited a whole-instrument verdict**: `band-gauge.tsx` fell through to `instrumentStatus` for anything not OK or NO_DATA, so a slot that was fine printed the other slot's breach. **That one would have survived the first fix** on any instrument whose humidity genuinely leaves an enforced band, which is why it was worth fixing rather than closing the report on (1).
+
+  **The narrowing is exact, not conservative.** The fall-through now admits STALE alone. Walking the union closes it: `OUT_OF_SPEC` is composite and `breachesLimits` already answers this slot from the same numbers the alarm evaluator uses; `PARTIAL` requires exactly one slot null with a promised bound, and if that were THIS slot `no-reading` returns NO_DATA before the fall-through runs — so a PARTIAL arriving here is *always* about the other slot; `STALE` is the only whole-instrument fact that applies to every slot on it, and is the prop's documented reason for existing.
+
+  **`TrendHeader` will now disagree with the card, and that is correct** — it prints the instrument-level word a few rows above, so a real humidity breach reads "Out of limit" there and "In limit" on the temperature card. Different SUBJECTS. That reasoning is written AT the fall-through, because the card's own doc comment forbids exactly that shape of contradiction and the next reader would otherwise revert it.
+
+  **Nothing pinned this before.** No test used `instrumentStatus: 'OUT_OF_SPEC'` — the two that touched the prop both passed `'STALE'`, so they passed under the bug as well as under the fix. Two negative cases added, reproducing the live shape. Mutation check: restoring the old fall-through failed both (2 failed / 34 passed).
+
+  **Also: the reading's timestamp is an INSTANT now**, requested in the same message ("i want date & time when that value was receieved"). `formatTs` is the page's OWN `useDatetimeFormat` formatter passed in — date format, clock and TIMEZONE are administered at `/api/config/datetime/current`, so a `toLocaleString` in the card would be a second opinion that drifts when the setting changes. Tested through a stub formatter, and mutation-checked by swapping in `new Date(ts).toLocaleString()` (2 failures). `readingAge` is no longer imported there. **`trend-header.tsx` still shows "updated Nd ago"** and was deliberately left — it reports instrument freshness, not one reading's arrival — and that is flagged rather than silently changed.
+
+  **Verification:** web `tsc --noEmit` exit 0; **991 tests / 66 files**. Rendered in headless Chrome: the reported instrument now reads Offline with 24.5 in 18.0–27.0 and its humidity card "Not assessed / Neither limit is enforced", and the leak case shows the temperature card "In limit" beside a humidity card "Out of limit — 12 %RH above the high limit". **Note the in-process probe proves the CODE is right, not that the process serving the browser has it** — the API needs a reload to pick this up, and a stale worker would strip `limitEnabled` silently rather than error, since it was added to the Fastify response schema.
+
+  **Updated:** `CHANGELOG.md`, `apps/web/CLAUDE.md`, this entry.
+
+- **2026-08-31 — A disabled limit bound is now WITHHELD by the API, not merely unenforced** — Operator: *"Enable_Temp_NLT is disabled dont show Low Temperature Limit only show high limit and status into center"*, and the same for the other three flags. **It could not be done in the browser.** Resolving those alias lists is a server decision (`resolveEnableFlag` over an ordered key list), and re-deriving it client-side is the pattern root `CLAUDE.md` bans by name. The card also had nothing to work from: `OverviewRow` carried no enable information at all, because `enabledBoundsFor` was used ONLY by `alarm-evaluation.worker.ts`.
+
+  **So the withholding went where the other withholdings already are** — `telemetry-overview.ts`, which the sensor-range work already established as the ONE place a stored number becomes "a reading this system trusts". A disabled bound now arrives as `null` in `limits`. The config was already loaded there (`loadLimitConfig()` carries `enableKeys`) and each instrument's attributes were already selected, so this costs no extra query.
+
+  **The blast radius is four surfaces beyond the card, and it is the point rather than a side effect.** `computeInstrumentStatus` reads `limits`, so leaving a disabled bound in painted an instrument OUT_OF_SPEC against a bound the evaluator will never raise on — the live `High Humidity Limit = 0` meaning "not judged" did exactly that at every real humidity. The dashboard table, floor tiles, trend chart limit line and PDF all stop drawing it too. **None of that was requested** and it is flagged as such in `CHANGELOG.md`.
+
+  **Two consequences decided explicitly rather than discovered.** (1) `limitSource` goes NULL once no bound survives — otherwise the card's provenance tooltip read `Limits NA (from this instrument)`, a §11 string asserting a source for a band that no longer exists. (2) `bandGaugeState` sees only numbers, so with one bound withheld it said "Only one limit is set" — FALSE for exactly the case the feature is for, where both are administered and one is switched off. That sentence would have been the visible text on the 16 humidity cards this was built for. New `limitEnabled` on the row carries WHY a bound is absent; it gates NOTHING (display follows `limits`, which already withholds), and the note now follows the evaluator's own wording — "The low limit is not enforced for this instrument".
+
+  **The mapping is the dangerous part and is pinned in both directions.** NMT is the HIGH bound, NLT the LOW one; reversing it silently withholds the opposite bound while looking entirely correct. Five new cases in `src/e2e/telemetry-overview.e2e.test.ts`, and the mutation check — swapping `temperatureHigh`/`temperatureLow` and `humidityHigh`/`humidityLow` in the map — failed 3 of them with `expected 18 to be null` / `expected 60 to be null` / `expected +0 to be null`. `limitEnabled` was added to the Fastify response schema; an undeclared field is stripped silently, the failure mode `floorplan-annotations.e2e.test.ts` exists to catch.
+
+  **A suite failure investigated rather than absorbed.** The full API run showed `src/e2e/instruments.test.ts` failing on an `afterAll` hook timeout (10s) with all 36 of its tests passing. **It is not this change** — proved by bypassing the enable filter and re-running on the SAME database state, where the identical timeout occurs. The file's teardown deletes every instrument it created through the API, and the test database has accumulated 508 instruments (326 in the last three hours), which my own repeated diagnostic runs made worse. The suite is state-sensitive at that boundary; the leftovers have NOT been deleted, because that is a destructive act on a shared database and is the operator's call.
+
+  **Updated:** `CHANGELOG.md`, `CLAUDE.md`, `apps/web/CLAUDE.md`, this entry. **Also corrected in `CHANGELOG.md`:** a section another agent had rewritten to record the Online/Offline and limits-line changes as "NOT requested — awaiting the operator's call". Both WERE instructed, verbatim, and the entry now quotes the instruction; the caveats that draft raised (a tooltip is not reachable by touch or keyboard; STALE vs OUT_OF_SPEC precedence still differs between the table and the composite surfaces) are real and were kept.
+
+  **Verification:** api `tsc --noEmit` exit 0, web `tsc --noEmit` exit 0. Web **969 tests / 65 files**. API **1954 tests / 145 files** (plus the pre-existing teardown flake above); the six suites that touch the limits payload re-run green together, **102 tests / 6 files**. Four layouts rendered and checked in headless Chrome: low withheld, high withheld, both withheld, and both in force unchanged.
+
+- **2026-08-31 — The trend page's latest-value cards rebuilt to an operator reference image** — Operator supplied `latest value cards.png`; the two `BandGauge` cards on `/instruments/:id/trend` were restyled to it. The reference DROPS the horizontal band track and the two headroom figures ("4.4 above low") and replaces them with a HIGH LIMIT / STATUS / LOW LIMIT panel, so the question was what carries "where inside the band" afterwards.
+
+  **The reference's arc was measured before being trusted, and it encodes nothing.** Pixel-scanning the image around each icon's ring: the temperature card draws TWO disjoint arcs (-3°..39° and 109°..230°), the humidity card ONE (108°..183°), and none of the three matches its reading's place in its own band (82.6% and 62.9%). The top accent rail is a fixed ~20% on both. So the arc is decorative in the mock — but an arc around a number in a monitoring product reads as a gauge whether or not it is one, and drawing a fixed one would have been a fake indicator on a §11 surface. It is wired to `state.position` instead, red on a breach, and ABSENT for a slot with no reading or no usable band. `data-position` is pinned on the same worked numbers the old marker was (48.89% for 22.4 in 18–27), so the assertion moved rather than being dropped.
+
+  **The reference draws the exact contradiction the component was written to prevent** — a "Not reporting" pill above a green "WITHIN LIMITS" panel, one instrument, two judgements, one screen — and a test has pinned that since the card shipped (`band-gauge.test.tsx`: `.not.toHaveTextContent('In limit')` for a stale instrument). ONE status is resolved and printed in both places; the wording stays `statusClasses`' own ("In limit", not the mock's "WITHIN LIMITS"), because this app must not carry two vocabularies for one judgement. `data-testid="band-status"` is on the PILL ONLY — putting it on both would have made `getByTestId` throw on every existing case.
+
+  **A pre-existing defect fixed because the restyle had to touch that line.** A failed RS485 probe or a saturated one leaves the numeric slot NULL, so the card printed "No readings in this instrument's history" over an instrument that was talking. It now shows the ADMINISTERED word (`Error`/`OL`, via `useSensorWords()`) with no unit and names the fault underneath. The range-before-failure precedence moved into `faultWord()` in `routes/dashboard/set-point.ts`; `telemetry-table.tsx`'s `actual()` calls it instead of keeping the second copy. This is an addition beyond a pure restyle and is flagged as such.
+
+  **Verified by RENDERING, not by eye.** The card was built standalone with a throwaway Vite entry, served over plain HTTP and screenshotted with headless Chrome (the Chrome extension could not reach the origin; the scaffolding was deleted afterwards). Card 532x283 against the image's 516x282; the type was ~30% too small on the first pass and was corrected against measured cap heights. **Two things only the render caught:** the arc looked wrong at 18.6% until `--force-prefers-reduced-motion` proved the screenshot was catching the 450ms sweep mid-flight (resting sweeps then measured 84.7% and 65.3% for true positions 82.6% and 62.9% — the excess is the two round line caps); and at `clampDecimals`' ceiling of 10 the footer bounds ran off the card, which no test would have shown. Both the reading and the bounds now step down a size rather than wrap or clip a digit. A third render, passing `accent="var(--chart-series-3, #000000)"`, came back GREEN rather than black — proof that `var()` resolves inside the SVG presentation attributes rather than silently falling back, which `time-series-chart.tsx` already relies on.
+
+  **NO count moved** — re-derived: 35 models, 12 enums, 42 permissions, 48 reauth actions, 24 API modules, 29 config defs, 23 config pages, 50 `<Route>`s. No migration, no new file.
+
+  **Mutation-checked, three ways:** hardcoding `.toFixed(1)` over the server-resolved `decimals` failed the precision test; replacing `faultWord()` with literal `'Error'`/`'OL'` failed 3 tests; pinning the arc at 50% failed 4. Restored and green after each.
+
+  **Two operator corrections after the first pass, both widened deliberately rather than applied to the card alone.** "Not reporting" -> **"Offline"** was made in `routes/dashboard/status.ts`, the ONE place that label is defined, so the trend header, floor tiles and room panel follow — `telemetry-table.tsx` has rendered Online/Offline for the same condition since 2026-08-13 at the same operator's request, so this de-duplicates a vocabulary rather than adding one. Only the negative half of the pair was ever rendered; OK keeps "In limit", since "Online" there would drop the limit judgement the surface exists to make. And the visible `Limits 18.0 - 27.0 (from this instrument)` line was removed — but the FACT was not: it moved to a `title` on the bounds panel, which is where `telemetry-table.tsx` already keeps it ("the source is a tooltip, not a visible column"), so the test that pinned provenance was rewritten against the tooltip rather than deleted, and mutation-checked by dropping the attribute (2 failures).
+
+  **Updated:** `CHANGELOG.md`, `apps/web/CLAUDE.md` (a new "The trend latest-value card" section, and the stale "replaced by band-gauge.tsx" line corrected), this entry.
+
+  **Verification:** web `tsc --noEmit` exit 0; **960 tests / 65 files** pass, including `trend-downloads.test.tsx`, which mounts the whole trend page through the new card. **NOT seen in the running app** — the operator holds the session on `https://localhost:5176` and forcing a login would terminate it; the evidence is the headless renders above.
+
 - **2026-08-31 — Inactivity alarms: a third alarm source, and boolean config settings become toggles** — Operator: "whenever instrument is offline then Inactivity Alarm should generate until instrument is online then cleared." **The first thing orientation established is that raise-on-offline ALREADY EXISTS**: `decide.ts:50` reads `if (rule.metric === 'OFFLINE') return sample.offline`, and the worker already computes `offline: !row.reporting` for every instrument. What was missing was a rule row — the database holds ZERO alarm rules. Four `AlarmRule`s, one per Block, would have delivered this with no code, no migration and no config def. **That option was put to the operator with its coverage hole stated** (`select count(*) from instruments where functional_location_id is null` → 1) and they chose the built-in source, because a location-targeted rule also cannot reach a freshly commissioned device until somebody both assigns it and remembers the rule exists.
 
   **Three consequences were established BEFORE building and put to the operator, not discovered after.** (1) All 101 instruments are currently offline (last telemetry 25–27 Aug), so the first evaluation tick would raise 101 alarms — and the multiplier that matters is that each raise also `await`s a notification enqueue AND a webhook enqueue, and each needs its own e-signature. Root `CLAUDE.md`'s stance is explicit: "a plant-wide buzzer gets the feature switched off for good." Chosen: **ship the switch OFF**, the opposite of `alarm-limits`. (2) `instrument-activity.activeWindowMinutes` is **3** here and NO instrument declares an `expectedIntervalSec`, so every one falls to that single global fallback and a network blip crosses it. Chosen: a configurable grace, default 15, delaying RAISING only. (3) `AlarmRule.delaySeconds` could not have solved (2) even on the rules route — the worker skips the delay path for OFFLINE at line 202, so a rule-based inactivity alarm has no flap guard at all.
@@ -2892,3 +2946,60 @@ Constraints established from the code, not assumed:
   comment at reauth-actions.ts:114) — count stays 46.
 - `DATA_EXPORTED` audit action + template already exist and are unemitted; wiring
   them up is what the registry's own comment asks for. Count stays 93/87.
+
+## RS485 sensor-failure alarms (2026-08-31)
+
+A FOURTH alarm source. Non-numeric telemetry on a temperature/humidity slot key
+is a dead sensor bus, and today it is invisible: the text stamps `lastSeenAt`
+(so inactivity never fires), `toSlot()` drops it (blank dashboard cell), and the
+limit pass sees null (no limit alarm, and it will not clear an open one).
+
+- [x] Shared: `types/rs485-alarms.ts` — config, defaults, labels, snapshot
+- [x] Prisma: `AlarmSource += RS485_FAILURE` (enum VALUE; models 36, enums 13 unchanged)
+- [x] Two migrations, applied to BOTH databases; drift guard PASS
+- [x] `modules/alarms/rs485-decide.ts` — pure; clear on PRESENCE OF A NUMBER, hold on silence
+- [x] `modules/alarms/load-rs485.ts` — ships ON (`!== false`), unlike inactivity
+- [x] Config def `rs485-alarms.def.ts` + `config-discovery.ts` import + `/config` card (defs 26 → 27)
+- [x] `rawSlots` on the overview row + worker pass + notification + webhook
+- [x] Type filter token `RS485` (API `list-query.ts` + web dropdown, drift guard test updated)
+- [x] Display: type label, raw text in Generated Value, `numeric` in Limit
+- [x] Tests: 17 unit, 21 e2e, 12 display; mutation-checked — found 2 defects IN THE TESTS
+- [x] Spec doc, CHANGELOG, CLAUDE.md x3
+
+**Left the test database broken mid-task and fixed it:** a bad `::uuid` cast in
+the new e2e's `afterAll` aborted teardown before its config restore, disabling
+`alarm-limits` in `compliance_core_db_test` and failing 8 tests in two unrelated
+suites. Repaired the row, and the restore loop now runs FIRST with each step
+independently guarded.
+
+### Follow-up 3 (2026-08-31): per-bound enable attributes — DONE
+
+`Enable_Temp_NMT` / `_NLT` / `Enable_Humid_NMT` / `_NLT` gate the four limit
+bounds. Absent = enabled (fail toward alarming). Disabling a bound also clears an
+alarm open on it — operator's call, and the only way the 17 stranded humidity
+alarms could ever close. 5 unit + 8 e2e, mutation-checked three ways.
+
+### Follow-up 2 (2026-08-31): sensor RANGE alarms + OL — DONE
+
+Fifth alarm source. Out-of-range reading → `OL` + Temperature/Humidity Failure,
+and the reading is WITHHELD so the limit pass neither raises nor clears from it.
+Defs 27 → 28. 17 unit + 15 e2e + 7 display, mutation-checked on the suppression.
+
+### Follow-up (2026-08-31): one configurable failure text, shown everywhere
+
+Operator: the value columns must read `Error` (configurable) rather than the raw
+`NA`, and the notification/webhook payloads must carry it too. Reverses the
+"raw value as evidence" call from earlier the same day — evidence is NOT lost,
+it stays on the frozen snapshot and in the condition line. Absent readings keep
+saying `NA`; only a BROKEN sensor says the configured word.
+
+- [x] `failureText` setting on `rs485-alarms.def.ts` (default `Error`) + shared constant
+- [x] Narrow read route `GET /api/config/rs485-alarms/display-text` + `useFailureText()`
+- [x] Notification + webhook `value` (optional `valueText` on both payload builders)
+- [x] Alarms Generated Value (table, dialog, trend widget, PDF) via one `AlarmDisplayTexts` bag
+- [x] `sensorError` flags on OverviewRow + response schema; dashboard table + floorplan tiles
+- [x] Trend RAW TABLE keeps the row (`toTableRowsWithErrors`); the CHART still drops it
+- [x] Tests + docs — mutation-checked the table builder
+
+Room detail was NOT changed: it renders room limits, not per-instrument slot
+readings, so there is no failed-value cell in it.

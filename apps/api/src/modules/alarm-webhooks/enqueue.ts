@@ -28,7 +28,6 @@ export async function enqueueAlarmWebhook(
         event,
         alarmId: input.alarmId,
         instrumentId: input.instrumentId,
-        severity: input.severity,
         variables: buildWebhookVariables(event, input),
       },
       { maxAttempts: 1 },

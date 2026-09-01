@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import useSWR from 'swr';
-import { ALARM_QUADRANTS, ALARM_TYPE_OPTIONS, type AlarmQuadrant } from './alarm-display';
+import { ALARM_QUADRANTS, alarmTypeOptions, type AlarmQuadrant } from './alarm-display';
+import { useAlarmTypeNames } from '@/hooks/use-failure-text';
 
 /**
  * The alarm list's filter bar.
@@ -23,17 +24,16 @@ export interface AlarmFilterState {
   to: string;
   type: string;
   status: AlarmQuadrant | null;
-  severity: string;
   functionalLocationId: string;
 }
 
 export const EMPTY_FILTERS: AlarmFilterState = {
-  search: '', from: '', to: '', type: '', status: null, severity: '', functionalLocationId: '',
+  search: '', from: '', to: '', type: '', status: null, functionalLocationId: '',
 };
 
 /** Which filters the "Filters" button reveals — used for its active-count badge. */
 export function advancedCount(f: AlarmFilterState): number {
-  return (f.functionalLocationId ? 1 : 0) + (f.severity ? 1 : 0);
+  return f.functionalLocationId ? 1 : 0;
 }
 
 export function hasAnyFilter(f: AlarmFilterState): boolean {
@@ -50,6 +50,9 @@ export function AlarmFilters({
   advancedOpen: boolean;
   onToggleAdvanced: () => void;
 }) {
+  // Labelled from the administered names, so renaming a type on the config
+  // page renames it in the filter as well as in the table.
+  const typeOptions = alarmTypeOptions(useAlarmTypeNames());
   const { data: flData } = useSWR<{ data: FlNode[] }>('/api/functional-locations');
 
   // Blocks AND their Areas, flattened with a path. Choosing a Block covers its
@@ -126,7 +129,7 @@ export function AlarmFilters({
           className="ctl min-w-[10rem]"
         >
           <option value="">All types</option>
-          {ALARM_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          {typeOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
 
         {/* The same value the four cards write. One filter, two surfaces. */}
@@ -179,20 +182,6 @@ export function AlarmFilters({
               {/* Choosing a Block covers every Area inside it. */}
               <option value="">Anywhere</option>
               {locations.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
-            </select>
-          </label>
-
-          <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-semibold text-slate-600">Severity</span>
-            <select
-              value={value.severity}
-              onChange={(e) => set('severity', e.target.value)}
-              className="ctl min-w-[10rem]"
-            >
-              <option value="">Any severity</option>
-              <option value="CRITICAL">Critical</option>
-              <option value="MAJOR">Major</option>
-              <option value="MINOR">Minor</option>
             </select>
           </label>
         </div>

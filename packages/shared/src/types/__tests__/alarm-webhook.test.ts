@@ -13,9 +13,22 @@ describe('alarm webhook contract', () => {
   it('promises the common variables for every event', () => {
     for (const event of ['RAISED', 'CLEARED', 'ACKNOWLEDGED'] as const) {
       expect(ALARM_WEBHOOK_VARIABLES[event]).toEqual(
-        expect.arrayContaining(['event', 'alarmId', 'instrument', 'metric', 'value', 'severity', 'timestamp']),
+        expect.arrayContaining(['event', 'alarmId', 'instrument', 'metric', 'value', 'timestamp']),
       );
     }
+  });
+
+  // Severity stopped being an administered concept on 2026-09-01 and `${severity}`
+  // went with it. Pinned as an ABSENCE because the two halves must move together:
+  // `validateTargetDraft` builds its known-variable set from THIS list, so a
+  // `severity` re-added here would be accepted in a body template that the renderer
+  // no longer fills — shipping a literal `${severity}` to a hooter — while a
+  // `severity` re-added to the renderer alone could never be typed into a template.
+  it('no longer advertises severity to any event', () => {
+    for (const event of ALARM_WEBHOOK_EVENTS) {
+      expect(ALARM_WEBHOOK_VARIABLES[event]).not.toContain('severity');
+    }
+    expect(DEFAULT_WEBHOOK_BODY_TEMPLATE).not.toContain('severity');
   });
 
   it('promises the event-specific variables', () => {

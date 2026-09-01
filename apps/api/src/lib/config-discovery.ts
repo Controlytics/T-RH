@@ -40,6 +40,9 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
     import('../modules/config/defs/report-page-titles.def.js'),
     import('../modules/config/defs/alarm-limits.def.js'),
     import('../modules/config/defs/inactivity-alarms.def.js'),
+    import('../modules/config/defs/rs485-alarms.def.js'),
+    import('../modules/config/defs/sensor-range-alarms.def.js'),
+    import('../modules/config/defs/alarm-type-names.def.js'),
     // ─── Add new module configs below this line ───
   ]);
 

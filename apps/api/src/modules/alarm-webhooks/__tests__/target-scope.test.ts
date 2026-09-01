@@ -100,15 +100,7 @@ describe('targetMatches', () => {
     expect(targetMatches(t, ctx({ event: 'TEST' }))).toBe(true);
   });
 
-  it('narrows by severity when severities is set, and allows all when null', () => {
-    const t = target({ scopeInstrumentIds: ['INST-1'], severities: ['CRITICAL'] });
-    expect(targetMatches(t, ctx({ severity: 'CRITICAL' }))).toBe(true);
-    expect(targetMatches(t, ctx({ severity: 'MAJOR' }))).toBe(false);
-    expect(targetMatches(target({ scopeInstrumentIds: ['INST-1'] }), ctx({ severity: 'MINOR' }))).toBe(true);
-  });
-
-  it('treats an empty severities array as matching nothing, not everything', () => {
-    const t = target({ scopeInstrumentIds: ['INST-1'], severities: [] });
-    expect(targetMatches(t, ctx({ severity: 'CRITICAL' }))).toBe(false);
-  });
+  // The two severity-narrowing cases that stood here were DELETED on 2026-09-01,
+  // not rewritten: `targetMatches` no longer reads severity at all, so there is no
+  // new behaviour for them to assert. The column survives (see target-scope.ts).
 });

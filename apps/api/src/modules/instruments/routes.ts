@@ -8,6 +8,7 @@ import {
   setInstrumentTokenSchema,
   setInstrumentAttributeSchema,
   updateInstrumentAttributeSchema,
+  coerceReading,
 } from '@digilog/shared';
 import { prisma } from '../../lib/prisma.js';
 import { resolveVisibility, withVisibility } from './visibility.js';
@@ -22,7 +23,7 @@ import { generateToken, hashToken, tokenPrefix, tokenMatches } from './token.js'
 import { encryptToken, decryptToken, tokenKeyConfigured } from './token-crypto.js';
 import { parseInstrumentCsv, type InstrumentDraft } from './bulk-csv.js';
 import { buildTelemetryOverview, loadAliases, instrumentLimits, loadActiveWindowMinutes } from './telemetry-overview.js';
-import { loadLimitConfig } from '../alarms/load-limits.js';
+import { loadLimitConfig, enabledBoundsFor } from '../alarms/load-limits.js';
 import { loadDecimalsConfig, decimalsFor, annotateAttribute } from './decimals.js';
 import { loadAttributeAccess, refuseAttributeWrite, needsReauth } from './attribute-access.js';
 import { ATTRIBUTE_REMARK_MAX, lttb, isInstrumentReporting } from '@digilog/shared';
@@ -661,6 +662,19 @@ export default async function instrumentRoutes(app: FastifyInstance) {
                       rhMax: { type: 'number', nullable: true },
                     },
                   },
+                  // WHY a bound is missing from `limits`: switched off by the
+                  // instrument's own `Enable_*` attribute, versus never
+                  // administered. `limits` already withholds it either way — this
+                  // only lets a UI word the absence honestly.
+                  limitEnabled: {
+                    type: 'object',
+                    properties: {
+                      tempMin: { type: 'boolean' },
+                      tempMax: { type: 'boolean' },
+                      rhMin: { type: 'boolean' },
+                      rhMax: { type: 'boolean' },
+                    },
+                  },
                   limitSource: { type: 'string', nullable: true },
                   temperature: {
                     type: 'object', nullable: true,
@@ -687,6 +701,27 @@ export default async function instrumentRoutes(app: FastifyInstance) {
                   },
                   reporting: { type: 'boolean' },
                   status: { type: 'string' },
+                  // Which slots reported something that is not a number. Declared
+                  // because Fastify strips what this block does not name — see the
+                  // note on `limits` above. `rawSlots` is deliberately NOT declared:
+                  // the decision belongs on the wire, the device's raw text does not.
+                  sensorError: {
+                    type: 'object',
+                    properties: {
+                      temperature: { type: 'boolean' },
+                      humidity: { type: 'boolean' },
+                    },
+                  },
+                  // Which slots reported a number outside the probe's span. The
+                  // numeric slot is null in that case, so without this the cell
+                  // would read NA and hide a hardware fault behind "no data".
+                  rangeError: {
+                    type: 'object',
+                    properties: {
+                      temperature: { type: 'boolean' },
+                      humidity: { type: 'boolean' },
+                    },
+                  },
                 },
               },
             },
@@ -935,9 +970,43 @@ export default async function instrumentRoutes(app: FastifyInstance) {
      * in a §11 report that no alarm on this system could ever corroborate.
      */
     const own = instrumentLimits(limitCfg.keys, attributes);
-    const band = own ?? (exists.room
+    const rawBand = own ?? (exists.room
       ? { tempMin: exists.room.tempMin, tempMax: exists.room.tempMax, rhMin: exists.room.rhMin, rhMax: exists.room.rhMax }
       : null);
+
+    /**
+     * A bound the instrument has switched OFF is not a bound.
+     *
+     * `Enable_Temp_NMT` / `_NLT` / `Enable_Humid_NMT` / `_NLT` gate the four
+     * bounds (NMT is the HIGH one, NLT the LOW one). `buildTelemetryOverview`
+     * has applied them since 2026-08-31 and nulls a disabled bound before it
+     * ever leaves the server; this route resolved the SAME limits through the
+     * SAME helper and then did not, which is the defect this fixes.
+     *
+     * What it cost: the chart's limit LINE comes from the overview and so
+     * disappeared correctly, while the summary strip beside it kept printing
+     * that bound AND counting breaches against it in SQL. On this installation
+     * that is not hypothetical — an instrument carrying `High Humidity Limit =
+     * 0` with `Enable_Humid_NMT = 0` would report every reading as above limit,
+     * in a §11 report, against a bound no alarm on this system can raise. One
+     * screen, two answers to "is this bound in force?".
+     *
+     * Gated here rather than inside `instrumentLimits()` because that helper is
+     * also the ALARM path's resolver and the enable flags are applied there by
+     * `enabledBoundsFor` at its own call site; moving the gate down would apply
+     * it twice in one place and not at all in the other.
+     *
+     * Room-sourced bounds are gated too, deliberately and consistently with the
+     * overview: the flag is the instrument's statement about which of ITS
+     * bounds are judged, and a room bound it disowns enforces nothing either.
+     */
+    const boundEnabled = enabledBoundsFor(limitCfg.enableKeys, attributes);
+    const band = rawBand && {
+      tempMin: boundEnabled.temperatureLow ? rawBand.tempMin : null,
+      tempMax: boundEnabled.temperatureHigh ? rawBand.tempMax : null,
+      rhMin: boundEnabled.humidityLow ? rawBand.rhMin : null,
+      rhMax: boundEnabled.humidityHigh ? rawBand.rhMax : null,
+    };
     const boundsFor = (key: string): { low: number | null; high: number | null } => {
       const slot = slotFor(key);
       if (!band || !slot) return { low: null, high: null };
@@ -974,9 +1043,14 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         // position on a value axis, so it is dropped BEFORE sampling. That is
         // why the sampled row count can be below `historyTotal` even when
         // nothing was sampled away.
-        const plottable = rows.filter(
-          (r): r is TelemetryRow & { value: number } => typeof r.value === 'number',
-        );
+        //
+        // Through `coerceReading`, so a QUOTED number plots like any other — the
+        // chart must not silently omit readings the dashboard and the alarms
+        // both accept.
+        const plottable = rows.flatMap((r) => {
+          const n = coerceReading(r.value);
+          return n === null ? [] : [{ ...r, value: n }];
+        });
         const sampled = lttb(plottable, points);
         return {
           key,

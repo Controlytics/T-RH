@@ -7,7 +7,14 @@
  * the UI must not let "Cleared" read as "dealt with".
  */
 
-import { ALARM_STATUS_TEXT_DEFAULT, formatDecimals, TELEMETRY_DECIMALS_FALLBACK, INACTIVITY_TYPE_LABEL, inactivityLimitText } from '@digilog/shared';
+import {
+  ALARM_STATUS_TEXT_DEFAULT, formatDecimals, TELEMETRY_DECIMALS_FALLBACK,
+  INACTIVITY_TYPE_LABEL, inactivityLimitText, INACTIVITY_TEXT_DEFAULT,
+  RS485_TYPE_LABEL, RS485_LIMIT_TEXT, RS485_FAILURE_TEXT_DEFAULT,
+  SENSOR_RANGE_TEXT_DEFAULT, rangeLimitText,
+  ALARM_TYPE_KEYS, alarmTypeKeyFor, alarmTypeName,
+  type InactivityColumnTexts, type AlarmTypeNames,
+} from '@digilog/shared';
 
 export interface AlarmRow {
   id: string;
@@ -18,7 +25,6 @@ export interface AlarmRow {
   locationName?: string | null;
   metric: string;
   triggeredValue: number | null;
-  severity: string;
   state: string;
   raisedAt: string;
   clearedAt: string | null;
@@ -37,7 +43,49 @@ export interface AlarmRow {
     /** Present only on an INACTIVITY alarm — the grace it was raised against. */
     kind?: string;
     graceMinutes?: number;
+    /** Present only on an RS485 alarm — the offending text the sensor sent,
+     *  and the key it arrived on. The value is not on `triggeredValue`
+     *  because that column is a number and this one, by definition, is not. */
+    rawValue?: string;
+    key?: string;
+    /** Present only on a SENSOR_RANGE alarm — the reading, and the span it left.
+     *  The reading is also on `triggeredValue`; it is declared here so a fixture
+     *  or a caller cannot quietly diverge from the payload the API sends. */
+    reading?: number;
+    rangeLow?: number | null;
+    rangeHigh?: number | null;
+    /** The offending value's ingest-assigned type (`string`, `boolean`, `json`).
+     *  Nothing on screen reads it — it is declared so a fixture or a caller
+     *  cannot quietly diverge from the payload the API actually sends. */
+    valueType?: string;
+    /**
+     * Written at CLEAR time, not at raise, and only by the inactivity pass: the
+     * slot, key and precision of the reading that ended the outage. Everything
+     * else on this snapshot describes why the alarm was RAISED and is frozen;
+     * these three describe how it ended, which is a different fact and could not
+     * have been known when the rest was written.
+     */
+    clearedSlot?: string;
+    clearedKey?: string;
+    clearedDecimals?: number;
   } | null;
+}
+
+/**
+ * Every administered wording a row can need, in one object.
+ *
+ * One bag rather than a parameter per source: these helpers are called from four
+ * surfaces (the table, the acknowledge dialog, the trend widget, the signed PDF)
+ * and a new source would otherwise mean a new argument threaded through all four
+ * again. Extends the inactivity wordings so existing callers still typecheck.
+ */
+export interface AlarmDisplayTexts extends Partial<InactivityColumnTexts> {
+  /** The word shown for an RS485 sensor failure — `Error` unless administered. */
+  sensorFailure?: string;
+  /** The word shown for an out-of-range reading — `OL` unless administered. */
+  outOfRange?: string;
+  /** What each kind of alarm is CALLED, from Config → Alarm Type Names. */
+  typeNames?: AlarmTypeNames;
 }
 
 export type AlarmTab = 'active' | 'history';
@@ -57,30 +105,24 @@ export function tabFor(a: Pick<AlarmRow, 'state'>): AlarmTab {
 }
 
 
-/**
- * Alarm severity as one of the product's five status tones.
+/*
+ * `severityTone` and `SeverityTone` stood here until 2026-09-01 and went with the
+ * severity concept. Its last caller was the dashboard selection panel's badge —
+ * the one place a user ever read a severity WORD — and `AlarmRow.severity` went
+ * with it: the alarm list endpoint stopped sending the field, and a DTO property
+ * the API never populates and nothing reads is a decoy, not a record.
  *
- * This used to return Tailwind classes directly, which meant alarm severity was
- * painted from a palette only this file knew about — so the most important
- * status in a monitoring application was the one status that did not look like
- * the others. Returning a tone hands the rendering to `StatusBadge`, which also
- * supplies the DOT: severity now carries colour, a shape and a word, instead of
- * colour and a word.
+ * **The record itself is untouched.** `alarms.severity` is still NOT NULL in
+ * Postgres and still carries the 148 rows raised before this date (105 MAJOR, 43
+ * CRITICAL), the `AlarmSeverity` enum survives, and the acknowledge audit's
+ * `afterValue.severity` still captures it. This file is a display DTO and a
+ * display feed; none of it is the §11 evidence path.
  *
- * CRITICAL must not be mistakable for MINOR at a glance — that constraint is
- * why the mapping is explicit rather than alphabetical, and it survives the
- * change: danger and info are the furthest-apart pair in the tone set.
+ * Do NOT reintroduce a tone helper keyed off severity here. `quadrantTone` is the
+ * one that colours a row, and keying a pill off severity is a bug this page
+ * already shipped once: on an installation where every alarm is CRITICAL it
+ * painted every pill red.
  */
-export type SeverityTone = 'danger' | 'warn' | 'info' | 'idle';
-
-export function severityTone(severity: string): SeverityTone {
-  switch (severity) {
-    case 'CRITICAL': return 'danger';
-    case 'MAJOR': return 'warn';
-    case 'MINOR': return 'info';
-    default: return 'idle';
-  }
-}
 
 /**
  * What the condition column says. Prefers the rule as it was WHEN THE ALARM FIRED, not
@@ -104,9 +146,41 @@ export function alarmDecimals(a: Pick<AlarmRow, 'ruleSnapshot'>): number {
   return typeof d === 'number' && Number.isFinite(d) ? d : TELEMETRY_DECIMALS_FALLBACK;
 }
 
-/** The reading that tripped it. OFFLINE has no value, and 0 is a real reading. */
-export function triggeredText(a: AlarmRow): string {
+/**
+ * The reading that tripped it. 0 is a real reading.
+ *
+ * An INACTIVITY alarm has no reading and never will — it is raised by the
+ * ABSENCE of one, which is why the worker stores `triggeredValue: null` rather
+ * than inventing a number. A bare dash there reads as a rendering fault on a §11
+ * table, so the cell carries the administered wording instead.
+ */
+export function triggeredText(a: AlarmRow, texts?: AlarmDisplayTexts): string {
+  if (a.source === 'INACTIVITY') return pickText(texts?.generatedValue, INACTIVITY_TEXT_DEFAULT.generatedValue);
+  // An RS485 alarm shows the ADMINISTERED failure word (`Error` by default).
+  //
+  // It used to show the raw text the sensor sent, on the argument that evidence
+  // beats a wording. That was wrong in practice: the raw text is almost always
+  // `NA`, and `NA` is what the dashboard already shows for a slot with NO reading
+  // — so the value column said the same thing for a dead probe and for an
+  // instrument nobody had wired up. **The evidence is not lost**: the raw value
+  // is still frozen on `ruleSnapshot.rawValue`, still named in the alarm's
+  // condition, and still printed by the notification and the webhook.
+  if (a.source === 'RS485_FAILURE') return pickText(texts?.sensorFailure, RS485_FAILURE_TEXT_DEFAULT);
+  // An out-of-range alarm DOES carry a number, and it is deliberately not
+  // shown: the whole finding is that the sensor cannot stand behind it. The
+  // reading is on the snapshot and quoted in the condition.
+  if (a.source === 'SENSOR_RANGE') return pickText(texts?.outOfRange, SENSOR_RANGE_TEXT_DEFAULT);
   return formatDecimals(a.triggeredValue, alarmDecimals(a)) ?? '—';
+}
+
+/**
+ * A configured wording, or the shipped one when it is blank or absent.
+ *
+ * The same rule `statusText()` applies to the four status wordings: an admin
+ * clearing a field must not be able to put an empty cell back on the page.
+ */
+function pickText(configured: string | undefined, fallback: string): string {
+  return configured && configured.trim() ? configured.trim() : fallback;
 }
 
 export function instrumentLabel(a: AlarmRow): string {
@@ -194,16 +268,18 @@ const METRIC_WORD: Record<string, string> = { TEMPERATURE: 'Temperature', HUMIDI
 
 /** `Inactivity` for an inactivity alarm; `High Temperature` for a limit alarm;
  *  the rule's name for a rule alarm. */
-export function alarmTypeText(a: AlarmRow): string {
-  // Checked FIRST. An inactivity alarm's metric is OFFLINE and it has no
-  // limitKind, so it would otherwise fall through to conditionText() and render
-  // as "offline out of limit" — which is not a limit, and is not what the
-  // operator asked this column to say.
-  if (a.source === 'INACTIVITY') return INACTIVITY_TYPE_LABEL;
-  if (a.source === 'INSTRUMENT_LIMIT' && a.limitKind) {
-    const kind = a.limitKind === 'HIGH' ? 'High' : 'Low';
-    return `${kind} ${METRIC_WORD[a.metric] ?? a.metric}`;
-  }
+export function alarmTypeText(a: AlarmRow, texts?: AlarmDisplayTexts): string {
+  // `alarmTypeKeyFor` in @digilog/shared is the ONE place source + metric +
+  // limitKind become a type. It checks INACTIVITY, RS485 and SENSOR_RANGE BEFORE
+  // the limit branch, because all three carry metric TEMPERATURE or HUMIDITY —
+  // the same values a limit alarm carries — so metric alone cannot identify them
+  // and a dead probe would otherwise read "High Temperature", naming a breach
+  // that never happened.
+  const key = alarmTypeKeyFor(a.source, a.metric, a.limitKind);
+  // Null only for a RULE alarm, which is named by its own rule. Falling back to
+  // the generic "Rule alarms" here would replace every operator-authored rule
+  // name on the page.
+  if (key) return alarmTypeName(texts?.typeNames, key);
   return a.ruleSnapshot?.name || conditionText(a);
 }
 
@@ -218,13 +294,28 @@ export function alarmTypeText(a: AlarmRow): string {
  * decide.ts` `ruleSnapshot()`) never has `limit` — it carries `comparison` +
  * `thresholdLow`/`thresholdHigh` instead. Both must render a bound here.
  */
-export function limitText(a: AlarmRow): string {
+export function limitText(a: AlarmRow, texts?: AlarmDisplayTexts): string {
   // An inactivity alarm has no numeric bound — the threshold it breached is a
   // DURATION of silence. From the frozen snapshot, so lengthening the grace today
-  // does not rewrite what a past outage says it breached.
+  // does not rewrite what a past outage says it breached. The wording around that
+  // number is administered; the NUMBER is not, and `inactivityLimitText` refuses a
+  // template with nowhere to put it.
   if (a.source === 'INACTIVITY') {
     const g = a.ruleSnapshot?.graceMinutes;
-    return typeof g === 'number' && Number.isFinite(g) ? inactivityLimitText(g) : '—';
+    return typeof g === 'number' && Number.isFinite(g) ? inactivityLimitText(g, texts?.limit) : '—';
+  }
+
+  // An RS485 alarm has no bound either: what it breached is the expectation that
+  // a sensor sends a NUMBER. A CONSTANT, not a config setting — a second set of
+  // "what does the Limit column say" wordings, for a second source, on one
+  // table, invites two different answers to one question.
+  if (a.source === 'RS485_FAILURE') return RS485_LIMIT_TEXT;
+
+  // A range alarm HAS a bound, and it is the useful thing to show: the span
+  // the probe declared. From the frozen snapshot, so re-specifying the sensor
+  // tomorrow does not rewrite what a past fault says it exceeded.
+  if (a.source === 'SENSOR_RANGE') {
+    return rangeLimitText(a.ruleSnapshot?.rangeLow ?? null, a.ruleSnapshot?.rangeHigh ?? null);
   }
 
   // The bound is quoted at the same precision as the reading it was compared
@@ -248,9 +339,71 @@ export function limitText(a: AlarmRow): string {
   return '—';
 }
 
-/** The reading that brought it back in limit. 0 is a real reading. */
-export function clearedText(a: AlarmRow): string {
+/**
+ * The reading that brought it back in limit. 0 is a real reading.
+ *
+ * An INACTIVITY alarm clears because telemetry RETURNED, not because a reading
+ * came back inside a bound, so there is no number to show and the cell carries
+ * the administered wording instead.
+ *
+ * **Gated on `clearedAt`.** While the alarm is still ACTIVE the instrument has
+ * NOT come back, and printing "Data resumed" on an open outage would state the
+ * opposite of what the row means.
+ */
+export function clearedText(a: AlarmRow, texts?: AlarmDisplayTexts): string {
+  if (a.source === 'INACTIVITY') {
+    // Still open: the instrument has NOT come back, and either a number or the
+    // "resumed" wording would state the opposite of what the row means.
+    if (!a.clearedAt) return '—';
+    /**
+     * THE NUMBER WINS OVER THE WORDING (operator, 2026-09-01).
+     *
+     * The worker now records the reading that ended the outage, so this column
+     * says what the instrument came back READING rather than merely that it came
+     * back. The wording survives as the fallback for the case that still has no
+     * number — an alarm cleared on presence alone, and every inactivity alarm
+     * cleared before this change, whose value cannot be invented after the fact
+     * on a §11 record.
+     *
+     * Precision comes from the slot the resuming reading actually belongs to
+     * (frozen onto the snapshot as `clearedDecimals` at clear time), NOT from
+     * `alarmDecimals`, which carries the temperature precision this alarm was
+     * raised with. A humidity resume printed at temperature precision would be a
+     * real number stated to the wrong resolution.
+     */
+    const d = a.ruleSnapshot?.clearedDecimals;
+    const decimals = typeof d === 'number' && Number.isFinite(d) ? d : alarmDecimals(a);
+    return formatDecimals(a.clearedValue, decimals)
+      ?? pickText(texts?.clearedValue, INACTIVITY_TEXT_DEFAULT.clearedValue);
+  }
   return formatDecimals(a.clearedValue, alarmDecimals(a)) ?? '—';
+}
+
+/**
+ * The shape `GET /api/config/inactivity-alarms/display-texts` returns —
+ * `text*`-prefixed keys mirroring the stored config keys in
+ * `inactivity-alarms.def.ts`. Kept separate from {@link InactivityColumnTexts}
+ * for the same reason {@link AlarmStatusTextsResponse} is kept separate from
+ * {@link AlarmStatusTexts}: one is the wire vocabulary, the other the display
+ * contract, and they are not meant to converge.
+ */
+export interface InactivityTextsResponse {
+  textGeneratedValue: string;
+  textLimit: string;
+  textClearedValue: string;
+}
+
+/**
+ * Maps that payload onto the display contract. The ONE place the two
+ * vocabularies meet, so a key renamed on either side fails a test here instead
+ * of silently leaving every inactivity row on the shipped wording forever.
+ */
+export function mapInactivityTextsResponse(res: InactivityTextsResponse): InactivityColumnTexts {
+  return {
+    generatedValue: res.textGeneratedValue,
+    limit: res.textLimit,
+    clearedValue: res.textClearedValue,
+  };
 }
 
 /**
@@ -303,7 +456,7 @@ export function quadrantFor(a: Pick<AlarmRow, 'state' | 'acknowledgedAt'>): Alar
  * **DAYS ARE DELIBERATELY NOT USED** (operator, 2026-08-29). A three-day
  * excursion reads `72:00H`, not `3d`. An hour count that keeps growing is
  * directly comparable between rows; a mixed `3d 04:00` is not, and it is the
- * comparison that matters when you are ranking excursions by severity of
+ * comparison that matters when you are ranking excursions by length of
  * exposure.
  *
  * An alarm that has NOT cleared has no duration to state — the operator asked
@@ -405,17 +558,31 @@ export function quadrantTone(a: Pick<AlarmRow, 'state' | 'acknowledgedAt'>): Qua
  * maps each one onto the enum columns that define it — so the filter cannot
  * offer a type the server does not recognise.
  */
-export const ALARM_TYPE_OPTIONS: readonly { value: string; label: string }[] = [
-  { value: 'TEMP_HIGH', label: 'High Temperature' },
-  { value: 'TEMP_LOW', label: 'Low Temperature' },
-  { value: 'RH_HIGH', label: 'High Humidity' },
-  { value: 'RH_LOW', label: 'Low Humidity' },
-  // ONE token, matching on `metric: 'OFFLINE'`, so it catches both the automatic
-  // inactivity alarms and any rule-based offline alarm. Two overlapping tokens
-  // would make an operator choose between two spellings of the same question.
-  { value: 'OFFLINE', label: 'Inactivity' },
-  { value: 'RULE', label: 'Rule alarms' },
-];
+/**
+ * The Type dropdown, labelled from the administered names.
+ *
+ * A FUNCTION rather than a constant, because the labels are now configuration:
+ * a module-level array would be built once at import and never pick up a rename.
+ * The token values stay hardcoded — they are the API's vocabulary
+ * (`ALARM_TYPE_TOKENS` in `modules/alarms/list-query.ts`) and are not the
+ * operator's to rename; only what the option SAYS is.
+ */
+export function alarmTypeOptions(names?: AlarmTypeNames): { value: string; label: string }[] {
+  const n = (k: Parameters<typeof alarmTypeName>[1]) => alarmTypeName(names, k);
+  return [
+    { value: 'TEMP_HIGH', label: n('limitTemperatureHigh') },
+    { value: 'TEMP_LOW', label: n('limitTemperatureLow') },
+    { value: 'RH_HIGH', label: n('limitHumidityHigh') },
+    { value: 'RH_LOW', label: n('limitHumidityLow') },
+    { value: 'OFFLINE', label: n('inactivity') },
+    { value: 'RS485', label: `${n('rs485Temperature')} / ${n('rs485Humidity')}` },
+    { value: 'RANGE', label: `${n('rangeTemperature')} / ${n('rangeHumidity')}` },
+  ];
+}
+
+/** The shipped labelling, for callers with no config in hand. Kept so the token
+ *  list has one place to be checked against the server's. */
+export const ALARM_TYPE_OPTIONS: readonly { value: string; label: string }[] = alarmTypeOptions();
 
 /** Columns the server can sort on, paired with what the header says. */
 export const ALARM_SORT_KEYS = ['raisedAt', 'clearedAt', 'instrumentCode', 'type', 'status'] as const;

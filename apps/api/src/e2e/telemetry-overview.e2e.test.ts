@@ -183,3 +183,82 @@ describe('telemetry-overview with rooms', () => {
     expect(rows.map((r) => r.instrumentId)).toEqual([inst.id]);
   });
 });
+
+/**
+ * A bound the instrument switches OFF must not reach the client as a live bound.
+ *
+ * The alarm evaluator will not raise on it (`enabledBoundsFor`, worker), so a
+ * payload that still carried it would have every DISPLAY surface — the dashboard
+ * table, the floor tiles, the trend card and its chart's limit line — drawing and
+ * reddening a bound that can never produce an alarm. On this installation a
+ * `High Humidity Limit = 0` meaning "not judged" does exactly that at every real
+ * humidity.
+ *
+ * The mapping is the thing worth pinning: NMT is the HIGH bound and NLT the LOW
+ * one, so reversing it silently withholds the OPPOSITE bound while looking
+ * entirely correct.
+ */
+describe('telemetry-overview and the per-bound enable attributes', () => {
+  async function withAttributes(code: string, attrs: Record<string, string>) {
+    const inst = await createInstrument(code);
+    await prisma.instrumentAttribute.createMany({
+      data: Object.entries(attrs).map(([key, value]) => ({ instrumentId: inst.id, key, value })),
+    });
+    return inst;
+  }
+
+  const LIMITS = {
+    'High Temperature Limit': '25',
+    'Low Temperature Limit': '18',
+    'High Humidity Limit': '60',
+    'Low Humidity Limit': '40',
+  };
+
+  it('withholds ONLY the disabled bound, and NLT is the LOW one', async () => {
+    const inst = await withAttributes(`TOV-NLT-${s}`, { ...LIMITS, Enable_Temp_NLT: '0' });
+    const row = rowFor(await overview(), inst.id)!;
+    expect(row.limits.tempMin).toBeNull();
+    expect(row.limits.tempMax).toBe(25);
+    // The humidity pair is untouched — one flag disables one bound.
+    expect(row.limits.rhMin).toBe(40);
+    expect(row.limits.rhMax).toBe(60);
+    expect(row.limitEnabled).toMatchObject({ tempMin: false, tempMax: true, rhMin: true, rhMax: true });
+  });
+
+  it('NMT is the HIGH one — the reversal that would look correct', async () => {
+    const inst = await withAttributes(`TOV-NMT-${s}`, { ...LIMITS, Enable_Humid_NMT: '0' });
+    const row = rowFor(await overview(), inst.id)!;
+    expect(row.limits.rhMax).toBeNull();
+    expect(row.limits.rhMin).toBe(40);
+    expect(row.limitEnabled).toMatchObject({ rhMax: false, rhMin: true });
+  });
+
+  it('a 0 bound switched off cannot make the instrument OUT_OF_SPEC', async () => {
+    // The exact live case: "not judged" written as a zero high-humidity bound,
+    // which every real reading breaches. 17 CRITICAL alarms stood on this.
+    const inst = await withAttributes(`TOV-ZERO-${s}`, {
+      'High Humidity Limit': '0', Enable_Humid_NMT: '0',
+    });
+    await ingest(inst.token, { humidity: 47 });
+    const row = rowFor(await overview(), inst.id)!;
+    expect(row.limits?.rhMax ?? null).toBeNull();
+    expect(row.status).not.toBe('OUT_OF_SPEC');
+  });
+
+  it('an absent flag means ENABLED, so nothing that predates the flags moves', async () => {
+    const inst = await withAttributes(`TOV-NOFLAG-${s}`, LIMITS);
+    const row = rowFor(await overview(), inst.id)!;
+    expect(row.limits).toMatchObject({ tempMin: 18, tempMax: 25, rhMin: 40, rhMax: 60 });
+    expect(row.limitEnabled).toMatchObject({ tempMin: true, tempMax: true, rhMin: true, rhMax: true });
+  });
+
+  it('drops limitSource once no bound survives — a source for an empty band asserts one', async () => {
+    const inst = await withAttributes(`TOV-ALLOFF-${s}`, {
+      ...LIMITS,
+      Enable_Temp_NMT: '0', Enable_Temp_NLT: '0', Enable_Humid_NMT: '0', Enable_Humid_NLT: '0',
+    });
+    const row = rowFor(await overview(), inst.id)!;
+    expect(row.limits).toMatchObject({ tempMin: null, tempMax: null, rhMin: null, rhMax: null });
+    expect(row.limitSource).toBeNull();
+  });
+});

@@ -4,21 +4,35 @@ import { apiClient } from '@/lib/api-client';
 import { useCan } from '@/hooks/use-can';
 import { useToast } from '@/hooks/use-toast';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
+import { useSensorWords, useAlarmTypeNames } from '@/hooks/use-failure-text';
 import { usePaginationDefaults } from '@/hooks/use-pagination-config';
 import { Button } from '@/components/ui/button';
 import { AcknowledgeDialog } from './acknowledge-dialog';
-import { StatusBadge } from '@/components/ui/status-badge';
 import { PageHeader } from '@/components/ui/page-header';
 import { Pagination } from '@/components/ui/pagination';
 import { SkeletonRows } from '@/components/ui/skeleton';
 import { AlarmStatCards } from './alarm-stat-cards';
 import { AlarmFilters, EMPTY_FILTERS, hasAnyFilter, type AlarmFilterState } from './alarm-filters';
 import {
-  needsAcknowledgement, instrumentLabel, statusText, alarmTypeText, limitText,
-  mapStatusTextsResponse, triggeredText, clearedText, alarmDurationText,
-  locationText, breachDirection, quadrantTone, localInputToIso,
+  needsAcknowledgement, instrumentLabel, mapStatusTextsResponse,
+  quadrantTone, localInputToIso, mapInactivityTextsResponse,
   type AlarmRow, type AlarmQuadrant, type AlarmStatusTextsResponse, type AlarmSortKey,
+  type InactivityTextsResponse, type AlarmDisplayTexts,
 } from './alarm-display';
+// The table's presentation — banner, headers, state marker, status pill and
+// every cell — is SHARED with the trend page's "Alarms in this period" widget
+// (`routes/instruments/alarms-widget.tsx`). Two hand-written copies of one table
+// is what let that widget key its status pill off the old `severity` field for a
+// day after this page had fixed exactly that. See the module header for what it
+// deliberately does NOT hold: this page's server-side filter/sort/count/page
+// wiring is untouched by the sharing.
+import {
+  AlarmTableHead, Th, Stack, UnitLine, ALARM_ROW_CLASS, ALARM_CELL,
+  ALARM_BANNER_SOLID, AlarmTableMessage,
+  AlarmInstrumentCell, AlarmTypeCell, AlarmLocationCell, AlarmTimeCell,
+  AlarmValueCell, AlarmLimitCell, AlarmClearedValueCell, AlarmStatusCell,
+  AlarmDurationCell, AlarmAckByCell,
+} from './alarm-table';
 
 /**
  * Alarms — what the evaluator has raised, and who has answered for it.
@@ -56,7 +70,7 @@ export default function AlarmsPage() {
   // narrowed result is usually empty, and an empty table is read as "no alarms".
   useEffect(() => {
     setPage(1);
-  }, [search, filters.from, filters.to, filters.type, filters.status, filters.severity, filters.functionalLocationId, pageSize]);
+  }, [search, filters.from, filters.to, filters.type, filters.status, filters.functionalLocationId, pageSize]);
 
   const query = useMemo(() => {
     const qs = new URLSearchParams({
@@ -65,7 +79,6 @@ export default function AlarmsPage() {
     if (search) qs.set('search', search);
     if (filters.type) qs.set('type', filters.type);
     if (filters.status) qs.set('status', filters.status);
-    if (filters.severity) qs.set('severity', filters.severity);
     if (filters.functionalLocationId) qs.set('functionalLocationId', filters.functionalLocationId);
     // Resolved to an instant here, where the operator's clock is — see
     // localInputToIso. An unreadable value is simply not sent, so a half-typed
@@ -75,7 +88,7 @@ export default function AlarmsPage() {
     if (from) qs.set('from', from);
     if (to) qs.set('to', to);
     return qs.toString();
-  }, [page, pageSize, sort, dir, search, filters.type, filters.status, filters.severity, filters.functionalLocationId, filters.from, filters.to]);
+  }, [page, pageSize, sort, dir, search, filters.type, filters.status, filters.functionalLocationId, filters.from, filters.to]);
 
   const { data, isLoading, error, mutate } = useSWR<{
     data: AlarmRow[];
@@ -84,14 +97,14 @@ export default function AlarmsPage() {
   }>(`/api/alarms?${query}`, { keepPreviousData: true });
 
   const { data: summary, mutate: mutateSummary } = useSWR<{
-    active: number; unacknowledged: number; critical: number;
+    active: number; unacknowledged: number;
     instrumentsWithoutLimits?: number; instrumentsWithoutLimitsCodes?: string[];
     limitAlarmsEnabled?: boolean;
   }>('/api/alarms/summary');
 
   // Narrow, all-authenticated-users read — the `alarm-limits` config itself
   // (`/api/config/dynamic/alarm-limits`) is SUPER_ADMIN-only because most of it is
-  // sensitive (attribute-key mapping, severity). `/status-texts` exposes only the
+  // sensitive (the attribute-key mapping). `/status-texts` exposes only the
   // four wording strings, already defaulted server-side, so every operator sees the
   // configured wording instead of every non-SUPER_ADMIN 403ing into the fallback.
   //
@@ -104,6 +117,31 @@ export default function AlarmsPage() {
     '/api/config/alarm-limits/status-texts',
   );
   const statusTexts = statusTextsResponse ? mapStatusTextsResponse(statusTextsResponse) : undefined;
+
+  // The three column wordings for an inactivity alarm, from its own narrow
+  // all-authenticated-users read for the same reason as above — the
+  // `inactivity-alarms` config itself is SUPER_ADMIN-only because `enabled` and
+  // `graceMinutes` decide what fires as a regulated alarm.
+  //
+  // A SECOND fetch rather than three more keys on `/status-texts`: that endpoint's
+  // contract is a narrow slice of the `alarm-limits` row, and these keys are not in
+  // it. Undefined while it loads, which degrades to the shipped wording — never to
+  // an empty cell.
+  const { data: inactivityTextsResponse } = useSWR<InactivityTextsResponse>(
+    '/api/config/inactivity-alarms/display-texts',
+  );
+  // The RS485 failure word, from its own narrow read route. Folded into ONE bag
+  // with the inactivity wordings: these helpers are called from four surfaces and
+  // a parameter per alarm source would have to be threaded through all of them
+  // again the next time a source is added.
+  const sensorWords = useSensorWords();
+  const typeNames = useAlarmTypeNames();
+  const inactivityTexts: AlarmDisplayTexts = {
+    ...(inactivityTextsResponse ? mapInactivityTextsResponse(inactivityTextsResponse) : {}),
+    sensorFailure: sensorWords.failure,
+    outOfRange: sensorWords.outOfRange,
+    typeNames,
+  };
 
   const rows = data?.data ?? [];
   const total = data?.total ?? 0;
@@ -194,16 +232,10 @@ export default function AlarmsPage() {
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[var(--elev-1)]">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead
-              // The mock's dark banner, painted from the site theme rather than a
-              // hardcoded indigo, so this table follows all ten colour presets
-              // instead of being the one screen with a palette of its own.
-              className="text-left text-xs font-semibold uppercase tracking-wider text-white"
-              style={{
-                backgroundImage:
-                  'linear-gradient(to right, color-mix(in srgb, var(--theme-primary, #2a78d6) 85%, black), var(--theme-primary, #2a78d6))',
-              }}
-            >
+            {/* The mock's dark banner, painted from the site theme rather than a
+                hardcoded indigo, so this table follows all ten colour presets
+                instead of being the one screen with a palette of its own. */}
+            <AlarmTableHead>
               <tr>
                 <Th sortKey="instrumentCode" sort={sort} dir={dir} onSort={toggleSort}>Instrument ID</Th>
                 <Th sortKey="type" sort={sort} dir={dir} onSort={toggleSort}>Type</Th>
@@ -229,110 +261,65 @@ export default function AlarmsPage() {
                     off the end of it — a table you must scroll sideways to
                     acknowledge an alarm from is a table nobody acknowledges alarms
                     from. Its own background, or the rows scroll through it. */}
-                <Th className="sticky right-0 shadow-[-8px_0_8px_-8px_rgba(15,23,42,0.25)]" style={{ backgroundColor: 'var(--theme-primary, #2a78d6)' }} />
+                <Th className="sticky right-0 shadow-[-8px_0_8px_-8px_rgba(15,23,42,0.25)]" style={ALARM_BANNER_SOLID} />
               </tr>
-            </thead>
+            </AlarmTableHead>
             <tbody className="divide-y divide-slate-100">
               {isLoading && !data && (
-                <tr><td colSpan={12} className="px-4 py-4"><SkeletonRows rows={5} columns={6} /></td></tr>
+                <AlarmTableMessage colSpan={COLUMNS} className="px-4 py-4">
+                  <SkeletonRows rows={5} columns={6} />
+                </AlarmTableMessage>
               )}
               {/* `!error` is load-bearing. Without it a failed request renders
                   "No alarms have been raised." — a statement about the record —
                   underneath a banner saying the record could not be read. On a
                   monitoring screen that reads as "nothing is wrong". */}
               {error && rows.length === 0 && (
-                <tr>
-                  <td colSpan={12} className="px-4 py-12 text-center text-slate-500">
-                    The alarm list could not be loaded, so this table is not showing the current state.
-                  </td>
-                </tr>
+                <AlarmTableMessage colSpan={COLUMNS}>
+                  The alarm list could not be loaded, so this table is not showing the current state.
+                </AlarmTableMessage>
               )}
               {!isLoading && !error && rows.length === 0 && (
-                <tr>
-                  <td colSpan={12} className="px-4 py-12 text-center text-slate-500">
-                    {hasAnyFilter(filters)
-                      ? 'No alarms match these filters.'
-                      : 'No alarms have been raised.'}
+                <AlarmTableMessage colSpan={COLUMNS}>
+                  {hasAnyFilter(filters)
+                    ? 'No alarms match these filters.'
+                    : 'No alarms have been raised.'}
+                </AlarmTableMessage>
+              )}
+              {rows.map((a) => (
+                <tr key={a.id} className={ALARM_ROW_CLASS}>
+                  {/* The state marker rides on the leading cell — Instrument ID
+                      here, Type in the trend widget, which drops this column as
+                      redundant for a single-instrument view. */}
+                  <AlarmInstrumentCell a={a} marker={quadrantTone(a)} />
+                  <AlarmTypeCell a={a} texts={inactivityTexts} />
+                  <AlarmLocationCell a={a} />
+                  <AlarmTimeCell value={a.raisedAt} formatDate={formatDate} formatTime={formatTime} />
+                  <AlarmValueCell a={a} texts={inactivityTexts} />
+                  <AlarmLimitCell a={a} texts={inactivityTexts} />
+                  <AlarmTimeCell
+                    value={a.clearedAt}
+                    formatDate={formatDate}
+                    formatTime={formatTime}
+                    emptyTitle="Still breaching — not cleared"
+                  />
+                  <AlarmClearedValueCell a={a} texts={inactivityTexts} />
+                  <AlarmStatusCell a={a} texts={statusTexts} />
+                  <AlarmDurationCell a={a} />
+                  <AlarmAckByCell a={a} formatDateTime={formatDateTime} />
+                  {/* The one cell the widget has no counterpart for: acknowledging
+                      is a §11 signature, needing the gate, the re-auth dialog and
+                      a revalidation afterwards, none of which a read-only widget
+                      carries. It stays here, in the page that owns them. */}
+                  <td className={`sticky right-0 bg-white ${ALARM_CELL} text-right shadow-[-8px_0_8px_-8px_rgba(15,23,42,0.15)] group-hover:bg-slate-50`}>
+                    {needsAcknowledgement(a) && can('alarms.acknowledge') && (
+                      <Button size="sm" variant="outline" onClick={() => { setDialogError(''); setTarget(a); }}>
+                        Acknowledge
+                      </Button>
+                    )}
                   </td>
                 </tr>
-              )}
-              {rows.map((a) => {
-                const tone = quadrantTone(a);
-                return (
-                  <tr key={a.id} className="group hover:bg-slate-50/70">
-                    {/* The state marker. A wide table puts the status pill off to
-                        the right, and this is what lets an operator find the
-                        unanswered rows without scrolling to it. */}
-                    <td className="relative py-3 pl-5 pr-4 font-semibold text-slate-900">
-                      <span className={`absolute inset-y-0 left-0 w-1 ${ACCENT[tone]}`} aria-hidden />
-                      {instrumentLabel(a)}
-                    </td>
-                    {/* Wraps to two lines, as the mockup draws it — "High
-                        Temperature" on one line is a wide column for two words.
-                        No metric glyph: it repeated the word beside it on every
-                        row and bought a column of width for nothing (operator,
-                        2026-08-31). The status pill keeps ITS dot — that one is
-                        carrying colour, which must never travel alone. */}
-                    <td className="px-4 py-3 text-slate-700">{alarmTypeText(a)}</td>
-                    <td className="px-4 py-3 text-slate-700">{locationText(a)}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-slate-600">
-                      <span className="block">{formatDate(a.raisedAt)}</span>
-                      <span className="block text-xs text-slate-400">{formatTime(a.raisedAt)}</span>
-                    </td>
-                    {/* Bare number. The unit is in the column head and the row's
-                        metric is already named in the Type column, so repeating
-                        it per cell says the same thing twice and widens the
-                        column (operator, 2026-08-29 and again 2026-08-31). */}
-                    <td className={`whitespace-nowrap px-4 py-3 font-semibold tabular-nums ${VALUE_INK[breachDirection(a)]}`}>
-                      {triggeredText(a)}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-500">{limitText(a)}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-slate-600">
-                      {a.clearedAt ? (
-                        <>
-                          <span className="block">{formatDate(a.clearedAt)}</span>
-                          <span className="block text-xs text-slate-400">{formatTime(a.clearedAt)}</span>
-                        </>
-                      ) : (
-                        <span className="font-medium text-amber-700" title="Still breaching — not cleared">—</span>
-                      )}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">
-                      {clearedText(a)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusBadge
-                        tone={tone}
-                        label={statusText(a, statusTexts)}
-                        pulse={a.state === 'ACTIVE' && !a.acknowledgedAt}
-                      />
-                    </td>
-                    <td
-                      className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-700"
-                      title={a.clearedAt ? undefined : 'Still active — no cleared time yet'}
-                    >
-                      {alarmDurationText(a)}
-                    </td>
-                    <td className="px-4 py-3">
-                      {a.acknowledgedAt ? (
-                        <span title={a.acknowledgeReason ?? undefined} className="text-slate-700">
-                          <span className="block font-medium">{a.acknowledgedBy}</span>
-                          <span className="block text-xs text-slate-400">{formatDateTime(a.acknowledgedAt)}</span>
-                        </span>
-                      ) : (
-                        <span className="font-medium text-rose-600">Awaiting</span>
-                      )}
-                    </td>
-                    <td className="sticky right-0 bg-white px-4 py-3 text-right shadow-[-8px_0_8px_-8px_rgba(15,23,42,0.15)] group-hover:bg-slate-50">
-                      {needsAcknowledgement(a) && can('alarms.acknowledge') && (
-                        <Button size="sm" variant="outline" onClick={() => { setDialogError(''); setTarget(a); }}>
-                          Acknowledge
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
+              ))}
             </tbody>
           </table>
         </div>
@@ -355,88 +342,17 @@ export default function AlarmsPage() {
         error={dialogError}
         onSubmit={acknowledge}
         onClose={() => setTarget(null)}
+        inactivityTexts={inactivityTexts}
       />
     </div>
   );
 }
 
 /**
- * The row's left edge marker, in the same four tones the cards use.
- * `StatusBadge`'s own token palette is designed for a tinted pill, which is too
- * pale to read as a 4px rule, so these are the solid counterparts.
+ * Twelve columns. Read by every whole-width row — a colSpan one short leaves a
+ * hairline of unpainted table beside the message.
  */
-const ACCENT: Record<'danger' | 'info' | 'warn' | 'ok', string> = {
-  danger: 'bg-rose-500',
-  info: 'bg-sky-500',
-  warn: 'bg-amber-500',
-  ok: 'bg-emerald-500',
-};
-
-/**
- * The value's ink says which WAY the reading broke — warm for a high breach, cold
- * for a low one. Direction comes from what the evaluator recorded, never from
- * comparing the number to the limit here.
- */
-const VALUE_INK: Record<'high' | 'low' | 'none', string> = {
-  high: 'text-rose-600',
-  low: 'text-sky-600',
-  none: 'text-slate-900',
-};
-
-/**
- * The bracketed legend under a column name rather than beside it (operator,
- * 2026-08-29). `block` is what puts it on its own line; keeping it inside the
- * same <th> means the two lines stay one sortable, one-cell heading rather than
- * becoming a second header row that every colSpan would then have to know about.
- */
-function UnitLine({ children }: { children: React.ReactNode }) {
-  return <span className="block font-normal normal-case tracking-normal opacity-70">{children}</span>;
-}
-
-/** One word of a heading, on its own line. */
-function Stack({ children }: { children: React.ReactNode }) {
-  return <span className="block">{children}</span>;
-}
-
-/**
- * A header cell. Sortable when given a `sortKey` — and only for the columns the
- * SERVER can order on, since sorting one page of a paged result would rearrange
- * twelve rows and call it a sort of five hundred.
- */
-function Th({
-  children, sortKey, sort, dir, onSort, title, className, style,
-}: {
-  children?: React.ReactNode;
-  sortKey?: AlarmSortKey;
-  sort?: AlarmSortKey;
-  dir?: 'asc' | 'desc';
-  onSort?: (k: AlarmSortKey) => void;
-  title?: string;
-  className?: string;
-  style?: React.CSSProperties;
-}) {
-  const base = `whitespace-nowrap px-4 py-3.5 align-top ${className ?? ''}`;
-  if (!sortKey || !onSort) {
-    return <th className={base} title={title} style={style}>{children}</th>;
-  }
-  const active = sort === sortKey;
-  return (
-    <th className={base} title={title} style={style} aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
-      <button
-        type="button"
-        onClick={() => onSort(sortKey)}
-        className="inline-flex items-center gap-1.5 uppercase tracking-wider hover:text-white/80"
-      >
-        <span>{children}</span>
-        <svg className={`h-3 w-3 shrink-0 transition-opacity ${active ? 'opacity-100' : 'opacity-40'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-          {active
-            ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d={dir === 'asc' ? 'M4.5 15.75l7.5-7.5 7.5 7.5' : 'M19.5 8.25l-7.5 7.5-7.5-7.5'} />
-            : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.25 15L12 18.75 15.75 15M8.25 9L12 5.25 15.75 9" />}
-        </svg>
-      </button>
-    </th>
-  );
-}
+const COLUMNS = 12;
 
 /**
  * Hold a value still until typing stops.

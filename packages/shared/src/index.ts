@@ -105,7 +105,10 @@ export type { DownsamplePoint } from './types/telemetry-downsample.js';
 export {
   LIMIT_BOUNDS,
   ALARM_LIMIT_KEYS_DEFAULT,
+  ALARM_LIMIT_ENABLE_KEYS_DEFAULT,
   ALARM_STATUS_TEXT_DEFAULT,
+  parseEnableFlag,
+  resolveEnableFlag,
   parseLimitKeys,
   parseLimitValue,
   resolveLimit,
@@ -115,10 +118,40 @@ export type { LimitBound } from './types/alarm-limits.js';
 export {
   INACTIVITY_ALARMS_DEFAULT, INACTIVITY_GRACE_MIN, INACTIVITY_GRACE_MAX,
   INACTIVITY_TYPE_LABEL, describeInactivity, inactivityLimitText,
+  INACTIVITY_TEXT_DEFAULT, INACTIVITY_MINUTES_TOKEN,
 } from './types/inactivity-alarms.js';
 export type {
-  InactivityAlarmConfig, InactivitySeverity, InactivitySnapshot,
+  InactivityAlarmConfig, InactivitySnapshot,
+  InactivityColumnTexts,
 } from './types/inactivity-alarms.js';
+
+export {
+  RS485_ALARMS_DEFAULT, RS485_TYPE_LABEL, RS485_LIMIT_TEXT, RS485_RAW_VALUE_MAX,
+  RS485_FAILURE_TEXT_DEFAULT, RS485_FAILURE_TEXT_MAX,
+  describeRs485, isSensorFailureValue, renderRawValue, failureText, coerceReading,
+} from './types/rs485-alarms.js';
+export type {
+  Rs485AlarmConfig, Rs485Metric, Rs485Snapshot,
+} from './types/rs485-alarms.js';
+
+export {
+  SENSOR_RANGE_KEYS_DEFAULT, SENSOR_RANGE_TEXT_DEFAULT, SENSOR_RANGE_TEXT_MAX,
+  SENSOR_RANGE_TYPE_LABEL, rangeText, isOutOfRange, describeRangeFault, rangeLimitText,
+} from './types/sensor-range.js';
+export type {
+  SensorRangeConfig, SensorRangeBounds, SensorRangeSnapshot, RangeMetric,
+  RangeBound,
+} from './types/sensor-range.js';
+
+// Severity is no longer administered anywhere; this is the ONE value new alarms
+// are stamped with, so the retained §11 column keeps a legal value. See the file.
+export { ALARM_SEVERITY_FALLBACK } from './types/alarm-severity.js';
+
+export {
+  ALARM_TYPE_KEYS, ALARM_TYPE_NAME_DEFAULT, ALARM_TYPE_NAME_MAX,
+  alarmTypeKeyFor, alarmTypeName,
+} from './types/alarm-type-names.js';
+export type { AlarmTypeKey, AlarmTypeNames } from './types/alarm-type-names.js';
 
 export {
   ATTRIBUTE_ACCESS_MODES,
