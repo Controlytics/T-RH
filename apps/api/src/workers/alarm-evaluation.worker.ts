@@ -253,6 +253,21 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
                 decimals: check.metric === 'HUMIDITY'
                   ? row.decimals.humidity
                   : row.decimals.temperature,
+                // BOTH of this metric's bounds, so the Alarm Report's High/Low
+                // Set Point columns can name the pair. Gated by `boundEnabled`
+                // for the same reason the dashboard withholds a switched-off
+                // bound: it could not have raised this alarm, so printing it
+                // would state a limit that was not in force.
+                thresholdHigh: boundEnabled[LIMIT_BOUND[check.metric].HIGH]
+                  ? limits[LIMIT_BOUND[check.metric].HIGH]
+                  : null,
+                thresholdLow: boundEnabled[LIMIT_BOUND[check.metric].LOW]
+                  ? limits[LIMIT_BOUND[check.metric].LOW]
+                  : null,
+                // Frozen so the report can word a SWITCHED-OFF bound differently
+                // from one nobody ever administered — both of which are null above.
+                highEnabled: boundEnabled[LIMIT_BOUND[check.metric].HIGH],
+                lowEnabled: boundEnabled[LIMIT_BOUND[check.metric].LOW],
                 snapshotAt: now.toISOString(),
               }) as Prisma.InputJsonObject,
               instrumentId: row.instrumentId,

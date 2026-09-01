@@ -115,6 +115,37 @@ export function limitSnapshot(input: {
    * this field existed stay readable — the UI falls back to the site default.
    */
   decimals?: number;
+  /**
+   * BOTH of this metric's bounds as they stood at raise time, IN FORCE — a bound
+   * that is absent or switched off is null here.
+   *
+   * Added 2026-09-01 for the Alarm Report, whose HIGH SET POINT VALUE and LOW SET
+   * POINT VALUE columns are the instrument's High/Low Temperature (or Humidity)
+   * Limit. Only the BREACHED bound was ever frozen, so the report could not name
+   * the counterpart — and reading it live would print today's limit against a
+   * June excursion, which is exactly what freezing exists to prevent.
+   *
+   * Switched-off bounds are stored as null on purpose, matching the rule that a
+   * disabled bound is WITHHELD from `telemetry-overview` rather than merely
+   * unenforced: printing a bound that could never have raised this alarm would
+   * state a limit that was not in force.
+   *
+   * Optional, so rows raised before this existed stay readable — the report then
+   * shows the breached bound in its own column and N/A in the other.
+   */
+  thresholdHigh?: number | null;
+  thresholdLow?: number | null;
+  /**
+   * Whether each bound was IN FORCE at raise time.
+   *
+   * Without these, `thresholdHigh: null` cannot be told apart from "switched off"
+   * — both freeze as null — and the report was asked to word those two cases
+   * DIFFERENTLY (a configurable wording for switched-off, `N/A` for never
+   * administered). Frozen rather than read live for the same reason the bounds
+   * are: enabling a limit today must not restate what a June alarm printed.
+   */
+  highEnabled?: boolean;
+  lowEnabled?: boolean;
   snapshotAt: string;
 }): Record<string, unknown> {
   return {
@@ -126,6 +157,10 @@ export function limitSnapshot(input: {
     limit: input.limit,
     attributeKey: input.attributeKey,
     decimals: input.decimals ?? null,
+    thresholdHigh: input.thresholdHigh ?? null,
+    thresholdLow: input.thresholdLow ?? null,
+    highEnabled: input.highEnabled ?? null,
+    lowEnabled: input.lowEnabled ?? null,
     description: describeLimit({
       metric: input.metric as LimitMetric,
       limitKind: input.limitKind as LimitKind,

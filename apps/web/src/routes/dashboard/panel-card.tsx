@@ -1,4 +1,6 @@
-import { useState, useEffect, useRef, type ReactNode } from 'react';
+import {
+  useState, useEffect, useRef, useContext, createContext, type ReactNode,
+} from 'react';
 import {
   PANEL_TINTS, PANEL_SIZES, PANEL_PADDINGS, PANEL_WIDTHS, PANEL_HEIGHTS, MAX_PANEL_TITLE,
   tintFor, sizeFor, paddingFor, namedWidth, namedHeight, type PanelStyle,
@@ -21,6 +23,29 @@ import {
  * record. The palette itself is bounded and contrast-checked; see
  * @digilog/shared types/panel-style.ts.
  */
+/**
+ * The header's toolbar slot — a DOM node a panel's own content can render into.
+ *
+ * Operator, 2026-09-01: *"give titles and filters in same line … dont give in
+ * seperate lines, for all widgets"*. The title belongs to `PanelCard` (the
+ * operator may rename it) while the search and filters belong to the panel's
+ * content, so they lived in two different components and therefore on two lines.
+ *
+ * A PORTAL rather than lifting the filter state up into `dashboard/index.tsx`:
+ * the state is the content's, and hoisting it would put three panels' filters in
+ * one component to solve a layout problem. The slot is held as STATE, not a ref,
+ * because a ref is still null on the first render and the portal would never
+ * mount.
+ *
+ * `null` when there is no PanelCard around — a panel rendered on its own (as the
+ * tests do) then draws its toolbar inline, so it is never left without one.
+ */
+const PanelToolbarSlot = createContext<HTMLElement | null>(null);
+
+export function usePanelToolbarSlot(): HTMLElement | null {
+  return useContext(PanelToolbarSlot);
+}
+
 export function PanelCard({
   title, eyebrow, editing, style, width, height, onStyleChange, onSizeChange, children,
   autoHeight = false, onNaturalHeight,
@@ -56,6 +81,7 @@ export function PanelCard({
   onNaturalHeight?: (px: number) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [toolbarEl, setToolbarEl] = useState<HTMLDivElement | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -83,9 +109,27 @@ export function PanelCard({
     const content = contentRef.current;
     if (!card || !scroll || !content) return undefined;
 
+    /**
+     * **Measure the CONTENT, never `scroll.scrollHeight`** (operator, 2026-09-01:
+     * the panel grew from 25 to 50 rows and then would not shrink back).
+     *
+     * `scrollHeight` is `max(content, clientHeight)`, so a container TALLER than
+     * its content reports its own height. That makes it a one-way measurement:
+     * growing works, because overflow pushes it above `clientHeight`; shrinking
+     * can never work, because the value is pinned to the very height being
+     * reduced. The card sat at its 50-row size with an empty band underneath.
+     *
+     * The content wrapper is a plain block in normal flow, so its box IS the
+     * content's natural height whatever the container does. `padY` is read off the
+     * scroll region because the panel's padding is operator-configurable, and
+     * `clientHeight` already includes it — leaving it out would shrink every panel
+     * by two paddings and clip the last row.
+     */
     const report = () => {
       const chrome = card.offsetHeight - scroll.clientHeight;
-      onNaturalHeight(chrome + scroll.scrollHeight);
+      const cs = getComputedStyle(scroll);
+      const padY = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+      onNaturalHeight(chrome + padY + content.getBoundingClientRect().height);
     };
     report();
 
@@ -122,8 +166,11 @@ export function PanelCard({
 
       {/* The label plate: a shade deeper than the body, the way an instrument's
           legend sits proud of its face. */}
+      {/* `items-center`, not `items-baseline`: this row now holds form controls as
+          well as text, and a select aligned on the title's baseline sits low. The
+          Edit button already opted out with `self-center`. */}
       <div
-        className="flex shrink-0 items-baseline gap-3 border-b px-4 py-2.5"
+        className="flex shrink-0 items-center gap-3 border-b px-4 py-2.5"
         style={{ borderColor: tint.border, backgroundColor: tint.head }}
       >
         <div className="min-w-0">
@@ -141,11 +188,17 @@ export function PanelCard({
             {heading}
           </h2>
         </div>
+        {/* THE TOOLBAR SLOT. Always rendered, so `ml-auto` here is what pushes the
+            Edit button right whether or not the content fills it. `min-w-0` lets
+            the controls shrink before the title does — the title truncates, and a
+            truncated heading is more readable than a crushed search box. */}
+        <div ref={setToolbarEl} className="ml-auto flex min-w-0 flex-nowrap items-center gap-2" />
+
         {editing && onStyleChange && (
           <button
             type="button"
             onClick={() => setOpen((o) => !o)}
-            className="ml-auto shrink-0 self-center rounded-md border border-slate-300 bg-white/90 px-2 py-0.5 text-[0.6875rem] font-semibold text-slate-700 hover:bg-white"
+            className="shrink-0 rounded-md border border-slate-300 bg-white/90 px-2 py-0.5 text-[0.6875rem] font-semibold text-slate-700 hover:bg-white"
           >
             {open ? 'Close' : 'Edit'}
           </button>
@@ -182,7 +235,9 @@ export function PanelCard({
       */}
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto" style={{ padding: pad.px }}>
         <div ref={contentRef} style={size.zoom === 1 ? undefined : { zoom: size.zoom }}>
-          {children}
+          <PanelToolbarSlot.Provider value={toolbarEl}>
+            {children}
+          </PanelToolbarSlot.Provider>
         </div>
       </div>
     </div>

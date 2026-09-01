@@ -101,7 +101,9 @@ vi.mock('@/hooks/use-toast', () => ({
  * URL and every assertion below reads `null`.
  */
 const swrKeys: string[] = [];
-const alarmsKey = () => swrKeys.find((k) => k.startsWith('/api/alarms'));
+/** The LATEST alarms request, not the first: the array accumulates across
+ *  re-renders, so `find` would read the query from before a filter was typed. */
+const alarmsKey = () => [...swrKeys].reverse().find((k) => k.startsWith('/api/alarms'));
 vi.mock('swr', () => ({
   default: (key: string | null) => {
     if (key) swrKeys.push(key);
@@ -499,5 +501,46 @@ describe('AlarmsWidget — administered wording', () => {
     expect(within(head).getAllByText('(°C / %RH)').length).toBe(2);
     expect(within(head).getByText('(H/m)')).toBeInTheDocument();
     expect(head.querySelector('th[title="H = hours, m = minutes"]')).not.toBeNull();
+  });
+});
+
+describe('AlarmsWidget — the toolbar is the SHARED one', () => {
+  /**
+   * Moved onto `alarm-widget-filters.tsx` on 2026-09-01 so the dashboard's
+   * selection panel renders the same three controls. These pin that the move
+   * changed no behaviour here — the refactor is only safe if this surface still
+   * sends what it sent.
+   */
+  it('still renders search, type and status', () => {
+    renderWith([alarm]);
+    expect(screen.getByRole('searchbox', { name: /search this instrument/i })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: /filter by alarm type/i })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: /filter by status/i })).toBeInTheDocument();
+  });
+
+  it('offers ALL FOUR statuses here — this widget is not scoped to active', () => {
+    // The counterpart of the dashboard panel's two. That surface is pinned to
+    // `state=ACTIVE`; this one shows a period, in which alarms clear.
+    renderWith([alarm]);
+    const labels = within(screen.getByRole('combobox', { name: /filter by status/i }))
+      .getAllByRole('option').map((o) => o.textContent);
+    expect(labels).toHaveLength(5);
+    expect(labels.some((l) => /cleared/i.test(l ?? ''))).toBe(true);
+  });
+
+  it('still sends its filters to the server', () => {
+    renderWith([alarm]);
+    fireEvent.change(screen.getByRole('searchbox', { name: /search this instrument/i }), {
+      target: { value: 'chiller' },
+    });
+    expect(new URL(alarmsKey()!, 'https://x').searchParams.get('search')).toBe('chiller');
+  });
+
+  it('keeps the export icon and the settings pencil beside the filters', () => {
+    // They ride in the toolbar's `trailing` slot; a refactor that dropped the
+    // slot would take both off the card with no type error.
+    renderWith([alarm], { settingsButton: <button type="button">Widget settings</button> });
+    expect(screen.getByRole('button', { name: /export/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Widget settings' })).toBeInTheDocument();
   });
 });

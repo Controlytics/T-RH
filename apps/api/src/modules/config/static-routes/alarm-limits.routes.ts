@@ -1,5 +1,5 @@
 import { type FastifyInstance } from 'fastify';
-import { ALARM_STATUS_TEXT_DEFAULT } from '@digilog/shared';
+import { ALARM_STATUS_TEXT_DEFAULT, LIMIT_DISABLED_TEXT_DEFAULT } from '@digilog/shared';
 import { prisma } from '../../../lib/prisma.js';
 
 const CONFIG_KEY = 'alarm-limits';
@@ -33,8 +33,16 @@ export async function alarmLimitsStatusTextsRoutes(app: FastifyInstance) {
             statusActiveAck: { type: 'string' },
             statusClearedUnack: { type: 'string' },
             statusClearedAck: { type: 'string' },
+            // The switched-off-limit wording rides with the status texts rather
+            // than opening a SEVENTH narrow-slice route for one string: it comes
+            // from the same def, and every surface that needs it already fetches
+            // this endpoint.
+            disabledLimitText: { type: 'string' },
           },
-          required: ['statusActiveUnack', 'statusActiveAck', 'statusClearedUnack', 'statusClearedAck'],
+          required: [
+            'statusActiveUnack', 'statusActiveAck', 'statusClearedUnack', 'statusClearedAck',
+            'disabledLimitText',
+          ],
         },
       },
     },
@@ -55,6 +63,7 @@ export async function alarmLimitsStatusTextsRoutes(app: FastifyInstance) {
       statusActiveAck: text('statusActiveAck', ALARM_STATUS_TEXT_DEFAULT.activeAck),
       statusClearedUnack: text('statusClearedUnack', ALARM_STATUS_TEXT_DEFAULT.clearedUnack),
       statusClearedAck: text('statusClearedAck', ALARM_STATUS_TEXT_DEFAULT.clearedAck),
+      disabledLimitText: text('disabledLimitText', LIMIT_DISABLED_TEXT_DEFAULT),
     };
   });
 }

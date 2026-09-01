@@ -280,7 +280,11 @@ yields page numbers and row counts describing different populations.
 
 Each caller still shows a different subset and each subset has a reason:
 
-- **This page: twelve**, with the action column `sticky right-0`.
+- **This page: THIRTEEN** (Area added 2026-09-01), with the action column
+  `sticky right-0`. `COLUMNS` in `index.tsx` must move with it — every
+  whole-width message row spans it, and a colSpan one short leaves a hairline of
+  unpainted table. A test derives the expected value from the rendered header
+  count, so the constant cannot drift from the `<thead>`.
 - **The trend widget: ten.** Instrument ID and Location are redundant for a
   single-instrument view named in the page header, so its state marker rides on
   the TYPE cell instead. Not sticky — ten columns at full width do not overflow.
@@ -289,6 +293,26 @@ Each caller still shows a different subset and each subset has a reason:
   Cleared Value and Duration, because its query is `state=ACTIVE` and `clearedAt`
   is null on every row it can show. Three columns of dashes, in a panel narrower
   than either full-width table. **If that query ever widens, add them back.**
+
+**The two WIDGETS also share one filter toolbar** — `alarm-widget-filters.tsx`,
+search + type + status (operator, 2026-09-01). Extracted, not copied, for the same
+reason `alarm-table.tsx` was: the trend widget's hand-written copy of the table
+was the one that drifted. **It is not `alarm-filters.tsx`** — that is the Alarms
+PAGE's bar, with a date range, a location tree and an advanced disclosure, which
+is a page-sized control set. The Alarms page keeps it.
+
+- **The selection panel passes `ACTIVE_QUADRANTS` — two options, not four.** Its
+  query is pinned to `state=ACTIVE` and `quadrantWhere` emits `state: 'CLEARED'`
+  for the other two, so ANDed they match nothing, always. Two options that can
+  only empty the table would read as a filter that found nothing rather than one
+  that could not — the decoy rule again. The trend widget passes all four; it
+  shows a period, in which alarms clear.
+- **`searchName` is required and distinct per surface.** An unnamed text input
+  beside a password field is what Chrome reaches for when it hunts for a username
+  to fill — it typed the logged-in username into the Alarms search box on
+  2026-08-31, which looked like a bug in the search box and was not.
+- The export icon and the settings pencil ride in the toolbar's `trailing` slot:
+  they belong to the trend page, not to the toolbar.
 
 All three use the canonical `<Pagination>` at the administered `defaultLimit`, not
 a second hardcoded page size that would drift from the Alarms page. **The two
@@ -407,11 +431,16 @@ again the moment this installation passes one page of alarms.
   so it is untouched. Counting the shared-cell consumers rather than the cell's
   actual call sites is how "three" gets written down; `grep -c AlarmLocationCell`
   is the check.
-  - **The fallback is the Area, not "Not set", and that DIFFERS from the dashboard
-    table deliberately.** That table has a separate Area column beside this one, so
-    falling back there would duplicate the neighbouring cell; the alarms tables
-    have ONE placement column, so the Area is the only remaining fact and beats
-    "Unassigned".
+  - **Whether the Area is a FALLBACK depends on whether an Area column is shown,
+    and `AlarmLocationCell` takes `areaShown` to say so.** With one placement
+    column — the dashboard's selection panel — the Area is the only remaining fact
+    and beats "Not set". With an Area column beside it — this page since
+    2026-09-01 — the same fallback prints the Area TWICE on every instrument with
+    no typed Location, which is the duplicate-column defect the dashboard's Room
+    column was removed for. **Pass `areaShown` wherever `AlarmAreaCell` is on the
+    row.** One flag, because the two surfaces genuinely differ; a single
+    unconditional rule is wrong on one of them. Mutation-checked — dropping it
+    fails with "Found multiple elements with the text: …".
   - **Both of the things this cell can display are SEARCHABLE**, and the server
     matches both (`list-query.ts`). Adding the attribute to the column without
     adding it to the search made it visible-but-unsearchable for as long as it took
@@ -698,6 +727,34 @@ Tokens live in `src/app.css` `@theme`; primitives in `src/components/ui/`.
   operator-ordered array (Config → Roles & Access → Sidebar), so adding section
   headings would silently override an arrangement someone chose.
 - SWR for data fetching with auto-revalidation
+## A panel's controls sit in the CARD HEADER, beside the title (2026-09-01)
+
+Operator: *"give titles and filters in same line … dont give in seperate lines,
+for all widgets"*. `PanelCard` exports `usePanelToolbarSlot()`; the dashboard's
+readings table and selection alarms panel portal their toolbars into it.
+
+- **The split was structural, not a styling slip.** The title belongs to
+  `PanelCard` (the operator may rename it, so a panel must not hard-code its own)
+  and the controls belong to the content. Two components, therefore two rows — no
+  flex on either could have joined them.
+- **A portal, not lifted state.** Hoisting filter state into `dashboard/index.tsx`
+  would put three panels' state in one component to solve a layout problem. And
+  the slot is held as STATE, not a ref: a ref is still null on the first render,
+  so the portal would never mount.
+- **Every consumer renders its toolbar INLINE when the slot is null.** These
+  components are rendered bare in their own tests; one that lost its search box
+  when unwrapped would be broken precisely where the tests look.
+- **`flex-nowrap` in the header, and it matters.** The readings toolbar dropped
+  `flex-wrap`/`justify-between` on the way up: in the header it is one group the
+  slot's `ml-auto` pushes right, and a row allowed to wrap there puts the card
+  back on two lines. The title truncates first (`min-w-0` on the slot) — a
+  truncated heading reads better than a crushed search box.
+- Tests assert the join by **DOM containment** (`row.contains(bar)` and NOT
+  `body.contains(bar)`). A query that found both on the page would pass with them
+  stacked, which is the state being fixed.
+- The trend page's cards already had title and controls on one row; they use
+  `CardHeader` directly and were not touched.
+
 ## Dashboard panel height FOLLOWS THE CONTENT (2026-09-01)
 
 Operator: *"every widget size should be upto pagination only, when user dragged
@@ -720,6 +777,21 @@ resizes it with no drag. `routes/dashboard/panel-auto-height.ts` holds the maths
   which is the original complaint with extra steps. A test that resizes the window
   passes either way; `__tests__/panel-card-auto-height.test.tsx` asserts the
   observed element BY IDENTITY and drives a content growth instead.
+- **MEASURE the content wrapper's box too — never `scroll.scrollHeight`.** A
+  separate mistake from the one above, and it shipped: `scrollHeight` is
+  `max(content, clientHeight)`, so a container taller than its content reports its
+  OWN height. That makes the measurement ONE-WAY — growing works because overflow
+  pushes it past `clientHeight`, shrinking never can, because the value is pinned
+  to the height being reduced. Reported by the operator as a panel that grew to 50
+  rows and would not come back to 25. Add the scroll region's PADDING explicitly:
+  it is operator-configurable and `clientHeight` already counts it, so leaving it
+  out clips the last row.
+  - **The test stub was what hid it.** It set `offsetHeight`, `clientHeight` and
+    `scrollHeight` independently and so described an impossible DOM. `stubLayout()`
+    now makes `scrollHeight` a getter over `max(content + padding, clientHeight)`
+    and pins the panel height as the grid cell does. **A stub that cannot express
+    an invariant cannot catch its violation** — when stubbing layout, encode the
+    relationships, not three loose numbers.
 - **The height is derived at RENDER and never STORED.** `applyAutoHeights`
   overlays it for display; `keepStoredHeights` strips it back out in
   `onGridChange` before anything reaches the draft. react-grid-layout reports

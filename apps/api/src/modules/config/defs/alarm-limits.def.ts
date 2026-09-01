@@ -1,5 +1,5 @@
 import type { ModuleConfigDefinition } from '../../../lib/config-registry.js';
-import { ALARM_LIMIT_KEYS_DEFAULT, ALARM_LIMIT_ENABLE_KEYS_DEFAULT, ALARM_STATUS_TEXT_DEFAULT } from '@digilog/shared';
+import { ALARM_LIMIT_KEYS_DEFAULT, ALARM_LIMIT_ENABLE_KEYS_DEFAULT, ALARM_STATUS_TEXT_DEFAULT, LIMIT_DISABLED_TEXT_DEFAULT } from '@digilog/shared';
 
 /**
  * Which instrument attributes carry the four limits, and what the alarm status
@@ -107,6 +107,24 @@ export const alarmLimitsDef: ModuleConfigDefinition = {
       default: ALARM_LIMIT_ENABLE_KEYS_DEFAULT.humidityLow,
       maxLength: 500,
       group: 'Enable Attribute Keys',
+    },
+    {
+      key: 'disabledLimitText',
+      label: 'Wording for a switched-off limit',
+      type: 'string',
+      /**
+       * Printed in the Alarm Report's High Limit / Low Limit column when THAT
+       * bound is switched off for the instrument (`Enable_Temp_NMT` and friends).
+       *
+       * Deliberately NOT used for a bound that was simply never administered, nor
+       * for an alarm that fired against no bound at all — those stay `N/A`. The
+       * operator asked to word the switched-off case specifically, and collapsing
+       * the two would lose the distinction the setting exists to draw.
+       */
+      description: 'Shown in the report where a High/Low limit is switched off for the instrument. Blank falls back to NA.',
+      default: LIMIT_DISABLED_TEXT_DEFAULT,
+      maxLength: 20,
+      group: 'Status Wording',
     },
     {
       key: 'statusActiveUnack',

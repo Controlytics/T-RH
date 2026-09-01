@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 /**
@@ -90,7 +90,46 @@ vi.mock('swr', () => ({
 }));
 
 vi.mock('@/hooks/use-can', () => ({ useCan: () => () => true }));
+
+/**
+ * The governed PDF download. Each step is mocked separately so the ORDER between
+ * them can be asserted — that is the §11 property, not the PDF's contents.
+ */
+const logReportExport = vi.fn();
+const savePdf = vi.fn();
+const buildAlarmsReport = vi.fn();
+/** Stands in for the re-auth prompt: hands a password to the callback, as the
+ *  real `executeWithResult` does once the operator has signed. */
+let reauthGrants = true;
+vi.mock('@/hooks/use-reauth', () => ({
+  useReauth: () => ({
+    isOpen: false, password: '', error: '', isVerifying: false,
+    setPassword: vi.fn(), confirm: vi.fn(), cancel: vi.fn(),
+    executeWithResult: async (_action: string, cb: (p?: string) => Promise<void>) => {
+      if (!reauthGrants) return;      // operator cancelled the password prompt
+      await cb('Secret@123');
+    },
+  }),
+}));
+vi.mock('@/lib/report-export-log', () => ({
+  logReportExport: (...a: unknown[]) => logReportExport(...a),
+}));
+vi.mock('@/lib/pdf-report', () => ({
+  createReport: async () => ({ save: savePdf, addKeyValue: vi.fn(), addTable: vi.fn(), addSectionTitle: vi.fn() }),
+}));
+vi.mock('../alarms-report', async (actual) => ({
+  ...(await actual<typeof import('../alarms-report')>()),
+  buildAlarmsReport: (...a: unknown[]) => buildAlarmsReport(...a),
+}));
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: { success: vi.fn(), error: vi.fn() } }) }));
+
+const apiGet = vi.fn();
+vi.mock('@/lib/api-client', () => ({
+  apiClient: {
+    get: (...a: unknown[]) => apiGet(...a),
+    post: vi.fn(), postWithReauth: vi.fn(),
+  },
+}));
 
 const { default: AlarmsPage } = await import('../index');
 
@@ -284,5 +323,141 @@ describe('states that are not "no alarms"', () => {
     listState.rows = [];
     mount();
     expect(screen.getByText('No alarms have been raised.')).toBeInTheDocument();
+  });
+});
+
+describe('the Alarms page — Area and Location are two columns', () => {
+  /**
+   * Operator, 2026-09-01. The same pair, in the same order, as the dashboard
+   * readings table: Area is the authoritative Block > Area grouping, Location is
+   * the instrument's own free-text `Location` attribute.
+   */
+  it('renders an Area heading immediately before Location', () => {
+    // Asserted by ORDER, not by presence: two headings that both exist could
+    // still be at opposite ends of the table, and the pairing is the point.
+    mount();
+    const heads = [...screen.getByRole('table').querySelectorAll('thead th')]
+      .map((th) => th.textContent);
+    const area = heads.findIndex((h) => h === 'Area');
+    expect(area).toBeGreaterThan(-1);
+    expect(heads[area + 1]).toBe('Location');
+  });
+
+  it('prints the FUNCTIONAL location in Area', () => {
+    mount();
+    const cells = screen.getByText('CWH/RDU/001-00').closest('tr')!.querySelectorAll('td');
+    const heads = [...screen.getByRole('table').querySelectorAll('thead th')]
+      .map((th) => th.textContent);
+    expect(cells[heads.indexOf('Area')].textContent).toBe('Excipient Dispensing Area');
+  });
+
+  it('does NOT repeat the Area in Location when no attribute is typed', () => {
+    /**
+     * The fixture carries a `locationName` and no `locationAttribute`. Without
+     * `areaShown` the Location cell falls back to the functional location and the
+     * two adjacent columns print the same string — the duplicate-column defect
+     * the dashboard's Room column was removed for, arriving on the next screen.
+     */
+    mount();
+    const heads = [...screen.getByRole('table').querySelectorAll('thead th')]
+      .map((th) => th.textContent);
+    const cells = screen.getByText('CWH/RDU/001-00').closest('tr')!.querySelectorAll('td');
+    const area = cells[heads.indexOf('Area')].textContent;
+    const location = cells[heads.indexOf('Location')].textContent;
+
+    expect(area).toBe('Excipient Dispensing Area');
+    expect(location).not.toBe(area);
+    expect(location).toBe('Not set');
+  });
+});
+
+describe('the Alarms page — the governed PDF download', () => {
+  const openDialog = async () => {
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: /export|download/i }));
+    return screen.findByRole('button', { name: /^download$/i });
+  };
+
+  beforeEach(() => {
+    logReportExport.mockReset().mockResolvedValue(undefined);
+    savePdf.mockReset();
+    buildAlarmsReport.mockReset();
+    apiGet.mockReset().mockResolvedValue({ data: [], total: 0 });
+    reauthGrants = true;
+  });
+
+  const confirm = async () => {
+    const btn = await openDialog();
+    // The dialog's reason is mandatory — the same §11 rule the acknowledge
+    // dialog follows.
+    fireEvent.change(screen.getByRole('textbox', { name: /remark|reason/i }), {
+      target: { value: 'Monthly QA review of excursions.' },
+    });
+    fireEvent.click(btn);
+  };
+
+  it('offers the download from an icon on the page', async () => {
+    mount();
+    expect(screen.getByRole('button', { name: /export|download/i })).toBeInTheDocument();
+  });
+
+  it('writes the audit record BEFORE saving the file — fail-closed', async () => {
+    /**
+     * THE §11 assertion. Every report download must leave a record of who
+     * generated what; a file that reached the operator's disk with no audit row
+     * is an ungoverned export, and the order is the only thing that guarantees
+     * it cannot happen.
+     */
+    await confirm();
+    await waitFor(() => expect(savePdf).toHaveBeenCalled());
+    expect(logReportExport).toHaveBeenCalled();
+    expect(logReportExport.mock.invocationCallOrder[0])
+      .toBeLessThan(savePdf.mock.invocationCallOrder[0]);
+  });
+
+  it('saves NOTHING when the audit write fails', async () => {
+    // The negative control for the order test above: an order assertion passes
+    // trivially if the log simply never throws.
+    logReportExport.mockRejectedValue(new Error('audit unavailable'));
+    await confirm();
+    await waitFor(() => expect(logReportExport).toHaveBeenCalled());
+    expect(savePdf).not.toHaveBeenCalled();
+  });
+
+  it('saves NOTHING when the operator cancels the password prompt', async () => {
+    reauthGrants = false;
+    await confirm();
+    await waitFor(() => expect(savePdf).not.toHaveBeenCalled());
+    expect(logReportExport).not.toHaveBeenCalled();
+  });
+
+  it('signs the audit record with the re-auth password', async () => {
+    // Without it the write goes out unsigned and the DOWNLOAD_REPORT policy is
+    // not actually enforced.
+    await confirm();
+    await waitFor(() => expect(logReportExport).toHaveBeenCalled());
+    expect(logReportExport.mock.calls[0][0]).toMatchObject({
+      reportType: 'Alarms', format: 'PDF', password: 'Secret@123',
+    });
+  });
+
+  it('logs the number of rows PRINTED, not the number that matched', async () => {
+    // An audit row claiming 3,000 records beside a report printing 500 would have
+    // the trail contradict the document it describes.
+    apiGet.mockResolvedValue({ data: [], total: 3000 });
+    await confirm();
+    await waitFor(() => expect(logReportExport).toHaveBeenCalled());
+    expect(logReportExport.mock.calls[0][0].recordCount).toBe(0);
+  });
+
+  it('fetches the whole PERIOD, never the page on screen', async () => {
+    // The table is paged; reusing its rows would print 25 alarms and title them
+    // as the period.
+    await confirm();
+    await waitFor(() => expect(apiGet).toHaveBeenCalled());
+    const url = String(apiGet.mock.calls[0][0]);
+    expect(url).toContain('pageSize=500');
+    expect(url).toContain('from=');
+    expect(url).toContain('to=');
   });
 });

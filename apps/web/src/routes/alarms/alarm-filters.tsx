@@ -24,16 +24,42 @@ export interface AlarmFilterState {
   to: string;
   type: string;
   status: AlarmQuadrant | null;
-  functionalLocationId: string;
+  /**
+   * BLOCK, AREA and INSTRUMENT, three controls (operator, 2026-09-01).
+   *
+   * Block and Area are ONE axis at two granularities and collapse to a single
+   * `functionalLocationId` on the wire — see {@link locationFilterId}. They are
+   * separate CONTROLS because that is how the plant is read; they are not
+   * separate query parameters, and making them so would need the server to
+   * intersect two nodes of one tree.
+   */
+  blockId: string;
+  areaId: string;
+  instrumentId: string;
 }
 
 export const EMPTY_FILTERS: AlarmFilterState = {
-  search: '', from: '', to: '', type: '', status: null, functionalLocationId: '',
+  search: '', from: '', to: '', type: '', status: null,
+  blockId: '', areaId: '', instrumentId: '',
 };
+
+/**
+ * The one functional location to send: the AREA when one is chosen, else the
+ * Block.
+ *
+ * The Area is always inside the selected Block (the picker only offers its own),
+ * so the narrower of the two is the whole filter — sending both would be sending
+ * a node and its ancestor, which is just the node.
+ */
+export function locationFilterId(f: Pick<AlarmFilterState, 'blockId' | 'areaId'>): string {
+  return f.areaId || f.blockId;
+}
 
 /** Which filters the "Filters" button reveals — used for its active-count badge. */
 export function advancedCount(f: AlarmFilterState): number {
-  return f.functionalLocationId ? 1 : 0;
+  // Block and Area count ONCE between them: they are one axis, and a badge
+  // reading "2" for one narrowing would overstate what is applied.
+  return (locationFilterId(f) ? 1 : 0) + (f.instrumentId ? 1 : 0);
 }
 
 export function hasAnyFilter(f: AlarmFilterState): boolean {
@@ -55,16 +81,40 @@ export function AlarmFilters({
   const typeOptions = alarmTypeOptions(useAlarmTypeNames());
   const { data: flData } = useSWR<{ data: FlNode[] }>('/api/functional-locations');
 
-  // Blocks AND their Areas, flattened with a path. Choosing a Block covers its
-  // Areas — the server expands it through resolveLocationIds().
-  const locations = useMemo(() => {
-    const out: { id: string; label: string }[] = [];
-    for (const b of flData?.data ?? []) {
-      out.push({ id: b.id, label: b.name });
-      for (const a of b.children ?? []) out.push({ id: a.id, label: `${b.name} › ${a.name}` });
-    }
-    return out;
-  }, [flData]);
+  const blocks = flData?.data ?? [];
+
+  /**
+   * The Areas offered: those of the selected Block, or ALL of them (prefixed with
+   * their Block) while no Block is chosen — filtering straight to an Area without
+   * naming its Block first is a normal thing to want.
+   */
+  const areas = useMemo(() => {
+    const src = value.blockId ? blocks.filter((b) => b.id === value.blockId) : blocks;
+    return src.flatMap((b) => (b.children ?? []).map((a) => ({
+      id: a.id,
+      label: value.blockId ? a.name : `${b.name} › ${a.name}`,
+    })));
+  }, [blocks, value.blockId]);
+
+  /**
+   * The instruments offered, NARROWED BY THE SERVER.
+   *
+   * `functionalLocationId` goes to the API and `resolveLocationIds()` expands a
+   * Block to its Areas there. Doing that here would re-derive a server-side
+   * grouping rule in the browser — the thing this codebase has a standing rule
+   * against — and it would be wrong in the same way a bare equality is: a Block's
+   * instruments are its own PLUS its Areas'.
+   *
+   * The list is visibility-scoped by the same endpoint, so an operator cannot
+   * filter by an instrument they are not allowed to see.
+   */
+  const instrumentQs = new URLSearchParams({ limit: '500' });
+  const scopeId = locationFilterId(value);
+  if (scopeId) instrumentQs.set('functionalLocationId', scopeId);
+  const { data: instData } = useSWR<{ data: { id: string; code: string; name: string }[] }>(
+    `/api/instruments?${instrumentQs.toString()}`,
+  );
+  const instruments = instData?.data ?? [];
 
   const set = <K extends keyof AlarmFilterState>(k: K, v: AlarmFilterState[K]) =>
     onChange({ ...value, [k]: v });
@@ -172,20 +222,114 @@ export function AlarmFilters({
 
       {advancedOpen && (
         <div className="mt-4 flex flex-wrap items-end gap-4 border-t border-slate-100 pt-4">
+          {/*
+            BLOCK -> AREA -> INSTRUMENT (operator, 2026-09-01), and each one CLEARS
+            the narrower choices below it.
+
+            That is not tidiness. An Area belongs to one Block and an instrument to
+            one Area, so a stale narrower selection would AND with the new wider
+            one and return an empty table — a filter that looks applied and matches
+            nothing, which reads as "there are no alarms here".
+          */}
           <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-semibold text-slate-600">Location</span>
+            <span className="text-xs font-semibold text-slate-600">Block</span>
             <select
-              value={value.functionalLocationId}
-              onChange={(e) => set('functionalLocationId', e.target.value)}
-              className="ctl min-w-[16rem]"
+              value={value.blockId}
+              onChange={(e) => onChange({
+                ...value, blockId: e.target.value, areaId: '', instrumentId: '',
+              })}
+              className="ctl min-w-[12rem]"
             >
-              {/* Choosing a Block covers every Area inside it. */}
-              <option value="">Anywhere</option>
-              {locations.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
+              {/* A Block covers every Area inside it — expanded on the server. */}
+              <option value="">All blocks</option>
+              {blocks.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold text-slate-600">Area</span>
+            <select
+              value={value.areaId}
+              onChange={(e) => onChange({ ...value, areaId: e.target.value, instrumentId: '' })}
+              className="ctl min-w-[12rem]"
+            >
+              <option value="">{value.blockId ? 'All areas in this block' : 'All areas'}</option>
+              {areas.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold text-slate-600">Instrument</span>
+            <select
+              value={value.instrumentId}
+              onChange={(e) => set('instrumentId', e.target.value)}
+              className="ctl min-w-[14rem]"
+            >
+              <option value="">All instruments</option>
+              {instruments.map((i) => (
+                <option key={i.id} value={i.id}>{i.code}{i.name ? ` — ${i.name}` : ''}</option>
+              ))}
             </select>
           </label>
         </div>
       )}
     </div>
   );
+}
+
+/**
+ * The Block / Area / Instrument names for the PDF report's parameter block.
+ *
+ * The filters carry IDs; the paper must carry NAMES. This resolves them from the
+ * SAME two SWR keys the pickers above use, so SWR dedupes and no second request
+ * is made — and, more importantly, the report cannot name a Block differently
+ * from the control the operator chose it in.
+ */
+export function useFilterScopeLabels(value: AlarmFilterState) {
+  const { data: flData } = useSWR<{ data: FlNode[] }>('/api/functional-locations');
+  const scopeId = locationFilterId(value);
+  const qs = new URLSearchParams({ limit: '500' });
+  if (scopeId) qs.set('functionalLocationId', scopeId);
+  const { data: instData } = useSWR<{
+    data: { id: string; code: string; name: string; functionalLocationId?: string | null }[];
+  }>(`/api/instruments?${qs.toString()}`);
+
+  const blocks = flData?.data ?? [];
+  const inst = (instData?.data ?? []).find((i) => i.id === value.instrumentId);
+
+  /**
+   * Which Area the report is about: the one PICKED, or — when only an instrument
+   * was chosen — the one that instrument actually sits in.
+   *
+   * Operator, 2026-09-01: downloading a single instrument left Block and Area
+   * blank, because nothing had been selected in those two controls. But the
+   * instrument HAS a functional location, and the report's own rule is that a
+   * field belongs in the header when it is constant across the rows — which for a
+   * single instrument all three are. Blank was the one answer that was simply
+   * wrong.
+   *
+   * Resolved by ID through the tree, never by matching the Area's NAME: two
+   * Blocks may hold Areas with the same name, and a name match would then print
+   * the wrong Block with no way to notice.
+   */
+  const areaId = value.areaId || (value.instrumentId ? (inst?.functionalLocationId ?? '') : '');
+
+  // Looked up across ALL blocks: an Area can be chosen with no Block, and an
+  // instrument's own Area is not confined to whichever Block is selected either.
+  let areaName = '';
+  let areaBlockName = '';
+  for (const b of blocks) {
+    if (b.id === areaId) { areaBlockName = b.name; break; }   // pinned to the Block itself
+    const hit = (b.children ?? []).find((a) => a.id === areaId);
+    if (hit) { areaName = hit.name; areaBlockName = b.name; break; }
+  }
+  const block = blocks.find((b) => b.id === value.blockId);
+
+  return {
+    // An Area names its Block even when no Block was picked: "Area: QC 3" alone
+    // does not say where in the building that is.
+    blockName: block?.name ?? areaBlockName,
+    areaName,
+    instrumentLabel: inst ? inst.code : '',
+  };
 }

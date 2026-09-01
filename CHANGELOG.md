@@ -1,5 +1,449 @@
 # Changelog
 
+## [Unreleased] - Report: centred footer, unbroken rows, and two real defects (2026-09-01)
+
+Operator, four items. Two were layout; two were defects.
+
+**Footer** — the company and app names are gone from it and the page number is
+centred, bold and black. They are already in the header, and repeating branding on
+every page of a §11 record adds nothing; what a printed page needs at the bottom
+is its place in the set, which is why the one thing left is emphasised rather than
+greyed. Shared chrome, so every report changes.
+
+**A table row is never split across pages** (`rowPageBreak: 'avoid'`). autotable's
+default breaks a tall row mid-cell, so an alarm's date could print at the foot of
+one page and its value at the head of the next. That is not cosmetic on a §11
+record: the two halves read as two different observations and nothing tells the
+reader they are one.
+
+**DEFECT — Block and Area printed blank on a single-instrument download.** Nothing
+had been chosen in those two controls, so nothing was resolved. But the instrument
+HAS a functional location, and the report's own rule is that a field belongs in
+the header when it is constant across the rows — which for one instrument all
+three are. Blank was the one answer that was simply wrong.
+- Resolved by ID through the location tree, **never by matching the Area's NAME**:
+  two Blocks may hold Areas with the same name, and a name match would print the
+  wrong Block with nothing to notice it by.
+- **This needed a server fix first**: `functionalLocationId` was being stripped by
+  Fastify's response filter. The query already selected the whole model, so the
+  value existed and never arrived — the SIXTH time that failure mode has bitten
+  this repo. Declared in `instrumentProps` and pinned over the wire;
+  mutation-checked, and the failure reads `expected undefined`.
+
+**DEFECT — the parameter block's centre line was off-centre.** Only the two LABEL
+columns were pinned; autotable then divided the remaining width between the two
+value columns by their CONTENT, so a short Block name against a long date pushed
+the divider well to one side and the block read as two unequal panes.
+`scopeColumnStyles()` pins all four so each half is exactly half the content
+width, derived from the page rather than hardcoded — the chrome is shared and the
+other reports are landscape. The bug was an ABSENT style, so the test asserts that
+none is absent.
+
+**Tests** — 7 added (1261 → 1266 web, 256 API). Mutation-checked: unpinning the
+value columns fails three, undeclaring `functionalLocationId` fails the wire test.
+
+## [Unreleased] - Report chrome: bigger type, centred identity, tabular parameter block (2026-09-01)
+
+Operator: *"increase font sizes and make company name and project name to
+Center"*, then *"header part like Block, area, start date, etc these all should
+show in one table, title and value should come in one Line, like Block : CWH
+Block"*, then *"instrument ID name should come fully"*.
+
+**The first two touch `lib/pdf-report.ts`, which EVERY report in this product
+shares** — audit trail, instrument trend, alarms. That was deliberate rather than
+incidental: a type scale is exactly the thing that should not be per-report.
+
+**Type scale** — declared once as named constants (`COMPANY_PT` … `SMALLPRINT_PT`)
+rather than inline, so the relationships stay visible: the title out-ranks the
+company name above it, the table body stays under the section titles. `TABLE_PT`
+is the one with a ceiling — the alarm report prints up to ten columns on A4
+portrait, and autotable answers an over-wide table by WRAPPING cells rather than
+shrinking text, so pushing past 8pt costs more pages than it gains.
+
+**Centred company + app name**, with the logo staying left. `centredX()` is
+extracted and tested because it holds the only decision: a long company name
+centred on A4 portrait can reach back past a wide logo, and **jsPDF draws the two
+on top of each other without complaint** — an overlap that only appears for long
+names on narrow pages, which is the combination nobody has on their own screen.
+The centre is nudged right by exactly enough to clear it. Mutation-checked with a
+property test over every width that could overlap.
+
+**The parameter block is now a headless TABLE**, `Block : CWH Block` on one line,
+four columns so the values still align down the page. It was `addKeyValue`, which
+stacks a grey caption above its value — two lines per field and no ruling. The
+colon lives on the LABEL cell: a third column of colons would be ruled like data
+and would take width from the values. `addTable` gained an optional `head`; a
+headless table also loses the zebra striping, which reads as "these are records"
+when the block is a form.
+
+**INSTRUMENT ID sizes to its content** (`cellWidth: 'wrap'`). It was pinned to
+26mm and `CWH/RDU/046-00` is wider than that at the raised font size, so it broke
+across two lines. **A number cannot express this requirement** — any fixed width
+is a guess about the longest code on an installation whose codes we do not
+control.
+
+**Tests** — 14 added (1247 → 1261). Mutation-checked four ways: removing the
+collision guard, pinning the ID back to a number, and dropping the colon from the
+label each fail their own assertions.
+
+## [Unreleased] - Alarm report: portrait, scope-varying columns, configurable disabled wording (2026-09-01)
+
+Three operator requests in one pass.
+
+**A4 PORTRAIT, not landscape** — *"present width is high"*.
+
+**The placement columns vary with the SCOPE, and one rule produces all three
+cases**: a column is added exactly when that fact VARIES across the rows.
+- **Instrument-wise** — nothing added. Its ID, Area and Location are identical on
+  every row, so they are stated once in the header; a column repeating one value
+  down the page is wasted width on a report whose width was the complaint.
+- **Area-wise** — Instrument ID, Location.
+- **Block-wise** (and unfiltered) — Instrument ID, Area, Location.
+
+`EXTRA_COLUMNS` is a PREFIX, so the reference's seven columns survive intact at
+every level, and `columnWidths` resolves its indices against the head for THAT
+level — widths keyed by a fixed index would cap DESCRIPTION on one level and DATE
+on another. Mutation-checked: dropping one cell from a row fails with a date
+printed under the Location heading.
+
+**HIGH/LOW SET POINT VALUE renamed to HIGH LIMIT / LOW LIMIT** — shorter, and
+"limit" is this system's own word for the bound everywhere else.
+
+**A switched-off limit is worded, and the word is configurable** (`alarm-limits` →
+`disabledLimitText`, default `NA`, served with the status wordings).
+
+**"For only disabled limits" was the whole difficulty.** A bound that is switched
+off and a bound nobody ever administered BOTH freeze as a null threshold — they
+are indistinguishable from the value alone. So `limitSnapshot` now freezes
+`highEnabled` / `lowEnabled` beside the bounds, and:
+- switched off → the administered word;
+- enabled but never administered → `N/A`, because printing "DISABLED" would assert
+  that somebody turned off a bound nobody ever set;
+- a row raised before the flags existed → `N/A`, which claims nothing, rather than
+  a word that claims something;
+- a real bound always wins — the flag only ever explains an ABSENCE.
+
+Mutation-checked: using the word for every absence fails five tests.
+
+**No seventh narrow-slice route.** `disabledLimitText` rides on
+`/api/config/alarm-limits/status-texts`: same def, and the one surface that needs
+it already fetches that endpoint. The existing `config.test.ts` asserts the WHOLE
+body with `toEqual`, so the new field had to be declared there deliberately —
+which is exactly what that assertion is for.
+
+`LIMIT_DISABLED_TEXT_DEFAULT` in `@digilog/shared` is the only fallback; a blank
+configured value falls back to it rather than blanking the column. **Never default
+it to a literal in a component** — the same rule as `RS485_FAILURE_TEXT_DEFAULT`.
+
+**Counts:** 30 config defs unchanged (a SETTING was added, not a def); no model,
+enum, route, permission or migration.
+
+**Tests** — 20 added (1227 → 1247 web; 247 API alarm/config).
+
+## [Unreleased] - Alarm report: both set points are frozen at raise time (2026-09-01)
+
+Operator, clarifying the report's columns: *"PV value is alarm generated value,
+UOM is Units of Measurement, High Set Point Value and Low Set Point values are
+High Temperature/Humidity Limit, Low Temperature/Humidity Limit"*.
+
+PV VALUE and UOM were already right. The set-point columns were not: they showed
+the BREACHED bound in its own column and `N/A` in the other, because
+**`limitSnapshot` only ever froze the bound that fired**.
+
+**Reading the counterpart live was the wrong fix**, and worth stating: an alarm
+from June printed today would show today's limits. Freezing exists precisely to
+stop that — the same rule that already freezes the reading's precision.
+
+**So the pair is frozen at raise time.** `limitSnapshot` gains `thresholdHigh` /
+`thresholdLow`, and the evaluation worker passes both of the metric's bounds. The
+report's `setPoints` already preferred those fields, so no client change was
+needed.
+- **A switched-off bound is frozen as NULL, not as its number.** It could not have
+  raised this alarm, so printing it would state a limit that was not in force —
+  the same rule that makes `telemetry-overview` WITHHOLD a disabled bound rather
+  than merely not enforce it.
+- **Historical alarms still show `N/A` in the counterpart column.** The bound as it
+  stood then is genuinely unknown, and N/A says so rather than borrowing today's
+  value. New alarms carry both from now on.
+
+**Tests** — 3 on `limitSnapshot` and 3 on the report's `setPoints` (both frozen,
+one switched off, the pre-change fallback). 1225 → 1227 web, 185 API.
+
+**A correction to the previous entry's test claim.** That entry reported 137
+passing alarm tests; the run was stale — an unescaped apostrophe in a test title
+meant the file did not parse, and the suite reported "no tests" once re-run. Fixed
+and re-verified at 155. Reading the file rather than trusting the green is what
+caught it.
+
+## [Unreleased] - Alarms page: governed PDF report (2026-09-01)
+
+Operator: a download icon on the Alarms page, scoped by the Block / Area /
+Instrument filters and a period, behind password authentication, printing Printed
+By, Printed Date & Time and hand-writable Remarks. Then: *"there is one alarm
+report pdf in folder, i need alarms reports same like that"*.
+
+**Built to the supplied `Alarm Report.pdf`, transcribed from the file rather than
+guessed at.** Its structure: a two-column parameter block (Block / Area / Location
+/ Inst ID against Start Date / Start Time / End Date / End Time), a seven-column
+table — DATE, TIME, DESCRIPTION, UOM, PV VALUE, HIGH SET POINT VALUE, LOW SET
+POINT VALUE — a legend ("PV Value : Present Value", "UOM : Units of
+Measurement"), then Printed By / Printed Date & Time / Remarks.
+
+**`pdf-report.ts` needed NO change**, which is the useful finding: `createReport`
+already prints `Printed By: <username>`, the printed timestamp and an empty
+bordered Remarks box for handwriting, and already takes the legend as config. The
+reference's end block and this product's are the same shape. That file is shared
+by every report here, so leaving it alone was the point.
+
+**Two things deliberately NOT copied from the reference.** Its dates read
+`28-05-2026` and its times `16:00` because that is what its own system emits —
+this app's dates are ADMINISTERED, and hardcoding a format would make one report
+disagree with every screen showing the same alarm, so formatters are injected. Its
+"Unit Name : Gagillapur" header is site branding, which `createReport` already
+renders from this installation's own configuration.
+
+**Added**
+- `routes/alarms/alarms-report.ts` — `scopePairs`, `reportRows`, `setPoints`,
+  `uomFor`, `truncationNote`, `reportSeedPeriod`. Pure; 16 tests.
+- `GET /api/instruments?functionalLocationId=` was added in the previous change
+  and is what narrows the instrument picker this report is scoped by.
+
+**The §11 chain, in this order and for this reason**: the dialog collects a period
+and MANDATORY remarks, `reauth.executeWithResult('DOWNLOAD_REPORT')` collects the
+password, `logReportExport` writes the audit record and THROWS if it cannot, and
+only then is the file built and saved. **Fail-closed** — a file on the operator's
+disk with no audit row is an ungoverned export, and the order is the only thing
+that prevents it. Mutation-checked: saving before logging fails two tests.
+
+**Three correctness decisions worth keeping**
+- **The report fetches the whole PERIOD, never the page on screen.** The table is
+  paged, so reusing its rows would print 25 alarms and title them as the period.
+  Pages are walked at 500 (the API's ceiling) up to 5,000, and any shortfall is
+  DISCLOSED IN THE PDF — not a toast, which does not survive printing. This is the
+  defect class already fixed twice here.
+- **`recordCount` is what the paper shows, never the match count.** An audit row
+  claiming 3,000 records beside a report printing 500 would have the trail
+  contradict the document it describes.
+- **The DIALOG's period wins, and the page's Raised-between filter is dropped from
+  the report query.** The dialog seeds from it, the operator may widen it, and the
+  report prints the range it covers — two live ranges ANDed would silently give
+  the narrower one. It is also converted with `localInputToIso`: `datetime-local`
+  is zoneless, and sent raw the API would resolve it in its own zone.
+- Set points come from the FROZEN `ruleSnapshot`, and a source that fired against
+  no bound (inactivity, a failed probe) prints `N/A` in both columns rather than
+  inventing a threshold.
+
+**On "remarks with empty 2 lines":** what renders is the shared end block's
+bordered Remarks box — roughly two to three handwritten lines. Ruled lines instead
+would mean editing `pdf-report.ts`, which every report in the product shares; say
+the word and it becomes a separate change.
+
+**Tests** — 29 added (1196 → 1225): 16 on the layout against the reference's own
+rows (`27.4 | 27 | N/A`), 7 on the download chain, 6 already noted for the filters.
+
+## [Unreleased] - Alarms page: Block / Area / Instrument filters (2026-09-01)
+
+Operator: *"give filters Block wise, area wise, instrument wise in alarms page"*.
+The single combined "Location" select became three cascading controls.
+
+**Three CONTROLS, two query parameters.** Block and Area are one axis at two
+granularities and collapse to a single `functionalLocationId` — the narrower of
+the two, since the Area picker only ever offers Areas inside the chosen Block, so
+sending both would be sending a node and its ancestor. The instrument is its own
+parameter. `locationFilterId()` is the one place that decides.
+
+**Added — `GET /api/instruments?functionalLocationId=`**, so the instrument picker
+is narrowed BY THE SERVER.
+- **NOT the `block`/`area` params already on that endpoint**: those match the
+  SUPERSEDED free-text `Instrument.block` / `.area` columns, which this fork no
+  longer reads for grouping. Easy to reach for and wrong.
+- Resolved through `resolveLocationIds()`, never a bare equality — a Block's
+  instruments are its OWN plus every Area beneath it, and on this installation
+  nothing is pinned to a Block directly, so an equality returns an empty list and
+  looks like a working filter over an empty plant. Mutation-checked; the failure
+  reads `expected [] to include …`.
+- Doing that expansion in the browser was the alternative and would have
+  re-derived a server-side grouping rule client-side, which this codebase has a
+  standing rule against.
+- It ANDs with instrument visibility, so a restricted operator asking for a Block
+  they cannot see gets nothing rather than a disclosure.
+
+**Each control clears the narrower ones below it**, and that is not tidiness: an
+Area belongs to one Block and an instrument to one Area, so a stale narrower
+selection would AND with the new wider one and return an empty table — a filter
+that looks applied and matches nothing reads as "there are no alarms here".
+
+**Block and Area count ONCE between them** in the Filters badge. They are one
+narrowing; a badge reading 2 would overstate what is applied.
+
+The Area picker offers all Areas (prefixed with their Block) while no Block is
+chosen — filtering straight to an Area without naming its Block first is normal.
+
+**Tests** — 6 web (1196 → 1202) on the collapse rule and the badge arithmetic, and
+6 e2e on the server filter: the Block → Areas expansion, an Area directly, an
+empty location, the absent-parameter case (opt-in, not an empty filter), a
+malformed id rejected with 400 rather than silently ignored, and a restricted
+caller unable to widen past their scope.
+
+## [Unreleased] - Alarms page: an Area column (2026-09-01)
+
+Operator: *"in alarms page add area column"*. The same pair, in the same order, as
+the dashboard readings table — **Area** is the authoritative Block > Area
+grouping, **Location** is the instrument's own free-text `Location` attribute.
+
+**No count moved** and no API change: alarm rows already carried `locationName`.
+Columns 12 -> 13, and `COLUMNS` in `index.tsx` moved with them — an existing test
+derives the colSpan from the rendered header count and caught the miss
+immediately, which is what that test is for.
+
+**Adding Area forced a rule change, not just a column.** `locationText()` fell
+back to the functional location when no `Location` attribute was typed. With an
+Area column immediately to its left that fallback prints the Area TWICE on every
+such instrument — the exact duplicate-column defect the dashboard's Room column
+was removed for two changes ago, arriving on the very next screen.
+
+- `AlarmLocationCell` now takes **`areaShown`**, and `locationText(a, { areaShown })`
+  returns `Not set` instead of falling back.
+- **The flag exists because the two surfaces genuinely differ.** The dashboard's
+  selection panel has ONE placement column, so there the Area is the only
+  remaining fact and beats "Not set" — it keeps the fallback. A single
+  unconditional rule would be wrong on one of the two.
+- The empty states are the dashboard's own words for the same two states:
+  "Unassigned" for no functional location, "Not set" for an untyped attribute.
+  Two different absences, worded apart.
+
+**Added** `areaText()` and `AlarmAreaCell` beside the other shared cells, so the
+third surface can adopt the column later without a fourth definition.
+
+Neither column sorts — `ALARM_SORT_KEYS` has no location key, and a header that
+reordered one page of a paged result would claim a sort of the record it is not
+doing. Both are searched on the server already.
+
+**Tests** — 8 added (1188 -> 1196). The page-level ones assert Area's position by
+ORDER (two headings that both exist could sit at opposite ends of the table) and
+assert the two cells hold DIFFERENT text. Mutation-checked: dropping `areaShown`
+fails two tests, one of them with "Found multiple elements with the text:
+Excipient Dispensing Area" — the duplication stated by the test runner itself.
+
+## [Unreleased] - Fix: auto-height grew but never shrank (2026-09-01)
+
+Operator: *"when widget page count first 50 and then i changed to 25 then
+automatically widget height was not adjusting, there was more empty space
+remaining in down"*. Exactly right, and the measurement was **one-way**.
+
+**The cause.** The card reported `chrome + scroll.scrollHeight`, and
+`scrollHeight` is `max(content, clientHeight)` — a container TALLER than its
+content reports its OWN height. So growing worked, because overflow pushes
+`scrollHeight` above `clientHeight`; shrinking could never work at all, because
+the value was pinned to the very height being reduced. The panel stayed at its
+50-row size with an empty band underneath.
+
+**The fix.** Measure the content wrapper's own box. It is a plain block in normal
+flow, so its height IS the content's natural height whatever the container does.
+The scroll region's PADDING is added explicitly and read off the element, because
+it is operator-configurable and `clientHeight` already includes it — omitting it
+would make every panel two paddings short and clip its last row.
+
+**Why the tests missed it, which is the more useful lesson.** The component test
+stubbed `offsetHeight`, `clientHeight` and `scrollHeight` as three INDEPENDENT
+values — 700 then 1400 against a `clientHeight` of 440 — and so described a DOM
+that cannot exist. The suite was green on a measurement that could only ever move
+in one direction. `stubLayout()` now models the real constraint (`scrollHeight`
+is a getter returning `max(content + padding, clientHeight)`), and the panel's
+height is pinned by the grid cell in the stub exactly as it is on screen.
+**A stub that cannot express the invariant cannot catch its violation.**
+
+**Tests** — 3 added (1185 → 1188): the 50 → 25 shrink, the general case of a panel
+far taller than its content, and one pinning that the configurable padding is
+included. Written to FAIL first against the old code (`expected 1500 to be less
+than 1500` — the reported symptom), then mutation-checked: restoring
+`scroll.scrollHeight` fails all three.
+
+## [Unreleased] - Title and controls on one line, via a PanelCard toolbar slot (2026-09-01)
+
+Operator: *"give titles and filters in same line and search option all should come
+in one line dont give in seperate lines, for all widgets"*.
+
+**Why they were on two lines, and why it was structural.** The title belongs to
+`PanelCard` — the operator may rename it, so a panel must not hard-code its own —
+while the search and filters belong to the panel's CONTENT. Two components, so
+necessarily two rows. No amount of flex on either one could have joined them.
+
+**Added** — a header toolbar SLOT on `PanelCard`, exported as
+`usePanelToolbarSlot()`. The content portals its controls up into the title row.
+- **A portal, not lifted state.** Hoisting the filter state into
+  `dashboard/index.tsx` would put three panels' filter state in one component to
+  solve a LAYOUT problem.
+- **The slot is state, not a ref**: a ref is still null on the first render and
+  the portal would never mount.
+- **`null` outside a PanelCard, and every consumer renders inline then.** These
+  components are rendered on their own in their own tests; one that dropped its
+  search box when unwrapped would be broken exactly where the tests look.
+
+**Changed**
+- The dashboard readings table and the selection alarms panel both moved their
+  toolbars into the header. The readings row lost `justify-between` and
+  `flex-wrap` on the way up — in the header it is one group the slot's `ml-auto`
+  pushes right, and a row allowed to wrap there would put the card back on two
+  lines, which is the thing being fixed. Its search narrows `max-w-sm` → `w-44`.
+- The header is now `items-center` rather than `items-baseline`: it holds form
+  controls as well as text, and a select aligned on the title's baseline sits low.
+  The Edit button had already opted out with `self-center`.
+
+**The trend page's cards were already correct** — checked, not assumed: the alarms
+widget's header is `flex-row flex-nowrap`, and the chart and time-series cards
+carry their title and settings pencil on one row with no filters.
+
+**Tests** — 3 added (1182 → 1185), asserting the join by **DOM containment**: the
+toolbar is inside the element that holds the heading, and NOT inside the body. A
+query that merely found both on the page would pass with them stacked, which is
+the state being fixed. A third pins the inline fallback. Mutation-checked:
+removing the provider fails two of them.
+
+## [Unreleased] - The alarm widgets share one filter toolbar (2026-09-01)
+
+Operator: *"whatever filters are in Alarms in this period widget those filters
+should also come in active alarms in this selection"*. Search, alarm type and
+status now appear on the dashboard's selection panel, through the SAME component
+the trend widget uses.
+
+**No count moved.** One new web component; no model, enum, endpoint, permission,
+route or migration.
+
+**Added**
+- `apps/web/src/routes/alarms/alarm-widget-filters.tsx` — the compact
+  search/type/status toolbar, plus `applyWidgetFilters()` and `ACTIVE_QUADRANTS`.
+- The trend widget was MOVED onto it rather than the toolbar being copied. This
+  codebase has already watched three hand-written alarm tables drift apart, and
+  the trend widget's copy was the one that drifted; a second filter bar would do
+  the same, one surface gaining the administered type names while the other kept
+  a hardcoded list.
+
+**Not `alarm-filters.tsx`.** That is the Alarms PAGE's bar — a date range, a
+functional-location tree, an advanced disclosure — a page-sized control set that
+would swamp a dashboard panel. This is the three controls that fit in a header.
+
+**The selection panel offers TWO statuses, not four, and that is not a
+simplification.** Its query is pinned to `state=ACTIVE`, and `quadrantWhere` emits
+`state: 'CLEARED'` for the other two — ANDed together they match nothing, always.
+Offering them would be two options that can only empty the table, and they would
+read as a filter that found nothing rather than one that could not. Same rule as
+the Card height control hidden on an auto-height panel: **a control that cannot
+change the result is a decoy.** The trend widget keeps all four; it shows a
+period, in which alarms clear.
+
+Every control is a real query parameter. On a paged panel a client-side filter
+would narrow ONE PAGE while reading as a filter of the selection — the defect the
+Alarms page was rebuilt to remove. Untouched controls are OMITTED rather than sent
+empty, and any filter change returns to page 1.
+
+**Tests** — 9 added (1173 → 1182). Mutation-checked: offering all four statuses
+fails the options assertion; dropping `applyWidgetFilters` fails the send. Four
+more pin that the trend widget's refactor changed nothing there — it still renders
+the three controls, still offers all four statuses, still sends them, and still
+carries the export icon and settings pencil in the toolbar's `trailing` slot,
+which a refactor could have dropped with no type error.
+
 ## [Unreleased] - The "All alarms →" link removed from the selection panel (2026-09-01)
 
 Operator: *"remove all alarms in active alarms in this selection widget"* —

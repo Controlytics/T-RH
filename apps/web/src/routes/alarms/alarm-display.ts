@@ -218,6 +218,15 @@ export interface AlarmStatusTextsResponse {
   statusActiveAck: string;
   statusClearedUnack: string;
   statusClearedAck: string;
+  /**
+   * The wording for a SWITCHED-OFF limit in the Alarm Report (default `NA`).
+   *
+   * It rides with the status wordings rather than opening a seventh narrow-slice
+   * config route: it comes from the same `alarm-limits` def, and the one surface
+   * that needs it already fetches this endpoint. Optional so a browser talking to
+   * a server that predates it still renders.
+   */
+  disabledLimitText?: string;
 }
 
 /**
@@ -542,7 +551,10 @@ export function alarmDurationText(a: Pick<AlarmRow, 'raisedAt' | 'clearedAt'>): 
  * response with it; put it back only if rooms are ever named independently of
  * the instruments in them.
  */
-export function locationText(a: Pick<AlarmRow, 'locationName' | 'locationAttribute'>): string {
+export function locationText(
+  a: Pick<AlarmRow, 'locationName' | 'locationAttribute'>,
+  opts: { areaShown?: boolean } = {},
+): string {
   /**
    * THE SPACE, not the grouping (operator, 2026-09-01).
    *
@@ -551,14 +563,27 @@ export function locationText(a: Pick<AlarmRow, 'locationName' | 'locationAttribu
    * column, added the same day, printed the room-level text
    * ("Dissolution & UV Room"). Two columns with one heading and two meanings.
    *
-   * The functional location is still the fallback rather than being dropped: it
-   * is the only placement fact an instrument with no `Location` attribute has,
-   * and an Area is a better answer than "Unassigned".
+   * **`areaShown` decides whether the functional location may be a FALLBACK, and
+   * it is not a style flag.** With no Area column beside it this cell is the only
+   * placement fact on the row, so falling back to the Area beats "Not set". With
+   * an Area column beside it — the Alarms page since 2026-09-01 — the same
+   * fallback would print the Area TWICE on every instrument that carries no
+   * `Location` attribute, which is precisely the duplicate-column defect the
+   * dashboard's Room column was removed for. One flag, because the two surfaces
+   * genuinely differ; a single unconditional rule is wrong on one of them.
    */
   const typed = a.locationAttribute?.trim();
   if (typed) return typed;
-  // Not an empty cell: an instrument with no functional location is a real and
-  // normal state, and a blank reads as a rendering fault.
+  // "Not set" for an untyped attribute, "Unassigned" for no functional location —
+  // two DIFFERENT absences, worded apart, and the same two words the dashboard
+  // readings table uses for the same two states. Never a blank: an empty cell
+  // reads as a rendering fault rather than as an absence.
+  if (opts.areaShown) return 'Not set';
+  return a.locationName?.trim() || 'Unassigned';
+}
+
+/** The FUNCTIONAL location — the authoritative Block > Area grouping. */
+export function areaText(a: Pick<AlarmRow, 'locationName'>): string {
   return a.locationName?.trim() || 'Unassigned';
 }
 

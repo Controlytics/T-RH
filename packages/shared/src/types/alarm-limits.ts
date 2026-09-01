@@ -150,3 +150,17 @@ export function resolveLimit(
   }
   return null;
 }
+
+/**
+ * What a set-point column prints when that bound is SWITCHED OFF for the
+ * instrument (operator, 2026-09-01).
+ *
+ * Distinct from the report's plain `N/A`, which means "this alarm fired against
+ * no bound at all" — an inactivity alarm, a failed probe. **A disabled bound is a
+ * different fact**: somebody administered a limit and then turned it off, and the
+ * operator asked to be able to word that case themselves. Configurable on the
+ * `alarm-limits` def and served with the status wordings; **never default it to a
+ * literal in a component** — this constant is the only fallback, the same rule as
+ * `RS485_FAILURE_TEXT_DEFAULT`.
+ */
+export const LIMIT_DISABLED_TEXT_DEFAULT = 'NA';

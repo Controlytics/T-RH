@@ -1,9 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
+  EMPTY_FILTERS, advancedCount, hasAnyFilter, locationFilterId,
+} from '../alarm-filters';
+import {
   needsAcknowledgement, tabFor, conditionText, triggeredText, clearedText, screenLimitText,
   mapInactivityTextsResponse,
   instrumentLabel, ackReasonError, MIN_ACK_REASON, MAX_ACK_REASON,
-  quadrantFor, ALARM_QUADRANTS,
+  quadrantFor, ALARM_QUADRANTS, areaText,
   alarmDurationText,
   locationText, breachDirection, quadrantTone, QUADRANT_TONE,
   ALARM_TYPE_OPTIONS, alarmTypeOptions, localInputToIso,
@@ -886,5 +889,94 @@ describe('locationText', () => {
   it('says Unassigned only when there is neither', () => {
     // Never an empty cell — a blank reads as a rendering fault.
     expect(locationText({ locationName: null, locationAttribute: null })).toBe('Unassigned');
+  });
+});
+
+/**
+ * AREA and LOCATION are two columns for two facts (operator, 2026-09-01), and the
+ * rule that keeps them from becoming one is `areaShown`.
+ */
+describe('areaText', () => {
+  it('is the FUNCTIONAL location — the Block > Area grouping', () => {
+    expect(areaText({ locationName: 'QC 3' })).toBe('QC 3');
+  });
+
+  it('says Unassigned rather than leaving the cell blank', () => {
+    // The same word the dashboard readings table uses for the same state.
+    expect(areaText({ locationName: null })).toBe('Unassigned');
+    expect(areaText({ locationName: '  ' })).toBe('Unassigned');
+  });
+});
+
+describe('locationText with an Area column beside it', () => {
+  it('NEVER repeats the Area — the whole reason the flag exists', () => {
+    /**
+     * Without `areaShown` this falls back to `locationName`, so on the Alarms
+     * page — where Area sits immediately to its left — every instrument with no
+     * typed Location would print the Area TWICE. That is the duplicate-column
+     * defect the dashboard's Room column was removed for, and it would have
+     * arrived on the very next screen.
+     */
+    const row = { locationName: 'QC 3', locationAttribute: null };
+    expect(locationText(row, { areaShown: true })).not.toBe(areaText(row));
+    expect(locationText(row, { areaShown: true })).toBe('Not set');
+  });
+
+  it('still prints the typed attribute when there is one', () => {
+    expect(locationText(
+      { locationName: 'QC 3', locationAttribute: 'Dissolution & UV Room' },
+      { areaShown: true },
+    )).toBe('Dissolution & UV Room');
+  });
+
+  it('KEEPS the fallback where no Area column is shown', () => {
+    // The dashboard's selection panel has one placement column, so the Area is
+    // the only remaining fact and beats "Not set". The two surfaces genuinely
+    // differ; one unconditional rule would be wrong on one of them.
+    const row = { locationName: 'QC 3', locationAttribute: null };
+    expect(locationText(row)).toBe('QC 3');
+    expect(locationText(row, { areaShown: false })).toBe('QC 3');
+  });
+});
+
+describe('the Block / Area / Instrument filters', () => {
+  /**
+   * Three CONTROLS, two query parameters (operator, 2026-09-01). Block and Area
+   * are one axis at two granularities and collapse to a single
+   * `functionalLocationId`; the instrument is its own.
+   */
+  it('sends the AREA when one is chosen — the narrower of the two', () => {
+    // The Area picker only offers Areas inside the chosen Block, so sending both
+    // would be sending a node and its ancestor, which is just the node.
+    expect(locationFilterId({ blockId: 'b1', areaId: 'a1' })).toBe('a1');
+  });
+
+  it('sends the BLOCK when no Area is chosen', () => {
+    // The server expands it to its Areas through resolveLocationIds().
+    expect(locationFilterId({ blockId: 'b1', areaId: '' })).toBe('b1');
+  });
+
+  it('sends an Area chosen without a Block', () => {
+    // Filtering straight to an Area without naming its Block is normal.
+    expect(locationFilterId({ blockId: '', areaId: 'a1' })).toBe('a1');
+  });
+
+  it('sends nothing when neither is chosen', () => {
+    expect(locationFilterId({ blockId: '', areaId: '' })).toBe('');
+  });
+
+  it('counts Block and Area ONCE between them in the active badge', () => {
+    // They are one narrowing. A badge reading "2" would overstate what is applied.
+    const base = { ...EMPTY_FILTERS };
+    expect(advancedCount({ ...base, blockId: 'b1' })).toBe(1);
+    expect(advancedCount({ ...base, blockId: 'b1', areaId: 'a1' })).toBe(1);
+    expect(advancedCount({ ...base, blockId: 'b1', areaId: 'a1', instrumentId: 'i1' })).toBe(2);
+    expect(advancedCount(base)).toBe(0);
+  });
+
+  it('counts as "any filter" so the clear control appears', () => {
+    expect(hasAnyFilter({ ...EMPTY_FILTERS, instrumentId: 'i1' })).toBe(true);
+    expect(hasAnyFilter({ ...EMPTY_FILTERS, blockId: 'b1' })).toBe(true);
+    expect(hasAnyFilter(EMPTY_FILTERS)).toBe(false);
   });
 });

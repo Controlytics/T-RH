@@ -12,6 +12,7 @@ import {
 } from '@digilog/shared';
 import { prisma } from '../../lib/prisma.js';
 import { resolveVisibility, withVisibility } from './visibility.js';
+import { resolveLocationIds, type FlNode } from '../functional-locations/tree.js';
 import { getTelemetryAggregate } from './telemetry-aggregate.js';
 import { HISTORY_WINDOWS, type HistoryWindow } from '../floorplans/room-history.js';
 import { auditLog } from '../../lib/audit.js';
@@ -69,6 +70,13 @@ const instrumentProps = {
   // Fastify strips response properties this schema does not declare. Omit
   // these and the UI sees no profile at all, however correct the query is.
   profileId: { type: 'string' },
+  /**
+   * DECLARED so it survives the response filter — the query already selects the
+   * whole model, so this field existed and was being stripped silently. Added
+   * 2026-09-01 for the Alarm Report, which names the Block and Area of a
+   * single-instrument download that chose neither.
+   */
+  functionalLocationId: { type: 'string', nullable: true },
   profileName: { type: 'string', nullable: true },
   instrumentType: { type: 'string', nullable: true },
   manufacturer: { type: 'string', nullable: true },
@@ -432,6 +440,10 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           location: { type: 'string' },
           isGateway: { type: 'string', enum: ['true', 'false'] },
           profileId: { type: 'string', format: 'uuid', description: 'Scope to one instrument profile' },
+          functionalLocationId: {
+            type: 'string', format: 'uuid',
+            description: 'Scope to a Block (expanding to its Areas) or one Area',
+          },
         },
       },
       response: {
@@ -451,7 +463,10 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     if (!parsed.success) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
     }
-    const { page, limit, search, isActive, block, area, location, isGateway, profileId } = parsed.data;
+    const {
+      page, limit, search, isActive, block, area, location, isGateway, profileId,
+      functionalLocationId,
+    } = parsed.data;
 
     const where: Prisma.InstrumentWhereInput = {
       ...(isActive !== undefined ? { isActive: isActive === 'true' } : {}),
@@ -470,6 +485,22 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           }
         : {}),
     };
+
+    /**
+     * A FUNCTIONAL LOCATION filter — a Block or an Area.
+     *
+     * `resolveLocationIds`, never a bare equality: a Block's instruments are its
+     * OWN plus every Area beneath it, and querying the id directly returns only
+     * what is pinned to the Block itself, which on this installation is nothing at
+     * all. The same call the alarms list makes, for the same reason, and the
+     * expansion the browser must never re-derive.
+     */
+    if (functionalLocationId) {
+      const nodes = await prisma.functionalLocation.findMany({
+        select: { id: true, name: true, type: true, parentId: true },
+      });
+      where.functionalLocationId = { in: resolveLocationIds(functionalLocationId, nodes as FlNode[]) };
+    }
 
     // Visibility is merged into the SAME where the count uses, so `total` cannot
     // claim more instruments than the caller is shown.

@@ -107,6 +107,7 @@ export {
   ALARM_LIMIT_KEYS_DEFAULT,
   ALARM_LIMIT_ENABLE_KEYS_DEFAULT,
   ALARM_STATUS_TEXT_DEFAULT,
+  LIMIT_DISABLED_TEXT_DEFAULT,
   parseEnableFlag,
   resolveEnableFlag,
   parseLimitKeys,

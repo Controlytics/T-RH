@@ -4,6 +4,7 @@ import {
   limitsInverted,
   describeLimit,
   finiteOrNull,
+  limitSnapshot,
   type InstrumentLimits,
 } from '../limit-decide.js';
 
@@ -109,5 +110,51 @@ describe('describeLimit', () => {
       .toBe('temperature above 25');
     expect(describeLimit({ metric: 'HUMIDITY', limitKind: 'LOW', limit: 40 }))
       .toBe('humidity below 40');
+  });
+});
+
+describe('limitSnapshot — both bounds are frozen', () => {
+  /**
+   * Added 2026-09-01 for the Alarm Report, whose HIGH SET POINT VALUE and LOW SET
+   * POINT VALUE columns are the instrument's High/Low Temperature (or Humidity)
+   * Limit.
+   *
+   * Only the BREACHED bound was frozen before, so the report could not name the
+   * counterpart — and reading it live would print TODAY's limit against a June
+   * excursion, which is the thing freezing exists to prevent.
+   */
+  const base = {
+    metric: 'TEMPERATURE',
+    limitKind: 'HIGH',
+    limit: 27,
+    attributeKey: 'High Temperature Limit',
+    snapshotAt: '2026-09-01T10:00:00.000Z',
+  };
+
+  it('freezes the pair, not just the one that fired', () => {
+    const snap = limitSnapshot({ ...base, thresholdHigh: 27, thresholdLow: 18 });
+    expect(snap.thresholdHigh).toBe(27);
+    expect(snap.thresholdLow).toBe(18);
+    // The breached bound is still there and still authoritative for the Limit
+    // column on screen, which did not change.
+    expect(snap.limit).toBe(27);
+    expect(snap.limitKind).toBe('HIGH');
+  });
+
+  it('stores a switched-off bound as NULL, not as its number', () => {
+    // A disabled bound could not have raised this alarm. Printing it would state
+    // a limit that was not in force — the same rule that makes
+    // `telemetry-overview` WITHHOLD such a bound rather than merely not enforce
+    // it. The worker passes null; this asserts nothing fills it back in.
+    const snap = limitSnapshot({ ...base, thresholdHigh: 27, thresholdLow: null });
+    expect(snap.thresholdLow).toBeNull();
+  });
+
+  it('is null on both when the caller freezes neither', () => {
+    // Rows raised before this existed. The report then shows the breached bound
+    // in its own column and N/A in the other, rather than inventing a pair.
+    const snap = limitSnapshot(base);
+    expect(snap.thresholdHigh).toBeNull();
+    expect(snap.thresholdLow).toBeNull();
   });
 });

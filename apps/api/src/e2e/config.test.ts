@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type FastifyInstance } from 'fastify';
 import {
-  ALARM_STATUS_TEXT_DEFAULT, INACTIVITY_TEXT_DEFAULT, RS485_FAILURE_TEXT_DEFAULT,
+  ALARM_STATUS_TEXT_DEFAULT, LIMIT_DISABLED_TEXT_DEFAULT, INACTIVITY_TEXT_DEFAULT, RS485_FAILURE_TEXT_DEFAULT,
   ALARM_TYPE_KEYS, ALARM_TYPE_NAME_DEFAULT,
   TREND_WIDGET_LABEL_KEYS, TREND_WIDGET_LABEL_DEFAULT, TREND_WIDGET_IDS,
 } from '@digilog/shared';
@@ -117,16 +117,22 @@ describe('Config endpoints', () => {
       expect(res.statusCode).toBe(403);
     });
 
-    it('a non-SUPER_ADMIN user gets 200 with the four status strings', async () => {
+    it('a non-SUPER_ADMIN user gets 200 with the status strings', async () => {
       const operatorToken = await loginAs(app, 'RB0001', 'Test@1234');
       const res = await authGet(app, '/api/config/alarm-limits/status-texts', operatorToken);
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.body);
+      // `toEqual` on the WHOLE body on purpose: this endpoint is read by every
+      // authenticated user, so a field appearing or vanishing should have to be
+      // decided here rather than noticed later. `disabledLimitText` was added
+      // 2026-09-01 — the wording for a switched-off limit in the Alarm Report,
+      // carried with the status texts rather than on a seventh narrow route.
       expect(body).toEqual({
         statusActiveUnack: expect.any(String),
         statusActiveAck: expect.any(String),
         statusClearedUnack: expect.any(String),
         statusClearedAck: expect.any(String),
+        disabledLimitText: expect.any(String),
       });
     });
 
@@ -141,6 +147,7 @@ describe('Config endpoints', () => {
           statusActiveAck: ALARM_STATUS_TEXT_DEFAULT.activeAck,
           statusClearedUnack: ALARM_STATUS_TEXT_DEFAULT.clearedUnack,
           statusClearedAck: ALARM_STATUS_TEXT_DEFAULT.clearedAck,
+          disabledLimitText: LIMIT_DISABLED_TEXT_DEFAULT,
         });
       } finally {
         // Restore whatever was there (including "nothing") so this test doesn't

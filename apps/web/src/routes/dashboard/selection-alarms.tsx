@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import useSWR from 'swr';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { useSensorWords, useAlarmTypeNames } from '@/hooks/use-failure-text';
@@ -8,6 +9,11 @@ import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { SkeletonRows } from '@/components/ui/skeleton';
 import { Pagination } from '@/components/ui/pagination';
+import { usePanelToolbarSlot } from './panel-card';
+import {
+  AlarmWidgetFilters, applyWidgetFilters, EMPTY_WIDGET_FILTERS, ACTIVE_QUADRANTS,
+  type AlarmWidgetFilterValue,
+} from '@/routes/alarms/alarm-widget-filters';
 import { usePaginationDefaults } from '@/hooks/use-pagination-config';
 import { AcknowledgeDialog } from '@/routes/alarms/acknowledge-dialog';
 import {
@@ -128,12 +134,23 @@ export function SelectionAlarms({ functionalLocationId }: { functionalLocationId
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(defaultLimit);
 
+  /**
+   * The SAME three filters the trend page's alarms widget carries (operator,
+   * 2026-09-01), through the same component — search, type and status, every one
+   * of them a real query parameter rather than a narrowing of the rows in hand.
+   * On a paged panel a client-side filter would narrow ONE PAGE while reading as
+   * a filter of the selection.
+   */
+  const [filters, setFilters] = useState<AlarmWidgetFilterValue>(EMPTY_WIDGET_FILTERS);
+  const toolbarSlot = usePanelToolbarSlot();
+
   const qs = new URLSearchParams({
     state: 'ACTIVE',
     page: String(page),
     pageSize: String(pageSize),
   });
   if (functionalLocationId) qs.set('functionalLocationId', functionalLocationId);
+  applyWidgetFilters(qs, filters);
 
   const { data, error, mutate } = useSWR<{ data: AlarmRow[]; total: number }>(
     `/api/alarms?${qs.toString()}`,
@@ -148,7 +165,7 @@ export function SelectionAlarms({ functionalLocationId }: { functionalLocationId
    */
   useEffect(() => {
     setPage(1);
-  }, [functionalLocationId, pageSize]);
+  }, [functionalLocationId, pageSize, filters.search, filters.type, filters.status]);
 
   /**
    * Acknowledging here is the SAME §11 signature as on the Alarms page, and is
@@ -191,13 +208,33 @@ export function SelectionAlarms({ functionalLocationId }: { functionalLocationId
   const rows = data?.data ?? [];
   const total = data?.total ?? 0;
 
+  const filterBar = (
+    <AlarmWidgetFilters
+      value={filters}
+      onChange={setFilters}
+      typeNames={typeNames}
+      /* TWO options, not four. This panel's query is pinned to `state=ACTIVE`,
+         and `quadrantWhere` emits `state: 'CLEARED'` for the other two — ANDed
+         together they match nothing, always. Offering them would be two controls
+         that can only ever empty the table, and they would read as a filter that
+         found nothing rather than one that could not. */
+      statusOptions={ACTIVE_QUADRANTS}
+      searchLabel="Search the active alarms in this selection"
+      searchName="selection-alarm-search"
+    />
+  );
+  const toolbar = toolbarSlot ? createPortal(filterBar, toolbarSlot) : filterBar;
+
   return (
     <section className="space-y-2">
       {/* No heading here: PanelCard supplies it, and the operator may have
           renamed it. A second hard-coded title would contradict theirs.
 
-          No "All alarms →" link either (operator, 2026-09-01) — see the note at
-          the foot of this file. */}
+          The toolbar goes UP INTO that same header (operator, 2026-09-01) so the
+          title and the filters share one line. Rendered inline when there is no
+          PanelCard around it — a panel that dropped its search box when mounted
+          on its own would be broken in exactly the place tests look. */}
+      {toolbar}
       {/* TRANSPARENT, not bg-white. This sits inside a PanelCard that already
           draws the border, the rounding and — the point of that change — the
           operator's chosen tint. An opaque box here painted over the tint, so

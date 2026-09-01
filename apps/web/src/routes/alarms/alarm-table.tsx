@@ -2,7 +2,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import { StatusBadge } from '@/components/ui/status-badge';
 import {
   quadrantTone, statusText, breachDirection, triggeredText, clearedText, screenLimitText,
-  alarmTypeText, alarmDurationText, instrumentLabel, locationText,
+  alarmTypeText, alarmDurationText, instrumentLabel, locationText, areaText,
   type AlarmRow, type AlarmSortKey, type AlarmStatusTexts, type AlarmDisplayTexts,
   type QuadrantTone, type BreachDirection,
 } from './alarm-display';
@@ -195,9 +195,22 @@ export function AlarmTypeCell({
   );
 }
 
-/** The instrument's FUNCTIONAL location — never the drawn room. */
-export function AlarmLocationCell({ a }: { a: AlarmRow }) {
-  return <td className={`${ALARM_CELL} text-slate-700`}>{locationText(a)}</td>;
+/**
+ * The instrument's own `Location` ATTRIBUTE — the space it names, never the drawn
+ * room and never the Block > Area grouping.
+ *
+ * `areaShown` must be true wherever {@link AlarmAreaCell} is rendered on the same
+ * row: without it this cell falls back to the functional location and the two
+ * columns print the same string on every instrument with no typed Location.
+ */
+export function AlarmLocationCell({ a, areaShown = false }: { a: AlarmRow; areaShown?: boolean }) {
+  return <td className={`${ALARM_CELL} text-slate-700`}>{locationText(a, { areaShown })}</td>;
+}
+
+/** The FUNCTIONAL location — the authoritative Block > Area grouping, and the
+ *  same fact the dashboard readings table's Area column shows. */
+export function AlarmAreaCell({ a }: { a: AlarmRow }) {
+  return <td className={`${ALARM_CELL} text-slate-700`}>{areaText(a)}</td>;
 }
 
 /**

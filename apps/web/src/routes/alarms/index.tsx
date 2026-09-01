@@ -8,11 +8,23 @@ import { useSensorWords, useAlarmTypeNames } from '@/hooks/use-failure-text';
 import { usePaginationDefaults } from '@/hooks/use-pagination-config';
 import { Button } from '@/components/ui/button';
 import { AcknowledgeDialog } from './acknowledge-dialog';
+import { ExportMenu } from '@/components/ExportMenu';
+import { ReauthDialog } from '@/components/reauth-dialog';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReportDownloadDialog, type ReportDownloadRequest } from '@/components/report-download-dialog';
+import { logReportExport } from '@/lib/report-export-log';
+import { createReport } from '@/lib/pdf-report';
+import {
+  buildAlarmsReport, ALARM_REPORT_LEGEND, reportSeedPeriod, reportLevel,
+} from './alarms-report';
 import { PageHeader } from '@/components/ui/page-header';
 import { Pagination } from '@/components/ui/pagination';
 import { SkeletonRows } from '@/components/ui/skeleton';
 import { AlarmStatCards } from './alarm-stat-cards';
-import { AlarmFilters, EMPTY_FILTERS, hasAnyFilter, type AlarmFilterState } from './alarm-filters';
+import {
+  AlarmFilters, EMPTY_FILTERS, hasAnyFilter, locationFilterId, useFilterScopeLabels,
+  type AlarmFilterState,
+} from './alarm-filters';
 import {
   needsAcknowledgement, instrumentLabel, mapStatusTextsResponse,
   quadrantTone, localInputToIso, mapInactivityTextsResponse,
@@ -29,7 +41,7 @@ import {
 import {
   AlarmTableHead, Th, Stack, UnitLine, ALARM_ROW_CLASS, ALARM_CELL,
   ALARM_BANNER_SOLID, AlarmTableMessage,
-  AlarmInstrumentCell, AlarmTypeCell, AlarmLocationCell, AlarmTimeCell,
+  AlarmInstrumentCell, AlarmTypeCell, AlarmAreaCell, AlarmLocationCell, AlarmTimeCell,
   AlarmValueCell, AlarmLimitCell, AlarmClearedValueCell, AlarmStatusCell,
   AlarmDurationCell, AlarmAckByCell,
 } from './alarm-table';
@@ -51,8 +63,11 @@ export default function AlarmsPage() {
   const { toast } = useToast();
   const { formatDate, formatTime, formatDateTime } = useDatetimeFormat();
   const { defaultLimit } = usePaginationDefaults();
+  const reauth = useReauth();
+  const [downloadOpen, setDownloadOpen] = useState(false);
 
   const [filters, setFilters] = useState<AlarmFilterState>(EMPTY_FILTERS);
+  const scopeLabels = useFilterScopeLabels(filters);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [sort, setSort] = useState<AlarmSortKey>('raisedAt');
   const [dir, setDir] = useState<'asc' | 'desc'>('desc');
@@ -70,7 +85,10 @@ export default function AlarmsPage() {
   // narrowed result is usually empty, and an empty table is read as "no alarms".
   useEffect(() => {
     setPage(1);
-  }, [search, filters.from, filters.to, filters.type, filters.status, filters.functionalLocationId, pageSize]);
+  }, [
+    search, filters.from, filters.to, filters.type, filters.status,
+    filters.blockId, filters.areaId, filters.instrumentId, pageSize,
+  ]);
 
   const query = useMemo(() => {
     const qs = new URLSearchParams({
@@ -79,7 +97,11 @@ export default function AlarmsPage() {
     if (search) qs.set('search', search);
     if (filters.type) qs.set('type', filters.type);
     if (filters.status) qs.set('status', filters.status);
-    if (filters.functionalLocationId) qs.set('functionalLocationId', filters.functionalLocationId);
+    // Block and Area are ONE axis: the narrower of the two is the whole filter,
+    // since the Area picker only ever offers Areas inside the chosen Block.
+    const locationId = locationFilterId(filters);
+    if (locationId) qs.set('functionalLocationId', locationId);
+    if (filters.instrumentId) qs.set('instrumentId', filters.instrumentId);
     // Resolved to an instant here, where the operator's clock is — see
     // localInputToIso. An unreadable value is simply not sent, so a half-typed
     // date does not 400 the page while the operator is still typing it.
@@ -88,7 +110,10 @@ export default function AlarmsPage() {
     if (from) qs.set('from', from);
     if (to) qs.set('to', to);
     return qs.toString();
-  }, [page, pageSize, sort, dir, search, filters.type, filters.status, filters.functionalLocationId, filters.from, filters.to]);
+  }, [
+    page, pageSize, sort, dir, search, filters.type, filters.status,
+    filters.blockId, filters.areaId, filters.instrumentId, filters.from, filters.to,
+  ]);
 
   const { data, isLoading, error, mutate } = useSWR<{
     data: AlarmRow[];
@@ -145,6 +170,119 @@ export default function AlarmsPage() {
 
   const rows = data?.data ?? [];
   const total = data?.total ?? 0;
+
+  /**
+   * THE GOVERNED PDF DOWNLOAD (operator, 2026-09-01), built to the supplied
+   * `Alarm Report.pdf`.
+   *
+   * The chain is the one every report download in this product goes through, in
+   * this order and for this reason: the dialog collects a PERIOD and a mandatory
+   * REMARKS, `reauth.executeWithResult('DOWNLOAD_REPORT', …)` collects the
+   * PASSWORD, `logReportExport` writes the §11 audit record and THROWS if it
+   * cannot — fail-closed, so a download that was never recorded never happens —
+   * and only then is the file built and saved.
+   */
+  const REPORT_PAGE = 500;   // the API's own pageSize ceiling
+  const REPORT_MAX = 5000;   // what one printed report may cover
+
+  /**
+   * Fetch the WHOLE period, not the page on screen.
+   *
+   * The table is paged, so reusing its rows would print 25 alarms and title them
+   * as the period. Pages are walked to `total`, capped at `REPORT_MAX`, and any
+   * shortfall is DISCLOSED IN THE PDF by `truncationNote` — never silently, and
+   * never in a toast, which does not survive printing.
+   */
+  const fetchAllForReport = async (period: { from: string; to: string }) => {
+    const rows: AlarmRow[] = [];
+    let grand = 0;
+    for (let p = 1; rows.length < REPORT_MAX; p += 1) {
+      const qs = new URLSearchParams({
+        page: String(p), pageSize: String(REPORT_PAGE), sort, dir,
+        // THE DIALOG'S PERIOD, not the page's Raised-between filter. The operator
+        // may have widened it in the dialog they just confirmed, and the report
+        // prints the range it covers, so the two must be the same one.
+        from: period.from, to: period.to,
+      });
+      if (search.trim()) qs.set('search', search.trim());
+      if (filters.type) qs.set('type', filters.type);
+      if (filters.status) qs.set('status', filters.status);
+      const locationId = locationFilterId(filters);
+      if (locationId) qs.set('functionalLocationId', locationId);
+      if (filters.instrumentId) qs.set('instrumentId', filters.instrumentId);
+
+      const res = await apiClient.get<{ data: AlarmRow[]; total: number }>(`/api/alarms?${qs}`);
+      grand = res.total ?? 0;
+      rows.push(...(res.data ?? []));
+      if (res.data.length < REPORT_PAGE || rows.length >= grand) break;
+    }
+    return { rows: rows.slice(0, REPORT_MAX), total: grand };
+  };
+
+  const runDownload = async (req: ReportDownloadRequest) => {
+    /**
+     * `datetime-local` gives ZONELESS wall-clock text. Sent raw the API would
+     * resolve it in its OWN zone, so a report headed 08:00–20:00 could cover a
+     * different twelve hours than the operator asked for — the same reason this
+     * page's Raised-between filter goes through `localInputToIso`, and it must be
+     * the same conversion or the report and the table disagree.
+     */
+    const period = {
+      from: localInputToIso(req.period.from) ?? req.period.from,
+      to: localInputToIso(req.period.to) ?? req.period.to,
+      label: req.period.label,
+    };
+
+    await reauth.executeWithResult('DOWNLOAD_REPORT', async (password) => {
+      const { rows: all, total: grand } = await fetchAllForReport(period);
+
+      // recordCount is what the PAPER shows, never `grand`: an audit row claiming
+      // 3,000 records beside a report printing 500 would have the trail
+      // contradict the document it describes.
+      await logReportExport({
+        reportType: 'Alarms',
+        format: 'PDF',
+        recordCount: all.length,
+        period: period.label,
+        search: search.trim() || undefined,
+        startDate: period.from,
+        endDate: period.to,
+        remarks: req.remarks,
+        password,
+      });
+
+      const doc = await createReport({
+        title: 'ALARM REPORT',
+        // PORTRAIT (operator, 2026-09-01): landscape was too wide. The table fits
+        // because the placement columns are only added at the scopes where they
+        // actually vary — see EXTRA_COLUMNS.
+        orientation: 'portrait',
+        formatDateTime,
+        reportKey: 'alarms',
+        legend: ALARM_REPORT_LEGEND,
+      });
+      buildAlarmsReport(doc, {
+        rows: all,
+        total: grand,
+        scope: {
+          ...scopeLabels,
+          // The Location ATTRIBUTE, and only when ONE instrument is in scope —
+          // every row then shares it. Across a whole Block the field names no
+          // single space, and a report that filled it in anyway would be stating
+          // one instrument's location as the report's.
+          locationName: filters.instrumentId ? (all[0]?.locationAttribute ?? '') : '',
+        },
+        period,
+        fmt: { formatDate, formatTime },
+        texts: inactivityTexts,
+        level: reportLevel(filters),
+        disabledText: statusTextsResponse?.disabledLimitText,
+      });
+      doc.save(`alarm-report-${new Date().toISOString().slice(0, 10)}.pdf`);
+    });
+    setDownloadOpen(false);
+  };
+
   const counts = data?.counts ?? { 'active-unack': 0, 'active-ack': 0, 'cleared-unack': 0, 'cleared-ack': 0 };
 
   const acknowledge = async (reason: string, password: string) => {
@@ -198,6 +336,17 @@ export default function AlarmsPage() {
         />
       </div>
 
+      {/* The download sits ABOVE the filter bar and to the right, because what it
+          exports is exactly what the filters below it select — Block, Area,
+          Instrument and the period. Icon only, as on the trend page. */}
+      <div className="mb-2 flex justify-end">
+        <ExportMenu
+          surface="alarms"
+          iconOnly
+          onExportPdf={() => setDownloadOpen(true)}
+        />
+      </div>
+
       <div className="mb-5">
         <AlarmFilters
           value={filters}
@@ -239,6 +388,15 @@ export default function AlarmsPage() {
               <tr>
                 <Th sortKey="instrumentCode" sort={sort} dir={dir} onSort={toggleSort}>Instrument ID</Th>
                 <Th sortKey="type" sort={sort} dir={dir} onSort={toggleSort}>Type</Th>
+                {/* AREA and LOCATION are two DIFFERENT facts (operator,
+                    2026-09-01) — the same pair, in the same order, as the
+                    dashboard readings table. Area is the authoritative Block >
+                    Area grouping; Location is the instrument's own free-text
+                    `Location` attribute. Neither sorts: `ALARM_SORT_KEYS` has no
+                    location key, and a header that reordered one page of a paged
+                    result would claim a sort of the record it is not doing. Both
+                    are SEARCHED on the server. */}
+                <Th>Area</Th>
                 <Th>Location</Th>
                 <Th sortKey="raisedAt" sort={sort} dir={dir} onSort={toggleSort}>Raised</Th>
                 {/* Stacked onto three lines DELIBERATELY. On one line these two were the
@@ -293,7 +451,12 @@ export default function AlarmsPage() {
                       redundant for a single-instrument view. */}
                   <AlarmInstrumentCell a={a} marker={quadrantTone(a)} />
                   <AlarmTypeCell a={a} texts={inactivityTexts} />
-                  <AlarmLocationCell a={a} />
+                  <AlarmAreaCell a={a} />
+                  {/* `areaShown` because the Area cell is right beside it. Without
+                      it this falls back to the functional location and the two
+                      columns print the same string on every instrument with no
+                      typed Location. */}
+                  <AlarmLocationCell a={a} areaShown />
                   <AlarmTimeCell value={a.raisedAt} formatDate={formatDate} formatTime={formatTime} />
                   <AlarmValueCell a={a} texts={inactivityTexts} />
                   <AlarmLimitCell a={a} texts={inactivityTexts} />
@@ -335,6 +498,33 @@ export default function AlarmsPage() {
         </div>
       </div>
 
+      {/*
+        The governed gate. It seeds from the page's Raised-between filter when one
+        is set, so the dialog opens on the range already on screen; the operator
+        may widen it, and THAT is the period the report covers and prints.
+      */}
+      <ReportDownloadDialog
+        open={downloadOpen}
+        reportName="Alarm Report"
+        initialPeriod={reportSeedPeriod(filters)}
+        onCancel={() => setDownloadOpen(false)}
+        onConfirm={runDownload}
+      />
+
+      {/* The password prompt `reauth.executeWithResult` drives. Without it the
+          DOWNLOAD_REPORT signature can never be collected and every export fails
+          closed at the audit-log write. */}
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+        actionLabel="Download Report"
+      />
+
       <AcknowledgeDialog
         alarm={target}
         open={target !== null}
@@ -349,10 +539,12 @@ export default function AlarmsPage() {
 }
 
 /**
- * Twelve columns. Read by every whole-width row — a colSpan one short leaves a
- * hairline of unpainted table beside the message.
+ * THIRTEEN columns (Area added 2026-09-01). Read by every whole-width row — a
+ * colSpan one short leaves a hairline of unpainted table beside the message, and
+ * a test derives the expected value from the rendered header count so this
+ * constant cannot silently drift from the `<thead>` above.
  */
-const COLUMNS = 12;
+const COLUMNS = 13;
 
 /**
  * Hold a value still until typing stops.

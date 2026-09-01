@@ -103,6 +103,23 @@ async function loadSignatories(): Promise<SignatoryMap | null> {
   return null;
 }
 
+/**
+ * Where to put the CENTRE of a centred header line, given a logo on the left.
+ *
+ * Page-centred by default. A long company name on A4 portrait can reach back past
+ * a wide logo, and jsPDF draws the two on top of each other without complaint, so
+ * the centre is nudged right by exactly enough to clear it — which reads as
+ * "centred in the space that is left" rather than as a collision.
+ *
+ * @param textWidth measured at the size the text will be DRAWN at; measuring at a
+ *   different size is the way to get a guard that passes and still overlaps.
+ * @param logoEndX the x the logo ends at, gap included. Equals the left margin
+ *   when there is no logo, and the result is then the true page centre.
+ */
+export function centredX(textWidth: number, pageWidth: number, logoEndX: number): number {
+  return Math.max(pageWidth / 2, logoEndX + textWidth / 2);
+}
+
 export interface ReportConfig {
   title: string;
   subtitle?: string;
@@ -129,7 +146,8 @@ export interface ReportDoc {
   ph: number;
   colors: typeof COLORS;
   addTable: (opts: {
-    head: string[];
+    /** Omit for a headless parameter block. */
+    head?: string[];
     body: string[][];
     columnStyles?: Record<number, any>;
     headColor?: [number, number, number];
@@ -156,6 +174,31 @@ export interface ReportSnapshot {
   orientation?: 'portrait' | 'landscape';
   sections: SnapshotSection[];
 }
+
+/**
+ * The report's type scale, in points, raised across the board on 2026-09-01
+ * (operator: *"increase font sizes"*).
+ *
+ * Declared here rather than inline so the relationships stay visible — the title
+ * must out-rank the company name it sits under, and the table body must stay
+ * below the section titles above it. **This is SHARED by every report in the
+ * product** (audit trail, instrument trend, alarms), which is the point: one
+ * scale, not a per-report guess.
+ *
+ * `TABLE_PT` is the one with a hard ceiling. The alarm report prints up to ten
+ * columns on A4 PORTRAIT, and autotable answers an over-wide table by wrapping
+ * cells rather than by shrinking text, so pushing this much past 8 turns a
+ * one-line row into three and costs more pages than it gains in legibility.
+ */
+const COMPANY_PT = 16;
+const APPNAME_PT = 10;
+const TITLE_PT = 13;
+const SUBTITLE_PT = 9;
+const SECTION_PT = 11;
+const LABEL_PT = 9;
+const TABLE_PT = 8;
+const TABLE_HEAD_PT = 8.5;
+const SMALLPRINT_PT = 8;
 
 export async function createReport(config: ReportConfig): Promise<ReportDoc> {
   const [logo, branding, me, signatories] = await Promise.all([loadLogo(), loadBranding(), loadCurrentUser(), loadSignatories()]);
@@ -186,27 +229,42 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     } catch { /* skip */ }
   }
 
-  // ── Company name + app tagline ──
-  doc.setFontSize(13); doc.setTextColor(...COLORS.primary);
-  doc.text(branding.companyName, logoEndX, y + 5);
-  doc.setFontSize(7.5); doc.setTextColor(...COLORS.muted);
-  doc.text(branding.appName, logoEndX, y + 10);
+  /**
+   * ── Company name + app name, CENTRED (operator, 2026-09-01) ──
+   *
+   * Centred on the PAGE, not in the space beside the logo: the logo stays left
+   * and the identity block reads as the page's own heading, which is how the
+   * operator's reference report is laid out.
+   *
+   * The guard matters on a narrow page. A long company name centred on A4
+   * portrait can reach back past a wide logo, and jsPDF will happily draw the two
+   * on top of each other — so the centre is nudged right when the text would
+   * actually collide. Measured, not assumed: `getTextWidth` respects the font
+   * size set immediately above it, which is why each size is set before its
+   * measurement rather than once at the top.
+   */
+  doc.setFontSize(COMPANY_PT); doc.setTextColor(...COLORS.primary);
+  const centreFor = (text: string) => centredX(doc.getTextWidth(text), pw, logoEndX);
+  doc.text(branding.companyName, centreFor(branding.companyName), y + 5.5, { align: 'center' });
+  doc.setFontSize(APPNAME_PT); doc.setTextColor(...COLORS.muted);
+  doc.text(branding.appName, centreFor(branding.appName), y + 11, { align: 'center' });
 
   y += maxLogoH + 4;
 
   // ── Report title bar ──
   doc.setFillColor(...COLORS.primary);
-  doc.rect(14, y, pw - 28, 8, 'F');
+  // Taller by 1.5mm to keep the larger title optically centred in its bar.
+  doc.rect(14, y, pw - 28, 9.5, 'F');
   // Centered title; no generated-on timestamp here (the print stamp at the end
   // of the report carries Printed Date & Time).
-  doc.setFontSize(10); doc.setTextColor(...COLORS.white);
-  doc.text(config.title, pw / 2, y + 5.5, { align: 'center' });
+  doc.setFontSize(TITLE_PT); doc.setTextColor(...COLORS.white);
+  doc.text(config.title, pw / 2, y + 6, { align: 'center' });
 
-  y += 12;
+  y += 13.5;
 
   // ── Subtitle / filters info ──
   if (config.subtitle) {
-    doc.setFontSize(8); doc.setTextColor(...COLORS.muted);
+    doc.setFontSize(SUBTITLE_PT); doc.setTextColor(...COLORS.muted);
     const lines = doc.splitTextToSize(config.subtitle, pw - 28);
     doc.text(lines, 14, y);
     y += lines.length * 4 + 2;
@@ -223,10 +281,20 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       // Footer line
       doc.setDrawColor(...COLORS.border); doc.setLineWidth(0.3);
       doc.line(14, ph - 12, pw - 14, ph - 12);
-      // Footer text
-      doc.setFontSize(7); doc.setTextColor(...COLORS.light);
-      doc.text(`${branding.companyName}  |  ${branding.appName}`, 14, ph - 7);
-      doc.text(`Page ${i} of ${pageCount}`, pw - 30, ph - 7);
+      /**
+       * The page number ALONE, centred, bold, black (operator, 2026-09-01).
+       *
+       * The company and app names were in the left of every footer and are gone:
+       * they are already in the header, and repeating branding on every page of a
+       * §11 record adds nothing a reader needs. What a printed page genuinely
+       * needs at the bottom is its place in the set — which is why the one thing
+       * left is emphasised rather than greyed.
+       */
+      doc.setFontSize(SMALLPRINT_PT);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(0, 0, 0);
+      doc.text(`Page ${i} of ${pageCount}`, pw / 2, ph - 7, { align: 'center' });
+      doc.setFont('helvetica', 'normal');
     }
   };
 
@@ -236,7 +304,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
   // of the last page; spills onto a fresh page if it would overlap content.
   const addEndBlock = () => {
     const legendItems = config.legend ?? [];
-    doc.setFontSize(7);
+    doc.setFontSize(SMALLPRINT_PT);
     const legendText = legendItems.length
       ? 'Legend:   ' + legendItems.map((l) => `${l.abbr} = ${l.meaning}`).join('      ')
       : '';
@@ -267,7 +335,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
 
     let by = top;
     // Remarks — empty bordered box for handwriting
-    doc.setFontSize(8); doc.setTextColor(...COLORS.primary);
+    doc.setFontSize(LABEL_PT); doc.setTextColor(...COLORS.primary);
     doc.text('Remarks:', 14, by + 3);
     by += 4;
     doc.setDrawColor(...COLORS.border); doc.setLineWidth(0.3);
@@ -275,14 +343,14 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     by += 22 + 3;
     // Legend (abbreviation key) — only when the report passes one
     if (legendLines.length) {
-      doc.setFontSize(7); doc.setTextColor(...COLORS.muted);
+      doc.setFontSize(SMALLPRINT_PT); doc.setTextColor(...COLORS.muted);
       doc.text(legendLines, 14, by + 2.5);
       by += legendLines.length * 3.6 + 3;
     }
     // Signatory block (one line each) + Printed Date & Time on the first line.
     doc.setDrawColor(...COLORS.border); doc.setLineWidth(0.2);
     doc.line(14, by, pw - 14, by);
-    doc.setFontSize(7.5); doc.setTextColor(...COLORS.text);
+    doc.setFontSize(LABEL_PT); doc.setTextColor(...COLORS.text);
     sigLines.forEach((line, i) => doc.text(line, 14, by + 4.5 + i * 4.5));
     doc.text(`Printed Date & Time: ${printedAt}`, pw - 14, by + 4.5, { align: 'right' });
   };
@@ -304,24 +372,43 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     checkPageBreak(10);
     doc.setFillColor(...COLORS.headerBg);
     doc.roundedRect(14, y - 1, pw - 28, 7, 1, 1, 'F');
-    doc.setFontSize(9); doc.setTextColor(...COLORS.primary);
+    doc.setFontSize(SECTION_PT); doc.setTextColor(...COLORS.primary);
     doc.text(text, 17, y + 4);
     y += 10;
     pendingTitle = text;
   };
 
-  const addTable = (opts: { head: string[]; body: string[][]; columnStyles?: Record<number, any>; headColor?: [number, number, number] }) => {
-    snapSections.push({ title: pendingTitle, head: opts.head, body: opts.body, columnStyles: opts.columnStyles });
+  const addTable = (opts: {
+    /** Omit for a HEADLESS table — a parameter block whose cells carry their own
+     *  labels ("Block : CWH Block") rather than a heading row above them. */
+    head?: string[];
+    body: string[][];
+    columnStyles?: Record<number, any>;
+    headColor?: [number, number, number];
+  }) => {
+    snapSections.push({ title: pendingTitle, head: opts.head ?? [], body: opts.body, columnStyles: opts.columnStyles });
     pendingTitle = undefined;
     checkPageBreak(20);
     autoTable(doc, {
       startY: y,
-      head: [opts.head],
+      ...(opts.head ? { head: [opts.head] } : {}),
       body: opts.body,
       theme: 'grid',
-      styles: { fontSize: 7, cellPadding: 2.5, lineColor: COLORS.border, lineWidth: 0.2, textColor: COLORS.text, overflow: 'linebreak' },
-      headStyles: { fillColor: opts.headColor ?? COLORS.primary, textColor: COLORS.white, fontStyle: 'bold', fontSize: 7.5 },
-      alternateRowStyles: { fillColor: COLORS.altRow },
+      styles: { fontSize: TABLE_PT, cellPadding: 2.5, lineColor: COLORS.border, lineWidth: 0.2, textColor: COLORS.text, overflow: 'linebreak' },
+      headStyles: { fillColor: opts.headColor ?? COLORS.primary, textColor: COLORS.white, fontStyle: 'bold', fontSize: TABLE_HEAD_PT },
+      // Zebra striping reads as "these are records"; a parameter block is a
+      // form, and striping it makes the reader look for a fifth row.
+      /**
+       * A ROW IS NEVER SPLIT ACROSS PAGES (operator, 2026-09-01).
+       *
+       * autotable's default breaks a tall row mid-cell, so an alarm's date could
+       * print at the foot of one page and its value at the head of the next. On a
+       * §11 record that is not cosmetic — the two halves read as two different
+       * observations and nothing tells the reader they are one. `'avoid'` moves
+       * the whole row down instead.
+       */
+      rowPageBreak: 'avoid',
+      ...(opts.head ? { alternateRowStyles: { fillColor: COLORS.altRow } } : {}),
       columnStyles: opts.columnStyles ?? {},
     });
     y = (doc as any).lastAutoTable.finalY + 5;
@@ -335,15 +422,18 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     let row = 0;
     for (let i = 0; i < pairs.length; i++) {
       const col = i % columns;
-      if (col === 0 && i > 0) { row++; y += 9; }
-      if (col === 0) checkPageBreak(10);
+      if (col === 0 && i > 0) { row++; y += 10; }
+      if (col === 0) checkPageBreak(11);
       const x = 14 + col * colW;
-      doc.setFontSize(7); doc.setTextColor(...COLORS.muted);
+      // The LABEL stays a step below its VALUE: this block is read for the values
+      // (the Block, the Inst ID, the period), and equal weight makes a caption
+      // compete with the thing it captions.
+      doc.setFontSize(SMALLPRINT_PT); doc.setTextColor(...COLORS.muted);
       doc.text(pairs[i][0], x, y);
-      doc.setFontSize(9); doc.setTextColor(...COLORS.text);
-      doc.text(pairs[i][1] || '-', x, y + 4);
+      doc.setFontSize(LABEL_PT + 1); doc.setTextColor(...COLORS.text);
+      doc.text(pairs[i][1] || '-', x, y + 4.5);
     }
-    y += 12;
+    y += 13;
   };
 
   return {

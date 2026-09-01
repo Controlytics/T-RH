@@ -15,9 +15,12 @@ import { usePaginationDefaults } from '@/hooks/use-pagination-config';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import {
   quadrantTone, needsAcknowledgement, instrumentLabel,
-  ALARM_QUADRANTS, alarmTypeOptions,
-  type AlarmRow, type AlarmStatusTexts, type AlarmDisplayTexts, type AlarmQuadrant,
+  type AlarmRow, type AlarmStatusTexts, type AlarmDisplayTexts,
 } from '@/routes/alarms/alarm-display';
+import {
+  AlarmWidgetFilters, applyWidgetFilters, EMPTY_WIDGET_FILTERS,
+  type AlarmWidgetFilterValue,
+} from '@/routes/alarms/alarm-widget-filters';
 import {
   AlarmTableHead, Th, Stack, UnitLine, ALARM_ROW_CLASS, AlarmTableMessage,
   AlarmTypeCell, AlarmTimeCell, AlarmValueCell, AlarmLimitCell,
@@ -101,10 +104,7 @@ export function AlarmsWidget({
   // From the SAME names the Type column renders (`AlarmTypeCell` takes
   // `inactivityTexts`), never a second lookup — a rename must reach the
   // filter and the column together or the control cannot select what it lists.
-  const typeOptions = alarmTypeOptions(inactivityTexts?.typeNames);
-  const [search, setSearch] = useState('');
-  const [type, setType] = useState('');
-  const [status, setStatus] = useState<AlarmQuadrant | ''>('');
+  const [filters, setFilters] = useState<AlarmWidgetFilterValue>(EMPTY_WIDGET_FILTERS);
   const [target, setTarget] = useState<AlarmRow | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [dialogError, setDialogError] = useState('');
@@ -176,9 +176,7 @@ export function AlarmsWidget({
     page: String(page),
     pageSize: String(pageSize),
   });
-  if (search.trim()) query.set('search', search.trim());
-  if (type) query.set('type', type);
-  if (status) query.set('status', status);
+  applyWidgetFilters(query, filters);
 
   const { data, isLoading, error, mutate } = useSWR<{ data: AlarmRow[]; total: number }>(
     instrumentId ? `/api/alarms?${query.toString()}` : null,
@@ -191,7 +189,7 @@ export function AlarmsWidget({
    */
   useEffect(() => {
     setPage(1);
-  }, [instrumentId, period.from, period.to, search, type, status, pageSize]);
+  }, [instrumentId, period.from, period.to, filters.search, filters.type, filters.status, pageSize]);
 
   const rows = data?.data ?? [];
   const total = data?.total ?? 0;
@@ -206,64 +204,24 @@ export function AlarmsWidget({
       <CardHeader className="flex flex-row flex-nowrap items-center justify-between gap-3 space-y-0">
         <CardTitle className="truncate text-base">{labels.alarmsTitle}</CardTitle>
 
-        {/* One row, never wrapping (operator, 2026-09-01). The title truncates
-            before the controls do: a search box that has dropped onto its own
-            line reads as a second section rather than as this card's toolbar. */}
-        <div className="flex flex-nowrap items-center gap-2">
-          {/* Search. The placeholder names what the SERVER actually matches, as
-              on the Alarms page — Type is an enum rendered into words at display
-              time, so there is no text to match and it has its own control. */}
-          <div className="relative">
-            <svg
-              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
-              fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            <input
-              type="search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search…"
-              aria-label="Search this instrument's alarms"
-              className="ctl w-36 pl-9 text-[0.8125rem]"
-              /* Named and autocomplete-off for the same reason as the Alarms
-                 page's box: an unnamed text input beside a password field is
-                 what Chrome reaches for when it looks for a username to fill. */
-              name="widget-alarm-search"
-              autoComplete="off"
-            />
-          </div>
-
-          {/* Labelled from the ADMINISTERED type names, so a rename on the
-              config page reaches this control and the Type column together. */}
-          <select
-            value={type}
-            onChange={(e) => setType(e.target.value)}
-            aria-label="Filter by alarm type"
-            className="ctl max-w-[8.5rem] text-[0.8125rem]"
-          >
-            <option value="">All types</option>
-            {typeOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-
-          {/* The four states, from the one catalogue the Alarms page reads. */}
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value as AlarmQuadrant | '')}
-            aria-label="Filter by status"
-            className="ctl max-w-[9rem] text-[0.8125rem]"
-          >
-            <option value="">All statuses</option>
-            {ALARM_QUADRANTS.map((q) => <option key={q.id} value={q.id}>{q.label}</option>)}
-          </select>
-
-          {/* Icon only (operator, 2026-09-01). `surface="instrument-trend"` is
-              untouched — it is what makes this download log its own §11
-              `reportType`, distinct from the Alarms page's. */}
-          <ExportMenu surface="instrument-trend" iconOnly onExportPdf={onExportPdf} />
-          {settingsButton}
-        </div>
+        {/* The SHARED widget toolbar — the same three controls the dashboard's
+            selection panel renders, so a change to either reaches both. The
+            export icon and the settings pencil ride in its `trailing` slot; they
+            are this surface's, not the toolbar's. */}
+        <AlarmWidgetFilters
+          value={filters}
+          onChange={setFilters}
+          typeNames={inactivityTexts?.typeNames}
+          searchLabel="Search this instrument's alarms"
+          searchName="widget-alarm-search"
+          trailing={<>
+            {/* Icon only (operator, 2026-09-01). `surface="instrument-trend"` is
+                untouched — it is what makes this download log its own §11
+                `reportType`, distinct from the Alarms page's. */}
+            <ExportMenu surface="instrument-trend" iconOnly onExportPdf={onExportPdf} />
+            {settingsButton}
+          </>}
+        />
       </CardHeader>
 
       {/* The Card supplies the border and the radius; this wrapper only clips

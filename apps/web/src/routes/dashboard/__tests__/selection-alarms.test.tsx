@@ -511,3 +511,72 @@ describe('SelectionAlarms — no way out of the panel', () => {
     expect(screen.getByText('87')).toBeInTheDocument();
   });
 });
+
+describe('SelectionAlarms — the shared widget filters', () => {
+  /**
+   * Operator, 2026-09-01: the filters on the trend page's alarms widget should
+   * also be here. They are the SAME component, so a change to either reaches
+   * both — the lesson from three hand-written alarm tables that drifted.
+   */
+  it('renders search, type and status', () => {
+    renderWith([active]);
+    expect(screen.getByRole('searchbox', { name: /search the active alarms/i })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: /filter by alarm type/i })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: /filter by status/i })).toBeInTheDocument();
+  });
+
+  it('offers only the ACTIVE statuses — the cleared two could never match', () => {
+    /**
+     * THE assertion of this block. This panel's query is pinned to
+     * `state=ACTIVE`, and `quadrantWhere('cleared-…')` emits `state: 'CLEARED'`;
+     * ANDed together they match nothing, always. Offering them would be two
+     * options that can only empty the table, reading as a filter that found
+     * nothing rather than one that could not.
+     */
+    renderWith([active]);
+    const status = screen.getByRole('combobox', { name: /filter by status/i });
+    const labels = within(status).getAllByRole('option').map((o) => o.textContent);
+    expect(labels).toEqual(['All statuses', 'Active Acknowledged', 'Active Unacknowledged']);
+    expect(labels.some((l) => /cleared/i.test(l ?? ''))).toBe(false);
+  });
+
+  it('sends each filter to the SERVER, not to the rows in hand', () => {
+    // A client-side filter on a paged panel narrows ONE PAGE while reading as a
+    // filter of the selection — the defect the Alarms page was rebuilt to remove.
+    renderWith([active]);
+    fireEvent.change(screen.getByRole('searchbox', { name: /search the active alarms/i }), {
+      target: { value: 'CWH/RDU/006' },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: /filter by status/i }), {
+      target: { value: 'active-unack' },
+    });
+    const q = new URL(alarmsKey!, 'https://x').searchParams;
+    expect(q.get('search')).toBe('CWH/RDU/006');
+    expect(q.get('status')).toBe('active-unack');
+    // And the scope is still the panel's own.
+    expect(q.get('state')).toBe('ACTIVE');
+  });
+
+  it('omits an untouched control rather than sending an empty value', () => {
+    // An empty `type=` is a filter the server has to decide how to read. Not
+    // sending it is the only form that cannot be misread.
+    renderWith([active]);
+    const q = new URL(alarmsKey!, 'https://x').searchParams;
+    expect(q.has('search')).toBe(false);
+    expect(q.has('type')).toBe(false);
+    expect(q.has('status')).toBe(false);
+  });
+
+  it('returns to page 1 when a filter changes', () => {
+    // Page 4 of a five-page result is an empty table once a filter narrows it to
+    // two, and an empty table reads as "no alarms" rather than "wrong page".
+    renderWith([active], 200);
+    fireEvent.click(screen.getByRole('button', { name: /next page/i }));
+    expect(new URL(alarmsKey!, 'https://x').searchParams.get('page')).toBe('2');
+
+    fireEvent.change(screen.getByRole('combobox', { name: /filter by alarm type/i }), {
+      target: { value: 'TEMP_HIGH' },
+    });
+    expect(new URL(alarmsKey!, 'https://x').searchParams.get('page')).toBe('1');
+  });
+});

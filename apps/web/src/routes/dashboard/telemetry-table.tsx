@@ -1,8 +1,10 @@
 import { useMemo, useState, type ReactElement } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { readingAge, oldestReadingTs } from './status';
 import { formatSetPoint, outOfSpec, faultWord, NOT_AVAILABLE } from './set-point';
 import { useSensorWords } from '@/hooks/use-failure-text';
+import { usePanelToolbarSlot } from './panel-card';
 import { formatDecimals } from '@digilog/shared';
 import {
   useTelemetryOverview,
@@ -254,6 +256,7 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
   // The administered word for a failed sensor. One hook, so the table, the
   // tiles and the Alarms page cannot show three different words for one fault.
   const sensorWords = useSensorWords();
+  const toolbarSlot = usePanelToolbarSlot();
   const { rows, isLoading, error } = useTelemetryOverview({ functionalLocationId, directOnly });
   const [sort, setSort] = useState<SortKey>('code');
   const [asc, setAsc] = useState(true);
@@ -334,86 +337,106 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
   const sortable = 'cursor-pointer select-none';
   const activeFilters = (statusFilter !== 'all' ? 1 : 0) + (breachOnly ? 1 : 0);
 
+  /**
+   * The search and the Filters disclosure, lifted into the CARD HEADER beside the
+   * title (operator, 2026-09-01: *"give titles and filters in same line … dont
+   * give in seperate lines, for all widgets"*).
+   *
+   * The title belongs to `PanelCard` and the controls belong here, so they were
+   * two components and therefore two rows. `usePanelToolbarSlot()` is a portal
+   * into that header; when it returns null — this component rendered on its own,
+   * as the tests do — the row draws inline exactly where it used to, so the
+   * search box is never missing.
+   *
+   * The wrapper lost `justify-between` and `flex-wrap` on the way up: in the
+   * header it is ONE group that the slot's own `ml-auto` pushes right, and a row
+   * allowed to wrap there would put the card back on two lines, which is the
+   * thing being fixed. The search box narrows from `max-w-sm` to `w-44` to fit.
+   */
+  const toolbarRow = (
+        <div className="flex flex-nowrap items-center gap-2">
+          {/* Search, with the magnifier inside the field as the reference has it. */}
+          <div className="relative w-44">
+            <svg
+              aria-hidden="true"
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+              fill="none" stroke="currentColor" viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" />
+            </svg>
+            <input
+              value={query}
+              onChange={(e) => { setQuery(e.target.value); setPage(1); }}
+              /* The placeholder names every VISIBLE COLUMN the box matches — which
+                 is the direction the rule runs. It exists to catch a column the
+                 reader can see and the search silently ignores; it is NOT a
+                 requirement to list fields with no column. `name` and the drawn
+                 room are still matched (see the predicate above) and are
+                 deliberately unnamed here: `name` prints the SAME string the
+                 Location column does on every instrument carrying the attribute,
+                 so naming it would advertise three things for one column. Same
+                 call the Alarms page makes — it matches the room code and says
+                 "instrument ID, name or location". */
+              placeholder="Filter by instrument, area or location&hellip;"
+              className="ctl w-full !pl-9"
+              style={{ ['--tw-ring-color' as string]: 'var(--theme-primary)' } as React.CSSProperties}
+            />
+          </div>
+
+          {/* Filters. A visible control that did nothing would be worse than no
+              control, so it carries the two questions this table can actually
+              answer from the payload already in hand. */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowFilters((v) => !v)}
+              aria-expanded={showFilters}
+              className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium shadow-sm transition-colors ${
+                activeFilters > 0
+                  ? 'border-blue-300 bg-blue-50 text-blue-700'
+                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <svg aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M7 12h10M10 18h4" />
+              </svg>
+              Filters
+              {activeFilters > 0 && (
+                <span className="rounded-full bg-blue-600 px-1.5 text-[0.625rem] font-bold text-white">{activeFilters}</span>
+              )}
+            </button>
+            {showFilters && (
+              <div className="absolute left-0 z-20 mt-2 w-56 rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
+                <p className="mb-1.5 text-[0.6875rem] font-bold uppercase tracking-wider text-slate-400">Status</p>
+                {(['all', 'online', 'offline'] as const).map((v) => (
+                  <label key={v} className="flex cursor-pointer items-center gap-2 py-1 text-sm text-slate-700">
+                    <input
+                      type="radio"
+                      name="tv-status"
+                      checked={statusFilter === v}
+                      onChange={() => { setStatusFilter(v); setPage(1); }}
+                    />
+                    {v === 'all' ? 'All' : v === 'online' ? 'Online' : 'Offline'}
+                  </label>
+                ))}
+                <label className="mt-2 flex cursor-pointer items-center gap-2 border-t border-slate-100 pt-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={breachOnly}
+                    onChange={(e) => { setBreachOnly(e.target.checked); setPage(1); }}
+                  />
+                  Out of spec only
+                </label>
+              </div>
+            )}
+          </div>
+
+        </div>
+  );
+
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        {/* Search, with the magnifier inside the field as the reference has it. */}
-        <div className="relative w-full max-w-sm">
-          <svg
-            aria-hidden="true"
-            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
-            fill="none" stroke="currentColor" viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" />
-          </svg>
-          <input
-            value={query}
-            onChange={(e) => { setQuery(e.target.value); setPage(1); }}
-            /* The placeholder names every VISIBLE COLUMN the box matches — which
-               is the direction the rule runs. It exists to catch a column the
-               reader can see and the search silently ignores; it is NOT a
-               requirement to list fields with no column. `name` and the drawn
-               room are still matched (see the predicate above) and are
-               deliberately unnamed here: `name` prints the SAME string the
-               Location column does on every instrument carrying the attribute,
-               so naming it would advertise three things for one column. Same
-               call the Alarms page makes — it matches the room code and says
-               "instrument ID, name or location". */
-            placeholder="Filter by instrument, area or location&hellip;"
-            className="ctl w-full !pl-9"
-            style={{ ['--tw-ring-color' as string]: 'var(--theme-primary)' } as React.CSSProperties}
-          />
-        </div>
-
-        {/* Filters. A visible control that did nothing would be worse than no
-            control, so it carries the two questions this table can actually
-            answer from the payload already in hand. */}
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setShowFilters((v) => !v)}
-            aria-expanded={showFilters}
-            className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium shadow-sm transition-colors ${
-              activeFilters > 0
-                ? 'border-blue-300 bg-blue-50 text-blue-700'
-                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-            }`}
-          >
-            <svg aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M7 12h10M10 18h4" />
-            </svg>
-            Filters
-            {activeFilters > 0 && (
-              <span className="rounded-full bg-blue-600 px-1.5 text-[0.625rem] font-bold text-white">{activeFilters}</span>
-            )}
-          </button>
-          {showFilters && (
-            <div className="absolute left-0 z-20 mt-2 w-56 rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
-              <p className="mb-1.5 text-[0.6875rem] font-bold uppercase tracking-wider text-slate-400">Status</p>
-              {(['all', 'online', 'offline'] as const).map((v) => (
-                <label key={v} className="flex cursor-pointer items-center gap-2 py-1 text-sm text-slate-700">
-                  <input
-                    type="radio"
-                    name="tv-status"
-                    checked={statusFilter === v}
-                    onChange={() => { setStatusFilter(v); setPage(1); }}
-                  />
-                  {v === 'all' ? 'All' : v === 'online' ? 'Online' : 'Offline'}
-                </label>
-              ))}
-              <label className="mt-2 flex cursor-pointer items-center gap-2 border-t border-slate-100 pt-2 text-sm text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={breachOnly}
-                  onChange={(e) => { setBreachOnly(e.target.checked); setPage(1); }}
-                />
-                Out of spec only
-              </label>
-            </div>
-          )}
-        </div>
-
-      </div>
+      {toolbarSlot ? createPortal(toolbarRow, toolbarSlot) : toolbarRow}
 
       <div className="overflow-hidden overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-elevated">
         <table className="min-w-full table-fixed border-collapse">

@@ -222,6 +222,16 @@ export const instrumentQuerySchema = z.object({
   area: z.string().optional(),
   location: z.string().optional(),
   isGateway: z.enum(['true', 'false']).optional(),
+  /**
+   * Scope the list to a FUNCTIONAL LOCATION — a Block or an Area.
+   *
+   * NOT the `block`/`area` params above: those match the SUPERSEDED free-text
+   * `Instrument.block` / `.area` columns, which are no longer read for grouping.
+   * This one is the authoritative tree, and a Block resolves to ITS OWN
+   * instruments plus every Area beneath it, server-side through
+   * `resolveLocationIds()` — the expansion a client must never re-derive.
+   */
+  functionalLocationId: z.string().uuid().optional(),
   // Scopes the list to one profile. Filtered SERVER-side on purpose: doing it
   // in the browser left the pagination footer counting the unfiltered set, so
   // an empty profile announced "Showing 1–10 of 15".

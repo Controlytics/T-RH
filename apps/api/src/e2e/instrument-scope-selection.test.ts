@@ -651,3 +651,97 @@ describe('functional location tree counts', () => {
     expect(blocks.find((b) => b.id === otherBlockId)!.totalCount).toBe(1);
   });
 });
+
+describe('GET /api/instruments?functionalLocationId — the Alarms page filters', () => {
+  /**
+   * Added 2026-09-01 so the Alarms page can offer Block / Area / Instrument
+   * pickers whose instrument list is narrowed BY THE SERVER.
+   *
+   * NOT the `block`/`area` query params beside it: those match the SUPERSEDED
+   * free-text `Instrument.block` / `.area` columns, which are no longer read for
+   * grouping. This one is the authoritative tree.
+   */
+  const list = async (qs: string, headers = auth) => {
+    const res = await app.inject({ method: 'GET', url: `/api/instruments?limit=500&${qs}`, headers });
+    expect(res.statusCode).toBe(200);
+    return (res.json() as { data: { id: string }[] }).data.map((i) => i.id);
+  };
+
+  it('resolves a BLOCK to the instruments in its AREAS', async () => {
+    /**
+     * THE assertion. `inAreaId` is pinned to the Area, and NOTHING is pinned to
+     * the Block itself — which is the shape of this whole installation. A bare
+     * `functionalLocationId = <block>` equality returns an empty list and looks
+     * like a working filter over an empty plant.
+     */
+    const ids = await list(`functionalLocationId=${blockId}`);
+    expect(ids).toContain(inAreaId);
+    expect(ids).not.toContain(elsewhereId);
+    expect(ids).not.toContain(unplacedId);
+  });
+
+  it('resolves an AREA to its own instruments', async () => {
+    const ids = await list(`functionalLocationId=${areaId}`);
+    expect(ids).toContain(inAreaId);
+    expect(ids).not.toContain(elsewhereId);
+  });
+
+  it('returns nothing for a location holding no instruments', async () => {
+    expect(await list(`functionalLocationId=${otherBlockId}`)).not.toContain(inAreaId);
+  });
+
+  it('lists everything placed and unplaced when no location is given', async () => {
+    // The filter must be opt-in: an absent parameter is not an empty one.
+    const ids = await list('');
+    expect(ids).toEqual(expect.arrayContaining([inAreaId, elsewhereId, unplacedId]));
+  });
+
+  it('rejects a malformed id rather than silently ignoring it', async () => {
+    // A filter quietly dropped would list the whole plant while the picker showed
+    // one Area — the operator would be choosing from instruments outside it.
+    const res = await app.inject({
+      method: 'GET', url: '/api/instruments?functionalLocationId=not-a-uuid', headers: auth,
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('cannot widen a restricted caller past their own scope', async () => {
+    // The filter ANDs with visibility. Asking for a Block they cannot see returns
+    // nothing, rather than revealing it.
+    await storeRoleScope({ locationIds: [], instrumentIds: [] });
+    const operator = { authorization: `Bearer ${await loginAs(app, 'RB0001', 'Test@1234')}` };
+    expect(await list(`functionalLocationId=${blockId}`, operator)).toEqual([]);
+  });
+});
+
+describe('GET /api/instruments — functionalLocationId survives the response filter', () => {
+  /**
+   * Declared in `instrumentProps` on 2026-09-01. The query already selected the
+   * whole model, so the value existed and Fastify was stripping it silently —
+   * the failure mode this repo has now hit SIX times.
+   *
+   * The Alarm Report needs it: a single-instrument download names that
+   * instrument's Block and Area in its header, and without this both printed
+   * blank because neither control had been touched.
+   */
+  it('returns the placement of a placed instrument', async () => {
+    const res = await app.inject({
+      method: 'GET', url: `/api/instruments?limit=500&functionalLocationId=${areaId}`, headers: auth,
+    });
+    expect(res.statusCode).toBe(200);
+    const row = (res.json() as { data: { id: string; functionalLocationId?: string }[] })
+      .data.find((i) => i.id === inAreaId);
+    expect(row).toBeDefined();
+    expect(row!.functionalLocationId).toBe(areaId);
+  });
+
+  it('returns null for an instrument that is not placed', async () => {
+    // Not absent — the report prints a dash for it, and an absent key and a null
+    // are different things to a client that checks.
+    const res = await app.inject({ method: 'GET', url: '/api/instruments?limit=500', headers: auth });
+    const row = (res.json() as { data: { id: string; functionalLocationId?: string | null }[] })
+      .data.find((i) => i.id === unplacedId);
+    expect(row).toBeDefined();
+    expect(row!.functionalLocationId ?? null).toBeNull();
+  });
+});
