@@ -6,6 +6,7 @@ import { auditQuerySchema } from '@digilog/shared';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { verifyAuditChain } from '../../lib/audit-verify.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
+import { resolvePageSize } from '../../lib/page-size.js';
 import {
   withAuditDeletesAllowed,
   isHardDeleteEnabled,
@@ -36,7 +37,7 @@ export default async function auditRoutes(app: FastifyInstance) {
         type: 'object',
         properties: {
           page: { type: 'integer', minimum: 1, default: 1, description: 'Page number' },
-          limit: { type: 'integer', minimum: 1, maximum: 200, default: 20, description: 'Records per page (capped at 200 to prevent unbounded table dump)' },
+          limit: { type: 'integer', minimum: 1, default: 20, description: 'Records per page. NO maximum (operator, 2026-09-02) — see lib/page-size.ts.' },
           period: { type: 'string', enum: ['today', 'week', 'month', 'quarter', 'year', 'all'], description: 'Predefined date period filter' },
           startDate: { type: 'string', description: 'Start date for custom range (ISO 8601)' },
           endDate: { type: 'string', description: 'End date for custom range (ISO 8601)' },
@@ -161,10 +162,14 @@ export default async function auditRoutes(app: FastifyInstance) {
     const orderByField = validSortFields.includes(sortField) ? sortField : 'timestamp';
     const orderByDir = sortDir === 'asc' ? 'asc' : 'desc';
 
-    // Defensive cap: even if Zod schema is bypassed, never pull more than 200 rows.
-    // Audit-trail is hash-chained + monotonic — without a cap, any AUDIT_READ caller
-    // can pull the entire table in one response (DoS surface).
-    const effectiveLimit = Math.min(Math.max(query.limit ?? 20, 1), 200);
+    // NO ceiling (operator, 2026-09-02). This was `Math.min(…, 200)` and its comment
+    // called an unbounded pull a DoS surface — but the caller already holds
+    // AUDIT_READ, i.e. permission to read every one of these rows 200 at a time, so
+    // the cap bought pagination discipline rather than protection. What it cost was
+    // worse on a §11 table than what it bought: asking for 1,000 rows returned 200
+    // with nothing to say so. `total` is returned beside the records, which is how a
+    // client tells a full set from a partial one. See lib/page-size.ts.
+    const effectiveLimit = resolvePageSize(query.limit, 20);
 
     const [records, total] = await Promise.all([
       prisma.auditTrail.findMany({

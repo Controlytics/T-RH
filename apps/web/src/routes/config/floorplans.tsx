@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { RoomDoor, DoorWall, DoorKind } from '@/routes/dashboard/room-geometry';
 import { ROOM_GRADES, ROOM_GRADE_META } from '@/routes/dashboard/use-telemetry';
 import { PageHeader } from '@/components/ui/page-header';
+import { ALL_RECORDS_PARAM } from '@digilog/shared';
 
 /**
  * Place rooms on a floor layout and give each one its environmental limits.
@@ -101,7 +102,7 @@ export function FloorplansConfigPage() {
   const { toast } = useToast();
   const reauth = useReauth();
   const { data: planData, mutate: mutatePlans } = useSWR<{ data: Plan[] }>('/api/floorplans');
-  const { data: instrumentData } = useSWR<{ data: InstrumentRow[] }>('/api/instruments?limit=500');
+  const { data: instrumentData } = useSWR<{ data: InstrumentRow[] }>(`/api/instruments?${ALL_RECORDS_PARAM}`);
 
   const plans = planData?.data ?? [];
   const instruments = useMemo(

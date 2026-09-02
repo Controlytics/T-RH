@@ -41,7 +41,12 @@ export const userQuerySchema = z.object({
   // recipient pickers (notification rules, send-for-review) need the WHOLE user
   // list in one request and silently truncating it drops selectable recipients —
   // a real install of this codebase runs 156 users, so 100 was not enough.
-  limit: z.coerce.number().min(1).max(500).default(20),
+  // The `.max(500)` here is GONE (operator, 2026-09-02). Its own comment above
+  // described the defect it was still causing: pickers need the whole user list
+  // and "silently truncating it drops selectable recipients — a real install runs
+  // 156 users, so 100 was not enough". 500 was the same bet with a bigger number.
+  // The callers now ask for everything explicitly (ALL_RECORDS).
+  limit: z.coerce.number().min(1).default(20),
 });
 
 export const bulkDeleteUsersSchema = z.object({

@@ -1,6 +1,7 @@
 import { type FastifyInstance } from 'fastify';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
+import { resolvePageSize } from '../../lib/page-size.js';
 import { auditLog } from '../../lib/audit.js';
 import { buildContext } from '../../lib/build-context.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
@@ -641,7 +642,7 @@ export default async function alarmWebhookRoutes(app: FastifyInstance) {
     const target = await prisma.alarmWebhookTarget.findUnique({ where: { id }, select: { id: true } });
     if (!target) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Alarm webhook target not found.' });
 
-    const take = Math.min(Math.max(q.limit ?? 50, 1), 200);
+    const take = resolvePageSize(q.limit, 50);   // no ceiling — see lib/page-size.ts
     const skip = Math.max(q.offset ?? 0, 0);
     const base: Prisma.AlarmWebhookDeliveryWhereInput = {
       targetId: id,

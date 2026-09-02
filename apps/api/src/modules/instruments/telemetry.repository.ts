@@ -25,6 +25,7 @@
  *    stamp on telemetry rows.
  */
 import { Prisma } from '@prisma/client';
+import { resolvePageSize } from '../../lib/page-size.js';
 import { prisma } from '../../lib/prisma.js';
 import type { Reading } from './payload-parser.js';
 
@@ -96,7 +97,13 @@ export async function getLatest(instrumentId: string): Promise<TelemetryRow[]> {
 export async function getHistory(opts: {
   instrumentId: string; key?: string; from?: Date; to?: Date; limit?: number; offset?: number;
 }): Promise<{ rows: TelemetryRow[]; total: number }> {
-  const limit = Math.min(opts.limit ?? 100, 1000);
+  // NO ceiling (operator, 2026-09-02). This `Math.min(…, 1000)` is the exact cap
+  // recorded in CLAUDE.md as the trend page's truncation defect: with `ORDER BY ts
+  // DESC` it silently returned the newest 1,000 readings for ANY range, so a 7-day
+  // chart plotted roughly the last day while the axis claimed a week. The chart was
+  // given its own `points` path to escape it; the TABLE path was left capped.
+  // `total` is the true count in range and is returned beside the rows.
+  const limit = resolvePageSize(opts.limit, 100);
   const offset = opts.offset ?? 0;
   const where = Prisma.sql`
     WHERE instrument_id = ${opts.instrumentId}

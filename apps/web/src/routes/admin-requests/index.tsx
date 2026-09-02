@@ -17,6 +17,11 @@ const TYPE_CFG: Record<string, { label: string; bg: string; text: string; border
   MODIFY_USER: { label: 'Modify User', bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', icon: '~' },
   UNLOCK: { label: 'Unlock Account', bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', icon: '!' },
   FORGOT_PASSWORD: { label: 'Forgot Password', bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200', icon: '?' },
+  // Enable/Disable (2026-09-02). Green for the one that restores access, slate for
+  // the one that removes it — never red, which this page uses for Unlock, an
+  // urgent-but-benign request. A disable is deliberate, not an alarm.
+  ENABLE_ACCOUNT: { label: 'Enable Account', bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', icon: '✓' },
+  DISABLE_ACCOUNT: { label: 'Disable Account', bg: 'bg-slate-100', text: 'text-slate-700', border: 'border-slate-300', icon: '⊘' },
 };
 
 const STATUS_CFG: Record<string, { label: string; bg: string; text: string; border: string; dot: string }> = {
@@ -59,7 +64,11 @@ export function AdminRequestsPage() {
   const [selectedRequest, setSelectedRequest] = useState<any>(null);
   const [adminRemarks, setAdminRemarks] = useState('');
   const [processing, setProcessing] = useState(false);
-  const [approvalResult, setApprovalResult] = useState<{ username?: string; temporaryPassword?: string; message?: string; requestType?: string } | null>(null);
+  // `changed === false` means the approval was recorded but the account was
+  // ALREADY in the state asked for, so nothing was done (operator, 2026-09-02).
+  // Read from the server's answer, never re-derived here — the browser cannot know
+  // what state the account was in.
+  const [approvalResult, setApprovalResult] = useState<{ username?: string; temporaryPassword?: string; message?: string; requestType?: string; changed?: boolean } | null>(null);
   const [copied, setCopied] = useState<string>('');
 
   // A11y (M83): both overlays below are hand-rolled rather than the shared
@@ -143,6 +152,9 @@ export function AdminRequestsPage() {
               temporaryPassword: response.temporaryPassword,
               message: response.message,
               requestType: reqType,
+              // The server's answer, carried verbatim. A no-op approval returns a
+              // username (so this dialog opens) but performed nothing.
+              changed: response.changed,
             });
           } else {
             toast.success(
@@ -193,6 +205,8 @@ export function AdminRequestsPage() {
         break;
       case 'UNLOCK':
       case 'FORGOT_PASSWORD':
+      case 'ENABLE_ACCOUNT':
+      case 'DISABLE_ACCOUNT':
         fields.push(['Username', rd.username]);
         break;
       default:
@@ -541,15 +555,29 @@ export function AdminRequestsPage() {
               aria-label="Request processed"
               className="bg-white rounded-[var(--radius-card)] shadow-[var(--elev-3)] w-full max-w-md overflow-hidden focus:outline-none"
             >
-              <div className="px-6 py-5 bg-gradient-to-br from-emerald-500 to-teal-600 text-white">
+              {/*
+                A no-op approval gets its OWN heading and colour. The green tick and
+                "Request Approved" over "Account X was not locked" is the defect the
+                operator reported — the dialog asserted an action the system had
+                deliberately not performed. Slate + an information glyph, because
+                nothing went wrong either: the request was answered, and the answer
+                is that there was nothing to do.
+              */}
+              <div className={`px-6 py-5 text-white ${approvalResult.changed === false
+                ? 'bg-gradient-to-br from-slate-500 to-slate-600'
+                : 'bg-gradient-to-br from-emerald-500 to-teal-600'}`}>
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      {approvalResult.changed === false
+                        ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />}
                     </svg>
                   </div>
                   <div>
-                    <h3 className="text-lg font-bold">Request Approved</h3>
+                    <h3 className="text-lg font-bold">
+                      {approvalResult.changed === false ? 'Approved — no change needed' : 'Request Approved'}
+                    </h3>
                     <p className="text-[0.75rem] text-white/80">{approvalResult.message ?? 'Action completed successfully.'}</p>
                   </div>
                 </div>

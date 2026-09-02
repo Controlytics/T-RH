@@ -1,5 +1,271 @@
 # Changelog
 
+## [Unreleased] - The record ceilings I missed the first time (2026-09-02)
+
+Operator asked whether the limits were gone from *everywhere* — every screen,
+table and widget. They were not. The first pass removed eight `Math.min` clamps
+in `apps/api/src` and stopped there. Two gaps:
+
+**1. `packages/shared` was never swept.** Two zod schemas capped at 500:
+`schemas/instruments.ts` and `schemas/users.ts`. A `.max()` REJECTS with a 400
+rather than clamping, so it is at least loud — but it still stops a caller asking
+for the whole set. This is the same blind spot recorded in memory as *"a green WEB
+suite says nothing about a SHARED-package change"*: a grep scoped to `apps/api/src`
+says nothing about `packages/shared` either.
+
+The comment above `usersListQuerySchema.limit` argued its own case away: the
+pickers "need the WHOLE user list in one request and silently truncating it drops
+selectable recipients — a real install runs 156 users, so 100 was not enough".
+That is an argument against having a ceiling, not for a bigger one.
+
+**2. Ten CLIENT call sites still asked for a capped number**, so screens stayed
+capped even with the server uncapped — `limit=500` on the user and instrument
+pickers, `limit=200` on the gateway picker, `limit=50` on instrument telemetry,
+`limit=20` on dead letters. Before this work those hit a 500 server ceiling
+anyway; afterwards they were the only thing still cutting the list.
+
+All ten now send `ALL_RECORDS` (`packages/shared/src/types/all-records.ts`) — one
+named constant, so `grep ALL_RECORDS` lists every screen that depends on being
+complete, and the next person changes one line instead of ten. It is a SATURATION
+value, not a limit: the server has had no ceiling since this morning, so it only
+has to exceed the data. `?limit` cannot simply be omitted — `/api/users` and
+`/api/instruments` DEFAULT to 20, so dropping it shows fewer rows, not more.
+
+### Still capped, deliberately — say so rather than leave them found-but-unmentioned
+
+- **`CHART_HARD_CAP = 200_000`** — a backstop on the chart path's row read. It
+  DISCLOSES when hit (`historySampled`), and at ~2,300 readings per instrument it
+  cannot fire here.
+- **`points` 1..5000** — how many points the chart PLOTS after sampling, not how
+  many records are read, and already a 400 rather than a silent clamp.
+- **`maxAnomalies` 10,000** — audit-chain verification scan.
+- **Pagination config `limit` max 1,000** — bounds what an admin may type as
+  "Maximum Page Size"; a config value, not a request.
+- **`maxLength: 500` on an acknowledge reason** — a text field. Overflow throws
+  INSIDE `auditLog`, after the act it describes, leaving a regulated action with
+  no audit row.
+- **The alarm report's 5,000 rows** — an A4 document that discloses its own
+  shortfall on the page.
+
+### Also found
+
+`routes/config/alarm-rule-dialog.tsx` is DEAD — imported only by its own test,
+left behind when alarm rules were removed on 2026-08-31. It still carries a
+`limit=500`, which is why it surfaced. Not deleted here; flagged.
+
+Evidence: api + web + shared typecheck clean. **1,111 API tests across 88 files**;
+**354 shared tests across 24 files** (one pinned the old cap — "rejects limit over
+500" — and was rewritten, which is the shared suite doing its job); every touched
+web file passes INDIVIDUALLY, 30 for 30.
+
+**A directory-level web run reported ~180 failures and it is NOT this change.**
+Stashing the three instrument edits and re-running gave 181 failures on the same
+tree, and all 24 files pass one at a time. Same contention documented for
+subfolder runs; per-file exit codes are the measurement that means anything here.
+
+## [Unreleased] - Admin requests: what the audit says, and refusing to act twice (2026-09-02)
+
+Operator, three asks. The middle one turned out to be a §11 defect with a cause
+nowhere near where it showed.
+
+### The audit record names the ACCOUNT, not just whoever asked
+
+It read `Admin request approved — "Create User — Admin User (101010)" by 101010`.
+Both halves named the same person and neither named the account the request was
+about. In the operator's own case **the requester was 101020 and the approver
+101010** — two people. It now reads:
+
+    Admin request approved — "Create User — 900123 (Operator),
+    requested by Admin User (101010)" by 101010
+
+Three facts instead of one: the operation, the target account and its role, and
+who asked. `by {actor}` is unchanged — it was always `ctx.userId`, the admin who
+re-authenticated, i.e. the VERIFIED identity. The submitted record gets the same
+treatment, and both carry `targetUsername`/`targetRole` as their own fields so a
+reader can filter without parsing a sentence. One helper
+(`describe-request.ts`) builds all three record types, so they cannot describe one
+request differently. It CLAMPS: `audit_trail.signature_meaning` is VARCHAR(255)
+and the throw on overflow happens INSIDE `auditLog`, after the act it describes.
+
+### Approving an unlock for an account that was never locked
+
+*"user requested for account unlock but that account was actually not locked, when
+admin approve that request account is showing unlocked"*.
+
+The screen was the symptom. **The defect is the §11 record**: `executeApproval`
+called `userService.unlock()` unconditionally, and that method clears the lock,
+sets ENABLED, zeroes the failure count, issues a temporary password and writes an
+`ACCOUNT_UNLOCKED` audit row — none of it conditional on a lock existing. A
+regulated record asserted an administrative act that did not happen.
+
+**The cause is not where it looks.** `contact-admin.tsx` already had a guard —
+`requestType === 'UNLOCK' && lookupUser?.status === 'ENABLED'` — and it could
+never fire. `GET /admin-requests/user-lookup` returns `{exists, username}` and
+nothing else: status/role/email/department were dropped by the 2026-05-20 delta
+audit (H1) and `fullName` by the 2026-08-29 audit (M1), because an
+unauthenticated response that varies with the account is a directory enumeration
+oracle. So the field was permanently `''`.
+
+**The guard is at APPROVAL now** (`admin-requests/account-state.ts`), where the
+caller is authenticated and entitled to see the account — and where it can be
+correct at all, since an account's state can change between submission and
+approval. `status` was NOT put back on the public endpoint.
+
+- A no-op approval is APPROVED, not REJECTED: the admin did approve it, the
+  system had nothing to do. Rejecting would assert a refusal on the merits.
+- No `ACCOUNT_*` audit row is written when nothing changed; the approval's own
+  record carries `stateChanged: false` and the outcome text.
+- No temporary password is issued — the requester asked for an unlock, not a
+  credential change.
+- `EXPIRED` and `DISABLED` are NOT treated as locked. Both mean "cannot sign in",
+  and clearing one to satisfy an unlock request would grant access on an
+  authority nobody gave.
+- The dialog gets its own heading and colour for this case. A green tick over
+  "Account X was not locked" is the reported defect restated.
+
+### Enable Account / Disable Account
+
+Two new request types, guarded by the same helper: already enabled + asked to
+enable, or already disabled + asked to disable, changes nothing and says so.
+`userService.enable()`/`.disable()` already existed. `APPROVE_ADMIN_REQUEST`
+covers them — it is type-agnostic — so no new permission or reauth action.
+
+### Two live defects found on the way, both in the same dead-data family
+
+- **The contact-admin form 400'd on EVERY submission.** It sent
+  `requesterName: (requesterUser?.fullName ?? requesterName).trim()`, and
+  `fullName` is `''` on every verified lookup. `??` falls back only on
+  null/undefined, **not** on an empty string, so a verified requester submitted
+  `requesterName: ""` against a route declaring `minLength: 1`. The records the
+  operator quoted came from a build predating the August PII change. `??` after a
+  field that can be `''` is the shape to distrust.
+- **A "Current User Details" panel rendered five blank values**, and a disabled
+  "Current Value" box in the modify flow rendered a sixth — all reading fields
+  the endpoint stopped returning. `LookupUser` is now typed as what the API
+  actually sends (`{username}`), which is what surfaced all of them; narrowing
+  the type produced twelve compile errors, every one a dead read.
+
+Counts: no model, enum, migration, permission, reauth action, config def, module
+or route added. Two new request-type STRINGS in an existing enum-in-schema.
+
+Evidence: api + web typecheck clean; **1,111 API unit tests across 88 files**;
+32 e2e in `admin-requests.e2e.test.ts`, which assert against the AUDIT TRAIL and
+not only the response body. Mutation-checked twice — bypassing the state guard
+fails the three no-op e2e, and making unlock unconditional again fails three unit
+tests. **Not seen on screen.**
+
+## [Unreleased] - The backend no longer caps how many records it returns (2026-09-02)
+
+Operator: *"dont put any limits in any widgets or any cards or any tables show
+this much of records, what ever records are there all records should show in
+everywhere"*, clarified as **the backend limits, not the pager**. Pagination is
+untouched — every screen still pages exactly as it did.
+
+**Eight silent `Math.min` clamps removed**, replaced by one definition,
+`lib/page-size.ts:resolvePageSize`:
+
+| surface | was |
+|---|---|
+| `GET /api/alarms` (`ALARM_PAGE_SIZE_MAX`) | 500 |
+| `GET /api/audit` | 200, plus a schema `maximum: 200` |
+| `GET /api/instruments/:id/telemetry` | 500 |
+| `telemetry.repository.getHistory` | 1000 |
+| `GET /api/instruments/:id/dead-letters` | 200 |
+| `GET /api/alarm-webhooks/:id/deliveries` | 200 |
+| `GET /api/debug-traces` | 200 |
+| super-admin `paginatedList` | 100 |
+
+Plus the zod `.max(500)` on the notification list.
+
+**Why a ceiling was the wrong shape, not merely an inconvenient number.** Every
+one was `Math.min`, so a client asking for 5,000 rows got 500 **and was told
+nothing** — the same array shape, no flag, no error. There is no way for a caller
+to tell "there were exactly 500" from "there were 40,000 and you got the newest
+500". This repo has shipped that defect twice already, both recorded: the trend
+chart's `ORDER BY ts DESC` cap that plotted the last DAY of a 7-day range, and
+the Alarms page's client-side counts over `?limit=500` whose state boxes read as
+plant-wide totals. `total` still rides beside the rows everywhere, and that —
+not a cap — is what makes truncation detectable.
+
+**A documented decision was knowingly reversed.** `apps/api/CLAUDE.md` recorded
+"The 1000-row cap in `getHistory` STAYS for that path" when the chart was given
+its own `points` route in August. That line is now corrected in place rather than
+deleted, so the reversal is visible.
+
+**Three caps deliberately KEPT, because they are not record counts:** `points`
+(1..5000, the chart's LTTB plot-point budget — and already a 400 rather than a
+silent clamp), the report's 5,000-row ceiling (an A4 document, and it discloses
+its own shortfall on the page), and `maxLength: 500` on an acknowledge reason (a
+text field, whose overflow throws INSIDE `auditLog` and would leave a regulated
+action with no audit row).
+
+**The lower bound STAYS and is not a cap:** 0, negatives and unparseable values
+fall back to the endpoint's default. Postgres errors on a negative LIMIT, so
+passing one through turns a client typo into a 500.
+
+**The cost, stated rather than defended.** A caller may now request an entire
+table in one response. On this installation that is 154 alarms, 4,632 audit rows,
+101 instruments — nothing. The one place it bites is
+`instrument_telemetry_history`: 226,600 rows overall, ~2,300 per instrument
+today, growing 1,000–5,000 per instrument per day once ingest resumes. Asking for
+all of it in one request will be slow and will hold the whole result in memory at
+both ends. That is now the caller's decision, which is the point — the previous
+design made it silently, and made it wrong.
+
+**One pre-existing bug fixed in passing**, in a function this change touched:
+super-admin's `paginatedList` read `Number(query.page ?? 1)` with no lower bound,
+so `?page=0` produced `skip: -limit` and Postgres rejects a negative OFFSET — a
+client typo surfaced as a 500. Every sibling list route already guarded it. NOT
+introduced by the ceiling removal.
+
+Evidence: API and web typecheck clean; 1,087 unit tests across 86 files pass
+(re-run after every edit, including the fix above); 30 e2e in
+`alarm-list-filters` pass. The e2e that carries the property builds **501**
+CLEARED alarms on its own instrument and tears them down again — a six-row
+fixture cannot tell a removed ceiling from a present one. Mutation-checked by
+restoring `Math.min(floored, 500)`: 4 unit tests fail, and the e2e fails with
+`expected … to have a length of 501 but got 500`, which is the truncation itself.
+
+## [Unreleased] - Alarm report: a switched-off bound is not printed (2026-09-02)
+
+Operator: *"if temperature and humidity NMT and NLT s are true then show both High
+and low limits in the alarm report, if any one is disabled then dont show that
+limits in report"*.
+
+NMT is the HIGH bound and NLT the LOW one — the plant's own vocabulary, mapped in
+`ALARM_LIMIT_ENABLE_KEYS_DEFAULT`. A bound whose enable attribute was off at raise
+time now prints a dash instead of a word. Both bounds print when both are on,
+which already worked and is now pinned in both directions.
+
+**This REVERSES the administered `disabledLimitText` asked for the day before**
+("show NA in report … for only disabled limits"). That setting now has NO consumer.
+It is deliberately left in place rather than removed: it is a config def, removing
+one is a twelve-touchpoint job, and it is the operator's call — flagged to them
+rather than swept.
+
+**`N/A` survives, and the distinction is the whole difficulty.** A disabled bound
+and a bound nobody ever administered both freeze as a null threshold. Only the
+frozen `highEnabled`/`lowEnabled` flags tell them apart, so a row raised before
+those existed falls through to `N/A`, which claims nothing. **Reading the
+instrument's CURRENT flag there would decide a June excursion by today's
+configuration** — exactly what freezing exists to prevent.
+
+**Measured before building, and it changes what to expect:** ZERO of the 43
+`INSTRUMENT_LIMIT` alarms in `compliance_core_db` carry the flags — all predate the
+snapshot change of 2026-09-01 20:23. So this is invisible on existing rows by
+construction and takes effect on alarms raised from now on. Worth knowing before it
+reads as not working. On the instruments themselves `Enable_Temp_NLT` is off on 95
+of 100 and `Enable_Humid_NLT` on 99, so the LOW LIMIT column is where it will show.
+
+`highEnabled`/`lowEnabled` are now DECLARED on `AlarmRow['ruleSnapshot']`, which
+let `setPoints` drop a cast — the same rule the neighbouring fields carry: a
+fixture that diverges from the API payload should fail the build.
+
+Mutation-checked both ways: collapsing the disabled branch back to `N/A` fails 3
+tests, and swapping the NMT/NLT mapping fails the same 3 with `expected 'N/A' to
+be '-'`. No count moved — no model, enum, migration, permission, config def, route
+or page.
+
 ## [Unreleased] - Report: centred footer, unbroken rows, and two real defects (2026-09-01)
 
 Operator, four items. Two were layout; two were defects.

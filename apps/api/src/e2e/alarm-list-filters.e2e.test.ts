@@ -346,6 +346,83 @@ describe('GET /api/alarms — paging and sorting', () => {
     // `limit`. If it stopped meaning page size they would silently drop to 25 rows.
     expect((await list({ limit: 500 })).json().data).toHaveLength(6);
     expect((await list({ limit: 2 })).json().data).toHaveLength(2);
+    // And it is no longer capped either — `limit` is an alias for `pageSize`.
+    expect((await list({ limit: 9000 })).json().data).toHaveLength(6);
+  });
+});
+
+/**
+ * The ONE property that cannot be proved with a six-row fixture.
+ *
+ * Operator, 2026-09-02: the backend must not cap what a caller asks for. The old
+ * ceiling was `Math.min(pageSize, 500)` — a SILENT truncation, so the only way to
+ * observe it is to ask for more than 500 rows that actually exist. Every other
+ * assertion in this file would pass just as happily with the cap back in place.
+ *
+ * Self-contained: its own instrument, its own alarms, created and destroyed inside
+ * this describe so the exact counts the rest of the file asserts are untouched.
+ * The rows are CLEARED — `alarms_active_instrument_limit_unique` permits only one
+ * ACTIVE limit alarm per instrument/metric/bound, so 501 active ones cannot exist.
+ */
+describe('GET /api/alarms — no page size ceiling', () => {
+  const BULK = 501;                     // one more than the ceiling that was removed
+  const BULK_CODE = `ALF-E2E-BULK-${STAMP}`;
+  let bulkInstrumentId = '';
+
+  beforeAll(async () => {
+    const profileId = await fixtureProfileId('fixture:alarm-list-filters');
+    const i = await prisma.instrument.create({
+      data: { name: `alarm-list ${BULK_CODE}`, code: BULK_CODE, profileId, functionalLocationId: areaId },
+    });
+    bulkInstrumentId = i.id;
+    await prisma.alarm.createMany({
+      data: Array.from({ length: BULK }, (_, n) => ({
+        instrumentId: bulkInstrumentId,
+        metric: 'TEMPERATURE' as const,
+        limitKind: 'HIGH' as const,
+        source: 'INSTRUMENT_LIMIT' as const,
+        severity: 'CRITICAL' as const,
+        state: 'CLEARED' as const,
+        triggeredValue: 28.5,
+        // Distinct instants so the default sort is total and paging is deterministic.
+        raisedAt: new Date(Date.UTC(2026, 0, 20, 0, 0, 0) + n * 60_000),
+        clearedAt: new Date(Date.UTC(2026, 0, 20, 0, 30, 0) + n * 60_000),
+        ruleSnapshot: { limit: 27, limitKind: 'HIGH', decimals: 1 } as Prisma.InputJsonObject,
+      })),
+    });
+  });
+
+  afterAll(async () => {
+    // Independently guarded: this describe adds 501 rows to a SHARED test database,
+    // and a teardown that throws half way leaves every later count assertion in the
+    // suite wrong — the exact incident recorded in apps/api/CLAUDE.md for the RS485
+    // e2e, where a failed teardown ratcheted a bad config into unrelated files.
+    try { await prisma.alarm.deleteMany({ where: { instrumentId: bulkInstrumentId } }); } catch { /* below */ }
+    try { await prisma.instrument.delete({ where: { id: bulkInstrumentId } }); } catch { /* gone already */ }
+  });
+
+  it('returns all 501 rows in one page when asked for 5000', async () => {
+    const res = await list({ instrumentId: bulkInstrumentId, pageSize: 5000 });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    // The assertion that fails under the old ceiling, and the reason for the 501.
+    expect(body.data).toHaveLength(BULK);
+    expect(body.total).toBe(BULK);
+  });
+
+  it('honours the legacy `limit` alias above the ceiling too', async () => {
+    // The dashboard panel and the trend widget send `limit`, and it was capped by
+    // the same line. Both spellings, or one of them silently truncates.
+    const body = (await list({ instrumentId: bulkInstrumentId, limit: 5000 })).json();
+    expect(body.data).toHaveLength(BULK);
+  });
+
+  it('still pages when a caller asks it to', async () => {
+    // Removing the ceiling must not remove PAGING — the two are different things,
+    // and a `take` that ignored pageSize would pass the assertions above.
+    const body = (await list({ instrumentId: bulkInstrumentId, pageSize: 200, page: 3 })).json();
+    expect(body.data).toHaveLength(101);
+    expect(body.total).toBe(BULK);
   });
 });
 

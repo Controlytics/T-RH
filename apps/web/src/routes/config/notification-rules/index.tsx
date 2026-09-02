@@ -9,6 +9,7 @@ import { useDatetimeFormat } from '../../../hooks/use-datetime-format';
 import { PageHeader } from '@/components/ui/page-header';
 import { Tabs } from '@/components/ui/tabs';
 import { EmptyState } from '@/components/ui/empty-state';
+import { ALL_RECORDS_PARAM } from '@digilog/shared';
 
 // ─── Types ────────────────────────────────────────────────────────────
 interface EventTypeMeta { value: string; label: string; module: string; variables: string[] }
@@ -193,7 +194,7 @@ function RulesTab() {
   const { data: eventTypes } = useSWR<EventTypeMeta[]>('/api/notification-rules/event-types', { revalidateOnMount: true, dedupingInterval: 0 });
   const { data: groups } = useSWR<UserGroup[]>('/api/user-groups', { revalidateOnMount: true, dedupingInterval: 0 });
   const { data: templates } = useSWR<Template[]>('/api/notification-settings/templates', { revalidateOnMount: true, dedupingInterval: 0 });
-  const { data: usersData } = useSWR<{ data: UserOption[] }>('/api/users?limit=500&status=ENABLED');
+  const { data: usersData } = useSWR<{ data: UserOption[] }>(`/api/users?${ALL_RECORDS_PARAM}&status=ENABLED`);
   const users = (usersData?.data ?? []).filter((u: UserOption) => u.username !== 'superadmin');
   const { data: rolesData } = useSWR<Array<{ name: string; displayName: string }>>('/api/roles', { revalidateOnMount: true, dedupingInterval: 0 });
   const roles = (rolesData ?? []).filter(r => r.name !== 'SUPER_ADMIN');
@@ -551,7 +552,7 @@ function RulesTab() {
 // ─── Groups Tab ───────────────────────────────────────────────────────
 function GroupsTab() {
   const { data: groups, mutate } = useSWR<UserGroup[]>('/api/user-groups', { revalidateOnMount: true, dedupingInterval: 0 });
-  const { data: usersData } = useSWR<{ data: UserOption[] }>('/api/users?limit=500&status=ENABLED');
+  const { data: usersData } = useSWR<{ data: UserOption[] }>(`/api/users?${ALL_RECORDS_PARAM}&status=ENABLED`);
   const users = (usersData?.data ?? []).filter((u: UserOption) => u.username !== 'superadmin');
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');

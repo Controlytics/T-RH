@@ -8,6 +8,8 @@ const REQUEST_TYPES = [
   { value: 'MODIFY_USER', label: 'Modify User Account' },
   { value: 'UNLOCK', label: 'Unlock Account' },
   { value: 'FORGOT_PASSWORD', label: 'Forgot Password' },
+  { value: 'ENABLE_ACCOUNT', label: 'Enable Account' },
+  { value: 'DISABLE_ACCOUNT', label: 'Disable Account' },
 ];
 
 export function ContactAdminPage() {
@@ -32,7 +34,17 @@ export function ContactAdminPage() {
   const [newValue, setNewValue] = useState('');
 
   // User lookup (for MODIFY_USER / UNLOCK / FORGOT_PASSWORD target user)
-  type LookupUser = { username: string; fullName: string; email: string; department: string | null; role: string; roleDisplayName: string; status: string };
+  /**
+   * What `GET /admin-requests/user-lookup` ACTUALLY returns, and nothing more.
+   *
+   * It used to declare fullName / email / department / role / roleDisplayName /
+   * status; the endpoint returns none of them (2026-05-20 H1 and 2026-08-29 M1
+   * dropped them as an enumeration oracle), so every one was permanently `''`.
+   * Declaring a field the API does not send is how a form ends up rendering five
+   * blanks under a confident heading, and how a guard reading one silently never
+   * fires — both happened here.
+   */
+  type LookupUser = { username: string };
   const [lookupUser, setLookupUser] = useState<LookupUser | null>(null);
   const [lookupError, setLookupError] = useState('');
   const [lookingUp, setLookingUp] = useState(false);
@@ -65,7 +77,7 @@ export function ContactAdminPage() {
       }
       // fullName is no longer returned (audit M1 — PII to an anonymous caller);
       // the operator types their own name in the field below.
-      setRequesterUser({ username: data.username, fullName: '', email: '', department: null, role: '', roleDisplayName: '', status: '' });
+      setRequesterUser({ username: data.username });
       
     } catch (err: any) {
       setRequesterLookupError(err.message ?? 'Lookup failed');
@@ -74,7 +86,12 @@ export function ContactAdminPage() {
     }
   };
 
-  const needsLookup = requestType === 'MODIFY_USER' || requestType === 'UNLOCK' || requestType === 'FORGOT_PASSWORD';
+  // Every type EXCEPT create acts on an existing account, so all of them need the
+  // target-user field. Omitting one here hides the field and the form silently
+  // cannot be completed for that type.
+  const needsLookup = requestType === 'MODIFY_USER' || requestType === 'UNLOCK'
+    || requestType === 'FORGOT_PASSWORD'
+    || requestType === 'ENABLE_ACCOUNT' || requestType === 'DISABLE_ACCOUNT';
 
   // Reset dependent state when request type changes
   useEffect(() => {
@@ -124,7 +141,7 @@ export function ContactAdminPage() {
         return;
       }
       // fullName is no longer returned (audit M1 — PII to an anonymous caller).
-      setLookupUser({ username: data.username, fullName: '', email: '', department: null, role: '', roleDisplayName: '', status: '' });
+      setLookupUser({ username: data.username });
     } catch (err: any) {
       setLookupError(err.message ?? 'Lookup failed');
     } finally {
@@ -132,16 +149,18 @@ export function ContactAdminPage() {
     }
   };
 
-  const currentFieldValue = (field: string): string => {
-    if (!lookupUser) return '';
-    switch (field) {
-      case 'fullName': return lookupUser.fullName;
-      case 'email': return lookupUser.email;
-      case 'department': return lookupUser.department ?? '';
-      case 'role': return lookupUser.roleDisplayName;
-      default: return '';
-    }
-  };
+  /**
+   * REMOVED: `currentFieldValue()`.
+   *
+   * It read `lookupUser.fullName` / `.email` / `.department` / `.roleDisplayName`
+   * to enforce "the new value must differ from the current one" — and the lookup
+   * returns none of those, so it compared every entry against `''`. The rule could
+   * never fire, and the "New Value (must differ from current)" message it produced
+   * could never appear. Comparing against the live value would need those fields
+   * back on an unauthenticated endpoint, which is the enumeration oracle two audits
+   * removed. A no-op modification is harmless and the admin sees both values when
+   * approving.
+   */
 
   // Fetch available roles for Create User
   const [roles, setRoles] = useState<{ name: string; displayName: string }[]>([]);
@@ -164,13 +183,32 @@ export function ContactAdminPage() {
       case 'UNLOCK':
         return { username: lookupUser?.username ?? username };
       case 'FORGOT_PASSWORD':
+      case 'ENABLE_ACCOUNT':
+      case 'DISABLE_ACCOUNT':
         return { username: lookupUser?.username ?? username };
       default:
         return {};
     }
   };
 
-  const isAlreadyEnabled = requestType === 'UNLOCK' && lookupUser?.status === 'ENABLED';
+  /**
+   * There is deliberately NO "is it already in that state?" check here.
+   *
+   * There used to be — `requestType === 'UNLOCK' && lookupUser?.status === 'ENABLED'`
+   * — and it could never fire: `GET /admin-requests/user-lookup` returns only
+   * `{exists, username}`. `status`, `role`, `email` and `department` were dropped
+   * by the 2026-05-20 delta audit (H1) because a response that varies with the
+   * account is an unauthenticated enumeration oracle for the staff directory. So
+   * `lookupUser.status` was always `''` and the control was decoration — which is
+   * how an unlock was requested for an account that was never locked, and approved
+   * as though it had been (operator, 2026-09-02).
+   *
+   * **Do not restore it by putting `status` back on that endpoint.** The check now
+   * lives at APPROVAL, where the caller is authenticated and entitled to see the
+   * account: `admin-requests/account-state.ts`. That is also the only place it can
+   * be correct — an account's state can change between submission and approval, so
+   * submission-time state is not the state being acted on.
+   */
 
   const canSubmit = () => {
     if (!requestType || !requesterName.trim() || !remarks.trim()) return false;
@@ -179,10 +217,11 @@ export function ContactAdminPage() {
       case 'CREATE_USER':
         return newUserId.trim().length >= 6 && fullName.trim() && requestedRole;
       case 'MODIFY_USER':
-        return !!lookupUser && !!modifyField && newValue.trim() !== '' && newValue !== currentFieldValue(modifyField);
+        return !!lookupUser && !!modifyField && newValue.trim() !== '';
       case 'UNLOCK':
-        return !!lookupUser && !isAlreadyEnabled;
       case 'FORGOT_PASSWORD':
+      case 'ENABLE_ACCOUNT':
+      case 'DISABLE_ACCOUNT':
         return !!lookupUser;
       default:
         return false;
@@ -203,13 +242,9 @@ export function ContactAdminPage() {
       if (!lookupUser) missing.push('Employee ID (target user)');
       if (lookupUser && !modifyField) missing.push('What to Modify');
       if (lookupUser && modifyField && !newValue.trim()) missing.push('New Value');
-      if (lookupUser && modifyField && newValue && newValue === currentFieldValue(modifyField)) {
-        missing.push('New Value (must differ from current)');
-      }
     }
-    if (requestType === 'UNLOCK') {
+    if (requestType === 'UNLOCK' || requestType === 'ENABLE_ACCOUNT' || requestType === 'DISABLE_ACCOUNT') {
       if (!lookupUser) missing.push('Employee ID (target user)');
-      if (lookupUser && isAlreadyEnabled) missing.push('Account is already enabled — no unlock needed');
     }
     if (requestType === 'FORGOT_PASSWORD') {
       if (!lookupUser) missing.push('Employee ID (target user)');
@@ -230,9 +265,22 @@ export function ContactAdminPage() {
     try {
       const payload = {
         requestType,
-        requesterName: (requesterUser?.fullName ?? requesterName).trim(),
-        requesterEmployeeId: (requesterUser?.username ?? requesterEmployeeId).trim(),
-        requesterEmail: (requesterUser?.email ?? requesterEmail).trim() || undefined,
+        /**
+         * DEFECT FIXED 2026-09-02: this read
+         * `(requesterUser?.fullName ?? requesterName).trim()`. `fullName` is `''`
+         * on every verified lookup — the endpoint stopped returning it in the
+         * 2026-08-29 PII audit — and `??` falls back only on null/undefined, NOT
+         * on an empty string. So a verified requester sent `requesterName: ""`,
+         * which the route rejects with `minLength: 1`: the form 400'd on EVERY
+         * submission once the requester's ID was verified.
+         *
+         * The typed values are the source now, which is what the lookup comment
+         * already said should happen. `??` after a field that can be `''` is the
+         * shape to distrust.
+         */
+        requesterName: requesterName.trim(),
+        requesterEmployeeId: (requesterUser?.username || requesterEmployeeId).trim(),
+        requesterEmail: requesterEmail.trim() || undefined,
         requestData: buildRequestData(),
         remarks: remarks.trim(),
       };
@@ -331,8 +379,10 @@ export function ContactAdminPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
                     <div>
-                      <div className="font-semibold text-emerald-800">{requesterUser.fullName}</div>
-                      <div className="text-[0.75rem] text-emerald-700">{requesterUser.roleDisplayName} · {requesterUser.email}</div>
+                      {/* The username is the ONLY field this endpoint returns; the
+                          three that stood here rendered an empty confirmation box. */}
+                      <div className="font-semibold text-emerald-800">{requesterUser.username}</div>
+                      <div className="text-[0.75rem] text-emerald-700">Employee ID verified</div>
                     </div>
                   </div>
                 </div>
@@ -442,36 +492,31 @@ export function ContactAdminPage() {
               {/* Step 2: Show fetched user details */}
               {lookupUser && (
                 <div className="rounded-lg bg-white border border-slate-200 p-3">
-                  <p className="text-[0.6875rem] font-bold text-slate-400 uppercase tracking-wider mb-2">Current User Details</p>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                    <div>
-                      <div className="text-[0.6875rem] text-slate-400">Full Name</div>
-                      <div className="font-medium text-slate-800">{lookupUser.fullName}</div>
-                    </div>
-                    <div>
-                      <div className="text-[0.6875rem] text-slate-400">Email</div>
-                      <div className="font-medium text-slate-800 break-all">{lookupUser.email}</div>
-                    </div>
-                    <div>
-                      <div className="text-[0.6875rem] text-slate-400">Department</div>
-                      <div className="font-medium text-slate-800">{lookupUser.department || '—'}</div>
-                    </div>
-                    <div>
-                      <div className="text-[0.6875rem] text-slate-400">Role</div>
-                      <div className="font-medium text-slate-800">{lookupUser.roleDisplayName}</div>
-                    </div>
-                    <div>
-                      <div className="text-[0.6875rem] text-slate-400">Status</div>
-                      <div className="font-medium text-slate-800">{lookupUser.status}</div>
-                    </div>
-                  </div>
-                </div>
-              )}
+                  {/*
+                    A "Current User Details" panel of Full Name / Email / Department
+                    / Role / Status stood here and rendered FIVE BLANK VALUES.
 
-              {/* UNLOCK: refuse if already enabled */}
-              {lookupUser && requestType === 'UNLOCK' && lookupUser.status === 'ENABLED' && (
-                <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 text-sm text-emerald-800">
-                  <strong>Your account is already enabled.</strong> No unlock request is needed — please try logging in again.
+                    `GET /admin-requests/user-lookup` returns `{exists, username}`
+                    and nothing else: email, department, role and status were dropped
+                    by the 2026-05-20 delta audit (H1) and `fullName` by the
+                    2026-08-29 audit (M1), because an unauthenticated response that
+                    varies with the account is an enumeration oracle for the staff
+                    directory — 20 guesses per IP per 15 minutes, which distributed
+                    is not a brake.
+
+                    So the panel could never have shown anything, and the "Your
+                    account is already enabled" banner beside it could never appear.
+                    That is why an unlock could be requested for an account that was
+                    never locked (operator, 2026-09-02): nothing on this form knew,
+                    and nothing could. The check is at APPROVAL now — see
+                    `admin-requests/account-state.ts`. Confirming the ID exists is
+                    all this step can honestly do.
+                  */}
+                  <p className="text-[0.6875rem] font-bold text-slate-400 uppercase tracking-wider mb-1">User Confirmed</p>
+                  <p className="text-sm font-medium text-slate-800">{lookupUser.username}</p>
+                  <p className="text-[0.6875rem] text-slate-500 mt-1">
+                    An administrator will check the account and act on your request.
+                  </p>
                 </div>
               )}
 
@@ -491,18 +536,21 @@ export function ContactAdminPage() {
                   </div>
                   {modifyField && (
                     <div className="grid grid-cols-1 gap-3">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-600 mb-1">Current Value</label>
-                        <input type="text" value={currentFieldValue(modifyField)} disabled
-                          className="ctl w-full" />
-                      </div>
+                      {/* A disabled "Current Value" box stood here and was ALWAYS
+                          EMPTY: the lookup returns no field values (2026-05-20 H1 /
+                          2026-08-29 M1 — an unauthenticated response that varies with
+                          the account is a directory enumeration oracle). An empty box
+                          labelled "Current Value" states that the field is currently
+                          blank, which is a claim, not a gap. */}
                       <div>
                         <label className="block text-sm font-medium text-slate-600 mb-1">New Value <span className="text-red-500">*</span></label>
                         {modifyField === 'role' ? (
                           <select value={newValue} onChange={e => setNewValue(e.target.value)}
                             className="ctl w-full">
                             <option value="">Select new role...</option>
-                            {roles.filter(r => r.name !== lookupUser.role).map(r => (
+                            {/* Was `.filter(r => r.name !== lookupUser.role)` — `role`
+                                is not returned, so it excluded nothing. */}
+                            {roles.map(r => (
                               <option key={r.name} value={r.name}>{r.displayName}</option>
                             ))}
                           </select>
@@ -514,9 +562,6 @@ export function ContactAdminPage() {
                             placeholder={`Enter new ${modifyField === 'fullName' ? 'full name' : modifyField}`}
                             className="ctl w-full"
                           />
-                        )}
-                        {newValue && newValue === currentFieldValue(modifyField) && (
-                          <p className="mt-1 text-xs text-amber-600">New value is the same as current value.</p>
                         )}
                       </div>
                     </div>

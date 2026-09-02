@@ -4,6 +4,7 @@ import { useToast } from '@/hooks/use-toast';
 import { submitForReview } from '@/lib/report-review';
 import type { ReportSnapshot } from '@/lib/pdf-report';
 import { Button } from '@/components/ui/button';
+import { ALL_RECORDS_PARAM } from '@digilog/shared';
 
 interface Role { name: string; displayName: string; }
 interface User { id: string; username: string; role?: string; fullName?: string; }
@@ -46,7 +47,7 @@ export function SendForReviewButton({ buildSnapshot, className }: {
   const [busy, setBusy] = useState(false);
 
   const { data: rolesData } = useSWR<Role[]>(open ? '/api/roles/active' : null);
-  const { data: usersData } = useSWR<any>(open ? '/api/users?limit=500&status=ENABLED' : null);
+  const { data: usersData } = useSWR<any>(open ? `/api/users?${ALL_RECORDS_PARAM}&status=ENABLED` : null);
   const roles = useMemo(() => (rolesData ?? []).filter((r) => r.name !== 'SUPER_ADMIN'), [rolesData]);
   const users: User[] = useMemo(() => {
     const raw = Array.isArray(usersData) ? usersData : (usersData?.data ?? usersData?.users ?? []);

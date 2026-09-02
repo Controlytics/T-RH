@@ -156,6 +156,181 @@ describe('admin-requests e2e', () => {
     });
   });
 
+  /**
+   * The state guards (operator, 2026-09-02).
+   *
+   * *"in contact admin user requested for account unlock but that account was
+   * actually not locked, when admin approve that request account is showing
+   * unlocked"*.
+   *
+   * The screen was the symptom. The DEFECT is the §11 record: `userService.unlock`
+   * writes an `ACCOUNT_UNLOCKED` audit row unconditionally, so approving an unlock
+   * for an account that was never locked asserted an administrative act that did
+   * not happen. Every assertion below therefore checks the AUDIT TRAIL, not just
+   * the response body — a dialog can be corrected later, a regulated record cannot.
+   */
+  describe('state requests do not act on an account already in that state', () => {
+    const STAMP = Date.now();
+    const users: string[] = [];
+    const requests: string[] = [];
+
+    /**
+     * Fixtures are OPERATOR and the caller is SUPER_ADMIN, so
+     * `assertCanManageTarget` (which every one of unlock/enable/disable calls)
+     * always passes here. **The role-hierarchy guard is therefore NOT exercised by
+     * this block** — it is covered in the users suite, and these tests are about
+     * the state guard alone. Worth knowing before reading a passing positive
+     * control as proof of more than it is.
+     */
+    async function makeUser(suffix: string, status: 'ENABLED' | 'DISABLED' | 'LOCKED') {
+      const username = `ar-state-${suffix}-${STAMP}`;
+      const u = await prisma.user.create({
+        data: {
+          username, fullName: `State ${suffix}`, role: 'OPERATOR', status,
+          passwordHash: '$2b$10$abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV',
+          ...(status === 'LOCKED' ? { lockedAt: new Date(), failedLoginAttempts: 5 } : {}),
+        },
+        select: { id: true, username: true },
+      });
+      users.push(u.id);
+      return u;
+    }
+
+    /** Submit through the PUBLIC route and approve through the ADMIN one, so the
+     *  whole path is exercised rather than the service in isolation. */
+    async function submitAndApprove(requestType: string, username: string) {
+      const sub = await app.inject({
+        method: 'POST', url: '/api/admin-requests',
+        payload: {
+          requestType,
+          requesterName: 'State Fixture',
+          requesterEmployeeId: `req-${STAMP}`,
+          requestData: { username },
+          remarks: 'e2e state guard',
+        },
+      });
+      expect(sub.statusCode).toBe(201);
+      const found = await prisma.adminRequest.findFirst({
+        where: { requestType, requesterEmployeeId: `req-${STAMP}`, status: 'PENDING' },
+        orderBy: { requestedAt: 'desc' },
+      });
+      if (!found) throw new Error('fixture: request was not stored');
+      requests.push(found.id);
+      // Approving is a §11 e-signature — `enforceReauth('APPROVE_ADMIN_REQUEST')`
+      // 401s without a password. Sent as the header rather than `_currentPassword`
+      // so the request body stays exactly what the route's schema declares.
+      const res = await app.inject({
+        method: 'POST', url: `/api/admin-requests/${found.id}/process`,
+        headers: { authorization: `Bearer ${token}`, 'x-reauth-password': 'Admin@123' },
+        payload: { action: 'approve', adminRemarks: 'e2e' },
+      });
+      return { res, requestId: found.id };
+    }
+
+    const auditRowsFor = (userId: string, action: string) =>
+      prisma.auditTrail.count({ where: { targetId: userId, action } });
+
+    afterAll(async () => {
+      for (const id of requests) await prisma.adminRequest.deleteMany({ where: { id } });
+      for (const id of users) await prisma.user.deleteMany({ where: { id } });
+    });
+
+    it('UNLOCK on an account that is NOT locked changes nothing and says so', async () => {
+      const u = await makeUser('unlock-noop', 'ENABLED');
+      const before = await auditRowsFor(u.id, 'ACCOUNT_UNLOCKED');
+
+      const { res } = await submitAndApprove('UNLOCK', u.username);
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+
+      // Declared in the response schema, or Fastify strips it and every approval
+      // reads as an action performed.
+      expect(body.changed).toBe(false);
+      expect(body.message).toContain('was not locked');
+      // No temporary password: the requester asked for an unlock, not a credential
+      // change, and issuing one would be doing something nobody approved.
+      expect(body.temporaryPassword).toBeUndefined();
+
+      // THE ASSERTION THIS BLOCK EXISTS FOR.
+      expect(await auditRowsFor(u.id, 'ACCOUNT_UNLOCKED')).toBe(before);
+
+      // And the account is untouched.
+      const after = await prisma.user.findUnique({ where: { id: u.id }, select: { status: true } });
+      expect(after?.status).toBe('ENABLED');
+    });
+
+    it('UNLOCK on a genuinely LOCKED account still works', async () => {
+      // The positive control. Without it the test above passes against a build
+      // where unlock is broken outright.
+      const u = await makeUser('unlock-real', 'LOCKED');
+      const { res } = await submitAndApprove('UNLOCK', u.username);
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.changed).toBe(true);
+      expect(body.temporaryPassword).toBeTruthy();
+      expect(await auditRowsFor(u.id, 'ACCOUNT_UNLOCKED')).toBe(1);
+      const after = await prisma.user.findUnique({ where: { id: u.id }, select: { status: true } });
+      expect(after?.status).toBe('ENABLED');
+    });
+
+    it('ENABLE_ACCOUNT on an already-enabled account changes nothing', async () => {
+      const u = await makeUser('enable-noop', 'ENABLED');
+      const { res } = await submitAndApprove('ENABLE_ACCOUNT', u.username);
+      expect(res.statusCode).toBe(200);
+      expect(res.json().changed).toBe(false);
+      expect(res.json().message).toContain('already enabled');
+      expect(await auditRowsFor(u.id, 'ACCOUNT_ENABLED')).toBe(0);
+    });
+
+    it('ENABLE_ACCOUNT on a disabled account enables it', async () => {
+      const u = await makeUser('enable-real', 'DISABLED');
+      const { res } = await submitAndApprove('ENABLE_ACCOUNT', u.username);
+      expect(res.json().changed).toBe(true);
+      const after = await prisma.user.findUnique({ where: { id: u.id }, select: { status: true } });
+      expect(after?.status).toBe('ENABLED');
+    });
+
+    it('DISABLE_ACCOUNT on an already-disabled account changes nothing', async () => {
+      const u = await makeUser('disable-noop', 'DISABLED');
+      const { res } = await submitAndApprove('DISABLE_ACCOUNT', u.username);
+      expect(res.json().changed).toBe(false);
+      expect(res.json().message).toContain('already disabled');
+      expect(await auditRowsFor(u.id, 'ACCOUNT_DISABLED')).toBe(0);
+    });
+
+    it('DISABLE_ACCOUNT on an enabled account disables it', async () => {
+      const u = await makeUser('disable-real', 'ENABLED');
+      const { res } = await submitAndApprove('DISABLE_ACCOUNT', u.username);
+      expect(res.json().changed).toBe(true);
+      const after = await prisma.user.findUnique({ where: { id: u.id }, select: { status: true } });
+      expect(after?.status).toBe('DISABLED');
+    });
+
+    it('names the TARGET account and its role in the approval audit record', async () => {
+      /**
+       * Operator, 2026-09-02: the record showed only the REQUESTER. Their case had
+       * requester 101020 and approver 101010 — two people — and named neither the
+       * account acted on nor its role.
+       */
+      const u = await makeUser('audit-name', 'DISABLED');
+      const { requestId } = await submitAndApprove('ENABLE_ACCOUNT', u.username);
+
+      const row = await prisma.auditTrail.findFirst({
+        where: { targetId: requestId, action: 'ADMIN_REQUEST_APPROVED' },
+        orderBy: { timestamp: 'desc' },
+      });
+      const after = (row?.afterValue ?? {}) as Record<string, unknown>;
+      expect(String(after.name)).toContain(u.username);      // the target account
+      expect(String(after.name)).toContain('OPERATOR');      // its role
+      expect(String(after.name)).toContain('State Fixture'); // who asked
+      expect(after.targetUsername).toBe(u.username);
+      // `by {actor}` renders from userId — the VERIFIED approver, a different
+      // person from the requester.
+      expect(row?.userId).toBeTruthy();
+      expect(row?.userId).not.toBe(`req-${STAMP}`);
+    });
+  });
+
   describe('admin surface', () => {
     it('requires authentication to list requests', async () => {
       const res = await app.inject({ method: 'GET', url: '/api/admin-requests' });

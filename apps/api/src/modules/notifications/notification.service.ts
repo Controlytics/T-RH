@@ -60,7 +60,9 @@ const notificationQuerySchema = z.object({
   // only caller (routes/notifications/index.tsx:121) always sends a limit —
   // i.e. the sole protection was a client habit. 500 matches the ceiling
   // alarms/routes.ts:297 already uses for the same reason.
-  limit: z.coerce.number().min(1).max(500).default(50),
+  // No `.max()` (operator, 2026-09-02) — a rejected page size is at least loud,
+  // but this one sat beside clamps that truncated silently. See lib/page-size.ts.
+  limit: z.coerce.number().min(1).default(50),
   isRead: z.enum(['true', 'false']).optional(),
   startDate: z.string().optional(),
   endDate: z.string().optional(),

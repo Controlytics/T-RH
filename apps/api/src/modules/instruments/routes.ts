@@ -11,6 +11,7 @@ import {
   coerceReading,
 } from '@digilog/shared';
 import { prisma } from '../../lib/prisma.js';
+import { resolvePageSize } from '../../lib/page-size.js';
 import { resolveVisibility, withVisibility } from './visibility.js';
 import { resolveLocationIds, type FlNode } from '../functional-locations/tree.js';
 import { getTelemetryAggregate } from './telemetry-aggregate.js';
@@ -977,9 +978,11 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     });
     if (!exists) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
 
-    // Capped server-side: this reads a partitioned history table and the page
-    // only ever renders a recent window.
-    const limit = Math.min(Math.max(Number(q.limit ?? 100), 1), 500);
+    // NO ceiling (operator, 2026-09-02). The old comment claimed "the page only
+    // ever renders a recent window" — but the caller passes `from`/`to`, so the
+    // window is the CALLER's, and a 500-row cap over a month-long range returned
+    // the newest 500 with nothing to say so. `total` rides beside the rows.
+    const limit = resolvePageSize(q.limit, 100);
     const offset = Math.max(Number(q.offset ?? 0), 0);
     const from = q.from ? new Date(q.from) : undefined;
     const to = q.to ? new Date(q.to) : undefined;
@@ -1285,7 +1288,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     });
     if (!exists) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
 
-    const take = Math.min(Math.max(Number(q.limit ?? 50), 1), 200);
+    const take = resolvePageSize(q.limit, 50);   // no ceiling — see lib/page-size.ts
     const [data, total] = await Promise.all([
       prisma.deadLetter.findMany({ where: { instrumentId: id }, orderBy: { receivedAt: 'desc' }, take }),
       prisma.deadLetter.count({ where: { instrumentId: id } }),

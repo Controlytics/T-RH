@@ -56,7 +56,13 @@ node apps/api/dist/app.js
     `points` per key, and return `historyTotal` (the TRUE count in range),
     `historySampled`, and `summaries[key]`. `points` omitted = the old paged
     `limit`/`offset` table path, byte-for-byte unchanged, so existing callers
-    are unaffected. The 1000-row cap in `getHistory` STAYS for that path.
+    are unaffected. The 1000-row cap in `getHistory` stayed for that
+    path until **2026-09-02, when it was REMOVED** along with every other
+    server-side record ceiling (operator: *"whatever records are there all
+    records should show in everywhere"*). `lib/page-size.ts` is now the one
+    definition and it does not cap. **`points` KEEPS its 1..5000 schema bound**,
+    which is a 400 rather than a silent clamp and governs plotted points, not
+    records.
   - **`summaries[key]` is computed in SQL over EVERY reading in the range**
     (`telemetry.repository.ts:getRangeSummary`), in a query SEPARATE from the
     row query, and that separation is the point of the design: a `max` derived

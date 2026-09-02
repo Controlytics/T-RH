@@ -1,5 +1,6 @@
 import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
+import { resolvePageSize } from '../../lib/page-size.js';
 import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
 import { readSuperAdminApiEnabledUncached, setSuperAdminApiEnabled } from '../../lib/super-admin-lock.js';
 import { auditLog } from '../../lib/audit.js';
@@ -106,8 +107,12 @@ export default async function superAdminRoutes(app: FastifyInstance) {
   });
 
   const paginatedList = async (model: any, query: any, orderBy: any = { createdAt: 'desc' }, include?: any, where?: any) => {
-    const page = Number(query.page ?? 1);
-    const limit = Math.min(Number(query.limit ?? 25), 100);
+    // PRE-EXISTING, fixed in passing 2026-09-02: this was `Number(query.page ?? 1)`
+    // with no lower bound, so `?page=0` produced `skip: -limit` and Postgres rejects
+    // a negative OFFSET — a client typo surfaced as a 500. Unrelated to the page-size
+    // ceiling removal; every sibling list route already guarded this.
+    const page = Math.max(1, Math.floor(Number(query.page ?? 1)) || 1);
+    const limit = resolvePageSize(query.limit, 25);   // no ceiling — see lib/page-size.ts
     const findArgs: any = { orderBy, skip: (page - 1) * limit, take: limit };
     if (include) findArgs.include = include;
     if (where) findArgs.where = where;

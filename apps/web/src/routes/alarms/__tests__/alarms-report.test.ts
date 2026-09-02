@@ -1,11 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
-  ALARM_REPORT_HEAD, ALARM_REPORT_LEGEND, NOT_APPLICABLE, EXTRA_COLUMNS,
+  ALARM_REPORT_HEAD, ALARM_REPORT_LEGEND, NOT_APPLICABLE, BOUND_NOT_SHOWN, EXTRA_COLUMNS,
   scopePairs, uomFor, setPoints, reportRows, truncationNote, reportSeedPeriod,
   reportLevel, reportHead, columnWidths, scopeTableRows, SCOPE_COLUMN_STYLES,
   scopeColumnStyles, CONTENT_WIDTH_MM,
 } from '../alarms-report';
-import { LIMIT_DISABLED_TEXT_DEFAULT } from '@digilog/shared';
 import type { AlarmRow } from '../alarm-display';
 
 /**
@@ -136,9 +135,10 @@ describe('a row', () => {
     expect(low).toBe('18.0');
   });
 
-  it('shows N/A for a bound that was switched OFF at raise time', () => {
-    // The worker freezes null for a disabled bound, because it could not have
-    // raised this alarm and printing it would state a limit not in force.
+  it('shows N/A for a null bound with NO enable flag beside it', () => {
+    // The worker freezes null both for a disabled bound and for one nobody
+    // administered. With no flag to tell them apart, N/A — which claims nothing.
+    // The flagged case is covered in "NMT/NLT decide whether a bound is PRINTED".
     const { high, low } = setPoints(alarm({
       ruleSnapshot: { limit: 27, limitKind: 'HIGH', thresholdHigh: 27, thresholdLow: null, decimals: 1 },
     }));
@@ -319,71 +319,95 @@ describe('columnWidths', () => {
   });
 });
 
-describe('a SWITCHED-OFF limit is worded, and configurably', () => {
+describe('NMT/NLT decide whether a bound is PRINTED at all', () => {
   /**
-   * Operator, 2026-09-01: *"if limits are disabled for instrument show NA in
-   * report, and also provide one configuration for what text should come if
-   * limits are disable … that added word should come in report for only disabled
-   * limits"*.
+   * Operator, 2026-09-02: *"if temperature and humidity NMT and NLT s are true
+   * then show both High and low limits in the alarm report, if any one is
+   * disabled then dont show that limits in report"*.
    *
-   * "Only disabled" is the whole difficulty. A disabled bound and a bound nobody
-   * ever administered BOTH freeze as a null threshold, so they are indis-
-   * tinguishable from the value alone — which is why `limitSnapshot` freezes
-   * `highEnabled`/`lowEnabled` beside them.
+   * NMT is the HIGH bound and NLT the LOW one — the plant's vocabulary, mapped in
+   * `ALARM_LIMIT_ENABLE_KEYS_DEFAULT`. On this installation `Enable_Temp_NLT` is
+   * off on 95 of 100 instruments and `Enable_Humid_NLT` on 99, so this is the
+   * difference between a LOW LIMIT column of numbers and one of noise.
+   *
+   * **This REVERSES the 2026-09-01 request** for an administered word ("show NA
+   * in report … for only disabled limits"). A switched-off bound is now not
+   * printed. `NOT_APPLICABLE` survives for the case nobody can answer — see the
+   * last two cases, which are the whole difficulty: a disabled bound and a bound
+   * nobody ever administered BOTH freeze as a null threshold, which is why
+   * `limitSnapshot` freezes `highEnabled`/`lowEnabled` beside them.
    */
   const withFlags = (over: Record<string, unknown>) => alarm({
     ruleSnapshot: { limit: 27, limitKind: 'HIGH', decimals: 1, thresholdHigh: 27, ...over },
   });
 
-  it('prints the configured word for a bound that was switched OFF', () => {
-    const { low } = setPoints(withFlags({ thresholdLow: null, lowEnabled: false }), 'DISABLED');
-    expect(low).toBe('DISABLED');
+  it('prints BOTH bounds when NMT and NLT are both on', () => {
+    // The first half of the request, and the case the whole feature is for.
+    const { high, low } = setPoints(withFlags({
+      thresholdLow: 18, highEnabled: true, lowEnabled: true,
+    }));
+    expect(high).toBe('27.0');
+    expect(low).toBe('18.0');
   });
 
-  it('defaults that word to NA', () => {
-    expect(setPoints(withFlags({ thresholdLow: null, lowEnabled: false })).low)
-      .toBe(LIMIT_DISABLED_TEXT_DEFAULT);
-    expect(LIMIT_DISABLED_TEXT_DEFAULT).toBe('NA');
+  it('does not print a bound whose NLT is off', () => {
+    const { low } = setPoints(withFlags({ thresholdLow: null, lowEnabled: false }));
+    expect(low).toBe(BOUND_NOT_SHOWN);
   });
 
-  it('falls back to the shared constant for a BLANK configured value', () => {
-    // Never a literal in the component, and never an empty cell: an admin
-    // clearing the field must not blank a column.
-    expect(setPoints(withFlags({ thresholdLow: null, lowEnabled: false }), '   ').low)
-      .toBe(LIMIT_DISABLED_TEXT_DEFAULT);
+  it('does not print a bound whose NMT is off', () => {
+    // Both directions, separately — a mapping swapped between HIGH and LOW
+    // silently disables the opposite bound and only one of these would catch it.
+    const { high } = setPoints(alarm({
+      ruleSnapshot: {
+        limit: 18, limitKind: 'LOW', decimals: 1,
+        thresholdHigh: null, thresholdLow: 18, highEnabled: false, lowEnabled: true,
+      },
+    }));
+    expect(high).toBe(BOUND_NOT_SHOWN);
   });
 
-  it('does NOT use that word for a bound that was never administered', () => {
+  it('is a dash, never an empty cell', () => {
+    // This file's own rule: on paper a blank reads as a rendering fault, with no
+    // other state to check it against.
+    expect(BOUND_NOT_SHOWN.trim()).not.toBe('');
+  });
+
+  it('still says N/A for a bound that was never administered', () => {
     /**
-     * The distinction the setting exists to draw. Enabled, but no limit stored:
-     * that is not a disabled limit, and printing "DISABLED" would assert that
-     * somebody turned off a bound nobody ever set.
+     * ENABLED, but no limit stored. Not a switched-off bound, and blanking it
+     * would state that somebody turned off a bound nobody ever set.
      */
-    const { low } = setPoints(withFlags({ thresholdLow: null, lowEnabled: true }), 'DISABLED');
+    const { low } = setPoints(withFlags({ thresholdLow: null, lowEnabled: true }));
     expect(low).toBe(NOT_APPLICABLE);
   });
 
-  it('does NOT use it on a row raised before the flags were frozen', () => {
-    // Neither flag present. Nobody knows whether that bound was off, so N/A —
-    // which claims nothing — rather than a word that claims something.
+  it('still says N/A on a row raised before the flags were frozen', () => {
+    /**
+     * Neither flag present — every alarm in the database on 2026-09-02. Nobody
+     * knows whether that bound was off, so N/A, which claims nothing. Reading the
+     * instrument's CURRENT flag here would decide a June excursion by today's
+     * configuration, which is what freezing exists to prevent.
+     */
     const { low } = setPoints(alarm({
       ruleSnapshot: { limit: 27, limitKind: 'HIGH', decimals: 1 },
-    }), 'DISABLED');
+    }));
     expect(low).toBe(NOT_APPLICABLE);
   });
 
-  it('never lets the word displace a real bound', () => {
-    // A number always wins: the flag only ever explains an ABSENCE.
-    const { high } = setPoints(withFlags({ highEnabled: false }), 'DISABLED');
+  it('never lets a switched-off flag displace a real bound', () => {
+    // A number always wins: the flag only ever explains an ABSENCE. A bound
+    // switched off AFTER this alarm froze its value still prints that value.
+    const { high } = setPoints(withFlags({ highEnabled: false }));
     expect(high).toBe('27.0');
   });
 
-  it('carries the word through reportRows into the printed cell', () => {
+  it('carries the blank through reportRows into the printed cell', () => {
     const [row] = reportRows(
       [withFlags({ thresholdLow: null, lowEnabled: false })],
-      fmt, undefined, 'instrument', 'OFF',
+      fmt, undefined, 'instrument',
     );
-    expect(row[reportHead('instrument').indexOf('LOW LIMIT')]).toBe('OFF');
+    expect(row[reportHead('instrument').indexOf('LOW LIMIT')]).toBe(BOUND_NOT_SHOWN);
   });
 });
 

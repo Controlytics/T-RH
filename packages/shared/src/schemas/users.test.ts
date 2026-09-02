@@ -6,6 +6,7 @@ import {
   userQuerySchema,
   bulkDeleteUsersSchema,
 } from './users.js';
+import { ALL_RECORDS } from '../types/all-records.js';
 
 describe('createUserSchema', () => {
   const validUser = {
@@ -145,12 +146,26 @@ describe('userQuerySchema', () => {
     expect(userQuerySchema.safeParse({ status: 'DELETED' }).success).toBe(false);
   });
 
-  it('accepts limit up to 500 (recipient pickers request the whole user list)', () => {
+  it('accepts ANY limit — there is no ceiling', () => {
+    /**
+     * Operator, 2026-09-02: no backend limit may cap what a caller asks for.
+     *
+     * This pair used to read "accepts limit up to 500" / "rejects limit over 500".
+     * The comment on the schema said why 500 existed — recipient pickers need the
+     * WHOLE user list and a truncated one silently drops selectable names, and a
+     * real install runs 156 users — which is an argument against having a ceiling
+     * at all, not for a larger one. Callers now ask for `ALL_RECORDS`.
+     */
     expect(userQuerySchema.safeParse({ limit: '500' }).success).toBe(true);
+    expect(userQuerySchema.safeParse({ limit: '501' }).success).toBe(true);
+    expect(userQuerySchema.safeParse({ limit: String(ALL_RECORDS) }).success).toBe(true);
   });
 
-  it('rejects limit over 500', () => {
-    expect(userQuerySchema.safeParse({ limit: '501' }).success).toBe(false);
+  it('still rejects a limit that is not a request', () => {
+    // The lower bound is not a cap: Postgres errors on a negative LIMIT, so
+    // letting one through turns a client typo into a 500.
+    expect(userQuerySchema.safeParse({ limit: '0' }).success).toBe(false);
+    expect(userQuerySchema.safeParse({ limit: '-5' }).success).toBe(false);
   });
 });
 

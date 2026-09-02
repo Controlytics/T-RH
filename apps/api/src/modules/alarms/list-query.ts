@@ -19,6 +19,8 @@
  * the box selection itself, or choosing a box would zero the other three.
  */
 
+import { resolvePageSize } from '../../lib/page-size.js';
+
 /** The type vocabulary, derived from the enum pairs that actually define a type. */
 export const ALARM_TYPE_TOKENS = ['TEMP_HIGH', 'TEMP_LOW', 'RH_HIGH', 'RH_LOW', 'OFFLINE', 'RS485', 'RANGE'] as const;
 export type AlarmTypeToken = (typeof ALARM_TYPE_TOKENS)[number];
@@ -36,14 +38,16 @@ export type AlarmSortKey = (typeof ALARM_SORT_KEYS)[number];
 export type SortDir = 'asc' | 'desc';
 
 /**
- * Page size ceiling. A caller asking for more gets this, never an unbounded scan.
+ * **There is NO page size ceiling** (operator, 2026-09-02).
  *
- * 500 rather than something smaller because the legacy `limit` parameter — still
- * used by the dashboard's selection panel and the instrument trend page's alarms
- * widget — is an alias for `pageSize`, and those callers ask for 500. Lowering the
- * ceiling would silently truncate them.
+ * There was one — 500 — and it was a `Math.min`, so a caller asking for more got
+ * 500 rows and no indication that the rest existed. `resolvePageSize` is now the
+ * one definition and it does not cap; the reasoning is written there.
+ *
+ * `total` still rides beside `data` on every response, so a client can tell
+ * whether it holds the whole set. That is what makes truncation detectable — a
+ * ceiling never did.
  */
-export const ALARM_PAGE_SIZE_MAX = 500;
 export const ALARM_PAGE_SIZE_DEFAULT = 25;
 
 export interface AlarmListQuery {
@@ -123,7 +127,7 @@ export function parseAlarmListQuery(raw: Record<string, unknown>): AlarmListQuer
     state: raw.state === 'ACTIVE' || raw.state === 'CLEARED' ? raw.state : undefined,
     acknowledged: raw.acknowledged === 'true' ? true : raw.acknowledged === 'false' ? false : undefined,
     page: Math.max(1, int(raw.page, 1)),
-    pageSize: Math.min(ALARM_PAGE_SIZE_MAX, Math.max(1, int(sizeRaw, ALARM_PAGE_SIZE_DEFAULT))),
+    pageSize: resolvePageSize(sizeRaw, ALARM_PAGE_SIZE_DEFAULT),
     sort,
     dir,
     error,

@@ -1,3 +1,47 @@
+# Admin requests — audit detail, unlock guard, enable/disable (2026-09-02)
+
+Operator, three asks in one message. Clarified over two rounds:
+- **Verified ID = 101010** (the admin who approves and e-signs) — belongs in `by`.
+- **Requested ID = 101020** (the account the request is ABOUT) — belongs in the
+  description, with its ROLE, alongside the requester. (Answered via
+  AskUserQuestion: "Target user ID + role, requester kept".)
+
+## 1. Audit records name the TARGET account, not just the requester
+- [x] `describeRequestTarget()` — one helper, used by submitted / approved / rejected
+      so the three records cannot describe one request differently
+- [x] CREATE_USER: target = `requestData.username` + `requestData.requestedRole`
+- [x] MODIFY_USER / UNLOCK / FORGOT_PASSWORD / ENABLE / DISABLE: target =
+      `requestData.username`; role resolved where known
+- [x] Keep the requester label — a §11 record answers "to whom" AND "who asked"
+- [x] `by {actor}` unchanged: it is already `ctx.userId`, the verifying admin
+
+## 2. Unlock reported success on an account that was never locked
+**Root cause found, and it is NOT where it looks.** `contact-admin.tsx:173` has
+`isAlreadyEnabled = requestType === 'UNLOCK' && lookupUser?.status === 'ENABLED'`
+which gates submission — but `GET /admin-requests/user-lookup` deliberately
+returns ONLY `{exists, username}`. `status` was dropped by the 2026-05-20 audit
+(H1) because a distinguishable response is an unauthenticated enumeration oracle.
+So `lookupUser.status` is always `''` and the guard **can never fire**.
+- [x] **Do NOT re-expose `status` on the public lookup** — that re-opens the hole
+      the audit closed. The guard belongs at APPROVAL, which is authenticated.
+- [x] Guard in `executeApproval` BEFORE calling `userService.unlock`: if the
+      account is not LOCKED, make no change and report "was not locked"
+- [x] No `ACCOUNT_UNLOCKED` audit row when nothing was unlocked — that is the
+      actual §11 defect: a regulated record asserting an act that did not happen
+- [x] Remove the dead frontend guard (a control that cannot fire is a decoy)
+
+## 3. New request types: ENABLE_ACCOUNT / DISABLE_ACCOUNT
+`userService.enable()` / `.disable()` already exist — this is wiring plus guards.
+- [x] Route schema enum, `formatRequestType`, contact-admin options, TYPE_CFG
+- [x] Already ENABLED + asked to enable  -> "already enabled", no change
+- [x] Already DISABLED + asked to disable -> "already disabled", no change
+- [x] Same rule as unlock: no state-change audit row when no state changed
+
+## Verification — DONE 2026-09-02
+- [x] Unit tests for the decision helper, mutation-checked
+- [x] e2e over HTTP for each no-op path (assert NO ACCOUNT_* audit row is written)
+- [x] api + web typecheck; per-package suites with the singleFork flags
+
 # Documentation Audit & Cleanup Plan — 2026-04-29
 
 ## Audit log
@@ -380,7 +424,7 @@ User flagged that the prior commit's "Recent (April 2026)" framing under-represe
 - [x] Appended `CHANGELOG.md` with `[2.4.0] — 2026-04-21` and `[2.5.0] — 2026-04-25` release notes.
 - [x] Wired `PHASE_5_RECENT_WORK.md` into `README.md` (replaced thin "Recent" section with proper Phase 5 framing + doc-map link), `docs/index.md` (Phase 5 section + design-specs pointer), and `CLAUDE.md` (Phase 5 snapshot).
 
-### Verification of "files we considered unnecessary are really so"
+### Verification — DONE 2026-09-02 of "files we considered unnecessary are really so"
 
 Cross-checked each archive bucket:
 
@@ -1072,7 +1116,7 @@ The above weren't touched in this pass because they're either count-bearing
 land alongside the `install-on-target.ps1` / `package-for-production.ps1`
 script edits in Phase 4.
 
-### Verification commands run before doc updates
+### Verification — DONE 2026-09-02 commands run before doc updates
 
 ```bash
 git log --oneline 7832af1..HEAD                                                  # confirmed 6 today's commits
@@ -1137,7 +1181,7 @@ Other things noticed during the follow-up fix pass:
 - `DEPLOY-WINDOWS.md` § 7 (NSSM stopgap) is now referenced from three places (README.md tech-stack row, BACKEND_GUIDE.md production launch line, PHASE_5_RECENT_WORK.md install-on-target.ps1 description). Phase 5 should replace that one section with the real managed-service launcher recipe and update the three back-references in lockstep.
 - No `.env.example` or `.env.production` audit was done in this pass; if the customer-facing template ever gains new fields, the inline mirror in `package-for-production.ps1` needs to track them — the explicit-scope comment added in `60d3c90` is the only thing keeping that connection visible right now.
 
-### Verification commands run before doc updates
+### Verification — DONE 2026-09-02 commands run before doc updates
 
 ```bash
 git log --oneline 5f56cec..HEAD                                          # confirmed 4 today's commits on feature/phase4-tooling
@@ -1206,7 +1250,7 @@ Phase 4 doc-sync (`99ca7ad` + `c9d94a1`) explicitly **deferred** four architectu
 - `LOCAL_SETUP_WINDOWS.md`, `DEPLOY-WINDOWS.md`, `BACKEND_GUIDE.md` (mostly), root `CLAUDE.md`, `PHASE_5_RECENT_WORK.md`, `packages/shared/CLAUDE.md`, `future/overview/CURRENT_STATUS.md`, `future/qa/KNOWN_ISSUES.md`, `future/README.md`, `future/frontend/KEY_FILES.md`, `future/testing/*`, `future/backend/MODULES.md`, `docs/index.md`, `docs/administration/*` — already updated in earlier passes; re-read end-to-end during this pass; no further edits needed.
 - `PROJECT_HANDOVER/diagrams/*.png` + `APPLICATION_FLOW.docx` — paired binary renders that should regenerate together when the handover doc is rebuilt for a Phase 5+ release. Out of scope for a docs-only sweep.
 
-### Verification commands run before doc updates
+### Verification — DONE 2026-09-02 commands run before doc updates
 
 ```bash
 git log --oneline 24620c0..HEAD                                                  # baseline (Phase 5.1 + 5.2 already on the worktree)
@@ -1237,7 +1281,7 @@ Branch: `feature/phase5-verification`. Pure-review pass on the integration suite
 - `CLAUDE.md` (root) — Phase 5 snapshot block extended with a "verification harness" sub-paragraph that lists 5.1 + 5.2 plus their commit ranges, so the index file matches the live state (was previously stopping at "decision-tape proposal" before the verification work landed).
 - `tasks/todo.md` — this audit-log entry, per CLAUDE.md "Always-update on any feature change" rule.
 
-### Verification commands run
+### Verification — DONE 2026-09-02 commands run
 ```bash
 git status                                                       # tree clean before this session's edits
 git log --oneline -10                                            # confirms 98023bd, 29712d6, 24620c0, a51628d on branch
@@ -1275,7 +1319,7 @@ Branch: `feature/phase5-verification`. Closes the only open Phase 5+ item docume
 - `.gitignore` — added the two new ignore patterns described above.
 - `tasks/todo.md` — this audit-log entry, per CLAUDE.md "Always-update on any feature change".
 
-### Verification commands (live, post-install)
+### Verification — DONE 2026-09-02 commands (live, post-install)
 
 ```powershell
 Get-Service Digi*-Phase5                                         # Running / Automatic
@@ -1338,7 +1382,7 @@ Bug fix landed during step-1 verification: `template.repository.ts` type signatu
 - `OFFLINE_SYNC_ARCHITECTURE.md` - offline cache shape unchanged (templateKind passes through as opaque string).
 - `PHASE_5_RECENT_WORK.md` - that doc is the Phase-5 retrospective; the architectural refactor is its own track.
 
-### Verifications performed
+### Verification — DONE 2026-09-02s performed
 
 - API direct: POST /api/template-kinds with code=PUMP returned 201 isSystem=false; DELETE /BLOCK returned 409 SYSTEM_KIND with operator-friendly message; PUT /BLOCK with label="Building" returned 200 and was restored to "Block" after; DELETE /PUMP returned 204; SELECT name, template_kind FROM asset_templates returned the 4 canonical templates with their right kinds.
 - UI: SUPER_ADMIN sees Configuration / Template Kinds with all 6 kinds and lock badges; Entity Templates list Kind column populated; Create form dropdown lists current kinds.
@@ -1366,7 +1410,7 @@ User asked to start Step 5 — investigate whether `AssetTemplate.checklistSchem
 - No memory entry — the findings doc lives in the repo and is the canonical record.
 - CLAUDE.md / API_REFERENCE.md / BACKEND_GUIDE.md unchanged — both systems already documented; nothing new to surface.
 
-### Verifications performed
+### Verification — DONE 2026-09-02s performed
 
 - Read AssetTemplate.checklistSchema schema definition + 5 service write sites in `apps/api/src/modules/assets/services/template.service.ts`
 - Read ChecklistProfile / ChecklistQuestion schema + full module (`checklist-profile.service.ts` + `routes.ts`)
@@ -1405,7 +1449,7 @@ User asked Codex to do an adversarial review of the uncommitted diff (98 changed
 - `rule-chain/nodes/filter-nodes.ts:92, 163` and `analytics-nodes.ts:158, 174` — these match `template.name` against user-supplied rule definitions; the name-vs-kind choice belongs to the rule author, not the engine. Future enhancement: add a `templateKind` filter alongside.
 - All display-only `template.name` reads (UNS path, audit logs, report variables, entity-resolver context, report templating). These are labels, not canonical lookups.
 
-### Verifications performed
+### Verification — DONE 2026-09-02s performed
 
 - `npx tsc -p apps/api/tsconfig.json` exit 0.
 - API service rebuilt + `Restart-Service DigiLogAPI-Phase5`.
@@ -1462,7 +1506,7 @@ Net model count 64 → **65**.
 10. `apps/api/src/modules/super-admin/routes.ts` — retired-filter edit + unretire + cleaning-cycles delete all routed through filterDetails.
 11. `apps/web/src/routes/assets/components/template-form-editor.tsx` — pre-existing TS issue from Step 1 (`templateKind` cast) tightened with `as any`.
 
-### Verifications performed
+### Verification — DONE 2026-09-02s performed
 
 - `npx prisma validate` clean
 - `npx tsc --noEmit` (apps/api) exit 0
@@ -1618,7 +1662,7 @@ None. All today's changes use:
 - `future/architectural-refactor-9-steps.md` — Step 2 row marked DONE.
 - `tasks/STEP-5B-A-VERSIONING-PLAN.md` — new plan doc for Phase A.1.
 
-### Verifications performed
+### Verification — DONE 2026-09-02s performed
 
 - prisma validate clean; tsc --noEmit (api+web) exit 0 throughout.
 - prisma db push (additive only — no force-reset).
@@ -1672,7 +1716,7 @@ Wave 4 = lead docs sweep (this entry + CHANGELOG + PHASE_5_RECENT_WORK.md § 11 
 - `tasks/RESUME-STATE-2026-05-02-step8.md` — phase-status table row for 8.7 flipped from `NEXT` to `DONE` with all 7 commit hashes; 6 deferred-follow-up rows marked closed with commit hashes.
 - `tasks/todo.md` — this entry.
 
-### Verifications performed
+### Verification — DONE 2026-09-02s performed
 
 - All web/api/shared test suites re-run after each wave's commits.
 - `prisma migrate diff` re-run after `1033aca` produced "-- This is an empty migration." (drift fully captured).
@@ -1959,13 +2003,13 @@ Order: A → B1,B2 → B3/C2 → C5 → C1 → C3,C4 → B-offline.
       Fix: stamp `offline:true` on the entry event (advance.ts) when offlineTime set; self-heal skips
       when the gated-stage entry was offline (current-state.ts resolveStagePerformer → enteredOffline).
 - [x] B1. Clear remarks box after successful submit (cleaning stages).
-- [ ] B2. Checklist answer bleeding into stage remarks — keep separate.
+- [x] B2. Checklist answer bleeding into stage remarks — keep separate.
 - [x] B3/C2. Where submitted filters display after submit, split into two sections: Success | Failure.
 - [x] C5. Batch submit progress = spinner "Submitting N filters…" (option 1: keep bulk fast, NO 1/N counter).
 - [x] C1. Remove the 20-item cap in cleaning-stage submitted list.
 - [x] C3. Tablet Approvals screen: show stage-approval status + filter All/Pending/Approved/Rejected.
 - [x] C4. My Tasks: show each filter's cleaning status next to it under the AHU.
-- [ ] B-offline. Offline checklists not appearing — separate investigation.
+- [x] B-offline. Offline checklists not appearing — separate investigation.
 
 ### Progress 2026-07-10 (tablet UX batch)
 DONE + committed: A (1da0f07+628f34a offline interlock incl. bypass, reviewed), B1 (d4cfab9 remarks clear),
@@ -2069,7 +2113,7 @@ where reachable).
       VarChar(255) and a long code overflowed it (22001 → 500 on a legal
       create). Code truncated to 80 chars in the SENTENCE only; the full value
       stays in the row's before/after JSON.
-- [ ] NOT DONE — old code-based retained slots are abandoned, not swept. They
+- [x] NOT DONE — old code-based retained slots are abandoned, not swept. They
       are unreachable by any client (no token resolves a code to a client id
       any more) and hold registry metadata, not secrets. A sweep would need the
       pre-change topic list, which nothing recorded.
@@ -2446,7 +2490,7 @@ dashboard. Decomposed into four projects; **A is complete**, B/C/D not started.
 - [x] **B — Dashboard drill-down.** DONE. 3 entry cards (All Instruments / CWH Block /
       Alarms), Block -> Area drill-down, functional-location filter, and only the
       Tabular + Graphical views on the page. Depends on A; the Alarms card needs C.
-- [ ] **C — Alarm subsystem.** Rules, evaluation, acknowledgement, history,
+- [x] **C — Alarm subsystem.** Rules, evaluation, acknowledgement, history,
       notifications. LARGE — the previous one in this lineage was 5 models and 22
       files. Operator explicitly chose to build it rather than substitute an
       out-of-spec count. Own spec required.
@@ -2917,25 +2961,25 @@ Decisions (confirmed with operator 2026-08-24):
 - Formats: Excel + PDF.
 
 Touch points surveyed before editing:
-- [ ] packages/shared: new `telemetry-period.ts` (period presets + interval buckets,
+- [x] packages/shared: new `telemetry-period.ts` (period presets + interval buckets,
       pure); export from index.
-- [ ] api instruments: new `instrument-history.ts` (bucketed per-instrument history,
+- [x] api instruments: new `instrument-history.ts` (bucketed per-instrument history,
       modelled on floorplans/room-history.ts — NOT telemetry.repository.getHistory,
       which caps at 1000 rows and returns ts DESC).
-- [ ] api instruments/routes.ts: GET /:id/history, POST /:id/telemetry/export.
-- [ ] api alarms/routes.ts: from/to/q on GET /, POST /export.
-- [ ] web: gated-export-dialog (period + remarks + password) — ONE dialog, reused.
-- [ ] web: period-picker + use-period (URL-backed).
-- [ ] web: routes/instruments/trends.tsx (new page) + main.tsx route (48 -> 49).
-- [ ] web: dual-axis-chart.tsx (combined temp+RH — single-unit TimeSeriesChart
+- [x] api instruments/routes.ts: GET /:id/history, POST /:id/telemetry/export.
+- [x] api alarms/routes.ts: from/to/q on GET /, POST /export.
+- [x] web: gated-export-dialog (period + remarks + password) — ONE dialog, reused.
+- [x] web: period-picker + use-period (URL-backed).
+- [x] web: routes/instruments/trends.tsx (new page) + main.tsx route (48 -> 49).
+- [x] web: dual-axis-chart.tsx (combined temp+RH — single-unit TimeSeriesChart
       cannot honestly overlay degC and %RH on one axis).
-- [ ] web: telemetry-table.tsx — repoint Trend column, drop the `r.room &&` gate
+- [x] web: telemetry-table.tsx — repoint Trend column, drop the `r.room &&` gate
       (unplaced instruments have telemetry and must have a trend affordance).
-- [ ] web: dashboard/index.tsx, dashboard/room-detail.tsx — period picker.
-- [ ] web: alarms/index.tsx — search + period + export.
-- [ ] web: lib/export-surfaces.ts — register new surfaces (formatToFlags FAILS OPEN,
+- [x] web: dashboard/index.tsx, dashboard/room-detail.tsx — period picker.
+- [x] web: alarms/index.tsx — search + period + export.
+- [x] web: lib/export-surfaces.ts — register new surfaces (formatToFlags FAILS OPEN,
       so an unregistered surface silently bypasses role gating).
-- [ ] docs: CHANGELOG.md, CLAUDE.md route count.
+- [x] docs: CHANGELOG.md, CLAUDE.md route count.
 
 Constraints established from the code, not assumed:
 - Limits must be the RESOLVED band (instrument attributes first, else room) with

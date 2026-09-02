@@ -47,6 +47,7 @@ import { StatusBadge } from '@/components/ui/status-badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Breadcrumbs } from '@/components/ui/page-header';
 import { trendCrumbs, originFrom } from './trend-breadcrumbs';
+import { ALL_RECORDS_PARAM } from '@digilog/shared';
 
 /**
  * Series identity, fixed. Temperature is palette slot 1 and humidity slot 2
@@ -466,7 +467,7 @@ export function InstrumentTrend() {
   };
 
   const fetchAlarmsForPeriod = async (from: string, to: string): Promise<AlarmRow[]> => {
-    const res = await apiClient.get<{ data: AlarmRow[] }>(`/api/alarms?instrumentId=${id}&limit=500`);
+    const res = await apiClient.get<{ data: AlarmRow[] }>(`/api/alarms?instrumentId=${id}&${ALL_RECORDS_PARAM}`);
     const fromMs = new Date(from).getTime();
     const toMs = new Date(to).getTime();
     return res.data.filter((a) => {

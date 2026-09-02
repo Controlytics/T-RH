@@ -1,5 +1,6 @@
 import { type FastifyInstance } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
+import { resolvePageSize } from '../../lib/page-size.js';
 import { AppError } from '../../lib/errors.js';
 
 /**
@@ -78,7 +79,7 @@ export default async function debugTraceRoutes(app: FastifyInstance) {
   }, async (req) => {
     const q = req.query as Record<string, string | undefined>;
     const page = Math.max(1, parseInt(q.page ?? '1', 10) || 1);
-    const limit = Math.min(200, Math.max(1, parseInt(q.pageSize ?? '20', 10) || 20));
+    const limit = resolvePageSize(q.pageSize, 20);   // no ceiling — see lib/page-size.ts
 
     // audit_trail has only SUCCESS / API / no-error rows. Any filter that
     // selects failures, a non-API transport, or an error code yields nothing.

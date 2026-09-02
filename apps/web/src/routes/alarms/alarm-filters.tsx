@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import useSWR from 'swr';
 import { ALARM_QUADRANTS, alarmTypeOptions, type AlarmQuadrant } from './alarm-display';
 import { useAlarmTypeNames } from '@/hooks/use-failure-text';
+import { ALL_RECORDS } from '@digilog/shared';
 
 /**
  * The alarm list's filter bar.
@@ -108,7 +109,7 @@ export function AlarmFilters({
    * The list is visibility-scoped by the same endpoint, so an operator cannot
    * filter by an instrument they are not allowed to see.
    */
-  const instrumentQs = new URLSearchParams({ limit: '500' });
+  const instrumentQs = new URLSearchParams({ limit: String(ALL_RECORDS) });
   const scopeId = locationFilterId(value);
   if (scopeId) instrumentQs.set('functionalLocationId', scopeId);
   const { data: instData } = useSWR<{ data: { id: string; code: string; name: string }[] }>(
@@ -288,7 +289,7 @@ export function AlarmFilters({
 export function useFilterScopeLabels(value: AlarmFilterState) {
   const { data: flData } = useSWR<{ data: FlNode[] }>('/api/functional-locations');
   const scopeId = locationFilterId(value);
-  const qs = new URLSearchParams({ limit: '500' });
+  const qs = new URLSearchParams({ limit: String(ALL_RECORDS) });
   if (scopeId) qs.set('functionalLocationId', scopeId);
   const { data: instData } = useSWR<{
     data: { id: string; code: string; name: string; functionalLocationId?: string | null }[];

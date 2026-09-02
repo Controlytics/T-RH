@@ -99,6 +99,7 @@ export type {
   ResolvedRange,
 } from './types/telemetry-period.js';
 
+export { ALL_RECORDS, ALL_RECORDS_PARAM } from './types/all-records.js';
 export { lttb } from './types/telemetry-downsample.js';
 export type { DownsamplePoint } from './types/telemetry-downsample.js';
 

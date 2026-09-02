@@ -182,7 +182,9 @@ export default function AlarmsPage() {
    * cannot — fail-closed, so a download that was never recorded never happens —
    * and only then is the file built and saved.
    */
-  const REPORT_PAGE = 500;   // the API's own pageSize ceiling
+  // The API has NO pageSize ceiling since 2026-09-02 (lib/page-size.ts) — this is
+  // now just the block size this loop walks in, not a limit imposed on it.
+  const REPORT_PAGE = 500;
   const REPORT_MAX = 5000;   // what one printed report may cover
 
   /**
@@ -276,7 +278,6 @@ export default function AlarmsPage() {
         fmt: { formatDate, formatTime },
         texts: inactivityTexts,
         level: reportLevel(filters),
-        disabledText: statusTextsResponse?.disabledLimitText,
       });
       doc.save(`alarm-report-${new Date().toISOString().slice(0, 10)}.pdf`);
     });

@@ -39,6 +39,18 @@ export interface AlarmRow {
   ruleSnapshot?: {
     name?: string; description?: string; limit?: number; metric?: string; limitKind?: string;
     thresholdLow?: number | null; thresholdHigh?: number | null; comparison?: string;
+    /**
+     * Was each bound IN FORCE at raise time — the instrument's `Enable_Temp_NMT` /
+     * `Enable_Temp_NLT` / `Enable_Humid_NMT` / `Enable_Humid_NLT` attributes, NMT
+     * being the HIGH bound and NLT the LOW one.
+     *
+     * These are the ONLY thing that tells a switched-off bound from one nobody
+     * ever administered — both freeze as a null threshold. The Alarm Report prints
+     * nothing for the first and `N/A` for the second, so it needs both.
+     * **Absent on every row raised before 2026-09-01**, which is why the readers
+     * must treat `undefined` as "unknown" and never as "off".
+     */
+    highEnabled?: boolean | null; lowEnabled?: boolean | null;
     /** The instrument's display precision AT RAISE TIME. Null on rows raised before
      *  the field existed. */
     decimals?: number | null;
@@ -225,6 +237,14 @@ export interface AlarmStatusTextsResponse {
    * config route: it comes from the same `alarm-limits` def, and the one surface
    * that needs it already fetches this endpoint. Optional so a browser talking to
    * a server that predates it still renders.
+   *
+   * **NOTHING CONSUMES THIS AS OF 2026-09-02, and that is deliberate, not a
+   * broken wire.** The operator reversed the request it was built for: a
+   * switched-off bound is now not printed at all (`BOUND_NOT_SHOWN` in
+   * `alarms-report.ts`), so there is no word to administer. The field is still
+   * DECLARED because the server still sends it — this type states the payload,
+   * and silently dropping it would hide a live setting from the next reader.
+   * Retiring the `alarm-limits` setting behind it is the operator's call.
    */
   disabledLimitText?: string;
 }

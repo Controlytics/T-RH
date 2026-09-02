@@ -11,15 +11,31 @@ describe('parseAlarmListQuery', () => {
     expect(q.error).toBeNull();
   });
 
-  it('clamps a page size above the ceiling instead of accepting it', () => {
-    expect(parseAlarmListQuery({ pageSize: 5000 }).pageSize).toBe(500);
-    expect(parseAlarmListQuery({ pageSize: 0 }).pageSize).toBe(1);
+  it('honours ANY page size — there is no ceiling', () => {
+    /**
+     * Operator, 2026-09-02: the backend must not cap what a caller asks for. This
+     * used to clamp to 500 with a `Math.min`, so a request for 5,000 got 500 rows
+     * and NOTHING said so — indistinguishable from a set that really held 500.
+     * `total` on the response is what tells a client it has the whole set.
+     */
+    expect(parseAlarmListQuery({ pageSize: 5000 }).pageSize).toBe(5000);
+    expect(parseAlarmListQuery({ pageSize: 250000 }).pageSize).toBe(250000);
+  });
+
+  it('falls back to the default for a page size that is not a request', () => {
+    // 0 and negatives are malformed, not "give me everything" — Postgres errors on
+    // a negative LIMIT, so letting one through turns a typo into a 500. The lower
+    // bound is the one guard `resolvePageSize` keeps, and it is not a cap.
+    expect(parseAlarmListQuery({ pageSize: 0 }).pageSize).toBe(25);
+    expect(parseAlarmListQuery({ pageSize: -10 }).pageSize).toBe(25);
+    expect(parseAlarmListQuery({ pageSize: 'abc' }).pageSize).toBe(25);
   });
 
   it('honours the legacy `limit` as an alias for pageSize', () => {
     // The dashboard panel and the trend page's alarms widget still send `limit`.
     // Dropping it would silently truncate them to the default page.
     expect(parseAlarmListQuery({ limit: 500 }).pageSize).toBe(500);
+    expect(parseAlarmListQuery({ limit: 9000 }).pageSize).toBe(9000);
     expect(parseAlarmListQuery({ limit: '25' }).pageSize).toBe(25);
     expect(parseAlarmListQuery({ limit: 500, pageSize: 10 }).pageSize).toBe(10);
   });

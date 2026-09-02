@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import useSWR from 'swr';
-import { parseInstrumentAttributeKeys, placementColumnFor } from '@digilog/shared';
+import { parseInstrumentAttributeKeys, placementColumnFor, ALL_RECORDS_PARAM } from '@digilog/shared';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
@@ -53,7 +53,7 @@ export function InstrumentCreatePage() {
    */
   const [gatewayId, setGatewayId] = useState('');
   const { data: gateways } = useSWR<{ data: { id: string; code: string; name: string; profileName: string | null }[] }>(
-    '/api/instruments?isGateway=true&limit=200',
+    `/api/instruments?isGateway=true&${ALL_RECORDS_PARAM}`,
   );
   /** Values for the configured keys, keyed by the key itself. */
   const [attrs, setAttrs] = useState<Record<string, string>>({});

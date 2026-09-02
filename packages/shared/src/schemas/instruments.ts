@@ -237,7 +237,13 @@ export const instrumentQuerySchema = z.object({
   // an empty profile announced "Showing 1–10 of 15".
   profileId: z.string().uuid().optional(),
   page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(500).default(20),
+  // NO `.max()` (operator, 2026-09-02): every server-side record ceiling was
+  // removed. A `.max()` here REJECTS with a 400 rather than clamping, which is
+  // louder than the silent `Math.min`s that went — but it still stops a caller
+  // asking for the whole set, which is the instruction. The `.min(1)` stays: a
+  // negative LIMIT is a Postgres error, not a request for everything.
+  // See apps/api/src/lib/page-size.ts for the full reasoning.
+  limit: z.coerce.number().min(1).default(20),
 });
 
 /**

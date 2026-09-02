@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import useSWR from 'swr';
-import { formatDecimals, TELEMETRY_DECIMALS_FALLBACK } from '@digilog/shared';
+import { formatDecimals, TELEMETRY_DECIMALS_FALLBACK, ALL_RECORDS_PARAM } from '@digilog/shared';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
 import { useCan } from '@/hooks/use-can';
@@ -93,11 +93,11 @@ export function InstrumentDetailPage() {
 
   const { data: inst, mutate } = useSWR<Instrument>(id ? `/api/instruments/${id}` : null);
   const { data: telemetry } = useSWR<{ latest: Reading[]; history: Reading[]; historyTotal: number }>(
-    id ? `/api/instruments/${id}/telemetry?limit=50` : null,
+    id ? `/api/instruments/${id}/telemetry?${ALL_RECORDS_PARAM}` : null,
     { refreshInterval: 15_000 },
   );
   const { data: dead } = useSWR<{ data: DeadLetter[]; total: number }>(
-    id ? `/api/instruments/${id}/dead-letters?limit=20` : null,
+    id ? `/api/instruments/${id}/dead-letters?${ALL_RECORDS_PARAM}` : null,
   );
   // Same key GatewayPanel uses below — SWR dedupes, so this doesn't double the
   // request. Needed here too because the batch payload shown in the Connection

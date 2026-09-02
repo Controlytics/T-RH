@@ -1,5 +1,5 @@
 import type { ReportDoc } from '@/lib/pdf-report';
-import { formatDecimals, LIMIT_DISABLED_TEXT_DEFAULT } from '@digilog/shared';
+import { formatDecimals } from '@digilog/shared';
 import { alarmTypeText, triggeredText, type AlarmRow, type AlarmDisplayTexts } from './alarm-display';
 
 /**
@@ -87,12 +87,40 @@ export function reportHead(level: ReportLevel): string[] {
  * What a limit column prints when the alarm fired against NO bound of that kind —
  * an inactivity alarm, a failed probe, or a bound nobody ever administered.
  *
- * **Distinct from the SWITCHED-OFF wording**, which is administered
- * (`disabledLimitText`, default `NA`). The operator asked for that word to appear
- * "for only disabled limits", so the two cases must stay tellable apart: one says
- * there was never a bound, the other says there was one and it was turned off.
+ * This is the wording the operator's own `Alarm Report.pdf` uses in its LOW SET
+ * POINT VALUE column, verbatim, and it is kept for the case where nobody knows
+ * whether a bound was in force: it claims nothing.
+ *
+ * **Distinct from a bound that was SWITCHED OFF**, which prints
+ * {@link BOUND_NOT_SHOWN}. The two cases must stay tellable apart — one says
+ * there was never a bound, the other says there was one and NMT/NLT turned it off.
  */
 export const NOT_APPLICABLE = 'N/A';
+
+/**
+ * What a SWITCHED-OFF bound prints — nothing.
+ *
+ * Operator, 2026-09-02: *"if temperature and humidity NMT and NLT s are true then
+ * show both High and low limits in the alarm report, if any one is disabled then
+ * dont show that limits in report"*. A bound whose `Enable_Temp_NMT` /
+ * `Enable_Temp_NLT` / `Enable_Humid_NMT` / `Enable_Humid_NLT` attribute was off at
+ * raise time is not printed at all.
+ *
+ * **This REVERSES the administered `disabledLimitText` wording** asked for on
+ * 2026-09-01 ("show NA in report … for only disabled limits"). That word now has
+ * no consumer; the setting is left in place rather than removed here, because a
+ * config def is the operator's call and removing one is a twelve-touchpoint job.
+ *
+ * A DASH, not an empty string, and that is this file's existing rule (`orDash`):
+ * on paper a blank cell reads as a rendering fault, with no other state to check
+ * it against. The dash says "nothing to state here" deliberately.
+ *
+ * Why this is safe against §11: it withholds a bound that could never have raised
+ * this alarm — the same rule `telemetry-overview` already follows for a disabled
+ * bound, and the reason `limitSnapshot` freezes the flags rather than reading them
+ * live. It never invents or suppresses a bound that WAS in force.
+ */
+export const BOUND_NOT_SHOWN = '-';
 
 export interface AlarmReportScope {
   blockName: string;
@@ -217,16 +245,13 @@ export function uomFor(a: AlarmRow): string {
  * RH High rows. A source with no numeric bound at all (inactivity, a failed
  * probe) is `N/A` in both, because it did not fire against one.
  */
-export function setPoints(a: AlarmRow, disabledText?: string): { high: string; low: string } {
-  const s = a.ruleSnapshot as (typeof a.ruleSnapshot & {
-    highEnabled?: boolean | null; lowEnabled?: boolean | null;
-  }) | undefined;
+export function setPoints(a: AlarmRow): { high: string; low: string } {
+  // No cast: `highEnabled`/`lowEnabled` are declared on the snapshot type, so a
+  // fixture that omits them fails the build rather than silently reading undefined.
+  const s = a.ruleSnapshot;
   const dp = s?.decimals ?? undefined;
   const show = (v: number | null | undefined) =>
     (typeof v === 'number' ? (formatDecimals(v, dp ?? 1) ?? String(v)) : null);
-  // NEVER a literal here — the only fallback is the shared constant, the same
-  // rule as the RS485 failure word.
-  const off = (disabledText ?? '').trim() || LIMIT_DISABLED_TEXT_DEFAULT;
 
   let high = show(s?.thresholdHigh);
   let low = show(s?.thresholdLow);
@@ -238,16 +263,19 @@ export function setPoints(a: AlarmRow, disabledText?: string): { high: string; l
   }
 
   /**
-   * A bound that was SWITCHED OFF prints the administered word; one that was
-   * never administered prints `N/A`. Both arrive as a null threshold, which is
-   * why the snapshot freezes `highEnabled`/`lowEnabled` alongside — the flags are
-   * the only thing that can tell the two apart, and rows raised before they
-   * existed carry neither, so they fall through to `N/A` rather than claiming a
-   * bound was disabled when nobody knows.
+   * A bound that was SWITCHED OFF is not shown; one that was never administered
+   * prints `N/A`. Both arrive as a null threshold, which is why the snapshot
+   * freezes `highEnabled`/`lowEnabled` alongside — the flags are the only thing
+   * that can tell the two apart, and rows raised before they existed carry
+   * neither, so they fall through to `N/A` rather than asserting a bound was
+   * disabled when nobody knows.
+   *
+   * A NUMBER always wins over both: the flag only ever explains an ABSENCE, so a
+   * bound switched off AFTER this alarm froze its value still prints that value.
    */
   const word = (v: string | null, enabled: boolean | null | undefined) => {
     if (v !== null) return v;
-    return enabled === false ? off : NOT_APPLICABLE;
+    return enabled === false ? BOUND_NOT_SHOWN : NOT_APPLICABLE;
   };
   return { high: word(high, s?.highEnabled), low: word(low, s?.lowEnabled) };
 }
@@ -265,10 +293,9 @@ export function reportRows(
   fmt: AlarmReportFormatters,
   texts?: AlarmDisplayTexts,
   level: ReportLevel = 'instrument',
-  disabledText?: string,
 ): string[][] {
   return rows.map((a) => {
-    const { high, low } = setPoints(a, disabledText);
+    const { high, low } = setPoints(a);
     // The leading cells mirror `EXTRA_COLUMNS` for this level, in the same order.
     // Built from one switch so a column and its cell cannot drift apart.
     const extras = level === 'instrument' ? []
@@ -345,8 +372,6 @@ export function buildAlarmsReport(
     fmt: AlarmReportFormatters;
     texts?: AlarmDisplayTexts;
     level?: ReportLevel;
-    /** Administered wording for a switched-off bound. */
-    disabledText?: string;
   },
 ): void {
   const level = opts.level ?? 'instrument';
@@ -364,7 +389,7 @@ export function buildAlarmsReport(
     head: reportHead(level),
     columnStyles: columnWidths(level),
     body: opts.rows.length
-      ? reportRows(opts.rows, opts.fmt, opts.texts, level, opts.disabledText)
+      ? reportRows(opts.rows, opts.fmt, opts.texts, level)
       // A report of an empty period must SAY it is empty. A table with a header
       // and no rows reads as a rendering failure on paper, where there is no
       // other state to check it against.

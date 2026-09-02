@@ -26,7 +26,10 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['requestType', 'requesterName', 'requesterEmployeeId', 'requestData'],
         properties: {
-          requestType: { type: 'string', enum: ['CREATE_USER', 'MODIFY_USER', 'UNLOCK', 'FORGOT_PASSWORD'] },
+          // ENABLE_ACCOUNT / DISABLE_ACCOUNT added 2026-09-02 (operator). Both are
+          // state changes on an existing account, guarded at APPROVAL by
+          // `decideAccountState` — see admin-requests/account-state.ts.
+          requestType: { type: 'string', enum: ['CREATE_USER', 'MODIFY_USER', 'UNLOCK', 'FORGOT_PASSWORD', 'ENABLE_ACCOUNT', 'DISABLE_ACCOUNT'] },
           requesterName: { type: 'string', minLength: 1, maxLength: 100 },
           requesterEmployeeId: { type: 'string', minLength: 1, maxLength: 50 },
           requesterEmail: { type: 'string', format: 'email', maxLength: 100 },
@@ -216,6 +219,16 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
             username: { type: 'string' },
             temporaryPassword: { type: 'string' },
             message: { type: 'string' },
+            /**
+             * FALSE when the approval changed nothing because the account was
+             * already in the state asked for — an unlock on an account that was
+             * not locked, an enable on an enabled account (operator, 2026-09-02).
+             *
+             * DECLARED, or Fastify strips it and the dialog reports every approval
+             * as an action performed. This repo has lost a field that way five
+             * times; the e2e asserts it over the wire for that reason.
+             */
+            changed: { type: 'boolean' },
           },
         },
         ...errorResponses,
@@ -234,7 +247,15 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
     const ctx = buildContext(req);
 
     const result = await adminRequestService.process(id, action, adminRemarks ?? '', ctx);
-    const { username, temporaryPassword, message, ...rest } = result as any;
-    return { success: true, data: rest, ...(username && { username }), ...(temporaryPassword && { temporaryPassword }), ...(message && { message }) };
+    const { username, temporaryPassword, message, changed, ...rest } = result as any;
+    return {
+      success: true, data: rest,
+      ...(username && { username }),
+      ...(temporaryPassword && { temporaryPassword }),
+      ...(message && { message }),
+      // Spread on `!== undefined`, not on truthiness: `changed: false` is the
+      // whole point of the field and `&&` would drop exactly that case.
+      ...(changed !== undefined && { changed }),
+    };
   });
 }

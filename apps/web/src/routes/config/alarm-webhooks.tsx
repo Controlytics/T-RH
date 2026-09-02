@@ -17,6 +17,7 @@ import { StatusBadge } from '@/components/ui/status-badge';
 import { PageHeader } from '@/components/ui/page-header';
 import { SkeletonRows } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
+import { ALL_RECORDS_PARAM } from '@digilog/shared';
 
 export interface WebhookTarget {
   id: string;
@@ -649,7 +650,7 @@ function TargetDialog({
   // it stay in scopeInstrumentIds and are resubmitted untouched, so nothing is lost by
   // saving from a truncated picker.
   const { data: instrumentData, error: instrumentError } = useSWR<{ data: InstrumentRow[] }>(
-    '/api/instruments?limit=500',
+    `/api/instruments?${ALL_RECORDS_PARAM}`,
   );
   const { data: flData, error: flError } = useSWR<{ data: FlNode[] }>('/api/functional-locations');
 

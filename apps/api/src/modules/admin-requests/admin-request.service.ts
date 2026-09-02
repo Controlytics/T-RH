@@ -6,6 +6,8 @@ import { NotFoundError, ValidationError } from '../../lib/errors.js';
 import { userService } from '../users/user.service.js';
 import { userRepository } from '../users/user.repository.js';
 import type { RequestContext } from '../../types/context.js';
+import { describeTarget, targetFromRequestData, requesterLabel, requestRecordName } from './describe-request.js';
+import { decideAccountState, type AccountStatus, type StateRequestType } from './account-state.js';
 
 const prisma = new PrismaClient();
 
@@ -30,11 +32,26 @@ export const adminRequestService = {
       },
     });
 
-    // Audit log (no userId since this is a public endpoint)
-    const requesterLabel = request.requesterEmployeeId
-      ? `${request.requesterName} (${request.requesterEmployeeId})`
-      : request.requesterName;
-    const submittedName = `${formatRequestType(request.requestType)} — ${requesterLabel}`;
+    /**
+     * Audit log. No `userId` — this is a PUBLIC endpoint and nobody has
+     * authenticated; the requester's own employee ID is what identifies them, and
+     * it is not a verified identity. The approval record's `by` is.
+     *
+     * The record names the TARGET account and its role, not only the requester
+     * (operator, 2026-09-02) — see describe-request.ts for what was wrong.
+     */
+    const asked = requesterLabel(request);
+    // Role is whatever the request itself carries: CREATE_USER names the role
+    // being asked for. For the other types it is not in `requestData`, and this
+    // endpoint deliberately does NOT look it up — see the enumeration-oracle note
+    // in account-state.ts. The approval record fills it in, where the caller is
+    // authenticated.
+    const target = describeTarget(targetFromRequestData(request.requestData));
+    const submittedName = requestRecordName({
+      operation: formatRequestType(request.requestType),
+      target,
+      requester: asked,
+    });
     await auditLog({
       userId: request.requesterEmployeeId ?? undefined,
       action: 'ADMIN_REQUEST_SUBMITTED',
@@ -45,9 +62,13 @@ export const adminRequestService = {
         requestType: request.requestType,
         requesterName: request.requesterName,
         requesterEmployeeId: request.requesterEmployeeId,
+        // The target, stored as its own fields as well as inside `name`, so a
+        // reader can filter on it without parsing a sentence.
+        targetUsername: targetFromRequestData(request.requestData).username || null,
+        targetRole: targetFromRequestData(request.requestData).role || null,
       },
-      reason: `${formatRequestType(request.requestType)} request submitted by ${requesterLabel}`,
-      signatureMeaning: `Admin request (${formatRequestType(request.requestType)}) submitted by ${requesterLabel}`,
+      reason: `${formatRequestType(request.requestType)} request submitted by ${asked}`,
+      signatureMeaning: `Admin request (${formatRequestType(request.requestType)}) submitted by ${asked}`,
     });
 
     // Create notification for admins
@@ -115,7 +136,13 @@ export const adminRequestService = {
     });
     if (claimed.count === 0) throw new ValidationError('Request has already been processed');
 
-    let actionOutcome: { username?: string; temporaryPassword?: string; message?: string } = {};
+    let actionOutcome: {
+      username?: string; temporaryPassword?: string; message?: string;
+      /** False when the account was ALREADY in the state asked for, so nothing was
+       *  changed. Carried out to the caller so the approval dialog can say so, and
+       *  used below to keep that fact in the §11 record. */
+      changed?: boolean; targetRole?: string;
+    } = {};
     if (action === 'approve') {
       try {
         actionOutcome = await executeApproval(request, ctx);
@@ -133,21 +160,55 @@ export const adminRequestService = {
 
     const updated = await prisma.adminRequest.findUniqueOrThrow({ where: { id } });
 
-    // Audit log
-    const requesterLabel = request.requesterEmployeeId
-      ? `${request.requesterName} (${request.requesterEmployeeId})`
-      : request.requesterName;
-    const processedName = `${formatRequestType(request.requestType)} — ${requesterLabel}`;
+    /**
+     * Audit log.
+     *
+     * `userId: ctx.userId` is the VERIFIED identity — the admin who re-authenticated
+     * to get here — and it is what `{actor}` renders as "by ...". The requester's ID
+     * lives in the description instead. They are different people (operator's own
+     * example: requested by 101020, approved by 101010) and this record has to keep
+     * them apart.
+     */
+    const asked = requesterLabel(request);
+    // The role is known NOW in a way it was not at submission: `executeApproval`
+    // loaded the target user. It falls back to whatever `requestData` carries.
+    const targetParts = targetFromRequestData(request.requestData, actionOutcome.targetRole);
+    const target = describeTarget(targetParts);
+    const processedName = requestRecordName({
+      operation: formatRequestType(request.requestType),
+      target,
+      requester: asked,
+    });
+    // A no-op approval must not read like an act. `actionOutcome.message` is the
+    // one sentence that says what was actually found — see account-state.ts.
+    const noop = action === 'approve' && actionOutcome.changed === false;
     await auditLog({
       userId: ctx.userId,
       userRole: ctx.userRole,
       action: action === 'approve' ? 'ADMIN_REQUEST_APPROVED' : 'ADMIN_REQUEST_REJECTED',
       targetType: 'admin_request',
       targetId: id,
-      beforeValue: { name: processedName, status: 'PENDING', requesterEmployeeId: request.requesterEmployeeId },
-      afterValue: { name: processedName, status: newStatus, adminRemarks, requesterEmployeeId: request.requesterEmployeeId },
-      reason: `${formatRequestType(request.requestType)} request ${newStatus.toLowerCase()} — ${adminRemarks}`,
-      signatureMeaning: `Admin request (${formatRequestType(request.requestType)}) ${newStatus.toLowerCase()} by admin`,
+      beforeValue: {
+        name: processedName, status: 'PENDING',
+        requesterEmployeeId: request.requesterEmployeeId,
+        targetUsername: targetParts.username || null, targetRole: targetParts.role || null,
+      },
+      afterValue: {
+        name: processedName, status: newStatus, adminRemarks,
+        requesterEmployeeId: request.requesterEmployeeId,
+        targetUsername: targetParts.username || null, targetRole: targetParts.role || null,
+        // Recorded explicitly rather than inferred from the message text: whether
+        // an approval changed anything is a fact about the system, and a later
+        // reader must not have to parse a sentence to learn it.
+        stateChanged: action === 'approve' ? actionOutcome.changed !== false : undefined,
+        outcome: actionOutcome.message ?? undefined,
+      },
+      reason: noop
+        ? `${formatRequestType(request.requestType)} request approved, no change made — ${actionOutcome.message} — ${adminRemarks}`
+        : `${formatRequestType(request.requestType)} request ${newStatus.toLowerCase()} — ${adminRemarks}`,
+      signatureMeaning: noop
+        ? `Admin request (${formatRequestType(request.requestType)}) approved by admin — no change made`
+        : `Admin request (${formatRequestType(request.requestType)}) ${newStatus.toLowerCase()} by admin`,
       ipAddress: ctx.ipAddress,
       userAgent: ctx.userAgent,
       sessionId: ctx.sessionId,
@@ -160,7 +221,10 @@ export const adminRequestService = {
 async function executeApproval(
   request: { id: string; requestType: string; requestData: unknown; requesterName: string; requesterEmail: string | null },
   ctx: RequestContext,
-): Promise<{ username?: string; temporaryPassword?: string; message?: string }> {
+): Promise<{
+  username?: string; temporaryPassword?: string; message?: string;
+  changed?: boolean; targetRole?: string;
+}> {
   const data = (request.requestData ?? {}) as Record<string, any>;
   switch (request.requestType) {
     case 'CREATE_USER': {
@@ -199,17 +263,58 @@ async function executeApproval(
         },
         ctx,
       );
-      return { username, temporaryPassword, message: `User "${username}" created.` };
+      return { username, temporaryPassword, message: `User "${username}" created.`, changed: true, targetRole: requestedRole };
     }
 
-    case 'UNLOCK': {
+    /**
+     * UNLOCK / ENABLE_ACCOUNT / DISABLE_ACCOUNT — the three that change an
+     * account's STATE, and the three that must first check whether it is already
+     * in that state (operator, 2026-09-02).
+     *
+     * One branch for all three because the shape is identical and the decision is
+     * `decideAccountState`'s alone; splitting them is how one of them ends up
+     * without the guard. **The guard runs BEFORE the state-changing call**, which
+     * is the whole point: `userService.unlock/enable/disable` each write their own
+     * `ACCOUNT_*` audit row, so calling one for an account already in that state
+     * writes a §11 record asserting an act that did not happen.
+     */
+    case 'UNLOCK':
+    case 'ENABLE_ACCOUNT':
+    case 'DISABLE_ACCOUNT': {
       const targetUsername = String(data.username ?? '').trim();
       if (!targetUsername) throw new ValidationError('Request is missing username');
       const user = await userRepository.findByUsername(targetUsername);
       if (!user) throw new NotFoundError(`User "${targetUsername}" not found`);
-      const temporaryPassword = generateTempPassword();
-      await userService.unlock(user.id, temporaryPassword, ctx);
-      return { username: targetUsername, temporaryPassword, message: `Account "${targetUsername}" unlocked.` };
+
+      const decision = decideAccountState(
+        request.requestType as StateRequestType,
+        (user as { status: AccountStatus }).status,
+        targetUsername,
+      );
+      // The role the audit record will name. Read here because this is the one
+      // place the target user is loaded under an authenticated caller.
+      const targetRole = (user as { role?: string }).role ?? undefined;
+
+      if (!decision.apply) {
+        // Nothing is called, so nothing is audited as done. The approval's own
+        // record carries `stateChanged: false` and the message.
+        return { username: targetUsername, message: decision.message, changed: false, targetRole };
+      }
+
+      if (request.requestType === 'UNLOCK') {
+        // A temporary password is issued ONLY on a real unlock. Handing one out
+        // for an account that was not locked would be a credential change nobody
+        // asked for.
+        const temporaryPassword = generateTempPassword();
+        await userService.unlock(user.id, temporaryPassword, ctx);
+        return { username: targetUsername, temporaryPassword, message: decision.message, changed: true, targetRole };
+      }
+      if (request.requestType === 'ENABLE_ACCOUNT') {
+        await userService.enable(user.id, ctx);
+      } else {
+        await userService.disable(user.id, ctx);
+      }
+      return { username: targetUsername, message: decision.message, changed: true, targetRole };
     }
 
     case 'FORGOT_PASSWORD': {
@@ -219,7 +324,11 @@ async function executeApproval(
       if (!user) throw new NotFoundError(`User "${targetUsername}" not found`);
       const temporaryPassword = generateTempPassword();
       await userService.resetPassword(user.id, temporaryPassword, ctx);
-      return { username: targetUsername, temporaryPassword, message: `Password reset for "${targetUsername}".` };
+      return {
+        username: targetUsername, temporaryPassword,
+        message: `Password reset for "${targetUsername}".`,
+        changed: true, targetRole: (user as { role?: string }).role ?? undefined,
+      };
     }
 
     case 'MODIFY_USER': {
@@ -233,7 +342,11 @@ async function executeApproval(
       const user = await userRepository.findByUsername(targetUsername);
       if (!user) throw new NotFoundError(`User "${targetUsername}" not found`);
       await userService.update(user.id, { [field]: newValue }, ctx);
-      return { username: targetUsername, message: `User "${targetUsername}" updated (${field}).` };
+      return {
+        username: targetUsername,
+        message: `User "${targetUsername}" updated (${field}).`,
+        changed: true, targetRole: (user as { role?: string }).role ?? undefined,
+      };
     }
 
     default:
@@ -278,6 +391,8 @@ function formatRequestType(type: string): string {
     case 'MODIFY_USER': return 'Modify User';
     case 'UNLOCK': return 'Unlock Account';
     case 'FORGOT_PASSWORD': return 'Forgot Password';
+    case 'ENABLE_ACCOUNT': return 'Enable Account';
+    case 'DISABLE_ACCOUNT': return 'Disable Account';
     default: return type;
   }
 }
