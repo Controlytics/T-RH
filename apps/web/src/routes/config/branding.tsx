@@ -13,6 +13,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { LogoUploadSection } from './branding-components/logo-upload-section';
 import { BackgroundUploadSection } from './branding-components/background-upload-section';
+import { BrowserTabSection } from './branding-components/browser-tab-section';
 import { ColorSettingsSection } from './branding-components/color-settings-section';
 import { BrandingPreview } from './branding-components/branding-preview';
 import { LoginBgSection } from './branding-components/login-bg-section';
@@ -158,6 +159,17 @@ export function BrandingConfigPage() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Browser tab (2026-09-03). Placed after App Identity because the
+                tab title is the fourth name on this page and reads as one of
+                them; the favicon rides with it because they are one surface. */}
+            <BrowserTabSection
+              tabTitle={watchedValues.tabTitle ?? ''}
+              faviconUrl={watchedValues.faviconUrl ?? ''}
+              register={register}
+              errors={errors}
+              onFaviconChange={(url) => setValue('faviconUrl', url, { shouldDirty: true })}
+            />
 
             {/* Company Info Section */}
             <Card className="border-0 shadow-[var(--elev-2)] overflow-hidden">

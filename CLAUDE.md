@@ -225,7 +225,7 @@ history; `docs/recreation/` holds the inventory.
   `reason` column; a first fill does not). Admin surface: Config → Roles & Access → Attribute Access.
   Migration `20260819120000_role_attribute_access`, drift guard PASS, applied to both databases.
 - **Themes:** 10 preset color themes (Ocean / Sapphire / Emerald / Amethyst / Sunset / Slate / Ruby / Forest / Midnight / Coral)
-- **Frontend:** **51** Routes in `main.tsx` (verified `grep -cE "<Route"` 2026-08-29 — 50 → 51: `/config/export-options` registered, having never been reachable. Earlier verified 2026-08-27 — 49 → 50: new `/config/alarm-webhooks` page; earlier 48 → 49 on 2026-08-24: the `/instruments/:id/trend` page; the "77" was inherited from upstream DigiLog and was never true in this fork; `/config/role-assignments` removed 2026-08-19 as dead code, 49 → 48), **20** custom hooks (18 → 20, re-derived `ls apps/web/src/hooks/ | wc -l` 2026-08-29 — audit finding M8; the 18 was stale), **19** lib modules (`ls apps/web/src/hooks/ | wc -l` / `ls apps/web/src/lib/ | wc -l`, each including its own `__tests__` subfolder as one entry — lib 18 → 19 corrected 2026-08-27: `lib/background-style.ts` landed with the wallpaper work (`764fff5`) and this line was never re-synced; the 2026-08-27 trend-sampling work added NO lib module — the "26 / 30" this file carried for months was never true against the live tree and was never re-verified until now)
+- **Frontend:** **50** Routes in `main.tsx` (re-derived `grep -cE "<Route"` 2026-09-03 — this line read **51** and was ALREADY STALE: the 2026-08-31 alarm-rules removal took it 51 → 50 and re-synced only the System Stats copy above, which is the same duplicate-inventory defect this file keeps warning about. Earlier verified 2026-08-29 — 50 → 51: `/config/export-options` registered, having never been reachable. Earlier verified 2026-08-27 — 49 → 50: new `/config/alarm-webhooks` page; earlier 48 → 49 on 2026-08-24: the `/instruments/:id/trend` page; the "77" was inherited from upstream DigiLog and was never true in this fork; `/config/role-assignments` removed 2026-08-19 as dead code, 49 → 48), **22** custom hooks (20 → 22, re-derived `ls apps/web/src/hooks/ | wc -l` 2026-09-03 — ALREADY STALE, nothing on 2026-09-03 added a hook; earlier 18 → 20 on 2026-08-29, audit finding M8), **20** lib modules (19 → 20 on 2026-09-03: `lib/document-identity.ts`, the browser-tab applier) (`ls apps/web/src/hooks/ | wc -l` / `ls apps/web/src/lib/ | wc -l`, each including its own `__tests__` subfolder as one entry — lib 18 → 19 corrected 2026-08-27: `lib/background-style.ts` landed with the wallpaper work (`764fff5`) and this line was never re-synced; the 2026-08-27 trend-sampling work added NO lib module — the "26 / 30" this file carried for months was never true against the live tree and was never re-verified until now)
 - **Queue backend:** graphile-worker (Postgres-backed); **6** worker tasks —
   `notification`, `password_expiry_check`, `session_sweep`,
   `telemetry_partition_maintenance`, `alarm_evaluation`, `alarm_webhook`
@@ -566,6 +566,53 @@ GET    /api/alarm-webhooks/:id/deliveries?status= — paged §11 delivery log, f
   - The alarms table's **unit legends (`(°C / %RH)`, `(H/m)`) and the H/m tooltip
     are NOT renameable** and survive a rename: they explain the cells, not the
     column's name.
+- **The browser TAB is named and iconned from config (2026-09-03).** Two settings
+  on the EXISTING `branding` def — `tabTitle` (default `T&RH-Monitoring`) and
+  `faviconUrl` — plus `POST /api/uploads/branding-favicon`. **No count moved**: no
+  migration, model, enum, permission, reauth action, config def, page or route; the
+  same precedent as the four `alarm-limits` enable-attribute settings. The one that
+  did move is `apps/web/src/lib/` 19 → 20 (`document-identity.ts`).
+  - **`tabTitle` is NOT `appName` and must not be folded into it.** They have always
+    been different strings, and `appName` is what the sidebar, header and login card
+    print. Note this install had ALREADY set `appName` to `T&RH-Monitoring` while the
+    tab still read "Compliance Core" — which is what prompted the request.
+  - Applied by `apps/web/src/lib/document-identity.ts`, called from `useBranding()`
+    beside the theme effect — the ONE place branding is resolved, and it runs on the
+    login page too, so the tab is right before anyone signs in. **A blank value
+    leaves the SHIPPED default from `index.html`**, never an empty tab or a
+    broken-image icon.
+  - **Both `<link>`s are rewritten and the `type` hint with them.** A stale
+    `type="image/png"` over an uploaded `.ico` is the mismatch that reads as "I
+    uploaded my icon and nothing happened".
+  - **The `<link>` is REPLACED, never mutated** — a browser does not reliably
+    repaint the tab from an `href` rewrite. A "simplification" back to
+    `setAttribute('href', …)` leaves the config saving correctly while the tab keeps
+    the old icon, with nothing on screen to explain it. The test asserts element
+    IDENTITY, not the attribute, because the attribute assertion passes for the
+    version that does not work. `apple-mobile-web-app-title` follows the title too
+    — it is a `<meta>`, so "baked at build time" does not cover it.
+  - **The card's client-side file check is deliberately LOOSER than the server's.**
+    A `.ico` often arrives with an EMPTY `file.type`, so `!file.type.startsWith(...)`
+    rejects the exact format the route exists for before the request is made. Only a
+    positively-identified non-image is refused; magic bytes are the boundary.
+  - **`BRANDING_TAB_TITLE_DEFAULT` in `@digilog/shared` is the ONE default.** No
+    component may default the label to a literal (the `alarmTypeName()` precedent);
+    `index.html`'s static `<title>` is the one unavoidable hand-kept copy, and it is
+    HTML-escaped (`T&amp;RH-Monitoring`) while the config value is not.
+  - **The favicon is a PATH, never a data URI** — `backgroundUrl`'s rule and its
+    reason: a branding change is audited, and an inlined image lands twice in a §11
+    before/after record. Do not raise the 512 cap to `logoUrl`'s 3,000,000.
+  - **Its own upload route, deliberately.** `/branding-background` writes to the same
+    directory and would have worked; the two differ in what they ACCEPT, and `.ico`
+    belongs to favicons alone. `readValidatedImage` gained an `allowed` parameter
+    rather than being forked, so the four upload routes cannot drift.
+  - **SVG IS REFUSED AND MUST STAY REFUSED** — `/uploads/branding/` is in
+    `PUBLIC_GET_PATHS` on the API's own origin, so an SVG favicon would be
+    same-origin script execution for anyone holding `CONFIG_UPDATE`. A `.cur`
+    renamed `.ico` is refused too (all four ICONDIR magic bytes are matched).
+  - **The PWA manifest is NOT driven from config and cannot be** — `vite-plugin-pwa`
+    bakes `name`/`short_name`/icons at build time. The INSTALLED app still reads
+    DigiLog; only the browser tab is administered.
 - **Boolean config settings render as an on/off TOGGLE, not a checkbox
   (2026-08-31, operator).** `components/ui/toggle.tsx`, swapped in at
   `dynamic-config.tsx`'s boolean branch, so it changes EVERY dynamic config page

@@ -114,7 +114,7 @@ DigiLog is single-tenant, single-site (`Organization` model + `org-admin`/`tenan
 
 | Module | Prefix | Key Features |
 |---|---|---|
-| `uploads` | `/api/uploads` | Profile photo / floorplan image upload |
+| `uploads` | `/api/uploads` | Profile photo / floorplan / app background / browser-tab favicon upload (4 routes) |
 | `help` | `/api/help` | Help article CRUD |
 | `ldap` | `/api/ldap` | LDAP integration config, sync |
 

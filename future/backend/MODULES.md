@@ -54,7 +54,7 @@ Endpoint counts below come from `grep 'app.(get|post|put|patch|delete)'` on 2026
 | `notification-delivery` | 18 | Email + SMS channel config, OAuth2 flows, templates, logs, send endpoint |
 | `notification-rules` | 8 | Event-driven rules with toggle + test |
 | `dashboards` | 13 | Dashboard CRUD + widget CRUD + layout + assignment + data adapter + widget catalog |
-| `uploads` | 1 | `POST /photo` (photo upload) |
+| `uploads` | 4 | `POST /photo` (self-service) · `POST /floorplan` · `POST /branding-background` · `POST /branding-favicon` (the last three CONFIG_UPDATE) |
 | `help` | 6 | Help articles with key lookup, versioning |
 
 ## Digital FMS (Filter Management)

@@ -211,7 +211,11 @@ inventory:
 | `SuperAdminApiAccess` | `super-admin-api-access.tsx` | Super-admin API token/access panel |
 | `PwaReloadPrompt` | `pwa-reload-prompt.tsx` | Prompts a refresh when `vite-plugin-pwa` detects a new service-worker build — asset-caching for update UX, not an offline-data feature (see `docs/archive/OFFLINE_SYNC_ARCHITECTURE.md`, a deletion candidate for describing a different, non-existent offline subsystem) |
 
-## Utility Libraries (17 modules — verified `ls apps/web/src/lib/*.ts` 2026-08-24)
+## Utility Libraries (19 modules — re-derived `ls apps/web/src/lib/*.ts` 2026-09-03)
+
+17 -> 19: `lib/document-identity.ts` was added 2026-09-03 with the configurable
+browser tab, and `lib/background-style.ts` had been MISSING from this table since
+it landed on 2026-08-27 — the count was already one short before this change.
 
 The previous "15 modules" list named `lib/filter-constants.ts`,
 `lib/format-by-least-count.ts`, `lib/connectivity.ts`, `lib/rfid-bridge.ts`,
@@ -238,6 +242,8 @@ removed mobile app). Actual inventory:
 | `lib/resolve-bulk-targets.ts` | Resolves bulk-action target sets |
 | `lib/server-contact.ts` | Admin contact info display |
 | `lib/timing-constants.ts` | Shared timeout/interval constants |
+| `lib/background-style.ts` | Builds the app background layer from the branding config |
+| `lib/document-identity.ts` | Applies the administered browser-tab title and favicon to the document |
 
 ## Authentication Flow
 

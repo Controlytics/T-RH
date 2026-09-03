@@ -7,7 +7,15 @@
          WCAG 1.4.4 treats blocking that as a failure. Nothing in this UI needs
          it: the layouts below are responsive rather than fixed-width. -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>Compliance Core — Instrument Monitoring &amp; 21 CFR Part 11</title>
+    <!-- The SHIPPED DEFAULT only. The live tab title is administered on
+         Config -> Branding (`branding.tabTitle`) and applied at runtime by
+         src/lib/document-identity.ts; this is what the tab reads before any JS
+         has run, and what it keeps if the branding request fails. Keep the two
+         in step - the zod default in packages/shared/src/schemas/config.ts is
+         the other half. NOTE the `&amp;`: a bare `&RH` is an entity-shaped
+         token and must be escaped in the static source (it must NOT be escaped
+         in the config value, which is assigned to document.title directly). -->
+    <title>T&amp;RH-Monitoring</title>
 
     <!-- PWA Meta -->
     <meta name="theme-color" content="#0891b2" />
@@ -15,9 +23,14 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="Compliance Core" />
+    <meta name="apple-mobile-web-app-title" content="T&amp;RH-Monitoring" />
 
-    <!-- Icons -->
+    <!-- Icons. Both hrefs are SHIPPED DEFAULTS: when `branding.faviconUrl` is
+         set, document-identity.ts rewrites them to the uploaded file (and
+         rewrites `type` with them, so an uploaded .ico is not advertised as a
+         PNG). The PWA manifest's icons are baked at BUILD time by
+         vite-plugin-pwa and are deliberately NOT driven from config - an
+         installed app's icon cannot change under the user without a reinstall. -->
     <link rel="icon" type="image/png" href="/pwa-192x192.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 

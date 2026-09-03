@@ -30,6 +30,9 @@ const MAX_FILE_SIZE = parseInt(process.env.MAX_FILE_SIZE ?? `${5 * 1024 * 1024}`
 // shape of that mistake.
 const MIME_TO_EXT: Record<string, string> = {
   'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp',
+  // ICO is reachable ONLY from /branding-favicon, which passes FAVICON_TYPES.
+  // Being in this map does not admit it anywhere else — the allow-list is the gate.
+  'image/x-icon': '.ico', 'image/vnd.microsoft.icon': '.ico',
 };
 
 const MAGIC_BYTES: Record<string, number[]> = {
@@ -37,7 +40,24 @@ const MAGIC_BYTES: Record<string, number[]> = {
   'image/png': [0x89, 0x50, 0x4E, 0x47],
   'image/gif': [0x47, 0x49, 0x46],
   'image/webp': [0x52, 0x49, 0x46, 0x46], // RIFF header
+  // ICONDIR: reserved(0) + type. Type 1 is an icon, type 2 is a CURSOR, and
+  // matching all four bytes is what refuses a .cur renamed to .ico.
+  'image/x-icon': [0x00, 0x00, 0x01, 0x00],
+  'image/vnd.microsoft.icon': [0x00, 0x00, 0x01, 0x00],
 };
+
+/**
+ * What /branding-favicon accepts: the shared list PLUS the two mime types Windows
+ * uses for a .ico, which is the format an operator most often has to hand for a
+ * favicon. Derived from ALLOWED_TYPES rather than written out, so narrowing
+ * UPLOAD_ALLOWED_TYPES narrows this route too.
+ *
+ * SVG IS DELIBERATELY ABSENT AND MUST STAY ABSENT. `/uploads/branding/` is in
+ * PUBLIC_GET_PATHS and served from the API's own origin; an SVG can carry script,
+ * so accepting one here would be same-origin script execution reachable by anyone
+ * holding CONFIG_UPDATE. Every browser that matters renders a PNG favicon.
+ */
+const FAVICON_TYPES = [...ALLOWED_TYPES, 'image/x-icon', 'image/vnd.microsoft.icon'];
 
 /**
  * Buffer an uploaded image and validate it, or return the reply code + body to
@@ -54,11 +74,18 @@ const MAGIC_BYTES: Record<string, number[]> = {
  */
 async function readValidatedImage(
   data: { mimetype: string; file: NodeJS.ReadableStream & { truncated?: boolean } },
+  allowed: string[] = ALLOWED_TYPES,
 ): Promise<{ ok: true; buffer: Buffer; ext: string } | { ok: false; code: 400 | 413; body: object }> {
-  if (!ALLOWED_TYPES.includes(data.mimetype)) {
+  if (!allowed.includes(data.mimetype)) {
     return {
       ok: false, code: 400,
-      body: { error: 'INVALID_FILE_TYPE', message: 'Only JPEG, PNG, GIF, and WebP images are allowed' },
+      // Named from the list actually in force, so a favicon 400 says ICO is
+      // allowed and a background 400 does not. A generic message here sent an
+      // operator hunting a server fault for a file the route was never going to take.
+      body: {
+        error: 'INVALID_FILE_TYPE',
+        message: `Allowed image types: ${allowed.join(', ')}`,
+      },
     };
   }
 
@@ -347,6 +374,83 @@ export default async function uploadRoutes(app: FastifyInstance) {
       // named by an audited before-value of a branding change, and a §11 record that
       // points at a missing file is worse than an orphaned image. Disk is reclaimed
       // by the operator, not silently by this route.
+      return { success: true, url: `/uploads/branding/${filename}`, filename };
+    } catch (err: unknown) {
+      const e = err as { code?: string; statusCode?: number; message?: string };
+      if (e.code === 'FST_REQ_FILE_TOO_LARGE') {
+        return reply.code(413).send({
+          error: 'FILE_TOO_LARGE',
+          message: `File exceeds maximum size of ${MAX_FILE_SIZE / 1024 / 1024} MB`,
+        });
+      }
+      if (e.statusCode === 415 || e.message?.includes('multipart')) {
+        return reply.code(400).send({
+          error: 'INVALID_REQUEST',
+          message: 'Request must be multipart/form-data with a file',
+        });
+      }
+      app.log.error(err);
+      return reply.code(500).send({ error: 'Failed to upload file' });
+    }
+  });
+
+  // The browser-tab FAVICON (2026-09-03). Stored on the branding config as
+  // `faviconUrl` and applied by apps/web/src/lib/document-identity.ts.
+  //
+  // Its own route rather than a reuse of /branding-background, which writes to the
+  // same directory and would have "worked": the two differ in what they ACCEPT.
+  // A favicon is the one case where an operator reaches for a .ico, so this route
+  // passes FAVICON_TYPES. Folding them together would have meant admitting .ico as
+  // a page background and a profile photo too, for no reason.
+  //
+  // CONFIG_UPDATE for the same reason as the other two shared assets: this is what
+  // every user's browser tab shows, so bare authentication is not enough.
+  app.post('/branding-favicon', {
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    // Nothing here unlinks a file and there is no quota, so each call permanently
+    // costs disk. Replacing a favicon is a rare act.
+    config: { rateLimit: { max: 20, timeWindow: '1 hour' } },
+    schema: {
+      tags: ['Uploads'],
+      summary: 'Upload the browser tab icon (favicon)',
+      description: 'Upload a favicon (ICO, PNG, JPEG, GIF or WebP). Maximum 5 MB. Returns the URL to store on the branding config as faviconUrl.',
+      consumes: ['multipart/form-data'],
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            url: { type: 'string', description: 'Relative URL path to the uploaded icon' },
+            filename: { type: 'string' },
+          },
+        },
+        400: { type: 'object', properties: { error: { type: 'string' }, message: { type: 'string' } } },
+        413: { type: 'object', properties: { error: { type: 'string' }, message: { type: 'string' } } },
+        500: { type: 'object', properties: { error: { type: 'string' } } },
+      },
+    },
+  }, async (req, reply) => {
+    try {
+      const data = await req.file();
+      if (!data) return reply.code(400).send({ error: 'No file uploaded' });
+
+      // The SHARED validator, with this route's wider allow-list — magic bytes
+      // checked against the declared (attacker-controlled) mime type, `truncated`
+      // for oversize. Reused rather than reimplemented so this route cannot drift
+      // into being the weakest of the four.
+      const result = await readValidatedImage(data as never, FAVICON_TYPES);
+      if (!result.ok) return reply.code(result.code).send(result.body);
+
+      // Extension from the VALIDATED mime type, never the supplied filename. The
+      // UUID also means every upload gets a fresh URL, which is what defeats the
+      // browser's very aggressive favicon caching — no cache-buster is needed.
+      const filename = `${randomUUID()}${result.ext}`;
+      await writeFile(path.join(brandingDir, filename), result.buffer);
+
+      // The PREVIOUS favicon is deliberately NOT deleted, same rule as the
+      // background: it may still be named by an audited before-value of a branding
+      // change, and a §11 record pointing at a missing file is worse than an
+      // orphaned image.
       return { success: true, url: `/uploads/branding/${filename}`, filename };
     } catch (err: unknown) {
       const e = err as { code?: string; statusCode?: number; message?: string };

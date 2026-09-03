@@ -1,11 +1,51 @@
 import { z } from 'zod';
 
+/**
+ * The shipped browser-tab title.
+ *
+ * Exported because THREE consumers must not each carry it as a literal — the zod
+ * default below, the web app's `defaultBranding`, and the Branding page's
+ * placeholder/preview. That is this repo's standing rule for administered wording
+ * (`alarmTypeName()`, `coerceTrendWidgetTexts()`): no component may default a label
+ * to a literal, the only fallback is the shared constant.
+ *
+ * `apps/web/index.html` is the ONE unavoidable hand-kept copy — it is read before
+ * any JS runs, so it cannot import this. Change it in the same commit, HTML-escaped
+ * (`T&amp;RH-Monitoring`); a bare `&RH` is an entity-shaped token in static markup.
+ */
+export const BRANDING_TAB_TITLE_DEFAULT = 'T&RH-Monitoring';
+
 export const brandingConfigSchema = z.object({
   // Logo & App Identity
   appName: z.string().min(1).max(50).default('DigiLog'),
   appTagline: z.string().max(100).default('21 CFR Part 11 Compliant Digital Logbook'),
   logoText: z.string().min(1).max(5).default('DL'),
   logoUrl: z.string().max(3000000).default(''), // URL or data URI for logo image; ~3M chars ≈ a 2MB base64 image (raised from 500k 2026-06-29)
+
+  // The BROWSER TAB — its title and its icon (2026-09-03).
+  //
+  // Deliberately NOT `appName`, and the shipped values are the evidence they are
+  // different strings: the static <title> read "Compliance Core — Instrument
+  // Monitoring & 21 CFR Part 11" while `appName` read "DigiLog". `appName` is what
+  // the sidebar, the header and the login card print, so folding the two would
+  // rename three visible surfaces nobody asked to rename.
+  //
+  // Blank is REFUSED rather than falling back to `appName`: the same rule as every
+  // other administered wording here — a blank must never reach the screen, and the
+  // only fallback is the shipped default.
+  tabTitle: z.string().min(1).max(120).default(BRANDING_TAB_TITLE_DEFAULT),
+  // A PATH, never a data URI — the same rule as `backgroundUrl` below and for the
+  // same reason: `system_config` is read constantly and a branding change is
+  // AUDITED, so an inlined image lands twice in a §11 before/after record. A
+  // favicon is small enough that a data URI would work, so note the tiebreaker is
+  // the audit record and not the file size. Do NOT raise this cap to `logoUrl`'s
+  // 3,000,000 for consistency.
+  //
+  // Uploaded by POST /api/uploads/branding-favicon, which writes into
+  // /uploads/branding/ — already in PUBLIC_GET_PATHS, and it must stay there: the
+  // favicon is fetched by the browser chrome with no Authorization header, and the
+  // login page needs it before anyone has a token at all.
+  faviconUrl: z.string().max(512).default(''),
 
   // Company Info
   companyName: z.string().min(1).max(100).default('Controlytics AI Pvt Ltd'),

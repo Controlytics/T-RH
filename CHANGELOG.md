@@ -1,5 +1,122 @@
 # Changelog
 
+## [Unreleased] - The browser tab is named and iconned from config (2026-09-03)
+
+Operator: *"in the favicon tab option rename it as T&RH-Monitoring and also this
+rename is give as configuration and also that icon also should be changebale in
+configuration"*.
+
+Two new settings on the EXISTING `branding` config — `tabTitle` (default
+`T&RH-Monitoring`) and `faviconUrl` — plus one new upload route. Applied at runtime
+by `apps/web/src/lib/document-identity.ts`, called from `useBranding()`.
+
+**No count moved.** 35 models, 12 enums, 42 permissions, 48 reauth actions, 24 API
+modules, 30 config defs, 23 config pages, 50 routes — all re-derived, all unchanged.
+There is no migration, no new permission and no new reauth action: these are
+settings on a def that already exists and an endpoint inside the `uploads` module
+that already exists, the same precedent as the four `alarm-limits` enable-attribute
+settings. The one count that DID move is `apps/web/src/lib/` 19 -> 20, for the new
+module.
+
+**`tabTitle` is deliberately NOT `appName`.** They have always been different
+strings — the shipped `<title>` read "Compliance Core - Instrument Monitoring &
+21 CFR Part 11" while `appName` read "DigiLog" — and `appName` is what the sidebar,
+the header and the login card print. Folding them would have renamed three visible
+surfaces nobody asked to rename. **Found while verifying: this installation had
+ALREADY set `appName` to `T&RH-Monitoring`** (and `logoText` to `TRH`), and the tab
+still said Compliance Core, which is very likely what prompted the request. The two
+now read the same here while remaining independently settable.
+
+**A blank title is refused, not fallen back on.** Same rule as every other
+administered wording in this app: the only fallback is the SHIPPED default, never
+another field and never an empty tab.
+
+**The favicon follows the BACKGROUND's pattern, not the LOGO's** — uploaded to disk
+with only the path stored (`.max(512)`), because a branding change is audited and an
+inlined data URI would land twice in a §11 before/after record. A favicon is small
+enough that a data URI would have worked; the audit record is the tiebreaker, not
+the file size.
+
+**Its own upload route rather than a reuse of `/branding-background`**, which writes
+to the same directory and would have "worked". The two differ in what they ACCEPT: a
+favicon is the one case where an operator reaches for a `.ico`, so
+`POST /api/uploads/branding-favicon` passes `FAVICON_TYPES` (the shared list plus
+the two mime types Windows uses for an icon). Folding them would have admitted
+`.ico` as a page background and a profile photo too, for nothing. The shared
+validator gained an `allowed` parameter rather than being forked, so the four upload
+routes still cannot drift into one of them being the weakest.
+
+- **SVG is refused and must stay refused.** `/uploads/branding/` is in
+  `PUBLIC_GET_PATHS` and served from the API's own origin; an SVG can carry script,
+  so accepting one would be same-origin script execution reachable by anyone holding
+  `CONFIG_UPDATE`. Pinned by a test that says so.
+- **A `.cur` renamed to `.ico` is refused** — the two share the ICONDIR header and
+  differ only in the type word, so all four magic bytes are matched.
+- The UUID filename gives every upload a fresh URL, which is what defeats the
+  browser's very aggressive favicon caching. No cache-buster was added.
+- The previous favicon is NOT deleted, same rule as the background: it may still be
+  named by an audited before-value, and a §11 record pointing at a missing file is
+  worse than an orphaned image.
+
+**The icon `<link>` is REPLACED, not mutated.** A browser does not reliably repaint
+the tab when an existing link's `href` is merely rewritten; removing the element and
+appending a fresh one is the recipe that is honoured. Asserting on the attribute
+alone would have passed for the version that does not work, so the test asserts the
+element IDENTITY changed and the old one is disconnected. It still ends with exactly
+one link per rel and SKIPS the swap when the href is already correct, because several
+components call `useBranding()` on one page.
+
+**The client-side file check is deliberately LOOSER than the server's.** A `.ico`
+frequently arrives with an EMPTY `file.type` — the browser could not map the
+extension — and a bare `!file.type.startsWith('image/')` guard therefore rejected the
+exact format the separate route exists for, before the request was made, under a
+message listing ICO as accepted. It now refuses only what the browser positively
+identifies as a non-image; the server's magic bytes are the boundary.
+
+**`BRANDING_TAB_TITLE_DEFAULT` is exported from `@digilog/shared`** and used by the
+zod default, `defaultBranding` and the Branding page's placeholder and preview. This
+repo's rule is that no component may default a label to a literal — the
+`alarmTypeName()` / `coerceTrendWidgetTexts()` precedent. `index.html` is the one
+unavoidable hand-kept copy: it is read before any JS runs.
+
+**`apple-mobile-web-app-title` follows the title too** (the name under an iOS
+home-screen icon). It is a `<meta>`, not the manifest, so "baked at build time" does
+not cover it and it would otherwise sit on the previous product name for good. The
+applier never INVENTS the tag.
+
+**Both icon `<link>`s are rewritten, and the `type` hint with them.** Leaving
+`apple-touch-icon` on the shipped logo would surface later as "the home-screen icon
+is still the old one"; and the static tag ships `type="image/png"`, so swapping in an
+`.ico` while still advertising PNG is the mismatch that presents as "I uploaded my
+icon and nothing happened".
+
+**Deliberately NOT changed — the PWA manifest.** `vite-plugin-pwa` bakes
+`name: 'DigiLog - 21 CFR Part 11 Compliance'`, `short_name: 'DigiLog'` and its icons
+at BUILD time. An installed app's name and icon changing underneath the user is not
+something a config write should be able to do, and it cannot be done at runtime
+anyway. The INSTALLED PWA therefore still reads DigiLog; the browser tab does not.
+
+**Verification.** 359/359 shared, 27/27 API upload routes, 16/16 jsdom applier tests,
+8/8 on the new config card, plus `src/e2e/config.test.ts`, `auth.plugin.test.ts` and
+every web test touching branding, each run individually and measured by exit code.
+`tsc --noEmit` clean on api and web; `vite build` clean. **15 mutations across four
+groups, every one caught:** wrong `rel`, unconditional title, missing blank guards,
+missing type rewrite (5/1/1/1); ICO dropped from the allow-list, ICO magic bytes
+shortened so a cursor passes, the CONFIG_UPDATE gate removed (3/1/1); the shipped
+default changed, `.min(1)` dropped, the 512 cap raised to `logoUrl`'s (2/1/1); and
+mutating the href instead of replacing the element, dropping the
+skip-when-unchanged, dropping the iOS meta, restoring the strict client guard
+(2/1/1/1). Probed against the RUNNING server:
+`GET /api/config/branding` already returns both new keys with their defaults filled
+into the pre-existing row, and `/api/uploads/branding-favicon` is in the live
+OpenAPI document.
+
+**NOT verified: nothing was seen on screen.** The operator holds the browser session.
+The full `apps/web` suite cannot be used as evidence either way — it reported 38, then
+148, then 100 failures across three runs of the same tree with a
+`[vitest-worker]: Timeout calling "onTaskUpdate"`, and **100 of those were with my
+changes stashed**. Every file it named passes alone.
+
 ## [Unreleased] - The record ceilings I missed the first time (2026-09-02)
 
 Operator asked whether the limits were gone from *everywhere* — every screen,

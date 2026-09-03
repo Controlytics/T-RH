@@ -71,7 +71,8 @@ This file is an **index** — for handler-level detail (request/response shapes,
 
 ## Uploads — `/api/uploads`
 
-- `POST /photo`
+- `POST /photo` (self-service, no permission gate)
+- `POST /floorplan` · `POST /branding-background` · `POST /branding-favicon` (all CONFIG_UPDATE — shared assets)
 
 ## Notifications — `/api/notifications`
 

@@ -3084,3 +3084,58 @@ component's own catch, so the success path was broken under a green test.
 Both now assert rendered OUTPUT and carry negative controls. Also measured:
 **inverting a gate fails 6 tests where removing it fails 1** — invert, don't
 remove.
+
+## 2026-09-03 — Browser tab: administered title + icon
+
+Operator: *"in the favicon tab option rename it as T&RH-Monitoring and also this
+rename is give as configuration and also that icon also should be changebale in
+configuration"*.
+
+- [x] `tabTitle` + `faviconUrl` on the EXISTING `branding` zod schema and def —
+      no migration, no new def/page/route/permission/reauth action. Only count
+      that moved: `apps/web/src/lib/` 19 → 20
+- [x] **NOT folded into `appName`** — always a different string, and `appName`
+      is what the sidebar/header/login print. Found while verifying: this
+      install had ALREADY set `appName` to `T&RH-Monitoring` and the tab still
+      read "Compliance Core", which is almost certainly what prompted the ask
+- [x] `lib/document-identity.ts` — the applier, taking its `Document` so it is
+      testable in jsdom without mounting the app (the operator holds the only
+      browser session). Called from `useBranding()`, beside the theme effect
+- [x] Blank leaves the SHIPPED default from `index.html` — never an empty tab
+      or a broken-image icon; blank `tabTitle` is refused by the schema
+- [x] `POST /api/uploads/branding-favicon` — its own route because it ACCEPTS
+      `.ico`, which no other upload should. `readValidatedImage` gained an
+      `allowed` parameter rather than being forked
+- [x] SVG refused (same-origin script from `PUBLIC_GET_PATHS`); `.cur` renamed
+      `.ico` refused (all four ICONDIR bytes matched)
+- [x] Both `<link>`s rewritten + the `type` hint, so an uploaded `.ico` is not
+      advertised as a PNG
+- [x] **The `<link>` is REPLACED, not mutated** — a browser does not reliably
+      repaint the tab from an `href` rewrite, and the attribute assertion passes
+      for the version that does not work. The test asserts element IDENTITY
+- [x] **The card's file check is LOOSER than the server's** — a `.ico` often has
+      an EMPTY `file.type`, so the obvious guard rejected the exact format the
+      route exists for, before the request, under a message listing ICO
+- [x] `BRANDING_TAB_TITLE_DEFAULT` exported from `@digilog/shared` — no component
+      defaults the label to a literal; `index.html` is the one hand-kept copy
+- [x] `apple-mobile-web-app-title` follows the title (a `<meta>`, not the manifest)
+- [x] 6 shared + 16 jsdom + 8 component + 13 API route tests; **15 mutations
+      across four groups**, every one caught, each restored
+- [x] Docs: CHANGELOG, root CLAUDE.md (incl. two counts that were ALREADY
+      stale), FRONTEND_GUIDE lib table (17 → 19; `background-style.ts` had been
+      missing since 2026-08-27), BACKEND_GUIDE, future/{overview/API_LIST,
+      backend/MODULES}
+
+**The `apps/web` full-suite run is not usable as evidence and this is now
+measured.** Three runs of the SAME tree gave 38, 148 and 100 failures with a
+`[vitest-worker]: Timeout calling "onTaskUpdate"`; **the 100 was with my changes
+stashed.** Every file it named passes alone. Verified per-file by exit code
+instead, per the triage rule in memory.
+
+**Deliberately NOT done:** the PWA manifest still bakes `DigiLog` at build time
+(an installed app's identity must not change under the user). `vite.config.ts`
+`includeAssets` names `favicon.ico`, which is not in `public/`; the four PNGs
+there are byte-identical (same md5). `future/frontend/KEY_FILES.md` lists four
+`lib/` files that do not exist (`connectivity`, `rfid-bridge`, `offline-store`,
+`sync-engine`) — not extended, because adding a true row to a false table is
+not a fix.

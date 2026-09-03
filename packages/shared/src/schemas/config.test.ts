@@ -42,6 +42,56 @@ describe('brandingConfigSchema', () => {
   it('rejects logoText over 5 chars', () => {
     expect(brandingConfigSchema.safeParse({ logoText: 'ABCDEF' }).success).toBe(false);
   });
+
+  // The browser tab (2026-09-03).
+  it('defaults the browser tab title and leaves the favicon unset', () => {
+    const result = brandingConfigSchema.safeParse({});
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.tabTitle).toBe('T&RH-Monitoring');
+      expect(result.data.faviconUrl).toBe('');
+    }
+  });
+
+  /**
+   * The load-bearing one. `seedDefaults()` only INSERTS a `system_config` row when
+   * it is absent, so every environment that already has a `branding` row will never
+   * be given these two keys by seeding. The defaults reach them only because
+   * `configService.getConfig` parses the stored value through this schema. If that
+   * ever stops being true, an existing install gets `undefined` for both and the tab
+   * silently keeps whatever `index.html` shipped.
+   */
+  it('fills the tab defaults into a stored config that predates them', () => {
+    const preExisting = { appName: 'DigiLog', logoText: 'DL', companyName: 'Acme', version: '1.0' };
+    const result = brandingConfigSchema.safeParse(preExisting);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.tabTitle).toBe('T&RH-Monitoring');
+      expect(result.data.appName).toBe('DigiLog');
+    }
+  });
+
+  /**
+   * The requested title contains an ampersand, and this repo has already stored
+   * `R&D Dept` as `R&amp;D Dept` once (see lib/sanitize.ts's own history). Pinned
+   * here because a mangled title is invisible in a diff and obvious in a tab.
+   */
+  it('keeps an ampersand in the tab title exactly as typed', () => {
+    const result = brandingConfigSchema.safeParse({ tabTitle: 'T&RH-Monitoring' });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.tabTitle).toBe('T&RH-Monitoring');
+  });
+
+  it('rejects a blank tab title rather than falling back to appName', () => {
+    expect(brandingConfigSchema.safeParse({ tabTitle: '' }).success).toBe(false);
+  });
+
+  // The 512 cap is what keeps the favicon a PATH rather than an inlined data URI,
+  // which would land twice in every audited branding change.
+  it('rejects a favicon value long enough to be an inlined image', () => {
+    expect(brandingConfigSchema.safeParse({ faviconUrl: 'a'.repeat(513) }).success).toBe(false);
+    expect(brandingConfigSchema.safeParse({ faviconUrl: '/uploads/branding/x.png' }).success).toBe(true);
+  });
 });
 
 describe('passwordPolicySchema', () => {

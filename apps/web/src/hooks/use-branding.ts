@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
 import useSWR from 'swr';
-import { type BrandingConfig } from '@digilog/shared';
+import { type BrandingConfig, BRANDING_TAB_TITLE_DEFAULT } from '@digilog/shared';
 import { getThemeById, applyTheme, DEFAULT_THEME_ID } from '@/lib/themes';
+import { applyDocumentIdentity } from '@/lib/document-identity';
 
 // Default branding values
 export const defaultBranding: BrandingConfig = {
@@ -9,6 +10,11 @@ export const defaultBranding: BrandingConfig = {
   appTagline: '21 CFR Part 11 Compliant Digital Logbook',
   logoText: 'DL',
   logoUrl: '/logo.jpg', // Controlytics logo
+  // The browser tab. The default is the SHARED constant, never a literal — the
+  // only hand-kept copy is index.html's static <title>, which is read before any
+  // JS runs and therefore cannot import it.
+  tabTitle: BRANDING_TAB_TITLE_DEFAULT,
+  faviconUrl: '',
   companyName: 'Controlytics AI Pvt Ltd',
   version: '1.0',
   primaryColor: '#1e3a5f',
@@ -53,6 +59,19 @@ export function useBranding() {
     const theme = getThemeById(themeId);
     applyTheme(theme.colors);
   }, [themeId]);
+
+  // Apply the administered browser-tab title and icon. Deliberately here, beside
+  // the theme, rather than in AppLayout: this hook is the ONE place branding is
+  // resolved, and it is called from the login page too — so the tab is right
+  // before anyone has signed in. Several components call this hook on the same
+  // page and the effect therefore runs more than once; assigning the same title
+  // and href repeatedly is a no-op, which is why applyDocumentIdentity reuses the
+  // existing <link> rather than appending one.
+  const tabTitle = branding.tabTitle;
+  const faviconUrl = branding.faviconUrl;
+  useEffect(() => {
+    applyDocumentIdentity(document, tabTitle, faviconUrl);
+  }, [tabTitle, faviconUrl]);
 
   return {
     branding,
