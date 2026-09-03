@@ -69,3 +69,52 @@ describe('ingestPayload', () => {
     expect(writeBatch).toHaveBeenCalled();
   });
 });
+
+/**
+ * The envelope shape, driven through the WRITE PATH (2026-09-03).
+ *
+ * The parser test alone would not have caught the original defect. When this was
+ * first diagnosed I proved the FLAT payload parsed correctly and concluded the
+ * pipeline worked — but the device was sending `{"values":{...}}`, and what
+ * actually reached `writeBatch` was ONE json row keyed `values`. These assert on
+ * the rows handed to the repository, which is the thing the dashboard reads.
+ */
+describe('ingestPayload — envelope payload', () => {
+  const rows = () => writeBatch.mock.calls[0][0] as Array<{ key: string; value: unknown; valueType: string; instrumentId: string }>;
+
+  it('writes the device\'s readings as their OWN keys, not one `values` blob', async () => {
+    const r = await ingestPayload({
+      identity: plain,
+      raw: buf({ values: { h: '48.5', t: '33.2', id: 3, ty: 3 } }),
+      transport: 'mqtt',
+    });
+    expect(r).toEqual({ ok: true, accepted: 4 });
+
+    const byKey = Object.fromEntries(rows().map((x) => [x.key, x.value]));
+    expect(byKey).toEqual({ h: '48.5', t: '33.2', id: 3, ty: 3 });
+    // The defect, stated as an assertion: this key must not reach the database.
+    expect(rows().map((x) => x.key)).not.toContain('values');
+    expect(rows().every((x) => x.instrumentId === 'i1')).toBe(true);
+  });
+
+  it('keeps the quoted reading a string, so coerceReading judges it downstream', async () => {
+    await ingestPayload({ identity: plain, raw: buf({ values: { t: '33.2' } }), transport: 'mqtt' });
+    expect(rows()[0]).toMatchObject({ key: 't', value: '33.2', valueType: 'string' });
+  });
+
+  // The guard, at the write path: nothing is discarded when the shape is ambiguous.
+  it('writes BOTH when the payload carries an envelope and its own reading', async () => {
+    await ingestPayload({ identity: plain, raw: buf({ values: { t: 1 }, t: 25 }), transport: 'mqtt' });
+    const byKey = Object.fromEntries(rows().map((x) => [x.key, x.value]));
+    expect(byKey.t).toBe(25);
+    expect(byKey.values).toEqual({ t: 1 });
+  });
+
+  it('still fans a gateway batch out when both keys are present', async () => {
+    const r = await ingestPayload({
+      identity: gw, raw: buf({ devices: { 'CH-A': { t: 1 } }, values: { t: 9 } }), transport: 'mqtt',
+    });
+    expect(r).toMatchObject({ ok: true, accepted: 1 });
+    expect(rows()[0]).toMatchObject({ key: 't', value: 1, instrumentId: 'a1' });
+  });
+});

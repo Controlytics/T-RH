@@ -1,5 +1,65 @@
 # Changelog
 
+## [Unreleased] - Ingest accepts a `values` envelope (2026-09-03)
+
+Operator: *"still data was not coming to temperture and humidity"* — for
+`CWH/RDU/001-00`, receiving `{"h":"46.3","t":"25.7","id":3,"ty":3}`.
+
+**The diagnosis, which the database gave outright.** That instrument stored
+`temperature` and `humidity` — 1149 rows each — until 2026-09-01 15:12:56, and
+since then stores a SINGLE key `values` of type `json` holding the whole object.
+All 102 other instruments still store `temperature`/`humidity`. So the device
+changed format in the field: it now publishes `{"values": {...}}`, and the flat
+parser read `values` as the one reading key. Data was arriving the whole time and
+being stored under a key nothing reads. The temperature/humidity cells were blank
+not because ingest was broken but because `t` and `h` never existed as keys.
+
+**The near miss worth recording:** the first check ran the FLAT payload the
+operator had pasted through `parsePayload`, saw `t`/`h` resolve correctly, and
+concluded the pipeline was fine. It was the payload that was wrong, not the
+parser. A pure-function test that uses the bytes you *believe* are on the wire
+proves nothing about the bytes that are.
+
+**The fix.** `parsePayload` gains a third shape. No count moved — no model, enum,
+migration, module, config def, page, route, permission or reauth action; one pure
+function learned one shape.
+
+- **Unwrapped ONLY when `values` holds an object AND the payload carries no other
+  reading keys.** `{"values":{"t":1},"t":25}` is ambiguous, so it is NOT unwrapped
+  and both are stored. Unwrapping there would silently DISCARD the outer reading,
+  which is the one failure mode a §11 ingest path must not have. A `values` that
+  is a number, string or array is an ordinary reading and is left alone.
+- **The envelope's contents are readings VERBATIM.** `ts`/`quality` are defined at
+  the TOP level only, so an inner `ts` is stored as a reading rather than being
+  silently dropped or silently honoured as the record's timestamp. Inner-`ts`
+  support was deliberately NOT added: no device here sends one, and a timestamp is
+  what a §11 record is anchored to — a second source for it needs a real payload
+  to test against.
+- **An empty envelope yields zero readings**, exactly as a bare `{}` already does.
+  No new rejection path was invented.
+- **Hardcoded, not administered.** `telemetry-slots` administers key NAMES; this is
+  payload SHAPE. `payload-parser.ts` is deliberately PURE — no database, no imports
+  — and threading a config value in for one vendor would cost the property that
+  makes it cheap to test and impossible to break from a config screen. If a second
+  envelope name turns up, make it a config THEN.
+
+**Verified against the live device, not just in tests.** After the reload, readings
+land as `h`, `t`, `id`, `ty`; the last `values`-keyed row falls out of the window.
+32 tests (22 parser + 10 ingest) and every ingest e2e — `instrument-ingest`,
+`gateway-ingest`, `mqtt-ingest`, `tcp-ingest`, `ws-ingest`, `gateway-fanout` — run
+individually by exit code; `tsc --noEmit` clean. Three mutations, all caught:
+removing the branch fails 8 (across BOTH files), unwrapping unconditionally fails
+2, accepting an array fails 1.
+
+**The write-path test is the load-bearing one.** `ingest-core.test.ts` asserts on
+the rows handed to `writeBatch`, not on the parser's return value — the parser test
+alone would not have caught the original defect, for exactly the reason above.
+
+**NOT done: the 64 pre-fix `values` rows were left alone.** The readings are intact
+inside the stored JSON and can be recovered whenever wanted, but inserting derived
+`t`/`h` rows into a regulated table alongside the originals is a separate decision
+with a duplication question attached, and nobody has asked for it.
+
 ## [Unreleased] - The browser tab is named and iconned from config (2026-09-03)
 
 Operator: *"in the favicon tab option rename it as T&RH-Monitoring and also this

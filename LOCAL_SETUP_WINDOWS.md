@@ -419,6 +419,31 @@ Devices publish to `instruments/<id>/telemetry`; the bridge subscribes
 `instruments/+/telemetry` at QoS 1 and hands each payload to the ingest core
 with `transport: 'mqtt'`.
 
+**Three accepted payload shapes** (`modules/instruments/payload-parser.ts`):
+
+```jsonc
+{ "t": "25.7", "h": "46.3" }                    // flat     -> this instrument
+{ "values": { "t": "25.7", "h": "46.3" } }      // envelope -> this instrument
+{ "devices": { "CH-A": { "t": "25.7" } } }      // batch    -> a gateway's children
+```
+
+`ts`/`timestamp`, `quality` and `devices` are reserved at the TOP level; every
+other key is stored verbatim as a reading with its JSON type preserved. A QUOTED
+number is a reading — `coerceReading()` in `@digilog/shared` is the one definition
+— so `"25.7"` is 25.7 and raises no sensor-failure alarm.
+
+**The envelope was added 2026-09-03** for a logger that changed format in the
+field and could not be changed back. It is unwrapped ONLY when `values` holds an
+object and the payload carries no other reading keys: `{"values":{"t":1},"t":25}`
+is ambiguous, so it is NOT unwrapped and both are stored, because unwrapping
+there would silently DISCARD a reading. `values` as a number, string or array is
+an ordinary reading and is left alone.
+
+**Key NAMES are administered, payload SHAPE is not.** Which key means temperature
+is `telemetry-slots` config (ordered alias lists); the three shapes above are
+hardcoded, because the parser is deliberately PURE and threading config into it
+would cost that. If a second envelope name appears, make it a config then.
+
 **A device connects as: username = its device token, client ID = its instrument
 UUID.** Both, or the broker refuses it.
 
