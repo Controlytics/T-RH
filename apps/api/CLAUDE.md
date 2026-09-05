@@ -299,6 +299,59 @@ node apps/api/dist/app.js
   - Only the QC plan has either; every other plan keeps SQL NULL and renders
     unchanged, including its legend, which is drawn only when annotations exist.
 
+- **2026-09-04 — the MQTT client id and topic segment are the instrument
+  CODE again.** Operator request; **no count moved** and **no migration**. The
+  UUID interlude (2026-08-07) existed because a code of `+`/`#` in the ACL
+  template matched every instrument; that is now refused at registration by
+  `instrumentCodeTopicViolation()` (`@digilog/shared`), on the zod schema, the
+  CSV importer and the create form. `/` is allowed — the plant's codes are
+  `CWH/RDU/001-00` — so the bridge subscribes `instruments/#`,
+  `parseTelemetryTopic` matches a fixed prefix/suffix, `isDownlinkTopic` drops
+  the bridge's own retained slots silently, and lookup is by `code`. `mqtt-auth`
+  binds `clientid` to `code` with NO UUID fallback. Downlink/roster topics are
+  keyed on codes (`AttributeDownlink.code`/`gatewayCode`); the routes resolve
+  the gateway's code. `scripts/migrate-mqtt-topics-to-code.ts` moved the
+  retained slots; `etc/acl.conf` bridge grants are `instruments/#`. Pinned by
+  `mqtt-topic.test.ts` (11), `e2e/mqtt-auth.test.ts` (UUID is DENIED),
+  `e2e/mqtt-ingest.test.ts` (slash code routes; UUID topic dropped; own
+  downlink echo not logged), and the downlink/roster e2e rekeyed on codes.
+  **The reserved-last-segment rule is load-bearing**: without it a child coded
+  `X/telemetry` has its downlink parsed as telemetry from `<gw>/attributes/X`.
+- **2026-09-05 — `GET /api/instruments/telemetry-history`: the merged, paged
+  readings of SEVERAL instruments** (the Instruments page's history widget).
+  **No count moved** and **no migration**: one new route on the existing
+  module, `INSTRUMENT_READ` like its siblings, registered before `/:id` as
+  `/telemetry-overview` is. `getMultiInstrumentHistory` pivots in SQL —
+  `jsonb_object_agg(key, value)` GROUP BY `(instrument_id, ts)`, newest first —
+  so a page boundary cannot split an instant's temperature from its humidity;
+  `total` counts instants. Values are RAW and unfiltered by key: the slot keys,
+  limits and precision are `telemetry-overview`'s per-instrument answer, and a
+  site-wide alias filter here would drop an instrument whose keys have drifted.
+  **Visibility is applied to the ID SET** (`withVisibility({id:{in}})`) before
+  the query — out of scope is absent, never 403. `values` is declared
+  `additionalProperties: true`; an object schema without it serialises to `{}`
+  silently, the sixth time the response filter has mattered here. Pinned by
+  `src/e2e/telemetry-history.e2e.test.ts` (5, incl. the OPERATOR scope case —
+  which needs `INSTRUMENT_READ` granted and `invalidateRolePermsCache`, as
+  `instrument-scope-selection.test.ts` does; seeded instants must be inside an
+  EXISTING partition, i.e. near now). Mutation-checked: dropping the visibility
+  filter fails it.
+- **2026-09-05 — the child attributes BUNDLE.** New module
+  `modules/instruments/child-attributes-bundle.ts`; **no count moved, no
+  migration.** A third retained slot per gateway,
+  `instruments/<gw>/children/attributes`, carrying EVERY child's complete
+  attribute set (keyed by code, sorted, keys sorted) plus `changed` — the one
+  attribute that moved, or `null` on a membership-driven republish. Published
+  from the two existing announce points in `instruments/routes.ts`
+  (`announceAttributeChange` after the per-child downlink; `announceRoster`
+  after the roster) and cleared beside `clearChildRoster`. **Under `/children/`
+  because `instruments/<gw>/attributes` is the gateway's OWN attribute slot** —
+  putting the bundle there would overwrite it. Loaded post-commit, like the
+  per-child set, so a concurrent edit on another child cannot be missing from a
+  message that claims to be complete. Pinned by 6 unit + 4 e2e (the capture
+  publisher, same as the roster e2e). ACL subscribe line widened; local broker
+  restarted; AWS needs the same. `scripts/publish-child-attribute-bundles.ts`
+  seeds the slot for gateways that have seen no change since.
 - **2026-09-01 — the enable-flag rule spanned THREE resolvers, and all three
   were wrong at some point on the same day.** "A bound the instrument switches
   off is not enforced" was implemented independently in `buildTelemetryOverview`

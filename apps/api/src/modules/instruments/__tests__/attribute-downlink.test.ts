@@ -19,8 +19,8 @@ const TS = new Date('2026-08-06T11:40:00.000Z');
 
 function downlink(over: Partial<AttributeDownlink> = {}): AttributeDownlink {
   return {
-    id: 'TEMP-01',
-    gatewayId: null,
+    code: 'TEMP-01',
+    gatewayCode: null,
     attributes: { assetTag: 'AT-99412' },
     changedKey: 'assetTag',
     changedValue: 'AT-99412',
@@ -30,6 +30,14 @@ function downlink(over: Partial<AttributeDownlink> = {}): AttributeDownlink {
 }
 
 describe('attributeDownlinkTopic', () => {
+  it('reproduces a slash-separated code literally — the plant\'s shape', () => {
+    // The device subscribes `instruments/${clientid}/attributes` with its
+    // client id `CWH/RDU/001-00`; the ACL template substitutes the string as
+    // is, so the slot must be built the same way, slashes and all.
+    expect(attributeDownlinkTopic('CWH/RDU/001-00', null)).toBe('instruments/CWH/RDU/001-00/attributes');
+    expect(attributeDownlinkTopic('CWH/RDU/001-00', 'IOTGW01')).toBe('instruments/IOTGW01/attributes/CWH/RDU/001-00');
+  });
+
   it('addresses a standalone instrument on its own topic', () => {
     expect(attributeDownlinkTopic('TEMP-01', null)).toBe('instruments/TEMP-01/attributes');
   });
@@ -132,7 +140,7 @@ describe('publishAttributeDownlink', () => {
 
   it('sends the built payload on the built topic', async () => {
     capture();
-    await publishAttributeDownlink(downlink({ id: 'CHA-1', gatewayId: 'GWV-1' }));
+    await publishAttributeDownlink(downlink({ code: 'CHA-1', gatewayCode: 'GWV-1' }));
     expect(calls[0].topic).toBe('instruments/GWV-1/attributes/CHA-1');
     expect(JSON.parse(calls[0].payload)).toEqual({
       attributes: { assetTag: 'AT-99412' },

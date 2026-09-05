@@ -35,20 +35,26 @@ export type Transport = (typeof TRANSPORTS)[number];
 export const TOKEN_PREFIX_LEN = 8;
 
 /**
- * `code` is the human reference. ANY characters, ANY length (2026-08-07).
+ * `code` is the human reference AND, since 2026-09-04, the MQTT client id and
+ * the topic segment again. Any length; any character except the four things
+ * `instrumentCodeTopicViolation` refuses.
  *
- * It used to be restricted to `[A-Za-z0-9._-]` and 64 characters, because it
- * WAS the MQTT topic segment: `/` forges a topic level, and `+`/`#` are MQTT
- * wildcards, so an instrument coded `+` matched the broker's
- * `instruments/${clientid}/...` ACL against every instrument — read every
- * attribute downlink, publish telemetry attributed to any device. In a §11
- * system that is forged records that read as genuine.
- *
- * The guard is not merely relaxed. The code STOPPED BEING A TOPIC SEGMENT: the
- * wire addresses instruments by their UUID (`mqtt-auth-routes.ts` binds the
- * client id to `instrument.id`, `attributeDownlinkTopic` interpolates ids), and
- * a platform-generated UUID cannot contain a metacharacter. The safety comes
- * from what is in the topic now, not from what a person is allowed to type.
+ * History, because this rule has flipped twice and the reasoning is what keeps
+ * it from flipping by accident:
+ *   - Until 2026-08-07 the code was the topic segment, restricted to
+ *     `[A-Za-z0-9._-]` — `/` forges a topic level, `+`/`#` are MQTT wildcards,
+ *     and an instrument coded `+` matched the broker's
+ *     `instruments/${clientid}/...` ACL against every instrument (read every
+ *     attribute downlink, publish telemetry attributed to any device — forged
+ *     §11 records that read as genuine).
+ *   - 2026-08-07 the operator asked for an unrestricted ID, and the wire moved
+ *     to the platform-generated UUID so that nothing typed reached a topic.
+ *   - 2026-09-04 the operator asked for the client id to BE the code
+ *     (`CWH/RDU/001-00`), so operator text is back in the topic and the guard
+ *     comes back with it — narrowed to exactly what breaks the binding. `/` is
+ *     ALLOWED: every code at this plant carries it, and the bridge no longer
+ *     counts segments (`parseTelemetryTopic` matches a fixed prefix and
+ *     suffix), so a slash is a level the ACL template reproduces literally.
  *
  * Two limits that are NOT this schema's to lift, stated so the field's promise
  * is honest:
@@ -57,7 +63,41 @@ export const TOKEN_PREFIX_LEN = 8;
  *   - `code` is IMMUTABLE after creation (`updateInstrumentSchema` omits it) —
  *     a typo is fixed by re-registering, not by editing.
  */
-const codeSchema = z.string().min(1, 'Instrument ID is required');
+const codeSchema = z.string().min(1, 'Instrument ID is required').superRefine((code, ctx) => {
+  const why = instrumentCodeTopicViolation(code);
+  if (why) ctx.addIssue({ code: z.ZodIssueCode.custom, message: why });
+});
+
+/**
+ * The three topic KINDS under `instruments/<code>/…`. The bridge subscribes
+ * `instruments/#` and tells them apart by the LAST segment of the topic, so a
+ * code must not END in one of these words: a child coded `X/telemetry` would
+ * get its attribute downlink on `instruments/<gw>/attributes/X/telemetry`,
+ * which reads as telemetry from an instrument coded `<gw>/attributes/X`.
+ * Only `telemetry` can actually collide today; all three are reserved so the
+ * rule is "a code does not end in a topic word", which survives a fourth kind.
+ */
+export const MQTT_RESERVED_TOPIC_SEGMENTS = ['telemetry', 'attributes', 'children'] as const;
+
+/**
+ * Why a code cannot be an MQTT client id / topic segment, or null when it can.
+ * The ONE definition — the zod schema, the bulk-CSV importer and the New
+ * Instrument form all ask this function, so a code refused on one path cannot
+ * arrive by another.
+ */
+export function instrumentCodeTopicViolation(code: string): string | null {
+  if (code.includes('+') || code.includes('#')) {
+    return 'Instrument ID cannot contain + or # — they are MQTT wildcards, and the ID is the MQTT client id';
+  }
+  if (code.includes('\u0000')) {
+    return 'Instrument ID cannot contain a NUL character — an MQTT topic cannot carry one';
+  }
+  const last = code.slice(code.lastIndexOf('/') + 1);
+  if ((MQTT_RESERVED_TOPIC_SEGMENTS as readonly string[]).includes(last)) {
+    return `Instrument ID cannot end with "${last}" — the MQTT topic kind is read from that segment`;
+  }
+  return null;
+}
 
 export const createInstrumentSchema = z.object({
   // No max: `name` is set to the code by the create form, and the code now has

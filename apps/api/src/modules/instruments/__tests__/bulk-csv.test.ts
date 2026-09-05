@@ -31,6 +31,17 @@ describe('parseInstrumentCsv', () => {
     expect(r.rowNumbers).toHaveLength(r.rows.length);
   });
 
+  it('refuses a code that cannot be an MQTT client id, as an error row, and keeps the rest', () => {
+    // Same rule as the create form (`instrumentCodeTopicViolation`); a slash is
+    // fine, a wildcard is not. Refused here so it is an error ROW, not an
+    // exception out of createWithCredential that fails the whole upload.
+    const r = parseInstrumentCsv(`${HEADER}\nBad,CWH/+/001\nGood,CWH/RDU/001-00`);
+    expect(r.rows).toEqual([{ name: 'Good', code: 'CWH/RDU/001-00' }]);
+    expect(r.errors).toHaveLength(1);
+    expect(r.errors[0].row).toBe(2);
+    expect(r.errors[0].message).toMatch(/\+/);
+  });
+
   it('rejects duplicate codes within the same file', () => {
     const r = parseInstrumentCsv(`${HEADER}\nA,DUP,http\nB,DUP,http`);
     expect(r.rows).toHaveLength(1);

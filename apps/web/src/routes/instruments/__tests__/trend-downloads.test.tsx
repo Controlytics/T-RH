@@ -43,8 +43,13 @@ const history = [
   { key: 'status', value: 'RUNNING', ts: '2026-08-24T00:20:00.000Z', slot: null, decimals: null },
 ];
 
+/** Rows the period holds beyond what the sampled path returned — set by a test
+ *  to make the Data Report's interval path fetch the whole period. */
+let extraTotal = 0;
+
 const overviewRow = {
   instrumentId: 'i-1', code: 'DEMO-TH-142', name: 'Demo', isActive: true, room: null,
+  functionalLocationName: 'QC 3(AHU-033)', locationAttribute: 'LCMS Room-II',
   limits: { tempMin: 18, tempMax: 25, rhMin: 30, rhMax: 60 },
   limitSource: 'INSTRUMENT',
   temperature: { key: 'temperature', value: 22.5, ts: '2026-08-24T00:20:00.000Z' },
@@ -56,10 +61,18 @@ function dataFor(key: string | null): any {
   if (!key) return undefined;
   if (key.includes('/telemetry-overview')) return { data: [overviewRow] };
   if (key.includes('/telemetry-keys')) return { data: [] };
-  if (key.includes('/telemetry?')) return { latest: [], history, historyTotal: history.length };
+  if (key.includes('/telemetry?')) {
+    // The paged path, asked for the whole period (`limit=<total>`), returns it
+    // all; the sampled path reports how many the period holds beyond the sample.
+    const whole = key.includes('limit=');
+    return { latest: [], history, historyTotal: history.length + (whole ? 0 : extraTotal) };
+  }
   if (key.includes('/api/alarms')) return { data: [] };
   if (key.includes('action-reauth/my-actions')) return { actions: [] };
-  if (key.startsWith('/api/instruments/')) return { id: 'i-1', code: 'DEMO-TH-142', name: 'Demo' };
+  if (key.includes('/api/functional-locations')) {
+    return { data: [{ id: 'b1', name: 'CWH Block', children: [{ id: 'a1', name: 'QC 3(AHU-033)' }] }] };
+  }
+  if (key.startsWith('/api/instruments/')) return { id: 'i-1', code: 'DEMO-TH-142', name: 'Demo', functionalLocationId: 'a1' };
   return {};
 }
 
@@ -281,13 +294,111 @@ describe('trend page downloads', () => {
     expect(lastPdfText()).not.toMatch(/AVERAGED over/);
   });
 
-  it('never averages the Time Series report, whatever the chart interval is', async () => {
-    // The raw record is this report's entire job; the chart control must not
-    // reach it.
-    renderPage('?interval=5m');
+  /**
+   * The Time Series download is the DATA REPORT (2026-09-04), built to the
+   * operator's `Data Report.pdf`. A fixed period is passed in the URL so the
+   * interval buckets — aligned to the period START — are deterministic.
+   */
+  const FIXED = '?from=2026-08-24T00%3A10%3A00.000Z&to=2026-08-24T01%3A00%3A00.000Z&label=Custom';
+
+  it('prints every stored reading at Raw, and never averages', async () => {
+    renderPage(FIXED);
     await download(3);
     expect(logged[0].reportType).toBe('Instrument Time Series');
     expect(logged[0].recordCount).toBe(3);
+    expect(saved[0]).toMatch(/^data-report-DEMO-TH-142-/);
+  });
+
+  it('prints ONE STORED READING per interval slot, and NA for an empty slot, when the page has one selected', async () => {
+    // Anchored on the first reading (00:10), 5-minute slots to the period end
+    // (01:00): 00:10 (22.4 — 00:11 shares the slot and is not printed), 00:15
+    // (NA), 00:20 (22.5), then 00:25 … 01:00 all NA — eleven rows, every one a
+    // real reading or a stated gap, never an average.
+    renderPage(`${FIXED}&interval=5m`);
+    await download(3);
+    expect(logged[0].recordCount).toBe(11);
+    const text = lastPdfText();
+    expect(text).toContain('5 minutes');
+    expect(text).toContain('22.4');
+    expect(text).toContain('22.5');
+    expect(text).toContain('NA');
+    // The 00:11 reading shares the first slot with 00:10 and is not printed.
+    expect(text).not.toContain('22.6');
+  });
+
+  it('takes the interval from the DIALOG, seeded from the page, and prints it', async () => {
+    // The page says 5 minutes; the operator changes the dialog to 1 hour.
+    renderPage(`${FIXED}&interval=5m`);
+    fireEvent.click(exportButtons()[3]);
+    const select = screen.getByLabelText(/^Interval$/) as HTMLSelectElement;
+    expect(select.value).toBe(String(300_000));
+    fireEvent.change(select, { target: { value: String(3_600_000) } });
+    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: 'periodic review' } });
+    fireEvent.click(screen.getByText('Download'));
+    await waitFor(() => expect(saved.length).toBe(1), { timeout: 5000 });
+    const text = lastPdfText();
+    expect(text).toContain('1 hour');
+    expect(text).not.toContain('5 minutes');
+    // Hourly from 00:10 to 01:00 is ONE slot.
+    expect(logged[0].recordCount).toBe(1);
+  });
+
+  it('offers the interval only on the Data Report dialog', async () => {
+    renderPage(FIXED);
+    fireEvent.click(exportButtons()[1]);   // temperature trend
+    expect(screen.queryByLabelText(/^Interval$/)).toBeNull();
+  });
+
+  it('fetches the WHOLE period, not the sample, before choosing each interval\'s first reading', async () => {
+    extraTotal = 5;
+    try {
+      renderPage(`${FIXED}&interval=5m`);
+      await download(3);
+      const urls = (apiClient.get as any).mock.calls.map((c: any[]) => String(c[0]));
+      const telemetryCalls = urls.filter((u: string) => u.includes('/telemetry?'));
+      // The sampled call (for the true total and the extremes) AND a paged call
+      // sized by that total.
+      expect(telemetryCalls.some((u: string) => u.includes('points='))).toBe(true);
+      // Seven fixture rows plus the five the period holds beyond them.
+      expect(telemetryCalls.some((u: string) => /[?&]limit=12\b/.test(u))).toBe(true);
+      expect(lastPdfText()).not.toMatch(/REPRESENTATIVE SAMPLE/);
+    } finally {
+      extraTotal = 0;
+      // The mock's call log is shared across this file; the paged call this
+      // test provokes must not leak into the chart-path assertion below.
+      (apiClient.get as any).mockClear();
+    }
+  });
+
+  it('reads the WHOLE period at Raw too, so no sample is disclosed and a failure word can print', async () => {
+    // Until 2026-09-05 the Raw report was built from the sampled chart path,
+    // which drops a non-numeric reading before sampling — so the failure word
+    // the operator asked to see in bold could never appear at Raw. Now every
+    // stored reading is read on the paged path, sized by the sampled call's
+    // true total, at Raw and with an interval alike.
+    extraTotal = 5;
+    try {
+      renderPage(FIXED);
+      await download(3);
+      const urls = (apiClient.get as any).mock.calls.map((c: any[]) => String(c[0]));
+      expect(urls.some((u: string) => /[?&]limit=12\b/.test(u))).toBe(true);
+      expect(lastPdfText()).not.toMatch(/REPRESENTATIVE SAMPLE/);
+    } finally {
+      extraTotal = 0;
+      (apiClient.get as any).mockClear();
+    }
+  });
+
+  it('is laid out to the Data Report reference', async () => {
+    renderPage(FIXED);
+    await download(3);
+    const text = lastPdfText();
+    expect(text).toContain('Temperature and RH Data Report');
+    for (const s of ['Block :', 'CWH Block', 'Area :', 'QC 3', 'Location :', 'LCMS Room-II', 'Inst ID :', 'DEMO-TH-142',
+      'Start Date :', 'Start Time :', 'End Date :', 'End Time :', 'Temp. Limit :', '18.0 - 25.0', 'RH Limit :', '30.0 - 60.0',
+      'Temp. Max :', 'RH Max :', 'Interval :', 'Raw', 'DATE', 'TIME', 'TEMPERATURE', 'RELATIVE', 'Printed By']) {
+      expect(text).toContain(s);
+    }
   });
 
   /**
@@ -299,6 +410,10 @@ describe('trend page downloads', () => {
    * charts now use.
    */
   it('requests the report\'s telemetry on the sampled CHART path, not the legacy limit path', async () => {
+    // The mock's call log is shared across this file, and the Data Report tests
+    // above legitimately make a paged `limit=<total>` call; this guard is about
+    // the TREND report's own fetch, so start from an empty log.
+    (apiClient.get as any).mockClear();
     renderPage();
     await download(1);
     const urls = (apiClient.get as any).mock.calls.map((c: any[]) => String(c[0]));

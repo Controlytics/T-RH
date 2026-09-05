@@ -33,9 +33,11 @@ import { toChartSeries, toTableRows, toTableRowsWithErrors, rawCountForKey, type
 import { summariseSlot, withServerSummary, type ServerSlotSummary } from './trend-summary';
 import { intervalLabel } from './chart-interval-note';
 import {
-  renderTrendReport, renderTimeSeriesReport, renderAlarmsReport,
+  renderTrendReport, renderDataReport, renderAlarmsReport,
   type ReportInstrument, type TrendChartSection,
 } from './trend-report';
+import { resolveBlockArea, type LocationNode } from './data-report';
+import { fetchDataReportRows, slotExtremes } from './data-report-fetch';
 import { renderChartToPng } from './chart-image';
 import { BandGauge } from './band-gauge';
 import { TrendChartCard } from './trend-chart-card';
@@ -138,6 +140,9 @@ interface InstrumentSummary {
   location?: string | null;
   area?: string | null;
   block?: string | null;
+  /** The authoritative Block > Area placement; resolved to names through the
+   *  functional-location tree for the Data Report's parameter block. */
+  functionalLocationId?: string | null;
 }
 
 /** The latest-value card's own footprint, so the page does not jump when the
@@ -311,7 +316,10 @@ export function InstrumentTrend() {
   const trendError = trend.error;
   const retryTrend = trend.retry;
   const { data: keyOptions } = useSWR<{ data: TelemetryKeyOption[] }>(id ? `/api/instruments/${id}/telemetry-keys` : null);
-  const { formatDateTime } = useDatetimeFormat();
+  const { formatDateTime, formatDate, formatTime } = useDatetimeFormat();
+  // Blocks and their Areas, for the Data Report's Block / Area lines. The same
+  // key the alarm filters use, so SWR dedupes it.
+  const { data: locationTree } = useSWR<{ data: LocationNode[] }>('/api/functional-locations');
   /**
    * The administered wording and per-widget date/time formats for the five
    * widgets below.
@@ -643,27 +651,63 @@ export function InstrumentTrend() {
         const slotFile = slotLabel.toLowerCase().replace(/\s*&\s*/g, '-').replace(/\s+/g, '-');
         report.save(`instrument-trend-${slotFile}-${instrument.code}-${stamp}.pdf`);
       } else if (which.kind === 'timeseries') {
-        const rawRows = await fetchTelemetryForPeriod(reportPeriod.from, reportPeriod.to);
-        const rows = numericRows(rawRows.history);
-        const keysMeta = [
-          tempKey ? { key: tempKey, label: 'Temperature (°C)', decimals: tempDecimals } : null,
-          humidKey ? { key: humidKey, label: 'Humidity (%RH)', decimals: humidDecimals } : null,
-        ].filter((k): k is { key: string; label: string; decimals: number } => k !== null);
-        const pivoted: PivotRow[] = toTableRows(rows, keysMeta.map((k) => k.key));
-        // Same `fetched.history.length` vs `historyTotal` comparison the trend
-        // report makes, and for the same reason: `rows` has had non-numeric
-        // readings dropped, so comparing THAT would report a sample on an
-        // instrument that merely sent one string.
-        const report = await renderTimeSeriesReport(
-          pivoted, keysMeta, instrument, reportPeriod, formatDateTime,
-          { returned: rawRows.history.length, total: rawRows.historyTotal ?? rawRows.history.length },
-        );
+        // THE DATA REPORT (2026-09-04) — the Time Series widget's download,
+        // built to the operator's `Data Report.pdf`. See `data-report.ts`.
+        //
+        // The interval is the DIALOG's (2026-09-05), seeded from the page's
+        // chart interval; the dialog always offers it for this report.
+        const reportInterval = req.intervalMs !== undefined ? req.intervalMs : period.intervalMs;
+        // The rows and extremes, fetched by the ONE helper the Instruments
+        // page's history widget also uses — every stored reading in the period
+        // on the paged path (so a non-numeric reading can print its failure
+        // word), the whole-range Max/Min from the sampled path, laid on the
+        // interval schedule. See `data-report-fetch.ts` for why two requests.
+        const slotKeys = [tempKey, humidKey].filter((k): k is string => k !== null);
+        const { rows, coverage, summaries } = await fetchDataReportRows({
+          instrumentId: id, from: reportPeriod.from, to: reportPeriod.to, intervalMs: reportInterval, slotKeys,
+        });
+        const extremes = (key: string | null) => slotExtremes(summaries, key);
+        const placement = resolveBlockArea(locationTree?.data ?? [], inst?.functionalLocationId ?? null);
+        const report = await renderDataReport({
+          scope: {
+            ...placement,
+            // The Location ATTRIBUTE — the same fact the dashboard's Location
+            // column and the alarm report print; never the superseded
+            // `Instrument.location` column.
+            locationName: trend.overview?.locationAttribute ?? '',
+            instrumentLabel: instrument.code,
+          },
+          period: reportPeriod,
+          fmt: { formatDate, formatTime },
+          formatDateTime,
+          temp: {
+            key: tempKey, min: trend.overview?.limits?.tempMin, max: trend.overview?.limits?.tempMax, decimals: tempDecimals,
+            // The probe's SPAN, distinct from the spec limits — a reading outside
+            // it prints the out-of-range word, exactly as the on-screen table does.
+            rangeLow: trend.overview?.rangeBounds?.temperatureLow ?? null,
+            rangeHigh: trend.overview?.rangeBounds?.temperatureHigh ?? null,
+            ...extremes(tempKey),
+          },
+          rh: {
+            key: humidKey, min: trend.overview?.limits?.rhMin, max: trend.overview?.limits?.rhMax, decimals: humidDecimals,
+            rangeLow: trend.overview?.rangeBounds?.humidityLow ?? null,
+            rangeHigh: trend.overview?.rangeBounds?.humidityHigh ?? null,
+            ...extremes(humidKey),
+          },
+          rows,
+          intervalMs: reportInterval,
+          coverage,
+          words: sensorWords,
+        });
+        // The audit type is UNCHANGED: rows already logged under it are this
+        // same download, and renaming the type would split one report's history
+        // in two. The filename carries the new name.
         await logReportExport({
-          reportType: 'Instrument Time Series', format: 'PDF', recordCount: pivoted.length,
+          reportType: 'Instrument Time Series', format: 'PDF', recordCount: rows.length,
           period: reportPeriod.label, startDate: reportPeriod.from, endDate: reportPeriod.to,
           remarks: req.remarks, password,
         });
-        report.save(`instrument-time-series-${instrument.code}-${stamp}.pdf`);
+        report.save(`data-report-${instrument.code}-${stamp}.pdf`);
       } else {
         const rows = await fetchAlarmsForPeriod(reportPeriod.from, reportPeriod.to);
         const report = await renderAlarmsReport(rows, instrument, reportPeriod, formatDateTime, statusTexts, inactivityTexts);
@@ -1095,6 +1139,10 @@ export function InstrumentTrend() {
         reportName={reportDialogName}
         showPeriod
         initialPeriod={{ from: period.from, to: period.to, label: period.label }}
+        // Only the Data Report is built per interval; the trend and alarm
+        // reports take the page's chart interval and the period alone.
+        showInterval={pendingReport?.kind === 'timeseries'}
+        initialIntervalMs={period.intervalMs}
         onCancel={() => setPendingReport(null)}
         onConfirm={runDownload}
       />

@@ -1,8 +1,16 @@
 import { useEffect, useState } from 'react';
+import { INTERVALS } from '@digilog/shared';
 import { Button } from '@/components/ui/button';
 
 export interface ReportPeriod { from: string; to: string; label: string }
-export interface ReportDownloadRequest { period: ReportPeriod; remarks: string; password?: string }
+export interface ReportDownloadRequest {
+  period: ReportPeriod;
+  remarks: string;
+  password?: string;
+  /** The interval chosen in the dialog, in ms; `null` = Raw. Present only when
+   *  the dialog was opened with `showInterval`. */
+  intervalMs?: number | null;
+}
 
 const MAX_REMARKS = 500;
 
@@ -21,7 +29,8 @@ const MAX_REMARKS = 500;
  * reason-collecting dialog, so there is no reason for a second one.
  */
 export function ReportDownloadDialog({
-  open, reportName, initialPeriod, showPeriod = true, onCancel, onConfirm,
+  open, reportName, initialPeriod, showPeriod = true, showInterval = false, initialIntervalMs = null,
+  progress = null, onCancel, onConfirm,
 }: {
   open: boolean;
   reportName: string;
@@ -29,11 +38,28 @@ export function ReportDownloadDialog({
   initialPeriod: ReportPeriod;
   /** Hidden when the surface has no period (e.g. a full-list export). */
   showPeriod?: boolean;
+  /**
+   * Offer an interval selector under the period (operator, 2026-09-05:
+   * *"interval selection should come at data report time period selection
+   * below on top of remarks"*). Only the Data Report reads it; the other
+   * reports leave it off and the request carries no `intervalMs`.
+   */
+  showInterval?: boolean;
+  /** Seeded from the page's chart interval; `null` = Raw. */
+  initialIntervalMs?: number | null;
+  /**
+   * What the download is doing right now, for a report that takes a while —
+   * "Reading CWH/RDU/003-01 (7 of 30)…". Shown above the buttons while busy.
+   * A multi-instrument report reads every instrument in turn, and a spinner
+   * alone over a thirty-second wait reads as a hang.
+   */
+  progress?: string | null;
   onCancel: () => void;
   onConfirm: (req: ReportDownloadRequest) => Promise<void>;
 }) {
   const [from, setFrom] = useState(initialPeriod.from);
   const [to, setTo] = useState(initialPeriod.to);
+  const [intervalMs, setIntervalMs] = useState<number | null>(initialIntervalMs);
   const [remarks, setRemarks] = useState('');
   const [touched, setTouched] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -46,6 +72,7 @@ export function ReportDownloadDialog({
     if (open) {
       setFrom(initialPeriod.from);
       setTo(initialPeriod.to);
+      setIntervalMs(initialIntervalMs);
       setRemarks('');
       setTouched(false);
       setBusy(false);
@@ -69,6 +96,7 @@ export function ReportDownloadDialog({
       await onConfirm({
         period: { from, to, label: initialPeriod.label },
         remarks: trimmedRemarks,
+        ...(showInterval ? { intervalMs } : {}),
       });
     } catch (e: any) {
       // A download whose audit write failed must not look like it succeeded —
@@ -117,6 +145,25 @@ export function ReportDownloadDialog({
             </div>
           )}
 
+          {showInterval && (
+            <div>
+              <label htmlFor="report-download-interval" className="mb-1 block text-sm font-medium text-slate-700">
+                Interval
+              </label>
+              <select
+                id="report-download-interval"
+                value={intervalMs ?? ''}
+                onChange={(e) => setIntervalMs(e.target.value === '' ? null : Number(e.target.value))}
+                disabled={busy}
+                className="ctl w-full"
+              >
+                {INTERVALS.map((i) => (
+                  <option key={i.value} value={i.seconds === null ? '' : i.seconds * 1000}>{i.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div>
             <label htmlFor="report-download-remarks" className="mb-1 block text-sm font-medium text-slate-700">
               Remarks <span className="text-red-600">*</span> — required
@@ -140,6 +187,9 @@ export function ReportDownloadDialog({
             )}
           </div>
 
+          {busy && progress && (
+            <p role="status" className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600">{progress}</p>
+          )}
           {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
         </div>
 

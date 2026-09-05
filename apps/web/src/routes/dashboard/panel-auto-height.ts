@@ -33,6 +33,8 @@ import type { LayoutItem } from '@digilog/shared';
 export const AUTO_HEIGHT_PANELS: ReadonlySet<string> = new Set([
   'telemetry_table',
   'dashboard_alarms',
+  // The history widget ends at its pagination bar like the readings table does.
+  'dashboard_history',
 ]);
 
 /** Must match the `rowHeight` and `margin` given to the grid, or every panel is

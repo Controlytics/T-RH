@@ -70,6 +70,15 @@ export const PANELS: readonly PanelDefinition[] = [
     description: 'Every instrument’s current temperature and humidity, as a table',
   },
   {
+    // The history widget (operator, 2026-09-05): Block / Area / instrument
+    // selection, the merged readings of the selection, and the Data Report for
+    // an Area or a ticked subset. Sits under the readings table by default.
+    key: 'dashboard_history',
+    page: 'dashboard',
+    label: 'Instrument History',
+    description: 'Readings of a Block, an Area or chosen instruments over a period, with the Data Report download',
+  },
+  {
     key: 'telemetry_floorplan',
     page: 'dashboard',
     label: 'Instrument Readings — Floorplan',

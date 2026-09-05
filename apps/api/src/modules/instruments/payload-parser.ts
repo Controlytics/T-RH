@@ -5,6 +5,7 @@
  *   flat     { "temp": 21.5, "rh": 45 }                          → one instrument
  *   envelope { "values": { "t": "25.7", "h": "46.3" } }          → one instrument
  *   batch    { "devices": { "temp001": { "temp": 21.5 }, … } }   → many, by deviceKey
+ *   batch    { "devices": [ { "devN": "temp001", "temp": 21.5 }, … ] }  → many, by `devN` (2026-09-05)
  *
  * Values keep an explicit type. Storing everything as text and guessing on read
  * is how "0" becomes 0 becomes false — unacceptable in a system whose purpose is
@@ -60,6 +61,32 @@ export function classifyValue(v: unknown): ValueType {
   return 'json';
 }
 
+/**
+ * A device's own timestamp, or null when it sent none it can be read.
+ *
+ * ISO strings and epoch NUMBERS always worked. An epoch sent as a STRING did
+ * not: `new Date("1788599495138")` is Invalid Date, so the reading was silently
+ * stamped with its ARRIVAL time instead — found live on 2026-09-05, where the
+ * plant gateway's `"ts":"1788599495138"` put every reading ~43 s late, which on
+ * a §11 record is a wrong measurement time with nothing to say so. All-digit
+ * strings are epochs: 13 digits milliseconds, 10 digits seconds (the two
+ * widths firmware actually emits); anything else goes to `Date` as before.
+ */
+export function parseDeviceTs(raw: unknown): Date | null {
+  if (typeof raw === 'string' && /^\d+$/.test(raw)) {
+    // All digits is an epoch or nothing: `new Date("12345")` would happily
+    // read year 12345, which is not a time any device measured.
+    if (raw.length !== 10 && raw.length !== 13) return null;
+    const n = Number(raw);
+    return new Date(raw.length === 10 ? n * 1000 : n);
+  }
+  if (typeof raw === 'string' || typeof raw === 'number') {
+    const d = new Date(raw);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+
 export function parsePayload(buf: Buffer): ParsedPayload {
   const empty: ParsedPayload = { ok: false, devices: null, values: {}, ts: null };
 
@@ -77,18 +104,22 @@ export function parsePayload(buf: Buffer): ParsedPayload {
 
   // A device-supplied timestamp is used when valid and ignored when not — a bad
   // clock should not discard an otherwise good reading.
-  let ts: Date | null = null;
-  const rawTs = obj.ts ?? obj.timestamp;
-  if (typeof rawTs === 'string' || typeof rawTs === 'number') {
-    const d = new Date(rawTs);
-    if (!Number.isNaN(d.getTime())) ts = d;
-  }
+  const ts = parseDeviceTs(obj.ts ?? obj.timestamp);
 
   if (obj.devices && typeof obj.devices === 'object' && !Array.isArray(obj.devices)) {
     return {
       ok: true, devices: obj.devices as Record<string, Record<string, unknown>>,
       values: {}, ts,
     };
+  }
+  // The LIST form (operator, 2026-09-05): `"devices": [ {"devN": "<code>", …}, … ]`.
+  // Each block names its own instrument under `devN`; the position is only a
+  // slot, so the list is folded onto `dev1`, `dev2`, … for the fan-out — which
+  // is also the name a rejection reports when a block carries no usable `devN`.
+  if (Array.isArray(obj.devices)) {
+    const devices: Record<string, Record<string, unknown>> = {};
+    obj.devices.forEach((block, i) => { devices[`dev${i + 1}`] = block as Record<string, unknown>; });
+    return { ok: true, devices, values: {}, ts };
   }
 
   // ENVELOPE. Unwrapped ONLY when `values` holds an object and the payload

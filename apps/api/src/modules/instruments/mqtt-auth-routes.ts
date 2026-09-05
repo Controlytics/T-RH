@@ -27,15 +27,21 @@ import { resolveInstrumentByToken } from './ingest-auth.js';
  * the binding has to run through the client id:
  *
  *   1. HERE: the presented `clientid` must equal the resolved instrument's
- *      `id`, otherwise deny. Without this a device simply lies about its
+ *      `code`, otherwise deny. Without this a device simply lies about its
  *      client id and the broker rule below is worthless.
  *
- *      It was the `code` until 2026-08-07. The code became free text — any
- *      characters, any length — and a code is therefore no longer safe to put
- *      in a topic: `/` forges a level, and `+`/`#` are MQTT wildcards, so an
- *      instrument coded `+` would have matched the ACL rule against EVERY
- *      instrument. The UUID is platform-generated and cannot contain a
- *      metacharacter, so the binding holds no matter what an operator types.
+ *      HISTORY OF THIS ONE COMPARISON, because it has flipped twice:
+ *      code until 2026-08-07; the UUID from then until 2026-09-04; the code
+ *      again since, at the operator's request ("i want client id as
+ *      CWH/RDU/001-00"). The UUID interlude existed because the code had
+ *      become free text and a code of `+` or `#` in the ACL template would
+ *      match EVERY instrument. That hole is now closed at REGISTRATION instead
+ *      — `instrumentCodeTopicViolation()` in `@digilog/shared` refuses `+`,
+ *      `#`, NUL and a reserved last segment on every create path — so the
+ *      client id can be operator text again without the ACL being forgeable.
+ *      `/` is allowed and appears in every code at this plant; the ACL
+ *      template reproduces it literally and the bridge matches a fixed
+ *      prefix/suffix rather than counting levels.
  *   2. IN EMQX (`etc/acl.conf`): publish is allowed only to
  *      `instruments/${clientid}/telemetry`, with `authorization.no_match = deny`.
  *
@@ -68,7 +74,7 @@ export default async function mqttAuthRoutes(app: FastifyInstance) {
       summary: 'EMQX HTTP authenticator hook (device token as MQTT username)',
       description:
         'Called by EMQX on every MQTT CONNECT. The device token is presented as the MQTT '
-        + 'username and the instrument ID (UUID) as the MQTT client id; both must match the same '
+        + 'username and the instrument CODE (e.g. CWH/RDU/001-00) as the MQTT client id; both must match the same '
         + 'instrument. Always answers 200 with {"result":"allow"|"deny"} — deny is the default '
         + 'for every unrecognised body.',
       response: {
@@ -92,10 +98,10 @@ export default async function mqttAuthRoutes(app: FastifyInstance) {
     // Leg 1 of the topic binding — see the header comment. A valid token
     // presented under another instrument's client id is a device trying to
     // publish as someone else, and is refused at CONNECT.
-    if (clientid !== identity.id) {
+    if (clientid !== identity.code) {
       req.log.warn(
         { clientid, instrument: identity.id, code: identity.code },
-        '[ingest:mqtt-auth] denied — client id does not match the token\'s instrument id',
+        '[ingest:mqtt-auth] denied — client id does not match the token\'s instrument code',
       );
       return reply.send(DENY);
     }

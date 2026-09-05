@@ -6,8 +6,8 @@
  * device's own credentials, so the broker's auth, the ingest bridge, slot resolution and
  * the evaluator are all in the path.
  *
- * MQTT contract (mqtt-auth-routes.ts): clientId = instrument UUID, username = device
- * token, topic = instruments/<clientId>/telemetry. All three must agree.
+ * MQTT contract (mqtt-auth-routes.ts, 2026-09-04): clientId = instrument CODE, username = device
+ * token, topic = instruments/<code>/telemetry. All three must agree.
  *
  * Not a test file: it creates a real instrument and rule and removes both in a finally.
  */
@@ -30,9 +30,9 @@ async function api(path: string, init: RequestInit & { token?: string } = {}) {
   return body ? JSON.parse(body) : null;
 }
 
-async function publish(clientId: string, token: string, value: number) {
-  const client = await mqtt.connectAsync(BROKER, { clientId, username: token, password: '', clean: true, connectTimeout: 8000 });
-  await client.publishAsync(`instruments/${clientId}/telemetry`, JSON.stringify({ temperature: value }), { qos: 1 });
+async function publish(code: string, token: string, value: number) {
+  const client = await mqtt.connectAsync(BROKER, { clientId: code, username: token, password: '', clean: true, connectTimeout: 8000 });
+  await client.publishAsync(`instruments/${code}/telemetry`, JSON.stringify({ temperature: value }), { qos: 1 });
   await client.endAsync();
 }
 
@@ -77,7 +77,7 @@ async function main() {
 
     // ── 1. Publish a BREACHING reading over MQTT ──────────────────────────────
     console.log('  publishing temperature=31.2 over MQTT as the device...');
-    await publish(instrumentId, inst.token, 31.2);
+    await publish(inst.code, inst.token, 31.2);
     await sleep(2500);
     const hot = await latestTemp(instrumentId);
     console.log(`  ingested: ${hot ? `${hot.key}=${JSON.stringify(hot.value)}` : 'NOTHING — the bridge did not accept it'}`);
@@ -89,7 +89,7 @@ async function main() {
 
     // ── 2. Publish an IN-SPEC reading; the alarm must clear ───────────────────
     console.log('\n  publishing temperature=21.0 over MQTT...');
-    await publish(instrumentId, inst.token, 21.0);
+    await publish(inst.code, inst.token, 21.0);
     await sleep(2500);
     const cool = await latestTemp(instrumentId);
     console.log(`  ingested: ${cool ? `${cool.key}=${JSON.stringify(cool.value)}` : 'NOTHING'}`);

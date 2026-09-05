@@ -1,3 +1,4 @@
+import { instrumentCodeTopicViolation } from '@digilog/shared';
 const REQUIRED = ['name', 'code'] as const;
 const OPTIONAL = ['instrumentType', 'manufacturer', 'model', 'serialNumber', 'description'] as const;
 
@@ -156,6 +157,13 @@ export function parseInstrumentCsv(text: string): { rows: InstrumentDraft[]; row
 
     if (!name) { errors.push({ row: rowNo, message: 'name is required' }); continue; }
     if (!code) { errors.push({ row: rowNo, message: 'code is required' }); continue; }
+    // The same rule the create form and `createInstrumentSchema` apply: a code
+    // is the MQTT client id, and a wildcard in it would let this instrument
+    // read and write every other instrument's topics. A row refused here is
+    // refused BEFORE `createWithCredential`, so it becomes an error row rather
+    // than an exception that rolls the upload back.
+    const topicViolation = instrumentCodeTopicViolation(code);
+    if (topicViolation) { errors.push({ row: rowNo, message: topicViolation }); continue; }
     if (seen.has(code)) { errors.push({ row: rowNo, message: `duplicate code "${code}" in this file` }); continue; }
     seen.add(code);
 

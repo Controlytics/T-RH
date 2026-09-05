@@ -1,3 +1,57 @@
+# Time Series download = the Data Report template (2026-09-04)
+
+Operator: "for time series widgets there is report download option in trend
+page, that report should be like data report template i need same like that
+details, table template everything". Reference: `Data Report.pdf` at the repo
+root. Interval rows: FIRST STORED READING per interval (AskUserQuestion, recommended).
+
+- [x] `routes/instruments/data-report.ts` (pure): title, head, legend, parameter
+      rows (Block/Area/Location/Inst ID vs Start/End Date/Time, Temp./RH Limit,
+      Max/Min, Interval), `firstPerInterval` bucketing aligned to the period start,
+      table rows, `resolveBlockArea`; tests against the reference's own values
+- [x] `trend-report.ts`: `renderDataReport` replaces `renderTimeSeriesReport`
+- [x] `trend.tsx`: fetch whole period when an interval is set (points= for
+      total+summaries, then paged limit=total); Max/Min from server summaries;
+      Block/Area from `/api/functional-locations`; audit type unchanged
+- [x] `trend-downloads.test.tsx`: interval rows, raw rows, title/labels in the PDF
+- [x] CHANGELOG, root CLAUDE.md pointer; touched tests by exit code; web tsc
+
+# MQTT client id = instrument CODE (2026-09-04)
+
+Operator: "35dd00b3-… this is CWH/RDU/001-00 instrument mqtt client id, i want
+client id as CWH/RDU/001-00". Confirmed via AskUserQuestion: code ONLY (no UUID
+fallback), and remove the two hand-added `#` grants for that UUID in acl.conf.
+
+Facts measured first: 101 instruments, 100 codes contain `/`, 0 contain `+`/`#`,
+1 instrument connected in the last 7 days (CWH/RDU/001-00, direct MQTT).
+
+## Code
+- [x] `@digilog/shared` `codeSchema`: refuse `+`, `#`, NUL, and a LAST segment of
+      `telemetry` / `attributes` / `children` (the bridge reads the topic kind from
+      its last segment). Helper `instrumentCodeTopicViolation()`; tests
+- [x] `bulk-csv.ts` applies the same rule per row; test
+- [x] `mqtt-bridge.ts`: subscribe `instruments/#`; `parseTelemetryTopic` = fixed
+      prefix/suffix, code in between; downlink echoes ignored silently; lookup by code
+- [x] `mqtt-auth-routes.ts`: clientid must equal the CODE; e2e
+- [x] `attribute-downlink.ts` + `child-roster.ts`: topics keyed on codes; routes
+      callers resolve the gateway code; tests
+- [x] web `connection-instructions.tsx`: client id and every topic = code; drop the
+      `id`/`gatewayId` props; callers; tests
+- [x] scripts `demo-live-scenario.ts` / `probe-live-alarm.ts`: publish as code
+- [x] `scripts/migrate-mqtt-topics-to-code.ts`: clear UUID retained slots, republish on
+      code topics (dry run default) — RUN locally: 102 cleared, 102 published
+## Broker
+- [x] `emqx-5.3.2/etc/acl.conf`: remove the TEMPORARY TEST GRANT block; bridge
+      subscribe/publish → `instruments/#`; comments; start EMQX (it is DOWN right now)
+- [x] Live proof against the running broker: register a slash-coded test instrument,
+      publish as its code, row lands; cross-topic publish denied; `+` code refused
+      — 8/8 PASSED 2026-09-04 (UUID client id refused; foreign token/code refused;
+      foreign subscribe/publish refused; no foreign retained message)
+## Docs
+- [x] LOCAL_SETUP_WINDOWS.md §9, docs/recreation/06-api/endpoints.md, root CLAUDE.md,
+      apps/api/CLAUDE.md, CHANGELOG, memory `instruments-mqtt-wire`
+- [x] Verify: touched test files individually by exit code; tsc for api + web + shared
+
 # Admin requests — audit detail, unlock guard, enable/disable (2026-09-02)
 
 Operator, three asks in one message. Clarified over two rounds:
@@ -3139,3 +3193,39 @@ there are byte-identical (same md5). `future/frontend/KEY_FILES.md` lists four
 `lib/` files that do not exist (`connectivity`, `rfid-bridge`, `offline-store`,
 `sync-engine`) — not extended, because adding a true row to a false table is
 not a fix.
+
+## 2026-09-05 — Instrument History widget on the Instruments page
+
+Operator: *"same like trends page time series, provide one widget same like that
+in All instruments page, in that widget provide Block and Area and instrument
+selection if user want Area wise instruments history report he can download from
+there all instruments in that area, and also multiple selection and download
+report for only selected instruments"*. Chose: one PDF section per instrument;
+a FULL merged readings table on screen (new endpoint).
+
+- [x] `GET /api/instruments/telemetry-history` — merged, paged, pivoted in SQL,
+      visibility applied to the id set (`getMultiInstrumentHistory`)
+- [x] e2e `telemetry-history.e2e.test.ts` incl. the scope withholding case
+- [x] `data-report-fetch.ts` — the per-instrument fetch, shared with the trend page
+- [x] `renderInstrumentHistoryReport` — cover block + one section per instrument
+- [x] `history-selection.ts` — Block/Area/instrument selection rules, pure
+- [x] `history-widget.tsx` — the card; MOVED to the dashboard as panel
+      `dashboard_history` under the readings table (operator, same day);
+      `appendMissing` now inserts under the shipped predecessor
+- [x] dialog `progress` line for the per-instrument read
+- [x] tests: selection, widget render, report renderer, dialog progress
+- [x] api tsc + e2e (5/5); web tsc + 9 touched files by exit code; 3 mutations
+      (judge ignoring limits, no page per instrument, endpoint unscoped) each caught
+- [x] docs: CHANGELOG, endpoints dossier, CLAUDE.md endpoint list, apps/web CLAUDE.md
+
+## 2026-09-05 — Child attributes BUNDLE (one retained message per gateway)
+
+Operator: *"one message for all children with full set, go"*.
+
+- [x] `modules/instruments/child-attributes-bundle.ts` — topic, pure builder, publish/clear, loader
+- [x] wired into `announceAttributeChange` (after the per-child slot) and `announceRoster`; cleared with the roster
+- [x] 6 unit + 4 e2e; mutation (bundle publish removed) caught; sibling downlink e2e's capture excludes the bundle
+- [x] `acl.conf` subscribe line widened; EMQX really restarted (`emqx.cmd stop` — `emqx_ctl` has no stop); bridge reconnected
+- [x] `scripts/publish-child-attribute-bundles.ts --apply` — IOTGW01 seeded (100 children, 63,946 bytes; retained 121 → 122)
+- [x] docs: LOCAL_SETUP §9C.1, CHANGELOG, root + api CLAUDE.md, memory
+- [ ] AWS: same acl.conf edit + broker restart + seed script, after the branch is pushed and deployed

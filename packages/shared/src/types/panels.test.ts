@@ -9,6 +9,9 @@ describe('PANELS catalogue', () => {
     // database, so adding or renaming one silently orphans saved rows.
     expect(PANEL_KEYS).toEqual([
       'telemetry_table',
+      // ADDED 2026-09-05: the Instrument History widget — Block / Area /
+      // instrument selection, merged readings, the Data Report download.
+      'dashboard_history',
       'telemetry_floorplan',
       'dashboard_alarms',
       'trend_gauges',

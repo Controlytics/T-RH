@@ -37,10 +37,12 @@ import {
 } from './gateway-invariants.js';
 import {
   getLatest, getHistory, getDistinctKeys, getRangeRows, getRangeSummary, chartRangeTotal,
+  getMultiInstrumentHistory,
   type TelemetryRow, type RangeSummary,
 } from './telemetry.repository.js';
 import { publishAttributeDownlink } from './attribute-downlink.js';
 import { publishChildRoster, clearChildRoster } from './child-roster.js';
+import { announceChildAttributesBundle, clearChildAttributesBundle } from './child-attributes-bundle.js';
 import { logger } from '../../lib/logger.js';
 
 /**
@@ -292,7 +294,8 @@ function codeLabel(code: string): string {
  * Takes the gateway's id, not its code, because every caller has the id and
  * only some have the code — and looking it up here also settles the two cases
  * that must NOT publish: an id that is no longer a gateway (mode was just
- * turned off), and one whose row is gone. Both leave silently.
+ * turned off), and one whose row is gone. Both leave silently. The TOPIC is
+ * the gateway's CODE (2026-09-04), read from the same lookup.
  *
  * Never throws. A broker failure must not turn a committed link into an error
  * the operator would retry.
@@ -301,23 +304,25 @@ async function announceRoster(gatewayId: string | null | undefined): Promise<voi
   if (!gatewayId) return;
   try {
     const gw = await prisma.instrument.findUnique({
-      where: { id: gatewayId }, select: { isGateway: true },
+      where: { id: gatewayId }, select: { isGateway: true, code: true },
     });
     if (!gw?.isGateway) return;
     const children = await prisma.instrument.findMany({
       where: { gatewayId },
       select: { code: true, name: true, isActive: true },
     });
-    // The TOPIC is the gateway's id; the PAYLOAD still names children by code.
-    // A JSON object key carries no metacharacter risk, and the code is what a
-    // person reads on the device — rekeying the payload to UUIDs would make
-    // every roster unreadable for no safety gain.
-    await publishChildRoster(gatewayId, children, new Date());
+    // Topic AND payload are keyed on codes: the gateway subscribes
+    // `instruments/${clientid}/children` with its code as client id, and the
+    // code is what a person reads on the device.
+    await publishChildRoster(gw.code, children, new Date());
   } catch (e) {
     logger.warn('[downlink:children] roster NOT DELIVERED — could not read the membership', {
       gatewayId, err: (e as Error).message,
     });
   }
+  // The membership moved, so the children's attribute BUNDLE must move with it:
+  // a newly linked child's set appears, an unlinked child's goes (2026-09-05).
+  await announceChildAttributesBundle(gatewayId, null);
 }
 
 /**
@@ -866,6 +871,91 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       window: (q.window ?? '24h') as HistoryWindow,
       visibility,
     });
+  });
+
+  /**
+   * GET /api/instruments/telemetry-history — the merged, paged readings of
+   * SEVERAL instruments, newest first (the Instruments page's history widget,
+   * 2026-09-05).
+   *
+   * One row per (instrument, instant) with every key that instrument reported
+   * at it, pivoted in SQL so a page boundary cannot split one instant's
+   * temperature from its humidity. Values are RAW: which key is the temperature
+   * is per instrument (`telemetry-overview` says), and the caller reads the
+   * slot keys, limits and precision from there.
+   *
+   * Visibility is applied to the ID SET before the query, the same way the
+   * `/:id/telemetry` route applies it to its lookup: an instrument outside the
+   * caller's scope is simply absent from the rows and the count, never a 403 —
+   * which would confirm it exists. Static path, registered before `/:id` like
+   * `/telemetry-overview`, so Fastify's static-first matching keeps it off the
+   * detail route.
+   */
+  app.get('/telemetry-history', {
+    preHandler: [app.requirePermission('INSTRUMENT_READ')],
+    schema: {
+      tags: ['Instruments'],
+      summary: 'Merged, paged readings of several instruments, newest first',
+      querystring: {
+        type: 'object',
+        required: ['instrumentIds'],
+        properties: {
+          /** Comma-separated instrument UUIDs. */
+          instrumentIds: { type: 'string', minLength: 1 },
+          from: { type: 'string', format: 'date-time' },
+          to: { type: 'string', format: 'date-time' },
+          limit: { type: 'integer', default: 50 },
+          offset: { type: 'integer', default: 0, minimum: 0 },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            data: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  instrumentId: { type: 'string' },
+                  ts: { type: 'string', format: 'date-time' },
+                  // Every key the instrument reported at this instant, raw.
+                  // `additionalProperties` is what lets it through Fastify's
+                  // serializer — an object schema with no properties declared
+                  // and no additionalProperties would strip every key.
+                  values: { type: 'object', additionalProperties: true },
+                },
+              },
+            },
+            total: { type: 'integer' },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const q = req.query as { instrumentIds: string; from?: string; to?: string; limit?: number; offset?: number };
+    const asked = [...new Set(q.instrumentIds.split(',').map((s) => s.trim()).filter(Boolean))];
+    const bad = asked.find((id) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id));
+    if (bad) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: `Not an instrument id: ${bad.slice(0, 80)}` });
+    }
+    const from = q.from ? new Date(q.from) : undefined;
+    const to = q.to ? new Date(q.to) : undefined;
+    if (from && to && from > to) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: '`from` must not be after `to`.' });
+    }
+    const { where: visibility } = await resolveVisibility(buildContext(req));
+    const visible = await prisma.instrument.findMany({
+      where: withVisibility({ id: { in: asked } }, visibility) as { id: { in: string[] } },
+      select: { id: true },
+    });
+    const { rows, total } = await getMultiInstrumentHistory({
+      instrumentIds: visible.map((i) => i.id),
+      from, to,
+      limit: q.limit, offset: q.offset,
+    });
+    return { data: rows.map((r) => ({ instrumentId: r.instrumentId, ts: r.ts.toISOString(), values: r.values })), total };
   });
 
   // GET /api/instruments/:id — detail
@@ -1689,9 +1779,10 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     // (400 GATEWAY_HAS_CHILDREN), so the roster being cleared is always an empty
     // one — but leaving it retained would leave a `children` slot on an
     // instrument that is no longer a gateway, which is exactly the kind of
-    // stale-forever message the delete path below exists to avoid. `code` is
-    // The topic is keyed on the id, which never changes at all.
-    else if (existing.isGateway) await clearChildRoster(id);
+    // stale-forever message the delete path below exists to avoid. The topic
+    // is keyed on the code, which is immutable, so `existing.code` and
+    // `updated.code` are the same slot.
+    else if (existing.isGateway) { await clearChildRoster(existing.code); await clearChildAttributesBundle(existing.code); }
 
     const row = await prisma.instrument.findUnique({ where: { id }, include: { credentials: activeCredential, ...withProfileName } });
     return present((row ?? updated) as unknown as InstrumentRow);
@@ -1771,7 +1862,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     // stranded attribute slot (stale metadata about a code nothing can even
     // connect as any more), a stranded roster NAMES INSTRUMENTS THAT ARE STILL
     // LIVE and have just been orphaned by this very delete.
-    if (existing.isGateway) await clearChildRoster(id);
+    if (existing.isGateway) { await clearChildRoster(existing.code); await clearChildAttributesBundle(existing.code); }
     // If it was itself a child, its former parent's roster still lists it.
     await announceRoster(existing.gatewayId);
     // Each orphaned child's ingest identity is cached too, and it no longer has
@@ -2227,7 +2318,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
    */
   async function announceAttributeChange(
     instrumentId: string,
-    owner: { gatewayId: string | null },
+    owner: { code: string; gatewayId: string | null },
     changedKey: string,
     changedValue: string | null,
   ): Promise<void> {
@@ -2235,10 +2326,16 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       const rows = await prisma.instrumentAttribute.findMany({
         where: { instrumentId }, select: { key: true, value: true },
       });
+      // The slot is keyed on CODES (2026-09-04): the gateway subscribes
+      // `instruments/${clientid}/attributes/#` with its code as client id, so
+      // a child's slot must sit under the gateway's code, not its id.
+      const gateway = owner.gatewayId
+        ? await prisma.instrument.findUnique({ where: { id: owner.gatewayId }, select: { code: true } })
+        : null;
       await publishAttributeDownlink(
         {
-          id: instrumentId,
-          gatewayId: owner.gatewayId,
+          code: owner.code,
+          gatewayCode: gateway?.code ?? null,
           attributes: Object.fromEntries(rows.map((r) => [r.key, r.value])),
           changedKey,
           changedValue,
@@ -2246,6 +2343,15 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         },
         (msg, meta) => app.log.warn(meta ?? {}, `[downlink:attributes] ${msg}`),
       );
+      // And the whole-gateway BUNDLE (2026-09-05): one message, every child's
+      // complete set, naming the key that moved.
+      if (owner.gatewayId) {
+        await announceChildAttributesBundle(
+          owner.gatewayId,
+          { code: owner.code, key: changedKey, value: changedValue },
+          (msg, meta) => app.log.warn(meta ?? {}, `[downlink:children-attributes] ${msg}`),
+        );
+      }
     } catch (e) {
       app.log.warn(
         { err: (e as Error).message, instrumentId, key: changedKey },

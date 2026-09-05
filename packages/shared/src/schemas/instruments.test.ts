@@ -3,6 +3,9 @@ import {
   setInstrumentAttributeSchema,
   updateInstrumentAttributeSchema,
   setInstrumentTokenSchema,
+  createInstrumentSchema,
+  instrumentCodeTopicViolation,
+  MQTT_RESERVED_TOPIC_SEGMENTS,
   TOKEN_PREFIX_LEN,
 } from './instruments.js';
 
@@ -153,5 +156,69 @@ describe('updateInstrumentAttributeSchema', () => {
     expect(updateInstrumentAttributeSchema.parse({ value: 'x' })).toEqual({ value: 'x' });
     expect(updateInstrumentAttributeSchema.safeParse({}).success).toBe(false);
     expect(updateInstrumentAttributeSchema.safeParse({ value: 'v'.repeat(1001) }).success).toBe(false);
+  });
+});
+
+/**
+ * The code IS the MQTT client id and the topic segment again (2026-09-04,
+ * operator: "i want client id as CWH/RDU/001-00"). That puts operator text
+ * back into a topic, so the three things that would let one instrument reach
+ * another's topic are refused HERE, at registration — the ACL template
+ * `instruments/${clientid}/...` cannot defend itself against a client id of
+ * `+`. Everything else, including `/`, is allowed: the plant's codes are
+ * `CWH/RDU/001-00` and a slash is a topic level, which the bridge handles by
+ * matching a fixed prefix and suffix rather than counting segments.
+ */
+describe('instrumentCodeTopicViolation', () => {
+  it("accepts the plant's slash-separated codes", () => {
+    for (const ok of ['CWH/RDU/001-00', 'IOTGW01', 'A/B/C', 'has spaces', 'ünïcode', '<b>', 'A/', '/A']) {
+      expect(instrumentCodeTopicViolation(ok)).toBeNull();
+    }
+  });
+
+  it('refuses the MQTT wildcard characters — a client id of + matches every instrument', () => {
+    for (const bad of ['+', '#', 'A+B', 'A/#', 'CWH/+/001']) {
+      expect(instrumentCodeTopicViolation(bad)).toMatch(/\+|#/);
+    }
+  });
+
+  it('refuses a NUL character, which a topic cannot carry', () => {
+    expect(instrumentCodeTopicViolation('A\u0000B')).toMatch(/NUL/i);
+  });
+
+  it('refuses a code whose LAST segment is a topic keyword', () => {
+    // The bridge subscribes `instruments/#` and reads the message KIND from the
+    // last segment. A child coded `X/telemetry` gets its attribute downlink on
+    // `instruments/<gw>/attributes/X/telemetry`, which parses as telemetry for
+    // an instrument coded `<gw>/attributes/X`.
+    for (const word of MQTT_RESERVED_TOPIC_SEGMENTS) {
+      expect(instrumentCodeTopicViolation(word)).toMatch(new RegExp(word));
+      expect(instrumentCodeTopicViolation(`CWH/${word}`)).toMatch(new RegExp(word));
+      // Only the LAST segment is reserved — a keyword elsewhere is unambiguous.
+      expect(instrumentCodeTopicViolation(`${word}/CWH`)).toBeNull();
+      expect(instrumentCodeTopicViolation(`${word}-01`)).toBeNull();
+    }
+  });
+});
+
+describe('createInstrumentSchema — code', () => {
+  const base = { name: 'n', profileId: '11111111-1111-4111-8111-111111111111' };
+
+  it('accepts a slash-separated code', () => {
+    const r = createInstrumentSchema.safeParse({ ...base, code: 'CWH/RDU/001-00' });
+    expect(r.success).toBe(true);
+  });
+
+  it('refuses a wildcard code with the topic reason on the code field', () => {
+    const r = createInstrumentSchema.safeParse({ ...base, code: '+' });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      const codeIssue = r.error.issues.find((i) => i.path[0] === 'code');
+      expect(codeIssue?.message).toMatch(/\+/);
+    }
+  });
+
+  it('still refuses an empty code', () => {
+    expect(createInstrumentSchema.safeParse({ ...base, code: '' }).success).toBe(false);
   });
 });

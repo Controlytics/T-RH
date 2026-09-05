@@ -21,7 +21,7 @@ vi.mock('../live-transports', async (importOriginal) => {
 
 describe('ConnectionInstructions', () => {
   it('shows a curl example for http', () => {
-    render(<ConnectionInstructions id="ID-1" transport="http" code="T-1" token="TOK" />);
+    render(<ConnectionInstructions transport="http" code="T-1" token="TOK" />);
     expect(screen.getByText(/curl/)).toBeInTheDocument();
     // getAllByText: the token appears both as the labelled auth header and
     // inside the paste-ready command. Both are wanted — one tells you what the
@@ -30,12 +30,12 @@ describe('ConnectionInstructions', () => {
   });
 
   it('shows the topic and username for mqtt', () => {
-    render(<ConnectionInstructions id="ID-1" transport="mqtt" code="T-1" token="TOK" />);
-    expect(screen.getAllByText(/instruments\/ID-1\/telemetry/).length).toBeGreaterThan(0);
+    render(<ConnectionInstructions transport="mqtt" code="T-1" token="TOK" />);
+    expect(screen.getAllByText(/instruments\/T-1\/telemetry/).length).toBeGreaterThan(0);
   });
 
   it('shows exactly one example — never all transports at once', () => {
-    render(<ConnectionInstructions id="ID-1" transport="http" code="T-1" token="TOK" />);
+    render(<ConnectionInstructions transport="http" code="T-1" token="TOK" />);
     expect(screen.queryByText(/mosquitto_pub/)).not.toBeInTheDocument();
   });
 
@@ -43,7 +43,7 @@ describe('ConnectionInstructions', () => {
     // getApiBase() returns '' on the desktop browser (same-origin). Pasting
     // `curl -X POST /api/ingest/v1/telemetry` into a terminal does nothing,
     // which defeats the entire purpose of showing a paste-ready command.
-    render(<ConnectionInstructions id="ID-1" transport="http" code="T-1" token="TOK" />);
+    render(<ConnectionInstructions transport="http" code="T-1" token="TOK" />);
     expect(screen.getAllByText(/https?:\/\/[^/\s]+\/api\/ingest\/v1\/telemetry/).length).toBeGreaterThan(0);
   });
 
@@ -56,7 +56,7 @@ describe('ConnectionInstructions', () => {
     // of its listener ships silently claiming to work.
     forceNotLive.transport = 'mqtts';
     try {
-      render(<ConnectionInstructions id="ID-1" transport="mqtts" code="T-1" token="TOK" />);
+      render(<ConnectionInstructions transport="mqtts" code="T-1" token="TOK" />);
       expect(screen.getByText(/not accepting connections yet/i)).toBeInTheDocument();
     } finally {
       forceNotLive.transport = null;
@@ -69,7 +69,7 @@ describe('ConnectionInstructions', () => {
   it.each(['http', 'https', 'tcp', 'websocket', 'wss', 'mqtt', 'mqtts'])(
     'shows no not-live banner for %s — its listener is verified',
     (t) => {
-      render(<ConnectionInstructions id="ID-1" transport={t} code="T-1" token="TOK" />);
+      render(<ConnectionInstructions transport={t} code="T-1" token="TOK" />);
       expect(screen.queryByText(/not accepting connections yet/i)).not.toBeInTheDocument();
     },
   );
@@ -80,29 +80,29 @@ describe('ConnectionInstructions', () => {
     // validate the broker; without -P "" the broker rejects the CONNECT before
     // the token is looked up (a username with no password field at all), which
     // surfaces as "bad user name or password" and reads like a bad token.
-    render(<ConnectionInstructions id="ID-1" transport="mqtts" code="T-1" token="TOK" />);
+    render(<ConnectionInstructions transport="mqtts" code="T-1" token="TOK" />);
     expect(screen.getAllByText(/-p 8883/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/--cafile/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/-P ""/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/-i "ID-1"/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/-i "T-1"/).length).toBeGreaterThan(0);
   });
 
   it('gives the plaintext MQTT example the empty password too, on port 1883', () => {
     // The -P "" requirement is the broker's, not TLS's — it applies equally to
     // the plaintext listener, whose example was already shipped without it.
-    render(<ConnectionInstructions id="ID-1" transport="mqtt" code="T-1" token="TOK" />);
+    render(<ConnectionInstructions transport="mqtt" code="T-1" token="TOK" />);
     expect(screen.getAllByText(/-p 1883/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/-P ""/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/--cafile/)).not.toBeInTheDocument();
   });
 
-  it('gives the MQTT example the instrument UUID as the client id', () => {
+  it('gives the MQTT example the instrument CODE as the client id', () => {
     // Not cosmetic. The broker's topic ACL is written against ${clientid} and
     // POST /api/ingest/v1/mqtt-auth denies any CONNECT whose clientid is not
     // the token's instrument code — so a mosquitto_pub line without -i is
     // refused outright. An example missing it is an example that cannot work.
-    render(<ConnectionInstructions id="ID-1" transport="mqtt" code="T-1" token="TOK" />);
-    expect(screen.getAllByText(/-i "ID-1"/).length).toBeGreaterThan(0);
+    render(<ConnectionInstructions transport="mqtt" code="T-1" token="TOK" />);
+    expect(screen.getAllByText(/-i "T-1"/).length).toBeGreaterThan(0);
   });
 });
 
@@ -112,7 +112,7 @@ describe('ConnectionInstructions — credential triple', () => {
     // Username box, so the displayed value must be the literal token, not a
     // paraphrase, and the row must say the two are the same thing.
     for (const t of ['http', 'https', 'websocket', 'wss', 'tcp', 'mqtt', 'mqtts']) {
-      const { unmount } = render(<ConnectionInstructions id="ID-1" transport={t} code="T-1" token="TOK" />);
+      const { unmount } = render(<ConnectionInstructions transport={t} code="T-1" token="TOK" />);
       const usernameRow = screen.getByText('Username').closest('div');
       expect(usernameRow).not.toBeNull();
       expect(usernameRow?.textContent).toContain('TOK');
@@ -122,7 +122,7 @@ describe('ConnectionInstructions — credential triple', () => {
   });
 
   it('tells Password to be left empty rather than rendering a blank value', () => {
-    render(<ConnectionInstructions id="ID-1" transport="http" code="T-1" token="TOK" />);
+    render(<ConnectionInstructions transport="http" code="T-1" token="TOK" />);
     const passwordRow = screen.getByText('Password').closest('div');
     expect(passwordRow?.textContent).toMatch(/leave empty/i);
     // A blank value would render as just the label with nothing after it —
@@ -130,18 +130,18 @@ describe('ConnectionInstructions — credential triple', () => {
     expect(passwordRow?.textContent).not.toBe('Password');
   });
 
-  it('shows Client ID with the instrument UUID for MQTT and MQTTS', () => {
+  it('shows Client ID with the instrument CODE for MQTT and MQTTS', () => {
     for (const t of ['mqtt', 'mqtts']) {
-      const { unmount } = render(<ConnectionInstructions id="ID-1" transport={t} code="T-1" token="TOK" />);
+      const { unmount } = render(<ConnectionInstructions transport={t} code="T-1" token="TOK" />);
       const clientIdRow = screen.getByText('Client ID').closest('div');
-      expect(clientIdRow?.textContent).toContain('ID-1');
+      expect(clientIdRow?.textContent).toContain('T-1');
       unmount();
     }
   });
 
   it('does not show a Client ID row for protocols that have no such concept', () => {
     for (const t of ['http', 'https', 'websocket', 'wss', 'tcp']) {
-      const { unmount } = render(<ConnectionInstructions id="ID-1" transport={t} code="T-1" token="TOK" />);
+      const { unmount } = render(<ConnectionInstructions transport={t} code="T-1" token="TOK" />);
       expect(screen.queryByText('Client ID')).not.toBeInTheDocument();
       unmount();
     }
@@ -149,16 +149,16 @@ describe('ConnectionInstructions — credential triple', () => {
 
   it('shows an explicit Token row for every protocol', () => {
     for (const t of ['http', 'https', 'websocket', 'wss', 'tcp', 'mqtt', 'mqtts']) {
-      const { unmount } = render(<ConnectionInstructions id="ID-1" transport={t} code="T-1" token="TOK" />);
+      const { unmount } = render(<ConnectionInstructions transport={t} code="T-1" token="TOK" />);
       const tokenRow = screen.getByText('Token').closest('div');
       expect(tokenRow?.textContent).toContain('TOK');
       unmount();
     }
   });
 
-  it('keeps the MQTT pasteable command carrying -i <uuid> and -P "" alongside the labelled rows', () => {
-    render(<ConnectionInstructions id="ID-1" transport="mqtt" code="T-1" token="TOK" />);
-    expect(screen.getAllByText(/-i "ID-1"/).length).toBeGreaterThan(0);
+  it('keeps the MQTT pasteable command carrying -i <code> and -P "" alongside the labelled rows', () => {
+    render(<ConnectionInstructions transport="mqtt" code="T-1" token="TOK" />);
+    expect(screen.getAllByText(/-i "T-1"/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/-P ""/).length).toBeGreaterThan(0);
   });
 });
@@ -166,7 +166,7 @@ describe('ConnectionInstructions — credential triple', () => {
 describe('ConnectionInstructions — gateway', () => {
   it('shows the devices batch shape naming this gateway\'s real children', () => {
     render(
-      <ConnectionInstructions id="ID-1" transport="http" code="GW-1" token="TOK" isGateway childCodes={['SENSOR-A', 'SENSOR-B']} />,
+      <ConnectionInstructions transport="http" code="GW-1" token="TOK" isGateway childCodes={['SENSOR-A', 'SENSOR-B']} />,
     );
     // Not an illustrative example — the correct command for THIS gateway.
     expect(screen.getAllByText(/"devices"/).length).toBeGreaterThan(0);
@@ -175,12 +175,12 @@ describe('ConnectionInstructions — gateway', () => {
   });
 
   it('tells a gateway with no children to link some first', () => {
-    render(<ConnectionInstructions id="ID-1" transport="http" code="GW-1" token="TOK" isGateway childCodes={[]} />);
+    render(<ConnectionInstructions transport="http" code="GW-1" token="TOK" isGateway childCodes={[]} />);
     expect(screen.getByText(/link.*instrument/i)).toBeInTheDocument();
   });
 
   it('tells a child it is reported via its gateway, without hiding its own credentials', () => {
-    render(<ConnectionInstructions id="ID-1" transport="http" code="SENSOR-A" token="TOK" gatewayCode="GW-1" gatewayId="GW-ID" />);
+    render(<ConnectionInstructions transport="http" code="SENSOR-A" token="TOK" gatewayCode="GW-1" />);
     expect(screen.getByText(/GW-1/)).toBeInTheDocument();
     expect(screen.getByText(/curl/)).toBeInTheDocument();   // direct path still shown (spec D4)
   });
@@ -188,16 +188,16 @@ describe('ConnectionInstructions — gateway', () => {
 
 describe('ConnectionInstructions — protocol switcher', () => {
   it('defaults to HTTP when no transport is supplied', () => {
-    render(<ConnectionInstructions id="ID-1" code="T-1" token="TOK" />);
+    render(<ConnectionInstructions code="T-1" token="TOK" />);
     expect(screen.getByText(/curl/)).toBeInTheDocument();
     expect(screen.queryByText(/mosquitto_pub/)).not.toBeInTheDocument();
     expect(screen.queryByText(/not accepting connections yet/i)).not.toBeInTheDocument();
   });
 
   it('selecting MQTT shows the MQTT topic, and no warning now that it is live', () => {
-    render(<ConnectionInstructions id="ID-1" code="T-1" token="TOK" />);
+    render(<ConnectionInstructions code="T-1" token="TOK" />);
     fireEvent.click(screen.getByRole('tab', { name: /^MQTT$/ }));
-    expect(screen.getAllByText(/instruments\/ID-1\/telemetry/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/instruments\/T-1\/telemetry/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/not accepting connections yet/i)).not.toBeInTheDocument();
   });
 
@@ -207,7 +207,7 @@ describe('ConnectionInstructions — protocol switcher', () => {
     // real transport can raise it any more.
     forceNotLive.transport = 'mqtts';
     try {
-      render(<ConnectionInstructions id="ID-1" code="T-1" token="TOK" />);
+      render(<ConnectionInstructions code="T-1" token="TOK" />);
       fireEvent.click(screen.getByRole('tab', { name: /^MQTTS$/ }));
       expect(screen.getByText(/not accepting connections yet/i)).toBeInTheDocument();
       fireEvent.click(screen.getByRole('tab', { name: /^HTTP$/ }));
@@ -220,7 +220,7 @@ describe('ConnectionInstructions — protocol switcher', () => {
 
   it('a gateway batch payload survives a protocol switch', () => {
     render(
-      <ConnectionInstructions id="ID-1" code="GW-1" token="TOK" isGateway childCodes={['SENSOR-A', 'SENSOR-B']} />,
+      <ConnectionInstructions code="GW-1" token="TOK" isGateway childCodes={['SENSOR-A', 'SENSOR-B']} />,
     );
     expect(screen.getAllByText(/"devices"/).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('tab', { name: /^TCP$/ }));
@@ -248,68 +248,123 @@ describe('ConnectionInstructions — attribute downlink', () => {
   // pin them into the command itself.
   it.each(subscribeTabs)('keeps the client-id and empty-password flags in both commands (%s)', (tab) => {
     render(
-      <ConnectionInstructions id="ID-1" transport={tab.toLowerCase()} code="GW-9" token="TOK" isGateway childCodes={['C-1']} />,
+      <ConnectionInstructions transport={tab.toLowerCase()} code="GW-9" token="TOK" isGateway childCodes={['C-1']} />,
     );
-    for (const cmd of [screen.getByText(/mosquitto_pub/), ...screen.getAllByText(/mosquitto_sub/)]) {
-      expect(cmd.textContent).toContain('-i "ID-1"');
+    // A gateway shows TWO publish commands since 2026-09-05 — the batch and the
+    // one-child-per-message form — and every command must carry the flags.
+    const pubs = screen.getAllByText(/mosquitto_pub/);
+    expect(pubs.length).toBe(2);
+    for (const cmd of [...pubs, ...screen.getAllByText(/mosquitto_sub/)]) {
+      expect(cmd.textContent).toContain('-i "GW-9"');
       expect(cmd.textContent).toContain('-P ""');
     }
   });
 
   it.each(subscribeTabs)('states each command on ONE line (%s)', (tab) => {
     render(
-      <ConnectionInstructions id="ID-1" transport={tab.toLowerCase()} code="GW-9" token="TOK" isGateway childCodes={['C-1', 'C-2']} />,
+      <ConnectionInstructions transport={tab.toLowerCase()} code="GW-9" token="TOK" isGateway childCodes={['C-1', 'C-2']} />,
     );
-    // Including the gateway's batch payload, which is compact for this reason.
-    for (const cmd of [screen.getByText(/mosquitto_pub/), ...screen.getAllByText(/mosquitto_sub/)]) {
+    // Including the gateway's batch payload, which is compact for this reason,
+    // and the one-child-per-message form beside it.
+    for (const cmd of [...screen.getAllByText(/mosquitto_pub/), ...screen.getAllByText(/mosquitto_sub/)]) {
       expect(cmd.textContent).not.toContain('\n');
       expect(cmd.textContent).not.toContain('\\');
     }
   });
 
   it.each(subscribeTabs)('shows a standalone instrument its own attribute topic (%s)', (tab) => {
-    render(<ConnectionInstructions id="ID-1" transport={tab.toLowerCase()} code="T-1" token="TOK" />);
-    expect(screen.getAllByText(/instruments\/ID-1\/attributes/).length).toBeGreaterThan(0);
+    render(<ConnectionInstructions transport={tab.toLowerCase()} code="T-1" token="TOK" />);
+    expect(screen.getAllByText(/instruments\/T-1\/attributes/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/mosquitto_sub/).length).toBeGreaterThan(0);
   });
 
   // The whole reason this is in the UI: a child subscribing to its own code
   // gets a valid, permitted, permanently silent subscription.
   it('addresses a CHILD under its gateway, not under itself', () => {
-    render(<ConnectionInstructions id="ID-1" transport="mqtt" code="CH-1" token="TOK" gatewayCode="GW-1" gatewayId="GW-ID" />);
+    render(<ConnectionInstructions transport="mqtt" code="CH-1" token="TOK" gatewayCode="GW-1" />);
     // The subscribe command — the thing that actually gets pasted — must carry
     // the gateway form and nothing else.
     const cmd = screen.getByText(/mosquitto_sub/).textContent ?? '';
-    expect(cmd).toContain('-t "instruments/GW-ID/attributes/ID-1"');
+    expect(cmd).toContain('-t "instruments/GW-1/attributes/CH-1"');
     // The card carries no prose since 2026-08-07, so the command is the ONLY
     // place the right topic is stated — the child's own code must not appear as
-    // a topic anywhere on it.
-    expect(cmd).not.toContain('CH-1');
-    expect(screen.queryByText(/instruments\/CH-1/)).not.toBeInTheDocument();
+    // a STANDALONE topic anywhere on it (it is the client id, and the last
+    // segment under the gateway, and nothing else).
+    expect(cmd).not.toContain('instruments/CH-1/attributes');
+    // `instruments/CH-1/telemetry` DOES appear — a child that also connects
+    // directly publishes there — so the assertion is on the attribute slot.
+    expect(screen.queryByText(/instruments\/CH-1\/attributes/)).not.toBeInTheDocument();
   });
 
   it('gives a gateway the wildcard covering its own slot and every child', () => {
     render(
-      <ConnectionInstructions id="ID-1" transport="mqtt" code="GW-1" token="TOK" isGateway childCodes={['SENSOR-A']} />,
+      <ConnectionInstructions transport="mqtt" code="GW-1" token="TOK" isGateway childCodes={['SENSOR-A']} />,
     );
-    expect(screen.getAllByText(/instruments\/ID-1\/attributes\/#/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/instruments\/ID-1\/children/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/instruments\/GW-1\/attributes\/#/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/instruments\/GW-1\/children/).length).toBeGreaterThan(0);
   });
 
   // A gateway with no children still has its own attribute slot and an (empty)
   // roster. The batch-payload branch has nothing to show it; the downlink does.
   it('shows the topics to a gateway that has no children yet', () => {
-    render(<ConnectionInstructions id="ID-1" transport="mqtt" code="GW-2" token="TOK" isGateway />);
+    render(<ConnectionInstructions transport="mqtt" code="GW-2" token="TOK" isGateway />);
     expect(screen.getByText(/no linked instruments yet/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/instruments\/ID-1\/attributes\/#/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/instruments\/GW-2\/attributes\/#/).length).toBeGreaterThan(0);
   });
 
   // Only the broker transports can subscribe. The WEBSOCKET tab here is the
   // API's own /api/ingest/v1/ws endpoint, not the broker's MQTT-over-WS
   // listener, so showing a subscribe topic there would be a lie.
   it.each(['HTTP', 'HTTPS', 'WEBSOCKET', 'WSS', 'TCP'])('shows no subscribe topic on %s', (tab) => {
-    render(<ConnectionInstructions id="ID-1" transport={tab.toLowerCase()} code="T-1" token="TOK" />);
+    render(<ConnectionInstructions transport={tab.toLowerCase()} code="T-1" token="TOK" />);
     expect(screen.queryByText(/mosquitto_sub/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/instruments\/ID-1\/attributes/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/instruments\/T-1\/attributes/)).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * The downlink PAYLOADS, shown the way the telemetry sample is (operator,
+ * 2026-09-05: "show the payload for attributes … same like telemetry").
+ */
+describe('ConnectionInstructions — attribute payloads', () => {
+  it('shows the per-instrument attribute payload: the full set plus the changed key', () => {
+    render(<ConnectionInstructions transport="mqtt" code="T-1" token="TOK" />);
+    const blocks = screen.getAllByText(/"attributes"/);
+    expect(blocks.length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/"changed"/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/"High Temperature Limit": "27"/).length).toBeGreaterThan(0);
+    // No bundle for a standalone instrument.
+    expect(screen.queryByText(/children\/attributes/)).not.toBeInTheDocument();
+  });
+
+  it('shows a gateway the whole-set bundle topic and payload naming its real children', () => {
+    render(
+      <ConnectionInstructions transport="mqtt" code="GW-1" token="TOK" isGateway childCodes={['SENSOR-A', 'SENSOR-B']} />,
+    );
+    expect(screen.getAllByText(/instruments\/GW-1\/children\/attributes/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/"gateway": "GW-1"/).length).toBeGreaterThan(0);
+    // The bundle is the telemetry batch's shape: blocks under `devices`, each
+    // opening with `devN`, and the change named by devN + key.
+    expect(screen.getAllByText(/"devN": "SENSOR-A",\s*"High Temperature Limit"/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/"devN": "SENSOR-A",\s*"key": "High Temperature Limit"/).length).toBeGreaterThan(0);
+    // And the roster payload, keyed the same way.
+    expect(screen.getAllByText(/"isActive": true/).length).toBeGreaterThan(0);
+  });
+
+  it('shows a gateway the one-child-per-message flat form beside the batch, keyed t and h', () => {
+    render(
+      <ConnectionInstructions transport="mqtt" code="GW-1" token="TOK" isGateway childCodes={['SENSOR-A', 'SENSOR-B']} />,
+    );
+    // The batch: a list of blocks, each opening with devN, readings keyed t / h.
+    expect(screen.getAllByText(/"devices":\[\{"devN":"SENSOR-A","t":21.5,"h":47\}/).length).toBeGreaterThan(0);
+    // The flat per-sensor form, on the same topic.
+    expect(screen.getAllByText(/-m '\{"devN":"SENSOR-A","t":21.5,"h":47\}'/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/"temperature"/)).not.toBeInTheDocument();
+  });
+
+  it('shows no payloads on a transport that cannot subscribe', () => {
+    render(<ConnectionInstructions transport="http" code="GW-1" token="TOK" isGateway childCodes={['SENSOR-A']} />);
+    expect(screen.queryByText(/"changed"/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/children\/attributes/)).not.toBeInTheDocument();
   });
 });

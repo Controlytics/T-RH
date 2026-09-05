@@ -18,10 +18,10 @@ import { logger } from '../../lib/logger.js';
 
 /** What a route hands over after a committed attribute change. */
 export interface AttributeDownlink {
-  /** The instrument's UUID — what the wire addresses it by. */
-  id: string;
-  /** Its gateway's UUID, when it has one. A child has no broker connection. */
-  gatewayId?: string | null;
+  /** The instrument's CODE — what the wire addresses it by (2026-09-04). */
+  code: string;
+  /** Its gateway's CODE, when it has one. A child has no broker connection. */
+  gatewayCode?: string | null;
   /** The instrument's COMPLETE attribute set after the change. */
   attributes: Record<string, string>;
   /** The key this operation touched. */
@@ -36,8 +36,8 @@ export interface AttributeDownlink {
 /**
  * One RETAINED slot per instrument.
  *
- *   standalone            instruments/<id>/attributes
- *   child of a gateway    instruments/<gatewayId>/attributes/<childId>
+ *   standalone            instruments/<code>/attributes
+ *   child of a gateway    instruments/<gatewayCode>/attributes/<childCode>
  *
  * Per-instrument topics are load-bearing, not cosmetic. MQTT retains only the
  * LAST message per topic, so a single shared `instruments/<gw>/attributes` slot
@@ -45,25 +45,26 @@ export interface AttributeDownlink {
  * recently and silently loses every other child's state.
  *
  * A child is addressed UNDER ITS GATEWAY because it has no broker connection of
- * its own: nothing is subscribed to `instruments/<childId>/attributes`, so
+ * its own: nothing is subscribed to `instruments/<childCode>/attributes`, so
  * publishing there would retain a message no one will ever read. The gateway
- * subscribes `instruments/<gatewayId>/attributes/#` and demultiplexes on the
- * last segment.
+ * subscribes `instruments/<gatewayCode>/attributes/#` and demultiplexes on
+ * what follows `/attributes/` — which may itself contain slashes, since a
+ * child code here is `CWH/RDU/001-00`.
  *
- * ── WHY THE SEGMENT IS A UUID (2026-08-07) ──
- * It used to be the instrument's `code`, and this comment used to argue that
- * the interpolation was safe because `codeSchema` restricted a code to
- * `[A-Za-z0-9._-]`. That guard is GONE — the code is now free text, any
- * character, any length, at the operator's request. The argument had to be
- * replaced rather than deleted: without it, `A/B` yields
- * `instruments/A/B/attributes` (a forged child slot), and a code of `+` or `#`
- * turns the broker's `instruments/${clientid}/...` ACL into a match on every
- * instrument.
+ * ── WHY THE SEGMENT IS THE CODE AGAIN (2026-09-04) ──
+ * It was the code until 2026-08-07, then the UUID, and is the code once more
+ * at the operator's request ("i want client id as CWH/RDU/001-00"). The UUID
+ * interlude existed because the code had become free text, and `A/B` yields
+ * `instruments/A/B/attributes` while `+` or `#` turns the broker's
+ * `instruments/${clientid}/...` ACL into a match on every instrument.
  *
- * The interpolation is safe now because the segment is a PLATFORM-GENERATED
- * UUID. Nothing an operator types reaches a topic, so no charset rule has to
- * hold for this to be correct. `mqtt-auth-routes.ts` binds the MQTT client id
- * to the same id, which is what makes the ACL template real.
+ * What makes operator text safe in a topic NOW is `instrumentCodeTopicViolation`
+ * in `@digilog/shared`, applied on every create path: no `+`, no `#`, no NUL,
+ * and a last segment that is never a topic keyword. `/` is deliberately
+ * ALLOWED — the ACL template reproduces `${clientid}` literally, so
+ * `instruments/A/B/attributes` is exactly the slot the instrument coded `A/B`
+ * may subscribe to, and no other. `mqtt-auth-routes.ts` binds the MQTT client
+ * id to the same code, which is what makes the template real.
  *
  * The second invariant is unchanged: there are no NESTED gateways, so the
  * branch below is exhaustive. An instrument that was BOTH `isGateway` and a
@@ -78,10 +79,10 @@ export interface AttributeDownlink {
  * Pure: the gateway-vs-standalone branch is exactly where this goes wrong, and
  * it needs no broker to test.
  */
-export function attributeDownlinkTopic(id: string, gatewayId?: string | null): string {
-  return gatewayId
-    ? `instruments/${gatewayId}/attributes/${id}`
-    : `instruments/${id}/attributes`;
+export function attributeDownlinkTopic(code: string, gatewayCode?: string | null): string {
+  return gatewayCode
+    ? `instruments/${gatewayCode}/attributes/${code}`
+    : `instruments/${code}/attributes`;
 }
 
 /** The wire shape. `changed[key] === null` means the attribute was removed. */
@@ -232,7 +233,7 @@ export async function publishAttributeDownlink(
   log?: PublishLogger,
 ): Promise<void> {
   await publishRetained(
-    attributeDownlinkTopic(d.id, d.gatewayId),
+    attributeDownlinkTopic(d.code, d.gatewayCode),
     JSON.stringify(buildAttributeDownlinkPayload(d)),
     // LOUD. The attribute is correct in the database and WRONG on the device,
     // and nothing will retry — a device that missed this stays stale until the

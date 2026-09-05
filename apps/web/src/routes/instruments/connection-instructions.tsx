@@ -104,7 +104,7 @@ function CredentialRows({
   showClientId,
 }: {
   token: string;
-  /** The instrument's UUID — the broker binds the client id to it. */
+  /** The instrument's CODE — the broker binds the client id to it (2026-09-04). */
   clientId: string;
   showClientId: boolean;
 }) {
@@ -123,13 +123,13 @@ export interface ConnectionInstructionsProps {
   /** Optional — picks the switcher's initial tab only. Not a stored fact. */
   transport?: string;
   /**
-   * The instrument's UUID. THIS is what the wire uses — the MQTT client id and
-   * every topic segment (2026-08-07): the code became free text, and a code
-   * containing `/`, `+` or `#` would forge a topic shape or match the broker's
-   * ACL against every instrument.
+   * The instrument's code. THIS is what the wire uses — the MQTT client id and
+   * every topic segment (2026-09-04, operator: "i want client id as
+   * CWH/RDU/001-00"). Between 2026-08-07 and then it was the UUID; the
+   * registration rule in `@digilog/shared` (`instrumentCodeTopicViolation`)
+   * is what makes operator text safe in a topic again. A slash in the code is
+   * a topic level the broker's ACL template reproduces literally.
    */
-  id: string;
-  /** The human reference. Shown, never sent. */
   code: string;
   /** Plaintext token. Only ever available at creation / regeneration. */
   token?: string;
@@ -137,21 +137,20 @@ export interface ConnectionInstructionsProps {
   isGateway?: boolean;
   /** The gateway's real linked children — drives the batch payload shape. */
   childCodes?: string[];
-  /** Set on a CHILD instrument that is (also) reported via a gateway. */
+  /**
+   * Set on a CHILD instrument that is (also) reported via a gateway — the
+   * topic segment its children are addressed under.
+   */
   gatewayCode?: string;
-  /** That gateway's UUID — the topic segment its children are addressed under. */
-  gatewayId?: string;
 }
 
 export function ConnectionInstructions({
   transport,
-  id,
   code,
   token,
   isGateway,
   childCodes,
   gatewayCode,
-  gatewayId,
 }: ConnectionInstructionsProps) {
   // No caller supplies one today, so this is HTTP in practice — the transport
   // most devices speak and the safest tab to open on.
@@ -172,7 +171,7 @@ export function ConnectionInstructions({
   // command at all. Always resolve to something absolute.
   const base = getApiBase() || window.location.origin;
   const httpUrl = `${base}/api/ingest/v1/telemetry`;
-  const topic = `instruments/${id}/telemetry`;
+  const topic = `instruments/${code}/telemetry`;
   const wsUrl = `${base.replace(/^http/, 'ws')}/api/ingest/v1/ws`;
   const notLive = !isTransportLive(selected);
 
@@ -191,12 +190,45 @@ export function ConnectionInstructions({
    * it is responsible for.
    */
   const attributeTopic = isGateway
-    ? `instruments/${id}/attributes/#`
-    : gatewayId
-      ? `instruments/${gatewayId}/attributes/${id}`
-      : `instruments/${id}/attributes`;
+    ? `instruments/${code}/attributes/#`
+    : gatewayCode
+      ? `instruments/${gatewayCode}/attributes/${code}`
+      : `instruments/${code}/attributes`;
   // Only a gateway has a roster, and only it may subscribe to one.
-  const rosterTopic = isGateway ? `instruments/${id}/children` : null;
+  const rosterTopic = isGateway ? `instruments/${code}/children` : null;
+  // And only a gateway has the whole-set BUNDLE (2026-09-05): every child's
+  // complete attribute set in ONE retained message, beside the per-child slots.
+  const bundleTopic = isGateway ? `instruments/${code}/children/attributes` : null;
+
+  /**
+   * SAMPLE downlink payloads (operator, 2026-09-05: "show the payload for
+   * attributes … same like telemetry"). Shown the way the telemetry sample is:
+   * the real codes this instrument carries, with example values — `21.5` on the
+   * telemetry side, a limit and a location here. The keys are the ones every
+   * instrument on this installation carries; the values are illustrative.
+   */
+  const sampleTs = '2026-09-05T07:49:47.847Z';
+  const sampleAttributes = { 'High Temperature Limit': '27', 'Low Temperature Limit': '18', 'Location': 'LCMS Room-II' };
+  // The per-instrument slot: the COMPLETE set, plus the one key that moved
+  // (`null` = removed). The same shape on a standalone slot and a child's.
+  const attributePayload = JSON.stringify({
+    attributes: sampleAttributes,
+    changed: { 'High Temperature Limit': '27' },
+    ts: sampleTs,
+  }, null, 2);
+  // The gateway's bundle: the telemetry batch's shape mirrored — a list of
+  // blocks, `devN` first, then the child's full attribute set as plain keys.
+  const bundleChildren = (childCodes && childCodes.length ? childCodes : ['<child code>']).slice(0, 2);
+  const bundlePayload = JSON.stringify({
+    gateway: code,
+    devices: bundleChildren.map((c) => ({ devN: c, ...sampleAttributes })),
+    changed: { devN: bundleChildren[0], key: 'High Temperature Limit', value: '27' },
+    ts: sampleTs,
+  }, null, 2);
+  const rosterPayload = JSON.stringify({
+    children: bundleChildren.map((c) => ({ code: c, name: c, isActive: true })),
+    ts: sampleTs,
+  }, null, 2);
   // Subscribing is a BROKER capability. The WEBSOCKET/WSS tabs here are the
   // API's own /api/ingest/v1/ws ingest endpoint, not the broker's MQTT-over-WS
   // listener, and HTTP/TCP have no subscribe at all — showing a topic on any of
@@ -206,19 +238,22 @@ export function ConnectionInstructions({
   // it the client cannot validate the broker and simply refuses to connect.
   const brokerPort = selected === 'mqtts' ? '8883' : '1883';
   const cafile = selected === 'mqtts' ? ' --cafile "<ca-cert.pem>"' : '';
-  const pubPrefix = `mosquitto_pub -h <broker-host> -p ${brokerPort}${cafile} -i "${id}"`;
-  const subPrefix = `mosquitto_sub -h <broker-host> -p ${brokerPort}${cafile} -i "${id}"`;
+  const pubPrefix = `mosquitto_pub -h <broker-host> -p ${brokerPort}${cafile} -i "${code}"`;
+  const subPrefix = `mosquitto_sub -h <broker-host> -p ${brokerPort}${cafile} -i "${code}"`;
 
   // A gateway sends ONE batch payload keyed by each child's code, not the
   // single-reading body an ordinary instrument sends. When there are no
   // linked children yet there is no correct payload to show — a placeholder
   // device map would be a lie a technician could paste and "succeed" with.
   const hasChildren = isGateway && (childCodes?.length ?? 0) > 0;
+  // A LIST of blocks, each naming its instrument under the common key `devN`
+  // (operator, 2026-09-05: "devN is common key for all, value will change").
+  // The server also still accepts the older code-keyed object
+  // (`"<code>": {...}`); this is the shape the plant's gateway firmware sends,
+  // so it is the one shown.
   const devices = hasChildren
     ? {
-        devices: Object.fromEntries(
-          (childCodes as string[]).map((c) => [c, { temperature: 21.5, humidity: 47 }]),
-        ),
+        devices: (childCodes as string[]).map((c) => ({ devN: c, t: 21.5, h: 47 })),
       }
     : null;
   // Indented for the HTTP / WS / TCP examples, which are already multi-line.
@@ -238,7 +273,7 @@ export function ConnectionInstructions({
     );
   } else {
     const showClientId = selected === 'mqtt' || selected === 'mqtts';
-    const credentialRows = <CredentialRows token={tok} clientId={id} showClientId={showClientId} />;
+    const credentialRows = <CredentialRows token={tok} clientId={code} showClientId={showClientId} />;
 
     switch (selected) {
       case 'http':
@@ -252,7 +287,7 @@ export function ConnectionInstructions({
               text={
                 isGateway
                   ? `curl -k -X POST ${httpUrl} \\\n  -H "Authorization: Bearer ${tok}" \\\n  -H "Content-Type: application/json" \\\n  -d '${devicesPayload}'`
-                  : `curl -k -X POST ${httpUrl} \\\n  -H "Authorization: Bearer ${tok}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"temperature": 21.5, "humidity": 47}'`
+                  : `curl -k -X POST ${httpUrl} \\\n  -H "Authorization: Bearer ${tok}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"t": 21.5, "h": 47}'`
               }
             />
           </>
@@ -273,7 +308,16 @@ export function ConnectionInstructions({
           <>
             {credentialRows}
             <Row label="Topic" value={topic} />
-            <CodeBlock text={`${pubPrefix} -t "${topic}" -u "${tok}" -P "" -m '${isGateway ? compactDevicesPayload : '{"temperature": 21.5}'}'`} />
+            <CodeBlock text={`${pubPrefix} -t "${topic}" -u "${tok}" -P "" -m '${isGateway ? compactDevicesPayload : '{"t": 21.5, "h": 47}'}'`} />
+            {/* The plant's firmware publishes ONE CHILD PER MESSAGE — a flat
+                payload naming the child under `devN` — on this same topic.
+                Shown beside the batch so a technician sees both accepted forms. */}
+            {isGateway && hasChildren && (
+              <>
+                <Row label="One child per message" value={topic} />
+                <CodeBlock text={`${pubPrefix} -t "${topic}" -u "${tok}" -P "" -m '${JSON.stringify({ devN: (childCodes as string[])[0], t: 21.5, h: 47 })}'`} />
+              </>
+            )}
           </>
         );
         break;
@@ -286,7 +330,7 @@ export function ConnectionInstructions({
             <Row label="Endpoint" value={wsUrl} />
             <Row label="Auth" value={`Authorization: Bearer ${tok}`} />
             <CodeBlock
-              text={`const ws = new WebSocket("${wsUrl}", {\n  headers: { Authorization: "Bearer ${tok}" },\n});\nws.on("open", () => ws.send(JSON.stringify(${isGateway ? devicesPayload : '{ temperature: 21.5 }'})));`}
+              text={`const ws = new WebSocket("${wsUrl}", {\n  headers: { Authorization: "Bearer ${tok}" },\n});\nws.on("open", () => ws.send(JSON.stringify(${isGateway ? devicesPayload : '{ t: 21.5, h: 47 }'})));`}
             />
           </>
         );
@@ -302,7 +346,7 @@ export function ConnectionInstructions({
               text={
                 isGateway
                   ? `{"token":"${tok}"}\n${devicesPayload}`
-                  : `{"token":"${tok}"}\n{"temperature": 21.5}\n{"temperature": 21.7}`
+                  : `{"token":"${tok}"}\n{"t": 21.5, "h": 47}\n{"t": 21.7, "h": 46}`
               }
             />
             <p className="text-xs text-slate-500">
@@ -375,10 +419,26 @@ export function ConnectionInstructions({
         <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-3">
           <p className="text-sm font-medium text-slate-700">Attribute updates (platform → device)</p>
           <Row label="Attributes topic" value={attributeTopic} />
-          {rosterTopic && <Row label="Children topic" value={rosterTopic} />}
           <CodeBlock text={`${subPrefix} -t "${attributeTopic}" -u "${tok}" -P "" -v`} />
+          {/* The payload each slot carries — retained, so a device gets it on
+              subscribe, whenever the change happened. */}
+          <Row label="Attributes payload" value={isGateway ? `retained, one per child on instruments/${code}/attributes/<child code>` : 'retained'} />
+          <CodeBlock text={attributePayload} />
+          {bundleTopic && (
+            <>
+              <Row label="All children topic" value={bundleTopic} />
+              <CodeBlock text={`${subPrefix} -t "${bundleTopic}" -u "${tok}" -P "" -v`} />
+              <Row label="All children payload" value="retained, every child, full set" />
+              <CodeBlock text={bundlePayload} />
+            </>
+          )}
           {rosterTopic && (
-            <CodeBlock text={`${subPrefix} -t "${rosterTopic}" -u "${tok}" -P "" -v`} />
+            <>
+              <Row label="Children topic" value={rosterTopic} />
+              <CodeBlock text={`${subPrefix} -t "${rosterTopic}" -u "${tok}" -P "" -v`} />
+              <Row label="Children payload" value="retained, membership" />
+              <CodeBlock text={rosterPayload} />
+            </>
           )}
         </div>
       )}

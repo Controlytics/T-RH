@@ -32,11 +32,13 @@ interface Sent { topic: string; payload: string }
 let sent: Sent[] = [];
 
 const rosters = () => sent.filter((s) => s.topic.endsWith('/children'));
-const rosterFor = (gwId: string) => rosters().filter((s) => s.topic === `instruments/${gwId}/children`);
+// Keyed on the gateway's CODE (2026-09-04): the gateway subscribes
+// `instruments/${clientid}/children` with its code as client id.
+const rosterFor = (gwCode: string) => rosters().filter((s) => s.topic === `instruments/${gwCode}/children`);
 const codesIn = (s: Sent) => (JSON.parse(s.payload).children as { code: string }[]).map((c) => c.code).sort();
 /** The membership the gateway is left holding after everything this test did. */
-const latestFor = (gwId: string) => {
-  const all = rosterFor(gwId);
+const latestFor = (gwCode: string) => {
+  const all = rosterFor(gwCode);
   return all.length ? all[all.length - 1] : undefined;
 };
 
@@ -78,7 +80,7 @@ const del = (id: string) =>
 describe('child roster — membership changes', () => {
   it('publishes an EMPTY roster when a gateway is created', async () => {
     const gw = await mk({ name: 'RGW', code: `RGW-${uniq()}`, isGateway: true });
-    const r = rosterFor(gw.id);
+    const r = rosterFor(gw.code);
     expect(r).toHaveLength(1);
     // Explicit "no children" — a gateway must be able to tell that from a
     // broker that lost the message.
@@ -90,8 +92,8 @@ describe('child roster — membership changes', () => {
     sent = [];
     const kid = await mk({ name: 'RK', code: `RK-${uniq()}`, gatewayId: gw.id });
 
-    expect(rosterFor(gw.id)).toHaveLength(1);
-    expect(codesIn(latestFor(gw.id)!)).toEqual([kid.code]);
+    expect(rosterFor(gw.code)).toHaveLength(1);
+    expect(codesIn(latestFor(gw.code)!)).toEqual([kid.code]);
   });
 
   it('republishes on link and on unlink', async () => {
@@ -100,11 +102,11 @@ describe('child roster — membership changes', () => {
 
     sent = [];
     expect((await put(kid.id, { gatewayId: gw.id })).statusCode).toBe(200);
-    expect(codesIn(latestFor(gw.id)!)).toEqual([kid.code]);
+    expect(codesIn(latestFor(gw.code)!)).toEqual([kid.code]);
 
     sent = [];
     expect((await put(kid.id, { gatewayId: null })).statusCode).toBe(200);
-    expect(codesIn(latestFor(gw.id)!)).toEqual([]);
+    expect(codesIn(latestFor(gw.code)!)).toEqual([]);
   });
 
   // The failure this catches: publishing only the NEW gateway leaves the old
@@ -118,8 +120,8 @@ describe('child roster — membership changes', () => {
     sent = [];
     expect((await put(kid.id, { gatewayId: b.id })).statusCode).toBe(200);
 
-    expect(codesIn(latestFor(a.id)!)).toEqual([]);
-    expect(codesIn(latestFor(b.id)!)).toEqual([kid.code]);
+    expect(codesIn(latestFor(a.code)!)).toEqual([]);
+    expect(codesIn(latestFor(b.code)!)).toEqual([kid.code]);
   });
 
   // `name` and `isActive` are IN the payload, so an edit that carries no
@@ -130,7 +132,7 @@ describe('child roster — membership changes', () => {
 
     sent = [];
     expect((await put(kid.id, { name: 'After' })).statusCode).toBe(200);
-    expect(JSON.parse(latestFor(gw.id)!.payload).children).toEqual([
+    expect(JSON.parse(latestFor(gw.code)!.payload).children).toEqual([
       { code: kid.code, name: 'After', isActive: true },
     ]);
 
@@ -138,7 +140,7 @@ describe('child roster — membership changes', () => {
     expect((await put(kid.id, { isActive: false })).statusCode).toBe(200);
     // Present and flagged, not dropped: a deactivated child is still this
     // gateway's responsibility, an unlinked one is not.
-    expect(JSON.parse(latestFor(gw.id)!.payload).children).toEqual([
+    expect(JSON.parse(latestFor(gw.code)!.payload).children).toEqual([
       { code: kid.code, name: 'After', isActive: false },
     ]);
   });
@@ -152,7 +154,7 @@ describe('child roster — membership changes', () => {
     expect((await del(drop.id)).statusCode).toBe(200);
     created.splice(created.indexOf(drop.id), 1);
 
-    expect(codesIn(latestFor(gw.id)!)).toEqual([keep.code]);
+    expect(codesIn(latestFor(gw.code)!)).toEqual([keep.code]);
   });
 });
 
@@ -167,7 +169,7 @@ describe('child roster — clearing', () => {
     expect((await del(gw.id)).statusCode).toBe(200);
     created.splice(created.indexOf(gw.id), 1);
 
-    const r = rosterFor(gw.id);
+    const r = rosterFor(gw.code);
     expect(r).toHaveLength(1);
     expect(r[0].payload).toBe('');
   });
@@ -178,8 +180,8 @@ describe('child roster — clearing', () => {
     sent = [];
     expect((await put(gw.id, { isGateway: false })).statusCode).toBe(200);
 
-    expect(rosterFor(gw.id)).toHaveLength(1);
-    expect(rosterFor(gw.id)[0].payload).toBe('');
+    expect(rosterFor(gw.code)).toHaveLength(1);
+    expect(rosterFor(gw.code)[0].payload).toBe('');
   });
 });
 

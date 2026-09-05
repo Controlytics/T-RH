@@ -12,6 +12,9 @@ export interface ExportSurface {
 export const EXPORT_SURFACES: ExportSurface[] = [
   { key: 'audit', label: 'Audit Trail' },
   { key: 'instrument-trend', label: 'Instrument Trend' },
+  // The Instruments page's history widget (2026-09-05): the Data Report for
+  // an Area, or for a hand-picked set of instruments.
+  { key: 'instrument-history', label: 'Instrument History' },
   { key: 'alarms', label: 'Alarms' },
 ];
 

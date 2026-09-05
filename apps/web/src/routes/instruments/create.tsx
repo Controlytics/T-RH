@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { TokenDialog } from './token-dialog';
+import { instrumentCodeTopicViolation } from '@digilog/shared';
 import { PageHeader } from '@/components/ui/page-header';
 
 interface CreatedInstrument { id: string; code: string; token: string }
@@ -110,6 +111,15 @@ export function InstrumentCreatePage() {
     setSaving(true);
     try {
       const code = form.code.trim();
+      // The code is the MQTT client id (2026-09-04). The server refuses a
+      // wildcard code with a 400 whose body is a zod flatten and no `message`,
+      // which the toast below would render as "Could not create the
+      // instrument." — so the reason is stated here, from the SAME rule.
+      const topicViolation = instrumentCodeTopicViolation(code);
+      if (topicViolation) {
+        toast.error('Create failed', topicViolation);
+        return;
+      }
       const payload: Record<string, unknown> = { name: code, code, profileId };
       if (isGateway) payload.isGateway = true;
       // A gateway cannot itself sit behind a gateway — the backend rejects that
@@ -294,7 +304,6 @@ export function InstrumentCreatePage() {
         <TokenDialog
           open
           title="Instrument created"
-          id={created.id}
           code={created.code}
           token={created.token}
           onClose={() => navigate(`/instruments/${created.id}`)}

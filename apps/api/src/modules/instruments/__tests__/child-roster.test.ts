@@ -20,6 +20,13 @@ const TS = new Date('2026-08-07T05:10:00.000Z');
 afterEach(() => setDownlinkPublisher(null));
 
 describe('childRosterTopic', () => {
+  it('is keyed on the gateway CODE, reproduced literally', () => {
+    // The gateway subscribes `instruments/${clientid}/children` with its
+    // client id = its code (2026-09-04); a slash in the code is a level the
+    // template reproduces, so it must be built the same way here.
+    expect(childRosterTopic('CWH/GW/01')).toBe('instruments/CWH/GW/01/children');
+  });
+
   // A sibling of the attributes subtree, NOT a segment inside it: `codeSchema`
   // allows `[A-Za-z0-9._-]`, so a reserved segment under `…/attributes/` could
   // be collided with by a real instrument code.

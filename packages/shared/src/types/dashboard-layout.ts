@@ -68,15 +68,19 @@ export const DEFAULT_DASHBOARD_LAYOUT: DashboardLayout = {
   version: LAYOUT_VERSION,
   items: [
     { i: 'telemetry_table', x: 0, y: 0, w: 12, h: 9 },
+    // The history widget, directly under the readings table (operator,
+    // 2026-09-05: "in dashboard below the all instruments readings table").
+    // Auto-height, like the table; 8 rows is only its starting size.
+    { i: 'dashboard_history', x: 0, y: 9, w: 12, h: 8 },
     // The floorplan is the tallest by a distance, and deliberately so: it draws
     // rooms to scale, so a short card shrinks every room until the codes inside
     // them stop being readable. 16 rows is ~880px at the grid's 40px row and 16px
     // margin — enough for a floor plan to be a plan rather than a thumbnail.
     // Raised from 11 on 2026-08-28 after the first look at it.
-    { i: 'telemetry_floorplan', x: 0, y: 9, w: 12, h: 16 },
+    { i: 'telemetry_floorplan', x: 0, y: 17, w: 12, h: 16 },
     // `dashboard_trend` sat at y:25 until 2026-08-29 and was removed with the panel
     // itself; alarms moved up into the space rather than leaving a 9-row hole.
-    { i: 'dashboard_alarms', x: 0, y: 25, w: 12, h: 6 },
+    { i: 'dashboard_alarms', x: 0, y: 33, w: 12, h: 6 },
   ],
 };
 
@@ -187,15 +191,34 @@ function bottomOf(items: LayoutItem[]): number {
  * grant would look like it had failed and the admin would go looking in the wrong
  * place.
  */
+/**
+ * Panels the viewer may see that a STORED layout does not place — a panel added
+ * to the product after the layout was saved.
+ *
+ * Each lands where the SHIPPED layout puts it relative to its neighbours: under
+ * the panel that precedes it in `DEFAULT_DASHBOARD_LAYOUT`, with everything from
+ * that row down shifted to make room. Until 2026-09-05 a new panel was appended
+ * at the bottom, which put the history widget — asked for "below the readings
+ * table" — under the floorplan and the alarms on every layout that had ever
+ * been saved. When the predecessor is not on the layout (hidden from this
+ * viewer, or the panel is first in the shipped order), the bottom is the only
+ * honest answer and is still where it goes.
+ */
 function appendMissing(items: LayoutItem[], visiblePanels: string[]): LayoutItem[] {
-  const placed = new Set(items.map((it) => it.i));
-  const out = [...items];
-  let y = bottomOf(items);
+  let out = [...items];
+  const defaults = DEFAULT_DASHBOARD_LAYOUT.items;
   for (const key of visiblePanels) {
-    if (placed.has(key)) continue;
-    const size = DEFAULT_DASHBOARD_LAYOUT.items.find((d) => d.i === key) ?? FALLBACK_SIZE;
-    out.push({ i: key, x: 0, y, w: size.w, h: size.h });
-    y += size.h;
+    if (out.some((it) => it.i === key)) continue;
+    const size = defaults.find((d) => d.i === key) ?? FALLBACK_SIZE;
+    const order = defaults.findIndex((d) => d.i === key);
+    const predecessor = order > 0 ? out.find((it) => it.i === defaults[order - 1].i) : undefined;
+    if (predecessor) {
+      const y = predecessor.y + predecessor.h;
+      out = out.map((it) => (it.y >= y ? { ...it, y: it.y + size.h } : it));
+      out.push({ i: key, x: 0, y, w: size.w, h: size.h });
+    } else {
+      out.push({ i: key, x: 0, y: bottomOf(out), w: size.w, h: size.h });
+    }
   }
   return out;
 }

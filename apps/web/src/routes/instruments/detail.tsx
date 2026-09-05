@@ -536,13 +536,11 @@ export function InstrumentDetailPage() {
               showing <ACCESS_TOKEN> when the operator has just unmasked the
               real one is worse than showing none — it looks runnable. */}
           <ConnectionInstructions
-            id={inst.id}
             code={inst.code}
             token={revealedToken ?? undefined}
             isGateway={inst.isGateway}
             childCodes={children?.data.map((c) => c.code)}
             gatewayCode={gatewayInst?.code}
-            gatewayId={gatewayInst?.id}
           />
           {!revealedToken && (
             <p className="mt-3 text-xs text-slate-500">
@@ -613,7 +611,6 @@ export function InstrumentDetailPage() {
         <TokenDialog
           open
           title="New access token issued"
-          id={inst.id}
           code={inst.code}
           token={newToken}
           onClose={() => setNewToken(null)}

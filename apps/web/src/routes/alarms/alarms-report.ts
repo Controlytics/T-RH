@@ -211,12 +211,12 @@ const SCOPE_LABEL_MM = 26;
  * whatever is left. Derived from the page rather than hardcoded, because this
  * chrome is shared and the other reports are landscape.
  */
-export function scopeColumnStyles(contentWidth = CONTENT_WIDTH_MM) {
-  const value = contentWidth / 2 - SCOPE_LABEL_MM;
+export function scopeColumnStyles(contentWidth = CONTENT_WIDTH_MM, labelWidth = SCOPE_LABEL_MM) {
+  const value = contentWidth / 2 - labelWidth;
   return {
-    0: { cellWidth: SCOPE_LABEL_MM, fontStyle: 'bold' as const },
+    0: { cellWidth: labelWidth, fontStyle: 'bold' as const },
     1: { cellWidth: value },
-    2: { cellWidth: SCOPE_LABEL_MM, fontStyle: 'bold' as const },
+    2: { cellWidth: labelWidth, fontStyle: 'bold' as const },
     3: { cellWidth: value },
   };
 }

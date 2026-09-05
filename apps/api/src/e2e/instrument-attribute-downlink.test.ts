@@ -49,7 +49,11 @@ beforeAll(async () => {
     // The filter is on the topic, so an attribute publish that went to a wrong
     // topic would still be caught by the equality assertions below — it would
     // simply be absent, and `toHaveLength(1)` fails on 0 as loudly as on 2.
-    if (topic.includes('/attributes')) {
+    // …and, since 2026-09-05, the whole-gateway BUNDLE
+    // (`…/children/attributes`), which every child edit and every membership
+    // change republishes. Same reasoning: it has its own file,
+    // `instrument-child-attributes-bundle.test.ts`.
+    if (topic.includes('/attributes') && !topic.endsWith('/children/attributes')) {
       sent.push({ topic, payload: JSON.parse(payload), options });
     }
     if (publishError) throw new Error(publishError);
@@ -98,7 +102,7 @@ describe('attribute downlink — addressing', () => {
     expect((await set(inst.id, 'assetTag', 'AT-99412')).statusCode).toBe(201);
 
     expect(sent).toHaveLength(1);
-    expect(sent[0].topic).toBe(`instruments/${inst.id}/attributes`);
+    expect(sent[0].topic).toBe(`instruments/${inst.code}/attributes`);
     // Retain is what makes a device that was powered off during the change
     // correct on its next connect. Without it every other assertion here still
     // passes and the feature is broken for exactly the case it exists for.
@@ -114,8 +118,8 @@ describe('attribute downlink — addressing', () => {
     expect(sent).toHaveLength(1);
     // A child has no broker connection of its own — nothing is subscribed to
     // `instruments/<childCode>/attributes`.
-    expect(sent[0].topic).toBe(`instruments/${gw.id}/attributes/${child.id}`);
-    expect(sent[0].topic).not.toBe(`instruments/${child.id}/attributes`);
+    expect(sent[0].topic).toBe(`instruments/${gw.code}/attributes/${child.code}`);
+    expect(sent[0].topic).not.toBe(`instruments/${child.code}/attributes`);
   });
 
   it('gives two children of one gateway two DIFFERENT retained slots', async () => {
@@ -127,17 +131,19 @@ describe('attribute downlink — addressing', () => {
     await set(a.id, 'k', 'va');
     await set(b.id, 'k', 'vb');
     // One shared topic would mean a reconnecting gateway is handed whichever
-    // child changed last and silently loses the other.
+    // child changed last and silently loses the other. (The whole-set BUNDLE
+    // beside these slots, added 2026-09-05, carries every child each time and
+    // is asserted in its own e2e; the capture above excludes it.)
     expect(sent.map((m) => m.topic)).toEqual([
-      `instruments/${gw.id}/attributes/${a.id}`,
-      `instruments/${gw.id}/attributes/${b.id}`,
+      `instruments/${gw.code}/attributes/${a.code}`,
+      `instruments/${gw.code}/attributes/${b.code}`,
     ]);
   });
 
   it('a gateway\'s OWN attributes go on its own topic, not under itself', async () => {
     const gw = await mk({ name: 'DLGW3', code: `DLGW3-${uniq()}`, isGateway: true });
     await set(gw.id, 'site', 'Plant 2');
-    expect(sent[0].topic).toBe(`instruments/${gw.id}/attributes`);
+    expect(sent[0].topic).toBe(`instruments/${gw.code}/attributes`);
   });
 });
 

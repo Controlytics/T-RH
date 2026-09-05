@@ -53,12 +53,15 @@ const { startMqttBridge, TELEMETRY_TOPIC_FILTER } = await import(
 
 const S = Date.now();
 const PLAIN_CODE = `MQP-${S}`;
+// The plant's real shape — three levels. `+` could never have matched it.
+const SLASH_CODE = `CWH/MQP/${S}`;
 const GW_CODE = `MQG-${S}`;
 const CHILD_CODE = `MQC-${S}`;
 const OFF_CODE = `MQX-${S}`;
 
 const instrumentIds: string[] = [];
 let plainId: string;
+let slashId: string;
 let gwId: string;
 let childId: string;
 let offId: string;
@@ -103,6 +106,7 @@ function publish(topic: string, body: unknown): void {
 
 beforeAll(async () => {
   plainId = await mkInstrument(PLAIN_CODE);
+  slashId = await mkInstrument(SLASH_CODE);
   gwId = await mkInstrument(GW_CODE, { isGateway: true });
   childId = await mkInstrument(CHILD_CODE, { gatewayId: gwId });
   offId = await mkInstrument(OFF_CODE, { isActive: false });
@@ -122,17 +126,33 @@ afterAll(async () => {
 });
 
 describe('MQTT ingest bridge', () => {
-  it('subscribes to instruments/+/telemetry at QoS 1 on connect', () => {
+  it('subscribes to instruments/# at QoS 1 on connect', () => {
+    // `#`, not `+`: a code carries slashes, and `+` is exactly one level.
+    expect(TELEMETRY_TOPIC_FILTER).toBe('instruments/#');
     expect(lastClient.subscriptions).toEqual([{ topic: TELEMETRY_TOPIC_FILTER, qos: 1 }]);
   });
 
-  it('routes a message to the instrument named in the topic', async () => {
-    publish(`instruments/${plainId}/telemetry`, { mqtttemp: 21.5 });
+  it('routes a message to the instrument whose CODE is in the topic', async () => {
+    publish(`instruments/${PLAIN_CODE}/telemetry`, { mqtttemp: 21.5 });
     await waitFor(async () => (await latestKeys(plainId)).some((r) => r.key === 'mqtttemp'));
   });
 
+  it('routes a slash-separated code — instruments/CWH/MQP/…/telemetry — to that one instrument', async () => {
+    publish(`instruments/${SLASH_CODE}/telemetry`, { slashtemp: 22.5 });
+    await waitFor(async () => (await latestKeys(slashId)).some((r) => r.key === 'slashtemp'));
+    // And not, by a prefix accident, to anything else.
+    expect((await latestKeys(plainId)).some((r) => r.key === 'slashtemp')).toBe(false);
+  });
+
+  it('drops a message addressed by the instrument UUID — the pre-2026-09-04 contract', async () => {
+    publish(`instruments/${plainId}/telemetry`, { uuidkey: 1 });
+    await sleep(300);
+    expect((await latestKeys(plainId)).some((r) => r.key === 'uuidkey')).toBe(false);
+    expect(logs.some((l) => l.msg.includes('no active instrument') && l.meta?.code === plainId)).toBe(true);
+  });
+
   it('records transport "mqtt" on a dead-letter', async () => {
-    publish(`instruments/${plainId}/telemetry`, '{not json');
+    publish(`instruments/${PLAIN_CODE}/telemetry`, '{not json');
     const row = await waitFor(async () =>
       (await prisma.deadLetter.findMany({
         where: { instrumentId: plainId }, orderBy: { receivedAt: 'desc' }, take: 1,
@@ -142,12 +162,12 @@ describe('MQTT ingest bridge', () => {
   });
 
   it('keeps working after a bad message — one device must not stall the shared subscription', async () => {
-    publish(`instruments/${plainId}/telemetry`, { mqttafterbad: 1 });
+    publish(`instruments/${PLAIN_CODE}/telemetry`, { mqttafterbad: 1 });
     await waitFor(async () => (await latestKeys(plainId)).some((r) => r.key === 'mqttafterbad'));
   });
 
   it('fans a gateway batch out to its children', async () => {
-    publish(`instruments/${gwId}/telemetry`, { devices: { [CHILD_CODE]: { pressure: 4 } } });
+    publish(`instruments/${GW_CODE}/telemetry`, { devices: { [CHILD_CODE]: { pressure: 4 } } });
     await waitFor(async () => (await latestKeys(childId)).some((r) => r.key === 'pressure'));
     const row = await prisma.instrument.findUnique({ where: { id: childId } });
     expect(row?.lastSeenVia).toBe('gateway');
@@ -157,7 +177,7 @@ describe('MQTT ingest bridge', () => {
     // Otherwise perfect: valid JSON, a resolvable code, a well-formed topic —
     // over-cap ONLY by padding. If the cap were deleted this payload would be
     // ingested happily, which is what makes the assertion below meaningful.
-    publish(`instruments/${plainId}/telemetry`, { overcapkey: 1, pad: 'x'.repeat(8000) });
+    publish(`instruments/${PLAIN_CODE}/telemetry`, { overcapkey: 1, pad: 'x'.repeat(8000) });
     await sleep(400);
     expect((await latestKeys(plainId)).some((r) => r.key === 'overcapkey')).toBe(false);
     expect(logs.some((l) => l.msg.includes('byte cap'))).toBe(true);
@@ -165,13 +185,20 @@ describe('MQTT ingest bridge', () => {
 
   it('drops a message on a topic that does not match the pattern', async () => {
     const before = await prisma.deadLetter.count();
-    publish(`instruments/${plainId}/attributes`, { wrongtopickey: 1 });
+    publish(`instruments/${PLAIN_CODE}/attributes`, { wrongtopickey: 1 });
     publish(`instruments/${PLAIN_CODE}/telemetry/extra`, { wrongtopickey2: 1 });
     await sleep(300);
     const keys = await latestKeys(plainId);
     expect(keys.some((r) => r.key.startsWith('wrongtopickey'))).toBe(false);
     // Nothing invented to hang a record on, so nothing recorded either.
     expect(await prisma.deadLetter.count()).toBe(before);
+    // The `…/attributes` one is the bridge's OWN retained slot echoed back under
+    // `instruments/#`, and is dropped SILENTLY — a log line per retained slot
+    // per reconnect would bury a real drop. The `…/telemetry/extra` one is a
+    // genuine mismatch and IS logged.
+    const dropped = logs.filter((l) => l.msg.includes('does not match'));
+    expect(dropped.some((l) => l.meta?.topic === `instruments/${PLAIN_CODE}/attributes`)).toBe(false);
+    expect(dropped.some((l) => l.meta?.topic === `instruments/${PLAIN_CODE}/telemetry/extra`)).toBe(true);
   });
 
   it('drops a message for a code that resolves to no ACTIVE instrument', async () => {

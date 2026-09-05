@@ -135,6 +135,51 @@ single definition of where the session token lives (`sessionStorage`). A
 hand-rolled `fetch` reading `localStorage.getItem('access_token')` is why
 profile photo upload silently 401'd until 2026-08-11.
 
+## The dashboard's Instrument History panel (2026-09-05)
+
+`routes/instruments/history-widget.tsx`, rendered by `routes/dashboard/index.tsx`
+as panel `dashboard_history` directly under the readings table — the trend
+page's Time Series card for MANY instruments, with a Block / Area / instrument
+selection and the Data Report for the whole Area or a ticked subset. Operator's
+idea; two decisions put to them (one PDF section per instrument; a full merged
+readings table on screen). It lived on the Instruments page for a few hours and
+was moved the same day at the operator's request.
+
+- **It is a panel like the other three**: in `PANELS` (frozen snapshot), in
+  `DEFAULT_DASHBOARD_LAYOUT` at y 9, in `AUTO_HEIGHT_PANELS`, assignable on
+  Roles & Access → Panels. `embedded` drops the widget's own header — the card
+  owns the title — and portals Block / Area / Interval / download into the card
+  header via `usePanelToolbarSlot()`; presets and the custom range stay in the
+  body (they do not fit a header that must not wrap). Its Block/Area selection
+  is deliberately its OWN, not the page's drill-down: an Area report is picked
+  and downloaded in one place whichever selection the tiles are on.
+- **`appendMissing` in `@digilog/shared` now inserts, not appends.** A panel a
+  stored layout does not know lands under its shipped-layout predecessor with
+  the rest shifted down; the bottom only when the predecessor is absent. That is
+  what puts this panel under the table on every layout saved before it existed.
+
+- **Selection lives in `history-selection.ts`, pure.** `selected === null`
+  means "everything in scope"; a Set means those ids; re-ticking the last one
+  collapses back to null, and ticks for instruments that left the scope are
+  dropped. The scope is the Area, else the Block, else everything, sent as
+  `functionalLocationId` to the LIST route — the Block → Areas expansion is
+  the server's (`resolveLocationIds`), never re-derived here.
+- **The table comes from `GET /api/instruments/telemetry-history`**, pivoted
+  server-side (one row per instrument-instant) so a page cannot split an
+  instant. Each row is judged with ITS OWN instrument's limits, precision and
+  span from `telemetry-overview` — two instruments in one Area can differ, and
+  the widget test uses exactly that. It reuses `ROW_ACCENT`, `PILL_CLASS` and
+  `FAULT_PILL` from `timeseries-table-card.tsx` (exported for it) — one
+  vocabulary for one mark; do not restyle a verdict here without the card.
+- **Period and interval are `useTrendPeriod`'s URL state**, shared with the
+  trend page — the same presets, custom range and interval keys.
+- **The download is `renderInstrumentHistoryReport`**: cover block, then one
+  Data Report section per instrument on its own page. Each instrument is read
+  through `data-report-fetch.ts` — the per-instrument fetch extracted from the
+  trend page, which calls the same helper — and the dialog's new `progress`
+  prop says which one it is on. Audit `reportType` is `Instrument History`;
+  export surface `instrument-history`.
+
 ## The trend page's Time Series (Raw Readings) card (2026-09-01)
 
 `routes/instruments/timeseries-table-card.tsx`, lifted out of `trend.tsx` and
@@ -181,6 +226,23 @@ rebuilt to an operator reference image.
 - It uses a hand-rolled `<table>` rather than the shared `Table`/`.tbl`, whose
   header band and rhythm this design overrides. The one table in the app that
   does not follow the shared style.
+- **Its download is the DATA REPORT (2026-09-04)**, built to `Data Report.pdf`
+  at the repo root: `routes/instruments/data-report.ts` (pure, tested against the
+  reference's own values) laid out by `renderDataReport` in `trend-report.ts`.
+  **Rows are a SCHEDULE, newest first (2026-09-05):** with an interval the first
+  row is the earliest reading in the period, each later slot one interval on to
+  the period's end, each holding the FIRST STORED READING inside it or `NA` —
+  never averages. The page always fetches the WHOLE period down the paged path
+  (at Raw too, since 2026-09-05 — the chart path drops non-numeric readings
+  before sampling, so `Error` could never print from it). A reading that crossed
+  its limit, and the `Error` / `OL` words, print BOLD (`addTable`'s `bold`
+  grid). Max/Min print the server's whole-range extremes. Its typography is its
+  own (`DATA_REPORT_TYPOGRAPHY` — bigger, bold headings, centred column heads,
+  no app-name line); every other report keeps `DEFAULT_TYPOGRAPHY`. The interval
+  is chosen IN the download dialog (`showInterval`), seeded from the page. The
+  audit type is unchanged (`Instrument Time Series`); the filename is
+  `data-report-…`. It prints the Location ATTRIBUTE; the Instrument Trend PDF
+  still prints the room.
 
 **MUTATE THE CONSTANT, NOT JUST THE BRANCH.** This card is where that rule was
 learned, on 2026-09-01. Its guard "a value nothing is judging must never render

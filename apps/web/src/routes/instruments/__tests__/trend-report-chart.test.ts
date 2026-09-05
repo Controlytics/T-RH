@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { renderTrendReport, renderTimeSeriesReport, type TrendChartSection } from '../trend-report';
+import { renderTrendReport, renderDataReport, type TrendChartSection } from '../trend-report';
 import { summariseSlot, withServerSummary } from '../trend-summary';
+import { scheduleRows } from '../data-report';
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: { get: vi.fn(async () => ({})), post: vi.fn(), postWithReauth: vi.fn() },
@@ -361,31 +362,262 @@ describe('the trend report shows the trend', () => {
     expect(report.getSnapshot().subtitle).toMatch(/Instrument Time Series report/);
   });
 
-  it('states its own coverage on the Time Series report, which samples too', async () => {
-    // It was printing a sampled subset under the title "raw readings" with no
-    // disclosure at all, while two other documents pointed readers here for the
-    // unaveraged record.
-    const report = await renderTimeSeriesReport(
-      rows, keys, instrument, period, formatDateTime, { returned: 500, total: 7646 },
-    );
-    const pages: string[][] = (report as any).doc.internal.pages;
-    const text = [...pages.filter(Boolean).flat().join('\n').matchAll(/\((.*?)\)\s*Tj/gs)]
-      .map((m) => m[1].replace(/\\([()\\])/g, '$1')).join(' ');
-    expect(text).toMatch(/REPRESENTATIVE SAMPLE/);
-    expect(text).toMatch(/500 of the 7,646 stored values/);
-    // Its rows ARE stored readings — that claim stays, because it is true.
-    expect(text).toMatch(/Every row below is a stored, unaveraged reading/);
-    expect(text).toMatch(/NOT every stored reading in the period/);
+  it('keeps the SHARED chrome at its defaults — the Data Report opts up, the others do not move', async () => {
+    // The Data Report's larger, bolder scale is per-report (2026-09-05). A
+    // report that names no typography must print exactly as before: regular
+    // weight (`/F1`) at the default size, headings left-aligned.
+    const { DEFAULT_TYPOGRAPHY } = await import('@/lib/pdf-report');
+    const { report } = await capture(baseInput());
+    const stream = (report.doc.internal.pages as string[][]).filter(Boolean).flat().join('\n');
+    const at = stream.indexOf('(Controlytics AI Pvt Ltd) Tj');
+    expect(at).toBeGreaterThan(0);
+    const tokens = [...stream.slice(0, at).matchAll(/\/F(\d) ([\d.]+) Tf/g)];
+    const last = tokens[tokens.length - 1];
+    expect(last[1]).toBe('1');
+    expect(Number(last[2])).toBe(DEFAULT_TYPOGRAPHY.companyPt);
+    const heads = Object.values(report.doc.lastAutoTable.head[0].cells) as any[];
+    for (const c of heads) {
+      expect(c.styles.halign).toBe('left');
+      expect(c.styles.fontSize).toBe(DEFAULT_TYPOGRAPHY.tableHeadPt);
+    }
   });
 
-  it('says nothing about coverage on a Time Series report that holds the period', async () => {
-    const report = await renderTimeSeriesReport(
-      rows, keys, instrument, period, formatDateTime, { returned: 2, total: 2 },
-    );
-    const pages: string[][] = (report as any).doc.internal.pages;
-    const text = [...pages.filter(Boolean).flat().join('\n').matchAll(/\((.*?)\)\s*Tj/gs)]
-      .map((m) => m[1].replace(/\\([()\\])/g, '$1')).join(' ');
-    expect(text).not.toMatch(/REPRESENTATIVE SAMPLE/);
+  /** The Data Report's inputs for the two-row fixture above, at Raw. */
+  const dataInput = (coverage: { returned: number; total: number }) => ({
+    scope: { blockName: 'CWH Block', areaName: 'QC 3', locationName: 'LCMS Room-II', instrumentLabel: 'DEMO-TH-142' },
+    period, formatDateTime,
+    fmt: { formatDate: (d: string) => d.slice(0, 10), formatTime: (d: string) => d.slice(11, 16) },
+    temp: { key: 't', min: 18, max: 25, decimals: 1, periodMax: 22.5, periodMin: 22.4 },
+    rh: { key: null, min: null, max: null, decimals: 0, periodMax: null, periodMin: null },
+    rows: scheduleRows(rows, null, period.to), intervalMs: null, coverage,
+    words: { failure: 'Error', outOfRange: 'OL' },
+  });
+  /** jsPDF's own uncompressed page content streams, joined. */
+  const pdfStream = (report: any) => (report.doc.internal.pages as string[][]).filter(Boolean).flat().join('\n');
+  const pdfText = (report: any) =>
+    [...pdfStream(report).matchAll(/\((.*?)\)\s*Tj/gs)].map((m) => m[1].replace(/\\([()\\])/g, '$1')).join(' ');
+  /** The font in force when `text` was drawn: jsPDF tags helvetica regular `/F1`
+   *  and bold `/F2`, and the size sits beside it in the same `Tf` operator. */
+  const fontBefore = (stream: string, text: string): { bold: boolean; size: number } | null => {
+    const at = stream.indexOf(`(${text}) Tj`);
+    if (at < 0) return null;
+    const tokens = [...stream.slice(0, at).matchAll(/\/F(\d) ([\d.]+) Tf/g)];
+    const last = tokens[tokens.length - 1];
+    return last ? { bold: last[1] === '2', size: Number(last[2]) } : null;
+  };
+
+  it('states its own coverage on the Data Report when it was built from a sample', async () => {
+    // At Raw the rows come down the sampled chart path; a period wider than the
+    // sample must say so IN the report, and must say the extremes above are not
+    // the sample's.
+    const report = await renderDataReport(dataInput({ returned: 500, total: 7646 }));
+    const text = pdfText(report);
+    expect(text).toMatch(/REPRESENTATIVE SAMPLE/);
+    expect(text).toMatch(/500 of the 7,646 stored values/);
+    expect(text).toMatch(/Every row below is a stored, unaveraged reading/);
+    expect(text).toMatch(/computed over EVERY reading in the period/);
+  });
+
+  it('says nothing about coverage on a Data Report that holds the period', async () => {
+    const report = await renderDataReport(dataInput({ returned: 2, total: 2 }));
+    expect(pdfText(report)).not.toMatch(/REPRESENTATIVE SAMPLE/);
+  });
+
+  it('is laid out to the Data Report reference — parameter block, four columns, legend', async () => {
+    // jsPDF binds `save` per INSTANCE at construction, so the file write has to
+    // be stubbed before the document is built — after is too late, and the real
+    // save writes a PDF into the working directory.
+    const jspdf: any = await import('jspdf');
+    const realSave = jspdf.default.API.save;
+    jspdf.default.API.save = function () { return this; };
+    let report: any;
+    try {
+      report = await renderDataReport(dataInput({ returned: 2, total: 2 }));
+      report.save('x.pdf');
+    } finally {
+      jspdf.default.API.save = realSave;
+    }
+    const text = pdfText(report);
+    expect(report.getSnapshot().title).toBe('Temperature and RH Data Report');
+    for (const label of ['Block :', 'Area :', 'Location :', 'Inst ID :', 'Start Date :', 'Start Time :', 'End Date :', 'End Time :', 'Temp. Limit :', 'RH Limit :', 'Temp. Max :', 'RH Max :', 'Interval :']) {
+      expect(text).toContain(label);
+    }
+    expect(text).toContain('CWH Block');
+    expect(text).toContain('18.0 - 25.0');
+    expect(text).toContain('Raw (every reading)');
+    const tables = report.getSnapshot().sections.filter((x: any) => 'head' in x && x.head.length) as any[];
+    expect(tables[0].head).toEqual(['DATE', 'TIME', 'TEMPERATURE (°C)', 'RELATIVE HUMIDITY(%)']);
+    // NEWEST first (operator, 2026-09-05), one row per stored reading, `NA` for
+    // the slot this instrument does not report.
+    expect(tables[0].body).toEqual([
+      ['2026-08-24', '00:20', '22.5', 'NA'],
+      ['2026-08-24', '00:10', '22.4', 'NA'],
+    ]);
+    // And NA is keyed in the legend, the way NMT is. The legend is part of the
+    // end block, which the `save()` above drew.
+    expect(text).toMatch(/NA = No data/);
+  });
+
+  it('says so when the period is empty', async () => {
+    const report = await renderDataReport({ ...dataInput({ returned: 0, total: 0 }), rows: [] });
+    const tables = report.getSnapshot().sections.filter((x: any) => 'head' in x && x.head.length) as any[];
+    expect(tables[0].body[0][2]).toMatch(/No readings/);
+  });
+
+  /**
+   * Operator, 2026-09-05: *"in data report make headings to center and in
+   * header, and increase font sizes and thickness"*. Read off the PDF itself —
+   * jsPDF tags helvetica regular `/F1` and bold `/F2` in the content stream, and
+   * autotable leaves the resolved cell styles on `doc.lastAutoTable`. Pinned
+   * against the shared defaults, not against literals, so the assertion is
+   * "this report is bigger and bolder than the chrome's default", which is the
+   * claim the operator made.
+   */
+  it('prints the header bold and larger, and centres the column headings', async () => {
+    const { DEFAULT_TYPOGRAPHY } = await import('@/lib/pdf-report');
+    const report = await renderDataReport(dataInput({ returned: 2, total: 2 }));
+    const stream = pdfStream(report);
+    // The company name and the title are drawn bold, above the shared default size.
+    const company = fontBefore(stream, 'Controlytics AI Pvt Ltd');
+    expect(company).not.toBeNull();
+    expect(company!.bold).toBe(true);
+    expect(company!.size).toBeGreaterThan(DEFAULT_TYPOGRAPHY.companyPt);
+    const title = fontBefore(stream, 'Temperature and RH Data Report');
+    expect(title).not.toBeNull();
+    expect(title!.bold).toBe(true);
+    expect(title!.size).toBeGreaterThan(DEFAULT_TYPOGRAPHY.titlePt);
+    // The readings table is the last one drawn: every heading cell centred, bold,
+    // and larger than the default; the body larger too but NOT bold for a
+    // reading inside its limits — the reference keeps its readings regular.
+    const table = (report.doc as any).lastAutoTable;
+    const heads = Object.values(table.head[0].cells) as any[];
+    expect(heads).toHaveLength(4);
+    for (const c of heads) {
+      expect(c.styles.halign).toBe('center');
+      expect(c.styles.fontStyle).toBe('bold');
+      expect(c.styles.fontSize).toBeGreaterThan(DEFAULT_TYPOGRAPHY.tableHeadPt);
+    }
+    const body = Object.values(table.body[0].cells) as any[];
+    for (const c of body) {
+      expect(c.styles.fontSize).toBeGreaterThan(DEFAULT_TYPOGRAPHY.tablePt);
+      expect(c.styles.fontStyle).toBe('normal');
+    }
+  });
+
+  it('drops the app-name line under the company name ("remove header on header")', async () => {
+    // The branding fetch is unavailable here, so the app name would be the
+    // shipped default. The trend report still prints it; this one must not.
+    const data = await renderDataReport(dataInput({ returned: 2, total: 2 }));
+    expect(pdfText(data)).not.toMatch(/\bDigiLog\b/);
+    const { text } = await capture(baseInput());
+    expect(text).toMatch(/\bDigiLog\b/);
+  });
+
+  it('keeps the parameter block labels on one line at the larger size', async () => {
+    // A label that wraps makes one field read as two; the block's label column
+    // was widened for exactly this. Measured the way autotable measures — at
+    // the table's own bold size, plus its padding — against the label width
+    // the report pins.
+    const { DATA_REPORT_LABEL_MM, DATA_REPORT_TYPOGRAPHY } = await import('../data-report');
+    const report = await renderDataReport(dataInput({ returned: 2, total: 2 }));
+    const snap = report.getSnapshot().sections.find((s: any) => 'head' in s && s.head.length === 0) as any;
+    const labels: string[] = snap.body.map((r: string[]) => r[0]);
+    expect(labels).toContain('Temp. Limit :');
+    const doc: any = report.doc;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(DATA_REPORT_TYPOGRAPHY.tablePt);
+    const widest = Math.max(...labels.map((l) => doc.getTextWidth(l) as number));
+    expect(widest + 2 * 2.5).toBeLessThan(DATA_REPORT_LABEL_MM);
+  });
+
+  it('prints a reading that crossed its limit BOLD, and a reading inside it regular', async () => {
+    // 18–25 on temperature: 26.9 crossed it, 22.4 did not.
+    const crossed = [
+      { ts: '2026-08-24T00:10:00.000Z', values: { t: 22.4 } },
+      { ts: '2026-08-24T00:20:00.000Z', values: { t: 26.9 } },
+    ];
+    const report = await renderDataReport({ ...dataInput({ returned: 2, total: 2 }), rows: scheduleRows(crossed, null, period.to) });
+    const table = (report.doc as any).lastAutoTable;
+    // Newest first: row 0 is 26.9.
+    expect(table.body[0].cells[2].text).toEqual(['26.9']);
+    expect(table.body[0].cells[2].styles.fontStyle).toBe('bold');
+    expect(table.body[1].cells[2].text).toEqual(['22.4']);
+    expect(table.body[1].cells[2].styles.fontStyle).toBe('normal');
+    // The DATE and TIME cells of the bold row stay regular — the emphasis is on
+    // the value, not the row.
+    expect(table.body[0].cells[0].styles.fontStyle).toBe('normal');
+  });
+
+  it('prints the two fault words BOLD, and NA regular, where the reading cannot be trusted', async () => {
+    const rows2 = [
+      // A non-numeric reading on the slot: the failure word.
+      { ts: '2026-08-24T00:10:00.000Z', values: { t: null }, errors: { t: true } },
+      // Inside the limits but beyond the probe's declared span: the range word.
+      { ts: '2026-08-24T00:20:00.000Z', values: { t: 24.0 } },
+      // No reading on the slot at all.
+      { ts: '2026-08-24T00:30:00.000Z', values: { t: null } },
+    ];
+    const input = dataInput({ returned: 3, total: 3 });
+    const report = await renderDataReport({
+      ...input,
+      temp: { ...input.temp, rangeLow: 0, rangeHigh: 23 },
+      rows: scheduleRows(rows2, null, period.to),
+    });
+    const table = (report.doc as any).lastAutoTable;
+    const cell = (i: number) => table.body[i].cells[2];
+    // Newest first.
+    expect(cell(0).text).toEqual(['NA']);
+    expect(cell(0).styles.fontStyle).toBe('normal');
+    expect(cell(1).text).toEqual(['OL']);
+    expect(cell(1).styles.fontStyle).toBe('bold');
+    expect(cell(2).text).toEqual(['Error']);
+    expect(cell(2).styles.fontStyle).toBe('bold');
+  });
+
+  it('builds the multi-instrument report as a cover block and one section per instrument, each on its own page', async () => {
+    const { renderInstrumentHistoryReport } = await import('../trend-report');
+    const one = dataInput({ returned: 2, total: 2 });
+    const two = { ...one, scope: { ...one.scope, instrumentLabel: 'DEMO-TH-143' }, rows: scheduleRows([], null, period.to) };
+    const report = await renderInstrumentHistoryReport({
+      scope: { blockName: 'CWH Block', areaName: 'QC 3' },
+      period, intervalMs: null, fmt: one.fmt, formatDateTime,
+      instruments: [one, two],
+    });
+    const sections = report.getSnapshot().sections as any[];
+    // The cover: the parameter block's own two-column shape, naming the scope
+    // and the count.
+    expect(sections[0].head).toEqual([]);
+    expect(sections[0].body[0]).toEqual(['Block :', 'CWH Block', 'Start Date :', '2026-08-24']);
+    expect(sections[0].body[1][0]).toBe('Area :');
+    expect(sections[0].body[1][1]).toBe('QC 3');
+    expect(sections[0].body[2].slice(0, 2)).toEqual(['Instruments :', '2']);
+    // Then two parameter blocks and two readings tables, in order.
+    const labels = sections.map((s) => (s.head.length ? 'table' : s.body[0][0]));
+    expect(labels).toEqual(['Block :', 'Block :', 'table', 'Block :', 'table']);
+    expect(sections[1].body.find((r: string[]) => r[0] === 'Inst ID :')![1]).toBe('DEMO-TH-142');
+    expect(sections[3].body.find((r: string[]) => r[0] === 'Inst ID :')![1]).toBe('DEMO-TH-143');
+    // The second instrument had no readings and says so.
+    expect(sections[4].body[0][2]).toMatch(/No readings/);
+    // Cover page + one page per instrument.
+    expect(report.doc.getNumberOfPages()).toBe(3);
+  });
+
+  it('prints every slot of the schedule, NA where nothing was received, newest first', async () => {
+    // Ten-minute slots anchored on the first reading (00:10) up to the period
+    // end (01:00): 00:10 and 00:20 hold readings; 00:30 to 01:00 were silent
+    // and print as NA at the time each reading was due.
+    const report = await renderDataReport({
+      ...dataInput({ returned: 2, total: 2 }), rows: scheduleRows(rows, 600_000, period.to), intervalMs: 600_000,
+    });
+    const tables = report.getSnapshot().sections.filter((x: any) => 'head' in x && x.head.length) as any[];
+    expect(tables[0].body).toEqual([
+      ['2026-08-24', '01:00', 'NA', 'NA'],
+      ['2026-08-24', '00:50', 'NA', 'NA'],
+      ['2026-08-24', '00:40', 'NA', 'NA'],
+      ['2026-08-24', '00:30', 'NA', 'NA'],
+      ['2026-08-24', '00:20', '22.5', 'NA'],
+      ['2026-08-24', '00:10', '22.4', 'NA'],
+    ]);
   });
 
   it('states the row cap in the report when it truncates', async () => {

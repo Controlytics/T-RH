@@ -112,7 +112,7 @@ export function rowTone(cells: PillTone[], hasFault: boolean): RowTone {
 }
 
 /** The app's status palette, not a sixth one. See `routes/dashboard/status.ts`. */
-const PILL_CLASS: Record<PillTone, string> = {
+export const PILL_CLASS: Record<PillTone, string> = {
   in: 'bg-emerald-50 text-emerald-700',
   out: 'bg-red-50 text-red-700',
   unjudged: 'bg-slate-100 text-slate-600',
@@ -128,7 +128,9 @@ const PILL_CLASS: Record<PillTone, string> = {
  * the "no pass-green on an unjudged row" guard silently unable to see the bar
  * it was supposed to be guarding. A class name appears in the markup verbatim.
  */
-const ROW_ACCENT: Record<RowTone, string> = {
+/** Exported (2026-09-05) so the Instruments page's history widget paints a
+ *  row's verdict with the SAME classes — one vocabulary for one mark. */
+export const ROW_ACCENT: Record<RowTone, string> = {
   in: 'bg-emerald-500',
   out: 'bg-red-500',
   fault: 'bg-red-500',
@@ -356,7 +358,7 @@ export function TimeseriesTableCard({
  * shape or tint — they are the same statement and must look the same.
  * `justify-center` on the cell is what centres them.
  */
-const FAULT_PILL = 'inline-flex rounded-lg px-3 py-1.5 text-sm font-semibold bg-red-50 text-red-700';
+export const FAULT_PILL = 'inline-flex rounded-lg px-3 py-1.5 text-sm font-semibold bg-red-50 text-red-700';
 
 interface ValueCellProps {
   columnKey: string;

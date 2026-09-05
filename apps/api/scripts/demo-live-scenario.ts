@@ -39,9 +39,11 @@ async function api(path: string, init: RequestInit & { token?: string; reauth?: 
   return body ? JSON.parse(body) : null;
 }
 
-async function publish(clientId: string, token: string, payload: unknown) {
-  const c = await mqtt.connectAsync(BROKER, { clientId, username: token, password: '', clean: true, connectTimeout: 8000 });
-  await c.publishAsync(`instruments/${clientId}/telemetry`, JSON.stringify(payload), { qos: 1 });
+// MQTT contract (mqtt-auth-routes.ts, 2026-09-04): clientId = instrument CODE,
+// username = device token, topic = instruments/<code>/telemetry. All three agree.
+async function publish(code: string, token: string, payload: unknown) {
+  const c = await mqtt.connectAsync(BROKER, { clientId: code, username: token, password: '', clean: true, connectTimeout: 8000 });
+  await c.publishAsync(`instruments/${code}/telemetry`, JSON.stringify(payload), { qos: 1 });
   await c.endAsync();
 }
 
@@ -81,7 +83,7 @@ async function main() {
   if (kids[2]) fanout[kids[2].code] = { temperature: 21.7, humidity: 46 }; // in spec
   console.log(`\npublishing ONE gateway message for ${Object.keys(fanout).length} children:`);
   for (const [code, r] of Object.entries(fanout)) console.log(`    ${code}: ${JSON.stringify(r)}`);
-  await publish(gw.id, gwToken, { devices: fanout });
+  await publish(gw.code, gwToken, { devices: fanout });
   await sleep(3000);
 
   for (const k of kids) {
@@ -107,7 +109,7 @@ async function main() {
     soloId = solo.id;
     console.log(`
 publishing DIRECT (flat payload, no gateway) from ${solo.code}: {"temperature":26.8,"humidity":52}`);
-    await publish(solo.id, solo.token, { temperature: 26.8, humidity: 52 });
+    await publish(solo.code, solo.token, { temperature: 26.8, humidity: 52 });
     await sleep(2500);
     const rows = await prisma.$queryRaw<{ key: string; value: unknown }[]>`
       SELECT key, value FROM instrument_telemetry_latest WHERE instrument_id = ${solo.id} ORDER BY key`;
@@ -151,7 +153,7 @@ publishing DIRECT (flat payload, no gateway) from ${solo.code}: {"temperature":2
 
   // ── 5. Clear ONE of them, so the History tab has content too ───────────────
   console.log('\nre-publishing the cold room in spec (temperature=21.9) so one alarm CLEARS...');
-  await publish(gw.id, gwToken, { devices: { [kids[0].code]: { temperature: 21.9 } } });
+  await publish(gw.code, gwToken, { devices: { [kids[0].code]: { temperature: 21.9 } } });
   await sleep(2500);
   console.log(`evaluator: ${JSON.stringify(await evaluateAlarms())}`);
 

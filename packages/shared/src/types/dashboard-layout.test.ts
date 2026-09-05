@@ -132,7 +132,43 @@ describe('the layout is about the DASHBOARD only', () => {
       items: [{ i: 'trend_charts', x: 0, y: 0, w: 12, h: 6 }, { i: 'telemetry_table', x: 0, y: 6, w: 12, h: 6 }],
     };
     expect(resolveLayout(stored, undefined, PANELS.map((p) => p.key)).items.map((i) => i.i))
-      .toEqual(['telemetry_table', 'telemetry_floorplan', 'dashboard_alarms']);
+      .toEqual(['telemetry_table', 'dashboard_history', 'telemetry_floorplan', 'dashboard_alarms']);
+  });
+});
+
+describe('a panel the stored layout does not know', () => {
+  const dashboard = PANELS.filter((p) => p.page === 'dashboard').map((p) => p.key);
+
+  it('lands directly under the panel that precedes it in the shipped layout, and shifts the rest down', () => {
+    // A layout saved before the history widget existed: table, floorplan, alarms.
+    const stored = {
+      version: LAYOUT_VERSION,
+      items: [
+        { i: 'telemetry_table', x: 0, y: 0, w: 12, h: 9 },
+        { i: 'telemetry_floorplan', x: 0, y: 9, w: 12, h: 16 },
+        { i: 'dashboard_alarms', x: 0, y: 25, w: 12, h: 6 },
+      ],
+    };
+    const out = resolveLayout(stored, undefined, dashboard);
+    const at = (k: string) => out.items.find((i) => i.i === k)!;
+    // Under the table — operator, 2026-09-05: "below the all instruments
+    // readings table" — not at the bottom, which is where it went before.
+    expect(at('dashboard_history').y).toBe(9);
+    expect(at('telemetry_floorplan').y).toBe(9 + at('dashboard_history').h);
+    expect(at('dashboard_alarms').y).toBe(25 + at('dashboard_history').h);
+    expect(at('telemetry_table').y).toBe(0);
+  });
+
+  it('goes to the bottom when its predecessor is not on the layout', () => {
+    // The table is hidden from this viewer, so "under the table" means nothing.
+    const stored = {
+      version: LAYOUT_VERSION,
+      items: [{ i: 'telemetry_floorplan', x: 0, y: 0, w: 12, h: 16 }, { i: 'dashboard_alarms', x: 0, y: 16, w: 12, h: 6 }],
+    };
+    const out = resolveLayout(stored, undefined, dashboard.filter((k) => k !== 'telemetry_table'));
+    const history = out.items.find((i) => i.i === 'dashboard_history')!;
+    expect(history.y).toBe(22);
+    expect(out.items.find((i) => i.i === 'telemetry_floorplan')!.y).toBe(0);
   });
 
   it('the built-in default contains only dashboard panels', () => {

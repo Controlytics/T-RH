@@ -92,10 +92,27 @@ export async function ingestPayload(args: {
   }
 
   const ts = parsed.ts ?? new Date();
+  /**
+   * ONE CHILD PER MESSAGE (2026-09-05). The plant's gateway firmware publishes
+   * each sensor as its own FLAT message on the GATEWAY's topic, naming the
+   * child under `devN`: `{"devN":"CWH/RDU/002-00","t":"20.3","h":"60.9"}`.
+   * Found in the data, not in a request: 110 such messages had landed on
+   * IOTGW01 ITSELF as readings keyed `devN`, `t`, `h` before this existed.
+   *
+   * So a gateway's flat payload that carries a string `devN` is a ONE-BLOCK
+   * BATCH — routed to that child through the same child map, `devN` stripped,
+   * never stored against the gateway. A gateway's flat payload WITHOUT `devN`
+   * is still its own reading, and a non-gateway's `devN` is still just a key
+   * (there is no child map to route through, and inventing one would let any
+   * device write for any other).
+   */
+  const devN = parsed.values.devN;
+  const devices = parsed.devices
+    ?? (identity.isGateway && typeof devN === 'string' && devN.length > 0 ? { dev1: parsed.values } : null);
   // Flat payload -> one instrument (the authenticated caller). Batch payload
   // (`{"devices": {...}}`) is device-keyed data for OTHER instruments. Only a
   // gateway may send one, and only for the instruments linked to it.
-  if (parsed.devices) {
+  if (devices) {
     if (!identity.isGateway) {
       await safeWriteDeadLetters([{
         id: randomUUID(), instrumentId: identity.id, transport,
@@ -110,7 +127,7 @@ export async function ingestPayload(args: {
     }
 
     const childMap = await childMapFor(identity.id);
-    const { readings, rejected } = fanoutDevices(parsed.devices, childMap, ts, identity.code);
+    const { readings, rejected } = fanoutDevices(devices, childMap, ts, identity.code);
 
     if (rejected.length > 0) {
       // Attributed to the GATEWAY: the named child either does not exist or

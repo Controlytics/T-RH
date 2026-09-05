@@ -5,8 +5,15 @@ import { ingestPayload } from '../ingest-core.js';
 import { logger } from '../../../lib/logger.js';
 
 /**
- * MQTT ingest bridge — subscribes `instruments/+/telemetry` on an EXTERNAL
- * broker (EMQX) and hands every message to the shared ingest core.
+ * MQTT ingest bridge — subscribes `instruments/#` on an EXTERNAL broker
+ * (EMQX) and hands every `instruments/<code>/telemetry` message to the shared
+ * ingest core.
+ *
+ * `#`, not `+`, since 2026-09-04: the segment is the instrument CODE and codes
+ * at this plant are `CWH/RDU/001-00` — three levels, which `+` (exactly one
+ * level) can never match. The wider filter also delivers the bridge's OWN
+ * retained downlinks (`…/attributes`, `…/children`); `isDownlinkTopic` drops
+ * those silently before the telemetry parse is even attempted.
  *
  * WHY AN EXTERNAL BROKER: an embedded one would have to hold device
  * credentials, so a revoked token would keep working until whatever cache or
@@ -21,7 +28,8 @@ import { logger } from '../../../lib/logger.js';
  * together:
  *
  *   1. `mqtt-auth-routes.ts` refuses a CONNECT whose `clientid` is not the
- *      resolved instrument's `code`.
+ *      resolved instrument's `code` (the UUID between 2026-08-07 and
+ *      2026-09-04; the code again at the operator's request — see that file).
  *   2. EMQX `etc/acl.conf` permits publish only to
  *      `instruments/${clientid}/telemetry`, with `authorization.no_match = deny`.
  *
@@ -70,7 +78,7 @@ const DEFAULT_MAX_QUEUED = 500;
 const RECONNECT_MIN_MS = 1_000;
 const RECONNECT_MAX_MS = 60_000;
 
-export const TELEMETRY_TOPIC_FILTER = 'instruments/+/telemetry';
+export const TELEMETRY_TOPIC_FILTER = 'instruments/#';
 
 export interface MqttBridgeOptions {
   /** Injected in tests to keep the run quiet; defaults to console. */
@@ -94,33 +102,68 @@ export interface MqttBridgeHandle {
    * check here would only move the race one line earlier.
    *
    * The broker must permit it: `etc/acl.conf` grants the bridge's username
-   * publish on `instruments/+/attributes` and `instruments/+/attributes/+`.
-   * Without those rules the publish is denied and, with
-   * `deny_action = disconnect`, takes the ingest subscription down with it.
+   * publish on `instruments/#` (it was `instruments/+/attributes` and
+   * `instruments/+/attributes/+` while the segment was a UUID; a code carries
+   * slashes, so `+` no longer reaches it). Without that rule the publish is
+   * denied and, with `deny_action = disconnect`, takes the ingest subscription
+   * down with it.
    */
   publish(topic: string, payload: string, opts: { qos: 0 | 1 | 2; retain: boolean }): Promise<void>;
   /** Exposed for tests and health checks; never used for control flow. */
   readonly client: MqttClient;
 }
 
+const TELEMETRY_PREFIX = 'instruments/';
+const TELEMETRY_SUFFIX = '/telemetry';
+
 /**
- * `instruments/<id>/telemetry` -> `<id>`, or null.
+ * `instruments/<code>/telemetry` -> `<code>`, or null.
  *
- * The segment is the instrument's UUID, not its code, since 2026-08-07: the
- * code became free text (any character, any length) and a code containing `/`,
- * `+` or `#` would forge a topic shape or match the broker's ACL against every
- * instrument. A platform-generated UUID cannot.
+ * The segment is the instrument's CODE again (2026-09-04) and a code may
+ * contain slashes — `CWH/RDU/001-00` is the plant's shape — so this matches a
+ * FIXED PREFIX and SUFFIX and takes everything between them verbatim, rather
+ * than splitting on `/` and counting. `instruments/A/B/telemetry` is therefore
+ * the instrument coded `A/B`, exactly as the broker's ACL template
+ * `instruments/${clientid}/telemetry` addressed it.
  *
- * Pure, and separately tested: a topic router that is loose about segment count
- * is how `instruments/A/B/telemetry` ends up filed against instrument "A". The
- * exact-three-segment split is what keeps a longer topic from being accepted as
- * a shorter one.
+ * What makes that unambiguous is not this function but the rule in
+ * `@digilog/shared` (`instrumentCodeTopicViolation`) that a code's LAST
+ * segment is never `telemetry`/`attributes`/`children`: without it a child
+ * coded `X/telemetry` would have its attribute downlink published on
+ * `instruments/<gw>/attributes/X/telemetry`, which this function would read as
+ * telemetry from `<gw>/attributes/X`.
+ *
+ * Pure, and separately tested.
  */
 export function parseTelemetryTopic(topic: string): string | null {
-  const parts = topic.split('/');
-  if (parts.length !== 3) return null;
-  if (parts[0] !== 'instruments' || parts[2] !== 'telemetry') return null;
-  return parts[1].length > 0 ? parts[1] : null;
+  if (topic.length <= TELEMETRY_PREFIX.length + TELEMETRY_SUFFIX.length) return null;
+  if (!topic.startsWith(TELEMETRY_PREFIX) || !topic.endsWith(TELEMETRY_SUFFIX)) return null;
+  const code = topic.slice(TELEMETRY_PREFIX.length, topic.length - TELEMETRY_SUFFIX.length);
+  if (code.length === 0) return null;
+  // Registration refuses these and a broker refuses a publish carrying them;
+  // the router must not be the layer that relies on either.
+  if (code.includes('+') || code.includes('#')) return null;
+  return code;
+}
+
+/**
+ * One of the three retained slots the bridge ITSELF publishes:
+ * `instruments/<code>/attributes`, `instruments/<gw>/attributes/<child>`,
+ * `instruments/<gw>/children`. Subscribing `instruments/#` hands these back to
+ * the bridge on every (re)subscribe and after every downlink, and they are
+ * dropped SILENTLY — a "dropped" log line per retained slot per reconnect
+ * would bury a real drop.
+ *
+ * The telemetry SUFFIX decides, here as well as in the bridge's check order: a
+ * code may carry `attributes` in a middle segment, and
+ * `instruments/X/attributes/Y/telemetry` is telemetry from `X/attributes/Y`,
+ * never a downlink. Encoded in the function rather than left to the caller so
+ * a reordering of the two checks cannot silently swallow readings.
+ */
+export function isDownlinkTopic(topic: string): boolean {
+  if (!topic.startsWith(TELEMETRY_PREFIX)) return false;
+  if (topic.endsWith(TELEMETRY_SUFFIX)) return false;
+  return topic.endsWith('/attributes') || topic.includes('/attributes/') || topic.endsWith('/children');
 }
 
 /** mqtt.js transports that encrypt. Anything else puts the credential on the wire. */
@@ -299,19 +342,22 @@ export async function startMqttBridge(
       while (queue.length > 0 && !closing) {
         const { topic, payload } = queue.shift() as { topic: string; payload: Buffer };
 
-        const instrumentId = parseTelemetryTopic(topic);
-        if (!instrumentId) {
-          log('message dropped — topic does not match instruments/<id>/telemetry', { topic });
+        const code = parseTelemetryTopic(topic);
+        if (!code) {
+          // Our own retained downlinks come back to us under `instruments/#`.
+          if (!isDownlinkTopic(topic)) {
+            log('message dropped — topic does not match instruments/<code>/telemetry', { topic });
+          }
           continue;
         }
 
-        const identity = await lookupById(instrumentId);
+        const identity = await lookupByCode(code);
         if (!identity) {
           // Dropped, not dead-lettered: a dead-letter is filed AGAINST an
           // instrument, and there is no instrument here to file it against.
           // Inventing one would be a fabricated record in a §11 system, and
           // auto-creating from a payload is forbidden on every transport.
-          log('message dropped — no active instrument with that id', { topic, instrumentId });
+          log('message dropped — no active instrument with that code', { topic, code });
           continue;
         }
 
@@ -373,17 +419,15 @@ export async function startMqttBridge(
  * readings for an instrument an operator has just deactivated, and the write
  * that follows costs far more than this lookup.
  */
-async function lookupById(id: string): Promise<IngestIdentity | null> {
-  // A malformed segment is a miss, not a 500: Prisma throws on a non-UUID for a
-  // uuid column, and a device publishing garbage must be dropped like any other
-  // unknown instrument rather than taking the drain loop down.
-  if (!UUID_RE.test(id)) return null;
+async function lookupByCode(code: string): Promise<IngestIdentity | null> {
+  // `code` is a plain unique text column, so any string is a legal lookup and
+  // an unknown one is a miss, not a throw — a device publishing garbage is
+  // dropped like any other unknown instrument rather than taking the drain
+  // loop down.
   const inst = await prisma.instrument.findUnique({
-    where: { id },
+    where: { code },
     select: { id: true, code: true, isGateway: true, isActive: true },
   });
   if (!inst || !inst.isActive) return null;
   return { id: inst.id, code: inst.code, isGateway: inst.isGateway };
 }
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

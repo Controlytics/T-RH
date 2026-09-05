@@ -48,8 +48,8 @@ export interface RosterChild {
  *
  * Only a GATEWAY has a roster. Never call this with a standalone or child id.
  */
-export function childRosterTopic(gatewayId: string): string {
-  return `instruments/${gatewayId}/children`;
+export function childRosterTopic(gatewayCode: string): string {
+  return `instruments/${gatewayCode}/children`;
 }
 
 /**
@@ -99,13 +99,13 @@ export function buildChildRosterPayload(children: RosterChild[], ts: Date): Chil
  * the same reason, as `announceAttributeChange`.
  */
 export async function publishChildRoster(
-  gatewayId: string,
+  gatewayCode: string,
   children: RosterChild[],
   ts: Date,
   log?: PublishLogger,
 ): Promise<void> {
   await publishRetained(
-    childRosterTopic(gatewayId),
+    childRosterTopic(gatewayCode),
     JSON.stringify(buildChildRosterPayload(children, ts)),
     'roster NOT DELIVERED — the gateway was not told about this membership change',
     log ?? rosterLog,
@@ -121,9 +121,9 @@ export async function publishChildRoster(
  * fourth — and a worse one, because a roster names instruments that are still
  * live and now belong to nobody. Deleting the gateway clears it here instead.
  */
-export async function clearChildRoster(gatewayId: string, log?: PublishLogger): Promise<void> {
+export async function clearChildRoster(gatewayCode: string, log?: PublishLogger): Promise<void> {
   await publishRetained(
-    childRosterTopic(gatewayId),
+    childRosterTopic(gatewayCode),
     '',
     'roster NOT CLEARED — the broker still holds a membership for a deleted gateway',
     log ?? rosterLog,

@@ -120,17 +120,17 @@ async function main() {
       // fails with a 500 rather than a explained 409. Reported separately.
       const alarmCount = await tx.alarm.count({ where: { instrumentId: inst.id } });
       if (alarmCount) await tx.alarm.deleteMany({ where: { instrumentId: inst.id } });
-      const ruleCount = await tx.alarmRule.count({ where: { instrumentId: inst.id } });
-      if (ruleCount) await tx.alarmRule.deleteMany({ where: { instrumentId: inst.id } });
+      // Alarm RULES were removed 2026-08-31 (migration 20260831200000); there
+      // is no `alarmRule` delegate any more, so nothing to clear here.
 
       await tx.instrument.delete({ where: { id: inst.id } });
       await auditLog({
         action: 'INSTRUMENT_DELETED', targetType: 'Instrument', targetId: inst.id,
-        beforeValue: { code: inst.code, name: inst.name, alarmsRemoved: alarmCount, alarmRulesRemoved: ruleCount },
+        beforeValue: { code: inst.code, name: inst.name, alarmsRemoved: alarmCount },
         reason: REASON,
         signatureMeaning: `Instrument "${inst.code}" deleted in the CWH registry replacement`,
         userId: ACTOR, userRole: 'SUPER_ADMIN',
-        ipAddress: '127.0.0.1', userAgent: 'scripts/import-cwh-instruments.ts', sessionId: null,
+        ipAddress: '127.0.0.1', userAgent: 'scripts/import-cwh-instruments.ts',
       }, tx);
     });
     deleted++;
@@ -151,7 +151,7 @@ async function main() {
         reason: REASON,
         signatureMeaning: `Instrument profile "${pr.name}" deleted — left empty by the CWH registry replacement`,
         userId: ACTOR, userRole: 'SUPER_ADMIN',
-        ipAddress: '127.0.0.1', userAgent: 'scripts/import-cwh-instruments.ts', sessionId: null,
+        ipAddress: '127.0.0.1', userAgent: 'scripts/import-cwh-instruments.ts',
       }, tx);
     });
   }
@@ -170,9 +170,13 @@ async function main() {
         data: {
           code,
           // `name` is required. The sheet's "name" column is the CODE per the
-          // operator's instruction, so the human-readable Location is used here
-          // where present — it is also kept as an attribute, so nothing is lost.
-          name: (row.Location || '').trim() || code,
+          // operator's instruction, and on 2026-09-04 the operator asked that
+          // every instrument be NAMED by its code too (scripts/
+          // rename-instruments-to-code.ts applied that to the live registry).
+          // Until then this read the Location column, which left `name`
+          // byte-identical to the Location attribute; the room is still kept
+          // as that attribute, so nothing is lost.
+          name: code,
           profileId: keep.profileId,
           gatewayId: keep.id,
           isGateway: false,
@@ -188,7 +192,7 @@ async function main() {
         reason: REASON,
         signatureMeaning: `Instrument "${code}" created from CWH.xlsx under gateway "${keep.code}"`,
         userId: ACTOR, userRole: 'SUPER_ADMIN',
-        ipAddress: '127.0.0.1', userAgent: 'scripts/import-cwh-instruments.ts', sessionId: null,
+        ipAddress: '127.0.0.1', userAgent: 'scripts/import-cwh-instruments.ts',
       }, tx);
     });
     created++;

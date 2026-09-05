@@ -49,6 +49,68 @@ describe('gateway ingest', () => {
     expect(tb.json().latest.map((r: { key: string }) => r.key)).toEqual(['humidity']);
   });
 
+  it('accepts the devices LIST with the code under `devN`, and never stores `devN` as a reading', async () => {
+    // Operator, 2026-09-05: "devN is common key for all, value will change".
+    const s = Date.now();
+    const gw = await mk({ name: 'GWS', code: `GWS-${s}`, isGateway: true });
+    const a = await mk({ name: 'SA', code: `SA-${s}`, gatewayId: gw.id });
+    const b = await mk({ name: 'SB', code: `SB-${s}`, gatewayId: gw.id });
+
+    const res = await ingest(gw.token, {
+      devices: [
+        { devN: `SA-${s}`, temperature: 21.5, humidity: 47 },
+        { devN: `SB-${s}`, temperature: 22.5, humidity: 48 },
+      ],
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ accepted: 4, rejected: 0 });
+
+    const ta = await app.inject({ method: 'GET', url: `/api/instruments/${a.id}/telemetry`, headers: auth });
+    expect(ta.json().latest.map((r: { key: string }) => r.key).sort()).toEqual(['humidity', 'temperature']);
+    expect(ta.json().latest.find((r: { key: string }) => r.key === 'temperature').value).toBe(21.5);
+    const tb = await app.inject({ method: 'GET', url: `/api/instruments/${b.id}/telemetry`, headers: auth });
+    expect(tb.json().latest.find((r: { key: string }) => r.key === 'temperature').value).toBe(22.5);
+
+    // A slot naming an instrument this gateway does not own is dead-lettered
+    // by CODE, and the rest of the batch still lands.
+    const res2 = await ingest(gw.token, {
+      devices: [{ devN: `SA-${s}`, temperature: 1 }, { devN: `NOBODY-${s}`, temperature: 2 }],
+    });
+    expect(res2.statusCode).toBe(200);
+    expect(res2.json()).toEqual({ accepted: 1, rejected: 1 });
+  });
+
+  it('routes a gateway\'s FLAT message carrying `devN` to that child — one child per message', async () => {
+    // The plant's firmware form, found in the data on 2026-09-05: each sensor
+    // published flat on the gateway's topic, naming the child under `devN`.
+    // Before this, 110 of them had landed on the gateway itself.
+    const s = Date.now();
+    const gw = await mk({ name: 'GWF', code: `GWF-${s}`, isGateway: true });
+    const a = await mk({ name: 'FA', code: `FA-${s}`, gatewayId: gw.id });
+
+    const res = await ingest(gw.token, { devN: `FA-${s}`, id: 2, ty: 2, t: '20.3', h: '60.9' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ accepted: 4, rejected: 0 });
+
+    const ta = await app.inject({ method: 'GET', url: `/api/instruments/${a.id}/telemetry`, headers: auth });
+    const keys = ta.json().latest.map((r: { key: string }) => r.key).sort();
+    expect(keys).toEqual(['h', 'id', 't', 'ty']);          // `devN` is NOT a reading
+    // Nothing landed on the gateway.
+    const tg = await app.inject({ method: 'GET', url: `/api/instruments/${gw.id}/telemetry`, headers: auth });
+    expect(tg.json().latest).toEqual([]);
+
+    // A gateway's flat message WITHOUT `devN` is still its own reading.
+    const own = await ingest(gw.token, { rssi: -60 });
+    expect(own.json()).toEqual({ accepted: 1 });
+    const tg2 = await app.inject({ method: 'GET', url: `/api/instruments/${gw.id}/telemetry`, headers: auth });
+    expect(tg2.json().latest.map((r: { key: string }) => r.key)).toEqual(['rssi']);
+
+    // And a `devN` naming an instrument this gateway does not own is dead-lettered.
+    const foreign = await ingest(gw.token, { devN: `NOBODY-${s}`, t: 1 });
+    expect(foreign.statusCode).toBe(200);
+    expect(foreign.json()).toEqual({ accepted: 0, rejected: 1 });
+  });
+
   it('dead-letters a code it does not own and still stores the rest', async () => {
     const s = Date.now();
     const gw = await mk({ name: 'GW2', code: `GW2-${s}`, isGateway: true });

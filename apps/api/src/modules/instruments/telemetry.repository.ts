@@ -122,6 +122,59 @@ export async function getHistory(opts: {
   return { rows, total: Number(count) };
 }
 
+/** One stored instant of one instrument: every key it reported at that `ts`. */
+export interface MultiHistoryRow {
+  instrumentId: string;
+  ts: Date;
+  /** `{ key: stored value }` — the raw JSON values, exactly as ingested. */
+  values: Record<string, unknown>;
+}
+
+/**
+ * The merged readings of SEVERAL instruments, newest first, paged — the
+ * Instruments page's history widget (2026-09-05).
+ *
+ * Pivoted in SQL, one row per (instrument, ts), so a page boundary can never
+ * split a temperature from the humidity reported at the same instant — paging
+ * the long rows and pivoting in the browser would print half a reading at the
+ * foot of one page and the other half at the head of the next. `total` counts
+ * the same (instrument, ts) groups, so the pager describes the rows it pages.
+ *
+ * Values are returned RAW and unfiltered by key: which key is this
+ * instrument's temperature is resolved by `telemetry-overview` per instrument,
+ * and the caller reads it from there. Filtering here by a site-wide alias list
+ * would silently drop an instrument whose keys have drifted.
+ *
+ * The caller has ALREADY reduced `instrumentIds` to the ones the user may see
+ * (visibility is applied to the id set in the route); this function trusts
+ * the list it is given. An empty list returns nothing rather than everything.
+ */
+export async function getMultiInstrumentHistory(opts: {
+  instrumentIds: string[]; from?: Date; to?: Date; limit?: number; offset?: number;
+}): Promise<{ rows: MultiHistoryRow[]; total: number }> {
+  if (opts.instrumentIds.length === 0) return { rows: [], total: 0 };
+  const limit = resolvePageSize(opts.limit, 100);
+  const offset = Math.max(opts.offset ?? 0, 0);
+  const where = Prisma.sql`
+    WHERE instrument_id IN (${Prisma.join(opts.instrumentIds)})
+    ${opts.from ? Prisma.sql`AND ts >= ${opts.from}` : Prisma.empty}
+    ${opts.to ? Prisma.sql`AND ts <= ${opts.to}` : Prisma.empty}`;
+
+  const rows = await prisma.$queryRaw<MultiHistoryRow[]>`
+    SELECT instrument_id AS "instrumentId", ts, jsonb_object_agg(key, value) AS values
+    FROM instrument_telemetry_history ${where}
+    GROUP BY instrument_id, ts
+    ORDER BY ts DESC, instrument_id
+    LIMIT ${limit} OFFSET ${offset}`;
+
+  const [{ count }] = await prisma.$queryRaw<{ count: bigint }[]>`
+    SELECT count(*)::bigint AS count FROM (
+      SELECT 1 FROM instrument_telemetry_history ${where} GROUP BY instrument_id, ts
+    ) AS instants`;
+
+  return { rows, total: Number(count) };
+}
+
 /**
  * The keys this instrument has ACTUALLY sent, newest activity first.
  *

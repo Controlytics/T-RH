@@ -277,8 +277,8 @@ the UI and copy the token it shows once):
 ```bash
 curl -sk -X POST https://localhost:3000/api/ingest/v1/telemetry \
   -H "Authorization: Bearer <TOKEN>" -H "Content-Type: application/json" \
-  -d '{"temperature": 21.5}'
-# -> {"accepted":1}
+  -d '{"t": 21.5, "h": 47}'
+# -> {"accepted":2}
 ```
 
 The WebSocket endpoint takes the token either in the `Authorization: Bearer`
@@ -306,22 +306,30 @@ concurrent connections.
 
 ### 9A.3 MQTT via EMQX 5.3.2
 
-> **THE WIRE ADDRESSES INSTRUMENTS BY UUID, NOT BY CODE (2026-08-07).**
-> The MQTT client id and every topic segment are the instrument's `id`. The
-> `code` became free text — any character, any length — at the operator's
-> request, and a code is no longer safe in a topic: `/` forges a level, `+` and
-> `#` are wildcards, so an instrument coded `+` would have matched
-> `instruments/${clientid}/...` against EVERY instrument (read every attribute
-> downlink, publish telemetry attributed to any device). A platform-generated
-> UUID cannot contain a metacharacter.
+> **THE WIRE ADDRESSES INSTRUMENTS BY CODE (2026-09-04; it was the UUID from
+> 2026-08-07 to then).** The MQTT client id and the topic segment are the
+> instrument's `code`, e.g. `CWH/RDU/001-00` — operator: "i want client id as
+> CWH/RDU/001-00". A code may contain `/`; the broker substitutes `${clientid}`
+> literally, so that device publishes to `instruments/CWH/RDU/001-00/telemetry`
+> and the bridge matches a fixed prefix and suffix rather than counting levels.
 >
-> **`etc/acl.conf` is UNCHANGED and needs no restart** — `${clientid}` is
-> whatever the client presents, and `POST /api/ingest/v1/mqtt-auth` is what
-> binds it (now to `instrument.id`).
+> What made the UUID interlude necessary was that a code of `+` or `#` in the
+> ACL template matched EVERY instrument. That is now refused at REGISTRATION
+> (`instrumentCodeTopicViolation` in `@digilog/shared`: no `+`, `#`, NUL, and a
+> last segment that is never `telemetry`/`attributes`/`children`), on the create
+> form, the create route and the CSV importer alike.
 >
-> **BREAKING for already-configured devices:** every device must be
-> reconfigured with its UUID as client id and in its topics. Retained messages
-> under the old code-based topics are abandoned.
+> **`etc/acl.conf` DID change and the broker was restarted**: the bridge's
+> subscribe and publish grants are `instruments/#`, because `+` is exactly one
+> level and cannot reach a slot whose code carries slashes. The device-side
+> `${clientid}` rules are unchanged. The hand-added 2026-09-03 "TEMPORARY TEST
+> GRANT" for client id `35dd00b3-…` was removed at the same time.
+>
+> **BREAKING for a device configured with its UUID:** it is refused at CONNECT
+> (`Connection refused: Not authorized`) until reconfigured with its code as
+> client id and in its topics. Retained downlink slots were MOVED, not
+> abandoned: `scripts/migrate-mqtt-topics-to-code.ts` cleared the 102 UUID-keyed
+> slots and republished them code-keyed on 2026-09-04.
 
 EMQX 5.3.2 is installed at `C:\Users\hello\emqx-5.3.2` (the last release with a
 Windows build). Start it with `bin\emqx.cmd start`.
@@ -359,8 +367,9 @@ lives):
   that device actually receive the attribute downlink". `digilog-bridge` appears
   here too.
 - **Monitoring → Subscriptions** — both directions on one screen:
-  `digilog-bridge → instruments/+/telemetry` (uplink) and each device →
-  `instruments/<its code>/attributes` (downlink).
+  `digilog-bridge → instruments/#` (uplink — it ignores its own downlink
+  slots by suffix) and each device → `instruments/<its code>/attributes`
+  (downlink).
 - **Monitoring → Retained Messages** — one row per instrument attribute slot,
   QoS 1, published by `digilog-bridge`, with **Show Payload** revealing the
   exact `{attributes, changed, ts}` JSON the device holds. This is the closest
@@ -381,12 +390,12 @@ the same rule as everywhere else, and the ACL admits nothing less:
 | Field | Value |
 |---|---|
 | Host / Port / Path | `localhost` / `8083` / `/mqtt` (the `ws:default` listener) |
-| **Client ID** | the instrument's **UUID** (shown on its detail page's Connection card) |
+| **Client ID** | the instrument's **code**, e.g. `CWH/RDU/001-00` (shown on its detail page's Connection card) |
 | **Username** | that instrument's **device token** (Reveal token on its page) |
 | Password | leave empty |
 
-Then **Subscribe** to `instruments/<id>/attributes` (or
-`instruments/<gwId>/attributes/#` for a gateway). Verified 2026-08-06: the
+Then **Subscribe** to `instruments/<code>/attributes` (or
+`instruments/<gwCode>/attributes/#` for a gateway). Verified 2026-08-06: the
 subscribe delivers the retained message immediately, tagged **Retain** in the
 table, and every subsequent add/modify/delete appears as a new row within a
 second, payload and all.
@@ -415,16 +424,22 @@ MQTT_PASSWORD=<the bridge's own broker password — NOT a device token>
 # MQTT_CLIENT_ID=digilog-ingest-bridge   # must stay stable across restarts
 ```
 
-Devices publish to `instruments/<id>/telemetry`; the bridge subscribes
-`instruments/+/telemetry` at QoS 1 and hands each payload to the ingest core
-with `transport: 'mqtt'`.
+Devices publish to `instruments/<code>/telemetry`; the bridge subscribes
+`instruments/#` at QoS 1 (a code carries slashes, which `+` cannot span),
+takes everything between `instruments/` and `/telemetry` as the code, silently
+ignores its own `…/attributes` and `…/children` retained slots, and hands each
+payload to the ingest core with `transport: 'mqtt'`.
 
 **Three accepted payload shapes** (`modules/instruments/payload-parser.ts`):
 
 ```jsonc
 { "t": "25.7", "h": "46.3" }                    // flat     -> this instrument
 { "values": { "t": "25.7", "h": "46.3" } }      // envelope -> this instrument
-{ "devices": { "CH-A": { "t": "25.7" } } }      // batch    -> a gateway's children
+{ "devices": { "CH-A": { "t": "25.7" } } }      // batch    -> a gateway's children, keyed by code
+{ "devices": [ { "devN": "CH-A", "t": "25.7" }, … ] }   // batch, LIST: each block names its code under `devN` (2026-09-05)
+{ "devN": "CH-A", "t": "25.7", "h": "46.3" }              // ONE child per message, on the GATEWAY's topic/token (2026-09-05):
+                                                          // a flat payload from a gateway that carries a string `devN` is
+                                                          // routed to that child, `devN` stripped — the plant's firmware form
 ```
 
 `ts`/`timestamp`, `quality` and `devices` are reserved at the TOP level; every
@@ -456,16 +471,19 @@ reloads it.
 ```erlang
 {allow, {username, {re, "^dashboard$"}}, subscribe, ["$SYS/#"]}.
 
-%% the ingest bridge — the only client allowed to read the whole tree
-{allow, {username, "digilog-bridge"}, subscribe, ["instruments/+/telemetry"]}.
+%% the ingest bridge — the only client allowed to read the whole tree.
+%% `#` since 2026-09-04: codes carry slashes and `+` is exactly one level.
+{allow, {username, "digilog-bridge"}, subscribe, ["instruments/#"]}.
 
-%% a device may publish to ITS OWN topic only
+%% a device may publish to ITS OWN topic only (${clientid} = its CODE)
 {allow, all, publish, ["instruments/${clientid}/telemetry"]}.
 
-%% DOWNLINK (see §9B.6). The bridge is the only publisher on the attribute
-%% tree; a device reads its own slot and, if it is a gateway, its children's.
-{allow, {username, "digilog-bridge"}, publish, ["instruments/+/attributes", "instruments/+/attributes/+"]}.
+%% DOWNLINK (see §9B.6). The bridge is the only publisher on the attribute and
+%% children trees; a device reads its own slot and, if it is a gateway, its
+%% children's.
+{allow, {username, "digilog-bridge"}, publish, ["instruments/#"]}.
 {allow, all, subscribe, ["instruments/${clientid}/attributes", "instruments/${clientid}/attributes/#"]}.
+{allow, all, subscribe, ["instruments/${clientid}/children"]}.
 
 {deny, all, subscribe, ["$SYS/#", {eq, "#"}]}.
 {deny, all}.
@@ -724,7 +742,7 @@ mosquitto_pub -h localhost -p 8883 \
   -t "instruments/<INSTRUMENT-CODE>/telemetry" \
   -u "<DEVICE-TOKEN>" \
   -P "" \
-  -m '{"temperature": 21.5}'
+  -m '{"t": 21.5, "h": 47}'
 ```
 
 Use `-h localhost` (or a hostname/IP in the cert's SAN list), not an arbitrary
@@ -810,7 +828,7 @@ behave exactly as they did before this path existed.
 
 #### Watching it — paste this
 
-Subscribe as the device itself (client id = instrument UUID, username = its
+Subscribe as the device itself (client id = instrument CODE, username = its
 token; the password is ignored). Then change an attribute in the UI.
 
 ```bash
@@ -864,13 +882,15 @@ Two rules, both in `etc/acl.conf` (full file listed in §9A.3):
 {allow, all, subscribe, ["instruments/${clientid}/attributes", "instruments/${clientid}/attributes/#"]}.
 ```
 
-Two publish patterns, not one: `+` is exactly one level, so
-`instruments/+/attributes` does **not** cover a child's three-segment topic.
+One publish pattern for the bridge since 2026-09-04, `instruments/#`: `+` is
+exactly one level, and a slot keyed on a code such as `CWH/RDU/001-00` is
+several. (It used to be `instruments/+/attributes` plus
+`instruments/+/attributes/+`.)
 
 The subscribe rule templates on `${clientid}`, and that is only meaningful
 because `POST /api/ingest/v1/mqtt-auth` refuses any CONNECT whose client id is
-not the token's instrument UUID — the same binding that makes the telemetry
-publish rule real. A gateway's client id *is* its UUID, so
+not the token's instrument CODE — the same binding that makes the telemetry
+publish rule real. A gateway's client id *is* its code, so
 `instruments/${clientid}/attributes/#` covers its children and nothing else.
 
 > The exact-topic pattern is **redundant** — `instruments/${clientid}/attributes/#`
@@ -979,6 +999,58 @@ editing it. Verified live on 2026-08-06 EMQX 5.3.2 after restarting:
 | gateway subscribes `instruments/<its own code>/children` | `SUBACK 0`, roster delivered |
 | a rename of its child, no `gatewayId` in the request | new roster arrives within a second |
 | a *different* instrument's valid token subscribes to that topic | no SUBACK, disconnect loop, `authorization_permission_denied` in `log/emqx.log.1` |
+
+### 9C.1 The CHILD ATTRIBUTES BUNDLE — every child's attributes in one message
+
+Added 2026-09-05 (operator: *"one message for all children with full set"*).
+The per-child slots in §9B stay; this is a THIRD retained slot beside them and
+the roster, for a gateway whose firmware wants one message rather than one per
+child:
+
+```
+instruments/<gatewayCode>/children/attributes
+{"gateway":"IOTGW01",
+ "devices":[
+   {"devN":"CWH/RDU/001-00","High Temperature Limit":"25","Location":"LCMS Room-I"},
+   {"devN":"CWH/RDU/002-00","High Temperature Limit":"27","Location":"LCMS Room-II"}],
+ "changed":{"devN":"CWH/RDU/002-00","key":"Location","value":"LCMS Room-II"},
+ "ts":"2026-09-05T12:40:00.000Z"}
+```
+
+**The telemetry batch's shape, mirrored** (operator, later the same day: *"can
+u do same for attributes also"*): a list under `devices`, each block opening
+with `devN` — the instrument code — followed by that child's attributes as plain
+keys. Every child is listed whether active or not; the ROSTER (§9C) is where the
+active flag lives.
+
+**Under `/children/`, not `/attributes`.** `instruments/<gw>/attributes` is the
+gateway's OWN attribute slot (a gateway is a standalone instrument on that
+path), so the bundle cannot live there. The last segment `attributes` is one no
+instrument code may end in and one the bridge already drops as its own
+downlink, so nothing collides.
+
+**Whole set, every time.** Blocks sorted by code, attribute keys sorted, so an
+unchanged state serialises identically. `changed` names the one attribute that
+moved by `devN` + `key` (`value: null` = removed), or is `null` when the publish
+was driven by a membership change. **Republished on** every child attribute
+change (POST / PUT / DELETE) and on every link, unlink, move, child create and
+child delete — the roster's own triggers. **Cleared** (zero-byte retained) with
+the roster when a gateway is deleted or demoted.
+
+**Seeding.** A gateway that has seen no change since 2026-09-05 has no retained
+bundle until its first edit. `npx tsx apps/api/scripts/publish-child-attribute-bundles.ts --apply`
+publishes one for every gateway from the database (dry run without the flag).
+
+One ACL change, on the existing subscribe line — **boot-only file, restart the
+broker**; the AWS broker needs the same:
+
+```erlang
+{allow, all, subscribe, ["instruments/${clientid}/children", "instruments/${clientid}/children/attributes"]}.
+```
+
+The bridge's `instruments/#` publish grant already covers it. Wiring is pinned
+by `src/e2e/instrument-child-attributes-bundle.test.ts` (4 cases) and the
+payload by `modules/instruments/__tests__/child-attributes-bundle.test.ts`.
 
 ---
 

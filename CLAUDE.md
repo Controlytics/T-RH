@@ -202,6 +202,62 @@ history; `docs/recreation/` holds the inventory.
 
 - **Instrument VISIBILITY (2026-08-13, project D; extended 2026-08-28).** `instrument_scope` JSONB on **both** `role_configs` and `user_configs`. **`NULL` = inherit (user → role → unrestricted); an empty selection = SEE NOTHING; otherwise = those functional locations (Blocks expanding to their Areas) UNIONED with those explicitly named instruments.** **TWO SHAPES live in that column, permanently:** rows written before 2026-08-28 are a bare `string[]` of location ids; rows since are `{locationIds, instrumentIds}`. Legacy rows are deliberately NEVER migrated, so `normalizeScope()` in `modules/instruments/visibility.ts` is the ONE reader of both — a second `Array.isArray` test anywhere reads a legacy restricted row as "nothing stored", which means UNRESTRICTED. Resolved once in that same module; a user scope REPLACES the role's and can widen it. Enforced **on the query** — the list merges it into the same `where` the count uses, `GET /:id`, `/:id/telemetry`, `/:id/telemetry-keys` and `/:id/dead-letters` apply it in the lookup and 404 (never 403, which would confirm existence), the overview ANDs selection with visibility, and `GET /api/floorplans/:id/rooms/:roomId/history` filters the room's MEMBERSHIP query. `scopeToWhere` emits `{OR: [{functionalLocationId:{in}}, {id:{in}}]}` with **both branches always present** — `{OR: []}` matches nothing in Prisma while `{}` matches everything. **Unassigned instruments are invisible to the LOCATION branch but ARE reachable by being named outright** (changed 2026-08-28 — assigning a freshly commissioned device must not silently do nothing). Writing a NULL needs `Prisma.DbNull`, never `JsonNull`. Admin surface: Config → Roles & Access → Instrument Scope, whose instrument picker reads the deliberately UNSCOPED `GET /api/roles/instrument-scope/instruments` (ROLE_MANAGE) — a scoped picker would let a restricted admin build a scope silently omitting the rest of the plant. `GET /api/floorplans/:id` is knowingly unscoped: it lists instrument identity per room and is fetched ONLY by the Config → Floorplans editor (verified 2026-08-28), not by the dashboard, which uses `GET /api/floorplans` (rooms only). Prove behaviour with `apps/api/scripts/probe-visibility.ts` and `src/e2e/instrument-scope-selection.test.ts`.
 
+- **The MQTT client id and topic segment are the instrument CODE (2026-09-04).**
+  Operator: "35dd00b3-… this is CWH/RDU/001-00 instrument mqtt client id, i want
+  client id as CWH/RDU/001-00". It was the code until 2026-08-07, the UUID from
+  then until this change, and the code again now. **No count moved** — no model,
+  enum, migration, permission, reauth action, config def, page or route.
+  - **`/` is allowed in a code and appears in 100 of 101.** The broker
+    substitutes `${clientid}` literally, so `instruments/CWH/RDU/001-00/telemetry`
+    is that instrument's exact topic. The bridge therefore subscribes
+    `instruments/#` (`+` is exactly one level) and `parseTelemetryTopic` matches a
+    FIXED prefix and suffix instead of counting segments. It also receives its
+    own retained downlinks and drops them SILENTLY (`isDownlinkTopic`).
+  - **The hole the UUID interlude closed is closed at REGISTRATION instead.**
+    `instrumentCodeTopicViolation()` in `@digilog/shared` refuses `+`, `#`, NUL,
+    and a LAST segment of `telemetry`/`attributes`/`children` — the reserved word
+    matters because the bridge reads the topic KIND from the last segment, and a
+    child coded `X/telemetry` would have its downlink parsed as telemetry from
+    `<gw>/attributes/X`. Applied by the zod schema, `bulk-csv.ts` and the create
+    form (which otherwise shows a generic "Could not create" on a 400 whose body
+    is a zod flatten). **Do not relax it** — the 2026-08-08 memory's `+` test is
+    still the regression test, and it was re-proven live on 2026-09-04.
+  - **One identity, no UUID fallback**, by the operator's choice: a device still
+    configured with its UUID is refused at CONNECT (`Not authorized`), where the
+    failure is visible, rather than admitted and denied topic by topic.
+  - **Downlink and roster slots are keyed on codes** (`attributeDownlinkTopic`,
+    `childRosterTopic`; the routes resolve the gateway's code). The 102 retained
+    UUID-keyed slots on the local broker were cleared and republished code-keyed
+    by `scripts/migrate-mqtt-topics-to-code.ts` (dry run by default) — a stranded
+    retained slot reads as current state to anyone looking at the broker.
+  - **The gateway batch accepts a LIST (2026-09-05):**
+    `{"devices":[{"devN":"<code>",…},…]}` beside the code-keyed object.
+    `parsePayload` folds the list onto `dev1..devN`; `fanoutDevices` takes a
+    string `devN` as the code and strips it from the readings; same child-map
+    authorisation, dead-lettered by code. "Instrument id" = the CODE, never the
+    UUID. **And a GATEWAY's FLAT payload carrying a string `devN` is a
+    one-block batch routed to that child** (`ingest-core.ts`) — the plant
+    firmware's one-child-per-message form, found in the data: 110 such
+    messages had landed on IOTGW01 itself before this. Keys on the wire are
+    `t` / `h` (already in the alias lists).
+  - **A THIRD retained slot per gateway (2026-09-05): the child attributes
+    BUNDLE**, `instruments/<gw>/children/attributes` — every child's COMPLETE
+    attribute set, in the TELEMETRY BATCH's shape: `devices: [{devN, …attrs}]`,
+    `changed: {devN, key, value}`. The
+    per-child slots and the roster stay; this sits beside them (operator: "one
+    message for all children with full set"). Under `/children/` because
+    `instruments/<gw>/attributes` is the gateway's OWN slot. Republished with
+    the per-child downlink and with the roster; cleared with the roster. ACL
+    subscribe line widened (boot-only — restarted here, AWS needs the same);
+    `scripts/publish-child-attribute-bundles.ts` seeds it. `LOCAL_SETUP_WINDOWS.md`
+    §9C.1.
+  - **`emqx-5.3.2/etc/acl.conf` changed and the broker was restarted**: bridge
+    subscribe/publish → `instruments/#`; the 2026-09-03 TEMPORARY TEST GRANT for
+    client id `35dd00b3-…` removed. **The AWS broker needs the same edit and
+    restart when this deploys, and the one live device (CWH/RDU/001-00, direct
+    MQTT) must be reconfigured to its code.** Proven live 2026-09-04: connect as
+    code accepted, reading lands, UUID refused, foreign token/code refused,
+    foreign topic publish and subscribe refused.
 - **Instrument grouping — THREE concepts, one job each (2026-08-13).** Do not confuse them: **`FunctionalLocation`** (Block > Area tree, `Instrument.functionalLocationId`) is the AUTHORITATIVE logical grouping; **`roomId`** → `FloorplanRoom` is geometry on a drawn plan and drives the graphical view; **`profileId`** is device type. The free-text `Instrument.block` / `.area` columns are SUPERSEDED — no longer read for grouping, kept only so the migration stays comparable. A Block's instruments are its own PLUS its Areas', resolved by `functional-locations/tree.ts:resolveLocationIds()`; querying `functionalLocationId = :id` directly silently omits the Areas.
 - **Config:** **30 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **23** corresponding pages (both re-derived by `ls | wc -l` 2026-09-01; defs 29 → 30 that day with `trend-widgets.def.ts`, which adds no page — it renders through the dynamic config page; the page count read 24 here and in System Stats above until then and was **stale, not moved** — `alarm-rules.tsx` went with the 2026-08-31 rule removal and neither line was re-synced. This is the THIRD time this bullet has drifted from the one above it; the duplication itself is the defect it keeps warning about). **This bullet's def count went stale TWICE while the System Stats section above was current — 25 here against 26 then 27 there.** It is the same self-contradiction the 2026-08-29 audit raised as finding M8 for the page count, in the same bullet, and re-syncing only the half that was wrong that day is why it came back. Two live inventory lines for one number is the actual defect; re-derive both from `ls` whenever either moves. Defs 25 → 26 → 27 on 2026-08-31 (`inactivity-alarms.def.ts`, then `rs485-alarms.def.ts` — both render through the dynamic config page, so the page count did not move). Earlier note, still true: the 25 predated `dashboard-cards.tsx` being deleted on 2026-08-28. Defs verified `ls` 2026-08-27, unchanged at 25 — the def and page counts are NOT equal and should not be expected to be: `alarm-webhooks.tsx` is a page with no def (a CRUD module, not a `system_config` row), and several defs render through the dynamic config page with no file of their own. Earlier: pages 25 → 24 the same day — `routes/config/role-assignments.tsx` deleted as dead code: its 7 config defs went in the Phase 0 strip and `system_config` held 0 rows for them, so every section read an unregistered `/api/config/dynamic/<key>` route. Earlier counts VERIFIED by `ls` 2026-08-17 — `alarm-limits.def.ts` added 2026-08-17: super-admin config for the instrument-limit alarm work — an ordered alias list of attribute keys per bound (High/Low Temperature/Humidity Limit), since this install's keys have already drifted; plus a master switch and four status wordings. (It also carried a `severity`
   select until 2026-09-01, when severity stopped being administered anywhere; the
@@ -280,6 +336,17 @@ GET  /api/instruments/telemetry-overview        — every instrument's current t
                                                   field the builder returns and the schema omits is
                                                   stripped silently, which has bitten this endpoint
                                                   five times now.
+GET  /api/instruments/telemetry-history?instrumentIds=a,b&from=&to=&limit=&offset=
+                                                — (2026-09-05) the merged, paged readings of SEVERAL
+                                                  instruments, newest first: the Instruments page's
+                                                  history widget. One row per (instrument, instant),
+                                                  pivoted in SQL so a page cannot split an instant's
+                                                  temperature from its humidity; `values` RAW — the
+                                                  slot keys, limits and precision come from
+                                                  `telemetry-overview`. Visibility is applied to the
+                                                  ID SET (out of scope = absent, never 403). `values`
+                                                  is declared `additionalProperties: true` — an object
+                                                  schema without it is stripped to `{}` silently.
 GET  /api/alarms?search=&from=&to=&type=&status=&severity=&page=&pageSize=&sort=&dir=
                                                 — the Alarms page. Filters, counts, sorts and pages
                                                   SERVER-side (2026-08-31); returns `data`, `total`
@@ -635,9 +702,12 @@ GET    /api/alarm-webhooks/:id/deliveries?status= — paged §11 delivery log, f
 - **Dashboard: the readings table shows Area and Location — there is NO Room
   column (2026-09-01).** It briefly had all three, and the Room one was removed
   the same day by the operator as a DUPLICATE. The measurement, not the eye:
-  the cell's primary text was the instrument's `name`, and `name` is
+  the cell's primary text was the instrument's `name`, and `name` WAS
   byte-identical to the `Location` attribute on **100 of the 100** instruments
-  that carry one; its secondary line was blank on 88 of 101 rows, and on the 12
+  that carry one (true when measured; **since 2026-09-04 `name` = `code` on
+  every instrument** — operator instruction, applied by
+  `scripts/rename-instruments-to-code.ts` with 100 audit rows, so the room now
+  lives ONLY in the `Location` attribute); its secondary line was blank on 88 of 101 rows, and on the 12
   traced QC rooms printed the room LABEL — the same room shouted. The room
   NUMBER never rendered at all, because `label` won whenever it existed.
   - **The justification it was kept under had already expired**, which is why it
@@ -781,6 +851,20 @@ GET    /api/alarm-webhooks/:id/deliveries?status= — paged §11 delivery log, f
       Fastify strips undeclared response properties silently and this repo has
       been bitten by that twice. Mutation-checked: dropping `labels[].text` from
       the schema fails it.
+- **The Time Series widget's download is the DATA REPORT (2026-09-04)** — built
+  to `Data Report.pdf` at the repo root, the way the Alarm Report was built to
+  `Alarm Report.pdf`. Pure layout in `routes/instruments/data-report.ts`,
+  rendered by `renderDataReport`. Interval rows are a SCHEDULE anchored on the
+  FIRST READING, one slot per interval to the period end, each the FIRST STORED
+  READING in it or `NA`, printed NEWEST FIRST (2026-09-05; until then buckets
+  were aligned to the period start, oldest first, gaps omitted). Limit crossings
+  and the `Error`/`OL` words print bold; the interval is chosen in the download
+  dialog. `pdf-report.ts` gained per-report typography (`ReportConfig.typography`,
+  `showAppName`, `addTable.bold`) — the Data Report opts up, every other report
+  prints as before. Max/Min come from the server's whole-range `summaries`, never
+  the printed rows; Block/Area resolve by id through `/api/functional-locations`,
+  Location is the attribute. Audit type stays `Instrument Time Series`. See
+  `CHANGELOG.md`.
 - **Instrument trend page (2026-08-24):** new route `/instruments/:id/trend`
   — period + interval header, latest-value cards, limit-lined charts (reusing
   `TimeSeriesChart`), a raw paged time-series, an alarms widget, per-user

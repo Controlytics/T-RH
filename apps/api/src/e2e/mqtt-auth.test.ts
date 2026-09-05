@@ -24,6 +24,8 @@ const instrumentIds: string[] = [];
 let goodCode: string;
 let goodId: string;
 let goodToken: string;
+let slashCode: string;
+let slashToken: string;
 let revokedCode: string;
 let revokedToken: string;
 let inactiveCode: string;
@@ -53,9 +55,15 @@ beforeAll(async () => {
   goodCode = `MQA-${S}`;
   const good = await mkInstrument(goodCode);
   goodToken = good.token;
-  // The client id is the instrument's UUID since 2026-08-07 — the code became
-  // free text, so a code is no longer safe to template an ACL on.
+  // The client id is the instrument's CODE (again) since 2026-09-04. The UUID
+  // is kept here only to prove it is REFUSED — a device still configured with
+  // the previous contract must fail at CONNECT, not silently publish nowhere.
   goodId = good.id;
+
+  // The plant's real shape: three levels. The auth hook compares strings and
+  // must not care, but the assertion is what proves that.
+  slashCode = `CWH/MQA/${S}`;
+  slashToken = (await mkInstrument(slashCode)).token;
 
   otherCode = `MQO-${S}`;
   await mkInstrument(otherCode);
@@ -82,14 +90,27 @@ afterAll(async () => {
 });
 
 describe('EMQX auth hook', () => {
-  it('allows a valid token presented as the username', async () => {
-    const res = await ask({ clientid: goodId, username: goodToken, password: '' });
+  it('allows a valid token presented as the username, under the instrument CODE as client id', async () => {
+    const res = await ask({ clientid: goodCode, username: goodToken, password: '' });
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({ result: 'allow' });
   });
 
+  it('allows a slash-separated code as the client id — CWH/RDU/001-00 is the plant\'s shape', async () => {
+    const res = await ask({ clientid: slashCode, username: slashToken, password: '' });
+    expect(JSON.parse(res.body)).toEqual({ result: 'allow' });
+  });
+
+  it('DENIES the instrument UUID as client id — the pre-2026-09-04 contract is not accepted', async () => {
+    // One identity on the wire. A device left on the old contract must be
+    // refused at CONNECT, where the failure is visible, rather than admitted
+    // and then publishing to a topic the ACL denies.
+    const res = await ask({ clientid: goodId, username: goodToken, password: '' });
+    expect(JSON.parse(res.body)).toEqual({ result: 'deny' });
+  });
+
   it('denies an unknown token', async () => {
-    const res = await ask({ clientid: goodId, username: generateToken(), password: '' });
+    const res = await ask({ clientid: goodCode, username: generateToken(), password: '' });
     expect(JSON.parse(res.body)).toEqual({ result: 'deny' });
   });
 
@@ -107,14 +128,14 @@ describe('EMQX auth hook', () => {
   });
 
   it('denies when the username is missing entirely', async () => {
-    expect(JSON.parse((await ask({ clientid: goodId, password: '' })).body))
+    expect(JSON.parse((await ask({ clientid: goodCode, password: '' })).body))
       .toEqual({ result: 'deny' });
   });
 
   it('denies every unexpected body shape rather than erroring', async () => {
     // A non-2xx would read to EMQX as "the authenticator broke", not "denied".
     // Deny is the default for anything we do not recognise.
-    for (const body of [{}, [], { clientid: goodId, username: 42 }, { username: goodToken }, '']) {
+    for (const body of [{}, [], { clientid: goodCode, username: 42 }, { username: goodToken }, '']) {
       const res = await ask(body);
       expect(res.statusCode).toBe(200);
       expect(JSON.parse(res.body)).toEqual({ result: 'deny' });

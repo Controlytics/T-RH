@@ -137,6 +137,59 @@ export interface ReportConfig {
    *  the Printed By stamp). Pass the shortcut words used in the report body
    *  (e.g. NA = Not Applicable). Omitted when empty. */
   legend?: { abbr: string; meaning: string }[];
+  /**
+   * Per-report overrides of the shared type scale — see {@link ReportTypography}.
+   * Omitted keys keep the shared default, so a report that names only
+   * `tablePt` changes nothing else about the chrome.
+   */
+  typography?: Partial<ReportTypography>;
+  /**
+   * Print the app name under the company name. Default true. The Data Report
+   * turns it off (operator, 2026-09-05: *"remove header on header"*) — its
+   * reference carries the site line and the title and nothing between them.
+   */
+  showAppName?: boolean;
+}
+
+/**
+ * The report's type scale, in points, plus the two decisions a heading carries
+ * besides its size. Every report gets {@link DEFAULT_TYPOGRAPHY} unless it says
+ * otherwise through `ReportConfig.typography`.
+ *
+ * **Why a report can override it at all (2026-09-05).** The Data Report was
+ * asked to print bigger and bolder, with its column headings centred (operator:
+ * *"in data report make headings to center and in header, and increase font
+ * sizes and thickness"*). The scale is shared because one product should not
+ * have three guesses at a heading size — but `tablePt` has a hard ceiling set by
+ * the alarm report's ten portrait columns, and a four-column log does not have
+ * to live under it. So the default stays what every other report prints at, and
+ * a report opts UP by naming the values it needs, in one place, where the tests
+ * can pin them.
+ */
+export interface ReportTypography {
+  /** Company name in the page header. */
+  companyPt: number;
+  /** App name under the company name. */
+  appNamePt: number;
+  /** The title in its bar. */
+  titlePt: number;
+  subtitlePt: number;
+  /** `addSectionTitle` pills. */
+  sectionPt: number;
+  /** Remarks / Printed By labels and `addKeyValue` values. */
+  labelPt: number;
+  /** Table body cells. */
+  tablePt: number;
+  /** Table heading cells. */
+  tableHeadPt: number;
+  /** Legend, footer page number, `addKeyValue` captions. */
+  smallprintPt: number;
+  /** Weight of the company name, app name and title. */
+  headingWeight: 'normal' | 'bold';
+  /** Horizontal alignment of table HEADING cells. Body cells take their own
+   *  `columnStyles`; a heading centred over a left-aligned column reads as
+   *  belonging to the next one, so this is a per-report choice, not a default. */
+  tableHeadAlign: 'left' | 'center';
 }
 
 export interface ReportDoc {
@@ -151,6 +204,9 @@ export interface ReportDoc {
     body: string[][];
     columnStyles?: Record<number, any>;
     headColor?: [number, number, number];
+    /** `bold[row][col]` — body cells to print bold (a reading that crossed
+     *  its limit, a fault word). Same shape as `body`; absent = none. */
+    bold?: boolean[][];
   }) => void;
   addSectionTitle: (text: string) => void;
   addKeyValue: (pairs: [string, string][], columns?: number) => void;
@@ -185,23 +241,41 @@ export interface ReportSnapshot {
  * product** (audit trail, instrument trend, alarms), which is the point: one
  * scale, not a per-report guess.
  *
- * `TABLE_PT` is the one with a hard ceiling. The alarm report prints up to ten
+ * `tablePt` is the one with a hard ceiling. The alarm report prints up to ten
  * columns on A4 PORTRAIT, and autotable answers an over-wide table by wrapping
  * cells rather than by shrinking text, so pushing this much past 8 turns a
  * one-line row into three and costs more pages than it gains in legibility.
+ * A report with fewer columns may raise it through `ReportConfig.typography`.
  */
-const COMPANY_PT = 16;
-const APPNAME_PT = 10;
-const TITLE_PT = 13;
-const SUBTITLE_PT = 9;
-const SECTION_PT = 11;
-const LABEL_PT = 9;
-const TABLE_PT = 8;
-const TABLE_HEAD_PT = 8.5;
-const SMALLPRINT_PT = 8;
+export const DEFAULT_TYPOGRAPHY: ReportTypography = {
+  companyPt: 16,
+  appNamePt: 10,
+  titlePt: 13,
+  subtitlePt: 9,
+  sectionPt: 11,
+  labelPt: 9,
+  tablePt: 8,
+  tableHeadPt: 8.5,
+  smallprintPt: 8,
+  headingWeight: 'normal',
+  tableHeadAlign: 'left',
+};
+
+/**
+ * autotable's own default margin is 40pt = 14.11mm, while the rest of this
+ * chrome — the title bar, the rules, the end block — sits on a 14mm gutter. Left
+ * to its default, every table started 0.11mm inside the bar above it and a
+ * parameter block pinned to the full 182mm content width overran the page by
+ * 0.22mm (autotable logged "could not fit page" on every Data Report). One
+ * gutter for everything.
+ */
+const GUTTER_MM = 14;
 
 export async function createReport(config: ReportConfig): Promise<ReportDoc> {
   const [logo, branding, me, signatories] = await Promise.all([loadLogo(), loadBranding(), loadCurrentUser(), loadSignatories()]);
+  const t: ReportTypography = { ...DEFAULT_TYPOGRAPHY, ...config.typography };
+  const headingFont = () => doc.setFont('helvetica', t.headingWeight);
+  const normalFont = () => doc.setFont('helvetica', 'normal');
   // Labels configured for the generator's role (reportKey -> label), if any.
   const sig = me.role ? (signatories ?? {})[me.role] : undefined;
   const printedAt = config.formatDateTime(new Date().toISOString());
@@ -243,28 +317,40 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
    * size set immediately above it, which is why each size is set before its
    * measurement rather than once at the top.
    */
-  doc.setFontSize(COMPANY_PT); doc.setTextColor(...COLORS.primary);
+  // Baselines scale with the size, so a report that prints its identity larger
+  // keeps the same optical spacing (at the defaults: 5.6mm and 10.6mm, as before).
+  const companyBaseline = y + t.companyPt * 0.35;
+  const appBaseline = companyBaseline + t.appNamePt * 0.5;
+  headingFont();
+  doc.setFontSize(t.companyPt); doc.setTextColor(...COLORS.primary);
   const centreFor = (text: string) => centredX(doc.getTextWidth(text), pw, logoEndX);
-  doc.text(branding.companyName, centreFor(branding.companyName), y + 5.5, { align: 'center' });
-  doc.setFontSize(APPNAME_PT); doc.setTextColor(...COLORS.muted);
-  doc.text(branding.appName, centreFor(branding.appName), y + 11, { align: 'center' });
+  doc.text(branding.companyName, centreFor(branding.companyName), companyBaseline, { align: 'center' });
+  const showAppName = config.showAppName !== false;
+  if (showAppName) {
+    doc.setFontSize(t.appNamePt); doc.setTextColor(...COLORS.muted);
+    doc.text(branding.appName, centreFor(branding.appName), appBaseline, { align: 'center' });
+  }
 
-  y += maxLogoH + 4;
+  // Clear whichever is taller — the logo, or an identity block set large.
+  y += Math.max(maxLogoH, (showAppName ? appBaseline : companyBaseline) - y + 1.5) + 4;
 
   // ── Report title bar ──
   doc.setFillColor(...COLORS.primary);
-  // Taller by 1.5mm to keep the larger title optically centred in its bar.
-  doc.rect(14, y, pw - 28, 9.5, 'F');
+  // The bar grows with its title (9.5mm at the 13pt default, which keeps the
+  // title optically centred in it); the baseline sits at 63% of its height.
+  const barH = 9.5 * (t.titlePt / 13);
+  doc.rect(GUTTER_MM, y, pw - GUTTER_MM * 2, barH, 'F');
   // Centered title; no generated-on timestamp here (the print stamp at the end
   // of the report carries Printed Date & Time).
-  doc.setFontSize(TITLE_PT); doc.setTextColor(...COLORS.white);
-  doc.text(config.title, pw / 2, y + 6, { align: 'center' });
+  doc.setFontSize(t.titlePt); doc.setTextColor(...COLORS.white);
+  doc.text(config.title, pw / 2, y + barH * 0.63, { align: 'center' });
+  normalFont();
 
-  y += 13.5;
+  y += barH + 4;
 
   // ── Subtitle / filters info ──
   if (config.subtitle) {
-    doc.setFontSize(SUBTITLE_PT); doc.setTextColor(...COLORS.muted);
+    doc.setFontSize(t.subtitlePt); doc.setTextColor(...COLORS.muted);
     const lines = doc.splitTextToSize(config.subtitle, pw - 28);
     doc.text(lines, 14, y);
     y += lines.length * 4 + 2;
@@ -290,11 +376,11 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
        * needs at the bottom is its place in the set — which is why the one thing
        * left is emphasised rather than greyed.
        */
-      doc.setFontSize(SMALLPRINT_PT);
+      doc.setFontSize(t.smallprintPt);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(0, 0, 0);
       doc.text(`Page ${i} of ${pageCount}`, pw / 2, ph - 7, { align: 'center' });
-      doc.setFont('helvetica', 'normal');
+      normalFont();
     }
   };
 
@@ -304,7 +390,10 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
   // of the last page; spills onto a fresh page if it would overlap content.
   const addEndBlock = () => {
     const legendItems = config.legend ?? [];
-    doc.setFontSize(SMALLPRINT_PT);
+    // Line heights follow the sizes (3.6mm and 4.5mm at the defaults).
+    const legendLineH = t.smallprintPt * 0.45;
+    const sigLineH = t.labelPt * 0.5;
+    doc.setFontSize(t.smallprintPt);
     const legendText = legendItems.length
       ? 'Legend:   ' + legendItems.map((l) => `${l.abbr} = ${l.meaning}`).join('      ')
       : '';
@@ -323,8 +412,8 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     }
 
     const remarksH = 4 + 22 + 3;                         // label + box + gap
-    const legendH = legendLines.length ? legendLines.length * 3.6 + 3 : 0;
-    const printedH = 4 + sigLines.length * 4.5;
+    const legendH = legendLines.length ? legendLines.length * legendLineH + 3 : 0;
+    const printedH = 4 + sigLines.length * sigLineH;
     const blockH = remarksH + legendH + printedH;
 
     const footerLineY = ph - 12;
@@ -335,7 +424,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
 
     let by = top;
     // Remarks — empty bordered box for handwriting
-    doc.setFontSize(LABEL_PT); doc.setTextColor(...COLORS.primary);
+    doc.setFontSize(t.labelPt); doc.setTextColor(...COLORS.primary);
     doc.text('Remarks:', 14, by + 3);
     by += 4;
     doc.setDrawColor(...COLORS.border); doc.setLineWidth(0.3);
@@ -343,16 +432,16 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     by += 22 + 3;
     // Legend (abbreviation key) — only when the report passes one
     if (legendLines.length) {
-      doc.setFontSize(SMALLPRINT_PT); doc.setTextColor(...COLORS.muted);
+      doc.setFontSize(t.smallprintPt); doc.setTextColor(...COLORS.muted);
       doc.text(legendLines, 14, by + 2.5);
-      by += legendLines.length * 3.6 + 3;
+      by += legendLines.length * legendLineH + 3;
     }
     // Signatory block (one line each) + Printed Date & Time on the first line.
     doc.setDrawColor(...COLORS.border); doc.setLineWidth(0.2);
     doc.line(14, by, pw - 14, by);
-    doc.setFontSize(LABEL_PT); doc.setTextColor(...COLORS.text);
-    sigLines.forEach((line, i) => doc.text(line, 14, by + 4.5 + i * 4.5));
-    doc.text(`Printed Date & Time: ${printedAt}`, pw - 14, by + 4.5, { align: 'right' });
+    doc.setFontSize(t.labelPt); doc.setTextColor(...COLORS.text);
+    sigLines.forEach((line, i) => doc.text(line, 14, by + sigLineH + i * sigLineH));
+    doc.text(`Printed Date & Time: ${printedAt}`, pw - 14, by + sigLineH, { align: 'right' });
   };
 
   const checkPageBreak = (needed: number) => {
@@ -372,7 +461,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     checkPageBreak(10);
     doc.setFillColor(...COLORS.headerBg);
     doc.roundedRect(14, y - 1, pw - 28, 7, 1, 1, 'F');
-    doc.setFontSize(SECTION_PT); doc.setTextColor(...COLORS.primary);
+    doc.setFontSize(t.sectionPt); doc.setTextColor(...COLORS.primary);
     doc.text(text, 17, y + 4);
     y += 10;
     pendingTitle = text;
@@ -385,6 +474,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     body: string[][];
     columnStyles?: Record<number, any>;
     headColor?: [number, number, number];
+    bold?: boolean[][];
   }) => {
     snapSections.push({ title: pendingTitle, head: opts.head ?? [], body: opts.body, columnStyles: opts.columnStyles });
     pendingTitle = undefined;
@@ -394,8 +484,9 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       ...(opts.head ? { head: [opts.head] } : {}),
       body: opts.body,
       theme: 'grid',
-      styles: { fontSize: TABLE_PT, cellPadding: 2.5, lineColor: COLORS.border, lineWidth: 0.2, textColor: COLORS.text, overflow: 'linebreak' },
-      headStyles: { fillColor: opts.headColor ?? COLORS.primary, textColor: COLORS.white, fontStyle: 'bold', fontSize: TABLE_HEAD_PT },
+      margin: { left: GUTTER_MM, right: GUTTER_MM },
+      styles: { fontSize: t.tablePt, cellPadding: 2.5, lineColor: COLORS.border, lineWidth: 0.2, textColor: COLORS.text, overflow: 'linebreak' },
+      headStyles: { fillColor: opts.headColor ?? COLORS.primary, textColor: COLORS.white, fontStyle: 'bold', fontSize: t.tableHeadPt, halign: t.tableHeadAlign },
       // Zebra striping reads as "these are records"; a parameter block is a
       // form, and striping it makes the reader look for a fifth row.
       /**
@@ -410,6 +501,15 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       rowPageBreak: 'avoid',
       ...(opts.head ? { alternateRowStyles: { fillColor: COLORS.altRow } } : {}),
       columnStyles: opts.columnStyles ?? {},
+      // Per-cell emphasis, decided by the caller (a limit crossed, a fault
+      // word). Applied here rather than by handing autotable styled cell
+      // objects, so `body` stays plain strings and the snapshot above stays
+      // re-renderable.
+      ...(opts.bold ? {
+        didParseCell: (d: any) => {
+          if (d.section === 'body' && opts.bold![d.row.index]?.[d.column.index]) d.cell.styles.fontStyle = 'bold';
+        },
+      } : {}),
     });
     y = (doc as any).lastAutoTable.finalY + 5;
   };
@@ -428,9 +528,9 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       // The LABEL stays a step below its VALUE: this block is read for the values
       // (the Block, the Inst ID, the period), and equal weight makes a caption
       // compete with the thing it captions.
-      doc.setFontSize(SMALLPRINT_PT); doc.setTextColor(...COLORS.muted);
+      doc.setFontSize(t.smallprintPt); doc.setTextColor(...COLORS.muted);
       doc.text(pairs[i][0], x, y);
-      doc.setFontSize(LABEL_PT + 1); doc.setTextColor(...COLORS.text);
+      doc.setFontSize(t.labelPt + 1); doc.setTextColor(...COLORS.text);
       doc.text(pairs[i][1] || '-', x, y + 4.5);
     }
     y += 13;

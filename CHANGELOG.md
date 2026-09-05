@@ -1,5 +1,471 @@
 # Changelog
 
+## [Unreleased] - Gateway: ONE CHILD PER MESSAGE — a flat payload with `devN` routes to that child; samples keyed `t` / `h` (2026-09-05)
+
+Operator: *"make temperature key as t and humidity key as h"*. The live
+`telemetry-slots` alias lists already accepted `t` and `h`, so the platform
+change is to every sample payload (Connection instructions panel,
+`LOCAL_SETUP_WINDOWS.md`): `{"t": 21.5, "h": 47}`.
+
+**Found in the data while checking the keys, and fixed:** since 12:09 today
+the gateway IOTGW01 had been publishing each sensor as its own FLAT message on
+its own topic — `{"devN":"CWH/RDU/002-00","id":2,"ty":2,"t":"20.3","h":"60.9"}`,
+no `devices` wrapper — and the ingest, seeing no batch, stored all of it as
+the GATEWAY's own readings: 110 rows keyed `id`/`ty`, 104 keyed `devN`, on
+IOTGW01, with the children named in `devN` receiving nothing. That is the
+plant firmware's real form. `ingest-core.ts` now treats a GATEWAY's flat
+payload that carries a string `devN` as a one-block batch: routed to that
+child through the same child map, `devN` stripped, a foreign `devN`
+dead-lettered. A gateway's flat payload WITHOUT `devN` is still its own
+reading (`{"rssi": -60}`), and a non-gateway's `devN` is still just a key —
+there is no child map to route through, and inventing one would let any
+device write for any other. `id` and `ty` are firmware fields of unknown
+meaning and are stored as readings under those keys, as before. **The 110 +
+104 rows already on IOTGW01 stay** — telemetry is a §11 record and is never
+deleted to tidy a mistake; they are readings from before the form was
+understood. Pinned by a new e2e in `gateway-ingest.test.ts` (child gets
+`t`/`h`/`id`/`ty`, never `devN`; gateway gets nothing; gateway's own flat
+still lands; foreign `devN` dead-lettered). The panel shows this
+one-child-per-message form for a gateway beside the batch.
+
+**Proven live within minutes of the reload:** the gateway's messages naming
+`CWH/RDU/001-00` now land on that child; the ones naming `CWH/RDU/002-00` are
+dead-lettered against IOTGW01 with *"not linked to gateway"* — because **no
+instrument is coded `CWH/RDU/002-00`**; the registered code is
+`CWH/RDU/002-01`. That is a firmware or registration mismatch for the operator
+to settle, and the dead-letter log on IOTGW01 is where it shows.
+
+**A second defect found in the same messages, fixed:** the device's own
+timestamp arrives as an epoch STRING (`"ts":"1788599495138"`), which
+`new Date(string)` cannot read, so every reading was silently stamped with its
+ARRIVAL time — measured 43 s late on a §11 record. `parseDeviceTs()` in
+`payload-parser.ts` now reads a 13-digit string as milliseconds and a 10-digit
+string as seconds (the two widths firmware emits), for the envelope and for a
+per-block `ts` alike; ISO strings and epoch numbers behave as before.
+`device-ts.test.ts` (6).
+
+## Gateway batch: a LIST of blocks, each naming its instrument under `devN` (2026-09-05)
+
+Operator, pasting the gateway's `mosquitto_pub` batch: *"send it instrument id
+as value for devN key … devN is common key for all, value will change"*. The
+gateway firmware emits a list of sensor blocks with the identity INSIDE each
+block under one common key, so the batch may now be:
+
+```json
+{"devices":[{"devN":"CWH/RDU/001-00","temperature":22.5,"humidity":54},
+            {"devN":"CWH/RDU/002-00","temperature":23,"humidity":43}]}
+```
+
+`parsePayload` folds the list onto `dev1`, `dev2`, … (the position is only a
+slot, and that name is what a rejection reports); `fanoutDevices` resolves each
+block's code from a string `devN` and strips it from the readings — an identity
+is not a measurement. Without `devN` the outer key is the code exactly as
+before, so the code-keyed object still works. Both shapes pass through the same
+child-map authorisation — a gateway still writes only for its own linked
+children, and a block naming a foreign instrument is dead-lettered by CODE.
+`devN` wins over the outer key when both are present; a non-string `devN` is a
+rejected block naming its slot; an empty `devN` falls back to the key.
+**"Instrument id" here is the instrument CODE** (the wire's identity since
+2026-09-04), never the UUID — no UUID fallback, by the operator's earlier
+choice. (An `id`-keyed numbered-object shape lived for about an hour the same
+day and was replaced by this before anything used it.) The Connection
+instructions panel shows the list shape as THE batch example. Tests: 8 unit
+(`gateway-fanout-slots.test.ts`, parser + fan-out), 1 e2e in
+`gateway-ingest.test.ts` (both shapes, the foreign-code dead-letter). Docs:
+`LOCAL_SETUP_WINDOWS.md` §9A.3, `docs/recreation/06-api/endpoints.md`.
+
+## Child attributes BUNDLE: every child's attributes in one retained message per gateway (2026-09-05)
+
+Operator: *"when ever i changed multiple instruments attributes, how it will
+send back to gateway instrument all the linked instruments to one topic"* →
+*"one message for all children with full set, go"*.
+
+A third retained downlink slot per gateway, `instruments/<gw>/children/attributes`,
+carrying EVERY child's complete attribute set, plus the one change that
+prompted the publish (`changed`, `value: null` for a removal, `null` for a
+membership-driven republish). **Its shape is the telemetry batch's, mirrored**
+(operator, later the same day: *"can u do same for attributes also"*): a list
+under `devices`, each block `{"devN": "<code>", "<attribute>": "<value>", …}`,
+and `changed` as `{devN, key, value}`. (The first cut keyed children by code
+under `children` with a nested `attributes` object; replaced within the hour,
+before any device read it. `isActive` went with it — the roster carries the
+flag, and a block is its attributes alone as a telemetry block is its readings
+alone.) The per-child slots and the roster STAY —
+this sits beside them, not instead of them, so a device reading per-child slots
+keeps working and the "MQTT retains only the last message per topic" recovery
+property is carried by the bundle being the whole set every time. Under
+`/children/`, because `instruments/<gw>/attributes` is the gateway's OWN
+attribute slot. Republished from the same two places the per-child downlink
+and the roster publish (`announceAttributeChange`, `announceRoster`), cleared
+with the roster on gateway delete/demote. New module
+`modules/instruments/child-attributes-bundle.ts` (pure builder + publisher +
+loader); `scripts/publish-child-attribute-bundles.ts` seeds the slot for every
+gateway (dry run by default). ACL: the device subscribe line gained
+`instruments/${clientid}/children/attributes`; the local broker was restarted;
+**the AWS broker needs the same edit and restart.** No count moved; no
+migration. Tests: 6 unit (payload), 4 e2e (wiring, incl. "standalone edit
+publishes no bundle"). `LOCAL_SETUP_WINDOWS.md` §9C.1 documents the wire shape.
+
+**The Connection instructions panel now shows the attribute PAYLOADS** the
+way it shows the telemetry sample (operator: *"show the payload for attributes
+… same like telemetry"*): under "Attribute updates (platform → device)", each
+downlink topic is followed by its subscribe command and a sample payload with
+the instrument's real codes and example values — the per-instrument slot
+(`attributes` + `changed` + `ts`), and for a gateway the whole-set bundle and
+the roster too. Only on the MQTT/MQTTS tabs, since only the broker can be
+subscribed to. 3 new render tests (45 in the file).
+
+## Instrument History widget on the Instruments page (2026-09-05)
+
+Operator: *"same like trends page time series, provide one widget same like
+that in All instruments page, in that widget provide Block and Area and
+instrument selection if user want Area wise instruments history report he can
+download from there all instruments in that area, and also multiple selection
+and download report for only selected instruments"*. Two decisions put to them
+and taken: one PDF **section per instrument**, and a **full merged readings
+table** on screen (which needed a new endpoint).
+
+**New endpoint `GET /api/instruments/telemetry-history`** — the merged, paged,
+newest-first readings of several instruments (`getMultiInstrumentHistory`).
+Pivoted in SQL, one row per (instrument, instant) carrying every key reported
+at it, so a page boundary can never split an instant's temperature from its
+humidity; `total` counts instants. Values are RAW and unfiltered by key: which
+key is an instrument's temperature is per instrument (`telemetry-overview`
+says), and a site-wide alias filter here would silently drop an instrument
+whose keys have drifted. **Visibility is applied to the ID SET** before the
+query — an out-of-scope instrument is absent from rows and count, never a 403.
+Pinned by `e2e/telemetry-history.e2e.test.ts`, including the scope case
+against the OPERATOR fixture. No new module, permission, model or route file;
+`INSTRUMENT_READ` gates it like its siblings. Registered before `/:id`, as
+`/telemetry-overview` is.
+
+**The widget** (`routes/instruments/history-widget.tsx`) is a DASHBOARD PANEL,
+`dashboard_history`, placed directly under the readings table (operator, later
+the same day: *"all instruments report widget comes in dashboard not in
+instruments page, in dashboard below the all instruments readings table"* — it
+was first mounted on the Instruments page and moved). New catalogue entry in
+`@digilog/shared` `PANELS` (frozen snapshot updated), a row in
+`DEFAULT_DASHBOARD_LAYOUT` at y 9 with the floorplan and alarms shifted down,
+in `AUTO_HEIGHT_PANELS` (it ends at its pager like the table), and rendered by
+`routes/dashboard/index.tsx` inside a `PanelCard` with eyebrow `History`. In
+`embedded` mode the widget drops its own header — the card owns the title — and
+portals Block, Area, Interval and the download into the card header through
+`usePanelToolbarSlot()`, the same portal the readings table uses; the period
+presets and custom range stay in the body because seven buttons and two date
+inputs cannot share a header that must not wrap. Assignable per role and per
+user on Roles & Access → Panels like every other panel.
+**`appendMissing` changed for it, for every panel from now on:** a panel a
+STORED layout does not know used to be appended at the bottom, which would
+have put this one under the floorplan and the alarms on every layout ever
+saved. It now lands directly under the panel that precedes it in the shipped
+layout, shifting the rest down; the bottom only when that predecessor is not
+on the layout. Pinned in `dashboard-layout.test.ts`. It is the trend page's
+Time Series card for many instruments. Block and Area selects (the Alarms
+page's pattern, not a tree widget); a tick list of the instruments in scope —
+**once a Block or Area is chosen, everything in it is selected until something
+is unticked**, so "the whole Area" and "these three" are one control
+(`history-selection.ts`, pure and pinned; ticks from a previous Area are
+dropped, and re-ticking the last one collapses back to "all"). **With no scope
+chosen nothing is selected**: the list is then the whole plant, and a default
+of "everything" would fire a plant-wide history query for every visitor of the
+Instruments page. The Block → Areas expansion is the SERVER's, through
+`/api/instruments?functionalLocationId=`; the browser never re-derives it. The
+readings table judges each row with ITS OWN instrument's limits, precision and
+span from `telemetry-overview` (two instruments in one Area can carry different
+specs — the test uses exactly that), with the card's own `ROW_ACCENT` /
+`PILL_CLASS` / `FAULT_PILL` (now exported, one vocabulary for one mark) and the
+administered `Error` / `OL` words. Period, custom range and interval share
+`useTrendPeriod`'s URL state with the trend page — one vocabulary for "what
+period is this". Paged with the canonical `<Pagination>` at the administered
+page size.
+
+**The download** is the Data Report for every selected instrument in ONE
+document (`renderInstrumentHistoryReport`): a cover block in the parameter
+block's own shape — Block, Area, Instruments, Interval against the period —
+then each instrument on a fresh page with the SAME parameter block and table
+its single-instrument report prints, so a page torn out reads exactly like that
+instrument's own report. The legend is the union of every section's. Each
+instrument is read in turn through `data-report-fetch.ts` — the per-instrument
+fetch EXTRACTED from the trend page, which now calls the same helper, so the
+two documents cannot be built from different data — and the dialog shows
+"Reading CWH/RDU/003-01 (7 of 30)…" while it does (`ReportDownloadDialog`
+gained `progress`). Same governed dialog with the interval, same
+`DOWNLOAD_REPORT` re-auth, audit row `Instrument History` written BEFORE the
+file (`search` names the instruments), new export surface `instrument-history`
+so Export Options can govern it per role. `renderDataReport` is now a
+one-section case of the same code (`prepareDataSection` / `addDataReportSection`).
+
+Tests: `history-selection.test.ts` (7), `history-widget.test.tsx` (7 — scope
+request, tick list narrowing the history request, per-instrument judgement,
+fault words, empty scope, audit-before-save with both instruments read, ticked
+subset only), the multi-instrument renderer in `trend-report-chart.test.ts`,
+the cover rows in `data-report.test.ts`, the progress line in
+`report-download-dialog.test.tsx`, and the API e2e (5). Both apps `tsc` clean.
+**Not seen on screen** — the operator holds the browser session.
+
+## Data Report: bigger and bolder, a full interval schedule, faults in bold, the interval in the dialog (2026-09-05)
+
+Operator, in two messages against the pushed 2026-09-04 report: *"in data report
+make headings to center and in header, and increase font sizes and thickness"*,
+then *"latest time values comes first, which ever value is crossed the limit that
+value should show bold in report, and if there is not data at that interval show
+NA, and also if i selected time period and downloaded report then its showing
+where data is available but how i need is at which time it started that was first
+data point and from next on as per interval it should come if 5 minutes then after
+5 minutes data packet should come like that and also remove header on header,
+interval selection should come at data report time period selection below on top
+of remarks, Error and OL also show bold"*.
+
+**Typography is now PER-REPORT, and the Data Report opts up.**
+`lib/pdf-report.ts` gained `ReportTypography` + `DEFAULT_TYPOGRAPHY` (the exact
+values every report printed at before) and `ReportConfig.typography` for
+overrides. `DATA_REPORT_TYPOGRAPHY` in `data-report.ts` raises the company name,
+title, labels, table body and table headings, prints the company name and title
+BOLD, and CENTRES the column headings (`headStyles.halign`, which `columnStyles`
+never reached — the headings sat left over centred cells). Body readings stay
+regular, as the reference's do. The alarm, trend and audit reports print
+byte-for-byte as before, and a test pins that the shared default did not move;
+the shared `tablePt` ceiling (ten portrait columns on the alarm report) is why
+this is an override rather than a global bump. The parameter block's label
+column widened 26 → 32 mm (`scopeColumnStyles` gained a `labelWidth` parameter;
+its default is unchanged) so `Temp. Limit :` does not wrap at 10 pt — a wrapped
+label reads as two fields.
+
+**A defect found on the way, fixed for every report:** autotable's default
+margin is 40 pt = 14.11 mm while the rest of the chrome sits on a 14 mm gutter,
+so every table started 0.11 mm inside the title bar and the 182 mm parameter
+block overran the page by 0.22 mm — autotable logged "could not fit page" on
+every Data Report. Tables now take the chrome's own gutter.
+
+**The rows are a SCHEDULE anchored on the first reading, every slot printed,
+newest first** (`scheduleRows`, replacing `firstPerInterval`). With an interval:
+the first row is the earliest reading in the period; each later slot is one
+interval on, to the period's end inclusive; a slot holds the FIRST stored
+reading inside it or nothing, and an empty slot prints `NA` in both value cells
+at the time the reading was due — a gap in a log is information. At Raw every
+reading prints. Both orders are newest first (the reference's oldest-first was
+transcribed on 2026-09-04 and reversed today on the operator's instruction).
+`NA` is keyed in the legend only when a cell printed it, the same rule as NMT.
+`recordCount` in the audit row counts printed rows, gaps included.
+
+**A reading that crossed its limit prints BOLD; so do `Error` and `OL`.**
+`addTable` gained `bold[row][col]`, applied through autotable's `didParseCell`
+so `body` stays plain strings and the review snapshot stays re-renderable.
+`dataReportCell` decides each cell with the on-screen table's precedence: out of
+the probe's span → the administered out-of-range word; non-numeric → the
+administered failure word; no reading → `NA` (regular); otherwise the number,
+bold iff `outOfSpec`. The words come from `useSensorWords()` via the caller —
+no literal in the report code. Mutation-checked: removing the bold hook, the
+typography, the app-name switch, or changing `NA` to a dash each turn the suite
+red.
+
+**Consequence: the Data Report now reads the WHOLE period on the paged path,
+at Raw too.** Until today the Raw report was built from the sampled chart path,
+which drops a non-numeric reading BEFORE sampling — so the failure word could
+never have appeared at Raw. The sampled call is still made (for `historyTotal`
+and the whole-range extremes), then every stored reading is read once, sized by
+that count, and pivoted with `toTableRowsWithErrors` — the on-screen table's own
+builder. The REPRESENTATIVE SAMPLE disclosure remains for the case where the
+paged fetch returns fewer than the total; the existing 2,000-row cap notice
+covers the rest. `numericRows` is no longer used on this path.
+
+**"Remove header on header" → the app-name line under the company name is
+gone from this report** (`ReportConfig.showAppName`, default true; only the Data
+Report sets it false). Assumption, stated: the reference carries the site line
+and the title with nothing between them, and the second stacked heading is the
+one element of ours it lacks. If the operator meant the blue accent strip at
+the top of the page instead, that is a one-line change in the same place.
+
+**The interval moved into the download dialog.** `ReportDownloadDialog` gained
+`showInterval` + `initialIntervalMs`, rendering an Interval select between the
+period fields and Remarks, seeded from the page's chart interval, and the confirm
+payload carries `intervalMs` (absent unless offered). The trend page offers it
+for the Data Report only; the trend and alarm reports are unchanged. The chart
+interval control on the page itself is untouched.
+
+Tests: `data-report.test.ts` (schedule, cells, legend), `trend-report-chart.test.ts`
+(typography, bold cells, fault words, NA, app-name line, shared default
+unchanged), `trend-downloads.test.tsx` (eleven slots for the fixture, the
+dialog's interval wins, whole-period fetch at Raw), `report-download-dialog.test.tsx`
+(select absent unless asked; position; value on confirm). `tsc` clean; every
+touched file run individually by exit code. **Not seen on screen** — the
+operator holds the browser session; the layout was verified by rendering a
+sample PDF and reading it back.
+
+## The trend page's Time Series download is the DATA REPORT (2026-09-04)
+
+Operator: *"for time series widgets there is report download option in trend
+page, that report should be like data report template i need same like that
+details, table template everything"*. Reference: `Data Report.pdf` at the repo
+root. Same approach as the Alarm Report (2026-09-01): the reference's shape,
+transcribed from its own text into a pure module, laid onto the shared chrome.
+
+**What prints now** (`routes/instruments/data-report.ts`, rendered by
+`renderDataReport` in `trend-report.ts`): the site header; the title
+"Temperature and RH Data Report"; a two-column parameter block — Block / Area /
+Location / Inst ID against Start Date / Start Time / End Date / End Time, then
+`Temp. Limit` against `RH Limit`, `Temp. Max … , Temp. Min …` against `RH Max … ,
+RH Min …`, and `Interval` alone on the right; a four-column table DATE, TIME,
+TEMPERATURE (°C), RELATIVE HUMIDITY(%), oldest first; the legend (Temp, RH, and
+NMT / NLT only when a printed limit uses the word); Printed By, Printed Date &
+Time and the Remarks box from `createReport()`. `pdf-report.ts` untouched. The
+parameter block reuses the alarm report's `scopeColumnStyles`, so the two
+documents' centre lines land in the same place.
+
+**Interval rows are FIRST STORED READINGS, never averages** (operator, choosing
+the recommended option). With an interval selected on the page, the report prints
+one real reading per bucket, buckets aligned to the period START (the reference's
+rows run 16:36, 17:36, 18:36 from a 16:36 start). At Raw every reading prints.
+`firstPerInterval` is pure and pinned: every returned row IS an input row.
+
+**Two fetches when an interval is set, and why.** The sampled chart path
+(`points=`) supplies the period's true row count and the whole-range extremes;
+"first reading in the bucket" then has to be judged over EVERY reading, not over a
+sample that may not hold it, so the paged table path — which has had no ceiling
+since 2026-09-02 — is read once, sized by that count. At Raw the sample is the
+rows and, when the period holds more than came back, the report says so in a
+REPRESENTATIVE SAMPLE note, as the trend report does.
+
+**Deliberately NOT copied from the reference**
+- Dates and times are the ADMINISTERED formats (`useDatetimeFormat`), not its
+  `27-05-2026` / `16:36` — the same call the alarm report made.
+- A limit prints at the instrument's own precision through `formatSetPoint`
+  (`NMT 27.0`, `NLT 18.0`, `18.0 - 27.0`), the way every screen prints it; the
+  reference's `NMT 27` is its own system's rounding.
+- Temp. / RH Max and Min are the SERVER's extremes over every reading in the
+  period (`summaries`), never of the printed rows — with an interval selected a
+  maximum over the printed rows could sit below an excursion between two of them.
+
+**Placement facts**: Block and Area are resolved BY ID through
+`/api/functional-locations` (`resolveBlockArea`, the same walk the alarm report's
+`useFilterScopeLabels` makes), Location is the instrument's `Location` ATTRIBUTE
+(`overview.locationAttribute`, never the superseded column), Inst ID is the code.
+Note the Instrument Trend PDF still prints the drawn ROOM under "Location"; that
+document was not touched here.
+
+**Audit type UNCHANGED** — `Instrument Time Series` — so rows already logged under
+it stay one report's history; the filename becomes `data-report-<code>-<date>.pdf`.
+`recordCount` is the number of rows printed.
+
+**Removed**: `renderTimeSeriesReport`. **Tests**: `data-report.test.ts` (19, against
+the reference's own values), `trend-report-chart.test.ts` (+4 on the renderer,
+including the reference layout and the empty-period row), `trend-downloads.test.tsx`
+(+5: raw prints every reading, an interval prints one stored reading per bucket
+aligned to the period start, the whole period is fetched before bucketing, the
+sample is disclosed at Raw, the reference layout reaches the PDF). A sample PDF was
+rendered with the reference's own values and read back page by page.
+
+No count moved — no model, enum, migration, permission, reauth action, config def,
+page, route or dependency.
+
+## [Unreleased] - MQTT client id is the instrument CODE (2026-09-04)
+
+Operator: *"35dd00b3-240d-4604-a054-00dd79024386 this is CWH/RDU/001-00
+instrument mqtt client id, i want client id as CWH/RDU/001-00"*. Confirmed:
+code ONLY, no UUID fallback; and remove the hand-added `#` grant for that UUID.
+
+**What the wire looks like now.** Client id = `code`; publish to
+`instruments/<code>/telemetry`; subscribe `instruments/<code>/attributes` (a
+child: `instruments/<gatewayCode>/attributes/<code>`; a gateway:
+`instruments/<code>/attributes/#` and `instruments/<code>/children`). A code may
+contain `/` — 100 of the 101 here do — and the broker substitutes `${clientid}`
+literally, so the slashes are simply topic levels.
+
+**Why this was the UUID for four weeks, and why that reason no longer applies.**
+On 2026-08-07 the code became free text, and a code of `+` or `#` in the ACL
+template `instruments/${clientid}/…` matched EVERY instrument. The wire moved to
+the platform-generated UUID so nothing typed reached a topic. This change puts
+operator text back in the topic, so the guard comes back at REGISTRATION instead:
+`instrumentCodeTopicViolation()` in `@digilog/shared` refuses `+`, `#`, NUL, and a
+LAST segment of `telemetry`/`attributes`/`children` — applied by the zod schema,
+`bulk-csv.ts` (as an error row, not an exception) and the create form (which
+otherwise reports a zod-flatten 400 as "Could not create the instrument."). 0 of
+the 101 existing codes are affected.
+
+**The reserved-word rule is not decoration.** The bridge now subscribes
+`instruments/#` (`+` is exactly one level and cannot reach a slashed code) and
+reads the topic KIND from the last segment. A child coded `X/telemetry` would have
+its attribute downlink published on `instruments/<gw>/attributes/X/telemetry`,
+which parses as telemetry from an instrument coded `<gw>/attributes/X`.
+`isDownlinkTopic` drops the bridge's own retained slots SILENTLY — a log line per
+slot per reconnect would bury a real drop — and a test pins that a telemetry
+topic whose code contains `attributes` is never mistaken for one.
+
+**Code:** `mqtt-auth-routes.ts` (clientid = code, UUID DENIED), `mqtt-bridge.ts`
+(`instruments/#`, prefix/suffix parse, lookup by code), `attribute-downlink.ts` +
+`child-roster.ts` (topics keyed on codes; `AttributeDownlink.code`/`gatewayCode`),
+`instruments/routes.ts` (resolves the gateway code for downlink and roster),
+`connection-instructions.tsx` (client id and every topic = code; the `id` and
+`gatewayId` props are gone, and `TokenDialog` no longer takes `id`),
+`create.tsx` (client-side refusal with the reason), the two demo scripts.
+New `scripts/migrate-mqtt-topics-to-code.ts` clears the UUID-keyed retained
+slots and republishes them code-keyed (dry run by default) — run locally:
+102 cleared, 102 published.
+
+**Broker:** `emqx-5.3.2/etc/acl.conf` — bridge subscribe and publish grants are
+`instruments/#`; the 2026-09-03 TEMPORARY TEST GRANT for client id `35dd00b3-…`
+(publish/subscribe on `#`, a bypass of the whole binding for one device) removed.
+EMQX restarted (it was down when this started). **The AWS broker needs the same
+edit and restart when this deploys.**
+
+**Proven live against the running broker and bridge (8/8):** connect as
+`ZZ/PROOF/…` accepted; a reading published on `instruments/ZZ/PROOF/…/telemetry`
+landed on that instrument; subscribe to own attribute slot granted, to another's
+refused; publish to another's telemetry topic landed nothing; connect with the
+UUID refused (`Not authorized`); a valid token under another instrument's code
+refused; a fresh device saw no foreign retained message. The two throwaway
+instruments were created and deleted with audit rows.
+
+**Consequence to act on:** the one device connected in the last 7 days
+(CWH/RDU/001-00, direct MQTT, last seen 2026-09-03) is on the UUID and is refused
+at CONNECT until reconfigured with `CWH/RDU/001-00` as client id and
+`instruments/CWH/RDU/001-00/telemetry` as topic.
+
+**Tests:** shared schema +8, `mqtt-topic.test.ts` rewritten (11), `bulk-csv` +1,
+`attribute-downlink` +1, `child-roster` +1, `e2e/mqtt-auth` +2 (slash code
+allowed, UUID denied), `e2e/mqtt-ingest` +2, downlink/roster e2e rekeyed,
+`connection-instructions.test.tsx` rekeyed (42). No count moved — no model,
+enum, migration, permission, reauth action, config def, page or route.
+
+## [Unreleased] - Every instrument is named by its code (2026-09-04)
+
+Operator: *"make all the instruments name should come as client ids for all
+instruments"* — and, asked which value "client id" meant, chose the instrument
+CODE (`CWH/RDU/001-00`), not the gateway-child `token` attribute
+(`IOTGW01_163`).
+
+**What changed: DATA, not code.** `scripts/rename-instruments-to-code.ts` set
+`instruments.name = code` on the 100 CWH instruments (the gateway `IOTGW01` was
+already named by its code). Each rename was written in the same transaction as
+an `INSTRUMENT_UPDATED` audit row carrying the before/after name, attributed to
+`superadmin` with a reason stating that no e-signature was captured — the same
+precedent as `fix-cwh-entities.ts`. 100 rows, hash chain verified intact after.
+Dry run by default; idempotent, so a second run writes nothing.
+
+**Why nothing was lost.** The old name was the room ("IT Server Room") and was
+byte-identical to the `Location` attribute on all 100 instruments — the
+dashboard printed it twice. The room is still in `Location`, which the
+dashboard's Location column reads. The root `CLAUDE.md` measurement that
+justified dropping the Room column ("`name` is byte-identical to `Location` on
+100 of 100") is now historical: it was true when measured and is the reason the
+rename costs nothing.
+
+**One code line moved:** `scripts/import-cwh-instruments.ts` now creates
+instruments with `name: code`, so a future re-import does not silently undo
+this. Two pre-existing type errors in that script were fixed while there: it
+still referenced `tx.alarmRule` (removed 2026-08-31 — it would have crashed at
+runtime in the delete phase) and passed `sessionId: null` to `auditLog`, which
+takes `string | undefined`.
+
+**Not verified in a browser:** the operator's session was open, and a second
+login is refused with `409 SESSION_CONFLICT`. Every consumer reads `name` live
+from the row (dashboard overview, alarm list, alarm notifications and webhooks,
+trend header); no cache holds it (`ingest-auth` and the gateway child map cache
+`id`/`code`/`isActive` only).
+
+No count moved — no model, enum, migration, module, config def, page, route,
+permission or reauth action.
+
 ## [Unreleased] - Ingest accepts a `values` envelope (2026-09-03)
 
 Operator: *"still data was not coming to temperture and humidity"* — for

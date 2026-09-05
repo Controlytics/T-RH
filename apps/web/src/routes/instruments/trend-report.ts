@@ -7,10 +7,19 @@ import {
 import type { TableRow } from './trend-series';
 import type { ChartImage } from './chart-image';
 import type { SlotSummary } from './trend-summary';
+import { scopeColumnStyles, CONTENT_WIDTH_MM } from '@/routes/alarms/alarms-report';
+import {
+  DATA_REPORT_TITLE, DATA_REPORT_HEAD, DATA_REPORT_TYPOGRAPHY, DATA_REPORT_LABEL_MM,
+  dataReportLegend, dataReportParameterRows, dataReportRows, instrumentHistoryCoverRows,
+  dataReportColumnStyles, emptyDataReportRow, limitText as slotLimitText,
+  type DataReportScope, type DataReportFormatters, type DataReportWords, type ReportSlotRow,
+  type SlotBounds, type SlotExtremes,
+} from './data-report';
 
 /**
  * The PDF renderers behind the trend page's governed downloads — the trend
- * charts (per slot, or both), the raw time series, and the alarms.
+ * charts (per slot, or both), the Data Report (the time series widget), and
+ * the alarms.
  *
  * None of this re-derives limits or decimals wording: everything is
  * passed in already resolved, the same values the screen shows. That now
@@ -382,54 +391,171 @@ export async function renderTrendReport(input: TrendReportInput): Promise<Report
 }
 
 /**
- * The raw paged time-series widget — every administered AND extra key column
- * currently shown on screen, for the dialog's chosen period (which may differ
- * from the page's).
+ * The Time Series widget's download: the DATA REPORT, built to the operator's
+ * `Data Report.pdf` (2026-09-04). The layout is `data-report.ts`; this function
+ * only lays it onto the shared chrome, exactly as `buildAlarmsReport` does for
+ * the alarm report.
  *
- * `coverage` is REQUIRED, and is why this signature changed on 2026-08-27.
- * This report fetches down the same `points=` path the trend report does, so
- * for a wide period it holds a SAMPLE — and it was printing that sample under
- * the title "raw readings" with no disclosure at all. Two other documents point
- * readers here for the unaveraged record, so it has to say what it holds; a
- * caller that has the numbers must pass them rather than being allowed to omit
- * the disclosure by omitting an argument.
+ * `rows` arrive already bucketed (`firstPerInterval`) and oldest-first — one
+ * stored reading per interval when the page has an interval selected, every
+ * reading at Raw. `temp`/`rh` carry the bounds the server resolved AND the
+ * period extremes from the server's whole-range summary, never the extremes of
+ * `rows`: with an interval selected the table holds one reading per bucket, and
+ * a maximum taken over those could sit below an excursion between two of them.
+ *
+ * `coverage` is what the rows were drawn from. On the interval path the page
+ * fetches EVERY reading in the period before bucketing, so `returned === total`
+ * and no disclosure prints. At Raw the rows come from the sampled chart path,
+ * and a period wider than the sample says so in the report — a signed record
+ * silently holding a subset is the defect class this codebase has fixed twice.
  */
-export async function renderTimeSeriesReport(
-  rows: TableRow[],
-  keys: { key: string; label: string; decimals: number }[],
-  instrument: ReportInstrument,
-  period: ReportPeriod,
-  formatDateTime: (d: string) => string,
-  coverage: ReportCoverage,
-): Promise<ReportDoc> {
-  const { shown, capped, total } = capRows(rows);
-  const report = await createReport({
-    title: 'Instrument Time Series (raw readings)',
-    subtitle: instrument.code,
+export interface DataReportInput {
+  scope: DataReportScope;
+  period: ReportPeriod;
+  fmt: DataReportFormatters;
+  formatDateTime: (d: string) => string;
+  temp: { key: string | null } & SlotBounds & SlotExtremes;
+  rh: { key: string | null } & SlotBounds & SlotExtremes;
+  /** From `scheduleRows()` — newest first, one per slot, `row: null` = NA. */
+  rows: ReportSlotRow[];
+  intervalMs: number | null;
+  coverage: ReportCoverage;
+  /** The administered fault words, from `useSensorWords()`. */
+  words: DataReportWords;
+}
+
+/** One instrument's section, prepared: its capped rows and printed cells. */
+interface PreparedDataSection {
+  input: DataReportInput;
+  shown: ReportSlotRow[];
+  capped: boolean;
+  total: number;
+  body: ReturnType<typeof dataReportRows>;
+  limitTexts: string[];
+}
+
+function prepareDataSection(input: DataReportInput): PreparedDataSection {
+  const { shown, capped, total } = capRows(input.rows);
+  return {
+    input, shown, capped, total,
+    limitTexts: [slotLimitText(input.temp), slotLimitText(input.rh)],
+    body: dataReportRows(
+      shown,
+      { temp: input.temp.key, rh: input.rh.key },
+      { temp: input.temp, rh: input.rh },
+      input.fmt,
+      input.words,
+    ),
+  };
+}
+
+/** The chrome every Data Report — single or multi-instrument — is created with. */
+function dataReportChrome(formatDateTime: (d: string) => string, legend: { abbr: string; meaning: string }[]) {
+  return {
+    title: DATA_REPORT_TITLE,
+    orientation: 'portrait' as const,
     reportKey: 'instrument-trend',
     formatDateTime,
+    legend,
+    typography: DATA_REPORT_TYPOGRAPHY,
+    showAppName: false,
+  };
+}
+
+export async function renderDataReport(input: DataReportInput): Promise<ReportDoc> {
+  const section = prepareDataSection(input);
+  const report = await createReport(dataReportChrome(
+    input.formatDateTime,
+    dataReportLegend(section.limitTexts, section.body.printedNoData),
+  ));
+  addDataReportSection(report, section);
+  return report;
+}
+
+/**
+ * The Data Report for SEVERAL instruments — an Area's, or a hand-picked set
+ * (the Instruments page's history widget, 2026-09-05; operator chose "one
+ * section per instrument"). A cover block names what the document covers, then
+ * each instrument starts on a fresh page with the SAME parameter block and
+ * table as its own single-instrument Data Report, so a page torn out of this
+ * document reads exactly like the report that instrument would have produced
+ * alone. The legend is the union of every section's — an abbreviation is keyed
+ * if any page printed it.
+ */
+export interface InstrumentHistoryReportInput {
+  /** The selection the document covers; blank fields print a dash. */
+  scope: { blockName: string; areaName: string };
+  period: ReportPeriod;
+  intervalMs: number | null;
+  fmt: DataReportFormatters;
+  formatDateTime: (d: string) => string;
+  /** One per instrument, in the order they print. */
+  instruments: DataReportInput[];
+}
+
+export async function renderInstrumentHistoryReport(input: InstrumentHistoryReportInput): Promise<ReportDoc> {
+  const sections = input.instruments.map(prepareDataSection);
+  const legend = dataReportLegend(
+    sections.flatMap((s) => s.limitTexts),
+    sections.some((s) => s.body.printedNoData),
+  );
+  const report = await createReport(dataReportChrome(input.formatDateTime, legend));
+  report.addTable({
+    body: instrumentHistoryCoverRows({
+      scope: input.scope, period: input.period, intervalMs: input.intervalMs,
+      instrumentCount: input.instruments.length, fmt: input.fmt,
+    }),
+    columnStyles: scopeColumnStyles(CONTENT_WIDTH_MM, DATA_REPORT_LABEL_MM),
   });
-  addInstrumentDetails(report, instrument, period);
-  if (coverage.total > coverage.returned) {
+  if (sections.length === 0) {
+    addNote(report, 'No instruments were selected for this report.', report.colors.muted);
+  }
+  for (const section of sections) {
+    report.newPage();
+    addDataReportSection(report, section);
+  }
+  return report;
+}
+
+/**
+ * One instrument's Data Report body, drawn into an existing document: the
+ * parameter block, the coverage disclosure if any, the row-cap notice if any,
+ * and the readings table.
+ */
+function addDataReportSection(report: ReportDoc, section: PreparedDataSection): void {
+  const { input, shown, capped, total, body } = section;
+  // The parameter block: headless, two fields per row, ruled like the alarm
+  // report's — the same column helper, so the two documents' centre lines land
+  // in the same place; only the label column is wider, for the larger type.
+  report.addTable({
+    body: dataReportParameterRows({
+      scope: input.scope, period: input.period, temp: input.temp, rh: input.rh,
+      intervalMs: input.intervalMs, fmt: input.fmt,
+    }),
+    columnStyles: scopeColumnStyles(CONTENT_WIDTH_MM, DATA_REPORT_LABEL_MM),
+  });
+  if (input.coverage.total > input.coverage.returned) {
     addNote(
       report,
-      `REPRESENTATIVE SAMPLE: this report was built from ${coverage.returned.toLocaleString()} of the `
-      + `${coverage.total.toLocaleString()} stored values across all keys that ${period.label} holds, selected `
+      `REPRESENTATIVE SAMPLE: this report was built from ${input.coverage.returned.toLocaleString()} of the `
+      + `${input.coverage.total.toLocaleString()} stored values across all keys that ${input.period.label} holds, selected `
       + `ACROSS THE WHOLE PERIOD rather than taken from its most recent portion. Every row below is a stored, `
-      + `unaveraged reading, but these are NOT every stored reading in the period. To print every stored reading, `
-      + `narrow the period — no report from this page prints more than ${MAX_REPORT_ROWS.toLocaleString()} rows.`,
+      + `unaveraged reading, but these are NOT every stored reading in the period. Temp. Max / Min and RH Max / Min `
+      + `above are computed over EVERY reading in the period, not over this sample. To print every stored reading, `
+      + `narrow the period or select an interval — no report from this page prints more than `
+      + `${MAX_REPORT_ROWS.toLocaleString()} rows.`,
       report.colors.red,
     );
   }
-  addCapNotice(report, capped, shown.length, total, period);
+  addCapNotice(report, capped, shown.length, total, input.period);
   report.addTable({
-    head: ['Timestamp', ...keys.map((k) => k.label)],
-    body: shown.map((r) => [
-      formatDateTime(r.ts),
-      ...keys.map((k) => (r.values[k.key] == null ? '—' : formatDecimals(r.values[k.key], k.decimals) ?? '—')),
-    ]),
+    head: DATA_REPORT_HEAD,
+    columnStyles: dataReportColumnStyles(),
+    // A report of an empty period must SAY it is empty — a header with no rows
+    // reads as a rendering failure on paper.
+    body: shown.length ? body.cells : [emptyDataReportRow()],
+    bold: shown.length ? body.bold : undefined,
   });
-  return report;
 }
 
 /**
