@@ -2,6 +2,8 @@ import mqtt, { type MqttClient, type IClientOptions } from 'mqtt';
 import { prisma } from '../../../lib/prisma.js';
 import type { IngestIdentity } from '../ingest-auth.js';
 import { ingestPayload } from '../ingest-core.js';
+import { ingestAttributeReport } from '../attribute-report.js';
+import { parseRtcRequestTopic, isGetTimeRequest, publishTime } from './rtc-sync.js';
 import { logger } from '../../../lib/logger.js';
 
 /**
@@ -115,6 +117,25 @@ export interface MqttBridgeHandle {
 
 const TELEMETRY_PREFIX = 'instruments/';
 const TELEMETRY_SUFFIX = '/telemetry';
+/** The device → platform ATTRIBUTE path (2026-09-05): `instruments/<code>/attributes/report`. */
+const ATTRIBUTE_REPORT_SUFFIX = '/attributes/report';
+
+/**
+ * `instruments/<code>/attributes/report` → `<code>`, or null. Checked BEFORE
+ * `isDownlinkTopic`, which would otherwise swallow it as one of the bridge's own
+ * retained slots (it contains `/attributes/`). Safe against a code ending in
+ * `report`: `MQTT_RESERVED_TOPIC_SEGMENTS` refuses that at registration, for
+ * exactly the reason it refuses `telemetry` — a child coded `X/report` would
+ * have its per-child downlink `instruments/<gw>/attributes/X/report` read here
+ * as a report from `<gw>/attributes/X`.
+ */
+export function parseAttributeReportTopic(topic: string): string | null {
+  if (topic.length <= TELEMETRY_PREFIX.length + ATTRIBUTE_REPORT_SUFFIX.length) return null;
+  if (!topic.startsWith(TELEMETRY_PREFIX) || !topic.endsWith(ATTRIBUTE_REPORT_SUFFIX)) return null;
+  const code = topic.slice(TELEMETRY_PREFIX.length, topic.length - ATTRIBUTE_REPORT_SUFFIX.length);
+  if (code.length === 0 || code.includes('+') || code.includes('#')) return null;
+  return code;
+}
 
 /**
  * `instruments/<code>/telemetry` -> `<code>`, or null.
@@ -342,6 +363,42 @@ export async function startMqttBridge(
       while (queue.length > 0 && !closing) {
         const { topic, payload } = queue.shift() as { topic: string; payload: Buffer };
 
+        // RTC request (2026-09-05): `{"method":"getTime"}` on
+        // `instruments/<code>/rtc-request` → the time goes out on the GLOBAL
+        // time topic at once. Any active instrument may ask; anything else on
+        // the topic is ignored, and an unknown code is dropped with a log.
+        const rtcCode = parseRtcRequestTopic(topic);
+        if (rtcCode) {
+          const asker = await lookupByCode(rtcCode);
+          if (!asker) {
+            log('rtc request dropped — no active instrument with that code', { topic, code: rtcCode });
+          } else if (!isGetTimeRequest(payload)) {
+            log('rtc request ignored — not {"method":"getTime"}', { instrument: asker.code });
+          } else {
+            await publishTime(new Date(), log);
+          }
+          continue;
+        }
+
+        // Attribute REPORT first — see `parseAttributeReportTopic` for why it
+        // must precede the downlink check.
+        const reportCode = parseAttributeReportTopic(topic);
+        if (reportCode) {
+          const reporter = await lookupByCode(reportCode);
+          if (!reporter) {
+            log('attribute report dropped — no active instrument with that code', { topic, code: reportCode });
+            continue;
+          }
+          try {
+            const outcome = await ingestAttributeReport({ identity: reporter, raw: payload, log });
+            if (!outcome.ok) log('attribute report refused', { code: outcome.code, instrument: reporter.code });
+            else if (outcome.refused > 0) log('attribute report: keys refused', { instrument: reporter.code, refused: outcome.refused });
+          } catch (e) {
+            log('attribute report FAILED — not written', { instrument: reporter.code, err: (e as Error).message });
+          }
+          continue;
+        }
+
         const code = parseTelemetryTopic(topic);
         if (!code) {
           // Our own retained downlinks come back to us under `instruments/#`.
@@ -399,6 +456,14 @@ export async function startMqttBridge(
         // caller would wait out its whole timeout for a message that was never
         // going to leave.
         if (closing) return reject(new Error('bridge is closing'));
+        // An EVENT (not retained) must not be queued while offline and flushed
+        // later: seen live 2026-09-05, when a reconnecting bridge delivered
+        // the 12:07 and 12:08 RTC ticks at 12:09:03 — a gateway setting its
+        // clock from those would be two minutes wrong. A retained downlink is
+        // STATE and may wait; a stale event is worse than none.
+        if (!publishOpts.retain && client.connected === false) {
+          return reject(new Error('bridge offline — event not queued'));
+        }
         client.publish(topic, payload, publishOpts, (err) =>
           err ? reject(err) : resolve());
       }),

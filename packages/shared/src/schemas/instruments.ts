@@ -77,7 +77,12 @@ const codeSchema = z.string().min(1, 'Instrument ID is required').superRefine((c
  * Only `telemetry` can actually collide today; all three are reserved so the
  * rule is "a code does not end in a topic word", which survives a fourth kind.
  */
-export const MQTT_RESERVED_TOPIC_SEGMENTS = ['telemetry', 'attributes', 'children'] as const;
+// `report` joined the list 2026-09-05 with the device → platform attribute
+// topic `instruments/<code>/attributes/report`: a child coded `X/report` would
+// have its per-child downlink read as a report from `<gw>/attributes/X`.
+// `rtc-request` (2026-09-05, RTC sync): same reasoning, for
+// `instruments/<code>/rtc-request`.
+export const MQTT_RESERVED_TOPIC_SEGMENTS = ['telemetry', 'attributes', 'children', 'report', 'rtc-request'] as const;
 
 /**
  * Why a code cannot be an MQTT client id / topic segment, or null when it can.

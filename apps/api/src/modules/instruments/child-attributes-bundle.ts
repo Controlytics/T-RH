@@ -1,47 +1,36 @@
-import { publishRetained, type PublishLogger } from './attribute-downlink.js';
+import { publishRetained, EVENT_PUBLISH_OPTIONS, type PublishLogger } from './attribute-downlink.js';
 import { prisma } from '../../lib/prisma.js';
 import { logger } from '../../lib/logger.js';
 
 /**
- * The CHILD ATTRIBUTES BUNDLE — every child's complete attribute set in ONE
- * retained message on the gateway (operator, 2026-09-05: *"one message for all
- * children with full set, go"*).
- *
- * The per-child slots (`instruments/<gw>/attributes/<child>`) STAY. This is a
- * third slot beside them and the roster, not a replacement: a device that reads
- * the per-child slots keeps working, and the recovery property those slots
- * exist for — MQTT retains only the LAST message per topic, so one shared slot
- * would hand a reconnecting gateway only whichever child changed last — is
- * carried here by the bundle being the WHOLE set every time.
+ * The CHILD ATTRIBUTE CHANGE — the gateway's one attribute topic to subscribe
+ * to (operator, 2026-09-05, three times in one day: *"one message for all
+ * children with full set"*; then, on seeing the retained dump arrive on
+ * subscribe, *"when ever any instrument attribute value was changed send at
+ * that time only"*; then, on seeing the changed child's whole set arrive,
+ * *"only changed key should sent"*). So:
  *
  *   instruments/<gatewayCode>/children/attributes
  *
- * A sibling of the roster, under `/children/`, for the reason the roster is a
- * sibling of `/attributes/`: `instruments/<gw>/attributes` is the GATEWAY'S OWN
- * attribute slot (a gateway is a standalone instrument on that path), so the
- * bundle cannot live there. The last segment is `attributes`, which the bridge
- * already drops by suffix as its own downlink, and which no instrument code may
- * end in (`instrumentCodeTopicViolation`), so it collides with nothing.
+ * is an EVENT carrying exactly the change: the child's code under `devN` and
+ * the ONE key that moved, in the telemetry batch's shape —
  *
- * Republished on every attribute change of any child AND on every membership
- * change — a newly linked child's set must appear and an unlinked child's must
- * go — and CLEARED (zero-byte retained) with the roster when a gateway is
- * deleted or demoted. Failures are logged and swallowed like every downlink:
- * the database is the truth, the broker is one way of telling the device.
+ *   {"gateway":"IOTGW01","devices":[{"devN":"CWH/RDU/002-01","Location":"LCMS Room-II"}]}
+ *
+ * A removed key carries `null`. Published only when a child's attribute
+ * changes (in the app, or from a device report), QoS 1, NOT retained, so a
+ * subscriber is handed nothing until something moves. Membership changes
+ * publish nothing here; the roster (`…/children`) carries membership,
+ * retained. The per-child slots (`…/attributes/<child>`) stay RETAINED and
+ * carry the COMPLETE set — the recovery path for a device that wants state on
+ * connect. Under `/children/` because `instruments/<gw>/attributes` is the
+ * gateway's OWN slot. Failures are logged and swallowed like every downlink.
  */
 
 export function childAttributesBundleTopic(gatewayCode: string): string {
   return `instruments/${gatewayCode}/children/attributes`;
 }
 
-export interface BundleChild {
-  code: string;
-  isActive: boolean;
-  attributes: Record<string, string>;
-}
-
-/** What just moved, for a device that is already connected. Null on a
- *  membership-driven republish, where no single attribute changed. */
 export interface BundleChange {
   code: string;
   key: string;
@@ -49,115 +38,60 @@ export interface BundleChange {
   value: string | null;
 }
 
-/** The identity key in every block — the SAME key the telemetry batch uses
- *  (operator, 2026-09-05: "can u do same for attributes also"). */
+/** The identity key in every block — the SAME key the telemetry batch uses. */
 export const BUNDLE_ID_KEY = 'devN';
 
-/**
- * One block per child: `devN` first, then the child's attributes as plain
- * keys — the telemetry batch's shape, mirrored. An attribute literally named
- * `devN` cannot exist on the wire in this form; none does here, and the
- * registration form is where that would have to be refused if one ever tried.
- */
-export type BundleBlock = { [BUNDLE_ID_KEY]: string } & Record<string, string>;
-
-export interface ChildAttributesBundlePayload {
+export interface ChildAttributeChangePayload {
   gateway: string;
-  /** Every child, sorted by code, each block carrying its COMPLETE set. */
-  devices: BundleBlock[];
-  /** `{devN, key, value}` — the change that prompted this publish, or null. */
-  changed: { devN: string; key: string; value: string | null } | null;
-  ts: string;
+  /** One block: `devN`, then the one key that changed. */
+  devices: [Record<string, string | null>];
 }
 
-/**
- * Pure. Children sorted by code and attribute keys sorted, so an unchanged
- * state serialises byte-identically and a device diffing two messages sees a
- * difference only when one exists. A removed attribute is ABSENT from its
- * child's block and named in `changed` with `null` — the same two halves the
- * per-child payload carries, for the same reason.
- *
- * Every child is listed, active or not — the ROSTER is where a child's active
- * flag lives, and a block is its attributes alone, exactly as a telemetry block
- * is its readings alone.
- */
-export function buildChildAttributesBundle(
+/** Pure. Exactly the change, nothing else — no timestamp (operator,
+ *  2026-09-05: "remove the time stamp"; the audit row carries when). A key
+ *  literally named `devN` cannot be carried in this form; none exists and
+ *  registration is where one would have to be refused. */
+export function buildChildAttributeChange(
   gatewayCode: string,
-  children: readonly BundleChild[],
-  changed: BundleChange | null,
-  ts: Date,
-): ChildAttributesBundlePayload {
-  const sorted = [...children].sort((a, b) => (a.code < b.code ? -1 : a.code > b.code ? 1 : 0));
-  const devices = sorted.map((c) => {
-    const block: Record<string, string> = { [BUNDLE_ID_KEY]: c.code };
-    for (const k of Object.keys(c.attributes).sort()) if (k !== BUNDLE_ID_KEY) block[k] = c.attributes[k];
-    return block as BundleBlock;
-  });
-  return {
-    gateway: gatewayCode,
-    devices,
-    changed: changed ? { devN: changed.code, key: changed.key, value: changed.value } : null,
-    ts: ts.toISOString(),
-  };
+  change: BundleChange,
+): ChildAttributeChangePayload {
+  const block: Record<string, string | null> = { [BUNDLE_ID_KEY]: change.code };
+  if (change.key !== BUNDLE_ID_KEY) block[change.key] = change.value;
+  return { gateway: gatewayCode, devices: [block] };
 }
 
-const bundleLog: PublishLogger = (msg, meta) => logger.warn(`[downlink:children-attributes] ${msg}`, meta ?? '');
+const changeLog: PublishLogger = (msg, meta) => logger.warn(`[downlink:children-attributes] ${msg}`, meta ?? '');
 
-export async function publishChildAttributesBundle(
+export async function publishChildAttributeChange(
   gatewayCode: string,
-  children: readonly BundleChild[],
-  changed: BundleChange | null,
-  ts: Date,
+  change: BundleChange,
   log?: PublishLogger,
 ): Promise<void> {
   await publishRetained(
     childAttributesBundleTopic(gatewayCode),
-    JSON.stringify(buildChildAttributesBundle(gatewayCode, children, changed, ts)),
-    'BUNDLE NOT DELIVERED — the gateway was not handed its children\'s attributes',
-    log ?? bundleLog,
+    JSON.stringify(buildChildAttributeChange(gatewayCode, change)),
+    'CHANGE NOT DELIVERED — the gateway was not told about this attribute change',
+    log ?? changeLog,
+    EVENT_PUBLISH_OPTIONS,
   );
-}
-
-export async function clearChildAttributesBundle(gatewayCode: string, log?: PublishLogger): Promise<void> {
-  await publishRetained(
-    childAttributesBundleTopic(gatewayCode),
-    '',
-    'BUNDLE NOT CLEARED — the broker still holds children\'s attributes for a deleted gateway',
-    log ?? bundleLog,
-  );
-}
-
-/** Every child of the gateway with its complete attribute set, from the database. */
-export async function loadBundleChildren(gatewayId: string): Promise<BundleChild[]> {
-  const rows = await prisma.instrument.findMany({
-    where: { gatewayId },
-    select: { code: true, isActive: true, attributes: { select: { key: true, value: true } } },
-  });
-  return rows.map((r) => ({
-    code: r.code,
-    isActive: r.isActive,
-    attributes: Object.fromEntries(r.attributes.map((a) => [a.key, a.value])),
-  }));
 }
 
 /**
- * Read the gateway's whole membership and publish the bundle. Never throws —
- * a broker or database failure must not fail the operator's committed edit.
- * Reads AFTER the commit, like `announceAttributeChange`, so a concurrent edit
- * on another child cannot be missing from a message that claims to be complete.
+ * Publish one child's change on its gateway's topic. Never throws. Only the
+ * gateway's code is read — the change already holds everything the message
+ * carries. A child with no gateway publishes nothing here (it has its own
+ * retained slot).
  */
-export async function announceChildAttributesBundle(
+export async function announceChildAttributeChange(
   gatewayId: string,
-  changed: BundleChange | null,
+  change: BundleChange,
   log?: PublishLogger,
 ): Promise<void> {
   try {
     const gw = await prisma.instrument.findUnique({ where: { id: gatewayId }, select: { isGateway: true, code: true } });
     if (!gw?.isGateway) return;
-    await publishChildAttributesBundle(gw.code, await loadBundleChildren(gatewayId), changed, new Date(), log);
+    await publishChildAttributeChange(gw.code, change, log);
   } catch (e) {
-    (log ?? bundleLog)('bundle NOT DELIVERED — could not read the children\'s attributes', {
-      gatewayId, err: (e as Error).message,
-    });
+    (log ?? changeLog)('change NOT DELIVERED — could not read the gateway', { gatewayId, err: (e as Error).message });
   }
 }

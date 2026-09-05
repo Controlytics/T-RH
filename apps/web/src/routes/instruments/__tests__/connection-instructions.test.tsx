@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { ConnectionInstructions } from '../connection-instructions';
 
 // With all seven transports live, the not-live banner has no reachable subject
@@ -250,10 +250,11 @@ describe('ConnectionInstructions — attribute downlink', () => {
     render(
       <ConnectionInstructions transport={tab.toLowerCase()} code="GW-9" token="TOK" isGateway childCodes={['C-1']} />,
     );
-    // A gateway shows TWO publish commands since 2026-09-05 — the batch and the
-    // one-child-per-message form — and every command must carry the flags.
+    // A gateway shows FOUR publish commands since 2026-09-05 — the batch, the
+    // one-child-per-message form, the attribute report and the RTC request —
+    // and every command must carry the flags.
     const pubs = screen.getAllByText(/mosquitto_pub/);
-    expect(pubs.length).toBe(2);
+    expect(pubs.length).toBe(4);
     for (const cmd of [...pubs, ...screen.getAllByText(/mosquitto_sub/)]) {
       expect(cmd.textContent).toContain('-i "GW-9"');
       expect(cmd.textContent).toContain('-P ""');
@@ -293,7 +294,9 @@ describe('ConnectionInstructions — attribute downlink', () => {
     expect(cmd).not.toContain('instruments/CH-1/attributes');
     // `instruments/CH-1/telemetry` DOES appear — a child that also connects
     // directly publishes there — so the assertion is on the attribute slot.
-    expect(screen.queryByText(/instruments\/CH-1\/attributes/)).not.toBeInTheDocument();
+    // The child's own REPORT topic (`…/CH-1/attributes/report`, the device →
+    // platform path) legitimately exists; it is the downlink SLOT that must not.
+    expect(screen.queryByText(/instruments\/CH-1\/attributes(?!\/report)/)).not.toBeInTheDocument();
   });
 
   it('gives a gateway the wildcard covering its own slot and every child', () => {
@@ -343,10 +346,9 @@ describe('ConnectionInstructions — attribute payloads', () => {
     );
     expect(screen.getAllByText(/instruments\/GW-1\/children\/attributes/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/"gateway": "GW-1"/).length).toBeGreaterThan(0);
-    // The bundle is the telemetry batch's shape: blocks under `devices`, each
-    // opening with `devN`, and the change named by devN + key.
-    expect(screen.getAllByText(/"devN": "SENSOR-A",\s*"High Temperature Limit"/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/"devN": "SENSOR-A",\s*"key": "High Temperature Limit"/).length).toBeGreaterThan(0);
+    // The change event is the telemetry batch's shape: one block under
+    // `devices`, `devN` then ONLY the key that moved.
+    expect(screen.getAllByText(/"devN": "SENSOR-A",\s*"High Temperature Limit": "27"\s*\}/).length).toBeGreaterThan(0);
     // And the roster payload, keyed the same way.
     expect(screen.getAllByText(/"isActive": true/).length).toBeGreaterThan(0);
   });
@@ -360,6 +362,27 @@ describe('ConnectionInstructions — attribute payloads', () => {
     // The flat per-sensor form, on the same topic.
     expect(screen.getAllByText(/-m '\{"devN":"SENSOR-A","t":21.5,"h":47\}'/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/"temperature"/)).not.toBeInTheDocument();
+  });
+
+  it('shows the device → platform report topic and a sample, per instrument kind', () => {
+    render(<ConnectionInstructions transport="mqtt" code="T-1" token="TOK" />);
+    expect(screen.getAllByText(/instruments\/T-1\/attributes\/report/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/-m '\{"Location":"LCMS Room-II"\}'/).length).toBeGreaterThan(0);
+    cleanup();
+    render(<ConnectionInstructions transport="mqtt" code="GW-1" token="TOK" isGateway childCodes={['SENSOR-A']} />);
+    expect(screen.getAllByText(/instruments\/GW-1\/attributes\/report/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/"devices":\[\{"devN":"SENSOR-A","Location":"LCMS Room-II"\}\]/).length).toBeGreaterThan(0);
+  });
+
+  it('shows a gateway the RTC request topic, the global time topic and a time sample; not a standalone instrument', () => {
+    render(<ConnectionInstructions transport="mqtt" code="GW-1" token="TOK" isGateway childCodes={['SENSOR-A']} />);
+    expect(screen.getAllByText(/instruments\/GW-1\/rtc-request/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/-m '\{"method":"getTime"\}'/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/digilog\/rtc\/time/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/"method": "time"/).length).toBeGreaterThan(0);
+    cleanup();
+    render(<ConnectionInstructions transport="mqtt" code="T-1" token="TOK" />);
+    expect(screen.queryByText(/rtc-request/)).not.toBeInTheDocument();
   });
 
   it('shows no payloads on a transport that cannot subscribe', () => {

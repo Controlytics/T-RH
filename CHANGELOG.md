@@ -1,6 +1,99 @@
 # Changelog
 
-## [Unreleased] - Gateway: ONE CHILD PER MESSAGE — a flat payload with `devN` routes to that child; samples keyed `t` / `h` (2026-09-05)
+## [Unreleased] - RTC sync: `digilog/rtc/time` every minute and on request (2026-09-05)
+
+Operator: *"create another topic for rtc sync, {"method":"getTime"} user will
+send request with this key, when ever we receive request we need to send utc
+time, and also request is received or not for every minute that current time
+utc time stamp should sent, this is global, add it for gateway instrument"*.
+
+New `modules/instruments/listeners/rtc-sync.ts`. A device publishes
+`{"method":"getTime"}` on `instruments/<code>/rtc-request`; the platform
+publishes `{"method":"time","utc":"<ISO UTC ms>","epoch":<seconds>}` on the
+GLOBAL topic `digilog/rtc/time` — at once on a request, and every minute on
+the minute regardless (`startRtcTicker`, started in `app.ts` after the
+downlink publisher exists, stopped before the bridge closes, both timers
+`unref()`'d). Not retained. The time topic sits outside `instruments/` so the
+bridge's own subscription does not echo it and one literal ACL grant covers
+every device. Anything but `getTime` on the request topic is ignored with a
+log; an unknown code is dropped. `rtc-request` joined
+`MQTT_RESERVED_TOPIC_SEGMENTS`. ACL: three edits (device publish
+`rtc-request`, bridge publish `digilog/rtc/time`, all subscribe
+`digilog/rtc/time`); local broker restarted; **AWS needs the same.** The
+gateway's Connection instructions show both topics and a time sample. Tests:
+8 unit (incl. the ticker under fake timers), 3 e2e over the real bridge.
+No count moved; no migration.
+
+**Proven live, and a defect it exposed, fixed:** the first watch of
+`digilog/rtc/time` received the 12:07 and 12:08 ticks together at 12:09:03 —
+the bridge had queued them while reconnecting (QoS 1, `clean: false`) and
+flushed them late. A gateway setting its clock from those would be two
+minutes wrong. `MqttBridgeHandle.publish` now REFUSES a non-retained publish
+while the client is offline (`bridge offline — event not queued`) and still
+queues retained state, which may wait. Pinned in `e2e/mqtt-rtc-sync.test.ts`.
+The change event on `…/children/attributes` gets the same protection: a
+stale attribute change is dropped rather than replayed, and the retained
+per-child slot still carries the state.
+
+## `…/children/attributes` is a CHANGE EVENT, not a retained bundle (2026-09-05)
+
+Operator, on seeing the retained whole-set bundle arrive the moment the
+gateway subscribed: *"when user subscribed all the instruments attributes
+values are sending once, i dont need like that, when ever any instrument
+attribute value was changed send at that time only"*. So the topic built that
+morning is reshaped: `instruments/<gw>/children/attributes` is now published
+ONLY when a child's attribute changes (in the app, or from a device report),
+with `retain: false` (`EVENT_PUBLISH_OPTIONS`; `publishRetained` gained an
+`options` parameter, default unchanged), carrying ONLY the changed key under
+the child's `devN` — `{"gateway","devices":[{"devN":"<code>","<key>":"<value>"}]}`,
+`null` for a removed key. (First cut of the reshape carried the changed child's
+complete set; the operator's next message, *"only changed key should sent"*,
+took it down to the key alone within the hour. The per-child slots still carry
+the complete set.) One message per key. Then *"remove the time stamp"* — `ts`
+is gone too; the message is `gateway` + `devices` and nothing else. Link, unlink and a
+gateway's own edit publish nothing there; membership stays the roster's. The
+per-child slots stay RETAINED, so a device that wants state on connect still
+has it. **Assumption, stated:** the event carries the changed child only; if
+every child on every change is wanted, that is a one-line switch in
+`buildChildAttributeChange`. The retained copy on the local broker was
+cleared with `scripts/clear-child-attribute-bundles.ts` (zero-byte retained
+publish); the seed script is deleted. Tests reshaped: 3 unit, 3 e2e (one
+asserts `retain === false` off the captured publish options — "not retained"
+is the whole point). The Connection instructions panel calls it the Change
+topic.
+
+## Attribute REPORT: the device → platform attribute topic (2026-09-05)
+
+Operator: *"create two topics for attributes, one will i publish one will i
+receive"*. The receive side already existed (the bundle,
+`instruments/<gw>/children/attributes`). This adds the publish side:
+`instruments/<code>/attributes/report`, in the telemetry batch's shape with
+attribute values where readings would be — flat for an instrument's own
+attributes, a `devices` list or a flat `devN` block from a gateway for its
+children. New module `modules/instruments/attribute-report.ts`; the bridge
+dispatches the topic BEFORE its own-downlink check (which would otherwise
+swallow it, since it contains `/attributes/`).
+
+**A device write is not a person's write, and the code says so.** Every
+accepted key is audited as the NEW action `INSTRUMENT_ATTRIBUTE_REPORTED`
+(audit actions 97 → **98**, templates 91 → **92**; a SYSTEM action — no user —
+with the reporting device's code in the row and a fixed reason). An UNCHANGED
+value is neither written nor audited, so firmware re-reporting its
+configuration every minute does not fill the hash chain. Which keys a device
+may write is ADMINISTERED — new setting *Device-writable attribute keys* on
+the existing `instrument-attributes` def (blank = any key, the operator's
+choice); a refused key is dead-lettered by name. The role-based attribute
+gate is not consulted: a device is not a role, and the list is the control
+that stands in for it. After the commit the per-instrument slot and the
+gateway's bundle are republished, so the device reads back what the platform
+holds. `report` joined `MQTT_RESERVED_TOPIC_SEGMENTS` (a child coded
+`X/report` would have its downlink read as a report). ACL publish grant
+widened; local broker restarted; **AWS needs the same.** The Connection
+instructions panel shows the report topic and a sample for both kinds. No
+migration; no count moved but the two audit registries. Tests: 5 unit, 8 e2e
+over the real bridge and database.
+
+## Gateway: ONE CHILD PER MESSAGE — a flat payload with `devN` routes to that child; samples keyed `t` / `h` (2026-09-05)
 
 Operator: *"make temperature key as t and humidity key as h"*. The live
 `telemetry-slots` alias lists already accepted `t` and `h`, so the platform

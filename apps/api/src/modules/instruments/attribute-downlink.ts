@@ -127,6 +127,12 @@ export function buildAttributeDownlinkPayload(d: AttributeDownlink): AttributeDo
  * the payload is idempotent state, not an increment.
  */
 export const DOWNLINK_PUBLISH_OPTIONS = { qos: 1 as const, retain: true };
+/** For an EVENT the device should see only when it happens — the child
+ *  attribute CHANGE (2026-09-05): QoS 1, NOT retained, so a subscriber is not
+ *  handed a stale copy on connect. */
+export const EVENT_PUBLISH_OPTIONS = { qos: 1 as const, retain: false };
+
+export interface PublishOptions { qos: 0 | 1 | 2; retain: boolean }
 
 /**
  * Injected by `app.ts` once the bridge is up. Resolves when the broker has
@@ -135,7 +141,7 @@ export const DOWNLINK_PUBLISH_OPTIONS = { qos: 1 as const, retain: true };
 export type DownlinkPublisher = (
   topic: string,
   payload: string,
-  options: typeof DOWNLINK_PUBLISH_OPTIONS,
+  options: PublishOptions,
 ) => Promise<void>;
 
 /**
@@ -190,6 +196,9 @@ export async function publishRetained(
   payload: string,
   failureMsg: string,
   log: PublishLogger = defaultLog,
+  // Retained unless a caller says otherwise; the child attribute CHANGE event
+  // is the one message that is deliberately not.
+  options: PublishOptions = DOWNLINK_PUBLISH_OPTIONS,
 ): Promise<void> {
   const fn = publisher;
   // Not a failure and not logged: no broker configured means no downlink, which
@@ -199,7 +208,7 @@ export async function publishRetained(
   let timer: NodeJS.Timeout | undefined;
   try {
     await Promise.race([
-      fn(topic, payload, DOWNLINK_PUBLISH_OPTIONS),
+      fn(topic, payload, options),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error(`no PUBACK within ${PUBLISH_TIMEOUT_MS}ms`)), PUBLISH_TIMEOUT_MS);
         // The repo has been bitten twice by a stray handle holding the process

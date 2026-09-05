@@ -216,19 +216,25 @@ export function ConnectionInstructions({
     changed: { 'High Temperature Limit': '27' },
     ts: sampleTs,
   }, null, 2);
-  // The gateway's bundle: the telemetry batch's shape mirrored — a list of
-  // blocks, `devN` first, then the child's full attribute set as plain keys.
+  // The gateway's CHANGE event: sent only when a child's attribute changes,
+  // not retained — the child's code and ONLY the key that moved, in the
+  // telemetry batch's shape.
   const bundleChildren = (childCodes && childCodes.length ? childCodes : ['<child code>']).slice(0, 2);
   const bundlePayload = JSON.stringify({
     gateway: code,
-    devices: bundleChildren.map((c) => ({ devN: c, ...sampleAttributes })),
-    changed: { devN: bundleChildren[0], key: 'High Temperature Limit', value: '27' },
-    ts: sampleTs,
+    devices: [{ devN: bundleChildren[0], 'High Temperature Limit': '27' }],
   }, null, 2);
   const rosterPayload = JSON.stringify({
     children: bundleChildren.map((c) => ({ code: c, name: c, isActive: true })),
     ts: sampleTs,
   }, null, 2);
+  // Device → platform: this instrument's report topic and a compact sample in
+  // the telemetry batch's shape — a gateway names each child under `devN`, a
+  // standalone instrument sends its own keys flat.
+  const reportTopic = `instruments/${code}/attributes/report`;
+  const reportPayload = isGateway
+    ? JSON.stringify({ devices: bundleChildren.map((c) => ({ devN: c, Location: 'LCMS Room-II' })) })
+    : JSON.stringify({ Location: 'LCMS Room-II' });
   // Subscribing is a BROKER capability. The WEBSOCKET/WSS tabs here are the
   // API's own /api/ingest/v1/ws ingest endpoint, not the broker's MQTT-over-WS
   // listener, and HTTP/TCP have no subscribe at all — showing a topic on any of
@@ -426,9 +432,9 @@ export function ConnectionInstructions({
           <CodeBlock text={attributePayload} />
           {bundleTopic && (
             <>
-              <Row label="All children topic" value={bundleTopic} />
+              <Row label="Change topic" value={bundleTopic} />
               <CodeBlock text={`${subPrefix} -t "${bundleTopic}" -u "${tok}" -P "" -v`} />
-              <Row label="All children payload" value="retained, every child, full set" />
+              <Row label="Change payload" value="on change only, not retained, the changed key only" />
               <CodeBlock text={bundlePayload} />
             </>
           )}
@@ -438,6 +444,26 @@ export function ConnectionInstructions({
               <CodeBlock text={`${subPrefix} -t "${rosterTopic}" -u "${tok}" -P "" -v`} />
               <Row label="Children payload" value="retained, membership" />
               <CodeBlock text={rosterPayload} />
+            </>
+          )}
+          {/* The other direction (2026-09-05): the device PUBLISHES attribute
+              values here, in the telemetry batch's shape. Which keys it may
+              write is administered (Configuration → Instrument Attributes). */}
+          <p className="pt-2 text-sm font-medium text-slate-700">Attribute report (device → platform)</p>
+          <Row label="Report topic" value={reportTopic} />
+          <CodeBlock text={`${pubPrefix} -t "${reportTopic}" -u "${tok}" -P "" -m '${reportPayload}'`} />
+          {/* RTC sync (2026-09-05): the gateway asks on its own topic and
+              reads the time on the GLOBAL one — which also ticks every minute,
+              asked or not. Gateways only: they hold the connection. */}
+          {isGateway && (
+            <>
+              <p className="pt-2 text-sm font-medium text-slate-700">RTC sync</p>
+              <Row label="Request topic" value={`instruments/${code}/rtc-request`} />
+              <CodeBlock text={`${pubPrefix} -t "instruments/${code}/rtc-request" -u "${tok}" -P "" -m '{"method":"getTime"}'`} />
+              <Row label="Time topic" value="digilog/rtc/time" />
+              <CodeBlock text={`${subPrefix} -t "digilog/rtc/time" -u "${tok}" -P "" -v`} />
+              <Row label="Time payload" value="on request, and every minute on the minute" />
+              <CodeBlock text={JSON.stringify({ method: 'time', utc: sampleTs, epoch: Math.floor(new Date(sampleTs).getTime() / 1000) }, null, 2)} />
             </>
           )}
         </div>

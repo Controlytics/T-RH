@@ -534,6 +534,14 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'Attribute "{attribute}" on instrument "{instrument}" set by {actor}',
     placeholders: ['actor', 'instrument', 'attribute'],
   },
+  INSTRUMENT_ATTRIBUTE_REPORTED: {
+    label: 'Instrument Attribute Reported by Device',
+    category: 'Instruments',
+    // No {actor}: there is none. The reporting device's code is in the row's
+    // after-value, and `{instrument}` names the instrument it was written on.
+    template: 'Attribute "{attribute}" on instrument "{instrument}" reported by the device',
+    placeholders: ['instrument', 'attribute'],
+  },
   INSTRUMENT_ATTRIBUTE_REMOVED: {
     label: 'Instrument Attribute Removed',
     category: 'Instruments',

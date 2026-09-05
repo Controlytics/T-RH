@@ -336,22 +336,51 @@ node apps/api/dist/app.js
   `instrument-scope-selection.test.ts` does; seeded instants must be inside an
   EXISTING partition, i.e. near now). Mutation-checked: dropping the visibility
   filter fails it.
-- **2026-09-05 — the child attributes BUNDLE.** New module
-  `modules/instruments/child-attributes-bundle.ts`; **no count moved, no
-  migration.** A third retained slot per gateway,
-  `instruments/<gw>/children/attributes`, carrying EVERY child's complete
-  attribute set (keyed by code, sorted, keys sorted) plus `changed` — the one
-  attribute that moved, or `null` on a membership-driven republish. Published
-  from the two existing announce points in `instruments/routes.ts`
-  (`announceAttributeChange` after the per-child downlink; `announceRoster`
-  after the roster) and cleared beside `clearChildRoster`. **Under `/children/`
-  because `instruments/<gw>/attributes` is the gateway's OWN attribute slot** —
-  putting the bundle there would overwrite it. Loaded post-commit, like the
-  per-child set, so a concurrent edit on another child cannot be missing from a
-  message that claims to be complete. Pinned by 6 unit + 4 e2e (the capture
-  publisher, same as the roster e2e). ACL subscribe line widened; local broker
-  restarted; AWS needs the same. `scripts/publish-child-attribute-bundles.ts`
-  seeds the slot for gateways that have seen no change since.
+- **2026-09-05 — the ATTRIBUTE REPORT: a device writes attributes over
+  MQTT.** New module `modules/instruments/attribute-report.ts`; topic
+  `instruments/<code>/attributes/report`, dispatched by the bridge BEFORE
+  `isDownlinkTopic` (which would swallow it — it contains `/attributes/`).
+  Telemetry batch shape, same parser and fan-out, same child-map
+  authorisation. **New audit action `INSTRUMENT_ATTRIBUTE_REPORTED`** (97 →
+  98 / 91 → 92), in `SYSTEM_AUDIT_ACTIONS` because there is no user — the
+  device's code is in the row and in the fixed reason. Unchanged values are
+  neither written nor audited (firmware re-reports every minute). Keys a
+  device may write are administered on the `instrument-attributes` def
+  (`deviceWritableKeys`, blank = any); a refused key is dead-lettered by name.
+  The role gate (`attributeWriteRefused`) is NOT consulted — a device is not a
+  role. `report` joined `MQTT_RESERVED_TOPIC_SEGMENTS`. Republishes the
+  per-instrument slot and the bundle after the commit. ACL publish grant
+  widened; local broker restarted; AWS needs the same. Pinned by
+  `e2e/mqtt-attribute-report.test.ts` (8, over the real bridge and database)
+  and 5 unit.
+- **2026-09-05 — RTC sync.** `modules/instruments/listeners/rtc-sync.ts`:
+  `{"method":"getTime"}` on `instruments/<code>/rtc-request` (dispatched by
+  the bridge before the telemetry parse; any active instrument may ask; other
+  methods ignored with a log) → `{"method":"time","utc","epoch"}` on the
+  GLOBAL `digilog/rtc/time`, not retained, AND every minute on the minute
+  from `startRtcTicker()` — started in `app.ts` right after
+  `setDownlinkPublisher`, stopped in shutdown before the bridge closes, both
+  timers `unref()`'d. **Outside `instruments/` on purpose**: the bridge's
+  `instruments/#` would otherwise hand the tick back to itself every minute,
+  and one literal ACL grant serves every device. `rtc-request` reserved as a
+  last segment. No count moved. 8 unit (ticker under fake timers) + 3 e2e.
+  **`MqttBridgeHandle.publish` refuses a NON-RETAINED publish while offline**
+  (found live: two stale ticks flushed together on reconnect); retained state
+  still queues. Any future event-style downlink inherits that rule.
+- **2026-09-05 — the child attribute CHANGE event.** Module
+  `modules/instruments/child-attributes-bundle.ts` (the file name is the
+  morning's design; the topic is the same). `instruments/<gw>/children/attributes`
+  is an EVENT — `EVENT_PUBLISH_OPTIONS`, QoS 1, `retain: false` — published
+  from `announceAttributeChange` (after the per-child slot) and from the
+  device report path, once per changed key, carrying ONLY that key under the
+  child's `devN` (`null` = removed). Membership publishes nothing there;
+  nothing to clear on gateway delete. **Reshaped twice the same day** at the
+  operator's direction: retained whole-set bundle → the changed child's full
+  set → the key alone. `publishRetained` gained an `options` parameter for it
+  (default unchanged). The retained copy on the local broker was cleared by
+  `scripts/clear-child-attribute-bundles.ts`. Pinned by 3 e2e (incl. `retain
+  === false` off the captured options, and "only Location, not the limit, not
+  the sibling") + 3 unit.
 - **2026-09-01 — the enable-flag rule spanned THREE resolvers, and all three
   were wrong at some point on the same day.** "A bound the instrument switches
   off is not enforced" was implemented independently in `buildTelemetryOverview`

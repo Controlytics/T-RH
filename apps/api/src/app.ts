@@ -61,6 +61,10 @@ import instrumentRoutes from './modules/instruments/routes.js';
 import { startTcpListener, type TcpListenerHandle } from './modules/instruments/listeners/tcp-listener.js';
 import { startMqttBridge, plaintextRemoteBrokerWarning, type MqttBridgeHandle } from './modules/instruments/listeners/mqtt-bridge.js';
 import { setDownlinkPublisher } from './modules/instruments/attribute-downlink.js';
+import { startRtcTicker } from './modules/instruments/listeners/rtc-sync.js';
+
+/** The RTC minute tick (2026-09-05) — alive only while the bridge is. */
+let rtcTicker: { stop(): void } | null = null;
 import { logger, attachLogger } from './lib/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -593,6 +597,10 @@ if (mqttBrokerUrl) {
     // downlink path was added.
     const bridge = mqttBridge;
     setDownlinkPublisher((topic, payload, publishOpts) => bridge.publish(topic, payload, publishOpts));
+    // RTC sync (2026-09-05): the UTC time on `digilog/rtc/time` every minute,
+    // on the minute, asked or not — through the same publisher. Started here,
+    // after the publisher exists, and stopped before the bridge closes.
+    rtcTicker = startRtcTicker();
     app.log.info(`MQTT ingest bridge connecting to ${mqttBrokerUrl}`);
   } catch (mqttErr) {
     // Not fatal: the other ingest surfaces are unaffected, and the bridge
@@ -629,6 +637,7 @@ const shutdown = async (signal: string) => {
     if (mqttBridge) {
       // Before the close: a publisher pointing at a torn-down bridge would make
       // every subsequent attribute write wait out the downlink timeout.
+      rtcTicker?.stop();
       setDownlinkPublisher(null);
       try {
         await mqttBridge.close();

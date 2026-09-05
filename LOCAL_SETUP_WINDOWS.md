@@ -1000,46 +1000,35 @@ editing it. Verified live on 2026-08-06 EMQX 5.3.2 after restarting:
 | a rename of its child, no `gatewayId` in the request | new roster arrives within a second |
 | a *different* instrument's valid token subscribes to that topic | no SUBACK, disconnect loop, `authorization_permission_denied` in `log/emqx.log.1` |
 
-### 9C.1 The CHILD ATTRIBUTES BUNDLE — every child's attributes in one message
+### 9C.1 The CHILD ATTRIBUTE CHANGE — one event topic per gateway
 
-Added 2026-09-05 (operator: *"one message for all children with full set"*).
-The per-child slots in §9B stay; this is a THIRD retained slot beside them and
-the roster, for a gateway whose firmware wants one message rather than one per
-child:
+Added 2026-09-05 and reshaped twice the same day. The operator first asked for
+*"one message for all children with full set"*; on seeing the retained dump
+arrive the moment the gateway subscribed, *"when ever any instrument attribute
+value was changed send at that time only"*; and on seeing the changed child's
+whole set arrive, *"only changed key should sent"*. So the topic is an EVENT
+carrying exactly the change:
 
 ```
-instruments/<gatewayCode>/children/attributes
+instruments/<gatewayCode>/children/attributes        (QoS 1, NOT retained)
 {"gateway":"IOTGW01",
- "devices":[
-   {"devN":"CWH/RDU/001-00","High Temperature Limit":"25","Location":"LCMS Room-I"},
-   {"devN":"CWH/RDU/002-00","High Temperature Limit":"27","Location":"LCMS Room-II"}],
- "changed":{"devN":"CWH/RDU/002-00","key":"Location","value":"LCMS Room-II"},
- "ts":"2026-09-05T12:40:00.000Z"}
+ "devices":[{"devN":"CWH/RDU/002-01","Location":"LCMS Room-II"}]}
 ```
 
-**The telemetry batch's shape, mirrored** (operator, later the same day: *"can
-u do same for attributes also"*): a list under `devices`, each block opening
-with `devN` — the instrument code — followed by that child's attributes as plain
-keys. Every child is listed whether active or not; the ROSTER (§9C) is where the
-active flag lives.
+- **Published only when a child's attribute changes** — in the app, or from a
+  device report (§9C.2). One message per key. Link, unlink and a gateway's own
+  edit publish nothing here; membership is the roster's (§9C).
+- **Not retained.** A gateway that subscribes is handed nothing until
+  something moves. A gateway that wants STATE on connect subscribes to the
+  per-child slots (§9B), which stay retained and carry the complete set.
+- **Only the changed key**, under the child's `devN`, in the telemetry batch's
+  shape. A removed key is carried as `null`. No timestamp (operator: "remove
+  the time stamp"); the audit row carries when.
+- Under `/children/`, not `/attributes`, because `instruments/<gw>/attributes`
+  is the gateway's OWN slot.
 
-**Under `/children/`, not `/attributes`.** `instruments/<gw>/attributes` is the
-gateway's OWN attribute slot (a gateway is a standalone instrument on that
-path), so the bundle cannot live there. The last segment `attributes` is one no
-instrument code may end in and one the bridge already drops as its own
-downlink, so nothing collides.
-
-**Whole set, every time.** Blocks sorted by code, attribute keys sorted, so an
-unchanged state serialises identically. `changed` names the one attribute that
-moved by `devN` + `key` (`value: null` = removed), or is `null` when the publish
-was driven by a membership change. **Republished on** every child attribute
-change (POST / PUT / DELETE) and on every link, unlink, move, child create and
-child delete — the roster's own triggers. **Cleared** (zero-byte retained) with
-the roster when a gateway is deleted or demoted.
-
-**Seeding.** A gateway that has seen no change since 2026-09-05 has no retained
-bundle until its first edit. `npx tsx apps/api/scripts/publish-child-attribute-bundles.ts --apply`
-publishes one for every gateway from the database (dry run without the flag).
+The retained bundle that briefly lived on this topic was cleared with
+`npx tsx apps/api/scripts/clear-child-attribute-bundles.ts --apply`.
 
 One ACL change, on the existing subscribe line — **boot-only file, restart the
 broker**; the AWS broker needs the same:
@@ -1051,6 +1040,85 @@ broker**; the AWS broker needs the same:
 The bridge's `instruments/#` publish grant already covers it. Wiring is pinned
 by `src/e2e/instrument-child-attributes-bundle.test.ts` (4 cases) and the
 payload by `modules/instruments/__tests__/child-attributes-bundle.test.ts`.
+
+### 9C.2 The ATTRIBUTE REPORT — the device writes attributes (device → platform)
+
+Added 2026-09-05 (operator: *"create two topics for attributes, one will i
+publish one will i receive"*). §9C.1 is the receive side; this is the publish
+side. The device PUBLISHES to its own report topic, in the telemetry batch's
+shape with attribute values where readings would be:
+
+```
+instruments/<code>/attributes/report
+
+{"Location":"LCMS Room-II","Make":"Global"}                       # a standalone instrument's OWN attributes
+{"devices":[{"devN":"CWH/RDU/001-00","Location":"LCMS Room-II"}]} # a gateway, for its linked children
+{"devN":"CWH/RDU/001-00","Location":"LCMS Room-II"}               # a gateway, one child per message
+```
+
+- **Same rules as telemetry**: a gateway writes only for its own linked
+  children (the child map); a foreign or unknown `devN` is dead-lettered; a
+  non-gateway sending `devices` is refused. `devN` is never stored.
+- **Every accepted write is audited as `INSTRUMENT_ATTRIBUTE_REPORTED`** — a
+  system action with no user; the reporting device's code is in the row and
+  the reason reads "Reported by device … over MQTT". An UNCHANGED value is
+  neither written nor audited, so firmware re-reporting its configuration every
+  minute does not fill the hash chain.
+- **Which keys a device may write is administered**: Configuration →
+  Instrument Attributes → *Device-writable attribute keys*. Blank = any key
+  (the operator's choice). A refused key is dead-lettered by name so the
+  firmware author can see it. The role-based edit gate is not consulted — a
+  device is not a role; this list is the control that stands in for it.
+- After the commit the per-instrument slot (§9B) and the gateway's bundle
+  (§9C.1) are republished, so the device reads back what the platform holds.
+- `report` joined `MQTT_RESERVED_TOPIC_SEGMENTS`: a code may not END in it.
+
+ACL, one publish grant on the existing line — **boot-only, restart the
+broker**; AWS needs the same:
+
+```erlang
+{allow, all, publish, ["instruments/${clientid}/telemetry", "instruments/${clientid}/attributes/report"]}.
+```
+
+Pinned by `src/e2e/mqtt-attribute-report.test.ts` (8) and
+`modules/instruments/__tests__/attribute-report.test.ts` (5).
+
+### 9D. RTC SYNC — the platform tells devices the time
+
+Added 2026-09-05 (operator: *"create another topic for rtc sync,
+{"method":"getTime"} user will send request with this key, when ever we
+receive request we need to send utc time, and also request is received or not
+for every minute that current time utc time stamp should sent, this is global,
+add it for gateway instrument"*).
+
+```
+device → platform    instruments/<code>/rtc-request     {"method":"getTime"}
+platform → devices   digilog/rtc/time                    {"method":"time","utc":"2026-09-05T11:30:00.000Z","epoch":1788607800}
+```
+
+- **The time topic is GLOBAL** — one message a minute, on the minute, that
+  every gateway subscribes to; a request from any active instrument triggers
+  the same message at once. It sits outside `instruments/` so the bridge's
+  `instruments/#` subscription never hands it back to itself, and so the ACL
+  grants every device a subscribe on one literal topic. Not retained: a clock
+  read on connect must be fresh.
+- `utc` is ISO-8601 UTC to the millisecond; `epoch` is whole seconds. There is
+  no zone on the wire — an RTC holds UTC.
+- The tick runs inside the API process (`startRtcTicker`, `app.ts`), alive
+  only while the bridge is; anything but `{"method":"getTime"}` on the request
+  topic is ignored with a log line. `rtc-request` joined the reserved last
+  segments.
+
+ACL, three edits — **boot-only, restart the broker**; AWS needs the same:
+
+```erlang
+{allow, all, publish, ["instruments/${clientid}/telemetry", "instruments/${clientid}/attributes/report", "instruments/${clientid}/rtc-request"]}.
+{allow, {username, "digilog-bridge"}, publish, ["instruments/#", "digilog/rtc/time"]}.
+{allow, all, subscribe, ["digilog/rtc/time"]}.
+```
+
+Pinned by `listeners/__tests__/rtc-sync.test.ts` (parse, payload, the ticker
+under fake timers) and `e2e/mqtt-rtc-sync.test.ts` (over the real bridge).
 
 ---
 

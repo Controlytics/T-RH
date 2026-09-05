@@ -42,7 +42,7 @@ import {
 } from './telemetry.repository.js';
 import { publishAttributeDownlink } from './attribute-downlink.js';
 import { publishChildRoster, clearChildRoster } from './child-roster.js';
-import { announceChildAttributesBundle, clearChildAttributesBundle } from './child-attributes-bundle.js';
+import { announceChildAttributeChange } from './child-attributes-bundle.js';
 import { logger } from '../../lib/logger.js';
 
 /**
@@ -320,9 +320,8 @@ async function announceRoster(gatewayId: string | null | undefined): Promise<voi
       gatewayId, err: (e as Error).message,
     });
   }
-  // The membership moved, so the children's attribute BUNDLE must move with it:
-  // a newly linked child's set appears, an unlinked child's goes (2026-09-05).
-  await announceChildAttributesBundle(gatewayId, null);
+  // Membership publishes NOTHING on `…/children/attributes` (operator,
+  // 2026-09-05): that topic carries attribute CHANGES only, as they happen.
 }
 
 /**
@@ -1782,7 +1781,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     // stale-forever message the delete path below exists to avoid. The topic
     // is keyed on the code, which is immutable, so `existing.code` and
     // `updated.code` are the same slot.
-    else if (existing.isGateway) { await clearChildRoster(existing.code); await clearChildAttributesBundle(existing.code); }
+    else if (existing.isGateway) await clearChildRoster(existing.code);
 
     const row = await prisma.instrument.findUnique({ where: { id }, include: { credentials: activeCredential, ...withProfileName } });
     return present((row ?? updated) as unknown as InstrumentRow);
@@ -1862,7 +1861,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     // stranded attribute slot (stale metadata about a code nothing can even
     // connect as any more), a stranded roster NAMES INSTRUMENTS THAT ARE STILL
     // LIVE and have just been orphaned by this very delete.
-    if (existing.isGateway) { await clearChildRoster(existing.code); await clearChildAttributesBundle(existing.code); }
+    if (existing.isGateway) await clearChildRoster(existing.code);
     // If it was itself a child, its former parent's roster still lists it.
     await announceRoster(existing.gatewayId);
     // Each orphaned child's ingest identity is cached too, and it no longer has
@@ -2343,10 +2342,10 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         },
         (msg, meta) => app.log.warn(meta ?? {}, `[downlink:attributes] ${msg}`),
       );
-      // And the whole-gateway BUNDLE (2026-09-05): one message, every child's
-      // complete set, naming the key that moved.
+      // And the gateway's CHANGE event (2026-09-05): this child's code and
+      // the ONE key that moved, nothing else — not retained.
       if (owner.gatewayId) {
-        await announceChildAttributesBundle(
+        await announceChildAttributeChange(
           owner.gatewayId,
           { code: owner.code, key: changedKey, value: changedValue },
           (msg, meta) => app.log.warn(meta ?? {}, `[downlink:children-attributes] ${msg}`),

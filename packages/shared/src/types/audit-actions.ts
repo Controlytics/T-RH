@@ -175,6 +175,9 @@ export const AUDIT_ACTIONS = {
   // calibration date, from what, to what" has to be answerable directly from the
   // trail rather than by diffing two blobs.
   INSTRUMENT_ATTRIBUTE_SET: 'INSTRUMENT_ATTRIBUTE_SET',
+  /** An attribute written by the DEVICE over MQTT (`…/attributes/report`,
+   *  2026-09-05) — no human actor; the gateway/instrument code is in the row. */
+  INSTRUMENT_ATTRIBUTE_REPORTED: 'INSTRUMENT_ATTRIBUTE_REPORTED',
   INSTRUMENT_ATTRIBUTE_REMOVED: 'INSTRUMENT_ATTRIBUTE_REMOVED',
 
   // Floorplans and their rooms. A room carries the environmental SPECIFICATION

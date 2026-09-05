@@ -168,7 +168,10 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   downloads; no permission or sidebar item was added for it.
   The "102 / 83 / 92 / 26" this file carried for months was upstream DigiLog's and
   was never true here.
-- **Audit registries:** **97** audit actions, **91** audit templates in **7**
+- **Audit registries:** **98** audit actions, **92** audit templates in **7**
+  categories (97 → 98 / 91 → 92 on 2026-09-05: `INSTRUMENT_ATTRIBUTE_REPORTED`,
+  a SYSTEM action — no user — for an attribute a DEVICE wrote over MQTT;
+  re-derived by the two greps in the verification block). Earlier: **97** / **91** in **7**
   categories. 93 → 97 / 87 → 91 (2026-08-27): create / update / delete / test
   for alarm webhook targets; categories unchanged.
 - **Config:** **30** definitions (`config/defs/*.def.ts`) + auto-discovery (29 → 30 on
@@ -240,17 +243,22 @@ history; `docs/recreation/` holds the inventory.
     firmware's one-child-per-message form, found in the data: 110 such
     messages had landed on IOTGW01 itself before this. Keys on the wire are
     `t` / `h` (already in the alias lists).
-  - **A THIRD retained slot per gateway (2026-09-05): the child attributes
-    BUNDLE**, `instruments/<gw>/children/attributes` — every child's COMPLETE
-    attribute set, in the TELEMETRY BATCH's shape: `devices: [{devN, …attrs}]`,
-    `changed: {devN, key, value}`. The
-    per-child slots and the roster stay; this sits beside them (operator: "one
-    message for all children with full set"). Under `/children/` because
-    `instruments/<gw>/attributes` is the gateway's OWN slot. Republished with
-    the per-child downlink and with the roster; cleared with the roster. ACL
-    subscribe line widened (boot-only — restarted here, AWS needs the same);
-    `scripts/publish-child-attribute-bundles.ts` seeds it. `LOCAL_SETUP_WINDOWS.md`
-    §9C.1.
+  - **A THIRD topic per gateway (2026-09-05): the child attribute CHANGE
+    EVENT**, `instruments/<gw>/children/attributes` — published only when a
+    child's attribute changes (app or device report), NOT retained, carrying
+    ONLY the changed key under the child's `devN`
+    (`{"gateway","devices":[{"devN","<key>":"<value>"}]}`, `null` =
+    removed). Reshaped twice in a day at the operator's direction (whole-set
+    retained bundle → changed child's full set → the key alone). Membership
+    publishes nothing there; the per-child slots stay retained for state. ACL
+    subscribe line widened (boot-only — restarted here, AWS needs the same).
+    `LOCAL_SETUP_WINDOWS.md` §9C.1.
+  - **RTC sync (2026-09-05):** device publishes `{"method":"getTime"}` on
+    `instruments/<code>/rtc-request`; the platform publishes
+    `{"method":"time","utc","epoch"}` on the GLOBAL `digilog/rtc/time` — at
+    once on a request and every minute on the minute (`startRtcTicker` in
+    `app.ts`). Outside `instruments/` on purpose (no bridge echo, one ACL
+    grant). `rtc-request` reserved. Three ACL edits; AWS needs them.
   - **`emqx-5.3.2/etc/acl.conf` changed and the broker was restarted**: bridge
     subscribe/publish → `instruments/#`; the 2026-09-03 TEMPORARY TEST GRANT for
     client id `35dd00b3-…` removed. **The AWS broker needs the same edit and

@@ -3226,6 +3226,19 @@ Operator: *"one message for all children with full set, go"*.
 - [x] wired into `announceAttributeChange` (after the per-child slot) and `announceRoster`; cleared with the roster
 - [x] 6 unit + 4 e2e; mutation (bundle publish removed) caught; sibling downlink e2e's capture excludes the bundle
 - [x] `acl.conf` subscribe line widened; EMQX really restarted (`emqx.cmd stop` — `emqx_ctl` has no stop); bridge reconnected
-- [x] `scripts/publish-child-attribute-bundles.ts --apply` — IOTGW01 seeded (100 children, 63,946 bytes; retained 121 → 122)
+- [x] (superseded the same day) the retained bundle was seeded, then cleared when the topic became a change event
 - [x] docs: LOCAL_SETUP §9C.1, CHANGELOG, root + api CLAUDE.md, memory
 - [ ] AWS: same acl.conf edit + broker restart + seed script, after the branch is pushed and deployed
+
+## 2026-09-05 — Attribute REPORT (device → platform) + gateway batch shapes
+
+- [x] `attribute-report.ts` + bridge dispatch on `instruments/<code>/attributes/report`
+- [x] audit action `INSTRUMENT_ATTRIBUTE_REPORTED` (system, no user) — 97 → 98 / 91 → 92, docs re-derived
+- [x] `deviceWritableKeys` setting on `instrument-attributes` def (blank = any)
+- [x] `report` reserved as a last topic segment
+- [x] gateway batch: `devices` LIST with `devN`; flat `devN` routed to the child; `parseDeviceTs` reads string epochs
+- [x] ACL publish grant widened; EMQX restarted (bridge + IOTGW01 reconnected)
+- [x] 5 unit + 8 e2e (report), 46 panel tests, all touched ingest suites green
+- [ ] AWS: acl.conf (subscribe + publish lines), broker restart, bundle seed — after deploy
+- [ ] firmware: `CWH/RDU/002-00` is not a registered code (instrument is `002-01`)
+- [x] `…/children/attributes` reshaped to a CHANGE EVENT (not retained, changed child only) — operator did not want a dump on subscribe; retained copy cleared; seed script deleted, clear script added

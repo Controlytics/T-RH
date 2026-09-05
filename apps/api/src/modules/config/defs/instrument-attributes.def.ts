@@ -55,5 +55,19 @@ export const instrumentAttributesDef: ModuleConfigDefinition = {
       maxLength: 2000,
       group: 'Instrument Attributes',
     },
+    {
+      // The DEVICE → platform path (2026-09-05): a device may write its own or
+      // its children's attributes on `instruments/<code>/attributes/report`.
+      // Which keys it may write is administered here. BLANK = any key, which is
+      // what the operator asked for; narrow it to stop firmware from moving a
+      // limit the QA people own.
+      key: 'deviceWritableKeys',
+      type: 'textarea',
+      label: 'Device-writable attribute keys',
+      description: 'One key per line. Attributes a device may set over MQTT (instruments/<code>/attributes/report). Blank = any key. A key not listed is refused and recorded in the dead-letter log.',
+      default: '',
+      maxLength: 2000,
+      group: 'Device reports',
+    },
   ],
 };
