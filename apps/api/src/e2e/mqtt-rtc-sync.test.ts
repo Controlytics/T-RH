@@ -11,6 +11,7 @@ import { setDownlinkPublisher } from '../modules/instruments/attribute-downlink.
  */
 class FakeClient extends EventEmitter {
   subscriptions: { topic: string; qos: number }[] = [];
+  options: { reconnectPeriod: number } = { reconnectPeriod: 1000 };
   subscribe(topic: string, opts: { qos: number }, cb?: (err: Error | null) => void) { this.subscriptions.push({ topic, qos: opts.qos }); cb?.(null); return this; }
   publish(_t: string, _p: string, _o: unknown, cb?: (err?: Error) => void) { cb?.(); return this; }
   end(_force?: boolean, _opts?: unknown, cb?: () => void) { cb?.(); return this; }
@@ -48,16 +49,18 @@ afterAll(async () => {
 beforeEach(() => { sent = []; logs.length = 0; });
 
 describe('RTC sync', () => {
-  it('answers {"method":"getTime"} with the UTC time on the global topic, not retained', async () => {
+  it('answers {"method":"getTime"} with {"unix":<epoch-ms>} on the global topic, not retained', async () => {
     const before = Date.now();
     publish(`instruments/${GW}/rtc-request`, '{"method":"getTime"}');
     const msg = await waitFor(() => sent.find((s) => s.topic === 'digilog/rtc/time'));
     expect(msg.retain).toBe(false);
+    // Exactly one key, `unix`, a 13-digit NUMBER of milliseconds (operator,
+    // 2026-09-05: '{"unix":1792221233122}'). No method, no ISO string, no seconds.
     const body = JSON.parse(msg.payload);
-    expect(body.method).toBe('time');
-    expect(body.utc).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
-    expect(Math.abs(new Date(body.utc).getTime() - before)).toBeLessThan(5000);
-    expect(body.epoch).toBe(Math.floor(new Date(body.utc).getTime() / 1000));
+    expect(Object.keys(body)).toEqual(['unix']);
+    expect(typeof body.unix).toBe('number');
+    expect(String(body.unix)).toMatch(/^\d{13}$/);
+    expect(Math.abs(body.unix - before)).toBeLessThan(5000);
   });
 
   it('the bridge refuses to QUEUE an event while offline, but still queues retained state', async () => {

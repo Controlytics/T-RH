@@ -12,19 +12,21 @@ import { logger } from '../../../lib/logger.js';
  * Two topics:
  *
  *   device → platform   instruments/<code>/rtc-request   {"method":"getTime"}
- *   platform → devices  digilog/rtc/time                  {"method":"time","utc":"2026-09-05T11:30:00.000Z","epoch":1788600600}
+ *   platform → devices  digilog/rtc/time                  {"unix":1788600600000}
  *
- * The TIME topic is GLOBAL — one message every minute, on the minute, that
- * every gateway subscribes to — and a request from any instrument triggers
- * the same message at once. It sits OUTSIDE `instruments/` so the bridge's own
+ * The TIME topic is GLOBAL — one message every 10 minutes, on the wall-clock
+ * boundary (:00, :10, :20 …), that every gateway subscribes to — and a request
+ * from any instrument triggers the same message at once. It sits OUTSIDE `instruments/` so the bridge's own
  * `instruments/#` subscription never hands it back to itself, and so the
  * broker ACL can grant every device a subscribe on one literal topic. Not
  * retained: a clock read on connect must be fresh, not the last tick.
  *
- * `utc` is ISO-8601 in UTC to the millisecond; `epoch` is whole seconds since
- * 1970-01-01T00:00:00Z — the two forms firmware typically wants. The device
- * has no way to ask for a zone; the platform's zone is a display setting and
- * an RTC holds UTC.
+ * The payload is exactly `{"unix":<epoch MILLISECONDS>}` — one key, a 13-digit
+ * number (operator, 2026-09-05: "you have to send the payload like this it
+ * seems {"unix":1792221233122}"). It went `{"method":"time","utc":<ISO>,"epoch"}`
+ * → `utc` as a number → this, in one afternoon; the firmware's parser is the
+ * authority on the shape. It is the unit the gateway already sends as `ts`.
+ * There is no zone on the wire — an RTC holds UTC.
  */
 
 export const RTC_TIME_TOPIC = 'digilog/rtc/time';
@@ -54,10 +56,11 @@ export function isGetTimeRequest(raw: Buffer): boolean {
   }
 }
 
-export interface RtcTimePayload { method: 'time'; utc: string; epoch: number }
+export interface RtcTimePayload { unix: number }
 
+/** `unix` is the epoch in MILLISECONDS, 13 digits — the only key. */
 export function buildTimePayload(now: Date): RtcTimePayload {
-  return { method: 'time', utc: now.toISOString(), epoch: Math.floor(now.getTime() / 1000) };
+  return { unix: now.getTime() };
 }
 
 const rtcLog: PublishLogger = (msg, meta) => logger.warn(`[rtc] ${msg}`, meta ?? '');
@@ -72,35 +75,39 @@ export async function publishTime(now: Date = new Date(), log?: PublishLogger): 
   );
 }
 
-/** Milliseconds until the next whole minute, from `now`. Pure. */
-export function msUntilNextMinute(now: Date): number {
-  const ms = now.getTime() % 60_000;
-  return ms === 0 ? 60_000 : 60_000 - ms;
+/** The automatic tick: every 10 minutes (operator, 2026-09-05: "make it every
+ *  10 minutes" — it ran every minute for its first hours). */
+export const RTC_TICK_MS = 10 * 60_000;
+
+/** Milliseconds until the next wall-clock boundary of `periodMs`, from `now`. Pure. */
+export function msUntilNextBoundary(now: Date, periodMs: number = RTC_TICK_MS): number {
+  const ms = now.getTime() % periodMs;
+  return ms === 0 ? periodMs : periodMs - ms;
 }
 
 /**
- * Publish the time on every whole minute until stopped. Aligned to the
- * minute rather than to the moment the bridge came up, so every gateway sees
- * the tick at `:00` and a device that sets its clock from it lands on a round
- * boundary. Both timers are `unref()`'d — this repo has been bitten twice by a
+ * Publish the time on every period boundary until stopped. Aligned to the
+ * wall clock rather than to the moment the bridge came up, so every gateway
+ * sees the tick at a round instant (`:00`, `:10`, …) and a device that sets
+ * its clock from it lands on a round boundary. Both timers are `unref()`'d — this repo has been bitten twice by a
  * stray handle holding the process open past shutdown.
  */
 export function startRtcTicker(opts: {
   publish?: (now: Date) => Promise<void>;
   now?: () => Date;
-  minuteMs?: number;
+  periodMs?: number;
 } = {}): { stop(): void } {
   const publish = opts.publish ?? ((d: Date) => publishTime(d));
   const now = opts.now ?? (() => new Date());
-  const minuteMs = opts.minuteMs ?? 60_000;
+  const periodMs = opts.periodMs ?? RTC_TICK_MS;
   let stopped = false;
   let interval: NodeJS.Timeout | undefined;
   const first = setTimeout(() => {
     if (stopped) return;
     void publish(now());
-    interval = setInterval(() => { if (!stopped) void publish(now()); }, minuteMs);
+    interval = setInterval(() => { if (!stopped) void publish(now()); }, periodMs);
     interval.unref();
-  }, opts.minuteMs ? minuteMs - (now().getTime() % minuteMs) : msUntilNextMinute(now()));
+  }, msUntilNextBoundary(now(), periodMs));
   first.unref();
   return {
     stop() {

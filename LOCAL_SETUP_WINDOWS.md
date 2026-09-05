@@ -1093,17 +1093,21 @@ add it for gateway instrument"*).
 
 ```
 device → platform    instruments/<code>/rtc-request     {"method":"getTime"}
-platform → devices   digilog/rtc/time                    {"method":"time","utc":"2026-09-05T11:30:00.000Z","epoch":1788607800}
+platform → devices   digilog/rtc/time                    {"unix":1788607800000}
 ```
 
-- **The time topic is GLOBAL** — one message a minute, on the minute, that
-  every gateway subscribes to; a request from any active instrument triggers
+- **The time topic is GLOBAL** — one message every 10 minutes, on the
+  wall-clock boundary (:00, :10, :20 …), that every gateway subscribes to;
+  a request from any active instrument triggers
   the same message at once. It sits outside `instruments/` so the bridge's
   `instruments/#` subscription never hands it back to itself, and so the ACL
   grants every device a subscribe on one literal topic. Not retained: a clock
   read on connect must be fresh.
-- `utc` is ISO-8601 UTC to the millisecond; `epoch` is whole seconds. There is
-  no zone on the wire — an RTC holds UTC.
+- The payload is exactly `{"unix":<epoch MILLISECONDS>}`, one key, a 13-digit
+  number (operator: "you have to send the payload like this it seems
+  {"unix":1792221233122}") — the unit the gateway already sends as `ts`. The
+  shape moved three times on 2026-09-05; the firmware parser is the authority.
+  There is no zone on the wire — an RTC holds UTC.
 - The tick runs inside the API process (`startRtcTicker`, `app.ts`), alive
   only while the bridge is; anything but `{"method":"getTime"}` on the request
   topic is ignored with a log line. `rtc-request` joined the reserved last

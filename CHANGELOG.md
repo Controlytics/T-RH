@@ -1,17 +1,23 @@
 # Changelog
 
-## [Unreleased] - RTC sync: `digilog/rtc/time` every minute and on request (2026-09-05)
+## [Unreleased] - RTC sync: `digilog/rtc/time` every 10 minutes and on request (2026-09-05)
 
 Operator: *"create another topic for rtc sync, {"method":"getTime"} user will
 send request with this key, when ever we receive request we need to send utc
 time, and also request is received or not for every minute that current time
-utc time stamp should sent, this is global, add it for gateway instrument"*.
+utc time stamp should sent, this is global, add it for gateway instrument"*,
+then, later the same day, *"make it every 10 minutes"*.
 
 New `modules/instruments/listeners/rtc-sync.ts`. A device publishes
 `{"method":"getTime"}` on `instruments/<code>/rtc-request`; the platform
-publishes `{"method":"time","utc":"<ISO UTC ms>","epoch":<seconds>}` on the
-GLOBAL topic `digilog/rtc/time` — at once on a request, and every minute on
-the minute regardless (`startRtcTicker`, started in `app.ts` after the
+publishes exactly `{"unix":<epoch MILLISECONDS, a 13-digit number>}` (operator:
+*"you have to send the payload like this it seems {"unix":1792221233122}"* —
+the shape moved three times in one afternoon: `{"method":"time","utc":<ISO>,"epoch"}`,
+then `utc` as a number, then this; the firmware's parser is the authority) on the
+GLOBAL topic `digilog/rtc/time` — at once on a request, and every 10 minutes
+on the wall-clock boundary (:00, :10, :20 …) regardless — it ticked every
+minute for its first hours; `RTC_TICK_MS` is the one place the period lives
+(`startRtcTicker`, started in `app.ts` after the
 downlink publisher exists, stopped before the bridge closes, both timers
 `unref()`'d). Not retained. The time topic sits outside `instruments/` so the
 bridge's own subscription does not echo it and one literal ACL grant covers

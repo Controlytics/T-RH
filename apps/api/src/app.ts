@@ -63,7 +63,7 @@ import { startMqttBridge, plaintextRemoteBrokerWarning, type MqttBridgeHandle } 
 import { setDownlinkPublisher } from './modules/instruments/attribute-downlink.js';
 import { startRtcTicker } from './modules/instruments/listeners/rtc-sync.js';
 
-/** The RTC minute tick (2026-09-05) — alive only while the bridge is. */
+/** The RTC 10-minute tick (2026-09-05) — alive only while the bridge is. */
 let rtcTicker: { stop(): void } | null = null;
 import { logger, attachLogger } from './lib/logger.js';
 
@@ -597,8 +597,8 @@ if (mqttBrokerUrl) {
     // downlink path was added.
     const bridge = mqttBridge;
     setDownlinkPublisher((topic, payload, publishOpts) => bridge.publish(topic, payload, publishOpts));
-    // RTC sync (2026-09-05): the UTC time on `digilog/rtc/time` every minute,
-    // on the minute, asked or not — through the same publisher. Started here,
+    // RTC sync (2026-09-05): the UTC time on `digilog/rtc/time` every 10
+    // minutes, on the boundary, asked or not — through the same publisher. Started here,
     // after the publisher exists, and stopped before the bridge closes.
     rtcTicker = startRtcTicker();
     app.log.info(`MQTT ingest bridge connecting to ${mqttBrokerUrl}`);

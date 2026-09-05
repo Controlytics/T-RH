@@ -453,7 +453,7 @@ export function ConnectionInstructions({
           <Row label="Report topic" value={reportTopic} />
           <CodeBlock text={`${pubPrefix} -t "${reportTopic}" -u "${tok}" -P "" -m '${reportPayload}'`} />
           {/* RTC sync (2026-09-05): the gateway asks on its own topic and
-              reads the time on the GLOBAL one — which also ticks every minute,
+              reads the time on the GLOBAL one — which also ticks every 10 minutes,
               asked or not. Gateways only: they hold the connection. */}
           {isGateway && (
             <>
@@ -462,8 +462,8 @@ export function ConnectionInstructions({
               <CodeBlock text={`${pubPrefix} -t "instruments/${code}/rtc-request" -u "${tok}" -P "" -m '{"method":"getTime"}'`} />
               <Row label="Time topic" value="digilog/rtc/time" />
               <CodeBlock text={`${subPrefix} -t "digilog/rtc/time" -u "${tok}" -P "" -v`} />
-              <Row label="Time payload" value="on request, and every minute on the minute" />
-              <CodeBlock text={JSON.stringify({ method: 'time', utc: sampleTs, epoch: Math.floor(new Date(sampleTs).getTime() / 1000) }, null, 2)} />
+              <Row label="Time payload" value="{&quot;unix&quot;: epoch milliseconds} — on request, and every 10 minutes (:00, :10, :20 …)" />
+              <CodeBlock text={JSON.stringify({ unix: new Date(sampleTs).getTime() })} />
             </>
           )}
         </div>

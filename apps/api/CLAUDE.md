@@ -356,12 +356,15 @@ node apps/api/dist/app.js
 - **2026-09-05 — RTC sync.** `modules/instruments/listeners/rtc-sync.ts`:
   `{"method":"getTime"}` on `instruments/<code>/rtc-request` (dispatched by
   the bridge before the telemetry parse; any active instrument may ask; other
-  methods ignored with a log) → `{"method":"time","utc","epoch"}` on the
-  GLOBAL `digilog/rtc/time`, not retained, AND every minute on the minute
-  from `startRtcTicker()` — started in `app.ts` right after
+  methods ignored with a log) → exactly `{"unix":<epoch-ms NUMBER, 13 digits>}`
+  (operator: "{"unix":1792221233122}"; the shape moved three times on 2026-09-05
+  and the firmware parser is the authority) on the
+  GLOBAL `digilog/rtc/time`, not retained, AND every 10 minutes on the
+  wall-clock boundary (`RTC_TICK_MS`; every minute for its first hours,
+  operator: "make it every 10 minutes") from `startRtcTicker()` — started in `app.ts` right after
   `setDownlinkPublisher`, stopped in shutdown before the bridge closes, both
   timers `unref()`'d. **Outside `instruments/` on purpose**: the bridge's
-  `instruments/#` would otherwise hand the tick back to itself every minute,
+  `instruments/#` would otherwise hand the tick back to itself on every tick,
   and one literal ACL grant serves every device. `rtc-request` reserved as a
   last segment. No count moved. 8 unit (ticker under fake timers) + 3 e2e.
   **`MqttBridgeHandle.publish` refuses a NON-RETAINED publish while offline**

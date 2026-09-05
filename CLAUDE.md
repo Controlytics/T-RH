@@ -255,8 +255,8 @@ history; `docs/recreation/` holds the inventory.
     `LOCAL_SETUP_WINDOWS.md` §9C.1.
   - **RTC sync (2026-09-05):** device publishes `{"method":"getTime"}` on
     `instruments/<code>/rtc-request`; the platform publishes
-    `{"method":"time","utc","epoch"}` on the GLOBAL `digilog/rtc/time` — at
-    once on a request and every minute on the minute (`startRtcTicker` in
+    `{"unix":<epoch-ms NUMBER, 13 digits>}` — the only key — on the GLOBAL `digilog/rtc/time` — at
+    once on a request and every 10 minutes on the boundary (`RTC_TICK_MS`; `startRtcTicker` in
     `app.ts`). Outside `instruments/` on purpose (no bridge echo, one ACL
     grant). `rtc-request` reserved. Three ACL edits; AWS needs them.
   - **`emqx-5.3.2/etc/acl.conf` changed and the broker was restarted**: bridge

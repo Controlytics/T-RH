@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   RTC_TIME_TOPIC, rtcRequestTopic, parseRtcRequestTopic, isGetTimeRequest, buildTimePayload,
-  msUntilNextMinute, startRtcTicker,
+  msUntilNextBoundary, startRtcTicker, RTC_TICK_MS,
 } from '../rtc-sync.js';
 
 /** RTC sync (2026-09-05) — the pure half and the ticker. */
@@ -32,34 +32,35 @@ describe('the request', () => {
 });
 
 describe('the time payload', () => {
-  it('carries UTC ISO to the millisecond and whole epoch seconds', () => {
-    expect(buildTimePayload(new Date('2026-09-05T11:30:00.750Z'))).toEqual({
-      method: 'time', utc: '2026-09-05T11:30:00.750Z', epoch: 1788607800,
-    });
+  it('is exactly {"unix":<epoch MILLISECONDS>} (operator: "{"unix":1792221233122}")', () => {
+    expect(buildTimePayload(new Date('2026-09-05T11:30:00.750Z'))).toEqual({ unix: 1788607800750 });
+    expect(JSON.stringify(buildTimePayload(new Date(1792221233122)))).toBe('{"unix":1792221233122}');
   });
 });
 
-describe('the minute ticker', () => {
+describe('the ticker', () => {
   afterEach(() => { vi.useRealTimers(); });
 
-  it('waits until the next whole minute, then every minute', () => {
-    expect(msUntilNextMinute(new Date('2026-09-05T11:30:00.000Z'))).toBe(60_000);
-    expect(msUntilNextMinute(new Date('2026-09-05T11:30:45.500Z'))).toBe(14_500);
+  it('ticks every 10 minutes, aligned to the wall clock (operator: "make it every 10 minutes")', () => {
+    expect(RTC_TICK_MS).toBe(600_000);
+    expect(msUntilNextBoundary(new Date('2026-09-05T11:30:00.000Z'))).toBe(600_000);
+    expect(msUntilNextBoundary(new Date('2026-09-05T11:34:45.500Z'))).toBe(5 * 60_000 + 14_500);
+    expect(msUntilNextBoundary(new Date('2026-09-05T11:30:45.500Z'), 60_000)).toBe(14_500);
   });
 
-  it('publishes on the minute boundary and then once per minute, and stops cleanly', () => {
+  it('publishes on the 10-minute boundary and then every 10 minutes, and stops cleanly', () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-09-05T11:30:45.000Z'));
+    vi.setSystemTime(new Date('2026-09-05T11:34:45.000Z'));
     const published: string[] = [];
     const ticker = startRtcTicker({ publish: async (d) => { published.push(d.toISOString()); } });
-    vi.advanceTimersByTime(14_999);
+    vi.advanceTimersByTime(5 * 60_000 + 14_999);
     expect(published).toEqual([]);
     vi.advanceTimersByTime(1);
-    expect(published).toEqual(['2026-09-05T11:31:00.000Z']);
-    vi.advanceTimersByTime(60_000);
-    expect(published).toEqual(['2026-09-05T11:31:00.000Z', '2026-09-05T11:32:00.000Z']);
+    expect(published).toEqual(['2026-09-05T11:40:00.000Z']);
+    vi.advanceTimersByTime(600_000);
+    expect(published).toEqual(['2026-09-05T11:40:00.000Z', '2026-09-05T11:50:00.000Z']);
     ticker.stop();
-    vi.advanceTimersByTime(120_000);
+    vi.advanceTimersByTime(1_200_000);
     expect(published).toHaveLength(2);
   });
 });

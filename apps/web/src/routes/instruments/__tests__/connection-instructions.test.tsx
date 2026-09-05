@@ -379,7 +379,10 @@ describe('ConnectionInstructions — attribute payloads', () => {
     expect(screen.getAllByText(/instruments\/GW-1\/rtc-request/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/-m '\{"method":"getTime"\}'/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/digilog\/rtc\/time/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/"method": "time"/).length).toBeGreaterThan(0);
+    // The payload is exactly {"unix":<13-digit epoch-ms>} — no method, no ISO string.
+    expect(screen.getAllByText(/^\{"unix":\d{13}\}$/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/"method": "time"/)).toBeNull();
+    expect(screen.queryByText(/"utc"/)).toBeNull();
     cleanup();
     render(<ConnectionInstructions transport="mqtt" code="T-1" token="TOK" />);
     expect(screen.queryByText(/rtc-request/)).not.toBeInTheDocument();
