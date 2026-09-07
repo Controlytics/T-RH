@@ -19,7 +19,10 @@ vi.mock('@/lib/pdf-report', async (orig) => {
     ...real,
     renderSnapshotToPdf: vi.fn(async (_snap: unknown, opts: any) => ({
       save: (name: string) => { events.push(`save:${name}`); saved.push(name); },
-      doc: { output: () => 'blob:draft' },
+      // The FINALISED document (end block + footers + watermark) is what
+      // `toBlobUrl` returns; `doc.output` alone is the un-finalised one.
+      toBlobUrl: () => 'blob:draft',
+      doc: { output: () => 'blob:UNFINALISED' },
       __opts: opts,
     })),
   };

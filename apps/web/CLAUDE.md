@@ -164,7 +164,12 @@ Every PDF download is a REQUEST an approver signs. Spec:
   answer via `useSWR('/api/report-reviews?list=…')`. Approve / Reject appear
   only on a PENDING row assigned to me (user id or my role), with the
   `reports.approve` gate, and never on my own request; View draft for any
-  party (`openDraft` → a blob URL in a new tab; nothing saved or audited);
+  party (`openDraft` → `report.toBlobUrl()` in a new tab; nothing saved or
+  audited. **`toBlobUrl` FINALISES the document** — the watermark, page numbers
+  and end block are painted at finalisation, and the raw `doc.output('bloburl')`
+  it used to call skipped all three, so the approver's tab opened a clean
+  unwatermarked PDF (review, 2026-09-07). Any new output path goes through
+  `finalise()`, never `doc.output` directly);
   Download on APPROVED (`downloadApproved` — audits through
   `/download-log` BEFORE `save()`, refuses a non-approved row). The decision
   dialog (`decision-dialog.tsx`) collects remarks + `SignaturePasswordInput`

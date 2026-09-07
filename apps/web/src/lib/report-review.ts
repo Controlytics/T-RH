@@ -113,11 +113,17 @@ function fileSlug(title: string): string {
   return (title || 'report').replace(/[^\w-]+/g, '_').replace(/^_+|_+$/g, '') || 'report';
 }
 
-/** The approver's view: the exact document, watermarked, unsigned, in a new tab. Nothing is saved or audited. */
+/**
+ * The approver's view: the exact document, watermarked, unsigned, in a new tab.
+ * Nothing is saved or audited. `toBlobUrl` FINALISES the document first — the
+ * watermark and page numbers are painted at finalisation, and the raw
+ * `doc.output('bloburl')` this used to call skipped it, so the approver's tab
+ * opened a clean, unpaginated, unwatermarked PDF (review, 2026-09-07).
+ */
 export async function openDraft(id: string, formatDateTime: (d: string) => string): Promise<void> {
   const r = await fetchReview(id);
   const report = await renderSnapshotToPdf(normaliseSnapshot(r.dataSnapshot), { formatDateTime, draft: true });
-  window.open(report.doc.output('bloburl') as unknown as string, '_blank');
+  window.open(report.toBlobUrl(), '_blank');
 }
 
 /**

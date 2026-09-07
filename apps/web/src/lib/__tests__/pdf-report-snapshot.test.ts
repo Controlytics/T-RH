@@ -102,13 +102,22 @@ describe('ReportSnapshot v2', () => {
     expect(text).toContain('NMT = Not More Than');
   });
 
-  it('DRAFT: watermarks every page and prints no signature', async () => {
+  it('DRAFT: watermarks every page and prints no signature — on the path the approver actually opens', async () => {
+    // `openDraft` never calls `save()`; it hands the document to a new tab as a
+    // blob URL. The watermark and the page numbers are painted by the same
+    // finalisation `save()` runs, so the blob path must run it too (review,
+    // 2026-09-07: the approver's tab opened clean, unpaginated, unwatermarked).
+    const createObjectURL = vi.fn(() => 'blob:draft-url');
+    vi.stubGlobal('URL', Object.assign(Object.create(URL), { createObjectURL, revokeObjectURL: vi.fn() }));
     const original = await build();
     const draft = await renderSnapshotToPdf(original.getSnapshot(), { formatDateTime, draft: true });
-    draft.save('draft.pdf');
+    expect(draft.toBlobUrl()).toBe('blob:draft-url');
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
     const pages = pageTexts(draft.doc);
     expect(pages.length).toBeGreaterThanOrEqual(2);
     for (const p of pages) expect(p).toContain('DRAFT');
+    expect(pages[0]).toContain('Page 1 of');
     expect(pages.join(' ')).not.toContain('Requested By');
     expect(pages.join(' ')).not.toContain('Printed By');
   });

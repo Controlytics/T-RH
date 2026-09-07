@@ -242,6 +242,14 @@ export interface ReportDoc {
   /** Force a fresh page and reset the cursor to the top margin. */
   newPage: () => void;
   save: (filename: string) => void;
+  /**
+   * The FINALISED document as a blob URL — the same end block, footers and
+   * (for a draft) watermark `save()` paints, without the download. This is how
+   * the approver's draft reaches a new tab; `doc.output('bloburl')` on the raw
+   * document is the un-finalised one, with no page numbers and no DRAFT mark
+   * (review, 2026-09-07).
+   */
+  toBlobUrl: () => string;
   /** The frozen document — every drawing call, in order, plus the chrome that
    *  shaped it. `renderSnapshotToPdf` replays it through this same interface. */
   getSnapshot: () => ReportSnapshot;
@@ -639,11 +647,17 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     y += 13;
   };
 
+  // The end block and footers go on exactly once, whichever output is asked for
+  // first — a second pass would print a second "Page N of N" over the first.
+  let finalised = false;
+  const finalise = () => { if (finalised) return; finalised = true; addEndBlock(); addFooters(); };
+
   return {
     doc, get y() { return y; }, set y(v) { y = v; },
     pw, ph, colors: COLORS,
     addTable, addSectionTitle, addKeyValue, addNote, addImage, checkPageBreak, newPage,
-    save: (filename: string) => { addEndBlock(); addFooters(); doc.save(filename); },
+    save: (filename: string) => { finalise(); doc.save(filename); },
+    toBlobUrl: () => { finalise(); return doc.output('bloburl') as unknown as string; },
     getSnapshot: (): ReportSnapshot => {
       flushTitle();
       return {

@@ -58,6 +58,8 @@ clean. **Not seen on screen** — the operator holds the browser session.
 are keyed on `NotificationEventType`, which has no report events); a second
 review stage; editing or withdrawing a request; expiring stale requests.
 
+**Review fix, same day — the approver's DRAFT was NOT watermarked.** The `DRAFT — NOT APPROVED` mark, the page numbers and the end block are all painted at finalisation, which only `save()` ran; `openDraft` handed the RAW document to the new tab via `doc.output('bloburl')`, so the approver opened a clean, unpaginated, unwatermarked PDF — the one path the safeguard exists for. The test that "proved" the watermark called `save()`, a path the draft never takes. `ReportDoc.toBlobUrl()` now finalises (once — a second call cannot print a second page number) and `openDraft` uses it; the draft test renders through that path and asserts `Page 1 of`, and the `openDraft` test's stand-in returns a different URL from `doc.output` so the raw path fails it. Mutation-checked: dropping the finalise call from `toBlobUrl` fails the draft test.
+
 ## [Unreleased] - Data Report: an extreme prints only for a bound in force (2026-09-07)
 
 Operator: *"if Enable_Humid_NLT is disabled then dont show RH min in report, if
