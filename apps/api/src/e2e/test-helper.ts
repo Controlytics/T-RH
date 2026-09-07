@@ -24,6 +24,7 @@ import instrumentRoutes from '../modules/instruments/routes.js';
 import functionalLocationRoutes from '../modules/functional-locations/routes.js';
 import alarmRoutes from '../modules/alarms/routes.js';
 import alarmWebhookRoutes from '../modules/alarm-webhooks/routes.js';
+import reportReviewRoutes from '../modules/report-reviews/routes.js';
 import floorplanRoutes from '../modules/floorplans/routes.js';
 import notificationRulesRoutes from '../modules/notification-rules/routes.js';
 import adminRequestRoutes from '../modules/admin-requests/routes.js';
@@ -132,6 +133,7 @@ export async function buildApp(
   await app.register(functionalLocationRoutes, { prefix: '/api/functional-locations' });
   await app.register(alarmRoutes, { prefix: '/api/alarms' });
   await app.register(alarmWebhookRoutes, { prefix: '/api/alarm-webhooks' });
+  await app.register(reportReviewRoutes, { prefix: '/api/report-reviews' });
   // Added 2026-08-29: these three were registered in app.ts but NOT here, so
   // every route they expose was unreachable from the e2e suite and all three
   // modules had zero HTTP-level coverage (audit finding H4).
