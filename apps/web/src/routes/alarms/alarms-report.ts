@@ -246,9 +246,6 @@ export function scopeColumnStyles(contentWidth = CONTENT_WIDTH_MM, labelWidth = 
   };
 }
 
-/** @deprecated kept as the default-width case; prefer {@link scopeColumnStyles}. */
-export const SCOPE_COLUMN_STYLES = scopeColumnStyles();
-
 /** °C for temperature, %RH for humidity — the same legends the alarms table puts
  *  in its column headers, so the paper and the screen name one unit. */
 export function uomFor(a: AlarmRow): string {

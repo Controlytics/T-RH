@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   ALARM_REPORT_HEAD, ALARM_REPORT_LEGEND, NOT_APPLICABLE, BOUND_NOT_SHOWN, EXTRA_COLUMNS,
   scopePairs, uomFor, setPoints, reportRows, truncationNote, reportSeedPeriod,
-  reportLevel, reportHead, columnWidths, scopeTableRows, SCOPE_COLUMN_STYLES,
+  reportLevel, reportHead, columnWidths, scopeTableRows,
   scopeColumnStyles, CONTENT_WIDTH_MM, buildAlarmsReport, hiddenLimitColumns,
 } from '../alarms-report';
 import type { AlarmRow } from '../alarm-display';
@@ -447,8 +447,8 @@ describe('the parameter block is a TABLE, one line per field', () => {
   });
 
   it('pins the label columns so a long Block name cannot eat the row', () => {
-    expect(SCOPE_COLUMN_STYLES[0].cellWidth).toBe(26);
-    expect(SCOPE_COLUMN_STYLES[2].cellWidth).toBe(26);
+    expect(scopeColumnStyles()[0].cellWidth).toBe(26);
+    expect(scopeColumnStyles()[2].cellWidth).toBe(26);
   });
 });
 

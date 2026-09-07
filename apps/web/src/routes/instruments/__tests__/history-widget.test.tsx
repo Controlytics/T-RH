@@ -86,11 +86,6 @@ vi.mock('@/lib/api-client', () => ({
     postWithReauth: vi.fn(async () => ({})),
   },
 }));
-const events: string[] = [];
-const logged: any[] = [];
-vi.mock('@/lib/report-export-log', () => ({
-  logReportExport: vi.fn(async (input: any) => { logged.push(input); events.push(`log:${input.reportType}`); }),
-}));
 
 const { InstrumentHistoryWidget } = await import('../history-widget');
 const { useHistoryScope } = await import('@/routes/data-report/use-history-scope');
@@ -118,7 +113,7 @@ function pickArea() {
 }
 
 describe('InstrumentHistoryWidget', () => {
-  beforeEach(() => { requested.length = 0; events.length = 0; logged.length = 0; });
+  beforeEach(() => { requested.length = 0; });
 
   it('offers the Blocks, then the chosen Block\'s Areas, and asks the list route for the scope', () => {
     renderWidget();
