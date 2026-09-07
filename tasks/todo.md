@@ -3261,3 +3261,9 @@ Operator: *"one message for all children with full set, go"*.
 - [x] tests: card (mutation-checked), trend-downloads (mutation-checked), trend-report-chart, widget, page; 44 files PASS by exit code; tsc; vite build
 - [x] docs: root + web CLAUDE.md, CHANGELOG
 - [ ] operator to look at `/data-report` (card above the widget) and the trend page header download (not seen on screen here)
+
+## 2026-09-07 — Data Report extremes follow the bound in force
+
+- [x] `extremesCells` in `data-report.ts`: Max only if NMT bound in force, Min only if NLT; blank pair when neither; reaches all three Data Report downloads
+- [x] 5 new cases in `data-report.test.ts`; reference-layout expectation records the departure; trend-report-chart label list re-pinned
+- [ ] operator to check a downloaded Data Report for an instrument with `Enable_Humid_NLT = 0`

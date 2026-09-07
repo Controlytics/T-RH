@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased] - Data Report: an extreme prints only for a bound in force (2026-09-07)
+
+Operator: *"if Enable_Humid_NLT is disabled then dont show RH min in report, if
+nmt is disabled then dont show max in report same like that in all data
+reports"*.
+
+The parameter block's `Temp. Max : … , Temp. Min : …` / `RH Max : … , RH Min :
+…` row (`dataReportParameterRows`, `extremesCells`) now prints an extreme ONLY
+for a bound that is in force. The server already withholds a disabled bound —
+`telemetry-overview` nulls `limits.rhMin` when `Enable_Humid_NLT` is off (2026-
+08-31) — so the `Temp. Limit` / `RH Limit` line was already right; the extremes
+row follows the bound now too. NMT off → no Max; NLT off → no Min; the label
+moves to whichever extreme remains (`RH Min : 58`); no bound in force on a slot
+→ that pair is blank, not a dash. A bound never administered reads the same as
+one switched off, because the bound's presence is the one fact the module sees
+(`limitEnabled` says why and never gates display, the 2026-08-31 rule). One
+function, so it reaches EVERY Data Report: the trend page's Time Series card and
+header download, and the Data Report page's card. **A deliberate departure from
+`Data Report.pdf`**, which prints both extremes against NMT-only limits; the
+reference-layout test records it. Nothing on screen changed. Pinned by five
+new cases in `data-report.test.ts`; `trend-report-chart.test.ts`'s label check
+re-pinned (its fixture has no RH bound, so `RH Max :` no longer prints there).
+Not seen on paper — the layout of the row itself is unchanged.
+
 ## [Unreleased] - Generate Data Report card; the trend page header downloads the Data Report (2026-09-07)
 
 Operator: *"create one card only text should be there Generate Data report and

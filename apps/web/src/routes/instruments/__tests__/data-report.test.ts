@@ -55,7 +55,11 @@ describe('the reference layout', () => {
       ['Location :', 'LCMS Room-II', 'End Date :', '28-05-2026'],
       ['Inst ID :', 'CWH/RDU/002-01', 'End Time :', '16:36'],
       ['Temp. Limit :', 'NMT 27.0', 'RH Limit :', 'NMT 70'],
-      ['Temp. Max :', '22.9 , Temp. Min : 21.2', 'RH Max :', '63 , RH Min : 58'],
+      // A DELIBERATE departure from the reference, which prints "Temp. Max :
+      // 22.9 , Temp. Min : 21.2" against NMT-only limits: since 2026-09-07 an
+      // extreme prints only for a bound in force (operator), so NMT-only
+      // instruments print Max alone.
+      ['Temp. Max :', '22.9', 'RH Max :', '63'],
       ['', '', 'Interval :', '1 hour'],
     ]);
   });
@@ -70,8 +74,9 @@ describe('the reference layout', () => {
     const rows = dataReportParameterRows({
       scope: { blockName: '', areaName: '  ', locationName: '', instrumentLabel: 'X' },
       period,
-      temp: { min: null, max: null, decimals: 1, periodMax: null, periodMin: null },
-      rh: { min: null, max: null, decimals: 0, periodMax: null, periodMin: null },
+      // Both bounds in force, no numeric reading in the period.
+      temp: { min: 18, max: 27, decimals: 1, periodMax: null, periodMin: null },
+      rh: { min: 30, max: 70, decimals: 0, periodMax: null, periodMin: null },
       intervalMs: null, fmt,
     });
     expect(rows[0][1]).toBe('-');
@@ -79,6 +84,47 @@ describe('the reference layout', () => {
     expect(rows[2][1]).toBe('-');
     expect(rows[5]).toEqual(['Temp. Max :', '- , Temp. Min : -', 'RH Max :', '- , RH Min : -']);
     expect(rows[6]).toEqual(['', '', 'Interval :', 'Raw (every reading)']);
+  });
+});
+
+describe('an extreme prints only for a bound that is IN FORCE (2026-09-07)', () => {
+  // Operator: "if Enable_Humid_NLT is disabled then dont show RH min in
+  // report, if nmt is disabled then dont show max in report same like that
+  // in all data reports". The server already withholds a disabled bound
+  // (`limits.rhMin` is null when Enable_Humid_NLT is off), and this row
+  // follows the bound: a minimum nobody judges is not reported. Never
+  // administered reads the same as switched off, because `limits` is the one
+  // fact this module sees — `limitEnabled` says WHY and never gates display.
+  const base = { scope, period, intervalMs: null, fmt };
+
+  it('drops RH Min when the RH low bound is not in force', () => {
+    const rows = dataReportParameterRows({ ...base, temp: { ...temp, min: 18 }, rh: { ...rh, min: null, periodMin: 58 } });
+    expect(rows[5].slice(2)).toEqual(['RH Max :', '63']);
+    // The temperature side, given both bounds in force, is untouched.
+    expect(rows[5].slice(0, 2)).toEqual(['Temp. Max :', '22.9 , Temp. Min : 21.2']);
+  });
+
+  it('drops RH Max — and the label moves to Min — when the RH high bound is not in force', () => {
+    const rows = dataReportParameterRows({ ...base, temp, rh: { ...rh, max: null, min: 30 } });
+    expect(rows[5].slice(2)).toEqual(['RH Min :', '58']);
+  });
+
+  it('prints neither when no RH bound is in force, and does not invent a dash', () => {
+    const rows = dataReportParameterRows({ ...base, temp, rh: { ...rh, min: null, max: null } });
+    expect(rows[5].slice(2)).toEqual(['', '']);
+  });
+
+  it('applies the same rule to temperature', () => {
+    const rows = dataReportParameterRows({ ...base, rh, temp: { ...temp, max: null, min: 18 } });
+    expect(rows[5].slice(0, 2)).toEqual(['Temp. Min :', '21.2']);
+    const none = dataReportParameterRows({ ...base, rh, temp: { ...temp, min: null, max: null } });
+    expect(none[5].slice(0, 2)).toEqual(['', '']);
+  });
+
+  it('the reference instrument (NMT only, both slots) prints Max alone', () => {
+    // `temp` and `rh` above ARE the reference: NMT 27 / NMT 70, no low bound.
+    const rows = dataReportParameterRows({ ...base, temp, rh });
+    expect(rows[5]).toEqual(['Temp. Max :', '22.9', 'RH Max :', '63']);
   });
 });
 

@@ -774,6 +774,13 @@ GET    /api/alarm-webhooks/:id/deliveries?status= — paged §11 delivery log, f
   trend page's HEADER "Export as PDF" is now that same Data Report** with the
   interval dialog, not the combined charts document ("in that report trends
   also coming remove those and add interval feature"); `TrendSlot` lost `both`.
+  **And an extreme prints only for a bound IN FORCE** ("if Enable_Humid_NLT is
+  disabled then dont show RH min in report, if nmt is disabled then dont show
+  max … in all data reports"): `extremesCells` in `data-report.ts` follows the
+  bound the server resolved (`limits`, already null for a disabled bound), so
+  NMT-only instruments print `Temp. Max : 22.9` alone — a deliberate departure
+  from `Data Report.pdf`. Never-administered reads as switched off;
+  `limitEnabled` still never gates display.
   No count moved. See `apps/web/CLAUDE.md`.
 - **The dashboard's selection alarms panel is the SHARED alarm table
   (2026-09-01).** `routes/dashboard/selection-alarms.tsx` was a bespoke `<ul>`;

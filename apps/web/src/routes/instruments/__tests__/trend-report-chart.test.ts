@@ -439,7 +439,9 @@ describe('the trend report shows the trend', () => {
     }
     const text = pdfText(report);
     expect(report.getSnapshot().title).toBe('Temperature and RH Data Report');
-    for (const label of ['Block :', 'Area :', 'Location :', 'Inst ID :', 'Start Date :', 'Start Time :', 'End Date :', 'End Time :', 'Temp. Limit :', 'RH Limit :', 'Temp. Max :', 'RH Max :', 'Interval :']) {
+    // No 'RH Max :' — this fixture has no RH slot and no RH bound, and since
+    // 2026-09-07 an extreme prints only for a bound in force.
+    for (const label of ['Block :', 'Area :', 'Location :', 'Inst ID :', 'Start Date :', 'Start Time :', 'End Date :', 'End Time :', 'Temp. Limit :', 'RH Limit :', 'Temp. Max :', 'Interval :']) {
       expect(text).toContain(label);
     }
     expect(text).toContain('CWH Block');

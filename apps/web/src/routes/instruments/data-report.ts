@@ -191,6 +191,35 @@ function num(v: number | null | undefined, decimals: number): string {
   return v == null ? '-' : (formatDecimals(v, decimals) ?? '-');
 }
 
+/** A bound that is IN FORCE — the same test `formatSetPoint` applies. */
+const inForce = (b: number | null | undefined): b is number => typeof b === 'number' && Number.isFinite(b);
+
+/**
+ * The Max / Min cell pair for one slot: label cell, then the value cell in the
+ * reference's own sentence shape (`22.9 , Temp. Min : 21.2`).
+ *
+ * An extreme prints ONLY for a bound that is in force (operator, 2026-09-07:
+ * *"if Enable_Humid_NLT is disabled then dont show RH min in report, if nmt is
+ * disabled then dont show max in report same like that in all data reports"*).
+ * The server already withholds a disabled bound — `limits.rhMin` is null when
+ * `Enable_Humid_NLT` is off — and this row follows the bound: a minimum nobody
+ * judges against is not reported. A bound never administered reads the same as
+ * one switched off, because the bound's PRESENCE is the one fact this module
+ * sees; `limitEnabled` says why and must never gate display. With no bound in
+ * force on the slot the pair is blank, like the reference's own last row —
+ * not a dash, which would claim a field that does not exist. A DELIBERATE
+ * departure from `Data Report.pdf`, which prints both extremes against
+ * NMT-only limits.
+ */
+function extremesCells(name: 'Temp.' | 'RH', s: SlotBounds & SlotExtremes): [string, string] {
+  const parts: [string, string][] = [];
+  if (inForce(s.max)) parts.push([`${name} Max :`, num(s.periodMax, s.decimals)]);
+  if (inForce(s.min)) parts.push([`${name} Min :`, num(s.periodMin, s.decimals)]);
+  if (parts.length === 0) return ['', ''];
+  const [first, ...rest] = parts;
+  return [first[0], [first[1], ...rest.map(([label, value]) => `${label} ${value}`)].join(' , ')];
+}
+
 /** `Raw (every reading)` or the interval's own label — the SAME words the page's
  *  interval selector shows, from the one shared list. */
 export function dataReportIntervalText(intervalMs: number | null): string {
@@ -206,7 +235,8 @@ export function dataReportIntervalText(intervalMs: number | null): string {
  * The Max/Min row keeps the reference's own sentence shape, `Temp. Max : 22.9 ,
  * Temp. Min : 21.2`, in one value cell: the reference prints both extremes on
  * one line, and splitting them into two rows would make this block a row
- * taller than the document it was asked to match. The last row is blank on the
+ * taller than the document it was asked to match — but each extreme prints
+ * only for a bound in force (`extremesCells`). The last row is blank on the
  * left with `Interval` alone on the right, as the reference has it.
  */
 export function dataReportParameterRows(input: {
@@ -224,10 +254,7 @@ export function dataReportParameterRows(input: {
     ['Location :', orDash(scope.locationName), 'End Date :', fmt.formatDate(period.to)],
     ['Inst ID :', orDash(scope.instrumentLabel), 'End Time :', fmt.formatTime(period.to)],
     ['Temp. Limit :', limitText(temp), 'RH Limit :', limitText(rh)],
-    [
-      'Temp. Max :', `${num(temp.periodMax, temp.decimals)} , Temp. Min : ${num(temp.periodMin, temp.decimals)}`,
-      'RH Max :', `${num(rh.periodMax, rh.decimals)} , RH Min : ${num(rh.periodMin, rh.decimals)}`,
-    ],
+    [...extremesCells('Temp.', temp), ...extremesCells('RH', rh)],
     ['', '', 'Interval :', dataReportIntervalText(input.intervalMs)],
   ];
 }
