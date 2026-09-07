@@ -1,31 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
-import {
-  ALL_RECORDS, INTERVALS, coerceReading, formatDecimals, isOutOfRange, isSensorFailureValue,
-} from '@digilog/shared';
+import { INTERVALS, coerceReading, formatDecimals, isOutOfRange, isSensorFailureValue } from '@digilog/shared';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Pagination } from '@/components/ui/pagination';
-import { ExportMenu } from '@/components/ExportMenu';
-import { ReportDownloadDialog, type ReportDownloadRequest } from '@/components/report-download-dialog';
-import { ReauthDialog } from '@/components/reauth-dialog';
-import { useReauth } from '@/hooks/use-reauth';
 import { useSensorWords } from '@/hooks/use-failure-text';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
-import { apiClient } from '@/lib/api-client';
-import { logReportExport } from '@/lib/report-export-log';
-import type { OverviewRow } from '@/routes/dashboard/use-telemetry';
+import type { HistoryScope } from '@/routes/data-report/use-history-scope';
 import { useTrendPeriod, TREND_PRESETS } from './use-trend-data';
 import { pillTone, rowTone, ROW_ACCENT, PILL_CLASS, FAULT_PILL, type PillTone } from './timeseries-table-card';
-import { fetchDataReportRows, slotExtremes } from './data-report-fetch';
-import { renderInstrumentHistoryReport, type DataReportInput } from './trend-report';
-import { resolveBlockArea } from './data-report';
-import {
-  scopeIdFor, areasOf, effectiveSelection, toggleSelection, scopeNames,
-  type LocationNode, type ScopedInstrument,
-} from './history-selection';
+import { toggleSelection } from './history-selection';
 
 /**
  * The Instrument HISTORY widget (operator, 2026-09-05): *"same like
@@ -37,21 +23,23 @@ import {
  * option Data Report, in that it should come"*), after a day on the
  * Instruments page and two as the dashboard panel `dashboard_history`.
  *
- * Three parts, each with one job:
+ * Two parts, each with one job:
  *  - the SELECTION row — Block, Area, and a tick list of the instruments in
  *    scope. Everything in scope is selected until something is unticked
  *    (`history-selection.ts` holds the rules; the Block → Areas expansion is
- *    the SERVER's, through `/api/instruments?functionalLocationId=`).
+ *    the SERVER's, through `/api/instruments?functionalLocationId=`). The
+ *    selection STATE is the page's (`useHistoryScope`, passed in as `scope`),
+ *    because the Generate Data Report card above this widget downloads the
+ *    report for the same selection — one owner, or the two could disagree.
  *  - the READINGS table — the merged, paged, newest-first readings of the
  *    selection over the chosen period, from `/api/instruments/telemetry-history`
  *    (pivoted server-side so a page cannot split an instant). Each row is
  *    judged with ITS OWN instrument's limits, precision and span, read from
  *    `telemetry-overview` — never a site-wide guess, since two instruments in
  *    one Area can carry different specs.
- *  - the DOWNLOAD — the Data Report for every selected instrument, one
- *    section each (`renderInstrumentHistoryReport`), through the same
- *    governed dialog, re-auth and audit row as every other report. Each
- *    instrument is read in turn and the dialog says which one it is on.
+ * The DOWNLOAD is NOT here (2026-09-07): it is the card's, so the page has one
+ * trigger. It was this widget's from 2026-09-05, with a cover block the
+ * operator then asked to drop.
  *
  * Period and interval share `useTrendPeriod`'s URL state with the trend page,
  * so the same presets, the same custom range and the same interval keys apply
@@ -72,55 +60,20 @@ const th = 'px-4 py-3 text-left text-[0.6875rem] font-bold uppercase tracking-[0
  * the download on the right; the period presets and the custom range sit on a
  * second row, since seven buttons and two date inputs do not fit beside them.
  */
-export function InstrumentHistoryWidget() {
+export function InstrumentHistoryWidget({ scope }: { scope: HistoryScope }) {
+  const { tree, blockId, areaId, setBlock, setArea, areas, selected, setSelected, inScope, chosen, overviewById } = scope;
   const { period, setPreset, setCustom, setInterval } = useTrendPeriod();
   const paginationOptions = usePaginationConfig();
-  const [blockId, setBlockId] = useState('');
-  const [areaId, setAreaId] = useState('');
-  // NOTHING is selected until a Block or Area is chosen (then everything in
-  // it is). With no scope the list is the whole plant, and "everything
-  // selected by default" would fire a plant-wide history query for every
-  // visitor of the Instruments page, on a page people open constantly.
-  const [selected, setSelected] = useState<Set<string> | null>(new Set());
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(paginationOptions[0]);
-  const [pendingDownload, setPendingDownload] = useState(false);
-  const [progress, setProgress] = useState<string | null>(null);
-  const reauth = useReauth();
   const sensorWords = useSensorWords();
-  const { formatDate, formatTime, formatDateTime } = useDatetimeFormat();
+  const { formatDateTime } = useDatetimeFormat();
 
-  const { data: treeData } = useSWR<{ data: LocationNode[] }>('/api/functional-locations');
-  const tree = treeData?.data ?? [];
-  const areas = areasOf(tree, blockId);
-
-  // The instruments in scope, from the list route — which applies the caller's
-  // visibility and expands a Block to its Areas. Ask for every record: this
-  // list is a picker, and a picker that shows page one of an Area is a picker
-  // that silently omits the rest.
-  const scopeId = scopeIdFor(blockId, areaId);
-  const instQs = new URLSearchParams({ limit: String(ALL_RECORDS) });
-  if (scopeId) instQs.set('functionalLocationId', scopeId);
-  const { data: instData } = useSWR<{ data: ScopedInstrument[] }>(`/api/instruments?${instQs}`);
-  const inScope = useMemo(() => instData?.data ?? [], [instData]);
-
-  // Per-instrument keys, limits, precision and span — the server's resolution,
-  // one request for the whole plant.
-  const { data: overviewData } = useSWR<{ data: OverviewRow[] }>('/api/instruments/telemetry-overview');
-  const overviewById = useMemo(() => {
-    const m = new Map<string, OverviewRow>();
-    for (const r of overviewData?.data ?? []) m.set(r.instrumentId, r);
-    return m;
-  }, [overviewData]);
-
-  const chosen = effectiveSelection(inScope, selected);
   const chosenIds = chosen.map((i) => i.id);
 
-  // A scope change resets the tick list and the page: ticks from another Area
-  // must not survive as hidden state, and page 3 of the old selection is
-  // usually past the end of the new one. A chosen Block or Area starts with
-  // everything in it selected; no scope starts with nothing.
-  useEffect(() => { setSelected(scopeId ? null : new Set()); setPage(1); }, [scopeId]);
+  // A selection or period change resets the page: page 3 of the old selection
+  // is usually past the end of the new one. (A scope change resets the ticks
+  // themselves, in `useHistoryScope`, which is what `selected` then reports.)
   useEffect(() => { setPage(1); }, [period.from, period.to, selected]);
 
   const histQs = new URLSearchParams({
@@ -135,76 +88,6 @@ export function InstrumentHistoryWidget() {
   const total = hist?.total ?? 0;
   const byId = useMemo(() => new Map(inScope.map((i) => [i.id, i])), [inScope]);
 
-  const runDownload = async (req: ReportDownloadRequest) => {
-    const targets = effectiveSelection(inScope, selected);
-    if (targets.length === 0) throw new Error('Select at least one instrument to report on.');
-    const reportPeriod = { from: req.period.from, to: req.period.to, label: req.period.label };
-    const interval = req.intervalMs !== undefined ? req.intervalMs : period.intervalMs;
-    const fmt = { formatDate, formatTime };
-    try {
-      await reauth.executeWithResult('DOWNLOAD_REPORT', async (password) => {
-        const sections: DataReportInput[] = [];
-        for (const [i, inst] of targets.entries()) {
-          setProgress(`Reading ${inst.code} (${i + 1} of ${targets.length})…`);
-          const ov = overviewById.get(inst.id);
-          const tempKey = ov?.temperature?.key ?? null;
-          const humidKey = ov?.humidity?.key ?? null;
-          const slotKeys = [tempKey, humidKey].filter((k): k is string => k !== null);
-          const fetched = await fetchDataReportRows({
-            instrumentId: inst.id, from: reportPeriod.from, to: reportPeriod.to, intervalMs: interval, slotKeys,
-          });
-          sections.push({
-            scope: {
-              ...resolveBlockArea(tree, inst.functionalLocationId ?? null),
-              locationName: ov?.locationAttribute ?? '',
-              instrumentLabel: inst.code,
-            },
-            period: reportPeriod, fmt, formatDateTime,
-            temp: {
-              key: tempKey, min: ov?.limits?.tempMin, max: ov?.limits?.tempMax,
-              decimals: ov?.decimals.temperature ?? 1,
-              rangeLow: ov?.rangeBounds?.temperatureLow ?? null, rangeHigh: ov?.rangeBounds?.temperatureHigh ?? null,
-              ...slotExtremes(fetched.summaries, tempKey),
-            },
-            rh: {
-              key: humidKey, min: ov?.limits?.rhMin, max: ov?.limits?.rhMax,
-              decimals: ov?.decimals.humidity ?? 0,
-              rangeLow: ov?.rangeBounds?.humidityLow ?? null, rangeHigh: ov?.rangeBounds?.humidityHigh ?? null,
-              ...slotExtremes(fetched.summaries, humidKey),
-            },
-            rows: fetched.rows, intervalMs: interval, coverage: fetched.coverage, words: sensorWords,
-          });
-        }
-        setProgress('Building the report…');
-        const report = await renderInstrumentHistoryReport({
-          scope: scopeNames(tree, blockId, areaId),
-          period: reportPeriod, intervalMs: interval, fmt, formatDateTime,
-          instruments: sections,
-        });
-        // Fail-closed: the audit write happens BEFORE the file is saved.
-        // "Data Report" since 2026-09-07, the page's name; rows logged before
-        // read "Instrument History" and, being §11 records, were not rewritten.
-        await logReportExport({
-          reportType: 'Data Report', format: 'PDF',
-          recordCount: sections.reduce((n, s) => n + s.rows.length, 0),
-          period: reportPeriod.label, startDate: reportPeriod.from, endDate: reportPeriod.to,
-          search: `${targets.length} instrument${targets.length === 1 ? '' : 's'}: ${targets.map((t) => t.code).join(', ')}`,
-          remarks: req.remarks, password,
-        });
-        const stamp = new Date().toISOString().slice(0, 10);
-        report.save(`data-report-${stamp}.pdf`);
-      });
-      setPendingDownload(false);
-    } catch (e: any) {
-      // A cancelled reauth prompt is not a failure. Any other error rethrows so
-      // the dialog surfaces it and stays open.
-      if (e?.error === 'REAUTH_CANCELLED') { setPendingDownload(false); return; }
-      throw e;
-    } finally {
-      setProgress(null);
-    }
-  };
-
   const fromLocal = toLocalInput(period.from);
   const toLocal = toLocalInput(period.to);
 
@@ -212,15 +95,15 @@ export function InstrumentHistoryWidget() {
     ? 'Choose a Block or Area, or tick instruments, to see their readings'
     : `${chosen.length} instrument${chosen.length === 1 ? '' : 's'} · ${period.label}`;
 
-  // Block, Area, Interval and the download — the controls that fit a card
-  // header. One group, `flex-nowrap`, so the panel header stays one row.
+  // Block, Area and Interval — one group, `flex-nowrap`, so the header row
+  // stays one row.
   const compactToolbar = (
     <div className="flex flex-nowrap items-center gap-2">
       <Select
         selectSize="sm"
         value={blockId}
         aria-label="Block"
-        onChange={(e) => { setBlockId(e.target.value); setAreaId(''); }}
+        onChange={(e) => setBlock(e.target.value)}
       >
         <option value="">All blocks</option>
         {tree.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
@@ -230,7 +113,7 @@ export function InstrumentHistoryWidget() {
         value={areaId}
         aria-label="Area"
         disabled={!blockId}
-        onChange={(e) => setAreaId(e.target.value)}
+        onChange={(e) => setArea(e.target.value)}
       >
         <option value="">{blockId ? 'All areas' : 'Choose a block first'}</option>
         {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -245,12 +128,6 @@ export function InstrumentHistoryWidget() {
           <option key={i.value} value={i.seconds === null ? '' : i.seconds * 1000}>{i.label}</option>
         ))}
       </select>
-      <ExportMenu
-        surface="instrument-history"
-        iconOnly
-        busy={pendingDownload}
-        onExportPdf={() => setPendingDownload(true)}
-      />
     </div>
   );
   return (
@@ -393,27 +270,6 @@ export function InstrumentHistoryWidget() {
         />
       )}
 
-      <ReportDownloadDialog
-        open={pendingDownload}
-        reportName="Data Report"
-        showPeriod
-        showInterval
-        initialPeriod={{ from: period.from, to: period.to, label: period.label }}
-        initialIntervalMs={period.intervalMs}
-        progress={progress}
-        onCancel={() => setPendingDownload(false)}
-        onConfirm={runDownload}
-      />
-      <ReauthDialog
-        open={reauth.isOpen}
-        password={reauth.password}
-        error={reauth.error}
-        isVerifying={reauth.isVerifying}
-        onPasswordChange={reauth.setPassword}
-        onConfirm={reauth.confirm}
-        onCancel={reauth.cancel}
-        actionLabel="Download Report"
-      />
     </section>
   );
 }

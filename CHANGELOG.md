@@ -1,5 +1,56 @@
 # Changelog
 
+## [Unreleased] - Generate Data Report card; the trend page header downloads the Data Report (2026-09-07)
+
+Operator: *"create one card only text should be there Generate Data report and
+one download icon, when ever user click on that download icon i need same
+dialog with time period selection, interval and remarks then password
+reauthentication same like how timeseries widget is behaving … and report
+should be same report of time series widget"*; asked whether the multi-instrument
+file keeps its cover block — no; then, of the trend page's header download:
+*"in that report trends also coming remove those and add interval feature"*.
+
+**Data Report page.** New `routes/data-report/generate-report-card.tsx` above
+the widget: the text and one icon (`ExportMenu` icon-only, surface
+`instrument-history`, so per-role Export Options gating still applies). It is
+the page's ONE download trigger — the widget's own icon was removed. Click →
+the trend page's Time Series dialog (period, interval, remarks) → `DOWNLOAD_REPORT`
+re-auth → each selected instrument read through `data-report-fetch.ts` → audit
+row → file. The selection (Block, Area, ticks, instruments in scope, overview)
+moved out of the widget into `routes/data-report/use-history-scope.ts`, which
+the page passes to both the card and the now-controlled widget, so the card
+reports exactly what the table shows.
+
+**The document.** New `renderDataReports` in `trend-report.ts`: one Data Report
+page per selected instrument, each identical to the trend page's single-
+instrument document, NO cover block. `renderInstrumentHistoryReport`, its
+cover (`instrumentHistoryCoverRows`) and `scopeNames` were removed as dead code.
+Audit `reportType` is `Instrument Time Series` — it IS that report, per
+instrument; the `search` column names them. File `data-report-<date>.pdf`. Rows
+logged 2026-09-05..07 under `Instrument History` / `Data Report` were not
+rewritten. Nothing selected → the dialog refuses, no audit row.
+
+**Trend page.** The header "Export as PDF" now opens `{ kind: 'timeseries' }`
+— the Data Report with the interval — instead of the combined charts document
+(`Instrument Trend — Temperature & Humidity`). `TrendSlot` lost `both`; the
+per-chart downloads on the two chart cards are unchanged. The page still has
+five download buttons.
+
+**Counts:** none moved (no route, sidebar item, permission, def, model, enum).
+
+**Tests.** New `generate-report-card.test.tsx` (text + one icon; dialog offers
+the interval; one file, one page per instrument, no `Instruments :` cover text,
+each page its own limit; ticked-only; refuses with nothing selected — mutation-
+checked by putting the cover page back). `trend-downloads.test.tsx` re-pinned
+(header → Time Series, interval offered, zero chart rasters; combined-charts
+test removed — mutation-checked by pointing the header back at a charts
+report). `trend-report-chart.test.ts` re-pinned to `renderDataReports` (2 pages,
+no cover). Widget test now renders through the page hook and asserts no
+download of its own; page test asserts the card above the widget and exactly
+one export button. All 44 files under `routes/instruments`, `routes/data-report`
+and `routes/dashboard` PASS individually by exit code; `tsc` clean; `vite
+build` clean. **Not seen on screen** — the operator holds the browser session.
+
 ## [Unreleased] - Data Report page: the Instrument History widget leaves the dashboard (2026-09-07)
 
 Operator: *"in dashboard Instruments history widget was there that widget

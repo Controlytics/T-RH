@@ -574,32 +574,26 @@ describe('the trend report shows the trend', () => {
     expect(cell(2).styles.fontStyle).toBe('bold');
   });
 
-  it('builds the multi-instrument report as a cover block and one section per instrument, each on its own page', async () => {
-    const { renderInstrumentHistoryReport } = await import('../trend-report');
+  it('builds the multi-instrument report as one Data Report page per instrument, with NO cover block', async () => {
+    // Operator, 2026-09-07: the Data Report page's download is "the same
+    // report of time series widget" — each page identical to the single-
+    // instrument document, nothing in front of it. The cover block that opened
+    // this document from 2026-09-05 went with that decision.
+    const { renderDataReports } = await import('../trend-report');
     const one = dataInput({ returned: 2, total: 2 });
     const two = { ...one, scope: { ...one.scope, instrumentLabel: 'DEMO-TH-143' }, rows: scheduleRows([], null, period.to) };
-    const report = await renderInstrumentHistoryReport({
-      scope: { blockName: 'CWH Block', areaName: 'QC 3' },
-      period, intervalMs: null, fmt: one.fmt, formatDateTime,
-      instruments: [one, two],
-    });
+    const report = await renderDataReports({ formatDateTime, instruments: [one, two] });
     const sections = report.getSnapshot().sections as any[];
-    // The cover: the parameter block's own two-column shape, naming the scope
-    // and the count.
-    expect(sections[0].head).toEqual([]);
-    expect(sections[0].body[0]).toEqual(['Block :', 'CWH Block', 'Start Date :', '2026-08-24']);
-    expect(sections[0].body[1][0]).toBe('Area :');
-    expect(sections[0].body[1][1]).toBe('QC 3');
-    expect(sections[0].body[2].slice(0, 2)).toEqual(['Instruments :', '2']);
-    // Then two parameter blocks and two readings tables, in order.
+    // Two parameter blocks and two readings tables, in order — and nothing else.
     const labels = sections.map((s) => (s.head.length ? 'table' : s.body[0][0]));
-    expect(labels).toEqual(['Block :', 'Block :', 'table', 'Block :', 'table']);
-    expect(sections[1].body.find((r: string[]) => r[0] === 'Inst ID :')![1]).toBe('DEMO-TH-142');
-    expect(sections[3].body.find((r: string[]) => r[0] === 'Inst ID :')![1]).toBe('DEMO-TH-143');
+    expect(labels).toEqual(['Block :', 'table', 'Block :', 'table']);
+    expect(sections.some((s) => s.body?.some?.((r: string[]) => r[0] === 'Instruments :'))).toBe(false);
+    expect(sections[0].body.find((r: string[]) => r[0] === 'Inst ID :')![1]).toBe('DEMO-TH-142');
+    expect(sections[2].body.find((r: string[]) => r[0] === 'Inst ID :')![1]).toBe('DEMO-TH-143');
     // The second instrument had no readings and says so.
-    expect(sections[4].body[0][2]).toMatch(/No readings/);
-    // Cover page + one page per instrument.
-    expect(report.doc.getNumberOfPages()).toBe(3);
+    expect(sections[3].body[0][2]).toMatch(/No readings/);
+    // One page per instrument, the first on page one.
+    expect(report.doc.getNumberOfPages()).toBe(2);
   });
 
   it('prints every slot of the schedule, NA where nothing was received, newest first', async () => {

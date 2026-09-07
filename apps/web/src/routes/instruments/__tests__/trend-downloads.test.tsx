@@ -175,9 +175,9 @@ async function download(buttonIndex: number) {
 describe('trend page downloads', () => {
   beforeEach(() => { saved.length = 0; logged.length = 0; events.length = 0; images.length = 0; lastPdf = ''; });
 
-  it('offers a download on the temperature widget, the humidity widget, the combined charts, the time series and the alarms', () => {
+  it('offers a download in the page header, on the temperature widget, the humidity widget, the time series and the alarms', () => {
     renderPage();
-    // combined (Charts header), temperature, humidity, time series, alarms
+    // header (Data Report), temperature, humidity, time series, alarms
     expect(exportButtons()).toHaveLength(5);
   });
 
@@ -195,12 +195,22 @@ describe('trend page downloads', () => {
     expect(saved[0]).toContain('instrument-trend-humidity-');
   });
 
-  it('distinguishes the combined report from both single-slot ones', async () => {
+  it('the page header downloads the DATA REPORT — no charts, the interval offered — and logs it as the Time Series', async () => {
+    // Operator, 2026-09-07: "in that report trends also coming remove those
+    // and add interval feature". The header button used to build the combined
+    // charts report ("Instrument Trend — Temperature & Humidity"); it is now the
+    // same download as the Time Series card, so a signed period file is the
+    // readings, not pictures of them.
     renderPage();
-    await download(0);
-    expect(logged[0].reportType).toBe('Instrument Trend — Temperature & Humidity');
-    // 'both' is an internal enum value, not a document name an operator files.
-    expect(saved[0]).toContain('instrument-trend-temperature-humidity-');
+    fireEvent.click(exportButtons()[0]);
+    expect(screen.getByLabelText(/^Interval$/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: 'periodic review' } });
+    fireEvent.click(screen.getByText('Download'));
+    await waitFor(() => expect(saved.length).toBe(1), { timeout: 5000 });
+    expect(logged[0].reportType).toBe('Instrument Time Series');
+    expect(saved[0]).toContain('data-report-DEMO-TH-142-');
+    // No chart raster reached the document.
+    expect(images.filter((a) => a[0] === STUB_PNG)).toHaveLength(0);
   });
 
   /**
@@ -446,12 +456,6 @@ describe('trend page downloads', () => {
     // canvas stub returns — this proves the raster path ran end to end and
     // jsPDF received an image. It does NOT prove the image is a chart.
     expect(images.some((a) => a[0] === STUB_PNG && a[1] === 'PNG')).toBe(true);
-  });
-
-  it('puts a chart into the combined report for BOTH slots', async () => {
-    renderPage();
-    await download(0);
-    expect(images.filter((a) => a[0] === STUB_PNG)).toHaveLength(2);
   });
 
   /**

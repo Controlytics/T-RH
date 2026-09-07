@@ -82,20 +82,6 @@ describe('the reference layout', () => {
   });
 });
 
-describe('the multi-instrument cover block', () => {
-  it('names the scope, the count and the period in the parameter block\'s shape', async () => {
-    const { instrumentHistoryCoverRows } = await import('../data-report');
-    expect(instrumentHistoryCoverRows({
-      scope: { blockName: 'CWH Block', areaName: '' }, period, intervalMs: 3_600_000, instrumentCount: 12, fmt,
-    })).toEqual([
-      ['Block :', 'CWH Block', 'Start Date :', '27-05-2026'],
-      ['Area :', '-', 'Start Time :', '16:36'],
-      ['Instruments :', '12', 'End Date :', '28-05-2026'],
-      ['Interval :', '1 hour', 'End Time :', '16:36'],
-    ]);
-  });
-});
-
 describe('legend', () => {
   it('carries the reference’s two abbreviations verbatim', () => {
     expect(DATA_REPORT_LEGEND_BASE).toEqual([

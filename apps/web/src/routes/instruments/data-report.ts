@@ -233,29 +233,6 @@ export function dataReportParameterRows(input: {
 }
 
 /**
- * The cover block of the MULTI-instrument Data Report (the Instruments page's
- * history widget, 2026-09-05): what the document covers, in the parameter
- * block's own two-column shape, before the per-instrument sections. Block and
- * Area name the selection; blank when instruments were hand-picked across
- * Areas, in which case the sections' own blocks say where each one sits.
- */
-export function instrumentHistoryCoverRows(input: {
-  scope: { blockName: string; areaName: string };
-  period: DataReportPeriod;
-  intervalMs: number | null;
-  instrumentCount: number;
-  fmt: DataReportFormatters;
-}): string[][] {
-  const { scope, period, fmt } = input;
-  return [
-    ['Block :', orDash(scope.blockName), 'Start Date :', fmt.formatDate(period.from)],
-    ['Area :', orDash(scope.areaName), 'Start Time :', fmt.formatTime(period.from)],
-    ['Instruments :', String(input.instrumentCount), 'End Date :', fmt.formatDate(period.to)],
-    ['Interval :', dataReportIntervalText(input.intervalMs), 'End Time :', fmt.formatTime(period.to)],
-  ];
-}
-
-/**
  * One printed row: the slot's own time, and the stored reading that fills it —
  * or `null` when nothing was received in that interval, which prints `NA`.
  */

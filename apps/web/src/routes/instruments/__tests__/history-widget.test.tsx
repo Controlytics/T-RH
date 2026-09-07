@@ -9,9 +9,9 @@ import { MemoryRouter } from 'react-router-dom';
  *
  * Two instruments in one Area with DIFFERENT limits, so "judged with its own
  * instrument's bounds" is a discriminating assertion: the same reading is a
- * breach on one row and in-limit on the next. The download is asserted the way
- * `trend-downloads.test.tsx` asserts the trend page's: the audit row is written
- * BEFORE the file is saved, once, naming the report.
+ * breach on one row and in-limit on the next. The download is NOT here any
+ * more: it is the Generate Data Report card's (2026-09-07), asserted in
+ * `data-report/__tests__/generate-report-card.test.tsx`.
  */
 
 const tree = [{ id: 'b1', name: 'CWH Block', children: [{ id: 'a1', name: 'QC 3' }, { id: 'a2', name: 'Stability' }] }];
@@ -93,23 +93,21 @@ vi.mock('@/lib/report-export-log', () => ({
 }));
 
 const { InstrumentHistoryWidget } = await import('../history-widget');
-const jspdf: any = await import('jspdf');
-const saved: string[] = [];
-let lastPdf = '';
-jspdf.default.API.save = function (this: any, name: string) {
-  saved.push(name);
-  events.push(`save:${name}`);
-  const raw: string = (this.internal.pages as string[][]).filter(Boolean).flat().join('\n');
-  lastPdf = [...raw.matchAll(/\((.*?)\)\s*Tj/gs)].map((m) => m[1].replace(/\\([()\\])/g, '$1')).join(' ');
-  return this;
-};
-
+const { useHistoryScope } = await import('@/routes/data-report/use-history-scope');
 const FIXED = '?from=2026-08-24T00%3A00%3A00.000Z&to=2026-08-24T01%3A00%3A00.000Z&label=Custom';
+
+/** The page owns the selection (`useHistoryScope`) and hands it to the widget
+ *  and the Generate Data Report card alike; the widget is rendered here the way
+ *  the page renders it. */
+function Harness() {
+  const scope = useHistoryScope();
+  return <InstrumentHistoryWidget scope={scope} />;
+}
 
 function renderWidget(query = FIXED) {
   return render(
     <MemoryRouter initialEntries={[`/data-report${query}`]}>
-      <InstrumentHistoryWidget />
+      <Harness />
     </MemoryRouter>,
   );
 }
@@ -120,7 +118,7 @@ function pickArea() {
 }
 
 describe('InstrumentHistoryWidget', () => {
-  beforeEach(() => { requested.length = 0; events.length = 0; logged.length = 0; saved.length = 0; lastPdf = ''; });
+  beforeEach(() => { requested.length = 0; events.length = 0; logged.length = 0; });
 
   it('offers the Blocks, then the chosen Block\'s Areas, and asks the list route for the scope', () => {
     renderWidget();
@@ -131,16 +129,17 @@ describe('InstrumentHistoryWidget', () => {
     expect(requested.some((u) => u.startsWith('/api/instruments?') && u.includes('functionalLocationId=a1'))).toBe(true);
   });
 
-  it('prints no heading of its own — the page header names the screen — and keeps its controls on one row', () => {
+  it('prints no heading and no download of its own — the page header names the screen, the card downloads', () => {
     // On the dashboard the PanelCard owned the heading (an `embedded` flag
     // suppressed the widget's); on the Data Report page the PageHeader does.
-    // Either way a second title is wrong, so the widget simply has none now.
+    // The download moved to the Generate Data Report card on 2026-09-07 so the
+    // page has ONE trigger; a second icon here would be the same report twice.
     renderWidget();
     expect(screen.queryByRole('heading')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Export as PDF' })).toBeNull();
     expect(screen.getByLabelText('Block')).toBeInTheDocument();
     expect(screen.getByLabelText('Area')).toBeInTheDocument();
     expect(screen.getByLabelText('History interval')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Export as PDF' })).toBeInTheDocument();
   });
 
   it('selects NOTHING until a Block or Area is chosen — no plant-wide query on page load', () => {
@@ -197,52 +196,5 @@ describe('InstrumentHistoryWidget', () => {
     fireEvent.change(screen.getByLabelText('Area'), { target: { value: 'a2' } });
     expect(screen.getByText('No instruments in this scope.')).toBeInTheDocument();
     expect(screen.getByText('Select at least one instrument.')).toBeInTheDocument();
-  });
-
-  it('downloads ONE report for the selection, reading each instrument, writing the audit row before the file', async () => {
-    renderWidget();
-    pickArea();
-    fireEvent.click(screen.getByRole('button', { name: 'Export as PDF' }));
-    // The dialog offers the interval for this report (its own control, apart
-    // from the widget's "Interval" selector above it), seeded from the page.
-    const dialogInterval = document.getElementById('report-download-interval') as HTMLSelectElement | null;
-    expect(dialogInterval).not.toBeNull();
-    expect(dialogInterval!.value).toBe('');
-    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: 'area review' } });
-    fireEvent.click(screen.getByText('Download'));
-    await waitFor(() => expect(saved.length).toBe(1), { timeout: 5000 });
-
-    // The page is called Data Report (operator, 2026-09-07), so the audit row,
-    // the file and the dialog say so too. Rows logged before that day read
-    // "Instrument History"; they are §11 records and were not rewritten.
-    expect(saved[0]).toMatch(/^data-report-/);
-    expect(events).toEqual(['log:Data Report', `save:${saved[0]}`]);
-    expect(logged[0]).toMatchObject({ reportType: 'Data Report', format: 'PDF', remarks: 'area review' });
-    expect(logged[0].search).toContain(A.code);
-    expect(logged[0].search).toContain(B.code);
-    // Both instruments were read: a sampled call and a whole-period call each.
-    const perInstrument = (id: string) => requested.filter((u) => u.includes(`/api/instruments/${id}/telemetry?`));
-    expect(perInstrument(A.id).some((u) => u.includes('points='))).toBe(true);
-    expect(perInstrument(A.id).some((u) => u.includes('limit='))).toBe(true);
-    expect(perInstrument(B.id).some((u) => u.includes('points='))).toBe(true);
-    // And the document names the cover and both instruments.
-    expect(lastPdf).toContain('Instruments :');
-    expect(lastPdf).toContain('CWH Block');
-    expect(lastPdf).toContain('QC 3');
-    expect(lastPdf).toContain(A.code);
-    expect(lastPdf).toContain(B.code);
-  });
-
-  it('downloads only the ticked instruments', async () => {
-    renderWidget();
-    pickArea();
-    fireEvent.click(screen.getByLabelText(B.code));
-    fireEvent.click(screen.getByRole('button', { name: 'Export as PDF' }));
-    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: 'one probe' } });
-    fireEvent.click(screen.getByText('Download'));
-    await waitFor(() => expect(saved.length).toBe(1), { timeout: 5000 });
-    expect(requested.some((u) => u.includes(`/api/instruments/${B.id}/telemetry?`))).toBe(false);
-    expect(lastPdf).toContain(A.code);
-    expect(lastPdf).not.toContain(B.code);
   });
 });

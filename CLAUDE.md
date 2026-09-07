@@ -763,6 +763,18 @@ GET    /api/alarm-webhooks/:id/deliveries?status= — paged §11 delivery log, f
   §11 records, were not rewritten. The Export Options surface KEY stays
   `instrument-history` (stored per role in `system_config`); only its label
   follows the page.
+  **Later the same day:** the download moved OUT of the widget into a
+  **Generate Data Report card** above it (`routes/data-report/
+  generate-report-card.tsx`, text + one icon, the page's only trigger); the
+  selection moved into the page hook `use-history-scope.ts` shared by card and
+  widget; and the document lost its cover block — `renderDataReports` prints
+  one Data Report page per selected instrument, each identical to the trend
+  page's Time Series download, audit `reportType` **`Instrument Time Series`**
+  (operator: "report should be same report of time series widget"). **And the
+  trend page's HEADER "Export as PDF" is now that same Data Report** with the
+  interval dialog, not the combined charts document ("in that report trends
+  also coming remove those and add interval feature"); `TrendSlot` lost `both`.
+  No count moved. See `apps/web/CLAUDE.md`.
 - **The dashboard's selection alarms panel is the SHARED alarm table
   (2026-09-01).** `routes/dashboard/selection-alarms.tsx` was a bespoke `<ul>`;
   it now renders the cells from `routes/alarms/alarm-table.tsx`, the same ones

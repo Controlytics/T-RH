@@ -53,10 +53,3 @@ export function toggleSelection(
   for (const s of next) if (!scopeIds.has(s)) next.delete(s);
   return next.size === scopeIds.size && scopeIds.size > 0 ? null : next;
 }
-
-/** The Block and Area NAMES the report's cover prints for a scope. */
-export function scopeNames(tree: readonly LocationNode[], blockId: string, areaId: string): { blockName: string; areaName: string } {
-  const block = tree.find((b) => b.id === blockId);
-  const area = block?.children?.find((a) => a.id === areaId);
-  return { blockName: block?.name ?? '', areaName: area?.name ?? '' };
-}

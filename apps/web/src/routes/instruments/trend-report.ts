@@ -10,7 +10,7 @@ import type { SlotSummary } from './trend-summary';
 import { scopeColumnStyles, CONTENT_WIDTH_MM } from '@/routes/alarms/alarms-report';
 import {
   DATA_REPORT_TITLE, DATA_REPORT_HEAD, DATA_REPORT_TYPOGRAPHY, DATA_REPORT_LABEL_MM,
-  dataReportLegend, dataReportParameterRows, dataReportRows, instrumentHistoryCoverRows,
+  dataReportLegend, dataReportParameterRows, dataReportRows,
   dataReportColumnStyles, emptyDataReportRow, limitText as slotLimitText,
   type DataReportScope, type DataReportFormatters, type DataReportWords, type ReportSlotRow,
   type SlotBounds, type SlotExtremes,
@@ -473,47 +473,37 @@ export async function renderDataReport(input: DataReportInput): Promise<ReportDo
 }
 
 /**
- * The Data Report for SEVERAL instruments — an Area's, or a hand-picked set
- * (the Instruments page's history widget, 2026-09-05; operator chose "one
- * section per instrument"). A cover block names what the document covers, then
- * each instrument starts on a fresh page with the SAME parameter block and
- * table as its own single-instrument Data Report, so a page torn out of this
- * document reads exactly like the report that instrument would have produced
- * alone. The legend is the union of every section's — an abbreviation is keyed
- * if any page printed it.
+ * The Data Report for SEVERAL instruments — the Data Report page's Generate
+ * Data Report card (an Area's instruments, or a hand-picked set). Each
+ * instrument is on its own page with the SAME parameter block and table as its
+ * single-instrument Data Report — `renderDataReport` for each, in one file —
+ * so a page torn out of this document reads exactly like the report that
+ * instrument would have produced alone. NO cover block: the 2026-09-05 version
+ * opened with one naming the Block, Area, period and instrument count, and the
+ * operator asked on 2026-09-07 for "the same report of time series widget",
+ * which has none. The legend is the union of every page's — an abbreviation is
+ * keyed if any page printed it.
  */
-export interface InstrumentHistoryReportInput {
-  /** The selection the document covers; blank fields print a dash. */
-  scope: { blockName: string; areaName: string };
-  period: ReportPeriod;
-  intervalMs: number | null;
-  fmt: DataReportFormatters;
+export interface DataReportsInput {
   formatDateTime: (d: string) => string;
   /** One per instrument, in the order they print. */
   instruments: DataReportInput[];
 }
 
-export async function renderInstrumentHistoryReport(input: InstrumentHistoryReportInput): Promise<ReportDoc> {
+export async function renderDataReports(input: DataReportsInput): Promise<ReportDoc> {
   const sections = input.instruments.map(prepareDataSection);
   const legend = dataReportLegend(
     sections.flatMap((s) => s.limitTexts),
     sections.some((s) => s.body.printedNoData),
   );
   const report = await createReport(dataReportChrome(input.formatDateTime, legend));
-  report.addTable({
-    body: instrumentHistoryCoverRows({
-      scope: input.scope, period: input.period, intervalMs: input.intervalMs,
-      instrumentCount: input.instruments.length, fmt: input.fmt,
-    }),
-    columnStyles: scopeColumnStyles(CONTENT_WIDTH_MM, DATA_REPORT_LABEL_MM),
-  });
   if (sections.length === 0) {
     addNote(report, 'No instruments were selected for this report.', report.colors.muted);
   }
-  for (const section of sections) {
-    report.newPage();
+  sections.forEach((section, i) => {
+    if (i > 0) report.newPage();
     addDataReportSection(report, section);
-  }
+  });
   return report;
 }
 

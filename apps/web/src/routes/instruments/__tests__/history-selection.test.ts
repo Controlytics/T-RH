@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { scopeIdFor, areasOf, effectiveSelection, toggleSelection, scopeNames } from '../history-selection';
+import { scopeIdFor, areasOf, effectiveSelection, toggleSelection } from '../history-selection';
 
 const tree = [
   { id: 'b1', name: 'CWH Block', children: [{ id: 'a1', name: 'QC 3' }, { id: 'a2', name: 'Stability' }] },
@@ -46,12 +46,5 @@ describe('the history widget selection', () => {
 
   it('an empty scope never collapses to "all"', () => {
     expect(toggleSelection([], new Set(), 'x')).toEqual(new Set());
-  });
-
-  it('names the Block and Area for the cover, by ID', () => {
-    // Two Blocks hold an Area called "QC 3"; the id decides which.
-    expect(scopeNames(tree, 'b2', 'a3')).toEqual({ blockName: 'Other Block', areaName: 'QC 3' });
-    expect(scopeNames(tree, 'b1', '')).toEqual({ blockName: 'CWH Block', areaName: '' });
-    expect(scopeNames(tree, '', '')).toEqual({ blockName: '', areaName: '' });
   });
 });

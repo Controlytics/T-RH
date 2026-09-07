@@ -45,10 +45,16 @@ describe('DataReportPage', () => {
     );
     expect(screen.getByRole('heading', { name: 'Data Report' })).toBeInTheDocument();
     expect(screen.getByTestId('history-widget')).toBeInTheDocument();
-    // The widget's Block / Area / interval controls and the download are there.
+    // The widget's Block / Area / interval controls are there.
     expect(screen.getByLabelText('Block')).toBeInTheDocument();
     expect(screen.getByLabelText('History interval')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Export as PDF' })).toBeInTheDocument();
+    // The Generate Data Report card (operator, 2026-09-07: "one card only text
+    // should be there Generate Data report and one download icon") sits ABOVE
+    // the widget, and it is the page's ONE download trigger.
+    const card = screen.getByTestId('generate-report-card');
+    expect(card).toHaveTextContent('Generate Data report');
+    expect(screen.getAllByRole('button', { name: 'Export as PDF' })).toHaveLength(1);
+    expect(card.compareDocumentPosition(screen.getByTestId('history-widget')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // And it does NOT print a second title of its own.
     expect(screen.queryByRole('heading', { name: 'Instrument History' })).toBeNull();
     expect(screen.getAllByRole('heading')).toHaveLength(1);

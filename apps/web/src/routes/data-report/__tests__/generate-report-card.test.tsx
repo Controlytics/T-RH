@@ -1,0 +1,210 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+
+/**
+ * The Generate Data Report card (2026-09-07). Operator: *"create one card only
+ * text should be there Generate Data report and one download icon, when ever
+ * user click on that download icon i need same dialog with time period
+ * selection, interval and remarks then password reauthentication same like how
+ * timeseries widget is behaving … and report should be same report of time
+ * series widget"*, then, asked whether the multi-instrument file keeps its
+ * cover block: no — one page per instrument, each the trend page's Data Report.
+ *
+ * Rendered with the widget beside it, the way the page does, because the card
+ * reports what the widget SHOWS: the selection lives in the page's
+ * `useHistoryScope()` and both read it. Two instruments with DIFFERENT limits so
+ * the per-instrument parameter block is a discriminating assertion.
+ */
+
+const tree = [{ id: 'b1', name: 'CWH Block', children: [{ id: 'a1', name: 'QC 3' }, { id: 'a2', name: 'Stability' }] }];
+const instruments = [
+  { id: '11111111-1111-4111-8111-111111111111', code: 'CWH/RDU/001-00', name: 'CWH/RDU/001-00', functionalLocationId: 'a1' },
+  { id: '22222222-2222-4222-8222-222222222222', code: 'CWH/RDU/002-00', name: 'CWH/RDU/002-00', functionalLocationId: 'a1' },
+];
+const [A, B] = instruments;
+const overview = [
+  {
+    instrumentId: A.id, code: A.code, name: A.code, isActive: true, room: null,
+    functionalLocationName: 'QC 3', locationAttribute: 'LCMS Room-I',
+    limits: { tempMin: 18, tempMax: 25, rhMin: 30, rhMax: 60 }, limitSource: 'INSTRUMENT',
+    temperature: { key: 'temperature', value: 26, ts: '2026-08-24T00:20:00.000Z' },
+    humidity: { key: 'humidity', value: 45, ts: '2026-08-24T00:20:00.000Z' },
+    decimals: { temperature: 1, humidity: 0 }, reporting: true, status: 'OUT_OF_SPEC',
+    rangeBounds: { temperatureLow: -10, temperatureHigh: 50, humidityLow: 0, humidityHigh: 100 },
+  },
+  {
+    instrumentId: B.id, code: B.code, name: B.code, isActive: true, room: null,
+    functionalLocationName: 'QC 3', locationAttribute: 'LCMS Room-II',
+    limits: { tempMin: 18, tempMax: 30, rhMin: 30, rhMax: 60 }, limitSource: 'INSTRUMENT',
+    temperature: { key: 'temperature', value: 26, ts: '2026-08-24T00:20:00.000Z' },
+    humidity: { key: 'humidity', value: 45, ts: '2026-08-24T00:20:00.000Z' },
+    decimals: { temperature: 1, humidity: 0 }, reporting: true, status: 'OK',
+    rangeBounds: { temperatureLow: -10, temperatureHigh: 50, humidityLow: 0, humidityHigh: 100 },
+  },
+];
+const historyRows = [
+  { instrumentId: A.id, ts: '2026-08-24T00:20:00.000Z', values: { temperature: 26, humidity: 45 } },
+  { instrumentId: B.id, ts: '2026-08-24T00:20:00.000Z', values: { temperature: 26, humidity: 45 } },
+];
+const longHistory = [
+  { key: 'temperature', value: 26, ts: '2026-08-24T00:20:00.000Z' },
+  { key: 'humidity', value: 45, ts: '2026-08-24T00:20:00.000Z' },
+];
+
+const requested: string[] = [];
+
+function dataFor(key: string | null): any {
+  if (!key) return undefined;
+  requested.push(key);
+  if (key.includes('/telemetry-overview')) return { data: overview };
+  if (key.includes('/telemetry-history?')) {
+    const ids = new URLSearchParams(key.split('?')[1]).get('instrumentIds')!.split(',');
+    const rows = historyRows.filter((r) => ids.includes(r.instrumentId));
+    return { data: rows, total: rows.length };
+  }
+  if (key.includes('/telemetry?')) {
+    return { latest: [], history: longHistory, historyTotal: longHistory.length, summaries: { temperature: { min: 26, max: 26 }, humidity: { min: 45, max: 45 } } };
+  }
+  if (key.includes('/api/functional-locations')) return { data: tree };
+  if (key.startsWith('/api/instruments?')) {
+    const scope = new URLSearchParams(key.split('?')[1]).get('functionalLocationId');
+    return { data: scope === 'a2' ? [] : instruments, total: scope === 'a2' ? 0 : 2 };
+  }
+  if (key.includes('action-reauth/my-actions')) return { actions: [] };
+  return {};
+}
+
+vi.mock('swr', () => ({
+  default: (key: any) => ({ data: dataFor(typeof key === 'function' ? key() : key), isLoading: false, error: undefined }),
+}));
+vi.mock('@/lib/api-client', () => ({
+  apiClient: {
+    get: vi.fn(async (url: string) => dataFor(url)),
+    post: vi.fn(async () => ({})),
+    postWithReauth: vi.fn(async () => ({})),
+  },
+}));
+const events: string[] = [];
+const logged: any[] = [];
+vi.mock('@/lib/report-export-log', () => ({
+  logReportExport: vi.fn(async (input: any) => { logged.push(input); events.push(`log:${input.reportType}`); }),
+}));
+
+const { GenerateReportCard } = await import('../generate-report-card');
+const { InstrumentHistoryWidget } = await import('@/routes/instruments/history-widget');
+const { useHistoryScope } = await import('../use-history-scope');
+const jspdf: any = await import('jspdf');
+
+const saved: string[] = [];
+let lastPdf = '';
+let lastPages = 0;
+jspdf.default.API.save = function (this: any, name: string) {
+  saved.push(name);
+  events.push(`save:${name}`);
+  const pages = (this.internal.pages as string[][]);
+  lastPages = pages.filter(Boolean).length;
+  const raw: string = pages.filter(Boolean).flat().join('\n');
+  lastPdf = [...raw.matchAll(/\((.*?)\)\s*Tj/gs)].map((m) => m[1].replace(/\\([()\\])/g, '$1')).join(' ');
+  return this;
+};
+
+const FIXED = '?from=2026-08-24T00%3A00%3A00.000Z&to=2026-08-24T01%3A00%3A00.000Z&label=Custom';
+
+function Harness() {
+  const scope = useHistoryScope();
+  return (
+    <>
+      <GenerateReportCard scope={scope} />
+      <InstrumentHistoryWidget scope={scope} />
+    </>
+  );
+}
+
+function renderBoth(query = FIXED) {
+  return render(
+    <MemoryRouter initialEntries={[`/data-report${query}`]}>
+      <Harness />
+    </MemoryRouter>,
+  );
+}
+
+function pickArea() {
+  fireEvent.change(screen.getByLabelText('Block'), { target: { value: 'b1' } });
+  fireEvent.change(screen.getByLabelText('Area'), { target: { value: 'a1' } });
+}
+
+async function confirmDownload(remarks: string) {
+  fireEvent.click(screen.getByRole('button', { name: 'Export as PDF' }));
+  fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: remarks } });
+  fireEvent.click(screen.getByText('Download'));
+}
+
+describe('GenerateReportCard', () => {
+  beforeEach(() => { requested.length = 0; events.length = 0; logged.length = 0; saved.length = 0; lastPdf = ''; lastPages = 0; });
+
+  it('is the text and one download icon, nothing else', () => {
+    renderBoth();
+    const card = screen.getByTestId('generate-report-card');
+    expect(card).toHaveTextContent('Generate Data report');
+    expect(screen.getByRole('button', { name: 'Export as PDF' })).toBeInTheDocument();
+    expect(card.querySelectorAll('button')).toHaveLength(1);
+  });
+
+  it('opens the Time Series dialog — period, interval and remarks — seeded from the page', () => {
+    renderBoth();
+    fireEvent.click(screen.getByRole('button', { name: 'Export as PDF' }));
+    expect(screen.getByLabelText(/^Interval$/)).toBeInTheDocument();
+    const dialogInterval = document.getElementById('report-download-interval') as HTMLSelectElement | null;
+    expect(dialogInterval).not.toBeNull();
+    expect(dialogInterval!.value).toBe('');
+    expect(screen.getByLabelText(/Remarks/)).toBeInTheDocument();
+  });
+
+  it('downloads ONE file with a page per selected instrument, the Time Series document each, writing the audit row before the file', async () => {
+    renderBoth();
+    pickArea();
+    await confirmDownload('area review');
+    await waitFor(() => expect(saved.length).toBe(1), { timeout: 5000 });
+
+    expect(saved[0]).toMatch(/^data-report-/);
+    // The audit type is the trend page's — it IS that report, for each instrument.
+    expect(events).toEqual(['log:Instrument Time Series', `save:${saved[0]}`]);
+    expect(logged[0]).toMatchObject({ reportType: 'Instrument Time Series', format: 'PDF', remarks: 'area review' });
+    expect(logged[0].search).toContain(A.code);
+    expect(logged[0].search).toContain(B.code);
+    // Both instruments were read: a sampled call and a whole-period call each.
+    const perInstrument = (id: string) => requested.filter((u) => u.includes(`/api/instruments/${id}/telemetry?`));
+    expect(perInstrument(A.id).some((u) => u.includes('points='))).toBe(true);
+    expect(perInstrument(A.id).some((u) => u.includes('limit='))).toBe(true);
+    expect(perInstrument(B.id).some((u) => u.includes('points='))).toBe(true);
+    // One page per instrument, no cover page in front.
+    expect(lastPages).toBe(2);
+    expect(lastPdf).not.toContain('Instruments :');
+    expect(lastPdf).toContain(A.code);
+    expect(lastPdf).toContain(B.code);
+    // Each page carries ITS instrument's own limit — 25 on A, 30 on B.
+    expect(lastPdf).toMatch(/25\.0/);
+    expect(lastPdf).toMatch(/30\.0/);
+  });
+
+  it('downloads only the ticked instruments', async () => {
+    renderBoth();
+    pickArea();
+    fireEvent.click(screen.getByLabelText(B.code));
+    await confirmDownload('one probe');
+    await waitFor(() => expect(saved.length).toBe(1), { timeout: 5000 });
+    expect(requested.some((u) => u.includes(`/api/instruments/${B.id}/telemetry?`))).toBe(false);
+    expect(lastPages).toBe(1);
+    expect(lastPdf).toContain(A.code);
+    expect(lastPdf).not.toContain(B.code);
+  });
+
+  it('refuses, inside the dialog, when nothing is selected', async () => {
+    renderBoth();
+    await confirmDownload('nothing chosen');
+    expect(await screen.findByText(/Select at least one instrument/)).toBeInTheDocument();
+    expect(saved).toHaveLength(0);
+    expect(logged).toHaveLength(0);
+  });
+});

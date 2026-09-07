@@ -67,19 +67,20 @@ const HUMID_COLOR = SERIES_COLORS[1];
 /**
  * Which of the two administered slots a trend download covers.
  *
- * Per-slot, not one report for both, because the reportType string this maps to
- * is what the §11 audit row records: three different downloads all logged as
- * "Instrument Trend" leaves an audit trail that cannot say which report a given
- * row was. `both` is kept as well — an operator signing off on a period usually
- * wants one document covering it, and dropping it would have made that two
- * signatures for one decision.
+ * Per-slot, because the reportType string this maps to is what the §11 audit
+ * row records: two different downloads both logged as "Instrument Trend"
+ * leaves an audit trail that cannot say which report a given row was. A
+ * `both` value — the page header's combined charts document — existed until
+ * 2026-09-07, when the operator asked for the header download to be the Data
+ * Report instead ("in that report trends also coming remove those and add
+ * interval feature"); the one document an operator signing off a period files
+ * is now the readings, not pictures of them.
  */
-type TrendSlot = 'temperature' | 'humidity' | 'both';
+type TrendSlot = 'temperature' | 'humidity';
 
 const TREND_SLOT_LABEL: Record<TrendSlot, string> = {
   temperature: 'Temperature',
   humidity: 'Humidity',
-  both: 'Temperature & Humidity',
 };
 
 type PendingReport =
@@ -582,8 +583,8 @@ export function InstrumentTrend() {
       const stamp = new Date().toISOString().slice(0, 10);
 
       if (which.kind === 'trend') {
-        const wantTemp = which.slot === 'temperature' || which.slot === 'both';
-        const wantHumid = which.slot === 'humidity' || which.slot === 'both';
+        const wantTemp = which.slot === 'temperature';
+        const wantHumid = which.slot === 'humidity';
         const fetched = await fetchTelemetryForPeriod(reportPeriod.from, reportPeriod.to);
         const rows = numericRows(fetched.history);
         const keysMeta = [
@@ -646,9 +647,8 @@ export function InstrumentTrend() {
           period: reportPeriod.label, startDate: reportPeriod.from, endDate: reportPeriod.to,
           remarks: req.remarks, password,
         });
-        // `slot` is an internal enum value; 'both' is not a document name an
-        // operator would file, so the filename carries the slot's own words.
-        const slotFile = slotLabel.toLowerCase().replace(/\s*&\s*/g, '-').replace(/\s+/g, '-');
+        // The filename carries the slot's own word.
+        const slotFile = slotLabel.toLowerCase();
         report.save(`instrument-trend-${slotFile}-${instrument.code}-${stamp}.pdf`);
       } else if (which.kind === 'timeseries') {
         // THE DATA REPORT (2026-09-04) — the Time Series widget's download,
@@ -791,10 +791,12 @@ export function InstrumentTrend() {
         status={trend.overview?.status ?? null}
         lastReadingTs={latestReadingTs}
         backTo={id ? `/instruments/${id}` : '/instruments'}
-        // The COMBINED download — one document covering the period, which is
-        // what an operator signing off on that period files. The per-widget
-        // downloads stay on their own widgets below.
-        actions={<ExportMenu surface="instrument-trend" onExportPdf={() => setPendingReport({ kind: 'trend', slot: 'both' })} />}
+        // The page's download is the DATA REPORT — the same document, dialog
+        // (period, interval, remarks) and audit type as the Time Series card
+        // below. It was the combined-charts document until 2026-09-07
+        // (operator: "in that report trends also coming remove those and add
+        // interval feature"); the per-chart downloads stay on their own cards.
+        actions={<ExportMenu surface="instrument-trend" onExportPdf={() => setPendingReport({ kind: 'timeseries' })} />}
       />
 
       {/* NO page-level error banner. The chart fetch is the only request this

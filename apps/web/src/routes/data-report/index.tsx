@@ -1,17 +1,20 @@
 import { PageHeader } from '@/components/ui/page-header';
 import { InstrumentHistoryWidget } from '@/routes/instruments/history-widget';
+import { GenerateReportCard } from './generate-report-card';
+import { useHistoryScope } from './use-history-scope';
 
 /**
  * Data Report (2026-09-07). Operator: *"in dashboard Instruments history widget
  * was there that widget removed there and add one side bar option Data Report,
  * in that it should come"*.
  *
- * A header and the Instrument History widget — Block / Area / instrument
- * selection, the merged readings of the selection over a period, and the Data
- * Report download for every selected instrument. The widget carries all of the
- * behaviour (`routes/instruments/history-widget.tsx`); this file only gives it
- * a screen and a name. The name is printed ONCE, here: the widget has no title
- * of its own, for the same reason the dashboard card used to suppress it.
+ * A header, the Generate Data Report card, and the Instrument History widget —
+ * Block / Area / instrument selection and the merged readings of the selection
+ * over a period. The selection is the PAGE's (`useHistoryScope`) and both the
+ * card and the widget read it, so the card downloads exactly what the table
+ * shows; the card is the page's one download trigger. The name is printed
+ * ONCE, here: the widget has no title of its own, for the same reason the
+ * dashboard card used to suppress it.
  *
  * Gated on INSTRUMENT_READ (route and sidebar both, through the `data-report`
  * tree group): it shows instrument readings, so it is governed by the
@@ -19,6 +22,7 @@ import { InstrumentHistoryWidget } from '@/routes/instruments/history-widget';
  * DOWNLOAD_REPORT re-auth and audit row inside the widget.
  */
 export function DataReportPage() {
+  const scope = useHistoryScope();
   return (
     <div>
       <PageHeader
@@ -32,7 +36,8 @@ export function DataReportPage() {
           </svg>
         }
       />
-      <InstrumentHistoryWidget />
+      <GenerateReportCard scope={scope} />
+      <InstrumentHistoryWidget scope={scope} />
     </div>
   );
 }

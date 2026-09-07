@@ -177,14 +177,42 @@ removed there and add one side bar option Data Report, in that it should come"*)
   vocabulary for one mark; do not restyle a verdict here without the card.
 - **Period and interval are `useTrendPeriod`'s URL state**, shared with the
   trend page — the same presets, custom range and interval keys.
-- **The download is `renderInstrumentHistoryReport`**: cover block, then one
-  Data Report section per instrument on its own page. Each instrument is read
-  through `data-report-fetch.ts` — the per-instrument fetch extracted from the
-  trend page, which calls the same helper — and the dialog's new `progress`
-  prop says which one it is on. Audit `reportType`, dialog name and file name
-  are **`Data Report`** since 2026-09-07 (rows from 2026-09-05..07 read
-  `Instrument History` and were not rewritten); export surface KEY stays
-  `instrument-history` (stored per role in `system_config`), label `Data Report`.
+- **The selection is the PAGE's — `routes/data-report/use-history-scope.ts`
+  (2026-09-07).** Block, Area, ticks, the instruments in scope and the
+  per-instrument overview live in one hook the page passes to BOTH the widget
+  and the Generate Data Report card, so the card downloads exactly what the
+  table shows. The widget is controlled (`scope` prop); rendered bare in a test
+  it needs a harness that calls the hook, and the widget test has one.
+- **The download is the GENERATE DATA REPORT CARD** (`generate-report-card.tsx`,
+  above the widget; operator: *"one card only text should be there Generate
+  Data report and one download icon"*): the page's ONE trigger — the widget's
+  own icon went, because two buttons making one document is a "which one"
+  question on a §11 screen. The icon is `ExportMenu` icon-only on surface
+  `instrument-history`, so Export Options gating still applies. Same dialog as
+  the trend page's Time Series card (period, interval, remarks), same
+  `DOWNLOAD_REPORT` re-auth, same audit row BEFORE the file; each instrument is
+  read through `data-report-fetch.ts` and the dialog's `progress` prop says
+  which one it is on. **The document is `renderDataReports`: one Data Report
+  page per instrument, each byte-for-byte the trend page's, NO cover block** —
+  the 2026-09-05 cover (Block / Area / period / count) was dropped when the
+  operator asked for "the same report of time series widget"
+  (`instrumentHistoryCoverRows` and `scopeNames` went as dead code). Audit
+  `reportType` is therefore **`Instrument Time Series`** — it IS that report,
+  for each instrument; the `search` column names them. Rows from 2026-09-05..07
+  read `Instrument History` / `Data Report` and were not rewritten. File
+  `data-report-<date>.pdf`; export surface KEY stays `instrument-history`
+  (stored per role in `system_config`), label `Data Report`. Nothing selected →
+  the dialog refuses ("Select at least one instrument") and no audit row is
+  written. The card test is mutation-checked: putting the cover page back fails it.
+- **The trend page's HEADER "Export as PDF" is the Data Report too
+  (2026-09-07).** Operator: *"in that report trends also coming remove those
+  and add interval feature"*. It used to build the combined charts document
+  (`Instrument Trend — Temperature & Humidity`, `TrendSlot` value `both`); it
+  now opens `{ kind: 'timeseries' }` — the same dialog with the interval, the
+  same document and audit type as the Time Series card. `both` is gone from
+  `TrendSlot`; the per-chart icon downloads on the two chart cards are
+  unchanged. Pinned in `trend-downloads.test.tsx` (header → `Instrument Time
+  Series`, interval offered, zero chart rasters), mutation-checked.
 
 ## The trend page's Time Series (Raw Readings) card (2026-09-01)
 

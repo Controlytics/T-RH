@@ -3251,3 +3251,13 @@ Operator: *"one message for all children with full set, go"*.
 - [x] tests re-pinned (shared 370/370; touched web + api files PASS by exit code; page test mutation-checked); tsc ×3 clean
 - [x] docs re-derived: root/AGENTS/README/docs index/shared + web CLAUDE.md, CHANGELOG
 - [ ] operator to look at `/data-report` on :5176 and Roles & Access → Sidebar (not seen on screen here)
+
+## 2026-09-07 — Generate Data Report card + trend header → Data Report
+
+- [x] `generate-report-card.tsx` (text + one icon; same dialog / re-auth / audit as Time Series) above the widget; widget's icon removed
+- [x] selection lifted into `use-history-scope.ts`; widget controlled by `scope`
+- [x] `renderDataReports`: one page per instrument, no cover; cover helpers removed as dead code; audit type `Instrument Time Series`
+- [x] trend page header Export → `timeseries`; `TrendSlot` `both` removed
+- [x] tests: card (mutation-checked), trend-downloads (mutation-checked), trend-report-chart, widget, page; 44 files PASS by exit code; tsc; vite build
+- [x] docs: root + web CLAUDE.md, CHANGELOG
+- [ ] operator to look at `/data-report` (card above the widget) and the trend page header download (not seen on screen here)
