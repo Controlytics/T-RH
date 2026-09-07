@@ -215,8 +215,10 @@ describe('GenerateReportCard', () => {
     expect(perInstrument(A.id).some((u) => u.includes('points='))).toBe(true);
     expect(perInstrument(A.id).some((u) => u.includes('limit='))).toBe(true);
     expect(perInstrument(B.id).some((u) => u.includes('points='))).toBe(true);
-    // One page per instrument, no cover page in front.
+    // One page per instrument, no cover page in front — and in the selection's
+    // ORDER, whatever order the reads completed in (they run a few at a time).
     expect(lastPages).toBe(2);
+    expect(lastPdf.indexOf(A.code)).toBeLessThan(lastPdf.indexOf(B.code));
     expect(lastPdf).not.toContain('Instruments :');
     expect(lastPdf).toContain(A.code);
     expect(lastPdf).toContain(B.code);

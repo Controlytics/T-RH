@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { ALL_RECORDS } from '@digilog/shared';
-import type { OverviewRow } from '@/routes/dashboard/use-telemetry';
+import { useTelemetryOverview, type OverviewRow } from '@/routes/dashboard/use-telemetry';
 import {
   scopeIdFor, areasOf, effectiveSelection,
   type LocationNode, type ScopedInstrument,
@@ -17,11 +17,21 @@ import {
  * FOR that selection). One owner, or the card could report a set the table is
  * not showing. The pure rules live in `history-selection.ts`; this hook only
  * holds the state and the three requests.
+ *
+ * A scope change resets the selection IN THE HANDLER, synchronously — not in an
+ * effect on `scopeId` (review, 2026-09-07). An effect commits one render with
+ * the previous scope's ticks, which fires the merged-history query for a set
+ * the operator has just left; and it cannot tell the widget to reset its page
+ * when the selection stays `null` across two Blocks, so page 3's offset went
+ * to the new scope. `scopeId` is exposed so the widget keys its page reset on
+ * the scope itself.
  */
 export interface HistoryScope {
   tree: LocationNode[];
   blockId: string;
   areaId: string;
+  /** The Area, else the Block, else `null` — what the list route is asked for. */
+  scopeId: string | null;
   setBlock: (id: string) => void;
   setArea: (id: string) => void;
   /** The chosen Block's Areas. */
@@ -60,26 +70,27 @@ export function useHistoryScope(): HistoryScope {
   const { data: instData } = useSWR<{ data: ScopedInstrument[] }>(`/api/instruments?${instQs}`);
   const inScope = useMemo(() => instData?.data ?? [], [instData]);
 
-  // Per-instrument keys, limits, precision and span — one request for the
-  // whole plant.
-  const { data: overviewData } = useSWR<{ data: OverviewRow[] }>('/api/instruments/telemetry-overview');
+  // Per-instrument keys, limits, precision and span — the dashboard's own hook,
+  // which polls on the administered interval and revalidates on focus. A bare
+  // `useSWR` here fetched once, so a limit changed while this page stayed open
+  // would have been frozen, stale, into a signed document.
+  const { rows: overviewRows } = useTelemetryOverview();
   const overviewById = useMemo(() => {
     const m = new Map<string, OverviewRow>();
-    for (const r of overviewData?.data ?? []) m.set(r.instrumentId, r);
+    for (const r of overviewRows) m.set(r.instrumentId, r);
     return m;
-  }, [overviewData]);
-
-  // A scope change resets the tick list: ticks from another Area must not
-  // survive as hidden state. A chosen Block or Area starts with everything in
-  // it selected; no scope starts with nothing.
-  useEffect(() => { setSelected(scopeId ? null : new Set()); }, [scopeId]);
+  }, [overviewRows]);
 
   const chosen = effectiveSelection(inScope, selected);
 
+  // A chosen Block or Area starts with everything in it selected; no scope
+  // starts with nothing. Set with the scope, in the same render.
+  const setBlock = (id: string) => { setBlockId(id); setAreaId(''); setSelected(id ? null : new Set()); };
+  const setArea = (id: string) => { setAreaId(id); setSelected(scopeIdFor(blockId, id) ? null : new Set()); };
+
   return {
-    tree, blockId, areaId,
-    setBlock: (id) => { setBlockId(id); setAreaId(''); },
-    setArea: setAreaId,
+    tree, blockId, areaId, scopeId,
+    setBlock, setArea,
     areas, selected, setSelected, inScope, chosen, overviewById,
   };
 }

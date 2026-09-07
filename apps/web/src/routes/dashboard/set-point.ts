@@ -20,13 +20,22 @@ import { clampDecimals, RS485_FAILURE_TEXT_DEFAULT, SENSOR_RANGE_TEXT_DEFAULT } 
 
 export const NOT_AVAILABLE = 'NA';
 
+/**
+ * Is this bound IN FORCE? The ONE test (review, 2026-09-07 — three spellings
+ * had grown: here, `data-report.ts`, `trend-report.ts`). A `0` is a real bound;
+ * only null / undefined / a non-finite value is "no bound".
+ */
+export function boundInForce(v: number | null | undefined): v is number {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
 export function formatSetPoint(
   min: number | null | undefined,
   max: number | null | undefined,
   decimals: number,
 ): string {
-  const hasMin = typeof min === 'number' && Number.isFinite(min);
-  const hasMax = typeof max === 'number' && Number.isFinite(max);
+  const hasMin = boundInForce(min);
+  const hasMax = boundInForce(max);
   // Clamped, not trusted: `decimals` now comes from an operator-typed instrument
   // attribute, and `toFixed` throws a RangeError outside 0…100 — which here would
   // take down the whole table rather than one cell.

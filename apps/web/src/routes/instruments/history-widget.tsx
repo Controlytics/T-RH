@@ -61,7 +61,7 @@ const th = 'px-4 py-3 text-left text-[0.6875rem] font-bold uppercase tracking-[0
  * second row, since seven buttons and two date inputs do not fit beside them.
  */
 export function InstrumentHistoryWidget({ scope }: { scope: HistoryScope }) {
-  const { tree, blockId, areaId, setBlock, setArea, areas, selected, setSelected, inScope, chosen, overviewById } = scope;
+  const { tree, blockId, areaId, scopeId, setBlock, setArea, areas, selected, setSelected, inScope, chosen, overviewById } = scope;
   const { period, setPreset, setCustom, setInterval } = useTrendPeriod();
   const paginationOptions = usePaginationConfig();
   const [page, setPage] = useState(1);
@@ -71,10 +71,12 @@ export function InstrumentHistoryWidget({ scope }: { scope: HistoryScope }) {
 
   const chosenIds = chosen.map((i) => i.id);
 
-  // A selection or period change resets the page: page 3 of the old selection
-  // is usually past the end of the new one. (A scope change resets the ticks
-  // themselves, in `useHistoryScope`, which is what `selected` then reports.)
-  useEffect(() => { setPage(1); }, [period.from, period.to, selected]);
+  // A scope, selection or period change resets the page: page 3 of the old
+  // selection is usually past the end of the new one. The SCOPE is in the list
+  // because `selected` stays `null` from one Block to the next, and a reset
+  // keyed on the selection alone left page 3's offset pointing into the new
+  // scope (review, 2026-09-07).
+  useEffect(() => { setPage(1); }, [period.from, period.to, selected, scopeId]);
 
   const histQs = new URLSearchParams({
     instrumentIds: chosenIds.join(','),

@@ -650,4 +650,27 @@ describe('the trend report shows the trend', () => {
     const readingsTable = tables.find((t: any) => t.head[0] === 'Timestamp')!;
     expect(readingsTable.body).toHaveLength(2000);
   });
+
+  // The REPRESENTATIVE SAMPLE disclosure names only the extremes that print
+  // (2026-09-07 review). The note said "Temp. Max / Min and RH Max / Min above are computed over
+  // EVERY reading" unconditionally, while `extremesRow` omits an extreme whose
+  // bound is not in force — a signed statement about cells that are not there.
+  it('mentions the Max / Min cells that print, and nothing about absent ones', async () => {
+    const both = dataInput({ returned: 2, total: 5 });
+    const rhOff = { ...both, rh: { ...both.rh, min: null, max: null } };
+    const r1 = await renderDataReport(rhOff);
+    const note1 = (r1.getSnapshot().sections as any[]).find((s) => s.kind === 'note' && /REPRESENTATIVE SAMPLE/.test(s.text))!;
+    expect(note1.text).toContain('Temp. Max / Min above');
+    expect(note1.text).not.toContain('RH Max');
+    const nmtOnly = { ...both, temp: { ...both.temp, min: null }, rh: { ...both.rh, min: null, max: null } };
+    const r2 = await renderDataReport(nmtOnly);
+    const note2 = (r2.getSnapshot().sections as any[]).find((s) => s.kind === 'note' && /REPRESENTATIVE SAMPLE/.test(s.text))!;
+    expect(note2.text).toContain('Temp. Max above');
+    expect(note2.text).not.toContain('Min');
+    const none = { ...both, temp: { ...both.temp, min: null, max: null }, rh: { ...both.rh, min: null, max: null } };
+    const r3 = await renderDataReport(none);
+    const note3 = (r3.getSnapshot().sections as any[]).find((s) => s.kind === 'note' && /REPRESENTATIVE SAMPLE/.test(s.text))!;
+    expect(note3.text).not.toMatch(/Max|Min/);
+    expect(note3.text).toContain('REPRESENTATIVE SAMPLE');
+  });
 });

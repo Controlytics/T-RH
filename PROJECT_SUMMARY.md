@@ -34,7 +34,7 @@ live instrument monitoring with alarms.
 
 ```
 apps/api/        Fastify backend — 24 modules, 249 route registrations
-apps/web/        React SPA — 51 routes, 24 config pages
+apps/web/        React SPA — 52 routes, 23 config pages
 packages/shared/ permissions (42), reauth actions (48), sidebar items (13),
                  PERMISSION_TREE, zod schemas, telemetry maths
 packages/queue/  graphile-worker wrapper + crontab.txt

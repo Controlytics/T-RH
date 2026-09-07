@@ -1,6 +1,6 @@
 import type { TableCell } from '@/lib/pdf-report';
 import { formatDecimals, INTERVALS, isOutOfRange } from '@digilog/shared';
-import { formatSetPoint, outOfSpec } from '@/routes/dashboard/set-point';
+import { formatSetPoint, boundInForce, outOfSpec } from '@/routes/dashboard/set-point';
 import type { TableRow } from './trend-series';
 
 /**
@@ -192,8 +192,8 @@ function num(v: number | null | undefined, decimals: number): string {
   return v == null ? '-' : (formatDecimals(v, decimals) ?? '-');
 }
 
-/** A bound that is IN FORCE — the same test `formatSetPoint` applies. */
-const inForce = (b: number | null | undefined): b is number => typeof b === 'number' && Number.isFinite(b);
+/** A bound that is IN FORCE — `formatSetPoint`'s own test, imported, not respelled. */
+const inForce = boundInForce;
 
 /**
  * The Max / Min cell pair for one slot, or `null`: label cell, then the value

@@ -1,4 +1,5 @@
 import { formatDecimals } from '@digilog/shared';
+import { boundInForce } from '@/routes/dashboard/set-point';
 import { createReport, type ReportDoc, type NoteColor } from '@/lib/pdf-report';
 import {
   alarmTypeText, triggeredText, limitText, clearedText, statusText,
@@ -205,7 +206,12 @@ function num(v: number | null | undefined, decimals: number): string {
 function addSummary(report: ReportDoc, summary: SlotSummary, formatDateTime: (d: string) => string): void {
   // NOTE ON POPULATIONS. `Readings`, `Minimum`, `Maximum`, `Mean` and the
   // out-of-limit figures are ALL over every reading in the period, computed in
-  // SQL — one population throughout (see `withServerSummary`). The exception is
+  // SQL — one population throughout (see `withServerSummary`). `Minimum` and
+  // `Maximum` print only for a bound in force (2026-09-07), the same rule as
+  // the Data Report's extremes row; the per-side assessment line below is
+  // gated on the bound AND its count, so on the no-server-summary fallback a
+  // Minimum can print while its assessment is withheld — that is the count
+  // being unknown, not the extreme. The exception is
   // the first/last pair, which is read from the rows the report holds: those two
   // are claims about two specific INSTANTS, each printed with its own timestamp,
   // not claims about the range, so a range minimum below both of them is
@@ -219,8 +225,8 @@ function addSummary(report: ReportDoc, summary: SlotSummary, formatDateTime: (d:
   // `limitMin` / `limitMax` arrive from `telemetry-overview`, which already
   // withholds a switched-off bound, so their presence IS "in force" — the same
   // test `dataReportParameterRows` makes. No bound at all → neither extreme.
-  const hasLow = summary.limitMin != null;
-  const hasHigh = summary.limitMax != null;
+  const hasLow = boundInForce(summary.limitMin);
+  const hasHigh = boundInForce(summary.limitMax);
   const rows: string[][] = [
     ['Readings', summary.count.toLocaleString()],
     ...(hasLow ? [['Minimum', `${num(summary.min, d)} ${summary.unit}`]] : []),
@@ -457,14 +463,29 @@ function dataReportChrome(formatDateTime: (d: string) => string, legend: { abbr:
   };
 }
 
+/**
+ * The single-instrument Data Report IS the multi-instrument one with one
+ * instrument (review, 2026-09-07: the two were hand-maintained copies that
+ * happened to be byte-equivalent). One code path, so they cannot drift.
+ */
 export async function renderDataReport(input: DataReportInput): Promise<ReportDoc> {
-  const section = prepareDataSection(input);
-  const report = await createReport(dataReportChrome(
-    input.formatDateTime,
-    dataReportLegend(section.limitTexts, section.body.printedNoData),
-  ));
-  addDataReportSection(report, section);
-  return report;
+  return renderDataReports({ formatDateTime: input.formatDateTime, instruments: [input] });
+}
+
+/**
+ * The sentence in the sample disclosure that names the Max / Min cells — ONLY
+ * the ones that print. The extremes row omits a slot's cells when no bound is
+ * in force (`extremesRow`), and a signed note about cells that are not there is
+ * the stale-disclosure defect this file already fixed once (2026-08-27).
+ */
+export function extremesSentence(input: Pick<DataReportInput, 'temp' | 'rh'>): string {
+  const cells: string[] = [];
+  for (const [name, s] of [['Temp.', input.temp], ['RH', input.rh]] as const) {
+    const parts = [boundInForce(s.max) ? 'Max' : null, boundInForce(s.min) ? 'Min' : null].filter((p): p is string => p !== null);
+    if (parts.length) cells.push(`${name} ${parts.join(' / ')}`);
+  }
+  if (cells.length === 0) return '';
+  return `${cells.join(' and ')} above ${cells.length === 1 && !cells[0].includes('/') ? 'is' : 'are'} computed over EVERY reading in the period, not over this sample. `;
 }
 
 /**
@@ -525,10 +546,9 @@ function addDataReportSection(report: ReportDoc, section: PreparedDataSection): 
       `REPRESENTATIVE SAMPLE: this report was built from ${input.coverage.returned.toLocaleString()} of the `
       + `${input.coverage.total.toLocaleString()} stored values across all keys that ${input.period.label} holds, selected `
       + `ACROSS THE WHOLE PERIOD rather than taken from its most recent portion. Every row below is a stored, `
-      + `unaveraged reading, but these are NOT every stored reading in the period. Temp. Max / Min and RH Max / Min `
-      + `above are computed over EVERY reading in the period, not over this sample. To print every stored reading, `
-      + `narrow the period or select an interval — no report from this page prints more than `
-      + `${MAX_REPORT_ROWS.toLocaleString()} rows.`,
+      + `unaveraged reading, but these are NOT every stored reading in the period. ${extremesSentence(input)}`
+      + `To print every stored reading, narrow the period or select an interval — no report from this page prints `
+      + `more than ${MAX_REPORT_ROWS.toLocaleString()} rows.`,
       'red',
     );
   }

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { TELEMETRY_DECIMALS_FALLBACK } from '@digilog/shared';
 import { ExportMenu } from '@/components/ExportMenu';
 import { ReportDownloadDialog, type ReportDownloadRequest } from '@/components/report-download-dialog';
 import { ReauthDialog } from '@/components/reauth-dialog';
@@ -38,6 +39,22 @@ import type { HistoryScope } from './use-history-scope';
  * report" with nothing to press is an inert control, the decoy this codebase
  * keeps a rule against (audit, 2026-09-07).
  */
+/** Instruments read at once. Two requests each; four keeps an Area of thirty
+ *  to a few seconds without hammering the API. */
+const READ_CONCURRENCY = 4;
+
+/** `Promise.all` with at most `limit` tasks in flight; results by index. */
+async function mapWithConcurrency<T>(items: readonly T[], limit: number, fn: (item: T, index: number) => Promise<void>): Promise<void> {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      await fn(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
+
 export function GenerateReportCard({ scope }: { scope: HistoryScope }) {
   const { pdf } = useExportOptions('instrument-history');
   const { period } = useTrendPeriod();
@@ -56,9 +73,13 @@ export function GenerateReportCard({ scope }: { scope: HistoryScope }) {
     const fmt = { formatDate, formatTime };
     try {
       await reauth.executeWithResult('DOWNLOAD_REPORT', async (password) => {
-        const sections: DataReportInput[] = [];
-        for (const [i, inst] of targets.entries()) {
-          setProgress(`Reading ${inst.code} (${i + 1} of ${targets.length})…`);
+        // Every instrument is read (two requests each) with a few in flight at
+        // once — an Area of thirty read one after another was 60 serial round
+        // trips (review, 2026-09-07). Sections land by INDEX, so the document
+        // keeps the selection's order whatever order the reads complete in.
+        const sections: DataReportInput[] = new Array(targets.length);
+        let done = 0;
+        const readOne = async (inst: (typeof targets)[number], i: number) => {
           const ov = scope.overviewById.get(inst.id);
           const tempKey = ov?.temperature?.key ?? null;
           const humidKey = ov?.humidity?.key ?? null;
@@ -66,7 +87,7 @@ export function GenerateReportCard({ scope }: { scope: HistoryScope }) {
           const fetched = await fetchDataReportRows({
             instrumentId: inst.id, from: reportPeriod.from, to: reportPeriod.to, intervalMs: interval, slotKeys,
           });
-          sections.push({
+          sections[i] = {
             scope: {
               ...resolveBlockArea(scope.tree, inst.functionalLocationId ?? null),
               locationName: ov?.locationAttribute ?? '',
@@ -75,19 +96,24 @@ export function GenerateReportCard({ scope }: { scope: HistoryScope }) {
             period: reportPeriod, fmt, formatDateTime,
             temp: {
               key: tempKey, min: ov?.limits?.tempMin, max: ov?.limits?.tempMax,
-              decimals: ov?.decimals.temperature ?? 1,
+              // The ONE fallback, shared with the trend page: two documents under
+              // one audit type must not print one instrument at two precisions.
+              decimals: ov?.decimals.temperature ?? TELEMETRY_DECIMALS_FALLBACK,
               rangeLow: ov?.rangeBounds?.temperatureLow ?? null, rangeHigh: ov?.rangeBounds?.temperatureHigh ?? null,
               ...slotExtremes(fetched.summaries, tempKey),
             },
             rh: {
               key: humidKey, min: ov?.limits?.rhMin, max: ov?.limits?.rhMax,
-              decimals: ov?.decimals.humidity ?? 0,
+              decimals: ov?.decimals.humidity ?? TELEMETRY_DECIMALS_FALLBACK,
               rangeLow: ov?.rangeBounds?.humidityLow ?? null, rangeHigh: ov?.rangeBounds?.humidityHigh ?? null,
               ...slotExtremes(fetched.summaries, humidKey),
             },
             rows: fetched.rows, intervalMs: interval, coverage: fetched.coverage, words: sensorWords,
-          });
-        }
+          };
+          done += 1;
+          setProgress(`Read ${done} of ${targets.length} instruments…`);
+        };
+        await mapWithConcurrency(targets, READ_CONCURRENCY, readOne);
         setProgress('Building the report…');
         const report = await renderDataReports({ formatDateTime, instruments: sections });
         // A REQUEST, not a file (2026-09-07): the frozen document goes to the

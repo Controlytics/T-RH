@@ -23,7 +23,7 @@ React 19 SPA built with Vite 6, styled with Tailwind CSS 4. The built `apps/web/
 **Dev server:** `npx vite --host` (port 5175/5176)
 **Build:** `npx vite build` → `apps/web/dist/`
 
-## All Routes (50 — verified `grep -cE "<Route" apps/web/src/main.tsx` 2026-08-27)
+## All Routes (52 — verified `grep -cE "<Route" apps/web/src/main.tsx` 2026-09-07; 50 → 52 that day: `/data-report`, `/reports`)
 
 The previous "85+ pages" figure and every table below it described `/assets`,
 `/filters`, `/filter-cleaning-profiles`, `/checklists`, `/cleaning-cycles`,
@@ -71,6 +71,8 @@ them, exist in `main.tsx` or `routes/` today.
 | `/instruments/bulk` | InstrumentBulkCreatePage | INSTRUMENT_CREATE |
 | `/instruments/:id` | InstrumentDetailPage | INSTRUMENT_READ |
 | `/instruments/:id/trend` | InstrumentTrend | INSTRUMENT_READ |
+| `/data-report` | DataReportPage | INSTRUMENT_READ — the Instrument History widget's own page (2026-09-07) |
+| `/reports` | ReportsPage | REPORT_REVIEW_READ — report requests awaiting approval, my requests, approved reports (2026-09-07) |
 
 ### Notifications & Admin Requests
 

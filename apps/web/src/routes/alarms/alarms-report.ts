@@ -422,7 +422,7 @@ export function buildAlarmsReport(
       // other state to check it against.
       // Width-matched to the head for THIS level, or the empty-state row lands
       // under the wrong columns.
-      : [reportHead(level).map((_, i) => (i === reportHead(level).indexOf('DESCRIPTION')
+      : [reportHead(level, hidden).map((_, i) => (i === reportHead(level, hidden).indexOf('DESCRIPTION')
         ? 'No alarms in the selected period' : '-'))],
   });
 }

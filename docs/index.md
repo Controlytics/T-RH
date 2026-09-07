@@ -12,7 +12,7 @@
 
 ## Platform stats (re-derive before trusting — see root `CLAUDE.md` "Live-count verification")
 - **25** API modules, **36** Prisma models, **13** enums
-- **26** config definitions with auto-discovery, **24** config pages
+- **30** config definitions with auto-discovery, **23** config pages (re-derived `ls` 2026-09-07 — this line was stale)
 - **44** permissions, **50** reauth actions, **14** sidebar items (re-derive — these drift; see command block below)
 - **102** audit actions, **96** audit templates, **52** `<Route`s, **6** worker tasks
 - **10** color themes, multi-channel notifications
