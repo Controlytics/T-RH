@@ -167,7 +167,7 @@ inventory:
 | Component | File | Purpose |
 |---|---|---|
 | `AppLayout` | `layout/app-layout.tsx` | Main wrapper: sidebar + header + page outlet |
-| `Sidebar` | `layout/sidebar.tsx` | Navigation, driven by `PERMISSION_TREE` via `sidebar-visibility.ts`, collapsible (12 sidebar items per root `CLAUDE.md`, not the "26-item" figure previously here) |
+| `Sidebar` | `layout/sidebar.tsx` | Navigation, driven by `PERMISSION_TREE` via `sidebar-visibility.ts`, collapsible (13 sidebar items per root `CLAUDE.md` — 12 → 13 on 2026-09-07 with `data-report`; not the "26-item" figure previously here) |
 | `Header` | `layout/header.tsx` | Top bar: menu toggle, profile, logout |
 
 ### Auth & Guard Components

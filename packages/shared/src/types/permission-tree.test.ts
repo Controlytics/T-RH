@@ -189,3 +189,24 @@ describe('resolveNodePermissions (Task 1.5)', () => {
     expect(resolveNodePermissions('audit.redact')).toEqual([]);
   });
 });
+
+describe('data-report group (2026-09-07)', () => {
+  // The Instrument History widget moved off the dashboard onto its own sidebar
+  // page. It shows instrument readings, so the page is gated on the permission
+  // that already governs them — no new permission — and it is a Roles & Access
+  // Sidebar toggle like every other page.
+  const group = PERMISSION_TREE.find((g) => g.sidebarId === 'data-report');
+
+  it('exists, with one configurable View node gated on INSTRUMENT_READ', () => {
+    expect(group).toBeTruthy();
+    expect(group!.nodes.map((n) => n.id)).toEqual(['data_report.view']);
+    const view = group!.nodes[0];
+    expect(view.configurable).toBe(true);
+    expect(view.permissions).toEqual([PERMISSIONS.INSTRUMENT_READ]);
+    expect(resolveNodeGate('data_report.view')).toEqual([PERMISSIONS.INSTRUMENT_READ]);
+  });
+
+  it('is hidden from the sidebar unless the viewer holds INSTRUMENT_READ', () => {
+    expect(group!.visibilityPrivilegeIds).toEqual(['data_report.view']);
+  });
+});

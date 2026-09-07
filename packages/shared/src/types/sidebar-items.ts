@@ -28,4 +28,7 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
   { id: 'system-health', label: 'System Health', icon: '\u{1F4CA}', description: 'Server and system metrics' },
   { id: 'instruments', label: 'Instruments', icon: '\u{1F4E1}', description: 'Instrument registry and telemetry' },
   { id: 'debug-traces', label: 'Debug Traces', icon: '\u{1F50D}', description: 'Pipeline debug trace viewer' },
+  // 2026-09-07: the Instrument History widget, moved off the dashboard onto its
+  // own page. `/data-report`; gated on INSTRUMENT_READ through the tree.
+  { id: 'data-report', label: 'Data Report', icon: '\u{1F4C4}', description: 'Readings of a Block, an Area or chosen instruments over a period, with the Data Report download' },
 ];

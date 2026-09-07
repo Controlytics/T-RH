@@ -12,9 +12,12 @@ export interface ExportSurface {
 export const EXPORT_SURFACES: ExportSurface[] = [
   { key: 'audit', label: 'Audit Trail' },
   { key: 'instrument-trend', label: 'Instrument Trend' },
-  // The Instruments page's history widget (2026-09-05): the Data Report for
-  // an Area, or for a hand-picked set of instruments.
-  { key: 'instrument-history', label: 'Instrument History' },
+  // The Data Report page's history widget (2026-09-05; its own page since
+  // 2026-09-07): the Data Report for an Area, or for a hand-picked set of
+  // instruments. The KEY is stored in `system_config` (export-options) per
+  // role, so it keeps the name it was saved under; only the label follows the
+  // page.
+  { key: 'instrument-history', label: 'Data Report' },
   { key: 'alarms', label: 'Alarms' },
 ];
 

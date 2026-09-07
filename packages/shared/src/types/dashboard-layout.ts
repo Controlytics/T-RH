@@ -68,19 +68,19 @@ export const DEFAULT_DASHBOARD_LAYOUT: DashboardLayout = {
   version: LAYOUT_VERSION,
   items: [
     { i: 'telemetry_table', x: 0, y: 0, w: 12, h: 9 },
-    // The history widget, directly under the readings table (operator,
-    // 2026-09-05: "in dashboard below the all instruments readings table").
-    // Auto-height, like the table; 8 rows is only its starting size.
-    { i: 'dashboard_history', x: 0, y: 9, w: 12, h: 8 },
+    // `dashboard_history` sat here at y:9, h:8 from 2026-09-05 to 2026-09-07,
+    // when the Instrument History widget moved to its own page (`/data-report`);
+    // the floorplan and the alarms moved back up rather than leaving an 8-row
+    // hole — the same call as for `dashboard_trend` below.
     // The floorplan is the tallest by a distance, and deliberately so: it draws
     // rooms to scale, so a short card shrinks every room until the codes inside
     // them stop being readable. 16 rows is ~880px at the grid's 40px row and 16px
     // margin — enough for a floor plan to be a plan rather than a thumbnail.
     // Raised from 11 on 2026-08-28 after the first look at it.
-    { i: 'telemetry_floorplan', x: 0, y: 17, w: 12, h: 16 },
+    { i: 'telemetry_floorplan', x: 0, y: 9, w: 12, h: 16 },
     // `dashboard_trend` sat at y:25 until 2026-08-29 and was removed with the panel
     // itself; alarms moved up into the space rather than leaving a 9-row hole.
-    { i: 'dashboard_alarms', x: 0, y: 33, w: 12, h: 6 },
+    { i: 'dashboard_alarms', x: 0, y: 25, w: 12, h: 6 },
   ],
 };
 

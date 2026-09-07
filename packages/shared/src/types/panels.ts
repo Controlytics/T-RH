@@ -69,15 +69,14 @@ export const PANELS: readonly PanelDefinition[] = [
     label: 'Instrument Readings — Table',
     description: 'Every instrument’s current temperature and humidity, as a table',
   },
-  {
-    // The history widget (operator, 2026-09-05): Block / Area / instrument
-    // selection, the merged readings of the selection, and the Data Report for
-    // an Area or a ticked subset. Sits under the readings table by default.
-    key: 'dashboard_history',
-    page: 'dashboard',
-    label: 'Instrument History',
-    description: 'Readings of a Block, an Area or chosen instruments over a period, with the Data Report download',
-  },
+  // `dashboard_history` — the Instrument History widget (Block / Area /
+  // instrument selection, merged readings, the Data Report download) — was
+  // ADDED 2026-09-05 and RETIRED 2026-09-07 (operator: "Instruments history
+  // widget … removed there and add one side bar option Data Report"). The
+  // widget lives on its own page, `/data-report`, governed by the `data-report`
+  // sidebar toggle instead. Removing the key here is what takes it off the
+  // dashboard, exactly as for `dashboard_trend` above; no stored layout named
+  // it when it went (0 rows in role_configs / user_configs / system_config).
   {
     key: 'telemetry_floorplan',
     page: 'dashboard',

@@ -1,5 +1,59 @@
 # Changelog
 
+## [Unreleased] - Data Report page: the Instrument History widget leaves the dashboard (2026-09-07)
+
+Operator: *"in dashboard Instruments history widget was there that widget
+removed there and add one side bar option Data Report, in that it should come"*.
+
+**New page `/data-report`** (`routes/data-report/index.tsx`): a page header and
+the existing Instrument History widget (`routes/instruments/history-widget.tsx`
+— Block / Area / instrument selection, the merged readings of the selection,
+the Data Report download for every selected instrument), unchanged in
+behaviour. **New sidebar item `data-report`** and **permission-tree group
+`data-report`** with one configurable node, `data_report.view`, gated on the
+EXISTING `INSTRUMENT_READ` — the page shows instrument readings, so it is
+governed by the permission that already governs them; the download keeps its
+own `DOWNLOAD_REPORT` re-auth and audit row. Roles & Access → Sidebar can grant
+or withhold it like every other page.
+
+**Removed from the dashboard.** `dashboard_history` is out of `PANELS`,
+`DEFAULT_DASHBOARD_LAYOUT` (floorplan y 17 → 9, alarms y 33 → 25 — the
+`dashboard_trend` precedent: close the hole rather than leave it) and
+`AUTO_HEIGHT_PANELS`, and the render branch in `routes/dashboard/index.tsx` is
+gone. Removing the key is what takes it off the dashboard and off Roles &
+Access → Panels. Receipt: `SELECT … WHERE …::text LIKE '%dashboard_history%'`
+against `system_config`, `user_configs.dashboard_layout` and
+`role_configs.dashboard_layout` → **0 rows** each, so nothing was orphaned; an
+unknown key is inert regardless (`isPanelKey`). The widget's `embedded` prop
+and its `usePanelToolbarSlot()` portal were dead once nothing embedded it and
+were removed; the widget prints no title of its own — the page header does.
+
+**Naming.** The download dialog, the saved file (`data-report-<date>.pdf`) and
+the audit `reportType` now read `Data Report`, the page's name. Rows logged
+between 2026-09-05 and 2026-09-07 read `Instrument History`; they are §11
+records and were not rewritten. The Export Options surface keeps its STORED
+key `instrument-history` (per-role rows in `system_config`); only its label
+follows the page.
+
+**Counts** (each re-derived by the command beside it in `CLAUDE.md`): sidebar
+items 12 → **13**, routes 50 → **51**, permission-tree groups 11 → **12**, tree
+nodes 52 → **53**, feature privileges 40 → **41**. No permission, reauth
+action, model, enum, config def, page under `routes/config/` or migration. The
+frozen `legacy-maps-snapshot.ts` was extended by appending, so the
+order-sensitive parity tests still pin everything before the new entries.
+
+**Tests.** New `routes/data-report/__tests__/data-report-page.test.tsx` (mounts
+the page: one heading, the widget and its controls under it; mutation-checked
+by putting a second heading back into the widget — fails). Re-pinned:
+`panels.test.ts` (frozen order), `dashboard-layout.test.ts` (the insert-under-
+predecessor rule now exercised on the floorplan), `legacy-maps-derived.test.ts`
+(41 / 41 / 12), `permission-tree.test.ts` (+2: the group and its gate),
+`panel-auto-height.test.ts`, `history-widget.test.tsx` (no `embedded` variant;
+the Data Report naming). Shared 370/370; touched web and API files run
+individually by exit code, all PASS (including `e2e/dashboard-layout`,
+`e2e/panel-access`, `e2e/roles`); `tsc` clean in shared, web and api; `vite
+build` clean. **Not seen on screen** — the operator holds the browser session.
+
 ## [Unreleased] - RTC sync: `digilog/rtc/time` every 10 minutes and on request (2026-09-05)
 
 Operator: *"create another topic for rtc sync, {"method":"getTime"} user will

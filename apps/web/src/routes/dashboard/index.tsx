@@ -10,7 +10,6 @@ import { usePanels } from '@/hooks/use-panels';
 import { SelectionAlarms } from './selection-alarms';
 import { PanelGrid } from './panel-grid';
 import { PanelCard } from './panel-card';
-import { InstrumentHistoryWidget } from '@/routes/instruments/history-widget';
 import { AUTO_HEIGHT_PANELS, applyAutoHeights, keepStoredHeights, nextRows } from './panel-auto-height';
 import { EntryCards } from './entry-cards';
 import { useDashboardLayout } from '@/hooks/use-dashboard-layout';
@@ -390,25 +389,9 @@ export function DashboardPage() {
                     <TelemetryTable functionalLocationId={nav.functionalLocationId} directOnly={nav.directOnly} />
                   </PanelCard>
                 )}
-                {it.i === 'dashboard_history' && (
-                  <PanelCard
-                    title="Instrument History"
-                    eyebrow="History"
-                    editing={layout.editing}
-                    style={it.style}
-                    width={it.w}
-                    height={it.h}
-                    onStyleChange={(next) => layout.setStyle(it.i, next)}
-                    onSizeChange={(w, h) => layout.setSize(it.i, w, h)}
-                    autoHeight={AUTO_HEIGHT_PANELS.has(it.i)}
-                    onNaturalHeight={reportHeight(it.i)}
-                  >
-                    {/* Its own Block/Area selection, deliberately NOT the page's
-                        drill-down: an Area report is picked and downloaded in
-                        one place, whichever selection the tiles above are on. */}
-                    <InstrumentHistoryWidget embedded />
-                  </PanelCard>
-                )}
+                {/* `dashboard_history` (the Instrument History widget) rendered
+                    here from 2026-09-05 to 2026-09-07; it is the `/data-report`
+                    page now, and the key is out of the catalogue. */}
                 {it.i === 'telemetry_floorplan' && (
                   <PanelCard
                     title={panelHeading('Instrument Readings — Floorplan')}

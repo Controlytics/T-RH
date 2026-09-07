@@ -261,6 +261,12 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
     "label": "Acknowledge Alarms",
     "category": "Alarms",
     "icon": "check"
+  },
+  {
+    "id": "data_report.view",
+    "label": "View Data Report",
+    "category": "Data Report",
+    "icon": "file-text"
   }
 ];
 
@@ -406,6 +412,9 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   "alarms.acknowledge": [
     "ALARM_ACKNOWLEDGE",
     "ALARM_READ"
+  ],
+  "data_report.view": [
+    "INSTRUMENT_READ"
   ]
 };
 
@@ -522,6 +531,15 @@ export const SIDEBAR_PRIVILEGE_MAP_SNAPSHOT: SidebarSectionSnapshot[] = [
     "privilegeIds": [
       "alarms.view",
       "alarms.acknowledge"
+    ]
+  },
+  {
+    "sidebarId": "data-report",
+    "label": "Data Report",
+    "icon": "📄",
+    "description": "Readings of a Block, an Area or chosen instruments over a period, with the Data Report download",
+    "privilegeIds": [
+      "data_report.view"
     ]
   }
 ];

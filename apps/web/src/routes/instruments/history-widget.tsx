@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
 import useSWR from 'swr';
-import { Activity } from 'lucide-react';
 import {
   ALL_RECORDS, INTERVALS, coerceReading, formatDecimals, isOutOfRange, isSensorFailureValue,
 } from '@digilog/shared';
@@ -20,7 +18,6 @@ import { apiClient } from '@/lib/api-client';
 import { logReportExport } from '@/lib/report-export-log';
 import type { OverviewRow } from '@/routes/dashboard/use-telemetry';
 import { useTrendPeriod, TREND_PRESETS } from './use-trend-data';
-import { usePanelToolbarSlot } from '@/routes/dashboard/panel-card';
 import { pillTone, rowTone, ROW_ACCENT, PILL_CLASS, FAULT_PILL, type PillTone } from './timeseries-table-card';
 import { fetchDataReportRows, slotExtremes } from './data-report-fetch';
 import { renderInstrumentHistoryReport, type DataReportInput } from './trend-report';
@@ -31,10 +28,14 @@ import {
 } from './history-selection';
 
 /**
- * The Instruments page's HISTORY widget (operator, 2026-09-05): *"same like
+ * The Instrument HISTORY widget (operator, 2026-09-05): *"same like
  * trends page time series … provide Block and Area and instrument selection
  * … Area wise instruments history report … and also multiple selection and
- * download report for only selected instruments"*.
+ * download report for only selected instruments"*. It is the body of the
+ * `/data-report` page since 2026-09-07 (operator: *"in dashboard Instruments
+ * history widget was there that widget removed there and add one side bar
+ * option Data Report, in that it should come"*), after a day on the
+ * Instruments page and two as the dashboard panel `dashboard_history`.
  *
  * Three parts, each with one job:
  *  - the SELECTION row — Block, Area, and a tick list of the instruments in
@@ -62,20 +63,17 @@ interface HistoryRow { instrumentId: string; ts: string; values: Record<string, 
 const th = 'px-4 py-3 text-left text-[0.6875rem] font-bold uppercase tracking-[0.08em] text-slate-600';
 
 /**
- * `embedded` — rendered inside a dashboard `PanelCard` (2026-09-05, operator:
- * *"all instruments report widget comes in dashboard … below the all
- * instruments readings table"*). The card owns the title, so the widget's own
- * header is dropped, and its Block / Area / Interval controls and the download
- * ride in the card header through `usePanelToolbarSlot()` — the same portal
- * the readings table and the alarms panel use, because a panel's controls sit
- * beside its title, not on a second row. The period presets and the custom
- * range stay in the body: seven buttons and two date inputs do not fit a
- * header that must not wrap. When there is no slot (rendered bare, as in its
- * tests) the toolbar renders inline where the header would have been.
+ * The widget prints NO title of its own: the page header names the screen, and
+ * two headings for one screen is what the dashboard-era `embedded` flag existed
+ * to prevent (there the PanelCard owned the title and the controls rode in its
+ * header through a portal). Both went with the panel — a prop with one caller
+ * that no longer exists is dead code, not an option. Its header row is the
+ * selection summary on the left and the Block / Area / Interval controls with
+ * the download on the right; the period presets and the custom range sit on a
+ * second row, since seven buttons and two date inputs do not fit beside them.
  */
-export function InstrumentHistoryWidget({ embedded = false }: { embedded?: boolean } = {}) {
+export function InstrumentHistoryWidget() {
   const { period, setPreset, setCustom, setInterval } = useTrendPeriod();
-  const toolbarSlot = usePanelToolbarSlot();
   const paginationOptions = usePaginationConfig();
   const [blockId, setBlockId] = useState('');
   const [areaId, setAreaId] = useState('');
@@ -184,15 +182,17 @@ export function InstrumentHistoryWidget({ embedded = false }: { embedded?: boole
           instruments: sections,
         });
         // Fail-closed: the audit write happens BEFORE the file is saved.
+        // "Data Report" since 2026-09-07, the page's name; rows logged before
+        // read "Instrument History" and, being §11 records, were not rewritten.
         await logReportExport({
-          reportType: 'Instrument History', format: 'PDF',
+          reportType: 'Data Report', format: 'PDF',
           recordCount: sections.reduce((n, s) => n + s.rows.length, 0),
           period: reportPeriod.label, startDate: reportPeriod.from, endDate: reportPeriod.to,
           search: `${targets.length} instrument${targets.length === 1 ? '' : 's'}: ${targets.map((t) => t.code).join(', ')}`,
           remarks: req.remarks, password,
         });
         const stamp = new Date().toISOString().slice(0, 10);
-        report.save(`instrument-history-${stamp}.pdf`);
+        report.save(`data-report-${stamp}.pdf`);
       });
       setPendingDownload(false);
     } catch (e: any) {
@@ -253,46 +253,18 @@ export function InstrumentHistoryWidget({ embedded = false }: { embedded?: boole
       />
     </div>
   );
-  const toolbarInHeader = embedded && toolbarSlot !== null;
-
   return (
     <section
       data-testid="history-widget"
-      className={embedded
-        ? 'flex flex-col'
-        : 'overflow-hidden rounded-[var(--radius-card)] border border-slate-200 bg-white shadow-[var(--elev-1)]'}
+      className="overflow-hidden rounded-[var(--radius-card)] border border-slate-200 bg-white shadow-[var(--elev-1)]"
     >
-      {toolbarInHeader ? createPortal(compactToolbar, toolbarSlot) : (
-        <header className="flex flex-wrap items-start justify-between gap-3 px-5 py-4">
-          <div className="flex min-w-0 items-center gap-3.5">
-            {!embedded && (
-              <span
-                className="grid h-12 w-12 shrink-0 place-items-center rounded-full"
-                style={{
-                  backgroundColor: 'color-mix(in srgb, var(--theme-primary, #4f46e5) 14%, #ffffff)',
-                  color: 'var(--theme-primary, #4f46e5)',
-                }}
-                aria-hidden="true"
-              >
-                <Activity className="h-6 w-6" />
-              </span>
-            )}
-            <div className="min-w-0">
-              {!embedded && (
-                <h3 className="truncate text-lg font-bold tracking-tight text-slate-900">Instrument History</h3>
-              )}
-              <p className="mt-0.5 truncate text-[0.8125rem] text-slate-500">{subtitle}</p>
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">{compactToolbar}</div>
-        </header>
-      )}
+      <header className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+        <p className="min-w-0 truncate text-[0.8125rem] text-slate-500" data-testid="history-subtitle">{subtitle}</p>
+        <div className="flex shrink-0 items-center gap-2">{compactToolbar}</div>
+      </header>
 
       {/* The period row: presets and the custom range. */}
       <div className="flex flex-wrap items-end gap-4 border-t border-slate-100 px-5 py-4">
-        {toolbarInHeader && (
-          <p className="w-full text-[0.8125rem] text-slate-500" data-testid="history-subtitle">{subtitle}</p>
-        )}
         <div className="flex flex-wrap gap-1.5">
           {TREND_PRESETS.map((p) => (
             <Button key={p.label} size="sm" variant={period.label === p.label ? 'default' : 'secondary'} onClick={() => setPreset(p.ms)}>
@@ -423,7 +395,7 @@ export function InstrumentHistoryWidget({ embedded = false }: { embedded?: boole
 
       <ReportDownloadDialog
         open={pendingDownload}
-        reportName="Instrument History"
+        reportName="Data Report"
         showPeriod
         showInterval
         initialPeriod={{ from: period.from, to: period.to, label: period.label }}

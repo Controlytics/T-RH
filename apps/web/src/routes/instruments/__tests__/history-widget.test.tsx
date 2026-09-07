@@ -3,7 +3,9 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom';
 
 /**
- * The Instruments page's history widget (2026-09-05).
+ * The Instrument History widget (2026-09-05) — the body of the Data Report page
+ * since 2026-09-07, after a day on the Instruments page and two on the
+ * dashboard.
  *
  * Two instruments in one Area with DIFFERENT limits, so "judged with its own
  * instrument's bounds" is a discriminating assertion: the same reading is a
@@ -104,10 +106,10 @@ jspdf.default.API.save = function (this: any, name: string) {
 
 const FIXED = '?from=2026-08-24T00%3A00%3A00.000Z&to=2026-08-24T01%3A00%3A00.000Z&label=Custom';
 
-function renderWidget(query = FIXED, embedded = false) {
+function renderWidget(query = FIXED) {
   return render(
-    <MemoryRouter initialEntries={[`/dashboard${query}`]}>
-      <InstrumentHistoryWidget embedded={embedded} />
+    <MemoryRouter initialEntries={[`/data-report${query}`]}>
+      <InstrumentHistoryWidget />
     </MemoryRouter>,
   );
 }
@@ -129,17 +131,16 @@ describe('InstrumentHistoryWidget', () => {
     expect(requested.some((u) => u.startsWith('/api/instruments?') && u.includes('functionalLocationId=a1'))).toBe(true);
   });
 
-  it('embedded in a dashboard panel, leaves the title to the card and keeps its controls', () => {
-    // The PanelCard owns the heading; the widget must not print a second one.
-    // Rendered bare (no toolbar slot), the controls fall back to an inline row.
-    renderWidget(FIXED, true);
-    expect(screen.queryByRole('heading', { name: 'Instrument History' })).toBeNull();
+  it('prints no heading of its own — the page header names the screen — and keeps its controls on one row', () => {
+    // On the dashboard the PanelCard owned the heading (an `embedded` flag
+    // suppressed the widget's); on the Data Report page the PageHeader does.
+    // Either way a second title is wrong, so the widget simply has none now.
+    renderWidget();
+    expect(screen.queryByRole('heading')).toBeNull();
     expect(screen.getByLabelText('Block')).toBeInTheDocument();
+    expect(screen.getByLabelText('Area')).toBeInTheDocument();
     expect(screen.getByLabelText('History interval')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Export as PDF' })).toBeInTheDocument();
-    // Standalone, the heading IS printed.
-    renderWidget(FIXED, false);
-    expect(screen.getByRole('heading', { name: 'Instrument History' })).toBeInTheDocument();
   });
 
   it('selects NOTHING until a Block or Area is chosen — no plant-wide query on page load', () => {
@@ -211,9 +212,12 @@ describe('InstrumentHistoryWidget', () => {
     fireEvent.click(screen.getByText('Download'));
     await waitFor(() => expect(saved.length).toBe(1), { timeout: 5000 });
 
-    expect(saved[0]).toMatch(/^instrument-history-/);
-    expect(events).toEqual(['log:Instrument History', `save:${saved[0]}`]);
-    expect(logged[0]).toMatchObject({ reportType: 'Instrument History', format: 'PDF', remarks: 'area review' });
+    // The page is called Data Report (operator, 2026-09-07), so the audit row,
+    // the file and the dialog say so too. Rows logged before that day read
+    // "Instrument History"; they are §11 records and were not rewritten.
+    expect(saved[0]).toMatch(/^data-report-/);
+    expect(events).toEqual(['log:Data Report', `save:${saved[0]}`]);
+    expect(logged[0]).toMatchObject({ reportType: 'Data Report', format: 'PDF', remarks: 'area review' });
     expect(logged[0].search).toContain(A.code);
     expect(logged[0].search).toContain(B.code);
     // Both instruments were read: a sampled call and a whole-period call each.

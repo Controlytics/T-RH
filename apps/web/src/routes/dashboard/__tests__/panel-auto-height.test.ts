@@ -175,7 +175,10 @@ describe('AUTO_HEIGHT_PANELS', () => {
   it('holds the two panels with a natural content height, and not the floorplan', () => {
     expect(AUTO_HEIGHT_PANELS.has('telemetry_table')).toBe(true);
     expect(AUTO_HEIGHT_PANELS.has('dashboard_alarms')).toBe(true);
-    expect(AUTO_HEIGHT_PANELS.has('dashboard_history')).toBe(true);
+    // `dashboard_history` was here from 2026-09-05 to 2026-09-07, when the
+    // widget moved to the Data Report page. A key that is no panel must not
+    // linger in a set the grid consults on every render.
+    expect(AUTO_HEIGHT_PANELS.has('dashboard_history')).toBe(false);
     // A drawn plan scales to its box; "fit the content" is undefined for it.
     expect(AUTO_HEIGHT_PANELS.has('telemetry_floorplan')).toBe(false);
   });

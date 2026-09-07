@@ -9,9 +9,11 @@ describe('PANELS catalogue', () => {
     // database, so adding or renaming one silently orphans saved rows.
     expect(PANEL_KEYS).toEqual([
       'telemetry_table',
-      // ADDED 2026-09-05: the Instrument History widget — Block / Area /
-      // instrument selection, merged readings, the Data Report download.
-      'dashboard_history',
+      // 'dashboard_history' was ADDED 2026-09-05 and RETIRED 2026-09-07: the
+      // Instrument History widget moved to its own sidebar page, Data Report,
+      // and a toggle that controls nothing on a governance screen is a decoy.
+      // No stored layout named it (0 rows in role_configs / user_configs /
+      // system_config when it went); an unknown key is inert regardless.
       'telemetry_floorplan',
       'dashboard_alarms',
       'trend_gauges',

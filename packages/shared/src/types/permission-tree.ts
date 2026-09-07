@@ -400,6 +400,24 @@ export const PERMISSION_TREE: SidebarGroup[] = [
     ],
   },
 
+  // ---- Data Report (2026-09-07) ----
+  // The Instrument History widget — Block / Area / instrument selection, the
+  // merged readings, the Data Report download — moved off the dashboard onto its
+  // own page at the operator's request ("add one side bar option Data Report").
+  // It shows instrument readings, so it is gated on the permission that already
+  // governs them; no new permission. The download keeps its own DOWNLOAD_REPORT
+  // re-auth, which is an action, not a page gate.
+  {
+    sidebarId: 'data-report', label: 'Data Report', icon: '📄',
+    description: 'Readings of a Block, an Area or chosen instruments over a period, with the Data Report download',
+    visibilityPrivilegeIds: ['data_report.view'],
+    nodes: [
+      { id: 'data_report.view', label: 'View Data Report', sidebarId: 'data-report', page: 'Data Report', action: 'View',
+        icon: 'file-text', category: 'Data Report', permissions: ['INSTRUMENT_READ'], enforce: 'a',
+        gate: ['INSTRUMENT_READ'], configurable: true },
+    ],
+  },
+
 ];
 
 // ─── Phase 5E: Canonical ordering for derived maps ───────────────────────────
@@ -418,6 +436,7 @@ const CONFIGURABLE_PRIVILEGE_ORDER: readonly string[] = [
   'instruments.view', 'instruments.create', 'instruments.edit', 'instruments.delete',
   'functional_locations.view', 'functional_locations.create', 'functional_locations.edit', 'functional_locations.delete',
   'alarm_rules.view', 'alarm_rules.manage', 'alarm_webhooks.view', 'alarm_webhooks.manage', 'alarms.view', 'alarms.acknowledge',
+  'data_report.view',
 ] as const;
 
 // ─── Derive Functions ────────────────────────────────────────────────────────

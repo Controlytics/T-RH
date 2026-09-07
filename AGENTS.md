@@ -10,9 +10,9 @@
 > `stage-approvals` and `sync`. **`admin-requests`, `debug-traces`, `system-health`
 > and `user-groups` are LIVE** — this banner listed all four as removed until
 > 2026-08-27, which was wrong; verified against `ls apps/api/src/modules/`),
-> **50** frontend
+> **51** frontend
 > routes (not 76), **36 models / 13 enums** (not 61/23), **42 permissions / 48 reauth
-> actions** (not 102/92), **97 audit actions / 91 audit templates**, **12** sidebar items,
+> actions** (not 102/92), **97 audit actions / 91 audit templates**, **13** sidebar items,
 > **6** graphile-worker tasks. There is
 > no `orgId` review note needed either way (still true: single-tenant). See `CLAUDE.md` for
 > the accurate module/count inventory before using this file for review guidance.
@@ -24,9 +24,9 @@ Branch: RFID (active development) → merges to DigitalFMS → main.
 
 ## Current Module Count (re-derived 2026-08-27)
 - **Backend:** **24** API modules (`ls apps/api/src/modules/ | wc -l`)
-- **Frontend:** **50** `<Route`s in `apps/web/src/main.tsx` (`grep -cE "<Route"`)
+- **Frontend:** **51** `<Route`s in `apps/web/src/main.tsx` (`grep -cE "<Route"`; 50 → 51 on 2026-09-07, `/data-report`)
 - **Database:** **36** Prisma models, **13** enums (single database `compliance_core_db`, plus `compliance_core_db_test`; TimescaleDB `digilog_tsdb` dropped 2026-06-11)
-- **Permissions:** **42** constants, **40** feature privileges, **48** reauth actions across **8** categories, **12** sidebar items
+- **Permissions:** **42** constants, **41** feature privileges, **48** reauth actions across **8** categories, **13** sidebar items (feature privileges 40 → 41 and sidebar items 12 → 13 on 2026-09-07: the `data-report` group / item)
 - **Audit registries:** **97** audit actions, **91** audit templates across **7** categories
 - **Queue:** **6** graphile-worker tasks (`notification`, `password_expiry_check`, `session_sweep`, `telemetry_partition_maintenance`, `alarm_evaluation`, `alarm_webhook`)
 

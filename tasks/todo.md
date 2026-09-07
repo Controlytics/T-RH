@@ -3242,3 +3242,12 @@ Operator: *"one message for all children with full set, go"*.
 - [ ] AWS: acl.conf (subscribe + publish lines), broker restart, bundle seed — after deploy
 - [ ] firmware: `CWH/RDU/002-00` is not a registered code (instrument is `002-01`)
 - [x] `…/children/attributes` reshaped to a CHANGE EVENT (not retained, changed child only) — operator did not want a dump on subscribe; retained copy cleared; seed script deleted, clear script added
+
+## 2026-09-07 — Data Report page (Instrument History widget off the dashboard)
+
+- [x] `routes/data-report/index.tsx` + route `/data-report` (INSTRUMENT_READ) + sidebar item + tree group `data-report`
+- [x] `dashboard_history` removed from `PANELS` / default layout / `AUTO_HEIGHT_PANELS` / dashboard render — 0 stored layouts named it (receipt in CHANGELOG)
+- [x] widget: `embedded` prop + toolbar portal removed as dead code; no own title; download named `Data Report` (dialog, file, audit `reportType`)
+- [x] tests re-pinned (shared 370/370; touched web + api files PASS by exit code; page test mutation-checked); tsc ×3 clean
+- [x] docs re-derived: root/AGENTS/README/docs index/shared + web CLAUDE.md, CHANGELOG
+- [ ] operator to look at `/data-report` on :5176 and Roles & Access → Sidebar (not seen on screen here)

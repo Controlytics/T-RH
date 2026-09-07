@@ -19,7 +19,7 @@ re-derive any count from live code before repeating it.
 ```
 apps/api/         — Fastify backend (TypeScript, port 3001)
 apps/web/         — React SPA (Vite, port 5176 dev)
-packages/shared/  — Permissions (42), reauth actions (48), sidebar items (12),
+packages/shared/  — Permissions (42), reauth actions (48), sidebar items (13),
                     permission tree, zod schemas
 packages/queue/   — graphile-worker job queue (Postgres-backed)
 docs/             — Project docs; `docs/recreation/` is the verified inventory
@@ -158,8 +158,10 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   no `digilog_tsdb`**. The test database is migrated **separately**; a migration
   applied to only one of them makes every instrument-touching e2e 500.
 - **Permissions:** **42** constants, **48** reauth actions in **8** categories,
-  **12** sidebar items (`grep -cE` against `permissions.ts` / `reauth-actions.ts`
-  / `sidebar-items.ts`). 47 → 48 (2026-08-27): `MANAGE_ALARM_WEBHOOK` added under
+  **13** sidebar items (`grep -cE` against `permissions.ts` / `reauth-actions.ts`
+  / `sidebar-items.ts`). 12 → 13 sidebar items (2026-09-07): `data-report`, the
+  Instrument History widget's own page — see the Data Report note below; no
+  permission or reauth action moved. 47 → 48 (2026-08-27): `MANAGE_ALARM_WEBHOOK` added under
   the EXISTING `Configuration` category (categories stay at 8). **No permission
   and no sidebar item was added** — the alarm webhooks surface reuses
   `ALARM_RULE_READ` / `ALARM_RULE_MANAGE` and lives under Config.
@@ -192,7 +194,7 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   `alarm-webhooks.tsx`. **The def count did NOT move** — alarm webhooks are a
   real CRUD module with their own tables, not a `system_config` row, so there
   is no `*.def.ts` for them.
-- **Frontend:** **50** `<Route`s in `main.tsx` (51 → 50, 2026-08-31: `/config/alarm-rules` removed with the rule feature) (50 → 51, 2026-08-29: `/config/export-options`, a page that had a config def and a dashboard card but no route, so it was unreachable. Earlier 49 → 50, 2026-08-27:
+- **Frontend:** **51** `<Route`s in `main.tsx` (50 → 51, 2026-09-07: `/data-report`) (51 → 50, 2026-08-31: `/config/alarm-rules` removed with the rule feature) (50 → 51, 2026-08-29: `/config/export-options`, a page that had a config def and a dashboard card but no route, so it was unreachable. Earlier 49 → 50, 2026-08-27:
   `/config/alarm-webhooks`).
 - **Queue backend:** graphile-worker (Postgres-backed), **6** tasks.
 - **Tenancy:** single-tenant, single-site. JWT `scope` always stamps `GLOBAL`.
@@ -289,7 +291,7 @@ history; `docs/recreation/` holds the inventory.
   `reason` column; a first fill does not). Admin surface: Config → Roles & Access → Attribute Access.
   Migration `20260819120000_role_attribute_access`, drift guard PASS, applied to both databases.
 - **Themes:** 10 preset color themes (Ocean / Sapphire / Emerald / Amethyst / Sunset / Slate / Ruby / Forest / Midnight / Coral)
-- **Frontend:** **50** Routes in `main.tsx` (re-derived `grep -cE "<Route"` 2026-09-03 — this line read **51** and was ALREADY STALE: the 2026-08-31 alarm-rules removal took it 51 → 50 and re-synced only the System Stats copy above, which is the same duplicate-inventory defect this file keeps warning about. Earlier verified 2026-08-29 — 50 → 51: `/config/export-options` registered, having never been reachable. Earlier verified 2026-08-27 — 49 → 50: new `/config/alarm-webhooks` page; earlier 48 → 49 on 2026-08-24: the `/instruments/:id/trend` page; the "77" was inherited from upstream DigiLog and was never true in this fork; `/config/role-assignments` removed 2026-08-19 as dead code, 49 → 48), **22** custom hooks (20 → 22, re-derived `ls apps/web/src/hooks/ | wc -l` 2026-09-03 — ALREADY STALE, nothing on 2026-09-03 added a hook; earlier 18 → 20 on 2026-08-29, audit finding M8), **20** lib modules (19 → 20 on 2026-09-03: `lib/document-identity.ts`, the browser-tab applier) (`ls apps/web/src/hooks/ | wc -l` / `ls apps/web/src/lib/ | wc -l`, each including its own `__tests__` subfolder as one entry — lib 18 → 19 corrected 2026-08-27: `lib/background-style.ts` landed with the wallpaper work (`764fff5`) and this line was never re-synced; the 2026-08-27 trend-sampling work added NO lib module — the "26 / 30" this file carried for months was never true against the live tree and was never re-verified until now)
+- **Frontend:** **51** Routes in `main.tsx` (50 → 51 on 2026-09-07: `/data-report`, the Instrument History widget's own page; re-derived `grep -cE "<Route"` that day. Earlier, re-derived 2026-09-03 — this line read **51** and was ALREADY STALE: the 2026-08-31 alarm-rules removal took it 51 → 50 and re-synced only the System Stats copy above, which is the same duplicate-inventory defect this file keeps warning about. Earlier verified 2026-08-29 — 50 → 51: `/config/export-options` registered, having never been reachable. Earlier verified 2026-08-27 — 49 → 50: new `/config/alarm-webhooks` page; earlier 48 → 49 on 2026-08-24: the `/instruments/:id/trend` page; the "77" was inherited from upstream DigiLog and was never true in this fork; `/config/role-assignments` removed 2026-08-19 as dead code, 49 → 48), **22** custom hooks (20 → 22, re-derived `ls apps/web/src/hooks/ | wc -l` 2026-09-03 — ALREADY STALE, nothing on 2026-09-03 added a hook; earlier 18 → 20 on 2026-08-29, audit finding M8), **20** lib modules (19 → 20 on 2026-09-03: `lib/document-identity.ts`, the browser-tab applier) (`ls apps/web/src/hooks/ | wc -l` / `ls apps/web/src/lib/ | wc -l`, each including its own `__tests__` subfolder as one entry — lib 18 → 19 corrected 2026-08-27: `lib/background-style.ts` landed with the wallpaper work (`764fff5`) and this line was never re-synced; the 2026-08-27 trend-sampling work added NO lib module — the "26 / 30" this file carried for months was never true against the live tree and was never re-verified until now)
 - **Queue backend:** graphile-worker (Postgres-backed); **6** worker tasks —
   `notification`, `password_expiry_check`, `session_sweep`,
   `telemetry_partition_maintenance`, `alarm_evaluation`, `alarm_webhook`
@@ -346,7 +348,7 @@ GET  /api/instruments/telemetry-overview        — every instrument's current t
                                                   five times now.
 GET  /api/instruments/telemetry-history?instrumentIds=a,b&from=&to=&limit=&offset=
                                                 — (2026-09-05) the merged, paged readings of SEVERAL
-                                                  instruments, newest first: the Instruments page's
+                                                  instruments, newest first: the Data Report page's
                                                   history widget. One row per (instrument, instant),
                                                   pivoted in SQL so a page cannot split an instant's
                                                   temperature from its humidity; `values` RAW — the
@@ -739,6 +741,28 @@ GET    /api/alarm-webhooks/:id/deliveries?status= — paged §11 delivery log, f
   same word the Alarms page uses), "Not set" for an absent attribute. No CSS was
   added: both columns take the existing `tv-h-loc` hue, because the `.tv-*` block
   is deliberately UNLAYERED and a new rule there is not a free edit.
+- **The Instrument History widget is the DATA REPORT PAGE, not a dashboard
+  panel (2026-09-07, operator: "in dashboard Instruments history widget was
+  there that widget removed there and add one side bar option Data Report, in
+  that it should come").** `routes/data-report/index.tsx` mounts
+  `routes/instruments/history-widget.tsx` under a page header at `/data-report`;
+  sidebar item `data-report` and permission-tree group `data-report` (one node,
+  `data_report.view`, gated on the EXISTING `INSTRUMENT_READ` — it shows
+  instrument readings) make it a Roles & Access → Sidebar toggle. Counts:
+  sidebar items 12 → **13**, routes 50 → **51**, tree groups 11 → **12**, tree
+  nodes 52 → **53**, feature privileges 40 → **41**; no permission, reauth
+  action, model, enum, config def or migration. The panel key
+  `dashboard_history` is OUT of `PANELS` / `DEFAULT_DASHBOARD_LAYOUT` /
+  `AUTO_HEIGHT_PANELS` — which is what takes it off the dashboard and off
+  Roles & Access → Panels, the `dashboard_trend` precedent; **0 stored layouts
+  named it** (role_configs / user_configs / system_config, measured before
+  removal). The widget's `embedded` prop and header portal went with the panel
+  as dead code; it prints NO title of its own (the page header does). The
+  download's dialog name, file name and audit `reportType` read **`Data
+  Report`**; rows logged 2026-09-05..07 read `Instrument History` and, being
+  §11 records, were not rewritten. The Export Options surface KEY stays
+  `instrument-history` (stored per role in `system_config`); only its label
+  follows the page.
 - **The dashboard's selection alarms panel is the SHARED alarm table
   (2026-09-01).** `routes/dashboard/selection-alarms.tsx` was a bespoke `<ul>`;
   it now renders the cells from `routes/alarms/alarm-table.tsx`, the same ones

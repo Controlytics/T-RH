@@ -53,19 +53,22 @@ describe('Phase 5E: derived maps === original snapshots', () => {
     // since Alarm Rules is a config page rather than its own sidebar item → 38.
     // 2026-08-27 added 2 alarm_webhooks nodes (view / manage) under the same
     // CONFIGURATION group, for the same reason as alarm_rules → 40.
+    // 2026-09-07 added the 12th group, data-report (the Instrument History
+    // widget moved off the dashboard onto its own sidebar page), with 1
+    // configurable node (view) → 41.
     const count = PERMISSION_TREE.flatMap(g => g.nodes).filter(n => n.configurable === true).length;
-    expect(count).toBe(40);
+    expect(count).toBe(41);
   });
 
-  it('FEATURE_PRIVILEGES has exactly 34 entries', () => {
-    expect(FEATURE_PRIVILEGES).toHaveLength(40);
+  it('FEATURE_PRIVILEGES has exactly 41 entries', () => {
+    expect(FEATURE_PRIVILEGES).toHaveLength(41);
   });
 
-  it('FEATURE_TO_PERMISSION_MAP has exactly 38 keys', () => {
-    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(40);
+  it('FEATURE_TO_PERMISSION_MAP has exactly 41 keys', () => {
+    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(41);
   });
 
-  it('SIDEBAR_PRIVILEGE_MAP has exactly 11 sections', () => {
-    expect(SIDEBAR_PRIVILEGE_MAP).toHaveLength(11);
+  it('SIDEBAR_PRIVILEGE_MAP has exactly 12 sections', () => {
+    expect(SIDEBAR_PRIVILEGE_MAP).toHaveLength(12);
   });
 });

@@ -135,28 +135,32 @@ single definition of where the session token lives (`sessionStorage`). A
 hand-rolled `fetch` reading `localStorage.getItem('access_token')` is why
 profile photo upload silently 401'd until 2026-08-11.
 
-## The dashboard's Instrument History panel (2026-09-05)
+## The Data Report page and the Instrument History widget (2026-09-05; own page since 2026-09-07)
 
-`routes/instruments/history-widget.tsx`, rendered by `routes/dashboard/index.tsx`
-as panel `dashboard_history` directly under the readings table — the trend
-page's Time Series card for MANY instruments, with a Block / Area / instrument
-selection and the Data Report for the whole Area or a ticked subset. Operator's
-idea; two decisions put to them (one PDF section per instrument; a full merged
-readings table on screen). It lived on the Instruments page for a few hours and
-was moved the same day at the operator's request.
+`routes/data-report/index.tsx` (route `/data-report`, sidebar item `data-report`,
+gated on `INSTRUMENT_READ`) is a page header plus
+`routes/instruments/history-widget.tsx` — the trend page's Time Series card for
+MANY instruments, with a Block / Area / instrument selection and the Data Report
+for the whole Area or a ticked subset. Operator's idea; two decisions put to them
+(one PDF section per instrument; a full merged readings table on screen). It
+lived on the Instruments page for a few hours (2026-09-05), on the dashboard as
+panel `dashboard_history` for two days, and became its own page on 2026-09-07
+(operator: *"in dashboard Instruments history widget was there that widget
+removed there and add one side bar option Data Report, in that it should come"*).
 
-- **It is a panel like the other three**: in `PANELS` (frozen snapshot), in
-  `DEFAULT_DASHBOARD_LAYOUT` at y 9, in `AUTO_HEIGHT_PANELS`, assignable on
-  Roles & Access → Panels. `embedded` drops the widget's own header — the card
-  owns the title — and portals Block / Area / Interval / download into the card
-  header via `usePanelToolbarSlot()`; presets and the custom range stay in the
-  body (they do not fit a header that must not wrap). Its Block/Area selection
-  is deliberately its OWN, not the page's drill-down: an Area report is picked
-  and downloaded in one place whichever selection the tiles are on.
-- **`appendMissing` in `@digilog/shared` now inserts, not appends.** A panel a
-  stored layout does not know lands under its shipped-layout predecessor with
-  the rest shifted down; the bottom only when the predecessor is absent. That is
-  what puts this panel under the table on every layout saved before it existed.
+- **It is NOT a dashboard panel any more.** `dashboard_history` is out of
+  `PANELS`, `DEFAULT_DASHBOARD_LAYOUT` and `AUTO_HEIGHT_PANELS` — removing the
+  key is what takes it off the dashboard AND off Roles & Access → Panels (the
+  `dashboard_trend` precedent); 0 stored layouts named it. The `embedded` prop
+  and the `usePanelToolbarSlot()` portal went with it as dead code. **The widget
+  prints no title of its own** — the page header names the screen — and the
+  page test asserts exactly ONE heading, so a second title fails it (mutation-
+  checked). Its Block/Area selection is its OWN, not the dashboard's drill-down.
+- **`appendMissing` in `@digilog/shared` inserts, not appends.** A panel a stored
+  layout does not know lands under its shipped-layout predecessor with the rest
+  shifted down; the bottom only when the predecessor is absent. Written for this
+  widget's dashboard interlude; the rule stays, and its test is now exercised on
+  the floorplan.
 
 - **Selection lives in `history-selection.ts`, pure.** `selected === null`
   means "everything in scope"; a Set means those ids; re-ticking the last one
@@ -177,8 +181,10 @@ was moved the same day at the operator's request.
   Data Report section per instrument on its own page. Each instrument is read
   through `data-report-fetch.ts` — the per-instrument fetch extracted from the
   trend page, which calls the same helper — and the dialog's new `progress`
-  prop says which one it is on. Audit `reportType` is `Instrument History`;
-  export surface `instrument-history`.
+  prop says which one it is on. Audit `reportType`, dialog name and file name
+  are **`Data Report`** since 2026-09-07 (rows from 2026-09-05..07 read
+  `Instrument History` and were not rewritten); export surface KEY stays
+  `instrument-history` (stored per role in `system_config`), label `Data Report`.
 
 ## The trend page's Time Series (Raw Readings) card (2026-09-01)
 
