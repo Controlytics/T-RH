@@ -3271,3 +3271,17 @@ Operator: *"one message for all children with full set, go"*.
 - [x] Alarm Report: `BOUND_NOT_SHOWN` '' and `unboxEmpty` on both tables; 2 new cases, the dash case removed as reversed
 - [x] REVERSED `unboxEmpty` (open corners — "table was not forming properly"): `SpanCell` column spans instead; Data Report lone pair / Interval span the row; Alarm Report drops a limit column no row fills; samples re-rendered and read back
 - [x] Trend report summary: Minimum/Maximum only for a bound in force; below/above line prints only assessed sides (2 cases re-pinned)
+
+## 2026-09-07 — Report review workflow (plan: docs/superpowers/plans/2026-09-07-report-review-workflow.md)
+
+- [x] T1 shared registries (perms 44, reauth 50, audit 102/96, tree group `reports`)
+- [x] T2 `report_reviews` table + enum, migration on both DBs, drift guard PASS
+- [x] T3 service (party scope, single decision, audit, notifications) — 5 unit
+- [x] T4 six routes, registered in app.ts + test-helper — 15 e2e, mutation-checked ×2
+- [x] T5 snapshot v2 + DRAFT watermark + signature replay — 6 tests, mutation-checked
+- [x] T6 client + Send-to picker + dialog; SendForReviewButton removed
+- [x] T7 eight triggers post a request; no page saves
+- [x] T8 Reports page + route + sidebar item — 8 tests
+- [x] T9 samples read back; docs; counts
+- [ ] operator: log in as an approver and run one request end to end on :5176 (not seen on screen here)
+- [ ] Roles & Access: grant `reports.view` / `reports.approve` to the roles that should request / approve (nothing is granted by default)

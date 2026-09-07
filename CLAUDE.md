@@ -19,7 +19,7 @@ re-derive any count from live code before repeating it.
 ```
 apps/api/         — Fastify backend (TypeScript, port 3001)
 apps/web/         — React SPA (Vite, port 5176 dev)
-packages/shared/  — Permissions (42), reauth actions (48), sidebar items (13),
+packages/shared/  — Permissions (44), reauth actions (50), sidebar items (14),
                     permission tree, zod schemas
 packages/queue/   — graphile-worker job queue (Postgres-backed)
 docs/             — Project docs; `docs/recreation/` is the verified inventory
@@ -139,9 +139,10 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
 - **Don't use HTTPS with self-signed in Capacitor *dev* mode** — WebView's `fetch()` rejects self-signed certs (Capacitor's `BridgeActivity` overrides the WebViewClient after `onCreate`). Keep dev cleartext if testing in-WebView, or install root CA on the device.
 
 ## System Stats (re-derived 2026-08-27 — every number below came from the command beside it)
-- **Backend:** **24** API modules under `apps/api/src/modules/` (`ls | wc -l`).
+- **Backend:** **25** API modules under `apps/api/src/modules/` (`ls | wc -l`).
+  24 → 25 (2026-09-07): `report-reviews`, the report review workflow.
   23 → 24 (2026-08-27): `alarm-webhooks`, the alarm annunciator.
-- **Database:** **35 Prisma models, 12 enums** (36/13 → 35/12 on 2026-08-31: `AlarmRule` + `AlarmComparison` removed with the alarm-rules feature) (`grep -cE "^model " / "^enum "`).
+- **Database:** **36 Prisma models, 13 enums** (35/12 → 36/13 on 2026-09-07: `ReportReview` + `ReportReviewStatus`, migration `20260907120000_report_reviews`) (36/13 → 35/12 on 2026-08-31: `AlarmRule` + `AlarmComparison` removed with the alarm-rules feature) (`grep -cE "^model " / "^enum "`).
   34 → 36 (2026-08-27): `AlarmWebhookTarget` + `AlarmWebhookDelivery`
   (migration `20260827120000_alarm_webhooks`). **The enum count did NOT move** —
   that target's `method`, `event` and `status` are validated strings, the same
@@ -157,9 +158,12 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   Only `compliance_core_db` + `compliance_core_db_test` exist — **no TimescaleDB,
   no `digilog_tsdb`**. The test database is migrated **separately**; a migration
   applied to only one of them makes every instrument-touching e2e 500.
-- **Permissions:** **42** constants, **48** reauth actions in **8** categories,
-  **13** sidebar items (`grep -cE` against `permissions.ts` / `reauth-actions.ts`
-  / `sidebar-items.ts`). 12 → 13 sidebar items (2026-09-07): `data-report`, the
+- **Permissions:** **44** constants, **50** reauth actions in **8** categories,
+  **14** sidebar items (`grep -cE` against `permissions.ts` / `reauth-actions.ts`
+  / `sidebar-items.ts`). 42 → 44 permissions (`REPORT_REVIEW_READ`,
+  `REPORT_REVIEW_APPROVE`), 48 → 50 reauth actions (`APPROVE_REPORT`,
+  `REJECT_REPORT`, existing `Reports` category) and 13 → 14 sidebar items
+  (`reports`) on 2026-09-07 with the report review workflow — see that note. 12 → 13 sidebar items (2026-09-07): `data-report`, the
   Instrument History widget's own page — see the Data Report note below; no
   permission or reauth action moved. 47 → 48 (2026-08-27): `MANAGE_ALARM_WEBHOOK` added under
   the EXISTING `Configuration` category (categories stay at 8). **No permission
@@ -170,7 +174,9 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   downloads; no permission or sidebar item was added for it.
   The "102 / 83 / 92 / 26" this file carried for months was upstream DigiLog's and
   was never true here.
-- **Audit registries:** **98** audit actions, **92** audit templates in **7**
+- **Audit registries:** **102** audit actions, **96** audit templates in **7**
+  categories (98 → 102 / 92 → 96 on 2026-09-07: `REPORT_REVIEW_REQUESTED` /
+  `APPROVED` / `REJECTED`, `REPORT_DOWNLOADED`; categories unchanged). Earlier: **98** / **92** in **7**
   categories (97 → 98 / 91 → 92 on 2026-09-05: `INSTRUMENT_ATTRIBUTE_REPORTED`,
   a SYSTEM action — no user — for an attribute a DEVICE wrote over MQTT;
   re-derived by the two greps in the verification block). Earlier: **97** / **91** in **7**
@@ -194,7 +200,7 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   `alarm-webhooks.tsx`. **The def count did NOT move** — alarm webhooks are a
   real CRUD module with their own tables, not a `system_config` row, so there
   is no `*.def.ts` for them.
-- **Frontend:** **51** `<Route`s in `main.tsx` (50 → 51, 2026-09-07: `/data-report`) (51 → 50, 2026-08-31: `/config/alarm-rules` removed with the rule feature) (50 → 51, 2026-08-29: `/config/export-options`, a page that had a config def and a dashboard card but no route, so it was unreachable. Earlier 49 → 50, 2026-08-27:
+- **Frontend:** **52** `<Route`s in `main.tsx` (51 → 52, 2026-09-07: `/reports`; 50 → 51 the same day: `/data-report`) (51 → 50, 2026-08-31: `/config/alarm-rules` removed with the rule feature) (50 → 51, 2026-08-29: `/config/export-options`, a page that had a config def and a dashboard card but no route, so it was unreachable. Earlier 49 → 50, 2026-08-27:
   `/config/alarm-webhooks`).
 - **Queue backend:** graphile-worker (Postgres-backed), **6** tasks.
 - **Tenancy:** single-tenant, single-site. JWT `scope` always stamps `GLOBAL`.
@@ -291,7 +297,7 @@ history; `docs/recreation/` holds the inventory.
   `reason` column; a first fill does not). Admin surface: Config → Roles & Access → Attribute Access.
   Migration `20260819120000_role_attribute_access`, drift guard PASS, applied to both databases.
 - **Themes:** 10 preset color themes (Ocean / Sapphire / Emerald / Amethyst / Sunset / Slate / Ruby / Forest / Midnight / Coral)
-- **Frontend:** **51** Routes in `main.tsx` (50 → 51 on 2026-09-07: `/data-report`, the Instrument History widget's own page; re-derived `grep -cE "<Route"` that day. Earlier, re-derived 2026-09-03 — this line read **51** and was ALREADY STALE: the 2026-08-31 alarm-rules removal took it 51 → 50 and re-synced only the System Stats copy above, which is the same duplicate-inventory defect this file keeps warning about. Earlier verified 2026-08-29 — 50 → 51: `/config/export-options` registered, having never been reachable. Earlier verified 2026-08-27 — 49 → 50: new `/config/alarm-webhooks` page; earlier 48 → 49 on 2026-08-24: the `/instruments/:id/trend` page; the "77" was inherited from upstream DigiLog and was never true in this fork; `/config/role-assignments` removed 2026-08-19 as dead code, 49 → 48), **22** custom hooks (20 → 22, re-derived `ls apps/web/src/hooks/ | wc -l` 2026-09-03 — ALREADY STALE, nothing on 2026-09-03 added a hook; earlier 18 → 20 on 2026-08-29, audit finding M8), **20** lib modules (19 → 20 on 2026-09-03: `lib/document-identity.ts`, the browser-tab applier) (`ls apps/web/src/hooks/ | wc -l` / `ls apps/web/src/lib/ | wc -l`, each including its own `__tests__` subfolder as one entry — lib 18 → 19 corrected 2026-08-27: `lib/background-style.ts` landed with the wallpaper work (`764fff5`) and this line was never re-synced; the 2026-08-27 trend-sampling work added NO lib module — the "26 / 30" this file carried for months was never true against the live tree and was never re-verified until now)
+- **Frontend:** **52** Routes in `main.tsx` (51 → 52 on 2026-09-07: `/reports`, the report review workflow; 50 → 51 the same day: `/data-report`, the Instrument History widget's own page; re-derived `grep -cE "<Route"` that day. Earlier, re-derived 2026-09-03 — this line read **51** and was ALREADY STALE: the 2026-08-31 alarm-rules removal took it 51 → 50 and re-synced only the System Stats copy above, which is the same duplicate-inventory defect this file keeps warning about. Earlier verified 2026-08-29 — 50 → 51: `/config/export-options` registered, having never been reachable. Earlier verified 2026-08-27 — 49 → 50: new `/config/alarm-webhooks` page; earlier 48 → 49 on 2026-08-24: the `/instruments/:id/trend` page; the "77" was inherited from upstream DigiLog and was never true in this fork; `/config/role-assignments` removed 2026-08-19 as dead code, 49 → 48), **22** custom hooks (20 → 22, re-derived `ls apps/web/src/hooks/ | wc -l` 2026-09-03 — ALREADY STALE, nothing on 2026-09-03 added a hook; earlier 18 → 20 on 2026-08-29, audit finding M8), **20** lib modules (19 → 20 on 2026-09-03: `lib/document-identity.ts`, the browser-tab applier) (`ls apps/web/src/hooks/ | wc -l` / `ls apps/web/src/lib/ | wc -l`, each including its own `__tests__` subfolder as one entry — lib 18 → 19 corrected 2026-08-27: `lib/background-style.ts` landed with the wallpaper work (`764fff5`) and this line was never re-synced; the 2026-08-27 trend-sampling work added NO lib module — the "26 / 30" this file carried for months was never true against the live tree and was never re-verified until now)
 - **Queue backend:** graphile-worker (Postgres-backed); **6** worker tasks —
   `notification`, `password_expiry_check`, `session_sweep`,
   `telemetry_partition_maintenance`, `alarm_evaluation`, `alarm_webhook`
@@ -417,6 +423,16 @@ PUT    /api/alarm-webhooks/:id                  — update target (reauth, audit
 DELETE /api/alarm-webhooks/:id                  — delete target (reauth, audited; REFUSED while deliveries reference it)
 POST   /api/alarm-webhooks/:id/test             — test fire (reauth, audited — it makes a real buzzer sound)
 GET    /api/alarm-webhooks/:id/deliveries?status= — paged §11 delivery log, filtered server-side
+POST   /api/report-reviews                      — raise a report REQUEST (every PDF download is one, 2026-09-07):
+                                                    reportType, title, requestMeta, dataSnapshot (the frozen
+                                                    document), remarks, assigneeUserId | assigneeRole;
+                                                    REPORT_REVIEW_READ + DOWNLOAD_REPORT reauth; audited
+GET    /api/report-reviews?list=queue|mine|approved&page&pageSize — the three lists, party-scoped server-side
+GET    /api/report-reviews/:id                  — the full row with its snapshot; 404 (never 403) for a non-party
+POST   /api/report-reviews/:id/approve | reject — assignee only, never the requester (SUPER_ADMIN included);
+                                                    REPORT_REVIEW_APPROVE + APPROVE_REPORT / REJECT_REPORT reauth;
+                                                    one decision (409 on a second); audited; requester notified
+POST   /api/report-reviews/:id/download-log     — a party downloading the APPROVED copy; written BEFORE save
 ```
 
 - **Inactivity alarms — a THIRD alarm source (2026-08-31).** `AlarmSource` gains
@@ -741,6 +757,52 @@ GET    /api/alarm-webhooks/:id/deliveries?status= — paged §11 delivery log, f
   same word the Alarms page uses), "Not set" for an absent attribute. No CSS was
   added: both columns take the existing `tv-h-loc` hue, because the `.tv-*` block
   is deliberately UNLAYERED and a new rule there is not a free edit.
+- **REPORT REVIEW WORKFLOW (2026-09-07, operator: "when ever user click on
+  download then directly pdf should not download, as per requested time period
+  data should go per review once review completed and approved then user and
+  approved user can get that approved data in side bar new option there user can
+  download reports, who ever requested and approved users electronic signatues
+  should come if report was downlaoded").** Spec
+  `docs/superpowers/specs/2026-09-07-report-review-workflow-design.md`, plan
+  `docs/superpowers/plans/2026-09-07-report-review-workflow.md`. Every PDF
+  download in the product (Data Report page card; trend page header, Time
+  Series card, both chart cards, alarms widget; Alarms page; Audit Trail PDF)
+  now renders the report as before and POSTS it as a REQUEST — the dialog gains
+  **Send to** (a user or a role, never SUPER_ADMIN) and its button reads
+  *Request approval*; the `DOWNLOAD_REPORT` re-auth is the request's signature.
+  Nothing saves. An approver opens the **DRAFT** (watermarked, unsigned) on the
+  new **Reports** sidebar page (`/reports`, three lists: For my approval, My
+  requests, Approved) and approves or rejects with remarks + password; the
+  requester, the approver and SUPER_ADMIN then download the approved copy with
+  **Requested By / Approved By** lines (name, user ID, date-time). The Audit
+  page's Excel export is not a PDF and stays direct.
+  - **The snapshot is the record.** `ReportSnapshot` v2 (`lib/pdf-report.ts`)
+    records EVERY drawing call — tables with bold and spans, pairs, titles,
+    notes, chart rasters, page breaks — plus the chrome (legend, typography,
+    app-name line). The DRAFT and the approved download are both replays
+    through the one renderer, so what was reviewed is byte-for-byte what is
+    downloaded apart from the watermark and the signature block. Rebuilding
+    from parameters after approval could pick up late telemetry or a renamed
+    alarm type and produce a document nobody signed. `normaliseSnapshot`
+    refuses anything but v2 (no v1 rows exist; that table was dropped in the
+    2026-07-18 strip).
+  - **Party scoping and one decision** live in `modules/report-reviews/
+    service.ts`: `isParty` / `isAssignee` are pure and unit-tested; a non-party
+    gets 404; the requester can never decide their own request (SUPER_ADMIN
+    included — the two-person control); the decision is a conditional UPDATE
+    on `status = PENDING`, so two approvers cannot both sign (409). Nothing
+    deletes a row. Mutation-checked both ways.
+  - **Counts:** models 35 → **36**, enums 12 → **13**, modules 24 → **25**,
+    permissions 42 → **44**, reauth 48 → **50** (categories 8), audit actions
+    98 → **102**, templates 92 → **96** (categories 7), sidebar 13 → **14**,
+    routes 51 → **52**, tree groups 12 → **13**, nodes 53 → **55**, feature
+    privileges 41 → **43**. No config def, no page under `routes/config/`, no
+    worker task. In-app notifications only (the three `REPORT_REVIEW_*`
+    `NotificationType` values that survived the strip); email/SMS rules do not
+    cover report events.
+  - This REPLACES the module removed on 2026-07-18 (tag `pre-domain-strip`),
+    without its second review stage. The flag-disabled `SendForReviewButton` on
+    the Audit page — retained UI for that removed backend — went with it.
 - **The Instrument History widget is the DATA REPORT PAGE, not a dashboard
   panel (2026-09-07, operator: "in dashboard Instruments history widget was
   there that widget removed there and add one side bar option Data Report, in

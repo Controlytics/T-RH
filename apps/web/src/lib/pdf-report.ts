@@ -445,7 +445,13 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
         // still say it is one.
         doc.setFontSize(48);
         doc.setTextColor(200, 200, 200);
-        doc.text('DRAFT — NOT APPROVED', pw / 2, ph / 2, { align: 'center', angle: 35 });
+        // jsPDF rotates about the text's START point, so the start is placed
+        // half the text's width down-left of the page centre along the 35° line;
+        // `align: 'center'` is ignored with an angle and left the text clipped.
+        const mark = 'DRAFT — NOT APPROVED';
+        const half = doc.getTextWidth(mark) / 2;
+        const rad = (35 * Math.PI) / 180;
+        doc.text(mark, pw / 2 - half * Math.cos(rad), ph / 2 + half * Math.sin(rad), { angle: 35 });
         doc.setTextColor(...COLORS.text);
       }
     }

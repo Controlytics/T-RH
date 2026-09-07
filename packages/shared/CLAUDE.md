@@ -27,7 +27,7 @@ import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 ## Exports Inventory
 
 ### Permissions
-- `PERMISSIONS` enum — **42** permission constants (verified `grep -cE "^\s+[A-Z_]+:\s*'"
+- `PERMISSIONS` enum — **44** permission constants (42 → 44 on 2026-09-07, `REPORT_REVIEW_READ` / `REPORT_REVIEW_APPROVE`; earlier verified `grep -cE "^\s+[A-Z_]+:\s*'"
   packages/shared/src/types/permissions.ts` 2026-08-24; see Live Type Inventory below). The examples
   this line used to give — `ASSET_CREATE`, `ASSET_READ`, `FILTER_MANAGE` — don't exist any more
   (asset/filter domain removed); current examples: `USER_CREATE`, `USER_READ`, `USER_UPDATE`.
@@ -60,10 +60,18 @@ import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 
 > **The per-file counts in the table below are inherited from upstream DigiLog and were
 > NEVER true in this fork.** Verified by `grep` 2026-08-27, the real numbers are
-> **42** permission constants, **41** feature privileges, **48** reauth actions in
-> **8** categories, **98** audit actions, **92** audit templates in **7**
-> categories, **13** sidebar items, **12** PERMISSION_TREE groups, **53** tree
+> **44** permission constants, **43** feature privileges, **50** reauth actions in
+> **8** categories, **102** audit actions, **96** audit templates in **7**
+> categories, **14** sidebar items, **13** PERMISSION_TREE groups, **55** tree
 > nodes.
+> 2026-09-07 (report review workflow): permissions 42 → 44 (`REPORT_REVIEW_READ`,
+> `REPORT_REVIEW_APPROVE`), reauth 48 → 50 (`APPROVE_REPORT`, `REJECT_REPORT` in
+> the existing `Reports` category), audit actions 98 → 102 and templates 92 → 96
+> (`REPORT_REVIEW_REQUESTED` / `APPROVED` / `REJECTED`, `REPORT_DOWNLOADED`,
+> generic placeholders only), sidebar items 13 → 14 (`reports`), tree groups
+> 12 → 13 and nodes 53 → 55 (`reports.view`, `reports.approve`), feature
+> privileges 41 → 43. The frozen `legacy-maps-snapshot.ts` was extended by
+> appending again.
 > 2026-09-07 (Data Report page): sidebar items 12 → 13 (`data-report`), tree
 > groups 11 → 12 and nodes 52 → 53 (`data_report.view`, configurable, gated on
 > the EXISTING `INSTRUMENT_READ`), feature privileges 40 → 41. The frozen
@@ -105,7 +113,7 @@ someone may be using was not part of that change.
 | `roles.ts` | Role constants + hierarchy + display labels; `defaultRoles` extracted to `apps/api/prisma/default-roles.ts` (Phase 1 reconciliation) |
 | `permission-categories.ts` | Permission grouping for the role-access UI |
 | `permission-tree.ts` | **Single sidebar-anchored permission catalog (Sidebar→Page→Action); derives `FEATURE_PRIVILEGES` / `FEATURE_TO_PERMISSION_MAP` / `SIDEBAR_PRIVILEGE_MAP`; source of truth from Phase 1 onward** — added 2026-06-30. **Phase 5A (2026-06-30):** `PermissionNode` gained `gate: Permission[]` (discriminating backend perm, NOT grant-expansion) + optional `gateRoles?: string[]`. Helpers: `resolveNodeGate(nodeId)` / `resolveNodeGateRoles(nodeId)` — both return `[]` for unknown ids. `useCan()` hook in `apps/web/src/hooks/use-can.ts` consumes these. |
-| `sidebar-items.ts` | ~~**27**~~ **13** sidebar items — the "27" here is stale (covered by the Live Type Inventory correction above; verified `grep -c "id: '" packages/shared/src/types/sidebar-items.ts` minus the interface's own `id: string;` line = 12, 2026-08-24; **13** since 2026-09-07). Current list: `home, dashboard, functional-locations, alarms, users, admin-requests, configuration, notifications, audit, system-health, instruments, debug-traces, data-report` (`data-report` added 2026-09-07 — the Instrument History widget's own page). Everything else in this row's prose (Organizations removed, `version-history`/`rfid-track-record`/`quality-notifications`/`reports-group` additions) describes items that were later removed with the domains they belonged to; `version-history` and the Reports-group items are NOT in the live list above. `home` (2026-07-13, first entry) is the one addition from this row's history that survives. |
+| `sidebar-items.ts` | ~~**27**~~ **14** sidebar items — the "27" here is stale (covered by the Live Type Inventory correction above; verified `grep -c "id: '" packages/shared/src/types/sidebar-items.ts` minus the interface's own `id: string;` line = 12, 2026-08-24; **13** since 2026-09-07). Current list: `home, dashboard, functional-locations, alarms, users, admin-requests, configuration, notifications, audit, system-health, instruments, debug-traces, data-report` (`data-report` added 2026-09-07 — the Instrument History widget's own page; `reports` added the same day — the report review workflow; **14** since then). Everything else in this row's prose (Organizations removed, `version-history`/`rfid-track-record`/`quality-notifications`/`reports-group` additions) describes items that were later removed with the domains they belonged to; `version-history` and the Reports-group items are NOT in the live list above. `home` (2026-07-13, first entry) is the one addition from this row's history that survives. |
 | `sidebar-privilege-map.ts` | Sidebar item → privilege binding. **Phase 5E: now DERIVED** from `PERMISSION_TREE` group `visibilityPrivilegeIds` (`deriveSidebarPrivilegeMap()`); hand-maintained array retired. `getPrivilegesForSection` kept. |
 | `audit-actions.ts` | **98** audit action constants for `AuditTrail.action` (`grep -cE "^\s+[A-Z_]+:\s*'"`, 2026-09-05; 97 → 98 with `INSTRUMENT_ATTRIBUTE_REPORTED`, the device → platform attribute write; earlier 93 → 97 with the alarm webhook annunciator) |
 | `audit-templates.ts` | **92** templates in **7** categories (`AUDIT_TEMPLATE_DEFAULTS`, 2026-09-05; 91 → 92 with the same action — its template deliberately carries NO `{actor}`, there is none; earlier 87 → 91 with the alarm webhook annunciator) — they hide UUIDs in the audit UI (e.g. `"<RequestType> — <Name> (<EmployeeID>)"`). A template using a NEW placeholder is **two** edits: the template here AND the substitution in `apps/web/src/routes/audit/audit-helpers.ts`, or it renders literally in the exported §11 record; `{targetName}` and `{actor}` are substituted generically, so a template using only those needs no second edit. `template-placeholders.test.ts` is the check. |

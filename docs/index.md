@@ -11,10 +11,10 @@
 > down was left as archived record, not current state.
 
 ## Platform stats (re-derive before trusting — see root `CLAUDE.md` "Live-count verification")
-- **24** API modules, **36** Prisma models, **13** enums
+- **25** API modules, **36** Prisma models, **13** enums
 - **26** config definitions with auto-discovery, **24** config pages
-- **42** permissions, **48** reauth actions, **13** sidebar items (re-derive — these drift; see command block below)
-- **97** audit actions, **91** audit templates, **51** `<Route`s, **6** worker tasks
+- **44** permissions, **50** reauth actions, **14** sidebar items (re-derive — these drift; see command block below)
+- **102** audit actions, **96** audit templates, **52** `<Route`s, **6** worker tasks
 - **10** color themes, multi-channel notifications
 - Single PostgreSQL database (`compliance_core_db`); Postgres-backed **graphile-worker** job queue (no Redis, no TimescaleDB). **MQTT IS live** — `mqtt@5` is in `apps/api/package.json` and `/api/ingest/v1` is registered in `app.ts`; the "no MQTT" this line carried until 2026-08-27 repeated a tear-out that was later reversed (see root `CLAUDE.md`).
 

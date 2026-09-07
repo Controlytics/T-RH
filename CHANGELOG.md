@@ -1,5 +1,63 @@
 # Changelog
 
+## [Unreleased] - Report review workflow: every PDF download is a request an approver signs (2026-09-07)
+
+Operator: *"when ever user click on download then directly pdf should not
+download, as per requested time period data should go per review once review
+completed and approved then user and approved user can get that approved data
+in side bar new option there user can download reports, who ever requested and
+approved users electronic signatues should come if report was downlaoded"*.
+Four decisions put to them and taken as recommended: one approver; the approver
+is a user or a role chosen at request time; every PDF download; the approver
+sees a DRAFT PDF of the exact report. Spec
+`docs/superpowers/specs/2026-09-07-report-review-workflow-design.md`, plan
+`docs/superpowers/plans/2026-09-07-report-review-workflow.md`, nine commits.
+
+**What changed for the user.** Pressing any PDF download opens the same dialog
+plus **Send to** (a user or a role), then the password re-auth. Nothing saves.
+A **report request** is recorded and the assignee notified in-app. **Reports**
+appears in the sidebar (`/reports`): *For my approval*, *My requests*,
+*Approved*. The approver views the DRAFT (watermarked `DRAFT — NOT APPROVED`,
+no signatures) and approves or rejects with remarks + password; the requester
+is notified. Approved reports download for the requester, the approver and
+SUPER_ADMIN with two signature lines — Requested By and Approved By, each
+`name (user id) — date-time`. Each download is audited. Rejected requests stay
+visible to their parties. The Audit page's Excel export is not a PDF and stays
+direct; the flag-disabled Send for Review button there (retained UI for the
+module removed 2026-07-18) is gone.
+
+**The record is the frozen document.** `ReportSnapshot` v2 records every
+drawing call and the chrome; the DRAFT and the approved copy are both replays
+of one snapshot through the one renderer, so what was reviewed is byte-for-byte
+what is downloaded. Rendered here and read back: watermark on the draft, both
+signatures on the approved copy, the bold out-of-limit cell intact.
+
+**API.** New module `report-reviews` (24 → **25**): `POST /` (REPORT_REVIEW_READ +
+DOWNLOAD_REPORT re-auth), `GET /?list=queue|mine|approved`, `GET /:id` (404 for
+a non-party, never 403), `POST /:id/approve|reject` (REPORT_REVIEW_APPROVE +
+APPROVE_REPORT / REJECT_REPORT re-auth; assignee only; the requester never,
+SUPER_ADMIN included; conditional UPDATE on PENDING → 409 on a second
+decision), `POST /:id/download-log` (APPROVED, party, BEFORE the file). No
+DELETE. Model `ReportReview` + enum `ReportReviewStatus` (35/12 → **36/13**),
+migration `20260907120000_report_reviews`, both databases, drift guard PASS.
+
+**Counts.** permissions 42 → **44**, reauth 48 → **50** (categories 8), audit
+actions 98 → **102** / templates 92 → **96** (categories 7), sidebar 13 → **14**,
+routes 51 → **52**, tree groups 12 → **13**, nodes 53 → **55**, feature
+privileges 41 → **43**. Re-derived by the commands in `CLAUDE.md`.
+
+**Tests.** 5 unit + 15 e2e (three users, three roles, action-reauth pinned and
+restored FIRST in afterAll; mutation-checked: no pending guard → 409 case
+fails, no self-approval rule → separation-of-duties case fails); shared
+372/372; web: 6 snapshot cases (no watermark → draft case fails), 10 client
+cases, 3 dialog cases, 8 Reports page cases, and the three page tests re-pinned
+to replay the submitted snapshot. `tsc` clean in shared, api, web; `vite build`
+clean. **Not seen on screen** — the operator holds the browser session.
+
+**Out of scope, stated:** email/SMS for report events (the notification RULES
+are keyed on `NotificationEventType`, which has no report events); a second
+review stage; editing or withdrawing a request; expiring stale requests.
+
 ## [Unreleased] - Data Report: an extreme prints only for a bound in force (2026-09-07)
 
 Operator: *"if Enable_Humid_NLT is disabled then dont show RH min in report, if

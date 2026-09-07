@@ -325,7 +325,7 @@ caches static assets for update UX and does nothing with application data.
 2. **apiClient for all writes** — post/put/delete with token attachment
 3. **Lazy loading** — heavy pages code-split via `React.lazy()`
 4. **Permission gating** — `<RequireRole>` for routes, `useCan()` for buttons, `isSuperAdmin` bypass
-5. **Re-authentication** — `useReauth()` + `ReauthDialog`, **48** reauth actions defined in `packages/shared/src/types/reauth-actions.ts` (the "81 sensitive actions" figure previously here belonged to the removed filter/PM/RFID domain)
+5. **Re-authentication** — `useReauth()` + `ReauthDialog`, **50** reauth actions defined in `packages/shared/src/types/reauth-actions.ts` (48 → 50 on 2026-09-07, report review) (the "81 sensitive actions" figure previously here belonged to the removed filter/PM/RFID domain)
 6. **Toast notifications** — success/error feedback (never `alert()`)
 7. **Light theme only** — bg-white cards, bg-slate-50 sections, no dark mode
 8. **Responsive** — sidebar collapses to hamburger on mobile, reduced padding

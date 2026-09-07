@@ -45,7 +45,7 @@ cd apps/web && npx vitest run src/routes/version-history/__tests__/diff.test.ts
 ## Key Paths
 - Source: `apps/web/src/`
 - Entry: `apps/web/src/main.tsx`
-- Routes: `apps/web/src/routes/` (**51 `<Route>` definitions** in `main.tsx`, verified `grep -cE "<Route"` 2026-08-29. 50 -> 51 on 2026-08-29: `/config/export-options`, which had a config def declaring customPagePath and a card on the Configuration dashboard but NO registered route — the card fell through to the dashboard, so the page had never been reachable. Earlier, verified 2026-08-27 — 49 → 50: new `/config/alarm-webhooks` page (target form with a placeholder picker rendered from `ALARM_WEBHOOK_VARIABLES`, a scope picker reusing the functional-location tree widget, Send test, and a status-filterable delivery log). Earlier, 2026-08-24, 48 → 49: new `/instruments/:id/trend` page (gradient identity strip, one period/interval row, two BAND GAUGES, full-width limit-lined charts, raw paged time-series + alarms side by side). The latest-value cards it launched with were replaced by `band-gauge.tsx` on 2026-08-24 — a bare number cannot answer "how close to the limit is it?", which is the page's whole question. **Restyled 2026-08-31 to an operator reference image, and the number leads again — but the band did NOT go away: the horizontal track became the ARC around the quantity icon (swept to the reading's place between its bounds, red on a breach) and the two bounds are named in a three-cell panel under it. See "The trend latest-value card" below.** `/config/role-assignments` removed 2026-08-19 as dead code (its 7 config defs went in the Phase 0 strip and `system_config` held 0 rows for them), 49 → 48; the previous "23 folders / ~84 pages / 77 Routes" was stale before 2026-08-11 and the shortfall has NOT been reconciled. 2026-08-13 added `/functional-locations`; 2026-08-14 added `/alarms` and `/config/alarm-rules`; 2026-08-16 added `/functional-locations/:id`)
+- Routes: `apps/web/src/routes/` (**52 `<Route>` definitions** in `main.tsx`, re-derived `grep -cE "<Route"` 2026-09-07 — 51 → 52 that day with `/reports` (the report review workflow) after 50 → 51 with `/data-report`; it had gone 51 → 50 on 2026-08-31 with `/config/alarm-rules` and THIS line was never re-synced, so the number here was right by coincidence for a week. Earlier: 50 -> 51 on 2026-08-29: `/config/export-options`, which had a config def declaring customPagePath and a card on the Configuration dashboard but NO registered route — the card fell through to the dashboard, so the page had never been reachable. Earlier, verified 2026-08-27 — 49 → 50: new `/config/alarm-webhooks` page (target form with a placeholder picker rendered from `ALARM_WEBHOOK_VARIABLES`, a scope picker reusing the functional-location tree widget, Send test, and a status-filterable delivery log). Earlier, 2026-08-24, 48 → 49: new `/instruments/:id/trend` page (gradient identity strip, one period/interval row, two BAND GAUGES, full-width limit-lined charts, raw paged time-series + alarms side by side). The latest-value cards it launched with were replaced by `band-gauge.tsx` on 2026-08-24 — a bare number cannot answer "how close to the limit is it?", which is the page's whole question. **Restyled 2026-08-31 to an operator reference image, and the number leads again — but the band did NOT go away: the horizontal track became the ARC around the quantity icon (swept to the reading's place between its bounds, red on a breach) and the two bounds are named in a three-cell panel under it. See "The trend latest-value card" below.** `/config/role-assignments` removed 2026-08-19 as dead code (its 7 config defs went in the Phase 0 strip and `system_config` held 0 rows for them), 49 → 48; the previous "23 folders / ~84 pages / 77 Routes" was stale before 2026-08-11 and the shortfall has NOT been reconciled. 2026-08-13 added `/functional-locations`; 2026-08-14 added `/alarms` and `/config/alarm-rules`; 2026-08-16 added `/functional-locations/:id`)
 - Hooks: `apps/web/src/hooks/` (auth, branding, datetime, pagination, reauth, session, single-tab, toast, field-labels)
 - Components: `apps/web/src/components/` (layout, UI primitives, dialogs)
 - API Client: `apps/web/src/lib/api-client.ts`
@@ -134,6 +134,47 @@ different populations is the defect these two rules exist to prevent.
 single definition of where the session token lives (`sessionStorage`). A
 hand-rolled `fetch` reading `localStorage.getItem('access_token')` is why
 profile photo upload silently 401'd until 2026-08-11.
+
+## The report review workflow (2026-09-07)
+
+Every PDF download is a REQUEST an approver signs. Spec:
+`docs/superpowers/specs/2026-09-07-report-review-workflow-design.md`.
+
+- **`ReportDownloadDialog` collects Send to** (`components/assignee-picker.tsx`
+  — a user or a role, never SUPER_ADMIN; lifted from the removed
+  `SendForReviewButton`) and its button reads *Request approval*.
+  `ReportDownloadRequest` carries `assignee` and `assigneeLabel` (for the toast).
+  Every trigger replaces `logReportExport` + `report.save()` with
+  `submitReportForReview` (`lib/report-review.ts`) inside the same
+  `DOWNLOAD_REPORT` re-auth, sending `report.getSnapshot()`, the period,
+  interval, instruments, the PRINTED row count and the remarks. **No page
+  calls `save()` any more** — grep for it; the only one is `downloadApproved`.
+  The Audit page's Excel export keeps `logReportExport`: it is not a PDF.
+- **`ReportSnapshot` v2 is the record.** `createReport` records every drawing
+  call (`table` with `bold`, `pairs`, `title`, `note`, `image`, `page-break`)
+  and the chrome; `renderSnapshotToPdf(snapshot, { formatDateTime, draft?,
+  signatures? })` replays it through the SAME `ReportDoc`. `addNote` and
+  `addImage` moved into `ReportDoc` for that reason. `draft: true` prints
+  `DRAFT — NOT APPROVED` diagonally on every page (centred by measured width:
+  jsPDF rotates about the text's START, and `align: 'center'` is ignored with
+  an angle) and no signature line. Pinned by `lib/__tests__/pdf-report-snapshot.test.ts`;
+  mutation-checked (no watermark → the draft case fails).
+- **`routes/reports/index.tsx`** (sidebar `reports`, route `/reports`, gate
+  `REPORT_REVIEW_READ`): three lists as tabs, each the SERVER's party-scoped
+  answer via `useSWR('/api/report-reviews?list=…')`. Approve / Reject appear
+  only on a PENDING row assigned to me (user id or my role), with the
+  `reports.approve` gate, and never on my own request; View draft for any
+  party (`openDraft` → a blob URL in a new tab; nothing saved or audited);
+  Download on APPROVED (`downloadApproved` — audits through
+  `/download-log` BEFORE `save()`, refuses a non-approved row). The decision
+  dialog (`decision-dialog.tsx`) collects remarks + `SignaturePasswordInput`
+  in one act with the request restated, the acknowledge dialog's shape.
+- **Tests replay the submitted snapshot.** The three page tests
+  (`trend-downloads`, `generate-report-card`, `alarms-page`) stub
+  `submitReportForReview` with a stand-in that records the request and then
+  replays `input.snapshot` through the real renderer and saves as
+  `replay-<type>.pdf`, so every content assertion reads the document the
+  approver would see and every saved name proves the page saved nothing.
 
 ## The Data Report page and the Instrument History widget (2026-09-05; own page since 2026-09-07)
 
