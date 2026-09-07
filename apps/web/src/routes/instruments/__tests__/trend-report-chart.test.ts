@@ -447,6 +447,13 @@ describe('the trend report shows the trend', () => {
     expect(text).toContain('CWH Block');
     expect(text).toContain('18.0 - 25.0');
     expect(text).toContain('Raw (every reading)');
+    // The parameter block draws no box around an empty cell (operator,
+    // 2026-09-07: "if value was not there dont show that boxes in report");
+    // the readings table, where every cell is a record, keeps its grid.
+    const sections = report.getSnapshot().sections as any[];
+    expect(sections[0].head).toEqual([]);
+    expect(sections[0].unboxEmpty).toBe(true);
+    expect(sections.find((x: any) => x.head?.length)!.unboxEmpty).toBeUndefined();
     const tables = report.getSnapshot().sections.filter((x: any) => 'head' in x && x.head.length) as any[];
     expect(tables[0].head).toEqual(['DATE', 'TIME', 'TEMPERATURE (°C)', 'RELATIVE HUMIDITY(%)']);
     // NEWEST first (operator, 2026-09-05), one row per stored reading, `NA` for

@@ -523,6 +523,9 @@ function addDataReportSection(report: ReportDoc, section: PreparedDataSection): 
       intervalMs: input.intervalMs, fmt: input.fmt,
     }),
     columnStyles: scopeColumnStyles(CONTENT_WIDTH_MM, DATA_REPORT_LABEL_MM),
+    // A blank field — the Max / Min pair of a slot with no bound in force, the
+    // Interval row's left half — is not drawn as an empty box.
+    unboxEmpty: true,
   });
   if (input.coverage.total > input.coverage.returned) {
     addNote(

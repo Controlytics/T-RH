@@ -207,6 +207,9 @@ export interface ReportDoc {
     /** `bold[row][col]` — body cells to print bold (a reading that crossed
      *  its limit, a fault word). Same shape as `body`; absent = none. */
     bold?: boolean[][];
+    /** Draw NO box around an empty body cell (a parameter block's blank
+     *  fields). Opt-in: a record table's empty cell is a record. */
+    unboxEmpty?: boolean;
   }) => void;
   addSectionTitle: (text: string) => void;
   addKeyValue: (pairs: [string, string][], columns?: number) => void;
@@ -220,7 +223,7 @@ export interface ReportDoc {
 }
 
 export type SnapshotSection =
-  | { title?: string; head: string[]; body: string[][]; columnStyles?: Record<number, any> }
+  | { title?: string; head: string[]; body: string[][]; columnStyles?: Record<number, any>; unboxEmpty?: boolean }
   | { title?: string; pairs: [string, string][]; columns?: number };
 
 export interface ReportSnapshot {
@@ -475,8 +478,12 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     columnStyles?: Record<number, any>;
     headColor?: [number, number, number];
     bold?: boolean[][];
+    unboxEmpty?: boolean;
   }) => {
-    snapSections.push({ title: pendingTitle, head: opts.head ?? [], body: opts.body, columnStyles: opts.columnStyles });
+    snapSections.push({
+      title: pendingTitle, head: opts.head ?? [], body: opts.body, columnStyles: opts.columnStyles,
+      ...(opts.unboxEmpty ? { unboxEmpty: true } : {}),
+    });
     pendingTitle = undefined;
     checkPageBreak(20);
     autoTable(doc, {
@@ -502,12 +509,19 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       ...(opts.head ? { alternateRowStyles: { fillColor: COLORS.altRow } } : {}),
       columnStyles: opts.columnStyles ?? {},
       // Per-cell emphasis, decided by the caller (a limit crossed, a fault
-      // word). Applied here rather than by handing autotable styled cell
-      // objects, so `body` stays plain strings and the snapshot above stays
-      // re-renderable.
-      ...(opts.bold ? {
+      // word), and per-cell UNBOXING (operator, 2026-09-07: "if value was not
+      // there dont show that boxes in report" — a parameter block's blank
+      // field must not print as an empty box, which reads as a field somebody
+      // forgot to fill; autotable draws each cell's own border, so `lineWidth`
+      // 0 on the empty cell removes its box and the neighbours keep theirs).
+      // Applied here rather than by handing autotable styled cell objects, so
+      // `body` stays plain strings and the snapshot above stays re-renderable.
+      ...(opts.bold || opts.unboxEmpty ? {
         didParseCell: (d: any) => {
-          if (d.section === 'body' && opts.bold![d.row.index]?.[d.column.index]) d.cell.styles.fontStyle = 'bold';
+          if (d.section !== 'body') return;
+          if (opts.bold?.[d.row.index]?.[d.column.index]) d.cell.styles.fontStyle = 'bold';
+          // A dash IS a value; whitespace is not.
+          if (opts.unboxEmpty && String(d.cell.raw ?? '').trim() === '') d.cell.styles.lineWidth = 0;
         },
       } : {}),
     });
@@ -571,7 +585,7 @@ export async function renderSnapshotToPdf(
   for (const s of snapshot.sections) {
     if (s.title) report.addSectionTitle(s.title);
     if ('pairs' in s) report.addKeyValue(s.pairs, s.columns);
-    else report.addTable({ head: s.head, body: s.body, columnStyles: s.columnStyles });
+    else report.addTable({ head: s.head, body: s.body, columnStyles: s.columnStyles, unboxEmpty: s.unboxEmpty });
   }
   report.save(filename);
 }

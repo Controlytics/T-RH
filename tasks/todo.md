@@ -3267,3 +3267,4 @@ Operator: *"one message for all children with full set, go"*.
 - [x] `extremesCells` in `data-report.ts`: Max only if NMT bound in force, Min only if NLT; blank pair when neither; reaches all three Data Report downloads
 - [x] 5 new cases in `data-report.test.ts`; reference-layout expectation records the departure; trend-report-chart label list re-pinned
 - [ ] operator to check a downloaded Data Report for an instrument with `Enable_Humid_NLT = 0`
+- [x] `addTable({ unboxEmpty })`: an empty parameter-block cell draws no box (Data Report only); 4 primitive tests + layout test

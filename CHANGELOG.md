@@ -24,6 +24,18 @@ new cases in `data-report.test.ts`; `trend-report-chart.test.ts`'s label check
 re-pinned (its fixture has no RH bound, so `RH Max :` no longer prints there).
 Not seen on paper — the layout of the row itself is unchanged.
 
+**Follow-up, same day** (operator: *"when values are disabled then boxes are
+empty right in reports, if value was not there dont show that boxes in
+report"*): the parameter block no longer draws a BOX around an empty cell.
+`addTable` in `lib/pdf-report.ts` gained an opt-in `unboxEmpty` — an empty body
+cell (whitespace only; a dash is a value) gets `lineWidth` 0 in autotable's
+`didParseCell`, so its border is not drawn while the neighbours keep theirs;
+merged with the existing per-cell `bold` hook. Carried on the snapshot section
+so a re-rendered report draws the same boxes. Used by the Data Report's
+parameter block only — a record table's empty cell is a record and keeps its
+grid. Pinned by `lib/__tests__/pdf-report-unbox.test.ts` (four cases, on
+autotable's resolved cell styles) and the Data Report layout test.
+
 ## [Unreleased] - Generate Data Report card; the trend page header downloads the Data Report (2026-09-07)
 
 Operator: *"create one card only text should be there Generate Data report and
