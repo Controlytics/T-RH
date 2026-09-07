@@ -3270,3 +3270,4 @@ Operator: *"one message for all children with full set, go"*.
 - [x] `addTable({ unboxEmpty })`: an empty parameter-block cell draws no box (Data Report only); 4 primitive tests + layout test
 - [x] Alarm Report: `BOUND_NOT_SHOWN` '' and `unboxEmpty` on both tables; 2 new cases, the dash case removed as reversed
 - [x] REVERSED `unboxEmpty` (open corners — "table was not forming properly"): `SpanCell` column spans instead; Data Report lone pair / Interval span the row; Alarm Report drops a limit column no row fills; samples re-rendered and read back
+- [x] Trend report summary: Minimum/Maximum only for a bound in force; below/above line prints only assessed sides (2 cases re-pinned)

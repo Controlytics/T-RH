@@ -227,10 +227,18 @@ function addSummary(report: ReportDoc, summary: SlotSummary, formatDateTime: (d:
   // row-derived, which let a sampled `Maximum 24.8 °C` print directly above
   // `3 readings above 25.0` — arithmetically impossible on a signed record.
   const d = summary.decimals;
+  // An extreme prints ONLY for a bound in force (operator, 2026-09-07: "if
+  // Enable_Humid_NLT is disabled then dont show RH min … if nmt is disabled
+  // then dont show max … in all data reports", then "same in trends page also").
+  // `limitMin` / `limitMax` arrive from `telemetry-overview`, which already
+  // withholds a switched-off bound, so their presence IS "in force" — the same
+  // test `dataReportParameterRows` makes. No bound at all → neither extreme.
+  const hasLow = summary.limitMin != null;
+  const hasHigh = summary.limitMax != null;
   const rows: string[][] = [
     ['Readings', summary.count.toLocaleString()],
-    ['Minimum', `${num(summary.min, d)} ${summary.unit}`],
-    ['Maximum', `${num(summary.max, d)} ${summary.unit}`],
+    ...(hasLow ? [['Minimum', `${num(summary.min, d)} ${summary.unit}`]] : []),
+    ...(hasHigh ? [['Maximum', `${num(summary.max, d)} ${summary.unit}`]] : []),
     ['Mean', `${num(summary.mean, d)} ${summary.unit}`],
     ['First reading', `${num(summary.first.value, d)} ${summary.unit}  —  ${formatDateTime(summary.first.ts)}`],
     ['Last reading', `${num(summary.last.value, d)} ${summary.unit}  —  ${formatDateTime(summary.last.ts)}`],
@@ -265,13 +273,14 @@ function addSummary(report: ReportDoc, summary: SlotSummary, formatDateTime: (d:
     // limit and passed; nothing was checked at all. The `?? 0` that used to be
     // here was exactly that defect — which is why the null has to survive all
     // the way into the words rather than being coalesced away one line short.
-    const belowText = lowAssessed
-      ? `${(summary.belowCount ?? 0).toLocaleString()} below ${num(summary.limitMin, d)}`
-      : 'no low limit set — not assessed';
-    const aboveText = highAssessed
-      ? `${(summary.aboveCount ?? 0).toLocaleString()} above ${num(summary.limitMax, d)}`
-      : 'no high limit set — not assessed';
-    rows.push(['— below / above limit', `${belowText}  /  ${aboveText}`]);
+    // An absent side is NOT narrated either ("no low limit set — not assessed"
+    // until 2026-09-07): a bound not in force is not shown, and the qualifier
+    // on the total above already says which side was assessed.
+    const sides = [
+      lowAssessed ? `${(summary.belowCount ?? 0).toLocaleString()} below ${num(summary.limitMin, d)}` : null,
+      highAssessed ? `${(summary.aboveCount ?? 0).toLocaleString()} above ${num(summary.limitMax, d)}` : null,
+    ].filter((s): s is string => s !== null);
+    if (sides.length) rows.push(['— below / above limit', sides.join('  /  ')]);
   }
 
   report.addTable({ head: [`${summary.label} — period summary`, 'Value'], body: rows });

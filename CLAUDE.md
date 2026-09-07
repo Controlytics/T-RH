@@ -789,7 +789,10 @@ GET    /api/alarm-webhooks/:id/deliveries?status= — paged §11 delivery log, f
   not a dash; `N/A` unchanged) and DROPS a limit column no row can fill
   (`hiddenLimitColumns`). An `unboxEmpty` flag that hid the empty cell's border
   lasted one commit (`91511e8`) — it left tables with open corners ("table was
-  not forming properly"); do not bring it back.
+  not forming properly"); do not bring it back. **The Trend report's period
+  summary follows the same rule** ("same in trends page also"): `Minimum` /
+  `Maximum` only for a bound in force, the below / above line only for the
+  assessed side(s).
   No count moved. See `apps/web/CLAUDE.md`.
 - **The dashboard's selection alarms panel is the SHARED alarm table
   (2026-09-01).** `routes/dashboard/selection-alarms.tsx` was a bespoke `<ul>`;

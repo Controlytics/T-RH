@@ -213,6 +213,10 @@ describe('the trend report shows the trend', () => {
     const byLabel = Object.fromEntries(summary.body.map((r: string[]) => [r[0], r[1]]));
     expect(byLabel['Out of limit']).toMatch(/Not assessed/);
     expect(summary.body.map((r: string[]) => r[0])).not.toContain('— below / above limit');
+    // And no extremes: an extreme prints only for a bound in force (operator,
+    // 2026-09-07, "same in trends page also"), the Data Report's rule.
+    expect(summary.body.map((r: string[]) => r[0])).not.toContain('Minimum');
+    expect(summary.body.map((r: string[]) => r[0])).not.toContain('Maximum');
   });
 
   it('states its own coverage when the period holds more than the report received', async () => {
@@ -297,7 +301,13 @@ describe('the trend report shows the trend', () => {
     const tables = report.getSnapshot().sections.filter((x: any) => 'head' in x);
     const summary = tables.find((t: any) => t.head[0] === 'Temperature — period summary')!;
     const byLabel = Object.fromEntries(summary.body.map((r: string[]) => [r[0], r[1]]));
-    expect(byLabel['— below / above limit']).toBe('no low limit set — not assessed  /  1 above 25.0');
+    // The absent side is NOT narrated ("no low limit set — not assessed" until
+    // 2026-09-07): a bound not in force is not shown at all, the Data Report's
+    // rule applied here at the operator's "same in trends page also". The
+    // Minimum goes with it; the Maximum stays.
+    expect(byLabel['— below / above limit']).toBe('1 above 25.0');
+    expect(byLabel['Maximum']).toBe('26.9 °C');
+    expect(summary.body.map((r: string[]) => r[0])).not.toContain('Minimum');
     // And the total says what it was assessed against, so half an assessment
     // is not printed as a whole one.
     expect(byLabel['Out of limit']).toBe('1 of 3 readings (33.3%) — against the high limit only');

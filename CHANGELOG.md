@@ -53,6 +53,22 @@ Pinned by the re-pinned `data-report.test.ts`, the Data Report layout test
 `alarms-report.test.ts`; both sample PDFs re-rendered and read back as
 rectangles. Nothing on screen changed.
 
+**And the trend page** (operator: *"same in trends page also check"*). The
+per-chart Trend report's period summary now follows the same rule:
+`Minimum` prints only when the low bound is in force, `Maximum` only when the
+high bound is, and the `— below / above limit` line prints only the assessed
+side(s) instead of narrating the absent one ("no low limit set — not
+assessed" until now; the row is omitted when neither side was assessed). The
+"— against the high limit only" qualifier on the total stays: it is a true
+statement about the count. `limitMin` / `limitMax` come from
+`telemetry-overview`, which already withholds a switched-off bound. The trend
+page's other downloads needed nothing: the header and Time Series downloads
+ARE the Data Report, and the alarms widget's report prints the bound the alarm
+fired against (never a disabled one) with `formatSetPoint` over the withheld
+limits in its details. On screen, the band gauge already names only the bounds
+in force and the chart draws no line for a null bound. Re-pinned in
+`trend-report-chart.test.ts` (two cases).
+
 ## [Unreleased] - Generate Data Report card; the trend page header downloads the Data Report (2026-09-07)
 
 Operator: *"create one card only text should be there Generate Data report and
