@@ -3268,3 +3268,5 @@ Operator: *"one message for all children with full set, go"*.
 - [x] 5 new cases in `data-report.test.ts`; reference-layout expectation records the departure; trend-report-chart label list re-pinned
 - [ ] operator to check a downloaded Data Report for an instrument with `Enable_Humid_NLT = 0`
 - [x] `addTable({ unboxEmpty })`: an empty parameter-block cell draws no box (Data Report only); 4 primitive tests + layout test
+- [x] Alarm Report: `BOUND_NOT_SHOWN` '' and `unboxEmpty` on both tables; 2 new cases, the dash case removed as reversed
+- [x] REVERSED `unboxEmpty` (open corners — "table was not forming properly"): `SpanCell` column spans instead; Data Report lone pair / Interval span the row; Alarm Report drops a limit column no row fills; samples re-rendered and read back

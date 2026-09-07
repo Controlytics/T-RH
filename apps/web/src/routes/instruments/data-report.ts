@@ -1,3 +1,4 @@
+import type { TableCell } from '@/lib/pdf-report';
 import { formatDecimals, INTERVALS, isOutOfRange } from '@digilog/shared';
 import { formatSetPoint, outOfSpec } from '@/routes/dashboard/set-point';
 import type { TableRow } from './trend-series';
@@ -195,8 +196,8 @@ function num(v: number | null | undefined, decimals: number): string {
 const inForce = (b: number | null | undefined): b is number => typeof b === 'number' && Number.isFinite(b);
 
 /**
- * The Max / Min cell pair for one slot: label cell, then the value cell in the
- * reference's own sentence shape (`22.9 , Temp. Min : 21.2`).
+ * The Max / Min cell pair for one slot, or `null`: label cell, then the value
+ * cell in the reference's own sentence shape (`22.9 , Temp. Min : 21.2`).
  *
  * An extreme prints ONLY for a bound that is in force (operator, 2026-09-07:
  * *"if Enable_Humid_NLT is disabled then dont show RH min in report, if nmt is
@@ -205,19 +206,34 @@ const inForce = (b: number | null | undefined): b is number => typeof b === 'num
  * `Enable_Humid_NLT` is off — and this row follows the bound: a minimum nobody
  * judges against is not reported. A bound never administered reads the same as
  * one switched off, because the bound's PRESENCE is the one fact this module
- * sees; `limitEnabled` says why and must never gate display. With no bound in
- * force on the slot the pair is blank, like the reference's own last row —
- * not a dash, which would claim a field that does not exist. A DELIBERATE
+ * sees; `limitEnabled` says why and must never gate display. A DELIBERATE
  * departure from `Data Report.pdf`, which prints both extremes against
  * NMT-only limits.
  */
-function extremesCells(name: 'Temp.' | 'RH', s: SlotBounds & SlotExtremes): [string, string] {
+function extremesCells(name: 'Temp.' | 'RH', s: SlotBounds & SlotExtremes): [string, string] | null {
   const parts: [string, string][] = [];
   if (inForce(s.max)) parts.push([`${name} Max :`, num(s.periodMax, s.decimals)]);
   if (inForce(s.min)) parts.push([`${name} Min :`, num(s.periodMin, s.decimals)]);
-  if (parts.length === 0) return ['', ''];
+  if (parts.length === 0) return null;
   const [first, ...rest] = parts;
   return [first[0], [first[1], ...rest.map(([label, value]) => `${label} ${value}`)].join(' , ')];
+}
+
+/**
+ * The extremes ROW, or `null` when neither slot has a bound in force.
+ *
+ * NEVER an empty cell (operator, 2026-09-07: *"if value was not there dont
+ * show that boxes in report"*, then — when the empty cells were drawn without
+ * a border — *"table was not forming properly"*, because the block's outline
+ * had open corners). A lone pair takes the whole row with a column span, so
+ * the block stays a rectangle; with nothing to print the row is not there.
+ */
+function extremesRow(temp: SlotBounds & SlotExtremes, rh: SlotBounds & SlotExtremes): TableCell[] | null {
+  const t = extremesCells('Temp.', temp);
+  const h = extremesCells('RH', rh);
+  if (t && h) return [...t, ...h];
+  const only = t ?? h;
+  return only ? [only[0], { content: only[1], colSpan: 3 }] : null;
 }
 
 /** `Raw (every reading)` or the interval's own label — the SAME words the page's
@@ -236,8 +252,10 @@ export function dataReportIntervalText(intervalMs: number | null): string {
  * Temp. Min : 21.2`, in one value cell: the reference prints both extremes on
  * one line, and splitting them into two rows would make this block a row
  * taller than the document it was asked to match — but each extreme prints
- * only for a bound in force (`extremesCells`). The last row is blank on the
- * left with `Interval` alone on the right, as the reference has it.
+ * only for a bound in force, and a lone pair spans the row (`extremesRow`).
+ * The last row is `Interval` spanning the row. The reference has it alone on
+ * the RIGHT with the left half blank; a blank half is an empty box, which the
+ * operator asked not to print (2026-09-07), so it moved left and took the row.
  */
 export function dataReportParameterRows(input: {
   scope: DataReportScope;
@@ -246,16 +264,17 @@ export function dataReportParameterRows(input: {
   rh: SlotBounds & SlotExtremes;
   intervalMs: number | null;
   fmt: DataReportFormatters;
-}): string[][] {
+}): TableCell[][] {
   const { scope, period, temp, rh, fmt } = input;
+  const extremes = extremesRow(temp, rh);
   return [
     ['Block :', orDash(scope.blockName), 'Start Date :', fmt.formatDate(period.from)],
     ['Area :', orDash(scope.areaName), 'Start Time :', fmt.formatTime(period.from)],
     ['Location :', orDash(scope.locationName), 'End Date :', fmt.formatDate(period.to)],
     ['Inst ID :', orDash(scope.instrumentLabel), 'End Time :', fmt.formatTime(period.to)],
     ['Temp. Limit :', limitText(temp), 'RH Limit :', limitText(rh)],
-    [...extremesCells('Temp.', temp), ...extremesCells('RH', rh)],
-    ['', '', 'Interval :', dataReportIntervalText(input.intervalMs)],
+    ...(extremes ? [extremes] : []),
+    ['Interval :', { content: dataReportIntervalText(input.intervalMs), colSpan: 3 }],
   ];
 }
 

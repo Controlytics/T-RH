@@ -26,15 +26,32 @@ Not seen on paper — the layout of the row itself is unchanged.
 
 **Follow-up, same day** (operator: *"when values are disabled then boxes are
 empty right in reports, if value was not there dont show that boxes in
-report"*): the parameter block no longer draws a BOX around an empty cell.
-`addTable` in `lib/pdf-report.ts` gained an opt-in `unboxEmpty` — an empty body
-cell (whitespace only; a dash is a value) gets `lineWidth` 0 in autotable's
-`didParseCell`, so its border is not drawn while the neighbours keep theirs;
-merged with the existing per-cell `bold` hook. Carried on the snapshot section
-so a re-rendered report draws the same boxes. Used by the Data Report's
-parameter block only — a record table's empty cell is a record and keeps its
-grid. Pinned by `lib/__tests__/pdf-report-unbox.test.ts` (four cases, on
-autotable's resolved cell styles) and the Data Report layout test.
+report"*, then *"same for alarm report also"*, then — of the first attempt —
+*"table was not forming properly"*). The first attempt drew an empty cell with
+no border (an `unboxEmpty` flag on `addTable`, committed as `91511e8`); the
+sample PDFs rendered here showed why that was wrong: the parameter block's
+outline had open corners and the alarm table lost its right edge on the row
+with a switched-off bound. **Replaced within the hour, before it was seen on
+the operator's screen, by never having an empty cell at all:**
+- `addTable` body cells may now be `{ content, colSpan }` (`SpanCell` in
+  `lib/pdf-report.ts`, autotable's own shape, kept verbatim in the snapshot);
+  `unboxEmpty` is gone. Pinned by `lib/__tests__/pdf-report-span.test.ts`.
+- **Data Report parameter block**: a lone Max / Min pair spans the row; with
+  no bound in force on either slot the row is omitted; and `Interval :` now
+  spans the row from the LEFT — the reference has it alone on the right with
+  the left half blank, which is an empty box. `dataReportParameterRows`
+  returns `TableCell[][]`.
+- **Alarm Report**: a switched-off bound's HIGH LIMIT / LOW LIMIT cell is EMPTY
+  (`BOUND_NOT_SHOWN` was a dash since 2026-09-02), and when EVERY row leaves a
+  limit column empty the column is not printed (`hiddenLimitColumns`, applied
+  to the head, the rows and the widths together). A column any row fills
+  stays, its other rows blank; `N/A` is a value and keeps its column. The
+  trend page's per-instrument alarms report is untouched: its Limit column is
+  the bound the alarm fired against, never a disabled one.
+Pinned by the re-pinned `data-report.test.ts`, the Data Report layout test
+(no empty cell anywhere in the block) and five new cases in
+`alarms-report.test.ts`; both sample PDFs re-rendered and read back as
+rectangles. Nothing on screen changed.
 
 ## [Unreleased] - Generate Data Report card; the trend page header downloads the Data Report (2026-09-07)
 

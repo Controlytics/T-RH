@@ -192,6 +192,17 @@ export interface ReportTypography {
   tableHeadAlign: 'left' | 'center';
 }
 
+/**
+ * A body cell that SPANS columns — `{ content, colSpan }`, autotable's own
+ * shape (2026-09-07). A parameter block never prints an empty cell: when a
+ * slot has no bound in force its Max / Min pair is gone and the remaining pair
+ * takes the row. The alternative tried first — drawing the empty cells with no
+ * border — left the block's outline with open corners (operator: "table was
+ * not forming properly"); a span keeps every table a rectangle.
+ */
+export interface SpanCell { content: string; colSpan: number }
+export type TableCell = string | SpanCell;
+
 export interface ReportDoc {
   doc: jsPDF;
   y: number;
@@ -201,15 +212,14 @@ export interface ReportDoc {
   addTable: (opts: {
     /** Omit for a headless parameter block. */
     head?: string[];
-    body: string[][];
+    /** Strings, or `{ content, colSpan }` to span columns (see `SpanCell`). */
+    body: TableCell[][];
     columnStyles?: Record<number, any>;
     headColor?: [number, number, number];
     /** `bold[row][col]` — body cells to print bold (a reading that crossed
-     *  its limit, a fault word). Same shape as `body`; absent = none. */
+     *  its limit, a fault word). Same shape as `body`, indexed by COLUMN, so
+     *  do not combine with spans on the same row; absent = none. */
     bold?: boolean[][];
-    /** Draw NO box around an empty body cell (a parameter block's blank
-     *  fields). Opt-in: a record table's empty cell is a record. */
-    unboxEmpty?: boolean;
   }) => void;
   addSectionTitle: (text: string) => void;
   addKeyValue: (pairs: [string, string][], columns?: number) => void;
@@ -223,7 +233,7 @@ export interface ReportDoc {
 }
 
 export type SnapshotSection =
-  | { title?: string; head: string[]; body: string[][]; columnStyles?: Record<number, any>; unboxEmpty?: boolean }
+  | { title?: string; head: string[]; body: TableCell[][]; columnStyles?: Record<number, any> }
   | { title?: string; pairs: [string, string][]; columns?: number };
 
 export interface ReportSnapshot {
@@ -474,16 +484,12 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     /** Omit for a HEADLESS table — a parameter block whose cells carry their own
      *  labels ("Block : CWH Block") rather than a heading row above them. */
     head?: string[];
-    body: string[][];
+    body: TableCell[][];
     columnStyles?: Record<number, any>;
     headColor?: [number, number, number];
     bold?: boolean[][];
-    unboxEmpty?: boolean;
   }) => {
-    snapSections.push({
-      title: pendingTitle, head: opts.head ?? [], body: opts.body, columnStyles: opts.columnStyles,
-      ...(opts.unboxEmpty ? { unboxEmpty: true } : {}),
-    });
+    snapSections.push({ title: pendingTitle, head: opts.head ?? [], body: opts.body, columnStyles: opts.columnStyles });
     pendingTitle = undefined;
     checkPageBreak(20);
     autoTable(doc, {
@@ -509,19 +515,13 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       ...(opts.head ? { alternateRowStyles: { fillColor: COLORS.altRow } } : {}),
       columnStyles: opts.columnStyles ?? {},
       // Per-cell emphasis, decided by the caller (a limit crossed, a fault
-      // word), and per-cell UNBOXING (operator, 2026-09-07: "if value was not
-      // there dont show that boxes in report" — a parameter block's blank
-      // field must not print as an empty box, which reads as a field somebody
-      // forgot to fill; autotable draws each cell's own border, so `lineWidth`
-      // 0 on the empty cell removes its box and the neighbours keep theirs).
-      // Applied here rather than by handing autotable styled cell objects, so
-      // `body` stays plain strings and the snapshot above stays re-renderable.
-      ...(opts.bold || opts.unboxEmpty ? {
+      // word). Applied here rather than by handing autotable styled cell
+      // objects, so `body` stays plain strings and the snapshot above stays
+      // re-renderable. (Spans ARE handed over as cell objects — that is
+      // autotable's own shape for them, and the snapshot keeps it verbatim.)
+      ...(opts.bold ? {
         didParseCell: (d: any) => {
-          if (d.section !== 'body') return;
-          if (opts.bold?.[d.row.index]?.[d.column.index]) d.cell.styles.fontStyle = 'bold';
-          // A dash IS a value; whitespace is not.
-          if (opts.unboxEmpty && String(d.cell.raw ?? '').trim() === '') d.cell.styles.lineWidth = 0;
+          if (d.section === 'body' && opts.bold![d.row.index]?.[d.column.index]) d.cell.styles.fontStyle = 'bold';
         },
       } : {}),
     });
@@ -585,7 +585,7 @@ export async function renderSnapshotToPdf(
   for (const s of snapshot.sections) {
     if (s.title) report.addSectionTitle(s.title);
     if ('pairs' in s) report.addKeyValue(s.pairs, s.columns);
-    else report.addTable({ head: s.head, body: s.body, columnStyles: s.columnStyles, unboxEmpty: s.unboxEmpty });
+    else report.addTable({ head: s.head, body: s.body, columnStyles: s.columnStyles });
   }
   report.save(filename);
 }

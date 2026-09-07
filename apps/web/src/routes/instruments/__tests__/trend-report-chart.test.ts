@@ -447,13 +447,15 @@ describe('the trend report shows the trend', () => {
     expect(text).toContain('CWH Block');
     expect(text).toContain('18.0 - 25.0');
     expect(text).toContain('Raw (every reading)');
-    // The parameter block draws no box around an empty cell (operator,
-    // 2026-09-07: "if value was not there dont show that boxes in report");
-    // the readings table, where every cell is a record, keeps its grid.
+    // The parameter block has NO empty cell (operator, 2026-09-07: "if value
+    // was not there dont show that boxes in report"): a lone pair or the
+    // Interval spans the row instead. This fixture has no RH bound, so the
+    // extremes row is Temp alone, spanned.
     const sections = report.getSnapshot().sections as any[];
     expect(sections[0].head).toEqual([]);
-    expect(sections[0].unboxEmpty).toBe(true);
-    expect(sections.find((x: any) => x.head?.length)!.unboxEmpty).toBeUndefined();
+    expect(sections[0].body.at(-2)).toEqual(['Temp. Max :', { content: '22.5 , Temp. Min : 22.4', colSpan: 3 }]);
+    expect(sections[0].body.at(-1)).toEqual(['Interval :', { content: 'Raw (every reading)', colSpan: 3 }]);
+    for (const row of sections[0].body) for (const c of row) expect(typeof c === 'string' ? c.trim() : c.content.trim()).not.toBe('');
     const tables = report.getSnapshot().sections.filter((x: any) => 'head' in x && x.head.length) as any[];
     expect(tables[0].head).toEqual(['DATE', 'TIME', 'TEMPERATURE (°C)', 'RELATIVE HUMIDITY(%)']);
     // NEWEST first (operator, 2026-09-05), one row per stored reading, `NA` for

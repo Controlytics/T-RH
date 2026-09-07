@@ -79,8 +79,27 @@ export const EXTRA_COLUMNS: Record<ReportLevel, string[]> = {
   all: ['INSTRUMENT ID', 'AREA', 'LOCATION'],
 };
 
-export function reportHead(level: ReportLevel): string[] {
-  return [...EXTRA_COLUMNS[level], ...ALARM_REPORT_HEAD];
+export type LimitColumn = 'HIGH LIMIT' | 'LOW LIMIT';
+const NO_HIDDEN: ReadonlySet<LimitColumn> = new Set();
+
+/**
+ * The limit columns this report cannot fill on ANY row — every cell would be
+ * `BOUND_NOT_SHOWN` — and so does not print (2026-09-07). A column that at
+ * least one row fills stays, its other rows blank; `N/A` is a value (a bound
+ * nobody administered, the reference's own word) and keeps its column. No rows
+ * hides nothing: the empty-state row is width-matched to the full head.
+ */
+export function hiddenLimitColumns(rows: readonly AlarmRow[]): ReadonlySet<LimitColumn> {
+  if (rows.length === 0) return NO_HIDDEN;
+  const points = rows.map(setPoints);
+  const hidden = new Set<LimitColumn>();
+  if (points.every((p) => p.high === BOUND_NOT_SHOWN)) hidden.add('HIGH LIMIT');
+  if (points.every((p) => p.low === BOUND_NOT_SHOWN)) hidden.add('LOW LIMIT');
+  return hidden;
+}
+
+export function reportHead(level: ReportLevel, hidden: ReadonlySet<LimitColumn> = NO_HIDDEN): string[] {
+  return [...EXTRA_COLUMNS[level], ...ALARM_REPORT_HEAD.filter((h) => !hidden.has(h as LimitColumn))];
 }
 
 /**
@@ -111,16 +130,22 @@ export const NOT_APPLICABLE = 'N/A';
  * no consumer; the setting is left in place rather than removed here, because a
  * config def is the operator's call and removing one is a twelve-touchpoint job.
  *
- * A DASH, not an empty string, and that is this file's existing rule (`orDash`):
- * on paper a blank cell reads as a rendering fault, with no other state to check
- * it against. The dash says "nothing to state here" deliberately.
+ * EMPTY, not a dash, since 2026-09-07 (operator, of the Data Report's rule
+ * "if value was not there dont show that boxes in report": *"same for alarm
+ * report also"*). It printed a dash from 2026-09-02, under this file's `orDash`
+ * rule that a blank on paper reads as a rendering fault; the operator wants the
+ * cell absent instead. When EVERY row leaves a limit column empty the column is
+ * not printed at all (`hiddenLimitColumns`), so the grid stays a rectangle —
+ * the first attempt drew the empty cell without a border and the operator
+ * reported "table was not forming properly". `orDash` still applies to the
+ * PLACEMENT fields, which are always labelled.
  *
  * Why this is safe against §11: it withholds a bound that could never have raised
  * this alarm — the same rule `telemetry-overview` already follows for a disabled
  * bound, and the reason `limitSnapshot` freezes the flags rather than reading them
  * live. It never invents or suppresses a bound that WAS in force.
  */
-export const BOUND_NOT_SHOWN = '-';
+export const BOUND_NOT_SHOWN = '';
 
 export interface AlarmReportScope {
   blockName: string;
@@ -293,6 +318,7 @@ export function reportRows(
   fmt: AlarmReportFormatters,
   texts?: AlarmDisplayTexts,
   level: ReportLevel = 'instrument',
+  hidden: ReadonlySet<LimitColumn> = NO_HIDDEN,
 ): string[][] {
   return rows.map((a) => {
     const { high, low } = setPoints(a);
@@ -309,8 +335,10 @@ export function reportRows(
       alarmTypeText(a, texts),
       uomFor(a),
       triggeredText(a, texts),
-      high,
-      low,
+      // The two limit cells follow `reportHead`'s filter exactly, so a row and
+      // its head cannot disagree about which columns exist.
+      ...(hidden.has('HIGH LIMIT') ? [] : [high]),
+      ...(hidden.has('LOW LIMIT') ? [] : [low]),
     ];
   });
 }
@@ -339,8 +367,8 @@ export function truncationNote(shown: number, total: number): string | null {
  * rather than truncate. Indices are resolved against the head for THIS level,
  * because the extra columns shift every base column right.
  */
-export function columnWidths(level: ReportLevel): Record<number, { cellWidth: number | 'wrap' }> {
-  const head = reportHead(level);
+export function columnWidths(level: ReportLevel, hidden: ReadonlySet<LimitColumn> = NO_HIDDEN): Record<number, { cellWidth: number | 'wrap' }> {
+  const head = reportHead(level, hidden);
   const narrow: Record<string, number> = {
     DATE: 17, TIME: 12, UOM: 12,
     'PV VALUE': 16, 'HIGH LIMIT': 18, 'LOW LIMIT': 18,
@@ -375,6 +403,8 @@ export function buildAlarmsReport(
   },
 ): void {
   const level = opts.level ?? 'instrument';
+  // A limit column no row can fill is not printed (2026-09-07).
+  const hidden = hiddenLimitColumns(opts.rows);
   doc.addTable({
     body: scopeTableRows(scopePairs(opts.scope, opts.period, opts.fmt)),
     columnStyles: scopeColumnStyles(),
@@ -386,10 +416,10 @@ export function buildAlarmsReport(
   }
 
   doc.addTable({
-    head: reportHead(level),
-    columnStyles: columnWidths(level),
+    head: reportHead(level, hidden),
+    columnStyles: columnWidths(level, hidden),
     body: opts.rows.length
-      ? reportRows(opts.rows, opts.fmt, opts.texts, level)
+      ? reportRows(opts.rows, opts.fmt, opts.texts, level, hidden)
       // A report of an empty period must SAY it is empty. A table with a header
       // and no rows reads as a rendering failure on paper, where there is no
       // other state to check it against.

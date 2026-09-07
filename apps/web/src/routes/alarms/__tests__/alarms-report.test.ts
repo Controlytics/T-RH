@@ -3,7 +3,7 @@ import {
   ALARM_REPORT_HEAD, ALARM_REPORT_LEGEND, NOT_APPLICABLE, BOUND_NOT_SHOWN, EXTRA_COLUMNS,
   scopePairs, uomFor, setPoints, reportRows, truncationNote, reportSeedPeriod,
   reportLevel, reportHead, columnWidths, scopeTableRows, SCOPE_COLUMN_STYLES,
-  scopeColumnStyles, CONTENT_WIDTH_MM,
+  scopeColumnStyles, CONTENT_WIDTH_MM, buildAlarmsReport, hiddenLimitColumns,
 } from '../alarms-report';
 import type { AlarmRow } from '../alarm-display';
 
@@ -367,12 +367,6 @@ describe('NMT/NLT decide whether a bound is PRINTED at all', () => {
     expect(high).toBe(BOUND_NOT_SHOWN);
   });
 
-  it('is a dash, never an empty cell', () => {
-    // This file's own rule: on paper a blank reads as a rendering fault, with no
-    // other state to check it against.
-    expect(BOUND_NOT_SHOWN.trim()).not.toBe('');
-  });
-
   it('still says N/A for a bound that was never administered', () => {
     /**
      * ENABLED, but no limit stored. Not a switched-off bound, and blanking it
@@ -523,5 +517,72 @@ describe('the parameter block divides down the MIDDLE', () => {
     // The audit and trend reports are landscape.
     const wide = scopeColumnStyles(269);
     expect(wide[0].cellWidth + wide[1].cellWidth).toBe(269 / 2);
+  });
+});
+
+describe('a switched-off bound prints NOTHING, and a limit column nobody can fill is DROPPED (2026-09-07)', () => {
+  // Operator, of the Data Report's rule ("if value was not there dont show
+  // that boxes in report"): "same for alarm report also". The 2026-09-02 rule
+  // withheld the VALUE of a disabled bound but printed a dash in its place;
+  // now the cell is empty — and when EVERY row's cell in a limit column is
+  // empty, the column itself is not printed, so the grid stays a rectangle
+  // (the first attempt drew the empty cell with no border and the operator
+  // reported "table was not forming properly"). A column any row can fill
+  // stays, its other rows blank. `N/A` is untouched: it is the reference's
+  // own word for a bound nobody administered, and a claim of its own.
+  const off = (over: any = {}) => alarm({
+    ruleSnapshot: { limit: 27, limitKind: 'HIGH', thresholdHigh: 27, thresholdLow: null, highEnabled: true, lowEnabled: false, decimals: 1 },
+    ...over,
+  });
+  const both = alarm({
+    ruleSnapshot: { limit: 27, limitKind: 'HIGH', thresholdHigh: 27, thresholdLow: 18, highEnabled: true, lowEnabled: true, decimals: 1 },
+  });
+
+  it('BOUND_NOT_SHOWN is the empty string', () => {
+    expect(BOUND_NOT_SHOWN).toBe('');
+    expect(NOT_APPLICABLE).toBe('N/A');
+  });
+
+  it('names the limit columns every row leaves empty', () => {
+    expect([...hiddenLimitColumns([off(), off()])]).toEqual(['LOW LIMIT']);
+    expect([...hiddenLimitColumns([off(), both])]).toEqual([]);
+    expect([...hiddenLimitColumns([])]).toEqual([]);
+    // N/A is a value: a column of N/A is printed.
+    const na = alarm({ ruleSnapshot: { limit: 27, limitKind: 'HIGH', thresholdHigh: 27, thresholdLow: null, decimals: 1 } });
+    expect([...hiddenLimitColumns([na, na])]).toEqual([]);
+  });
+
+  it('drops the column from the head, the rows and the widths together', () => {
+    const hidden = hiddenLimitColumns([off()]);
+    const head = reportHead('instrument', hidden);
+    expect(head).toEqual(['DATE', 'TIME', 'DESCRIPTION', 'UOM', 'PV VALUE', 'HIGH LIMIT']);
+    const row = reportRows([off()], fmt, undefined, 'instrument', hidden)[0];
+    expect(row).toHaveLength(head.length);
+    expect(row[head.indexOf('HIGH LIMIT')]).toBe('27.0');
+    expect(columnWidths('instrument', hidden)[head.indexOf('HIGH LIMIT')]).toEqual({ cellWidth: 18 });
+    expect(columnWidths('instrument', hidden)[head.length]).toBeUndefined();
+  });
+
+  it('keeps the column, with an empty cell, while any row can fill it', () => {
+    const hidden = hiddenLimitColumns([off(), both]);
+    const rows = reportRows([off(), both], fmt, undefined, 'instrument', hidden);
+    const at = reportHead('instrument', hidden).indexOf('LOW LIMIT');
+    expect(rows[0][at]).toBe('');
+    expect(rows[1][at]).toBe('18.0');
+  });
+
+  it('buildAlarmsReport applies it, and asks for no unboxing', () => {
+    const calls: any[] = [];
+    const doc = { addTable: (o: any) => { calls.push(o); }, addSectionTitle: () => {} } as any;
+    buildAlarmsReport(doc, {
+      rows: [off(), off({ id: 'b' })], total: 2,
+      scope: { blockName: 'CWH Block', areaName: 'QC 3', locationName: 'LCMS Room-II', instrumentLabel: 'CWH/RDU/002-01' },
+      period: { from: '2026-05-27T16:00:00.000Z', to: '2026-05-28T16:00:00.000Z' }, fmt,
+    });
+    expect(calls).toHaveLength(2);
+    expect(calls[1].head).not.toContain('LOW LIMIT');
+    for (const r of calls[1].body) expect(r).toHaveLength(calls[1].head.length);
+    expect(calls[0].unboxEmpty).toBeUndefined();
+    expect(calls[1].unboxEmpty).toBeUndefined();
   });
 });

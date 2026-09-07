@@ -780,10 +780,16 @@ GET    /api/alarm-webhooks/:id/deliveries?status= — paged §11 delivery log, f
   bound the server resolved (`limits`, already null for a disabled bound), so
   NMT-only instruments print `Temp. Max : 22.9` alone — a deliberate departure
   from `Data Report.pdf`. Never-administered reads as switched off;
-  `limitEnabled` still never gates display. **And a blank parameter-block cell
-  is not drawn as a box** ("if value was not there dont show that boxes"):
-  `addTable({ unboxEmpty })` in `lib/pdf-report.ts`, opt-in, used by the Data
-  Report parameter block only; carried on the snapshot.
+  `limitEnabled` still never gates display. **And no report table ever has an
+  empty cell** ("if value was not there dont show that boxes", "same for alarm
+  report also"): `addTable` body cells may span columns (`SpanCell` in
+  `lib/pdf-report.ts`) — the Data Report's lone Max / Min pair and its
+  `Interval :` row span the row, a row with nothing to print is omitted; the
+  Alarms page's report prints `''` for a switched-off bound (`BOUND_NOT_SHOWN`,
+  not a dash; `N/A` unchanged) and DROPS a limit column no row can fill
+  (`hiddenLimitColumns`). An `unboxEmpty` flag that hid the empty cell's border
+  lasted one commit (`91511e8`) — it left tables with open corners ("table was
+  not forming properly"); do not bring it back.
   No count moved. See `apps/web/CLAUDE.md`.
 - **The dashboard's selection alarms panel is the SHARED alarm table
   (2026-09-01).** `routes/dashboard/selection-alarms.tsx` was a bespoke `<ul>`;

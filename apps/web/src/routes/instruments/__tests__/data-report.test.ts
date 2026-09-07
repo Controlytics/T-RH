@@ -60,7 +60,11 @@ describe('the reference layout', () => {
       // extreme prints only for a bound in force (operator), so NMT-only
       // instruments print Max alone.
       ['Temp. Max :', '22.9', 'RH Max :', '63'],
-      ['', '', 'Interval :', '1 hour'],
+      // The reference prints Interval on the RIGHT with the left half blank.
+      // Since 2026-09-07 no cell of this block is ever empty (operator: "if
+      // value was not there dont show that boxes", then "table was not forming
+      // properly" when empty cells were unboxed), so Interval takes the row.
+      ['Interval :', { content: '1 hour', colSpan: 3 }],
     ]);
   });
 
@@ -83,7 +87,7 @@ describe('the reference layout', () => {
     expect(rows[1][1]).toBe('-');
     expect(rows[2][1]).toBe('-');
     expect(rows[5]).toEqual(['Temp. Max :', '- , Temp. Min : -', 'RH Max :', '- , RH Min : -']);
-    expect(rows[6]).toEqual(['', '', 'Interval :', 'Raw (every reading)']);
+    expect(rows[6]).toEqual(['Interval :', { content: 'Raw (every reading)', colSpan: 3 }]);
   });
 });
 
@@ -109,16 +113,24 @@ describe('an extreme prints only for a bound that is IN FORCE (2026-09-07)', () 
     expect(rows[5].slice(2)).toEqual(['RH Min :', '58']);
   });
 
-  it('prints neither when no RH bound is in force, and does not invent a dash', () => {
-    const rows = dataReportParameterRows({ ...base, temp, rh: { ...rh, min: null, max: null } });
-    expect(rows[5].slice(2)).toEqual(['', '']);
+  it('gives the remaining pair the WHOLE row when the other slot has no bound in force — never an empty cell', () => {
+    // Unboxing the empty cells left the block with open corners ("table was
+    // not forming properly"); a span keeps it a rectangle.
+    const rows = dataReportParameterRows({ ...base, temp: { ...temp, min: 18 }, rh: { ...rh, min: null, max: null } });
+    expect(rows[5]).toEqual(['Temp. Max :', { content: '22.9 , Temp. Min : 21.2', colSpan: 3 }]);
+    const rhOnly = dataReportParameterRows({ ...base, rh, temp: { ...temp, min: null, max: null } });
+    expect(rhOnly[5]).toEqual(['RH Max :', { content: '63', colSpan: 3 }]);
+  });
+
+  it('omits the row altogether when neither slot has a bound in force', () => {
+    const rows = dataReportParameterRows({ ...base, rh: { ...rh, min: null, max: null }, temp: { ...temp, min: null, max: null } });
+    expect(rows).toHaveLength(6);
+    expect(rows[5][0]).toBe('Interval :');
   });
 
   it('applies the same rule to temperature', () => {
     const rows = dataReportParameterRows({ ...base, rh, temp: { ...temp, max: null, min: 18 } });
     expect(rows[5].slice(0, 2)).toEqual(['Temp. Min :', '21.2']);
-    const none = dataReportParameterRows({ ...base, rh, temp: { ...temp, min: null, max: null } });
-    expect(none[5].slice(0, 2)).toEqual(['', '']);
   });
 
   it('the reference instrument (NMT only, both slots) prints Max alone', () => {
