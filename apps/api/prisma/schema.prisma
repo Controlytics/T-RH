@@ -822,6 +822,49 @@ model AlarmWebhookDelivery {
   @@map("alarm_webhook_deliveries")
 }
 
+/// A report REQUEST (2026-09-07): the frozen document (data_snapshot) plus who
+/// asked, who was asked, and who decided. Every PDF download in the product is
+/// such a request; the requester and the approver download the approved
+/// document with both signatures. ONE transition only: PENDING -> APPROVED |
+/// REJECTED. Never deleted — a §11 record. Design:
+/// docs/superpowers/specs/2026-09-07-report-review-workflow-design.md
+model ReportReview {
+  id              String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// The audit reportType, e.g. 'Instrument Time Series'.
+  reportType      String             @map("report_type") @db.VarChar(100)
+  title           String             @db.VarChar(500)
+  subtitle        String?            @db.VarChar(1000)
+  /// { period:{from,to,label}, intervalMs?, instrumentCodes?, search? } — what the lists say.
+  requestMeta     Json               @map("request_meta") @db.JsonB
+  /// The frozen document (ReportSnapshot v2). THE record: draft and approved
+  /// downloads both replay it, so what was reviewed is what is downloaded.
+  dataSnapshot    Json               @map("data_snapshot") @db.JsonB
+  status          ReportReviewStatus @default(PENDING)
+
+  requestedBy     String             @map("requested_by") @db.Uuid
+  /// The username — what the signature line prints.
+  requestedByName String             @map("requested_by_name") @db.VarChar(255)
+  requestedAt     DateTime           @default(now()) @map("requested_at") @db.Timestamptz
+  requestRemarks  String             @map("request_remarks") @db.Text
+
+  /// Exactly one of the two.
+  assigneeUserId  String?            @map("assignee_user_id") @db.Uuid
+  assigneeRole    String?            @map("assignee_role") @db.VarChar(50)
+
+  decidedBy       String?            @map("decided_by") @db.Uuid
+  decidedByName   String?            @map("decided_by_name") @db.VarChar(255)
+  decidedAt       DateTime?          @map("decided_at") @db.Timestamptz
+  decisionRemarks String?            @map("decision_remarks") @db.Text
+
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([status, assigneeUserId])
+  @@index([status, assigneeRole])
+  @@index([requestedBy, createdAt])
+  @@map("report_reviews")
+}
+
 enum AlarmMetric {
   TEMPERATURE
   HUMIDITY
@@ -862,6 +905,15 @@ enum AlarmSource {
   /// one is open the reading is treated as NO READING: it raises no limit alarm
   /// and cannot clear one.
   SENSOR_RANGE
+}
+
+/// Report review workflow (2026-09-07). One transition: PENDING -> APPROVED | REJECTED.
+enum ReportReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+
+  @@map("report_review_status")
 }
 
 enum AlarmLimitKind {
