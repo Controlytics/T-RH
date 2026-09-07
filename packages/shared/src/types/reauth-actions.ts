@@ -114,6 +114,10 @@ export const REAUTH_ACTIONS = {
   MANAGE_ALARM_WEBHOOK: { label: 'Create / Update / Delete / Test Alarm Webhook', category: 'Configuration' },
 
   DOWNLOAD_REPORT: { label: 'Download / Generate a Report', category: 'Reports' },
+  // 2026-09-07 — the report review workflow. DOWNLOAD_REPORT keeps gating the
+  // REQUEST (its label already reads "Generate"); these two are the decision.
+  APPROVE_REPORT: { label: 'Approve a Report Request', category: 'Reports' },
+  REJECT_REPORT: { label: 'Reject a Report Request', category: 'Reports' },
 
   // Instruments — DELIBERATELY EMPTY. All THREE token actions
   // (`REVEAL_INSTRUMENT_TOKEN`, `SET_INSTRUMENT_TOKEN`,

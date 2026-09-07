@@ -210,3 +210,23 @@ describe('data-report group (2026-09-07)', () => {
     expect(group!.visibilityPrivilegeIds).toEqual(['data_report.view']);
   });
 });
+
+describe('reports group (2026-09-07)', () => {
+  // Every PDF download is a REQUEST; an approver signs it on the Reports page.
+  // docs/superpowers/specs/2026-09-07-report-review-workflow-design.md
+  const group = PERMISSION_TREE.find((g) => g.sidebarId === 'reports');
+
+  it('has a View node gated on REPORT_REVIEW_READ and an Approve node gated on REPORT_REVIEW_APPROVE with the APPROVE_REPORT re-auth', () => {
+    expect(group).toBeTruthy();
+    expect(group!.nodes.map((n) => n.id)).toEqual(['reports.view', 'reports.approve']);
+    expect(resolveNodeGate('reports.view')).toEqual([PERMISSIONS.REPORT_REVIEW_READ]);
+    expect(resolveNodeGate('reports.approve')).toEqual([PERMISSIONS.REPORT_REVIEW_APPROVE]);
+    expect(group!.nodes[1].reauthAction).toBe('APPROVE_REPORT');
+    expect(group!.visibilityPrivilegeIds).toEqual(['reports.view', 'reports.approve']);
+  });
+
+  it('registers the two decision re-auth actions under Reports and the four audit actions with templates', () => {
+    expect(REAUTH_ACTIONS.APPROVE_REPORT.category).toBe('Reports');
+    expect(REAUTH_ACTIONS.REJECT_REPORT.category).toBe('Reports');
+  });
+});

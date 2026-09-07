@@ -418,6 +418,26 @@ export const PERMISSION_TREE: SidebarGroup[] = [
     ],
   },
 
+  // ---- Reports (2026-09-07) ----
+  // The report review workflow: every PDF download is a REQUEST, and an
+  // approver signs or rejects it on this page. Requesting rides on READ (whoever
+  // can see the page can ask for a report; the DATA is still gated by each
+  // source page's own permission and the per-role Export Options). See
+  // docs/superpowers/specs/2026-09-07-report-review-workflow-design.md.
+  {
+    sidebarId: 'reports', label: 'Reports', icon: '📑',
+    description: 'Report requests awaiting approval, and approved reports to download',
+    visibilityPrivilegeIds: ['reports.view', 'reports.approve'],
+    nodes: [
+      { id: 'reports.view', label: 'View Reports', sidebarId: 'reports', page: 'Reports', action: 'View',
+        icon: 'file-text', category: 'Reports', permissions: ['REPORT_REVIEW_READ'], enforce: 'a',
+        gate: ['REPORT_REVIEW_READ'], configurable: true },
+      { id: 'reports.approve', label: 'Approve / Reject Reports', sidebarId: 'reports', page: 'Reports', action: 'Approve',
+        icon: 'check', category: 'Reports', permissions: ['REPORT_REVIEW_APPROVE', 'REPORT_REVIEW_READ'], enforce: 'a',
+        gate: ['REPORT_REVIEW_APPROVE'], reauthAction: 'APPROVE_REPORT', configurable: true },
+    ],
+  },
+
 ];
 
 // ─── Phase 5E: Canonical ordering for derived maps ───────────────────────────
@@ -437,6 +457,7 @@ const CONFIGURABLE_PRIVILEGE_ORDER: readonly string[] = [
   'functional_locations.view', 'functional_locations.create', 'functional_locations.edit', 'functional_locations.delete',
   'alarm_rules.view', 'alarm_rules.manage', 'alarm_webhooks.view', 'alarm_webhooks.manage', 'alarms.view', 'alarms.acknowledge',
   'data_report.view',
+  'reports.view', 'reports.approve',
 ] as const;
 
 // ─── Derive Functions ────────────────────────────────────────────────────────

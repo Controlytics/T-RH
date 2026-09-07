@@ -9,6 +9,12 @@ export const PERMISSIONS = {
   USER_UNLOCK: 'USER_UNLOCK',
   USER_RESET_PASSWORD: 'USER_RESET_PASSWORD',
 
+  // Reports (2026-09-07) — the report review workflow: every PDF download is a
+  // REQUEST; READ sees the Reports page, raises requests and downloads approved
+  // reports one is a party to; APPROVE signs or rejects a request.
+  REPORT_REVIEW_READ: 'REPORT_REVIEW_READ',
+  REPORT_REVIEW_APPROVE: 'REPORT_REVIEW_APPROVE',
+
   // Configuration
   CONFIG_READ: 'CONFIG_READ',
   CONFIG_UPDATE: 'CONFIG_UPDATE',

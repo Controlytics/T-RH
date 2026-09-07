@@ -56,19 +56,22 @@ describe('Phase 5E: derived maps === original snapshots', () => {
     // 2026-09-07 added the 12th group, data-report (the Instrument History
     // widget moved off the dashboard onto its own sidebar page), with 1
     // configurable node (view) → 41.
+    // 2026-09-07 (later) added the 13th group, reports (the report review
+    // workflow: every PDF download is a request an approver signs), with 2
+    // configurable nodes (view / approve) → 43.
     const count = PERMISSION_TREE.flatMap(g => g.nodes).filter(n => n.configurable === true).length;
-    expect(count).toBe(41);
+    expect(count).toBe(43);
   });
 
-  it('FEATURE_PRIVILEGES has exactly 41 entries', () => {
-    expect(FEATURE_PRIVILEGES).toHaveLength(41);
+  it('FEATURE_PRIVILEGES has exactly 43 entries', () => {
+    expect(FEATURE_PRIVILEGES).toHaveLength(43);
   });
 
-  it('FEATURE_TO_PERMISSION_MAP has exactly 41 keys', () => {
-    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(41);
+  it('FEATURE_TO_PERMISSION_MAP has exactly 43 keys', () => {
+    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(43);
   });
 
-  it('SIDEBAR_PRIVILEGE_MAP has exactly 12 sections', () => {
-    expect(SIDEBAR_PRIVILEGE_MAP).toHaveLength(12);
+  it('SIDEBAR_PRIVILEGE_MAP has exactly 13 sections', () => {
+    expect(SIDEBAR_PRIVILEGE_MAP).toHaveLength(13);
   });
 });

@@ -138,6 +138,12 @@ export const AUDIT_ACTIONS = {
   // Report generation / export — emitted when a user downloads a report
   // (audit trail, instrument activity, etc.) as PDF/Excel.
   REPORT_GENERATED: 'REPORT_GENERATED',
+  // Report review workflow (2026-09-07): a request, its decision, and each
+  // download of the approved document. targetType carries the reportType.
+  REPORT_REVIEW_REQUESTED: 'REPORT_REVIEW_REQUESTED',
+  REPORT_REVIEW_APPROVED: 'REPORT_REVIEW_APPROVED',
+  REPORT_REVIEW_REJECTED: 'REPORT_REVIEW_REJECTED',
+  REPORT_DOWNLOADED: 'REPORT_DOWNLOADED',
 
 
   // Instruments — the device registry (2026-08-05). Bulk creation emits one

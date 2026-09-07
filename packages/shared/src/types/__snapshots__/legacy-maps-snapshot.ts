@@ -267,6 +267,18 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
     "label": "View Data Report",
     "category": "Data Report",
     "icon": "file-text"
+  },
+  {
+    "id": "reports.view",
+    "label": "View Reports",
+    "category": "Reports",
+    "icon": "file-text"
+  },
+  {
+    "id": "reports.approve",
+    "label": "Approve / Reject Reports",
+    "category": "Reports",
+    "icon": "check"
   }
 ];
 
@@ -415,6 +427,13 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   ],
   "data_report.view": [
     "INSTRUMENT_READ"
+  ],
+  "reports.view": [
+    "REPORT_REVIEW_READ"
+  ],
+  "reports.approve": [
+    "REPORT_REVIEW_APPROVE",
+    "REPORT_REVIEW_READ"
   ]
 };
 
@@ -540,6 +559,16 @@ export const SIDEBAR_PRIVILEGE_MAP_SNAPSHOT: SidebarSectionSnapshot[] = [
     "description": "Readings of a Block, an Area or chosen instruments over a period, with the Data Report download",
     "privilegeIds": [
       "data_report.view"
+    ]
+  },
+  {
+    "sidebarId": "reports",
+    "label": "Reports",
+    "icon": "📑",
+    "description": "Report requests awaiting approval, and approved reports to download",
+    "privilegeIds": [
+      "reports.view",
+      "reports.approve"
     ]
   }
 ];
