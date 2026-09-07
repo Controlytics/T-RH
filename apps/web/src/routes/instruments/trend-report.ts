@@ -1,5 +1,5 @@
 import { formatDecimals } from '@digilog/shared';
-import { createReport, type ReportDoc } from '@/lib/pdf-report';
+import { createReport, type ReportDoc, type NoteColor } from '@/lib/pdf-report';
 import {
   alarmTypeText, triggeredText, limitText, clearedText, statusText,
   type AlarmRow, type AlarmStatusTexts, type AlarmDisplayTexts,
@@ -165,42 +165,28 @@ export interface TrendReportInput {
 const MARGIN = 14;
 
 /**
- * A wrapped paragraph of body text.
- *
- * NOT `addSectionTitle`. That primitive draws a fixed 7mm pill and a single
- * unwrapped `doc.text` line, so a sentence longer than the page runs off the
- * right edge instead of wrapping — fine for a heading, silently lossy for a
- * disclosure. A §11 statement that the reader cannot finish reading is not a
- * statement.
+ * A wrapped paragraph of body text — `ReportDoc.addNote`, which RECORDS the
+ * note into the snapshot (2026-09-07) so a reviewed draft and the approved copy
+ * carry the same disclosures. Kept as a local shim so the call sites read as
+ * before.
  */
-function addNote(report: ReportDoc, text: string, color: [number, number, number]): void {
-  const lines = report.doc.splitTextToSize(text, report.pw - MARGIN * 2) as string[];
-  report.checkPageBreak(lines.length * 4 + 4);
-  report.doc.setFontSize(8);
-  report.doc.setTextColor(...color);
-  report.doc.text(lines, MARGIN, report.y);
-  report.y += lines.length * 4 + 4;
-  report.doc.setTextColor(...report.colors.text);
+function addNote(report: ReportDoc, text: string, color: NoteColor): void {
+  report.addNote(text, color);
 }
 
 /**
  * Draw one chart PNG across the text column, or state why there isn't one.
- *
- * Goes through `report.doc` directly rather than growing `pdf-report.ts` an
- * image primitive: this is the only report that prints a picture, and a shared
- * helper invented for one caller is a shared helper nobody else's needs shaped.
+ * Through `report.addImage` (2026-09-07) so the raster is in the snapshot too.
  */
 function addChart(report: ReportDoc, section: TrendChartSection): void {
   report.addSectionTitle(section.title);
   if (!section.image) {
-    addNote(report, section.unavailableReason, report.colors.muted);
+    addNote(report, section.unavailableReason, 'muted');
     return;
   }
   const w = report.pw - MARGIN * 2;
   const h = (section.image.height / section.image.width) * w;
-  report.checkPageBreak(h + 4);
-  report.doc.addImage(section.image.dataUrl, 'PNG', MARGIN, report.y, w, h);
-  report.y += h + 6;
+  report.addImage(section.image.dataUrl, w, h);
 }
 
 /** A number at the slot's own resolved precision, or an em dash. */
@@ -347,7 +333,7 @@ export async function renderTrendReport(input: TrendReportInput): Promise<Report
       + `stored reading, NARROW THE PERIOD — no report from this page prints more than `
       + `${MAX_REPORT_ROWS.toLocaleString()} rows, and the Instrument Time Series report is built from the same `
       + `sample as this one.`,
-      report.colors.red,
+      'red',
     );
   }
 
@@ -363,7 +349,7 @@ export async function renderTrendReport(input: TrendReportInput): Promise<Report
       + `computed from the stored readings, so a brief excursion that averaging smooths away still appears there. `
       + `For the same period UNAVERAGED, use the Instrument Time Series report — it prints stored readings rather `
       + `than bucket means. It is built from the same sample as this report, and states its own coverage.`,
-      report.colors.red,
+      'red',
     );
   }
 
@@ -372,7 +358,7 @@ export async function renderTrendReport(input: TrendReportInput): Promise<Report
     if (section.summary) {
       addSummary(report, section.summary, input.formatDateTime);
     } else {
-      addNote(report, `No ${section.title.toLowerCase()} readings in this period, so there is nothing to summarise.`, report.colors.muted);
+      addNote(report, `No ${section.title.toLowerCase()} readings in this period, so there is nothing to summarise.`, 'muted');
     }
   }
 
@@ -507,7 +493,7 @@ export async function renderDataReports(input: DataReportsInput): Promise<Report
   );
   const report = await createReport(dataReportChrome(input.formatDateTime, legend));
   if (sections.length === 0) {
-    addNote(report, 'No instruments were selected for this report.', report.colors.muted);
+    addNote(report, 'No instruments were selected for this report.', 'muted');
   }
   sections.forEach((section, i) => {
     if (i > 0) report.newPage();
@@ -543,7 +529,7 @@ function addDataReportSection(report: ReportDoc, section: PreparedDataSection): 
       + `above are computed over EVERY reading in the period, not over this sample. To print every stored reading, `
       + `narrow the period or select an interval — no report from this page prints more than `
       + `${MAX_REPORT_ROWS.toLocaleString()} rows.`,
-      report.colors.red,
+      'red',
     );
   }
   addCapNotice(report, capped, shown.length, total, input.period);

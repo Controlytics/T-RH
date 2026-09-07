@@ -604,7 +604,10 @@ describe('the trend report shows the trend', () => {
     const one = dataInput({ returned: 2, total: 2 });
     const two = { ...one, scope: { ...one.scope, instrumentLabel: 'DEMO-TH-143' }, rows: scheduleRows([], null, period.to) };
     const report = await renderDataReports({ formatDateTime, instruments: [one, two] });
-    const sections = report.getSnapshot().sections as any[];
+    const all = report.getSnapshot().sections as any[];
+    // Snapshot v2 (2026-09-07) records the page break between instruments too.
+    expect(all.filter((s) => s.kind === 'page-break')).toHaveLength(1);
+    const sections = all.filter((s) => s.kind === 'table');
     // Two parameter blocks and two readings tables, in order — and nothing else.
     const labels = sections.map((s) => (s.head.length ? 'table' : s.body[0][0]));
     expect(labels).toEqual(['Block :', 'table', 'Block :', 'table']);

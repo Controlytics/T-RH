@@ -1,5 +1,5 @@
 import { apiClient } from './api-client';
-import { renderSnapshotToPdf, type ReportSnapshot } from './pdf-report';
+import { renderSnapshotToPdf, normaliseSnapshot, type ReportSnapshot } from './pdf-report';
 
 export interface ReviewSummary {
   id: string; reportType: string; title: string; subtitle?: string; status: string;
@@ -63,5 +63,6 @@ export function reviewSignatures(r: { generatedByName: string; reviewedByName?: 
 export async function downloadReview(id: string, formatDateTime: (d: string) => string) {
   const r = await fetchReview(id);
   const fname = `${(r.title || 'report').replace(/[^\w-]+/g, '_')}.pdf`;
-  await renderSnapshotToPdf(r.dataSnapshot, reviewSignatures(r), formatDateTime, fname);
+  const doc = await renderSnapshotToPdf(normaliseSnapshot(r.dataSnapshot), { formatDateTime, signatures: reviewSignatures(r) });
+  doc.save(fname);
 }

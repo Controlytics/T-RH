@@ -149,6 +149,12 @@ export interface ReportConfig {
    * reference carries the site line and the title and nothing between them.
    */
   showAppName?: boolean;
+  /**
+   * A DRAFT for review (2026-09-07): `DRAFT — NOT APPROVED` across every page
+   * and NO signature line. The approver reads exactly the document the
+   * requester asked for, marked as unsigned, before signing it.
+   */
+  draft?: boolean;
 }
 
 /**
@@ -223,25 +229,65 @@ export interface ReportDoc {
   }) => void;
   addSectionTitle: (text: string) => void;
   addKeyValue: (pairs: [string, string][], columns?: number) => void;
+  /**
+   * A wrapped paragraph of body text — a disclosure, a "no readings" line.
+   * NOT `addSectionTitle`: that draws a fixed pill and one unwrapped line, so a
+   * sentence longer than the page runs off the right edge. A §11 statement the
+   * reader cannot finish reading is not a statement.
+   */
+  addNote: (text: string, color?: NoteColor) => void;
+  /** A raster (a chart PNG) across the text column, `heightMm` tall. */
+  addImage: (dataUrl: string, widthMm: number, heightMm: number) => void;
   checkPageBreak: (needed: number) => void;
   /** Force a fresh page and reset the cursor to the top margin. */
   newPage: () => void;
   save: (filename: string) => void;
-  /** Frozen snapshot of the rendered tables/titles — used by "Send for Review"
-   *  to persist the report so it can be re-rendered identically later. */
+  /** The frozen document — every drawing call, in order, plus the chrome that
+   *  shaped it. `renderSnapshotToPdf` replays it through this same interface. */
   getSnapshot: () => ReportSnapshot;
 }
 
+export type NoteColor = 'red' | 'muted' | 'text';
+
+/**
+ * ReportSnapshot v2 (2026-09-07) — the report review workflow's RECORD.
+ *
+ * Every PDF download is a request an approver signs, and the approver's DRAFT
+ * and the approved download are both replays of this snapshot, so what was
+ * reviewed is byte-for-byte what is downloaded (apart from the watermark and
+ * the signature block). The v1 shape recorded tables and titles only; a trend
+ * report also draws notes and chart rasters, and the Data Report breaks pages
+ * between instruments, so v2 records those too, plus the `config` that shapes
+ * the chrome (legend, typography, app-name line). No v1 snapshot exists in any
+ * database — the table they lived in was dropped in the 2026-07-18 strip — so
+ * `normaliseSnapshot` refuses anything but v2 rather than migrating.
+ */
 export type SnapshotSection =
-  | { title?: string; head: string[]; body: TableCell[][]; columnStyles?: Record<number, any> }
-  | { title?: string; pairs: [string, string][]; columns?: number };
+  | { kind: 'table'; title?: string; head: string[]; body: TableCell[][]; columnStyles?: Record<number, any>; bold?: boolean[][] }
+  | { kind: 'pairs'; title?: string; pairs: [string, string][]; columns?: number }
+  | { kind: 'title'; text: string }
+  | { kind: 'note'; text: string; color: NoteColor }
+  | { kind: 'image'; dataUrl: string; widthMm: number; heightMm: number }
+  | { kind: 'page-break' };
 
 export interface ReportSnapshot {
-  reportType?: string;
+  version: 2;
+  /** The audit reportType, e.g. 'Instrument Time Series'. */
+  reportType: string;
   title: string;
   subtitle?: string;
   orientation?: 'portrait' | 'landscape';
+  config: { legend?: ReportConfig['legend']; typography?: ReportConfig['typography']; showAppName?: boolean };
   sections: SnapshotSection[];
+}
+
+/** The stored JSON as a v2 snapshot, or a thrown error — never a guess. */
+export function normaliseSnapshot(v: unknown): ReportSnapshot {
+  const s = v as Partial<ReportSnapshot> | null;
+  if (!s || typeof s !== 'object') throw new Error('The stored report is not a snapshot.');
+  if (s.version !== 2) throw new Error(`Unsupported report snapshot version ${String((s as any).version)} (expected 2).`);
+  if (typeof s.title !== 'string' || !Array.isArray(s.sections)) throw new Error('The stored report snapshot is malformed.');
+  return { ...s, reportType: s.reportType ?? '', config: s.config ?? {} } as ReportSnapshot;
 }
 
 /**
@@ -394,6 +440,14 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       doc.setTextColor(0, 0, 0);
       doc.text(`Page ${i} of ${pageCount}`, pw / 2, ph - 7, { align: 'center' });
       normalFont();
+      if (config.draft) {
+        // Light grey, diagonal, on EVERY page: a page torn out of a draft must
+        // still say it is one.
+        doc.setFontSize(48);
+        doc.setTextColor(200, 200, 200);
+        doc.text('DRAFT — NOT APPROVED', pw / 2, ph / 2, { align: 'center', angle: 35 });
+        doc.setTextColor(...COLORS.text);
+      }
     }
   };
 
@@ -417,7 +471,10 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     // Otherwise a single line whose label is chosen per role × per report
     // (config → Report Signatories) by the current generator.
     let sigLines: string[];
-    if (config.signatures?.length) {
+    if (config.draft) {
+      // Unsigned by definition; the signatures arrive with the approved copy.
+      sigLines = [];
+    } else if (config.signatures?.length) {
       sigLines = config.signatures.map((s) => `${s.label}: ${s.value}`);
     } else {
       const sigLabel = (config.reportKey ? (sig?.[config.reportKey] ?? '').trim() : '') || 'Printed By';
@@ -461,16 +518,21 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     if (y + needed > ph - 18) { doc.addPage(); y = 14; }
   };
 
-  // Always start a fresh page (used to keep each grouped section on its own
-  // page in the lifecycle report).
-  const newPage = () => { doc.addPage(); y = 14; };
-
-  // Snapshot capture — every section title + table is recorded so the report
-  // can be re-rendered later (Send for Review).
+  // Snapshot capture — EVERY drawing call is recorded so the report can be
+  // replayed identically later (the review workflow's draft and approved copies).
   const snapSections: ReportSnapshot['sections'] = [];
   let pendingTitle: string | undefined;
+  // A title rides on the table or pairs block that follows it (the v1 shape);
+  // followed by anything else it is recorded on its own.
+  const flushTitle = () => {
+    if (pendingTitle !== undefined) { snapSections.push({ kind: 'title', text: pendingTitle }); pendingTitle = undefined; }
+  };
+
+  // Always start a fresh page (the Data Report puts each instrument on its own).
+  const newPage = () => { flushTitle(); snapSections.push({ kind: 'page-break' }); doc.addPage(); y = 14; };
 
   const addSectionTitle = (text: string) => {
+    flushTitle();
     checkPageBreak(10);
     doc.setFillColor(...COLORS.headerBg);
     doc.roundedRect(14, y - 1, pw - 28, 7, 1, 1, 'F');
@@ -478,6 +540,27 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     doc.text(text, 17, y + 4);
     y += 10;
     pendingTitle = text;
+  };
+
+  const NOTE_COLORS: Record<NoteColor, [number, number, number]> = { red: COLORS.red, muted: COLORS.muted, text: COLORS.text };
+  const addNote = (text: string, color: NoteColor = 'text') => {
+    flushTitle();
+    snapSections.push({ kind: 'note', text, color });
+    const lines = doc.splitTextToSize(text, pw - GUTTER_MM * 2) as string[];
+    checkPageBreak(lines.length * 4 + 4);
+    doc.setFontSize(8);
+    doc.setTextColor(...NOTE_COLORS[color]);
+    doc.text(lines, GUTTER_MM, y);
+    y += lines.length * 4 + 4;
+    doc.setTextColor(...COLORS.text);
+  };
+
+  const addImage = (dataUrl: string, widthMm: number, heightMm: number) => {
+    flushTitle();
+    snapSections.push({ kind: 'image', dataUrl, widthMm, heightMm });
+    checkPageBreak(heightMm + 4);
+    doc.addImage(dataUrl, 'PNG', GUTTER_MM, y, widthMm, heightMm);
+    y += heightMm + 6;
   };
 
   const addTable = (opts: {
@@ -489,7 +572,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     headColor?: [number, number, number];
     bold?: boolean[][];
   }) => {
-    snapSections.push({ title: pendingTitle, head: opts.head ?? [], body: opts.body, columnStyles: opts.columnStyles });
+    snapSections.push({ kind: 'table', title: pendingTitle, head: opts.head ?? [], body: opts.body, columnStyles: opts.columnStyles, ...(opts.bold ? { bold: opts.bold } : {}) });
     pendingTitle = undefined;
     checkPageBreak(20);
     autoTable(doc, {
@@ -529,7 +612,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
   };
 
   const addKeyValue = (pairs: [string, string][], columns = 3) => {
-    snapSections.push({ title: pendingTitle, pairs, columns });
+    snapSections.push({ kind: 'pairs', title: pendingTitle, pairs, columns });
     pendingTitle = undefined;
     checkPageBreak(12);
     const colW = (pw - 28) / columns;
@@ -553,39 +636,59 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
   return {
     doc, get y() { return y; }, set y(v) { y = v; },
     pw, ph, colors: COLORS,
-    addTable, addSectionTitle, addKeyValue, checkPageBreak, newPage,
+    addTable, addSectionTitle, addKeyValue, addNote, addImage, checkPageBreak, newPage,
     save: (filename: string) => { addEndBlock(); addFooters(); doc.save(filename); },
-    getSnapshot: (): ReportSnapshot => ({
-      reportType: config.reportKey,
-      title: config.title,
-      subtitle: config.subtitle,
-      orientation: config.orientation,
-      sections: snapSections,
-    }),
+    getSnapshot: (): ReportSnapshot => {
+      flushTitle();
+      return {
+        version: 2,
+        reportType: config.reportKey ?? '',
+        title: config.title,
+        subtitle: config.subtitle,
+        orientation: config.orientation,
+        config: { legend: config.legend, typography: config.typography, showAppName: config.showAppName },
+        sections: snapSections,
+      };
+    },
   };
 }
 
 /**
- * Re-render a persisted report snapshot to a PDF with explicit signature lines
- * (Printed By / Reviewed By / Approved By). Used to download an APPROVED report.
+ * Replay a frozen snapshot through the ONE renderer: as the approver's DRAFT
+ * (`draft: true` — watermark, no signatures) or as the approved copy with its
+ * two signature lines. Returns the document; the caller saves or opens it.
  */
 export async function renderSnapshotToPdf(
   snapshot: ReportSnapshot,
-  signatures: { label: string; value: string }[],
-  formatDateTime: (d: string) => string,
-  filename: string,
-): Promise<void> {
+  opts: { formatDateTime: (d: string) => string; signatures?: { label: string; value: string }[]; draft?: boolean },
+): Promise<ReportDoc> {
   const report = await createReport({
     title: snapshot.title,
     subtitle: snapshot.subtitle,
     orientation: snapshot.orientation,
-    formatDateTime,
-    signatures,
+    reportKey: snapshot.reportType || undefined,
+    legend: snapshot.config?.legend,
+    typography: snapshot.config?.typography,
+    showAppName: snapshot.config?.showAppName,
+    formatDateTime: opts.formatDateTime,
+    signatures: opts.signatures,
+    draft: opts.draft,
   });
   for (const s of snapshot.sections) {
-    if (s.title) report.addSectionTitle(s.title);
-    if ('pairs' in s) report.addKeyValue(s.pairs, s.columns);
-    else report.addTable({ head: s.head, body: s.body, columnStyles: s.columnStyles });
+    switch (s.kind) {
+      case 'table':
+        if (s.title) report.addSectionTitle(s.title);
+        report.addTable({ head: s.head.length ? s.head : undefined, body: s.body, columnStyles: s.columnStyles, bold: s.bold });
+        break;
+      case 'pairs':
+        if (s.title) report.addSectionTitle(s.title);
+        report.addKeyValue(s.pairs, s.columns);
+        break;
+      case 'title': report.addSectionTitle(s.text); break;
+      case 'note': report.addNote(s.text, s.color); break;
+      case 'image': report.addImage(s.dataUrl, s.widthMm, s.heightMm); break;
+      case 'page-break': report.newPage(); break;
+    }
   }
-  report.save(filename);
+  return report;
 }
