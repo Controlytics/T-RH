@@ -31,4 +31,6 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
   // 2026-09-07: the Instrument History widget, moved off the dashboard onto its
   // own page. `/data-report`; gated on INSTRUMENT_READ through the tree.
   { id: 'data-report', label: 'Data Report', icon: '\u{1F4C4}', description: 'Readings of a Block, an Area or chosen instruments over a period, with the Data Report download' },
+  // 2026-09-07: the report review workflow. `/reports`; gated on REPORT_REVIEW_READ through the tree.
+  { id: 'reports', label: 'Reports', icon: '\u{1F4D1}', description: 'Report requests awaiting approval, and approved reports to download' },
 ];

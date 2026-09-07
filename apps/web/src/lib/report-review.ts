@@ -71,11 +71,6 @@ export async function submitReportForReview(input: {
   }, input.password ?? '');
 }
 
-export async function listReviews(list: ReviewList, page: number, pageSize: number): Promise<{ data: ReviewSummary[]; total: number }> {
-  const qs = new URLSearchParams({ list, page: String(page), pageSize: String(pageSize) });
-  return apiClient.get<{ data: ReviewSummary[]; total: number }>(`/api/report-reviews?${qs}`);
-}
-
 export async function fetchReview(id: string): Promise<ReviewFull> {
   return apiClient.get<ReviewFull>(`/api/report-reviews/${id}`);
 }
