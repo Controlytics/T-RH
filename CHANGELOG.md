@@ -1,5 +1,33 @@
 # Changelog
 
+## [Unreleased] - Report approvers are administered: which roles may approve a report (2026-09-07)
+
+Operator: *"that approval role should be configurable which role user should be
+approved that role will set by super admin in configurations"*. Until now the
+requester chose freely from every user and every role.
+
+- **Config def `report-approvers`** (30 → 31 defs), SUPER_ADMIN-only, a
+  multiselect of active roles loaded live from `/api/roles/active` — the first
+  def to use the `dynamicOptionsSource` mechanism. Renders through the dynamic
+  config page with a Configuration card; no page file, no migration, no
+  permission, no reauth action.
+- **Enforced on the request, server-side.** `POST /api/report-reviews` refuses a
+  role outside the list (`ROLE_NOT_APPROVER`), a user whose role is outside it
+  (`USER_NOT_APPROVER`) and, with the list empty, every request
+  (`NO_APPROVER_ROLE`, the message naming the fix). Mutation-checked.
+- **The Send-to picker narrows to the configured roles and the enabled users
+  holding one**, read from the new narrow-slice route
+  `GET /api/config/report-approvers/current` (every authenticated user; the
+  seventh of its kind). With nothing configured it shows the message and no
+  control.
+- **Ships EMPTY and fails closed.** After deploy no PDF can be requested until a
+  super admin ticks a role once under Configuration → Report Approvers. The
+  operator was told this in the design and said go.
+- `coerceApproverRoles()` in `@digilog/shared` is the one reader of the stored
+  row (server check, route, picker); SUPER_ADMIN is never an approver.
+- Tests: shared unit (4), e2e (+4: the two refusals, the fail-closed refusal,
+  the narrow route and the SUPER_ADMIN-only editor), dialog (+2).
+
 ## [Unreleased] - Report review workflow: every PDF download is a request an approver signs (2026-09-07)
 
 Operator: *"when ever user click on download then directly pdf should not

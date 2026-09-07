@@ -2,12 +2,16 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ReportDownloadDialog } from '../report-download-dialog';
 
+// Which roles may approve is administered (2026-09-07); a test overrides it here.
+const approverState = vi.hoisted(() => ({ override: null as string[] | null }));
+
 // The Send-to picker (2026-09-07) reads the active roles and users.
 vi.mock('swr', () => ({
   default: (key: any) => {
     const k = typeof key === 'function' ? key() : key;
-    if (typeof k === 'string' && k.startsWith('/api/roles/active')) return { data: [{ name: 'QA', displayName: 'QA Approver' }, { name: 'SUPER_ADMIN', displayName: 'Super Admin' }] };
-    if (typeof k === 'string' && k.startsWith('/api/users?')) return { data: { data: [{ id: 'u-appr', username: 'qa1', fullName: 'QA One', role: 'QA' }] } };
+    if (typeof k === 'string' && k.startsWith('/api/roles/active')) return { data: [{ name: 'QA', displayName: 'QA Approver' }, { name: 'OPS', displayName: 'Operations' }, { name: 'SUPER_ADMIN', displayName: 'Super Admin' }] };
+    if (typeof k === 'string' && k.startsWith('/api/users?')) return { data: { data: [{ id: 'u-appr', username: 'qa1', fullName: 'QA One', role: 'QA' }, { id: 'u-ops', username: 'ops1', fullName: 'Ops One', role: 'OPS' }] } };
+    if (typeof k === 'string' && k.startsWith('/api/config/report-approvers/current')) return { data: { approverRoles: approverState.override ?? ['QA'] } };
     return { data: undefined };
   },
 }));
@@ -130,6 +134,34 @@ describe('ReportDownloadDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
     expect(onCancel).toHaveBeenCalled();
     expect(onConfirm).not.toHaveBeenCalled();
+  });
+});
+
+describe('Send to — only the ADMINISTERED approver roles, and their holders (2026-09-07)', () => {
+  // Operator: "that approval role should be configurable which role user should
+  // be approved that role will set by super admin in configurations". The
+  // picker is presentation; the server refuses anything outside the list.
+  const period = { from: '2026-08-24T00:00:00.000Z', to: '2026-08-24T01:00:00.000Z', label: 'Custom' };
+
+  it('offers only the configured roles, and only users holding one of them', () => {
+    render(<ReportDownloadDialog open reportName="Data Report" initialPeriod={period} onCancel={() => {}} onConfirm={vi.fn()} />);
+    const roleSelect = screen.getByLabelText(/send to/i) as HTMLSelectElement;
+    expect([...roleSelect.options].map((o) => o.value).filter(Boolean)).toEqual(['QA']);
+    fireEvent.click(screen.getByRole('button', { name: /to a user/i }));
+    const userSelect = screen.getByLabelText(/send to/i) as HTMLSelectElement;
+    expect([...userSelect.options].map((o) => o.value).filter(Boolean)).toEqual(['u-appr']);
+  });
+
+  it('with no approver role configured it says so, names the fix, and offers nothing', () => {
+    approverState.override = [];
+    try {
+      render(<ReportDownloadDialog open reportName="Data Report" initialPeriod={period} onCancel={() => {}} onConfirm={vi.fn()} />);
+      expect(screen.getByRole('alert')).toHaveTextContent(/no approver role is configured/i);
+      expect(screen.getByRole('alert')).toHaveTextContent(/super admin/i);
+      expect(screen.queryByLabelText(/send to/i)).toBeNull();
+    } finally {
+      approverState.override = null;
+    }
   });
 });
 

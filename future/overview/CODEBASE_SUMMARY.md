@@ -185,7 +185,7 @@ Full detail: `LOCAL_SETUP_WINDOWS.md` at root.
 - ~~Alarm column metadata → `packages/shared/src/types/alarm-columns.ts`~~ *(removed 2026-05-17 with the alarm tear-out)*
 - DB schema → `apps/api/prisma/schema.prisma` (61 models, 23 enums)
 - Migrations → `apps/api/prisma/migrations/`
-- Config def → `apps/api/src/modules/config/defs/<name>.def.ts` (30 files)
+- Config def → `apps/api/src/modules/config/defs/<name>.def.ts` (31 files, re-derived 2026-09-07)
 - Config page → `apps/web/src/routes/config/<name>.tsx` (26 files)
 - Config route → `apps/api/src/modules/config/static-routes/<name>.routes.ts` (11 files; bloat audit P2.3 split done)
 - Backend module → `apps/api/src/modules/<name>/` (33 modules)

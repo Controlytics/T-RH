@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import useSWR from 'swr';
-import { ALL_RECORDS_PARAM } from '@digilog/shared';
+import { ALL_RECORDS_PARAM, coerceApproverRoles, REPORT_APPROVERS_NONE_MESSAGE } from '@digilog/shared';
 import type { Assignee } from '@/lib/report-review';
 
 interface Role { name: string; displayName: string }
@@ -9,8 +9,19 @@ interface User { id: string; username: string; role?: string; fullName?: string 
 /**
  * "Send to" — a user OR a role — for a report request (2026-09-07). Lifted from
  * the removed `SendForReviewButton`, whose dialog collected the same choice for
- * the workflow this replaces. SUPER_ADMIN is never offered as a role: it is not
- * an approving function, and a request "to any super admin" names nobody.
+ * the workflow this replaces.
+ *
+ * **Only the ADMINISTERED approver roles are offered, and only users holding
+ * one** (operator, later the same day: "that approval role should be
+ * configurable … set by super admin in configurations"). The list comes from
+ * `GET /api/config/report-approvers/current`, through the same
+ * `coerceApproverRoles` the server applies, so what is offered is what the
+ * server will accept — the picker is presentation, the server's 400 is the
+ * control. SUPER_ADMIN is never in the list: it is not an approving function,
+ * and a request "to any super admin" names nobody.
+ *
+ * **With nothing configured it offers nothing and says why**, naming the fix.
+ * A silent empty dropdown would read as "no roles exist".
  *
  * Controlled: the dialog owns the value so it can refuse to submit without one.
  * The select is labelled "Send to" whichever mode is active, so the one control
@@ -23,16 +34,32 @@ export function AssigneePicker({ value, onChange, disabled }: {
   disabled?: boolean;
 }) {
   const [mode, setMode] = useState<'role' | 'user'>(value && 'userId' in value ? 'user' : 'role');
+  const { data: approversData } = useSWR<{ approverRoles: string[] }>('/api/config/report-approvers/current');
   const { data: rolesData } = useSWR<Role[]>('/api/roles/active');
   const { data: usersData } = useSWR<any>(`/api/users?${ALL_RECORDS_PARAM}&status=ENABLED`);
-  const roles = useMemo(() => (rolesData ?? []).filter((r) => r.name !== 'SUPER_ADMIN'), [rolesData]);
+
+  // `undefined` until the config arrives — distinct from an EMPTY list, which is
+  // the "nothing configured" state and gets the message.
+  const approverRoles = useMemo(() => (approversData ? coerceApproverRoles(approversData) : undefined), [approversData]);
+  const roles = useMemo(
+    () => (rolesData ?? []).filter((r) => r.name !== 'SUPER_ADMIN' && (approverRoles ?? []).includes(r.name)),
+    [rolesData, approverRoles],
+  );
   const users: User[] = useMemo(() => {
     const raw = Array.isArray(usersData) ? usersData : (usersData?.data ?? usersData?.users ?? []);
-    return (raw as User[]).filter((u) => u.username);
-  }, [usersData]);
+    return (raw as User[]).filter((u) => u.username && !!u.role && (approverRoles ?? []).includes(u.role));
+  }, [usersData, approverRoles]);
 
   const switchMode = (next: 'role' | 'user') => { setMode(next); onChange(null, ''); };
   const selected = value ? ('userId' in value ? value.userId : value.role) : '';
+
+  if (approverRoles && approverRoles.length === 0) {
+    return (
+      <p role="alert" className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+        {REPORT_APPROVERS_NONE_MESSAGE}
+      </p>
+    );
+  }
 
   return (
     <div className="space-y-2">

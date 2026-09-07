@@ -182,7 +182,10 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   re-derived by the two greps in the verification block). Earlier: **97** / **91** in **7**
   categories. 93 → 97 / 87 → 91 (2026-08-27): create / update / delete / test
   for alarm webhook targets; categories unchanged.
-- **Config:** **30** definitions (`config/defs/*.def.ts`) + auto-discovery (29 → 30 on
+- **Config:** **31** definitions (`config/defs/*.def.ts`) + auto-discovery (30 → 31 on
+  2026-09-07: `report-approvers.def.ts` — which roles may APPROVE a report; renders
+  through the dynamic config page with a `superAdminCards` card, so the page count
+  did NOT move; first def to use `dynamicOptionsSource`. 29 → 30 on
   2026-09-01: `trend-widgets.def.ts` — what every widget on the instrument trend
   page is CALLED, and how each prints a date and a time. Rendered by the dynamic
   config page, so the page count did NOT move; it also gets a hardcoded
@@ -275,7 +278,7 @@ history; `docs/recreation/` holds the inventory.
     code accepted, reading lands, UUID refused, foreign token/code refused,
     foreign topic publish and subscribe refused.
 - **Instrument grouping — THREE concepts, one job each (2026-08-13).** Do not confuse them: **`FunctionalLocation`** (Block > Area tree, `Instrument.functionalLocationId`) is the AUTHORITATIVE logical grouping; **`roomId`** → `FloorplanRoom` is geometry on a drawn plan and drives the graphical view; **`profileId`** is device type. The free-text `Instrument.block` / `.area` columns are SUPERSEDED — no longer read for grouping, kept only so the migration stays comparable. A Block's instruments are its own PLUS its Areas', resolved by `functional-locations/tree.ts:resolveLocationIds()`; querying `functionalLocationId = :id` directly silently omits the Areas.
-- **Config:** **30 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **23** corresponding pages (both re-derived by `ls | wc -l` 2026-09-01; defs 29 → 30 that day with `trend-widgets.def.ts`, which adds no page — it renders through the dynamic config page; the page count read 24 here and in System Stats above until then and was **stale, not moved** — `alarm-rules.tsx` went with the 2026-08-31 rule removal and neither line was re-synced. This is the THIRD time this bullet has drifted from the one above it; the duplication itself is the defect it keeps warning about). **This bullet's def count went stale TWICE while the System Stats section above was current — 25 here against 26 then 27 there.** It is the same self-contradiction the 2026-08-29 audit raised as finding M8 for the page count, in the same bullet, and re-syncing only the half that was wrong that day is why it came back. Two live inventory lines for one number is the actual defect; re-derive both from `ls` whenever either moves. Defs 25 → 26 → 27 on 2026-08-31 (`inactivity-alarms.def.ts`, then `rs485-alarms.def.ts` — both render through the dynamic config page, so the page count did not move). Earlier note, still true: the 25 predated `dashboard-cards.tsx` being deleted on 2026-08-28. Defs verified `ls` 2026-08-27, unchanged at 25 — the def and page counts are NOT equal and should not be expected to be: `alarm-webhooks.tsx` is a page with no def (a CRUD module, not a `system_config` row), and several defs render through the dynamic config page with no file of their own. Earlier: pages 25 → 24 the same day — `routes/config/role-assignments.tsx` deleted as dead code: its 7 config defs went in the Phase 0 strip and `system_config` held 0 rows for them, so every section read an unregistered `/api/config/dynamic/<key>` route. Earlier counts VERIFIED by `ls` 2026-08-17 — `alarm-limits.def.ts` added 2026-08-17: super-admin config for the instrument-limit alarm work — an ordered alias list of attribute keys per bound (High/Low Temperature/Humidity Limit), since this install's keys have already drifted; plus a master switch and four status wordings. (It also carried a `severity`
+- **Config:** **31 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **23** corresponding pages (defs re-derived `ls | wc -l` 2026-09-07, 30 → 31 with `report-approvers.def.ts`; both re-derived 2026-09-01; defs 29 → 30 that day with `trend-widgets.def.ts`, which adds no page — it renders through the dynamic config page; the page count read 24 here and in System Stats above until then and was **stale, not moved** — `alarm-rules.tsx` went with the 2026-08-31 rule removal and neither line was re-synced. This is the THIRD time this bullet has drifted from the one above it; the duplication itself is the defect it keeps warning about). **This bullet's def count went stale TWICE while the System Stats section above was current — 25 here against 26 then 27 there.** It is the same self-contradiction the 2026-08-29 audit raised as finding M8 for the page count, in the same bullet, and re-syncing only the half that was wrong that day is why it came back. Two live inventory lines for one number is the actual defect; re-derive both from `ls` whenever either moves. Defs 25 → 26 → 27 on 2026-08-31 (`inactivity-alarms.def.ts`, then `rs485-alarms.def.ts` — both render through the dynamic config page, so the page count did not move). Earlier note, still true: the 25 predated `dashboard-cards.tsx` being deleted on 2026-08-28. Defs verified `ls` 2026-08-27, unchanged at 25 — the def and page counts are NOT equal and should not be expected to be: `alarm-webhooks.tsx` is a page with no def (a CRUD module, not a `system_config` row), and several defs render through the dynamic config page with no file of their own. Earlier: pages 25 → 24 the same day — `routes/config/role-assignments.tsx` deleted as dead code: its 7 config defs went in the Phase 0 strip and `system_config` held 0 rows for them, so every section read an unregistered `/api/config/dynamic/<key>` route. Earlier counts VERIFIED by `ls` 2026-08-17 — `alarm-limits.def.ts` added 2026-08-17: super-admin config for the instrument-limit alarm work — an ordered alias list of attribute keys per bound (High/Low Temperature/Humidity Limit), since this install's keys have already drifted; plus a master switch and four status wordings. (It also carried a `severity`
   select until 2026-09-01, when severity stopped being administered anywhere; the
   def count did not move — a setting was removed, not a def.) Renders through the dynamic config page, so no `routes/config/*.tsx` of its own — the page count stays 25. The "23 corresponding pages" recorded here 2026-08-11 was already stale before this change (the live page count was 25, per `apps/web/CLAUDE.md`'s 2026-08-14 verification); it was never re-synced here until now. Earlier: `telemetry-slots.def.ts` added 2026-08-11: which telemetry keys the dashboard reads as temperature and humidity, since ingest stores whatever key a device sends. Renders through the dynamic config page, so no `routes/config/*.tsx` of its own; the Floorplans placement editor IS a page. Earlier counts VERIFIED by `ls` 2026-08-07 — the previous "36 / 34" was inherited from DigiLog and was never true in this fork; `instrument-attributes.def.ts` added 2026-08-07 — the attribute keys the New Instrument form asks for, renders via the dynamic config page so no new `routes/config/*.tsx`)
 - **Display precision (2026-08-19):** decimal places for temperature/humidity come from each
@@ -433,6 +436,10 @@ POST   /api/report-reviews/:id/approve | reject — assignee only, never the req
                                                     REPORT_REVIEW_APPROVE + APPROVE_REPORT / REJECT_REPORT reauth;
                                                     one decision (409 on a second); audited; requester notified
 POST   /api/report-reviews/:id/download-log     — a party downloading the APPROVED copy; written BEFORE save
+GET    /api/config/report-approvers/current     — the administered approver roles (2026-09-07), every
+                                                    authenticated user; the SEVENTH narrow-slice route.
+                                                    `{approverRoles: string[]}`, already coerced (never
+                                                    SUPER_ADMIN); EMPTY = no report can be requested
 ```
 
 - **Inactivity alarms — a THIRD alarm source (2026-08-31).** `AlarmSource` gains
@@ -803,6 +810,33 @@ POST   /api/report-reviews/:id/download-log     — a party downloading the APPR
   - This REPLACES the module removed on 2026-07-18 (tag `pre-domain-strip`),
     without its second review stage. The flag-disabled `SendForReviewButton` on
     the Audit page — retained UI for that removed backend — went with it.
+- **Which roles may APPROVE a report is ADMINISTERED (2026-09-07, operator:
+  "that approval role should be configurable which role user should be approved
+  that role will set by super admin in configurations").** Config def
+  `report-approvers` (30 → 31 defs; SUPER_ADMIN-only; renders through the
+  dynamic config page, `superAdminCards` card, page count unchanged): one
+  `multiselect` of active roles loaded live through `dynamicOptionsSource`
+  (`/api/roles/active`) — the mechanism existed and no def used it until now.
+  - **`coerceApproverRoles()` in `@digilog/shared` is the ONE reader** of the
+    stored row: the server's request check (`report-reviews/service.ts`), the
+    narrow-slice route `GET /api/config/report-approvers/current`, and the
+    Send-to picker. SUPER_ADMIN is stripped wherever it is read.
+  - **Enforced on the REQUEST, server-side.** `POST /api/report-reviews` refuses
+    a role outside the list (`ROLE_NOT_APPROVER`), a user whose role is outside
+    it (`USER_NOT_APPROVER`), and — with the list EMPTY — every request
+    (`NO_APPROVER_ROLE`, message naming the fix). The picker offers only the
+    configured roles and the enabled users holding one, and with none configured
+    shows the same message and no control; it is presentation, the 400 is the
+    control. Mutation-checked (dropping the user-role check fails the e2e).
+  - **Ships EMPTY and FAILS CLOSED**, like `inactivity-alarms` and for the same
+    kind of reason: a report must not reach an approver nobody appointed.
+    Consequence, stated plainly: after deploy NO PDF can be requested until a
+    super admin ticks a role once under Configuration → Report Approvers.
+  - Approving still needs `REPORT_REVIEW_APPROVE` and the request assigned to
+    you or your role; the list governs who a request may be SENT to. A pending
+    request survives a later config change — it is a record.
+  - No migration, model, enum, permission, reauth action, page or sidebar item.
+    Not seeded; the e2e pins its own row and restores it first in `afterAll`.
 - **The Instrument History widget is the DATA REPORT PAGE, not a dashboard
   panel (2026-09-07, operator: "in dashboard Instruments history widget was
   there that widget removed there and add one side bar option Data Report, in

@@ -69,6 +69,7 @@ function dataFor(key: string | null): any {
   }
   if (key.includes('/api/alarms')) return { data: [] };
   if (key.startsWith('/api/roles/active')) return [{ name: 'QA', displayName: 'QA Approver' }];
+  if (key.startsWith('/api/config/report-approvers/current')) return { approverRoles: ['QA'] };
   if (key.startsWith('/api/users?')) return { data: [{ id: 'u-appr', username: 'qa1', fullName: 'QA One', role: 'QA' }] };
   if (key.includes('action-reauth/my-actions')) return { actions: [] };
   if (key.includes('/api/functional-locations')) {

@@ -144,6 +144,13 @@ Every PDF download is a REQUEST an approver signs. Spec:
   — a user or a role, never SUPER_ADMIN; lifted from the removed
   `SendForReviewButton`) and its button reads *Request approval*.
   `ReportDownloadRequest` carries `assignee` and `assigneeLabel` (for the toast).
+  **The picker offers only the ADMINISTERED approver roles and the enabled
+  users holding one** (`GET /api/config/report-approvers/current`, through the
+  shared `coerceApproverRoles` — the same reader the server applies, so what is
+  offered is what will be accepted). With none configured it renders the shared
+  `REPORT_APPROVERS_NONE_MESSAGE` as an alert and NO control — a silent empty
+  dropdown would read as "no roles exist". Presentation only; the server's 400
+  is the control (operator, 2026-09-07: "set by super admin in configurations").
   Every trigger replaces `logReportExport` + `report.save()` with
   `submitReportForReview` (`lib/report-review.ts`) inside the same
   `DOWNLOAD_REPORT` re-auth, sending `report.getSnapshot()`, the period,

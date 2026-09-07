@@ -213,6 +213,10 @@ export {
   trendWidgetLabel, trendWidgetFormat, resolveTrendWidgetTexts, coerceTrendWidgetTexts,
   trendWidgetDateFormatKey, trendWidgetTimeFormatKey,
 } from './types/trend-widgets.js';
+export {
+  REPORT_APPROVERS_CONFIG_KEY, REPORT_APPROVERS_NONE_MESSAGE, coerceApproverRoles,
+} from './types/report-approvers.js';
+export type { ReportApproversConfig } from './types/report-approvers.js';
 export type {
   TrendWidgetId, TrendWidgetLabelKey, TrendWidgetConfig,
   TrendWidgetFormat, TrendWidgetTexts,

@@ -29,6 +29,8 @@ import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { createNotification } from '../notifications/notification.service.js';
 import { clampSignature } from '../alarms/validation.js';
+import { REPORT_APPROVERS_NONE_MESSAGE } from '@digilog/shared';
+import { loadApproverRoles } from './load-approvers.js';
 
 export type ReviewList = 'queue' | 'mine' | 'approved';
 export type ReviewDecision = 'APPROVED' | 'REJECTED';
@@ -143,15 +145,23 @@ function auditBase(ctx: RequestContext) {
 export const reportReviewService = {
   async submit(ctx: RequestContext, input: SubmitInput): Promise<ReviewSummary> {
     const assignee = requireOneAssignee(input.assigneeUserId, input.assigneeRole);
+    // Which roles may approve is administered (Configuration → Report Approvers,
+    // 2026-09-07). Checked HERE, at the request: the picker offers only these,
+    // but the picker is presentation. An empty list refuses every request —
+    // fail closed — with the fix named, since nothing else on screen can say it.
+    const approverRoles = await loadApproverRoles();
+    if (approverRoles.length === 0) throw new AppError(400, 'NO_APPROVER_ROLE', REPORT_APPROVERS_NONE_MESSAGE);
     if (assignee.assigneeUserId) {
-      const u = await prisma.user.findFirst({ where: { id: assignee.assigneeUserId, status: 'ENABLED' }, select: { id: true } });
+      const u = await prisma.user.findFirst({ where: { id: assignee.assigneeUserId, status: 'ENABLED' }, select: { id: true, role: true } });
       if (!u) throw new AppError(400, 'ASSIGNEE_NOT_FOUND', 'That user does not exist or is not active.');
       // Separation of duties starts at the request: a report sent to oneself
       // would be signed by one person twice.
       if (u.id === ctx.userSub) throw new AppError(400, 'SELF_ASSIGNMENT', 'A report cannot be sent to yourself for approval.');
+      if (!approverRoles.includes(u.role)) throw new AppError(400, 'USER_NOT_APPROVER', 'That user does not hold an approver role.');
     } else {
       const r = await prisma.role.findFirst({ where: { name: assignee.assigneeRole!, isActive: true }, select: { name: true } });
       if (!r) throw new AppError(400, 'ASSIGNEE_NOT_FOUND', 'That role does not exist or is not active.');
+      if (!approverRoles.includes(r.name)) throw new AppError(400, 'ROLE_NOT_APPROVER', 'That role is not a configured approver role.');
     }
     const row = await prisma.reportReview.create({
       data: {

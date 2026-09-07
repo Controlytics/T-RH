@@ -228,6 +228,20 @@ reauth actions 48 → 50 (categories 8) · audit actions 98 → 102, templates
 - Sample DRAFT and APPROVED PDFs rendered to the scratchpad and read back
   before claiming the layout.
 
+## Addendum (same day): approver roles are administered
+
+Operator: *"that approval role should be configurable which role user should be
+approved that role will set by super admin in configurations"*. Config def
+`report-approvers` (SUPER_ADMIN, dynamic config page, one multiselect of active
+roles via `dynamicOptionsSource`). `coerceApproverRoles()` in `@digilog/shared`
+is the one reader. The server refuses a request to a role outside the list, to a
+user whose role is outside it, and — with the list empty — every request, with a
+message naming the fix. The Send-to picker offers only the configured roles and
+the enabled users holding one, reading `GET /api/config/report-approvers/current`.
+Ships empty and fails closed: nothing can be requested until a super admin sets a
+role once. The list governs who a request may be SENT to; deciding still needs
+`REPORT_REVIEW_APPROVE` and the assignment. Defs 30 → 31; nothing else moves.
+
 ## Out of scope, stated
 
 Email/SMS for report events; a second review stage; editing or withdrawing a

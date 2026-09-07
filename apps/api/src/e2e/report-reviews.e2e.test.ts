@@ -38,7 +38,18 @@ let tokAdmin = '';
 let idReq = '';
 let idAppr = '';
 let originalReauthRow: { configValue: unknown; configType: string; requiresReauth: boolean } | null = null;
+let originalApproversRow: { configValue: unknown; configType: string; requiresReauth: boolean } | null = null;
 const created: string[] = [];
+
+/** Which roles may approve — administered by SUPER_ADMIN (2026-09-07). Pinned so the request checks are exercised, not skipped. */
+async function setApproverRoles(roles: string[]) {
+  const value = { approverRoles: roles } as never;
+  await prisma.systemConfig.upsert({
+    where: { configKey: 'report-approvers' },
+    update: { configValue: value, configType: 'system', requiresReauth: false },
+    create: { configKey: 'report-approvers', configValue: value, configType: 'system', requiresReauth: false },
+  });
+}
 
 const snapshot = {
   version: 2, reportType: 'Instrument Time Series', title: 'Temperature and RH Data Report',
@@ -87,6 +98,10 @@ beforeAll(async () => {
     create: { configKey: 'action-reauth', configValue: gated, configType: 'security', requiresReauth: false },
   });
   invalidateReauthCache();
+
+  const approvers = await prisma.systemConfig.findUnique({ where: { configKey: 'report-approvers' } });
+  if (approvers) originalApproversRow = { configValue: approvers.configValue, configType: approvers.configType, requiresReauth: approvers.requiresReauth };
+  await setApproverRoles([ROLE_APPR]);
 });
 
 beforeEach(() => invalidateReauthCache());
@@ -102,6 +117,13 @@ afterAll(async () => {
     }
     invalidateReauthCache();
   } catch (e) { console.error('reauth restore failed', e); }
+  try {
+    if (originalApproversRow) {
+      await prisma.systemConfig.update({ where: { configKey: 'report-approvers' }, data: originalApproversRow as never });
+    } else {
+      await prisma.systemConfig.deleteMany({ where: { configKey: 'report-approvers' } });
+    }
+  } catch (e) { console.error('approvers restore failed', e); }
   try { await prisma.reportReview.deleteMany({ where: { id: { in: created } } }); } catch (e) { console.error(e); }
   try { await prisma.notification.deleteMany({ where: { OR: [{ forUserId: { in: [U_REQ, U_APPR, U_THIRD] } }, { forRole: { in: [ROLE_REQ, ROLE_APPR] } }] } }); } catch (e) { console.error(e); }
   try { await prisma.session.deleteMany({ where: { user: { username: { in: [U_REQ, U_APPR, U_THIRD] } } } }); } catch { /* sessions may cascade */ }
@@ -148,11 +170,52 @@ describe('POST /api/report-reviews', () => {
     expect((await submit(tokReq, {}, 'wrong-password')).statusCode).toBe(401);
   });
 
+  it('refuses a role that is not a configured approver role, and a user whose role is not one', async () => {
+    // The requester's own role is not in the administered list.
+    const role = await submit(tokReq, { assigneeUserId: undefined, assigneeRole: ROLE_REQ });
+    expect(role.statusCode).toBe(400);
+    expect(role.json().error).toBe('ROLE_NOT_APPROVER');
+    // The third user holds ROLE_REQ, which is not an approver role.
+    const third = await prisma.user.findFirstOrThrow({ where: { username: U_THIRD }, select: { id: true } });
+    const user = await submit(tokReq, { assigneeUserId: third.id });
+    expect(user.statusCode).toBe(400);
+    expect(user.json().error).toBe('USER_NOT_APPROVER');
+  });
+
+  it('refuses EVERY request while no approver role is configured — fail closed, with a message naming the fix', async () => {
+    await setApproverRoles([]);
+    try {
+      const res = await submit(tokReq);
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toBe('NO_APPROVER_ROLE');
+      expect(res.json().message).toMatch(/super admin/i);
+      const asRole = await submit(tokReq, { assigneeUserId: undefined, assigneeRole: ROLE_APPR });
+      expect(asRole.json().error).toBe('NO_APPROVER_ROLE');
+    } finally {
+      await setApproverRoles([ROLE_APPR]);
+    }
+  });
+
   it('is refused without REPORT_REVIEW_READ', async () => {
     // A role with no permission at all: the seeded OPERATOR has none of ours.
     const res = await app.inject({ method: 'POST', url: '/api/report-reviews', headers: bearer(tokAdmin), payload: {} });
     // SUPER_ADMIN passes the permission gate and fails the body schema instead.
     expect(res.statusCode).toBe(400);
+  });
+});
+
+describe('GET /api/config/report-approvers/current', () => {
+  it('every authenticated user reads the configured approver roles, already coerced', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/config/report-approvers/current', headers: bearer(tokReq) });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ approverRoles: [ROLE_APPR] });
+  });
+
+  it('the editor stays SUPER_ADMIN-only', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/config/dynamic/report-approvers', headers: bearer(tokReq) });
+    expect(res.statusCode).toBe(403);
+    const admin = await app.inject({ method: 'GET', url: '/api/config/dynamic/report-approvers', headers: bearer(tokAdmin) });
+    expect(admin.statusCode).toBe(200);
   });
 });
 

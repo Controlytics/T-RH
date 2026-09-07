@@ -44,6 +44,7 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
     import('../modules/config/defs/sensor-range-alarms.def.js'),
     import('../modules/config/defs/alarm-type-names.def.js'),
     import('../modules/config/defs/trend-widgets.def.js'),
+    import('../modules/config/defs/report-approvers.def.js'),
     // ─── Add new module configs below this line ───
   ]);
 

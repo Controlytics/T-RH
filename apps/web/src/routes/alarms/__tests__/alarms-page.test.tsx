@@ -86,6 +86,7 @@ vi.mock('swr', () => ({
     if (k.includes('/api/functional-locations')) return { data: { data: [] }, mutate: vi.fn() };
     if (k.includes('/config/pagination')) return { data: { limit: 10, count: 0, options: [10, 25, 50] }, mutate: vi.fn() };
     if (k.startsWith('/api/roles/active')) return { data: [{ name: 'QA', displayName: 'QA Approver' }], mutate: vi.fn() };
+    if (k.startsWith('/api/config/report-approvers/current')) return { data: { approverRoles: ['QA'] }, mutate: vi.fn() };
     if (k.startsWith('/api/users?')) return { data: { data: [{ id: 'u-appr', username: 'qa1', fullName: 'QA One', role: 'QA' }] }, mutate: vi.fn() };
     return { data: undefined, isLoading: false, mutate: vi.fn() };
   },
