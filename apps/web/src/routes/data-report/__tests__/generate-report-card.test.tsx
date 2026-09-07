@@ -53,10 +53,13 @@ const longHistory = [
 ];
 
 const requested: string[] = [];
+/** The role's administered Export Options for this surface; `undefined` = not administered (both formats). */
+let exportFormat: string | undefined;
 
 function dataFor(key: string | null): any {
   if (!key) return undefined;
   requested.push(key);
+  if (key.includes('/api/config/export-options/current')) return exportFormat ? { 'instrument-history': exportFormat } : {};
   if (key.includes('/telemetry-overview')) return { data: overview };
   if (key.includes('/telemetry-history?')) {
     const ids = new URLSearchParams(key.split('?')[1]).get('instrumentIds')!.split(',');
@@ -71,6 +74,8 @@ function dataFor(key: string | null): any {
     const scope = new URLSearchParams(key.split('?')[1]).get('functionalLocationId');
     return { data: scope === 'a2' ? [] : instruments, total: scope === 'a2' ? 0 : 2 };
   }
+  if (key.startsWith('/api/roles/active')) return [{ name: 'QA', displayName: 'QA Approver' }];
+  if (key.startsWith('/api/users?')) return { data: [{ id: 'u-appr', username: 'qa1', fullName: 'QA One', role: 'QA' }] };
   if (key.includes('action-reauth/my-actions')) return { actions: [] };
   return {};
 }
@@ -137,11 +142,14 @@ function pickArea() {
 async function confirmDownload(remarks: string) {
   fireEvent.click(screen.getByRole('button', { name: 'Export as PDF' }));
   fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: remarks } });
-  fireEvent.click(screen.getByText('Download'));
+  // The dialog needs an approver since 2026-09-07: pick the one user the mock offers.
+  fireEvent.click(screen.getByRole('button', { name: /to a user/i }));
+  fireEvent.change(screen.getByLabelText(/send to/i), { target: { value: 'u-appr' } });
+  fireEvent.click(screen.getByText('Request approval'));
 }
 
 describe('GenerateReportCard', () => {
-  beforeEach(() => { requested.length = 0; events.length = 0; logged.length = 0; saved.length = 0; lastPdf = ''; lastPages = 0; });
+  beforeEach(() => { requested.length = 0; events.length = 0; logged.length = 0; saved.length = 0; lastPdf = ''; lastPages = 0; exportFormat = undefined; });
 
   it('is the text and one download icon, nothing else', () => {
     renderBoth();
@@ -149,6 +157,18 @@ describe('GenerateReportCard', () => {
     expect(card).toHaveTextContent('Generate Data report');
     expect(screen.getByRole('button', { name: 'Export as PDF' })).toBeInTheDocument();
     expect(card.querySelectorAll('button')).toHaveLength(1);
+  });
+
+  it('is not rendered at all for a role whose Export Options allow no PDF here', () => {
+    // Text reading "Generate Data report" beside no icon is an inert control —
+    // the same decoy rule the trend page applies to unused props. `ExportMenu`
+    // already returns null for that role; the card must go with it.
+    exportFormat = 'NONE';
+    renderBoth();
+    expect(screen.queryByTestId('generate-report-card')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Export as PDF' })).toBeNull();
+    // The widget beneath is unaffected.
+    expect(screen.getByTestId('history-widget')).toBeInTheDocument();
   });
 
   it('opens the Time Series dialog — period, interval and remarks — seeded from the page', () => {

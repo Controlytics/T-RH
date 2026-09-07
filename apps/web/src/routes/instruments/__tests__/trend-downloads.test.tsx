@@ -68,6 +68,8 @@ function dataFor(key: string | null): any {
     return { latest: [], history, historyTotal: history.length + (whole ? 0 : extraTotal) };
   }
   if (key.includes('/api/alarms')) return { data: [] };
+  if (key.startsWith('/api/roles/active')) return [{ name: 'QA', displayName: 'QA Approver' }];
+  if (key.startsWith('/api/users?')) return { data: [{ id: 'u-appr', username: 'qa1', fullName: 'QA One', role: 'QA' }] };
   if (key.includes('action-reauth/my-actions')) return { actions: [] };
   if (key.includes('/api/functional-locations')) {
     return { data: [{ id: 'b1', name: 'CWH Block', children: [{ id: 'a1', name: 'QC 3(AHU-033)' }] }] };
@@ -164,11 +166,19 @@ function exportButtons() {
 }
 
 /** Click the nth "Export as PDF" button, fill the required remarks, confirm. */
+
+/** The dialog needs an approver since 2026-09-07: pick the one user the mock offers. */
+function pickApprover() {
+  fireEvent.click(screen.getByRole('button', { name: /to a user/i }));
+  fireEvent.change(screen.getByLabelText(/send to/i), { target: { value: 'u-appr' } });
+}
+
 async function download(buttonIndex: number) {
   const buttons = exportButtons();
   fireEvent.click(buttons[buttonIndex]);
   fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: 'periodic review' } });
-  fireEvent.click(screen.getByText('Download'));
+  pickApprover();
+  fireEvent.click(screen.getByText('Request approval'));
   await waitFor(() => expect(saved.length).toBe(1), { timeout: 5000 });
 }
 
@@ -205,7 +215,8 @@ describe('trend page downloads', () => {
     fireEvent.click(exportButtons()[0]);
     expect(screen.getByLabelText(/^Interval$/)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: 'periodic review' } });
-    fireEvent.click(screen.getByText('Download'));
+    pickApprover();
+    fireEvent.click(screen.getByText('Request approval'));
     await waitFor(() => expect(saved.length).toBe(1), { timeout: 5000 });
     expect(logged[0].reportType).toBe('Instrument Time Series');
     expect(saved[0]).toContain('data-report-DEMO-TH-142-');
@@ -344,7 +355,8 @@ describe('trend page downloads', () => {
     expect(select.value).toBe(String(300_000));
     fireEvent.change(select, { target: { value: String(3_600_000) } });
     fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: 'periodic review' } });
-    fireEvent.click(screen.getByText('Download'));
+    pickApprover();
+    fireEvent.click(screen.getByText('Request approval'));
     await waitFor(() => expect(saved.length).toBe(1), { timeout: 5000 });
     const text = lastPdfText();
     expect(text).toContain('1 hour');

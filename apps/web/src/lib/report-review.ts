@@ -1,68 +1,136 @@
 import { apiClient } from './api-client';
 import { renderSnapshotToPdf, normaliseSnapshot, type ReportSnapshot } from './pdf-report';
 
-export interface ReviewSummary {
-  id: string; reportType: string; title: string; subtitle?: string; status: string;
-  generatedByName: string; generatedAt: string;
-  reviewedByName?: string | null; reviewedAt?: string | null;
-  approvedByName?: string | null; approvedAt?: string | null;
-  rejectionStage?: string | null; rejectedByName?: string | null; rejectedAt?: string | null;
-  reviewRemarks?: string | null; approvalRemarks?: string | null;
-  assigneeUserId?: string | null; assigneeRole?: string | null;
-  createdAt: string; stage?: 'REVIEW' | 'APPROVE';
-}
-export interface ReviewFull extends ReviewSummary { dataSnapshot: ReportSnapshot; }
-
 /**
- * #reports-2: mirror the backend `canViewReportReview` scope so the "Download PDF"
- * button only shows for reports the current user is a party to (the download
- * fetches the full dataSnapshot via GET /api/report-reviews/:id, which the server
- * now 403s for non-parties). Actor fields in the summary are usernames — unique,
- * so equivalent to the server's sub comparison; assigneeUserId is a sub (user.id).
+ * The report review workflow's client (2026-09-07). Every PDF download in the
+ * product is a REQUEST: the page renders the report as before, then posts the
+ * snapshot here instead of saving it. An approver signs it on the Reports page;
+ * the requester and the approver then download the approved copy, with both
+ * signatures, through `downloadApproved` — which audits the download BEFORE
+ * the file is saved, the same fail-closed order the old export log kept.
+ *
+ * Design: docs/superpowers/specs/2026-09-07-report-review-workflow-design.md
  */
-export function canDownloadReview(
-  user: { id: string; username: string; role: string } | undefined,
-  r: ReviewSummary,
-): boolean {
-  if (!user) return false;
-  if (user.role === 'SUPER_ADMIN') return true;
-  if (r.generatedByName && r.generatedByName === user.username) return true;
-  if (r.reviewedByName && r.reviewedByName === user.username) return true;
-  if (r.approvedByName && r.approvedByName === user.username) return true;
-  if (r.rejectedByName && r.rejectedByName === user.username) return true;
-  if (r.assigneeUserId && r.assigneeUserId === user.id) return true;
-  if (r.assigneeRole && r.assigneeRole === user.role) return true;
-  return false;
+
+export type Assignee = { userId: string } | { role: string };
+
+export interface RequestMeta {
+  period?: { from: string; to: string; label: string };
+  intervalMs?: number | null;
+  instrumentCodes?: string[];
+  search?: string;
 }
 
-/** Send a generated report (its snapshot) for review, to a user OR a role. */
-export async function submitForReview(snapshot: ReportSnapshot, assignee: { userId?: string; role?: string }) {
-  return apiClient.post<{ id: string; status: string }>('/api/report-reviews', {
-    reportType: snapshot.reportType ?? '',
-    title: snapshot.title,
-    subtitle: snapshot.subtitle,
-    dataSnapshot: snapshot,
-    ...(assignee.userId ? { assigneeUserId: assignee.userId } : {}),
-    ...(assignee.role && !assignee.userId ? { assigneeRole: assignee.role } : {}),
-  });
+export type ReviewStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+export interface ReviewSummary {
+  id: string;
+  reportType: string;
+  title: string;
+  subtitle?: string | null;
+  requestMeta: RequestMeta;
+  status: ReviewStatus;
+  requestedBy: string;
+  /** The username — what the signature line prints. */
+  requestedByName: string;
+  requestedAt: string;
+  requestRemarks: string;
+  assigneeUserId: string | null;
+  assigneeRole: string | null;
+  decidedBy: string | null;
+  decidedByName: string | null;
+  decidedAt: string | null;
+  decisionRemarks: string | null;
+  createdAt: string;
+}
+
+export interface ReviewFull extends ReviewSummary { dataSnapshot: unknown }
+
+export type ReviewList = 'queue' | 'mine' | 'approved';
+
+export async function submitReportForReview(input: {
+  snapshot: ReportSnapshot;
+  reportType: string;
+  title: string;
+  subtitle?: string;
+  requestMeta: RequestMeta;
+  remarks: string;
+  assignee: Assignee;
+  password?: string;
+}): Promise<ReviewSummary> {
+  return apiClient.postWithReauth<ReviewSummary>('/api/report-reviews', {
+    reportType: input.reportType,
+    title: input.title,
+    ...(input.subtitle ? { subtitle: input.subtitle } : {}),
+    requestMeta: input.requestMeta,
+    dataSnapshot: input.snapshot,
+    remarks: input.remarks,
+    ...('userId' in input.assignee ? { assigneeUserId: input.assignee.userId } : { assigneeRole: input.assignee.role }),
+  }, input.password ?? '');
+}
+
+export async function listReviews(list: ReviewList, page: number, pageSize: number): Promise<{ data: ReviewSummary[]; total: number }> {
+  const qs = new URLSearchParams({ list, page: String(page), pageSize: String(pageSize) });
+  return apiClient.get<{ data: ReviewSummary[]; total: number }>(`/api/report-reviews?${qs}`);
 }
 
 export async function fetchReview(id: string): Promise<ReviewFull> {
   return apiClient.get<ReviewFull>(`/api/report-reviews/${id}`);
 }
 
-/** Build the Printed/Reviewed/Approved By lines from a review record. */
-export function reviewSignatures(r: { generatedByName: string; reviewedByName?: string | null; approvedByName?: string | null }): { label: string; value: string }[] {
-  const lines = [{ label: 'Printed By', value: r.generatedByName }];
-  if (r.reviewedByName) lines.push({ label: 'Reviewed By', value: r.reviewedByName });
-  if (r.approvedByName) lines.push({ label: 'Approved By', value: r.approvedByName });
+export async function decideReview(id: string, decision: 'approve' | 'reject', remarks: string, password: string): Promise<ReviewSummary> {
+  return apiClient.postWithReauth<ReviewSummary>(`/api/report-reviews/${id}/${decision}`, { remarks }, password);
+}
+
+/** "user qa1" / "any QA" — who will approve, for a toast or a list cell. */
+export function assigneeLabel(assignee: Assignee, users: { id: string; username: string }[] = []): string {
+  if ('userId' in assignee) return users.find((u) => u.id === assignee.userId)?.username ?? assignee.userId;
+  return `any ${assignee.role}`;
+}
+
+/** What a row's Send-to column prints. */
+export function assigneeText(r: Pick<ReviewSummary, 'assigneeUserId' | 'assigneeRole'>, users: { id: string; username: string }[] = []): string {
+  if (r.assigneeUserId) return assigneeLabel({ userId: r.assigneeUserId }, users);
+  if (r.assigneeRole) return assigneeLabel({ role: r.assigneeRole });
+  return '-';
+}
+
+/**
+ * The signature lines the approved PDF prints: each signer's name, user ID and
+ * the date-time of their password-verified action. The name IS the user ID
+ * here (usernames are the identity this system signs with), so it prints
+ * twice on purpose — the label the reader knows and the ID the record keys on.
+ */
+export function reviewSignatures(
+  r: Pick<ReviewSummary, 'requestedByName' | 'requestedAt' | 'decidedByName' | 'decidedAt' | 'status'>,
+  formatDateTime: (d: string) => string,
+): { label: string; value: string }[] {
+  const lines = [{ label: 'Requested By', value: `${r.requestedByName} (${r.requestedByName}) — ${formatDateTime(r.requestedAt)}` }];
+  if (r.status === 'APPROVED' && r.decidedByName && r.decidedAt) {
+    lines.push({ label: 'Approved By', value: `${r.decidedByName} (${r.decidedByName}) — ${formatDateTime(r.decidedAt)}` });
+  }
   return lines;
 }
 
-/** Re-download an approved (or any) report from its snapshot with the signatures. */
-export async function downloadReview(id: string, formatDateTime: (d: string) => string) {
+function fileSlug(title: string): string {
+  return (title || 'report').replace(/[^\w-]+/g, '_').replace(/^_+|_+$/g, '') || 'report';
+}
+
+/** The approver's view: the exact document, watermarked, unsigned, in a new tab. Nothing is saved or audited. */
+export async function openDraft(id: string, formatDateTime: (d: string) => string): Promise<void> {
   const r = await fetchReview(id);
-  const fname = `${(r.title || 'report').replace(/[^\w-]+/g, '_')}.pdf`;
-  const doc = await renderSnapshotToPdf(normaliseSnapshot(r.dataSnapshot), { formatDateTime, signatures: reviewSignatures(r) });
-  doc.save(fname);
+  const report = await renderSnapshotToPdf(normaliseSnapshot(r.dataSnapshot), { formatDateTime, draft: true });
+  window.open(report.doc.output('bloburl') as unknown as string, '_blank');
+}
+
+/**
+ * The approved copy. Audited BEFORE the file is saved — fail-closed: a file on
+ * disk with no record of who took it is an ungoverned export.
+ */
+export async function downloadApproved(id: string, formatDateTime: (d: string) => string): Promise<void> {
+  const r = await fetchReview(id);
+  if (r.status !== 'APPROVED') throw new Error('This report is not approved yet.');
+  await apiClient.post(`/api/report-reviews/${id}/download-log`, {});
+  const report = await renderSnapshotToPdf(normaliseSnapshot(r.dataSnapshot), { formatDateTime, signatures: reviewSignatures(r, formatDateTime) });
+  report.save(`${fileSlug(r.title)}-approved.pdf`);
 }

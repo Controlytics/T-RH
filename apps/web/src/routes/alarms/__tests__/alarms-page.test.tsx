@@ -85,6 +85,8 @@ vi.mock('swr', () => ({
     if (k.includes('/status-texts')) return { data: undefined, mutate: vi.fn() };
     if (k.includes('/api/functional-locations')) return { data: { data: [] }, mutate: vi.fn() };
     if (k.includes('/config/pagination')) return { data: { limit: 10, count: 0, options: [10, 25, 50] }, mutate: vi.fn() };
+    if (k.startsWith('/api/roles/active')) return { data: [{ name: 'QA', displayName: 'QA Approver' }], mutate: vi.fn() };
+    if (k.startsWith('/api/users?')) return { data: { data: [{ id: 'u-appr', username: 'qa1', fullName: 'QA One', role: 'QA' }] }, mutate: vi.fn() };
     return { data: undefined, isLoading: false, mutate: vi.fn() };
   },
 }));
@@ -375,7 +377,7 @@ describe('the Alarms page — the governed PDF download', () => {
   const openDialog = async () => {
     mount();
     fireEvent.click(screen.getByRole('button', { name: /export|download/i }));
-    return screen.findByRole('button', { name: /^download$/i });
+    return screen.findByRole('button', { name: /^request approval$/i });
   };
 
   beforeEach(() => {
@@ -393,6 +395,9 @@ describe('the Alarms page — the governed PDF download', () => {
     fireEvent.change(screen.getByRole('textbox', { name: /remark|reason/i }), {
       target: { value: 'Monthly QA review of excursions.' },
     });
+    // The dialog needs an approver since 2026-09-07: pick the one user the mock offers.
+    fireEvent.click(screen.getByRole('button', { name: /to a user/i }));
+    fireEvent.change(screen.getByLabelText(/send to/i), { target: { value: 'u-appr' } });
     fireEvent.click(btn);
   };
 

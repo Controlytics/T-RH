@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { INTERVALS } from '@digilog/shared';
 import { Button } from '@/components/ui/button';
+import { AssigneePicker } from '@/components/assignee-picker';
+import type { Assignee } from '@/lib/report-review';
 
 export interface ReportPeriod { from: string; to: string; label: string }
 export interface ReportDownloadRequest {
@@ -10,13 +12,17 @@ export interface ReportDownloadRequest {
   /** The interval chosen in the dialog, in ms; `null` = Raw. Present only when
    *  the dialog was opened with `showInterval`. */
   intervalMs?: number | null;
+  /** Who approves the request (2026-09-07) — a user or a role. Always set. */
+  assignee: Assignee;
 }
 
 const MAX_REMARKS = 500;
 
 /**
  * The governed gate every report download goes through: a period, a
- * mandatory remarks field, and Cancel/Download.
+ * mandatory remarks field, WHO APPROVES it (2026-09-07 — every download is a
+ * request now; see docs/superpowers/specs/2026-09-07-report-review-workflow-design.md),
+ * and Cancel / Request approval.
  *
  * This dialog does NOT call the reauth prompt itself. The caller wraps
  * `onConfirm` in `reauth.execute('DOWNLOAD_REPORT', …)`, exactly like every
@@ -61,6 +67,7 @@ export function ReportDownloadDialog({
   const [to, setTo] = useState(initialPeriod.to);
   const [intervalMs, setIntervalMs] = useState<number | null>(initialIntervalMs);
   const [remarks, setRemarks] = useState('');
+  const [assignee, setAssignee] = useState<Assignee | null>(null);
   const [touched, setTouched] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -74,6 +81,7 @@ export function ReportDownloadDialog({
       setTo(initialPeriod.to);
       setIntervalMs(initialIntervalMs);
       setRemarks('');
+      setAssignee(null);
       setTouched(false);
       setBusy(false);
       setError('');
@@ -85,11 +93,14 @@ export function ReportDownloadDialog({
 
   const trimmedRemarks = remarks.trim();
   const remarksError = trimmedRemarks.length === 0 ? 'Remarks are required — state why this report was generated.' : null;
+  const assigneeError = assignee === null ? 'Choose who approves this report.' : null;
+  // Remarks gate the button as before; the approver is checked on press so the
+  // reason is visible rather than a silently disabled control.
   const canSubmit = !remarksError && !busy;
 
   const handleConfirm = async () => {
     setTouched(true);
-    if (remarksError) return;
+    if (remarksError || assigneeError || assignee === null) return;
     setBusy(true);
     setError('');
     try {
@@ -97,6 +108,7 @@ export function ReportDownloadDialog({
         period: { from, to, label: initialPeriod.label },
         remarks: trimmedRemarks,
         ...(showInterval ? { intervalMs } : {}),
+        assignee,
       });
     } catch (e: any) {
       // A download whose audit write failed must not look like it succeeded —
@@ -112,7 +124,7 @@ export function ReportDownloadDialog({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
       <div className="w-full max-w-lg rounded-lg bg-white shadow-[var(--elev-2)]">
         <div className="rounded-t-lg bg-gradient-to-r from-slate-700 to-slate-900 px-5 py-3">
-          <h2 className="text-base font-semibold text-white">Download Report — {reportName}</h2>
+          <h2 className="text-base font-semibold text-white">Request approval — {reportName}</h2>
         </div>
 
         <div className="space-y-4 px-5 py-4">
@@ -187,6 +199,14 @@ export function ReportDownloadDialog({
             )}
           </div>
 
+          <div>
+            <p className="mb-1 block text-sm font-medium text-slate-700">Send to</p>
+            <AssigneePicker value={assignee} onChange={setAssignee} disabled={busy} />
+            {touched && assigneeError && (
+              <p className="mt-1 text-xs text-red-600">{assigneeError}</p>
+            )}
+          </div>
+
           {busy && progress && (
             <p role="status" className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600">{progress}</p>
           )}
@@ -196,7 +216,7 @@ export function ReportDownloadDialog({
         <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3">
           <Button variant="secondary" onClick={onCancel} disabled={busy}>Cancel</Button>
           <Button onClick={handleConfirm} disabled={!canSubmit}>
-            {busy ? 'Downloading…' : 'Download'}
+            {busy ? 'Sending…' : 'Request approval'}
           </Button>
         </div>
       </div>
