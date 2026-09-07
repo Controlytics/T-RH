@@ -14,6 +14,8 @@ export interface ReportDownloadRequest {
   intervalMs?: number | null;
   /** Who approves the request (2026-09-07) — a user or a role. Always set. */
   assignee: Assignee;
+  /** The approver as the operator saw it in the picker — for the confirmation toast. */
+  assigneeLabel: string;
 }
 
 const MAX_REMARKS = 500;
@@ -68,6 +70,7 @@ export function ReportDownloadDialog({
   const [intervalMs, setIntervalMs] = useState<number | null>(initialIntervalMs);
   const [remarks, setRemarks] = useState('');
   const [assignee, setAssignee] = useState<Assignee | null>(null);
+  const [assigneeLabel, setAssigneeLabel] = useState('');
   const [touched, setTouched] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -82,6 +85,7 @@ export function ReportDownloadDialog({
       setIntervalMs(initialIntervalMs);
       setRemarks('');
       setAssignee(null);
+      setAssigneeLabel('');
       setTouched(false);
       setBusy(false);
       setError('');
@@ -109,6 +113,7 @@ export function ReportDownloadDialog({
         remarks: trimmedRemarks,
         ...(showInterval ? { intervalMs } : {}),
         assignee,
+        assigneeLabel,
       });
     } catch (e: any) {
       // A download whose audit write failed must not look like it succeeded —
@@ -201,7 +206,7 @@ export function ReportDownloadDialog({
 
           <div>
             <p className="mb-1 block text-sm font-medium text-slate-700">Send to</p>
-            <AssigneePicker value={assignee} onChange={setAssignee} disabled={busy} />
+            <AssigneePicker value={assignee} onChange={(next, label) => { setAssignee(next); setAssigneeLabel(label); }} disabled={busy} />
             {touched && assigneeError && (
               <p className="mt-1 text-xs text-red-600">{assigneeError}</p>
             )}

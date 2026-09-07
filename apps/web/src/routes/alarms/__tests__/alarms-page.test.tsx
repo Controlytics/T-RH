@@ -97,7 +97,7 @@ vi.mock('@/hooks/use-can', () => ({ useCan: () => () => true }));
  * The governed PDF download. Each step is mocked separately so the ORDER between
  * them can be asserted — that is the §11 property, not the PDF's contents.
  */
-const logReportExport = vi.fn();
+const submitRequest = vi.fn();
 const savePdf = vi.fn();
 const buildAlarmsReport = vi.fn();
 /** Stands in for the re-auth prompt: hands a password to the callback, as the
@@ -113,11 +113,15 @@ vi.mock('@/hooks/use-reauth', () => ({
     },
   }),
 }));
-vi.mock('@/lib/report-export-log', () => ({
-  logReportExport: (...a: unknown[]) => logReportExport(...a),
+vi.mock('@/lib/report-review', () => ({
+  submitReportForReview: (...a: unknown[]) => submitRequest(...a),
+  assigneeLabel: () => 'qa1',
 }));
 vi.mock('@/lib/pdf-report', () => ({
-  createReport: async () => ({ save: savePdf, addKeyValue: vi.fn(), addTable: vi.fn(), addSectionTitle: vi.fn() }),
+  createReport: async () => ({
+    save: savePdf, addKeyValue: vi.fn(), addTable: vi.fn(), addSectionTitle: vi.fn(),
+    getSnapshot: () => ({ version: 2, reportType: 'alarms', title: 'ALARM REPORT', config: {}, sections: [] }),
+  }),
 }));
 vi.mock('../alarms-report', async (actual) => ({
   ...(await actual<typeof import('../alarms-report')>()),
@@ -381,7 +385,7 @@ describe('the Alarms page — the governed PDF download', () => {
   };
 
   beforeEach(() => {
-    logReportExport.mockReset().mockResolvedValue(undefined);
+    submitRequest.mockReset().mockResolvedValue({ id: 'r1', status: 'PENDING' });
     savePdf.mockReset();
     buildAlarmsReport.mockReset();
     apiGet.mockReset().mockResolvedValue({ data: [], total: 0 });
@@ -406,53 +410,46 @@ describe('the Alarms page — the governed PDF download', () => {
     expect(screen.getByRole('button', { name: /export|download/i })).toBeInTheDocument();
   });
 
-  it('writes the audit record BEFORE saving the file — fail-closed', async () => {
+  it('POSTS a request with the frozen document and saves NOTHING (2026-09-07)', async () => {
     /**
-     * THE §11 assertion. Every report download must leave a record of who
-     * generated what; a file that reached the operator's disk with no audit row
-     * is an ungoverned export, and the order is the only thing that guarantees
-     * it cannot happen.
+     * THE §11 assertion, in its new shape. A download is a REQUEST an approver
+     * signs; the page must never put a file on the operator's disk itself.
      */
     await confirm();
-    await waitFor(() => expect(savePdf).toHaveBeenCalled());
-    expect(logReportExport).toHaveBeenCalled();
-    expect(logReportExport.mock.invocationCallOrder[0])
-      .toBeLessThan(savePdf.mock.invocationCallOrder[0]);
+    await waitFor(() => expect(submitRequest).toHaveBeenCalled());
+    expect(savePdf).not.toHaveBeenCalled();
+    expect(submitRequest.mock.calls[0][0]).toMatchObject({ reportType: 'Alarms', snapshot: { version: 2 }, assignee: { userId: 'u-appr' } });
   });
 
-  it('saves NOTHING when the audit write fails', async () => {
-    // The negative control for the order test above: an order assertion passes
-    // trivially if the log simply never throws.
-    logReportExport.mockRejectedValue(new Error('audit unavailable'));
+  it('saves NOTHING when the request fails', async () => {
+    submitRequest.mockRejectedValue(new Error('server unavailable'));
     await confirm();
-    await waitFor(() => expect(logReportExport).toHaveBeenCalled());
+    await waitFor(() => expect(submitRequest).toHaveBeenCalled());
     expect(savePdf).not.toHaveBeenCalled();
   });
 
-  it('saves NOTHING when the operator cancels the password prompt', async () => {
+  it('posts NOTHING when the operator cancels the password prompt', async () => {
     reauthGrants = false;
     await confirm();
     await waitFor(() => expect(savePdf).not.toHaveBeenCalled());
-    expect(logReportExport).not.toHaveBeenCalled();
+    expect(submitRequest).not.toHaveBeenCalled();
   });
 
-  it('signs the audit record with the re-auth password', async () => {
-    // Without it the write goes out unsigned and the DOWNLOAD_REPORT policy is
+  it('signs the request with the re-auth password', async () => {
+    // Without it the request goes out unsigned and the DOWNLOAD_REPORT policy is
     // not actually enforced.
     await confirm();
-    await waitFor(() => expect(logReportExport).toHaveBeenCalled());
-    expect(logReportExport.mock.calls[0][0]).toMatchObject({
-      reportType: 'Alarms', format: 'PDF', password: 'Secret@123',
-    });
+    await waitFor(() => expect(submitRequest).toHaveBeenCalled());
+    expect(submitRequest.mock.calls[0][0]).toMatchObject({ reportType: 'Alarms', password: 'Secret@123' });
   });
 
-  it('logs the number of rows PRINTED, not the number that matched', async () => {
-    // An audit row claiming 3,000 records beside a report printing 500 would have
-    // the trail contradict the document it describes.
+  it('records the number of rows PRINTED, not the number that matched', async () => {
+    // A request claiming 3,000 records beside a document printing 500 would have
+    // the record contradict the document it describes.
     apiGet.mockResolvedValue({ data: [], total: 3000 });
     await confirm();
-    await waitFor(() => expect(logReportExport).toHaveBeenCalled());
-    expect(logReportExport.mock.calls[0][0].recordCount).toBe(0);
+    await waitFor(() => expect(submitRequest).toHaveBeenCalled());
+    expect(submitRequest.mock.calls[0][0].requestMeta.recordCount).toBe(0);
   });
 
   it('fetches the whole PERIOD, never the page on screen', async () => {

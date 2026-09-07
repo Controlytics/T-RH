@@ -13,7 +13,8 @@ import { useSensorWords, useAlarmTypeNames } from '@/hooks/use-failure-text';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { ExportMenu } from '@/components/ExportMenu';
 import { ReportDownloadDialog, type ReportDownloadRequest } from '@/components/report-download-dialog';
-import { logReportExport } from '@/lib/report-export-log';
+import { submitReportForReview } from '@/lib/report-review';
+import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
@@ -348,6 +349,7 @@ export function InstrumentTrend() {
   const fmtHumidCard = useDatetimeFormat(widgets.formats.humidCard);
   const fmtTimeseries = useDatetimeFormat(widgets.formats.timeseries);
   const reauth = useReauth();
+  const { toast } = useToast();
   // Same endpoint, same mapping, as `routes/alarms/index.tsx` — the ONE place
   // the API's `status*`-prefixed keys are reconciled with the unprefixed
   // `AlarmStatusTexts` `statusText()` reads. `undefined` while loading; the
@@ -580,7 +582,6 @@ export function InstrumentTrend() {
     try {
       await reauth.executeWithResult('DOWNLOAD_REPORT', async (password) => {
       const instrument = instrumentInfo();
-      const stamp = new Date().toISOString().slice(0, 10);
 
       if (which.kind === 'trend') {
         const wantTemp = which.slot === 'temperature';
@@ -639,17 +640,16 @@ export function InstrumentTrend() {
           // ignore the banner that matters.
           coverage: { returned: fetched.history.length, total: fetched.historyTotal ?? fetched.history.length },
         });
-        // Fail-closed: the audit write happens BEFORE the file is saved.
-        await logReportExport({
-          // Names the SLOT. Three trend reports all logged as "Instrument Trend"
-          // would leave an audit trail that cannot say which one a row is.
-          reportType: `Instrument Trend — ${slotLabel}`, format: 'PDF', recordCount: pivoted.length,
-          period: reportPeriod.label, startDate: reportPeriod.from, endDate: reportPeriod.to,
-          remarks: req.remarks, password,
+        // A REQUEST, not a file (2026-09-07): the frozen document goes to the
+        // approver; the requester downloads it, signed, from the Reports page.
+        // Names the SLOT: two trend reports both requested as "Instrument
+        // Trend" would leave a record that cannot say which one a row is.
+        const snapshot = report.getSnapshot();
+        await submitReportForReview({
+          snapshot, reportType: `Instrument Trend — ${slotLabel}`, title: snapshot.title, subtitle: snapshot.subtitle,
+          requestMeta: { period: reportPeriod, recordCount: pivoted.length, instrumentCodes: [instrument.code] },
+          remarks: req.remarks, assignee: req.assignee, password,
         });
-        // The filename carries the slot's own word.
-        const slotFile = slotLabel.toLowerCase();
-        report.save(`instrument-trend-${slotFile}-${instrument.code}-${stamp}.pdf`);
       } else if (which.kind === 'timeseries') {
         // THE DATA REPORT (2026-09-04) — the Time Series widget's download,
         // built to the operator's `Data Report.pdf`. See `data-report.ts`.
@@ -699,27 +699,27 @@ export function InstrumentTrend() {
           coverage,
           words: sensorWords,
         });
-        // The audit type is UNCHANGED: rows already logged under it are this
-        // same download, and renaming the type would split one report's history
-        // in two. The filename carries the new name.
-        await logReportExport({
-          reportType: 'Instrument Time Series', format: 'PDF', recordCount: rows.length,
-          period: reportPeriod.label, startDate: reportPeriod.from, endDate: reportPeriod.to,
-          remarks: req.remarks, password,
+        // A REQUEST, not a file (2026-09-07). The type is UNCHANGED: rows
+        // already logged under it are this same document.
+        const snapshot = report.getSnapshot();
+        await submitReportForReview({
+          snapshot, reportType: 'Instrument Time Series', title: snapshot.title, subtitle: snapshot.subtitle,
+          requestMeta: { period: reportPeriod, intervalMs: reportInterval, recordCount: rows.length, instrumentCodes: [instrument.code] },
+          remarks: req.remarks, assignee: req.assignee, password,
         });
-        report.save(`data-report-${instrument.code}-${stamp}.pdf`);
       } else {
         const rows = await fetchAlarmsForPeriod(reportPeriod.from, reportPeriod.to);
         const report = await renderAlarmsReport(rows, instrument, reportPeriod, formatDateTime, statusTexts, inactivityTexts);
-        await logReportExport({
-          reportType: 'Instrument Alarms', format: 'PDF', recordCount: rows.length,
-          period: reportPeriod.label, startDate: reportPeriod.from, endDate: reportPeriod.to,
-          remarks: req.remarks, password,
+        const snapshot = report.getSnapshot();
+        await submitReportForReview({
+          snapshot, reportType: 'Instrument Alarms', title: snapshot.title, subtitle: snapshot.subtitle,
+          requestMeta: { period: reportPeriod, recordCount: rows.length, instrumentCodes: [instrument.code] },
+          remarks: req.remarks, assignee: req.assignee, password,
         });
-        report.save(`instrument-alarms-${instrument.code}-${stamp}.pdf`);
         }
       });
       setPendingReport(null);
+      toast.success('Sent for approval', `The request is with ${req.assigneeLabel || 'the approver'} — see Reports.`);
     } catch (e: any) {
       // A cancelled reauth prompt is not a failure — drop the pending download
       // quietly. Any other error rethrows so `ReportDownloadDialog`'s own

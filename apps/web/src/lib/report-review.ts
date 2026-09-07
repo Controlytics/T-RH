@@ -19,6 +19,8 @@ export interface RequestMeta {
   intervalMs?: number | null;
   instrumentCodes?: string[];
   search?: string;
+  /** Rows PRINTED in the document — never the number that matched. */
+  recordCount?: number;
 }
 
 export type ReviewStatus = 'PENDING' | 'APPROVED' | 'REJECTED';

@@ -22,6 +22,7 @@ import { AuditDeleteDialog } from './components/audit-delete-dialog';
 import { createReport } from '../../lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
 import { logReportExport } from '@/lib/report-export-log';
+import { submitReportForReview } from '@/lib/report-review';
 import { useExportLimit } from '@/hooks/use-export-limit';
 import { ExportMenu } from '@/components/ExportMenu';
 import { ReportDownloadDialog, type ReportDownloadRequest } from '@/components/report-download-dialog';
@@ -360,9 +361,19 @@ export function AuditTrailPage() {
             formatDateTime,
           });
           report.addTable({ head: auditHead, body: mapAuditRows(records), columnStyles: { 0: { cellWidth: 35 }, 5: { cellWidth: 65 } } });
-          // Fail-closed: the log write happens BEFORE the file is saved.
-          await logExport('PDF', records.length, req.remarks, password);
-          report.save(`audit-trail-${new Date().toISOString().slice(0, 10)}.pdf`);
+          // A REQUEST, not a file (2026-09-07): the frozen document goes to the
+          // approver; the requester downloads it, signed, from the Reports page.
+          // The Excel branch below is not a PDF and still saves directly.
+          const snapshot = report.getSnapshot();
+          const period = fromDateTime && toDateTime
+            ? { from: new Date(fromDateTime).toISOString(), to: new Date(toDateTime).toISOString(), label: currentPeriod() }
+            : undefined;
+          await submitReportForReview({
+            snapshot, reportType: 'Audit Trail', title: snapshot.title, subtitle: snapshot.subtitle,
+            requestMeta: { ...(period ? { period } : {}), recordCount: records.length, search: search || undefined },
+            remarks: req.remarks, assignee: req.assignee, password,
+          });
+          toast.success('Sent for approval', `The request is with ${req.assigneeLabel || 'the approver'} — see Reports.`);
         } else {
           await logExport('Excel', records.length, req.remarks, password);
           exportToExcel({ filename: `audit-trail-${new Date().toISOString().slice(0, 10)}`, sheetName: 'Audit Trail', head: auditHead, rows: mapAuditRows(records) });

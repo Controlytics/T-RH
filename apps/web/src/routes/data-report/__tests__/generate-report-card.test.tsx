@@ -92,9 +92,25 @@ vi.mock('@/lib/api-client', () => ({
 }));
 const events: string[] = [];
 const logged: any[] = [];
-vi.mock('@/lib/report-export-log', () => ({
-  logReportExport: vi.fn(async (input: any) => { logged.push(input); events.push(`log:${input.reportType}`); }),
-}));
+vi.mock('@/lib/report-review', async () => {
+  // The request client, replaced by a stand-in that RECORDS the request and then
+  // REPLAYS its snapshot through the real renderer and saves — so every content
+  // assertion below reads the document the approver would see, and the page's
+  // own path is proven to save nothing (every saved name starts with `replay-`).
+  const { renderSnapshotToPdf } = await import('@/lib/pdf-report');
+  return {
+    submitReportForReview: vi.fn(async (input: any) => {
+      logged.push({ reportType: input.reportType, title: input.title, remarks: input.remarks, password: input.password,
+        assignee: input.assignee, requestMeta: input.requestMeta, snapshotVersion: input.snapshot?.version });
+      events.push(`log:${input.reportType}`);
+      const doc = await renderSnapshotToPdf(input.snapshot, { formatDateTime: (d: string) => d });
+      doc.save(`replay-${input.reportType}.pdf`);
+      return { id: 'r1', status: 'PENDING' };
+    }),
+    assigneeLabel: () => 'qa1',
+  };
+});
+vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: { success: vi.fn(), error: vi.fn() } }) }));
 
 const { GenerateReportCard } = await import('../generate-report-card');
 const { InstrumentHistoryWidget } = await import('@/routes/instruments/history-widget');
@@ -187,12 +203,13 @@ describe('GenerateReportCard', () => {
     await confirmDownload('area review');
     await waitFor(() => expect(saved.length).toBe(1), { timeout: 5000 });
 
-    expect(saved[0]).toMatch(/^data-report-/);
+    // Nothing is saved by the card itself: the only file is the stand-in's
+    // replay of the submitted snapshot (2026-09-07 — every download is a request).
+    expect(saved[0]).toMatch(/^replay-/);
     // The audit type is the trend page's — it IS that report, for each instrument.
     expect(events).toEqual(['log:Instrument Time Series', `save:${saved[0]}`]);
-    expect(logged[0]).toMatchObject({ reportType: 'Instrument Time Series', format: 'PDF', remarks: 'area review' });
-    expect(logged[0].search).toContain(A.code);
-    expect(logged[0].search).toContain(B.code);
+    expect(logged[0]).toMatchObject({ reportType: 'Instrument Time Series', remarks: 'area review', assignee: { userId: 'u-appr' }, snapshotVersion: 2 });
+    expect(logged[0].requestMeta.instrumentCodes).toEqual([A.code, B.code]);
     // Both instruments were read: a sampled call and a whole-period call each.
     const perInstrument = (id: string) => requested.filter((u) => u.includes(`/api/instruments/${id}/telemetry?`));
     expect(perInstrument(A.id).some((u) => u.includes('points='))).toBe(true);

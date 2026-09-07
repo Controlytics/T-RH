@@ -30,6 +30,7 @@ function dataFor(key: string | null): any {
 vi.mock('swr', () => ({
   default: (key: any) => ({ data: dataFor(typeof key === 'function' ? key() : key), isLoading: false, error: undefined }),
 }));
+vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: { success: vi.fn(), error: vi.fn() } }) }));
 vi.mock('@/lib/api-client', () => ({
   apiClient: { get: vi.fn(async (url: string) => dataFor(url)), post: vi.fn(async () => ({})), postWithReauth: vi.fn(async () => ({})) },
 }));

@@ -12,7 +12,7 @@ import { ExportMenu } from '@/components/ExportMenu';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReportDownloadDialog, type ReportDownloadRequest } from '@/components/report-download-dialog';
-import { logReportExport } from '@/lib/report-export-log';
+import { submitReportForReview } from '@/lib/report-review';
 import { createReport } from '@/lib/pdf-report';
 import {
   buildAlarmsReport, ALARM_REPORT_LEGEND, reportSeedPeriod, reportLevel,
@@ -238,21 +238,6 @@ export default function AlarmsPage() {
     await reauth.executeWithResult('DOWNLOAD_REPORT', async (password) => {
       const { rows: all, total: grand } = await fetchAllForReport(period);
 
-      // recordCount is what the PAPER shows, never `grand`: an audit row claiming
-      // 3,000 records beside a report printing 500 would have the trail
-      // contradict the document it describes.
-      await logReportExport({
-        reportType: 'Alarms',
-        format: 'PDF',
-        recordCount: all.length,
-        period: period.label,
-        search: search.trim() || undefined,
-        startDate: period.from,
-        endDate: period.to,
-        remarks: req.remarks,
-        password,
-      });
-
       const doc = await createReport({
         title: 'ALARM REPORT',
         // PORTRAIT (operator, 2026-09-01): landscape was too wide. The table fits
@@ -279,9 +264,19 @@ export default function AlarmsPage() {
         texts: inactivityTexts,
         level: reportLevel(filters),
       });
-      doc.save(`alarm-report-${new Date().toISOString().slice(0, 10)}.pdf`);
+      // A REQUEST, not a file (2026-09-07): the frozen document goes to the
+      // approver; the requester downloads it, signed, from the Reports page.
+      // recordCount is what the PAPER shows, never `grand`: a record claiming
+      // 3,000 alarms beside a document printing 500 would contradict itself.
+      const snapshot = doc.getSnapshot();
+      await submitReportForReview({
+        snapshot, reportType: 'Alarms', title: snapshot.title,
+        requestMeta: { period, recordCount: all.length, search: search.trim() || undefined },
+        remarks: req.remarks, assignee: req.assignee, password,
+      });
     });
     setDownloadOpen(false);
+    toast.success('Sent for approval', `The request is with ${req.assigneeLabel || 'the approver'} — see Reports.`);
   };
 
   const counts = data?.counts ?? { 'active-unack': 0, 'active-ack': 0, 'cleared-unack': 0, 'cleared-ack': 0 };

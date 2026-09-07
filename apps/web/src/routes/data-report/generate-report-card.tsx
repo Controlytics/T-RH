@@ -3,9 +3,11 @@ import { ExportMenu } from '@/components/ExportMenu';
 import { ReportDownloadDialog, type ReportDownloadRequest } from '@/components/report-download-dialog';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { useReauth } from '@/hooks/use-reauth';
+import { useExportOptions } from '@/hooks/use-export-options';
 import { useSensorWords } from '@/hooks/use-failure-text';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
-import { logReportExport } from '@/lib/report-export-log';
+import { submitReportForReview } from '@/lib/report-review';
+import { useToast } from '@/hooks/use-toast';
 import { useTrendPeriod } from '@/routes/instruments/use-trend-data';
 import { fetchDataReportRows, slotExtremes } from '@/routes/instruments/data-report-fetch';
 import { renderDataReports, type DataReportInput } from '@/routes/instruments/trend-report';
@@ -31,14 +33,18 @@ import type { HistoryScope } from './use-history-scope';
  * IS that report, for each instrument. The `search` column names which.
  *
  * The icon is `ExportMenu` (icon-only) so the per-role Export Options gating
- * for surface `instrument-history` still applies — a role allowed no PDF here
- * sees the text and no icon.
+ * for surface `instrument-history` still applies — and a role allowed no PDF
+ * here gets NO CARD, not the text beside a missing icon: "Generate Data
+ * report" with nothing to press is an inert control, the decoy this codebase
+ * keeps a rule against (audit, 2026-09-07).
  */
 export function GenerateReportCard({ scope }: { scope: HistoryScope }) {
+  const { pdf } = useExportOptions('instrument-history');
   const { period } = useTrendPeriod();
   const [pendingDownload, setPendingDownload] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
   const reauth = useReauth();
+  const { toast } = useToast();
   const sensorWords = useSensorWords();
   const { formatDate, formatTime, formatDateTime } = useDatetimeFormat();
 
@@ -84,18 +90,21 @@ export function GenerateReportCard({ scope }: { scope: HistoryScope }) {
         }
         setProgress('Building the report…');
         const report = await renderDataReports({ formatDateTime, instruments: sections });
-        // Fail-closed: the audit write happens BEFORE the file is saved.
-        await logReportExport({
-          reportType: 'Instrument Time Series', format: 'PDF',
-          recordCount: sections.reduce((n, s) => n + s.rows.length, 0),
-          period: reportPeriod.label, startDate: reportPeriod.from, endDate: reportPeriod.to,
-          search: `${targets.length} instrument${targets.length === 1 ? '' : 's'}: ${targets.map((t) => t.code).join(', ')}`,
-          remarks: req.remarks, password,
+        // A REQUEST, not a file (2026-09-07): the frozen document goes to the
+        // approver; the requester downloads it, signed, from the Reports page.
+        const snapshot = report.getSnapshot();
+        await submitReportForReview({
+          snapshot, reportType: 'Instrument Time Series', title: snapshot.title,
+          requestMeta: {
+            period: reportPeriod, intervalMs: interval,
+            recordCount: sections.reduce((n, s) => n + s.rows.length, 0),
+            instrumentCodes: targets.map((t) => t.code),
+          },
+          remarks: req.remarks, assignee: req.assignee, password,
         });
-        const stamp = new Date().toISOString().slice(0, 10);
-        report.save(`data-report-${stamp}.pdf`);
       });
       setPendingDownload(false);
+      toast.success('Sent for approval', `The request is with ${req.assigneeLabel || 'the approver'} — see Reports.`);
     } catch (e: any) {
       // A cancelled reauth prompt is not a failure. Any other error rethrows so
       // the dialog surfaces it and stays open.
@@ -105,6 +114,8 @@ export function GenerateReportCard({ scope }: { scope: HistoryScope }) {
       setProgress(null);
     }
   };
+
+  if (!pdf) return null;
 
   return (
     <>

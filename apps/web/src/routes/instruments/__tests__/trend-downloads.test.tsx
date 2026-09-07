@@ -103,12 +103,24 @@ vi.mock('@/lib/api-client', () => ({
 const events: string[] = [];
 const logged: any[] = [];
 
-vi.mock('@/lib/report-export-log', () => ({
-  logReportExport: vi.fn(async (input: any) => {
-    logged.push(input);
-    events.push(`log:${input.reportType}`);
-  }),
-}));
+vi.mock('@/lib/report-review', async () => {
+  // The request client, replaced by a stand-in that RECORDS the request and then
+  // REPLAYS its snapshot through the real renderer and saves — so every content
+  // assertion below reads the document the approver would see, and the page's
+  // own path is proven to save nothing (every saved name starts with `replay-`).
+  const { renderSnapshotToPdf } = await import('@/lib/pdf-report');
+  return {
+    submitReportForReview: vi.fn(async (input: any) => {
+      logged.push({ reportType: input.reportType, title: input.title, remarks: input.remarks, password: input.password,
+        assignee: input.assignee, requestMeta: input.requestMeta, snapshotVersion: input.snapshot?.version });
+      events.push(`log:${input.reportType}`);
+      const doc = await renderSnapshotToPdf(input.snapshot, { formatDateTime: (d: string) => d });
+      doc.save(`replay-${input.reportType}.pdf`);
+      return { id: 'r1', status: 'PENDING' };
+    }),
+    assigneeLabel: () => 'qa1',
+  };
+});
 
 const saved: string[] = [];
 
@@ -195,14 +207,15 @@ describe('trend page downloads', () => {
     renderPage();
     await download(1);
     expect(logged[0].reportType).toBe('Instrument Trend — Temperature');
-    expect(saved[0]).toBe('instrument-trend-temperature-DEMO-TH-142-' + new Date().toISOString().slice(0, 10) + '.pdf');
+    expect(logged[0].requestMeta.instrumentCodes).toEqual(['DEMO-TH-142']);
+    expect(logged[0].snapshotVersion).toBe(2);
   });
 
   it('names the SLOT in the audit reportType for the humidity widget', async () => {
     renderPage();
     await download(2);
     expect(logged[0].reportType).toBe('Instrument Trend — Humidity');
-    expect(saved[0]).toContain('instrument-trend-humidity-');
+    expect(saved[0]).toBe('replay-Instrument Trend — Humidity.pdf');
   });
 
   it('the page header downloads the DATA REPORT — no charts, the interval offered — and logs it as the Time Series', async () => {
@@ -219,7 +232,7 @@ describe('trend page downloads', () => {
     fireEvent.click(screen.getByText('Request approval'));
     await waitFor(() => expect(saved.length).toBe(1), { timeout: 5000 });
     expect(logged[0].reportType).toBe('Instrument Time Series');
-    expect(saved[0]).toContain('data-report-DEMO-TH-142-');
+    expect(logged[0].requestMeta.instrumentCodes).toEqual(['DEMO-TH-142']);
     // No chart raster reached the document.
     expect(images.filter((a) => a[0] === STUB_PNG)).toHaveLength(0);
   });
@@ -254,14 +267,19 @@ describe('trend page downloads', () => {
     expect(logged[0].reportType).toBe('Instrument Alarms');
   });
 
-  it('writes the audit record BEFORE saving the file, on every one of them', async () => {
+  it('POSTS a request and saves NOTHING itself, on every one of them (2026-09-07)', async () => {
+    // Every download is a request an approver signs. The only file this test
+    // ever sees saved is the stand-in's replay of the submitted snapshot.
     for (const idx of [0, 1, 2, 3, 4]) {
       saved.length = 0; logged.length = 0; events.length = 0;
       const view = renderPage();
       await download(idx);
       expect(events).toHaveLength(2);
       expect(events[0]).toMatch(/^log:/);
-      expect(events[1]).toMatch(/^save:/);
+      expect(events[1]).toMatch(/^save:replay-/);
+      for (const name of saved) expect(name).toMatch(/^replay-/);
+      expect(logged[0].assignee).toEqual({ userId: 'u-appr' });
+      expect(logged[0].snapshotVersion).toBe(2);
       view.unmount();
     }
   });
@@ -277,13 +295,13 @@ describe('trend page downloads', () => {
     renderPage('?interval=5m');
     await download(1);
     // Three stored readings collapse to two 5-minute buckets.
-    expect(logged[0].recordCount).toBe(2);
+    expect(logged[0].requestMeta.recordCount).toBe(2);
   });
 
   it('leaves the trend table at every stored reading when the chart is raw', async () => {
     renderPage('?interval=raw');
     await download(1);
-    expect(logged[0].recordCount).toBe(3);
+    expect(logged[0].requestMeta.recordCount).toBe(3);
   });
 
   /**
@@ -326,8 +344,8 @@ describe('trend page downloads', () => {
     renderPage(FIXED);
     await download(3);
     expect(logged[0].reportType).toBe('Instrument Time Series');
-    expect(logged[0].recordCount).toBe(3);
-    expect(saved[0]).toMatch(/^data-report-DEMO-TH-142-/);
+    expect(logged[0].requestMeta.recordCount).toBe(3);
+    expect(logged[0].requestMeta.instrumentCodes).toEqual(['DEMO-TH-142']);
   });
 
   it('prints ONE STORED READING per interval slot, and NA for an empty slot, when the page has one selected', async () => {
@@ -337,7 +355,7 @@ describe('trend page downloads', () => {
     // real reading or a stated gap, never an average.
     renderPage(`${FIXED}&interval=5m`);
     await download(3);
-    expect(logged[0].recordCount).toBe(11);
+    expect(logged[0].requestMeta.recordCount).toBe(11);
     const text = lastPdfText();
     expect(text).toContain('5 minutes');
     expect(text).toContain('22.4');
@@ -362,7 +380,7 @@ describe('trend page downloads', () => {
     expect(text).toContain('1 hour');
     expect(text).not.toContain('5 minutes');
     // Hourly from 00:10 to 01:00 is ONE slot.
-    expect(logged[0].recordCount).toBe(1);
+    expect(logged[0].requestMeta.recordCount).toBe(1);
   });
 
   it('offers the interval only on the Data Report dialog', async () => {
@@ -493,9 +511,8 @@ describe('trend page downloads', () => {
     renderPage();
     await download(1);
     expect(logged[0].remarks).toBe('periodic review');
-    expect(logged[0].format).toBe('PDF');
-    expect(logged[0].recordCount).toBe(3);
-    expect(logged[0].startDate).toBeTruthy();
-    expect(logged[0].endDate).toBeTruthy();
+    expect(logged[0].requestMeta.recordCount).toBe(3);
+    expect(logged[0].requestMeta.period.from).toBeTruthy();
+    expect(logged[0].requestMeta.period.to).toBeTruthy();
   });
 });

@@ -18,7 +18,8 @@ interface User { id: string; username: string; role?: string; fullName?: string 
  */
 export function AssigneePicker({ value, onChange, disabled }: {
   value: Assignee | null;
-  onChange: (next: Assignee | null) => void;
+  /** `label` is the option's display text — "qa1" or "QA Approver" — for the toast. */
+  onChange: (next: Assignee | null, label: string) => void;
   disabled?: boolean;
 }) {
   const [mode, setMode] = useState<'role' | 'user'>(value && 'userId' in value ? 'user' : 'role');
@@ -30,7 +31,7 @@ export function AssigneePicker({ value, onChange, disabled }: {
     return (raw as User[]).filter((u) => u.username);
   }, [usersData]);
 
-  const switchMode = (next: 'role' | 'user') => { setMode(next); onChange(null); };
+  const switchMode = (next: 'role' | 'user') => { setMode(next); onChange(null, ''); };
   const selected = value ? ('userId' in value ? value.userId : value.role) : '';
 
   return (
@@ -48,7 +49,7 @@ export function AssigneePicker({ value, onChange, disabled }: {
           aria-label="Send to"
           value={selected}
           disabled={disabled}
-          onChange={(e) => onChange(e.target.value ? { role: e.target.value } : null)}
+          onChange={(e) => onChange(e.target.value ? { role: e.target.value } : null, e.target.selectedOptions[0]?.text ?? e.target.value)}
           className="ctl w-full"
         >
           <option value="">Select a role…</option>
@@ -59,7 +60,7 @@ export function AssigneePicker({ value, onChange, disabled }: {
           aria-label="Send to"
           value={selected}
           disabled={disabled}
-          onChange={(e) => onChange(e.target.value ? { userId: e.target.value } : null)}
+          onChange={(e) => onChange(e.target.value ? { userId: e.target.value } : null, users.find((u) => u.id === e.target.value)?.username ?? e.target.value)}
           className="ctl w-full"
         >
           <option value="">Select a user…</option>
