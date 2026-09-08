@@ -57,7 +57,9 @@ existing Attributes panel".
   the widget is full width, rows in the page flow, no inner scroll. Then
   "increase font sizes and in single line two attributes and their values
   should come" — labels `text-sm`, values `text-base`, and the rows are a
-  two-column grid on `md` and up (one column below).
+  two-column grid on `md` and up (one column below). Then "in edit dialog also
+  show building and area" — the Attributes dialog prints Building and Area,
+  read-only, above the panel.
 - **Not seen on screen** — the operator holds the browser session. Needs their
   eye: the dialog width for the Attributes panel.
 

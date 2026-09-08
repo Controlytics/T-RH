@@ -192,6 +192,13 @@ export function SettingsPage() {
             <DialogTitle>Attributes — <span className="font-mono">{selected.code}</span></DialogTitle>
           </DialogHeader>
           <div className="px-5 pb-5">
+            {/* Placement, read-only, so the editor knows WHERE the instrument is
+                while changing what it carries (operator: "in edit dialog also
+                show building and area"). */}
+            <dl data-testid="dialog-placement" className="mb-4 grid grid-cols-2 gap-x-10 border-b border-slate-100 pb-3">
+              {row('Building', placement.building ?? UNASSIGNED, !placement.building)}
+              {row('Area', placement.area ?? UNASSIGNED, !placement.area)}
+            </dl>
             {editing && <AttributesPanel instrumentId={selected.id} profileId={selected.profileId} canEdit={canEdit} />}
           </div>
         </Dialog>

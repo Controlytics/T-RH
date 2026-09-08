@@ -121,5 +121,10 @@ describe('SettingsPage', () => {
     const panel = screen.getByTestId('attributes-panel');
     expect(panel).toHaveAttribute('data-instrument', 'i-1');
     expect(panel).toHaveAttribute('data-can-edit', 'true');
+    // The dialog also states where the instrument is (operator: "in edit
+    // dialog also show building and area").
+    const placement = screen.getByTestId('dialog-placement');
+    expect(within(placement).getByText('Building').closest('[data-row]')!.querySelector('dd')!.textContent).toBe('CWH');
+    expect(within(placement).getByText('Area').closest('[data-row]')!.querySelector('dd')!.textContent).toBe('QC 3');
   });
 });
