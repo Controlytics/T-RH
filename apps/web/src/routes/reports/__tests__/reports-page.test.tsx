@@ -12,7 +12,9 @@ import { MemoryRouter } from 'react-router-dom';
  * NOT VERIFIED HERE: what it looks like. Read out of the DOM, not seen.
  */
 
-const me = { id: 'u-appr', username: 'qa1', role: 'QA', permissions: ['REPORT_REVIEW_READ', 'REPORT_REVIEW_APPROVE'] };
+let me: { id: string; username: string; role: string; permissions: string[] } = { id: 'u-appr', username: 'qa1', role: 'QA', permissions: ['REPORT_REVIEW_READ', 'REPORT_REVIEW_APPROVE'] };
+const asApprover = { id: 'u-appr', username: 'qa1', role: 'QA', permissions: ['REPORT_REVIEW_READ', 'REPORT_REVIEW_APPROVE'] };
+const asSuperAdmin = { id: 'u-sa', username: 'superadmin', role: 'SUPER_ADMIN', permissions: [] as string[] };
 
 const base = {
   reportType: 'Instrument Time Series', title: 'Temperature and RH Data Report', subtitle: null,
@@ -25,7 +27,10 @@ const toMyRole = { ...base, id: 'r-role', status: 'PENDING', assigneeUserId: nul
 const toSomeoneElse = { ...base, id: 'r-other', status: 'PENDING', assigneeUserId: 'u-x', assigneeRole: null, title: 'Instrument Trend — Temperature', reportType: 'Instrument Trend — Temperature' };
 const approved = { ...base, id: 'r-ok', status: 'APPROVED', assigneeUserId: 'u-appr', assigneeRole: null, decidedBy: 'u-appr', decidedByName: 'qa1', decidedAt: '2026-09-07T15:10:00.000Z', decisionRemarks: 'checked' };
 
-const lists: Record<string, any[]> = { queue: [toMe, toMyRole, toSomeoneElse], mine: [], approved: [approved] };
+const myOwn = { ...base, id: 'r-own', status: 'PENDING', requestedBy: 'u-appr', requestedByName: 'qa1', assigneeUserId: null, assigneeRole: 'QA', title: 'MY OWN REQUEST' };
+const superAdminsOwn = { ...base, id: 'r-sa-own', status: 'PENDING', requestedBy: 'u-sa', requestedByName: 'superadmin', assigneeUserId: null, assigneeRole: 'ADMIN', title: 'SUPER ADMIN OWN REQUEST' };
+
+const lists: Record<string, any[]> = { queue: [toMe, toMyRole, toSomeoneElse, myOwn, superAdminsOwn], mine: [], approved: [approved] };
 let listError: unknown = undefined;
 const mutate = vi.fn();
 
@@ -68,7 +73,7 @@ function mount() {
 const rowOf = (title: string) => screen.getByText(title).closest('tr')!;
 
 describe('ReportsPage', () => {
-  beforeEach(() => { listError = undefined; mutate.mockClear(); decideReview.mockClear(); openDraft.mockClear(); downloadApproved.mockClear(); });
+  beforeEach(() => { me = asApprover; listError = undefined; mutate.mockClear(); decideReview.mockClear(); openDraft.mockClear(); downloadApproved.mockClear(); });
 
   it('names the screen once and opens on the approval queue with the three lists as tabs', () => {
     mount();
@@ -89,6 +94,17 @@ describe('ReportsPage', () => {
     expect(within(rowOf('Instrument Trend — Temperature')).queryByRole('button', { name: 'Reject' })).toBeNull();
     // Every party can look at the draft.
     expect(within(rowOf('Instrument Trend — Temperature')).getByRole('button', { name: 'View draft' })).toBeInTheDocument();
+    // My own request, though assigned to my role, is not mine to decide.
+    expect(within(rowOf('MY OWN REQUEST')).queryByRole('button', { name: 'Approve' })).toBeNull();
+  });
+
+  it('SUPER_ADMIN may approve any pending request, their own included (operator, 2026-09-08)', () => {
+    me = asSuperAdmin;
+    mount();
+    expect(within(rowOf('SUPER ADMIN OWN REQUEST')).getByRole('button', { name: 'Approve' })).toBeInTheDocument();
+    expect(within(rowOf('SUPER ADMIN OWN REQUEST')).getByRole('button', { name: 'Reject' })).toBeInTheDocument();
+    // Not assigned to them by user or role — SUPER_ADMIN still decides it.
+    expect(within(rowOf('Instrument Trend — Temperature')).getByRole('button', { name: 'Approve' })).toBeInTheDocument();
   });
 
   it('approves with remarks and password, then refreshes the list', async () => {

@@ -170,7 +170,9 @@ Every PDF download is a REQUEST an approver signs. Spec:
   `REPORT_REVIEW_READ`): three lists as tabs, each the SERVER's party-scoped
   answer via `useSWR('/api/report-reviews?list=…')`. Approve / Reject appear
   only on a PENDING row assigned to me (user id or my role), with the
-  `reports.approve` gate, and never on my own request; View draft for any
+  `reports.approve` gate, and never on my own request — unless I am
+  SUPER_ADMIN, who decides any pending request, their own included
+  (2026-09-08; `isSelfDecision` mirrors the server's); View draft for any
   party (`openDraft` → `report.toBlobUrl()` in a new tab; nothing saved or
   audited. **`toBlobUrl` FINALISES the document** — the watermark, page numbers
   and end block are painted at finalisation, and the raw `doc.output('bloburl')`

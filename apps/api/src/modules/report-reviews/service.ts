@@ -61,13 +61,25 @@ export function isParty(ctx: Actor, row: ReviewParties): boolean {
 
 /** May this caller DECIDE it? The named user, a holder of the named role, or
  *  SUPER_ADMIN. Being the requester counts for nothing here — and the
- *  separation-of-duties check in `decide()` refuses the requester outright,
- *  SUPER_ADMIN included. */
+ *  separation-of-duties check (`isSelfDecision`) refuses the requester
+ *  outright, unless they are SUPER_ADMIN. */
 export function isAssignee(ctx: Actor, row: ReviewParties): boolean {
   if (ctx.userRole === 'SUPER_ADMIN') return true;
   if (row.assigneeUserId && row.assigneeUserId === ctx.userSub) return true;
   if (row.assigneeRole && row.assigneeRole === ctx.userRole) return true;
   return false;
+}
+
+/** Is this the requester deciding their OWN request? Separation of duties
+ *  refuses it — the two signatures on an approved report are meant to be two
+ *  people. SUPER_ADMIN is EXEMPT since 2026-09-08 (operator: "super admin
+ *  should be able to approve own requests or other requests"); the
+ *  consequence, stated when it was asked for, is that a super admin's own
+ *  report carries the same name on both lines. The page mirrors this rule in
+ *  `mayDecide`; it is presentation there and the 403 here is the control. */
+export function isSelfDecision(ctx: Actor, row: Pick<ReviewParties, 'requestedBy'>): boolean {
+  if (ctx.userRole === 'SUPER_ADMIN') return false;
+  return row.requestedBy === ctx.userSub;
 }
 
 /** "Send to" names exactly ONE of a user or a role. */
@@ -225,9 +237,9 @@ export const reportReviewService = {
   async decide(ctx: RequestContext, id: string, decision: ReviewDecision, remarks: string): Promise<ReviewSummary> {
     const row = await prisma.reportReview.findUnique({ where: { id }, select: SUMMARY_SELECT });
     if (!row || !isParty(ctx, row)) throw new AppError(404, 'NOT_FOUND', 'Report request not found.');
-    // Separation of duties — the two-person control — applies to EVERYONE,
-    // SUPER_ADMIN included, and is checked before the assignee bypass.
-    if (row.requestedBy === ctx.userSub) throw new AppError(403, 'SELF_APPROVAL', 'You cannot decide on your own request.');
+    // Separation of duties — the two-person control — for everyone but
+    // SUPER_ADMIN (see isSelfDecision); checked before the assignee bypass.
+    if (isSelfDecision(ctx, row)) throw new AppError(403, 'SELF_APPROVAL', 'You cannot decide on your own request.');
     if (!isAssignee(ctx, row)) throw new AppError(403, 'NOT_ASSIGNEE', 'This request is not assigned to you or your role.');
     if (row.status !== 'PENDING') throw new AppError(409, 'ALREADY_DECIDED', 'This request has already been decided.');
     // The guard that makes two approvers acting at once safe: the UPDATE is

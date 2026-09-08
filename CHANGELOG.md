@@ -1,5 +1,31 @@
 # Changelog
 
+## [Unreleased] - SUPER_ADMIN may approve any report request, their own included (2026-09-08)
+
+Operator: *"super admin should be able to approve own requests or other
+requests"*, after finding no Approve button on the Reports page for a request
+they had raised themselves as `superadmin`. The two-person control shipped on
+2026-09-07 refused the requester outright, SUPER_ADMIN included.
+
+- **`isSelfDecision(ctx, row)`** in `report-reviews/service.ts` is now the one
+  statement of the rule: the requester cannot decide their own request unless
+  they are SUPER_ADMIN. `decide()` uses it for the `SELF_APPROVAL` 403; the
+  page's `mayDecide` mirrors it (presentation — the 403 is the control).
+- **Consequence, stated plainly:** a super admin's own report carries the same
+  name on the Requested By and Approved By lines. The e2e asserts exactly that
+  (`decidedByName === requestedByName`) so it is a recorded decision, not an
+  accident.
+- Unit test on the pure rule, the e2e case inverted (was "SUPER_ADMIN is
+  refused on a request they raised"), and a page test for SUPER_ADMIN seeing
+  Approve / Reject on their own row and on a row assigned to nobody they are.
+  Mutation-checked both sides: dropping the exemption fails 1 test in each.
+- **Not changed:** the Send-to picker still never offers SUPER_ADMIN as an
+  assignee and `coerceApproverRoles()` still strips it — SUPER_ADMIN already
+  counts as assignee of every request. Nothing is granted to any role by
+  default; ADMIN still needs `View Reports` / `Approve / Reject Reports`
+  under Roles & Access before an ADMIN user sees the page.
+- No count moved.
+
 ## [Unreleased] - Report approvers are administered: which roles may approve a report (2026-09-07)
 
 Operator: *"that approval role should be configurable which role user should be

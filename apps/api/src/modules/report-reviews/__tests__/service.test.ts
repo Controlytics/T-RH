@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isParty, isAssignee, requireOneAssignee } from '../service.js';
+import { isParty, isAssignee, isSelfDecision, requireOneAssignee } from '../service.js';
 
 /**
  * The pure rules of the report review workflow (2026-09-07), with no database:
@@ -33,6 +33,17 @@ describe('isAssignee', () => {
 
   it('is never the requester by virtue of requesting', () => {
     expect(isAssignee({ userSub: 'u-req', userRole: 'OPERATOR' }, row)).toBe(false);
+  });
+});
+
+describe('isSelfDecision', () => {
+  it('refuses the requester deciding their own request', () => {
+    expect(isSelfDecision({ userSub: 'u-req', userRole: 'OPERATOR' }, row)).toBe(true);
+    expect(isSelfDecision({ userSub: 'u-appr', userRole: 'OPERATOR' }, row)).toBe(false);
+  });
+
+  it('exempts SUPER_ADMIN — they may decide their own request (operator, 2026-09-08)', () => {
+    expect(isSelfDecision({ userSub: 'u-req', userRole: 'SUPER_ADMIN' }, row)).toBe(false);
   });
 });
 

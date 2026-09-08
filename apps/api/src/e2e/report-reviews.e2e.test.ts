@@ -256,11 +256,13 @@ describe('POST /api/report-reviews/:id/approve | reject', () => {
   it('the requester cannot approve their own request', async () => {
     const res = await decide(created[0], 'approve', tokReq);
     // The requester lacks REPORT_REVIEW_APPROVE too, so the permission gate
-    // answers first; the self-approval rule is exercised below through SUPER_ADMIN.
+    // answers first; the SELF_APPROVAL rule itself is pinned by the unit test
+    // on isSelfDecision — an approver-role user who is also the requester
+    // cannot be built here without a second approver role.
     expect(res.statusCode).toBe(403);
   });
 
-  it('SUPER_ADMIN is refused on a request they raised themselves (separation of duties)', async () => {
+  it('SUPER_ADMIN may approve a request they raised themselves (operator, 2026-09-08)', async () => {
     const own = await app.inject({
       method: 'POST', url: '/api/report-reviews', headers: bearer(tokAdmin, 'Admin@123'),
       payload: { reportType: 'Alarms', title: 'ALARM REPORT', requestMeta, dataSnapshot: snapshot, remarks: 'own', assigneeRole: ROLE_APPR },
@@ -268,8 +270,12 @@ describe('POST /api/report-reviews/:id/approve | reject', () => {
     expect(own.statusCode).toBe(201);
     created.push(own.json().id);
     const res = await decide(own.json().id, 'approve', tokAdmin, 'checked', 'Admin@123');
-    expect(res.statusCode).toBe(403);
-    expect(res.json().error).toBe('SELF_APPROVAL');
+    expect(res.statusCode).toBe(200);
+    expect(res.json().status).toBe('APPROVED');
+    // Both signature lines name the same person — that is the consequence the
+    // operator accepted when asking for this. (The test DB's super admin is
+    // `admin`, not `superadmin`; compare, don't name.)
+    expect(res.json().decidedByName).toBe(res.json().requestedByName);
   });
 
   it('a non-party approver gets 404, a wrong password 401, and blank remarks 400', async () => {

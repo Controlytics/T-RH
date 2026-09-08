@@ -432,7 +432,8 @@ POST   /api/report-reviews                      — raise a report REQUEST (ever
                                                     REPORT_REVIEW_READ + DOWNLOAD_REPORT reauth; audited
 GET    /api/report-reviews?list=queue|mine|approved&page&pageSize — the three lists, party-scoped server-side
 GET    /api/report-reviews/:id                  — the full row with its snapshot; 404 (never 403) for a non-party
-POST   /api/report-reviews/:id/approve | reject — assignee only, never the requester (SUPER_ADMIN included);
+POST   /api/report-reviews/:id/approve | reject — assignee only, never the requester — EXCEPT SUPER_ADMIN,
+                                                    who may decide ANY pending request, their own included (2026-09-08);
                                                     REPORT_REVIEW_APPROVE + APPROVE_REPORT / REJECT_REPORT reauth;
                                                     one decision (409 on a second); audited; requester notified
 POST   /api/report-reviews/:id/download-log     — a party downloading the APPROVED copy; written BEFORE save
@@ -795,8 +796,13 @@ GET    /api/config/report-approvers/current     — the administered approver ro
     2026-07-18 strip).
   - **Party scoping and one decision** live in `modules/report-reviews/
     service.ts`: `isParty` / `isAssignee` are pure and unit-tested; a non-party
-    gets 404; the requester can never decide their own request (SUPER_ADMIN
-    included — the two-person control); the decision is a conditional UPDATE
+    gets 404; the requester can never decide their own request — the
+    two-person control — **EXCEPT SUPER_ADMIN (2026-09-08, operator: "super
+    admin should be able to approve own requests or other requests")**.
+    `isSelfDecision` is the ONE rule, mirrored by the page's `mayDecide`; the
+    consequence, stated when asked for, is that a super admin's own report
+    carries the same name on both signature lines. It shipped the other way
+    round for one day. The decision is a conditional UPDATE
     on `status = PENDING`, so two approvers cannot both sign (409). Nothing
     deletes a row. Mutation-checked both ways.
   - **Counts:** models 35 → **36**, enums 12 → **13**, modules 24 → **25**,

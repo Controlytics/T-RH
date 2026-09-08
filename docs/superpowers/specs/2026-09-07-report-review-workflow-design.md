@@ -207,7 +207,8 @@ reauth actions 48 → 50 (categories 8) · audit actions 98 → 102, templates
   assignee; missing assignee 400; blank remarks 400; bad password 401); queue /
   mine / approved scoping incl. SUPER_ADMIN; `GET /:id` 404 for a non-party;
   approve and reject by user assignee, by role holder, refused for a
-  non-assignee (403) and for the requester (403 SELF_APPROVAL); second decision
+  non-assignee (403) and for the requester (403 SELF_APPROVAL — **SUPER_ADMIN
+  exempt since 2026-09-08**, see CHANGELOG); second decision
   409; download-log only when APPROVED and only for a party; every action's
   audit row and notification. Runs against `compliance_core_db_test`, which
   must be migrated first.

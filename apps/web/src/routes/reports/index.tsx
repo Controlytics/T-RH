@@ -71,7 +71,11 @@ export function ReportsPage() {
 
   const isAssignee = (r: ReviewSummary) =>
     !!user && ((r.assigneeUserId !== null && r.assigneeUserId === user.id) || (r.assigneeRole !== null && r.assigneeRole === user.role) || user.role === 'SUPER_ADMIN');
-  const mayDecide = (r: ReviewSummary) => r.status === 'PENDING' && can('reports.approve') && isAssignee(r) && r.requestedBy !== user?.id;
+  // Mirrors the server's isSelfDecision: the requester never decides their own
+  // request, SUPER_ADMIN excepted (operator, 2026-09-08). Presentation only —
+  // the 403 in report-reviews/service.ts is the control.
+  const isSelfDecision = (r: ReviewSummary) => user?.role !== 'SUPER_ADMIN' && r.requestedBy === user?.id;
+  const mayDecide = (r: ReviewSummary) => r.status === 'PENDING' && can('reports.approve') && isAssignee(r) && !isSelfDecision(r);
 
   const switchList = (next: ReviewList) => { setList(next); setPage(1); };
 
