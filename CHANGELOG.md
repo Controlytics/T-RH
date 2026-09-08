@@ -1,5 +1,56 @@
 # Changelog
 
+## [Unreleased] - The installer bundles the EMQX broker; the auth hook admits the bridge (2026-09-08)
+
+Operator, after an offline/intranet audit found that the running app needs no
+internet but the installer did not carry the MQTT broker: *"add emqx to
+installer bundle and fix docs"*.
+
+- **`scripts/build-installer.ps1 -EmqxZip`** (mandatory) stages
+  `emqx-5.3.2-windows-amd64.zip` — the LAST Windows build — into `stage\emqx`
+  with `data\` and `log\` stripped; `scripts\emqx\*` (the two config
+  templates) and `provision-emqx.ps1` join the named script list.
+- **`scripts/provision-emqx.ps1`** (new; called by `install.ps1` before the
+  services are registered and by `upgrade.ps1` before the API restarts):
+  appends `MQTT_BROKER_URL` / `MQTT_CLIENT_ID` / `MQTT_USERNAME` /
+  `MQTT_PASSWORD` / `EMQX_NODE_COOKIE` / `EMQX_DASHBOARD_PASSWORD` to
+  `digilog.env` only if absent; renders `etc\emqx.conf` + `etc\acl.conf` from
+  the templates (stray-token guard, stock files kept as `*.orig`); creates the
+  data dir under `ProgramData`; re-registers the `emqx` service through
+  `emqx.cmd uninstall` + `install` (erlsrv bakes the generated config paths in
+  at install time, so a config change IS a re-register); waits for
+  `emqx_ctl status`; sets the dashboard admin password; opens TCP 1883/8883.
+  `-DryRun` renders to `%TEMP%\digilog-emqx-dryrun` and prints every privileged
+  command — run against this box's broker, the output matches the working
+  `cluster.hocon` key for key.
+- **`scripts/emqx/emqx.conf.template`**: the working dev configuration with the
+  per-install values as `@@`-placeholders, plus two deliberate differences —
+  dashboard bound to `127.0.0.1` only, WebSocket listeners off — and ONE
+  authenticator (the HTTPS hook, `verify_peer` against the install's own CA).
+  **`scripts/emqx/acl.conf`** is this box's ACL verbatim (the stock file's two
+  allow-all rules are what it replaces).
+- **The auth hook admits the ingest bridge** (`mqtt-auth-routes.ts`): username
+  `MQTT_USERNAME` with `MQTT_PASSWORD` → allow (constant-time compare over
+  SHA-256 digests); the bridge name with a wrong, empty or missing password →
+  deny, never a fall-through to the token path; no credential configured →
+  deny. This is what removes the built-in-database user — the one step that
+  needed the dashboard or an API key — from the customer install. Four e2e
+  cases in `mqtt-auth.test.ts` (RED first, 14/14 after).
+- **Uninstall** stops and removes the `emqx` service and the `DigiLog MQTT`
+  firewall rule; the broker's data survives unless `-PurgeData`.
+  **`installer/DigiLog.iss`** copies `emqx\` `onlyifdoesntexist` (the running
+  service holds the files) and creates `ProgramData\DigiLog\emqx`.
+- **Docs corrected:** `docs/deployment-methods/method-a-native-windows.md` and
+  `tasks/EXE-PACKAGING-PLAN.md` both said MQTT/EMQX was removed in 2026-06 —
+  the third time that stale claim has been found (root `CLAUDE.md` 2026-08-24,
+  `DEPLOY-WINDOWS.md` the same day). `docs/PHARMA_DEPLOYMENT_21CFR.md` gains
+  §4a, the production broker runbook it had never had. `.env.example` and
+  `LOCAL_SETUP_WINDOWS.md` §9A.3 note the bridge-via-hook change.
+- **Not verified here:** a real `Setup.exe` build and a clean-VM install (needs
+  Inno Setup, the four downloads and admin on a VM). What IS verified: the
+  four API e2e cases, `tsc`, the dry-run rendering against the local 5.3.2
+  broker, and a parse of all six PowerShell scripts.
+
 ## [Unreleased] - Settings: one instrument picker, one square widget of its identity, placement and attributes (2026-09-08)
 
 Operator, first: *"in side bar add settings, in that page show the instrument

@@ -122,7 +122,25 @@ Build `DigiLog-Setup.exe` with **Inno Setup** or **NSIS**. On run it:
 7. Creates a **shortcut** to `https://digilog.pharma.local:3000`.
 8. Registers a **nightly DB backup** (Task Scheduler task "DigiLog Nightly Backup" → `scripts\backup-db.ps1` → `pg_dump` of `digilog_db` into `%ProgramData%\DigiLog\backups`, 14-day rotation, runs as SYSTEM with no stored password). Outcome is written every run to `backups\LAST-BACKUP-STATUS.txt` (OK/FAIL + timestamp) and appended to `logs\backup.log`; a failed run also sets a non-zero Task Scheduler "Last Run Result". **Copying dumps off-box, and periodically test-restoring them, are site procedures the installer does not perform** — see §5.2.
 
-**Result:** the customer double-clicks one `.exe`, clicks through Setup, and DigiLog runs as a service with no Node/npm/terminal and **no reverse proxy**.
+9. (2026-09-08) Lays down the **EMQX 5.3.2 MQTT broker** and registers it as the third service — see §4a.
+
+**Result:** the customer double-clicks one `.exe`, clicks through Setup, and DigiLog runs as a service with no Node/npm/terminal, **no reverse proxy, and no internet access** — every byte the installer needs is inside it.
+
+### 4a. The MQTT broker (instrument ingest) — bundled since 2026-09-08
+
+Instruments and RS485 gateways publish telemetry over MQTT (`instruments/<code>/telemetry`), so the server needs a broker. The installer ships **EMQX 5.3.2** (the last Windows build) under `{app}\emqx` and `scripts\provision-emqx.ps1` configures it on every install and upgrade:
+
+| | |
+|---|---|
+| Service | `emqx` (EMQX's own erlsrv registration, `-on restart`, auto-start). Not a dependency of `DigiLogAPI` — the bridge reconnects with backoff, and a broker fault must not take the web application down. |
+| Ports | MQTT **1883** and MQTTS **8883** on the LAN (firewall rule `DigiLog MQTT`); MQTTS uses the install's own `server.crt` / `server.key` — devices doing TLS must trust `rootCA.pem`. Dashboard **127.0.0.1:18083** — loopback only; WebSocket listeners disabled. |
+| Authentication | ONE authenticator: the API's HTTPS hook `https://127.0.0.1:<ApiPort>/api/ingest/v1/mqtt-auth`, `verify_peer` against `rootCA.pem`. Devices present their device token as the MQTT username and their instrument code as the client id; the hook denies any pair that does not match, so revocation is immediate. The hook also admits the ingest bridge by `MQTT_USERNAME` / `MQTT_PASSWORD`, which is why there is no dashboard user to create and no API key to bootstrap. |
+| Authorisation | `no_match = deny`, `deny_action = disconnect`, cache off, and the rendered `acl.conf`: a device may publish only on its own `telemetry`, `attributes/report` and `rtc-request` topics and subscribe only to its own attribute / children slots; the bridge alone reads `instruments/#`. |
+| State | `data_dir = %ProgramData%\DigiLog\emqx` — retained attribute slots and the built-in database survive upgrades and uninstall (purged only with `-PurgeData`). Retainer storage is `disc`, because the default `ram` erases every retained slot on restart. |
+| Secrets | `MQTT_PASSWORD`, `EMQX_NODE_COOKIE`, `EMQX_DASHBOARD_PASSWORD` are generated once into `digilog.env` and never regenerated. Dashboard login `admin` / `EMQX_DASHBOARD_PASSWORD`; reset from a shell with `emqx_ctl admins passwd admin <pw>`. |
+| Upgrade | The `emqx\` binaries are copied only if absent (the running service holds them); config is re-rendered from the new templates and the service re-registered, so a template change reaches the customer without touching their data. |
+
+Validation on the clean VM (step 5 below) must include the two negative MQTT checks from `LOCAL_SETUP_WINDOWS.md` §9A.3: a valid token under another instrument's client id is refused at CONNECT, and a publish to another instrument's topic is disconnected.
 
 ---
 
@@ -163,7 +181,7 @@ The application already provides the Part 11 *technical* controls; production de
 **One-time build (engineering):**
 1. Apply the SPA-serving change (§3.1).
 2. Set `apps/web/.env.production` → production hostname; `turbo run build`.
-3. Assemble the bundle (Node + dist + prod `node_modules` + `.prisma` + migrations + Postgres portable).
+3. Assemble the bundle (Node + dist + prod `node_modules` + `.prisma` + migrations + Postgres portable + the EMQX 5.3.2 Windows zip) — `scripts/build-installer.ps1 -NodeZip … -PgZip … -EmqxZip … -WinswExe …`. This is the ONLY step that needs the internet, and only on the build machine.
 4. Author the Inno Setup/NSIS script (§4); produce `DigiLog-Setup.exe`.
 5. Validate: run the installer on a clean VM, confirm `migrate deploy` rebuilds the schema, app loads over HTTPS, login works, audit/e-sig function.
 

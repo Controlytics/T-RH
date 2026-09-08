@@ -1,0 +1,114 @@
+## DigiLog configuration for the bundled EMQX 5.3.2 broker (HOCON).
+##
+## TEMPLATE — scripts/provision-emqx.ps1 substitutes every @@-delimited placeholder and writes
+## the result to <InstallDir>\emqx\etc\emqx.conf on every install and upgrade.
+## Do not edit the rendered copy by hand; edit this file and re-run the script.
+##
+## Every key here is one the dev box's working broker uses (its dashboard-
+## written data/configs/cluster.hocon, read back 2026-09-08), so the shapes
+## are known-good for 5.3.2. Reasoning per block is in LOCAL_SETUP_WINDOWS.md
+## §9A.3 / §9B; the short form is beside each block.
+
+node {
+  name = "emqx@127.0.0.1"
+  ## Generated once per install (EMQX_NODE_COOKIE in digilog.env). The stock
+  ## "emqxsecretcookie" is public knowledge and lets anyone on the host attach
+  ## an Erlang shell to the broker.
+  cookie = "@@NODE_COOKIE@@"
+  ## Under ProgramData so retained attribute slots and the built-in database
+  ## survive an upgrade (the program folder is replaced; this is not).
+  data_dir = "@@DATA_DIR@@"
+}
+
+cluster {
+  name = emqxcl
+  discovery_strategy = manual
+}
+
+dashboard {
+  ## LOOPBACK ONLY. The dashboard can rewrite the ACL, the authenticator chain
+  ## and the retained store — everything the ingest security rests on. An
+  ## administrator reaches it from the server itself.
+  listeners.http {
+    bind = "127.0.0.1:@@DASHBOARD_PORT@@"
+  }
+}
+
+## Plain MQTT on the LAN for devices that cannot do TLS; MQTTS beside it.
+listeners.tcp.default {
+  bind = "0.0.0.0:@@MQTT_PORT@@"
+}
+listeners.ssl.default {
+  bind = "0.0.0.0:@@MQTTS_PORT@@"
+  ssl_options {
+    certfile = "@@CERT_FILE@@"
+    keyfile  = "@@KEY_FILE@@"
+    verify = verify_none
+    fail_if_no_peer_cert = false
+  }
+}
+## No browser client talks MQTT here; the WebSocket listeners are two more
+## open ports on a plant network for nothing.
+listeners.ws.default  { enable = false }
+listeners.wss.default { enable = false }
+
+## Retained attribute slots MUST persist across restarts — the default `ram`
+## backend silently erases every one of them on restart.
+retainer {
+  enable = true
+  msg_expiry_interval = 0
+  backend {
+    type = built_in_database
+    storage_type = disc
+  }
+}
+
+## ONE authenticator: the API's HTTP hook. EMQX holds no device credentials —
+## it asks the API per CONNECT (device token as username, instrument code as
+## client id), so revocation is immediate. The hook ALSO admits the ingest
+## bridge by its own MQTT_USERNAME / MQTT_PASSWORD (2026-09-08), which is why
+## the customer install needs no built-in-database user and no dashboard step.
+##
+## 127.0.0.1, NOT localhost: on Windows `localhost` resolves to ::1 first and
+## Erlang does not fall back. server_name_indication stays `localhost` so the
+## certificate's DNS SAN is what hostname verification checks.
+authentication = [
+  {
+    mechanism = password_based
+    backend = http
+    enable = true
+    method = post
+    url = "@@HOOK_URL@@"
+    headers { content-type = "application/json" }
+    body {
+      clientid = "${clientid}"
+      username = "${username}"
+      password = "${password}"
+    }
+    pool_size = 8
+    connect_timeout = 5s
+    request_timeout = 5s
+    ssl {
+      enable = true
+      verify = verify_peer
+      cacertfile = "@@CA_FILE@@"
+      server_name_indication = localhost
+    }
+  }
+]
+
+## `no_match = deny` reverses EMQX's permissive default; without it the ACL's
+## final {deny, all}. is the only thing between a device and every topic. The
+## cache is off so a per-client topic decision is never remembered.
+authorization {
+  no_match = deny
+  deny_action = disconnect
+  cache { enable = false }
+  sources = [
+    {
+      type = file
+      enable = true
+      path = "@@ACL_FILE@@"
+    }
+  ]
+}

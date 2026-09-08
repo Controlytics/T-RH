@@ -3294,3 +3294,11 @@ Operator: *"one message for all children with full set, go"*.
 - [ ] operator: grant `View Settings` / `Edit Settings` to a role under Roles & Access and look at `/settings` on :5176 (not seen on screen here)
 - [x] third pass: square → full width
 - [ ] operator: confirm the Attributes dialog width on :5176
+
+## 2026-09-08 — EMQX in the installer bundle
+- [x] auth hook admits the bridge credential (4 e2e, RED→GREEN)
+- [x] `provision-emqx.ps1` + `scripts/emqx/{emqx.conf.template,acl.conf}`; dry-run matches the working cluster.hocon
+- [x] build-installer `-EmqxZip`, install/upgrade/uninstall/unregister wired, `DigiLog.iss` files + dirs
+- [x] docs: EXE plan, method-a, DEPLOY-WINDOWS, PHARMA §4a, LOCAL_SETUP §9A.3, .env.example, CLAUDE.md, CHANGELOG
+- [ ] build machine: run `build-installer.ps1` with the four zips and install on a clean VM; run the two negative MQTT checks
+- [ ] AWS instance: still a hand-configured broker (`deploy-on-instance.ps1` path) — consider provision-emqx there too

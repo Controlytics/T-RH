@@ -22,7 +22,7 @@ $serviceDir = Join-Path $InstallDir 'service'
 $scriptsDir = $PSScriptRoot  # unregister-services.ps1 is co-located
 
 # Hashtable splatting binds by name (array splatting would bind positionally).
-$unregArgs = @{ PgBin = $pgBin; ServiceDir = $serviceDir }
+$unregArgs = @{ PgBin = $pgBin; ServiceDir = $serviceDir; EmqxRoot = (Join-Path $InstallDir 'emqx') }
 if ($DryRun) { $unregArgs['DryRun'] = $true }
 & (Join-Path $scriptsDir 'unregister-services.ps1') @unregArgs
 
@@ -38,7 +38,10 @@ else {
 
 # Firewall rule cleanup (best-effort)
 if ($DryRun) { Write-Host "[dry-run] netsh advfirewall delete rule 'DigiLog API'" -ForegroundColor Yellow }
-else { netsh advfirewall firewall delete rule name="DigiLog API" 2>$null | Out-Null }
+else {
+  netsh advfirewall firewall delete rule name="DigiLog API" 2>$null | Out-Null
+  netsh advfirewall firewall delete rule name="DigiLog MQTT" 2>$null | Out-Null
+}
 
 if ($PurgeData) {
   if ($DryRun) { Write-Host "[dry-run] DESTROY $DataRoot (database + uploads + audit records)" -ForegroundColor Red }

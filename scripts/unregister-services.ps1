@@ -7,19 +7,23 @@
 
 .PARAMETER PgBin       Bundled Postgres bin dir (for pg_ctl unregister)
 .PARAMETER ServiceDir  Where DigiLogAPI.exe (WinSW) lives
+.PARAMETER EmqxRoot    Bundled EMQX folder (for emqx.cmd uninstall); skipped if absent
 .PARAMETER DryRun      Print commands instead of running them
 #>
 [CmdletBinding()]
 param(
   [Parameter(Mandatory)] [string]$PgBin,
   [Parameter(Mandatory)] [string]$ServiceDir,
+  [string]$EmqxRoot,
   [string]$DbService  = 'DigiLogDB',
   [string]$ApiService = 'DigiLogAPI',
+  [string]$MqttService = 'emqx',
   [switch]$DryRun
 )
 
-$pgctl  = Join-Path $PgBin 'pg_ctl.exe'
-$apiExe = Join-Path $ServiceDir "$ApiService.exe"
+$pgctl   = Join-Path $PgBin 'pg_ctl.exe'
+$apiExe  = Join-Path $ServiceDir "$ApiService.exe"
+$emqxCmd = if ($EmqxRoot) { Join-Path $EmqxRoot 'bin\emqx.cmd' } else { $null }
 
 function Do-Cmd($desc, $exe, [string[]]$argList, [switch]$IgnoreFail) {
   if ($DryRun) {
@@ -32,9 +36,13 @@ function Do-Cmd($desc, $exe, [string[]]$argList, [switch]$IgnoreFail) {
   if ($LASTEXITCODE -ne 0 -and -not $IgnoreFail) { Write-Host "WARN: $desc (exit $LASTEXITCODE)" -ForegroundColor Yellow }
 }
 
-# Stop both first (ignore failures - they may already be stopped).
+# Stop all first (ignore failures - they may already be stopped).
 Do-Cmd "stop $ApiService" 'sc.exe' @('stop', $ApiService) -IgnoreFail
 Do-Cmd "stop $DbService"  'sc.exe' @('stop', $DbService)  -IgnoreFail
+if ($emqxCmd -and (Test-Path $emqxCmd)) {
+  Do-Cmd "stop $MqttService" 'sc.exe' @('stop', $MqttService) -IgnoreFail
+  Do-Cmd "uninstall $MqttService (emqx.cmd uninstall -> erlsrv remove)" $emqxCmd @('uninstall') -IgnoreFail
+}
 
 # Remove the API service via WinSW, then the DB service via pg_ctl.
 if (Test-Path $apiExe) {

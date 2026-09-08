@@ -241,6 +241,17 @@ history; `docs/recreation/` holds the inventory.
   - **One identity, no UUID fallback**, by the operator's choice: a device still
     configured with its UUID is refused at CONNECT (`Not authorized`), where the
     failure is visible, rather than admitted and denied topic by topic.
+  - **The auth hook ALSO admits the ingest BRIDGE (2026-09-08)** by
+    `MQTT_USERNAME` / `MQTT_PASSWORD` (constant-time compare over SHA-256
+    digests; the bridge NAME with a wrong password is a deny, never a
+    fall-through to the token path). Why: the `Setup.exe` installer now
+    BUNDLES EMQX 5.3.2 (`scripts/build-installer.ps1 -EmqxZip`,
+    `scripts/provision-emqx.ps1`, templates in `scripts/emqx/`) and configures
+    ONE authenticator, so no dashboard user or API key has to be created on a
+    customer machine. The dev box still has its built-in-database user ahead of
+    the hook; both work. Pinned by `e2e/mqtt-auth.test.ts`. The installer's
+    third service is `emqx` (erlsrv via `emqx.cmd install`); the API does not
+    depend on it. `docs/PHARMA_DEPLOYMENT_21CFR.md` §4a is the runbook.
   - **Downlink and roster slots are keyed on codes** (`attributeDownlinkTopic`,
     `childRosterTopic`; the routes resolve the gateway's code). The 102 retained
     UUID-keyed slots on the local broker were cleared and republished code-keyed

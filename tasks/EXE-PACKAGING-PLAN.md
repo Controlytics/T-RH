@@ -120,6 +120,8 @@ C:\Program Files\DigiLog\                 (program — replaced on upgrade)
 │  ├─ web\dist\                           (built React UI — served by the backend, see §5)
 │  └─ queue\crontab.txt                   (graphile-worker crontab; path preserved or via MAINTENANCE_CRONTAB_PATH)
 ├─ pgsql\                                 (bundled PostgreSQL 18 binaries: initdb, postgres, pg_ctl, psql)
+├─ emqx\                                  (bundled EMQX 5.3.2 MQTT broker — 2026-09-08; etc\emqx.conf + etc\acl.conf
+│                                          are RENDERED on the customer machine by scripts\provision-emqx.ps1)
 ├─ service\
 │  └─ winsw\                              (WinSW or nssm wrapper exes that run node + postgres as services)
 ├─ tools\
@@ -130,13 +132,25 @@ C:\ProgramData\DigiLog\                    (DATA — survives upgrade AND uninst
 ├─ db\                                     (PostgreSQL data directory — initdb target)
 ├─ uploads\                               (UPLOAD_DIR — user-uploaded files, report assets)
 ├─ logs\                                   (api + postgres + service logs)
+├─ emqx\                                   (the broker's data_dir: retained attribute slots + its built-in database)
 └─ config\
-   └─ digilog.env                          (generated secrets + connection string — see §6)
+   └─ digilog.env                          (generated secrets + connection string — see §6; since 2026-09-08 also
+                                            MQTT_BROKER_URL / MQTT_CLIENT_ID / MQTT_USERNAME / MQTT_PASSWORD,
+                                            EMQX_NODE_COOKIE, EMQX_DASHBOARD_PASSWORD)
 ```
 
-**Two services:**
+**Three services (was two until 2026-09-08):**
 1. `DigiLogDB` — runs `pgsql\bin\postgres.exe -D C:\ProgramData\DigiLog\db` on port **5433**.
 2. `DigiLogAPI` — runs `runtime\node.exe runtime\api\dist\app.js` with env loaded from `digilog.env`, depends on `DigiLogDB`.
+3. `emqx` — the bundled EMQX 5.3.2 broker, registered through its own launcher (`emqx.cmd install` → erlsrv,
+   internal service name `emqx`, `-on restart`), MQTT on **1883**, MQTTS on **8883** (the install's own
+   server cert), dashboard on **127.0.0.1:18083** only. ONE authenticator: the API's HTTPS auth hook
+   (`/api/ingest/v1/mqtt-auth`, `verify_peer` against the install's rootCA.pem), which also admits the
+   ingest bridge by `MQTT_USERNAME`/`MQTT_PASSWORD` — so no dashboard or API-key step exists.
+   `authorization.no_match = deny` + the rendered `acl.conf`. The API does NOT `depend` on it: the bridge
+   reconnects with backoff, and a broker fault must not take the web application down.
+   **The MQTT/EMQX removal recorded elsewhere in this plan and in method-a was reversed 2026-08 — the
+   ingest bridge is live; do not read "removed" as current.**
 
 ---
 
@@ -155,6 +169,7 @@ Run on the dev machine to create the `Setup.exe`. Encapsulate as `scripts/build-
    - **Prisma engine:** `node_modules/.prisma/client/query_engine-windows.dll.node` (≈20 MB) must be in the staged tree. Set `PRISMA_QUERY_ENGINE_LIBRARY` if the runtime can't auto-locate it.
    - **Size:** the full dev `node_modules` is ≈1.5 GB; a production prune (`--omit=dev`, dropping vite/vitest/tsc/turbo/etc.) is mandatory to keep the installer reasonable.
 6. **Stage `pgsql/`:** download the **PostgreSQL 18 Windows binary zip** (EnterpriseDB / "binaries only" distribution), extract `bin/` + `lib/` + `share/`.
+6b. **Stage `emqx/`** (2026-09-08): `-EmqxZip` = `emqx-5.3.2-windows-amd64.zip` from `www.emqx.com/en/downloads/broker/5.3.2/` — the LAST Windows build; the GitHub releases API lists no Windows asset for any version. Extracted whole, `data\` and `log\` stripped; config is NOT shipped (rendered per install from `scripts/emqx/`). ~120 MB extracted, ~58 MB zipped. Apache-2.0 at that version (EMQX moved to BSL 1.1 after open-source EOL 2026-02-28 — 5.3.2 predates it).
 7. **Stage `service/`:** include WinSW (or nssm) wrapper exe + per-service XML config.
 8. **Compile installer:** run Inno Setup (`ISCC.exe DigiLog.iss`) → `dist/DigiLog-Setup-vX.Y.Z.exe`.
 

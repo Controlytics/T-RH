@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from './test-helper.js';
@@ -87,6 +87,46 @@ afterAll(async () => {
   await app?.close();
   await prisma.instrument.deleteMany({ where: { id: { in: instrumentIds } } });
   invalidateIngestAuthCache();
+});
+
+describe('EMQX auth hook — the ingest BRIDGE\'s own credential (2026-09-08)', () => {
+  // The bridge has no instrument token. On the dev box a built-in-database
+  // user admits it ahead of this hook; the customer installer configures ONE
+  // authenticator (this hook) so no dashboard step is needed, and the hook
+  // admits the bridge by the static credential the API itself connects with.
+  const saved = { u: process.env.MQTT_USERNAME, p: process.env.MQTT_PASSWORD };
+  afterEach(() => {
+    if (saved.u === undefined) delete process.env.MQTT_USERNAME; else process.env.MQTT_USERNAME = saved.u;
+    if (saved.p === undefined) delete process.env.MQTT_PASSWORD; else process.env.MQTT_PASSWORD = saved.p;
+  });
+
+  it('allows the bridge username with the configured password, under the bridge client id', async () => {
+    process.env.MQTT_USERNAME = 'digilog-bridge';
+    process.env.MQTT_PASSWORD = `bridge-secret-${S}`;
+    const res = await ask({ clientid: 'digilog-ingest-bridge', username: 'digilog-bridge', password: `bridge-secret-${S}` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ result: 'allow' });
+  });
+
+  it('denies the bridge username with a wrong, empty or missing password', async () => {
+    process.env.MQTT_USERNAME = 'digilog-bridge';
+    process.env.MQTT_PASSWORD = `bridge-secret-${S}`;
+    expect((await ask({ clientid: 'digilog-ingest-bridge', username: 'digilog-bridge', password: 'nope' })).json()).toEqual({ result: 'deny' });
+    expect((await ask({ clientid: 'digilog-ingest-bridge', username: 'digilog-bridge', password: '' })).json()).toEqual({ result: 'deny' });
+    expect((await ask({ clientid: 'digilog-ingest-bridge', username: 'digilog-bridge' })).json()).toEqual({ result: 'deny' });
+  });
+
+  it('denies the bridge username outright when no bridge credential is configured', async () => {
+    delete process.env.MQTT_USERNAME;
+    delete process.env.MQTT_PASSWORD;
+    expect((await ask({ clientid: 'digilog-ingest-bridge', username: 'digilog-bridge', password: 'anything' })).json()).toEqual({ result: 'deny' });
+  });
+
+  it('a configured bridge password never admits a DEVICE token under the bridge name', async () => {
+    process.env.MQTT_USERNAME = 'digilog-bridge';
+    process.env.MQTT_PASSWORD = `bridge-secret-${S}`;
+    expect((await ask({ clientid: goodCode, username: 'digilog-bridge', password: goodToken })).json()).toEqual({ result: 'deny' });
+  });
 });
 
 describe('EMQX auth hook', () => {

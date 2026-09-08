@@ -183,6 +183,15 @@ if ($dbAlreadyInit) {
   }
 }
 
+# 3b. The bundled EMQX broker: env keys (bridge credential, cookie, dashboard
+#     password - appended only if absent), rendered config, Windows service,
+#     firewall. BEFORE the API service so the bridge's first connect succeeds.
+#     Idempotent; upgrade.ps1 calls the same script.
+$mqArgs = @{ InstallDir = $InstallDir; DataRoot = $DataRoot; ApiPort = $ApiPort }
+if ($DryRun) { $mqArgs['DryRun'] = $true }
+& (Join-Path $scriptsDir 'provision-emqx.ps1') @mqArgs
+if ($LASTEXITCODE -ne 0) { Write-Host "FAILED: EMQX provisioning" -ForegroundColor Red; exit 1 }
+
 # 4. Register the Windows services (DB + API), auto-start.
 $regArgs = @{
   PgBin = $pgBin; PgDataDir = $dbDir; Port = $PgPort;
@@ -215,7 +224,10 @@ if (-not $DryRun) {
     try { $r = Invoke-WebRequest "https://localhost:$ApiPort/api/health" -UseBasicParsing -TimeoutSec 2; if ($r.StatusCode -eq 200) { $ok = $true; break } } catch {}
     Start-Sleep -Seconds 1
   }
-  if ($ok) { Write-Host "`nDigiLog is running. Open https://localhost:$ApiPort  (login: superadmin)" -ForegroundColor Green }
+  if ($ok) {
+    Write-Host "`nDigiLog is running. Open https://localhost:$ApiPort  (login: superadmin)" -ForegroundColor Green
+    Write-Host "MQTT broker: mqtt://<this-host>:1883 and mqtts://<this-host>:8883; dashboard http://127.0.0.1:18083 (admin / EMQX_DASHBOARD_PASSWORD in $envFile)" -ForegroundColor Gray
+  }
   else { Write-Host "`nWARN: API did not report healthy within 30s. Check $logDir." -ForegroundColor Yellow; exit 1 }
 }
 

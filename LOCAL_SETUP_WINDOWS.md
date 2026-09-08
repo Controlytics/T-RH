@@ -334,6 +334,18 @@ concurrent connections.
 EMQX 5.3.2 is installed at `C:\Users\hello\emqx-5.3.2` (the last release with a
 Windows build). Start it with `bin\emqx.cmd start`.
 
+> **On a CUSTOMER machine none of this section is done by hand (2026-09-08).**
+> The `Setup.exe` installer ships the broker and `scripts/provision-emqx.ps1`
+> renders `etc/emqx.conf` + `etc/acl.conf` from `scripts/emqx/`, registers the
+> `emqx` service and opens the firewall. The rendered config is the SAME shape
+> as this box's `data/configs/cluster.hocon` with two deliberate differences:
+> the dashboard binds `127.0.0.1` only, and there is ONE authenticator — the
+> HTTPS hook — because since 2026-09-08 the hook also admits the ingest bridge
+> by `MQTT_USERNAME` / `MQTT_PASSWORD` (constant-time compare), so the
+> built-in-database user this box carries is not needed there. This section
+> stays as the reference for WHY each setting exists and for driving the dev
+> broker by hand.
+
 #### The dashboard — http://localhost:18083
 
 **`admin` / `DigiLog@2026`** on this machine (set 2026-08-06). The shipped

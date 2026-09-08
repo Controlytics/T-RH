@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { type FastifyInstance } from 'fastify';
 import { resolveInstrumentByToken } from './ingest-auth.js';
 
@@ -57,6 +58,37 @@ interface EmqxAuthResult { result: 'allow' | 'deny' }
 const ALLOW: EmqxAuthResult = { result: 'allow' };
 const DENY: EmqxAuthResult = { result: 'deny' };
 
+/** Constant-time string equality over fixed-length digests, so a wrong bridge
+ *  password of any length costs the same as a right one. */
+function sameSecret(a: string, b: string): boolean {
+  const da = createHash('sha256').update(a).digest();
+  const db = createHash('sha256').update(b).digest();
+  return timingSafeEqual(da, db);
+}
+
+/**
+ * The ingest BRIDGE's own credential (2026-09-08). The bridge — this very
+ * process — connects to the broker with `MQTT_USERNAME` / `MQTT_PASSWORD` and
+ * holds no instrument token. On the dev box a built-in-database user in EMQX
+ * admits it AHEAD of this hook; the customer installer configures ONE
+ * authenticator (this hook) so no dashboard or API-key step is needed, and
+ * the hook admits the bridge by the same static credential the API connects
+ * with. Read per request, not at boot: the e2e flips the env, and a value
+ * captured at import would be a second copy of the secret to go stale.
+ *
+ * `null` = "this username is not the bridge, carry on to the token path";
+ * a boolean = the decision. The bridge NAME with a wrong password is a deny,
+ * never a fall-through to the token path — a device token under the bridge
+ * name would otherwise inherit the bridge's ACL grants.
+ */
+function bridgeDecision(username: string, password: unknown): boolean | null {
+  const u = process.env.MQTT_USERNAME;
+  const p = process.env.MQTT_PASSWORD;
+  if (!u || username !== u) return null;
+  if (!p) return false;
+  return typeof password === 'string' && password.length > 0 && sameSecret(password, p);
+}
+
 export default async function mqttAuthRoutes(app: FastifyInstance) {
   app.post('/mqtt-auth', {
     // Same tightening as the HTTP ingest route, for the same reason: this is
@@ -85,13 +117,22 @@ export default async function mqttAuthRoutes(app: FastifyInstance) {
     const body = req.body;
     if (!body || typeof body !== 'object' || Array.isArray(body)) return reply.send(DENY);
 
-    const { clientid, username } = body as Record<string, unknown>;
+    const { clientid, username, password } = body as Record<string, unknown>;
     if (typeof username !== 'string' || username.length === 0) return reply.send(DENY);
     if (typeof clientid !== 'string' || clientid.length === 0) return reply.send(DENY);
 
+    // The bridge's own credential — see bridgeDecision(). Checked FIRST and
+    // terminal for that username, so the token path below never sees it.
+    const bridge = bridgeDecision(username, password);
+    if (bridge !== null) {
+      if (!bridge) req.log.warn({ clientid }, '[ingest:mqtt-auth] denied — bridge username with a wrong or missing password');
+      return reply.send(bridge ? ALLOW : DENY);
+    }
+
     // The single credential authority, exactly as every other listener uses it.
-    // `password` is ignored on purpose: the token is the credential, and there
-    // is no second secret to check. Accepting one would be a second auth path.
+    // For a DEVICE `password` is ignored on purpose: the token is the credential,
+    // and there is no second secret to check. Accepting one would be a second
+    // auth path. (The bridge above is the one, named exception.)
     const identity = await resolveInstrumentByToken(username);
     if (!identity) return reply.send(DENY);
 

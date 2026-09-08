@@ -192,6 +192,16 @@ if ($envRaw -match '^\s*AUDIT_CHAIN_KEY\s*=\s*\S') {
   }
 }
 
+# 5b. Re-provision the bundled EMQX broker from the (possibly newer) templates:
+#     appends any MQTT/EMQX env key this install predates, re-renders
+#     emqx.conf + acl.conf, re-registers and restarts the service. Retained
+#     slots live under $DataRoot\emqx and are untouched. Runs BEFORE the API
+#     starts so the bridge connects first time.
+$mqArgs = @{ InstallDir = $InstallDir; DataRoot = $DataRoot; ApiPort = $ApiPort }
+if ($DryRun) { $mqArgs['DryRun'] = $true }
+& (Join-Path $PSScriptRoot 'provision-emqx.ps1') @mqArgs
+if ($LASTEXITCODE -ne 0) { Write-Host "FATAL: EMQX provisioning failed; the API was NOT started. Backup at $backupFile." -ForegroundColor Red; exit 1 }
+
 # 6. Start the API service + health check.
 if ($DryRun) { Write-Host "[dry-run] sc start $ApiService; poll http://localhost:$ApiPort/api/health" -ForegroundColor Yellow; exit 0 }
 Write-Host "==> Starting $ApiService" -ForegroundColor Cyan

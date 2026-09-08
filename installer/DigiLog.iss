@@ -1,11 +1,12 @@
 ; DigiLog - Inno Setup installer definition
 ; Builds a customer-facing Setup.exe that installs DigiLog + a private bundled
-; PostgreSQL as auto-starting Windows services, with no prerequisites.
+; PostgreSQL + the EMQX 5.3.2 MQTT broker as auto-starting Windows services,
+; with no prerequisites and no internet access on the target machine.
 ; See tasks/EXE-PACKAGING-PLAN.md (M5).
 ;
 ; Compile with Inno Setup 6:   ISCC.exe /DStageDir=<staging> /DAppVersion=1.0.0 installer\DigiLog.iss
 ; The staging dir is produced by scripts/build-installer.ps1 and must contain:
-;   runtime\   pgsql\   service\   scripts\
+;   runtime\   pgsql\   emqx\   service\   scripts\
 ;
 ; NOTE: this .iss is authored + reviewed here, but COMPILING it to Setup.exe
 ; requires Inno Setup on a build machine, and TEST-INSTALLING requires admin.
@@ -47,6 +48,12 @@ SetupLogging=yes
 ;  - runtime + service + scripts: ignoreversion (replaced every upgrade). These
 ;    are freed by stopping DigiLogAPI in PrepareToInstall() BEFORE this copy runs.
 Source: "{#StageDir}\pgsql\*";   DestDir: "{app}\pgsql";   Flags: recursesubdirs createallsubdirs onlyifdoesntexist
+;  - emqx (bundled EMQX 5.3.2 broker): onlyifdoesntexist, for the same reason as
+;    pgsql - the erlsrv service holds its files. Its CONFIG is not in this copy:
+;    provision-emqx.ps1 re-renders etc\emqx.conf + etc\acl.conf from
+;    scripts\emqx\* (ignoreversion, below) on every install AND upgrade, and
+;    re-registers the service, so a template change reaches the customer.
+Source: "{#StageDir}\emqx\*";    DestDir: "{app}\emqx";    Flags: recursesubdirs createallsubdirs onlyifdoesntexist
 Source: "{#StageDir}\runtime\*"; DestDir: "{app}\runtime"; Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "{#StageDir}\service\*"; DestDir: "{app}\service"; Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "{#StageDir}\scripts\*"; DestDir: "{app}\scripts"; Flags: recursesubdirs createallsubdirs ignoreversion
@@ -58,6 +65,8 @@ Name: "{commonappdata}\DigiLog\db"
 Name: "{commonappdata}\DigiLog\uploads"
 Name: "{commonappdata}\DigiLog\logs"
 Name: "{commonappdata}\DigiLog\config"
+; The broker's data_dir: retained attribute slots + its built-in database.
+Name: "{commonappdata}\DigiLog\emqx"
 
 [Icons]
 ; Start-menu + desktop shortcut open the app in the default browser.

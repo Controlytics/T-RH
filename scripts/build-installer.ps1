@@ -11,15 +11,21 @@
     2. clean-room production deps (npm ci --omit=dev in an isolated checkout)
     3. stage runtime/ (scripts/stage-runtime.ps1)
     4. stage pgsql/  (portable PostgreSQL binaries)
+    4b. stage emqx/  (EMQX 5.3.2 Windows broker - instrument ingest over MQTT)
     5. stage service/ (WinSW-x64.exe)
-    6. stage scripts/ (provision/register/install/uninstall)
+    6. stage scripts/ (provision/register/install/uninstall + scripts\emqx templates)
     7. ISCC -> Setup.exe
 
   Prerequisites (the build machine provides these; not committed to the repo):
     -NodeZip   path to node-vXX-win-x64.zip      (ABI must match the native build)
     -PgZip     path to postgresql-18-...-windows-x64-binaries.zip
+    -EmqxZip   path to emqx-5.3.2-windows-amd64.zip (www.emqx.com/en/downloads/broker/5.3.2/ -
+               the LAST Windows build; GitHub releases carry no Windows asset)
     -WinswExe  path to WinSW-x64.exe              (github.com/winsw/winsw releases)
     -Iscc      path to ISCC.exe                   (Inno Setup 6)
+
+  The internet is needed HERE, once, for those four downloads and `npm ci`.
+  The customer machine installs and runs with none - see docs/PHARMA_DEPLOYMENT_21CFR.md.
 
   This script is authored + structured here; a full run requires those external
   binaries + Inno Setup and is performed on the build machine.
@@ -30,6 +36,7 @@
 param(
   [Parameter(Mandatory)] [string]$NodeZip,
   [Parameter(Mandatory)] [string]$PgZip,
+  [Parameter(Mandatory)] [string]$EmqxZip,
   [Parameter(Mandatory)] [string]$WinswExe,
   [string]$Iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
   [string]$AppVersion = '0.1.0',
@@ -136,6 +143,23 @@ Expand-Archive -Path $PgZip -DestinationPath $pgTmp -Force
 $pgRoot = (Get-ChildItem $pgTmp -Recurse -Directory -Filter 'bin' | Where-Object { Test-Path (Join-Path $_.FullName 'initdb.exe') } | Select-Object -First 1).Parent.FullName
 Copy-Item $pgRoot (Join-Path $stage 'pgsql') -Recurse -Force
 
+# 5b. Stage emqx/ (the broker; ~120 MB extracted). The zip extracts to a single
+#     'emqx-5.3.2' folder whose bin\emqx.cmd is the launcher provision-emqx.ps1
+#     drives. Shipped UNCONFIGURED: etc\emqx.conf and etc\acl.conf are rendered
+#     on the customer machine from scripts\emqx\*, because the cookie, the cert
+#     paths and the hook URL are per-install.
+Write-Host "==> Stage emqx" -ForegroundColor Cyan
+$emqxTmp = Join-Path $OutDir 'emqx-extract'
+if (Test-Path $emqxTmp) { Remove-Item -Recurse -Force $emqxTmp }
+Expand-Archive -Path $EmqxZip -DestinationPath $emqxTmp -Force
+$emqxRoot = (Get-ChildItem $emqxTmp -Recurse -Filter 'emqx.cmd' | Where-Object { $_.Directory.Name -eq 'bin' } | Select-Object -First 1).Directory.Parent.FullName
+if (-not $emqxRoot) { Write-Host "FAILED: bin\emqx.cmd not found inside $EmqxZip" -ForegroundColor Red; exit 1 }
+Copy-Item $emqxRoot (Join-Path $stage 'emqx') -Recurse -Force
+# A previous dev box's data (mnesia, retained slots, dashboard users) must not
+# ship: the customer's broker starts empty under its own ProgramData data_dir.
+Remove-Item -Recurse -Force (Join-Path $stage 'emqx\data') -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force (Join-Path $stage 'emqx\log')  -ErrorAction SilentlyContinue
+
 # 6. Stage service/ + scripts/
 Write-Host "==> Stage service + scripts" -ForegroundColor Cyan
 New-Item -ItemType Directory -Force -Path (Join-Path $stage 'service'), (Join-Path $stage 'scripts') | Out-Null
@@ -147,9 +171,12 @@ Copy-Item $WinswExe (Join-Path $stage 'service\WinSW-x64.exe') -Force
 # file rather than degrading. register-backup-task.ps1 + backup-db.ps1 are the
 # nightly-backup pair (21 CFR §11.10(c)); both install.ps1 and upgrade.ps1 invoke
 # the former, which invokes the latter nightly. Add new sibling scripts HERE.
-foreach ($s in 'provision-db.ps1','apply-schema.ps1','register-services.ps1','unregister-services.ps1','install.ps1','upgrade.ps1','uninstall.ps1','register-backup-task.ps1','backup-db.ps1') {
+foreach ($s in 'provision-db.ps1','apply-schema.ps1','register-services.ps1','unregister-services.ps1','install.ps1','upgrade.ps1','uninstall.ps1','register-backup-task.ps1','backup-db.ps1','provision-emqx.ps1') {
   Copy-Item (Join-Path $PSScriptRoot $s) (Join-Path $stage 'scripts') -Force
 }
+# The broker's config templates travel WITH the scripts (provision-emqx.ps1
+# reads $PSScriptRoot\emqx), so an upgrade re-renders from the new templates.
+Copy-Item (Join-Path $PSScriptRoot 'emqx') (Join-Path $stage 'scripts\emqx') -Recurse -Force
 Copy-Item (Join-Path $repoRoot 'apps\api\prisma\sql') (Join-Path $stage 'runtime\api\prisma\sql') -Recurse -Force -ErrorAction SilentlyContinue
 
 # 7. Compile the installer
