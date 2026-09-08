@@ -3292,4 +3292,5 @@ Operator: *"one message for all children with full set, go"*.
 - [x] second pass (operator restatement): table → instrument picker + square widget (ID, Building, Area, attributes), Edit opens the Attributes panel in a dialog; 4 tests
 - [x] docs: README, CLAUDE (root/web/shared), AGENTS, FRONTEND_GUIDE, docs/index, CHANGELOG
 - [ ] operator: grant `View Settings` / `Edit Settings` to a role under Roles & Access and look at `/settings` on :5176 (not seen on screen here)
-- [ ] operator: confirm the widget's square proportion and the Attributes dialog width on :5176
+- [x] third pass: square → full width
+- [ ] operator: confirm the Attributes dialog width on :5176

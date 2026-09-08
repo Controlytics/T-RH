@@ -170,7 +170,7 @@ Every PDF download is a REQUEST an approver signs. Spec:
   `INSTRUMENT_READ`; 2026-09-08): a Common settings bar with ONE instrument
   picker (`SearchableSelect` over `GET /api/instruments?<ALL_RECORDS_PARAM>` —
   the server's scope IS the selection; last pick remembered in `localStorage`,
-  else the first) and ONE square widget (`sm:aspect-square`, rows scroll inside)
+  else the first) and ONE full-width widget (was square for an hour — operator: "remove the square shape, make widget full width")
   of key / value rows: Instrument ID, Building, Area (the functional location's
   Block / Area by id off `/api/functional-locations`, `placementOf()`), then
   every attribute from `GET /api/instruments/:id/attributes` printing

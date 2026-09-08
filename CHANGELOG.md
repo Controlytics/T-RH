@@ -53,9 +53,10 @@ existing Attributes panel".
 - **Counts:** sidebar items 14 → **15**, routes 52 → **53**, tree groups
   13 → **14**, nodes 55 → **57**, feature privileges 43 → **45**. No permission,
   reauth action, model, enum, config def, migration or API change.
+- **Later the same day: "remove the square shape, make widget full width"** —
+  the widget is full width, rows in the page flow, no inner scroll.
 - **Not seen on screen** — the operator holds the browser session. Needs their
-  eye: the widget's square proportion at their viewport (`sm:aspect-square`,
-  rows scroll inside it) and the dialog width for the Attributes panel.
+  eye: the dialog width for the Attributes panel.
 
 ## [Unreleased] - SUPER_ADMIN may approve any report request, their own included (2026-09-08)
 

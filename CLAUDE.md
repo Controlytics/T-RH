@@ -861,7 +861,7 @@ GET    /api/config/report-approvers/current     — the administered approver ro
   already do. Counts: sidebar items 14 → **15**, routes 52 → **53**, tree
   groups 13 → **14**, nodes 55 → **57**, feature privileges 43 → **45**; no
   permission, reauth action, model, enum, config def, migration or API change.
-  - **A Common settings bar with ONE instrument picker, then ONE square widget**
+  - **A Common settings bar with ONE instrument picker, then ONE full-width widget** (square for an hour, then "remove the square shape, make widget full width")
     of key / value rows: Instrument ID, Building, Area, then every attribute
     (the server's `display` form where given). "Assigned to that user" is the
     instrument scope, applied by the SERVER on `GET /api/instruments`; the

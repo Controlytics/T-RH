@@ -20,7 +20,9 @@ import { AttributesPanel } from '@/routes/instruments/attributes-panel';
  * that instruments should come in selection"*.
  *
  * So: a COMMON SETTINGS bar with one instrument picker, and under it ONE
- * square widget of key / value rows for the chosen instrument — Instrument ID,
+ * full-width widget of key / value rows for the chosen instrument (it was
+ * square for an hour; operator: "remove the square shape, make widget full
+ * width") — Instrument ID,
  * Building, Area, then every attribute. "Assigned to that user" is the
  * instrument scope, which the SERVER applies to the list endpoint this page
  * reads; the picker offers exactly what came back and nothing is re-derived
@@ -157,7 +159,7 @@ export function SettingsPage() {
       {selected && (
         <div
           data-testid="settings-widget"
-          className="flex w-full max-w-md flex-col rounded-[var(--radius-card)] border border-slate-200 bg-white shadow-[var(--elev-1)] sm:aspect-square"
+          className="flex w-full flex-col rounded-[var(--radius-card)] border border-slate-200 bg-white shadow-[var(--elev-1)]"
         >
           <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-3">
             <div className="flex min-w-0 items-center gap-3">
@@ -168,7 +170,7 @@ export function SettingsPage() {
               <Button size="sm" onClick={() => setEditing(true)}>Edit</Button>
             )}
           </div>
-          <dl className="min-h-0 flex-1 overflow-y-auto px-5 py-2">
+          <dl className="px-5 py-2">
             {row('Instrument ID', selected.code)}
             {row('Building', placement.building ?? UNASSIGNED, !placement.building)}
             {row('Area', placement.area ?? UNASSIGNED, !placement.area)}
