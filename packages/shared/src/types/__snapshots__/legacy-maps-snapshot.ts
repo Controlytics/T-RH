@@ -279,6 +279,18 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
     "label": "Approve / Reject Reports",
     "category": "Reports",
     "icon": "check"
+  },
+  {
+    "id": "settings.view",
+    "label": "View Settings",
+    "category": "Settings",
+    "icon": "settings"
+  },
+  {
+    "id": "settings.edit",
+    "label": "Edit Settings",
+    "category": "Settings",
+    "icon": "settings-edit"
   }
 ];
 
@@ -434,6 +446,13 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   "reports.approve": [
     "REPORT_REVIEW_APPROVE",
     "REPORT_REVIEW_READ"
+  ],
+  "settings.view": [
+    "INSTRUMENT_READ"
+  ],
+  "settings.edit": [
+    "INSTRUMENT_UPDATE",
+    "INSTRUMENT_READ"
   ]
 };
 
@@ -569,6 +588,16 @@ export const SIDEBAR_PRIVILEGE_MAP_SNAPSHOT: SidebarSectionSnapshot[] = [
     "privilegeIds": [
       "reports.view",
       "reports.approve"
+    ]
+  },
+  {
+    "sidebarId": "settings",
+    "label": "Settings",
+    "icon": "🛠️",
+    "description": "Every instrument's details and attributes in one table, editable in place",
+    "privilegeIds": [
+      "settings.view",
+      "settings.edit"
     ]
   }
 ];

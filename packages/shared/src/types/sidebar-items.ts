@@ -33,4 +33,7 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
   { id: 'data-report', label: 'Data Report', icon: '\u{1F4C4}', description: 'Readings of a Block, an Area or chosen instruments over a period, with the Data Report download' },
   // 2026-09-07: the report review workflow. `/reports`; gated on REPORT_REVIEW_READ through the tree.
   { id: 'reports', label: 'Reports', icon: '\u{1F4D1}', description: 'Report requests awaiting approval, and approved reports to download' },
+  // 2026-09-08: every instrument's details and attributes in one table, editable
+  // in place. `/settings`; gated on INSTRUMENT_READ / INSTRUMENT_UPDATE through the tree.
+  { id: 'settings', label: 'Settings', icon: '\u{1F6E0}\uFE0F', description: "Every instrument's details and attributes in one table, editable in place" },
 ];

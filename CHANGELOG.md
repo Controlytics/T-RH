@@ -1,5 +1,56 @@
 # Changelog
 
+## [Unreleased] - Settings: every instrument's details and attributes in one table (2026-09-08)
+
+Operator: *"in side bar add settings, in that page show the instrument details
+and attributes, there selected user role should edit details, view details"*.
+Chosen from three shapes offered: one table of all instruments, edit in place
+(over renaming Instruments, or a picker over the existing detail page).
+
+- **New sidebar item `settings` → `/settings`** (`routes/settings/index.tsx`).
+  One table of every instrument the viewer may see — the server's instrument
+  scope, on the list endpoint it reads — with Instrument ID, Profile, Type,
+  Block › Area, Location, Status and Last seen, and a search box over ID,
+  profile, area and location. Block › Area and Location are read off
+  `telemetry-overview` (`functionalLocationName`, `locationAttribute`), the same
+  two facts the dashboard prints, so nothing is re-derived; empty states are
+  worded apart (`Unassigned` / `Not set`) as there.
+- **A row expands to its details and its attributes.** Details edit inline and
+  save through the existing `PUT /api/instruments/:id` (same audit row as the
+  detail page): name, profile, type, manufacturer, model, serial number,
+  expected interval, description, enabled. Instrument ID is read-only (MQTT
+  identity). The superseded free-text `block`/`area`/`location` columns are
+  neither shown nor written. Attributes are the existing `AttributesPanel`
+  mounted inside the row, which carries the whole §11 flow wherever it is
+  mounted — the role's Attribute Access rule, mandatory remarks on a change,
+  re-auth when the role requires it.
+- **Who may view and who may edit is a Roles & Access → Sidebar toggle.**
+  Permission-tree group `settings` with `settings.view` (gate INSTRUMENT_READ)
+  and `settings.edit` (gate INSTRUMENT_UPDATE); Edit's grant set carries READ so
+  a role granted Edit alone still loads the page. **No new permission** — it
+  shows and changes instruments, so the permissions that already govern them
+  govern it. `settings.edit` turns the form on and is the panel's `canEdit`,
+  which the panel then narrows by Attribute Access. Presentation on the page;
+  the route gates are the control. Nothing is granted by default.
+- **Deliberately not columns:** attributes. The attributes endpoint is per
+  instrument, and a hundred requests per page load is not a table. A bulk
+  endpoint for a flat all-attributes view was offered as a follow-up, not built.
+- **Untouched:** the Instruments sidebar item and its pages; token, gateway and
+  delete stay on the detail page.
+- **Tests.** `settings-page.test.tsx` (5, wiring: rows and empty-state words,
+  expand → panel for THAT instrument read-only under View, Edit → form → PUT
+  body without the superseded columns and the panel's edit flag, Edit-alone
+  loads, search). Mutation-checked: an always-false edit flag and a no-op
+  search each fail exactly one. Shared: `settings group` pins on the tree,
+  derived counts re-pinned, the frozen `legacy-maps-snapshot.ts` extended by
+  appending; sidebar parity and visibility tests pass. `tsc` clean on both apps.
+- **Counts:** sidebar items 14 → **15**, routes 52 → **53**, tree groups
+  13 → **14**, nodes 55 → **57**, feature privileges 43 → **45**. No permission,
+  reauth action, model, enum, config def, migration or API change.
+- **Not seen on screen** — the operator holds the browser session. Needs their
+  eye: the expanded row's two-column layout at their viewport, and the search
+  box in the page header.
+
 ## [Unreleased] - SUPER_ADMIN may approve any report request, their own included (2026-09-08)
 
 Operator: *"super admin should be able to approve own requests or other

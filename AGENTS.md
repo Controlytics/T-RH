@@ -12,7 +12,7 @@
 > 2026-08-27, which was wrong; verified against `ls apps/api/src/modules/`),
 > **52** frontend
 > routes (not 76), **36 models / 13 enums** (not 61/23), **42 permissions / 48 reauth
-> actions** (not 102/92), **102 audit actions / 96 audit templates**, **14** sidebar items,
+> actions** (not 102/92), **102 audit actions / 96 audit templates**, **15** sidebar items,
 > **6** graphile-worker tasks. There is
 > no `orgId` review note needed either way (still true: single-tenant). See `CLAUDE.md` for
 > the accurate module/count inventory before using this file for review guidance.
@@ -24,9 +24,9 @@ Branch: RFID (active development) → merges to DigitalFMS → main.
 
 ## Current Module Count (re-derived 2026-08-27)
 - **Backend:** **25** API modules (`ls apps/api/src/modules/ | wc -l`; 24 → 25 on 2026-09-07, `report-reviews`)
-- **Frontend:** **52** `<Route`s in `apps/web/src/main.tsx` (`grep -cE "<Route"`; 51 → 52 on 2026-09-07, `/reports`; 50 → 51 the same day, `/data-report`)
+- **Frontend:** **53** `<Route`s in `apps/web/src/main.tsx` (`grep -cE "<Route"`; 52 → 53 on 2026-09-08, `/settings`; 51 → 52 on 2026-09-07, `/reports`; 50 → 51 the same day, `/data-report`)
 - **Database:** **36** Prisma models, **13** enums (35/12 → 36/13 on 2026-09-07: `ReportReview` + `ReportReviewStatus`; single database `compliance_core_db`, plus `compliance_core_db_test`; TimescaleDB `digilog_tsdb` dropped 2026-06-11)
-- **Permissions:** **44** constants, **43** feature privileges, **50** reauth actions across **8** categories, **14** sidebar items (2026-09-07: permissions 42 → 44, reauth 48 → 50, feature privileges 41 → 43 and sidebar items 13 → 14 with the report review workflow; earlier that day 40 → 41 / 12 → 13 with `data-report`)
+- **Permissions:** **44** constants, **45** feature privileges, **50** reauth actions across **8** categories, **15** sidebar items (2026-09-08: sidebar 14 → 15 and feature privileges 43 → 45 with the Settings page, `settings.view` / `settings.edit`; 2026-09-07: permissions 42 → 44, reauth 48 → 50, feature privileges 41 → 43 and sidebar items 13 → 14 with the report review workflow; earlier that day 40 → 41 / 12 → 13 with `data-report`)
 - **Audit registries:** **102** audit actions, **96** audit templates across **7** categories (98 → 102 / 92 → 96 on 2026-09-07, report review)
 - **Queue:** **6** graphile-worker tasks (`notification`, `password_expiry_check`, `session_sweep`, `telemetry_partition_maintenance`, `alarm_evaluation`, `alarm_webhook`)
 

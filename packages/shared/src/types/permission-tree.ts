@@ -437,6 +437,27 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         gate: ['REPORT_REVIEW_APPROVE'], reauthAction: 'APPROVE_REPORT', configurable: true },
     ],
   },
+  // 2026-09-08 — Settings. Operator: "in side bar add settings, in that page
+  // show the instrument details and attributes, there selected user role should
+  // edit details, view details". One table of every instrument the viewer may
+  // see; a row expands to its details (the instrument update endpoint) and its
+  // Attributes panel. It shows and changes instruments, so View and Edit are
+  // gated on the permissions that already govern them — no new permission.
+  // Attribute edits are further narrowed by the role's Attribute Access rule,
+  // which the panel enforces wherever it is mounted.
+  {
+    sidebarId: 'settings', label: 'Settings', icon: '🛠️',
+    description: "Every instrument's details and attributes in one table, editable in place",
+    visibilityPrivilegeIds: ['settings.view', 'settings.edit'],
+    nodes: [
+      { id: 'settings.view', label: 'View Settings', sidebarId: 'settings', page: 'Settings', action: 'View',
+        icon: 'settings', category: 'Settings', permissions: ['INSTRUMENT_READ'], enforce: 'a',
+        gate: ['INSTRUMENT_READ'], configurable: true },
+      { id: 'settings.edit', label: 'Edit Settings', sidebarId: 'settings', page: 'Settings', action: 'Edit',
+        icon: 'settings-edit', category: 'Settings', permissions: ['INSTRUMENT_UPDATE', 'INSTRUMENT_READ'], enforce: 'a',
+        gate: ['INSTRUMENT_UPDATE'], configurable: true },
+    ],
+  },
 
 ];
 
@@ -458,6 +479,7 @@ const CONFIGURABLE_PRIVILEGE_ORDER: readonly string[] = [
   'alarm_rules.view', 'alarm_rules.manage', 'alarm_webhooks.view', 'alarm_webhooks.manage', 'alarms.view', 'alarms.acknowledge',
   'data_report.view',
   'reports.view', 'reports.approve',
+  'settings.view', 'settings.edit',
 ] as const;
 
 // ─── Derive Functions ────────────────────────────────────────────────────────

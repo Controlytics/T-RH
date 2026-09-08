@@ -211,6 +211,30 @@ describe('data-report group (2026-09-07)', () => {
   });
 });
 
+describe('settings group (2026-09-08)', () => {
+  // Operator: "in side bar add settings, in that page show the instrument
+  // details and attributes, there selected user role should edit details, view
+  // details". One table of every instrument, details + attributes editable in
+  // place. It shows and changes instruments, so it is gated on the permissions
+  // that already govern them — no new permission — and View / Edit are Roles &
+  // Access Sidebar toggles like every other page.
+  const group = PERMISSION_TREE.find((g) => g.sidebarId === 'settings');
+
+  it('has a View node gated on INSTRUMENT_READ and an Edit node gated on INSTRUMENT_UPDATE', () => {
+    expect(group).toBeTruthy();
+    expect(group!.nodes.map((n) => n.id)).toEqual(['settings.view', 'settings.edit']);
+    expect(group!.nodes.every((n) => n.configurable)).toBe(true);
+    expect(resolveNodeGate('settings.view')).toEqual([PERMISSIONS.INSTRUMENT_READ]);
+    expect(resolveNodeGate('settings.edit')).toEqual([PERMISSIONS.INSTRUMENT_UPDATE]);
+    // Granting Edit alone must still let the page load: the grant set carries READ.
+    expect(group!.nodes[1].permissions).toEqual([PERMISSIONS.INSTRUMENT_UPDATE, PERMISSIONS.INSTRUMENT_READ]);
+  });
+
+  it('is visible in the sidebar to a role holding either toggle', () => {
+    expect(group!.visibilityPrivilegeIds).toEqual(['settings.view', 'settings.edit']);
+  });
+});
+
 describe('reports group (2026-09-07)', () => {
   // Every PDF download is a REQUEST; an approver signs it on the Reports page.
   // docs/superpowers/specs/2026-09-07-report-review-workflow-design.md

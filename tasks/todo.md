@@ -3285,3 +3285,10 @@ Operator: *"one message for all children with full set, go"*.
 - [x] T9 samples read back; docs; counts
 - [ ] operator: log in as an approver and run one request end to end on :5176 (not seen on screen here)
 - [ ] Roles & Access: grant `reports.view` / `reports.approve` to the roles that should request / approve (nothing is granted by default)
+
+## 2026-09-08 — Settings page (every instrument's details + attributes in one table)
+- [x] shared: sidebar item `settings`, tree group `settings.view` / `settings.edit`, snapshot re-pinned, counts 45 / 14
+- [x] web: `/settings` route, sidebar entry, `routes/settings/index.tsx` + 5-test render suite, mutation-checked
+- [x] docs: README, CLAUDE (root/web/shared), AGENTS, FRONTEND_GUIDE, docs/index, CHANGELOG
+- [ ] operator: grant `View Settings` / `Edit Settings` to a role under Roles & Access and look at `/settings` on :5176 (not seen on screen here)
+- [ ] follow-up if wanted: bulk attributes endpoint so attributes can be table columns

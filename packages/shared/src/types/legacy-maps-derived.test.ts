@@ -59,19 +59,21 @@ describe('Phase 5E: derived maps === original snapshots', () => {
     // 2026-09-07 (later) added the 13th group, reports (the report review
     // workflow: every PDF download is a request an approver signs), with 2
     // configurable nodes (view / approve) → 43.
+    // 2026-09-08 added the 14th group, settings (every instrument's details and
+    // attributes in one table), with 2 configurable nodes (view / edit) → 45.
     const count = PERMISSION_TREE.flatMap(g => g.nodes).filter(n => n.configurable === true).length;
-    expect(count).toBe(43);
+    expect(count).toBe(45);
   });
 
-  it('FEATURE_PRIVILEGES has exactly 43 entries', () => {
-    expect(FEATURE_PRIVILEGES).toHaveLength(43);
+  it('FEATURE_PRIVILEGES has exactly 45 entries', () => {
+    expect(FEATURE_PRIVILEGES).toHaveLength(45);
   });
 
-  it('FEATURE_TO_PERMISSION_MAP has exactly 43 keys', () => {
-    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(43);
+  it('FEATURE_TO_PERMISSION_MAP has exactly 45 keys', () => {
+    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(45);
   });
 
-  it('SIDEBAR_PRIVILEGE_MAP has exactly 13 sections', () => {
-    expect(SIDEBAR_PRIVILEGE_MAP).toHaveLength(13);
+  it('SIDEBAR_PRIVILEGE_MAP has exactly 14 sections', () => {
+    expect(SIDEBAR_PRIVILEGE_MAP).toHaveLength(14);
   });
 });
