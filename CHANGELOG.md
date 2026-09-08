@@ -15,18 +15,15 @@ existing Attributes panel".
 
 - **New sidebar item `settings` → `/settings`** (`routes/settings/index.tsx`).
   A **Common settings** bar with one instrument picker, and under it ONE square
-  widget of key / value rows for the chosen instrument: Instrument ID,
-  Building, Area, then every attribute key and its value (the server's
-  `display` form where it gives one, else the stored value).
+  widget of key / value rows for the chosen instrument: Instrument ID, then
+  every attribute key and its value (the server's `display` form where it
+  gives one, else the stored value). Building and Area are among those
+  attributes on this installation — see the later note.
 - **"Assigned to that user" is the instrument scope, and it is the SERVER's.**
   The picker offers exactly what `GET /api/instruments` returned for the
   caller; nothing is re-derived in the browser. The last pick is remembered
   per browser (`localStorage`), else the first instrument, so the widget is
   never blank while there is something to show.
-- **Building and Area are the functional location's Block and Area**, resolved
-  by id off `/api/functional-locations` (the same tree the Data Report page
-  reads) by `placementOf()` — a Block-assigned instrument prints the Block
-  alone, an unassigned one prints `Unassigned` for both.
 - **Editing: the widget is read-only; Edit opens the existing `AttributesPanel`
   in a dialog for THIS instrument.** The panel carries the whole §11 flow
   wherever it is mounted — the role's Attribute Access rule, mandatory remarks,
@@ -58,8 +55,13 @@ existing Attributes panel".
   "increase font sizes and in single line two attributes and their values
   should come" — labels `text-sm`, values `text-base`, and the rows are a
   two-column grid on `md` and up (one column below). Then "in edit dialog also
-  show building and area" — the Attributes dialog prints Building and Area,
-  read-only, above the panel.
+  show building and area", then **"why area and building coming 2 times"** —
+  because every instrument here carries `Building` and `Area` as ATTRIBUTES
+  (100 of 100), and the widget and the dialog were also printing the
+  functional location's Block / Area as two synthesised rows. Those rows,
+  `placementOf()` and the tree fetch are gone; Building and Area print once,
+  as the attributes they are. "Area and Value, Building, and all the attribute
+  keys" was one list all along.
 - **Not seen on screen** — the operator holds the browser session. Needs their
   eye: the dialog width for the Attributes panel.
 

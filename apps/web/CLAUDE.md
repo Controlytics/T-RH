@@ -171,17 +171,17 @@ Every PDF download is a REQUEST an approver signs. Spec:
   picker (`SearchableSelect` over `GET /api/instruments?<ALL_RECORDS_PARAM>` —
   the server's scope IS the selection; last pick remembered in `localStorage`,
   else the first) and ONE full-width widget (was square for an hour — operator: "remove the square shape, make widget full width")
-  of key / value rows: Instrument ID, Building, Area (the functional location's
-  Block / Area by id off `/api/functional-locations`, `placementOf()`), then
-  every attribute from `GET /api/instruments/:id/attributes` printing
-  `display ?? value`. Read-only; with `useCan('settings.edit')` an Edit button
+  of key / value rows: Instrument ID, then every attribute from
+  `GET /api/instruments/:id/attributes` printing `display ?? value` — Building
+  and Area are attributes on this installation and print ONCE (a synthesised
+  Block / Area pair beside them drew "why area and building coming 2 times"). Read-only; with `useCan('settings.edit')` an Edit button
   opens the existing `AttributesPanel` in a `Dialog` for that instrument — the
   panel carries Attribute Access, remarks and re-auth wherever it is mounted and
   shares the widget's SWR key. Test:
   `routes/settings/__tests__/settings-page.test.tsx` — wiring only (picker
   options = server rows, widget rows incl. `display`, switching instruments,
   Edit gate → panel for THAT instrument); mutation-checked (always-on Edit and a
-  swapped Block/Area lookup each fail). The first cut was a table with
+  duplicated attribute row each fail). The first cut was a table with
   expandable rows and an inline details form (`bee0363`) — replaced the same
   day on the operator's restatement.
 - **`routes/reports/index.tsx`** (sidebar `reports`, route `/reports`, gate

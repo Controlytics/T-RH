@@ -862,12 +862,13 @@ GET    /api/config/report-approvers/current     — the administered approver ro
   groups 13 → **14**, nodes 55 → **57**, feature privileges 43 → **45**; no
   permission, reauth action, model, enum, config def, migration or API change.
   - **A Common settings bar with ONE instrument picker, then ONE full-width widget** (square for an hour, then "remove the square shape, make widget full width")
-    of key / value rows: Instrument ID, Building, Area, then every attribute
-    (the server's `display` form where given). "Assigned to that user" is the
-    instrument scope, applied by the SERVER on `GET /api/instruments`; the
-    picker offers exactly what came back. Building / Area are the functional
-    location's Block / Area resolved by id off `/api/functional-locations`
-    (`placementOf()`); unassigned prints `Unassigned` for both.
+    of key / value rows: Instrument ID, then every attribute (the server's
+    `display` form where given). "Assigned to that user" is the instrument
+    scope, applied by the SERVER on `GET /api/instruments`; the picker offers
+    exactly what came back. **Building and Area are ATTRIBUTES here (100 of
+    100 instruments carry both) and print once, as attributes.** A cut that
+    also synthesised them from the functional location drew "why area and
+    building coming 2 times"; do not add placement rows beside the attributes.
   - **The widget is read-only; Edit opens the existing `AttributesPanel` in a
     dialog for THIS instrument** (operator's choice over per-row pencils). The
     panel carries the whole §11 flow wherever it is mounted (Attribute Access

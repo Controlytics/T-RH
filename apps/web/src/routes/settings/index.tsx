@@ -22,12 +22,18 @@ import { AttributesPanel } from '@/routes/instruments/attributes-panel';
  * So: a COMMON SETTINGS bar with one instrument picker, and under it ONE
  * full-width widget of key / value rows for the chosen instrument (it was
  * square for an hour; operator: "remove the square shape, make widget full
- * width") — Instrument ID,
- * Building, Area, then every attribute. "Assigned to that user" is the
- * instrument scope, which the SERVER applies to the list endpoint this page
- * reads; the picker offers exactly what came back and nothing is re-derived
- * here. Building and Area are the functional location's Block and Area,
- * resolved by id off the same tree the Data Report page reads.
+ * width") — Instrument ID, then every attribute. "Assigned to that user" is
+ * the instrument scope, which the SERVER applies to the list endpoint this
+ * page reads; the picker offers exactly what came back and nothing is
+ * re-derived here.
+ *
+ * BUILDING AND AREA ARE ATTRIBUTES, NOT SYNTHESISED ROWS. Every instrument on
+ * this installation carries `Building` and `Area` as attribute keys (100 of
+ * 100, measured 2026-09-08), so "Instrument ID and value, Area and Value,
+ * Building, and all the attribute keys" is ONE list. A first cut also printed
+ * the functional location's Block / Area as two extra rows, and the operator's
+ * next message was "why area and building coming 2 times". Do not add them
+ * back; the attribute rows are the ones the operator means.
  *
  * EDITING (operator, asked how): "One Edit button that opens the existing
  * Attributes panel". The widget is read-only; with `settings.edit` an Edit
@@ -35,8 +41,8 @@ import { AttributesPanel } from '@/routes/instruments/attributes-panel';
  * the whole §11 flow wherever it is mounted — the role's Attribute Access rule,
  * mandatory remarks on a change, re-auth when the role requires it. Both read
  * the same SWR key, so a save in the dialog is on the widget when it closes.
- * Instrument ID, Building and Area are identity and placement, not attributes,
- * and are not editable here.
+ * Instrument ID is identity and is not editable here; Building and Area are
+ * attributes like any other and edit through the panel.
  *
  * WHO: `settings.view` (INSTRUMENT_READ) shows the page; `settings.edit`
  * (INSTRUMENT_UPDATE) shows the Edit button. Both are Roles & Access → Sidebar
@@ -47,7 +53,6 @@ interface Row {
   id: string; code: string; name: string; isActive: boolean; profileId: string;
   expectedIntervalSec: number | null; lastSeenAt: string | null; functionalLocationId: string | null;
 }
-interface LocationNode { id: string; name: string; children?: LocationNode[] }
 interface Attribute {
   key: string;
   /** The STORED value. */
@@ -57,23 +62,8 @@ interface Attribute {
   display?: string | null;
 }
 
-/** Empty states are worded APART, as on the dashboard: no functional location
- *  is "Unassigned"; an attribute with nothing stored is "(empty)", the panel's word. */
-const UNASSIGNED = 'Unassigned';
+/** An attribute with nothing stored prints "(empty)", the panel's word. */
 const LAST_PICK_KEY = 'settings.instrumentId';
-
-/** Block and Area names for a functional-location id, off the Block > Area tree.
- *  An id that is a Block gives the Block alone; an Area gives both. */
-export function placementOf(tree: LocationNode[], id: string | null): { building: string | null; area: string | null } {
-  if (!id) return { building: null, area: null };
-  for (const block of tree) {
-    if (block.id === id) return { building: block.name, area: null };
-    for (const area of block.children ?? []) {
-      if (area.id === id) return { building: block.name, area: area.name };
-    }
-  }
-  return { building: null, area: null };
-}
 
 function statusOf(r: Row, activeWindow: number): { tone: StatusTone; label: string } {
   if (!r.isActive) return { tone: 'idle', label: 'Disabled' };
@@ -91,7 +81,6 @@ export function SettingsPage() {
   const canEdit = can('settings.edit');
 
   const { data, isLoading, error } = useSWR<{ data: Row[]; total: number }>(`/api/instruments?${ALL_RECORDS_PARAM}`);
-  const { data: treeData } = useSWR<{ data: LocationNode[] }>('/api/functional-locations');
   const { data: activityConfig } = useSWR<{ activeWindowMinutes?: number }>('/api/config/instrument-activity/current');
   const activeWindow = activityConfig?.activeWindowMinutes ?? INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN;
 
@@ -111,7 +100,6 @@ export function SettingsPage() {
   };
 
   const { data: attrs } = useSWR<{ data: Attribute[] }>(selected ? `/api/instruments/${selected.id}/attributes` : null);
-  const placement = placementOf(treeData?.data ?? [], selected?.functionalLocationId ?? null);
   const [editing, setEditing] = useState(false);
 
   const row = (label: string, value: string | null | undefined, muted = false) => (
@@ -128,7 +116,7 @@ export function SettingsPage() {
     <div className="space-y-5">
       <PageHeader
         title="Settings"
-        description="Pick an instrument; the widget shows its identity, placement and every attribute."
+        description="Pick an instrument; the widget shows its Instrument ID and every attribute."
         crumbs={[{ label: 'Home', to: '/' }, { label: 'Settings' }]}
         icon={
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -175,8 +163,6 @@ export function SettingsPage() {
           </div>
           <dl className="grid grid-cols-1 gap-x-10 px-5 py-2 md:grid-cols-2">
             {row('Instrument ID', selected.code)}
-            {row('Building', placement.building ?? UNASSIGNED, !placement.building)}
-            {row('Area', placement.area ?? UNASSIGNED, !placement.area)}
             {(attrs?.data ?? []).map((a) => (
               <div key={a.key} className="contents">
                 {row(a.key, a.display ?? (a.value || '(empty)'), !a.display && !a.value)}
@@ -192,13 +178,6 @@ export function SettingsPage() {
             <DialogTitle>Attributes — <span className="font-mono">{selected.code}</span></DialogTitle>
           </DialogHeader>
           <div className="px-5 pb-5">
-            {/* Placement, read-only, so the editor knows WHERE the instrument is
-                while changing what it carries (operator: "in edit dialog also
-                show building and area"). */}
-            <dl data-testid="dialog-placement" className="mb-4 grid grid-cols-2 gap-x-10 border-b border-slate-100 pb-3">
-              {row('Building', placement.building ?? UNASSIGNED, !placement.building)}
-              {row('Area', placement.area ?? UNASSIGNED, !placement.area)}
-            </dl>
             {editing && <AttributesPanel instrumentId={selected.id} profileId={selected.profileId} canEdit={canEdit} />}
           </div>
         </Dialog>

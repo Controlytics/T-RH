@@ -32,9 +32,13 @@ const rows = [
   inst({}),
   inst({ id: 'i-2', code: 'CWH/RDU/002-00', name: 'CWH/RDU/002-00', isActive: false, lastSeenAt: null, functionalLocationId: null }),
 ];
-const tree = [{ id: 'b1', name: 'CWH', type: 'BLOCK', children: [{ id: 'a-1', name: 'QC 3', type: 'AREA', children: [] }] }];
+// Building and Area are ATTRIBUTES on this installation (100 of 100 instruments
+// carry both) — the widget prints them once, from here, never from the
+// functional location as well ("why area and building coming 2 times").
 const attributes: Record<string, { key: string; value: string; display?: string | null }[]> = {
   'i-1': [
+    { key: 'Building', value: 'CWH Block' },
+    { key: 'Area', value: 'Stability' },
     { key: 'Location', value: 'HPLC ROOM' },
     { key: 'High Temperature Limit', value: '25', display: '25.0' },
     { key: 'Enable_Humid_NMT', value: '0' },
@@ -48,7 +52,6 @@ vi.mock('swr', () => ({
   default: (key: any) => {
     const k = typeof key === 'function' ? key() : key;
     if (typeof k === 'string' && k.startsWith('/api/instruments?')) return { data: { data: rows, total: rows.length }, isLoading: false, mutate: vi.fn() };
-    if (typeof k === 'string' && k === '/api/functional-locations') return { data: { data: tree }, mutate: vi.fn() };
     if (typeof k === 'string' && /\/api\/instruments\/(i-\d)\/attributes$/.test(k)) {
       const id = k.match(/\/api\/instruments\/(i-\d)\/attributes$/)![1];
       return { data: { data: attributes[id] }, isLoading: false, mutate: vi.fn() };
@@ -91,22 +94,23 @@ describe('SettingsPage', () => {
     expect(rowValue('Instrument ID')).toBe('CWH/RDU/001-00');
   });
 
-  it('the widget prints Instrument ID, Building, Area, then every attribute key with its value — display form when the server gives one', () => {
+  it('the widget prints Instrument ID, then every attribute key ONCE with its value — display form when the server gives one', () => {
     mount();
-    expect(rowValue('Building')).toBe('CWH');
-    expect(rowValue('Area')).toBe('QC 3');
+    expect(within(widget()).getAllByText('Building')).toHaveLength(1);
+    expect(within(widget()).getAllByText('Area')).toHaveLength(1);
+    expect(rowValue('Building')).toBe('CWH Block');
+    expect(rowValue('Area')).toBe('Stability');
     expect(rowValue('Location')).toBe('HPLC ROOM');
     expect(rowValue('High Temperature Limit')).toBe('25.0');
     expect(rowValue('Enable_Humid_NMT')).toBe('0');
   });
 
-  it('choosing another instrument swaps the widget to its rows; no functional location reads Unassigned', () => {
+  it('choosing another instrument swaps the widget to its rows — only the attributes it carries', () => {
     mount();
     openPicker();
     fireEvent.click(screen.getByRole('option', { name: 'CWH/RDU/002-00' }));
     expect(rowValue('Instrument ID')).toBe('CWH/RDU/002-00');
-    expect(rowValue('Building')).toBe('Unassigned');
-    expect(rowValue('Area')).toBe('Unassigned');
+    expect(within(widget()).queryByText('Building')).toBeNull();
     expect(rowValue('Location')).toBe('STORE');
     expect(within(widget()).queryByText('High Temperature Limit')).toBeNull();
   });
@@ -121,10 +125,5 @@ describe('SettingsPage', () => {
     const panel = screen.getByTestId('attributes-panel');
     expect(panel).toHaveAttribute('data-instrument', 'i-1');
     expect(panel).toHaveAttribute('data-can-edit', 'true');
-    // The dialog also states where the instrument is (operator: "in edit
-    // dialog also show building and area").
-    const placement = screen.getByTestId('dialog-placement');
-    expect(within(placement).getByText('Building').closest('[data-row]')!.querySelector('dd')!.textContent).toBe('CWH');
-    expect(within(placement).getByText('Area').closest('[data-row]')!.querySelector('dd')!.textContent).toBe('QC 3');
   });
 });
