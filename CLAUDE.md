@@ -845,10 +845,14 @@ GET    /api/config/report-approvers/current     — the administered approver ro
     request survives a later config change — it is a record.
   - No migration, model, enum, permission, reauth action, page or sidebar item.
     Not seeded; the e2e pins its own row and restores it first in `afterAll`.
-- **SETTINGS: every instrument's details and attributes in ONE table
-  (2026-09-08, operator: "in side bar add settings, in that page show the
-  instrument details and attributes, there selected user role should edit
-  details, view details").** `routes/settings/index.tsx` at `/settings`,
+- **SETTINGS: one instrument picker, one square widget of its identity,
+  placement and attributes (2026-09-08, operator: "in side bar add settings,
+  in that page show the instrument details and attributes, there selected user
+  role should edit details, view details", then "in a square widget i need
+  Instrument ID and value, Area and Value, Building, and all the attribute keys
+  and attributes values, these common settings on top user will select
+  instrument … what ever instruments assigned to that user, only that
+  instruments should come in selection").** `routes/settings/index.tsx` at `/settings`,
   sidebar item `settings`, permission-tree group `settings` with TWO
   configurable nodes — `settings.view` (gate `INSTRUMENT_READ`) and
   `settings.edit` (gate `INSTRUMENT_UPDATE`) — so who may view and who may edit
@@ -857,27 +861,28 @@ GET    /api/config/report-approvers/current     — the administered approver ro
   already do. Counts: sidebar items 14 → **15**, routes 52 → **53**, tree
   groups 13 → **14**, nodes 55 → **57**, feature privileges 43 → **45**; no
   permission, reauth action, model, enum, config def, migration or API change.
-  - One table of every instrument the viewer may see (instrument scope is the
-    server's, on the list endpoint it reads). Columns: Instrument ID, Profile,
-    Type, Block › Area, Location, Status, Last seen. **Block › Area and Location
-    are read off `telemetry-overview`** (`functionalLocationName`,
-    `locationAttribute`), the same two facts the dashboard prints, so the page
-    re-derives neither; empty states are worded apart (`Unassigned` /
-    `Not set`) as there.
-  - **A row expands to its DETAILS and its ATTRIBUTES.** Details save through
-    the existing `PUT /api/instruments/:id` — Instrument ID read-only (MQTT
-    identity), and the superseded free-text `block`/`area`/`location` columns
-    are neither shown nor written. Attributes are the existing
-    `AttributesPanel` mounted in the row, which carries the whole §11 flow
-    (Attribute Access rule, mandatory remarks, re-auth). `settings.edit` turns
-    the form on and hands the panel `canEdit`, which the panel then NARROWS by
-    the role's Attribute Access — presentation; the route gates are the control.
-  - **Attributes are NOT table columns, deliberately.** The attributes endpoint
-    is per instrument; columns for all 101 at once need a bulk endpoint that
-    does not exist. Offered as a follow-up, not built.
-  - The Instruments sidebar item, its pages, token, gateway and delete are
-    untouched. Nothing is granted by default — Roles & Access must grant
-    `View Settings` / `Edit Settings`.
+  - **A Common settings bar with ONE instrument picker, then ONE square widget**
+    of key / value rows: Instrument ID, Building, Area, then every attribute
+    (the server's `display` form where given). "Assigned to that user" is the
+    instrument scope, applied by the SERVER on `GET /api/instruments`; the
+    picker offers exactly what came back. Building / Area are the functional
+    location's Block / Area resolved by id off `/api/functional-locations`
+    (`placementOf()`); unassigned prints `Unassigned` for both.
+  - **The widget is read-only; Edit opens the existing `AttributesPanel` in a
+    dialog for THIS instrument** (operator's choice over per-row pencils). The
+    panel carries the whole §11 flow wherever it is mounted (Attribute Access
+    rule, mandatory remarks, re-auth) and shares the widget's SWR key, so a save
+    is on the widget when the dialog closes. Identity and placement are not
+    editable here; details still change on the Instruments detail page.
+    `settings.edit` shows the button — presentation; the attribute routes are
+    the control.
+  - **The first cut was a TABLE of every instrument with expandable rows and an
+    inline details form (`bee0363`, one commit)** and was replaced the same day
+    on the operator's restatement. Do not bring the table back as a "second
+    view" — the operator wants the widget.
+  - The Instruments sidebar item and its pages are untouched. Nothing is
+    granted by default — Roles & Access must grant `View Settings` /
+    `Edit Settings`.
 - **The Instrument History widget is the DATA REPORT PAGE, not a dashboard
   panel (2026-09-07, operator: "in dashboard Instruments history widget was
   there that widget removed there and add one side bar option Data Report, in

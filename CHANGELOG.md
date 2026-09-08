@@ -1,55 +1,61 @@
 # Changelog
 
-## [Unreleased] - Settings: every instrument's details and attributes in one table (2026-09-08)
+## [Unreleased] - Settings: one instrument picker, one square widget of its identity, placement and attributes (2026-09-08)
 
-Operator: *"in side bar add settings, in that page show the instrument details
-and attributes, there selected user role should edit details, view details"*.
-Chosen from three shapes offered: one table of all instruments, edit in place
-(over renaming Instruments, or a picker over the existing detail page).
+Operator, first: *"in side bar add settings, in that page show the instrument
+details and attributes, there selected user role should edit details, view
+details"*. Then, on seeing the first cut (a table of every instrument with
+expandable rows, one commit, `bee0363`): *"in a square widget i need
+Instrument ID and value, Area and Value, Building, and all the attribute keys
+and attributes values, these common settings on top user will select
+instrument then that instrument values should display in widget, what ever
+instruments assigned to that user, only that instruments should come in
+selection"*. Asked how editing should work: "One Edit button that opens the
+existing Attributes panel".
 
 - **New sidebar item `settings` → `/settings`** (`routes/settings/index.tsx`).
-  One table of every instrument the viewer may see — the server's instrument
-  scope, on the list endpoint it reads — with Instrument ID, Profile, Type,
-  Block › Area, Location, Status and Last seen, and a search box over ID,
-  profile, area and location. Block › Area and Location are read off
-  `telemetry-overview` (`functionalLocationName`, `locationAttribute`), the same
-  two facts the dashboard prints, so nothing is re-derived; empty states are
-  worded apart (`Unassigned` / `Not set`) as there.
-- **A row expands to its details and its attributes.** Details edit inline and
-  save through the existing `PUT /api/instruments/:id` (same audit row as the
-  detail page): name, profile, type, manufacturer, model, serial number,
-  expected interval, description, enabled. Instrument ID is read-only (MQTT
-  identity). The superseded free-text `block`/`area`/`location` columns are
-  neither shown nor written. Attributes are the existing `AttributesPanel`
-  mounted inside the row, which carries the whole §11 flow wherever it is
-  mounted — the role's Attribute Access rule, mandatory remarks on a change,
-  re-auth when the role requires it.
+  A **Common settings** bar with one instrument picker, and under it ONE square
+  widget of key / value rows for the chosen instrument: Instrument ID,
+  Building, Area, then every attribute key and its value (the server's
+  `display` form where it gives one, else the stored value).
+- **"Assigned to that user" is the instrument scope, and it is the SERVER's.**
+  The picker offers exactly what `GET /api/instruments` returned for the
+  caller; nothing is re-derived in the browser. The last pick is remembered
+  per browser (`localStorage`), else the first instrument, so the widget is
+  never blank while there is something to show.
+- **Building and Area are the functional location's Block and Area**, resolved
+  by id off `/api/functional-locations` (the same tree the Data Report page
+  reads) by `placementOf()` — a Block-assigned instrument prints the Block
+  alone, an unassigned one prints `Unassigned` for both.
+- **Editing: the widget is read-only; Edit opens the existing `AttributesPanel`
+  in a dialog for THIS instrument.** The panel carries the whole §11 flow
+  wherever it is mounted — the role's Attribute Access rule, mandatory remarks,
+  re-auth when the role requires it — and both read the same SWR key, so a save
+  in the dialog is on the widget when it closes. Instrument ID, Building and
+  Area are identity and placement, not attributes, and are not editable here
+  (the Instruments detail page still is where details change).
 - **Who may view and who may edit is a Roles & Access → Sidebar toggle.**
   Permission-tree group `settings` with `settings.view` (gate INSTRUMENT_READ)
   and `settings.edit` (gate INSTRUMENT_UPDATE); Edit's grant set carries READ so
   a role granted Edit alone still loads the page. **No new permission** — it
   shows and changes instruments, so the permissions that already govern them
-  govern it. `settings.edit` turns the form on and is the panel's `canEdit`,
-  which the panel then narrows by Attribute Access. Presentation on the page;
-  the route gates are the control. Nothing is granted by default.
-- **Deliberately not columns:** attributes. The attributes endpoint is per
-  instrument, and a hundred requests per page load is not a table. A bulk
-  endpoint for a flat all-attributes view was offered as a follow-up, not built.
-- **Untouched:** the Instruments sidebar item and its pages; token, gateway and
-  delete stay on the detail page.
-- **Tests.** `settings-page.test.tsx` (5, wiring: rows and empty-state words,
-  expand → panel for THAT instrument read-only under View, Edit → form → PUT
-  body without the superseded columns and the panel's edit flag, Edit-alone
-  loads, search). Mutation-checked: an always-false edit flag and a no-op
-  search each fail exactly one. Shared: `settings group` pins on the tree,
-  derived counts re-pinned, the frozen `legacy-maps-snapshot.ts` extended by
-  appending; sidebar parity and visibility tests pass. `tsc` clean on both apps.
+  govern it. `settings.edit` shows the Edit button; presentation, the attribute
+  routes are the control. Nothing is granted by default.
+- **Untouched:** the Instruments sidebar item and its pages.
+- **Tests.** `settings-page.test.tsx` (4, wiring: the picker's options are
+  exactly the server's rows and the first is shown; the widget's rows including
+  `display`; switching instruments swaps the rows and prints `Unassigned`; View
+  alone has no Edit, Edit opens the panel for THAT instrument with the flag).
+  Mutation-checked: an always-on Edit button and a swapped Block/Area lookup
+  each fail. Shared: `settings group` pins on the tree, derived counts
+  re-pinned, the frozen `legacy-maps-snapshot.ts` extended by appending; sidebar
+  parity and visibility tests pass. `tsc` clean on both apps.
 - **Counts:** sidebar items 14 → **15**, routes 52 → **53**, tree groups
   13 → **14**, nodes 55 → **57**, feature privileges 43 → **45**. No permission,
   reauth action, model, enum, config def, migration or API change.
 - **Not seen on screen** — the operator holds the browser session. Needs their
-  eye: the expanded row's two-column layout at their viewport, and the search
-  box in the page header.
+  eye: the widget's square proportion at their viewport (`sm:aspect-square`,
+  rows scroll inside it) and the dialog width for the Attributes panel.
 
 ## [Unreleased] - SUPER_ADMIN may approve any report request, their own included (2026-09-08)
 

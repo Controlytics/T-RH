@@ -1,69 +1,77 @@
-import { Fragment, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { ALL_RECORDS_PARAM, isInstrumentReporting, INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN } from '@digilog/shared';
 import { useCan } from '@/hooks/use-can';
-import { useToast } from '@/hooks/use-toast';
-import { useDatetimeFormat } from '@/hooks/use-datetime-format';
-import { apiClient } from '@/lib/api-client';
 import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Select } from '@/components/ui/select';
-import { Toggle } from '@/components/ui/toggle';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { StatusBadge, type StatusTone } from '@/components/ui/status-badge';
-import { SkeletonRows } from '@/components/ui/skeleton';
+import { Dialog, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AttributesPanel } from '@/routes/instruments/attributes-panel';
 
 /**
- * Settings (2026-09-08). Operator: *"in side bar add settings, in that page show
- * the instrument details and attributes, there selected user role should edit
- * details, view details"*.
+ * Settings (2026-09-08). Operator, first pass: *"in side bar add settings, in
+ * that page show the instrument details and attributes, there selected user
+ * role should edit details, view details"*; second pass, on seeing a table:
+ * *"in a square widget i need Instrument ID and value, Area and Value,
+ * Building, and all the attribute keys and attributes values, these common
+ * settings on top user will select instrument then that instrument values
+ * should display in widget, what ever instruments assigned to that user, only
+ * that instruments should come in selection"*.
  *
- * ONE table of every instrument the viewer may see (instrument scope is applied
- * by the server on the list it reads), without the Instruments page's profile →
- * list → detail drill-down. A row expands to two things:
+ * So: a COMMON SETTINGS bar with one instrument picker, and under it ONE
+ * square widget of key / value rows for the chosen instrument — Instrument ID,
+ * Building, Area, then every attribute. "Assigned to that user" is the
+ * instrument scope, which the SERVER applies to the list endpoint this page
+ * reads; the picker offers exactly what came back and nothing is re-derived
+ * here. Building and Area are the functional location's Block and Area,
+ * resolved by id off the same tree the Data Report page reads.
  *
- *  - its DETAILS, editable in place through the existing instrument update
- *    endpoint (same audit row as the detail page's Edit). Instrument ID is
- *    read-only: it is the MQTT identity. The superseded free-text `block` /
- *    `area` / `location` columns are neither shown nor written from here — the
- *    Block › Area column is the functional location and Location is the
- *    instrument's own `Location` ATTRIBUTE, exactly as the dashboard prints
- *    them, both read off `telemetry-overview` so nothing is re-derived here.
- *  - its ATTRIBUTES: the existing panel, mounted inside the row. It loads that
- *    instrument's attributes on demand and carries the whole §11 flow — the
- *    role's Attribute Access rule, mandatory remarks on a change, re-auth when
- *    the role requires it. Attributes are deliberately NOT table columns: the
- *    attributes endpoint is per instrument, and a hundred requests per page
- *    load is not a table.
+ * EDITING (operator, asked how): "One Edit button that opens the existing
+ * Attributes panel". The widget is read-only; with `settings.edit` an Edit
+ * button opens the panel in a dialog for THIS instrument, and the panel carries
+ * the whole §11 flow wherever it is mounted — the role's Attribute Access rule,
+ * mandatory remarks on a change, re-auth when the role requires it. Both read
+ * the same SWR key, so a save in the dialog is on the widget when it closes.
+ * Instrument ID, Building and Area are identity and placement, not attributes,
+ * and are not editable here.
  *
- * WHO: `settings.view` (INSTRUMENT_READ) shows the page and the expanded row
- * read-only; `settings.edit` (INSTRUMENT_UPDATE) turns the details form on and
- * hands the panel its edit flag, which the panel then narrows by Attribute
- * Access. Both are Roles & Access → Sidebar toggles. Presentation here; the
- * route gates are the control.
+ * WHO: `settings.view` (INSTRUMENT_READ) shows the page; `settings.edit`
+ * (INSTRUMENT_UPDATE) shows the Edit button. Both are Roles & Access → Sidebar
+ * toggles. Presentation here; the route and the attribute routes are the control.
  */
 
 interface Row {
-  id: string; code: string; name: string; isActive: boolean; isGateway: boolean;
-  profileId: string; profileName: string | null;
-  instrumentType: string | null; manufacturer: string | null; model: string | null;
-  serialNumber: string | null; description: string | null; expectedIntervalSec: number | null;
-  lastSeenAt: string | null; functionalLocationId: string | null; createdAt: string;
+  id: string; code: string; name: string; isActive: boolean; profileId: string;
+  expectedIntervalSec: number | null; lastSeenAt: string | null; functionalLocationId: string | null;
 }
-interface OverviewRow { instrumentId: string; functionalLocationName?: string | null; locationAttribute?: string | null }
-interface Draft {
-  name: string; profileId: string; instrumentType: string; manufacturer: string; model: string;
-  serialNumber: string; description: string; expectedIntervalSec: string; isActive: boolean;
+interface LocationNode { id: string; name: string; children?: LocationNode[] }
+interface Attribute {
+  key: string;
+  /** The STORED value. */
+  value: string;
+  /** `value` at this instrument's own decimals when it is a numeric slot — the
+   *  form to PRINT. Null otherwise. Never a thing to save back. */
+  display?: string | null;
 }
-
-const th = 'px-3 py-2 text-left text-[0.6875rem] font-bold uppercase tracking-[0.08em] text-slate-600';
-const td = 'px-3 py-2.5 align-top text-sm text-slate-700';
 
 /** Empty states are worded APART, as on the dashboard: no functional location
- *  is "Unassigned"; an absent attribute is "Not set". */
+ *  is "Unassigned"; an attribute with nothing stored is "(empty)", the panel's word. */
 const UNASSIGNED = 'Unassigned';
-const NOT_SET = 'Not set';
+const LAST_PICK_KEY = 'settings.instrumentId';
+
+/** Block and Area names for a functional-location id, off the Block > Area tree.
+ *  An id that is a Block gives the Block alone; an Area gives both. */
+export function placementOf(tree: LocationNode[], id: string | null): { building: string | null; area: string | null } {
+  if (!id) return { building: null, area: null };
+  for (const block of tree) {
+    if (block.id === id) return { building: block.name, area: null };
+    for (const area of block.children ?? []) {
+      if (area.id === id) return { building: block.name, area: area.name };
+    }
+  }
+  return { building: null, area: null };
+}
 
 function statusOf(r: Row, activeWindow: number): { tone: StatusTone; label: string } {
   if (!r.isActive) return { tone: 'idle', label: 'Disabled' };
@@ -72,93 +80,42 @@ function statusOf(r: Row, activeWindow: number): { tone: StatusTone; label: stri
     : { tone: 'warn', label: 'Not reporting' };
 }
 
-function draftOf(r: Row): Draft {
-  return {
-    name: r.name, profileId: r.profileId, instrumentType: r.instrumentType ?? '', manufacturer: r.manufacturer ?? '',
-    model: r.model ?? '', serialNumber: r.serialNumber ?? '', description: r.description ?? '',
-    expectedIntervalSec: r.expectedIntervalSec == null ? '' : String(r.expectedIntervalSec), isActive: r.isActive,
-  };
+function readLastPick(): string {
+  try { return localStorage.getItem(LAST_PICK_KEY) ?? ''; } catch { return ''; }
 }
 
 export function SettingsPage() {
   const can = useCan();
-  const { toast } = useToast();
-  const { formatDateTime } = useDatetimeFormat();
   const canEdit = can('settings.edit');
 
-  const { data, isLoading, error, mutate } = useSWR<{ data: Row[]; total: number }>(`/api/instruments?${ALL_RECORDS_PARAM}`);
-  const { data: overview } = useSWR<{ data: OverviewRow[] }>('/api/instruments/telemetry-overview');
-  const { data: profiles } = useSWR<{ data: { id: string; name: string }[] }>('/api/instrument-profiles');
+  const { data, isLoading, error } = useSWR<{ data: Row[]; total: number }>(`/api/instruments?${ALL_RECORDS_PARAM}`);
+  const { data: treeData } = useSWR<{ data: LocationNode[] }>('/api/functional-locations');
   const { data: activityConfig } = useSWR<{ activeWindowMinutes?: number }>('/api/config/instrument-activity/current');
   const activeWindow = activityConfig?.activeWindowMinutes ?? INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN;
 
-  const placement = useMemo(() => {
-    const m = new Map<string, OverviewRow>();
-    for (const o of overview?.data ?? []) m.set(o.instrumentId, o);
-    return m;
-  }, [overview]);
+  const instruments = useMemo(() => data?.data ?? [], [data]);
+  const options = useMemo(() => instruments.map((r) => ({ value: r.id, label: r.code })), [instruments]);
 
-  const [search, setSearch] = useState('');
-  const [openId, setOpenId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<Draft | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  const rows = useMemo(() => {
-    const all = data?.data ?? [];
-    const q = search.trim().toLowerCase();
-    if (!q) return all;
-    return all.filter((r) => {
-      const p = placement.get(r.id);
-      return [r.code, r.name, r.profileName, p?.functionalLocationName, p?.locationAttribute]
-        .some((v) => (v ?? '').toLowerCase().includes(q));
-    });
-  }, [data, search, placement]);
-
-  const toggle = (id: string) => {
-    setDraft(null);
-    setOpenId((cur) => (cur === id ? null : id));
+  // The last pick survives a reload (per browser, a convenience); otherwise the
+  // first instrument, so the widget is never blank while there is something to show.
+  const [picked, setPicked] = useState<string>(readLastPick);
+  const selected = instruments.find((r) => r.id === picked) ?? instruments[0] ?? null;
+  useEffect(() => {
+    if (selected && selected.id !== picked) setPicked(selected.id);
+  }, [selected, picked]);
+  const pick = (id: string) => {
+    setPicked(id);
+    try { localStorage.setItem(LAST_PICK_KEY, id); } catch { /* storage unavailable */ }
   };
 
-  const save = async (r: Row) => {
-    if (!draft) return;
-    setSaving(true);
-    try {
-      // `code` is absent on purpose — immutable server-side (MQTT identity). The
-      // superseded block/area/location columns are absent too: omitted keys are
-      // left unchanged by the update schema.
-      await apiClient.put(`/api/instruments/${r.id}`, {
-        name: draft.name, isActive: draft.isActive, profileId: draft.profileId,
-        instrumentType: draft.instrumentType || null, manufacturer: draft.manufacturer || null,
-        model: draft.model || null, serialNumber: draft.serialNumber || null,
-        description: draft.description || null,
-        expectedIntervalSec: draft.expectedIntervalSec ? Number(draft.expectedIntervalSec) : null,
-      });
-      setDraft(null);
-      await mutate();
-      toast.success('Instrument updated', `"${r.code}" saved.`);
-    } catch (err: unknown) {
-      toast.error('Update failed', (err as { message?: string })?.message ?? 'Could not save.');
-    } finally {
-      setSaving(false);
-    }
-  };
+  const { data: attrs } = useSWR<{ data: Attribute[] }>(selected ? `/api/instruments/${selected.id}/attributes` : null);
+  const placement = placementOf(treeData?.data ?? [], selected?.functionalLocationId ?? null);
+  const [editing, setEditing] = useState(false);
 
-  const field = (label: string, key: keyof Draft, type: 'text' | 'number' = 'text') => (
-    <label className="block space-y-1 text-xs font-semibold text-slate-600">
-      {label}
-      <Input
-        type={type}
-        value={String(draft?.[key] ?? '')}
-        onChange={(e) => setDraft((d) => (d ? { ...d, [key]: e.target.value } : d))}
-        className="font-normal"
-      />
-    </label>
-  );
-
-  const readout = (label: string, value: string | number | null | undefined) => (
-    <div>
-      <dt className="text-xs font-semibold text-slate-500">{label}</dt>
-      <dd className="text-sm text-slate-800">{value === null || value === undefined || value === '' ? '—' : value}</dd>
+  const row = (label: string, value: string | null | undefined, muted = false) => (
+    <div data-row className="flex items-baseline justify-between gap-4 border-b border-slate-100 py-2 last:border-b-0">
+      <dt className="shrink-0 text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{label}</dt>
+      <dd className={`min-w-0 break-words text-right text-sm ${muted ? 'text-slate-400' : 'font-medium text-slate-800'}`}>{value}</dd>
     </div>
   );
 
@@ -166,7 +123,7 @@ export function SettingsPage() {
     <div className="space-y-5">
       <PageHeader
         title="Settings"
-        description="Every instrument's details and attributes in one table. Open a row to read or change them."
+        description="Pick an instrument; the widget shows its identity, placement and every attribute."
         crumbs={[{ label: 'Home', to: '/' }, { label: 'Settings' }]}
         icon={
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -174,147 +131,66 @@ export function SettingsPage() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
           </svg>
         }
-        actions={
-          <Input
-            type="search"
-            aria-label="Search instruments"
-            placeholder="Search ID, profile, area or location"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-72"
-          />
-        }
       />
 
-      <div className="overflow-hidden rounded-[var(--radius-card)] border border-slate-200 bg-white shadow-[var(--elev-1)]">
-        {error ? (
-          <p className="px-5 py-6 text-sm text-red-700">The instruments could not be loaded. Try again.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className={th}>Instrument ID</th>
-                  <th className={th}>Profile</th>
-                  <th className={th}>Type</th>
-                  <th className={th}>Block › Area</th>
-                  <th className={th}>Location</th>
-                  <th className={th}>Status</th>
-                  <th className={th}>Last seen</th>
-                  <th className={`${th} text-right`} />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {isLoading && (
-                  <tr><td colSpan={8} className="px-4 py-4"><SkeletonRows rows={4} columns={8} /></td></tr>
-                )}
-                {!isLoading && rows.length === 0 && (
-                  <tr><td colSpan={8} className="px-5 py-8 text-center text-sm text-slate-500">
-                    {search ? 'No instruments match the search.' : 'No instruments registered yet.'}
-                  </td></tr>
-                )}
-                {rows.map((r) => {
-                  const p = placement.get(r.id);
-                  const status = statusOf(r, activeWindow);
-                  const open = openId === r.id;
-                  const editing = open && draft !== null;
-                  return (
-                    <Fragment key={r.id}>
-                      <tr className={open ? 'bg-slate-50/70' : 'hover:bg-slate-50/70'}>
-                        <td className={`${td} font-mono font-semibold text-slate-800`}>{r.code}</td>
-                        <td className={td}>{r.profileName ?? '—'}</td>
-                        <td className={td}>{r.instrumentType ?? '—'}</td>
-                        <td className={td}>{p?.functionalLocationName || <span className="text-slate-400">{UNASSIGNED}</span>}</td>
-                        <td className={td}>{p?.locationAttribute || <span className="text-slate-400">{NOT_SET}</span>}</td>
-                        <td className={td}><StatusBadge tone={status.tone} label={status.label} /></td>
-                        <td className={`${td} whitespace-nowrap text-xs text-slate-500`}>{r.lastSeenAt ? formatDateTime(r.lastSeenAt) : '—'}</td>
-                        <td className={`${td} whitespace-nowrap text-right`}>
-                          <Button size="sm" variant="secondary" aria-expanded={open} onClick={() => toggle(r.id)}>
-                            {open ? 'Hide details' : 'Show details'}
-                          </Button>
-                        </td>
-                      </tr>
-                      {open && (
-                        <tr className="bg-slate-50/40">
-                          <td colSpan={8} className="px-5 py-5">
-                            <div className="grid gap-6 lg:grid-cols-2">
-                              <section className="space-y-3">
-                                <div className="flex items-center justify-between">
-                                  <h3 className="text-sm font-bold text-slate-800">Details</h3>
-                                  {canEdit && !editing && (
-                                    <Button size="sm" onClick={() => setDraft(draftOf(r))}>Edit details</Button>
-                                  )}
-                                </div>
-                                {editing ? (
-                                  <form
-                                    className="grid gap-3 sm:grid-cols-2"
-                                    onSubmit={(e) => { e.preventDefault(); void save(r); }}
-                                  >
-                                    <div className="sm:col-span-2 text-xs text-slate-500">
-                                      Instrument ID <span className="font-mono font-semibold text-slate-700">{r.code}</span> cannot be changed.
-                                    </div>
-                                    {field('Name', 'name')}
-                                    <label className="block space-y-1 text-xs font-semibold text-slate-600">
-                                      Profile
-                                      <Select
-                                        value={draft.profileId}
-                                        onChange={(e) => setDraft((d) => (d ? { ...d, profileId: e.target.value } : d))}
-                                        className="font-normal"
-                                      >
-                                        {(profiles?.data ?? []).map((pr) => <option key={pr.id} value={pr.id}>{pr.name}</option>)}
-                                      </Select>
-                                    </label>
-                                    {field('Type', 'instrumentType')}
-                                    {field('Manufacturer', 'manufacturer')}
-                                    {field('Model', 'model')}
-                                    {field('Serial number', 'serialNumber')}
-                                    {field('Expected interval (seconds)', 'expectedIntervalSec', 'number')}
-                                    {field('Description', 'description')}
-                                    <div className="sm:col-span-2">
-                                      <Toggle
-                                        label="Enabled"
-                                        checked={draft.isActive}
-                                        onChange={(e) => setDraft((d) => (d ? { ...d, isActive: e.target.checked } : d))}
-                                      />
-                                    </div>
-                                    <div className="flex gap-2 sm:col-span-2">
-                                      <Button type="submit" size="sm" loading={saving}>Save details</Button>
-                                      <Button type="button" size="sm" variant="secondary" onClick={() => setDraft(null)} disabled={saving}>Cancel</Button>
-                                    </div>
-                                  </form>
-                                ) : (
-                                  <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
-                                    {readout('Instrument ID', r.code)}
-                                    {readout('Name', r.name)}
-                                    {readout('Profile', r.profileName)}
-                                    {readout('Type', r.instrumentType)}
-                                    {readout('Manufacturer', r.manufacturer)}
-                                    {readout('Model', r.model)}
-                                    {readout('Serial number', r.serialNumber)}
-                                    {readout('Expected interval (seconds)', r.expectedIntervalSec)}
-                                    {readout('Description', r.description)}
-                                    {readout('Block › Area', p?.functionalLocationName || UNASSIGNED)}
-                                    {readout('Created', formatDateTime(r.createdAt))}
-                                    {readout('Gateway', r.isGateway ? 'Yes' : 'No')}
-                                  </dl>
-                                )}
-                              </section>
-                              <section className="space-y-3">
-                                <h3 className="text-sm font-bold text-slate-800">Attributes</h3>
-                                <AttributesPanel instrumentId={r.id} profileId={r.profileId} canEdit={canEdit} />
-                              </section>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+      {/* Common settings: the one control every widget on this page reads. */}
+      <section
+        aria-label="Common settings"
+        className="flex flex-wrap items-center gap-4 rounded-[var(--radius-card)] border border-slate-200 bg-white px-5 py-4 shadow-[var(--elev-1)]"
+      >
+        <span className="text-xs font-bold uppercase tracking-[0.08em] text-slate-600">Instrument</span>
+        <SearchableSelect
+          value={selected?.id ?? ''}
+          onChange={pick}
+          options={options}
+          placeholder={isLoading ? 'Loading…' : 'Select an instrument'}
+          searchPlaceholder="Search instrument ID"
+          disabled={isLoading || options.length === 0}
+          className="w-72"
+        />
+        {!isLoading && !error && options.length === 0 && (
+          <span className="text-sm text-slate-500">No instruments are assigned to you.</span>
         )}
-      </div>
+        {error && <span className="text-sm text-red-700">The instruments could not be loaded. Try again.</span>}
+      </section>
+
+      {selected && (
+        <div
+          data-testid="settings-widget"
+          className="flex w-full max-w-md flex-col rounded-[var(--radius-card)] border border-slate-200 bg-white shadow-[var(--elev-1)] sm:aspect-square"
+        >
+          <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="truncate font-mono text-sm font-bold text-slate-800">{selected.code}</span>
+              <StatusBadge {...statusOf(selected, activeWindow)} />
+            </div>
+            {canEdit && (
+              <Button size="sm" onClick={() => setEditing(true)}>Edit</Button>
+            )}
+          </div>
+          <dl className="min-h-0 flex-1 overflow-y-auto px-5 py-2">
+            {row('Instrument ID', selected.code)}
+            {row('Building', placement.building ?? UNASSIGNED, !placement.building)}
+            {row('Area', placement.area ?? UNASSIGNED, !placement.area)}
+            {(attrs?.data ?? []).map((a) => (
+              <div key={a.key} className="contents">
+                {row(a.key, a.display ?? (a.value || '(empty)'), !a.display && !a.value)}
+              </div>
+            ))}
+          </dl>
+        </div>
+      )}
+
+      {selected && (
+        <Dialog open={editing} onClose={() => setEditing(false)} className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Attributes — <span className="font-mono">{selected.code}</span></DialogTitle>
+          </DialogHeader>
+          <div className="px-5 pb-5">
+            {editing && <AttributesPanel instrumentId={selected.id} profileId={selected.profileId} canEdit={canEdit} />}
+          </div>
+        </Dialog>
+      )}
     </div>
   );
 }

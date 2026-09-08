@@ -73,7 +73,7 @@ them, exist in `main.tsx` or `routes/` today.
 | `/instruments/:id/trend` | InstrumentTrend | INSTRUMENT_READ |
 | `/data-report` | DataReportPage | INSTRUMENT_READ — the Instrument History widget's own page (2026-09-07) |
 | `/reports` | ReportsPage | REPORT_REVIEW_READ — report requests awaiting approval, my requests, approved reports (2026-09-07) |
-| `/settings` | SettingsPage | INSTRUMENT_READ — every instrument's details and attributes in one table, editable in place with `settings.edit` (2026-09-08) |
+| `/settings` | SettingsPage | INSTRUMENT_READ — one instrument picker (server-scoped) and a square widget of its Instrument ID, Building, Area and every attribute; `settings.edit` adds an Edit button opening the Attributes panel (2026-09-08) |
 
 ### Notifications & Admin Requests
 

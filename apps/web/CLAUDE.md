@@ -167,19 +167,23 @@ Every PDF download is a REQUEST an approver signs. Spec:
   an angle) and no signature line. Pinned by `lib/__tests__/pdf-report-snapshot.test.ts`;
   mutation-checked (no watermark → the draft case fails).
 - **`routes/settings/index.tsx`** (sidebar `settings`, route `/settings`, gate
-  `INSTRUMENT_READ`; 2026-09-08): ONE table of every instrument the viewer may
-  see, from `GET /api/instruments?<ALL_RECORDS_PARAM>` (scope is the server's),
-  with Block › Area and Location read off `telemetry-overview` — the dashboard's
-  two facts, not re-derived. A row expands to its DETAILS (inline form → the
-  existing `PUT /api/instruments/:id`; Instrument ID read-only; the superseded
-  free-text placement columns neither shown nor written) and its ATTRIBUTES (the
-  existing `AttributesPanel`, which carries Attribute Access, remarks and
-  re-auth wherever it is mounted). `useCan('settings.edit')` turns the form on
-  and is the panel's `canEdit`; `settings.view` alone reads. Attributes are NOT
-  columns (per-instrument endpoint; a bulk one is a follow-up). Test:
-  `routes/settings/__tests__/settings-page.test.tsx` — wiring only (rows,
-  expand → panel for THAT instrument, edit flag, PUT body, search);
-  mutation-checked (always-false edit flag and a no-op search each fail one).
+  `INSTRUMENT_READ`; 2026-09-08): a Common settings bar with ONE instrument
+  picker (`SearchableSelect` over `GET /api/instruments?<ALL_RECORDS_PARAM>` —
+  the server's scope IS the selection; last pick remembered in `localStorage`,
+  else the first) and ONE square widget (`sm:aspect-square`, rows scroll inside)
+  of key / value rows: Instrument ID, Building, Area (the functional location's
+  Block / Area by id off `/api/functional-locations`, `placementOf()`), then
+  every attribute from `GET /api/instruments/:id/attributes` printing
+  `display ?? value`. Read-only; with `useCan('settings.edit')` an Edit button
+  opens the existing `AttributesPanel` in a `Dialog` for that instrument — the
+  panel carries Attribute Access, remarks and re-auth wherever it is mounted and
+  shares the widget's SWR key. Test:
+  `routes/settings/__tests__/settings-page.test.tsx` — wiring only (picker
+  options = server rows, widget rows incl. `display`, switching instruments,
+  Edit gate → panel for THAT instrument); mutation-checked (always-on Edit and a
+  swapped Block/Area lookup each fail). The first cut was a table with
+  expandable rows and an inline details form (`bee0363`) — replaced the same
+  day on the operator's restatement.
 - **`routes/reports/index.tsx`** (sidebar `reports`, route `/reports`, gate
   `REPORT_REVIEW_READ`): three lists as tabs, each the SERVER's party-scoped
   answer via `useSWR('/api/report-reviews?list=…')`. Approve / Reject appear
