@@ -54,7 +54,10 @@ existing Attributes panel".
   13 → **14**, nodes 55 → **57**, feature privileges 43 → **45**. No permission,
   reauth action, model, enum, config def, migration or API change.
 - **Later the same day: "remove the square shape, make widget full width"** —
-  the widget is full width, rows in the page flow, no inner scroll.
+  the widget is full width, rows in the page flow, no inner scroll. Then
+  "increase font sizes and in single line two attributes and their values
+  should come" — labels `text-sm`, values `text-base`, and the rows are a
+  two-column grid on `md` and up (one column below).
 - **Not seen on screen** — the operator holds the browser session. Needs their
   eye: the dialog width for the Attributes panel.
 

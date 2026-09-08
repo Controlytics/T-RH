@@ -115,9 +115,12 @@ export function SettingsPage() {
   const [editing, setEditing] = useState(false);
 
   const row = (label: string, value: string | null | undefined, muted = false) => (
-    <div data-row className="flex items-baseline justify-between gap-4 border-b border-slate-100 py-2 last:border-b-0">
-      <dt className="shrink-0 text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{label}</dt>
-      <dd className={`min-w-0 break-words text-right text-sm ${muted ? 'text-slate-400' : 'font-medium text-slate-800'}`}>{value}</dd>
+    // Two pairs per line on a wide viewport, one below the other on a narrow one
+    // (operator: "increase font sizes and in single line two attributes and
+    // their values should come"). Each pair is one grid cell.
+    <div data-row className="flex items-baseline justify-between gap-4 border-b border-slate-100 py-2.5">
+      <dt className="shrink-0 text-sm font-semibold uppercase tracking-[0.06em] text-slate-500">{label}</dt>
+      <dd className={`min-w-0 break-words text-right text-base ${muted ? 'text-slate-400' : 'font-semibold text-slate-800'}`}>{value}</dd>
     </div>
   );
 
@@ -163,14 +166,14 @@ export function SettingsPage() {
         >
           <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-3">
             <div className="flex min-w-0 items-center gap-3">
-              <span className="truncate font-mono text-sm font-bold text-slate-800">{selected.code}</span>
+              <span className="truncate font-mono text-base font-bold text-slate-800">{selected.code}</span>
               <StatusBadge {...statusOf(selected, activeWindow)} />
             </div>
             {canEdit && (
               <Button size="sm" onClick={() => setEditing(true)}>Edit</Button>
             )}
           </div>
-          <dl className="px-5 py-2">
+          <dl className="grid grid-cols-1 gap-x-10 px-5 py-2 md:grid-cols-2">
             {row('Instrument ID', selected.code)}
             {row('Building', placement.building ?? UNASSIGNED, !placement.building)}
             {row('Area', placement.area ?? UNASSIGNED, !placement.area)}
