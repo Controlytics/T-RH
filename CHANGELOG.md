@@ -61,7 +61,16 @@ existing Attributes panel".
   functional location's Block / Area as two synthesised rows. Those rows,
   `placementOf()` and the tree fetch are gone; Building and Area print once,
   as the attributes they are. "Area and Value, Building, and all the attribute
-  keys" was one list all along.
+  keys" was one list all along. Then **"make a proper pro level colorful
+  advanced widget"** — a site-theme gradient band carries the code in large
+  display type, the instrument's state and its last report, and the Edit
+  button; below it the attributes are TILES, two per line, each with an accent
+  bar and ink coloured by the SERVER's `slot` — the dashboard's burnt orange
+  for temperature keys, its green for humidity keys, the theme colour for the
+  rest — the key in sentence case, the value large in tabular numerals, and
+  `Updated <date-time>` from the attribute's own `updatedAt`. No labels in
+  caps, no motion; the hue is presentation and `slot` is the server's call,
+  never re-derived from the key's text.
 - **Not seen on screen** — the operator holds the browser session. Needs their
   eye: the dialog width for the Attributes panel.
 

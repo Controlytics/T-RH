@@ -172,7 +172,9 @@ Every PDF download is a REQUEST an approver signs. Spec:
   the server's scope IS the selection; last pick remembered in `localStorage`,
   else the first) and ONE full-width widget (was square for an hour — operator: "remove the square shape, make widget full width")
   of key / value rows: Instrument ID, then every attribute from
-  `GET /api/instruments/:id/attributes` printing `display ?? value` — Building
+  `GET /api/instruments/:id/attributes` as TILES (accent + ink by the server's
+  `slot`: temperature = `.tv-h-temp` orange, humidity = `.tv-h-rh` green, else
+  theme; `Updated <updatedAt>` per tile) printing `display ?? value` — Building
   and Area are attributes on this installation and print ONCE (a synthesised
   Block / Area pair beside them drew "why area and building coming 2 times"). Read-only; with `useCan('settings.edit')` an Edit button
   opens the existing `AttributesPanel` in a `Dialog` for that instrument — the
