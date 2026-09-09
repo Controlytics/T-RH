@@ -1,5 +1,66 @@
 # Changelog
 
+## [Unreleased] - Ubuntu / Debian installer: `digilog_<version>_amd64.deb` (2026-09-09)
+
+Operator: *"build the complete application installation exe file for ubuntu"*.
+Two premise corrections stated first: Ubuntu's installer form is a `.deb`, not
+an `.exe`; and this laptop cannot build it (Linux-native `bcrypt` and Prisma
+engines; no WSL, no Docker, virtualization off in firmware). Four decisions
+taken with the operator: build on a GitHub Actions runner; `.deb`; bundle
+PostgreSQL; "work for any Ubuntu version".
+
+- **`scripts/linux/build-deb.sh`** — the Linux counterpart of
+  `build-installer.ps1`: builds the app, does the clean-room `npm ci --omit=dev`
+  + `prisma generate`, downloads Node 24.20.0 (official linux-x64), portable
+  PostgreSQL 18.6.0 (zonky `embedded-postgres-binaries-linux-amd64`, own
+  `lib/`, ltree + pgcrypto verified present) and EMQX 5.3.2 (the ubuntu20.04
+  tarball — bundled Erlang, oldest glibc), stages `/opt/digilog/{node,runtime,
+  pgsql,emqx,emqx-templates,scripts}` + five systemd units, and runs
+  `dpkg-deb --build --root-owner-group`. "Any version" is met by building on
+  the oldest supported runner with self-contained binaries; the only declared
+  dependencies are `libc6 (>= 2.31)`, `openssl`, `adduser`, `procps`,
+  `ca-certificates`.
+- **`scripts/linux/digilog-lib.sh`** — provisioning library sourced by
+  `DEBIAN/postinst`: service user + dirs, CA/server certs (SAN localhost,
+  hostname, 127.0.0.1, LAN IP), `digilog.env` generated once (`0640
+  root:digilog`), `initdb` (scram, UTF8, port 5433, localhost) + role + db +
+  extensions + `migrate deploy` + seed with the bundled node only, pre-upgrade
+  `pg_dump` before any schema change, EMQX config rendered from the SAME
+  `scripts/emqx/` templates as Windows (stray-token guard), dashboard password
+  after boot, health wait.
+- **`DEBIAN/postinst|prerm|postrm`**: fresh vs upgrade decided by the presence
+  of `digilog.env`; `apt remove` keeps data, config and certs (the Windows
+  uninstaller's rule); `apt purge` destroys them and the user. Initial
+  superadmin password from `DIGILOG_ADMIN_PASSWORD` at install, else generated
+  into a root-only file.
+- **systemd**: `digilog-db` (postgres as `digilog`, readiness via `pg_isready`
+  in `ExecStartPost`), `digilog-emqx` (`emqx foreground`), `digilog-api`
+  (`EnvironmentFile=/etc/digilog/digilog.env`, `Requires` the DB, only `Wants`
+  the broker — a broker fault must not take the app down; `ProtectSystem=strict`
+  with `ReadWritePaths` on data and logs), `digilog-backup.timer` nightly 02:00
+  → `digilog-backup.sh` (same naming, 14-day rotation and
+  `LAST-BACKUP-STATUS.txt` as the Windows task).
+- **`.github/workflows/build-deb.yml`** (`ubuntu-22.04`, Node 24): builds the
+  package on tag `v*` (GitHub Release with the .deb), on pushes to `data-layer`
+  touching the packaging inputs (artifact), or by hand; caches the vendor
+  downloads; **smoke-installs the .deb on the runner** — three services active,
+  `/api/health` 200 over HTTPS, a real superadmin login, one backup run, then
+  `apt purge` and an assert that the data dir is gone. That is the
+  clean-machine proof the Windows installer has never had in CI.
+- **`schema.prisma`** gains `binaryTargets = ["native", "debian-openssl-1.1.x",
+  "debian-openssl-3.0.x"]` so one package runs on 20.04 and on 22.04+;
+  Windows dev only pays a one-time engine download at `generate`.
+- **`.gitattributes`** forces LF on `scripts/linux/**`, `scripts/emqx/**` and
+  the workflow — a CRLF `postinst` fails with `/usr/bin/env: 'bash\r'`.
+- **Docs**: `docs/deployment-methods/method-c-ubuntu-deb.md` (also shipped
+  inside the package as `/usr/share/doc/digilog/README.md`), the methods README
+  table, `PHARMA_DEPLOYMENT_21CFR.md` §4b, the EXE plan pointer, root `CLAUDE.md`.
+- **Verified here:** `bash -n` on every script, a render of the EMQX template
+  through the Linux `sed` path matching the PowerShell dry-run, and a parse of
+  the workflow. **Not verified here:** the build and the smoke install — those
+  run on the GitHub runner on push; `gh` is not logged in on this machine, so
+  the run must be read on the Actions tab (or after `gh auth login`).
+
 ## [Unreleased] - The installer bundles the EMQX broker; the auth hook admits the bridge (2026-09-08)
 
 Operator, after an offline/intranet audit found that the running app needs no

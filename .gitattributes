@@ -1,0 +1,6 @@
+# Linux packaging: shell scripts, maintainer scripts, systemd units and the
+# EMQX templates must be LF on every checkout (a CRLF postinst fails with
+# "/usr/bin/env: 'bash\r': No such file or directory").
+scripts/linux/** text eol=lf
+scripts/emqx/** text eol=lf
+.github/workflows/** text eol=lf

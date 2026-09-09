@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# DigiLog .deb post-install. Runs as root on `configure` — both fresh install and
+# upgrade (dpkg calls it with the previously installed version as $2 on upgrade).
+# Linux counterpart of scripts/install.ps1 (fresh) and scripts/upgrade.ps1.
+#
+# Initial superadmin password: pass DIGILOG_ADMIN_PASSWORD in the environment
+# of the install command (`sudo DIGILOG_ADMIN_PASSWORD='...' apt install ./digilog_x.y.z_amd64.deb`).
+# If it is not set, one is generated and written ONCE to
+# /etc/digilog/initial-admin-password.txt (root-only). Change it after first login.
+set -euo pipefail
+. /opt/digilog/scripts/digilog-lib.sh
+
+case "${1:-}" in
+  configure)
+    PREV="${2:-}"
+    NEW_VERSION="$(dpkg-query -W -f='${Version}' digilog 2>/dev/null || echo unknown)"
+    digilog_ensure_user_dirs
+    digilog_ensure_certs
+
+    if [ ! -f "$ENV_FILE" ]; then
+      # ── FRESH INSTALL ────────────────────────────────────────────────────
+      digilog_ensure_env
+      ADMIN_PW="${DIGILOG_ADMIN_PASSWORD:-}"
+      GENERATED=0
+      if [ -z "$ADMIN_PW" ]; then ADMIN_PW="$(openssl rand -base64 12 | tr -d '/+=' | cut -c1-14)"; GENERATED=1; fi
+      [ "${#ADMIN_PW}" -ge 8 ] || die "DIGILOG_ADMIN_PASSWORD must be at least 8 characters"
+      digilog_provision_db_fresh "$ADMIN_PW"
+      if [ "$GENERATED" = 1 ]; then
+        ( umask 077; printf 'superadmin initial password: %s\nGenerated at install %s. Change it after first login, then delete this file.\n' "$ADMIN_PW" "$(date -Is)" > "$CFG/initial-admin-password.txt" )
+      fi
+      digilog_provision_emqx
+      systemctl daemon-reload
+      systemctl enable --now digilog-db.service digilog-emqx.service digilog-api.service digilog-backup.timer
+    else
+      # ── UPGRADE (env file survives from the previous version) ─────────────
+      log "Upgrading DigiLog ${PREV:-?} -> $NEW_VERSION"
+      systemctl daemon-reload
+      systemctl stop digilog-api.service 2>/dev/null || true
+      digilog_upgrade_db "$NEW_VERSION"
+      digilog_provision_emqx
+      systemctl restart digilog-emqx.service
+      systemctl enable --now digilog-db.service digilog-emqx.service digilog-backup.timer
+      systemctl start digilog-api.service
+    fi
+
+    digilog_emqx_postboot
+    if digilog_wait_healthy; then
+      echo
+      echo "DigiLog $NEW_VERSION is running."
+      echo "  Web/API : https://$(hostname -I 2>/dev/null | awk '{print $1}'):$API_PORT  (login: superadmin)"
+      [ -f "$CFG/initial-admin-password.txt" ] && echo "  Password: see $CFG/initial-admin-password.txt (root only; delete after first login)"
+      echo "  MQTT    : mqtt://<host>:$MQTT_PORT  mqtts://<host>:$MQTTS_PORT   dashboard http://127.0.0.1:$DASHBOARD_PORT (admin / EMQX_DASHBOARD_PASSWORD in $ENV_FILE)"
+      echo "  Data    : $DATA   Config: $ENV_FILE   Logs: journalctl -u digilog-api -u digilog-db -u digilog-emqx"
+      echo "  Tablets/browsers on other machines: trust $CERT_DIR/rootCA.pem"
+    else
+      warn "the API did not report healthy within 45s — check: journalctl -u digilog-api -n 100"
+      exit 1
+    fi
+    ;;
+  abort-upgrade|abort-remove|abort-deconfigure) ;;
+  *) echo "postinst called with unknown argument '$1'" >&2; exit 1 ;;
+esac
+exit 0

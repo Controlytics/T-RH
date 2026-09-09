@@ -1,0 +1,22 @@
+[Unit]
+Description=DigiLog PostgreSQL (private bundled cluster on port 5433)
+After=network.target
+
+[Service]
+Type=simple
+User=digilog
+Group=digilog
+Environment=LD_LIBRARY_PATH=/opt/digilog/pgsql/lib
+ExecStart=/opt/digilog/pgsql/bin/postgres -D /var/lib/digilog/db
+# postgres is not built with sd_notify; wait for it to accept connections so
+# digilog-api's After= means "ready", not merely "forked".
+ExecStartPost=/bin/sh -c 'for i in $(seq 1 30); do /opt/digilog/pgsql/bin/pg_isready -h 127.0.0.1 -p 5433 >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
+ExecStop=/opt/digilog/pgsql/bin/pg_ctl -D /var/lib/digilog/db -m fast stop
+KillMode=mixed
+TimeoutStopSec=120
+Restart=on-failure
+RestartSec=5
+OOMScoreAdjust=-900
+
+[Install]
+WantedBy=multi-user.target

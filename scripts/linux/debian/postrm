@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# DigiLog .deb post-removal.
+#   remove : program files are gone; DATA, CONFIG (secrets, certs) and LOGS STAY.
+#            The customer's database, uploads and audit records (21 CFR Part 11)
+#            survive an `apt remove` — the same rule as the Windows uninstaller.
+#   purge  : `apt purge digilog` — the operator explicitly asked for the data to
+#            go. Everything under /var/lib/digilog, /etc/digilog, /var/log/digilog
+#            is destroyed and the service user removed.
+set -euo pipefail
+case "${1:-}" in
+  remove)
+    systemctl daemon-reload 2>/dev/null || true
+    rm -f /usr/local/share/ca-certificates/digilog-rootCA.crt 2>/dev/null || true
+    update-ca-certificates >/dev/null 2>&1 || true
+    echo "DigiLog removed. Data left intact at /var/lib/digilog, config at /etc/digilog (apt purge digilog destroys them)."
+    ;;
+  purge)
+    rm -rf /var/lib/digilog /etc/digilog /var/log/digilog
+    rm -f /usr/local/share/ca-certificates/digilog-rootCA.crt 2>/dev/null || true
+    update-ca-certificates >/dev/null 2>&1 || true
+    if getent passwd digilog >/dev/null; then deluser --system digilog >/dev/null 2>&1 || true; fi
+    systemctl daemon-reload 2>/dev/null || true
+    echo "DigiLog purged: database, uploads, audit records, secrets and certificates destroyed."
+    ;;
+  upgrade|failed-upgrade|abort-install|abort-upgrade|disappear) ;;
+  *) echo "postrm called with unknown argument '$1'" >&2; exit 1 ;;
+esac
+exit 0

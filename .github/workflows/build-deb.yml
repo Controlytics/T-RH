@@ -1,0 +1,98 @@
+# Build the Ubuntu installer (digilog_<version>_amd64.deb) on a Linux runner.
+#
+# Why a runner: the package carries Linux-native binaries (bcrypt, the Prisma
+# query engines) that cannot be built on the Windows dev machine, and no Linux
+# host exists on the project. The runner is the ONLY place the internet is
+# needed; the resulting .deb installs on an intranet machine with none.
+#
+# Runs on the OLDEST supported Ubuntu runner so every native artifact links
+# against the oldest glibc and the package installs on 20.04 through the
+# current release. Triggers: a push of a tag `v*` (publishes a GitHub Release
+# with the .deb attached), any push touching the packaging inputs (artifact
+# only), or a manual run from the Actions tab.
+name: build-deb
+
+on:
+  push:
+    tags: ['v*']
+    branches: ['data-layer']
+    paths:
+      - 'scripts/linux/**'
+      - 'scripts/emqx/**'
+      - 'apps/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/build-deb.yml'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Package version (default: apps/api/package.json)'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  deb:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then v="${{ github.event.inputs.version }}"
+          elif [[ "${GITHUB_REF}" == refs/tags/v* ]]; then v="${GITHUB_REF#refs/tags/v}"
+          else v="$(node -p "require('./apps/api/package.json').version")-${GITHUB_SHA::7}"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "Package version: $v"
+
+      - name: Cache vendor downloads
+        uses: actions/cache@v4
+        with:
+          path: dist-linux/downloads
+          key: vendor-node24.20.0-pg18.6.0-emqx5.3.2-ubuntu20.04
+
+      - name: Build .deb
+        run: bash scripts/linux/build-deb.sh --version "${{ steps.ver.outputs.version }}"
+
+      - name: Lint the package
+        run: |
+          sudo apt-get install -y -qq lintian >/dev/null
+          # Informational: a self-contained vendor bundle trips several Debian
+          # policy checks by design (embedded libraries, /opt). Never fails the build.
+          lintian --no-tag-display-limit dist-linux/digilog_*_amd64.deb || true
+
+      - name: Smoke-install on the runner
+        # Installs the package for real (root, systemd is present on the runner),
+        # checks the API answers over HTTPS and the broker is up, then removes it.
+        # This is the clean-machine proof the Windows installer never had in CI.
+        run: |
+          set -e
+          sudo DIGILOG_ADMIN_PASSWORD='Ci-Smoke-Test-1' apt-get install -y ./dist-linux/digilog_*_amd64.deb
+          systemctl is-active digilog-db digilog-emqx digilog-api
+          code=$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:3000/api/health); echo "health=$code"; [ "$code" = 200 ]
+          login=$(curl -sk -o /dev/null -w '%{http_code}' -H 'content-type: application/json' -d '{"username":"superadmin","password":"Ci-Smoke-Test-1"}' https://127.0.0.1:3000/api/auth/login); echo "login=$login"; [ "$login" = 200 ] || [ "$login" = 409 ]
+          sudo /opt/digilog/scripts/digilog-backup.sh && cat /var/lib/digilog/backups/LAST-BACKUP-STATUS.txt
+          sudo apt-get purge -y digilog
+          test ! -d /var/lib/digilog
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digilog-deb-${{ steps.ver.outputs.version }}
+          path: dist-linux/digilog_*_amd64.deb
+          if-no-files-found: error
+
+      - name: Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist-linux/digilog_*_amd64.deb
+          generate_release_notes: true

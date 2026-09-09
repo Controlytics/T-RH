@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# DigiLog .deb pre-removal / pre-upgrade. Stops the services so their files can
+# be replaced. Data under /var/lib/digilog is never touched here.
+set -euo pipefail
+case "${1:-}" in
+  remove|deconfigure)
+    systemctl stop digilog-backup.timer digilog-api.service digilog-emqx.service digilog-db.service 2>/dev/null || true
+    systemctl disable digilog-backup.timer digilog-api.service digilog-emqx.service digilog-db.service 2>/dev/null || true
+    ;;
+  upgrade)
+    # The DB stays UP: postinst takes a pre-upgrade pg_dump before migrating.
+    systemctl stop digilog-api.service 2>/dev/null || true
+    ;;
+  failed-upgrade) ;;
+  *) echo "prerm called with unknown argument '$1'" >&2; exit 1 ;;
+esac
+exit 0

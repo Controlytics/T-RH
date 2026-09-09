@@ -1,0 +1,30 @@
+[Unit]
+Description=DigiLog API + web UI (Fastify, HTTPS on port 3000)
+# Hard dependency on the database; the broker is only WANTED: the ingest bridge
+# reconnects with backoff, and a broker fault must not take the application down.
+Requires=digilog-db.service
+After=digilog-db.service digilog-emqx.service network.target
+Wants=digilog-emqx.service
+
+[Service]
+Type=simple
+User=digilog
+Group=digilog
+WorkingDirectory=/opt/digilog/runtime/api
+# ALL runtime config comes from this one file (secrets, DATABASE_URL, ports,
+# MQTT credential). Upgrades never rewrite the unit.
+EnvironmentFile=/etc/digilog/digilog.env
+Environment=NODE_ENV=production
+Environment=DOTENV_CONFIG_PATH=/etc/digilog/digilog.env
+ExecStart=/opt/digilog/node/bin/node /opt/digilog/runtime/api/dist/app.js
+Restart=on-failure
+RestartSec=10
+# Hardening. ReadWritePaths lists the only places the app writes.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/digilog /var/log/digilog
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

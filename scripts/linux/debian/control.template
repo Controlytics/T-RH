@@ -1,0 +1,14 @@
+Package: digilog
+Version: @@VERSION@@
+Section: misc
+Priority: optional
+Architecture: amd64
+Installed-Size: @@INSTALLED_SIZE@@
+Maintainer: Controlytics <procurement@controlytics.ai>
+Depends: libc6 (>= 2.31), openssl, adduser, procps, ca-certificates
+Description: DigiLog - 21 CFR Part 11 temperature & RH monitoring platform
+ Self-contained: bundled Node.js runtime, PostgreSQL 18 (private cluster on
+ port 5433), EMQX 5.3.2 MQTT broker (1883 / 8883), and the DigiLog application
+ served over HTTPS on port 3000 by one process. Installs three systemd services
+ (digilog-db, digilog-emqx, digilog-api) and a nightly backup timer. Needs no
+ internet access and no reverse proxy on the target machine.

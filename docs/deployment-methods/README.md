@@ -25,12 +25,14 @@ This folder is the **decision record** for how DigiLog is deployed on a client W
 |---|---|---|
 | [method-a-native-windows.md](method-a-native-windows.md) | Native Windows Install | **RECOMMENDED** |
 | [method-b-docker-compose.md](method-b-docker-compose.md) | Docker Compose on Windows | Good alternative |
+| [method-c-ubuntu-deb.md](method-c-ubuntu-deb.md) | **Ubuntu / Debian `.deb` package** (2026-09-09) | **SHIPPED — the Linux installer** |
 | [method-d-hybrid.md](method-d-hybrid.md) | Hybrid (Docker Infra + Native App) | Niche use case |
 | [method-e-iis.md](method-e-iis.md) | IIS Instead of Nginx | Only if mandated |
 | [comparison.md](comparison.md) | Side-by-Side Comparison & Final Verdict | — |
 
-> **Note:** Methods C (WSL2) and F (Cloud) were evaluated in the matrix but never written
-> up as separate files, so their rows are omitted here. See the status banner at the top of
+> **Note:** Method C was "WSL2" in the original matrix and was never written up; the
+> letter now names the **Ubuntu `.deb` installer** (2026-09-09), which is a shipped
+> method, not an evaluation. Method F (Cloud) was evaluated but never written up. See the status banner at the top of
 > this file for how the stack has since changed; the MQTT/TimescaleDB components in the tables
 > below are historical (removed 2026-06, Phase 7).
 

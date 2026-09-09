@@ -1,0 +1,18 @@
+[Unit]
+Description=DigiLog MQTT broker (EMQX 5.3.2, bundled)
+After=network.target
+
+[Service]
+Type=simple
+User=digilog
+Group=digilog
+WorkingDirectory=/opt/digilog/emqx
+Environment=HOME=/var/lib/digilog
+ExecStart=/opt/digilog/emqx/bin/emqx foreground
+ExecStop=/opt/digilog/emqx/bin/emqx stop
+LimitNOFILE=65536
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

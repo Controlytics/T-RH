@@ -154,6 +154,10 @@ C:\ProgramData\DigiLog\                    (DATA — survives upgrade AND uninst
 
 ---
 
+> **Linux (2026-09-09):** the same layout ships as an Ubuntu `.deb` — `scripts/linux/build-deb.sh`,
+> `scripts/linux/debian/*`, `scripts/linux/systemd/*`, built by `.github/workflows/build-deb.yml`.
+> See `docs/deployment-methods/method-c-ubuntu-deb.md`. Keep the two installers on one broker version.
+
 ## 4. Build pipeline (produces the installer)
 
 Run on the dev machine to create the `Setup.exe`. Encapsulate as `scripts/build-installer.ps1`.

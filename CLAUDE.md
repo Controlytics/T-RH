@@ -31,6 +31,14 @@ Capacitor build; requests assuming them are describing upstream DigiLog.
 
 ## Local Dev Environment (Windows)
 The app runs ONLY on local Windows for development. There is no live EC2 / Linux production environment to push to.
+**Customer installers exist for BOTH platforms (2026-09-09):** Windows `Setup.exe`
+(`scripts/build-installer.ps1`, Inno Setup) and an Ubuntu/Debian `.deb`
+(`scripts/linux/build-deb.sh`, built by `.github/workflows/build-deb.yml` on a
+GitHub runner because this laptop cannot build Linux native modules — no WSL, no
+Docker, virtualization off). Both bundle Node, PostgreSQL 18 and EMQX 5.3.2 and
+render the broker config from the ONE template set in `scripts/emqx/`. The .deb
+is smoke-installed on the runner by the workflow; the `Setup.exe` has never had
+a CI install. `docs/deployment-methods/method-c-ubuntu-deb.md` is the runbook.
 
 - Node.js 20+, PostgreSQL 18
 - **No Redis dependency.** Phase 2 of windows-friendly-rewrite moved the job

@@ -1,5 +1,11 @@
 generator client {
   provider = "prisma-client-js"
+  // `native` = the machine running `prisma generate` (Windows here). The two
+  // Linux targets are for the Ubuntu .deb (scripts/linux/build-deb.sh): the
+  // engine for openssl 1.1 (Ubuntu 20.04) and openssl 3.0 (22.04 and later)
+  // both ship, and Prisma picks one at runtime by probing the host. Harmless on
+  // Windows beyond a one-time download at generate.
+  binaryTargets = ["native", "debian-openssl-1.1.x", "debian-openssl-3.0.x"]
 }
 
 datasource db {

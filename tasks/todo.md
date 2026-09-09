@@ -3302,3 +3302,10 @@ Operator: *"one message for all children with full set, go"*.
 - [x] docs: EXE plan, method-a, DEPLOY-WINDOWS, PHARMA §4a, LOCAL_SETUP §9A.3, .env.example, CLAUDE.md, CHANGELOG
 - [ ] build machine: run `build-installer.ps1` with the four zips and install on a clean VM; run the two negative MQTT checks
 - [ ] AWS instance: still a hand-configured broker (`deploy-on-instance.ps1` path) — consider provision-emqx there too
+
+## 2026-09-09 — Ubuntu .deb installer
+- [x] `scripts/linux/{build-deb.sh,digilog-lib.sh,digilog-backup.sh}`, `debian/{control.template,postinst,prerm,postrm}`, `systemd/*`
+- [x] `.github/workflows/build-deb.yml` with a smoke install on the runner; `schema.prisma` binaryTargets; `.gitattributes` LF guard
+- [x] docs: method-c, methods README, PHARMA §4b, EXE plan pointer, CLAUDE.md, CHANGELOG
+- [ ] watch the first `build-deb` run on the Actions tab (or `gh auth login` here); fix what the runner finds
+- [ ] tag `v1.0.0` to publish the first Release with the .deb; install on the customer's Ubuntu and run the two negative MQTT checks

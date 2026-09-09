@@ -126,6 +126,15 @@ Build `DigiLog-Setup.exe` with **Inno Setup** or **NSIS**. On run it:
 
 **Result:** the customer double-clicks one `.exe`, clicks through Setup, and DigiLog runs as a service with no Node/npm/terminal, **no reverse proxy, and no internet access** — every byte the installer needs is inside it.
 
+### 4b. Linux servers — the `.deb` package (2026-09-09)
+
+The same system ships for Ubuntu/Debian as `digilog_<version>_amd64.deb`
+(`docs/deployment-methods/method-c-ubuntu-deb.md`): bundled Node, PostgreSQL 18,
+EMQX 5.3.2, three systemd services and a nightly backup timer; secrets generated
+once into `/etc/digilog/digilog.env`; data under `/var/lib/digilog`, which survives
+upgrade and `apt remove`. Built by `.github/workflows/build-deb.yml`, which also
+smoke-installs the package on a clean runner. Everything in §4a applies unchanged.
+
 ### 4a. The MQTT broker (instrument ingest) — bundled since 2026-09-08
 
 Instruments and RS485 gateways publish telemetry over MQTT (`instruments/<code>/telemetry`), so the server needs a broker. The installer ships **EMQX 5.3.2** (the last Windows build) under `{app}\emqx` and `scripts\provision-emqx.ps1` configures it on every install and upgrade:
