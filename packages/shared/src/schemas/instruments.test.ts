@@ -5,8 +5,6 @@ import {
   updateInstrumentAttributeSchema,
   setInstrumentTokenSchema,
   createInstrumentSchema,
-  instrumentCodeTopicViolation,
-  MQTT_RESERVED_TOPIC_SEGMENTS,
   TOKEN_PREFIX_LEN,
 } from './instruments.js';
 
@@ -160,57 +158,14 @@ describe('updateInstrumentAttributeSchema', () => {
   });
 });
 
-/**
- * The code IS the MQTT client id and the topic segment again (2026-09-04,
- * operator: "i want client id as CWH/RDU/001-00"). That puts operator text
- * back into a topic, so the three things that would let one instrument reach
- * another's topic are refused HERE, at registration — the ACL template
- * `instruments/${clientid}/...` cannot defend itself against a client id of
- * `+`. Everything else, including `/`, is allowed: the plant's codes are
- * `CWH/RDU/001-00` and a slash is a topic level, which the bridge handles by
- * matching a fixed prefix and suffix rather than counting segments.
- */
-describe('instrumentCodeTopicViolation', () => {
-  it("accepts the plant's slash-separated codes", () => {
-    for (const ok of ['CWH/RDU/001-00', 'IOTGW01', 'A/B/C', 'has spaces', 'ünïcode', '<b>', 'A/', '/A']) {
-      expect(instrumentCodeTopicViolation(ok)).toBeNull();
-    }
-  });
-
-  it('refuses the MQTT wildcard characters — a client id of + matches every instrument', () => {
-    for (const bad of ['+', '#', 'A+B', 'A/#', 'CWH/+/001']) {
-      expect(instrumentCodeTopicViolation(bad)).toMatch(/\+|#/);
-    }
-  });
-
-  it('refuses a NUL character, which a topic cannot carry', () => {
-    expect(instrumentCodeTopicViolation('A\u0000B')).toMatch(/NUL/i);
-  });
-
-  it('refuses a code whose LAST segment is a topic keyword', () => {
-    // The bridge subscribes `instruments/#` and reads the message KIND from the
-    // last segment. A child coded `X/telemetry` gets its attribute downlink on
-    // `instruments/<gw>/attributes/X/telemetry`, which parses as telemetry for
-    // an instrument coded `<gw>/attributes/X`.
-    for (const word of MQTT_RESERVED_TOPIC_SEGMENTS) {
-      expect(instrumentCodeTopicViolation(word)).toMatch(new RegExp(word));
-      expect(instrumentCodeTopicViolation(`CWH/${word}`)).toMatch(new RegExp(word));
-      // Only the LAST segment is reserved — a keyword elsewhere is unambiguous.
-      expect(instrumentCodeTopicViolation(`${word}/CWH`)).toBeNull();
-      expect(instrumentCodeTopicViolation(`${word}-01`)).toBeNull();
-    }
-  });
-});
-
 describe('updateInstrumentSchema — code (2026-09-16)', () => {
   // The code became changeable on the operator's instruction ("in settings
-  // Instrument id should be changable"). The SAME rule as on create applies:
-  // no MQTT wildcard, no reserved last segment. The route handles uniqueness
-  // and the broker consequences.
-  it('accepts a code and applies the topic rule to it', () => {
+  // Instrument id should be changable"). The route handles uniqueness and the
+  // broker consequences. No character rule: see the create block below.
+  it('accepts any non-empty code', () => {
     expect(updateInstrumentSchema.safeParse({ code: 'CWH/RDU/009-00' }).success).toBe(true);
-    const bad = updateInstrumentSchema.safeParse({ code: 'CWH/+/009' });
-    expect(bad.success).toBe(false);
+    expect(updateInstrumentSchema.safeParse({ code: 'CWH/+/009' }).success).toBe(true);
+    expect(updateInstrumentSchema.safeParse({ code: '' }).success).toBe(false);
   });
 
   it('keeps the code optional — a PUT without one changes nothing about it', () => {
@@ -228,12 +183,18 @@ describe('createInstrumentSchema — code', () => {
     expect(r.success).toBe(true);
   });
 
-  it('refuses a wildcard code with the topic reason on the code field', () => {
-    const r = createInstrumentSchema.safeParse({ ...base, code: '+' });
-    expect(r.success).toBe(false);
-    if (!r.success) {
-      const codeIssue = r.error.issues.find((i) => i.path[0] === 'code');
-      expect(codeIssue?.message).toMatch(/\+/);
+  /**
+   * NO character rule (2026-09-16, operator: "remove instrument id
+   * restriction", chosen over keeping the MQTT wildcard/reserved-segment guard
+   * with the consequence stated: an ID with `+` or `#` cannot publish — the
+   * broker refuses a wildcard in a publish topic — and under the file ACL a
+   * `+` client id matches every instrument's topics; an ID ending in a topic
+   * keyword can misroute a child's downlink). The guard lived from 2026-09-04
+   * to 2026-09-16; the UUID interlude before it existed for the same reason.
+   */
+  it('accepts any non-empty text as a code, wildcards and topic keywords included', () => {
+    for (const code of ['+', '#', 'CWH/+/001', 'A\u0000B', 'X/telemetry', 'CWH/attributes', 'has spaces', '<b>']) {
+      expect(createInstrumentSchema.safeParse({ ...base, code }).success).toBe(true);
     }
   });
 

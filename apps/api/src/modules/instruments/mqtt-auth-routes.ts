@@ -36,10 +36,14 @@ import { resolveInstrumentByToken } from './ingest-auth.js';
  *      again since, at the operator's request ("i want client id as
  *      CWH/RDU/001-00"). The UUID interlude existed because the code had
  *      become free text and a code of `+` or `#` in the ACL template would
- *      match EVERY instrument. That hole is now closed at REGISTRATION instead
- *      — `instrumentCodeTopicViolation()` in `@digilog/shared` refuses `+`,
- *      `#`, NUL and a reserved last segment on every create path — so the
- *      client id can be operator text again without the ACL being forgeable.
+ *      match EVERY instrument. That hole was closed at REGISTRATION from
+ *      2026-09-04 (`instrumentCodeTopicViolation()` refused `+`, `#`, NUL and
+ *      a reserved last segment) UNTIL 2026-09-16, when the operator had the
+ *      guard removed ("remove instrument id restriction"), with the
+ *      consequence stated: a `+` client id under the file ACL matches every
+ *      instrument's topics, and a `+`/`#` code cannot publish at all (the
+ *      broker refuses a wildcard in a publish topic). The comparison HERE is
+ *      still exact-string, so a device must present its own code verbatim.
  *      `/` is allowed and appears in every code at this plant; the ACL
  *      template reproduces it literally and the bridge matches a fixed
  *      prefix/suffix rather than counting levels.

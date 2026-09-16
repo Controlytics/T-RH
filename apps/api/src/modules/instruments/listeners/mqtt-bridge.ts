@@ -123,11 +123,11 @@ const ATTRIBUTE_REPORT_SUFFIX = '/attributes/report';
 /**
  * `instruments/<code>/attributes/report` → `<code>`, or null. Checked BEFORE
  * `isDownlinkTopic`, which would otherwise swallow it as one of the bridge's own
- * retained slots (it contains `/attributes/`). Safe against a code ending in
- * `report`: `MQTT_RESERVED_TOPIC_SEGMENTS` refuses that at registration, for
- * exactly the reason it refuses `telemetry` — a child coded `X/report` would
- * have its per-child downlink `instruments/<gw>/attributes/X/report` read here
- * as a report from `<gw>/attributes/X`.
+ * retained slots (it contains `/attributes/`). A code ending in `report` WAS
+ * refused at registration (2026-09-04 → 2026-09-16, `MQTT_RESERVED_TOPIC_SEGMENTS`);
+ * the operator removed that guard, so a child coded `X/report` can now exist and
+ * its per-child downlink `instruments/<gw>/attributes/X/report` would be read
+ * here as a report from `<gw>/attributes/X`. Known and accepted, not a defect.
  */
 export function parseAttributeReportTopic(topic: string): string | null {
   if (topic.length <= TELEMETRY_PREFIX.length + ATTRIBUTE_REPORT_SUFFIX.length) return null;
@@ -147,12 +147,13 @@ export function parseAttributeReportTopic(topic: string): string | null {
  * the instrument coded `A/B`, exactly as the broker's ACL template
  * `instruments/${clientid}/telemetry` addressed it.
  *
- * What makes that unambiguous is not this function but the rule in
- * `@digilog/shared` (`instrumentCodeTopicViolation`) that a code's LAST
- * segment is never `telemetry`/`attributes`/`children`: without it a child
- * coded `X/telemetry` would have its attribute downlink published on
- * `instruments/<gw>/attributes/X/telemetry`, which this function would read as
- * telemetry from `<gw>/attributes/X`.
+ * This is unambiguous only while no code's LAST segment is
+ * `telemetry`/`attributes`/`children`. That was guaranteed at registration
+ * from 2026-09-04 to 2026-09-16 (`instrumentCodeTopicViolation`); the operator
+ * removed the guard ("remove instrument id restriction"), so a child coded
+ * `X/telemetry` CAN now have its attribute downlink published on
+ * `instruments/<gw>/attributes/X/telemetry`, which this function reads as
+ * telemetry from `<gw>/attributes/X`. Known and accepted, not a defect.
  *
  * Pure, and separately tested.
  */

@@ -251,6 +251,22 @@ history; `docs/recreation/` holds the inventory.
     form (which otherwise shows a generic "Could not create" on a 400 whose body
     is a zod flatten). **Do not relax it** — the 2026-08-08 memory's `+` test is
     still the regression test, and it was re-proven live on 2026-09-04.
+  - **SUPERSEDED 2026-09-16 — the registration guard was REMOVED at the
+    operator's instruction** ("in instrument creation page also same remove
+    instrument id restriction popup"; offered "keep the rule, no popup" and
+    "derive a safe client id", chose "remove the rule entirely" with the
+    consequence stated). `instrumentCodeTopicViolation` and
+    `MQTT_RESERVED_TOPIC_SEGMENTS` are gone from `@digilog/shared`;
+    `codeSchema` is `z.string().min(1)`; the create form, the CSV importer and
+    the Settings editor apply no character rule. **What that costs, stated
+    once here and in `codeSchema`'s comment:** an ID containing `+` or `#`
+    cannot publish (the broker refuses a wildcard in a publish topic — the
+    device fails silently where the form used to fail visibly); under the file
+    ACL a `+` client id matches every instrument's topics; and an ID whose last
+    segment is a topic keyword can have a child's downlink parsed as that kind
+    of message. None of the 101 live codes carries any of these (measured
+    before removal). The auth hook's exact-string clientid ↔ code comparison
+    is unchanged. The bullet above is history.
   - **One identity, no UUID fallback**, by the operator's choice: a device still
     configured with its UUID is refused at CONNECT (`Not authorized`), where the
     failure is visible, rather than admitted and denied topic by topic.
@@ -951,12 +967,12 @@ GET    /api/config/report-approvers/current     — the administered approver ro
   enter different Instrument ids format so it should not restricted").** The
   browser pattern it carried since the trim (`[A-Za-z0-9._-]`) refused `/`,
   which 100 of 101 codes here carry — so `CWH/RDU/002-00` could not be created
-  through the form at all, only by CSV. **The server rule is UNCHANGED and is
-  the only limit**: `instrumentCodeTopicViolation()` still refuses `+`, `#`,
-  NUL and a reserved last segment, and the form still states that reason in a
-  toast. Do not put the pattern back; do not relax the server rule (see the
-  MQTT client-id note). Pinned by `create.test.tsx` (no `pattern`/`title`/
-  `placeholder`; a slash code is sent unchanged).
+  through the form at all, only by CSV. **Later the same day the server rule
+  went too** (operator: "remove instrument id restriction popup") — see the
+  SUPERSEDED note under the MQTT client-id bullet for what it costs. There is
+  now NO rule on the Instrument ID beyond non-empty and unique. Do not put the
+  pattern back. Pinned by `create.test.tsx` (no `pattern`/`title`/
+  `placeholder`; a slash code and a `+` code are sent unchanged, no toast).
 - **SETTINGS: one instrument picker, one square widget of its identity,
   placement and attributes (2026-09-08, operator: "in side bar add settings,
   in that page show the instrument details and attributes, there selected user

@@ -302,9 +302,12 @@ node apps/api/dist/app.js
 - **2026-09-04 — the MQTT client id and topic segment are the instrument
   CODE again.** Operator request; **no count moved** and **no migration**. The
   UUID interlude (2026-08-07) existed because a code of `+`/`#` in the ACL
-  template matched every instrument; that is now refused at registration by
-  `instrumentCodeTopicViolation()` (`@digilog/shared`), on the zod schema, the
-  CSV importer and the create form. `/` is allowed — the plant's codes are
+  template matched every instrument; that was refused at registration by
+  `instrumentCodeTopicViolation()` (`@digilog/shared`) from 2026-09-04 **until
+  2026-09-16, when the operator had the guard REMOVED** ("remove instrument id
+  restriction popup"; consequence stated: a `+`/`#` code cannot publish and a
+  `+` client id matches every topic under the file ACL — see root CLAUDE.md's
+  SUPERSEDED note and `codeSchema`'s comment). `/` is allowed — the plant's codes are
   `CWH/RDU/001-00` — so the bridge subscribes `instruments/#`,
   `parseTelemetryTopic` matches a fixed prefix/suffix, `isDownlinkTopic` drops
   the bridge's own retained slots silently, and lookup is by `code`. `mqtt-auth`

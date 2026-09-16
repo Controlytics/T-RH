@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import {
   ALL_RECORDS_PARAM, isInstrumentReporting, INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN,
-  canEditAttributeKey, instrumentCodeTopicViolation, type AttributeAccess,
+  canEditAttributeKey, type AttributeAccess,
 } from '@digilog/shared';
 import { useCan } from '@/hooks/use-can';
 import { useReauth } from '@/hooks/use-reauth';
@@ -158,7 +158,6 @@ export function SettingsPage() {
   /** Attribute drafts by KEY, and the Instrument ID draft. Seeded on Edit. */
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [draftCode, setDraftCode] = useState('');
-  const [codeProblem, setCodeProblem] = useState<string | null>(null);
   const [remarkOpen, setRemarkOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -170,10 +169,9 @@ export function SettingsPage() {
     if (!selected) return;
     setDraft(Object.fromEntries((attrs?.data ?? []).map((a) => [a.key, a.value])));
     setDraftCode(selected.code);
-    setCodeProblem(null);
     setEditing(true);
   };
-  const cancelEdit = () => { setEditing(false); setRemarkOpen(false); setCodeProblem(null); };
+  const cancelEdit = () => { setEditing(false); setRemarkOpen(false); };
 
   /** Changed attributes the role may edit — what a Save writes. */
   const changes = (attrs?.data ?? [])
@@ -183,12 +181,8 @@ export function SettingsPage() {
   const codeChanged = Boolean(selected) && newCode !== '' && newCode !== selected!.code;
 
   const onSave = () => {
-    if (codeChanged) {
-      // The same rule the create form states, before any request goes out.
-      const why = instrumentCodeTopicViolation(newCode);
-      if (why) { setCodeProblem(why); return; }
-    }
-    setCodeProblem(null);
+    // No rule on the code (2026-09-16, operator) — see `codeSchema` in
+    // `@digilog/shared` for what a wildcard costs on the wire.
     if (changes.length === 0 && !codeChanged) { setEditing(false); return; }
     if (changes.length > 0) { setRemarkOpen(true); return; }
     void commit(null);
@@ -378,7 +372,7 @@ export function SettingsPage() {
           </div>
           <dl className="grid grid-cols-1 gap-3 p-5 md:grid-cols-2">
             {tile('Instrument ID', selected.code, editing
-              ? { edit: { value: draftCode, onChange: (v) => { setDraftCode(v); setCodeProblem(null); }, problem: codeProblem } }
+              ? { edit: { value: draftCode, onChange: (v) => setDraftCode(v) } }
               : {})}
             {(attrs?.data ?? []).map((a) => (
               <div key={a.key} className="contents">

@@ -31,15 +31,13 @@ describe('parseInstrumentCsv', () => {
     expect(r.rowNumbers).toHaveLength(r.rows.length);
   });
 
-  it('refuses a code that cannot be an MQTT client id, as an error row, and keeps the rest', () => {
-    // Same rule as the create form (`instrumentCodeTopicViolation`); a slash is
-    // fine, a wildcard is not. Refused here so it is an error ROW, not an
-    // exception out of createWithCredential that fails the whole upload.
-    const r = parseInstrumentCsv(`${HEADER}\nBad,CWH/+/001\nGood,CWH/RDU/001-00`);
-    expect(r.rows).toEqual([{ name: 'Good', code: 'CWH/RDU/001-00' }]);
-    expect(r.errors).toHaveLength(1);
-    expect(r.errors[0].row).toBe(2);
-    expect(r.errors[0].message).toMatch(/\+/);
+  it('accepts any code text — the MQTT wildcard guard was removed on 2026-09-16 (operator)', () => {
+    // A `+` code cannot publish on MQTT (the broker refuses a wildcard in a
+    // publish topic); the operator chose to accept it anyway, with that
+    // consequence stated. The importer therefore keeps the row.
+    const r = parseInstrumentCsv(`${HEADER}\nWild,CWH/+/001\nGood,CWH/RDU/001-00`);
+    expect(r.errors).toEqual([]);
+    expect(r.rows.map((x) => x.code)).toEqual(['CWH/+/001', 'CWH/RDU/001-00']);
   });
 
   it('rejects duplicate codes within the same file', () => {

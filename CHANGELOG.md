@@ -27,6 +27,19 @@ changable"*.
   Duplicate → 409, wildcard → 400. 6 e2e over a captured publisher; the
   instruments e2e case "never its code" re-pointed; `LOCAL_SETUP_WINDOWS.md`
   §"code is immutable" corrected.
+- **The Instrument ID character rule is gone** (operator: "in instrument
+  creation page also same remove instrument id restriction popup"; offered
+  "keep the rule, no popup" and "derive a safe MQTT client id", chose "remove
+  the rule entirely"). `instrumentCodeTopicViolation` and
+  `MQTT_RESERVED_TOPIC_SEGMENTS` removed from `@digilog/shared`; `codeSchema`
+  is non-empty only; the create form's toast, the CSV importer's row check and
+  the Settings editor's guard are gone. Consequence, stated to the operator
+  and recorded in `codeSchema`'s comment: an ID with `+` or `#` cannot publish
+  (the broker refuses a wildcard publish topic), a `+` client id matches every
+  topic under the file ACL, and a topic-keyword last segment can misroute a
+  child's downlink. 0 of 101 live codes are affected. Tests re-pointed:
+  shared schema (any text accepted), parser (a `+` row imports), create page
+  (a `+` ID sent, no toast), Settings (a `+` ID PUT), rename e2e (409 only).
 - Not seen on screen.
 
 ## [Unreleased] - Attribute display names; the Instrument ID field is unrestricted (2026-09-16)

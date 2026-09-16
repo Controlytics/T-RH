@@ -9,7 +9,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { TokenDialog } from './token-dialog';
-import { instrumentCodeTopicViolation } from '@digilog/shared';
 import { PageHeader } from '@/components/ui/page-header';
 
 interface CreatedInstrument { id: string; code: string; token: string }
@@ -113,15 +112,9 @@ export function InstrumentCreatePage() {
     setSaving(true);
     try {
       const code = form.code.trim();
-      // The code is the MQTT client id (2026-09-04). The server refuses a
-      // wildcard code with a 400 whose body is a zod flatten and no `message`,
-      // which the toast below would render as "Could not create the
-      // instrument." — so the reason is stated here, from the SAME rule.
-      const topicViolation = instrumentCodeTopicViolation(code);
-      if (topicViolation) {
-        toast.error('Create failed', topicViolation);
-        return;
-      }
+      // No rule on the code (2026-09-16, operator: "remove instrument id
+      // restriction popup") — see `codeSchema` in `@digilog/shared` for what
+      // that costs on the wire. Sent as typed.
       const payload: Record<string, unknown> = { name: code, code, profileId };
       if (isGateway) payload.isGateway = true;
       // A gateway cannot itself sit behind a gateway — the backend rejects that
@@ -206,13 +199,13 @@ export function InstrumentCreatePage() {
             )}
             <label className="block space-y-1">
               <span className="text-sm font-medium text-slate-700">Instrument ID *</span>
-              {/* No pattern, no hint, no placeholder (2026-09-16, operator:
-                  "dont put any instructions, user will enter different
-                  Instrument ids format so it should not restricted"). The old
+              {/* No pattern, no hint, no placeholder, no rule (2026-09-16,
+                  operator: "dont put any instructions, user will enter
+                  different Instrument ids format so it should not restricted",
+                  then "remove instrument id restriction popup"). The old
                   browser pattern refused `/`, which 100 of 101 codes here
-                  carry. The ONLY rule is the server's own —
-                  `instrumentCodeTopicViolation` in the submit handler — and it
-                  is stated in a toast when it fires, never on the field. */}
+                  carry; the MQTT wildcard guard that replaced it went the same
+                  day, consequence stated in `@digilog/shared`'s `codeSchema`. */}
               <Input required value={form.code} onChange={set('code')} />
             </label>
             <label className="flex items-start gap-2 text-sm text-slate-700">

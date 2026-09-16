@@ -314,10 +314,12 @@ concurrent connections.
 > and the bridge matches a fixed prefix and suffix rather than counting levels.
 >
 > What made the UUID interlude necessary was that a code of `+` or `#` in the
-> ACL template matched EVERY instrument. That is now refused at REGISTRATION
-> (`instrumentCodeTopicViolation` in `@digilog/shared`: no `+`, `#`, NUL, and a
-> last segment that is never `telemetry`/`attributes`/`children`), on the create
-> form, the create route and the CSV importer alike.
+> ACL template matched EVERY instrument. That was refused at REGISTRATION from
+> 2026-09-04 to 2026-09-16 (`instrumentCodeTopicViolation`); **the operator had
+> that guard removed on 2026-09-16.** There is no character rule on a code now.
+> Consequence: a code containing `+` or `#` cannot publish at all (the broker
+> refuses a wildcard in a publish topic), and under this file ACL a `+` client
+> id matches every instrument's topics. Do not register such a code.
 >
 > **`etc/acl.conf` DID change and the broker was restarted**: the bridge's
 > subscribe and publish grants are `instruments/#`, because `+` is exactly one

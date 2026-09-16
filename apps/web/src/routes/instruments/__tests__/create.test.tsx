@@ -94,16 +94,25 @@ describe('InstrumentCreatePage — the trimmed form', () => {
 
   // 2026-09-16, operator: "in instrument id field dont put any instructions,
   // user will enter different Instrument ids format so it should not
-  // restricted". The old browser pattern allowed only [A-Za-z0-9._-], which
-  // refused `/` — the character 100 of 101 codes here carry. The server's own
-  // rule (`instrumentCodeTopicViolation`: no `+`/`#`/NUL, no reserved last
-  // segment) is the only limit, and it is stated in a toast when it fires.
+  // restricted", then "remove instrument id restriction popup" — the MQTT
+  // wildcard/reserved-segment guard went too, with its consequence stated
+  // (see the shared schema test). No pattern, no hint, no toast: any text.
   it('puts no format restriction or instruction on the Instrument ID field', () => {
     renderPage();
     const id = screen.getByRole('textbox', { name: /instrument id/i });
     expect(id).not.toHaveAttribute('pattern');
     expect(id).not.toHaveAttribute('title');
     expect(id).not.toHaveAttribute('placeholder');
+  });
+
+  it('sends an Instrument ID containing an MQTT wildcard unchanged, with no popup', async () => {
+    renderPage();
+    fillId('T+RH/001');
+    submit();
+    await waitFor(() => expect(post).toHaveBeenCalledWith(
+      '/api/instruments', expect.objectContaining({ code: 'T+RH/001' }),
+    ));
+    expect(errorToast).not.toHaveBeenCalled();
   });
 
   it('accepts a slash-coded Instrument ID and sends it unchanged', async () => {

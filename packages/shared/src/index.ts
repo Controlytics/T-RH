@@ -187,7 +187,7 @@ export type { AuditQueryInput } from './schemas/audit.js';
 export { actionReauthConfigSchema } from './schemas/action-reauth.js';
 export type { ActionReauthConfig } from './schemas/action-reauth.js';
 
-export { TRANSPORTS, TOKEN_PREFIX_LEN, MQTT_RESERVED_TOPIC_SEGMENTS, instrumentCodeTopicViolation, createInstrumentSchema, updateInstrumentSchema, instrumentQuerySchema, bulkCreateInstrumentsSchema, setInstrumentTokenSchema, setInstrumentAttributeSchema, updateInstrumentAttributeSchema } from './schemas/instruments.js';
+export { TRANSPORTS, TOKEN_PREFIX_LEN, createInstrumentSchema, updateInstrumentSchema, instrumentQuerySchema, bulkCreateInstrumentsSchema, setInstrumentTokenSchema, setInstrumentAttributeSchema, updateInstrumentAttributeSchema } from './schemas/instruments.js';
 export type { Transport, CreateInstrumentInput, UpdateInstrumentInput, InstrumentQueryInput, BulkCreateInstrumentsInput, SetInstrumentTokenInput, SetInstrumentAttributeInput, UpdateInstrumentAttributeInput } from './schemas/instruments.js';
 
 export {

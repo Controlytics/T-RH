@@ -125,10 +125,10 @@ export interface ConnectionInstructionsProps {
   /**
    * The instrument's code. THIS is what the wire uses — the MQTT client id and
    * every topic segment (2026-09-04, operator: "i want client id as
-   * CWH/RDU/001-00"). Between 2026-08-07 and then it was the UUID; the
-   * registration rule in `@digilog/shared` (`instrumentCodeTopicViolation`)
-   * is what makes operator text safe in a topic again. A slash in the code is
-   * a topic level the broker's ACL template reproduces literally.
+   * CWH/RDU/001-00"). Between 2026-08-07 and then it was the UUID. No
+   * character rule since 2026-09-16 (operator) — a code with `+` or `#`
+   * cannot publish, see `codeSchema` in `@digilog/shared`. A slash in the code
+   * is a topic level the broker's ACL template reproduces literally.
    */
   code: string;
   /** Plaintext token. Only ever available at creation / regeneration. */

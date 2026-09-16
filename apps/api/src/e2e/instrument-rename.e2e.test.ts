@@ -18,7 +18,8 @@ import { fixtureProfileId } from '../test-support/fixture-profile.js';
  *   - a child's parent roster is republished naming the new code;
  *   - a gateway's own roster moves and each child's slot moves with it;
  *   - name follows the code when it WAS the code (the 2026-09-04 rule);
- *   - a duplicate is a 409 and a wildcard a 400, as on create.
+ *   - a duplicate is a 409, as on create. (No wildcard rule: removed on
+ *     2026-09-16 at the operator's instruction.)
  */
 let app: FastifyInstance;
 let auth: Record<string, string>;
@@ -142,7 +143,7 @@ describe('PUT /api/instruments/:id — code', () => {
     expect(JSON.parse(moved[0].payload).attributes).toEqual({ Room: '202' });
   });
 
-  it('refuses a duplicate code (409) and a wildcard code (400), leaving the row unchanged', async () => {
+  it('refuses a duplicate code (409), leaving the row unchanged', async () => {
     const stamp = Date.now();
     const a = await mk({ name: `D1-${stamp}`, code: `D1-${stamp}` });
     const b = await mk({ name: `D2-${stamp}`, code: `D2-${stamp}` });
@@ -150,9 +151,6 @@ describe('PUT /api/instruments/:id — code', () => {
     const dup = await put(b.id, { code: `D1-${stamp}` });
     expect(dup.statusCode).toBe(409);
     expect(dup.json().error).toBe('DUPLICATE_CODE');
-
-    const wild = await put(b.id, { code: `D2-${stamp}/+` });
-    expect(wild.statusCode).toBe(400);
 
     const row = await prisma.instrument.findUnique({ where: { id: b.id }, select: { code: true } });
     expect(row?.code).toBe(`D2-${stamp}`);

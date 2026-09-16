@@ -251,12 +251,11 @@ describe('SettingsPage', () => {
       await waitFor(() => expect(mutateList).toHaveBeenCalled());
     });
 
-    it('refuses a wildcard Instrument ID before any request, with the server rule\'s reason', () => {
+    it('sends an Instrument ID containing an MQTT wildcard as typed — the guard was removed (operator, 2026-09-16)', async () => {
       startEdit();
       fireEvent.change(field('Instrument ID'), { target: { value: 'CWH/+/001' } });
       fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-      expect(put).not.toHaveBeenCalled();
-      expect(screen.getByText(/cannot contain \+ or #/)).toBeInTheDocument();
+      await waitFor(() => expect(put).toHaveBeenCalledWith('/api/instruments/i-1', { code: 'CWH/+/001' }));
     });
 
     it('only the keys the role may edit become inputs; the rest stay read-only tiles', () => {

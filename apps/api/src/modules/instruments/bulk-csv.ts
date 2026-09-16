@@ -1,4 +1,3 @@
-import { instrumentCodeTopicViolation } from '@digilog/shared';
 // `name` stopped being REQUIRED on 2026-09-16: the create form has set name = code since
 // the 2026-08-07 trim, and the template no longer carries a name column. A
 // `name` column is still honoured when present.
@@ -206,13 +205,6 @@ export function parseInstrumentCsv(text: string, attributeColumns: AttributeColu
     const name = get('name') || code;
 
     if (!code) { errors.push({ row: rowNo, message: 'code is required' }); continue; }
-    // The same rule the create form and `createInstrumentSchema` apply: a code
-    // is the MQTT client id, and a wildcard in it would let this instrument
-    // read and write every other instrument's topics. A row refused here is
-    // refused BEFORE `createWithCredential`, so it becomes an error row rather
-    // than an exception that rolls the upload back.
-    const topicViolation = instrumentCodeTopicViolation(code);
-    if (topicViolation) { errors.push({ row: rowNo, message: topicViolation }); continue; }
     if (seen.has(code)) { errors.push({ row: rowNo, message: `duplicate code "${code}" in this file` }); continue; }
     seen.add(code);
 

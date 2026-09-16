@@ -58,9 +58,13 @@ export interface AttributeDownlink {
  * `instruments/A/B/attributes` while `+` or `#` turns the broker's
  * `instruments/${clientid}/...` ACL into a match on every instrument.
  *
- * What makes operator text safe in a topic NOW is `instrumentCodeTopicViolation`
- * in `@digilog/shared`, applied on every create path: no `+`, no `#`, no NUL,
- * and a last segment that is never a topic keyword. `/` is deliberately
+ * From 2026-09-04 to 2026-09-16 `instrumentCodeTopicViolation` in
+ * `@digilog/shared` refused `+`, `#`, NUL and a topic-keyword last segment on
+ * every create path. The operator had it removed on 2026-09-16 ("remove
+ * instrument id restriction"), consequence stated in `codeSchema`'s comment:
+ * such a code cannot publish (the broker refuses a wildcard publish topic) and
+ * a retained publish to such a slot from HERE is refused too — the log line
+ * below is what says so. `/` is deliberately
  * ALLOWED — the ACL template reproduces `${clientid}` literally, so
  * `instruments/A/B/attributes` is exactly the slot the instrument coded `A/B`
  * may subscribe to, and no other. `mqtt-auth-routes.ts` binds the MQTT client

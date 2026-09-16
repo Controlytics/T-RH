@@ -36,75 +36,35 @@ export const TOKEN_PREFIX_LEN = 8;
 
 /**
  * `code` is the human reference AND, since 2026-09-04, the MQTT client id and
- * the topic segment again. Any length; any character except the four things
- * `instrumentCodeTopicViolation` refuses.
+ * the topic segment. ANY NON-EMPTY TEXT, since 2026-09-16.
  *
- * History, because this rule has flipped twice and the reasoning is what keeps
- * it from flipping by accident:
+ * History, because this rule has flipped three times and the reasoning is what
+ * keeps the next reader from re-adding a guard by reflex:
  *   - Until 2026-08-07 the code was the topic segment, restricted to
- *     `[A-Za-z0-9._-]` — `/` forges a topic level, `+`/`#` are MQTT wildcards,
- *     and an instrument coded `+` matched the broker's
- *     `instruments/${clientid}/...` ACL against every instrument (read every
- *     attribute downlink, publish telemetry attributed to any device — forged
- *     §11 records that read as genuine).
- *   - 2026-08-07 the operator asked for an unrestricted ID, and the wire moved
- *     to the platform-generated UUID so that nothing typed reached a topic.
- *   - 2026-09-04 the operator asked for the client id to BE the code
- *     (`CWH/RDU/001-00`), so operator text is back in the topic and the guard
- *     comes back with it — narrowed to exactly what breaks the binding. `/` is
- *     ALLOWED: every code at this plant carries it, and the bridge no longer
- *     counts segments (`parseTelemetryTopic` matches a fixed prefix and
- *     suffix), so a slash is a level the ACL template reproduces literally.
+ *     `[A-Za-z0-9._-]` — `/` forges a topic level, `+`/`#` are MQTT wildcards.
+ *   - 2026-08-07 → 2026-09-04: the UUID was the client id, so nothing typed
+ *     reached a topic.
+ *   - 2026-09-04: the operator asked for the client id to BE the code
+ *     (`CWH/RDU/001-00`); a guard (`instrumentCodeTopicViolation`) refused
+ *     `+`, `#`, NUL and a reserved last segment on every create path.
+ *   - 2026-09-16: the operator asked for that guard to go ("remove
+ *     instrument id restriction"), choosing "remove the rule entirely" over
+ *     keeping it or deriving a safe client id, with the consequence stated:
+ *     **an ID containing `+` or `#` cannot publish** (the broker refuses a
+ *     wildcard in a publish topic, so such a device fails silently rather than
+ *     the form failing visibly); **under the file ACL a `+` client id matches
+ *     every instrument's topics**; and an ID whose last segment is
+ *     `telemetry`/`attributes`/`children`/`report`/`rtc-request` can have a
+ *     child's downlink parsed as a message of that kind. `/` is a topic level
+ *     the ACL template reproduces literally; the bridge matches a fixed prefix
+ *     and suffix rather than counting levels.
  *
- * Two limits that are NOT this schema's to lift, stated so the field's promise
- * is honest:
- *   - the bulk-CSV importer still splits on commas and quotes, so a code
- *     containing either cannot arrive that way;
- *   - `code` CAN be changed since 2026-09-16 (operator: "in settings
- *     Instrument id should be changable") through `updateInstrumentSchema`,
- *     under this same rule; the route moves the broker slots and the DEVICE
- *     must reconnect with the new id — the platform cannot do that for it.
+ * Two limits that are NOT this schema's, stated so the field's promise is
+ * honest: the bulk-CSV importer still splits on commas and quotes, so a code
+ * containing either cannot arrive that way; and a rename (`PUT`) moves the
+ * broker slots but cannot reconfigure the device.
  */
-const codeSchema = z.string().min(1, 'Instrument ID is required').superRefine((code, ctx) => {
-  const why = instrumentCodeTopicViolation(code);
-  if (why) ctx.addIssue({ code: z.ZodIssueCode.custom, message: why });
-});
-
-/**
- * The three topic KINDS under `instruments/<code>/…`. The bridge subscribes
- * `instruments/#` and tells them apart by the LAST segment of the topic, so a
- * code must not END in one of these words: a child coded `X/telemetry` would
- * get its attribute downlink on `instruments/<gw>/attributes/X/telemetry`,
- * which reads as telemetry from an instrument coded `<gw>/attributes/X`.
- * Only `telemetry` can actually collide today; all three are reserved so the
- * rule is "a code does not end in a topic word", which survives a fourth kind.
- */
-// `report` joined the list 2026-09-05 with the device → platform attribute
-// topic `instruments/<code>/attributes/report`: a child coded `X/report` would
-// have its per-child downlink read as a report from `<gw>/attributes/X`.
-// `rtc-request` (2026-09-05, RTC sync): same reasoning, for
-// `instruments/<code>/rtc-request`.
-export const MQTT_RESERVED_TOPIC_SEGMENTS = ['telemetry', 'attributes', 'children', 'report', 'rtc-request'] as const;
-
-/**
- * Why a code cannot be an MQTT client id / topic segment, or null when it can.
- * The ONE definition — the zod schema, the bulk-CSV importer and the New
- * Instrument form all ask this function, so a code refused on one path cannot
- * arrive by another.
- */
-export function instrumentCodeTopicViolation(code: string): string | null {
-  if (code.includes('+') || code.includes('#')) {
-    return 'Instrument ID cannot contain + or # — they are MQTT wildcards, and the ID is the MQTT client id';
-  }
-  if (code.includes('\u0000')) {
-    return 'Instrument ID cannot contain a NUL character — an MQTT topic cannot carry one';
-  }
-  const last = code.slice(code.lastIndexOf('/') + 1);
-  if ((MQTT_RESERVED_TOPIC_SEGMENTS as readonly string[]).includes(last)) {
-    return `Instrument ID cannot end with "${last}" — the MQTT topic kind is read from that segment`;
-  }
-  return null;
-}
+const codeSchema = z.string().min(1, 'Instrument ID is required');
 
 export const createInstrumentSchema = z.object({
   // No max: `name` is set to the code by the create form, and the code now has
