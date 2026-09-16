@@ -26,10 +26,13 @@ import { toggleSelection } from './history-selection';
  * Restyled 2026-09-16 (operator: *"Data Report View ui not looking good, and
  * make it more professional and as a pro developer update ui with more
  * colorful"*) to the Settings widget's language, which the operator had just
- * approved: a toolbar, a row of four SUMMARY TILES (each with its own accent
- * bar), the instruments as tick CHIPS, and the readings table with the
- * dashboard's quantity colours on its two value columns. Nothing about what is
- * fetched, judged or counted changed — only how it is drawn.
+ * approved: a toolbar, the instruments as tick CHIPS, and the readings table
+ * with the dashboard's quantity colours on its two value columns. Four summary
+ * tiles shipped with it and went the same day (operator: "remove counts cards
+ * and all instruments should be display directly, i dont need scroll
+ * option") — with them went the chip list's scroll box: every instrument in
+ * scope is on screen at once. Nothing about what is fetched, judged or
+ * counted changed — only how it is drawn.
  *
  * Two parts, each with one job:
  *  - the SELECTION — Block, Area, and the chips of the instruments in scope.
@@ -46,12 +49,6 @@ import { toggleSelection } from './history-selection';
  *    `telemetry-overview` — never a site-wide guess, since two instruments in
  *    one Area can carry different specs.
  *
- * **The Readings tile prints the SERVER's `total`, never `rows.length`** —
- * that is one page, and a count taken from it would describe the page while
- * reading as the period (the 2026-08-31 alarms-count defect). There is
- * deliberately NO out-of-limit tile: only one page is in hand, and the server
- * offers no whole-period breach count for a multi-instrument selection.
- *
  * The DOWNLOAD is NOT here (2026-09-07): it is the card's, so the page has one
  * trigger. Period and interval share `useTrendPeriod`'s URL state with the
  * trend page — one vocabulary for "what period is this" across the two screens.
@@ -63,20 +60,6 @@ import { toggleSelection } from './history-selection';
 interface HistoryRow { instrumentId: string; ts: string; values: Record<string, unknown> }
 
 const th = 'px-4 py-3 text-left text-[0.6875rem] font-bold uppercase tracking-[0.08em]';
-
-/**
- * Tile accents. The two QUANTITY colours are the dashboard's own
- * (`.tv-h-temp` burnt orange, `.tv-h-rh` green in app.css) and are reserved
- * for the value columns; the tiles describe the SELECTION, not a reading, so
- * they take the site theme and three neutral-of-meaning hues that no status
- * or quantity in this app already uses.
- */
-const TILE = {
-  theme: { bar: 'var(--theme-primary, #2a78d6)', wash: 'color-mix(in srgb, var(--theme-primary, #2a78d6) 8%, #ffffff)', ink: '#0f172a' },
-  sky: { bar: '#0369a1', wash: '#f0f9ff', ink: '#0c4a6e' },
-  violet: { bar: '#6d28d9', wash: '#f5f3ff', ink: '#4c1d95' },
-  cyan: { bar: '#0e7490', wash: '#ecfeff', ink: '#155e75' },
-} as const;
 
 export function InstrumentHistoryWidget({ scope }: { scope: HistoryScope }) {
   const { tree, blockId, areaId, scopeId, setBlock, setArea, areas, selected, setSelected, inScope, chosen, overviewById } = scope;
@@ -129,29 +112,6 @@ export function InstrumentHistoryWidget({ scope }: { scope: HistoryScope }) {
   const subtitle = chosen.length === 0
     ? 'Choose a Block or Area, or tick instruments, to see their readings'
     : `${chosen.length} instrument${chosen.length === 1 ? '' : 's'} · ${period.label}`;
-
-  const intervalLabel = INTERVALS.find((i) => (i.seconds === null ? null : i.seconds * 1000) === period.intervalMs)?.label
-    ?? INTERVALS[0].label;
-  const areaName = areas.find((a) => a.id === areaId)?.name;
-  const blockName = tree.find((b) => b.id === blockId)?.name;
-  const whereLabel = areaName ?? blockName ?? 'All instruments';
-
-  const tile = (
-    testId: string, label: string, value: string, hue: keyof typeof TILE, detail?: string,
-  ) => {
-    const c = TILE[hue];
-    return (
-      <div
-        data-testid={testId}
-        className="relative flex min-w-0 flex-col gap-0.5 overflow-hidden rounded-[var(--radius-card)] border border-slate-200/80 py-3 pl-5 pr-4"
-        style={{ background: c.wash, boxShadow: `inset 4px 0 0 0 ${c.bar}` }}
-      >
-        <span className="text-[0.75rem] font-medium text-slate-500">{label}</span>
-        <span className="font-display truncate text-2xl font-bold leading-tight tabular-nums" style={{ color: c.ink }}>{value}</span>
-        {detail && <span className="truncate text-[0.75rem] text-slate-500">{detail}</span>}
-      </div>
-    );
-  };
 
   return (
     <section
@@ -235,15 +195,6 @@ export function InstrumentHistoryWidget({ scope }: { scope: HistoryScope }) {
         </div>
       </header>
 
-      {/* Summary tiles. The Readings figure is the SERVER's whole-period
-          total, never the page's row count. */}
-      <div className="grid grid-cols-2 gap-3 border-t border-slate-100 px-5 py-4 lg:grid-cols-4">
-        {tile('history-tile-instruments', 'Instruments', `${chosen.length} of ${inScope.length}`, 'theme', whereLabel)}
-        {tile('history-tile-period', 'Period', period.label, 'sky', `${formatDateTime(period.from)} – ${formatDateTime(period.to)}`)}
-        {tile('history-tile-readings', 'Readings in period', chosenIds.length === 0 ? '—' : histLoading ? '…' : total.toLocaleString(), 'violet', 'across the selection')}
-        {tile('history-tile-interval', 'Interval', intervalLabel, 'cyan', 'first reading per slot')}
-      </div>
-
       {/* The chips. Everything in scope is selected until something is
           unticked; the count says what a download would cover. */}
       <div className="border-t border-slate-100 px-5 py-3">
@@ -269,7 +220,7 @@ export function InstrumentHistoryWidget({ scope }: { scope: HistoryScope }) {
             No instruments in this scope.
           </p>
         ) : (
-          <div className="flex max-h-40 flex-wrap gap-2 overflow-y-auto">
+          <div className="flex flex-wrap gap-2">
             {inScope.map((i) => {
               const on = selected === null || selected.has(i.id);
               return (

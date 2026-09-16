@@ -273,13 +273,12 @@ removed there and add one side bar option Data Report, in that it should come"*)
   colorful") to the Settings widget's language: the Generate card is the
   page's theme-gradient hero band with the selection it would report stated
   beneath the title (`generate-report-summary`); the widget has a tinted
-  toolbar, four summary tiles (`history-tile-instruments|period|readings|
-  interval`), tick CHIPS (`history-chip`, real checkboxes inside labels) and
-  the dashboard's quantity colours on the two value headings. **The Readings
-  tile is the server's `total`, never `rows.length`** — pinned with an
-  overridden total and mutation-checked. No out-of-limit tile on purpose (one
-  page in hand, no whole-period multi-instrument breach count on the server).
-  The old `history-subtitle` line survives as `sr-only` text.
+  toolbar, tick CHIPS (`history-chip`, real checkboxes inside labels, NOT a
+  scroll box — "all instruments should be display directly, i dont need scroll
+  option") and the dashboard's quantity colours on the two value headings. The
+  four summary tiles lived for an afternoon ("remove counts cards"). The old
+  `history-subtitle` line survives as `sr-only` text. A toolbar toggle makes
+  the widget a fixed full-viewport overlay; Escape leaves it.
 - **The selection is the PAGE's — `routes/data-report/use-history-scope.ts`
   (2026-09-07).** Block, Area, ticks, the instruments in scope and the
   per-instrument overview live in one hook the page passes to BOTH the widget

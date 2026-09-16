@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased] - Data Report widget: no summary tiles, chips shown in full (2026-09-16)
+
+Operator: *"remove counts cards and all instruments should be display
+directly, i dont need scroll option"*. The four summary tiles from the
+morning's restyle are gone, and the instrument chip list is no longer a
+scroll box — every instrument in scope is on screen at once. Pinned in
+`history-widget.test.tsx`; the server-total test went with the tile it guarded.
+
 ## [Unreleased] - Data Report widget: full screen (2026-09-16)
 
 Operator: *"make data report widget into full screen"*. A toggle at the end

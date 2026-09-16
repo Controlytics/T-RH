@@ -188,38 +188,29 @@ describe('InstrumentHistoryWidget', () => {
   });
 
   /**
-   * The 2026-09-16 restyle: four summary tiles and the instruments as chips.
-   * Presentation, but two things in it are claims: the Readings tile prints
-   * the SERVER's whole-period total, never the page's row count (the
-   * 2026-08-31 alarms-count defect); and a chip is a real checkbox, so the
-   * selection rules and the label-click tests above still hold.
+   * The chips (2026-09-16 restyle; the four summary tiles that shipped with
+   * it went the same day — operator: "remove counts cards and all instruments
+   * should be display directly, i dont need scroll option"). A chip is a real
+   * checkbox, so the selection rules and the label-click tests above still
+   * hold; and the chip list is NOT a scroll box — every instrument in scope is
+   * on screen at once.
    */
-  describe('summary tiles and chips (2026-09-16)', () => {
-    it('the Instruments tile counts the selection and names the scope; the Period tile names the preset', () => {
+  describe('chips (2026-09-16)', () => {
+    it('shows no summary tiles', () => {
       renderWidget();
       pickArea();
-      expect(screen.getByTestId('history-tile-instruments')).toHaveTextContent('2 of 2');
-      expect(screen.getByTestId('history-tile-instruments')).toHaveTextContent('QC 3');
-      fireEvent.click(screen.getByLabelText(B.code));
-      expect(screen.getByTestId('history-tile-instruments')).toHaveTextContent('1 of 2');
-      expect(screen.getByTestId('history-tile-period')).toHaveTextContent('Custom');
-    });
-
-    it('the Readings tile prints the SERVER total for the period, not the rows on this page', () => {
-      historyTotalOverride = 1204;
-      try {
-        renderWidget();
-        pickArea();
-        expect(screen.getAllByTestId('history-row')).toHaveLength(3);
-        expect(screen.getByTestId('history-tile-readings')).toHaveTextContent('1,204');
-      } finally {
-        historyTotalOverride = null;
+      for (const id of ['history-tile-instruments', 'history-tile-period', 'history-tile-readings', 'history-tile-interval']) {
+        expect(screen.queryByTestId(id)).toBeNull();
       }
     });
 
-    it('the Readings tile is a dash with nothing selected', () => {
+    it('lists every instrument in scope without a scroll box', () => {
       renderWidget();
-      expect(screen.getByTestId('history-tile-readings')).toHaveTextContent('—');
+      pickArea();
+      const chips = screen.getAllByTestId('history-chip');
+      expect(chips).toHaveLength(2);
+      const list = chips[0].parentElement!;
+      expect(list.className).not.toMatch(/max-h|overflow-y/);
     });
 
     it('a chip is filled while ticked and outlined once unticked', () => {
