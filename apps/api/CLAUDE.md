@@ -320,6 +320,18 @@ node apps/api/dist/app.js
   downlink echo not logged), and the downlink/roster e2e rekeyed on codes.
   **The reserved-last-segment rule is load-bearing**: without it a child coded
   `X/telemetry` has its downlink parsed as telemetry from `<gw>/attributes/X`.
+- **2026-09-16 — a key dropped from a profile cascades to its instruments.**
+  `instrument-profiles/routes.ts`: `GET /:id/attribute-usage` (keys the
+  profile's instruments carry, folded by case, with counts) and `PUT /:id`
+  now deletes the attribute on every instrument of the profile for each
+  REMOVED key, in the same transaction as the profile update, one
+  `INSTRUMENT_ATTRIBUTE_REMOVED` row per instrument (value + remark), the
+  device told after commit (`announceRemoval`); `reason` REQUIRED when any
+  instrument carries a removed key (`400 REASON_REQUIRED` + `affected`).
+  `null` attributeKeys re-arms the default and drops nothing. The
+  `attribute-labels` def's zod refuses keys or names that differ only by
+  case. 4 e2e in `instrument-profiles.e2e.test.ts`, mutation-checked. **No
+  count moved, no migration.**
 - **2026-09-16 — the instrument CODE is changeable.** `PUT /api/instruments/:id`
   accepts `code` (shared `updateInstrumentSchema`, same `codeSchema` as create).
   **No count moved, no migration.** The code is the MQTT client id and every

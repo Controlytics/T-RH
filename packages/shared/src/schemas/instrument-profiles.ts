@@ -53,6 +53,12 @@ export const updateInstrumentProfileSchema = z.object({
   // `.nullish()` for the same reason as description, with a narrower meaning:
   // null re-arms the default-template fallback, '' means "ask for nothing".
   attributeKeys: attributeKeysField.nullish(),
+  // The remark recorded on every INSTRUMENT_ATTRIBUTE_REMOVED row when a key
+  // dropped from the list is CARRIED by instruments (2026-09-16, operator:
+  // "when i removed attributes for profile in configuration those are not
+  // removing for instruments"). Required by the route in exactly that case;
+  // `validateAttributeRemark` is the shared rule for what counts as one.
+  reason: z.string().max(500).optional(),
 });
 
 export type CreateInstrumentProfileInput = z.infer<typeof createInstrumentProfileSchema>;

@@ -67,13 +67,12 @@ describe('Attribute display names', () => {
     expect(put.statusCode).toBe(403);
   });
 
-  it('a saved map reads back COERCED: trimmed, blanks dropped, one spelling per key', async () => {
+  it('a saved map reads back COERCED: trimmed, blanks dropped', async () => {
     const put = await authPut(app, '/api/config/dynamic/attribute-labels', adminToken, {
       labels: {
         ' Enable_Temp_NMT ': ' High temperature alarm enabled ',
         Building: '   ',
         Room: 'Cleanroom',
-        room: 'Other',
       },
     });
     expect(put.statusCode).toBe(200);
@@ -87,7 +86,6 @@ describe('Attribute display names', () => {
     expect(body.labels.Enable_Temp_NMT).toBe('High temperature alarm enabled');
     expect(body.labels.Building).toBeUndefined();
     expect(body.labels.Room).toBe('Cleanroom');
-    expect(body.labels.room).toBeUndefined();
   });
 
   it('refuses a body that is not a key → name map', async () => {
@@ -95,6 +93,19 @@ describe('Attribute display names', () => {
       labels: ['Building'],
     });
     expect(put.statusCode).toBe(400);
+  });
+
+  // 2026-09-16, operator: "same keys or same display names should not repeat
+  // in small letters or capital letters difference also".
+  it('refuses two display names that differ only by case, and two keys that do', async () => {
+    const names = await authPut(app, '/api/config/dynamic/attribute-labels', adminToken, {
+      labels: { Building: 'Site', Area: 'site' },
+    });
+    expect(names.statusCode).toBe(400);
+    const keys = await authPut(app, '/api/config/dynamic/attribute-labels', adminToken, {
+      labels: { Room: 'Cleanroom', room: 'Other' },
+    });
+    expect(keys.statusCode).toBe(400);
   });
 
   it('refuses a name longer than the administered maximum', async () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 /**
@@ -31,11 +31,17 @@ const mutateProfiles = vi.fn();
 let profilesResponse: unknown = PROFILES;
 /** The stored display-name map, as the SUPER_ADMIN editor endpoint returns it. */
 const LABELS = { current: {} as Record<string, string> };
+/** Which keys the selected profile's instruments actually carry, as `/attribute-usage` returns it. */
+const USAGE = { current: {} as Record<string, { key: string; instruments: number }[]> };
 const mutateLabels = vi.fn();
 const globalMutate = vi.fn();
 vi.mock('swr', () => ({
-  default: (key: string) => {
+  default: (key: string | null) => {
     if (key === '/api/config/dynamic/attribute-labels') return { data: { labels: LABELS.current }, mutate: mutateLabels };
+    if (typeof key === 'string' && key.endsWith('/attribute-usage')) {
+      const id = key.split('/')[3];
+      return { data: { keys: USAGE.current[id] ?? [] }, mutate: vi.fn() };
+    }
     return { data: profilesResponse, mutate: mutateProfiles };
   },
   mutate: (...a: unknown[]) => globalMutate(...a),
@@ -66,6 +72,7 @@ const save = () => fireEvent.click(screen.getByRole('button', { name: /save chan
 beforeEach(() => {
   profilesResponse = PROFILES;
   LABELS.current = {};
+  USAGE.current = {};
   put.mockReset().mockResolvedValue({});
   mutateProfiles.mockReset();
   mutateLabels.mockReset();
@@ -113,6 +120,17 @@ describe('InstrumentAttributesConfigPage — display names', () => {
     await waitFor(() => expect(put).toHaveBeenCalledWith('/api/config/dynamic/attribute-labels', {
       labels: { 'Room No': 'Cleanroom number' },
     }));
+  });
+
+  it('refuses two display names that differ only by case, on the row, and blocks Save', () => {
+    LABELS.current = { Block: 'Site block' };
+    renderPage();
+    fireEvent.change(nameField(2), { target: { value: 'site BLOCK' } });
+    expect(screen.getByText(/display name is already used/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
+    fireEvent.change(nameField(2), { target: { value: 'Site area' } });
+    expect(screen.queryByText(/display name is already used/i)).toBeNull();
+    expect(screen.getByRole('button', { name: /save changes/i })).toBeEnabled();
   });
 
   it('switching profile shows THAT profile\'s names for its keys', () => {
@@ -194,6 +212,53 @@ describe('InstrumentAttributesConfigPage — profile picker', () => {
     selectTarget('p2');
     expect(confirmSpy).not.toHaveBeenCalled();
     confirmSpy.mockRestore();
+  });
+});
+
+/**
+ * Removing a key REMOVES the attribute from the profile's instruments
+ * (2026-09-16, operator). The page states what that deletes — key by key,
+ * with the instrument count from `/attribute-usage` — and collects the ONE
+ * remark the server records on every INSTRUMENT_ATTRIBUTE_REMOVED row. A key
+ * nobody carries needs no remark.
+ */
+describe('InstrumentAttributesConfigPage — removing a key that instruments carry', () => {
+  const remark = (text: string) => {
+    fireEvent.change(screen.getByRole('textbox', { name: /remarks/i }), { target: { value: text } });
+    fireEvent.click(screen.getByRole('button', { name: /remove/i }));
+  };
+
+  it('asks for a remark naming the keys and instrument counts, then PUTs the keys WITH the reason', async () => {
+    USAGE.current = { p1: [{ key: 'Room', instruments: 12 }, { key: 'Block', instruments: 12 }] };
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Room' }));
+    save();
+    const dlg = screen.getByRole('dialog');
+    expect(within(dlg).getByText('Room')).toBeInTheDocument();
+    expect(within(dlg).getByText(/12 instruments/)).toBeInTheDocument();
+    expect(put).not.toHaveBeenCalled();
+    remark('Room is tracked on the floor plan now');
+    await waitFor(() => expect(put).toHaveBeenCalledWith(
+      '/api/instrument-profiles/p1', { attributeKeys: 'Block\nArea', reason: 'Room is tracked on the floor plan now' },
+    ));
+  });
+
+  it('a removed key that no instrument carries saves straight away, without a remark', async () => {
+    USAGE.current = { p1: [{ key: 'Block', instruments: 12 }] };
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Room' }));
+    save();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() => expect(put).toHaveBeenCalledWith('/api/instrument-profiles/p1', { attributeKeys: 'Block\nArea' }));
+  });
+
+  it('a renamed key by case alone is not a removal', async () => {
+    USAGE.current = { p1: [{ key: 'Room', instruments: 12 }] };
+    renderPage();
+    fireEvent.change(keyField(3), { target: { value: 'ROOM' } });
+    save();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() => expect(put).toHaveBeenCalledWith('/api/instrument-profiles/p1', { attributeKeys: 'Block\nArea\nROOM' }));
   });
 });
 

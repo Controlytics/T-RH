@@ -63,5 +63,22 @@ export const attributeLabelsDef: ModuleConfigDefinition = {
       z.string().max(ATTRIBUTE_LABEL_KEY_MAX, `An attribute key must be ${ATTRIBUTE_LABEL_KEY_MAX} characters or fewer`),
       z.string().max(ATTRIBUTE_LABEL_MAX, `A display name must be ${ATTRIBUTE_LABEL_MAX} characters or fewer`),
     ),
+  }).superRefine((v, ctx) => {
+    // No two keys and no two names may differ only by case (2026-09-16,
+    // operator: "same keys or same display names should not repeat in small
+    // letters or capital letters difference also"). Every attribute surface
+    // folds case, so two such entries would be one attribute with two names —
+    // and the bulk template maps a heading back to a key BY name.
+    const keys = new Map<string, string>();
+    const names = new Map<string, string>();
+    for (const [k, n] of Object.entries(v.labels)) {
+      const fk = k.trim().toLowerCase();
+      if (keys.has(fk)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Attribute key "${k}" is listed twice ("${keys.get(fk)}"); case is ignored` });
+      keys.set(fk, k);
+      const fn = n.trim().toLowerCase();
+      if (!fn) continue;
+      if (names.has(fn)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Display name "${n}" is already used by "${names.get(fn)}"; case is ignored` });
+      names.set(fn, k);
+    }
   }),
 };

@@ -989,6 +989,18 @@ GET    /api/config/report-approvers/current     — the administered approver ro
   already do. Counts: sidebar items 14 → **15**, routes 52 → **53**, tree
   groups 13 → **14**, nodes 55 → **57**, feature privileges 43 → **45**; no
   permission, reauth action, model, enum, config def, migration or API change.
+  - **Removing a key from a profile REMOVES the attribute from that profile's
+    instruments (2026-09-16, operator: "when i removed attributes for profile
+    in configuration those are not removing for instruments").** The ONE
+    exception to "profiles inherit prompts, never values". Case-folded; one
+    `INSTRUMENT_ATTRIBUTE_REMOVED` audit row per instrument with the value and
+    the remark; device told. `PUT /api/instrument-profiles/:id` refuses such a
+    removal without `reason` (`REASON_REQUIRED`, `affected` listed);
+    `GET /:id/attribute-usage` is how the page states the consequence first,
+    through the remark dialog. Adding a key still back-fills nothing. Also that
+    day: keys and display names must be unique IGNORING CASE — the
+    `attribute-labels` zod refuses either, and the page flags a duplicate name
+    on the row.
   - **A Common settings bar with ONE instrument picker, then ONE full-width widget** (square for an hour, then "remove the square shape, make widget full width")
     of key / value rows: Instrument ID, then every attribute (the server's
     `display` form where given). "Assigned to that user" is the instrument

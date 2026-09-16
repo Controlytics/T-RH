@@ -1,5 +1,37 @@
 # Changelog
 
+## [Unreleased] - Removing a profile key removes the attribute from its instruments; names and keys unique ignoring case (2026-09-16)
+
+Operator: *"when i removed attributes for profile in configuration those are
+not removing for instruments and also in one profile same keys or same dispaly
+names should not repeat in small letters or capital letters difference also"*.
+
+- **Cascade.** A key dropped from a profile's list is now deleted from every
+  instrument in that profile that carries it, case-folded. Each deletion is a
+  `INSTRUMENT_ATTRIBUTE_REMOVED` row with the value it held and the operator's
+  remark, and each device is told (retained slot republished without the key,
+  gateway change event with `null`). `PUT /api/instrument-profiles/:id` takes
+  `reason` and REFUSES a removal that would delete recorded values without one
+  (`400 REASON_REQUIRED`, listing `affected: [{key, instruments}]`). New
+  `GET /api/instrument-profiles/:id/attribute-usage` returns which keys the
+  profile's instruments carry with counts, so the page states the consequence
+  before the save: the Instrument Attributes page opens the remark dialog
+  listing each removed key and how many instruments lose it, then PUTs the
+  keys with the reason. A key nobody carries saves as before. A rename by case
+  alone is not a removal. This is the ONE exception to "profiles inherit
+  prompts, never values"; adding a key still back-fills nothing. 4 e2e
+  (usage folded by case; refused without reason, nothing moved; cascade with
+  audit rows per instrument; unused key needs no reason), 3 page cases;
+  mutation-checked (dropping the fold, and dropping the reason gate, each fail).
+- **Uniqueness ignoring case.** The `attribute-labels` def's `zodSchema` refuses
+  two keys or two display names that differ only by case (400). The page flags
+  a duplicate display name on the row, naming the key that holds it, and
+  blocks Save — among this profile's rows and against other profiles' keys (a
+  key this profile itself lists is excluded, or a carried-over name would
+  block its own rename). Duplicate KEYS were already refused on the page
+  case-insensitively and de-duplicated by `parseInstrumentAttributeKeys`.
+- Not seen on screen.
+
 ## [Unreleased] - Data Report page restyled (2026-09-16)
 
 Operator: *"Data Report View ui not looking good, and make it more professional

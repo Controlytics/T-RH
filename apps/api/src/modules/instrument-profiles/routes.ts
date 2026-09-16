@@ -3,13 +3,18 @@ import {
   createInstrumentProfileSchema,
   updateInstrumentProfileSchema,
   parseInstrumentAttributeKeys,
+  validateAttributeRemark,
 } from '@digilog/shared';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { buildContext } from '../../lib/build-context.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { errorResponses } from '../../lib/error-schemas.js';
+import { logger } from '../../lib/logger.js';
 import { resolveVisibility } from '../instruments/visibility.js';
+import { publishAttributeDownlink } from '../instruments/attribute-downlink.js';
+import { announceChildAttributeChange } from '../instruments/child-attributes-bundle.js';
 
 /**
  * Instrument profiles — a named container for instruments.
@@ -20,6 +25,17 @@ import { resolveVisibility } from '../instruments/visibility.js';
  * exists, and moving an instrument between profiles changes only which keys are
  * suggested. See
  * `docs/superpowers/specs/2026-08-08-per-profile-instrument-attributes-design.md`.
+ *
+ * ONE exception since 2026-09-16 (operator: "when i removed attributes for
+ * profile in configuration those are not removing for instruments"): a key
+ * REMOVED from the list is also removed from every instrument in the profile
+ * that carries it (case-folded, as every attribute surface matches). Each of
+ * those deletions is its own §11 record — an INSTRUMENT_ATTRIBUTE_REMOVED row
+ * per instrument with the value it held and the operator's remark — which is
+ * why such a PUT REQUIRES a `reason` and is refused without one, naming what
+ * would go. `GET /:id/attribute-usage` is how the page states that BEFORE the
+ * save. A key nobody carries is dropped without ceremony. Adding a key still
+ * back-fills nothing.
  *
  * PERMISSIONS reuse `INSTRUMENT_*` deliberately. A profile is not a capability
  * boundary of its own — anyone who may register an instrument may create the
@@ -51,6 +67,60 @@ type ProfileRow = {
   createdBy: string | null;
   instruments?: { isActive: boolean }[];
 };
+
+const fold = (k: string) => k.trim().toLowerCase();
+
+/**
+ * Which attribute keys the profile's instruments actually carry, folded by
+ * case (the spelling shown is the PROFILE's own where the key is listed, else
+ * the first recorded one), with the number of instruments carrying each.
+ */
+async function attributeUsage(profileId: string, listed: string[]): Promise<{ key: string; instruments: number }[]> {
+  const rows = await prisma.instrumentAttribute.findMany({
+    where: { instrument: { profileId } },
+    select: { key: true, instrumentId: true },
+    orderBy: [{ key: 'asc' }],
+  });
+  const byFold = new Map<string, { key: string; instruments: Set<string> }>();
+  for (const r of rows) {
+    const f = fold(r.key);
+    const hit = byFold.get(f);
+    if (hit) hit.instruments.add(r.instrumentId);
+    else byFold.set(f, { key: listed.find((k) => fold(k) === f) ?? r.key, instruments: new Set([r.instrumentId]) });
+  }
+  return [...byFold.values()].map((u) => ({ key: u.key, instruments: u.instruments.size }));
+}
+
+/**
+ * The broker side of a cascaded removal, AFTER the commit (the same rule as the
+ * instruments module's `announceAttributeChange`): the instrument's retained
+ * slot republished without the key, and its gateway's change event carrying
+ * `null` for it. Never throws.
+ */
+async function announceRemoval(
+  instrument: { id: string; code: string; gatewayId: string | null },
+  key: string,
+): Promise<void> {
+  try {
+    const rows = await prisma.instrumentAttribute.findMany({ where: { instrumentId: instrument.id }, select: { key: true, value: true } });
+    const gateway = instrument.gatewayId
+      ? await prisma.instrument.findUnique({ where: { id: instrument.gatewayId }, select: { code: true } })
+      : null;
+    const log = (msg: string, meta?: Record<string, unknown>) => logger.warn(`[downlink:profile-cascade] ${msg}`, meta ?? {});
+    await publishAttributeDownlink({
+      code: instrument.code, gatewayCode: gateway?.code ?? null,
+      attributes: Object.fromEntries(rows.map((r) => [r.key, r.value])),
+      changedKey: key, changedValue: null, ts: new Date(),
+    }, log);
+    if (instrument.gatewayId) {
+      await announceChildAttributeChange(instrument.gatewayId, { code: instrument.code, key, value: null }, log);
+    }
+  } catch (e) {
+    logger.warn('[downlink:profile-cascade] the device was NOT told about a removed attribute', {
+      instrument: instrument.id, key, err: (e as Error).message,
+    });
+  }
+}
 
 /**
  * Shape a row for the wire. Both counts come from the SAME fetch — deriving
@@ -139,6 +209,34 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
     });
     if (!row) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Profile not found.' });
     return present(row as ProfileRow);
+  });
+
+  // GET /api/instrument-profiles/:id/attribute-usage — which keys the
+  // profile's instruments carry, so the editor can say what a removal deletes.
+  app.get('/:id/attribute-usage', {
+    preHandler: [app.requirePermission('INSTRUMENT_READ')],
+    schema: {
+      tags: ['Instrument Profiles'],
+      summary: 'Which attribute keys the profile\'s instruments carry, with counts',
+      params: { type: 'object', properties: { id: { type: 'string' } } },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            keys: {
+              type: 'array',
+              items: { type: 'object', properties: { key: { type: 'string' }, instruments: { type: 'integer' } } },
+            },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const profile = await prisma.instrumentProfile.findUnique({ where: { id }, select: { attributeKeys: true } });
+    if (!profile) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Profile not found.' });
+    return { keys: await attributeUsage(id, parseInstrumentAttributeKeys(profile.attributeKeys)) };
   });
 
   // POST /api/instrument-profiles
@@ -235,6 +333,7 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
           description: { type: ['string', 'null'] },
           isActive: { type: 'boolean' },
           attributeKeys: { type: ['string', 'null'] },
+          reason: { type: 'string', description: 'Required when a removed key is carried by instruments: recorded on each INSTRUMENT_ATTRIBUTE_REMOVED row.' },
         },
       },
       response: { 200: { type: 'object', properties: profileProps }, ...errorResponses },
@@ -242,32 +341,84 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const parsed = updateInstrumentProfileSchema.safeParse(
-      // Exempt for the same reason as POST — see the comment there.
-      sanitizeStrings((req.body ?? {}) as Record<string, unknown>, ['attributeKeys']),
+      // Exempt for the same reason as POST — see the comment there. `reason`
+      // is exempt like every free-text remark: `stripHtml` would blank
+      // "value < 20 per SOP" into a §11 record.
+      sanitizeStrings((req.body ?? {}) as Record<string, unknown>, ['attributeKeys', 'reason']),
     );
     if (!parsed.success) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
     }
+    const { reason, ...data } = parsed.data;
 
     const before = await prisma.instrumentProfile.findUnique({ where: { id } });
     if (!before) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Profile not found.' });
     const ctx = buildContext(req);
 
+    // Which listed keys this PUT DROPS, and which of those instruments carry.
+    // `null` re-arms the default template and drops nothing.
+    const keysBefore = parseInstrumentAttributeKeys(before.attributeKeys);
+    const requested = typeof data.attributeKeys === 'string' ? parseInstrumentAttributeKeys(data.attributeKeys) : null;
+    const removed = requested ? keysBefore.filter((k) => !requested.some((a) => fold(a) === fold(k))) : [];
+    const affected = removed.length
+      ? (await attributeUsage(id, keysBefore)).filter((u) => removed.some((k) => fold(k) === fold(u.key)))
+      : [];
+    if (affected.length > 0) {
+      const problem = validateAttributeRemark(reason);
+      if (problem) {
+        return reply.code(400).send({
+          error: 'REASON_REQUIRED',
+          message: `Removing ${affected.map((a) => `"${a.key}"`).join(', ')} deletes the attribute on ${affected.reduce((n, a) => n + a.instruments, 0)} instrument(s). ${problem}`,
+          affected,
+        });
+      }
+    }
+
     try {
       // Scoped like the read routes: this response replaces the row on screen, and
       // an edit must not make the count jump to a number the list never shows.
       const { where: visibility } = await resolveVisibility(ctx);
-      const row = await prisma.instrumentProfile.update({
-        where: { id },
-        data: { ...parsed.data, updatedBy: ctx.userId },
-        include: withInstruments(visibility),
+      const deleted: { instrument: { id: string; code: string; gatewayId: string | null }; key: string }[] = [];
+      const row = await prisma.$transaction(async (tx) => {
+        const updated = await tx.instrumentProfile.update({
+          where: { id },
+          data: { ...data, updatedBy: ctx.userId },
+          include: withInstruments(visibility),
+        });
+        if (affected.length > 0) {
+          const folds = new Set(affected.map((a) => fold(a.key)));
+          const rows = await tx.instrumentAttribute.findMany({
+            where: { instrument: { profileId: id } },
+            select: { instrumentId: true, key: true, value: true, instrument: { select: { code: true, gatewayId: true } } },
+          });
+          for (const r of rows) {
+            if (!folds.has(fold(r.key))) continue;
+            // The same per-attribute advisory lock the instruments module takes.
+            await tx.$executeRaw`SELECT pg_advisory_xact_lock(20260807, hashtext(${`${r.instrumentId}:${r.key}`}))`;
+            await tx.instrumentAttribute.delete({ where: { instrumentId_key: { instrumentId: r.instrumentId, key: r.key } } });
+            // The removed VALUE is in `beforeValue`: once the row is gone this
+            // audit record is the only place it survives.
+            await auditLog({
+              action: 'INSTRUMENT_ATTRIBUTE_REMOVED', targetType: 'Instrument', targetId: r.instrumentId,
+              beforeValue: { code: r.instrument.code, attribute: r.key, value: r.value },
+              reason: reason as string,
+              signatureMeaning: `Attribute "${r.key}" removed from instrument "${r.instrument.code.length <= 80 ? r.instrument.code : `${r.instrument.code.slice(0, 80)}…`}" (key dropped from profile)`,
+              userId: ctx.userId, userRole: ctx.userRole,
+              ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+            }, tx as unknown as Prisma.TransactionClient);
+            deleted.push({ instrument: { id: r.instrumentId, code: r.instrument.code, gatewayId: r.instrument.gatewayId }, key: r.key });
+          }
+        }
+        return updated;
       });
 
-      const keysBefore = parseInstrumentAttributeKeys(before.attributeKeys);
       const keysAfter = parseInstrumentAttributeKeys(row.attributeKeys);
       // Compared as PARSED lists, so a whitespace-only edit that changes no key
       // does not claim the keys changed.
       const keysChanged = keysBefore.join('\n') !== keysAfter.join('\n');
+      const cascadeNote = deleted.length > 0
+        ? `; removed ${affected.map((a) => `"${a.key}"`).join(', ')} from ${new Set(deleted.map((d) => d.instrument.id)).size} instrument(s)`
+        : '';
 
       await auditLog({
         userId: ctx.userId, userRole: ctx.userRole,
@@ -287,13 +438,25 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
         // changes what every future registration is asked. Both fit
         // audit_trail.signature_meaning's varchar(255): ~50 fixed characters
         // plus a name capped at 120.
-        signatureMeaning: before.name !== row.name
-          ? `Instrument profile renamed "${before.name}" → "${row.name}"`
-          : keysChanged
-            ? `Instrument profile "${row.name}" attribute keys changed (${keysBefore.length} → ${keysAfter.length})`
-            : `Instrument profile "${row.name}" updated`,
+        // The cascade note is clamped so a long key list cannot overflow
+        // signature_meaning's varchar(255) — `auditLog` does not truncate.
+        signatureMeaning: (() => {
+          const base = before.name !== row.name
+            ? `Instrument profile renamed "${before.name}" → "${row.name}"`
+            : keysChanged
+              ? `Instrument profile "${row.name}" attribute keys changed (${keysBefore.length} → ${keysAfter.length})`
+              : `Instrument profile "${row.name}" updated`;
+          const full = base + cascadeNote;
+          if (full.length <= 250) return full;
+          const short = base + `; removed ${affected.length} key(s) from ${new Set(deleted.map((d) => d.instrument.id)).size} instrument(s)`;
+          return short.length <= 250 ? short : short.slice(0, 249) + '…';
+        })(),
+        ...(deleted.length > 0 && reason ? { reason } : {}),
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
       });
+
+      // Committed. Now, and only now, tell each device.
+      for (const d of deleted) await announceRemoval(d.instrument, d.key);
 
       return present(row as ProfileRow);
     } catch (err) {

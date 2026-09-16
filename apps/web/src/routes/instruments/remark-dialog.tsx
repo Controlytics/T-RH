@@ -70,7 +70,7 @@ export function RemarkDialog({
       <DialogHeader>
         <DialogTitle>
           {changes
-            ? `Change ${changes.length} attribute${changes.length === 1 ? '' : 's'}`
+            ? `${destructive ? 'Remove' : 'Change'} ${changes.length} attribute${changes.length === 1 ? '' : 's'}${destructive ? ' from instruments' : ''}`
             : `${destructive ? 'Remove' : 'Change'} “${attributeKey}”`}
         </DialogTitle>
       </DialogHeader>
@@ -131,7 +131,7 @@ export function RemarkDialog({
             disabled={busy}
             onClick={submit}
           >
-            {busy ? 'Saving…' : destructive ? 'Remove attribute' : changes ? 'Save changes' : 'Save change'}
+            {busy ? 'Saving…' : destructive ? (changes ? 'Remove attributes' : 'Remove attribute') : changes ? 'Save changes' : 'Save change'}
           </Button>
         </div>
       </div>

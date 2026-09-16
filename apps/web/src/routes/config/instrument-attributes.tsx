@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { PageHeader } from '@/components/ui/page-header';
 import { SkeletonCard } from '@/components/ui/skeleton';
+import { RemarkDialog } from '@/routes/instruments/remark-dialog';
 
 /**
  * The attribute keys the New Instrument form asks for — PER PROFILE, one field
@@ -128,6 +129,16 @@ export function InstrumentAttributesConfigPage() {
    * would compare one target's edits against another target's baseline.
    */
   const [seededFor, setSeededFor] = useState<string | null>(null);
+  /**
+   * Which keys the selected profile's instruments actually carry (2026-09-16).
+   * Removing such a key DELETES the attribute on those instruments — the save
+   * says so, key by key with the count, and takes ONE remark the server writes
+   * on every INSTRUMENT_ATTRIBUTE_REMOVED row.
+   */
+  const { data: usageRes, mutate: mutateUsage } = useSWR<{ keys: { key: string; instruments: number }[] }>(
+    target ? `/api/instrument-profiles/${target}/attribute-usage` : null,
+  );
+  const [removalRemarkOpen, setRemovalRemarkOpen] = useState(false);
 
   const profiles = profileList?.data ?? [];
   const selectedProfile = profiles.find((p) => p.id === target) ?? null;
@@ -194,7 +205,35 @@ export function InstrumentAttributesConfigPage() {
     else seen.set(fold, r.id);
   });
   const badCharIds = new Set(rows.filter((r) => r.key.trim() && r.key.trim().length > 64).map((r) => r.id));
-  const blocked = dupIds.size > 0 || badCharIds.size > 0;
+  /**
+   * A display name may not repeat, case ignored (2026-09-16, operator) — among
+   * this profile's rows, and against the names other profiles' keys already
+   * hold, since the map is one. Reported on the row, naming the key that has it.
+   */
+  const dupNames = new Map<number, string>();
+  {
+    // Names held by keys OUTSIDE this profile are taken. A key this profile
+    // listed at seed is governed by these rows — renamed, removed or kept —
+    // so its stored name must not count against the row that carries it.
+    const ours = new Set([...rows.map((r) => fold(r.key)), ...originalKeys.map(fold)].filter(Boolean));
+    const taken = new Map<string, string>();
+    for (const [k, n] of Object.entries(storedLabels)) {
+      if (!ours.has(fold(k))) taken.set(fold(n), k);
+    }
+    for (const r of rows) {
+      const fn = fold(r.name);
+      if (!fn) continue;
+      const owner = taken.get(fn);
+      if (owner) dupNames.set(r.id, owner);
+      else taken.set(fn, r.key.trim() || 'another row');
+    }
+  }
+  const blocked = dupIds.size > 0 || badCharIds.size > 0 || dupNames.size > 0;
+  /** Listed keys this save DROPS (a rename by case alone is not a removal) that instruments carry. */
+  const affectedRemovals = originalKeys
+    .filter((k) => !rows.some((r) => fold(r.key) === fold(k)))
+    .map((k) => (usageRes?.keys ?? []).find((u) => fold(u.key) === fold(k)))
+    .filter((u): u is { key: string; instruments: number } => Boolean(u));
   const kept = trimmed.filter(Boolean).length;
 
   // What a save would send. Blank rows and surrounding space are dropped here
@@ -247,6 +286,14 @@ export function InstrumentAttributesConfigPage() {
 
   const save = async () => {
     if (blocked || !dirty) return;
+    // A removal that deletes recorded values is signed first — the dialog names
+    // every key and how many instruments lose it. The server refuses the PUT
+    // without the remark, so this is the operator's disclosure, not the control.
+    if (keysDirty && affectedRemovals.length > 0) { setRemovalRemarkOpen(true); return; }
+    await performSave(null);
+  };
+
+  const performSave = async (reason: string | null) => {
     setSaving(true);
     try {
       // Blank rows are dropped rather than refused: an operator who added a row
@@ -256,7 +303,9 @@ export function InstrumentAttributesConfigPage() {
       const keys = normalised;
       if (keysDirty) {
         // The list is written ON the profile. There is no shared list to write to.
-        await apiClient.put(`/api/instrument-profiles/${target}`, { attributeKeys: keys });
+        await apiClient.put(`/api/instrument-profiles/${target}`, { attributeKeys: keys, ...(reason ? { reason } : {}) });
+        setRemovalRemarkOpen(false);
+        await mutateUsage();
       }
       if (namesDirty || keysDirty) {
         // The display names are ONE global map, written WHOLE (the dynamic PUT
@@ -399,6 +448,11 @@ export function InstrumentAttributesConfigPage() {
               {badCharIds.has(row.id) && (
                 <p className="pl-8 text-xs text-red-600">Too long — keep a key under 64 characters.</p>
               )}
+              {dupNames.has(row.id) && (
+                <p className="pl-8 text-xs text-red-600">
+                  Display name is already used by &ldquo;{dupNames.get(row.id)}&rdquo; — names must differ, ignoring case.
+                </p>
+              )}
             </div>
           ))}
 
@@ -440,6 +494,21 @@ export function InstrumentAttributesConfigPage() {
           {saving ? 'Saving…' : dirty ? 'Save changes' : 'Saved'}
         </Button>
       </div>
+
+      <RemarkDialog
+        open={removalRemarkOpen}
+        attributeKey=""
+        from=""
+        destructive
+        changes={affectedRemovals.map((a) => ({
+          label: a.key,
+          from: `${a.instruments} instrument${a.instruments === 1 ? '' : 's'}`,
+          to: 'removed',
+        }))}
+        busy={saving}
+        onSubmit={(remark) => void performSave(remark)}
+        onClose={() => { if (!saving) setRemovalRemarkOpen(false); }}
+      />
     </div>
   );
 }

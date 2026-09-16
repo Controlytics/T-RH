@@ -125,6 +125,111 @@ describe('PUT /api/instrument-profiles/:id', () => {
   });
 });
 
+/**
+ * Removing a key from a profile REMOVES that attribute from the profile's
+ * instruments (2026-09-16, operator: "when i removed attributes for profile in
+ * configuration those are not removing for instruments"). Until then a profile
+ * carried prompts only. Each deletion is its own §11 record: one
+ * INSTRUMENT_ATTRIBUTE_REMOVED row per instrument with the remark, which is
+ * why a removal that would delete recorded values REQUIRES a reason.
+ */
+describe('PUT /api/instrument-profiles/:id — attribute cascade', () => {
+  const mkInstrument = async (profileId: string, code: string) => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/instruments', headers: auth(),
+      payload: { name: code, code, profileId },
+    });
+    expect(res.statusCode).toBe(201);
+    return JSON.parse(res.body) as { id: string };
+  };
+  const setAttr = (id: string, key: string, value: string) =>
+    app.inject({ method: 'POST', url: `/api/instruments/${id}/attributes`, headers: auth(), payload: { key, value } });
+  const attrsOf = async (id: string) => {
+    const res = await app.inject({ method: 'GET', url: `/api/instruments/${id}/attributes`, headers: auth() });
+    return Object.fromEntries((JSON.parse(res.body).data as { key: string; value: string }[]).map((r) => [r.key, r.value]));
+  };
+
+  it('reports which keys are recorded on the profile\'s instruments, folded by case', async () => {
+    const p = JSON.parse((await createProfile({ name: 'IPT Usage', attributeKeys: 'Building\nRoom' })).body);
+    const a = await mkInstrument(p.id, 'IPT-U1');
+    const b = await mkInstrument(p.id, 'IPT-U2');
+    await setAttr(a.id, 'Building', 'CWH');
+    await setAttr(b.id, 'building', 'CWH');   // a second spelling — one key
+    await setAttr(a.id, 'Room', '101');
+
+    const res = await app.inject({ method: 'GET', url: `/api/instrument-profiles/${p.id}/attribute-usage`, headers: auth() });
+    expect(res.statusCode).toBe(200);
+    const keys = (JSON.parse(res.body).keys as { key: string; instruments: number }[]).sort((x, y) => x.key.localeCompare(y.key));
+    expect(keys).toEqual([{ key: 'Building', instruments: 2 }, { key: 'Room', instruments: 1 }]);
+  });
+
+  it('refuses to drop a recorded key without a reason, naming what would go', async () => {
+    const p = JSON.parse((await createProfile({ name: 'IPT NoReason', attributeKeys: 'Building\nRoom' })).body);
+    const a = await mkInstrument(p.id, 'IPT-N1');
+    await setAttr(a.id, 'Room', '101');
+
+    const res = await app.inject({
+      method: 'PUT', url: `/api/instrument-profiles/${p.id}`, headers: auth(),
+      payload: { attributeKeys: 'Building' },
+    });
+    expect(res.statusCode).toBe(400);
+    const body = JSON.parse(res.body);
+    expect(body.error).toBe('REASON_REQUIRED');
+    expect(body.affected).toEqual([{ key: 'Room', instruments: 1 }]);
+    // Nothing moved.
+    expect(await attrsOf(a.id)).toEqual({ Room: '101' });
+    const row = await prisma.instrumentProfile.findUnique({ where: { id: p.id } });
+    expect(row?.attributeKeys).toBe('Building\nRoom');
+  });
+
+  it('with a reason, drops the key from the profile AND deletes it on every instrument, audited per instrument, case-folded', async () => {
+    const p = JSON.parse((await createProfile({ name: 'IPT Cascade', attributeKeys: 'Building\nRoom' })).body);
+    const a = await mkInstrument(p.id, 'IPT-C1');
+    const b = await mkInstrument(p.id, 'IPT-C2');
+    await setAttr(a.id, 'Building', 'CWH');
+    await setAttr(a.id, 'Room', '101');
+    await setAttr(b.id, 'room', '202');   // differs by case only — still the key being removed
+
+    const res = await app.inject({
+      method: 'PUT', url: `/api/instrument-profiles/${p.id}`, headers: auth(),
+      payload: { attributeKeys: 'Building', reason: 'Room is tracked on the floor plan now' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(await attrsOf(a.id)).toEqual({ Building: 'CWH' });
+    expect(await attrsOf(b.id)).toEqual({});
+
+    const rows = await prisma.auditTrail.findMany({
+      where: { action: 'INSTRUMENT_ATTRIBUTE_REMOVED', targetId: { in: [a.id, b.id] } },
+      select: { targetId: true, reason: true, beforeValue: true },
+    });
+    expect(rows).toHaveLength(2);
+    for (const r of rows) expect(r.reason).toBe('Room is tracked on the floor plan now');
+    const before = rows.map((r) => (r.beforeValue as { attribute: string; value: string })).sort((x, y) => x.value.localeCompare(y.value));
+    expect(before).toEqual([{ code: 'IPT-C1', attribute: 'Room', value: '101' }, { code: 'IPT-C2', attribute: 'room', value: '202' }]);
+
+    // The profile's own row names the cascade.
+    const prof = await prisma.auditTrail.findFirst({
+      where: { action: 'INSTRUMENT_PROFILE_UPDATED', targetId: p.id }, orderBy: { timestamp: 'desc' },
+    });
+    expect(prof!.signatureMeaning).toMatch(/removed .*2 instrument/i);
+  });
+
+  it('a key nobody carries is dropped without a reason and without an attribute audit row', async () => {
+    const p = JSON.parse((await createProfile({ name: 'IPT Unused', attributeKeys: 'Building\nSpare' })).body);
+    const a = await mkInstrument(p.id, 'IPT-S1');
+    await setAttr(a.id, 'Building', 'CWH');
+
+    const res = await app.inject({
+      method: 'PUT', url: `/api/instrument-profiles/${p.id}`, headers: auth(),
+      payload: { attributeKeys: 'Building' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(await attrsOf(a.id)).toEqual({ Building: 'CWH' });
+    const removed = await prisma.auditTrail.count({ where: { action: 'INSTRUMENT_ATTRIBUTE_REMOVED', targetId: a.id } });
+    expect(removed).toBe(0);
+  });
+});
+
 describe('DELETE /api/instrument-profiles/:id', () => {
   it('deletes an empty profile', async () => {
     const p = JSON.parse((await createProfile({ name: 'IPT Empty' })).body);
