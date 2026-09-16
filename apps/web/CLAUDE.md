@@ -137,8 +137,10 @@ profile photo upload silently 401'd until 2026-08-11.
 
 ## Instrument detail — the Details card (trimmed 2026-09-16)
 
-Edit offers THREE fields — Instrument ID, Profile, Is Gateway — and the PUT
-carries only those (code only when changed). Block / Area / Location /
+Edit offers TWO fields — Instrument ID and Is Gateway — and the PUT carries
+only those (code only when changed); the Profile select went the same day
+(operator: "remove profile change option in instrument page") and the profile
+changes nowhere on this page. Block / Area / Location /
 Description / Expected interval and the Active checkbox are gone from the form
 and the read view (operator); Enable / Disable stays its own confirmed action.
 `detail-edit.test.tsx` pins the field set and the payload; run the three

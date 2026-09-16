@@ -115,7 +115,6 @@ export function InstrumentDetailPage() {
   const { data: activityConfig } = useSWR<{ activeWindowMinutes?: number }>('/api/config/instrument-activity/current');
   // Offered so an instrument can be MOVED between profiles from the one page
   // that already owns every other edit to it.
-  const { data: profiles } = useSWR<{ data: { id: string; name: string }[] }>('/api/instrument-profiles');
 
   const activeWindow = activityConfig?.activeWindowMinutes ?? INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN;
 
@@ -161,17 +160,17 @@ export function InstrumentDetailPage() {
 
   const save = async () => {
     try {
-      // THREE fields (2026-09-16, operator: "user can edit Instrument ID &
-      // Profile Type and is gateway selection i dont need other options").
-      // Only those travel: an omitted field leaves the stored value alone, so
-      // this form cannot blank a description or an interval nobody typed. The
-      // code goes only when it changed — it is the MQTT client id, and the
-      // server moves the broker slots; the device must reconnect with the new
-      // id (name follows the code when it was the code).
+      // TWO fields (2026-09-16, operator: "user can edit Instrument ID &
+      // Profile Type and is gateway selection i dont need other options", then
+      // "remove profile change option in instrument page"). Only those travel:
+      // an omitted field leaves the stored value alone, so this form cannot
+      // blank a description or an interval nobody typed, and cannot move the
+      // profile. The code goes only when it changed — it is the MQTT client
+      // id, and the server moves the broker slots; the device must reconnect
+      // with the new id (name follows the code when it was the code).
       const newCode = (draft.code ?? inst.code).trim();
       await apiClient.put(`/api/instruments/${inst.id}`, {
         ...(newCode && newCode !== inst.code ? { code: newCode } : {}),
-        profileId: draft.profileId ?? inst.profileId,
         isGateway: draft.isGateway ?? false,
       });
       setEditing(false);
@@ -440,12 +439,13 @@ export function InstrumentDetailPage() {
               </dl>
             ) : (
               <div className="space-y-3">
-                {/* THREE fields (2026-09-16, operator). The Active switch left
+                {/* TWO fields (2026-09-16, operator). The Active switch left
                     this form too: Enable / Disable is its own confirmed action
                     on this page (2026-08-07), and a second, unconfirmed copy of
                     it inside an edit form was a duplicate with a weaker
-                    control. Moving between profiles is an EDIT like any other
-                    (2026-08-19) and travels in the same PUT. */}
+                    control. The Profile select left the same day ("remove
+                    profile change option in instrument page"): the profile is
+                    shown in the read view and changes nowhere on this page. */}
                 <label className="block space-y-1">
                   <span className="text-sm text-slate-600">Instrument ID</span>
                   <Input
@@ -455,17 +455,6 @@ export function InstrumentDetailPage() {
                     className="font-mono"
                     onChange={(e) => setDraft({ ...draft, code: e.target.value })}
                   />
-                </label>
-                <label className="block space-y-1">
-                  <span className="text-sm text-slate-600">Profile</span>
-                  <select
-                    value={draft.profileId ?? inst.profileId}
-                    onChange={(e) => setDraft({ ...draft, profileId: e.target.value })}
-                    className="ctl w-full"
-                    aria-label="Profile"
-                  >
-                    {profiles?.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
                 </label>
                 <label className="flex items-center gap-2 text-sm text-slate-700">
                   <input

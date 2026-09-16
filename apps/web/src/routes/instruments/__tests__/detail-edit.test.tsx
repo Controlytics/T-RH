@@ -6,9 +6,10 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
  * The Details card's edit form (2026-09-16, operator: "there user can edit
  * Instrument ID & Profile Type and is gateway selection i dont need other
  * options Block, area, location, Description and expected interval options in
- * details section"). Three fields, nothing else, and the PUT carries only
- * what those three say — an omitted field leaves the stored value alone, so
- * the trimmed form cannot blank a description nobody typed.
+ * details section", then "remove profile change option in instrument page").
+ * TWO fields, nothing else, and the PUT carries only what those two say — an
+ * omitted field leaves the stored value alone, so the trimmed form cannot
+ * blank a description nobody typed, and cannot move the profile.
  */
 const instrument = {
   id: 'i-1', name: 'CWH/RDU/001-00', code: 'CWH/RDU/001-00', isActive: true,
@@ -68,18 +69,20 @@ const startEdit = () => fireEvent.click(within(details()).getByRole('button', { 
 beforeEach(() => { put.mockReset().mockResolvedValue({}); mutate.mockReset(); });
 
 describe('instrument detail — Details edit form', () => {
-  it('offers exactly Instrument ID, Profile and Is Gateway', () => {
+  it('offers exactly Instrument ID and Is Gateway — no profile change', () => {
     renderPage();
     startEdit();
     const card = details();
     expect(within(card).getByRole('textbox', { name: 'Instrument ID' })).toHaveValue('CWH/RDU/001-00');
-    expect(within(card).getByRole('combobox', { name: 'Profile' })).toHaveValue('p-1');
+    expect(within(card).queryByRole('combobox')).toBeNull();
     expect(within(card).getByRole('checkbox', { name: /is gateway/i })).not.toBeChecked();
-    for (const gone of [/block/i, /^area/i, /location/i, /description/i, /expected interval/i, /^active/i]) {
+    for (const gone of [/profile/i, /block/i, /^area/i, /location/i, /description/i, /expected interval/i, /^active/i]) {
       expect(within(card).queryByLabelText(gone)).toBeNull();
     }
     expect(within(card).getAllByRole('textbox')).toHaveLength(1);
     expect(within(card).getAllByRole('checkbox')).toHaveLength(1);
+    // The profile is still SHOWN, read-only.
+    expect(within(card).getByText('T&RH Sensors')).toBeInTheDocument();
   });
 
   it('the read view shows no Block, Area, Location, Description or interval rows', () => {
@@ -92,16 +95,15 @@ describe('instrument detail — Details edit form', () => {
     expect(within(card).getByText('Profile')).toBeInTheDocument();
   });
 
-  it('Save sends only the profile and gateway flag when the ID is unchanged', async () => {
+  it('Save sends only the gateway flag when the ID is unchanged — never the profile', async () => {
     renderPage();
     startEdit();
-    fireEvent.change(within(details()).getByRole('combobox', { name: 'Profile' }), { target: { value: 'p-2' } });
     fireEvent.click(within(details()).getByRole('checkbox', { name: /is gateway/i }));
     fireEvent.click(within(details()).getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(put).toHaveBeenCalledWith('/api/instruments/i-1', { profileId: 'p-2', isGateway: true }));
-    // The stored description, interval and placement were NOT sent, so they survive.
+    await waitFor(() => expect(put).toHaveBeenCalledWith('/api/instruments/i-1', { isGateway: true }));
+    // The stored description, interval, placement AND profile were NOT sent, so they survive.
     const body = put.mock.calls[0][1] as Record<string, unknown>;
-    for (const k of ['description', 'expectedIntervalSec', 'block', 'area', 'location', 'name', 'isActive', 'code']) {
+    for (const k of ['profileId', 'description', 'expectedIntervalSec', 'block', 'area', 'location', 'name', 'isActive', 'code']) {
       expect(body).not.toHaveProperty(k);
     }
   });
@@ -112,7 +114,7 @@ describe('instrument detail — Details edit form', () => {
     fireEvent.change(within(details()).getByRole('textbox', { name: 'Instrument ID' }), { target: { value: 'CWH/RDU/001-01' } });
     fireEvent.click(within(details()).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(put).toHaveBeenCalledWith('/api/instruments/i-1', {
-      code: 'CWH/RDU/001-01', profileId: 'p-1', isGateway: false,
+      code: 'CWH/RDU/001-01', isGateway: false,
     }));
   });
 

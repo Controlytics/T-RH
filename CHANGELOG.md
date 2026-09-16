@@ -16,6 +16,10 @@ expected interval options in details section"*.
 - Save sends ONLY the three fields, the code only when changed — an omitted
   field leaves the stored value alone, so the trimmed form cannot blank a
   description nobody typed. Pinned: `detail-edit.test.tsx` (5).
+- **Later the same day** (operator: "remove profile change option in instrument
+  page"): the Profile select left the form too. TWO fields — Instrument ID and
+  Is Gateway; the profile is shown read-only and changes nowhere on this page;
+  the PUT never carries `profileId`. `detail-edit.test.tsx` re-pointed.
 - Not seen on screen.
 
 ## [Unreleased] - Retained downlinks no longer wait on a down broker; start-app.bat starts EMQX (2026-09-16)
