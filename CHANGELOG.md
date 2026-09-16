@@ -1,5 +1,25 @@
 # Changelog
 
+## [Unreleased] - Dashboard drill-down keeps the previous data while the next loads (2026-09-16)
+
+Operator: *"whenever im clicking on all instruments all widgets are not
+adjusting immediately they are taking 2-3 sec time to align properly"*.
+
+- Not a slow query: the history table holds 1,775 readings and none from the
+  last 24 hours. The delay was the drill-down collapsing every selection-driven
+  panel to a skeleton the moment its fetch key changed (SWR's default drops
+  `data` on a new key), the auto-height grid shrinking to fit, and then growing
+  again as the four responses landed — two relayouts a second or more apart.
+- The readings overview, the aggregate trend and the selection alarms now pass
+  `keepPreviousData: true`, so each panel holds its rows until the new ones
+  arrive and the grid moves once. Rows carry their own instrument codes, so a
+  brief stale set is not mislabeled. Deliberately NOT set globally: a screen
+  that swaps one instrument for another (Settings) must never show A's
+  attributes under B's name, even for a moment.
+- Pinned by `dashboard/__tests__/drill-down-keeps-data.test.tsx`.
+- Not seen on screen; the endpoints could not be timed without ending the
+  operator's session (no demo credential works on this database).
+
 ## [Unreleased] - Data Report widget: no summary tiles, chips shown in full (2026-09-16)
 
 Operator: *"remove counts cards and all instruments should be display

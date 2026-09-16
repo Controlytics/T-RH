@@ -179,6 +179,12 @@ export function useTelemetryOverview(opts?: string | { floorplanId?: string; fun
     refreshInterval: overviewRefreshMs,
     revalidateOnFocus: true,
     dedupingInterval: 1000,
+    // Drilling into a location changes this key. Keep the previous rows until
+    // the new ones land (2026-09-16): with SWR's default the panel collapsed
+    // to a skeleton on every drill-down and the auto-height grid shrank, then
+    // grew again — "widgets take 2-3 sec to align" (operator). Rows carry
+    // their own instrument codes, so a brief stale set is not mislabeled.
+    keepPreviousData: true,
   });
 
   // Neither `mutate` NOR `refreshMs` is exported, and both absences are deliberate.

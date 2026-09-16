@@ -122,10 +122,13 @@ vi.mock('@/lib/api-client', () => ({
 /** The alarms URL this panel asked for — where the paging is observable, since
  *  it is the SERVER that pages. */
 let alarmsKey: string | null = null;
+/** The SWR options the alarms fetch was made with — the drill-down rule lives there. */
+let alarmsOptions: Record<string, unknown> | undefined;
 vi.mock('swr', () => ({
-  default: (key: string | null) => {
+  default: (key: string | null, opts?: Record<string, unknown>) => {
     if (typeof key === 'string' && key.startsWith('/api/alarms')) {
       alarmsKey = key;
+      alarmsOptions = opts;
       return { data: { data: alarmRows, total: alarmTotal }, error: undefined, mutate };
     }
     if (key === '/api/config/alarm-limits/status-texts') return { data: statusTextsResponse };
@@ -179,6 +182,13 @@ function pillIn(container: HTMLElement, label: string): HTMLElement {
 }
 
 describe('SelectionAlarms — it renders the SHARED alarm table, not a bespoke list', () => {
+  // Drill-down keeps the previous selection's rows until the next land
+  // (2026-09-16, "widgets take 2-3 sec to align") — see drill-down-keeps-data.test.tsx.
+  it('keeps the previous selection\'s alarms while the next selection loads', () => {
+    renderWith();
+    expect(alarmsOptions).toMatchObject({ keepPreviousData: true });
+  });
+
   it('renders a real table with the shared banner, not the old <ul>', () => {
     const { container } = renderWith();
     expect(container.querySelector('table')).not.toBeNull();

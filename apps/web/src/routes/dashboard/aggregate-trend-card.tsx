@@ -108,7 +108,15 @@ export function AggregateTrendCard({
     `/api/instruments/telemetry-aggregate?${qs.toString()}`,
     // Matches the other live dashboard surfaces: polling, not a socket. There is
     // no browser-facing push channel in this fork.
-    { refreshInterval: 60_000 },
+    {
+      refreshInterval: 60_000,
+    // Drilling into a location changes this key. Keep the previous rows until
+    // the new ones land (2026-09-16): with SWR's default the panel collapsed
+    // to a skeleton on every drill-down and the auto-height grid shrank, then
+    // grew again — "widgets take 2-3 sec to align" (operator). Rows carry
+    // their own instrument codes, so a brief stale set is not mislabeled.
+    keepPreviousData: true,
+    },
   );
 
   const spanMs = data ? new Date(data.to).getTime() - new Date(data.from).getTime() : 0;
