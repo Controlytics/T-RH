@@ -93,6 +93,18 @@ describe('InstrumentBulkCreatePage — the template', () => {
     expect((await saved[0].text).split('\n')[0]).toBe('Instrument ID');
   });
 
+  // 2026-09-16, operator: "in bulk upload profile selected and next download
+  // template" — the profile is step 1, above the download, not below it.
+  it('asks for the profile FIRST, then offers the template', () => {
+    renderPage();
+    const profile = screen.getByRole('combobox', { name: /profile/i });
+    const download = screen.getByRole('button', { name: /download template/i });
+    expect(profile.compareDocumentPosition(download) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText('1. Choose the profile')).toBeInTheDocument();
+    expect(screen.getByText('2. Download the template')).toBeInTheDocument();
+    expect(screen.getByText('3. Upload')).toBeInTheDocument();
+  });
+
   it('cannot be downloaded before a profile is chosen — the columns depend on it', () => {
     renderPage();
     expect(screen.getByRole('button', { name: /download template/i })).toBeDisabled();

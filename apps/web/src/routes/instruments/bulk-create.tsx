@@ -109,23 +109,7 @@ export function InstrumentBulkCreatePage() {
       />
 
       <Card>
-        <CardHeader><CardTitle>1. Prepare the file</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-sm text-slate-600">
-            Columns: Instrument ID, then the profile's attributes. Choose the profile first — the template follows it.
-          </p>
-          <Button
-            variant="secondary"
-            disabled={!profileId || !profile}
-            onClick={() => download('instrument-template.csv', buildTemplate(templateKeys, labelFor))}
-          >
-            Download template
-          </Button>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader><CardTitle>2. Choose the profile</CardTitle></CardHeader>
+        <CardHeader><CardTitle>1. Choose the profile</CardTitle></CardHeader>
         <CardContent>
           {presetProfileId ? (
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
@@ -144,6 +128,22 @@ export function InstrumentBulkCreatePage() {
               </select>
             </label>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>2. Download the template</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-slate-600">
+            Columns: Instrument ID, then the attributes of the profile chosen above.
+          </p>
+          <Button
+            variant="secondary"
+            disabled={!profileId || !profile}
+            onClick={() => download('instrument-template.csv', buildTemplate(templateKeys, labelFor))}
+          >
+            Download template
+          </Button>
         </CardContent>
       </Card>
 

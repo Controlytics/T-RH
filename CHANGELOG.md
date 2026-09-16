@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased] - Bulk upload: choose the profile first, then download the template (2026-09-16)
+
+Operator: *"in bulk upload profile selected and next download template, as per
+the selected profile that attributes will come, commonly Instrument ID should
+be there"*. The template already did that; the page asked for the profile in
+step 2, BELOW the download button. Cards reordered: 1 Choose the profile,
+2 Download the template, 3 Upload. Pinned by DOM order in `bulk-create.test.tsx`.
+
 ## [Unreleased] - Instrument Details edit form: Instrument ID, Profile, Is Gateway only (2026-09-16)
 
 Operator: *"there user can edit Instrument ID & Profile Type and is gateway
