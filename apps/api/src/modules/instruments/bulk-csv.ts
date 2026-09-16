@@ -47,7 +47,13 @@ export interface InstrumentDraft {
   /** Attribute KEY → typed value, only for cells that were filled. Absent when none were. */
   attributes?: Record<string, string>;
 }
-export interface RowError { row: number; message: string }
+/**
+ * One rejected row. `column` is the heading AS THE FILE SPELLS IT (2026-09-16,
+ * operator: "show a popup where it failed and reason, in which line which
+ * cell") — absent when the fault is the whole row, such as a broken quote.
+ * `row` counts the header, matching the spreadsheet.
+ */
+export interface RowError { row: number; column?: string; message: string }
 
 /**
  * Parse a CSV line with RFC4180-style quoted field handling:
@@ -99,7 +105,7 @@ function parseCSVLine(line: string): string[] {
  * sidecar array rather than a field on the draft so the drafts stay
  * assignable straight to Prisma.
  */
-export function parseInstrumentCsv(text: string, attributeColumns: AttributeColumn[] = []): { rows: InstrumentDraft[]; rowNumbers: number[]; errors: RowError[]; warnings: string[] } {
+export function parseInstrumentCsv(text: string, attributeColumns: AttributeColumn[] = []): { rows: InstrumentDraft[]; rowNumbers: number[]; errors: RowError[]; warnings: string[]; codeHeading: string } {
   // Split into lines WITHOUT filtering to preserve source row numbers
   const allLines = text.split(/\r?\n/);
 
@@ -118,8 +124,11 @@ export function parseInstrumentCsv(text: string, attributeColumns: AttributeColu
 
   // Check header validity
   if (headerRowIndex === -1) {
-    return { rows: [], rowNumbers: [], errors: [{ row: 1, message: 'Missing header row' }], warnings: [] };
+    return { rows: [], rowNumbers: [], errors: [{ row: 1, message: 'Missing header row' }], warnings: [], codeHeading: INSTRUMENT_ID_HEADING };
   }
+  // Remember how the file spells the code heading, so an error about that
+  // cell names the column the operator can see.
+  const codeHeadingInFile = header.find((h) => CODE_HEADINGS.has(h.trim().toLowerCase()))?.trim() ?? INSTRUMENT_ID_HEADING;
   header = header.map((h) => (CODE_HEADINGS.has(h.trim().toLowerCase()) ? 'code' : h));
 
   // One advisory per retired column present, raised before the rows are walked
@@ -133,7 +142,7 @@ export function parseInstrumentCsv(text: string, attributeColumns: AttributeColu
     // Named as the template prints it, so the message matches what the operator
     // sees in their spreadsheet.
     const named = missing.map((c) => (c === 'code' ? INSTRUMENT_ID_HEADING : c));
-    return { rows: [], rowNumbers: [], errors: [{ row: headerRowIndex + 1, message: `Missing header column(s): ${named.join(', ')}` }], warnings };
+    return { rows: [], rowNumbers: [], errors: [{ row: headerRowIndex + 1, column: INSTRUMENT_ID_HEADING, message: `Missing header column(s): ${named.join(', ')}` }], warnings, codeHeading: INSTRUMENT_ID_HEADING };
   }
 
   // Resolve every non-standard header to an attribute KEY, by display name or
@@ -204,8 +213,8 @@ export function parseInstrumentCsv(text: string, attributeColumns: AttributeColu
     // Blank or absent name = the code, exactly as the create form fills it.
     const name = get('name') || code;
 
-    if (!code) { errors.push({ row: rowNo, message: 'code is required' }); continue; }
-    if (seen.has(code)) { errors.push({ row: rowNo, message: `duplicate code "${code}" in this file` }); continue; }
+    if (!code) { errors.push({ row: rowNo, column: codeHeadingInFile, message: 'Instrument ID is required' }); continue; }
+    if (seen.has(code)) { errors.push({ row: rowNo, column: codeHeadingInFile, message: `Instrument ID "${code}" is repeated in this file` }); continue; }
     seen.add(code);
 
     // A `transport` cell, valid or not, is read by nothing — the whole-file
@@ -223,5 +232,5 @@ export function parseInstrumentCsv(text: string, attributeColumns: AttributeColu
     rowNumbers.push(rowNo);
   }
 
-  return { rows, rowNumbers, errors, warnings };
+  return { rows, rowNumbers, errors, warnings, codeHeading: codeHeadingInFile };
 }

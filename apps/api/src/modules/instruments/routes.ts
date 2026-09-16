@@ -1479,7 +1479,9 @@ export default async function instrumentRoutes(app: FastifyInstance) {
             },
             errors: {
               type: 'array',
-              items: { type: 'object', properties: { row: { type: 'integer' }, message: { type: 'string' } } },
+              // `column` is the heading as the file spells it, when the fault is
+              // a cell; DECLARED, or Fastify strips it and the popup names no cell.
+              items: { type: 'object', properties: { row: { type: 'integer' }, column: { type: 'string' }, message: { type: 'string' } } },
             },
             // Whole-file advisories (e.g. a retired column that was ignored).
             // Distinct from `errors`: these fail nothing and cost no rows.
@@ -1505,7 +1507,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     // display names (2026-09-16). The parser maps a heading back to the KEY;
     // this is the one place the profile's list and the display-name map meet.
     const attributeColumns = await bulkAttributeColumns(parsed.data.profileId);
-    const { rows, rowNumbers, errors, warnings } = parseInstrumentCsv(parsed.data.csv, attributeColumns);
+    const { rows, rowNumbers, errors, warnings, codeHeading } = parseInstrumentCsv(parsed.data.csv, attributeColumns);
     const ctx = buildContext(req);
     const created: { id: string; code: string; name: string; token: string }[] = [];
     // Rows are created one transaction at a time, not one big one: a code that
@@ -1531,7 +1533,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         if (attributes) await writeInitialAttributes(row.id, row.code, attributes, ctx);
       } catch (err) {
         if (isDuplicateCode(err)) {
-          errors.push({ row: rowNumbers[i], message: `code "${draft.code}" already exists` });
+          errors.push({ row: rowNumbers[i], column: codeHeading, message: `Instrument ID "${draft.code}" already exists` });
           continue;
         }
         throw err;

@@ -10,9 +10,11 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { PageHeader } from '@/components/ui/page-header';
+import { Dialog, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 interface CreatedRow { id: string; code: string; name: string; token: string }
-interface ErrorRow { row: number; message: string }
+/** `column` is the heading as the file spells it; absent for a whole-row fault. */
+interface ErrorRow { row: number; column?: string; message: string }
 // `warnings` are whole-file advisories (a retired column that was ignored) —
 // they fail nothing, so they are rendered apart from the rejected-row table.
 // Optional so an older API build that omits the field still renders.
@@ -52,6 +54,15 @@ export function InstrumentBulkCreatePage() {
   const [fileName, setFileName] = useState('');
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<BulkResult | null>(null);
+  /**
+   * ONE popup for every way an upload can go wrong (2026-09-16, operator: "if
+   * upload failed then show a popup where it failed and reason, in which line
+   * which cell like that"): rejected rows — row, cell, reason — the file-level
+   * notes, and a request that failed outright with its message. Opens itself
+   * on a bad result; the summary card underneath reopens it.
+   */
+  const [problemsOpen, setProblemsOpen] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
 
   // ONE profile for the whole upload — deliberately not a CSV column, so the
   // template and any file an operator already has on disk are unchanged.
@@ -82,13 +93,17 @@ export function InstrumentBulkCreatePage() {
     try {
       const res = await apiClient.post<BulkResult>('/api/instruments/bulk', { csv, profileId });
       setResult(res);
+      setFailure(null);
+      const problems = res.errors.length > 0 || (res.warnings?.length ?? 0) > 0;
+      setProblemsOpen(problems);
       if (res.created.length) {
         toast.success('Instruments created', `${res.created.length} created, ${res.errors.length} row(s) rejected.`);
       } else {
         toast.error('Nothing created', `All ${res.errors.length} row(s) were rejected.`);
       }
     } catch (err: unknown) {
-      toast.error('Upload failed', (err as { message?: string })?.message ?? 'Could not process the CSV.');
+      setFailure((err as { message?: string })?.message ?? 'Could not process the CSV.');
+      setProblemsOpen(true);
     } finally {
       setUploading(false);
     }
@@ -224,27 +239,58 @@ export function InstrumentBulkCreatePage() {
           <Card>
             <CardHeader><CardTitle>Rejected rows ({result.errors.length})</CardTitle></CardHeader>
             <CardContent>
-              {result.errors.length === 0 && <p className="text-sm text-slate-500">Every row was accepted.</p>}
+              {result.errors.length === 0
+                ? <p className="text-sm text-slate-500">Every row was accepted.</p>
+                : <Button variant="secondary" onClick={() => setProblemsOpen(true)}>Show problems</Button>}
+            </CardContent>
+          </Card>
+        </>
+      )}
+
+      <Dialog open={problemsOpen} onClose={() => setProblemsOpen(false)} className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{failure ? 'Upload failed' : 'Upload problems'}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 px-5 pb-5">
+          {failure ? (
+            <p className="text-sm text-red-700">{failure}</p>
+          ) : result && (
+            <>
+              <p className="text-sm text-slate-700">
+                {result.created.length} created, {result.errors.length} rejected. Row numbers count the header row.
+              </p>
               {result.errors.length > 0 && (
                 <Table>
                   <TableHeader>
-                    <TableRow><TableHead className="w-24">Row</TableHead><TableHead>Reason</TableHead></TableRow>
+                    <TableRow>
+                      <TableHead className="w-20">Row</TableHead>
+                      <TableHead className="w-44">Cell</TableHead>
+                      <TableHead>Reason</TableHead>
+                    </TableRow>
                   </TableHeader>
                   <TableBody>
                     {result.errors.map((e, i) => (
-                      <TableRow key={`${e.row}-${i}`}>
-                        {/* Row numbers count the header, matching the spreadsheet */}
+                      <TableRow key={`${e.row}-${i}`} data-testid="upload-problem">
                         <TableCell className="font-mono text-xs">{e.row}</TableCell>
+                        <TableCell className="text-sm text-slate-700">{e.column ?? 'Whole row'}</TableCell>
                         <TableCell className="text-sm text-red-700">{e.message}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
               )}
-            </CardContent>
-          </Card>
-        </>
-      )}
+              {(result.warnings?.length ?? 0) > 0 && (
+                <ul className="list-disc space-y-1 pl-5 text-xs text-amber-800">
+                  {result.warnings?.map((w) => <li key={w}>{w}</li>)}
+                </ul>
+              )}
+            </>
+          )}
+          <div className="flex justify-end">
+            <Button onClick={() => setProblemsOpen(false)}>Close</Button>
+          </div>
+        </div>
+      </Dialog>
     </div>
   );
 }

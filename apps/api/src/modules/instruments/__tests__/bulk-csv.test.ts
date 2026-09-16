@@ -19,7 +19,38 @@ describe('parseInstrumentCsv', () => {
     expect(r.errors).toHaveLength(2);
     expect(r.errors[0]).toMatchObject({ row: 3 });
     expect(r.errors[1]).toMatchObject({ row: 4 });
-    expect(r.errors[1].message).toMatch(/duplicate/i);
+    expect(r.errors[1].message).toMatch(/repeated/i);
+  });
+
+  /**
+   * 2026-09-16, operator: "if upload failed then show a popup where it
+   * failed and reason, in which line which cell like that". Every row error
+   * that is ABOUT a cell names its column — as the heading appears in the
+   * operator's own file, so they can find it in their spreadsheet — and the
+   * wording says Instrument ID, not `code`.
+   */
+  describe('errors name the cell', () => {
+    it('a blank or repeated Instrument ID names the column as the file spells it', () => {
+      const r = parseInstrumentCsv('Instrument ID,Building\nPA-1,x\n,y\nPA-1,z');
+      expect(r.errors).toEqual([
+        { row: 3, column: 'Instrument ID', message: 'Instrument ID is required' },
+        { row: 4, column: 'Instrument ID', message: 'Instrument ID "PA-1" is repeated in this file' },
+      ]);
+      // A legacy file headed `code` is told about `code`. (A wholly blank line
+      // is skipped, so the blank cell sits beside a filled one.)
+      const legacy = parseInstrumentCsv('code,Building\n,x\nPA-1,y');
+      expect(legacy.errors[0]).toEqual({ row: 2, column: 'code', message: 'Instrument ID is required' });
+    });
+
+    it('a missing Instrument ID heading names row 1 and the column it expected', () => {
+      const r = parseInstrumentCsv('Building\nCWH');
+      expect(r.errors).toEqual([{ row: 1, column: 'Instrument ID', message: 'Missing header column(s): Instrument ID' }]);
+    });
+
+    it('an unterminated quote is a ROW fault and names no cell', () => {
+      const r = parseInstrumentCsv(`${HEADER}\n"Probe A,PA-1`);
+      expect(r.errors[0].column).toBeUndefined();
+    });
   });
 
   it('returns a rowNumbers sidecar aligned to rows, skipping blanks and bad rows', () => {
@@ -43,7 +74,7 @@ describe('parseInstrumentCsv', () => {
   it('rejects duplicate codes within the same file', () => {
     const r = parseInstrumentCsv(`${HEADER}\nA,DUP,http\nB,DUP,http`);
     expect(r.rows).toHaveLength(1);
-    expect(r.errors[0].message).toMatch(/duplicate/i);
+    expect(r.errors[0].message).toMatch(/repeated/i);
   });
 
   it('rejects a missing or misspelled code header', () => {

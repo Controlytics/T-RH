@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 /**
@@ -25,7 +25,8 @@ vi.mock('swr', () => ({
     return { data: undefined };
   },
 }));
-vi.mock('@/lib/api-client', () => ({ apiClient: { post: vi.fn(), get: vi.fn(), put: vi.fn(), delete: vi.fn() } }));
+const post = vi.fn();
+vi.mock('@/lib/api-client', () => ({ apiClient: { post: (...a: unknown[]) => post(...a), get: vi.fn(), put: vi.fn(), delete: vi.fn() } }));
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: { success: vi.fn(), error: vi.fn() } }) }));
 
 const { InstrumentBulkCreatePage } = await import('../bulk-create');
@@ -35,6 +36,7 @@ const saved: { name: string; text: Promise<string> }[] = [];
 beforeEach(() => {
   saved.length = 0;
   LABELS.current = {};
+  post.mockReset();
   vi.stubGlobal('URL', {
     ...URL,
     // jsdom's Blob has no `.text()`; FileReader is what it does implement.
@@ -62,6 +64,71 @@ const renderPage = (search = '') => render(
 const choose = (id: string) =>
   fireEvent.change(screen.getByRole('combobox', { name: /profile/i }), { target: { value: id } });
 const downloadTemplate = () => fireEvent.click(screen.getByRole('button', { name: /download template/i }));
+
+/** Pick a CSV file and press Create. jsdom's FileReader reads a File. */
+async function uploadCsv(text: string) {
+  const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+  const file = new File([text], 'instruments.csv', { type: 'text/csv' });
+  fireEvent.change(input, { target: { files: [file] } });
+  const button = screen.getByRole('button', { name: /create instruments/i });
+  await waitFor(() => expect(button).toBeEnabled());
+  fireEvent.click(button);
+}
+
+/**
+ * 2026-09-16, operator: "if upload failed then show a popup where it failed
+ * and reason, in which line which cell like that". Any failure — a rejected
+ * row or the whole request — opens ONE dialog that names the row, the cell
+ * and the reason. Row numbers count the header, matching the spreadsheet.
+ */
+describe('InstrumentBulkCreatePage — upload problems', () => {
+  it('opens a dialog listing each rejected row with its cell and reason', async () => {
+    post.mockResolvedValue({
+      created: [{ id: 'i-1', code: 'PA-1', name: 'PA-1', token: 'T' }],
+      errors: [
+        { row: 3, column: 'Instrument ID', message: 'Instrument ID is required' },
+        { row: 5, message: 'Unterminated quoted field' },
+      ],
+      warnings: ['Column(s) "Colour" are not attributes of this profile and were ignored.'],
+    });
+    renderPage();
+    choose('p-1');
+    await uploadCsv('Instrument ID,Building\nPA-1,x\n,y\nPB-1,z\n"bad');
+    const dlg = await screen.findByRole('dialog');
+    expect(within(dlg).getByText(/upload problems/i)).toBeInTheDocument();
+    const rows = within(dlg).getAllByTestId('upload-problem');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent('3');
+    expect(rows[0]).toHaveTextContent('Instrument ID');
+    expect(rows[0]).toHaveTextContent('Instrument ID is required');
+    expect(rows[1]).toHaveTextContent('5');
+    expect(rows[1]).toHaveTextContent('Unterminated quoted field');
+    // The whole-file note rides in the same dialog.
+    expect(within(dlg).getByText(/Colour/)).toBeInTheDocument();
+    // And the summary says what still landed.
+    expect(within(dlg).getByText(/1 created, 2 rejected/i)).toBeInTheDocument();
+  });
+
+  it('opens the same dialog when the request itself fails, with the reason', async () => {
+    post.mockRejectedValue(Object.assign(new Error('Profile not found.'), { error: 'PROFILE_NOT_FOUND' }));
+    renderPage();
+    choose('p-1');
+    await uploadCsv('Instrument ID\nPA-1');
+    const dlg = await screen.findByRole('dialog');
+    expect(within(dlg).getByText(/upload failed/i)).toBeInTheDocument();
+    expect(within(dlg).getByText('Profile not found.')).toBeInTheDocument();
+    expect(within(dlg).queryAllByTestId('upload-problem')).toHaveLength(0);
+  });
+
+  it('opens no dialog when every row was accepted', async () => {
+    post.mockResolvedValue({ created: [{ id: 'i-1', code: 'PA-1', name: 'PA-1', token: 'T' }], errors: [], warnings: [] });
+    renderPage();
+    choose('p-1');
+    await uploadCsv('Instrument ID\nPA-1');
+    await waitFor(() => expect(post).toHaveBeenCalled());
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+});
 
 describe('InstrumentBulkCreatePage — the template', () => {
   it('is headed by Instrument ID and the profile attributes under their DISPLAY NAMES, no name column', async () => {

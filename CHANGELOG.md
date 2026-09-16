@@ -1,5 +1,25 @@
 # Changelog
 
+## [Unreleased] - Bulk upload: one popup names the row, the cell and the reason (2026-09-16)
+
+Operator: *"if upload failed then show a popup where it failed and reason, in
+which line which cell like that"*.
+
+- Every row error that is about a cell now carries `column` (the heading AS
+  THE FILE SPELLS IT: `Instrument ID`, or `code` in a legacy file), and the
+  wording says Instrument ID: required / repeated in this file / already
+  exists; the missing-heading error names row 1 and the column. A broken
+  quote is a whole-row fault and names no cell. `column` is DECLARED in the
+  response schema (Fastify strips it otherwise).
+- The page opens ONE dialog on any problem: rejected rows as Row | Cell |
+  Reason (row numbers count the header, matching the spreadsheet), the
+  file-level notes and the created/rejected summary; a request that fails
+  outright opens the same dialog titled "Upload failed" with the reason. The
+  Rejected rows card became a "Show problems" button. No dialog when every
+  row was accepted.
+- Tests: parser 3 new, instruments e2e collision re-pointed, page 3 new,
+  watched red first. Not seen on screen.
+
 ## [Unreleased] - Bulk upload: choose the profile first, then download the template (2026-09-16)
 
 Operator: *"in bulk upload profile selected and next download template, as per

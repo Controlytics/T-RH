@@ -120,7 +120,7 @@ describe('Instruments registry', () => {
     for (const c of body.created) created.push(c.id);
 
     expect(body.created).toHaveLength(2);
-    expect(body.errors).toEqual([{ row: 2, message: `code "${taken}" already exists` }]);
+    expect(body.errors).toEqual([{ row: 2, column: 'code', message: `Instrument ID "${taken}" already exists` }]);
   });
 
   // Until 2026-09-16 this case pinned "never its code". The operator asked for
