@@ -103,6 +103,51 @@ describe('Instruments registry', () => {
     expect(got.json()).not.toHaveProperty('transport');
   });
 
+  /**
+   * Instrument IDs are unique IGNORING CASE (2026-09-16, operator). A
+   * functional unique index on lower(code) (migration
+   * 20260916150000_instrument_code_ci_unique) raises the same P2002 as the
+   * plain constraint, so every "already exists" path covers it.
+   */
+  describe('uniqueness ignores case', () => {
+    it('refuses a create that differs from an existing ID only by case', async () => {
+      const stamp = Date.now();
+      const first = await create({ name: 'A', code: `Case-${stamp}` });
+      expect(first.statusCode).toBe(201);
+      created.push(first.json().id);
+      const second = await create({ name: 'B', code: `CASE-${stamp}` });
+      expect(second.statusCode).toBe(409);
+      expect(second.json().error).toBe('DUPLICATE_CODE');
+    });
+
+    it('refuses a rename onto a case variant of another ID', async () => {
+      const stamp = Date.now();
+      const a = await create({ name: 'A', code: `RnA-${stamp}` });
+      const b = await create({ name: 'B', code: `RnB-${stamp}` });
+      created.push(a.json().id, b.json().id);
+      const res = await app.inject({
+        method: 'PUT', url: `/api/instruments/${b.json().id}`, headers: auth,
+        payload: { code: `rna-${stamp}` },
+      });
+      expect(res.statusCode).toBe(409);
+    });
+
+    it('rejects a bulk row that is a case variant of an existing ID, as an error row naming the cell', async () => {
+      const stamp = Date.now();
+      const first = await create({ name: 'A', code: `Bulk-${stamp}` });
+      created.push(first.json().id);
+      const res = await app.inject({
+        method: 'POST', url: '/api/instruments/bulk', headers: auth,
+        payload: { csv: `Instrument ID\nBULK-${stamp}\nOther-${stamp}`, profileId: await fixtureProfileId('fixture:instruments') },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      for (const c of body.created) created.push(c.id);
+      expect(body.created.map((c: { code: string }) => c.code)).toEqual([`Other-${stamp}`]);
+      expect(body.errors).toEqual([{ row: 2, column: 'Instrument ID', message: `Instrument ID "BULK-${stamp}" already exists` }]);
+    });
+  });
+
   it('reports a DB code collision as an error row with its SOURCE row number, not a failed batch', async () => {
     const stamp = Date.now();
     const taken = `COL-${stamp}`;

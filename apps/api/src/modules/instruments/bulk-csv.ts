@@ -214,8 +214,11 @@ export function parseInstrumentCsv(text: string, attributeColumns: AttributeColu
     const name = get('name') || code;
 
     if (!code) { errors.push({ row: rowNo, column: codeHeadingInFile, message: 'Instrument ID is required' }); continue; }
-    if (seen.has(code)) { errors.push({ row: rowNo, column: codeHeadingInFile, message: `Instrument ID "${code}" is repeated in this file` }); continue; }
-    seen.add(code);
+    // Case ignored (2026-09-16): the database refuses case variants too
+    // (unique index on lower(code)), and a file that is refused row by row on
+    // the way in is kinder than one that fails at the database.
+    if (seen.has(code.toLowerCase())) { errors.push({ row: rowNo, column: codeHeadingInFile, message: `Instrument ID "${code}" is repeated in this file` }); continue; }
+    seen.add(code.toLowerCase());
 
     // A `transport` cell, valid or not, is read by nothing — the whole-file
     // warning above is the only signal it gets.

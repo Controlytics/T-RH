@@ -1,0 +1,18 @@
+-- Instrument IDs are unique IGNORING CASE (2026-09-16, operator: "instrument id
+-- should be unique", asked whether case variants count and chose yes).
+--
+-- The existing unique constraint on "code" is exact: CWH/RDU/001-00 and
+-- cwh/rdu/001-00 could coexist, and on screen they read as one instrument
+-- (MQTT topics are case-sensitive, so on the wire they would be two devices —
+-- a trap, not a feature). This functional unique index refuses the second.
+-- Postgres raises 23505 for it exactly as for the plain constraint, which
+-- Prisma reports as P2002 — so every existing "already exists" path (create
+-- 409, bulk error row, rename 409) covers it with no route change.
+--
+-- HAND-AUTHORED. Prisma cannot express a functional index; `prisma migrate
+-- diff` will propose DROPPING it — do not accept that. The usual
+-- `DROP TABLE "instrument_telemetry_history"` the diff emits was stripped as
+-- always (see 20260811120000_instrument_floorplans/migration.sql).
+--
+-- Verified before authoring: 0 of 101 live codes collide under lower().
+CREATE UNIQUE INDEX "instruments_code_lower_unique" ON "instruments" (lower("code"));

@@ -71,10 +71,11 @@ describe('parseInstrumentCsv', () => {
     expect(r.rows.map((x) => x.code)).toEqual(['CWH/+/001', 'CWH/RDU/001-00']);
   });
 
-  it('rejects duplicate codes within the same file', () => {
-    const r = parseInstrumentCsv(`${HEADER}\nA,DUP,http\nB,DUP,http`);
+  it('rejects duplicate codes within the same file — case ignored (2026-09-16)', () => {
+    const r = parseInstrumentCsv(`${HEADER}\nA,DUP,http\nB,dup,http`);
     expect(r.rows).toHaveLength(1);
     expect(r.errors[0].message).toMatch(/repeated/i);
+    expect(r.errors[0].column).toBe('code');
   });
 
   it('rejects a missing or misspelled code header', () => {

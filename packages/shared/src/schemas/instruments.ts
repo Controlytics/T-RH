@@ -62,7 +62,10 @@ export const TOKEN_PREFIX_LEN = 8;
  * Two limits that are NOT this schema's, stated so the field's promise is
  * honest: the bulk-CSV importer still splits on commas and quotes, so a code
  * containing either cannot arrive that way; and a rename (`PUT`) moves the
- * broker slots but cannot reconfigure the device.
+ * broker slots but cannot reconfigure the device. And ONE uniqueness rule the
+ * DATABASE holds (2026-09-16): a code must be unique IGNORING CASE — a
+ * functional unique index on lower(code); the routes report it as the same
+ * 409 / error row as an exact duplicate.
  */
 const codeSchema = z.string().min(1, 'Instrument ID is required');
 

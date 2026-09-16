@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased] - Instrument IDs unique ignoring case; float limits pinned (2026-09-16)
+
+Operator: *"in excel for limits and ranges user able to enter float values also
+and instrument id should be unique"*; asked whether case variants count, chose
+yes.
+
+- **Floats already worked** — attribute values are stored as typed and the
+  limit resolver reads them with `Number()`, so `25.5` is 25.5; the gateway
+  has been writing `20.5` / `63.5` for days. Now pinned end to end
+  (`bulk-attributes.e2e.test.ts`: a float bound lands verbatim and
+  `telemetry-overview` resolves it) so nobody rounds a cell on the way in.
+- **Unique ignoring case.** Migration `20260916150000_instrument_code_ci_unique`
+  adds a unique index on `lower(code)` (hand-authored; Prisma cannot express
+  it and will propose dropping it — refuse). Postgres raises the same unique
+  violation, which Prisma reports as P2002, so create (409), rename (409) and
+  bulk (error row naming the cell) cover it with no route change; the bulk
+  parser's in-file repeat check folds case too. Applied to both databases.
+  0 of 101 live IDs collided. Models and enums unchanged.
+
 ## [Unreleased] - Bulk upload: one popup names the row, the cell and the reason (2026-09-16)
 
 Operator: *"if upload failed then show a popup where it failed and reason, in

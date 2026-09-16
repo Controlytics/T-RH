@@ -320,6 +320,15 @@ node apps/api/dist/app.js
   downlink echo not logged), and the downlink/roster e2e rekeyed on codes.
   **The reserved-last-segment rule is load-bearing**: without it a child coded
   `X/telemetry` has its downlink parsed as telemetry from `<gw>/attributes/X`.
+- **2026-09-16 — instrument codes unique IGNORING CASE.** Migration
+  `20260916150000_instrument_code_ci_unique`: `CREATE UNIQUE INDEX
+  instruments_code_lower_unique ON instruments (lower(code))`, hand-authored
+  (Prisma cannot express a functional index and `migrate diff` will propose
+  dropping it — refuse), applied to `compliance_core_db` and
+  `compliance_core_db_test`. Raises P2002 like the plain constraint, so
+  create / rename / bulk report it through their existing duplicate paths;
+  `bulk-csv.ts` folds case for in-file repeats. **Models 36 / enums 13
+  unchanged.** Pinned by 3 e2e in `instruments.test.ts` + 1 parser case.
 - **2026-09-16 — a key dropped from a profile cascades to its instruments.**
   `instrument-profiles/routes.ts`: `GET /:id/attribute-usage` (keys the
   profile's instruments carry, folded by case, with counts) and `PUT /:id`

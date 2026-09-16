@@ -18,6 +18,8 @@ describe('POST /api/instruments/bulk — attribute columns', () => {
   let token: string;
   let profileId: string;
   let baseLabels: unknown;
+  /** The alarm-limits row as the TEST database holds it — pinned, then restored verbatim. */
+  let baseLimits: unknown;
   const created: string[] = [];
 
   beforeAll(async () => {
@@ -34,10 +36,28 @@ describe('POST /api/instruments/bulk — attribute columns', () => {
       labels: { Enable_Temp_NMT: 'High temperature alarm enabled', Room: 'Cleanroom number' },
     });
     expect(put.statusCode).toBe(200);
+    // The float case reads a bound through the ADMINISTERED alias list. The
+    // test database is seeded independently of the live one, so the list is
+    // pinned here rather than assumed (verification-gaps item 16).
+    const limits = await prisma.systemConfig.findUnique({ where: { configKey: 'alarm-limits' } });
+    baseLimits = limits?.configValue ?? null;
+    const pinned = await authPut(app, '/api/config/dynamic/alarm-limits', token, {
+      ...((baseLimits as Record<string, unknown>) ?? {}),
+      enabled: true,
+      temperatureHighKeys: 't_hl\nHigh Temperature Limit',
+    });
+    expect(pinned.statusCode).toBe(200);
   });
 
   afterAll(async () => {
-    // Config restore FIRST, guarded, so a failing test still hands back the row.
+    // Config restore FIRST, guarded, so a failing test still hands back the rows.
+    try {
+      if (baseLimits === null) {
+        await prisma.systemConfig.deleteMany({ where: { configKey: 'alarm-limits' } });
+      } else {
+        await prisma.systemConfig.update({ where: { configKey: 'alarm-limits' }, data: { configValue: baseLimits as object } });
+      }
+    } catch { /* leave the rest of the teardown to run */ }
     try {
       if (baseLabels === null) {
         await prisma.systemConfig.deleteMany({ where: { configKey: ATTRIBUTE_LABELS_CONFIG_KEY } });
@@ -49,6 +69,30 @@ describe('POST /api/instruments/bulk — attribute columns', () => {
     await prisma.instrumentCredential.deleteMany({ where: { instrumentId: { in: created } } }).catch(() => undefined);
     await prisma.instrument.deleteMany({ where: { id: { in: created } } });
     await app.close();
+  });
+
+  // 2026-09-16, operator: "in excel for limits and ranges user able to enter
+  // float values also". Values are stored as typed and the limit resolver
+  // reads them with Number(), so 25.5 is 25.5 — pinned here end to end so
+  // nobody "tidies" the cell into an integer on the way in.
+  it('keeps a float limit exactly as typed, and the alarm bound resolves to it', async () => {
+    const stamp = Date.now();
+    const csv = [
+      'Instrument ID,High temperature alarm enabled,Building',
+      `FL-${stamp},1,CWH`,
+    ].join('\n');
+    const res = await authPost(app, '/api/instruments/bulk', token, { csv, profileId });
+    expect(res.statusCode).toBe(200);
+    const id = res.json().created[0].id as string;
+    created.push(id);
+    // The limit keys are not on this fixture profile, so set one as the panel would.
+    const put = await authPost(app, `/api/instruments/${id}/attributes`, token, { key: 't_hl', value: '25.5' });
+    expect([200, 201]).toContain(put.statusCode);
+    const attrs = await authGet(app, `/api/instruments/${id}/attributes`, token);
+    expect((attrs.json().data as { key: string; value: string }[]).find((r) => r.key === 't_hl')?.value).toBe('25.5');
+    const overview = await authGet(app, '/api/instruments/telemetry-overview', token);
+    const row = (overview.json().data as { instrumentId: string; limits: { tempMax: number | null } }[]).find((r) => r.instrumentId === id);
+    expect(row?.limits.tempMax).toBe(25.5);
   });
 
   it('a file headed by display names lands as attributes stored by KEY, and one unknown heading warns once', async () => {
