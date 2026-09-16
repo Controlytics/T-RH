@@ -22,6 +22,8 @@ const PROFILES = { data: [{ id: 'p-1', name: 'Cleanroom-A' }, { id: 'p-2', name:
 const PROFILE_KEYS = { current: 'Block\nRoom\nCalibration Due' as string | null };
 /** Drives the single-profile fetch so the loading and failure states are reachable. */
 const PROFILE_FETCH = { loading: false, error: false };
+/** Configuration → Attribute Display Names, as the narrow-slice route returns it. */
+const LABELS = { current: {} as Record<string, string> };
 
 /**
  * URL-PRECISE. The page reads the profile LIST (`/api/instrument-profiles`) and
@@ -33,6 +35,7 @@ const PROFILE_FETCH = { loading: false, error: false };
 vi.mock('swr', () => ({
   default: (key: string | null) => {
     if (key === '/api/instrument-profiles') return { data: PROFILES };
+    if (key === '/api/config/attribute-labels/current') return { data: { labels: LABELS.current } };
     if (typeof key === 'string' && key.startsWith('/api/instrument-profiles/')) {
       if (PROFILE_FETCH.loading) return { data: undefined, isLoading: true };
       if (PROFILE_FETCH.error) return { data: undefined, error: new Error('unreachable') };
@@ -62,6 +65,7 @@ beforeEach(() => {
   PROFILE_KEYS.current = 'Block\nRoom\nCalibration Due';
   PROFILE_FETCH.loading = false;
   PROFILE_FETCH.error = false;
+  LABELS.current = {};
   post.mockReset().mockResolvedValue(created);
   errorToast.mockReset();
 });
@@ -86,6 +90,41 @@ describe('InstrumentCreatePage — the trimmed form', () => {
     renderPage();
     expect(screen.getByRole('textbox', { name: /instrument id/i })).toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: /^name/i })).not.toBeInTheDocument();
+  });
+
+  // 2026-09-16, operator: "in instrument id field dont put any instructions,
+  // user will enter different Instrument ids format so it should not
+  // restricted". The old browser pattern allowed only [A-Za-z0-9._-], which
+  // refused `/` — the character 100 of 101 codes here carry. The server's own
+  // rule (`instrumentCodeTopicViolation`: no `+`/`#`/NUL, no reserved last
+  // segment) is the only limit, and it is stated in a toast when it fires.
+  it('puts no format restriction or instruction on the Instrument ID field', () => {
+    renderPage();
+    const id = screen.getByRole('textbox', { name: /instrument id/i });
+    expect(id).not.toHaveAttribute('pattern');
+    expect(id).not.toHaveAttribute('title');
+    expect(id).not.toHaveAttribute('placeholder');
+  });
+
+  it('accepts a slash-coded Instrument ID and sends it unchanged', async () => {
+    renderPage();
+    fillId('CWH/RDU/002-00');
+    submit();
+    await waitFor(() => expect(post).toHaveBeenCalledWith(
+      '/api/instruments', expect.objectContaining({ code: 'CWH/RDU/002-00' }),
+    ));
+    expect(errorToast).not.toHaveBeenCalled();
+  });
+
+  // Attribute keys are the stored identity; the FORM prints the administered
+  // display name where one exists and the key where none does.
+  it('labels an attribute field with its configured display name, else the key', () => {
+    LABELS.current = { Room: 'Cleanroom number' };
+    renderPage();
+    choose('p-1');
+    expect(screen.getByRole('textbox', { name: 'Cleanroom number' })).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Room' })).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Block' })).toBeInTheDocument();
   });
 
   it('no longer asks for expected interval or hardware', () => {

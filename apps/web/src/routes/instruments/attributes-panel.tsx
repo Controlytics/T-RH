@@ -9,6 +9,7 @@ import {
 } from '@digilog/shared';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
+import { useAttributeLabels } from '@/hooks/use-attribute-labels';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { RemarkDialog } from './remark-dialog';
@@ -95,6 +96,7 @@ export function AttributesPanel(
 ) {
   const { toast } = useToast();
   const reauth = useReauth();
+  const { labelFor } = useAttributeLabels();
   const key = `/api/instruments/${instrumentId}/attributes`;
   const { data, mutate } = useSWR<{ data: Attribute[] }>(key);
   /**
@@ -367,7 +369,15 @@ export function AttributesPanel(
               {items.map(({ key: k, attr: a }) => (
                 <TableRow key={k}>
                   <TableCell className={a ? 'font-medium text-slate-800' : 'font-medium text-slate-500'}>
-                    {k}
+                    {/* The administered display name (2026-09-16), with the
+                        KEY beneath it only when the two differ: the key is
+                        what the audit trail names, and an inspector must be
+                        able to match a row on this table to a row on that
+                        one. A key with no display name prints once. */}
+                    {labelFor(k)}
+                    {labelFor(k) !== k && (
+                      <span className="block text-xs font-normal text-slate-400">{k}</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     {a === null ? (

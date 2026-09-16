@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { ALL_RECORDS_PARAM, isInstrumentReporting, INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN } from '@digilog/shared';
 import { useCan } from '@/hooks/use-can';
+import { useAttributeLabels } from '@/hooks/use-attribute-labels';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { themeGradient } from '@/lib/theme-styles';
 import { PageHeader } from '@/components/ui/page-header';
@@ -120,6 +121,7 @@ export function SettingsPage() {
 
   const { data: attrs } = useSWR<{ data: Attribute[] }>(selected ? `/api/instruments/${selected.id}/attributes` : null);
   const [editing, setEditing] = useState(false);
+  const { labelFor } = useAttributeLabels();
 
   // Two tiles per line on a wide viewport, one below the other on a narrow one
   // (operator: "increase font sizes and in single line two attributes and
@@ -225,7 +227,7 @@ export function SettingsPage() {
             {tile('Instrument ID', selected.code)}
             {(attrs?.data ?? []).map((a) => (
               <div key={a.key} className="contents">
-                {tile(a.key, a.display ?? (a.value || '(empty)'), { muted: !a.display && !a.value, slot: a.slot, updatedAt: a.updatedAt })}
+                {tile(labelFor(a.key), a.display ?? (a.value || '(empty)'), { muted: !a.display && !a.value, slot: a.slot, updatedAt: a.updatedAt })}
               </div>
             ))}
           </dl>

@@ -24,7 +24,7 @@ Branch: RFID (active development) → merges to DigitalFMS → main.
 
 ## Current Module Count (re-derived 2026-08-27)
 - **Backend:** **25** API modules (`ls apps/api/src/modules/ | wc -l`; 24 → 25 on 2026-09-07, `report-reviews`)
-- **Frontend:** **53** `<Route`s in `apps/web/src/main.tsx` (`grep -cE "<Route"`; 52 → 53 on 2026-09-08, `/settings`; 51 → 52 on 2026-09-07, `/reports`; 50 → 51 the same day, `/data-report`)
+- **Frontend:** **54** `<Route`s in `apps/web/src/main.tsx` (`grep -cE "<Route"`; 53 → 54 on 2026-09-16, `/config/attribute-labels`; 52 → 53 on 2026-09-08, `/settings`; 51 → 52 on 2026-09-07, `/reports`; 50 → 51 the same day, `/data-report`)
 - **Database:** **36** Prisma models, **13** enums (35/12 → 36/13 on 2026-09-07: `ReportReview` + `ReportReviewStatus`; single database `compliance_core_db`, plus `compliance_core_db_test`; TimescaleDB `digilog_tsdb` dropped 2026-06-11)
 - **Permissions:** **44** constants, **45** feature privileges, **50** reauth actions across **8** categories, **15** sidebar items (2026-09-08: sidebar 14 → 15 and feature privileges 43 → 45 with the Settings page, `settings.view` / `settings.edit`; 2026-09-07: permissions 42 → 44, reauth 48 → 50, feature privileges 41 → 43 and sidebar items 13 → 14 with the report review workflow; earlier that day 40 → 41 / 12 → 13 with `data-report`)
 - **Audit registries:** **102** audit actions, **96** audit templates across **7** categories (98 → 102 / 92 → 96 on 2026-09-07, report review)

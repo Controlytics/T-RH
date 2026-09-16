@@ -101,8 +101,8 @@ them, exist in `main.tsx` or `routes/` today.
 | `/config` | ConfigIndexPage | CONFIG_READ — registry-discovered cards |
 | `/config/password-policy` | PasswordPolicyPage | CONFIG_READ |
 | `/config/instrument-attributes` | InstrumentAttributesConfigPage | SUPER_ADMIN — attribute keys the New Instrument form asks for |
+| `/config/attribute-labels` | AttributeLabelsConfigPage | SUPER_ADMIN — what each attribute key is called on screen (2026-09-16); the map is read by every user via `/api/config/attribute-labels/current` |
 | `/config/floorplans` | FloorplansConfigPage | SUPER_ADMIN — plan/room placement editor |
-| `/config/alarm-rules` | AlarmRulesConfigPage | ALARM_RULE_READ |
 | `/config/alarm-webhooks` | AlarmWebhooksConfigPage | ALARM_RULE_READ |
 | `/config/report-page-titles` | ReportPageTitlesPage (lazy) | CONFIG_READ |
 | `/config/ldap` | LdapConfigPage (lazy) | CONFIG_READ |
@@ -162,6 +162,7 @@ inventory:
 | `useReportPageTitles()` | `use-report-page-titles.ts` | Configurable report page titles |
 | `useExportOptions()` | `use-export-options.ts` | Which columns/formats a report export offers |
 | `useExportLimit()` | `use-export-limit.ts` | Row-count cap enforcement on exports |
+| `useAttributeLabels()` | `use-attribute-labels.ts` | `labelFor(key)`: the administered display name of an attribute key, else the key (2026-09-16) |
 
 ## Components
 

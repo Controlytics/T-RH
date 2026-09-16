@@ -217,6 +217,11 @@ export {
   REPORT_APPROVERS_CONFIG_KEY, REPORT_APPROVERS_NONE_MESSAGE, coerceApproverRoles,
 } from './types/report-approvers.js';
 export type { ReportApproversConfig } from './types/report-approvers.js';
+export {
+  ATTRIBUTE_LABELS_CONFIG_KEY, ATTRIBUTE_LABEL_MAX, ATTRIBUTE_LABEL_KEY_MAX,
+  coerceAttributeLabels, attributeLabel,
+} from './types/attribute-labels.js';
+export type { AttributeLabels, AttributeLabelsConfig } from './types/attribute-labels.js';
 export type {
   TrendWidgetId, TrendWidgetLabelKey, TrendWidgetConfig,
   TrendWidgetFormat, TrendWidgetTexts,

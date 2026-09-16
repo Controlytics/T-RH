@@ -47,6 +47,8 @@ const attributes: Record<string, { key: string; value: string; display?: string 
 };
 
 let grants = new Set<string>(['settings.view']);
+/** Configuration → Attribute Display Names, as the narrow-slice route returns it. */
+const labels = { current: {} as Record<string, string> };
 
 vi.mock('swr', () => ({
   default: (key: any) => {
@@ -57,6 +59,7 @@ vi.mock('swr', () => ({
       return { data: { data: attributes[id] }, isLoading: false, mutate: vi.fn() };
     }
     if (typeof k === 'string' && k.includes('/instrument-activity/')) return { data: { activeWindowMinutes: 3 }, mutate: vi.fn() };
+    if (k === '/api/config/attribute-labels/current') return { data: { labels: labels.current }, mutate: vi.fn() };
     return { data: undefined, isLoading: false, mutate: vi.fn() };
   },
 }));
@@ -83,7 +86,7 @@ const rowValue = (label: string) => within(widget()).getByText(label).closest('[
 const openPicker = () => fireEvent.click(screen.getByRole('button', { expanded: false }));
 
 describe('SettingsPage', () => {
-  beforeEach(() => { grants = new Set(['settings.view']); try { localStorage.clear(); } catch { /* jsdom */ } });
+  beforeEach(() => { grants = new Set(['settings.view']); labels.current = {}; try { localStorage.clear(); } catch { /* jsdom */ } });
 
   it('names the screen once; the picker offers exactly the instruments the server returned, and the first is shown', () => {
     mount();
@@ -103,6 +106,16 @@ describe('SettingsPage', () => {
     expect(rowValue('Location')).toBe('HPLC ROOM');
     expect(rowValue('High Temperature Limit')).toBe('25.0');
     expect(rowValue('Enable_Humid_NMT')).toBe('0');
+  });
+
+  // 2026-09-16: a tile is headed by the key's administered display name, and
+  // by the key itself when none is configured. The value is untouched.
+  it('heads a tile with the display name where one is configured, else the key', () => {
+    labels.current = { Enable_Humid_NMT: 'High humidity alarm enabled' };
+    mount();
+    expect(rowValue('High humidity alarm enabled')).toBe('0');
+    expect(within(widget()).queryByText('Enable_Humid_NMT')).toBeNull();
+    expect(rowValue('Building')).toBe('CWH Block');
   });
 
   it('choosing another instrument swaps the widget to its rows — only the attributes it carries', () => {

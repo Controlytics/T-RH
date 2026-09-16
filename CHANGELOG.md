@@ -1,5 +1,58 @@
 # Changelog
 
+## [Unreleased] - Attribute display names; the Instrument ID field is unrestricted (2026-09-16)
+
+Operator: *"for attributes key i need key is one thing and that key display
+name should be configurable"* and *"in instrument id field dont put any
+instructions, user will enter different Instrument ids format so it should not
+restricted"*. One question asked — where the names live — answered: a global
+list in Configuration, not per profile.
+
+- **Config def `attribute-labels`** (31 → 32): one `json` map `labels: {key:
+  name}`, SUPER_ADMIN-only, `zodSchema` refusing a non-map body, a key over 64
+  or a name over 80 characters. `hasCustomPage: false` with `customPagePath`
+  `/config/attribute-labels`, deliberately — `true` skips the generic
+  `/dynamic/<key>` GET/PUT, which is where validation, the role gate and the
+  `CONFIG_CHANGED` audit row live.
+- **`GET /api/config/attribute-labels/current`** — every authenticated user, the
+  eighth narrow-slice route, returning the COERCED map (`additionalProperties`
+  declared; without it Fastify hands back `{}`).
+- **`@digilog/shared` `attribute-labels.ts`**: `coerceAttributeLabels()` (trim,
+  drop blanks, first spelling wins case-insensitively, truncate) and
+  `attributeLabel()` (configured name, else the KEY — never an empty heading;
+  case-folded lookup). 11 unit tests; the fold mutation-checked.
+- **Page `/config/attribute-labels`** (23 → 24 pages, 53 → 54 routes): Key |
+  Display name rows pre-filled from `GET /api/roles/attribute-access`'s
+  `availableKeys` (every profile key plus every key recorded on an instrument)
+  and from the stored map (a stored key nothing carries still shows so it can
+  be cleared); Add key for an unseen one; duplicate keys refused case-
+  insensitively on the row; Save sends the WHOLE map with blank names dropped
+  and revalidates the narrow-slice URL. Card beside Instrument Attributes in
+  `superAdminCards`. 6 tests; blank-drop mutation-checked.
+- **Hook `use-attribute-labels.ts`** (22 → 23 hooks): the ONE browser reader,
+  `labelFor(key)`. Consumers: the New Instrument form's field labels; the
+  Attributes panel (detail page and the Settings Edit dialog — key printed
+  small beneath the name only when they differ; `Delete <key>` buttons, the
+  fill input's `aria-label` and every request still use the key); the Settings
+  widget tiles; the Attribute Access picker (name, key in brackets, rule saved
+  by key — pinned). The CSV template, MQTT, audit rows and the alarm-limits
+  alias lists are untouched: they name the stored identity.
+- **New Instrument form, Instrument ID**: the `pattern`, `title` and
+  `placeholder` are gone. The pattern (`[A-Za-z0-9._-]`) refused `/`, so the
+  form could not create `CWH/RDU/002-00` — the code shape 100 of 101 instruments
+  here carry; CSV import was the only path. The server's
+  `instrumentCodeTopicViolation` (no `+`/`#`/NUL, no reserved last segment) is
+  unchanged and still stated in a toast. Pinned: no restricting attribute; a
+  slash code is sent unchanged.
+- **Docs**: FRONTEND_GUIDE's config-pages table still listed `/config/alarm-rules`,
+  removed 2026-08-31 — dropped. `apps/api/CLAUDE.md`'s def count (27) and
+  `packages/shared/CLAUDE.md`'s types count (26) were stale by four and two
+  before this change; both re-derived.
+- **Not verified on screen** — the operator holds the browser session. Look
+  at: Configuration → Attribute Display Names (rows pre-filled, Save), then an
+  instrument's Attributes panel and the Settings widget for the new names, and
+  the New Instrument form accepting a slash ID.
+
 ## [Unreleased] - Ubuntu / Debian installer: `digilog_<version>_amd64.deb` (2026-09-09)
 
 Operator: *"build the complete application installation exe file for ubuntu"*.

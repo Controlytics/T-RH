@@ -3,6 +3,7 @@ import useSWR from 'swr';
 import { ATTRIBUTE_ACCESS_MODES, type AttributeAccessMode } from '@digilog/shared';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
+import { useAttributeLabels } from '@/hooks/use-attribute-labels';
 import { Button } from '@/components/ui/button';
 
 interface RoleAccess {
@@ -36,6 +37,7 @@ interface RoleAccess {
  */
 export function AttributeAccessTab() {
   const { toast } = useToast();
+  const { labelFor } = useAttributeLabels();
   const { data, mutate } = useSWR<{ roles: RoleAccess[]; availableKeys: string[] }>(
     '/api/roles/attribute-access',
   );
@@ -149,7 +151,14 @@ export function AttributeAccessTab() {
                           checked={now.keys.some((s) => s.trim().toLowerCase() === k.trim().toLowerCase())}
                           onChange={() => toggleKey(r, k)}
                         className="ctl-check" />
-                        <span className="truncate" title={k}>{k}</span>
+                        {/* Display name on the label, the KEY in the title
+                            and beside it when they differ — the rule is
+                            stored by key, and an admin must be able to see
+                            which key a name stands for. */}
+                        <span className="truncate" title={k}>
+                          {labelFor(k)}
+                          {labelFor(k) !== k && <span className="ml-1 text-xs text-slate-400">({k})</span>}
+                        </span>
                       </label>
                     ))}
                   </div>

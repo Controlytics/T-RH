@@ -23,6 +23,8 @@ const mutate = vi.fn();
  * this panel had before per-role access existed.
  */
 const access = { current: { mode: null as string | null, keys: [] as string[], requireReauth: false } };
+/** Configuration → Attribute Display Names, as the narrow-slice route returns it. */
+const labels = { current: {} as Record<string, string> };
 
 vi.mock('swr', () => ({
   // `key` is NULL when the instrument has no profile — the panel skips the fetch
@@ -31,6 +33,7 @@ vi.mock('swr', () => ({
   default: (key: string | null) => {
     if (key === null) return { data: undefined, mutate };
     if (key.includes('/attribute-access/me')) return { data: access.current, mutate };
+    if (key === '/api/config/attribute-labels/current') return { data: { labels: labels.current }, mutate };
     return key.includes('/instrument-profiles/')
       ? { data: { attributeKeys: profileKeys.current }, mutate }
       : { data: { data: rows.current }, mutate };
@@ -83,6 +86,7 @@ beforeEach(() => {
   rows.current = [];
   profileKeys.current = '';
   access.current = { mode: null, keys: [], requireReauth: false };
+  labels.current = {};
   post.mockReset().mockResolvedValue({});
   put.mockReset().mockResolvedValue({});
   del.mockReset().mockResolvedValue({});
@@ -122,6 +126,37 @@ const editValue = (from: string, to: string, remark = REMARK) => {
 };
 
 describe('AttributesPanel', () => {
+  describe('display names (2026-09-16)', () => {
+    it('prints the configured display name with the key beneath it, and a bare key as itself', () => {
+      rows.current = [attr('Enable_Temp_NMT', '1'), attr('Building', 'CWH Block')];
+      labels.current = { Enable_Temp_NMT: 'High temperature alarm enabled' };
+      render(<AttributesPanel instrumentId="i-1" profileId="p-1" canEdit />);
+      expect(screen.getByText('High temperature alarm enabled')).toBeInTheDocument();
+      // The key is still on the page: it is what the audit trail names.
+      expect(screen.getByText('Enable_Temp_NMT')).toBeInTheDocument();
+      // An unnamed key prints once, as itself — no duplicate line under it.
+      expect(screen.getAllByText('Building')).toHaveLength(1);
+    });
+
+    it('names a configured-but-unfilled row by its display name too', () => {
+      profileKeys.current = 'Room';
+      labels.current = { Room: 'Cleanroom number' };
+      render(<AttributesPanel instrumentId="i-1" profileId="p-1" canEdit />);
+      expect(screen.getByText('Cleanroom number')).toBeInTheDocument();
+    });
+
+    it('still records the KEY when a display-named row is changed', async () => {
+      rows.current = [attr('Room', '101')];
+      labels.current = { Room: 'Cleanroom number' };
+      render(<AttributesPanel instrumentId="i-1" profileId="p-1" canEdit />);
+      editValue('101', '102');
+      await waitFor(() => expect(put).toHaveBeenCalledWith(
+        '/api/instruments/i-1/attributes/Room',
+        expect.objectContaining({ value: '102' }),
+      ));
+    });
+  });
+
   it('explains itself when empty rather than showing a bare table', () => {
     render(<AttributesPanel instrumentId="i-1" profileId="p-1" canEdit />);
     expect(screen.getByText(/no attributes recorded/i)).toBeInTheDocument();

@@ -4,6 +4,7 @@ import useSWR from 'swr';
 import { parseInstrumentAttributeKeys, placementColumnFor, ALL_RECORDS_PARAM } from '@digilog/shared';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
+import { useAttributeLabels } from '@/hooks/use-attribute-labels';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -37,6 +38,7 @@ interface CreatedInstrument { id: string; code: string; token: string }
 export function InstrumentCreatePage() {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { labelFor } = useAttributeLabels();
   const [saving, setSaving] = useState(false);
   const [created, setCreated] = useState<CreatedInstrument | null>(null);
   const [form, setForm] = useState({ code: '' });
@@ -204,11 +206,14 @@ export function InstrumentCreatePage() {
             )}
             <label className="block space-y-1">
               <span className="text-sm font-medium text-slate-700">Instrument ID *</span>
-              <Input
-                required value={form.code} onChange={set('code')} placeholder="PROBE-A1"
-                pattern="[A-Za-z0-9._\-]+"
-                title="Letters, digits, dot, dash or underscore only"
-              />
+              {/* No pattern, no hint, no placeholder (2026-09-16, operator:
+                  "dont put any instructions, user will enter different
+                  Instrument ids format so it should not restricted"). The old
+                  browser pattern refused `/`, which 100 of 101 codes here
+                  carry. The ONLY rule is the server's own —
+                  `instrumentCodeTopicViolation` in the submit handler — and it
+                  is stated in a toast when it fires, never on the field. */}
+              <Input required value={form.code} onChange={set('code')} />
             </label>
             <label className="flex items-start gap-2 text-sm text-slate-700">
               <input
@@ -270,7 +275,8 @@ export function InstrumentCreatePage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 {attributeKeys.map((key) => (
                   <label key={key} className="space-y-1">
-                    <span className="text-sm font-medium text-slate-700">{key}</span>
+                    {/* The administered display name; the KEY is what is sent. */}
+                    <span className="text-sm font-medium text-slate-700">{labelFor(key)}</span>
                     <Input
                       value={attrs[key] ?? ''}
                       onChange={(e) => setAttrs((a) => ({ ...a, [key]: e.target.value }))}
