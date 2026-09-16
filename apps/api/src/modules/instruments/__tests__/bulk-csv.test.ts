@@ -14,7 +14,7 @@ describe('parseInstrumentCsv', () => {
   });
 
   it('reports bad rows by line number but keeps the good ones (partial success)', () => {
-    const r = parseInstrumentCsv(`${HEADER}\nGood,G-1\n,MISSING-NAME\nBad,G-1`);
+    const r = parseInstrumentCsv(`${HEADER}\nGood,G-1\nMissing code,\nBad,G-1`);
     expect(r.rows).toEqual([{ name: 'Good', code: 'G-1' }]);
     expect(r.errors).toHaveLength(2);
     expect(r.errors[0]).toMatchObject({ row: 3 });
@@ -25,7 +25,7 @@ describe('parseInstrumentCsv', () => {
   it('returns a rowNumbers sidecar aligned to rows, skipping blanks and bad rows', () => {
     // Only the sidecar can attribute a LATER failure (a code that already
     // exists in the database) back to the operator's spreadsheet row.
-    const r = parseInstrumentCsv(`${HEADER}\nGood,G-1\n\n,MISSING-NAME\nAlso Good,G-2`);
+    const r = parseInstrumentCsv(`${HEADER}\nGood,G-1\n\nMissing code,\nAlso Good,G-2`);
     expect(r.rows.map((x) => x.code)).toEqual(['G-1', 'G-2']);
     expect(r.rowNumbers).toEqual([2, 5]);
     expect(r.rowNumbers).toHaveLength(r.rows.length);
@@ -48,9 +48,82 @@ describe('parseInstrumentCsv', () => {
     expect(r.errors[0].message).toMatch(/duplicate/i);
   });
 
-  it('rejects a missing or misspelled header', () => {
-    expect(parseInstrumentCsv('nombre,code\nA,B').errors[0].message).toMatch(/header/i);
+  it('rejects a missing or misspelled code header', () => {
+    expect(parseInstrumentCsv('name,kode\nA,B').errors[0].message).toMatch(/header/i);
     expect(parseInstrumentCsv('').errors[0].message).toMatch(/header/i);
+  });
+
+  // 2026-09-16: the template lost its `name` column — the create form has set
+  // name = code since the 2026-08-07 trim, and bulk requiring one was a leftover.
+  // An absent or blank name is the code; a name given is kept.
+  // The template is headed "Instrument ID" (2026-09-16, operator: "in bulk
+  // option in template Instrument ID field") — the same words the create form
+  // uses. `code` is still accepted for files operators already have.
+  it('reads "Instrument ID" as the code column, case-insensitively, and still accepts "code"', () => {
+    expect(parseInstrumentCsv('Instrument ID\nCWH/RDU/002-00').rows).toEqual([{ name: 'CWH/RDU/002-00', code: 'CWH/RDU/002-00' }]);
+    expect(parseInstrumentCsv('instrument id,Building\nPA-1,CWH', [{ key: 'Building', label: 'Building' }]).rows[0])
+      .toEqual({ name: 'PA-1', code: 'PA-1', attributes: { Building: 'CWH' } });
+    expect(parseInstrumentCsv('code\nPA-1').rows).toEqual([{ name: 'PA-1', code: 'PA-1' }]);
+    expect(parseInstrumentCsv('Building\nCWH').errors[0].message).toMatch(/Instrument ID/);
+  });
+
+  it('defaults the name to the code when the column is absent or the cell is blank', () => {
+    expect(parseInstrumentCsv('code\nCWH/RDU/002-00').rows).toEqual([{ name: 'CWH/RDU/002-00', code: 'CWH/RDU/002-00' }]);
+    expect(parseInstrumentCsv('name,code\n,PA-1\nProbe,PB-1').rows).toEqual([
+      { name: 'PA-1', code: 'PA-1' }, { name: 'Probe', code: 'PB-1' },
+    ]);
+  });
+
+  /**
+   * Attribute columns (2026-09-16, operator: "in bulk upload template only
+   * attributes display names should come"). The template is headed by each
+   * key's administered DISPLAY NAME; the parser maps a header back to the KEY
+   * — by display name or by the key itself, case-insensitively — and the key is
+   * what gets stored. A header that is neither is ignored with ONE warning, so a
+   * typo in a heading cannot silently create an attribute nobody asked for.
+   */
+  describe('attribute columns', () => {
+    const columns = [
+      { key: 'Enable_Temp_NMT', label: 'High temperature alarm enabled' },
+      { key: 'Building', label: 'Building' },
+      { key: 'Room', label: 'Cleanroom number' },
+    ];
+
+    it('maps a display-name header to its KEY and keeps the cell as an attribute', () => {
+      const r = parseInstrumentCsv('code,High temperature alarm enabled,Building\nPA-1,1,CWH Block', columns);
+      expect(r.errors).toEqual([]);
+      expect(r.rows[0].attributes).toEqual({ Enable_Temp_NMT: '1', Building: 'CWH Block' });
+    });
+
+    it('accepts the raw key as a header too, case-insensitively', () => {
+      const r = parseInstrumentCsv('code,enable_temp_nmt,cleanroom NUMBER\nPA-1,0,101', columns);
+      expect(r.rows[0].attributes).toEqual({ Enable_Temp_NMT: '0', Room: '101' });
+    });
+
+    it('leaves a blank cell out rather than storing an empty attribute', () => {
+      const r = parseInstrumentCsv('code,Building,Cleanroom number\nPA-1,,101', columns);
+      expect(r.rows[0].attributes).toEqual({ Room: '101' });
+    });
+
+    it('carries no attributes key at all for a row with nothing filled', () => {
+      const r = parseInstrumentCsv('code,Building\nPA-1,', columns);
+      expect(r.rows[0]).toEqual({ name: 'PA-1', code: 'PA-1' });
+    });
+
+    it('warns ONCE about a header that is neither a standard column nor an attribute, and ignores it', () => {
+      const r = parseInstrumentCsv('code,Buidling,Colour\nPA-1,x,y\nPB-1,x,y', columns);
+      expect(r.errors).toEqual([]);
+      expect(r.rows.map((x) => x.attributes)).toEqual([undefined, undefined]);
+      expect(r.warnings).toHaveLength(1);
+      expect(r.warnings[0]).toMatch(/Buidling/);
+      expect(r.warnings[0]).toMatch(/Colour/);
+    });
+
+    it('does not read attribute columns when none are declared', () => {
+      const r = parseInstrumentCsv('code,Building\nPA-1,CWH Block');
+      expect(r.rows[0]).toEqual({ name: 'PA-1', code: 'PA-1' });
+      expect(r.warnings).toHaveLength(1);
+    });
   });
 
   it('tolerates CRLF, blank lines and surrounding whitespace', () => {

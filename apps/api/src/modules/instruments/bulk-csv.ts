@@ -1,6 +1,28 @@
 import { instrumentCodeTopicViolation } from '@digilog/shared';
-const REQUIRED = ['name', 'code'] as const;
-const OPTIONAL = ['instrumentType', 'manufacturer', 'model', 'serialNumber', 'description'] as const;
+// `name` stopped being REQUIRED on 2026-09-16: the create form has set name = code since
+// the 2026-08-07 trim, and the template no longer carries a name column. A
+// `name` column is still honoured when present.
+const REQUIRED = ['code'] as const;
+const OPTIONAL = ['name', 'instrumentType', 'manufacturer', 'model', 'serialNumber', 'description'] as const;
+
+/**
+ * An attribute column the file may carry (2026-09-16, operator: "in bulk
+ * upload template only attributes display names should come"). `label` is the
+ * administered display name the template prints as the heading; `key` is what
+ * gets stored. A header matches by EITHER, trimmed and case-folded — the same
+ * rule every attribute surface applies — so a file headed by keys (an older
+ * template, a device vendor's sheet) still imports.
+ */
+export interface AttributeColumn { key: string; label: string }
+
+/**
+ * The template's own heading for the code column (2026-09-16, operator: "in
+ * bulk option in template Instrument ID field") — the words the create form
+ * uses. Normalised to `code` before anything else reads the header, so the rest
+ * of the parser and every file operators already have keep working unchanged.
+ */
+export const INSTRUMENT_ID_HEADING = 'Instrument ID';
+const CODE_HEADINGS = new Set(['code', INSTRUMENT_ID_HEADING.toLowerCase()]);
 
 /**
  * Columns that were once meaningful and are now accepted-and-discarded.
@@ -23,6 +45,8 @@ export interface InstrumentDraft {
   name: string; code: string;
   instrumentType?: string; manufacturer?: string; model?: string;
   serialNumber?: string; description?: string;
+  /** Attribute KEY → typed value, only for cells that were filled. Absent when none were. */
+  attributes?: Record<string, string>;
 }
 export interface RowError { row: number; message: string }
 
@@ -76,7 +100,7 @@ function parseCSVLine(line: string): string[] {
  * sidecar array rather than a field on the draft so the drafts stay
  * assignable straight to Prisma.
  */
-export function parseInstrumentCsv(text: string): { rows: InstrumentDraft[]; rowNumbers: number[]; errors: RowError[]; warnings: string[] } {
+export function parseInstrumentCsv(text: string, attributeColumns: AttributeColumn[] = []): { rows: InstrumentDraft[]; rowNumbers: number[]; errors: RowError[]; warnings: string[] } {
   // Split into lines WITHOUT filtering to preserve source row numbers
   const allLines = text.split(/\r?\n/);
 
@@ -97,6 +121,7 @@ export function parseInstrumentCsv(text: string): { rows: InstrumentDraft[]; row
   if (headerRowIndex === -1) {
     return { rows: [], rowNumbers: [], errors: [{ row: 1, message: 'Missing header row' }], warnings: [] };
   }
+  header = header.map((h) => (CODE_HEADINGS.has(h.trim().toLowerCase()) ? 'code' : h));
 
   // One advisory per retired column present, raised before the rows are walked
   // so it is reported even for a file whose every row then fails.
@@ -106,7 +131,30 @@ export function parseInstrumentCsv(text: string): { rows: InstrumentDraft[]; row
 
   const missing = REQUIRED.filter((c) => !header.includes(c));
   if (missing.length > 0) {
-    return { rows: [], rowNumbers: [], errors: [{ row: headerRowIndex + 1, message: `Missing header column(s): ${missing.join(', ')}` }], warnings };
+    // Named as the template prints it, so the message matches what the operator
+    // sees in their spreadsheet.
+    const named = missing.map((c) => (c === 'code' ? INSTRUMENT_ID_HEADING : c));
+    return { rows: [], rowNumbers: [], errors: [{ row: headerRowIndex + 1, message: `Missing header column(s): ${named.join(', ')}` }], warnings };
+  }
+
+  // Resolve every non-standard header to an attribute KEY, by display name or
+  // by key, case-insensitively. A header that is neither is reported ONCE for
+  // the whole file and read by nothing: a typo in a heading must not quietly
+  // become an attribute nobody administered.
+  const fold = (s: string) => s.trim().toLowerCase();
+  const standard = new Set<string>([...REQUIRED, ...OPTIONAL, ...Object.keys(IGNORED_COLUMNS)]);
+  const attributeAt = new Map<number, string>();
+  const unknown: string[] = [];
+  header.forEach((h, idx) => {
+    if (standard.has(h)) return;
+    const hit = attributeColumns.find((c) => fold(c.label) === fold(h) || fold(c.key) === fold(h));
+    if (hit) attributeAt.set(idx, hit.key);
+    else if (h.trim()) unknown.push(h.trim());
+  });
+  if (unknown.length > 0) {
+    warnings.push(
+      `Column(s) ${unknown.map((u) => `"${u}"`).join(', ')} are not attributes of this profile and were ignored. Download the template again for the current headings.`,
+    );
   }
 
   const rows: InstrumentDraft[] = [];
@@ -153,9 +201,10 @@ export function parseInstrumentCsv(text: string): { rows: InstrumentDraft[]; row
       return idx === -1 ? '' : (cells[idx] ?? '').trim();
     };
 
-    const name = get('name'), code = get('code');
+    const code = get('code');
+    // Blank or absent name = the code, exactly as the create form fills it.
+    const name = get('name') || code;
 
-    if (!name) { errors.push({ row: rowNo, message: 'name is required' }); continue; }
     if (!code) { errors.push({ row: rowNo, message: 'code is required' }); continue; }
     // The same rule the create form and `createInstrumentSchema` apply: a code
     // is the MQTT client id, and a wildcard in it would let this instrument
@@ -170,7 +219,14 @@ export function parseInstrumentCsv(text: string): { rows: InstrumentDraft[]; row
     // A `transport` cell, valid or not, is read by nothing — the whole-file
     // warning above is the only signal it gets.
     const draft: InstrumentDraft = { name, code };
-    for (const col of OPTIONAL) { const v = get(col); if (v) (draft as unknown as Record<string, string>)[col] = v; }
+    for (const col of OPTIONAL) { if (col === 'name') continue; const v = get(col); if (v) (draft as unknown as Record<string, string>)[col] = v; }
+    // Only filled cells become attributes: an empty cell is "not answered", and
+    // writing '' would record an answer the operator did not give.
+    for (const [idx, key] of attributeAt) {
+      const v = (cells[idx] ?? '').trim();
+      if (!v) continue;
+      (draft.attributes ??= {})[key] = v;
+    }
     rows.push(draft);
     rowNumbers.push(rowNo);
   }

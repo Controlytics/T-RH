@@ -100,8 +100,7 @@ them, exist in `main.tsx` or `routes/` today.
 |---|---|---|
 | `/config` | ConfigIndexPage | CONFIG_READ — registry-discovered cards |
 | `/config/password-policy` | PasswordPolicyPage | CONFIG_READ |
-| `/config/instrument-attributes` | InstrumentAttributesConfigPage | SUPER_ADMIN — attribute keys the New Instrument form asks for |
-| `/config/attribute-labels` | AttributeLabelsConfigPage | SUPER_ADMIN — what each attribute key is called on screen (2026-09-16); the map is read by every user via `/api/config/attribute-labels/current` |
+| `/config/instrument-attributes` | InstrumentAttributesConfigPage | SUPER_ADMIN — attribute keys the New Instrument form asks for, per profile, plus each key's display name (2026-09-16; the map is read by every user via `/api/config/attribute-labels/current`) |
 | `/config/floorplans` | FloorplansConfigPage | SUPER_ADMIN — plan/room placement editor |
 | `/config/alarm-webhooks` | AlarmWebhooksConfigPage | ALARM_RULE_READ |
 | `/config/report-page-titles` | ReportPageTitlesPage (lazy) | CONFIG_READ |

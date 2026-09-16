@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import useSWR from 'swr';
-import { parseInstrumentAttributeKeys } from '@digilog/shared';
+import useSWR, { mutate as mutateGlobal } from 'swr';
+import { parseInstrumentAttributeKeys, coerceAttributeLabels, ATTRIBUTE_LABEL_MAX, type AttributeLabels } from '@digilog/shared';
+import { ATTRIBUTE_LABELS_URL } from '@/hooks/use-attribute-labels';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
@@ -39,8 +40,54 @@ import { SkeletonCard } from '@/components/ui/skeleton';
  * keystroke, which loses the caret.
  */
 
-interface Row { id: number; key: string }
+/**
+ * `name` is the key's DISPLAY NAME (2026-09-16, operator: "dont give as
+ * seperate configuration add in instrument attributes configuration"). The
+ * names are ONE global map — the `attribute-labels` config row — so a key is
+ * called the same thing in every profile; this page shows and edits the names
+ * of the keys on the SELECTED profile. Saved through the generic dynamic PUT
+ * as the WHOLE map, merged: this profile's rows are written over the stored
+ * map (a blank clears a name), a key that left this profile's list loses its
+ * name unless another profile still lists it, and every other key is untouched.
+ */
+interface Row { id: number; key: string; name: string }
 interface Profile { id: string; name: string; instrumentCount: number; attributeKeys: string | null }
+
+const fold = (k: string) => k.trim().toLowerCase();
+const nameOf = (labels: AttributeLabels, key: string): string => {
+  const hit = Object.keys(labels).find((k) => fold(k) === fold(key));
+  return hit ? labels[hit] : '';
+};
+
+/**
+ * The map a save sends. Pure, so the merge rule can be tested without the page.
+ * `originalKeys` are the keys this profile listed when the editor was seeded;
+ * `otherProfilesKeys` every key any OTHER profile lists.
+ */
+export function mergeLabels(
+  stored: AttributeLabels,
+  rows: { key: string; name: string }[],
+  originalKeys: string[],
+  otherProfilesKeys: string[],
+): AttributeLabels {
+  const out: AttributeLabels = { ...stored };
+  const drop = (key: string) => { for (const k of Object.keys(out)) if (fold(k) === fold(key)) delete out[k]; };
+  const rowKeys = new Set(rows.map((r) => fold(r.key)).filter(Boolean));
+  const elsewhere = new Set(otherProfilesKeys.map(fold));
+  // A key that left this profile (removed or renamed) takes its name with it —
+  // unless another profile still asks for it, in which case the name is theirs too.
+  for (const key of originalKeys) {
+    if (!rowKeys.has(fold(key)) && !elsewhere.has(fold(key))) drop(key);
+  }
+  for (const r of rows) {
+    const key = r.key.trim();
+    const name = r.name.trim();
+    if (!key) continue;
+    drop(key);
+    if (name) out[key] = name;
+  }
+  return out;
+}
 
 /**
  * The three keys that are NOT attributes — they are real columns the Instruments
@@ -50,11 +97,15 @@ interface Profile { id: string; name: string; instrumentCount: number; attribute
 const PLACEMENT_KEYS = ['Block', 'Area', 'Location'];
 
 let nextId = 1;
-const toRows = (keys: string[]): Row[] => keys.map((key) => ({ id: nextId++, key }));
+const toRows = (keys: string[], labels: AttributeLabels): Row[] => keys.map((key) => ({ id: nextId++, key, name: nameOf(labels, key) }));
 
 export function InstrumentAttributesConfigPage() {
   const { toast } = useToast();
   const { data: profileList, mutate: mutateProfiles } = useSWR<{ data: Profile[] }>('/api/instrument-profiles');
+  // The SUPER_ADMIN editor endpoint for the display-name map (this page is
+  // SUPER_ADMIN); every other screen reads the narrow-slice route instead.
+  const { data: labelsRow, mutate: mutateLabels } = useSWR<{ labels?: unknown }>('/api/config/dynamic/attribute-labels');
+  const storedLabels = coerceAttributeLabels(labelsRow);
 
   /** Empty until the profile list arrives — there is nothing else to edit. */
   const [target, setTarget] = useState<string>('');
@@ -68,6 +119,10 @@ export function InstrumentAttributesConfigPage() {
    * lit until the next keystroke.
    */
   const [saved, setSaved] = useState<string | null>(null);
+  /** The display names as seeded, in the same normalised form a save compares. */
+  const [savedNames, setSavedNames] = useState<string | null>(null);
+  /** The keys the selected profile listed when seeded — what a save may un-name. */
+  const [originalKeys, setOriginalKeys] = useState<string[]>([]);
   /**
    * Which target `rows` / `saved` were seeded from. Without this the dirty check
    * would compare one target's edits against another target's baseline.
@@ -77,7 +132,7 @@ export function InstrumentAttributesConfigPage() {
   const profiles = profileList?.data ?? [];
   const selectedProfile = profiles.find((p) => p.id === target) ?? null;
   const serverKeys = selectedProfile?.attributeKeys;
-  const ready = selectedProfile !== null;
+  const ready = selectedProfile !== null && labelsRow !== undefined;
 
   // Land on the first profile once the list arrives. Deliberately only when
   // nothing is selected, so a revalidation cannot yank the operator off the
@@ -91,11 +146,14 @@ export function InstrumentAttributesConfigPage() {
   useEffect(() => {
     if (ready && seededFor !== target) {
       const keys = parseInstrumentAttributeKeys(serverKeys);
-      setRows(toRows(keys));
+      const seeded = toRows(keys, storedLabels);
+      setRows(seeded);
       setSaved(keys.join('\n'));
+      setSavedNames(JSON.stringify(seeded.map((r) => [r.key, r.name.trim()])));
+      setOriginalKeys(keys);
       setSeededFor(target);
     }
-  }, [ready, seededFor, target, serverKeys]);
+  }, [ready, seededFor, target, serverKeys, storedLabels]);
 
   // Nothing to edit until a profile exists — the keys live ON a profile now, so
   // this page has no meaning without one. Says where to go rather than showing
@@ -142,12 +200,17 @@ export function InstrumentAttributesConfigPage() {
   // What a save would send. Blank rows and surrounding space are dropped here
   // too, so adding an empty row — then removing it — does not read as a change.
   const normalised = rows.map((r) => r.key.trim()).filter(Boolean).join('\n');
-  const dirty = saved === null || normalised !== saved;
+  const keysDirty = saved === null || normalised !== saved;
+  const normalisedNames = JSON.stringify(rows.map((r) => [r.key, r.name.trim()]));
+  const namesDirty = savedNames === null || normalisedNames !== savedNames;
+  const dirty = keysDirty || namesDirty;
 
   const update = (id: number, key: string) =>
     setRows((rs) => (rs ?? []).map((r) => (r.id === id ? { ...r, key } : r)));
+  const rename = (id: number, name: string) =>
+    setRows((rs) => (rs ?? []).map((r) => (r.id === id ? { ...r, name } : r)));
   const remove = (id: number) => setRows((rs) => (rs ?? []).filter((r) => r.id !== id));
-  const add = () => setRows((rs) => [...(rs ?? []), { id: nextId++, key: '' }]);
+  const add = () => setRows((rs) => [...(rs ?? []), { id: nextId++, key: '', name: '' }]);
   const move = (id: number, by: -1 | 1) =>
     setRows((rs) => {
       const list = [...(rs ?? [])];
@@ -191,12 +254,28 @@ export function InstrumentAttributesConfigPage() {
       // `normalised` is the SAME value the dirty check compares against — built
       // once, so the button cannot disagree with what was sent.
       const keys = normalised;
-      // The list is written ON the profile. There is no shared list to write to.
-      await apiClient.put(`/api/instrument-profiles/${target}`, { attributeKeys: keys });
+      if (keysDirty) {
+        // The list is written ON the profile. There is no shared list to write to.
+        await apiClient.put(`/api/instrument-profiles/${target}`, { attributeKeys: keys });
+      }
+      if (namesDirty || keysDirty) {
+        // The display names are ONE global map, written WHOLE (the dynamic PUT
+        // replaces the row) and merged — see `mergeLabels`.
+        const others = profiles.filter((p) => p.id !== target)
+          .flatMap((p) => parseInstrumentAttributeKeys(p.attributeKeys));
+        const labels = mergeLabels(storedLabels, rows, originalKeys, others);
+        await apiClient.put('/api/config/dynamic/attribute-labels', { labels });
+        await mutateLabels();
+        // Every other screen reads the narrow-slice route; refresh it so an open
+        // Attributes panel re-labels at once rather than when its cache expires.
+        await mutateGlobal(ATTRIBUTE_LABELS_URL);
+      }
       // Before the revalidation, not after: this is what makes the button go
       // quiet the moment the save lands, instead of staying lit until the next
       // keystroke.
       setSaved(keys);
+      setSavedNames(normalisedNames);
+      setOriginalKeys(keys.split('\n').filter(Boolean));
       await mutateProfiles();
       toast.success(
         'Attribute keys saved',
@@ -250,7 +329,7 @@ export function InstrumentAttributesConfigPage() {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2">
-          <CardTitle>Attribute keys</CardTitle>
+          <CardTitle>Attribute keys and display names</CardTitle>
           {/* A count, not a quota. There is no cap (2026-08-07 operator
               decision) — this is here so an admin can see how long the
               registration form has become before an operator meets it. */}
@@ -274,6 +353,16 @@ export function InstrumentAttributesConfigPage() {
                   aria-label={`Attribute key ${i + 1}`}
                   onChange={(e) => update(row.id, e.target.value)}
                   className={dupIds.has(row.id) || badCharIds.has(row.id) ? 'border-red-400' : ''}
+                />
+                {/* The key's DISPLAY NAME — what every screen prints for it.
+                    Blank = the key is shown as itself. */}
+                <Input
+                  value={row.name}
+                  autoComplete="off"
+                  maxLength={ATTRIBUTE_LABEL_MAX}
+                  placeholder="Display name"
+                  aria-label={`Display name ${i + 1}`}
+                  onChange={(e) => rename(row.id, e.target.value)}
                 />
                 {/* Order is the order the fields appear on the New Instrument
                     form, so it is worth being able to change without retyping. */}

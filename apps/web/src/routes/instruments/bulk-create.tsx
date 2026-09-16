@@ -4,6 +4,8 @@ import useSWR from 'swr';
 import { Link } from 'react-router-dom';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
+import { useAttributeLabels } from '@/hooks/use-attribute-labels';
+import { parseInstrumentAttributeKeys } from '@digilog/shared';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
@@ -16,9 +18,25 @@ interface ErrorRow { row: number; message: string }
 // Optional so an older API build that omits the field still renders.
 interface BulkResult { created: CreatedRow[]; errors: ErrorRow[]; warnings?: string[] }
 
-const TEMPLATE =
-  'name,code,instrumentType,manufacturer,model,serialNumber,description\n'
-  + 'Cleanroom probe A,PROBE-A1,Temperature,Vaisala,HMT330,SN-001,North wing\n';
+/**
+ * The template is built per PROFILE (2026-09-16, operator: "in bulk upload
+ * template only attributes display names should come"): `code`, then one
+ * column per attribute the profile asks for, headed by its administered
+ * DISPLAY NAME (the key itself where none is set), after an `Instrument ID`
+ * column. No `name` column — the
+ * create form has set name = code since the 2026-08-07 trim and the importer
+ * now does the same. The importer maps each heading back to the KEY, so a file
+ * headed by keys (an older template) still imports.
+ */
+const INSTRUMENT_ID_HEADING = 'Instrument ID';
+
+function buildTemplate(attributeKeys: string[], labelFor: (key: string) => string): string {
+  // Headed as the create form labels it (operator, 2026-09-16); the importer
+  // reads `Instrument ID` and `code` alike.
+  const header = [INSTRUMENT_ID_HEADING, ...attributeKeys.map(labelFor)];
+  const sample = ['CWH/RDU/001-00', ...attributeKeys.map(() => '')];
+  return `${header.join(',')}\n${sample.join(',')}\n`;
+}
 
 function download(filename: string, text: string) {
   const url = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
@@ -42,6 +60,12 @@ export function InstrumentBulkCreatePage() {
   const { data: profiles } = useSWR<{ data: { id: string; name: string }[] }>('/api/instrument-profiles');
   const [profileId, setProfileId] = useState(presetProfileId ?? '');
   const presetProfileName = profiles?.data?.find((p) => p.id === presetProfileId)?.name;
+  // The chosen profile's own key list — the template's columns depend on it.
+  const { data: profile } = useSWR<{ attributeKeys: string | null }>(
+    profileId ? `/api/instrument-profiles/${profileId}` : null,
+  );
+  const { labelFor } = useAttributeLabels();
+  const templateKeys = parseInstrumentAttributeKeys(profile?.attributeKeys);
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -88,14 +112,13 @@ export function InstrumentBulkCreatePage() {
         <CardHeader><CardTitle>1. Prepare the file</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-slate-600">
-            Required columns: <code className="font-mono text-xs">name</code>,{' '}
-            <code className="font-mono text-xs">code</code>. Optional:{' '}
-            <code className="font-mono text-xs">instrumentType, manufacturer, model, serialNumber, description</code>.
+            Columns: Instrument ID, then the profile's attributes. Choose the profile first — the template follows it.
           </p>
-          <p className="text-sm text-slate-600">
-            No profile column — every instrument in the file goes into the one profile you pick below.
-          </p>
-          <Button variant="secondary" onClick={() => download('instrument-template.csv', TEMPLATE)}>
+          <Button
+            variant="secondary"
+            disabled={!profileId || !profile}
+            onClick={() => download('instrument-template.csv', buildTemplate(templateKeys, labelFor))}
+          >
             Download template
           </Button>
         </CardContent>

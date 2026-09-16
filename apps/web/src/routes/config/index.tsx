@@ -182,7 +182,7 @@ const superAdminCards = [
   },
   {
     title: 'Instrument Attributes',
-    description: 'The attribute keys the New Instrument form asks for, per instrument profile',
+    description: 'The attribute keys the New Instrument form asks for, per profile, and what each key is called on screen',
     href: '/config/instrument-attributes',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -190,21 +190,6 @@ const superAdminCards = [
       </svg>
     ),
     gradient: 'from-sky-500 to-cyan-600',
-  },
-  {
-    // Beside Instrument Attributes on purpose: the keys and what they are
-    // called are read together. `cardModuleKey` strips only `/config/`, so the
-    // key `attribute-labels` matches the def and the auto-discovered section
-    // does not list it a second time.
-    title: 'Attribute Display Names',
-    description: 'What each instrument attribute key is called on screen — the stored key never changes',
-    href: '/config/attribute-labels',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 7h16M4 12h10M4 17h7" />
-      </svg>
-    ),
-    gradient: 'from-sky-500 to-indigo-600',
   },
   {
     title: 'Telemetry Keys',
@@ -436,9 +421,13 @@ export function ConfigIndexPage() {
   const cardModuleKey = (href: string) => href.replace(/^\/config\/(dynamic\/)?/, '');
 
   // Every moduleKey already rendered as a hardcoded card — exclude from the dynamic fallback section
-  const hardcodedModuleKeys = new Set(
-    [...configCards, ...superAdminCards].map(c => cardModuleKey(c.href)),
-  );
+  const hardcodedModuleKeys = new Set([
+    ...[...configCards, ...superAdminCards].map(c => cardModuleKey(c.href)),
+    // Edited on the Instrument Attributes page (its Display name column), not on
+    // a card of its own (operator, 2026-09-16) — so the auto-discovered section
+    // must not offer a second door to it.
+    'attribute-labels',
+  ]);
 
   // Group manifest entries by category
   const dynamicModules = (manifest ?? [])

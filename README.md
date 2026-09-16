@@ -24,7 +24,7 @@ PostgreSQL database, Turborepo for task running. Windows-first local dev.
 | Path | What it is for |
 |---|---|
 | `apps/api/` | Fastify backend. Auth, RBAC, audit chain, notifications, instruments, ingest, alarm webhooks. **25** modules (`ls apps/api/src/modules/ \| wc -l`). Prisma schema + migrations live here. |
-| `apps/web/` | React SPA (Vite, Tailwind 4, SWR, react-router). **54** `<Route>` elements (`grep -cE "<Route" apps/web/src/main.tsx`). |
+| `apps/web/` | React SPA (Vite, Tailwind 4, SWR, react-router). **53** `<Route>` elements (`grep -cE "<Route" apps/web/src/main.tsx`). |
 | `packages/shared/` | Contracts both sides import: **44** permissions, **50** reauth actions, **15** sidebar items, the permission tree, Zod schemas. |
 | `packages/queue/` | graphile-worker producer + runner. Postgres-backed — no Redis. |
 | `docs/` | Project docs. `docs/recreation/` is the verified inventory. |

@@ -369,15 +369,13 @@ export function AttributesPanel(
               {items.map(({ key: k, attr: a }) => (
                 <TableRow key={k}>
                   <TableCell className={a ? 'font-medium text-slate-800' : 'font-medium text-slate-500'}>
-                    {/* The administered display name (2026-09-16), with the
-                        KEY beneath it only when the two differ: the key is
-                        what the audit trail names, and an inspector must be
-                        able to match a row on this table to a row on that
-                        one. A key with no display name prints once. */}
-                    {labelFor(k)}
-                    {labelFor(k) !== k && (
-                      <span className="block text-xs font-normal text-slate-400">{k}</span>
-                    )}
+                    {/* The administered display name ONLY (2026-09-16,
+                        operator: "in instruments page or settings page only
+                        attributes display names should be display"). The KEY
+                        is not printed; it rides in the tooltip and in every
+                        button's accessible name, and it is what every request
+                        and audit row carries. */}
+                    <span title={k}>{labelFor(k)}</span>
                   </TableCell>
                   <TableCell>
                     {a === null ? (

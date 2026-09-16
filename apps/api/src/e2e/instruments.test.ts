@@ -61,7 +61,9 @@ describe('Instruments registry', () => {
 
   it('bulk-creates with partial success and returns one token per created row', async () => {
     const stamp = Date.now();
-    const csv = `name,code\nBulk A,BA-${stamp}\n,BB-${stamp}`;
+    // A blank NAME is no longer an error (it becomes the code, 2026-09-16); a
+    // blank CODE still is.
+    const csv = `name,code\nBulk A,BA-${stamp}\nBulk B,`;
     const res = await app.inject({
       method: 'POST', url: '/api/instruments/bulk', headers: auth,
       payload: { csv, profileId: await fixtureProfileId('fixture:instruments') },

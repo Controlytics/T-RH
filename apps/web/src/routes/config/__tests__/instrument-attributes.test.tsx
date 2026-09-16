@@ -29,8 +29,16 @@ const PROFILES = {
 
 const mutateProfiles = vi.fn();
 let profilesResponse: unknown = PROFILES;
+/** The stored display-name map, as the SUPER_ADMIN editor endpoint returns it. */
+const LABELS = { current: {} as Record<string, string> };
+const mutateLabels = vi.fn();
+const globalMutate = vi.fn();
 vi.mock('swr', () => ({
-  default: () => ({ data: profilesResponse, mutate: mutateProfiles }),
+  default: (key: string) => {
+    if (key === '/api/config/dynamic/attribute-labels') return { data: { labels: LABELS.current }, mutate: mutateLabels };
+    return { data: profilesResponse, mutate: mutateProfiles };
+  },
+  mutate: (...a: unknown[]) => globalMutate(...a),
 }));
 
 const put = vi.fn();
@@ -52,12 +60,67 @@ const selectTarget = (value: string) =>
   fireEvent.change(screen.getByRole('combobox', { name: /editing/i }), { target: { value } });
 
 const keyField = (n: number) => screen.getByRole('textbox', { name: `Attribute key ${n}` });
+const nameField = (n: number) => screen.getByRole('textbox', { name: `Display name ${n}` });
 const save = () => fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
 
 beforeEach(() => {
   profilesResponse = PROFILES;
+  LABELS.current = {};
   put.mockReset().mockResolvedValue({});
   mutateProfiles.mockReset();
+  mutateLabels.mockReset();
+  globalMutate.mockReset();
+});
+
+/**
+ * Display names (2026-09-16, operator: "dont give as seperate configuration
+ * add in instrument attributes configuration"). A Display name box beside each
+ * key. The names are ONE global map (`attribute-labels`) — the same key is
+ * called the same thing in every profile — saved through the generic dynamic
+ * PUT as the WHOLE map, merged: this profile's rows are written over the stored
+ * map, other profiles' names are untouched, a blank clears the key's name.
+ */
+describe('InstrumentAttributesConfigPage — display names', () => {
+  it('shows a Display name box beside each key, pre-filled from the stored map', () => {
+    LABELS.current = { Room: 'Cleanroom number' };
+    renderPage();
+    expect(nameField(1)).toHaveValue('');       // Block
+    expect(nameField(3)).toHaveValue('Cleanroom number');
+  });
+
+  it('a name alone is dirty, saves the merged WHOLE map by KEY, and refreshes every reader', async () => {
+    LABELS.current = { Room: 'Cleanroom number', 'Asset Tag': 'Tag' };
+    renderPage();
+    // Clean: the button reads "Saved" and is disabled. A name change alone lights it.
+    expect(screen.getByRole('button', { name: /^saved$/i })).toBeDisabled();
+    fireEvent.change(nameField(2), { target: { value: '  Site area ' } });
+    fireEvent.change(nameField(3), { target: { value: '' } });   // clears Room's name
+    save();
+    await waitFor(() => expect(put).toHaveBeenCalledWith('/api/config/dynamic/attribute-labels', {
+      labels: { 'Asset Tag': 'Tag', Area: 'Site area' },
+    }));
+    // The keys did not change, so the profile is NOT rewritten.
+    expect(put.mock.calls.every(([url]) => !String(url).includes('/api/instrument-profiles/'))).toBe(true);
+    await waitFor(() => expect(globalMutate).toHaveBeenCalledWith('/api/config/attribute-labels/current'));
+  });
+
+  it('a renamed KEY carries its display name to the new key', async () => {
+    LABELS.current = { Room: 'Cleanroom number' };
+    renderPage();
+    fireEvent.change(keyField(3), { target: { value: 'Room No' } });
+    save();
+    await waitFor(() => expect(put).toHaveBeenCalledWith('/api/instrument-profiles/p1', { attributeKeys: 'Block\nArea\nRoom No' }));
+    await waitFor(() => expect(put).toHaveBeenCalledWith('/api/config/dynamic/attribute-labels', {
+      labels: { 'Room No': 'Cleanroom number' },
+    }));
+  });
+
+  it('switching profile shows THAT profile\'s names for its keys', () => {
+    LABELS.current = { 'Asset Tag': 'Tag' };
+    renderPage();
+    selectTarget('p2');
+    expect(nameField(1)).toHaveValue('Tag');
+  });
 });
 
 describe('InstrumentAttributesConfigPage — profile picker', () => {
@@ -93,14 +156,16 @@ describe('InstrumentAttributesConfigPage — profile picker', () => {
     ));
   });
 
-  it('never writes to the global config key', async () => {
+  it('never writes the KEYS to the retired global config row', async () => {
     // REGRESSION GUARD: the `instrument-attributes` config key still exists but
     // seeds nothing. A save that reached it would edit a list no form asks for.
+    // (Display NAMES do go to `/api/config/dynamic/attribute-labels` — that is
+    // a different row, and the one place they live.)
     renderPage();
     fireEvent.change(keyField(1), { target: { value: 'Block X' } });
     save();
     await waitFor(() => expect(put).toHaveBeenCalled());
-    expect(put.mock.calls.every(([url]) => !String(url).includes('/api/config/'))).toBe(true);
+    expect(put.mock.calls.every(([url]) => !String(url).includes('instrument-attributes'))).toBe(true);
   });
 
   it('refuses to switch profile while dirty unless the discard is confirmed', () => {

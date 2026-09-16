@@ -127,14 +127,15 @@ const editValue = (from: string, to: string, remark = REMARK) => {
 
 describe('AttributesPanel', () => {
   describe('display names (2026-09-16)', () => {
-    it('prints the configured display name with the key beneath it, and a bare key as itself', () => {
+    it('prints ONLY the configured display name, and a bare key as itself', () => {
+      // Operator (2026-09-16): "in instruments page or settings page only
+      // attributes display names should be display" — the key is not printed
+      // beside it. It stays in the row's accessible names and in every request.
       rows.current = [attr('Enable_Temp_NMT', '1'), attr('Building', 'CWH Block')];
       labels.current = { Enable_Temp_NMT: 'High temperature alarm enabled' };
       render(<AttributesPanel instrumentId="i-1" profileId="p-1" canEdit />);
       expect(screen.getByText('High temperature alarm enabled')).toBeInTheDocument();
-      // The key is still on the page: it is what the audit trail names.
-      expect(screen.getByText('Enable_Temp_NMT')).toBeInTheDocument();
-      // An unnamed key prints once, as itself — no duplicate line under it.
+      expect(screen.queryByText('Enable_Temp_NMT')).not.toBeInTheDocument();
       expect(screen.getAllByText('Building')).toHaveLength(1);
     });
 

@@ -23,12 +23,15 @@ import { errorResponses } from '../../lib/error-schemas.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { generateToken, hashToken, tokenPrefix, tokenMatches } from './token.js';
 import { encryptToken, decryptToken, tokenKeyConfigured } from './token-crypto.js';
-import { parseInstrumentCsv, type InstrumentDraft } from './bulk-csv.js';
+import { parseInstrumentCsv, type InstrumentDraft, type AttributeColumn } from './bulk-csv.js';
 import { buildTelemetryOverview, loadAliases, instrumentLimits, loadActiveWindowMinutes } from './telemetry-overview.js';
 import { loadLimitConfig, enabledBoundsFor } from '../alarms/load-limits.js';
 import { loadDecimalsConfig, decimalsFor, annotateAttribute } from './decimals.js';
 import { loadAttributeAccess, refuseAttributeWrite, needsReauth } from './attribute-access.js';
-import { ATTRIBUTE_REMARK_MAX, lttb, isInstrumentReporting } from '@digilog/shared';
+import {
+  ATTRIBUTE_REMARK_MAX, lttb, isInstrumentReporting,
+  parseInstrumentAttributeKeys, coerceAttributeLabels, ATTRIBUTE_LABELS_CONFIG_KEY,
+} from '@digilog/shared';
 import { invalidateIngestAuthCache } from './ingest-auth.js';
 import { invalidateChildMapCache } from './gateway-children.js';
 import {
@@ -1498,7 +1501,11 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       return reply.code(400).send(PROFILE_NOT_FOUND);
     }
 
-    const { rows, rowNumbers, errors, warnings } = parseInstrumentCsv(parsed.data.csv);
+    // The file may carry the profile's ATTRIBUTES, headed by their administered
+    // display names (2026-09-16). The parser maps a heading back to the KEY;
+    // this is the one place the profile's list and the display-name map meet.
+    const attributeColumns = await bulkAttributeColumns(parsed.data.profileId);
+    const { rows, rowNumbers, errors, warnings } = parseInstrumentCsv(parsed.data.csv, attributeColumns);
     const ctx = buildContext(req);
     const created: { id: string; code: string; name: string; token: string }[] = [];
     // Rows are created one transaction at a time, not one big one: a code that
@@ -1508,14 +1515,20 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     for (let i = 0; i < rows.length; i++) {
       const draft: InstrumentDraft = rows[i];
       try {
-        created.push(await createWithCredential(
+        const { attributes, ...identity } = draft;
+        const row = await createWithCredential(
           {
-            ...sanitizeStrings(draft as unknown as Record<string, unknown>, IDENTITY_FIELDS),
+            ...sanitizeStrings(identity as unknown as Record<string, unknown>, IDENTITY_FIELDS),
             // One profile for the whole upload — see the body schema.
             profileId: parsed.data.profileId,
           },
           ctx,
-        ));
+        );
+        created.push(row);
+        // AFTER the instrument's own transaction, as the single form does with
+        // its per-attribute POSTs: a bad attribute must not undo a registered
+        // instrument, and each attribute is a §11 record of its own.
+        if (attributes) await writeInitialAttributes(row.id, row.code, attributes, ctx);
       } catch (err) {
         if (isDuplicateCode(err)) {
           errors.push({ row: rowNumbers[i], message: `code "${draft.code}" already exists` });
@@ -2299,6 +2312,63 @@ export default async function instrumentRoutes(app: FastifyInstance) {
    * of play.
    */
   const attributeOwnerSelect = { code: true, gatewayId: true } as const;
+
+  /**
+   * The attribute columns a bulk file for this profile may carry: the
+   * profile's own key list, each with its administered display name (the KEY
+   * when none is set). Read here rather than in the parser so the parser stays
+   * pure and its tests need no database.
+   */
+  async function bulkAttributeColumns(profileId: string): Promise<AttributeColumn[]> {
+    const [profile, labelsRow] = await Promise.all([
+      prisma.instrumentProfile.findUnique({ where: { id: profileId }, select: { attributeKeys: true } }),
+      prisma.systemConfig.findUnique({ where: { configKey: ATTRIBUTE_LABELS_CONFIG_KEY } }),
+    ]);
+    const labels = coerceAttributeLabels(labelsRow?.configValue);
+    const fold = (s: string) => s.trim().toLowerCase();
+    return parseInstrumentAttributeKeys(profile?.attributeKeys).map((key) => {
+      const hit = Object.keys(labels).find((k) => fold(k) === fold(key));
+      return { key, label: hit ? labels[hit] : key };
+    });
+  }
+
+  /**
+   * First-fill of several attributes on a just-created instrument (bulk
+   * upload). Mirrors `POST /:id/attributes` for a NEW key: no remark (a first
+   * fill is registration, not a change), one INSTRUMENT_ATTRIBUTE_SET audit
+   * row per key in the same transaction as its write, the device told after
+   * the commit. The Attribute Access gate is not consulted — the caller holds
+   * INSTRUMENT_CREATE and is registering, exactly as the create form does.
+   */
+  async function writeInitialAttributes(
+    instrumentId: string,
+    code: string,
+    attributes: Record<string, string>,
+    ctx: ReturnType<typeof buildContext>,
+  ): Promise<void> {
+    const entries = Object.entries(attributes).filter(([, v]) => v.trim() !== '');
+    if (entries.length === 0) return;
+    await prisma.$transaction(async (tx) => {
+      for (const [key, value] of entries) {
+        await lockAttribute(tx, instrumentId, key);
+        await tx.instrumentAttribute.upsert({
+          where: { instrumentId_key: { instrumentId, key } },
+          create: { instrumentId, key, value },
+          update: { value },
+        });
+        await auditLog({
+          action: 'INSTRUMENT_ATTRIBUTE_SET', targetType: 'Instrument', targetId: instrumentId,
+          afterValue: { code, attribute: key, value },
+          signatureMeaning: `Attribute "${key}" set on instrument "${codeLabel(code)}"`,
+          userId: ctx.userId, userRole: ctx.userRole,
+          ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+        }, tx);
+      }
+    });
+    const owner = await prisma.instrument.findUnique({ where: { id: instrumentId }, select: attributeOwnerSelect });
+    if (!owner) return;
+    for (const [key, value] of entries) await announceAttributeChange(instrumentId, owner, key, value);
+  }
 
   /**
    * Tell the device an attribute moved. CALLED AFTER THE COMMIT, never inside

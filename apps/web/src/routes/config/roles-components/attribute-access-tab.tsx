@@ -152,13 +152,10 @@ export function AttributeAccessTab() {
                           onChange={() => toggleKey(r, k)}
                         className="ctl-check" />
                         {/* Display name on the label, the KEY in the title
-                            and beside it when they differ — the rule is
-                            stored by key, and an admin must be able to see
-                            which key a name stands for. */}
-                        <span className="truncate" title={k}>
-                          {labelFor(k)}
-                          {labelFor(k) !== k && <span className="ml-1 text-xs text-slate-400">({k})</span>}
-                        </span>
+                            only (operator: only display names on screen) —
+                            the rule is stored by key, so the tooltip is how
+                            an admin sees which key a name stands for. */}
+                        <span className="truncate" title={k}>{labelFor(k)}</span>
                       </label>
                     ))}
                   </div>

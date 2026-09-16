@@ -194,7 +194,8 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   for alarm webhook targets; categories unchanged.
 - **Config:** **32** definitions (`config/defs/*.def.ts`) + auto-discovery (31 → 32 on
   2026-09-16: `attribute-labels.def.ts` — what each instrument attribute KEY is CALLED
-  on screen; its own page, see the Attribute Display Names note. 30 → 31 on
+  on screen; NO page of its own — edited as a column on the Instrument Attributes
+  page, see the Attribute Display Names note. 30 → 31 on
   2026-09-07: `report-approvers.def.ts` — which roles may APPROVE a report; renders
   through the dynamic config page with a `superAdminCards` card, so the page count
   did NOT move; first def to use `dynamicOptionsSource`. 29 → 30 on
@@ -206,8 +207,9 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   2026-08-31: `sensor-range-alarms.def.ts`, the fifth alarm source; 26 → 27 on
   2026-08-31: `rs485-alarms.def.ts`, the fourth alarm source; 25 → 26 the same day:
   `inactivity-alarms.def.ts`),
-  **24** pages under `apps/web/src/routes/config/` (23 → 24 on 2026-09-16:
-  `attribute-labels.tsx`; 24 -> 23 on 2026-08-31 with the
+  **23** pages under `apps/web/src/routes/config/` (an `attribute-labels.tsx` existed
+  for a few hours on 2026-09-16 and was folded into `instrument-attributes.tsx` at
+  the operator's direction — the count did NOT move; 24 -> 23 on 2026-08-31 with the
   alarm-rules removal — **this line and the duplicate at "Config:" below both still
   read 24 on 2026-09-01 and were corrected then. They were ALREADY STALE; the
   severity removal that day moved no count.** Earlier 25 -> 24 on 2026-08-28:
@@ -216,7 +218,7 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   `alarm-webhooks.tsx`. **The def count did NOT move** — alarm webhooks are a
   real CRUD module with their own tables, not a `system_config` row, so there
   is no `*.def.ts` for them.
-- **Frontend:** **54** `<Route`s in `main.tsx` (53 → 54, 2026-09-16: `/config/attribute-labels`; 52 → 53, 2026-09-08: `/settings`; 51 → 52, 2026-09-07: `/reports`; 50 → 51 the same day: `/data-report`) (51 → 50, 2026-08-31: `/config/alarm-rules` removed with the rule feature) (50 → 51, 2026-08-29: `/config/export-options`, a page that had a config def and a dashboard card but no route, so it was unreachable. Earlier 49 → 50, 2026-08-27:
+- **Frontend:** **53** `<Route`s in `main.tsx` (a `/config/attribute-labels` route existed for a few hours on 2026-09-16 and was removed the same day — unchanged; 52 → 53, 2026-09-08: `/settings`; 51 → 52, 2026-09-07: `/reports`; 50 → 51 the same day: `/data-report`) (51 → 50, 2026-08-31: `/config/alarm-rules` removed with the rule feature) (50 → 51, 2026-08-29: `/config/export-options`, a page that had a config def and a dashboard card but no route, so it was unreachable. Earlier 49 → 50, 2026-08-27:
   `/config/alarm-webhooks`).
 - **Queue backend:** graphile-worker (Postgres-backed), **6** tasks.
 - **Tenancy:** single-tenant, single-site. JWT `scope` always stamps `GLOBAL`.
@@ -302,7 +304,7 @@ history; `docs/recreation/` holds the inventory.
     code accepted, reading lands, UUID refused, foreign token/code refused,
     foreign topic publish and subscribe refused.
 - **Instrument grouping — THREE concepts, one job each (2026-08-13).** Do not confuse them: **`FunctionalLocation`** (Block > Area tree, `Instrument.functionalLocationId`) is the AUTHORITATIVE logical grouping; **`roomId`** → `FloorplanRoom` is geometry on a drawn plan and drives the graphical view; **`profileId`** is device type. The free-text `Instrument.block` / `.area` columns are SUPERSEDED — no longer read for grouping, kept only so the migration stays comparable. A Block's instruments are its own PLUS its Areas', resolved by `functional-locations/tree.ts:resolveLocationIds()`; querying `functionalLocationId = :id` directly silently omits the Areas.
-- **Config:** **32 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **24** corresponding pages (both re-derived `ls | wc -l` 2026-09-16: defs 31 → 32 with `attribute-labels.def.ts` AND pages 23 → 24 with `attribute-labels.tsx` — the one def since 2026-08-27 to add a page of its own; earlier defs re-derived 2026-09-07, 30 → 31 with `report-approvers.def.ts`; both re-derived 2026-09-01; defs 29 → 30 that day with `trend-widgets.def.ts`, which adds no page — it renders through the dynamic config page; the page count read 24 here and in System Stats above until then and was **stale, not moved** — `alarm-rules.tsx` went with the 2026-08-31 rule removal and neither line was re-synced. This is the THIRD time this bullet has drifted from the one above it; the duplication itself is the defect it keeps warning about). **This bullet's def count went stale TWICE while the System Stats section above was current — 25 here against 26 then 27 there.** It is the same self-contradiction the 2026-08-29 audit raised as finding M8 for the page count, in the same bullet, and re-syncing only the half that was wrong that day is why it came back. Two live inventory lines for one number is the actual defect; re-derive both from `ls` whenever either moves. Defs 25 → 26 → 27 on 2026-08-31 (`inactivity-alarms.def.ts`, then `rs485-alarms.def.ts` — both render through the dynamic config page, so the page count did not move). Earlier note, still true: the 25 predated `dashboard-cards.tsx` being deleted on 2026-08-28. Defs verified `ls` 2026-08-27, unchanged at 25 — the def and page counts are NOT equal and should not be expected to be: `alarm-webhooks.tsx` is a page with no def (a CRUD module, not a `system_config` row), and several defs render through the dynamic config page with no file of their own. Earlier: pages 25 → 24 the same day — `routes/config/role-assignments.tsx` deleted as dead code: its 7 config defs went in the Phase 0 strip and `system_config` held 0 rows for them, so every section read an unregistered `/api/config/dynamic/<key>` route. Earlier counts VERIFIED by `ls` 2026-08-17 — `alarm-limits.def.ts` added 2026-08-17: super-admin config for the instrument-limit alarm work — an ordered alias list of attribute keys per bound (High/Low Temperature/Humidity Limit), since this install's keys have already drifted; plus a master switch and four status wordings. (It also carried a `severity`
+- **Config:** **32 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **23** corresponding pages (both re-derived `ls | wc -l` 2026-09-16: defs 31 → 32 with `attribute-labels.def.ts`, which adds NO page — its Display name column lives on `instrument-attributes.tsx`; earlier defs re-derived 2026-09-07, 30 → 31 with `report-approvers.def.ts`; both re-derived 2026-09-01; defs 29 → 30 that day with `trend-widgets.def.ts`, which adds no page — it renders through the dynamic config page; the page count read 24 here and in System Stats above until then and was **stale, not moved** — `alarm-rules.tsx` went with the 2026-08-31 rule removal and neither line was re-synced. This is the THIRD time this bullet has drifted from the one above it; the duplication itself is the defect it keeps warning about). **This bullet's def count went stale TWICE while the System Stats section above was current — 25 here against 26 then 27 there.** It is the same self-contradiction the 2026-08-29 audit raised as finding M8 for the page count, in the same bullet, and re-syncing only the half that was wrong that day is why it came back. Two live inventory lines for one number is the actual defect; re-derive both from `ls` whenever either moves. Defs 25 → 26 → 27 on 2026-08-31 (`inactivity-alarms.def.ts`, then `rs485-alarms.def.ts` — both render through the dynamic config page, so the page count did not move). Earlier note, still true: the 25 predated `dashboard-cards.tsx` being deleted on 2026-08-28. Defs verified `ls` 2026-08-27, unchanged at 25 — the def and page counts are NOT equal and should not be expected to be: `alarm-webhooks.tsx` is a page with no def (a CRUD module, not a `system_config` row), and several defs render through the dynamic config page with no file of their own. Earlier: pages 25 → 24 the same day — `routes/config/role-assignments.tsx` deleted as dead code: its 7 config defs went in the Phase 0 strip and `system_config` held 0 rows for them, so every section read an unregistered `/api/config/dynamic/<key>` route. Earlier counts VERIFIED by `ls` 2026-08-17 — `alarm-limits.def.ts` added 2026-08-17: super-admin config for the instrument-limit alarm work — an ordered alias list of attribute keys per bound (High/Low Temperature/Humidity Limit), since this install's keys have already drifted; plus a master switch and four status wordings. (It also carried a `severity`
   select until 2026-09-01, when severity stopped being administered anywhere; the
   def count did not move — a setting was removed, not a def.) Renders through the dynamic config page, so no `routes/config/*.tsx` of its own — the page count stays 25. The "23 corresponding pages" recorded here 2026-08-11 was already stale before this change (the live page count was 25, per `apps/web/CLAUDE.md`'s 2026-08-14 verification); it was never re-synced here until now. Earlier: `telemetry-slots.def.ts` added 2026-08-11: which telemetry keys the dashboard reads as temperature and humidity, since ingest stores whatever key a device sends. Renders through the dynamic config page, so no `routes/config/*.tsx` of its own; the Floorplans placement editor IS a page. Earlier counts VERIFIED by `ls` 2026-08-07 — the previous "36 / 34" was inherited from DigiLog and was never true in this fork; `instrument-attributes.def.ts` added 2026-08-07 — the attribute keys the New Instrument form asks for, renders via the dynamic config page so no new `routes/config/*.tsx`)
 - **Display precision (2026-08-19):** decimal places for temperature/humidity come from each
@@ -324,7 +326,7 @@ history; `docs/recreation/` holds the inventory.
   `reason` column; a first fill does not). Admin surface: Config → Roles & Access → Attribute Access.
   Migration `20260819120000_role_attribute_access`, drift guard PASS, applied to both databases.
 - **Themes:** 10 preset color themes (Ocean / Sapphire / Emerald / Amethyst / Sunset / Slate / Ruby / Forest / Midnight / Coral)
-- **Frontend:** **54** Routes in `main.tsx` (53 → 54 on 2026-09-16: `/config/attribute-labels`, the Attribute Display Names page; 52 → 53 on 2026-09-08: `/settings`, the Settings page; 51 → 52 on 2026-09-07: `/reports`, the report review workflow; 50 → 51 the same day: `/data-report`, the Instrument History widget's own page; re-derived `grep -cE "<Route"` that day. Earlier, re-derived 2026-09-03 — this line read **51** and was ALREADY STALE: the 2026-08-31 alarm-rules removal took it 51 → 50 and re-synced only the System Stats copy above, which is the same duplicate-inventory defect this file keeps warning about. Earlier verified 2026-08-29 — 50 → 51: `/config/export-options` registered, having never been reachable. Earlier verified 2026-08-27 — 49 → 50: new `/config/alarm-webhooks` page; earlier 48 → 49 on 2026-08-24: the `/instruments/:id/trend` page; the "77" was inherited from upstream DigiLog and was never true in this fork; `/config/role-assignments` removed 2026-08-19 as dead code, 49 → 48), **23** custom hooks (22 → 23 on 2026-09-16: `use-attribute-labels.ts`, the ONE browser reader of the attribute display names; earlier 20 → 22, re-derived `ls apps/web/src/hooks/ | wc -l` 2026-09-03 — ALREADY STALE, nothing on 2026-09-03 added a hook; earlier 18 → 20 on 2026-08-29, audit finding M8), **20** lib modules (19 → 20 on 2026-09-03: `lib/document-identity.ts`, the browser-tab applier) (`ls apps/web/src/hooks/ | wc -l` / `ls apps/web/src/lib/ | wc -l`, each including its own `__tests__` subfolder as one entry — lib 18 → 19 corrected 2026-08-27: `lib/background-style.ts` landed with the wallpaper work (`764fff5`) and this line was never re-synced; the 2026-08-27 trend-sampling work added NO lib module — the "26 / 30" this file carried for months was never true against the live tree and was never re-verified until now)
+- **Frontend:** **53** Routes in `main.tsx` (unchanged on 2026-09-16 — a `/config/attribute-labels` route lived for a few hours and went the same day; 52 → 53 on 2026-09-08: `/settings`, the Settings page; 51 → 52 on 2026-09-07: `/reports`, the report review workflow; 50 → 51 the same day: `/data-report`, the Instrument History widget's own page; re-derived `grep -cE "<Route"` that day. Earlier, re-derived 2026-09-03 — this line read **51** and was ALREADY STALE: the 2026-08-31 alarm-rules removal took it 51 → 50 and re-synced only the System Stats copy above, which is the same duplicate-inventory defect this file keeps warning about. Earlier verified 2026-08-29 — 50 → 51: `/config/export-options` registered, having never been reachable. Earlier verified 2026-08-27 — 49 → 50: new `/config/alarm-webhooks` page; earlier 48 → 49 on 2026-08-24: the `/instruments/:id/trend` page; the "77" was inherited from upstream DigiLog and was never true in this fork; `/config/role-assignments` removed 2026-08-19 as dead code, 49 → 48), **23** custom hooks (22 → 23 on 2026-09-16: `use-attribute-labels.ts`, the ONE browser reader of the attribute display names; earlier 20 → 22, re-derived `ls apps/web/src/hooks/ | wc -l` 2026-09-03 — ALREADY STALE, nothing on 2026-09-03 added a hook; earlier 18 → 20 on 2026-08-29, audit finding M8), **20** lib modules (19 → 20 on 2026-09-03: `lib/document-identity.ts`, the browser-tab applier) (`ls apps/web/src/hooks/ | wc -l` / `ls apps/web/src/lib/ | wc -l`, each including its own `__tests__` subfolder as one entry — lib 18 → 19 corrected 2026-08-27: `lib/background-style.ts` landed with the wallpaper work (`764fff5`) and this line was never re-synced; the 2026-08-27 trend-sampling work added NO lib module — the "26 / 30" this file carried for months was never true against the live tree and was never re-verified until now)
 - **Queue backend:** graphile-worker (Postgres-backed); **6** worker tasks —
   `notification`, `password_expiry_check`, `session_sweep`,
   `telemetry_partition_maintenance`, `alarm_evaluation`, `alarm_webhook`
@@ -874,45 +876,76 @@ GET    /api/config/report-approvers/current     — the administered approver ro
   lists match on. None of that moved. What moved is the word a PERSON reads
   beside the value. Config def `attribute-labels` (31 → **32** defs;
   SUPER_ADMIN-only; ONE `json` setting `labels: {key: name}`; a `zodSchema`
-  refuses a non-map body or an over-long name) with its OWN page
-  `/config/attribute-labels` (23 → **24** pages, 53 → **54** routes) — a Key |
-  Display name table pre-filled with every key the server knows (the same
-  union `GET /api/roles/attribute-access` computes for the Attribute Access
-  picker: every profile's list plus every key recorded on an instrument), plus
-  Add key for one it has not seen. Served to EVERY authenticated user by
-  `GET /api/config/attribute-labels/current` (the EIGHTH narrow-slice route),
-  read in the browser by ONE hook, `hooks/use-attribute-labels.ts` (22 → **23**
-  hooks). No migration, model, enum, permission, reauth action, module or
-  sidebar item.
-  - **GLOBAL, not per profile**, by the operator's choice: a key means the same
-    thing wherever it appears, and a key typed freely on an instrument — one no
-    profile lists — still gets its name.
+  refuses a non-map body or an over-long name). **Edited as a Display name
+  column beside each key on Configuration → Instrument Attributes** — a
+  separate card and page lived for a few hours and went on the operator's
+  "dont give as seperate configuration add in instrument attributes
+  configuration"; pages stay **23**, routes stay **53**. Served to EVERY
+  authenticated user by `GET /api/config/attribute-labels/current` (the EIGHTH
+  narrow-slice route), read in the browser by ONE hook,
+  `hooks/use-attribute-labels.ts` (22 → **23** hooks). No migration, model,
+  enum, permission, reauth action, module or sidebar item.
+  - **GLOBAL map, edited per profile.** A key means the same thing wherever it
+    appears, so one `attribute-labels` row holds every name; the Instrument
+    Attributes page shows and edits the names of the SELECTED profile's keys.
+    `mergeLabels()` (exported from `routes/config/instrument-attributes.tsx`,
+    pure) writes this profile's rows over the stored map, clears a name on
+    blank, carries a name across a key RENAME, and drops the name of a key that
+    left this profile unless another profile still lists it. Save PUTs the
+    WHOLE map (the dynamic PUT replaces the row) and only when names or keys
+    changed; the profile is rewritten only when keys changed.
   - **`coerceAttributeLabels()` / `attributeLabel()` in `@digilog/shared` are
     the ONE reader and the ONE lookup.** Blank falls back to the KEY, never to
     an empty heading (the `alarmTypeName()` rule); lookup folds case, as
     `parseInstrumentAttributeKeys` and the Attributes panel already do. No
     component may default a label to a literal.
-  - **Where the name shows:** the New Instrument form's field labels, the
-    Attributes panel (detail page and the Settings Edit dialog — with the KEY in
-    small text beneath, only when the two differ, so an inspector can match a
-    row to its audit entry), the Settings widget tiles, and the Attribute Access
-    key picker (name, key in brackets). **Where the KEY stays:** MQTT payloads,
-    the CSV template, audit rows, `Delete <key>` button names, the alarm-limits
-    alias lists, and the Add-attribute dialog, which still asks for the key
-    because the key is what is stored.
-  - **`hasCustomPage` is FALSE on the def although it has a page.** `true`
-    would skip the generic `/dynamic/attribute-labels` GET/PUT, which is the
-    endpoint that validates against `zodSchema`, enforces `requiredRole` and
-    writes the `CONFIG_CHANGED` audit row; `customPagePath` is what the
-    Configuration index follows. The page's Save sends the WHOLE map — that PUT
-    REPLACES the row, the `trend-widgets` lesson — then revalidates the
-    narrow-slice URL so an open Attributes panel re-labels at once.
+  - **Where the name shows — and ONLY the name** (operator: "in instruments
+    page or settings page only attributes display names should be display"):
+    the New Instrument form's field labels, the Attributes panel (detail page
+    and the Settings Edit dialog), the Settings widget tiles, the Attribute
+    Access key picker, and the BULK UPLOAD TEMPLATE's column headings. The key
+    is not printed beside the name anywhere; it rides in a `title` tooltip on
+    the panel and picker labels. **Where the KEY stays:** MQTT payloads, audit
+    rows, `Delete <key>` button names and the fill input's `aria-label`, the
+    alarm-limits alias lists, and the Add-attribute dialog, which still asks
+    for the key because the key is what is stored.
+  - **The bulk-upload template carries the profile's ATTRIBUTES, headed by
+    display names (2026-09-16, operator: "in bulk upload template only
+    attributes display names should come").** Until then the template carried
+    NO attribute columns at all (`name,code,instrumentType,…`) and the importer
+    read none. Now: the template is built per chosen profile — an `Instrument
+    ID` column (the create form's words; operator: "in bulk option in template
+    Instrument ID field and Instrument Profile selection dropdown"), then one
+    column per key the profile asks for, headed `labelFor(key)`; the Download
+    button is disabled until a profile is chosen. The parser normalises an
+    `Instrument ID` heading to `code` and still accepts `code` for files
+    operators already have. `parseInstrumentCsv(csv,
+    attributeColumns)` maps a heading back to the KEY by display name OR by key,
+    case-folded, so a file headed by keys still imports; a heading that is
+    neither is ignored with ONE whole-file warning (a typo must not become an
+    attribute). The route resolves the columns (`bulkAttributeColumns`) and,
+    after each instrument's own transaction, `writeInitialAttributes` upserts
+    the filled cells with one `INSTRUMENT_ATTRIBUTE_SET` audit row per key (a
+    first fill, no remark) and announces each to the device — the single form's
+    per-attribute POSTs, without the HTTP. **`name` is no longer a required
+    column**: blank or absent = the code, as the create form has filled it since
+    2026-08-07; a `name` column given is still honoured. The parser stays pure —
+    its tests take the columns as an argument.
+  - **`hasCustomPage` is FALSE on the def** — `true` would skip the generic
+    `/dynamic/attribute-labels` GET/PUT, which is the endpoint that validates
+    against `zodSchema`, enforces `requiredRole` and writes the `CONFIG_CHANGED`
+    audit row. `customPagePath` points at `/config/instrument-attributes`, and
+    `config/index.tsx` names `attribute-labels` in its hardcoded-key exclusion
+    set so the auto-discovered section never offers a second door.
   - Pinned by 11 shared unit tests, 6 API e2e (`attribute-labels.e2e.test.ts`,
     non-admin reads / SUPER_ADMIN-only writes / COERCED read-back asserted key
-    by key over HTTP), 5 hook, 6 config-page, and one case each on the form,
-    panel, Settings and Attribute Access tests. Mutation-checked four ways: the
-    case-fold, the response schema's `additionalProperties`, the blank-name
-    drop, and the narrow-slice revalidation.
+    by key over HTTP), 7 parser cases + 1 bulk e2e (`bulk-attributes.e2e.test.ts`:
+    display-name headings land as attributes stored and audited BY KEY, blank
+    cells not written, unknown heading warns once), 5 hook, 4 Instrument
+    Attributes page cases (incl. the rename carry-over), 5 bulk-template cases,
+    and one case each on the form, panel, Settings and Attribute Access tests.
+    Mutation-checked: the case-fold, the response schema's `additionalProperties`,
+    and the merge's left-this-profile rule.
 - **The New Instrument form's Instrument ID field carries NO pattern, hint or
   placeholder (2026-09-16, operator: "dont put any instructions, user will
   enter different Instrument ids format so it should not restricted").** The

@@ -21,14 +21,16 @@ import { ATTRIBUTE_LABELS_CONFIG_KEY, ATTRIBUTE_LABEL_MAX, ATTRIBUTE_LABEL_KEY_M
  * serves the coerced map to every authenticated user, the same pattern as
  * `/alarm-type-names/current`. The def itself stays SUPER_ADMIN-only.
  *
- * Its own page (`/config/attribute-labels`) rather than the dynamic renderer: a
- * key → name table pre-filled with every key in use is a form an admin can fill
- * in; a JSON textarea is a way to make that fail. `hasCustomPage` stays FALSE
- * on purpose — `true` would skip the generic `/dynamic/attribute-labels`
- * GET/PUT, which is the endpoint that validates against `zodSchema`, enforces
- * `requiredRole` and writes the `CONFIG_CHANGED` audit row; the page only needs
- * a different door, and `customPagePath` is what the Configuration index
- * follows.
+ * Edited on Configuration → Instrument Attributes — a Display name box beside
+ * each key — not on a page of its own (operator, 2026-09-16: "dont give as
+ * seperate configuration add in instrument attributes configuration"; a
+ * separate page existed for a few hours). `hasCustomPage` stays FALSE on
+ * purpose — `true` would skip the generic `/dynamic/attribute-labels` GET/PUT,
+ * which is the endpoint that validates against `zodSchema`, enforces
+ * `requiredRole` and writes the `CONFIG_CHANGED` audit row. `customPagePath`
+ * points at the Instrument Attributes page so the Configuration index never
+ * offers a second door, and that page's card is hardcoded, so the
+ * auto-discovered section lists this key by name in its exclusion set.
  */
 export const attributeLabelsDef: ModuleConfigDefinition = {
   moduleKey: ATTRIBUTE_LABELS_CONFIG_KEY,
@@ -41,7 +43,7 @@ export const attributeLabelsDef: ModuleConfigDefinition = {
   requiredRole: 'SUPER_ADMIN',
   requiresReauth: false,
   hasCustomPage: false,
-  customPagePath: '/config/attribute-labels',
+  customPagePath: '/config/instrument-attributes',
   settings: [
     {
       key: 'labels',

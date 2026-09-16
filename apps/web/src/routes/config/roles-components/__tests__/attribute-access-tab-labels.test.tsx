@@ -27,11 +27,13 @@ vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: { success: vi.fn
 const { AttributeAccessTab } = await import('../attribute-access-tab');
 
 describe('AttributeAccessTab — display names', () => {
-  it('shows the display name with the key beside it, and a bare key as itself', () => {
+  it('shows ONLY the display name (the key rides in the tooltip), and a bare key as itself', () => {
     labels.current = { Enable_Temp_NMT: 'High temperature alarm enabled' };
     render(<AttributeAccessTab />);
-    expect(screen.getByText('High temperature alarm enabled')).toBeInTheDocument();
-    expect(screen.getByText('(Enable_Temp_NMT)')).toBeInTheDocument();
+    const named = screen.getByText('High temperature alarm enabled');
+    expect(named).toBeInTheDocument();
+    expect(named).toHaveAttribute('title', 'Enable_Temp_NMT');
+    expect(screen.queryByText(/\(Enable_Temp_NMT\)/)).not.toBeInTheDocument();
     expect(screen.getAllByText('Building')).toHaveLength(1);
   });
 

@@ -21,22 +21,42 @@ list in Configuration, not per profile.
   drop blanks, first spelling wins case-insensitively, truncate) and
   `attributeLabel()` (configured name, else the KEY — never an empty heading;
   case-folded lookup). 11 unit tests; the fold mutation-checked.
-- **Page `/config/attribute-labels`** (23 → 24 pages, 53 → 54 routes): Key |
-  Display name rows pre-filled from `GET /api/roles/attribute-access`'s
-  `availableKeys` (every profile key plus every key recorded on an instrument)
-  and from the stored map (a stored key nothing carries still shows so it can
-  be cleared); Add key for an unseen one; duplicate keys refused case-
-  insensitively on the row; Save sends the WHOLE map with blank names dropped
-  and revalidates the narrow-slice URL. Card beside Instrument Attributes in
-  `superAdminCards`. 6 tests; blank-drop mutation-checked.
+- **Edited ON the Instrument Attributes page** (operator, same day: "dont give
+  as seperate configuration add in instrument attributes configuration"): a
+  Display name box beside each key. A separate `/config/attribute-labels`
+  page and card lived for a few hours and were removed — pages stay 23,
+  routes stay 53. The page now saves the profile's keys (only when changed)
+  and the global map (WHOLE, merged by the exported pure `mergeLabels`: this
+  profile's rows written over the stored map, blank clears, a renamed key
+  carries its name, a key that left this profile loses its name unless
+  another profile lists it), then revalidates the narrow-slice URL. The def's
+  `customPagePath` points here and `config/index.tsx` excludes the key from
+  the auto-discovered section. 4 page cases; merge rule mutation-checked.
 - **Hook `use-attribute-labels.ts`** (22 → 23 hooks): the ONE browser reader,
-  `labelFor(key)`. Consumers: the New Instrument form's field labels; the
-  Attributes panel (detail page and the Settings Edit dialog — key printed
-  small beneath the name only when they differ; `Delete <key>` buttons, the
-  fill input's `aria-label` and every request still use the key); the Settings
-  widget tiles; the Attribute Access picker (name, key in brackets, rule saved
-  by key — pinned). The CSV template, MQTT, audit rows and the alarm-limits
-  alias lists are untouched: they name the stored identity.
+  `labelFor(key)`. Consumers, printing ONLY the name (operator: "only
+  attributes display names should be display"): the New Instrument form's
+  field labels; the Attributes panel (detail page and the Settings Edit
+  dialog — the key rides in a tooltip; `Delete <key>` buttons, the fill
+  input's `aria-label` and every request still use the key); the Settings
+  widget tiles; the Attribute Access picker (name, key in the tooltip, rule
+  saved by key — pinned). MQTT, audit rows and the alarm-limits alias lists
+  are untouched: they name the stored identity.
+- **Bulk upload carries the profile's attributes, headed by display names**
+  (operator: "in bulk upload template only attributes display names should
+  come"). Before this the template had NO attribute columns and the importer
+  read none. The template is now built per chosen profile — `Instrument ID`
+  (the create form's words; `code` still accepted), then one column per key
+  headed by its display name (the key where none is set);
+  Download template is disabled until a profile is chosen. `parseInstrumentCsv`
+  takes the profile's `{key, label}` columns and maps a heading back to the KEY
+  by label or by key, case-folded; a heading that is neither is ignored with
+  one whole-file warning. The route resolves the columns and, after each
+  instrument's own transaction, writes the filled cells with one
+  `INSTRUMENT_ATTRIBUTE_SET` audit row per key and announces each to the
+  device. **`name` is no longer a required column** — blank or absent = the
+  code, as the create form fills it; the existing bulk e2e's "blank name" bad
+  row became a blank-code row. 7 parser cases, 1 e2e (attributes stored and
+  audited by key, blank cells not written), 5 template cases.
 - **New Instrument form, Instrument ID**: the `pattern`, `title` and
   `placeholder` are gone. The pattern (`[A-Za-z0-9._-]`) refused `/`, so the
   form could not create `CWH/RDU/002-00` — the code shape 100 of 101 instruments
