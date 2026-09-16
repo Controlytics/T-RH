@@ -233,6 +233,28 @@ describe('InstrumentHistoryWidget', () => {
     });
   });
 
+  /**
+   * Full screen (2026-09-16, operator: "make data report widget into full
+   * screen"): the trend chart card's pattern — a toggle in the toolbar, the
+   * section becomes a fixed full-viewport overlay, Escape leaves it. A fixed
+   * overlay with no keyboard way out is a trap for anyone not using a mouse.
+   */
+  describe('full screen', () => {
+    it('toggles the widget into a full-viewport overlay and back, and Escape leaves it', () => {
+      renderWidget();
+      const widget = screen.getByTestId('history-widget');
+      const btn = screen.getByRole('button', { name: 'Fullscreen — Data Report' });
+      expect(btn).toHaveAttribute('aria-pressed', 'false');
+      expect(widget.className).not.toMatch(/fixed/);
+      fireEvent.click(btn);
+      expect(widget.className).toMatch(/fixed inset-0/);
+      expect(screen.getByRole('button', { name: 'Exit fullscreen — Data Report' })).toHaveAttribute('aria-pressed', 'true');
+      fireEvent.keyDown(window, { key: 'Escape' });
+      expect(widget.className).not.toMatch(/fixed/);
+      expect(screen.getByRole('button', { name: 'Fullscreen — Data Report' })).toBeInTheDocument();
+    });
+  });
+
   it('says so when the scope holds no instruments', () => {
     renderWidget();
     fireEvent.change(screen.getByLabelText('Block'), { target: { value: 'b1' } });

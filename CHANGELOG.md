@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased] - Data Report widget: full screen (2026-09-16)
+
+Operator: *"make data report widget into full screen"*. A toggle at the end
+of the widget's toolbar makes the widget a fixed full-viewport overlay (the
+trend chart card's pattern); the same button, or Escape, leaves it. Nothing
+about the data changes. Pinned in `history-widget.test.tsx`.
+
 ## [Unreleased] - Instrument IDs unique ignoring case; float limits pinned (2026-09-16)
 
 Operator: *"in excel for limits and ranges user able to enter float values also

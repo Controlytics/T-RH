@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
+import { Maximize2, Minimize2 } from 'lucide-react';
 import { INTERVALS, coerceReading, formatDecimals, isOutOfRange, isSensorFailureValue } from '@digilog/shared';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
@@ -86,6 +87,21 @@ export function InstrumentHistoryWidget({ scope }: { scope: HistoryScope }) {
   const sensorWords = useSensorWords();
   const { formatDateTime } = useDatetimeFormat();
 
+  /**
+   * Full screen (2026-09-16, operator: "make data report widget into full
+   * screen"): the trend chart card's pattern. The section becomes a fixed
+   * full-viewport overlay above the page; nothing about the data changes.
+   * Escape leaves it — a fixed overlay with no keyboard way out is a trap for
+   * anyone not using a mouse.
+   */
+  const [fullscreen, setFullscreen] = useState(false);
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setFullscreen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [fullscreen]);
+
   const chosenIds = chosen.map((i) => i.id);
 
   // A scope, selection or period change resets the page: page 3 of the old
@@ -140,7 +156,9 @@ export function InstrumentHistoryWidget({ scope }: { scope: HistoryScope }) {
   return (
     <section
       data-testid="history-widget"
-      className="overflow-hidden rounded-[var(--radius-card)] border border-slate-200 bg-white shadow-[var(--elev-2)]"
+      className={fullscreen
+        ? 'fixed inset-0 z-50 flex flex-col overflow-auto bg-white'
+        : 'overflow-hidden rounded-[var(--radius-card)] border border-slate-200 bg-white shadow-[var(--elev-2)]'}
     >
       {/* Toolbar: where, when, how often. One tinted band so the controls read
           as one instrument panel rather than loose fields. */}
@@ -202,6 +220,18 @@ export function InstrumentHistoryWidget({ scope }: { scope: HistoryScope }) {
               aria-label="History to"
             />
           </label>
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
+            onClick={() => setFullscreen((v) => !v)}
+            aria-pressed={fullscreen}
+            aria-label={fullscreen ? 'Exit fullscreen — Data Report' : 'Fullscreen — Data Report'}
+            title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+          >
+            {fullscreen
+              ? <Minimize2 className="h-4 w-4" aria-hidden="true" />
+              : <Maximize2 className="h-4 w-4" aria-hidden="true" />}
+          </button>
         </div>
       </header>
 
