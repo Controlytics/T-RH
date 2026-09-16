@@ -115,6 +115,33 @@ export interface MqttBridgeHandle {
   readonly client: MqttClient;
 }
 
+export type PublishDisposition = 'publish' | 'reject-closing' | 'reject-offline-event' | 'queue-offline-retained';
+
+/**
+ * What to do with a publish, by connection state and message kind. Pure, so
+ * the rule is testable without a broker; `publish()` below is a switch over it.
+ *
+ *  - closing → refuse: `client.end(true)` discards the outgoing store, so the
+ *    callback would never fire and the caller would wait out its timeout.
+ *  - offline EVENT → refuse (2026-09-05): mqtt.js would queue it and flush it
+ *    on reconnect, and a gateway setting its clock from a two-minute-old tick
+ *    would be wrong. A stale event is worse than none.
+ *  - offline RETAINED → QUEUE and resolve at once (2026-09-16): retained state
+ *    MAY wait for the reconnect — mqtt.js stores a QoS 1 publish and sends it
+ *    then — but the callback fires only on PUBACK, so awaiting it made every
+ *    downlink wait out `attribute-downlink.ts`'s 2 s timeout per message while
+ *    the broker was down. A profile-key cascade of 400 removals held its HTTP
+ *    response for ~27 minutes that way. Resolving on QUEUE is honest: the
+ *    database is the record, the slot will be current when the broker returns,
+ *    and nothing on the wire was ever going to happen sooner.
+ */
+export function publishDisposition(s: { retain: boolean; connected: boolean; closing: boolean }): PublishDisposition {
+  if (s.closing) return 'reject-closing';
+  if (!s.connected && !s.retain) return 'reject-offline-event';
+  if (!s.connected) return 'queue-offline-retained';
+  return 'publish';
+}
+
 const TELEMETRY_PREFIX = 'instruments/';
 const TELEMETRY_SUFFIX = '/telemetry';
 /** The device → platform ATTRIBUTE path (2026-09-05): `instruments/<code>/attributes/report`. */
@@ -451,22 +478,24 @@ export async function startMqttBridge(
     client,
     publish: (topic, payload, publishOpts) =>
       new Promise<void>((resolve, reject) => {
-        // Refuse once we are shutting down rather than handing mqtt.js a
-        // publish on a client that is being torn down — `client.end(true, …)`
-        // discards the outgoing store, so the callback would never fire and the
-        // caller would wait out its whole timeout for a message that was never
-        // going to leave.
-        if (closing) return reject(new Error('bridge is closing'));
-        // An EVENT (not retained) must not be queued while offline and flushed
-        // later: seen live 2026-09-05, when a reconnecting bridge delivered
-        // the 12:07 and 12:08 RTC ticks at 12:09:03 — a gateway setting its
-        // clock from those would be two minutes wrong. A retained downlink is
-        // STATE and may wait; a stale event is worse than none.
-        if (!publishOpts.retain && client.connected === false) {
-          return reject(new Error('bridge offline — event not queued'));
+        // The rule lives in `publishDisposition` (pure, tested); this is the switch.
+        switch (publishDisposition({ retain: publishOpts.retain, connected: client.connected !== false, closing })) {
+          case 'reject-closing':
+            return reject(new Error('bridge is closing'));
+          case 'reject-offline-event':
+            return reject(new Error('bridge offline — event not queued'));
+          case 'queue-offline-retained':
+            // Handed to mqtt.js's outgoing store; delivered on reconnect. Resolve
+            // NOW — see `publishDisposition` — and only log a later refusal.
+            client.publish(topic, payload, publishOpts, (err) => {
+              if (err) log('queued retained publish was refused on reconnect', { topic, err: err.message });
+            });
+            log('broker offline — retained publish queued for reconnect', { topic });
+            return resolve();
+          case 'publish':
+            client.publish(topic, payload, publishOpts, (err) =>
+              err ? reject(err) : resolve());
         }
-        client.publish(topic, payload, publishOpts, (err) =>
-          err ? reject(err) : resolve());
       }),
     close: () =>
       new Promise<void>((resolve) => {

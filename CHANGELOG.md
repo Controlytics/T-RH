@@ -1,5 +1,28 @@
 # Changelog
 
+## [Unreleased] - Retained downlinks no longer wait on a down broker; start-app.bat starts EMQX (2026-09-16)
+
+Operator: *"fix that cascade hang also when broker is down"* and *"EMQX should
+start whenevr bat file is started"*.
+
+- **Bridge `publish()`**: the decision is now the pure `publishDisposition`
+  (tested). A RETAINED publish while the broker is offline is handed to
+  mqtt.js's outgoing store and resolved AT ONCE — delivered on reconnect,
+  which is what retained state is for — instead of waiting for a PUBACK that
+  cannot come and letting every caller time out (2 s each). An offline EVENT
+  is still refused, closing still refuses everything. Found when a 400-removal
+  profile cascade held its response ~27 minutes against a stopped broker.
+- **Profile cascade** announces removals AFTER the response, not before it.
+- **`scripts/start-app.ps1` step 14 (of 15 now)**: when `MQTT_BROKER_URL` is
+  local and nothing listens on its port, EMQX is started (`EMQX_HOME`, else
+  `%USERPROFILE%\emqx-5.3.2`, else any `emqx-*` there) and the port polled
+  for up to 90 s; a missing or slow broker is a WARN naming what stops
+  (telemetry, alarms), never a Die. A remote URL is left alone. `stop-app`
+  does not stop the broker — it is not this checkout's process.
+- Not run end to end: the stack and broker were already up, and the script
+  refuses to start over a running API (by design). The script parses; the
+  broker block was exercised by hand with the same command.
+
 ## [Unreleased] - Removing a profile key removes the attribute from its instruments; names and keys unique ignoring case (2026-09-16)
 
 Operator: *"when i removed attributes for profile in configuration those are

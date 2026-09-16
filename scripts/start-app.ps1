@@ -21,7 +21,8 @@
       11 Migrations deployed
       12 Seeded (only if the users table is empty)
       13 TLS certs present when API_HTTPS=true
-      14 Start API + web, wait for health, open browser
+      14 EMQX broker listening when MQTT_BROKER_URL is local (started if not)
+      15 Start API + web, wait for health, open browser
 
     The port check runs BEFORE npm install / shared build / prisma generate.
     A previously-started API holds an open handle on
@@ -455,7 +456,61 @@ if ($ApiHttps) {
     Ok "API_HTTPS=false - not required"
 }
 
-# ---------------------------------------------------------------- 14. launch
+# ---------------------------------------------------------------- 14. EMQX broker
+# The instrument ingest bridge connects OUT to a broker (EMQX 5.3.2 locally).
+# Until 2026-09-16 this script left the broker alone and it was found down
+# twice — no telemetry, no alarms, nothing on screen saying why (operator:
+# "EMQX should start whenevr bat file is started"). Only a LOCAL broker is
+# managed: a remote MQTT_BROKER_URL is somebody else's process. A missing or
+# failed broker is a WARN, not a Die — the API runs without one; it is
+# telemetry that stops, and the warning names that.
+Step "Checking MQTT broker (EMQX)"
+$MqttUrl = $EnvMap['MQTT_BROKER_URL']
+$mqttMatch = $null
+if ($MqttUrl) { $mqttMatch = [regex]::Match($MqttUrl, '^mqtts?://(localhost|127\.0\.0\.1)(?::(\d+))?') }
+if (-not $MqttUrl) {
+    Info "MQTT_BROKER_URL is not set - no broker to manage (ingest disabled)"
+} elseif (-not $mqttMatch.Success) {
+    Info "MQTT_BROKER_URL is remote ($MqttUrl) - not managed here"
+} else {
+    $MqttPort = 1883
+    if ($mqttMatch.Groups[2].Value) { $MqttPort = [int]$mqttMatch.Groups[2].Value }
+    if (Test-PortBusy $MqttPort) {
+        Ok "broker already listening on $MqttPort"
+    } else {
+        # EMQX_HOME wins; else the known install; else any emqx-* folder in the
+        # profile, newest version first. 5.3.2 is the last Windows build.
+        $emqxHome = $null
+        $candidates = @()
+        if ($env:EMQX_HOME) { $candidates += $env:EMQX_HOME }
+        $candidates += (Join-Path $env:USERPROFILE 'emqx-5.3.2')
+        $candidates += (Get-ChildItem -Path $env:USERPROFILE -Directory -Filter 'emqx-*' -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending | ForEach-Object { $_.FullName })
+        foreach ($c in $candidates) {
+            if ($c -and (Test-Path (Join-Path $c 'bin\emqx.cmd'))) { $emqxHome = $c; break }
+        }
+        if (-not $emqxHome) {
+            Warn "EMQX not found (looked for EMQX_HOME, $env:USERPROFILE\emqx-*). Telemetry and alarms will NOT flow until a broker listens on $MqttPort."
+        } else {
+            Info "starting EMQX from $emqxHome"
+            # emqx.cmd start never returns in a foreground shell; the broker
+            # daemonises and outlives the window (proven 2026-09-10).
+            Start-Process -FilePath 'cmd.exe' `
+                -ArgumentList '/c', "`"$emqxHome\bin\emqx.cmd`" start" `
+                -WorkingDirectory $emqxHome -WindowStyle Minimized
+            $deadline = (Get-Date).AddSeconds(90)
+            $up = $false
+            while ((Get-Date) -lt $deadline) {
+                if (Test-PortBusy $MqttPort) { $up = $true; break }
+                Start-Sleep -Seconds 3
+            }
+            if ($up) { Ok "EMQX listening on $MqttPort" }
+            else { Warn "EMQX did not open port $MqttPort within 90s. Check $emqxHome\log. Telemetry and alarms will NOT flow until it does." }
+        }
+    }
+}
+
+# ---------------------------------------------------------------- 15. launch
 Step "Starting services"
 
 # CRITICAL: vite.config.ts defaults its /api proxy to https://localhost:3000.

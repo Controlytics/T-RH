@@ -455,8 +455,19 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
       });
 
-      // Committed. Now, and only now, tell each device.
-      for (const d of deleted) await announceRemoval(d.instrument, d.key);
+      // Committed. Now, and only now, tell each device — but AFTER this
+      // response, not before it: a cascade can be hundreds of removals, and
+      // the operator's save must not wait on the broker (2026-09-16: 400
+      // removals against a down broker held the response ~27 minutes even
+      // before the bridge learned to resolve on queue). The database is the
+      // record; the announcements are best-effort and each one logs its own
+      // failure.
+      if (deleted.length > 0) {
+        void (async () => {
+          for (const d of deleted) await announceRemoval(d.instrument, d.key);
+          logger.info('[downlink:profile-cascade] devices told', { profileId: id, removals: deleted.length });
+        })();
+      }
 
       return present(row as ProfileRow);
     } catch (err) {
