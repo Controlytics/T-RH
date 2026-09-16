@@ -1,5 +1,32 @@
 # Changelog
 
+## [Unreleased] - Data Report page restyled (2026-09-16)
+
+Operator: *"Data Report View ui not looking good, and make it more professional
+and as a pro developer update ui with more colorful"*. Presentation only —
+nothing about what is fetched, judged, counted or downloaded changed.
+
+- **Generate Data report is the page's hero band**: the site-theme gradient the
+  Settings widget uses, the action named large, and beneath it the selection a
+  press would report (count, period, Block or Area) so nobody scrolls down to
+  check. The ONE download icon sits on a white plate so it reads on any of the
+  ten themes. Still `ExportMenu` (Export Options gating), still `null` for a
+  role allowed no PDF, still one button.
+- **The widget**: a tinted toolbar (Block, Area, Interval; the period presets as
+  a segmented group; From/To), four SUMMARY TILES with their own accent bars —
+  Instruments (n of m, scope name), Period (preset, range), Readings in period,
+  Interval — the instruments as tick CHIPS (filled with the theme gradient when
+  ticked; still real checkboxes, so every label-click test holds), and the
+  readings table with the dashboard's quantity colours on its Temperature and
+  Humidity headings. **The Readings tile prints the server's whole-period
+  `total`, never the page's row count** (the 2026-08-31 alarms-count defect);
+  pinned with a total that differs from the rows on the page and
+  mutation-checked. There is deliberately no out-of-limit tile: only one page
+  is in hand and the server offers no whole-period breach count for a
+  multi-instrument selection.
+- No heading was added (the page test asserts exactly one). 5 new test cases.
+- Not seen on screen.
+
 ## [Unreleased] - Settings edits in place; the Instrument ID is changeable (2026-09-16)
 
 Operator: *"in settings when user clicks on edit values should be editable but

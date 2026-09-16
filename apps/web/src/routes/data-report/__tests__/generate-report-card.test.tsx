@@ -176,6 +176,17 @@ describe('GenerateReportCard', () => {
     expect(card.querySelectorAll('button')).toHaveLength(1);
   });
 
+  // 2026-09-16 restyle: the band states what a press would report — the same
+  // selection the widget shows — so nobody scrolls down to check first.
+  it('states the selection it would report: count, period and scope', () => {
+    renderBoth();
+    expect(screen.getByTestId('generate-report-summary')).toHaveTextContent('Choose a Block or Area');
+    fireEvent.change(screen.getByLabelText('Block'), { target: { value: 'b1' } });
+    fireEvent.change(screen.getByLabelText('Area'), { target: { value: 'a1' } });
+    expect(screen.getByTestId('generate-report-summary')).toHaveTextContent('2 instruments · Custom · QC 3');
+    expect(screen.getByTestId('generate-report-card').querySelectorAll('button')).toHaveLength(1);
+  });
+
   it('is not rendered at all for a role whose Export Options allow no PDF here', () => {
     // Text reading "Generate Data report" beside no icon is an inert control —
     // the same decoy rule the trend page applies to unused props. `ExportMenu`

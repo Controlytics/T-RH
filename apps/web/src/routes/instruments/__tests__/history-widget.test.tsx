@@ -54,6 +54,8 @@ const longHistory = [
 
 /** Every URL asked for, in order. */
 const requested: string[] = [];
+/** When set, the history endpoint reports this whole-period total instead of the page's row count. */
+let historyTotalOverride: number | null = null;
 
 function dataFor(key: string | null): any {
   if (!key) return undefined;
@@ -62,7 +64,7 @@ function dataFor(key: string | null): any {
   if (key.includes('/telemetry-history?')) {
     const ids = new URLSearchParams(key.split('?')[1]).get('instrumentIds')!.split(',');
     const rows = historyRows.filter((r) => ids.includes(r.instrumentId));
-    return { data: rows, total: rows.length };
+    return { data: rows, total: historyTotalOverride ?? rows.length };
   }
   if (key.includes('/telemetry?')) {
     return { latest: [], history: longHistory, historyTotal: longHistory.length, summaries: { temperature: { min: 26, max: 26 }, humidity: { min: 45, max: 45 } } };
@@ -183,6 +185,52 @@ describe('InstrumentHistoryWidget', () => {
     expect(temp).toHaveAttribute('data-tone', 'fault');
     expect(rh).toHaveTextContent('OL');
     expect(third).toHaveAttribute('data-tone', 'fault');
+  });
+
+  /**
+   * The 2026-09-16 restyle: four summary tiles and the instruments as chips.
+   * Presentation, but two things in it are claims: the Readings tile prints
+   * the SERVER's whole-period total, never the page's row count (the
+   * 2026-08-31 alarms-count defect); and a chip is a real checkbox, so the
+   * selection rules and the label-click tests above still hold.
+   */
+  describe('summary tiles and chips (2026-09-16)', () => {
+    it('the Instruments tile counts the selection and names the scope; the Period tile names the preset', () => {
+      renderWidget();
+      pickArea();
+      expect(screen.getByTestId('history-tile-instruments')).toHaveTextContent('2 of 2');
+      expect(screen.getByTestId('history-tile-instruments')).toHaveTextContent('QC 3');
+      fireEvent.click(screen.getByLabelText(B.code));
+      expect(screen.getByTestId('history-tile-instruments')).toHaveTextContent('1 of 2');
+      expect(screen.getByTestId('history-tile-period')).toHaveTextContent('Custom');
+    });
+
+    it('the Readings tile prints the SERVER total for the period, not the rows on this page', () => {
+      historyTotalOverride = 1204;
+      try {
+        renderWidget();
+        pickArea();
+        expect(screen.getAllByTestId('history-row')).toHaveLength(3);
+        expect(screen.getByTestId('history-tile-readings')).toHaveTextContent('1,204');
+      } finally {
+        historyTotalOverride = null;
+      }
+    });
+
+    it('the Readings tile is a dash with nothing selected', () => {
+      renderWidget();
+      expect(screen.getByTestId('history-tile-readings')).toHaveTextContent('—');
+    });
+
+    it('a chip is filled while ticked and outlined once unticked', () => {
+      renderWidget();
+      pickArea();
+      const chipOf = (code: string) => screen.getByLabelText(code).closest('[data-testid="history-chip"]')!;
+      expect(chipOf(A.code)).toHaveAttribute('data-checked', 'true');
+      fireEvent.click(screen.getByLabelText(A.code));
+      expect(chipOf(A.code)).toHaveAttribute('data-checked', 'false');
+      expect(chipOf(B.code)).toHaveAttribute('data-checked', 'true');
+    });
   });
 
   it('says so when the scope holds no instruments', () => {

@@ -9,6 +9,7 @@ import { useSensorWords } from '@/hooks/use-failure-text';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { submitReportForReview } from '@/lib/report-review';
 import { useToast } from '@/hooks/use-toast';
+import { themeGradient } from '@/lib/theme-styles';
 import { useTrendPeriod } from '@/routes/instruments/use-trend-data';
 import { fetchDataReportRows, slotExtremes } from '@/routes/instruments/data-report-fetch';
 import { renderDataReports, type DataReportInput } from '@/routes/instruments/trend-report';
@@ -143,19 +144,43 @@ export function GenerateReportCard({ scope }: { scope: HistoryScope }) {
 
   if (!pdf) return null;
 
+  // What a press of the icon would report — the same selection the widget
+  // below shows, in one line, so the operator never has to scroll down to
+  // check before requesting.
+  const where = scope.areaId
+    ? scope.areas.find((a) => a.id === scope.areaId)?.name
+    : scope.tree.find((b) => b.id === scope.blockId)?.name;
+  const summary = scope.chosen.length === 0
+    ? 'Choose a Block or Area, or tick instruments below'
+    : `${scope.chosen.length} instrument${scope.chosen.length === 1 ? '' : 's'} · ${period.label}${where ? ` · ${where}` : ''}`;
+
   return (
     <>
+      {/* The page's one bold element (restyled 2026-09-16, operator: "make it
+          more professional … more colorful"): the site-theme band the
+          Settings widget uses, the action named large, the selection it will
+          report beneath it, and the ONE download icon on a white plate so it
+          reads on any of the ten themes. Still one button, still `ExportMenu`
+          (Export Options gating), still `null` for a role allowed no PDF. */}
       <section
         data-testid="generate-report-card"
-        className="mb-6 flex items-center justify-between gap-4 rounded-[var(--radius-card)] border border-slate-200 bg-white px-5 py-4 shadow-[var(--elev-1)]"
+        className="relative mb-6 flex items-center justify-between gap-4 overflow-hidden rounded-[var(--radius-card)] px-6 py-5 text-white shadow-[var(--elev-2)]"
+        style={themeGradient}
       >
-        <p className="text-sm font-semibold text-slate-800">Generate Data report</p>
-        <ExportMenu
-          surface="instrument-history"
-          iconOnly
-          busy={pendingDownload}
-          onExportPdf={() => setPendingDownload(true)}
-        />
+        <div aria-hidden className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full bg-white/10" />
+        <div aria-hidden className="pointer-events-none absolute -bottom-20 left-1/3 h-40 w-40 rounded-full bg-white/5" />
+        <div className="relative min-w-0">
+          <p className="font-display text-2xl font-bold leading-none tracking-tight">Generate Data report</p>
+          <p className="mt-2 truncate text-[0.8125rem] text-white/80" data-testid="generate-report-summary">{summary}</p>
+        </div>
+        <div className="relative shrink-0 rounded-xl bg-white p-1 shadow-[var(--elev-1)]">
+          <ExportMenu
+            surface="instrument-history"
+            iconOnly
+            busy={pendingDownload}
+            onExportPdf={() => setPendingDownload(true)}
+          />
+        </div>
       </section>
       <ReportDownloadDialog
         open={pendingDownload}

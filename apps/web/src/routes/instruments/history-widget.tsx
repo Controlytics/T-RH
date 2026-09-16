@@ -3,7 +3,6 @@ import useSWR from 'swr';
 import { INTERVALS, coerceReading, formatDecimals, isOutOfRange, isSensorFailureValue } from '@digilog/shared';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Pagination } from '@/components/ui/pagination';
 import { useSensorWords } from '@/hooks/use-failure-text';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
@@ -23,9 +22,17 @@ import { toggleSelection } from './history-selection';
  * option Data Report, in that it should come"*), after a day on the
  * Instruments page and two as the dashboard panel `dashboard_history`.
  *
+ * Restyled 2026-09-16 (operator: *"Data Report View ui not looking good, and
+ * make it more professional and as a pro developer update ui with more
+ * colorful"*) to the Settings widget's language, which the operator had just
+ * approved: a toolbar, a row of four SUMMARY TILES (each with its own accent
+ * bar), the instruments as tick CHIPS, and the readings table with the
+ * dashboard's quantity colours on its two value columns. Nothing about what is
+ * fetched, judged or counted changed — only how it is drawn.
+ *
  * Two parts, each with one job:
- *  - the SELECTION row — Block, Area, and a tick list of the instruments in
- *    scope. Everything in scope is selected until something is unticked
+ *  - the SELECTION — Block, Area, and the chips of the instruments in scope.
+ *    Everything in scope is selected until something is unticked
  *    (`history-selection.ts` holds the rules; the Block → Areas expansion is
  *    the SERVER's, through `/api/instruments?functionalLocationId=`). The
  *    selection STATE is the page's (`useHistoryScope`, passed in as `scope`),
@@ -37,29 +44,39 @@ import { toggleSelection } from './history-selection';
  *    judged with ITS OWN instrument's limits, precision and span, read from
  *    `telemetry-overview` — never a site-wide guess, since two instruments in
  *    one Area can carry different specs.
- * The DOWNLOAD is NOT here (2026-09-07): it is the card's, so the page has one
- * trigger. It was this widget's from 2026-09-05, with a cover block the
- * operator then asked to drop.
  *
- * Period and interval share `useTrendPeriod`'s URL state with the trend page,
- * so the same presets, the same custom range and the same interval keys apply
- * — one vocabulary for "what period is this" across the two screens.
+ * **The Readings tile prints the SERVER's `total`, never `rows.length`** —
+ * that is one page, and a count taken from it would describe the page while
+ * reading as the period (the 2026-08-31 alarms-count defect). There is
+ * deliberately NO out-of-limit tile: only one page is in hand, and the server
+ * offers no whole-period breach count for a multi-instrument selection.
+ *
+ * The DOWNLOAD is NOT here (2026-09-07): it is the card's, so the page has one
+ * trigger. Period and interval share `useTrendPeriod`'s URL state with the
+ * trend page — one vocabulary for "what period is this" across the two screens.
+ *
+ * The widget prints NO heading of its own: the page header names the screen,
+ * and the page test asserts exactly one heading.
  */
 
 interface HistoryRow { instrumentId: string; ts: string; values: Record<string, unknown> }
 
-const th = 'px-4 py-3 text-left text-[0.6875rem] font-bold uppercase tracking-[0.08em] text-slate-600';
+const th = 'px-4 py-3 text-left text-[0.6875rem] font-bold uppercase tracking-[0.08em]';
 
 /**
- * The widget prints NO title of its own: the page header names the screen, and
- * two headings for one screen is what the dashboard-era `embedded` flag existed
- * to prevent (there the PanelCard owned the title and the controls rode in its
- * header through a portal). Both went with the panel — a prop with one caller
- * that no longer exists is dead code, not an option. Its header row is the
- * selection summary on the left and the Block / Area / Interval controls with
- * the download on the right; the period presets and the custom range sit on a
- * second row, since seven buttons and two date inputs do not fit beside them.
+ * Tile accents. The two QUANTITY colours are the dashboard's own
+ * (`.tv-h-temp` burnt orange, `.tv-h-rh` green in app.css) and are reserved
+ * for the value columns; the tiles describe the SELECTION, not a reading, so
+ * they take the site theme and three neutral-of-meaning hues that no status
+ * or quantity in this app already uses.
  */
+const TILE = {
+  theme: { bar: 'var(--theme-primary, #2a78d6)', wash: 'color-mix(in srgb, var(--theme-primary, #2a78d6) 8%, #ffffff)', ink: '#0f172a' },
+  sky: { bar: '#0369a1', wash: '#f0f9ff', ink: '#0c4a6e' },
+  violet: { bar: '#6d28d9', wash: '#f5f3ff', ink: '#4c1d95' },
+  cyan: { bar: '#0e7490', wash: '#ecfeff', ink: '#155e75' },
+} as const;
+
 export function InstrumentHistoryWidget({ scope }: { scope: HistoryScope }) {
   const { tree, blockId, areaId, scopeId, setBlock, setArea, areas, selected, setSelected, inScope, chosen, overviewById } = scope;
   const { period, setPreset, setCustom, setInterval } = useTrendPeriod();
@@ -97,133 +114,178 @@ export function InstrumentHistoryWidget({ scope }: { scope: HistoryScope }) {
     ? 'Choose a Block or Area, or tick instruments, to see their readings'
     : `${chosen.length} instrument${chosen.length === 1 ? '' : 's'} · ${period.label}`;
 
-  // Block, Area and Interval — one group, `flex-nowrap`, so the header row
-  // stays one row.
-  const compactToolbar = (
-    <div className="flex flex-nowrap items-center gap-2">
-      <Select
-        selectSize="sm"
-        value={blockId}
-        aria-label="Block"
-        onChange={(e) => setBlock(e.target.value)}
+  const intervalLabel = INTERVALS.find((i) => (i.seconds === null ? null : i.seconds * 1000) === period.intervalMs)?.label
+    ?? INTERVALS[0].label;
+  const areaName = areas.find((a) => a.id === areaId)?.name;
+  const blockName = tree.find((b) => b.id === blockId)?.name;
+  const whereLabel = areaName ?? blockName ?? 'All instruments';
+
+  const tile = (
+    testId: string, label: string, value: string, hue: keyof typeof TILE, detail?: string,
+  ) => {
+    const c = TILE[hue];
+    return (
+      <div
+        data-testid={testId}
+        className="relative flex min-w-0 flex-col gap-0.5 overflow-hidden rounded-[var(--radius-card)] border border-slate-200/80 py-3 pl-5 pr-4"
+        style={{ background: c.wash, boxShadow: `inset 4px 0 0 0 ${c.bar}` }}
       >
-        <option value="">All blocks</option>
-        {tree.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-      </Select>
-      <Select
-        selectSize="sm"
-        value={areaId}
-        aria-label="Area"
-        disabled={!blockId}
-        onChange={(e) => setArea(e.target.value)}
-      >
-        <option value="">{blockId ? 'All areas' : 'Choose a block first'}</option>
-        {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-      </Select>
-      <select
-        value={period.intervalMs ?? ''}
-        onChange={(e) => setInterval(e.target.value === '' ? null : Number(e.target.value))}
-        className="ctl ctl-sm"
-        aria-label="History interval"
-      >
-        {INTERVALS.map((i) => (
-          <option key={i.value} value={i.seconds === null ? '' : i.seconds * 1000}>{i.label}</option>
-        ))}
-      </select>
-    </div>
-  );
+        <span className="text-[0.75rem] font-medium text-slate-500">{label}</span>
+        <span className="font-display truncate text-2xl font-bold leading-tight tabular-nums" style={{ color: c.ink }}>{value}</span>
+        {detail && <span className="truncate text-[0.75rem] text-slate-500">{detail}</span>}
+      </div>
+    );
+  };
+
   return (
     <section
       data-testid="history-widget"
-      className="overflow-hidden rounded-[var(--radius-card)] border border-slate-200 bg-white shadow-[var(--elev-1)]"
+      className="overflow-hidden rounded-[var(--radius-card)] border border-slate-200 bg-white shadow-[var(--elev-2)]"
     >
-      <header className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-        <p className="min-w-0 truncate text-[0.8125rem] text-slate-500" data-testid="history-subtitle">{subtitle}</p>
-        <div className="flex shrink-0 items-center gap-2">{compactToolbar}</div>
+      {/* Toolbar: where, when, how often. One tinted band so the controls read
+          as one instrument panel rather than loose fields. */}
+      <header
+        className="flex flex-wrap items-center justify-between gap-3 px-5 py-4"
+        style={{ background: 'color-mix(in srgb, var(--theme-primary, #2a78d6) 6%, #ffffff)' }}
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <Select selectSize="sm" value={blockId} aria-label="Block" onChange={(e) => setBlock(e.target.value)}>
+            <option value="">All blocks</option>
+            {tree.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </Select>
+          <Select selectSize="sm" value={areaId} aria-label="Area" disabled={!blockId} onChange={(e) => setArea(e.target.value)}>
+            <option value="">{blockId ? 'All areas' : 'Choose a block first'}</option>
+            {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </Select>
+          <select
+            value={period.intervalMs ?? ''}
+            onChange={(e) => setInterval(e.target.value === '' ? null : Number(e.target.value))}
+            className="ctl ctl-sm"
+            aria-label="History interval"
+          >
+            {INTERVALS.map((i) => (
+              <option key={i.value} value={i.seconds === null ? '' : i.seconds * 1000}>{i.label}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-[var(--elev-1)]" role="group" aria-label="Period">
+            {TREND_PRESETS.map((p) => (
+              <Button
+                key={p.label}
+                size="sm"
+                variant={period.label === p.label ? 'default' : 'ghost'}
+                className="h-7 px-2.5"
+                onClick={() => setPreset(p.ms)}
+              >
+                {p.label}
+              </Button>
+            ))}
+          </div>
+          <label className="flex items-center gap-1.5 text-xs text-slate-600">
+            From
+            <input
+              type="datetime-local"
+              value={fromLocal}
+              onChange={(e) => e.target.value && setCustom(new Date(e.target.value).toISOString(), period.to)}
+              className="ctl ctl-sm font-mono tabular-nums [color-scheme:light]"
+              aria-label="History from"
+            />
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-slate-600">
+            To
+            <input
+              type="datetime-local"
+              value={toLocal}
+              onChange={(e) => e.target.value && setCustom(period.from, new Date(e.target.value).toISOString())}
+              className="ctl ctl-sm font-mono tabular-nums [color-scheme:light]"
+              aria-label="History to"
+            />
+          </label>
+        </div>
       </header>
 
-      {/* The period row: presets and the custom range. */}
-      <div className="flex flex-wrap items-end gap-4 border-t border-slate-100 px-5 py-4">
-        <div className="flex flex-wrap gap-1.5">
-          {TREND_PRESETS.map((p) => (
-            <Button key={p.label} size="sm" variant={period.label === p.label ? 'default' : 'secondary'} onClick={() => setPreset(p.ms)}>
-              {p.label}
-            </Button>
-          ))}
-        </div>
-        <label className="flex items-center gap-1.5 text-xs text-slate-600">
-          From
-          <input
-            type="datetime-local"
-            value={fromLocal}
-            onChange={(e) => e.target.value && setCustom(new Date(e.target.value).toISOString(), period.to)}
-            className="ctl ctl-sm font-mono tabular-nums [color-scheme:light]"
-            aria-label="History from"
-          />
-        </label>
-        <label className="flex items-center gap-1.5 text-xs text-slate-600">
-          To
-          <input
-            type="datetime-local"
-            value={toLocal}
-            onChange={(e) => e.target.value && setCustom(period.from, new Date(e.target.value).toISOString())}
-            className="ctl ctl-sm font-mono tabular-nums [color-scheme:light]"
-            aria-label="History to"
-          />
-        </label>
+      {/* Summary tiles. The Readings figure is the SERVER's whole-period
+          total, never the page's row count. */}
+      <div className="grid grid-cols-2 gap-3 border-t border-slate-100 px-5 py-4 lg:grid-cols-4">
+        {tile('history-tile-instruments', 'Instruments', `${chosen.length} of ${inScope.length}`, 'theme', whereLabel)}
+        {tile('history-tile-period', 'Period', period.label, 'sky', `${formatDateTime(period.from)} – ${formatDateTime(period.to)}`)}
+        {tile('history-tile-readings', 'Readings in period', chosenIds.length === 0 ? '—' : histLoading ? '…' : total.toLocaleString(), 'violet', 'across the selection')}
+        {tile('history-tile-interval', 'Interval', intervalLabel, 'cyan', 'first reading per slot')}
       </div>
 
-      {/* The tick list. Everything in scope is selected until something is
+      {/* The chips. Everything in scope is selected until something is
           unticked; the count says what a download would cover. */}
       <div className="border-t border-slate-100 px-5 py-3">
         <div className="mb-2 flex flex-wrap items-center gap-3 text-xs text-slate-600">
-          <span className="font-semibold uppercase tracking-[0.08em]">Instruments</span>
+          <span className="font-semibold text-slate-700">Instruments</span>
           <span data-testid="history-selection-count">
             {chosen.length} of {inScope.length} selected
           </span>
+          <span className="sr-only" data-testid="history-subtitle">{subtitle}</span>
           {selected !== null && (
-            <button type="button" className="text-[var(--theme-primary,#4f46e5)] hover:underline" onClick={() => setSelected(null)}>
+            <button type="button" className="font-medium text-[var(--theme-primary,#4f46e5)] hover:underline" onClick={() => setSelected(null)}>
               Select all
             </button>
           )}
           {selected === null && inScope.length > 0 && (
-            <button type="button" className="text-[var(--theme-primary,#4f46e5)] hover:underline" onClick={() => setSelected(new Set())}>
+            <button type="button" className="font-medium text-[var(--theme-primary,#4f46e5)] hover:underline" onClick={() => setSelected(new Set())}>
               Clear
             </button>
           )}
         </div>
         {inScope.length === 0 ? (
-          <p className="text-sm text-slate-500">No instruments in this scope.</p>
+          <p className="rounded-lg border border-dashed border-slate-300 px-3 py-4 text-center text-sm text-slate-500">
+            No instruments in this scope.
+          </p>
         ) : (
-          <div className="grid max-h-40 grid-cols-2 gap-x-4 gap-y-1 overflow-y-auto sm:grid-cols-3 lg:grid-cols-5">
-            {inScope.map((i) => (
-              <Checkbox
-                key={i.id}
-                label={i.code}
-                checked={selected === null || selected.has(i.id)}
-                onChange={() => setSelected(toggleSelection(inScope, selected, i.id))}
-              />
-            ))}
+          <div className="flex max-h-40 flex-wrap gap-2 overflow-y-auto">
+            {inScope.map((i) => {
+              const on = selected === null || selected.has(i.id);
+              return (
+                <label
+                  key={i.id}
+                  data-testid="history-chip"
+                  data-checked={on ? 'true' : 'false'}
+                  className={`inline-flex cursor-pointer select-none items-center gap-1.5 rounded-full border px-3 py-1 text-[0.8125rem] font-medium transition-colors has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[var(--theme-primary,#2a78d6)] ${
+                    on
+                      ? 'border-transparent text-white shadow-[var(--elev-1)]'
+                      : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                  }`}
+                  style={on ? { background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' } : undefined}
+                >
+                  <input
+                    type="checkbox"
+                    className="sr-only"
+                    checked={on}
+                    onChange={() => setSelected(toggleSelection(inScope, selected, i.id))}
+                  />
+                  <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${on ? 'bg-white' : 'bg-slate-300'}`} />
+                  {i.code}
+                </label>
+              );
+            })}
           </div>
         )}
       </div>
 
       {/* The merged readings. */}
       {chosenIds.length === 0 ? (
-        <p className="border-t border-slate-100 px-6 py-4 text-sm text-slate-500">Select at least one instrument.</p>
+        <p className="border-t border-slate-100 px-6 py-6 text-center text-sm text-slate-500">Select at least one instrument.</p>
       ) : histError ? (
-        <p className="border-t border-slate-100 px-6 py-4 text-sm text-red-700">The readings could not be loaded. Try again.</p>
+        <p className="border-t border-slate-100 px-6 py-6 text-center text-sm text-red-700">The readings could not be loaded. Try again.</p>
       ) : !histLoading && rows.length === 0 ? (
-        <p className="border-t border-slate-100 px-6 py-4 text-sm text-slate-500">No readings in this period.</p>
+        <p className="border-t border-slate-100 px-6 py-6 text-center text-sm text-slate-500">No readings in this period.</p>
       ) : (
         <div className="overflow-x-auto border-t border-slate-100">
           <table className="w-full border-collapse">
             <thead>
-              <tr style={{ backgroundColor: 'color-mix(in srgb, var(--theme-primary, #4f46e5) 8%, #ffffff)' }}>
-                <th scope="col" className={`${th} pl-6`}>Instrument</th>
-                <th scope="col" className={th}>Timestamp</th>
-                <th scope="col" className={`${th} !text-center`}>Temperature (°C)</th>
-                <th scope="col" className={`${th} !text-center`}>Humidity (%RH)</th>
+              <tr style={{ backgroundColor: 'color-mix(in srgb, var(--theme-primary, #4f46e5) 10%, #ffffff)' }}>
+                <th scope="col" className={`${th} pl-6 text-slate-600`}>Instrument</th>
+                <th scope="col" className={`${th} text-slate-600`}>Timestamp</th>
+                {/* The two quantity colours are the dashboard's own. */}
+                <th scope="col" className={`${th} !text-center`} style={{ color: '#9a3412' }}>Temperature (°C)</th>
+                <th scope="col" className={`${th} !text-center`} style={{ color: '#166534' }}>Humidity (%RH)</th>
               </tr>
             </thead>
             <tbody>
@@ -250,7 +312,7 @@ export function InstrumentHistoryWidget({ scope }: { scope: HistoryScope }) {
                         </span>
                       </span>
                     </td>
-                    <td className="px-4 py-3.5 text-sm text-slate-700">{formatDateTime(row.ts)}</td>
+                    <td className="px-4 py-3.5 text-sm tabular-nums text-slate-700">{formatDateTime(row.ts)}</td>
                     <HistoryValueCell judged={temp} decimals={ov?.decimals.temperature ?? 1} words={sensorWords} />
                     <HistoryValueCell judged={rh} decimals={ov?.decimals.humidity ?? 0} words={sensorWords} />
                   </tr>
