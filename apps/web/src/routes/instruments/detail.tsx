@@ -410,7 +410,16 @@ export function InstrumentDetailPage() {
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      {/* Two columns that do NOT stretch (2026-09-16, operator: "details
+          section taking so much empty space, dont show empty page, remove the
+          gap and adjust below cards in that empty space"). The Attributes
+          panel lists thirty rows on this install while Details has four, and
+          a stretched grid row painted the difference as blank card. The
+          cards that used to sit BELOW the grid now stack under Details in
+          this column; the Gateway panel stays full width after it, since a
+          gateway's child roster is a wide table. */}
+      <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
+        <div className="space-y-6">
         <Card data-testid="details-card">
           <CardHeader className="flex flex-row items-center justify-between gap-2">
             <CardTitle className="flex items-center gap-2">{sectionIcon('bg-slate-100 text-slate-600', ICON.details)}Details</CardTitle>
@@ -431,7 +440,6 @@ export function InstrumentDetailPage() {
                 <dd className="font-mono font-medium text-slate-800">{inst.code}</dd>
                 <dt className="text-slate-500">Profile</dt>
                 <dd>{inst.profileName || '—'}</dd>
-                <dt className="text-slate-500">Type</dt><dd>{inst.instrumentType || '—'}</dd>
                 <dt className="text-slate-500">Gateway</dt>
                 <dd>{inst.isGateway ? 'Yes — reports for its linked instruments' : gatewayInst ? `Child of ${gatewayInst.code}` : 'No'}</dd>
                 <dt className="text-slate-500">Created</dt>
@@ -479,9 +487,6 @@ export function InstrumentDetailPage() {
           </CardContent>
         </Card>
 
-        <AttributesPanel instrumentId={inst.id} profileId={inst.profileId} canEdit={can('instruments.edit')} />
-      </div>
-
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2">{sectionIcon('bg-amber-100 text-amber-600', ICON.token)}Access token</CardTitle></CardHeader>
         <CardContent>
@@ -523,8 +528,6 @@ export function InstrumentDetailPage() {
         </CardContent>
       </Card>
       )}
-
-      {inst.isGateway && <GatewayPanel instrumentId={inst.id} canEdit={can('instruments.edit')} />}
 
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2">{sectionIcon('bg-emerald-100 text-emerald-600', ICON.readings)}Latest readings</CardTitle></CardHeader>
@@ -578,6 +581,12 @@ export function InstrumentDetailPage() {
           )}
         </CardContent>
       </Card>
+        </div>
+
+        <AttributesPanel instrumentId={inst.id} profileId={inst.profileId} canEdit={can('instruments.edit')} />
+      </div>
+
+      {inst.isGateway && <GatewayPanel instrumentId={inst.id} canEdit={can('instruments.edit')} />}
 
       {newToken && (
         <TokenDialog

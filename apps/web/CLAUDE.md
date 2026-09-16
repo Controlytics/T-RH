@@ -147,6 +147,24 @@ and the read view (operator); Enable / Disable stays its own confirmed action.
 `detail-*.test.tsx` files INDIVIDUALLY — together they manufacture "multiple
 elements" failures (the known runner artefact).
 
+Later the same day: the **Type row left the read view** (operator: "remove
+type in instrument details section") — `instrumentType` is still stored and
+still on the API row, nothing on this page prints or edits it; pinned in the
+same test beside the rows that must exist. And the **grid no longer
+stretches**: `lg:items-start`, with Access token, Connection, Latest readings
+and Rejected payloads stacked UNDER Details in the left column and the
+Attributes panel alone on the right (operator: "details section taking so
+much empty space … adjust below cards in that empty space"). The Gateway
+panel stays full width below the grid — a gateway's roster is a wide table.
+Note `detail-token-reveal.test.tsx` carried four cases for the profile PICKER
+inside the edit form, a control `f1650bb` removed; they were red on the
+committed tree (`c97633c` repointed only `detail-edit`) and are gone — the
+replacement behaviour was already pinned in `detail-edit.test.tsx`.
+
+The header's amber **development-build chip is gone** (operator: "remove
+development text on nav bar on top"). It printed Vite's `MODE` on every
+non-production build; nothing else read it.
+
 ## The report review workflow (2026-09-07)
 
 Every PDF download is a REQUEST an approver signs. Spec:

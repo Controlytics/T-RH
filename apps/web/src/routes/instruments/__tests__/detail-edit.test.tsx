@@ -85,14 +85,18 @@ describe('instrument detail — Details edit form', () => {
     expect(within(card).getByText('T&RH Sensors')).toBeInTheDocument();
   });
 
-  it('the read view shows no Block, Area, Location, Description or interval rows', () => {
+  it('the read view shows no Block, Area, Location, Description, interval or Type rows', () => {
     renderPage();
     const card = details();
-    for (const gone of ['Block', 'Area', 'Location', 'Description', 'Expected interval']) {
+    // Type went 2026-09-16 (operator: "remove type in instrument details
+    // section"). The fixture carries instrumentType 'T/RH', so a row that
+    // came back would print it — assert on both the label and the value.
+    for (const gone of ['Block', 'Area', 'Location', 'Description', 'Expected interval', 'Type', 'T/RH']) {
       expect(within(card).queryByText(gone)).toBeNull();
     }
     expect(within(card).getByText('Instrument ID')).toBeInTheDocument();
     expect(within(card).getByText('Profile')).toBeInTheDocument();
+    expect(within(card).getByText('Gateway')).toBeInTheDocument();
   });
 
   it('Save sends only the gateway flag when the ID is unchanged — never the profile', async () => {

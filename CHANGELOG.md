@@ -1,5 +1,34 @@
 # Changelog
 
+## [Unreleased] - Instrument detail: no Type row, no stretched Details card; no dev chip in the header (2026-09-16)
+
+Operator: *"remove type in instrument details section"*, then *"remove
+development text on nav bar on top, in instruments page, details section
+taking so much empty space, dont show empty page, remove the gap and adjust
+below cards in that empty space"*.
+
+- The Details card's read view no longer prints **Type**. `instrumentType`
+  stays stored and on the API row; nothing on the page edits it. Pinned in
+  `detail-edit.test.tsx` beside the rows that must exist (the fixture's
+  `T/RH` value is asserted absent too, so a returning row fails on the value
+  as well as the label).
+- The Details / Attributes grid stopped stretching (`lg:items-start`). The
+  Attributes panel lists thirty rows on this install while Details has four,
+  and the stretched row painted the difference as blank card. Access token,
+  Connection, Latest readings and Rejected payloads now stack under Details
+  in the left column; the Attributes panel sits alone on the right; the
+  Gateway panel stays full width below, since a gateway's roster is a wide
+  table. No data or endpoint changed — DOM order moved.
+- The header's amber development-build chip (Vite `MODE`, non-production
+  builds only) is gone. Nothing else read it.
+- **Fixed on the way:** `detail-token-reveal.test.tsx` was red on the
+  committed tree — four cases asserted a profile picker inside the edit form
+  that `f1650bb` removed, and the fix-up `c97633c` repointed only
+  `detail-edit.test.tsx`. The four are deleted (their replacement behaviour
+  was already pinned in `detail-edit`); the read-view case stays. The three
+  `detail-*.test.tsx` files pass individually (23 / 0), `tsc` clean.
+- Not seen on screen (the operator holds the browser session).
+
 ## [Unreleased] - Dashboard drill-down keeps the previous data while the next loads (2026-09-16)
 
 Operator: *"whenever im clicking on all instruments all widgets are not

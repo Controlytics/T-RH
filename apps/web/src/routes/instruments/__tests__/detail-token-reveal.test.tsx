@@ -163,44 +163,16 @@ describe('the Connection card is SUPER_ADMIN only', () => {
 
 /**
  * The profile used to be a LIVE select sitting in the read-only view: choosing an
- * option fired a PUT immediately, with no Save and nothing to cancel — on a page
- * where every other field waits for Save. It is now an ordinary edit.
+ * option fired a PUT immediately, with no Save and nothing to cancel. Since
+ * f1650bb (2026-09-16) it changes NOWHERE on this page — the picker cases that
+ * used to sit here (edit form offers it, Save sends profileId) described a
+ * control that no longer exists and were red on the committed tree; the
+ * replacement behaviour is pinned in detail-edit.test.tsx.
  */
-describe('the profile is not editable until Edit is pressed', () => {
-  it('renders the profile as text in the read-only view', () => {
+describe('the profile is read-only on this page', () => {
+  it('renders the profile as text in the read-only view, with no picker', () => {
     renderAt('/instruments/i-1');
     expect(screen.getByText('Default')).toBeInTheDocument();
     expect(screen.queryByLabelText('Profile')).not.toBeInTheDocument();
-  });
-
-  it('offers the picker only inside the edit form', () => {
-    renderAt('/instruments/i-1');
-    fireEvent.click(screen.getByRole('button', { name: /^edit$/i }));
-    expect(screen.getByLabelText('Profile')).toBeInTheDocument();
-  });
-
-  it('does not write until Save — changing the picker alone sends nothing', () => {
-    renderAt('/instruments/i-1');
-    fireEvent.click(screen.getByRole('button', { name: /^edit$/i }));
-    fireEvent.change(screen.getByLabelText('Profile'), { target: { value: 'p-2' } });
-    expect(apiPut).not.toHaveBeenCalled();
-  });
-
-  it('sends the chosen profile with the rest of the edit on Save', async () => {
-    renderAt('/instruments/i-1');
-    fireEvent.click(screen.getByRole('button', { name: /^edit$/i }));
-    fireEvent.change(screen.getByLabelText('Profile'), { target: { value: 'p-2' } });
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
-    await waitFor(() => expect(apiPut).toHaveBeenCalled());
-    expect(apiPut.mock.calls[0][1]).toMatchObject({ profileId: 'p-2' });
-  });
-
-  it('discards the change on Cancel', () => {
-    renderAt('/instruments/i-1');
-    fireEvent.click(screen.getByRole('button', { name: /^edit$/i }));
-    fireEvent.change(screen.getByLabelText('Profile'), { target: { value: 'p-2' } });
-    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
-    expect(apiPut).not.toHaveBeenCalled();
-    expect(screen.getByText('Default')).toBeInTheDocument();
   });
 });

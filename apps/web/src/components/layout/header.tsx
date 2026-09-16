@@ -24,27 +24,6 @@ interface HeaderProps {
 }
 
 /**
- * The build this browser is running.
- *
- * Shown ONLY when it is not a production build. An environment chip that says
- * "PRODUCTION" on every screen is decoration; one that appears solely to warn
- * you that you are looking at a development build is information. The value is
- * Vite's own `MODE`, so it cannot drift from what was actually built.
- */
-function EnvironmentChip() {
-  if (import.meta.env.PROD) return null;
-  return (
-    <span
-      className="hidden items-center gap-1.5 rounded-[var(--radius-pill)] border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-[0.6875rem] font-semibold uppercase tracking-wide text-amber-800 sm:inline-flex"
-      title="This is a development build, not the validated production system."
-    >
-      <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-      {import.meta.env.MODE}
-    </span>
-  );
-}
-
-/**
  * Role chips: a tint and a hairline, not a saturated gradient.
  *
  * These were six two-stop gradients in full-strength brand colours. Beside a
@@ -122,8 +101,6 @@ export function Header({ user, onLogout, onMenuToggle, onCollapseToggle, collaps
             {branding.appName}
           </span>
         )}
-
-        <EnvironmentChip />
       </div>
 
       {/* Right side - User info */}
