@@ -161,21 +161,24 @@ export function InstrumentDetailPage() {
 
   const save = async () => {
     try {
-      // `code` is intentionally absent: it is immutable server-side (it is baked
-      // into the MQTT topic and the device's own configuration).
+      // THREE fields (2026-09-16, operator: "user can edit Instrument ID &
+      // Profile Type and is gateway selection i dont need other options").
+      // Only those travel: an omitted field leaves the stored value alone, so
+      // this form cannot blank a description or an interval nobody typed. The
+      // code goes only when it changed — it is the MQTT client id, and the
+      // server moves the broker slots; the device must reconnect with the new
+      // id (name follows the code when it was the code).
+      const newCode = (draft.code ?? inst.code).trim();
       await apiClient.put(`/api/instruments/${inst.id}`, {
-        name: draft.name, isActive: draft.isActive,
-        instrumentType: draft.instrumentType || null, manufacturer: draft.manufacturer || null,
-        model: draft.model || null, serialNumber: draft.serialNumber || null,
-        description: draft.description || null,
-        expectedIntervalSec: draft.expectedIntervalSec ? Number(draft.expectedIntervalSec) : null,
-        block: draft.block || null, area: draft.area || null, location: draft.location || null,
-        isGateway: draft.isGateway ?? false,
+        ...(newCode && newCode !== inst.code ? { code: newCode } : {}),
         profileId: draft.profileId ?? inst.profileId,
+        isGateway: draft.isGateway ?? false,
       });
       setEditing(false);
       void mutate();
-      toast.success('Instrument updated', `"${inst.code}" saved.`);
+      toast.success('Instrument updated', newCode !== inst.code
+        ? `Instrument ID is now ${newCode}. Reconnect the device with the new ID.`
+        : `"${inst.code}" saved.`);
     } catch (err: unknown) {
       // D6: disabling Is Gateway while children remain is refused with a 409
       // whose message already names the children — surface it verbatim rather
@@ -409,7 +412,7 @@ export function InstrumentDetailPage() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
+        <Card data-testid="details-card">
           <CardHeader className="flex flex-row items-center justify-between gap-2">
             <CardTitle className="flex items-center gap-2">{sectionIcon('bg-slate-100 text-slate-600', ICON.details)}Details</CardTitle>
             {can('instruments.edit') && !editing && (
@@ -419,32 +422,40 @@ export function InstrumentDetailPage() {
           <CardContent className="space-y-3">
             {!editing ? (
               <dl className="grid grid-cols-2 gap-y-2 text-sm">
-                {/* Trimmed 2026-08-07 (operator request) to the fields this
-                    install actually keeps: the identity, what kind of thing it
-                    is, where it sits, and who registered it. The removed rows
-                    (manufacturer / model / serial / description / expected
-                    interval / token prefix / last seen) are still stored and
-                    still editable — last seen now reads off the hero's signal
-                    chip, and the token prefix off the token field. */}
+                {/* Trimmed 2026-08-07 and again 2026-09-16 (operator: no
+                    Block / Area / Location / Description / expected interval
+                    here). The free-text placement COLUMNS are superseded — the
+                    functional location and the Location ATTRIBUTE are the
+                    facts now, and both print on the Attributes panel below.
+                    Everything removed is still stored; nothing here edits it. */}
                 <dt className="text-slate-500">Instrument ID</dt>
                 <dd className="font-mono font-medium text-slate-800">{inst.code}</dd>
                 <dt className="text-slate-500">Profile</dt>
                 <dd>{inst.profileName || '—'}</dd>
                 <dt className="text-slate-500">Type</dt><dd>{inst.instrumentType || '—'}</dd>
-                <dt className="text-slate-500">Block</dt><dd>{inst.block || '—'}</dd>
-                <dt className="text-slate-500">Area</dt><dd>{inst.area || '—'}</dd>
-                <dt className="text-slate-500">Location</dt><dd>{inst.location || '—'}</dd>
+                <dt className="text-slate-500">Gateway</dt>
+                <dd>{inst.isGateway ? 'Yes — reports for its linked instruments' : gatewayInst ? `Child of ${gatewayInst.code}` : 'No'}</dd>
                 <dt className="text-slate-500">Created</dt>
                 <dd>{stamp(inst.createdAt)}{inst.createdBy ? ` by ${inst.createdBy}` : ''}</dd>
               </dl>
             ) : (
               <div className="space-y-3">
-                {/* Moving between profiles is an EDIT like any other (operator
-                    request, 2026-08-19). It used to be a live select sitting in
-                    the read-only view, so a mis-click moved the instrument
-                    immediately with nothing to cancel — on a page whose every
-                    other field waits for Save. It now travels in the same draft
-                    and the same PUT. */}
+                {/* THREE fields (2026-09-16, operator). The Active switch left
+                    this form too: Enable / Disable is its own confirmed action
+                    on this page (2026-08-07), and a second, unconfirmed copy of
+                    it inside an edit form was a duplicate with a weaker
+                    control. Moving between profiles is an EDIT like any other
+                    (2026-08-19) and travels in the same PUT. */}
+                <label className="block space-y-1">
+                  <span className="text-sm text-slate-600">Instrument ID</span>
+                  <Input
+                    value={draft.code ?? inst.code}
+                    autoComplete="off"
+                    aria-label="Instrument ID"
+                    className="font-mono"
+                    onChange={(e) => setDraft({ ...draft, code: e.target.value })}
+                  />
+                </label>
                 <label className="block space-y-1">
                   <span className="text-sm text-slate-600">Profile</span>
                   <select
@@ -456,40 +467,6 @@ export function InstrumentDetailPage() {
                     {profiles?.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
                 </label>
-                <label className="flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={draft.isActive ?? false}
-                    onChange={(e) => setDraft({ ...draft, isActive: e.target.checked })}
-                  className="ctl-check" />
-                  Active — unchecking stops this device&apos;s data being accepted immediately
-                </label>
-                <label className="block space-y-1">
-                  <span className="text-sm text-slate-600">Expected interval (seconds)</span>
-                  <Input
-                    type="number" min={1}
-                    value={draft.expectedIntervalSec ?? ''}
-                    onChange={(e) => setDraft({ ...draft, expectedIntervalSec: e.target.value ? Number(e.target.value) : null })}
-                  />
-                </label>
-                <label className="block space-y-1">
-                  <span className="text-sm text-slate-600">Description</span>
-                  <Input value={draft.description ?? ''} onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
-                </label>
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <label className="block space-y-1">
-                    <span className="text-sm text-slate-600">Block</span>
-                    <Input value={draft.block ?? ''} onChange={(e) => setDraft({ ...draft, block: e.target.value })} />
-                  </label>
-                  <label className="block space-y-1">
-                    <span className="text-sm text-slate-600">Area</span>
-                    <Input value={draft.area ?? ''} onChange={(e) => setDraft({ ...draft, area: e.target.value })} />
-                  </label>
-                  <label className="block space-y-1">
-                    <span className="text-sm text-slate-600">Location</span>
-                    <Input value={draft.location ?? ''} onChange={(e) => setDraft({ ...draft, location: e.target.value })} />
-                  </label>
-                </div>
                 <label className="flex items-center gap-2 text-sm text-slate-700">
                   <input
                     type="checkbox"

@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased] - Instrument Details edit form: Instrument ID, Profile, Is Gateway only (2026-09-16)
+
+Operator: *"there user can edit Instrument ID & Profile Type and is gateway
+selection i dont need other options Block, area, location, Description and
+expected interval options in details section"*.
+
+- The Details card's edit form is three fields: Instrument ID (editable —
+  the code change from earlier today), Profile, Is Gateway. Block / Area /
+  Location / Description / Expected interval left the form AND the read view
+  (the placement columns are superseded; the Location attribute prints on the
+  Attributes panel below). The Active checkbox left too: Enable / Disable is
+  already its own confirmed action on the page, and the form's copy was a
+  weaker duplicate. The read view gained a Gateway row (child of / gateway).
+- Save sends ONLY the three fields, the code only when changed — an omitted
+  field leaves the stored value alone, so the trimmed form cannot blank a
+  description nobody typed. Pinned: `detail-edit.test.tsx` (5).
+- Not seen on screen.
+
 ## [Unreleased] - Retained downlinks no longer wait on a down broker; start-app.bat starts EMQX (2026-09-16)
 
 Operator: *"fix that cascade hang also when broker is down"* and *"EMQX should

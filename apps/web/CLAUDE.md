@@ -135,6 +135,16 @@ single definition of where the session token lives (`sessionStorage`). A
 hand-rolled `fetch` reading `localStorage.getItem('access_token')` is why
 profile photo upload silently 401'd until 2026-08-11.
 
+## Instrument detail — the Details card (trimmed 2026-09-16)
+
+Edit offers THREE fields — Instrument ID, Profile, Is Gateway — and the PUT
+carries only those (code only when changed). Block / Area / Location /
+Description / Expected interval and the Active checkbox are gone from the form
+and the read view (operator); Enable / Disable stays its own confirmed action.
+`detail-edit.test.tsx` pins the field set and the payload; run the three
+`detail-*.test.tsx` files INDIVIDUALLY — together they manufacture "multiple
+elements" failures (the known runner artefact).
+
 ## The report review workflow (2026-09-07)
 
 Every PDF download is a REQUEST an approver signs. Spec:
