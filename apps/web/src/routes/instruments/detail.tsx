@@ -446,6 +446,12 @@ export function InstrumentDetailPage() {
                     control. The Profile select left the same day ("remove
                     profile change option in instrument page"): the profile is
                     shown in the read view and changes nowhere on this page. */}
+                {/* The profile, read-only, so the operator knows which list of
+                    attributes this instrument answers to while editing it. */}
+                <div className="flex items-baseline gap-2 text-sm">
+                  <span className="text-slate-600">Profile</span>
+                  <span className="font-medium text-slate-800">{inst.profileName || '—'}</span>
+                </div>
                 <label className="block space-y-1">
                   <span className="text-sm text-slate-600">Instrument ID</span>
                   <Input
