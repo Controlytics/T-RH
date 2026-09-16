@@ -1,5 +1,34 @@
 # Changelog
 
+## [Unreleased] - Settings edits in place; the Instrument ID is changeable (2026-09-16)
+
+Operator: *"in settings when user clicks on edit values should be editable but
+another edit popup was showing and also in settings Instrument id should be
+changable"*.
+
+- **Settings widget, inline edit.** Edit no longer opens the Attributes panel
+  in a dialog; the tiles become inputs in place (Instrument ID and every
+  attribute the role may edit, from the same `/attribute-access/me` rule the
+  panel applies), with Save and Cancel in the header. Save asks ONE remark for
+  the batch of changed attributes — `RemarkDialog` gained a `changes` list —
+  then PUTs each changed KEY with that reason through the panel's endpoints
+  inside one re-auth, and the new code last through `PUT /api/instruments/:id`.
+  The callback is idempotent (the re-auth hook replays it after a 401). Nothing
+  changed writes nothing. A wildcard ID is refused before any request. 13
+  tests; mutation-checked.
+- **`PUT /api/instruments/:id` accepts `code`.** It was immutable because the
+  code is the MQTT client id and topic segment. That is now handled after the
+  commit by `afterCodeChange`: the old retained attribute slot is cleared and
+  the set republished under the new code; a gateway's roster moves and each
+  child's slot moves with it; the parent roster of a renamed child is
+  republished; the auth cache is invalidated so the old client id is refused at
+  once. **The device itself must reconnect with the new ID — the platform
+  cannot reconfigure it.** Name follows the code when it was the code.
+  Duplicate → 409, wildcard → 400. 6 e2e over a captured publisher; the
+  instruments e2e case "never its code" re-pointed; `LOCAL_SETUP_WINDOWS.md`
+  §"code is immutable" corrected.
+- Not seen on screen.
+
 ## [Unreleased] - Attribute display names; the Instrument ID field is unrestricted (2026-09-16)
 
 Operator: *"for attributes key i need key is one thing and that key display

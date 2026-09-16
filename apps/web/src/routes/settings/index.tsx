@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
-import { ALL_RECORDS_PARAM, isInstrumentReporting, INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN } from '@digilog/shared';
+import {
+  ALL_RECORDS_PARAM, isInstrumentReporting, INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN,
+  canEditAttributeKey, instrumentCodeTopicViolation, type AttributeAccess,
+} from '@digilog/shared';
 import { useCan } from '@/hooks/use-can';
+import { useReauth } from '@/hooks/use-reauth';
+import { useToast } from '@/hooks/use-toast';
+import { apiClient } from '@/lib/api-client';
 import { useAttributeLabels } from '@/hooks/use-attribute-labels';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { themeGradient } from '@/lib/theme-styles';
@@ -9,8 +15,9 @@ import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { type StatusTone } from '@/components/ui/status-badge';
-import { Dialog, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { AttributesPanel } from '@/routes/instruments/attributes-panel';
+import { Input } from '@/components/ui/input';
+import { ReauthDialog } from '@/components/reauth-dialog';
+import { RemarkDialog } from '@/routes/instruments/remark-dialog';
 
 /**
  * Settings (2026-09-08). Operator, first pass: *"in side bar add settings, in
@@ -119,15 +126,131 @@ export function SettingsPage() {
     try { localStorage.setItem(LAST_PICK_KEY, id); } catch { /* storage unavailable */ }
   };
 
-  const { data: attrs } = useSWR<{ data: Attribute[] }>(selected ? `/api/instruments/${selected.id}/attributes` : null);
-  const [editing, setEditing] = useState(false);
+  const { data: attrs, mutate: mutateAttrs } = useSWR<{ data: Attribute[] }>(selected ? `/api/instruments/${selected.id}/attributes` : null);
+  const { mutate: mutateList } = useSWR<{ data: Row[]; total: number }>(`/api/instruments?${ALL_RECORDS_PARAM}`);
   const { labelFor } = useAttributeLabels();
+  const { toast } = useToast();
+  const reauth = useReauth();
+
+  /**
+   * INLINE editing (2026-09-16, operator: "when user clicks on edit values
+   * should be editable but another edit popup was showing and also in settings
+   * Instrument id should be changable"). Edit turns the tiles into inputs in
+   * place; Save signs the changed attributes with ONE remark and writes each
+   * changed KEY through the same endpoints the Attributes panel uses, so the
+   * §11 flow is unchanged: the role's attribute rule decides which tiles are
+   * inputs (`GET /attribute-access/me`, the panel's own source), a change needs
+   * a reason, and re-authentication is the hook's business. The Instrument ID
+   * goes to `PUT /api/instruments/:id` — it is the MQTT client id, and the
+   * server moves the broker slots; the device must reconnect with the new id.
+   */
+  const { data: accessRes, error: accessError } = useSWR<{
+    mode: string | null; keys: string[]; requireReauth: boolean;
+  }>('/api/instruments/attribute-access/me', { revalidateOnFocus: false });
+  const accessLoaded = Boolean(accessRes) || Boolean(accessError);
+  const access: AttributeAccess | null = accessRes?.mode
+    ? { mode: accessRes.mode as AttributeAccess['mode'], keys: accessRes.keys ?? [], requireReauth: accessRes.requireReauth === true }
+    : null;
+  const permitted = canEdit && accessLoaded && !accessError;
+  const mayEdit = (k: string) => canEditAttributeKey(access, k, permitted);
+
+  const [editing, setEditing] = useState(false);
+  /** Attribute drafts by KEY, and the Instrument ID draft. Seeded on Edit. */
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [draftCode, setDraftCode] = useState('');
+  const [codeProblem, setCodeProblem] = useState<string | null>(null);
+  const [remarkOpen, setRemarkOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  // Leaving the instrument leaves edit mode: a draft for one device must never
+  // be saved against another.
+  useEffect(() => { setEditing(false); setRemarkOpen(false); }, [selected?.id]);
+
+  const startEdit = () => {
+    if (!selected) return;
+    setDraft(Object.fromEntries((attrs?.data ?? []).map((a) => [a.key, a.value])));
+    setDraftCode(selected.code);
+    setCodeProblem(null);
+    setEditing(true);
+  };
+  const cancelEdit = () => { setEditing(false); setRemarkOpen(false); setCodeProblem(null); };
+
+  /** Changed attributes the role may edit — what a Save writes. */
+  const changes = (attrs?.data ?? [])
+    .filter((a) => mayEdit(a.key) && draft[a.key] !== undefined && draft[a.key] !== a.value)
+    .map((a) => ({ key: a.key, label: labelFor(a.key), from: a.value, to: draft[a.key] }));
+  const newCode = draftCode.trim();
+  const codeChanged = Boolean(selected) && newCode !== '' && newCode !== selected!.code;
+
+  const onSave = () => {
+    if (codeChanged) {
+      // The same rule the create form states, before any request goes out.
+      const why = instrumentCodeTopicViolation(newCode);
+      if (why) { setCodeProblem(why); return; }
+    }
+    setCodeProblem(null);
+    if (changes.length === 0 && !codeChanged) { setEditing(false); return; }
+    if (changes.length > 0) { setRemarkOpen(true); return; }
+    void commit(null);
+  };
+
+  /**
+   * One `reauth.execute` for the whole batch. The first attempt goes out with
+   * no password; if the role's rule demands one the backend answers 401 and the
+   * hook replays this callback — so it is IDEMPOTENT: every request already
+   * made is skipped on the replay, or a replay would write the same change
+   * twice and the trail would say so.
+   */
+  const commit = (remark: string | null) => {
+    if (!selected) return;
+    const done = new Set<string>();
+    let codeDone = false;
+    setBusy(true);
+    reauth.execute(
+      'UPDATE_INSTRUMENT_ATTRIBUTE',
+      async (password) => {
+        for (const c of changes) {
+          if (done.has(c.key)) continue;
+          const url = `/api/instruments/${selected.id}/attributes/${encodeURIComponent(c.key)}`;
+          const body = { value: c.to, reason: remark ?? '' };
+          if (password) await apiClient.putWithReauth(url, body, password);
+          else await apiClient.put(url, body);
+          done.add(c.key);
+        }
+        if (codeChanged && !codeDone) {
+          await apiClient.put(`/api/instruments/${selected.id}`, { code: newCode });
+          codeDone = true;
+        }
+      },
+      {
+        onSuccess: async () => {
+          setBusy(false);
+          setRemarkOpen(false);
+          setEditing(false);
+          await mutateAttrs();
+          if (codeChanged) await mutateList();
+          toast.success('Saved', codeChanged
+            ? `Instrument ID is now ${newCode}. Reconnect the device with the new ID.`
+            : `${changes.length} attribute${changes.length === 1 ? '' : 's'} updated.`);
+        },
+        onCancel: () => setBusy(false),
+        onError: (err) => {
+          setBusy(false);
+          toast.error('Could not save', (err as { message?: string })?.message ?? 'The changes were not saved.');
+        },
+      },
+    );
+  };
 
   // Two tiles per line on a wide viewport, one below the other on a narrow one
   // (operator: "increase font sizes and in single line two attributes and
   // their values should come"). A tile is one grid cell: the key in sentence
   // case, the value large in tabular numerals, and when it was last written.
-  const tile = (label: string, value: string | null | undefined, opts: { muted?: boolean; slot?: Attribute['slot']; updatedAt?: string } = {}) => {
+  const tile = (
+    label: string,
+    value: string | null | undefined,
+    opts: { muted?: boolean; slot?: Attribute['slot']; updatedAt?: string; edit?: { value: string; onChange: (v: string) => void; problem?: string | null } } = {},
+  ) => {
     const hue = TILE[opts.slot ?? 'other'];
     return (
       <div
@@ -136,12 +259,26 @@ export function SettingsPage() {
         style={{ background: hue.wash, boxShadow: `inset 4px 0 0 0 ${hue.bar}` }}
       >
         <dt className="text-[0.8125rem] font-medium text-slate-500">{label}</dt>
-        <dd
-          className={`font-display min-w-0 break-words text-xl leading-tight tabular-nums ${opts.muted ? 'font-normal text-slate-400' : 'font-semibold'}`}
-          style={opts.muted ? undefined : { color: hue.ink }}
-        >
-          {value}
-        </dd>
+        {opts.edit ? (
+          <dd className="min-w-0">
+            {/* The STORED value is edited, never the display form. */}
+            <Input
+              value={opts.edit.value}
+              autoComplete="off"
+              aria-label={label}
+              onChange={(e) => opts.edit!.onChange(e.target.value)}
+              className={`font-display text-lg font-semibold ${opts.edit.problem ? 'border-red-400' : ''}`}
+            />
+            {opts.edit.problem && <span className="mt-1 block text-xs text-red-600">{opts.edit.problem}</span>}
+          </dd>
+        ) : (
+          <dd
+            className={`font-display min-w-0 break-words text-xl leading-tight tabular-nums ${opts.muted ? 'font-normal text-slate-400' : 'font-semibold'}`}
+            style={opts.muted ? undefined : { color: hue.ink }}
+          >
+            {value}
+          </dd>
+        )}
         {opts.updatedAt && (
           <span className="text-[0.6875rem] text-slate-400">Updated {formatDateTime(opts.updatedAt)}</span>
         )}
@@ -210,40 +347,74 @@ export function SettingsPage() {
                   aria-hidden
                   className={`h-3 w-3 rounded-full ring-4 ring-white/25 ${statusOf(selected, activeWindow).tone === 'ok' ? 'bg-emerald-300' : statusOf(selected, activeWindow).tone === 'warn' ? 'bg-amber-300' : 'bg-slate-300'}`}
                 />
-                {canEdit && (
+                {canEdit && !editing && (
                   <Button
                     size="sm"
                     variant="secondary"
                     className="border-white/40 bg-white/15 text-white hover:bg-white/25"
-                    onClick={() => setEditing(true)}
+                    onClick={startEdit}
                   >
                     Edit
                   </Button>
+                )}
+                {editing && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={busy}
+                      className="border-white/40 bg-white/15 text-white hover:bg-white/25"
+                      onClick={cancelEdit}
+                    >
+                      Cancel
+                    </Button>
+                    <Button size="sm" disabled={busy} className="bg-white text-slate-900 hover:bg-white/90" onClick={onSave}>
+                      {busy ? 'Saving…' : 'Save'}
+                    </Button>
+                  </>
                 )}
               </div>
             </div>
           </div>
           <dl className="grid grid-cols-1 gap-3 p-5 md:grid-cols-2">
-            {tile('Instrument ID', selected.code)}
+            {tile('Instrument ID', selected.code, editing
+              ? { edit: { value: draftCode, onChange: (v) => { setDraftCode(v); setCodeProblem(null); }, problem: codeProblem } }
+              : {})}
             {(attrs?.data ?? []).map((a) => (
               <div key={a.key} className="contents">
-                {tile(labelFor(a.key), a.display ?? (a.value || '(empty)'), { muted: !a.display && !a.value, slot: a.slot, updatedAt: a.updatedAt })}
+                {tile(labelFor(a.key), a.display ?? (a.value || '(empty)'), {
+                  muted: !a.display && !a.value, slot: a.slot, updatedAt: a.updatedAt,
+                  // Only a key the role may edit becomes an input; the rest
+                  // stay tiles, exactly as the Attributes panel would refuse them.
+                  ...(editing && mayEdit(a.key)
+                    ? { edit: { value: draft[a.key] ?? a.value, onChange: (v: string) => setDraft((d) => ({ ...d, [a.key]: v })) } }
+                    : {}),
+                })}
               </div>
             ))}
           </dl>
         </div>
       )}
 
-      {selected && (
-        <Dialog open={editing} onClose={() => setEditing(false)} className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>Attributes — <span className="font-mono">{selected.code}</span></DialogTitle>
-          </DialogHeader>
-          <div className="px-5 pb-5">
-            {editing && <AttributesPanel instrumentId={selected.id} profileId={selected.profileId} canEdit={canEdit} />}
-          </div>
-        </Dialog>
-      )}
+      <RemarkDialog
+        open={remarkOpen}
+        attributeKey=""
+        from=""
+        changes={changes.map((c) => ({ label: c.label, from: c.from, to: c.to }))}
+        busy={busy}
+        onSubmit={(remark) => void commit(remark)}
+        onClose={() => { if (!busy) setRemarkOpen(false); }}
+      />
+      <ReauthDialog
+        open={reauth.isOpen}
+        actionLabel="Update Instrument Attribute"
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+      />
     </div>
   );
 }

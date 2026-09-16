@@ -43,7 +43,7 @@ import {
   getMultiInstrumentHistory,
   type TelemetryRow, type RangeSummary,
 } from './telemetry.repository.js';
-import { publishAttributeDownlink } from './attribute-downlink.js';
+import { publishAttributeDownlink, publishRetained, attributeDownlinkTopic } from './attribute-downlink.js';
 import { publishChildRoster, clearChildRoster } from './child-roster.js';
 import { announceChildAttributeChange } from './child-attributes-bundle.js';
 import { logger } from '../../lib/logger.js';
@@ -1551,12 +1551,13 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Instruments'],
       summary: 'Update instrument',
-      description: 'Update instrument metadata. `code` is immutable — it is baked into MQTT topics and into the device configuration.',
+      description: 'Update instrument metadata. `code` may be changed (2026-09-16): it is the MQTT client id and topic segment, so the retained broker slots keyed on the old code are cleared and republished under the new one — the DEVICE must reconnect with the new id. Name follows the code when it was the code.',
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
       body: {
         type: 'object',
         properties: {
           name: { type: 'string' }, isActive: { type: 'boolean' },
+          code: { type: 'string' },
           // Moving the instrument to another profile.
           profileId: { type: 'string', format: 'uuid' },
           instrumentType: { type: ['string', 'null'] }, manufacturer: { type: ['string', 'null'] },
@@ -1588,6 +1589,8 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     if (invalid) return reply.code(invalid.status).send(invalid.body);
 
     const ctx = buildContext(req);
+    /** The code as it stood under the row lock — what a rename has to clear on the broker. */
+    let priorCode: string | null = null;
     const run = () => prisma.$transaction(async (tx) => {
       // FIRST statement of the transaction, and gated on the REQUESTED value,
       // never on a diff against `existing`.
@@ -1661,7 +1664,14 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         ? [(await codeOf(before.gatewayId, tx)), (await codeOf(parsed.data.gatewayId, tx))]
         : [null, null];
 
-      const row = await tx.instrument.update({ where: { id }, data: parsed.data as never });
+      priorCode = before.code;
+      // Name follows the code when it WAS the code (the 2026-09-04 rule: name =
+      // code on every instrument) and no name was given alongside. An explicit
+      // name in the same PUT wins; a name that already differed is left alone.
+      const codeChanged = parsed.data.code !== undefined && parsed.data.code !== before.code;
+      const data: Record<string, unknown> = { ...parsed.data };
+      if (codeChanged && parsed.data.name === undefined && before.name === before.code) data.name = parsed.data.code;
+      const row = await tx.instrument.update({ where: { id }, data: data as never });
       // EVERY editable field, on both sides. An omission is not cosmetic: a PUT
       // that changes only an omitted field produces a §11 row whose before and
       // after are IDENTICAL — a record that something changed but not what.
@@ -1754,11 +1764,18 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         // The locked re-check refused: the transaction — update and audit rows
         // alike — is already rolled back.
         if (err instanceof GatewayInvariantViolation) return reply.code(err.status).send(err.body);
+        if (isDuplicateCode(err)) {
+          return reply.code(409).send({ error: 'DUPLICATE_CODE', message: `An instrument with code "${parsed.data.code}" already exists.` });
+        }
         if (isDeadlock(err) && attempt === 0) continue;
         throw err;
       }
     }
     if (!updated) throw new Error('Instrument update did not complete.');
+
+    // A RENAME moves the broker's retained state before anything else is
+    // announced, so the roster publishes below already speak the new code.
+    if (priorCode !== null && priorCode !== updated.code) await afterCodeChange(id, priorCode, updated);
 
     // Deactivating an instrument must stop its ingest NOW, not in up to 10s:
     // resolveInstrumentByToken caches the resolved identity, and `isActive` is
@@ -1791,9 +1808,10 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     // (400 GATEWAY_HAS_CHILDREN), so the roster being cleared is always an empty
     // one — but leaving it retained would leave a `children` slot on an
     // instrument that is no longer a gateway, which is exactly the kind of
-    // stale-forever message the delete path below exists to avoid. The topic
-    // is keyed on the code, which is immutable, so `existing.code` and
-    // `updated.code` are the same slot.
+    // stale-forever message the delete path below exists to avoid. Keyed on
+    // the code as it stood BEFORE this request (`existing.code`): a demote that
+    // also renames has its old-code roster cleared by `afterCodeChange` above,
+    // and clearing an already-clear slot is harmless.
     else if (existing.isGateway) await clearChildRoster(existing.code);
 
     const row = await prisma.instrument.findUnique({ where: { id }, include: { credentials: activeCredential, ...withProfileName } });
@@ -2368,6 +2386,64 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const owner = await prisma.instrument.findUnique({ where: { id: instrumentId }, select: attributeOwnerSelect });
     if (!owner) return;
     for (const [key, value] of entries) await announceAttributeChange(instrumentId, owner, key, value);
+  }
+
+  /**
+   * The broker side of a CODE change (2026-09-16). CALLED AFTER THE COMMIT.
+   *
+   * The code is the MQTT client id and every topic segment, so after a rename
+   * every RETAINED slot keyed on the old code would read as current state to
+   * anyone looking at the broker — the failure mode the 2026-09-04 migration
+   * script existed to clean up. So: the instrument's own attribute slot is
+   * cleared at the old code (an empty retained publish) and the complete set
+   * republished at the new one; a gateway's roster moves the same way, and
+   * each of its children's slots — which sit UNDER the gateway's code — move
+   * with it. The parent roster of a renamed child, and the renamed gateway's
+   * own new roster, are published by the caller's existing roster pass.
+   *
+   * What this cannot do: reconfigure the device. Its client id is the old
+   * code until a technician changes it, and the auth hook now refuses that id.
+   * Never throws — a broker failure must not turn a committed rename into an
+   * error the operator would retry.
+   */
+  async function afterCodeChange(
+    id: string,
+    oldCode: string,
+    row: { code: string; gatewayId: string | null; isGateway: boolean },
+  ): Promise<void> {
+    const log = (msg: string, meta?: Record<string, unknown>) => app.log.warn(meta ?? {}, `[downlink:rename] ${msg}`);
+    const republish = async (instrument: { id: string; code: string }, gatewayCode: string | null) => {
+      const rows = await prisma.instrumentAttribute.findMany({ where: { instrumentId: instrument.id }, select: { key: true, value: true } });
+      await publishRetained(
+        attributeDownlinkTopic(instrument.code, gatewayCode),
+        JSON.stringify({ attributes: Object.fromEntries(rows.map((r) => [r.key, r.value])), changed: {}, ts: new Date().toISOString() }),
+        'DOWNLINK NOT DELIVERED — the renamed instrument\'s attribute set was not republished under its new id',
+        log,
+      );
+    };
+    const clear = (topic: string) => publishRetained(
+      topic, '',
+      'STALE SLOT NOT CLEARED — the old id still reads as current on the broker',
+      log,
+    );
+    try {
+      invalidateIngestAuthCache(id);
+      const gatewayCode = await codeOf(row.gatewayId);
+      await clear(attributeDownlinkTopic(oldCode, gatewayCode));
+      await republish({ id, code: row.code }, gatewayCode);
+      if (row.gatewayId) invalidateChildMapCache(row.gatewayId);
+      if (row.isGateway) {
+        invalidateChildMapCache(id);
+        await clearChildRoster(oldCode, log);
+        const kids = await prisma.instrument.findMany({ where: { gatewayId: id }, select: { id: true, code: true } });
+        for (const kid of kids) {
+          await clear(attributeDownlinkTopic(kid.code, oldCode));
+          await republish(kid, row.code);
+        }
+      }
+    } catch (e) {
+      log('could not move the broker state for the rename — the device may read stale slots', { id, oldCode, err: (e as Error).message });
+    }
   }
 
   /**

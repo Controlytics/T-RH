@@ -20,6 +20,9 @@ import { Button } from '@/components/ui/button';
  * something the API refuses would surface as a failed save with a message the
  * operator has no way to act on.
  */
+/** One line of a batch: what is shown for the key, and the values either side. */
+export interface RemarkChange { label: string; from: string; to: string }
+
 export interface RemarkDialogProps {
   open: boolean;
   attributeKey: string;
@@ -27,6 +30,13 @@ export interface RemarkDialogProps {
   from: string;
   /** New value. Absent for a removal. */
   to?: string;
+  /**
+   * SEVERAL changes signed with ONE remark (the Settings widget's inline
+   * edit, 2026-09-16). When given, the single `attributeKey`/`from`/`to` are
+   * not shown; every line is listed so the operator sees the whole of what
+   * one reason will be recorded against.
+   */
+  changes?: RemarkChange[];
   destructive?: boolean;
   busy?: boolean;
   onSubmit: (remark: string) => void;
@@ -34,7 +44,7 @@ export interface RemarkDialogProps {
 }
 
 export function RemarkDialog({
-  open, attributeKey, from, to, destructive = false, busy = false, onSubmit, onClose,
+  open, attributeKey, from, to, changes, destructive = false, busy = false, onSubmit, onClose,
 }: RemarkDialogProps) {
   const [remark, setRemark] = useState('');
   const [touched, setTouched] = useState(false);
@@ -59,21 +69,36 @@ export function RemarkDialog({
     <Dialog open={open} onClose={() => { if (!busy) onClose(); }} className="max-w-lg">
       <DialogHeader>
         <DialogTitle>
-          {destructive ? 'Remove' : 'Change'} “{attributeKey}”
+          {changes
+            ? `Change ${changes.length} attribute${changes.length === 1 ? '' : 's'}`
+            : `${destructive ? 'Remove' : 'Change'} “${attributeKey}”`}
         </DialogTitle>
       </DialogHeader>
 
       <div className="space-y-4">
-        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
-          <dt className="text-slate-500">From</dt>
-          <dd className="font-mono text-slate-800">{from || <span className="italic text-slate-400">(empty)</span>}</dd>
-          {!destructive && (
-            <>
-              <dt className="text-slate-500">To</dt>
-              <dd className="font-mono text-slate-800">{to || <span className="italic text-slate-400">(empty)</span>}</dd>
-            </>
-          )}
-        </dl>
+        {changes ? (
+          <dl className="grid grid-cols-[auto_1fr_auto_1fr] items-baseline gap-x-3 gap-y-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+            {changes.map((c) => (
+              <div key={c.label} className="contents">
+                <dt className="font-medium text-slate-700">{c.label}</dt>
+                <dd className="font-mono text-slate-500">{c.from || <span className="italic text-slate-400">(empty)</span>}</dd>
+                <dt className="text-slate-400">→</dt>
+                <dd className="font-mono text-slate-800">{c.to || <span className="italic text-slate-400">(empty)</span>}</dd>
+              </div>
+            ))}
+          </dl>
+        ) : (
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+            <dt className="text-slate-500">From</dt>
+            <dd className="font-mono text-slate-800">{from || <span className="italic text-slate-400">(empty)</span>}</dd>
+            {!destructive && (
+              <>
+                <dt className="text-slate-500">To</dt>
+                <dd className="font-mono text-slate-800">{to || <span className="italic text-slate-400">(empty)</span>}</dd>
+              </>
+            )}
+          </dl>
+        )}
 
         <label className="block space-y-1">
           <span className="text-sm font-medium text-slate-700">Remarks</span>
@@ -106,7 +131,7 @@ export function RemarkDialog({
             disabled={busy}
             onClick={submit}
           >
-            {busy ? 'Saving…' : destructive ? 'Remove attribute' : 'Save change'}
+            {busy ? 'Saving…' : destructive ? 'Remove attribute' : changes ? 'Save changes' : 'Save change'}
           </Button>
         </div>
       </div>

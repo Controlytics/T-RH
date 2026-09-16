@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  updateInstrumentSchema,
   setInstrumentAttributeSchema,
   updateInstrumentAttributeSchema,
   setInstrumentTokenSchema,
@@ -198,6 +199,24 @@ describe('instrumentCodeTopicViolation', () => {
       expect(instrumentCodeTopicViolation(`${word}/CWH`)).toBeNull();
       expect(instrumentCodeTopicViolation(`${word}-01`)).toBeNull();
     }
+  });
+});
+
+describe('updateInstrumentSchema — code (2026-09-16)', () => {
+  // The code became changeable on the operator's instruction ("in settings
+  // Instrument id should be changable"). The SAME rule as on create applies:
+  // no MQTT wildcard, no reserved last segment. The route handles uniqueness
+  // and the broker consequences.
+  it('accepts a code and applies the topic rule to it', () => {
+    expect(updateInstrumentSchema.safeParse({ code: 'CWH/RDU/009-00' }).success).toBe(true);
+    const bad = updateInstrumentSchema.safeParse({ code: 'CWH/+/009' });
+    expect(bad.success).toBe(false);
+  });
+
+  it('keeps the code optional — a PUT without one changes nothing about it', () => {
+    const r = updateInstrumentSchema.safeParse({ name: 'x' });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.code).toBeUndefined();
   });
 });
 

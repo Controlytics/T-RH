@@ -947,7 +947,7 @@ strand a slot the platform will never revisit:
 None leaks a secret (attributes are registry metadata, and only the instrument's
 own client id can read the slot; after a delete, no token resolves to that code
 at all, so nothing can even connect as it). It is stale data on the broker, not
-an exposure. `code` is immutable, so renaming is not a fourth case.
+an exposure. `code` became changeable on 2026-09-16 (`PUT /api/instruments/:id {code}`): the platform clears the old retained slots and republishes under the new code; the DEVICE must reconnect with the new client id, and the old id is refused from the moment the rename commits.
 
 ### 9C. The CHILD ROSTER — telling a gateway who its children are
 

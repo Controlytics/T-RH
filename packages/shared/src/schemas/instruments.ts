@@ -60,8 +60,10 @@ export const TOKEN_PREFIX_LEN = 8;
  * is honest:
  *   - the bulk-CSV importer still splits on commas and quotes, so a code
  *     containing either cannot arrive that way;
- *   - `code` is IMMUTABLE after creation (`updateInstrumentSchema` omits it) —
- *     a typo is fixed by re-registering, not by editing.
+ *   - `code` CAN be changed since 2026-09-16 (operator: "in settings
+ *     Instrument id should be changable") through `updateInstrumentSchema`,
+ *     under this same rule; the route moves the broker slots and the DEVICE
+ *     must reconnect with the new id — the platform cannot do that for it.
  */
 const codeSchema = z.string().min(1, 'Instrument ID is required').superRefine((code, ctx) => {
   const why = instrumentCodeTopicViolation(code);
@@ -137,9 +139,12 @@ export const updateInstrumentSchema = z.object({
   // Moving an instrument to another profile. `.optional()` not `.nullish()`:
   // there is no "no profile" to move to, so null is meaningless here.
   profileId: z.string().uuid().optional(),
-  // `code` is deliberately NOT updatable: it is baked into MQTT topics and into
-  // whatever the technician configured on the device. Renaming it server-side
-  // would silently break an instrument that is already publishing.
+  // Changeable since 2026-09-16 (operator). The code is the MQTT client id and
+  // every topic segment, so the route — not this schema — clears the retained
+  // slots keyed on the old code and republishes under the new one; the device
+  // itself has to be reconfigured. Same rule as on create: no wildcard, no
+  // reserved last segment.
+  code: codeSchema.optional(),
   isActive: z.boolean().optional(),
   instrumentType: z.string().max(80).nullish(),
   manufacturer: z.string().max(120).nullish(),

@@ -981,14 +981,45 @@ GET    /api/config/report-approvers/current     — the administered approver ro
     100 instruments carry both) and print once, as attributes.** A cut that
     also synthesised them from the functional location drew "why area and
     building coming 2 times"; do not add placement rows beside the attributes.
-  - **The widget is read-only; Edit opens the existing `AttributesPanel` in a
-    dialog for THIS instrument** (operator's choice over per-row pencils). The
-    panel carries the whole §11 flow wherever it is mounted (Attribute Access
-    rule, mandatory remarks, re-auth) and shares the widget's SWR key, so a save
-    is on the widget when the dialog closes. Identity and placement are not
-    editable here; details still change on the Instruments detail page.
-    `settings.edit` shows the button — presentation; the attribute routes are
-    the control.
+  - **Edit is INLINE (2026-09-16, operator: "when user clicks on edit values
+    should be editable but another edit popup was showing and also in settings
+    Instrument id should be changable").** Until then Edit opened the
+    `AttributesPanel` in a dialog. Now Edit turns the tiles into inputs in
+    place — the Instrument ID tile and every attribute tile the role may edit
+    (`canEditAttributeKey` over `GET /attribute-access/me`, the panel's own
+    source; ALL_VIEW leaves every attribute read-only and the ID still
+    editable) — with Save and Cancel in the header. Save asks ONE remark for
+    the batch of changed attributes (`RemarkDialog` gained a `changes` list),
+    then, inside ONE `reauth.execute('UPDATE_INSTRUMENT_ATTRIBUTE')`, PUTs each
+    changed KEY with that reason through the panel's endpoints and — last — the
+    new code through `PUT /api/instruments/:id`. The callback is IDEMPOTENT
+    (a set of done keys) because the re-auth hook REPLAYS it after a 401.
+    Nothing changed writes nothing; the STORED value is edited, never the
+    display form; a wildcard ID is refused before any request with the server
+    rule's own reason. Details other than the ID still change on the
+    Instruments detail page. `settings.edit` shows the buttons — presentation;
+    the routes are the control. 13 tests; mutation-checked (no write / no
+    wildcard guard each fail).
+- **The Instrument ID (code) IS CHANGEABLE (2026-09-16, operator: "in
+  settings Instrument id should be changable").** `updateInstrumentSchema`
+  gained `code` under the SAME topic rule as create; `PUT /api/instruments/:id
+  {code}` renames. It had been deliberately immutable ("baked into MQTT topics
+  and the device configuration") — that consequence did not go away, it is
+  now handled and stated: **the code is the MQTT client id and every topic
+  segment, so the DEVICE must reconnect with the new id** (the auth hook
+  refuses the old one from the commit), and `afterCodeChange` in
+  `instruments/routes.ts` moves the broker's RETAINED state after the commit —
+  the old attribute slot is cleared (empty retained publish) and the complete
+  set republished under the new code; a gateway's roster moves and each
+  child's slot (which sits UNDER the gateway code) moves with it; a renamed
+  child's parent roster is republished by the existing roster pass. Name
+  follows the code when it WAS the code (the 2026-09-04 rule) unless a name
+  is given alongside. Duplicate → 409 `DUPLICATE_CODE`, wildcard → 400.
+  `INSTRUMENT_UPDATED` already diffed `code`, so the audit row carries the
+  rename. Pinned by `e2e/instrument-rename.e2e.test.ts` (6, over a captured
+  publisher: standalone, child, gateway, duplicate/wildcard, no-op) and the
+  re-pointed `instruments.test.ts` case that used to say "never its code".
+  No count moved.
   - **The first cut was a TABLE of every instrument with expandable rows and an
     inline details form (`bee0363`, one commit)** and was replaced the same day
     on the operator's restatement. Do not bring the table back as a "second

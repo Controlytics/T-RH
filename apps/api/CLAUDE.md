@@ -317,6 +317,18 @@ node apps/api/dist/app.js
   downlink echo not logged), and the downlink/roster e2e rekeyed on codes.
   **The reserved-last-segment rule is load-bearing**: without it a child coded
   `X/telemetry` has its downlink parsed as telemetry from `<gw>/attributes/X`.
+- **2026-09-16 — the instrument CODE is changeable.** `PUT /api/instruments/:id`
+  accepts `code` (shared `updateInstrumentSchema`, same `codeSchema` as create).
+  **No count moved, no migration.** The code is the MQTT client id and every
+  topic segment, which is why it was immutable; `afterCodeChange` (inside the
+  plugin, after the commit, never throws) now clears the old retained
+  attribute slot, republishes the set under the new code, and for a gateway
+  clears the old roster and moves every child's slot; the caller's existing
+  roster pass publishes the new rosters. `invalidateIngestAuthCache` so the old
+  client id is refused at once. Name follows the code when it was the code.
+  Duplicate → 409 `DUPLICATE_CODE`. **The device must be reconfigured by
+  hand** — the platform cannot reach it. Pinned by
+  `e2e/instrument-rename.e2e.test.ts` (6) over `setDownlinkPublisher`.
 - **2026-09-05 — `GET /api/instruments/telemetry-history`: the merged, paged
   readings of SEVERAL instruments** (the Instruments page's history widget).
   **No count moved** and **no migration**: one new route on the existing

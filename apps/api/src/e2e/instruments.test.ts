@@ -123,7 +123,11 @@ describe('Instruments registry', () => {
     expect(body.errors).toEqual([{ row: 2, message: `code "${taken}" already exists` }]);
   });
 
-  it('updates an instrument but never its code', async () => {
+  // Until 2026-09-16 this case pinned "never its code". The operator asked for
+  // the Instrument ID to be changeable; the broker consequences are pinned in
+  // `instrument-rename.e2e.test.ts`. Here: a PUT carrying a new code changes
+  // it, and an explicit name given alongside is kept.
+  it('updates an instrument, its code included when asked', async () => {
     const code = `UPD-${Date.now()}`;
     const res = await create({ name: 'Before', code });
     const id = res.json().id;
@@ -131,11 +135,11 @@ describe('Instruments registry', () => {
 
     const put = await app.inject({
       method: 'PUT', url: `/api/instruments/${id}`, headers: auth,
-      payload: { name: 'After', code: 'HIJACKED', isActive: false },
+      payload: { name: 'After', code: `${code}-B`, isActive: false },
     });
     expect(put.statusCode).toBe(200);
     expect(put.json().name).toBe('After');
-    expect(put.json().code).toBe(code);
+    expect(put.json().code).toBe(`${code}-B`);
     expect(put.json().isActive).toBe(false);
   });
 
