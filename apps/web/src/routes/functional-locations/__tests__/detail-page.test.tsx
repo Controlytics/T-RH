@@ -85,7 +85,8 @@ describe('Functional location detail page', () => {
     const areas = within(screen.getByTestId('fl-areas'));
     const tile = areas.getByRole('link', { name: /Stability/ });
     expect(tile).toHaveAttribute('href', '/functional-locations/a1');
-    expect(tile).toHaveTextContent('2');
+    // ONE count per tile, worded ("count is showing two times for areas").
+    expect(tile).toHaveTextContent(/^Stability2 instruments$/);
   });
 
   it('direct instruments and the areas’ instruments are two separate lists', () => {

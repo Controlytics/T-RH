@@ -274,14 +274,14 @@ export default function FunctionalLocationsPage() {
                           className="group/area flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-teal-50/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
                         >
                           <span aria-hidden className="h-8 w-1 shrink-0 rounded-full bg-gradient-to-b from-teal-700 to-teal-500" />
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-[0.875rem] font-medium text-slate-800 group-hover/area:text-teal-900">{a.name}</span>
-                            <span className="block text-[0.6875rem] text-slate-500">
-                              {a.ownCount} instrument{a.ownCount === 1 ? '' : 's'}
-                            </span>
-                          </span>
-                          <span className="inline-flex min-w-[1.75rem] justify-center rounded-[var(--radius-pill)] bg-teal-50 px-2 py-0.5 text-[0.75rem] font-semibold tabular-nums text-teal-800 ring-1 ring-inset ring-teal-600/20">
-                            {a.ownCount}
+                          <span className="min-w-0 flex-1 truncate text-[0.875rem] font-medium text-slate-800 group-hover/area:text-teal-900">{a.name}</span>
+                          {/* ONE count per row (operator, 2026-09-17: "count is
+                              showing two times for areas") — the pill carries
+                              the word, so it is not a bare number. */}
+                          <span className="inline-flex shrink-0 items-center rounded-[var(--radius-pill)] bg-teal-50 px-2 py-0.5 text-[0.75rem] font-semibold text-teal-800 ring-1 ring-inset ring-teal-600/20">
+                            <span className="tabular-nums">{a.ownCount}</span>
+                            {' '}
+                            <span className="font-medium">instrument{a.ownCount === 1 ? '' : 's'}</span>
                           </span>
                         </Link>
                     ))}

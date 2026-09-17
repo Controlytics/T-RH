@@ -276,14 +276,13 @@ export function FunctionalLocationDetailPage() {
                       className="group relative flex items-center gap-3 overflow-hidden rounded-[var(--radius-card)] border border-teal-600/15 bg-gradient-to-br from-teal-50 to-white py-3 pl-4 pr-3 shadow-[var(--elev-1)] transition-colors hover:border-teal-600/40 hover:from-teal-100/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
                     >
                       <span aria-hidden className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-teal-700 to-teal-500" />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[0.9375rem] font-semibold text-slate-900 group-hover:text-teal-900">{a.name}</span>
-                        <span className="block text-[0.75rem] text-slate-500">
-                          {a.ownCount} instrument{a.ownCount === 1 ? '' : 's'}
-                        </span>
-                      </span>
-                      <span className="inline-flex min-w-[1.75rem] justify-center rounded-[var(--radius-pill)] bg-white px-2 py-0.5 text-[0.75rem] font-semibold tabular-nums text-teal-800 ring-1 ring-inset ring-teal-600/25">
-                        {a.ownCount}
+                      <span className="min-w-0 flex-1 truncate text-[0.9375rem] font-semibold text-slate-900 group-hover:text-teal-900">{a.name}</span>
+                      {/* ONE count per tile (operator, 2026-09-17: "count is
+                          showing two times for areas"). */}
+                      <span className="inline-flex shrink-0 items-center rounded-[var(--radius-pill)] bg-white px-2 py-0.5 text-[0.75rem] font-semibold text-teal-800 ring-1 ring-inset ring-teal-600/25">
+                        <span className="tabular-nums">{a.ownCount}</span>
+                        {' '}
+                        <span className="font-medium">instrument{a.ownCount === 1 ? '' : 's'}</span>
                       </span>
                       <svg aria-hidden className="h-4 w-4 shrink-0 text-teal-700/60 transition-transform group-hover:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />

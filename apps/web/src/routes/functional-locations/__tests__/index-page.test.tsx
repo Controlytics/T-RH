@@ -72,7 +72,9 @@ describe('Functional Locations page', () => {
     // Areas are rows in the card, each linking to its own page, with ITS count.
     const stability = c.getByRole('link', { name: /Stability/ });
     expect(stability).toHaveAttribute('href', '/functional-locations/a1');
-    expect(stability).toHaveTextContent('2');
+    // ONE count per row, worded (operator: "count is showing two times for
+    // areas" — it printed "2 instruments" under the name AND a "2" pill).
+    expect(stability).toHaveTextContent(/^Stability2 instruments$/);
     expect(c.getByRole('link', { name: /QC Floor/ })).toHaveTextContent('1');
   });
 
