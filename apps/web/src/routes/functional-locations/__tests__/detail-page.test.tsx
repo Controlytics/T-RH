@@ -74,8 +74,11 @@ describe('Functional location detail page', () => {
     expect(h.getByRole('heading', { name: 'CWH Block' })).toBeInTheDocument();
     expect(h.getByText('Block')).toBeInTheDocument();
     expect(h.getByTestId('fl-stat-total')).toHaveTextContent('3');
-    expect(h.getByTestId('fl-stat-direct')).toHaveTextContent('1');
     expect(h.getByTestId('fl-stat-areas')).toHaveTextContent('1');
+    // No "Linked directly" tile ("remove that linked directly tile also");
+    // the direct list's own count below is that number.
+    expect(h.queryByTestId('fl-stat-direct')).not.toBeInTheDocument();
+    expect(h.queryByText(/Linked directly/)).not.toBeInTheDocument();
     // No live state anywhere on the page ("remove live status").
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
   });

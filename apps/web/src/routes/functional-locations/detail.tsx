@@ -230,14 +230,16 @@ export function FunctionalLocationDetailPage() {
             </div>
           </div>
 
-          <div className={`grid gap-3 ${isBlock ? 'sm:grid-cols-3' : 'sm:grid-cols-2'} md:max-w-2xl`}>
+          {/* Two figures on a Block, one on an Area. There is no "Linked
+              directly" tile (operator, 2026-09-17: "remove that linked directly
+              tile also") — the direct list below is that number, counted. */}
+          <div className={`grid gap-3 ${isBlock ? 'sm:grid-cols-2 md:max-w-lg' : 'md:max-w-xs'}`}>
             <Stat
               testId="fl-stat-total"
               value={data.totalCount}
               label="Instruments in total"
               hint={isBlock ? 'This block and all its areas' : 'Linked to this area'}
             />
-            <Stat testId="fl-stat-direct" value={data.ownCount} label="Linked directly" hint="Edited below" />
             {isBlock && (
               <Stat
                 testId="fl-stat-areas"
