@@ -1,5 +1,47 @@
 # Changelog
 
+## [Unreleased] - Functional Locations: restyled list and detail pages (2026-09-17)
+
+Operator: *"functional location page is looking sample ui, i need best
+professional and colorful screen and inside screens also"*, then, an hour
+into the build, *"remove live status"*.
+
+- **List page** (`routes/functional-locations/index.tsx`): a theme-gradient
+  hero band carries the page header, three figures (Blocks, Areas,
+  Instruments assigned) and the search box; each Block is a card whose top
+  plate is the same gradient (name, Block chip, the rolled-up count large)
+  with its Areas listed on white beneath it, each with a teal rule and a
+  count pill. The Block > Area nesting, the search-keeps-a-Block-whose-Area-
+  matches rule, and every action gate are unchanged.
+- **Detail page** (`detail.tsx`): the white header card became the same hero
+  band — crumbs, glyph, Block / Area chip, name, "Inside <Block>", the
+  actions in the on-gradient button style Settings uses, and the figures as
+  tinted tiles inside the band (sentence-case labels; the all-caps ones went).
+  Areas are teal tiles with a count pill and an arrow; instruments are code
+  tiles (`instrument-tile.tsx`, shared by the direct list and the read-only
+  "in this block's areas" list, which tags each tile with its Area).
+- **Dialogs**: the create / edit, arrange and add-instruments dialogs open
+  with a theme-gradient banner (`dialog-banner.tsx`, full-bleed inside the
+  Dialog's padding — which is why it lives beside them, not in `components/ui`).
+- **Live status was built and removed the same day.** For about an hour every
+  Block, Area and instrument carried a reporting / silent / disabled split
+  joined in the browser from the instrument list (`location-health.ts`,
+  `health-bar.tsx`, a status badge per tile). The operator said "remove live
+  status" and all of it went — no page in this folder reads
+  `/api/instruments` or the activity window any more; the tiles' left rule is
+  the theme colour (identity), not a state. The comment on each page says so.
+- No count moved: no route, hook, lib module, permission, config def, API or
+  schema change. `__tests__/index-page.test.tsx` (5) and
+  `detail-page.test.tsx` (5) pin the wiring — hero figures, one card per
+  Block, Areas inside it with their own counts, the two SEPARATE instrument
+  lists on a Block, the Area page's shape, every gate. Mutation-checked, four
+  mutants: three caught first time; the fourth (the in-areas list also
+  showing the Block's own instrument) passed until an explicit
+  not-in-the-document assertion was added. `tsc` clean, `vite build` clean.
+- Not seen on screen (the operator holds the browser session). What needs
+  their eye: the hero band under their wallpaper, the Block plate's contrast
+  on their theme preset, and the dialog banner's corner radius.
+
 ## [Unreleased] - Instrument detail: no Type row, no stretched Details card; no dev chip in the header (2026-09-16)
 
 Operator: *"remove type in instrument details section"*, then *"remove

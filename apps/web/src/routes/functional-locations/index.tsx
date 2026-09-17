@@ -4,16 +4,17 @@ import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { useCan } from '@/hooks/use-can';
 import { useToast } from '@/hooks/use-toast';
+import { themeGradient } from '@/lib/theme-styles';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { PageHeader } from '@/components/ui/page-header';
 import { LocationDialog, type LocationDraft } from './location-dialog';
 import { ArrangeDialog } from './arrange-dialog';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
+import { LocationGlyph } from './dialog-banner';
 import type { FlNode } from './types';
-import { PageHeader } from '@/components/ui/page-header';
 
 /**
  * Functional Locations — the browse view: one card per BLOCK, its Areas listed
@@ -24,6 +25,14 @@ import { PageHeader } from '@/components/ui/page-header';
  * side by side would lose the one relationship the page exists to show, and make
  * "12 instruments" (a Block, rolled up) look like the same kind of number as
  * "3 instruments" (an Area, its own).
+ *
+ * REDESIGNED 2026-09-17 (operator: "functional location page is looking sample
+ * ui, i need best professional and colorful screen and inside screens also").
+ * A themed hero band states the plant; each Block is a gradient plate with its
+ * rolled-up count and its Areas listed on white beneath it. A live
+ * reporting / silent split per location shipped for an hour and was removed
+ * the same day (operator: "remove live status") — this page shows the
+ * GROUPING and its counts, nothing about whether a device is talking.
  *
  * Everything that CHANGES a location lives on the detail page. This page reads.
  */
@@ -53,14 +62,8 @@ export default function FunctionalLocationsPage() {
     );
   }, [tree, query]);
 
-  const totalInstruments = useMemo(
-    () => tree.reduce((sum, b) => sum + b.totalCount, 0),
-    [tree],
-  );
-  const areaCount = useMemo(
-    () => tree.reduce((sum, b) => sum + (b.children?.length ?? 0), 0),
-    [tree],
-  );
+  const totalInstruments = useMemo(() => tree.reduce((sum, b) => sum + b.totalCount, 0), [tree]);
+  const areaCount = useMemo(() => tree.reduce((sum, b) => sum + (b.children?.length ?? 0), 0), [tree]);
 
   const submit = async (draft: LocationDraft) => {
     await apiClient.post('/api/functional-locations', {
@@ -111,55 +114,73 @@ export default function FunctionalLocationsPage() {
     }
   };
 
+  const actions = (
+    <div className="flex flex-wrap items-center gap-2">
+      {/* Arranging is an EDIT to these rows, so it is gated on the same
+          permission as renaming them — and hidden entirely below two
+          blocks, where there is no order to choose. */}
+      {can('functional_locations.update') && tree.length > 1 && (
+        <Button
+          variant="secondary"
+          className="border-white/40 bg-white/15 text-white hover:bg-white/25"
+          onClick={() => setArrangeOpen(true)}
+        >
+          Arrange order
+        </Button>
+      )}
+      {can('functional_locations.create') && (
+        <Button className="bg-white text-slate-900 shadow-[var(--elev-2)] hover:bg-white/90" onClick={() => setDialogOpen(true)}>
+          Create functional location
+        </Button>
+      )}
+    </div>
+  );
+
   return (
     <div className="space-y-5">
-      <PageHeader
-        title="Functional Locations"
-        description="Block and Area grouping. An instrument belongs to exactly one location."
-        crumbs={[{ label: 'Home', to: '/' }, { label: 'Functional Locations' }]}
-        icon={
-          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-          </svg>
-        }
-        actions={(
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Arranging is an EDIT to these rows, so it is gated on the same
-                permission as renaming them — and hidden entirely below two
-                blocks, where there is no order to choose. */}
-            {can('functional_locations.update') && tree.length > 1 && (
-              <Button variant="outline" onClick={() => setArrangeOpen(true)}>
-                Arrange order
-              </Button>
-            )}
-            {can('functional_locations.create') && (
-              <Button onClick={() => setDialogOpen(true)}>Create functional location</Button>
-            )}
-          </div>
-        )}
-      />
+      {/* The hero: where you are, what the plant holds, and how it is doing. */}
+      <section
+        data-testid="fl-hero"
+        className="relative overflow-hidden rounded-[var(--radius-card)] p-6 text-white shadow-[var(--elev-3)]"
+        style={themeGradient}
+      >
+        <span aria-hidden className="pointer-events-none absolute -right-16 -top-24 h-72 w-72 rounded-full bg-white/10 blur-2xl" />
+        <span aria-hidden className="pointer-events-none absolute -bottom-28 left-1/3 h-64 w-64 rounded-full bg-black/10 blur-3xl" />
+        <div className="relative space-y-5">
+          <PageHeader
+            inverted
+            title="Functional Locations"
+            description="Block and Area grouping. An instrument belongs to exactly one location."
+            crumbs={[{ label: 'Home', to: '/' }, { label: 'Functional Locations' }]}
+            icon={LocationGlyph}
+            actions={actions}
+          />
 
-      {tree.length > 0 && (
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="w-full sm:w-72">
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search blocks and areas…"
-            />
+          <div className="grid gap-3 md:grid-cols-[repeat(3,minmax(0,9rem))_minmax(0,1fr)] md:items-stretch">
+            <Figure testId="fl-figure-blocks" value={tree.length} label={tree.length === 1 ? 'Block' : 'Blocks'} />
+            <Figure testId="fl-figure-areas" value={areaCount} label={areaCount === 1 ? 'Area' : 'Areas'} />
+            <Figure testId="fl-figure-instruments" value={totalInstruments} label={totalInstruments === 1 ? 'Instrument assigned' : 'Instruments assigned'} />
+            {tree.length > 0 && (
+              <div className="flex items-center rounded-[var(--radius-card)] bg-white/12 px-4 py-3 ring-1 ring-inset ring-white/20 backdrop-blur-sm">
+                <label className="w-full">
+                  <span className="mb-1.5 block text-[0.8125rem] font-medium text-white/85">Find a block or area</span>
+                  <Input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Search blocks and areas…"
+                    className="h-9 border-white/30 bg-white/90 text-slate-900 placeholder:text-slate-500"
+                  />
+                </label>
+              </div>
+            )}
           </div>
-          <p className="text-xs text-slate-500">
-            {tree.length} block{tree.length === 1 ? '' : 's'} · {areaCount} area
-            {areaCount === 1 ? '' : 's'} · {totalInstruments} instrument
-            {totalInstruments === 1 ? '' : 's'} assigned
-          </p>
         </div>
-      )}
+      </section>
 
       {isLoading && tree.length === 0 && (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {[0, 1, 2].map((i) => (
-            <div key={i} className="h-40 animate-pulse rounded-[var(--radius-card)] border border-slate-200 bg-slate-50" />
+            <div key={i} className="h-48 animate-pulse rounded-[var(--radius-card)] border border-slate-200 bg-slate-50" />
           ))}
         </div>
       )}
@@ -184,10 +205,7 @@ export default function FunctionalLocationsPage() {
           <p className="text-sm text-slate-600">
             Nothing matches “{query.trim()}”.
           </p>
-          <Button variant="ghost" className="mt-2"
-            type="button"
-            onClick={() => setQuery('')}
-          >
+          <Button variant="ghost" className="mt-2" type="button" onClick={() => setQuery('')}>
             Clear search
           </Button>
         </Card>
@@ -197,68 +215,81 @@ export default function FunctionalLocationsPage() {
         {visible.map((b) => {
           const areas = b.children ?? [];
           return (
-            <Card key={b.id} className="flex flex-col overflow-hidden">
+            <Card key={b.id} data-testid={`fl-block-${b.name}`} className="flex flex-col overflow-hidden border-transparent">
+              {/* The plate: the Block's name and its rolled-up count, on the
+                  site's own colour so a Block reads as a Block from across the
+                  room. Areas below it sit on white — the hierarchy is the tint. */}
               <Link
                 to={`/functional-locations/${b.id}`}
-                className="group block px-5 pb-4 pt-5 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                className="group relative block px-5 pb-4 pt-4 text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white"
+                style={themeGradient}
               >
-                <div className="flex items-start justify-between gap-2">
-                  <h2 className="min-w-0 truncate text-lg font-semibold text-slate-800 group-hover:text-blue-700">
-                    {b.name}
-                  </h2>
-                  <Badge className="shrink-0">BLOCK</Badge>
+                <span aria-hidden className="pointer-events-none absolute -right-10 -top-14 h-40 w-40 rounded-full bg-white/10 blur-xl transition-transform duration-300 group-hover:scale-125" />
+                <div className="relative flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <span className="inline-flex items-center rounded-[var(--radius-pill)] bg-white/20 px-2 py-0.5 text-[0.6875rem] font-semibold tracking-wide text-white ring-1 ring-inset ring-white/30">
+                      Block
+                    </span>
+                    <h2 className="font-display mt-1.5 truncate text-[1.25rem] font-semibold leading-tight tracking-tight">
+                      {b.name}
+                    </h2>
+                    <p className="mt-0.5 text-[0.75rem] text-white/75">
+                      {b.ownCount} linked directly · {areas.length} area{areas.length === 1 ? '' : 's'}
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <span data-testid="fl-block-total" className="font-display block text-[2.25rem] font-bold leading-none tabular-nums">
+                      {b.totalCount}
+                    </span>
+                    <span className="text-[0.6875rem] text-white/75">instrument{b.totalCount === 1 ? '' : 's'}</span>
+                  </div>
                 </div>
-
-                <div className="mt-3 flex items-baseline gap-2">
-                  <span className="text-3xl font-bold tabular-nums text-slate-800">{b.totalCount}</span>
-                  <span className="text-sm text-slate-500">
-                    instrument{b.totalCount === 1 ? '' : 's'} in total
-                  </span>
-                </div>
-                {/* "4 total, 1 here" is the difference between an empty Block and
-                    one holding a corridor probe — the two must not look identical. */}
-                <p className="mt-1 text-xs text-slate-500">
-                  {b.ownCount} linked directly to the block · {areas.length} area
-                  {areas.length === 1 ? '' : 's'}
-                </p>
               </Link>
 
               {areas.length > 0 ? (
-                <div className="mt-auto border-t border-slate-100 bg-slate-50/70 p-2">
-                  {/* Arranging Areas is per BLOCK, because Areas are siblings only
-                      within their own Block. Shown from two Areas up — with one
-                      there is no order to choose. */}
-                  {can('functional_locations.update') && areas.length > 1 && (
-                    <div className="flex justify-end px-1 pb-1">
+                <div className="mt-auto px-3 pb-3 pt-2">
+                  <div className="flex items-center justify-between px-2 pb-1">
+                    <span className="text-[0.75rem] font-semibold text-teal-800">Areas</span>
+                    {/* Arranging Areas is per BLOCK, because Areas are siblings only
+                        within their own Block. Shown from two Areas up — with one
+                        there is no order to choose. */}
+                    {can('functional_locations.update') && areas.length > 1 && (
                       <Button
                         type="button"
                         variant="ghost"
                         size="sm"
+                        className="-mr-1 h-7 px-2 text-[0.75rem]"
                         onClick={() => setArrangeAreasOf(b.id)}
                         title={`Arrange the areas of ${b.name}`}
                       >
                         Arrange areas
                       </Button>
-                    </div>
-                  )}
-                  <div className="space-y-0.5">
-                  {areas.map((a) => (
-                    <Link
-                      key={a.id}
-                      to={`/functional-locations/${a.id}`}
-                      className="flex items-center justify-between gap-2 rounded-lg px-3 py-1.5 hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                    >
-                      <span className="min-w-0 truncate text-sm text-slate-700">{a.name}</span>
-                      <span className="shrink-0 text-xs tabular-nums text-slate-500">
-                        {a.ownCount} instrument{a.ownCount === 1 ? '' : 's'}
-                      </span>
-                    </Link>
-                  ))}
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    {areas.map((a) => (
+                        <Link
+                          key={a.id}
+                          to={`/functional-locations/${a.id}`}
+                          className="group/area flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-teal-50/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
+                        >
+                          <span aria-hidden className="h-8 w-1 shrink-0 rounded-full bg-gradient-to-b from-teal-700 to-teal-500" />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[0.875rem] font-medium text-slate-800 group-hover/area:text-teal-900">{a.name}</span>
+                            <span className="block text-[0.6875rem] text-slate-500">
+                              {a.ownCount} instrument{a.ownCount === 1 ? '' : 's'}
+                            </span>
+                          </span>
+                          <span className="inline-flex min-w-[1.75rem] justify-center rounded-[var(--radius-pill)] bg-teal-50 px-2 py-0.5 text-[0.75rem] font-semibold tabular-nums text-teal-800 ring-1 ring-inset ring-teal-600/20">
+                            {a.ownCount}
+                          </span>
+                        </Link>
+                    ))}
                   </div>
                 </div>
               ) : (
-                <p className="mt-auto border-t border-slate-100 bg-slate-50/70 px-5 py-3 text-xs text-slate-500">
-                  No areas yet.
+                <p className="mt-auto px-5 py-3 text-xs text-slate-500">
+                  No areas yet
                 </p>
               )}
             </Card>
@@ -318,6 +349,16 @@ export default function FunctionalLocationsPage() {
         onClose={() => setDialogOpen(false)}
         onSubmit={submit}
       />
+    </div>
+  );
+}
+
+/** One figure in the hero band: the number large, its word under it. */
+function Figure({ value, label, testId }: { value: number; label: string; testId: string }) {
+  return (
+    <div data-testid={testId} className="rounded-[var(--radius-card)] bg-white/12 px-4 py-3 ring-1 ring-inset ring-white/20 backdrop-blur-sm">
+      <span className="font-display block text-[1.75rem] font-bold leading-none tabular-nums">{value}</span>
+      <span className="mt-1 block text-[0.75rem] text-white/80">{label}</span>
     </div>
   );
 }

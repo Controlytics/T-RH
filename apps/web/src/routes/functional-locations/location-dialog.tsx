@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogFooter } from '@/components/ui/dialog';
+import { DialogBanner, LocationGlyph } from './dialog-banner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -68,13 +69,15 @@ export function LocationDialog({ open, initial, blocks, presetParentId, onClose,
 
   return (
     <Dialog open={open} onClose={onClose}>
-      <DialogHeader>
-        {/* "Edit", not "Rename": in edit mode an Area's Block picker is live, so
-            this dialog can move a location as well as rename it. */}
-        <DialogTitle>{initial ? 'Edit functional location' : 'New functional location'}</DialogTitle>
-      </DialogHeader>
+      {/* "Edit", not "Rename": in edit mode an Area's Block picker is live, so
+          this dialog can move a location as well as rename it. */}
+      <DialogBanner
+        title={initial ? 'Edit functional location' : 'New functional location'}
+        subtitle={initial ? initial.name : 'A Block, or an Area inside one'}
+        icon={LocationGlyph}
+      />
 
-      <div className="space-y-4 p-6 pt-2">
+      <div className="space-y-4">
         <label className="block space-y-1">
           <span className="text-sm font-medium text-slate-700">Functional location name *</span>
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Module-E" autoFocus />

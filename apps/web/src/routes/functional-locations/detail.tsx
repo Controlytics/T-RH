@@ -4,14 +4,16 @@ import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { useCan } from '@/hooks/use-can';
 import { useToast } from '@/hooks/use-toast';
+import { themeGradient } from '@/lib/theme-styles';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Breadcrumbs } from '@/components/ui/page-header';
 import { LocationDialog, type LocationDraft } from './location-dialog';
 import { InstrumentPanel } from './instrument-panel';
+import { InstrumentTile } from './instrument-tile';
+import { LocationGlyph } from './dialog-banner';
 import type { FlNode } from './types';
-import { Breadcrumbs } from '@/components/ui/page-header';
 
 interface FlDetail {
   id: string;
@@ -24,12 +26,13 @@ interface FlDetail {
   instruments: { id: string; code: string; name: string; functionalLocationId: string | null }[];
 }
 
-function Stat({ value, label, hint }: { value: number; label: string; hint?: string }) {
+/** One figure inside the hero band. */
+function Stat({ value, label, hint, testId }: { value: number; label: string; hint?: string; testId: string }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-      <p className="text-2xl font-bold tabular-nums text-slate-800">{value}</p>
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-      {hint && <p className="mt-0.5 text-xs text-slate-400">{hint}</p>}
+    <div data-testid={testId} className="rounded-[var(--radius-card)] bg-white/12 px-4 py-3 ring-1 ring-inset ring-white/20 backdrop-blur-sm">
+      <p className="font-display text-[1.75rem] font-bold leading-none tabular-nums">{value}</p>
+      <p className="mt-1 text-[0.8125rem] font-medium text-white/90">{label}</p>
+      {hint && <p className="mt-0.5 text-[0.6875rem] text-white/65">{hint}</p>}
     </div>
   );
 }
@@ -45,6 +48,11 @@ function Stat({ value, label, hint }: { value: number; label: string; hint?: str
  * sets membership wholesale — showing an Area's instrument there would let an
  * unlink silently move it up to the Block. So the two are rendered as separate,
  * separately-labelled sections rather than one list.
+ *
+ * REDESIGNED 2026-09-17 with the list page ("and inside screens also"): the
+ * header is a themed band holding the figures; Areas are teal tiles, the
+ * dashboard's location hue; instruments are code tiles. No live state per
+ * instrument (operator, same day: "remove live status").
  */
 export function FunctionalLocationDetailPage() {
   const { id = '' } = useParams<{ id: string }>();
@@ -159,98 +167,133 @@ export function FunctionalLocationDetailPage() {
     return (
       <div className="space-y-4">
         <Breadcrumbs crumbs={baseCrumbs} />
-        <div className="h-32 animate-pulse rounded-[var(--radius-card)] border border-slate-200 bg-slate-50" />
+        <div className="h-44 animate-pulse rounded-[var(--radius-card)] border border-slate-200 bg-slate-50" />
         <div className="h-48 animate-pulse rounded-[var(--radius-card)] border border-slate-200 bg-slate-50" />
       </div>
     );
   }
 
   const isBlock = data.type === 'BLOCK';
+  const white = 'border-white/40 bg-white/15 text-white hover:bg-white/25';
 
   return (
     <div className="space-y-5">
-      <Breadcrumbs
-        crumbs={[
-          ...baseCrumbs,
-          ...(parentName && data.parentId
-            ? [{ label: parentName, to: `/functional-locations/${data.parentId}` }]
-            : []),
-          { label: data.name },
-        ]}
-      />
+      <section
+        data-testid="fl-detail-hero"
+        className="relative overflow-hidden rounded-[var(--radius-card)] p-6 text-white shadow-[var(--elev-3)]"
+        style={themeGradient}
+      >
+        <span aria-hidden className="pointer-events-none absolute -right-16 -top-24 h-72 w-72 rounded-full bg-white/10 blur-2xl" />
+        <span aria-hidden className="pointer-events-none absolute -bottom-28 left-1/3 h-64 w-64 rounded-full bg-black/10 blur-3xl" />
+        <div className="relative space-y-5">
+          <Breadcrumbs
+            inverted
+            crumbs={[
+              ...baseCrumbs,
+              ...(parentName && data.parentId
+                ? [{ label: parentName, to: `/functional-locations/${data.parentId}` }]
+                : []),
+              { label: data.name },
+            ]}
+          />
 
-      <Card className="p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
+          <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+            <div className="flex min-w-0 items-start gap-3.5">
+              <span aria-hidden className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-card)] bg-white/20 text-white backdrop-blur-sm">
+                {LocationGlyph}
+              </span>
+              <div className="min-w-0">
+                <span className="inline-flex items-center rounded-[var(--radius-pill)] bg-white/20 px-2 py-0.5 text-[0.6875rem] font-semibold tracking-wide text-white ring-1 ring-inset ring-white/30">
+                  {isBlock ? 'Block' : 'Area'}
+                </span>
+                <h1 className="font-display mt-1 text-[1.75rem] font-semibold leading-tight tracking-tight">{data.name}</h1>
+                {parentName && <p className="mt-0.5 text-[0.8125rem] text-white/75">Inside {parentName}</p>}
+              </div>
+            </div>
+
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-[1.625rem] font-semibold leading-tight tracking-[-0.01em] text-slate-900">{data.name}</h1>
-              <Badge variant={isBlock ? 'default' : 'secondary'}>{data.type}</Badge>
+              {isBlock && can('functional_locations.create') && (
+                <Button variant="secondary" size="sm" className={white} onClick={() => setAreaOpen(true)}>
+                  Add area
+                </Button>
+              )}
+              {can('functional_locations.edit') && (
+                <Button variant="secondary" size="sm" className={white} onClick={() => setRenameOpen(true)}>
+                  Edit
+                </Button>
+              )}
+              {can('functional_locations.delete') && (
+                <Button variant="secondary" size="sm" className="border-rose-200/60 bg-rose-500/30 text-white hover:bg-rose-500/45" onClick={() => setConfirmDelete(true)}>
+                  Delete
+                </Button>
+              )}
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            {isBlock && can('functional_locations.create') && (
-              <Button variant="outline" size="sm" onClick={() => setAreaOpen(true)}>
-                Add area
-              </Button>
-            )}
-            {can('functional_locations.edit') && (
-              <Button variant="outline" size="sm" onClick={() => setRenameOpen(true)}>
-                Edit
-              </Button>
-            )}
-            {can('functional_locations.delete') && (
-              <Button variant="destructive" size="sm" onClick={() => setConfirmDelete(true)}>
-                Delete
-              </Button>
+          <div className={`grid gap-3 ${isBlock ? 'sm:grid-cols-3' : 'sm:grid-cols-2'} md:max-w-2xl`}>
+            <Stat
+              testId="fl-stat-total"
+              value={data.totalCount}
+              label="Instruments in total"
+              hint={isBlock ? 'This block and all its areas' : 'Linked to this area'}
+            />
+            <Stat testId="fl-stat-direct" value={data.ownCount} label="Linked directly" hint="Edited below" />
+            {isBlock && (
+              <Stat
+                testId="fl-stat-areas"
+                value={data.children.length}
+                label={data.children.length === 1 ? 'Area' : 'Areas'}
+                hint={`${data.totalCount - data.ownCount} instrument${data.totalCount - data.ownCount === 1 ? '' : 's'} inside them`}
+              />
             )}
           </div>
         </div>
-
-        <div className="mt-4 grid gap-3 sm:grid-cols-3">
-          <Stat
-            value={data.totalCount}
-            label="Instruments in total"
-            hint={isBlock ? 'This block and all its areas' : 'Linked to this area'}
-          />
-          <Stat value={data.ownCount} label="Linked directly" hint="Edited below" />
-          {isBlock && (
-            <Stat
-              value={data.children.length}
-              label="Areas"
-              hint={`${data.totalCount - data.ownCount} instrument(s) inside them`}
-            />
-          )}
-        </div>
-      </Card>
+      </section>
 
       {isBlock && (
-        <Card className="p-5">
-          <h2 className="mb-3 text-sm font-semibold text-slate-800">
-            Areas <span className="font-normal text-slate-500">({data.children.length})</span>
-          </h2>
-          {data.children.length === 0 ? (
-            <p className="text-sm text-slate-500">
-              No areas in this block yet.
-              {can('functional_locations.create') && ' Add one to group its instruments more finely.'}
-            </p>
-          ) : (
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {data.children.map((a) => (
-                <Link
-                  key={a.id}
-                  to={`/functional-locations/${a.id}`}
-                  className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 px-3 py-2.5 hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                >
-                  <span className="min-w-0 truncate text-sm font-medium text-slate-800">{a.name}</span>
-                  <span className="shrink-0 text-xs tabular-nums text-slate-500">
-                    {a.ownCount} instrument{a.ownCount === 1 ? '' : 's'}
-                  </span>
-                </Link>
-              ))}
+        <section data-testid="fl-areas" className="rounded-[var(--radius-card)] border border-slate-200/60 bg-white shadow-soft">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-5 py-3.5">
+            <div className="flex items-center gap-2.5">
+              <span aria-hidden className="h-6 w-1 rounded-full bg-gradient-to-b from-teal-700 to-teal-500" />
+              <h2 className="text-[0.9375rem] font-semibold text-slate-900">Areas</h2>
+              <span className="inline-flex min-w-[1.75rem] justify-center rounded-[var(--radius-pill)] bg-teal-50 px-2 py-0.5 text-[0.75rem] font-semibold tabular-nums text-teal-800 ring-1 ring-inset ring-teal-600/20">
+                {data.children.length}
+              </span>
             </div>
-          )}
-        </Card>
+          </div>
+          <div className="p-4">
+            {data.children.length === 0 ? (
+              <p className="rounded-[var(--radius-card)] border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500">
+                No areas in this block yet.
+                {can('functional_locations.create') && ' Choose Add area to group its instruments more finely.'}
+              </p>
+            ) : (
+              <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+                {data.children.map((a) => (
+                    <Link
+                      key={a.id}
+                      to={`/functional-locations/${a.id}`}
+                      className="group relative flex items-center gap-3 overflow-hidden rounded-[var(--radius-card)] border border-teal-600/15 bg-gradient-to-br from-teal-50 to-white py-3 pl-4 pr-3 shadow-[var(--elev-1)] transition-colors hover:border-teal-600/40 hover:from-teal-100/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
+                    >
+                      <span aria-hidden className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-teal-700 to-teal-500" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[0.9375rem] font-semibold text-slate-900 group-hover:text-teal-900">{a.name}</span>
+                        <span className="block text-[0.75rem] text-slate-500">
+                          {a.ownCount} instrument{a.ownCount === 1 ? '' : 's'}
+                        </span>
+                      </span>
+                      <span className="inline-flex min-w-[1.75rem] justify-center rounded-[var(--radius-pill)] bg-white px-2 py-0.5 text-[0.75rem] font-semibold tabular-nums text-teal-800 ring-1 ring-inset ring-teal-600/25">
+                        {a.ownCount}
+                      </span>
+                      <svg aria-hidden className="h-4 w-4 shrink-0 text-teal-700/60 transition-transform group-hover:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </Link>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
       )}
 
       <InstrumentPanel
@@ -261,28 +304,27 @@ export function FunctionalLocationDetailPage() {
       />
 
       {isBlock && inAreas.length > 0 && (
-        <Card className="p-4">
-          <h3 className="mb-1 text-sm font-semibold text-slate-800">
-            Instruments in this block’s areas{' '}
-            <span className="font-normal text-slate-500">({inAreas.length})</span>
-          </h3>
-          {/* Read-only on purpose: these belong to an Area, and membership is
-              edited on the location that actually holds them. */}
-          <p className="mb-3 text-xs text-slate-500">
-            These count toward the block’s total. Open the area to change what belongs to it.
-          </p>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <section data-testid="fl-in-areas" className="rounded-[var(--radius-card)] border border-slate-200/60 bg-white shadow-soft">
+          <div className="border-b border-slate-100 px-5 py-3.5">
+            <div className="flex items-center gap-2.5">
+              <span aria-hidden className="h-6 w-1 rounded-full bg-gradient-to-b from-teal-700 to-teal-500" />
+              <h3 className="text-[0.9375rem] font-semibold text-slate-900">Instruments in this block’s areas</h3>
+              <span className="inline-flex min-w-[1.75rem] justify-center rounded-[var(--radius-pill)] bg-teal-50 px-2 py-0.5 text-[0.75rem] font-semibold tabular-nums text-teal-800 ring-1 ring-inset ring-teal-600/20">
+                {inAreas.length}
+              </span>
+            </div>
+            {/* Read-only on purpose: these belong to an Area, and membership is
+                edited on the location that actually holds them. */}
+            <p className="mt-1 text-xs text-slate-500">
+              These count toward the block’s total. Open the area to change what belongs to it.
+            </p>
+          </div>
+          <div className="grid gap-2.5 p-4 sm:grid-cols-2 lg:grid-cols-3">
             {inAreas.map((i) => (
-              <div key={i.id} className="rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2">
-                <p className="truncate font-mono text-sm font-medium text-slate-800">{i.code}</p>
-                <p className="truncate text-xs text-slate-500">{i.name}</p>
-                <p className="mt-0.5 truncate text-[0.6875rem] font-semibold uppercase tracking-wide text-slate-400">
-                  {i.areaName}
-                </p>
-              </div>
+              <InstrumentTile key={i.id} id={i.id} code={i.code} name={i.name} tag={i.areaName} />
             ))}
           </div>
-        </Card>
+        </section>
       )}
 
       <LocationDialog

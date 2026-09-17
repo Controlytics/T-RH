@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
-import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
+import { InstrumentTile } from './instrument-tile';
+import { DialogBanner } from './dialog-banner';
 
 interface Linkable {
   id: string;
@@ -97,40 +99,47 @@ export function InstrumentPanel({ locationId, locationPath, canEdit, onChanged }
   };
 
   return (
-    <div className="rounded-[var(--radius-card)] border border-slate-200 bg-white p-4">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold text-slate-800">
-          Instruments in {locationPath} <span className="font-normal text-slate-500">({linked.length})</span>
-        </h3>
-        {canEdit && <Button onClick={() => setPickerOpen(true)}>Add instruments</Button>}
+    <section data-testid="fl-instruments" className="rounded-[var(--radius-card)] border border-slate-200/60 bg-white shadow-soft">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-5 py-3.5">
+        <div className="flex items-center gap-2.5">
+          <span aria-hidden className="h-6 w-1 rounded-full" style={{ background: 'linear-gradient(to bottom, var(--theme-gradient-from), var(--theme-gradient-to))' }} />
+          <h3 className="text-[0.9375rem] font-semibold text-slate-900">
+            Instruments in {locationPath}
+          </h3>
+          <span className="inline-flex min-w-[1.75rem] justify-center rounded-[var(--radius-pill)] px-2 py-0.5 text-[0.75rem] font-semibold tabular-nums text-[var(--theme-primary,#2a78d6)] ring-1 ring-inset ring-[var(--theme-primary,#2a78d6)]/25" style={{ backgroundColor: 'color-mix(in srgb, var(--theme-primary, #2a78d6) 10%, white)' }}>
+            {linked.length}
+          </span>
+        </div>
+        {canEdit && <Button size="sm" onClick={() => setPickerOpen(true)}>Add instruments</Button>}
       </div>
 
-      {linked.length === 0 ? (
-        <p className="text-sm text-slate-500">No instruments linked yet.</p>
-      ) : (
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {linked.map((i) => (
-            <div key={i.id} className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 px-3 py-2">
-              <div className="min-w-0">
-                <p className="truncate font-mono text-sm font-medium text-slate-800">{i.code}</p>
-                <p className="truncate text-xs text-slate-500">{i.name}</p>
-              </div>
-              {canEdit && (
-                <Button variant="ghost" size="sm" className="shrink-0"
-                  type="button"
-                  onClick={() => unlink(i)}
-                >
-                  Unlink
-                </Button>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+      <div className="p-4">
+        {linked.length === 0 ? (
+          <p className="rounded-[var(--radius-card)] border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500">
+            No instruments linked yet.{canEdit && ' Choose Add instruments to link the ones that report from here.'}
+          </p>
+        ) : (
+          <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+            {linked.map((i) => (
+              <InstrumentTile
+                key={i.id}
+                id={i.id}
+                code={i.code}
+                name={i.name}
+                action={canEdit ? (
+                  <Button variant="ghost" size="sm" type="button" className="h-7 px-2 text-[0.75rem]" onClick={() => unlink(i)}>
+                    Unlink
+                  </Button>
+                ) : undefined}
+              />
+            ))}
+          </div>
+        )}
+      </div>
 
       <Dialog open={pickerOpen} onClose={() => setPickerOpen(false)}>
-        <DialogHeader><DialogTitle>Instruments in {locationPath}</DialogTitle></DialogHeader>
-        <div className="space-y-3 p-6 pt-2">
+        <DialogBanner title="Add instruments" subtitle={locationPath} />
+        <div className="space-y-3">
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filter by ID or name…" />
 
           <div className="max-h-72 space-y-1 overflow-y-auto">
@@ -150,7 +159,7 @@ export function InstrumentPanel({ locationId, locationPath, canEdit, onChanged }
                   />
                   <span className="min-w-0">
                     <span className="font-mono text-sm text-slate-800">{i.code}</span>
-                    <span className="ml-2 text-xs text-slate-500">{i.name}</span>
+                    {i.name !== i.code && <span className="ml-2 text-xs text-slate-500">{i.name}</span>}
                     {/* Naming the current location is what stops a move being
                         accidental — the FK allows only one location per instrument. */}
                     {elsewhere && (
@@ -176,6 +185,6 @@ export function InstrumentPanel({ locationId, locationPath, canEdit, onChanged }
           <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
         </DialogFooter>
       </Dialog>
-    </div>
+    </section>
   );
 }

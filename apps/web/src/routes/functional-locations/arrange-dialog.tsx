@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Dialog, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog } from '@/components/ui/dialog';
+import { DialogBanner } from './dialog-banner';
 import { Button } from '@/components/ui/button';
 
 export interface ArrangeItem {
@@ -65,18 +66,12 @@ export function ArrangeDialog({
 
   return (
     <Dialog open={open} onClose={onClose}>
-      <DialogHeader>
-        <DialogTitle>{title}</DialogTitle>
-      </DialogHeader>
+      <DialogBanner
+        title={title}
+        subtitle="The order they appear on the dashboard and everywhere else they are listed"
+      />
 
-      <div className="px-5 pb-2 pt-1">
-        <p className="text-[0.8125rem] text-slate-500">
-          This is the order they appear on the dashboard and everywhere else they
-          are listed. Nothing is saved until you choose Save order.
-        </p>
-      </div>
-
-      <ol className="max-h-[22rem] space-y-1.5 overflow-y-auto px-5 pb-4">
+      <ol className="max-h-[22rem] space-y-1.5 overflow-y-auto pb-4">
         {list.map((item, i) => (
           <li
             key={item.id}
@@ -126,7 +121,7 @@ export function ArrangeDialog({
         ))}
       </ol>
 
-      <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-3">
+      <div className="-mx-6 -mb-6 flex items-center justify-end gap-2 rounded-b-[var(--radius-card)] border-t border-slate-200 bg-slate-50 px-6 py-3">
         <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
           Cancel
         </Button>

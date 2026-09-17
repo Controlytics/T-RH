@@ -165,6 +165,37 @@ The header's amber **development-build chip is gone** (operator: "remove
 development text on nav bar on top"). It printed Vite's `MODE` on every
 non-production build; nothing else read it.
 
+## Functional Locations pages (restyled 2026-09-17)
+
+`routes/functional-locations/` — `index.tsx` (hero band + one card per
+Block), `detail.tsx` (hero band + Areas tiles + two instrument lists),
+`instrument-tile.tsx`, `dialog-banner.tsx`, the three dialogs. Operator:
+"best professional and colorful screen and inside screens also", then
+"remove live status".
+
+- **The hero band is the Settings widget's language** — `themeGradient`,
+  `PageHeader inverted` (the Roles & Access precedent), figures as
+  `bg-white/12` tiles. The Block card's top plate is the same gradient so a
+  Block reads as a Block from across the room; Areas sit on white with a
+  teal rule (`tv-h-loc`'s hue, the dashboard's location colour).
+- **No live state on these pages, by instruction.** A reporting / silent /
+  disabled split per location and a status badge per instrument tile were
+  built and removed within the hour ("remove live status"). Nothing here
+  reads `/api/instruments` or `instrument-activity`. The instrument tile's
+  left rule is the THEME colour — identity, not status — and both page tests
+  assert `queryByRole('img')` is absent, which is where a health bar would
+  land. If live state is ever wanted back, it is a fresh request.
+- **Two instrument lists on a Block, still SEPARATE.** The direct list is
+  the membership editor (`PUT /:id/instruments` sets membership wholesale);
+  the read-only "in this block's areas" list tags each tile with its Area.
+  The test asserts the Block's own instrument is NOT in the second list —
+  the mutant that dropped the filter passed until that line existed.
+- `DialogBanner` uses `-mx-6 -mt-6` to run full-bleed inside `Dialog`'s
+  `p-6` panel; it depends on that padding, which is why it is local to this
+  folder rather than a primitive.
+- Tests: `__tests__/index-page.test.tsx`, `__tests__/detail-page.test.tsx`
+  (run individually, by exit code). Not seen on screen.
+
 ## The report review workflow (2026-09-07)
 
 Every PDF download is a REQUEST an approver signs. Spec:
