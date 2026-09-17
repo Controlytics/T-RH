@@ -233,9 +233,10 @@ export default function FunctionalLocationsPage() {
                     <h2 className="font-display mt-1.5 truncate text-[1.25rem] font-semibold leading-tight tracking-tight">
                       {b.name}
                     </h2>
-                    <p className="mt-0.5 text-[0.75rem] text-white/75">
-                      {b.ownCount} linked directly · {areas.length} area{areas.length === 1 ? '' : 's'}
-                    </p>
+                    {/* No "N linked directly · M areas" line under the name
+                        (operator, 2026-09-17: "remove that linked directly line
+                        also"). The plate carries the name and the total only;
+                        the Areas are listed right below it. */}
                   </div>
                   <div className="shrink-0 text-right">
                     <span data-testid="fl-block-total" className="font-display block text-[2.25rem] font-bold leading-none tabular-nums">

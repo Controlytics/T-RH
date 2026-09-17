@@ -69,6 +69,9 @@ describe('Functional Locations page', () => {
     const c = within(card('CWH Block'));
     expect(c.getByRole('link', { name: /CWH Block/ })).toHaveAttribute('href', '/functional-locations/b1');
     expect(c.getByTestId('fl-block-total')).toHaveTextContent('4');
+    // The plate carries the total only — no "linked directly" line under the
+    // name (operator: "remove that linked directly line also").
+    expect(c.queryByText(/linked directly/)).not.toBeInTheDocument();
     // Areas are rows in the card, each linking to its own page, with ITS count.
     const stability = c.getByRole('link', { name: /Stability/ });
     expect(stability).toHaveAttribute('href', '/functional-locations/a1');
