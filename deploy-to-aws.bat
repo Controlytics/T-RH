@@ -68,8 +68,13 @@ if errorlevel 1 (
     pause & exit /b 1
 )
 
+REM cmd.exe cannot pass bracket/quote JSON inline to the AWS CLI (it mangles the
+REM quotes), so the --parameters value is written to a small JSON file first.
+set "PARAMFILE=%TEMP%\cc-deploy-params.json"
+> "%PARAMFILE%" echo {"commands":["/opt/digilog/app/scripts/aws/deploy-on-ubuntu.sh --branch %BRANCH%"]}
+
 echo   Sending deploy command to %INSTANCE% ...
-for /f "delims=" %%i in ('""%AWS%" ssm send-command --instance-ids %INSTANCE% --document-name AWS-RunShellScript --timeout-seconds 3600 --parameters "commands=[\"/opt/digilog/app/scripts/aws/deploy-on-ubuntu.sh --branch %BRANCH%\"]" --query "Command.CommandId" --output text"') do set "CMDID=%%i"
+for /f "delims=" %%i in ('""%AWS%" ssm send-command --instance-ids %INSTANCE% --document-name AWS-RunShellScript --timeout-seconds 3600 --parameters "file://%PARAMFILE%" --query "Command.CommandId" --output text"') do set "CMDID=%%i"
 
 if "%CMDID%"=="" (
     echo   FAILED to send the command.
