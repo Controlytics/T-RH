@@ -76,7 +76,7 @@ sudo -u digilog /opt/digilog/emqx/bin/emqx_ctl status
 Ports: **443** HTTPS (web + API), **1883** MQTT, **8883** MQTTS (self-signed —
 devices must trust `/etc/digilog/certs/rootCA.pem`), 18083 EMQX dashboard on
 loopback only. Security group `sg-058348c5dba72f08e`: 443, 1883, 8883 from
-anywhere; 3389 from one IP is a leftover of the Windows box.
+anywhere, nothing else (the Windows box's 3389 rule was removed 2026-09-18).
 
 ## Rebuilding from nothing
 

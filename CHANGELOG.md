@@ -49,7 +49,7 @@ fresh read-only deploy key; terminate the Windows instance after cutover.
   `EMQX_*` keys were generated on the box.
 - Retired: `scripts/deploy-on-instance.ps1`. The Windows instance was imaged
   (`ami-0d30b88d19a9c4b9a`) and terminated; its deploy key
-  (`compliance-core EC2`, read-write) was removed from GitHub the same day. Security-group rule 3389 is a leftover.
+  (`compliance-core EC2`, read-write) was removed from GitHub the same day. The security group's 3389 (RDP) rule was removed the same day; it now allows only 443, 1883 and 8883.
 - No count moved: no route, hook, module, permission, config def, model,
   enum or app-code change. `MSYS_NO_PATHCONV=1` is required when an AWS CLI
   argument begins with `/` (an SSM parameter name) from Git Bash.
