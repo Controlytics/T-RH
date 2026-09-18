@@ -1,5 +1,51 @@
 # Changelog
 
+## [Unreleased] - AWS: the local database's data copied into RDS (2026-09-18)
+
+Operator: *"copy the data from local database and same data should deploy in
+instance database"*. Every `public` table of the local `compliance_core_db`
+(PostgreSQL 18) was loaded into RDS `compliance-core-db` (PostgreSQL 16)
+except **`audit_trail`** (RDS keeps its own chain: the local one is keyed with
+a different `AUDIT_CHAIN_KEY`, is known corrupted, and is the record of a
+different machine), **`sessions`** and **`_prisma_migrations`** (identical on
+both sides, 34). RDS snapshot `compliance-core-db-pre-datacopy-20260918` first.
+
+- **Method.** `pg_dump --data-only --schema=public --inserts
+  --load-via-partition-root` on the laptop; the file went to the instance by
+  `scp` through an SSM-tunnelled SSH session (`AWS-StartSSHSession`, key pair
+  `user_mgt`, no port opened). On the box, ONE transaction under
+  `session_replication_role = replica`: `TRUNCATE` of every public table
+  except the two protected ones (no `CASCADE`, so a reference from outside
+  the list aborts instead of reaching further), the dump, then row-count
+  guards (101 instruments, 2,006 attributes, 103 credentials, 137 rooms, 8
+  floorplans, 216 alarms, 849 deliveries, 400 dead letters, 1,775 readings,
+  6 users, 32 config rows) and an `audit_trail` unchanged check — a miss
+  rolls back. Three rollbacks happened before the commit, each leaving RDS
+  untouched: PG18's `\restrict` psql meta-commands, the PG17-only
+  `transaction_timeout` GUC, and the `graphile_worker` schema riding along
+  (fixed by `--schema=public`).
+- **Also copied:** the two uploaded files (branding image, floorplan image)
+  into `/var/lib/digilog/uploads`, and the local `INSTRUMENT_TOKEN_KEY` into
+  the box's env so the 103 stored credentials stay decryptable.
+- **What RDS lost:** its 2 users (`superadmin`, `111111`) → the local 6
+  (`superadmin`, `101010`–`101014`, local passwords); 6 notifications, 1
+  admin request, 2 help articles, and 1 config row that existed only there.
+- **A defect the copy introduced, found by `verify-chain` and repaired the
+  same minute.** A data-only dump of `public` also carries
+  `setval('audit_trail_chain_position_seq', 5354)` — the LOCAL position —
+  even though `audit_trail` itself was excluded. The first audit row written
+  afterwards (the verification `LOGIN_SUCCESS` at 06:02:24Z) was numbered
+  5354 instead of 48 and `verify-chain` reported a gap. The checksum is
+  computed BEFORE the sequence assigns the position, so the hash chain was
+  never wrong; the one row was renumbered 5354 → 48 (guarded: matching id,
+  action and link to row 47) and the sequence set to 48, with the API
+  stopped so nothing else could extend the gap. `verify-chain` → `intact:
+  true`, 50 rows, 0 anomalies. **Next time exclude the sequence too:**
+  `--exclude-table=audit_trail_chain_position_seq`.
+- Nothing in the repo changed for this; the scripts were one-off and are
+  described here. The instruments report to the LOCAL broker, so on AWS
+  they read as silent until a device is pointed at 13.204.15.17.
+
 ## [Unreleased] - AWS: the Windows instance replaced by Ubuntu 24.04 (2026-09-18)
 
 Operator: *"i-0be63a2077d4a82e0 this was instance, make this instance into

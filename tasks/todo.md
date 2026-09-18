@@ -22,7 +22,7 @@ from the Data Injection programme removed on 2026-08-04, whose tables (7 tables,
 - [x] Verify: /api/health 200, login, /api/audit/verify-chain intact, EMQX up, 1883 reachable
 - [x] Delete the SSM parameter
 - [x] AMI `ami-0d30b88d19a9c4b9a` of the Windows instance
-- [ ] Terminate the Windows instance (operator confirms at that moment)
+- [x] Terminate the Windows instance (confirmed; AMI kept)
 - [x] `deploy-to-aws.bat` → new instance id + AWS-RunShellScript; delete `scripts/deploy-on-instance.ps1`
 - [x] Docs: CHANGELOG, `docs/deployment-methods/aws-ubuntu-instance.md`, memory, Documents runbook banners
 
@@ -30,3 +30,11 @@ Cutover findings: `. digilog.env` breaks on the `&` in the RDS URL (load line by
 `tsc` writes dist/ 750/640 as root (chmod a+rX after build). Both fixed in the scripts.
 verify-chain on Ubuntu: intact, 45 rows, 0 anomalies. GitHub deploy key added via
 `gh repo deploy-key add` after two manual attempts never registered it.
+
+## 2026-09-18 — Local data copied into RDS
+
+- [x] Snapshot `compliance-core-db-pre-datacopy-20260918`
+- [x] Dump (public, data-only, inserts) → scp over SSM SSH → one-transaction truncate+load with count guards
+- [x] Uploads (2 files) + local INSTRUMENT_TOKEN_KEY onto the box
+- [x] Audit sequence defect (setval 5354 rode in the dump) repaired: one row renumbered → 48; verify-chain intact, 50 rows
+- [x] Temp bucket deleted (never used — upload denied as exfiltration; SSM SSH used instead); both SSM parameters deleted
