@@ -42,6 +42,11 @@ both sides, 34). RDS snapshot `compliance-core-db-pre-datacopy-20260918` first.
   stopped so nothing else could extend the gap. `verify-chain` → `intact:
   true`, 50 rows, 0 anomalies. **Next time exclude the sequence too:**
   `--exclude-table=audit_trail_chain_position_seq`.
+- **Passwords on the copied users (operator, later the same day):** `101010`-`101014`
+  reset to `Welcome@123` through `POST /api/users/:id/reset-password` (audited
+  `PASSWORD_RESET`, sessions evicted), then, on "clear the flag, keep Welcome@123
+  without prompt", `force_password_change` / `is_temporary_password` cleared by a
+  direct UPDATE (no API clears them; no audit row of its own). Superadmin untouched.
 - Nothing in the repo changed for this; the scripts were one-off and are
   described here. The instruments report to the LOCAL broker, so on AWS
   they read as silent until a device is pointed at 13.204.15.17.
