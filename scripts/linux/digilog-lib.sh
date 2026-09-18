@@ -60,7 +60,8 @@ digilog_ensure_user_dirs() {
 }
 
 # HTTPS certs: a local CA + a server cert whose SAN covers localhost, 127.0.0.1
-# and this host's LAN IPv4 (same as install.ps1). Reused if present.
+# and this host's LAN IPv4 (same as install.ps1), plus DIGILOG_EXTRA_SAN_IP when
+# set (the AWS instance's Elastic IP, which `hostname -I` cannot see). Reused if present.
 digilog_ensure_certs() {
   local ca="$CERT_DIR/rootCA.pem" cakey="$CERT_DIR/rootCA.key" key="$CERT_DIR/server.key" crt="$CERT_DIR/server.crt"
   if [ -s "$crt" ]; then log "Reusing certs in $CERT_DIR"; return; fi
@@ -76,6 +77,7 @@ DNS.1 = localhost
 DNS.2 = $(hostname -s 2>/dev/null || echo digilog)
 IP.1 = 127.0.0.1
 IP.2 = $lan
+${DIGILOG_EXTRA_SAN_IP:+IP.3 = $DIGILOG_EXTRA_SAN_IP}
 EOF
   openssl genrsa -out "$cakey" 2048 >/dev/null 2>&1
   openssl req -x509 -new -nodes -key "$cakey" -sha256 -days 3650 -subj "/CN=DigiLog Local CA" -out "$ca"

@@ -1,0 +1,32 @@
+[Unit]
+Description=DigiLog API + web UI (Fastify, HTTPS on port 443) — AWS git-clone layout
+# The broker is only WANTED: the ingest bridge reconnects with backoff, and a
+# broker fault must not take the application down. The database is RDS, so
+# there is no local digilog-db unit to require (unlike the .deb's unit).
+After=network-online.target digilog-emqx.service
+Wants=network-online.target digilog-emqx.service
+
+[Service]
+Type=simple
+User=digilog
+Group=digilog
+WorkingDirectory=/opt/digilog/app/apps/api
+# ALL runtime config comes from this one file (secrets, DATABASE_URL, ports,
+# MQTT credential). Deploys never rewrite the unit.
+EnvironmentFile=/etc/digilog/digilog.env
+Environment=NODE_ENV=production
+Environment=DOTENV_CONFIG_PATH=/etc/digilog/digilog.env
+ExecStart=/opt/digilog/node/bin/node /opt/digilog/app/apps/api/dist/app.js
+Restart=on-failure
+RestartSec=10
+# Port 443 as an unprivileged user.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+# Hardening. ReadWritePaths lists the only places the app writes (uploads).
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/digilog /var/log/digilog
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
