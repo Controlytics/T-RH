@@ -108,7 +108,7 @@ export function Header({ user, onLogout, onMenuToggle, onCollapseToggle, collaps
           data-testid="header-aws-label"
           className="inline-flex shrink-0 items-center rounded-md border border-slate-200 bg-slate-100 px-2 py-0.5 text-xs font-semibold tracking-wide text-slate-700"
         >
-          AWS
+          AWS testing
         </span>
       </div>
 

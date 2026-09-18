@@ -1,0 +1,281 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 900" width="1400" height="900" font-family="system-ui, sans-serif">
+<style>
+    @keyframes halo { 0%,100% { opacity: .35 } 50% { opacity: .9 } }
+    .halo { animation: halo 2s ease-in-out infinite }
+    @media (prefers-reduced-motion: reduce) { .halo { animation: none; opacity: .9 } }
+  </style>
+<rect x="0" y="0" width="1400" height="900" fill="#f8fafc"/>
+<rect x="4" y="4" width="1392" height="892" fill="#ffffff" stroke="#1f2937" stroke-width="3"/>
+<rect x="85.50468203356547" y="10.8" width="281.12684083018485" height="380.12260880189956" fill="#E9F7F1"/>
+<line x1="85.504682034" y1="10.8" x2="366.631522864" y2="10.8" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="366.631522864" y1="10.8" x2="366.631522864" y2="390.922608802" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="85.504682034" y1="390.922608802" x2="366.631522864" y2="390.922608802" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="85.504682034" y1="10.8" x2="85.504682034" y2="140.041686993" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="85.504682034" y1="231.271113105" x2="85.504682034" y2="390.922608802" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="85.504682034" y1="140.041686993" x2="176.7341081464559" y2="140.041686993" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 176.7341081464559 140.041686993 A 91.2294261124559 91.2294261124559 0 0 1 85.504682034 231.271113105" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="85.504682034" y="182.656400049" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="88.50468203356547" y="13.8" width="14" height="11" rx="2" fill="#047857"/>
+<text x="95.50468203356547" y="22" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">C</text>
+<text x="226.0681024486579" y="22.8" text-anchor="middle" font-size="10" font-weight="700" letter-spacing="0.08em" fill="#047857">QC-3/02</text>
+<text x="226.0681024486579" y="34.8" text-anchor="middle" font-size="9" fill="#475569">LCMS Room-II</text>
+<rect x="87.50468203356547" y="53.8" width="277.12684083018485" height="350.12260880189956" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="226.0681024486579" y="65.8" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/002-01</text>
+<rect x="195.8281024486579" y="67.8" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="226.0681024486579" y="79.032" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">22.3 °C</text>
+<rect x="199.5481024486579" y="84.9" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="226.0681024486579" y="96.132" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">44.3 %</text>
+<rect x="366.6315228637504" y="10.8" width="335.4808047917592" height="380.12260880189956" fill="#E9F7F1"/>
+<line x1="366.631522864" y1="10.8" x2="480.694996493" y2="10.8" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="561.210389643" y1="10.8" x2="702.112327656" y2="10.8" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="702.112327656" y1="10.8" x2="702.112327656" y2="390.922608802" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="366.631522864" y1="390.922608802" x2="702.112327656" y2="390.922608802" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="366.631522864" y1="10.8" x2="366.631522864" y2="390.922608802" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="480.694996493" y1="10.8" x2="480.694996493" y2="91.3153931500222" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 480.694996493 91.3153931500222 A 80.5153931500222 80.5153931500222 0 0 1 561.210389643 10.8" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="520.952693068" y="7.800000000000001" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="369.6315228637504" y="13.8" width="14" height="11" rx="2" fill="#047857"/>
+<text x="376.6315228637504" y="22" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">C</text>
+<text x="534.37192525963" y="22.8" text-anchor="middle" font-size="10" font-weight="700" letter-spacing="0.08em" fill="#047857">QC-3/03</text>
+<text x="534.37192525963" y="34.8" text-anchor="middle" font-size="9" fill="#475569">Working standard &amp; reference Standard storage Room (or) stability Room</text>
+<rect x="368.6315228637504" y="53.8" width="331.4808047917592" height="350.12260880189956" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="534.37192525963" y="65.8" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/003-00</text>
+<rect x="504.13192525962995" y="67.8" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="534.37192525963" y="79.032" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">22.2 °C</text>
+<rect x="507.85192525963" y="84.9" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="534.37192525963" y="96.132" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">45.0 %</text>
+<rect x="85.50468203356547" y="390.9226088018995" width="616.6076456219442" height="112.22167338690049" fill="#E9F7F1"/>
+<line x1="85.504682034" y1="390.922608802" x2="702.112327656" y2="390.922608802" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="702.112327656" y1="390.922608802" x2="702.112327656" y2="503.144282189" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="85.504682034" y1="503.144282189" x2="702.112327656" y2="503.144282189" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="85.504682034" y1="390.922608802" x2="85.504682034" y2="429.077977753" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="85.504682034" y1="456.011179366" x2="85.504682034" y2="503.144282189" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="85.504682034" y1="429.077977753" x2="112.43788364685611" y2="429.077977753" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 112.43788364685611 429.077977753 A 26.933201612856116 26.933201612856116 0 0 1 85.504682034 456.011179366" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="85.504682034" y="439.5445785595" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="88.50468203356547" y="393.9226088018995" width="14" height="11" rx="2" fill="#047857"/>
+<text x="95.50468203356547" y="402.1226088018995" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">C</text>
+<text x="393.8085048445376" y="402.9226088018995" text-anchor="middle" font-size="10" font-weight="700" letter-spacing="0.08em" fill="#047857">QC-3/04</text>
+<text x="393.8085048445376" y="414.9226088018995" text-anchor="middle" font-size="9" fill="#475569">Sieve Analyzer &amp; BD Apparatus Room</text>
+<rect x="87.50468203356547" y="433.9226088018995" width="612.6076456219442" height="82.22167338690049" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="393.8085048445376" y="445.9226088018995" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/004-00</text>
+<rect x="363.5685048445376" y="447.9226088018995" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="393.8085048445376" y="459.15460880189954" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">22.7 °C</text>
+<rect x="367.2885048445376" y="465.02260880189954" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="393.8085048445376" y="476.25460880189956" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">44.5 %</text>
+<rect x="85.50468203356547" y="503.14428218879993" width="336.09741243738114" height="225.19139781120003" fill="#E8F1FE"/>
+<line x1="85.504682034" y1="503.144282189" x2="421.602094471" y2="503.144282189" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="421.602094471" y1="503.144282189" x2="421.602094471" y2="728.33568" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="85.504682034" y1="728.33568" x2="421.602094471" y2="728.33568" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="85.504682034" y1="503.144282189" x2="85.504682034" y2="579.709357445" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="85.504682034" y1="633.755292919" x2="85.504682034" y2="728.33568" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="85.504682034" y1="579.709357445" x2="139.550617508688" y2="579.709357445" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 139.550617508688 579.709357445 A 54.04593547468801 54.04593547468801 0 0 1 85.504682034 633.755292919" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="85.504682034" y="603.7323251820001" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="88.50468203356547" y="506.14428218879993" width="14" height="11" rx="2" fill="#1D4ED8"/>
+<text x="95.50468203356547" y="514.3442821888" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">B</text>
+<text x="253.55338825225604" y="515.1442821887999" text-anchor="middle" font-size="10" font-weight="700" letter-spacing="0.08em" fill="#1D4ED8">QC-3/05</text>
+<text x="253.55338825225604" y="527.1442821887999" text-anchor="middle" font-size="9" fill="#475569">KF &amp; Auto titrator Room</text>
+<rect x="87.50468203356547" y="546.1442821887999" width="332.09741243738114" height="195.19139781120003" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="253.55338825225604" y="558.1442821887999" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/005-00</text>
+<rect x="223.31338825225603" y="560.1442821887999" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="253.55338825225604" y="571.3762821887999" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">21.7 °C</text>
+<rect x="227.03338825225603" y="577.2442821888" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="253.55338825225604" y="588.4762821887999" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">44.8 %</text>
+<rect x="421.6020944709466" y="503.14428218879993" width="280.51023318456294" height="225.19139781120003" fill="#E9F7F1"/>
+<line x1="421.602094471" y1="503.144282189" x2="516.975573754" y2="503.144282189" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="584.298029718" y1="503.144282189" x2="702.112327656" y2="503.144282189" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="702.112327656" y1="503.144282189" x2="702.112327656" y2="728.33568" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="421.602094471" y1="728.33568" x2="702.112327656" y2="728.33568" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="421.602094471" y1="503.144282189" x2="421.602094471" y2="728.33568" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="516.975573754" y1="503.144282189" x2="516.975573754" y2="570.4667381532952" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 516.975573754 570.4667381532952 A 67.3224559642951 67.3224559642951 0 0 1 584.298029718 503.144282189" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="550.636801736" y="500.144282189" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="424.6020944709466" y="506.14428218879993" width="14" height="11" rx="2" fill="#047857"/>
+<text x="431.6020944709466" y="514.3442821888" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">C</text>
+<text x="561.8572110632281" y="515.1442821887999" text-anchor="middle" font-size="10" font-weight="700" letter-spacing="0.08em" fill="#047857">QC-3/06</text>
+<text x="561.8572110632281" y="527.1442821887999" text-anchor="middle" font-size="9" fill="#475569">Dissolution &amp; UV Room</text>
+<rect x="423.6020944709466" y="546.1442821887999" width="276.51023318456294" height="195.19139781120003" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="561.8572110632281" y="558.1442821887999" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/006-00</text>
+<rect x="531.6172110632281" y="560.1442821887999" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="561.8572110632281" y="571.3762821887999" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">22.6 °C</text>
+<rect x="535.3372110632281" y="577.2442821888" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="561.8572110632281" y="588.4762821887999" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">44.4 %</text>
+<rect x="702.1123276555097" y="10.8" width="612.3829903109249" height="256.016730624" fill="#E9F7F1"/>
+<line x1="702.112327656" y1="10.8" x2="1314.495317966" y2="10.8" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1314.495317966" y1="10.8" x2="1314.495317966" y2="97.845688412" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1314.495317966" y1="159.289703762" x2="1314.495317966" y2="266.816730624" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="702.112327656" y1="266.816730624" x2="1314.495317966" y2="266.816730624" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="702.112327656" y1="10.8" x2="702.112327656" y2="266.816730624" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1314.495317966" y1="97.845688412" x2="1253.0513026162398" y2="97.845688412" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 1253.0513026162398 97.845688412 A 61.444015349759994 61.444015349759994 0 0 1 1314.495317966 159.289703762" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="1314.495317966" y="125.567696087" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="705.1123276555097" y="13.8" width="14" height="11" rx="2" fill="#047857"/>
+<text x="712.1123276555097" y="22" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">C</text>
+<text x="1008.3038228109722" y="22.8" text-anchor="middle" font-size="10" font-weight="700" letter-spacing="0.08em" fill="#047857">QC-3/07</text>
+<text x="1008.3038228109722" y="34.8" text-anchor="middle" font-size="9" fill="#475569">Malvern/AAS Instrument Room</text>
+<rect x="704.1123276555097" y="53.8" width="608.3829903109249" height="226.016730624" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="1008.3038228109722" y="65.8" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/007-00</text>
+<rect x="978.0638228109722" y="67.8" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="1008.3038228109722" y="79.032" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">22.0 °C</text>
+<rect x="981.7838228109722" y="84.9" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="1008.3038228109722" y="96.132" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">47.6 %</text>
+<rect x="702.1123276555097" y="266.816730624" width="612.3829903109249" height="247.84721378864634" fill="#E9F7F1"/>
+<line x1="702.112327656" y1="266.816730624" x2="1314.495317966" y2="266.816730624" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1314.495317966" y1="266.816730624" x2="1314.495317966" y2="351.084783312" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1314.495317966" y1="410.568114621" x2="1314.495317966" y2="514.663944413" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="702.112327656" y1="514.663944413" x2="1314.495317966" y2="514.663944413" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="702.112327656" y1="266.816730624" x2="702.112327656" y2="514.663944413" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1314.495317966" y1="351.084783312" x2="1255.0119866567247" y2="351.084783312" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 1255.0119866567247 351.084783312 A 59.48333130927512 59.48333130927512 0 0 1 1314.495317966 410.568114621" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="1314.495317966" y="377.82644896650004" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="705.1123276555097" y="269.816730624" width="14" height="11" rx="2" fill="#047857"/>
+<text x="712.1123276555097" y="278.016730624" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">C</text>
+<text x="1008.3038228109722" y="278.816730624" text-anchor="middle" font-size="10" font-weight="700" letter-spacing="0.08em" fill="#047857">QC-3/08</text>
+<text x="1008.3038228109722" y="290.816730624" text-anchor="middle" font-size="9" fill="#475569">GC/GCMS Room</text>
+<rect x="704.1123276555097" y="309.816730624" width="608.3829903109249" height="217.84721378864634" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="1008.3038228109722" y="321.816730624" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/008-00</text>
+<rect x="978.0638228109722" y="323.816730624" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="1008.3038228109722" y="335.04873062400003" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">21.9 °C</text>
+<rect x="981.7838228109722" y="340.916730624" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="1008.3038228109722" y="352.14873062400005" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">46.1 %</text>
+<rect x="702.1123276555097" y="514.6639444126464" width="612.3829903109249" height="213.6717355873536" fill="#E9F7F1"/>
+<line x1="702.112327656" y1="514.663944413" x2="1314.495317966" y2="514.663944413" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1314.495317966" y1="514.663944413" x2="1314.495317966" y2="587.312334512" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1314.495317966" y1="638.593551053" x2="1314.495317966" y2="728.33568" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="702.112327656" y1="728.33568" x2="1314.495317966" y2="728.33568" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="702.112327656" y1="514.663944413" x2="702.112327656" y2="728.33568" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1314.495317966" y1="587.312334512" x2="1263.214101425035" y2="587.312334512" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 1263.214101425035 587.312334512 A 51.28121654096486 51.28121654096486 0 0 1 1314.495317966 638.593551053" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="1314.495317966" y="609.9529427825" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="705.1123276555097" y="517.6639444126464" width="14" height="11" rx="2" fill="#047857"/>
+<text x="712.1123276555097" y="525.8639444126464" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">C</text>
+<text x="1008.3038228109722" y="526.6639444126464" text-anchor="middle" font-size="10" font-weight="700" letter-spacing="0.08em" fill="#047857">QC-3/09</text>
+<text x="1008.3038228109722" y="538.6639444126464" text-anchor="middle" font-size="9" fill="#475569">Wet Lab</text>
+<rect x="704.1123276555097" y="557.6639444126464" width="608.3829903109249" height="183.6717355873536" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="1008.3038228109722" y="569.6639444126464" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/009-00</text>
+<rect x="978.0638228109722" y="571.6639444126464" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="1008.3038228109722" y="582.8959444126464" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">21.5 °C</text>
+<rect x="981.7838228109722" y="588.7639444126464" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="1008.3038228109722" y="599.9959444126464" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">43.9 %</text>
+<rect x="85.50468203356547" y="728.33568" width="291.0626534562522" height="160.86431999999996" fill="#E9F7F1"/>
+<line x1="85.504682034" y1="728.33568" x2="376.56733549" y2="728.33568" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="376.56733549" y1="728.33568" x2="376.56733549" y2="889.2" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="85.504682034" y1="889.2" x2="376.56733549" y2="889.2" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="85.504682034" y1="728.33568" x2="85.504682034" y2="783.0295488" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="85.504682034" y1="821.6369856" x2="85.504682034" y2="889.2" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="85.504682034" y1="783.0295488" x2="124.11211883399999" y2="783.0295488" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 124.11211883399999 783.0295488 A 38.60743679999999 38.60743679999999 0 0 1 85.504682034 821.6369856" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="85.504682034" y="799.3332672" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="88.50468203356547" y="731.33568" width="14" height="11" rx="2" fill="#047857"/>
+<text x="95.50468203356547" y="739.5356800000001" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">C</text>
+<text x="231.03600876169156" y="740.33568" text-anchor="middle" font-size="10" font-weight="700" letter-spacing="0.08em" fill="#047857">QC-3/10</text>
+<text x="231.03600876169156" y="752.33568" text-anchor="middle" font-size="9" fill="#475569">Sample Preparation Room</text>
+<rect x="87.50468203356547" y="771.33568" width="287.0626534562522" height="130.86431999999996" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="231.03600876169156" y="783.33568" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/010-00</text>
+<rect x="200.79600876169155" y="785.33568" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="231.03600876169156" y="796.56768" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">21.8 °C</text>
+<rect x="204.51600876169155" y="802.43568" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="231.03600876169156" y="813.66768" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">42.0 %</text>
+<rect x="376.56733548981765" y="728.33568" width="214.45191986883518" height="160.86431999999996" fill="#E9F7F1"/>
+<line x1="376.56733549" y1="728.33568" x2="449.480988245" y2="728.33568" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="500.949449014" y1="728.33568" x2="591.019255359" y2="728.33568" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="591.019255359" y1="728.33568" x2="591.019255359" y2="889.2" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="376.56733549" y1="889.2" x2="591.019255359" y2="889.2" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="376.56733549" y1="728.33568" x2="376.56733549" y2="889.2" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="449.480988245" y1="728.33568" x2="449.480988245" y2="779.8041407685205" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 449.480988245 779.8041407685205 A 51.46846076852044 51.46846076852044 0 0 1 500.949449014 728.33568" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="475.2152186295" y="725.33568" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="379.56733548981765" y="731.33568" width="14" height="11" rx="2" fill="#047857"/>
+<text x="386.56733548981765" y="739.5356800000001" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">C</text>
+<text x="483.7932954242352" y="740.33568" text-anchor="middle" font-size="10" font-weight="700" letter-spacing="0.08em" fill="#047857">QC-3/11</text>
+<text x="483.7932954242352" y="752.33568" text-anchor="middle" font-size="9" fill="#475569">HPLC Room</text>
+<rect x="378.56733548981765" y="771.33568" width="210.45191986883518" height="130.86431999999996" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="483.7932954242352" y="783.33568" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/011-00</text>
+<rect x="453.5532954242352" y="785.33568" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="483.7932954242352" y="796.56768" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">20.6 °C</text>
+<rect x="457.27329542423524" y="802.43568" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="483.7932954242352" y="813.66768" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">48.3 %</text>
+<rect x="591.0192553586528" y="728.33568" width="334.698113463925" height="160.86431999999996" fill="#E9F7F1"/>
+<line x1="591.019255359" y1="728.33568" x2="704.816613936" y2="728.33568" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="785.144161168" y1="728.33568" x2="925.717368823" y2="728.33568" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="925.717368823" y1="728.33568" x2="925.717368823" y2="889.2" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="591.019255359" y1="889.2" x2="925.717368823" y2="889.2" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="591.019255359" y1="728.33568" x2="591.019255359" y2="889.2" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="704.816613936" y1="728.33568" x2="704.816613936" y2="808.663227231342" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 704.816613936 808.663227231342 A 80.327547231342 80.327547231342 0 0 1 785.144161168 728.33568" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="744.9803875519999" y="725.33568" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="594.0192553586528" y="731.33568" width="14" height="11" rx="2" fill="#047857"/>
+<text x="601.0192553586528" y="739.5356800000001" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">C</text>
+<text x="758.3683120906153" y="740.33568" text-anchor="middle" font-size="10" font-weight="700" letter-spacing="0.08em" fill="#047857">QC-3/12</text>
+<text x="758.3683120906153" y="752.33568" text-anchor="middle" font-size="9" fill="#475569">LCMS Room-I</text>
+<rect x="593.0192553586528" y="771.33568" width="330.698113463925" height="130.86431999999996" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="758.3683120906153" y="783.33568" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/012-00</text>
+<rect x="728.1283120906153" y="785.33568" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="758.3683120906153" y="796.56768" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">21.1 °C</text>
+<rect x="731.8483120906153" y="802.43568" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="758.3683120906153" y="813.66768" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">41.1 %</text>
+<rect x="925.7173688225779" y="728.33568" width="388.7779491438567" height="160.86431999999996" fill="#E9F7F1"/>
+<line x1="925.717368823" y1="728.33568" x2="1314.495317966" y2="728.33568" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1314.495317966" y1="728.33568" x2="1314.495317966" y2="783.0295488" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1314.495317966" y1="821.6369856" x2="1314.495317966" y2="889.2" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="925.717368823" y1="889.2" x2="1314.495317966" y2="889.2" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="925.717368823" y1="728.33568" x2="925.717368823" y2="889.2" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1314.495317966" y1="783.0295488" x2="1275.887881166" y2="783.0295488" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 1275.887881166 783.0295488 A 38.60743679999999 38.60743679999999 0 0 1 1314.495317966 821.6369856" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="1314.495317966" y="799.3332672" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="928.7173688225779" y="731.33568" width="14" height="11" rx="2" fill="#047857"/>
+<text x="935.7173688225779" y="739.5356800000001" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">C</text>
+<text x="1120.1063433945062" y="740.33568" text-anchor="middle" font-size="10" font-weight="700" letter-spacing="0.08em" fill="#047857">QC-3/13</text>
+<text x="1120.1063433945062" y="752.33568" text-anchor="middle" font-size="9" fill="#475569">Sample Receipt &amp; Sample Storage Room</text>
+<rect x="927.7173688225779" y="771.33568" width="384.7779491438567" height="130.86431999999996" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="1120.1063433945062" y="783.33568" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/026-00</text>
+<rect x="1089.8663433945062" y="785.33568" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="1120.1063433945062" y="796.56768" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">21.4 °C</text>
+<rect x="1093.5863433945062" y="802.43568" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="1120.1063433945062" y="813.66768" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">48.8 %</text>
+<rect x="16.8" y="10.8" width="68.70468203356546" height="878.4" fill="#EFF2F7"/>
+<line x1="51.15234101678273" y1="18.8" x2="51.15234101678273" y2="881.1999999999999" stroke="#94A3B8" stroke-width="1" stroke-dasharray="6 5"/>
+<line x1="16.8" y1="10.8" x2="85.504682034" y2="10.8" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="85.504682034" y1="10.8" x2="85.504682034" y2="889.2" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="16.8" y1="889.2" x2="85.504682034" y2="889.2" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="16.8" y1="10.8" x2="16.8" y2="889.2" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<rect x="19.8" y="13.8" width="14" height="11" rx="2" fill="#475569"/>
+<text x="26.8" y="22" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">C+</text>
+<text x="51.15234101678273" y="22.8" text-anchor="middle" font-size="10" font-weight="700" letter-spacing="0.08em" fill="#475569">QC-3/90</text>
+<text x="51.15234101678273" y="34.8" text-anchor="middle" font-size="9" fill="#475569">SERVICE CORRIDOR</text>
+<rect x="1314.4953179664346" y="10.8" width="68.70468203356546" height="878.4" fill="#EFF2F7"/>
+<line x1="1348.8476589832173" y1="18.8" x2="1348.8476589832173" y2="881.1999999999999" stroke="#94A3B8" stroke-width="1" stroke-dasharray="6 5"/>
+<line x1="1314.495317966" y1="10.8" x2="1383.2" y2="10.8" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1383.2" y1="10.8" x2="1383.2" y2="889.2" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1314.495317966" y1="889.2" x2="1383.2" y2="889.2" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1314.495317966" y1="10.8" x2="1314.495317966" y2="889.2" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<rect x="1317.4953179664346" y="13.8" width="14" height="11" rx="2" fill="#475569"/>
+<text x="1324.4953179664346" y="22" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">C+</text>
+<text x="1348.8476589832173" y="22.8" text-anchor="middle" font-size="10" font-weight="700" letter-spacing="0.08em" fill="#475569">QC-3/91</text>
+<text x="1348.8476589832173" y="34.8" text-anchor="middle" font-size="9" fill="#475569">SERVICE CORRIDOR</text>
+<rect x="4" y="860" width="1392" height="34" fill="#ffffff" stroke="#E2E8F0"/>
+<text x="16" y="880" font-size="9" font-weight="700" fill="#475569">STATUS</text>
+<rect x="68" y="870" width="77.60000000000001" height="14" rx="2" fill="#dc2626"/>
+<text x="106.80000000000001" y="880" text-anchor="middle" font-size="8.5" font-weight="700" fill="#ffffff">▲ out of spec</text>
+<rect x="155.60000000000002" y="870" width="46.4" height="14" rx="2" fill="#d97706"/>
+<text x="178.8" y="880" text-anchor="middle" font-size="8.5" font-weight="700" fill="#ffffff">◷ stale</text>
+<rect x="212.00000000000003" y="870" width="56.800000000000004" height="14" rx="2" fill="#64748b"/>
+<text x="240.40000000000003" y="880" text-anchor="middle" font-size="8.5" font-weight="700" fill="#ffffff">· no data</text>
+<rect x="278.80000000000007" y="870" width="20.4" height="14" rx="2" fill="#15803d"/>
+<text x="289.00000000000006" y="880" text-anchor="middle" font-size="8.5" font-weight="700" fill="#ffffff">ok</text>
+<line x1="309.20000000000005" y1="866" x2="309.20000000000005" y2="886" stroke="#CBD5E1"/>
+<text x="323.20000000000005" y="880" font-size="9" font-weight="700" fill="#475569">GRADE</text>
+<rect x="369.20000000000005" y="870" width="13" height="13" rx="2" fill="#EEF0FF" stroke="#4338CA"/>
+<text x="387.20000000000005" y="880" font-size="8.5" fill="#334155">A — Sterile core</text>
+<rect x="471.20000000000005" y="870" width="13" height="13" rx="2" fill="#E8F1FE" stroke="#1D4ED8"/>
+<text x="489.20000000000005" y="880" font-size="8.5" fill="#334155">B — Aseptic</text>
+<rect x="548.2" y="870" width="13" height="13" rx="2" fill="#E9F7F1" stroke="#047857"/>
+<text x="566.2" y="880" font-size="8.5" fill="#334155">C — Clean production</text>
+<rect x="670.2" y="870" width="13" height="13" rx="2" fill="#FEF5E7" stroke="#B45309"/>
+<text x="688.2" y="880" font-size="8.5" fill="#334155">D — Support / stores</text>
+<rect x="792.2" y="870" width="13" height="13" rx="2" fill="#EFF2F7" stroke="#475569"/>
+<text x="810.2" y="880" font-size="8.5" fill="#334155">C+ — Circulation</text>
+<rect x="894.2" y="870" width="13" height="13" rx="2" fill="#F4F4F5" stroke="#52525B"/>
+<text x="912.2" y="880" font-size="8.5" fill="#334155">U — Utility</text>
+</svg>

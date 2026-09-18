@@ -24,10 +24,10 @@ describe('Header', () => {
   // Operator (2026-09-18): "Add aws text word on nav bar".
   it('shows the AWS word in the left cluster whatever the sidebar state', () => {
     mount({ collapsed: false });
-    expect(screen.getByTestId('header-aws-label')).toHaveTextContent('AWS');
+    expect(screen.getByTestId('header-aws-label')).toHaveTextContent('AWS testing');
     cleanup();
     mount({ collapsed: true });
-    expect(screen.getByTestId('header-aws-label')).toHaveTextContent('AWS');
+    expect(screen.getByTestId('header-aws-label')).toHaveTextContent('AWS testing');
   });
 
   it('shows the app name only once the sidebar has collapsed to a rail', () => {

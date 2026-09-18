@@ -1,0 +1,667 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1820" width="1400" height="1820" font-family="system-ui, sans-serif">
+<style>
+    @keyframes halo { 0%,100% { opacity: .35 } 50% { opacity: .9 } }
+    .halo { animation: halo 2s ease-in-out infinite }
+    @media (prefers-reduced-motion: reduce) { .halo { animation: none; opacity: .9 } }
+  </style>
+<rect x="0" y="0" width="1400" height="1820" fill="#f8fafc"/>
+<rect x="4" y="4" width="1392" height="1812" fill="#ffffff" stroke="#1f2937" stroke-width="3"/>
+<rect x="58.230482117456084" y="581.6308906150508" width="1283.5390357650879" height="48.47366407742362" fill="#EFF2F7"/>
+<line x1="66.23048211745609" y1="605.8677226537626" x2="1333.769517882544" y2="605.8677226537626" stroke="#94A3B8" stroke-width="1" stroke-dasharray="6 5"/>
+<line x1="58.230482117" y1="581.630890615" x2="1341.769517883" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1341.769517883" y1="581.630890615" x2="1341.769517883" y2="630.104554692" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="58.230482117" y1="630.104554692" x2="1341.769517883" y2="630.104554692" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="58.230482117" y1="581.630890615" x2="58.230482117" y2="630.104554692" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<rect x="61.230482117456084" y="584.6308906150508" width="14" height="11" rx="2" fill="#475569"/>
+<text x="68.23048211745609" y="592.8308906150509" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">C+</text>
+<text x="700" y="593.6308906150508" text-anchor="middle" font-size="10" font-weight="700" letter-spacing="0.08em" fill="#475569">CORRIDOR</text>
+<text x="700" y="605.6308906150508" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="58.230482117456084" y="1189.8954453075255" width="1283.5390357650879" height="48.47366407742362" fill="#EFF2F7"/>
+<line x1="66.23048211745609" y1="1214.1322773462373" x2="1333.769517882544" y2="1214.1322773462373" stroke="#94A3B8" stroke-width="1" stroke-dasharray="6 5"/>
+<line x1="58.230482117" y1="1189.895445308" x2="1341.769517883" y2="1189.895445308" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1341.769517883" y1="1189.895445308" x2="1341.769517883" y2="1238.369109385" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="58.230482117" y1="1238.369109385" x2="1341.769517883" y2="1238.369109385" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="58.230482117" y1="1189.895445308" x2="58.230482117" y2="1238.369109385" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<rect x="61.230482117456084" y="1192.8954453075255" width="14" height="11" rx="2" fill="#475569"/>
+<text x="68.23048211745609" y="1201.0954453075256" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">C+</text>
+<text x="700" y="1201.8954453075255" text-anchor="middle" font-size="10" font-weight="700" letter-spacing="0.08em" fill="#475569">CORRIDOR (2)</text>
+<text x="700" y="1213.8954453075255" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="58.230482117456084" y="21.84" width="322.40196800877857" height="146.57191485937415" fill="#EEF0FF"/>
+<line x1="58.230482117" y1="21.84" x2="380.632450126" y2="21.84" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="380.632450126" y1="21.84" x2="380.632450126" y2="168.411914859" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="58.230482117" y1="168.411914859" x2="380.632450126" y2="168.411914859" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="58.230482117" y1="21.84" x2="58.230482117" y2="71.674451052" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="58.230482117" y1="106.851710618" x2="58.230482117" y2="168.411914859" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="58.230482117" y1="71.674451052" x2="93.4077416832498" y2="71.674451052" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 93.4077416832498 71.674451052 A 35.177259566249795 35.177259566249795 0 0 1 58.230482117 106.851710618" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="58.230482117" y="86.263080835" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="61.230482117456084" y="24.84" width="14" height="11" rx="2" fill="#4338CA"/>
+<text x="68.23048211745609" y="33.04" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">A</text>
+<text x="219.43146612184538" y="45.84" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="60.230482117456084" y="64.84" width="318.40196800877857" height="116.57191485937415" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="219.43146612184538" y="76.84" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/001-00</text>
+<rect x="189.19146612184537" y="78.84" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="219.43146612184538" y="90.072" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">21.5 °C</text>
+<rect x="192.91146612184536" y="95.94" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="219.43146612184538" y="107.172" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">47.8 %</text>
+<rect x="58.230482117456084" y="168.41191485937415" width="149.90885507488184" height="413.21897575567664" fill="#E9F7F1"/>
+<line x1="58.230482117" y1="168.411914859" x2="208.139337192" y2="168.411914859" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="208.139337192" y1="168.411914859" x2="208.139337192" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="58.230482117" y1="581.630890615" x2="208.139337192" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="58.230482117" y1="168.411914859" x2="58.230482117" y2="308.906366616" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="58.230482117" y1="408.078920798" x2="58.230482117" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="58.230482117" y1="308.906366616" x2="157.4030362983624" y2="308.906366616" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 157.4030362983624 308.906366616 A 99.17255418136239 99.17255418136239 0 0 1 58.230482117 408.078920798" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="58.230482117" y="355.492643707" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="61.230482117456084" y="171.41191485937415" width="14" height="11" rx="2" fill="#047857"/>
+<text x="68.23048211745609" y="179.61191485937414" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">C</text>
+<text x="133.184909654897" y="192.41191485937415" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="60.230482117456084" y="211.41191485937415" width="145.90885507488184" height="383.21897575567664" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="133.184909654897" y="223.41191485937415" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/025-00</text>
+<rect x="102.94490965489702" y="225.41191485937415" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="133.184909654897" y="236.64391485937415" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">22.1 °C</text>
+<rect x="106.66490965489702" y="242.51191485937414" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="133.184909654897" y="253.74391485937414" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">45.4 %</text>
+<rect x="208.1393371923379" y="168.41191485937415" width="172.49311293389673" height="413.21897575567664" fill="#EEF0FF"/>
+<line x1="208.139337192" y1="168.411914859" x2="380.632450126" y2="168.411914859" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="380.632450126" y1="168.411914859" x2="380.632450126" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="208.139337192" y1="581.630890615" x2="266.78699559" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="308.185342694" y1="581.630890615" x2="380.632450126" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="208.139337192" y1="168.411914859" x2="208.139337192" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="266.78699559" y1="581.630890615" x2="266.78699559" y2="540.2325435108648" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 266.78699559 540.2325435108648 A 41.39834710413521 41.39834710413521 0 0 1 308.185342694 581.630890615" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="287.486169142" y="578.630890615" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="211.1393371923379" y="171.41191485937415" width="14" height="11" rx="2" fill="#4338CA"/>
+<text x="218.1393371923379" y="179.61191485937414" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">A</text>
+<text x="294.38589365928624" y="192.41191485937415" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="210.1393371923379" y="211.41191485937415" width="168.49311293389673" height="383.21897575567664" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="294.38589365928624" y="223.41191485937415" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/027-00</text>
+<rect x="264.14589365928623" y="225.41191485937415" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="294.38589365928624" y="236.64391485937415" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">22.3 °C</text>
+<rect x="267.86589365928626" y="242.51191485937414" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="294.38589365928624" y="253.74391485937414" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">44.8 %</text>
+<rect x="380.6324501262346" y="21.84" width="91.06730890196383" height="559.7908906150509" fill="#EEF0FF"/>
+<line x1="380.632450126" y1="21.84" x2="471.699759028" y2="21.84" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="471.699759028" y1="21.84" x2="471.699759028" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="380.632450126" y1="581.630890615" x2="411.595335153" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="433.451489289" y1="581.630890615" x2="471.699759028" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="380.632450126" y1="21.84" x2="380.632450126" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="411.595335153" y1="581.630890615" x2="411.595335153" y2="559.7747364785287" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 411.595335153 559.7747364785287 A 21.856154136471318 21.856154136471318 0 0 1 433.451489289 581.630890615" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="422.523412221" y="578.630890615" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="383.6324501262346" y="24.84" width="14" height="11" rx="2" fill="#4338CA"/>
+<text x="390.6324501262346" y="33.04" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">A</text>
+<text x="426.1661045772165" y="45.84" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="382.6324501262346" y="64.84" width="87.06730890196383" height="529.7908906150509" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="426.1661045772165" y="76.84" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/028-00</text>
+<rect x="395.9261045772165" y="78.84" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="426.1661045772165" y="90.072" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">21.1 °C</text>
+<rect x="399.64610457721653" y="95.94" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="426.1661045772165" y="107.172" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">46.2 %</text>
+<rect x="471.69975902819857" y="21.84" width="342.35435283621837" height="220.72554816951455" fill="#E8F1FE"/>
+<line x1="471.699759028" y1="21.84" x2="814.054111864" y2="21.84" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="814.054111864" y1="21.84" x2="814.054111864" y2="242.56554817" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="471.699759028" y1="242.56554817" x2="588.100238993" y2="242.56554817" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="670.265283673" y1="242.56554817" x2="814.054111864" y2="242.56554817" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="471.699759028" y1="21.84" x2="471.699759028" y2="242.56554817" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="588.100238993" y1="242.56554817" x2="588.100238993" y2="160.4005034893076" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 588.100238993 160.4005034893076 A 82.1650446806924 82.1650446806924 0 0 1 670.265283673 242.56554817" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="629.1827613329999" y="239.56554817" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="474.69975902819857" y="24.84" width="14" height="11" rx="2" fill="#1D4ED8"/>
+<text x="481.69975902819857" y="33.04" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">B</text>
+<text x="642.8769354463077" y="45.84" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="473.69975902819857" y="64.84" width="338.35435283621837" height="190.72554816951455" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="642.8769354463077" y="76.84" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/053-00</text>
+<rect x="612.6369354463077" y="78.84" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="642.8769354463077" y="90.072" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">21.5 °C</text>
+<rect x="616.3569354463077" y="95.94" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="642.8769354463077" y="107.172" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">44.5 %</text>
+<rect x="471.69975902819857" y="242.56554816951456" width="187.56739106014322" height="339.0653424455362" fill="#E8F1FE"/>
+<line x1="471.699759028" y1="242.56554817" x2="659.267150088" y2="242.56554817" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="659.267150088" y1="242.56554817" x2="659.267150088" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="471.699759028" y1="581.630890615" x2="535.472671989" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="580.488845843" y1="581.630890615" x2="659.267150088" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="471.699759028" y1="242.56554817" x2="471.699759028" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="535.472671989" y1="581.630890615" x2="535.472671989" y2="536.6147167605657" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 535.472671989 536.6147167605657 A 45.01617385443437 45.01617385443437 0 0 1 580.488845843 581.630890615" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="557.980758916" y="578.630890615" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="474.69975902819857" y="245.56554816951456" width="14" height="11" rx="2" fill="#1D4ED8"/>
+<text x="481.69975902819857" y="253.76554816951455" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">B</text>
+<text x="565.4834545582702" y="266.56554816951456" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="473.69975902819857" y="285.56554816951456" width="183.56739106014322" height="309.0653424455362" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="565.4834545582702" y="297.56554816951456" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/054-00</text>
+<rect x="535.2434545582702" y="299.56554816951456" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="565.4834545582702" y="310.7975481695146" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">22.5 °C</text>
+<rect x="538.9634545582702" y="316.6655481695146" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="565.4834545582702" y="327.8975481695146" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">44.0 %</text>
+<rect x="659.2671500883417" y="242.56554816951456" width="154.7869617760753" height="339.0653424455362" fill="#E8F1FE"/>
+<line x1="659.267150088" y1="242.56554817" x2="814.054111864" y2="242.56554817" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="814.054111864" y1="242.56554817" x2="814.054111864" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="659.267150088" y1="581.630890615" x2="711.894717092" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="749.043587918" y1="581.630890615" x2="814.054111864" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="659.267150088" y1="242.56554817" x2="659.267150088" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="711.894717092" y1="581.630890615" x2="711.894717092" y2="544.4820197887419" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 711.894717092 544.4820197887419 A 37.14887082625807 37.14887082625807 0 0 1 749.043587918 581.630890615" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="730.469152505" y="578.630890615" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="662.2671500883417" y="245.56554816951456" width="14" height="11" rx="2" fill="#1D4ED8"/>
+<text x="669.2671500883417" y="253.76554816951455" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">B</text>
+<text x="736.6606309763794" y="266.56554816951456" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="661.2671500883417" y="285.56554816951456" width="150.7869617760753" height="309.0653424455362" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="736.6606309763794" y="297.56554816951456" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/073-01</text>
+<rect x="706.4206309763794" y="299.56554816951456" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="736.6606309763794" y="310.7975481695146" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">21.6 °C</text>
+<rect x="710.1406309763794" y="316.6655481695146" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="736.6606309763794" y="327.8975481695146" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">46.0 %</text>
+<rect x="814.0541118644168" y="21.84" width="305.25038016861026" height="184.88027147379754" fill="#E8F1FE"/>
+<line x1="814.054111864" y1="21.84" x2="1119.304492033" y2="21.84" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1119.304492033" y1="21.84" x2="1119.304492033" y2="206.720271474" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="814.054111864" y1="206.720271474" x2="917.839241122" y2="206.720271474" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="991.099332362" y1="206.720271474" x2="1119.304492033" y2="206.720271474" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="814.054111864" y1="21.84" x2="814.054111864" y2="206.720271474" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="917.839241122" y1="206.720271474" x2="917.839241122" y2="133.46018023353352" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 917.839241122 133.46018023353352 A 73.26009124046647 73.26009124046647 0 0 1 991.099332362 206.720271474" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="954.469286742" y="203.720271474" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="817.0541118644168" y="24.84" width="14" height="11" rx="2" fill="#1D4ED8"/>
+<text x="824.0541118644168" y="33.04" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">B</text>
+<text x="966.6793019487219" y="45.84" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="816.0541118644168" y="64.84" width="301.25038016861026" height="154.88027147379754" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="966.6793019487219" y="76.84" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/074-01</text>
+<rect x="936.4393019487219" y="78.84" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="966.6793019487219" y="90.072" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">20.8 °C</text>
+<rect x="940.1593019487219" y="95.94" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="966.6793019487219" y="107.172" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">46.8 %</text>
+<rect x="814.0541118644168" y="206.72027147379754" width="164.23233579021652" height="374.91061914125345" fill="#E8F1FE"/>
+<line x1="814.054111864" y1="206.720271474" x2="978.286447655" y2="206.720271474" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="978.286447655" y1="206.720271474" x2="978.286447655" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="814.054111864" y1="581.630890615" x2="869.893106033" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="909.308866623" y1="581.630890615" x2="978.286447655" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="814.054111864" y1="206.720271474" x2="814.054111864" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="869.893106033" y1="581.630890615" x2="869.893106033" y2="542.215130025348" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 869.893106033 542.215130025348 A 39.41576058965197 39.41576058965197 0 0 1 909.308866623 581.630890615" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="889.600986328" y="578.630890615" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="817.0541118644168" y="209.72027147379754" width="14" height="11" rx="2" fill="#1D4ED8"/>
+<text x="824.0541118644168" y="217.92027147379753" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">B</text>
+<text x="896.170279759525" y="230.72027147379754" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="816.0541118644168" y="249.72027147379754" width="160.23233579021652" height="344.91061914125345" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="896.170279759525" y="261.72027147379754" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/075-00</text>
+<rect x="865.930279759525" y="263.72027147379754" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="896.170279759525" y="274.95227147379757" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">21.4 °C</text>
+<rect x="869.650279759525" y="280.82027147379756" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="896.170279759525" y="292.0522714737976" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">44.2 %</text>
+<rect x="978.2864476546334" y="206.72027147379754" width="141.0180443783937" height="374.91061914125345" fill="#FEF5E7"/>
+<line x1="978.286447655" y1="206.720271474" x2="1119.304492033" y2="206.720271474" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1119.304492033" y1="206.720271474" x2="1119.304492033" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="978.286447655" y1="581.630890615" x2="1026.232582743" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1060.076913394" y1="581.630890615" x2="1119.304492033" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="978.286447655" y1="206.720271474" x2="978.286447655" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1026.232582743" y1="581.630890615" x2="1026.232582743" y2="547.7865599641855" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 1026.232582743 547.7865599641855 A 33.84433065081449 33.84433065081449 0 0 1 1060.076913394 581.630890615" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="1043.1547480684999" y="578.630890615" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="981.2864476546334" y="209.72027147379754" width="14" height="11" rx="2" fill="#B45309"/>
+<text x="988.2864476546334" y="217.92027147379753" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">D</text>
+<text x="1048.7954698438302" y="230.72027147379754" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="980.2864476546334" y="249.72027147379754" width="137.0180443783937" height="344.91061914125345" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="1048.7954698438302" y="261.72027147379754" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/076-00</text>
+<rect x="1018.5554698438302" y="263.72027147379754" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="1048.7954698438302" y="274.95227147379757" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">21.6 °C</text>
+<rect x="1022.2754698438303" y="280.82027147379756" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="1048.7954698438302" y="292.0522714737976" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">47.1 %</text>
+<rect x="1119.3044920330271" y="21.84" width="222.46502584951668" height="559.7908906150509" fill="#E8F1FE"/>
+<line x1="1119.304492033" y1="21.84" x2="1341.769517883" y2="21.84" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1341.769517883" y1="21.84" x2="1341.769517883" y2="212.168902809" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1341.769517883" y1="346.518716557" x2="1341.769517883" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1119.304492033" y1="581.630890615" x2="1341.769517883" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1119.304492033" y1="21.84" x2="1119.304492033" y2="581.630890615" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1341.769517883" y1="212.168902809" x2="1207.4197041353877" y2="212.168902809" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 1207.4197041353877 212.168902809 A 134.34981374761222 134.34981374761222 0 0 1 1341.769517883 346.518716557" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="1341.769517883" y="276.343809683" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="1122.3044920330271" y="24.84" width="14" height="11" rx="2" fill="#1D4ED8"/>
+<text x="1129.3044920330271" y="33.04" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">B</text>
+<text x="1230.5370049577855" y="45.84" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="1121.3044920330271" y="64.84" width="218.46502584951668" height="529.7908906150509" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="1230.5370049577855" y="76.84" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/077-01</text>
+<rect x="1200.2970049577855" y="78.84" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="1230.5370049577855" y="90.072" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">22.0 °C</text>
+<rect x="1204.0170049577855" y="95.94" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="1230.5370049577855" y="107.172" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">43.3 %</text>
+<rect x="58.230482117456084" y="630.1045546924745" width="172.36218992902658" height="343.2357845806184" fill="#E8F1FE"/>
+<line x1="58.230482117" y1="630.104554692" x2="230.592672046" y2="630.104554692" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="230.592672046" y1="630.104554692" x2="230.592672046" y2="973.340339273" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="58.230482117" y1="973.340339273" x2="230.592672046" y2="973.340339273" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="58.230482117" y1="630.104554692" x2="58.230482117" y2="746.80472145" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="58.230482117" y1="829.181309749" x2="58.230482117" y2="973.340339273" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="58.230482117" y1="746.80472145" x2="140.60707041634842" y2="746.80472145" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 140.60707041634842 746.80472145 A 82.37658829934841 82.37658829934841 0 0 1 58.230482117 829.181309749" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="58.230482117" y="784.9930155995" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="61.230482117456084" y="633.1045546924745" width="14" height="11" rx="2" fill="#1D4ED8"/>
+<text x="68.23048211745609" y="641.3045546924745" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">B</text>
+<text x="144.41157708196937" y="654.1045546924745" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="60.230482117456084" y="673.1045546924745" width="168.36218992902658" height="313.2357845806184" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="144.41157708196937" y="685.1045546924745" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/078-00</text>
+<rect x="114.17157708196937" y="687.1045546924745" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="144.41157708196937" y="698.3365546924745" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">22.2 °C</text>
+<rect x="117.89157708196937" y="704.2045546924745" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="144.41157708196937" y="715.4365546924745" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">47.6 %</text>
+<rect x="58.230482117456084" y="973.3403392730929" width="172.36218992902658" height="216.55510603443244" fill="#E8F1FE"/>
+<line x1="58.230482117" y1="973.340339273" x2="230.592672046" y2="973.340339273" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="230.592672046" y1="973.340339273" x2="230.592672046" y2="1189.895445308" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="58.230482117" y1="1189.895445308" x2="230.592672046" y2="1189.895445308" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="58.230482117" y1="973.340339273" x2="58.230482117" y2="1046.969075325" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="58.230482117" y1="1098.942300773" x2="58.230482117" y2="1189.895445308" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="58.230482117" y1="1046.969075325" x2="110.20370756526378" y2="1046.969075325" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 110.20370756526378 1046.969075325 A 51.97322544826378 51.97322544826378 0 0 1 58.230482117 1098.942300773" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="58.230482117" y="1069.955688049" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="61.230482117456084" y="976.3403392730929" width="14" height="11" rx="2" fill="#1D4ED8"/>
+<text x="68.23048211745609" y="984.540339273093" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">B</text>
+<text x="144.41157708196937" y="997.3403392730929" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="60.230482117456084" y="1016.3403392730929" width="168.36218992902658" height="186.55510603443244" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="144.41157708196937" y="1028.340339273093" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/079-00</text>
+<rect x="114.17157708196937" y="1030.340339273093" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="144.41157708196937" y="1041.572339273093" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">21.7 °C</text>
+<rect x="117.89157708196937" y="1047.4403392730928" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="144.41157708196937" y="1058.6723392730928" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">46.9 %</text>
+<rect x="230.59267204648262" y="630.1045546924745" width="273.3175688986782" height="147.47691013253512" fill="#E8F1FE"/>
+<line x1="230.592672046" y1="630.104554692" x2="503.910240945" y2="630.104554692" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="503.910240945" y1="630.104554692" x2="503.910240945" y2="777.581464825" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="230.592672046" y1="777.581464825" x2="323.520645472" y2="777.581464825" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="389.116862008" y1="777.581464825" x2="503.910240945" y2="777.581464825" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="230.592672046" y1="630.104554692" x2="230.592672046" y2="777.581464825" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="323.520645472" y1="777.581464825" x2="323.520645472" y2="711.9852482893173" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 323.520645472 711.9852482893173 A 65.59621653568276 65.59621653568276 0 0 1 389.116862008 777.581464825" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="356.31875374000003" y="774.581464825" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="233.59267204648262" y="633.1045546924745" width="14" height="11" rx="2" fill="#1D4ED8"/>
+<text x="240.59267204648262" y="641.3045546924745" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">B</text>
+<text x="367.2514564958217" y="654.1045546924745" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="232.59267204648262" y="673.1045546924745" width="269.3175688986782" height="117.47691013253512" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="367.2514564958217" y="685.1045546924745" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/080-00</text>
+<rect x="337.0114564958217" y="687.1045546924745" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="367.2514564958217" y="698.3365546924745" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">21.8 °C</text>
+<rect x="340.7314564958217" y="704.2045546924745" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="367.2514564958217" y="715.4365546924745" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">45.2 %</text>
+<rect x="230.59267204648262" y="777.5814648250098" width="273.3175688986782" height="256.4180644620766" fill="#FEF5E7"/>
+<line x1="230.592672046" y1="777.581464825" x2="503.910240945" y2="777.581464825" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="503.910240945" y1="777.581464825" x2="503.910240945" y2="1033.999529287" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="230.592672046" y1="1033.999529287" x2="323.520645472" y2="1033.999529287" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="389.116862008" y1="1033.999529287" x2="503.910240945" y2="1033.999529287" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="230.592672046" y1="777.581464825" x2="230.592672046" y2="1033.999529287" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="323.520645472" y1="1033.999529287" x2="323.520645472" y2="968.4033127513173" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 323.520645472 968.4033127513173 A 65.59621653568276 65.59621653568276 0 0 1 389.116862008 1033.999529287" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="356.31875374000003" y="1030.999529287" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="233.59267204648262" y="780.5814648250098" width="14" height="11" rx="2" fill="#B45309"/>
+<text x="240.59267204648262" y="788.7814648250098" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">D</text>
+<text x="367.2514564958217" y="801.5814648250098" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="232.59267204648262" y="820.5814648250098" width="269.3175688986782" height="226.4180644620766" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="367.2514564958217" y="832.5814648250098" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/081-00</text>
+<rect x="337.0114564958217" y="834.5814648250098" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="367.2514564958217" y="845.8134648250098" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">22.2 °C</text>
+<rect x="340.7314564958217" y="851.6814648250098" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="367.2514564958217" y="862.9134648250098" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">44.4 %</text>
+<rect x="230.59267204648262" y="1033.9995292870863" width="273.3175688986782" height="155.89591602043922" fill="#E8F1FE"/>
+<line x1="230.592672046" y1="1033.999529287" x2="503.910240945" y2="1033.999529287" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="503.910240945" y1="1033.999529287" x2="503.910240945" y2="1189.895445308" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="230.592672046" y1="1189.895445308" x2="323.520645472" y2="1189.895445308" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="389.116862008" y1="1189.895445308" x2="503.910240945" y2="1189.895445308" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="230.592672046" y1="1033.999529287" x2="230.592672046" y2="1189.895445308" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="323.520645472" y1="1189.895445308" x2="323.520645472" y2="1124.2992287723173" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 323.520645472 1124.2992287723173 A 65.59621653568276 65.59621653568276 0 0 1 389.116862008 1189.895445308" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="356.31875374000003" y="1186.895445308" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="233.59267204648262" y="1036.9995292870863" width="14" height="11" rx="2" fill="#1D4ED8"/>
+<text x="240.59267204648262" y="1045.1995292870863" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">B</text>
+<text x="367.2514564958217" y="1057.9995292870863" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="232.59267204648262" y="1076.9995292870863" width="269.3175688986782" height="125.89591602043922" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="367.2514564958217" y="1088.9995292870863" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/082-00</text>
+<rect x="337.0114564958217" y="1090.9995292870863" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="367.2514564958217" y="1102.2315292870862" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">22.4 °C</text>
+<rect x="340.7314564958217" y="1108.0995292870862" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="367.2514564958217" y="1119.3315292870861" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">44.4 %</text>
+<rect x="503.910240945161" y="630.1045546924745" width="296.9063269533619" height="322.63547980598463" fill="#E8F1FE"/>
+<line x1="503.910240945" y1="630.104554692" x2="800.816567899" y2="630.104554692" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="800.816567899" y1="630.104554692" x2="800.816567899" y2="952.740034498" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="503.910240945" y1="952.740034498" x2="604.858392109" y2="952.740034498" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="676.115910578" y1="952.740034498" x2="800.816567899" y2="952.740034498" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="503.910240945" y1="630.104554692" x2="503.910240945" y2="952.740034498" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="604.858392109" y1="952.740034498" x2="604.858392109" y2="881.4825160291931" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 604.858392109 881.4825160291931 A 71.25751846880685 71.25751846880685 0 0 1 676.115910578 952.740034498" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="640.4871513435" y="949.740034498" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="506.910240945161" y="633.1045546924745" width="14" height="11" rx="2" fill="#1D4ED8"/>
+<text x="513.9102409451609" y="641.3045546924745" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">B</text>
+<text x="652.3634044218419" y="654.1045546924745" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="505.910240945161" y="673.1045546924745" width="292.9063269533619" height="292.63547980598463" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="652.3634044218419" y="685.1045546924745" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/083-00</text>
+<rect x="622.1234044218419" y="687.1045546924745" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="652.3634044218419" y="698.3365546924745" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">21.1 °C</text>
+<rect x="625.8434044218419" y="704.2045546924745" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="652.3634044218419" y="715.4365546924745" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">45.6 %</text>
+<rect x="503.910240945161" y="952.7400344984592" width="296.9063269533619" height="237.15541080906618" fill="#E8F1FE"/>
+<line x1="503.910240945" y1="952.740034498" x2="800.816567899" y2="952.740034498" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="800.816567899" y1="952.740034498" x2="800.816567899" y2="1189.895445308" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="503.910240945" y1="1189.895445308" x2="604.858392109" y2="1189.895445308" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="676.115910578" y1="1189.895445308" x2="800.816567899" y2="1189.895445308" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="503.910240945" y1="952.740034498" x2="503.910240945" y2="1189.895445308" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="604.858392109" y1="1189.895445308" x2="604.858392109" y2="1118.6379268391931" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 604.858392109 1118.6379268391931 A 71.25751846880685 71.25751846880685 0 0 1 676.115910578 1189.895445308" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="640.4871513435" y="1186.895445308" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="506.910240945161" y="955.7400344984592" width="14" height="11" rx="2" fill="#1D4ED8"/>
+<text x="513.9102409451609" y="963.9400344984592" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">B</text>
+<text x="652.3634044218419" y="976.7400344984592" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="505.910240945161" y="995.7400344984592" width="292.9063269533619" height="207.15541080906618" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="652.3634044218419" y="1007.7400344984592" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/085-00</text>
+<rect x="622.1234044218419" y="1009.7400344984592" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="652.3634044218419" y="1020.9720344984592" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">23.1 °C</text>
+<rect x="625.8434044218419" y="1026.840034498459" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="652.3634044218419" y="1038.072034498459" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">43.9 %</text>
+<rect x="800.8165678985227" y="630.1045546924745" width="390.13828013529206" height="275.58505544978954" fill="#EEF0FF"/>
+<line x1="800.816567899" y1="630.104554692" x2="1190.954848034" y2="630.104554692" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1190.954848034" y1="630.104554692" x2="1190.954848034" y2="905.689610142" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="800.816567899" y1="905.689610142" x2="933.463583145" y2="905.689610142" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1027.096770377" y1="905.689610142" x2="1190.954848034" y2="905.689610142" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="800.816567899" y1="630.104554692" x2="800.816567899" y2="905.689610142" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="933.463583145" y1="905.689610142" x2="933.463583145" y2="812.0564229095299" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 933.463583145 812.0564229095299 A 93.63318723247009 93.63318723247009 0 0 1 1027.096770377 905.689610142" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="980.280176761" y="902.689610142" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="803.8165678985227" y="633.1045546924745" width="14" height="11" rx="2" fill="#4338CA"/>
+<text x="810.8165678985227" y="641.3045546924745" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">A</text>
+<text x="995.8857079661688" y="654.1045546924745" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="802.8165678985227" y="673.1045546924745" width="386.13828013529206" height="245.58505544978954" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="995.8857079661688" y="685.1045546924745" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/086-00</text>
+<rect x="965.6457079661687" y="687.1045546924745" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="995.8857079661688" y="698.3365546924745" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">22.6 °C</text>
+<rect x="969.3657079661688" y="704.2045546924745" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="995.8857079661688" y="715.4365546924745" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">44.2 %</text>
+<rect x="800.8165678985227" y="905.6896101422642" width="390.13828013529206" height="284.2058351652613" fill="#EEF0FF"/>
+<line x1="800.816567899" y1="905.689610142" x2="1190.954848034" y2="905.689610142" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1190.954848034" y1="905.689610142" x2="1190.954848034" y2="1189.895445308" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="800.816567899" y1="1189.895445308" x2="933.463583145" y2="1189.895445308" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1027.096770377" y1="1189.895445308" x2="1190.954848034" y2="1189.895445308" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="800.816567899" y1="905.689610142" x2="800.816567899" y2="1189.895445308" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="933.463583145" y1="1189.895445308" x2="933.463583145" y2="1096.2622580755299" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 933.463583145 1096.2622580755299 A 93.63318723247009 93.63318723247009 0 0 1 1027.096770377 1189.895445308" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="980.280176761" y="1186.895445308" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="803.8165678985227" y="908.6896101422642" width="14" height="11" rx="2" fill="#4338CA"/>
+<text x="810.8165678985227" y="916.8896101422642" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">A</text>
+<text x="995.8857079661688" y="929.6896101422642" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="802.8165678985227" y="948.6896101422642" width="386.13828013529206" height="254.2058351652613" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="995.8857079661688" y="960.6896101422642" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/087-00</text>
+<rect x="965.6457079661687" y="962.6896101422642" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="995.8857079661688" y="973.9216101422642" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">22.1 °C</text>
+<rect x="969.3657079661688" y="979.7896101422642" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="995.8857079661688" y="991.0216101422642" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">48.3 %</text>
+<rect x="1190.9548480338149" y="630.1045546924745" width="150.8146698487289" height="263.9693944695273" fill="#E9F7F1"/>
+<line x1="1190.954848034" y1="630.104554692" x2="1341.769517883" y2="630.104554692" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1341.769517883" y1="630.104554692" x2="1341.769517883" y2="719.854148812" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1341.769517883" y1="783.206803485" x2="1341.769517883" y2="894.073949162" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1190.954848034" y1="894.073949162" x2="1341.769517883" y2="894.073949162" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1190.954848034" y1="630.104554692" x2="1190.954848034" y2="894.073949162" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1341.769517883" y1="719.854148812" x2="1278.4168632103133" y2="719.854148812" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 1278.4168632103133 719.854148812 A 63.35265467268655 63.35265467268655 0 0 1 1341.769517883 783.206803485" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="1341.769517883" y="748.5304761484999" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="1193.9548480338149" y="633.1045546924745" width="14" height="11" rx="2" fill="#047857"/>
+<text x="1200.9548480338149" y="641.3045546924745" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">C</text>
+<text x="1266.3621829581793" y="654.1045546924745" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="1192.9548480338149" y="673.1045546924745" width="146.8146698487289" height="233.9693944695273" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="1266.3621829581793" y="685.1045546924745" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/088-00</text>
+<rect x="1236.1221829581793" y="687.1045546924745" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="1266.3621829581793" y="698.3365546924745" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">21.9 °C</text>
+<rect x="1239.8421829581794" y="704.2045546924745" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="1266.3621829581793" y="715.4365546924745" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">44.5 %</text>
+<rect x="1190.9548480338149" y="894.0739491620018" width="150.8146698487289" height="295.8214961455235" fill="#E9F7F1"/>
+<line x1="1190.954848034" y1="894.073949162" x2="1341.769517883" y2="894.073949162" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1341.769517883" y1="894.073949162" x2="1341.769517883" y2="994.653257851" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1341.769517883" y1="1065.650416926" x2="1341.769517883" y2="1189.895445308" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1190.954848034" y1="1189.895445308" x2="1341.769517883" y2="1189.895445308" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1190.954848034" y1="894.073949162" x2="1190.954848034" y2="1189.895445308" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1341.769517883" y1="994.653257851" x2="1270.7723588080744" y2="994.653257851" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 1270.7723588080744 994.653257851 A 70.99715907492563 70.99715907492563 0 0 1 1341.769517883 1065.650416926" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="1341.769517883" y="1027.1518373885" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="1193.9548480338149" y="897.0739491620018" width="14" height="11" rx="2" fill="#047857"/>
+<text x="1200.9548480338149" y="905.2739491620018" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">C</text>
+<text x="1266.3621829581793" y="918.0739491620018" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="1192.9548480338149" y="937.0739491620018" width="146.8146698487289" height="265.8214961455235" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="1266.3621829581793" y="949.0739491620018" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/089-00</text>
+<rect x="1236.1221829581793" y="951.0739491620018" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="1266.3621829581793" y="962.3059491620018" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">21.1 °C</text>
+<rect x="1239.8421829581794" y="968.1739491620018" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="1266.3621829581793" y="979.4059491620018" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">43.4 %</text>
+<rect x="58.230482117456084" y="1238.369109384949" width="146.70062089616192" height="353.6385652978813" fill="#E8F1FE"/>
+<line x1="58.230482117" y1="1238.369109385" x2="204.931103014" y2="1238.369109385" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="204.931103014" y1="1238.369109385" x2="204.931103014" y2="1592.007674683" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="58.230482117" y1="1592.007674683" x2="204.931103014" y2="1592.007674683" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="58.230482117" y1="1238.369109385" x2="58.230482117" y2="1358.606221586" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="58.230482117" y1="1443.479477258" x2="58.230482117" y2="1592.007674683" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="58.230482117" y1="1358.606221586" x2="143.10373778849151" y2="1358.606221586" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 143.10373778849151 1358.606221586 A 84.8732556714915 84.8732556714915 0 0 1 58.230482117 1443.479477258" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="58.230482117" y="1398.042849422" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="61.230482117456084" y="1241.369109384949" width="14" height="11" rx="2" fill="#1D4ED8"/>
+<text x="68.23048211745609" y="1249.5691093849491" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">B</text>
+<text x="131.58079256553705" y="1262.369109384949" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="60.230482117456084" y="1281.369109384949" width="142.70062089616192" height="323.6385652978813" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="131.58079256553705" y="1293.369109384949" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/091-00</text>
+<rect x="101.34079256553706" y="1295.369109384949" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="131.58079256553705" y="1306.601109384949" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">23.2 °C</text>
+<rect x="105.06079256553706" y="1312.469109384949" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="131.58079256553705" y="1323.701109384949" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">42.9 %</text>
+<rect x="204.93110301361799" y="1238.369109384949" width="206.13593949386131" height="353.6385652978813" fill="#E8F1FE"/>
+<line x1="204.931103014" y1="1238.369109385" x2="275.017322442" y2="1238.369109385" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="324.48994792" y1="1238.369109385" x2="411.067042507" y2="1238.369109385" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="411.067042507" y1="1238.369109385" x2="411.067042507" y2="1592.007674683" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="204.931103014" y1="1592.007674683" x2="411.067042507" y2="1592.007674683" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="204.931103014" y1="1238.369109385" x2="204.931103014" y2="1592.007674683" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="275.017322442" y1="1238.369109385" x2="275.017322442" y2="1287.8417348635267" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 275.017322442 1287.8417348635267 A 49.472625478526716 49.472625478526716 0 0 1 324.48994792 1238.369109385" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="299.75363518100005" y="1235.369109385" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="207.93110301361799" y="1241.369109384949" width="14" height="11" rx="2" fill="#1D4ED8"/>
+<text x="214.93110301361799" y="1249.5691093849491" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">B</text>
+<text x="307.99907276054864" y="1262.369109384949" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="206.93110301361799" y="1281.369109384949" width="202.13593949386131" height="323.6385652978813" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="307.99907276054864" y="1293.369109384949" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/092-00</text>
+<rect x="277.75907276054863" y="1295.369109384949" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="307.99907276054864" y="1306.601109384949" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">23.0 °C</text>
+<rect x="281.47907276054866" y="1312.469109384949" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="307.99907276054864" y="1323.701109384949" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">48.0 %</text>
+<rect x="58.230482117456084" y="1592.0076746828306" width="352.83656039002324" height="206.1523253171695" fill="#FEF5E7"/>
+<line x1="58.230482117" y1="1592.007674683" x2="411.067042507" y2="1592.007674683" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="411.067042507" y1="1592.007674683" x2="411.067042507" y2="1798.16" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="58.230482117" y1="1798.16" x2="411.067042507" y2="1798.16" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="58.230482117" y1="1592.007674683" x2="58.230482117" y2="1662.099465291" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="58.230482117" y1="1711.576023367" x2="58.230482117" y2="1798.16" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="58.230482117" y1="1662.099465291" x2="107.70704019312068" y2="1662.099465291" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 107.70704019312068 1662.099465291 A 49.476558076120675 49.476558076120675 0 0 1 58.230482117 1711.576023367" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="58.230482117" y="1683.837744329" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="61.230482117456084" y="1595.0076746828306" width="14" height="11" rx="2" fill="#B45309"/>
+<text x="68.23048211745609" y="1603.2076746828307" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">D</text>
+<text x="234.6487623124677" y="1616.0076746828306" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="60.230482117456084" y="1635.0076746828306" width="348.83656039002324" height="176.1523253171695" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="234.6487623124677" y="1647.0076746828306" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/093-00</text>
+<rect x="204.4087623124677" y="1649.0076746828306" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="234.6487623124677" y="1660.2396746828306" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">22.2 °C</text>
+<rect x="208.1287623124677" y="1666.1076746828305" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="234.6487623124677" y="1677.3396746828305" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">44.9 %</text>
+<rect x="411.06704250747924" y="1238.369109384949" width="344.090130420353" height="206.3202625843539" fill="#E8F1FE"/>
+<line x1="411.067042507" y1="1238.369109385" x2="528.05768685" y2="1238.369109385" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="610.639318151" y1="1238.369109385" x2="755.157172928" y2="1238.369109385" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="755.157172928" y1="1238.369109385" x2="755.157172928" y2="1444.689371969" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="411.067042507" y1="1444.689371969" x2="755.157172928" y2="1444.689371969" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="411.067042507" y1="1238.369109385" x2="411.067042507" y2="1444.689371969" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="528.05768685" y1="1238.369109385" x2="528.05768685" y2="1320.9507406858847" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 528.05768685 1320.9507406858847 A 82.58163130088471 82.58163130088471 0 0 1 610.639318151 1238.369109385" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="569.3485025005" y="1235.369109385" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="414.06704250747924" y="1241.369109384949" width="14" height="11" rx="2" fill="#1D4ED8"/>
+<text x="421.06704250747924" y="1249.5691093849491" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">B</text>
+<text x="583.1121077176557" y="1262.369109384949" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="413.06704250747924" y="1281.369109384949" width="340.090130420353" height="176.3202625843539" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="583.1121077176557" y="1293.369109384949" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/094-00</text>
+<rect x="552.8721077176557" y="1295.369109384949" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="583.1121077176557" y="1306.601109384949" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">21.6 °C</text>
+<rect x="556.5921077176557" y="1312.469109384949" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="583.1121077176557" y="1323.701109384949" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">43.1 %</text>
+<rect x="411.06704250747924" y="1444.689371969303" width="165.32670541371908" height="353.4706280306969" fill="#E8F1FE"/>
+<line x1="411.067042507" y1="1444.689371969" x2="467.278122348" y2="1444.689371969" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="506.956531647" y1="1444.689371969" x2="576.393747921" y2="1444.689371969" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="576.393747921" y1="1444.689371969" x2="576.393747921" y2="1798.16" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="411.067042507" y1="1798.16" x2="576.393747921" y2="1798.16" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="411.067042507" y1="1444.689371969" x2="411.067042507" y2="1798.16" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="467.278122348" y1="1444.689371969" x2="467.278122348" y2="1484.3677812682924" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 467.278122348 1484.3677812682924 A 39.678409299292575 39.678409299292575 0 0 1 506.956531647 1444.689371969" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="487.1173269975" y="1441.689371969" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="414.06704250747924" y="1447.689371969303" width="14" height="11" rx="2" fill="#1D4ED8"/>
+<text x="421.06704250747924" y="1455.889371969303" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">B</text>
+<text x="493.7303952143388" y="1468.689371969303" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="413.06704250747924" y="1487.689371969303" width="161.32670541371908" height="323.4706280306969" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="493.7303952143388" y="1499.689371969303" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/095-00</text>
+<rect x="463.4903952143388" y="1501.689371969303" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="493.7303952143388" y="1512.921371969303" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">22.0 °C</text>
+<rect x="467.2103952143388" y="1518.789371969303" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="493.7303952143388" y="1530.021371969303" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">45.0 %</text>
+<rect x="576.3937479211983" y="1444.689371969303" width="178.76342500663387" height="353.4706280306969" fill="#E8F1FE"/>
+<line x1="576.393747921" y1="1444.689371969" x2="637.173312423" y2="1444.689371969" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="680.076534425" y1="1444.689371969" x2="755.157172928" y2="1444.689371969" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="755.157172928" y1="1444.689371969" x2="755.157172928" y2="1798.16" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="576.393747921" y1="1798.16" x2="755.157172928" y2="1798.16" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="576.393747921" y1="1444.689371969" x2="576.393747921" y2="1798.16" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="637.173312423" y1="1444.689371969" x2="637.173312423" y2="1487.5925939705921" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 637.173312423 1487.5925939705921 A 42.90322200159213 42.90322200159213 0 0 1 680.076534425 1444.689371969" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="658.6249234239999" y="1441.689371969" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="579.3937479211983" y="1447.689371969303" width="14" height="11" rx="2" fill="#1D4ED8"/>
+<text x="586.3937479211983" y="1455.889371969303" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">B</text>
+<text x="665.7754604245152" y="1468.689371969303" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="578.3937479211983" y="1487.689371969303" width="174.76342500663387" height="323.4706280306969" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="665.7754604245152" y="1499.689371969303" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/096-00</text>
+<rect x="635.5354604245152" y="1501.689371969303" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="665.7754604245152" y="1512.921371969303" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">21.8 °C</text>
+<rect x="639.2554604245153" y="1518.789371969303" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="665.7754604245152" y="1530.021371969303" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">48.9 %</text>
+<rect x="755.1571729278323" y="1238.369109384949" width="147.7112862201515" height="405.40056298341983" fill="#FEF5E7"/>
+<line x1="755.157172928" y1="1238.369109385" x2="805.379010243" y2="1238.369109385" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="840.829718936" y1="1238.369109385" x2="902.868459148" y2="1238.369109385" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="902.868459148" y1="1238.369109385" x2="902.868459148" y2="1643.769672368" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="755.157172928" y1="1643.769672368" x2="902.868459148" y2="1643.769672368" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="755.157172928" y1="1238.369109385" x2="755.157172928" y2="1643.769672368" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="805.379010243" y1="1238.369109385" x2="805.379010243" y2="1273.8198180778363" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 805.379010243 1273.8198180778363 A 35.45070869283636 35.45070869283636 0 0 1 840.829718936 1238.369109385" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="823.1043645894999" y="1235.369109385" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="758.1571729278323" y="1241.369109384949" width="14" height="11" rx="2" fill="#B45309"/>
+<text x="765.1571729278323" y="1249.5691093849491" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">D</text>
+<text x="829.0128160379081" y="1262.369109384949" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="757.1571729278323" y="1281.369109384949" width="143.7112862201515" height="375.40056298341983" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="829.0128160379081" y="1293.369109384949" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/097-00</text>
+<rect x="798.7728160379081" y="1295.369109384949" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="829.0128160379081" y="1306.601109384949" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">22.0 °C</text>
+<rect x="802.4928160379081" y="1312.469109384949" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="829.0128160379081" y="1323.701109384949" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">44.0 %</text>
+<rect x="902.8684591479838" y="1238.369109384949" width="238.53774619182872" height="405.40056298341983" fill="#E8F1FE"/>
+<line x1="902.868459148" y1="1238.369109385" x2="983.971292853" y2="1238.369109385" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1041.220351939" y1="1238.369109385" x2="1141.40620534" y2="1238.369109385" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1141.40620534" y1="1238.369109385" x2="1141.40620534" y2="1643.769672368" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="902.868459148" y1="1643.769672368" x2="1141.40620534" y2="1643.769672368" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="902.868459148" y1="1238.369109385" x2="902.868459148" y2="1643.769672368" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="983.971292853" y1="1238.369109385" x2="983.971292853" y2="1295.6181684710389" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 983.971292853 1295.6181684710389 A 57.24905908603889 57.24905908603889 0 0 1 1041.220351939 1238.369109385" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="1012.595822396" y="1235.369109385" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="905.8684591479838" y="1241.369109384949" width="14" height="11" rx="2" fill="#1D4ED8"/>
+<text x="912.8684591479838" y="1249.5691093849491" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">B</text>
+<text x="1022.1373322438982" y="1262.369109384949" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="904.8684591479838" y="1281.369109384949" width="234.53774619182872" height="375.40056298341983" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="1022.1373322438982" y="1293.369109384949" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/098-00</text>
+<rect x="991.8973322438982" y="1295.369109384949" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="1022.1373322438982" y="1306.601109384949" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">21.5 °C</text>
+<rect x="995.6173322438982" y="1312.469109384949" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="1022.1373322438982" y="1323.701109384949" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">44.6 %</text>
+<rect x="755.1571729278323" y="1643.769672368369" width="386.24903241198024" height="154.39032763163107" fill="#E8F1FE"/>
+<line x1="755.157172928" y1="1643.769672368" x2="886.481843948" y2="1643.769672368" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="979.181611727" y1="1643.769672368" x2="1141.40620534" y2="1643.769672368" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1141.40620534" y1="1643.769672368" x2="1141.40620534" y2="1798.16" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="755.157172928" y1="1798.16" x2="1141.40620534" y2="1798.16" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="755.157172928" y1="1643.769672368" x2="755.157172928" y2="1798.16" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="886.481843948" y1="1643.769672368" x2="886.481843948" y2="1736.4694401468753" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 886.481843948 1736.4694401468753 A 92.69976777887526 92.69976777887526 0 0 1 979.181611727 1643.769672368" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="932.8317278375" y="1640.769672368" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="758.1571729278323" y="1646.769672368369" width="14" height="11" rx="2" fill="#1D4ED8"/>
+<text x="765.1571729278323" y="1654.969672368369" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">B</text>
+<text x="948.2816891338225" y="1667.769672368369" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="757.1571729278323" y="1686.769672368369" width="382.24903241198024" height="124.39032763163107" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="948.2816891338225" y="1698.769672368369" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/099-00</text>
+<rect x="918.0416891338225" y="1700.769672368369" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="948.2816891338225" y="1712.0016723683689" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">21.2 °C</text>
+<rect x="921.7616891338225" y="1717.8696723683688" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="948.2816891338225" y="1729.1016723683688" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">49.2 %</text>
+<rect x="1141.4062053398127" y="1238.369109384949" width="200.3633125427314" height="213.82612544268412" fill="#E8F1FE"/>
+<line x1="1141.40620534" y1="1238.369109385" x2="1341.769517883" y2="1238.369109385" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1341.769517883" y1="1238.369109385" x2="1341.769517883" y2="1311.069992035" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1341.769517883" y1="1362.388262142" x2="1341.769517883" y2="1452.195234828" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1141.40620534" y1="1452.195234828" x2="1341.769517883" y2="1452.195234828" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1141.40620534" y1="1238.369109385" x2="1141.40620534" y2="1452.195234828" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1341.769517883" y1="1311.069992035" x2="1290.4512477767557" y2="1311.069992035" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 1290.4512477767557 1311.069992035 A 51.318270106244185 51.318270106244185 0 0 1 1341.769517883 1362.388262142" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="1341.769517883" y="1333.7291270885" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="1144.4062053398127" y="1241.369109384949" width="14" height="11" rx="2" fill="#1D4ED8"/>
+<text x="1151.4062053398127" y="1249.5691093849491" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">B</text>
+<text x="1241.5878616111784" y="1262.369109384949" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="1143.4062053398127" y="1281.369109384949" width="196.3633125427314" height="183.82612544268412" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="1241.5878616111784" y="1293.369109384949" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/100-00</text>
+<rect x="1211.3478616111784" y="1295.369109384949" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="1241.5878616111784" y="1306.601109384949" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">21.8 °C</text>
+<rect x="1215.0678616111784" y="1312.469109384949" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="1241.5878616111784" y="1323.701109384949" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">44.4 %</text>
+<rect x="1141.4062053398127" y="1452.1952348276332" width="200.3633125427314" height="345.9647651723667" fill="#E8F1FE"/>
+<line x1="1141.40620534" y1="1452.195234828" x2="1341.769517883" y2="1452.195234828" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1341.769517883" y1="1452.195234828" x2="1341.769517883" y2="1569.823254986" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1341.769517883" y1="1652.854798628" x2="1341.769517883" y2="1798.16" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1141.40620534" y1="1798.16" x2="1341.769517883" y2="1798.16" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1141.40620534" y1="1452.195234828" x2="1141.40620534" y2="1798.16" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1341.769517883" y1="1569.823254986" x2="1258.737974241632" y2="1569.823254986" stroke="#0ea5e9" stroke-width="1.8"/>
+<path d="M 1258.737974241632 1569.823254986 A 83.031543641368 83.031543641368 0 0 1 1341.769517883 1652.854798628" fill="none" stroke="#0ea5e9" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="1341.769517883" y="1608.339026807" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">IN</text>
+<rect x="1144.4062053398127" y="1455.1952348276332" width="14" height="11" rx="2" fill="#1D4ED8"/>
+<text x="1151.4062053398127" y="1463.3952348276332" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">B</text>
+<text x="1241.5878616111784" y="1476.1952348276332" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="1143.4062053398127" y="1495.1952348276332" width="196.3633125427314" height="315.9647651723667" rx="2" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="1241.5878616111784" y="1507.1952348276332" text-anchor="middle" font-size="10.2" font-weight="700" fill="#111827">CWH/RDU/101-00</text>
+<rect x="1211.3478616111784" y="1509.1952348276332" width="60.48" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="1241.5878616111784" y="1520.4272348276331" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">22.5 °C</text>
+<rect x="1215.0678616111784" y="1526.295234827633" width="53.04" height="15.600000000000001" rx="2" fill="#15803d"/>
+<text x="1241.5878616111784" y="1537.527234827633" text-anchor="middle" font-size="9.84" font-weight="700" fill="#ffffff">45.8 %</text>
+<rect x="16.8" y="21.84" width="41.430482117456094" height="1776.32" fill="#EFF2F7"/>
+<line x1="37.51524105872805" y1="29.84" x2="37.51524105872805" y2="1790.1599999999999" stroke="#94A3B8" stroke-width="1" stroke-dasharray="6 5"/>
+<line x1="16.8" y1="21.84" x2="58.230482117" y2="21.84" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="58.230482117" y1="21.84" x2="58.230482117" y2="1798.16" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="16.8" y1="1798.16" x2="58.230482117" y2="1798.16" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="16.8" y1="21.84" x2="16.8" y2="1798.16" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<rect x="19.8" y="24.84" width="14" height="11" rx="2" fill="#475569"/>
+<text x="26.8" y="33.04" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">C+</text>
+<text x="37.51524105872805" y="33.84" text-anchor="middle" font-size="10" font-weight="700" letter-spacing="0.08em" fill="#475569">SERVICE CORRIDOR</text>
+<text x="37.51524105872805" y="45.84" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="1341.7695178825438" y="21.84" width="41.430482117456094" height="1776.32" fill="#EFF2F7"/>
+<line x1="1362.4847589412718" y1="29.84" x2="1362.4847589412718" y2="1790.1599999999999" stroke="#94A3B8" stroke-width="1" stroke-dasharray="6 5"/>
+<line x1="1341.769517883" y1="21.84" x2="1383.2" y2="21.84" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1383.2" y1="21.84" x2="1383.2" y2="1798.16" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1341.769517883" y1="1798.16" x2="1383.2" y2="1798.16" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<line x1="1341.769517883" y1="21.84" x2="1341.769517883" y2="1798.16" stroke="#1f2937" stroke-width="2.5" stroke-linecap="butt"/>
+<rect x="1344.7695178825438" y="24.84" width="14" height="11" rx="2" fill="#475569"/>
+<text x="1351.7695178825438" y="33.04" text-anchor="middle" font-size="8" font-weight="700" fill="#ffffff">C+</text>
+<text x="1362.4847589412718" y="33.84" text-anchor="middle" font-size="10" font-weight="700" letter-spacing="0.08em" fill="#475569">SERVICE CORRIDOR (2)</text>
+<text x="1362.4847589412718" y="45.84" text-anchor="middle" font-size="9" fill="#475569"></text>
+<rect x="4" y="1780" width="1392" height="34" fill="#ffffff" stroke="#E2E8F0"/>
+<text x="16" y="1800" font-size="9" font-weight="700" fill="#475569">STATUS</text>
+<rect x="68" y="1790" width="77.60000000000001" height="14" rx="2" fill="#dc2626"/>
+<text x="106.80000000000001" y="1800" text-anchor="middle" font-size="8.5" font-weight="700" fill="#ffffff">▲ out of spec</text>
+<rect x="155.60000000000002" y="1790" width="46.4" height="14" rx="2" fill="#d97706"/>
+<text x="178.8" y="1800" text-anchor="middle" font-size="8.5" font-weight="700" fill="#ffffff">◷ stale</text>
+<rect x="212.00000000000003" y="1790" width="56.800000000000004" height="14" rx="2" fill="#64748b"/>
+<text x="240.40000000000003" y="1800" text-anchor="middle" font-size="8.5" font-weight="700" fill="#ffffff">· no data</text>
+<rect x="278.80000000000007" y="1790" width="20.4" height="14" rx="2" fill="#15803d"/>
+<text x="289.00000000000006" y="1800" text-anchor="middle" font-size="8.5" font-weight="700" fill="#ffffff">ok</text>
+<line x1="309.20000000000005" y1="1786" x2="309.20000000000005" y2="1806" stroke="#CBD5E1"/>
+<text x="323.20000000000005" y="1800" font-size="9" font-weight="700" fill="#475569">GRADE</text>
+<rect x="369.20000000000005" y="1790" width="13" height="13" rx="2" fill="#EEF0FF" stroke="#4338CA"/>
+<text x="387.20000000000005" y="1800" font-size="8.5" fill="#334155">A — Sterile core</text>
+<rect x="471.20000000000005" y="1790" width="13" height="13" rx="2" fill="#E8F1FE" stroke="#1D4ED8"/>
+<text x="489.20000000000005" y="1800" font-size="8.5" fill="#334155">B — Aseptic</text>
+<rect x="548.2" y="1790" width="13" height="13" rx="2" fill="#E9F7F1" stroke="#047857"/>
+<text x="566.2" y="1800" font-size="8.5" fill="#334155">C — Clean production</text>
+<rect x="670.2" y="1790" width="13" height="13" rx="2" fill="#FEF5E7" stroke="#B45309"/>
+<text x="688.2" y="1800" font-size="8.5" fill="#334155">D — Support / stores</text>
+<rect x="792.2" y="1790" width="13" height="13" rx="2" fill="#EFF2F7" stroke="#475569"/>
+<text x="810.2" y="1800" font-size="8.5" fill="#334155">C+ — Circulation</text>
+<rect x="894.2" y="1790" width="13" height="13" rx="2" fill="#F4F4F5" stroke="#52525B"/>
+<text x="912.2" y="1800" font-size="8.5" fill="#334155">U — Utility</text>
+</svg>
