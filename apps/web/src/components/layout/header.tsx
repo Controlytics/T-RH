@@ -101,6 +101,15 @@ export function Header({ user, onLogout, onMenuToggle, onCollapseToggle, collaps
             {branding.appName}
           </span>
         )}
+
+        {/* Operator (2026-09-18): "Add aws text word on nav bar" — a plain word,
+            drawn like a role chip (tint + hairline), never a status colour. */}
+        <span
+          data-testid="header-aws-label"
+          className="inline-flex shrink-0 items-center rounded-md border border-slate-200 bg-slate-100 px-2 py-0.5 text-xs font-semibold tracking-wide text-slate-700"
+        >
+          AWS
+        </span>
       </div>
 
       {/* Right side - User info */}

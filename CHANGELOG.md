@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased] - Header: the word AWS on the nav bar (2026-09-18)
+
+Operator: *"Add aws text word on nav bar"*, then, asked whether it should show
+only on the AWS server or everywhere, *"do it local application"* — so it is a
+plain word in the code, shown on every build. `components/layout/header.tsx`:
+a small chip (`data-testid="header-aws-label"`) in the header's left cluster
+after the navigation toggles, drawn like a role chip (slate tint + hairline,
+never a status colour), visible whether or not the sidebar is collapsed. New
+`components/layout/__tests__/header.test.tsx` (2 cases: the chip in both
+sidebar states; the app name only once collapsed — the header had no render
+test before). Mutation-checked: changing the word fails the test (a first
+attempt mutated `>AWS<`, which never matched the multi-line markup, and
+"passed" — mutate the line the file actually has). `tsc` clean. No count moved.
+
 ## [Unreleased] - AWS: the local database's data copied into RDS (2026-09-18)
 
 Operator: *"copy the data from local database and same data should deploy in

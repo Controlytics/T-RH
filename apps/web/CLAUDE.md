@@ -165,6 +165,12 @@ The header's amber **development-build chip is gone** (operator: "remove
 development text on nav bar on top"). It printed Vite's `MODE` on every
 non-production build; nothing else read it.
 
+**The header carries the word AWS (2026-09-18)** — operator: "Add aws text
+word on nav bar", and "do it local application" when offered an AWS-only
+build flag, so it is a plain chip in the left cluster on every build, drawn
+like a role chip. `__tests__/header.test.tsx` pins it (the header's first
+render test; the `user` fixture needs `fullName` — the avatar splits it).
+
 ## Functional Locations pages (restyled 2026-09-17)
 
 `routes/functional-locations/` — `index.tsx` (hero band + one card per
