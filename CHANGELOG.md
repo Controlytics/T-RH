@@ -1,5 +1,60 @@
 # Changelog
 
+## [Unreleased] - AWS: the Windows instance replaced by Ubuntu 24.04 (2026-09-18)
+
+Operator: *"i-0be63a2077d4a82e0 this was instance, make this instance into
+ubuntu"*, then *"i dont need windows files or data, in ubuntu freshly install
+from git"*. An EC2 instance cannot change OS, so a new one took over the
+Elastic IP. Decisions taken by the operator: keep RDS; git clone + build like
+the Windows box (not the `.deb`); EMQX on the box with 1883/8883 opened; a
+fresh read-only deploy key; terminate the Windows instance after cutover.
+
+- **New instance** `i-0b13dae53e9113f1d` (Ubuntu 24.04, t3.medium, 30 GB gp3,
+  same subnet / security group / SSM instance profile). Layout mirrors the
+  `.deb` (`/opt/digilog`, `/etc/digilog`, `/var/lib/digilog`, service user
+  `digilog`, systemd `digilog-api` + `digilog-emqx`) so the runbooks agree;
+  the program is a git clone rebuilt in place; the database is RDS.
+  Runbook: `docs/deployment-methods/aws-ubuntu-instance.md`.
+- **New scripts** `scripts/aws/provision-ubuntu.sh` (two phases, idempotent),
+  `scripts/aws/deploy-on-ubuntu.sh` (Linux port of the retired
+  `scripts/deploy-on-instance.ps1`; `--branch` mandatory),
+  `scripts/aws/digilog-api.service` (RDS variant of the `.deb` unit; port 443
+  via `CAP_NET_BIND_SERVICE`), `scripts/aws/run-sql.cjs`. `deploy-to-aws.bat`
+  re-pointed: new instance, `AWS-RunShellScript`, deploys the CURRENT branch
+  after a y/N, refuses `final-user-management`.
+  `scripts/linux/digilog-lib.sh` gained `DIGILOG_EXTRA_SAN_IP` (the Elastic
+  IP `hostname -I` cannot see) for the cert SAN.
+- **A one-time RDS repair had to precede the migrations.** RDS was last
+  migrated on 2026-08-01 from `final-user-management` and still carried the
+  two Data Injection migrations removed from the repo on 2026-08-04; their
+  `instruments` table blocked `20260804120000_instruments_p1`.
+  `scripts/aws/rds-repair-orphaned-data-injection.sql` dropped 7 tables + 2
+  enums (1 + 18 seed rows, no FK to anything else — the receipt is in the
+  file) and the 2 history rows in one transaction, after RDS snapshot
+  `compliance-core-db-pre-ubuntu-20260918`. Then 34 migrations applied.
+  `audit_trail` untouched: `verify-chain` → `intact: true`, 45 rows, no
+  anomalies, on the new box. **Production jumped from the 2026-08-01 code to
+  today's `data-layer`** — every feature since, and the report-approver list
+  ships empty, so no PDF can be requested until a super admin ticks a role.
+- **Two defects found by the cutover and fixed in the scripts:** (1) sourcing
+  `digilog.env` with `. file` runs the RDS URL's `&` as a background operator
+  and leaves `DATABASE_URL` unset — `load_env()` now exports line by line the
+  way systemd's `EnvironmentFile=` reads it; (2) `tsc` writes `dist/` as
+  750/640 under root, and Node reports the service user's EACCES as "Cannot
+  find module .../dist/app.js" — both scripts `chmod -R a+rX` after building.
+- Secrets travelled as an SSM SecureString parameter, deleted after the
+  install; nothing was copied from the Windows box. The same `AUDIT_CHAIN_KEY`
+  and RDS URL came from the operator's Documents backup (proved identical to
+  the live file key by key). `INSTRUMENT_TOKEN_KEY` and the `MQTT_*` /
+  `EMQX_*` keys were generated on the box.
+- Retired: `scripts/deploy-on-instance.ps1`. The Windows instance was imaged
+  (`ami-0d30b88d19a9c4b9a`) and terminated; its deploy key
+  (`compliance-core EC2`, read-write) is still registered on GitHub and
+  should be removed there. Security-group rule 3389 is a leftover.
+- No count moved: no route, hook, module, permission, config def, model,
+  enum or app-code change. `MSYS_NO_PATHCONV=1` is required when an AWS CLI
+  argument begins with `/` (an SSM parameter name) from Git Bash.
+
 ## [Unreleased] - Functional Locations: restyled list and detail pages (2026-09-17)
 
 Operator: *"functional location page is looking sample ui, i need best

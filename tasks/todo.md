@@ -16,11 +16,17 @@ from the Data Injection programme removed on 2026-08-04, whose tables (7 tables,
 - [x] Security group: 1883 + 8883 from 0.0.0.0/0
 - [x] Launch `i-0b13dae53e9113f1d` (Ubuntu 24.04, t3.medium, 30 GB gp3, same subnet/SG/profile)
 - [x] Env file assembled from the Documents backup → SSM SecureString `/compliance-core/ubuntu/digilog.env`
-- [ ] `scripts/aws/provision-ubuntu.sh keygen` → operator adds the deploy key on GitHub
-- [ ] `scripts/aws/provision-ubuntu.sh install` (clone, node, emqx, certs, env, build, units; API NOT started)
-- [ ] Cutover: stop DigiLogAPI on Windows → repair SQL → migrate deploy → start digilog-api → move EIP
-- [ ] Verify: /api/health 200, login, /api/audit/verify-chain intact, EMQX up, 1883 reachable
-- [ ] Delete the SSM parameter
-- [ ] AMI of the Windows instance, then terminate (ask once more first)
-- [ ] `deploy-to-aws.bat` → new instance id + AWS-RunShellScript; delete `scripts/deploy-on-instance.ps1`
-- [ ] Docs: CHANGELOG, `docs/deployment-methods/method-d-aws-ubuntu.md`, memory, Documents runbook lines
+- [x] `scripts/aws/provision-ubuntu.sh keygen` → operator adds the deploy key on GitHub
+- [x] `scripts/aws/provision-ubuntu.sh install` (clone, node, emqx, certs, env, build, units; API NOT started)
+- [x] Cutover: stop DigiLogAPI on Windows → repair SQL → migrate deploy → start digilog-api → move EIP
+- [x] Verify: /api/health 200, login, /api/audit/verify-chain intact, EMQX up, 1883 reachable
+- [x] Delete the SSM parameter
+- [x] AMI `ami-0d30b88d19a9c4b9a` of the Windows instance
+- [ ] Terminate the Windows instance (operator confirms at that moment)
+- [x] `deploy-to-aws.bat` → new instance id + AWS-RunShellScript; delete `scripts/deploy-on-instance.ps1`
+- [x] Docs: CHANGELOG, `docs/deployment-methods/aws-ubuntu-instance.md`, memory, Documents runbook banners
+
+Cutover findings: `. digilog.env` breaks on the `&` in the RDS URL (load line by line);
+`tsc` writes dist/ 750/640 as root (chmod a+rX after build). Both fixed in the scripts.
+verify-chain on Ubuntu: intact, 45 rows, 0 anomalies. GitHub deploy key added via
+`gh repo deploy-key add` after two manual attempts never registered it.

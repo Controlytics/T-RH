@@ -4,3 +4,4 @@
 scripts/linux/** text eol=lf
 scripts/emqx/** text eol=lf
 .github/workflows/** text eol=lf
+scripts/aws/** text eol=lf

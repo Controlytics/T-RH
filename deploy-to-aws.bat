@@ -1,12 +1,13 @@
 @echo off
 REM ===========================================================================
-REM  compliance-core - deploy the current branch to the AWS instance
+REM  compliance-core - deploy a branch to the AWS instance (Ubuntu, since 2026-09-18)
 REM
-REM  Double-click, or run from a terminal. It pushes nothing: it tells the
-REM  SERVER to pull whatever is already on origin/final-user-management, then
-REM  rebuild and restart.
+REM  Double-click, or run from a terminal:
+REM      deploy-to-aws.bat            deploys the branch you are CURRENTLY on
+REM      deploy-to-aws.bat <branch>   deploys that branch
 REM
-REM  So the order is always:
+REM  It pushes nothing: it tells the SERVER to fetch origin/<branch>, then
+REM  rebuild, migrate and restart (scripts/aws/deploy-on-ubuntu.sh). So:
 REM      1. git push          (from your machine)
 REM      2. deploy-to-aws.bat (this file)
 REM
@@ -15,13 +16,44 @@ REM ===========================================================================
 
 setlocal
 set "AWS=C:\Program Files\Amazon\AWSCLIV2\aws.exe"
-set "INSTANCE=i-0be63a2077d4a82e0"
+set "INSTANCE=i-0b13dae53e9113f1d"
+set "APP_URL=https://13.204.15.17"
 
 if not exist "%AWS%" (
     echo   FAILED: AWS CLI not found at %AWS%
     echo   Install it:  winget install Amazon.AWSCLI
     pause & exit /b 1
 )
+
+REM ---- which branch ---------------------------------------------------------
+set "BRANCH=%~1"
+if "%BRANCH%"=="" (
+    for /f "delims=" %%b in ('git rev-parse --abbrev-ref HEAD 2^>nul') do set "BRANCH=%%b"
+)
+if "%BRANCH%"=="" (
+    echo   FAILED: could not determine the branch. Pass it: deploy-to-aws.bat ^<branch^>
+    pause & exit /b 1
+)
+if "%BRANCH%"=="final-user-management" (
+    echo   REFUSED: final-user-management is a FROZEN backup, not a deployable branch.
+    pause & exit /b 1
+)
+
+git ls-remote --exit-code --heads origin "%BRANCH%" >nul 2>&1
+if errorlevel 1 (
+    echo   REFUSED: origin has no branch "%BRANCH%". Push it first:  git push -u origin %BRANCH%
+    pause & exit /b 1
+)
+for /f "delims=" %%n in ('git rev-list --count "origin/%BRANCH%..%BRANCH%" 2^>nul') do set "UNPUSHED=%%n"
+if not "%UNPUSHED%"=="" if not "%UNPUSHED%"=="0" (
+    echo   WARNING: %BRANCH% has %UNPUSHED% commit^(s^) not on origin. The server deploys ORIGIN.
+)
+
+echo.
+echo   Branch to deploy:  %BRANCH%
+echo   Instance:          %INSTANCE%   (%APP_URL%)
+set /p "GO=  Continue? [y/N] "
+if /i not "%GO%"=="y" ( echo   Cancelled. & exit /b 1 )
 
 echo.
 echo   Checking AWS credentials...
@@ -37,7 +69,7 @@ if errorlevel 1 (
 )
 
 echo   Sending deploy command to %INSTANCE% ...
-for /f "delims=" %%i in ('""%AWS%" ssm send-command --instance-ids %INSTANCE% --document-name AWS-RunPowerShellScript --timeout-seconds 3600 --parameters "commands=[\"& C:\\app\\compliance-core\\scripts\\deploy-on-instance.ps1\"]" --query "Command.CommandId" --output text"') do set "CMDID=%%i"
+for /f "delims=" %%i in ('""%AWS%" ssm send-command --instance-ids %INSTANCE% --document-name AWS-RunShellScript --timeout-seconds 3600 --parameters "commands=[\"/opt/digilog/app/scripts/aws/deploy-on-ubuntu.sh --branch %BRANCH%\"]" --query "Command.CommandId" --output text"') do set "CMDID=%%i"
 
 if "%CMDID%"=="" (
     echo   FAILED to send the command.
@@ -71,7 +103,7 @@ if not "%ST%"=="Success" (
 )
 
 echo.
-echo   Done.  https://13.204.15.17
+echo   Done.  %APP_URL%
 echo.
 pause
 endlocal

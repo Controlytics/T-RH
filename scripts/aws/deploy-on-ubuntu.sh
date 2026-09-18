@@ -37,6 +37,17 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$BRANCH" ] || { echo "FATAL: --branch <name> is required" >&2; exit 2; }
 
+# Load KEY=VALUE lines the way systemd's EnvironmentFile= does: one line, one
+# variable, no shell parsing. `. file` would treat the `&` in the RDS URL as a
+# background operator and leave DATABASE_URL unset.
+load_env() {
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line%$'\r'}
+    case "$line" in ''|'#'*) continue ;; esac
+    export "$line"
+  done < "$1"
+}
+
 step=0
 Step() { step=$((step+1)); printf '\n[%d] %s\n' "$step" "$*"; }
 Ok()   { printf '    OK   %s\n' "$*"; }
@@ -95,7 +106,7 @@ fi
 
 # ---------------------------------------------------------------- 3. migrations
 Step "Database migrations"
-set -a; . "$ENV_FILE"; set +a
+load_env "$ENV_FILE"
 export DOTENV_CONFIG_PATH="$ENV_FILE"
 (cd apps/api && npx prisma migrate deploy 2>&1 | tail -n 3) || true
 (cd apps/api && npx prisma migrate status >/dev/null 2>&1) || Die "prisma migrate deploy left pending or failed migrations. Service NOT restarted."
@@ -109,6 +120,11 @@ npm run build -w @digilog/queue  >/dev/null || Die "@digilog/queue build failed.
 [ -f apps/web/dist/index.html ] || Die "web build produced no dist/index.html."; Ok "web SPA"
 npx tsc -p apps/api/tsconfig.json || Die "API TypeScript compile failed."
 [ -f apps/api/dist/app.js ] || Die "API build produced no dist/app.js."; Ok "API"
+# tsc writes dist/ as 750/640 under root, and the service user cannot read it:
+# Node then reports "Cannot find module .../dist/app.js" (the 2026-09-18 cutover
+# failure). Readable-by-all is correct here: the tree holds no secret.
+chmod -R a+rX "$APP"
+Ok "readable by the digilog user"
 
 # ---------------------------------------------------------------- 5. restart
 Step "Restarting $SERVICE"

@@ -144,6 +144,11 @@ phase_install() {
   npm run build -w @digilog/queue  >/dev/null && ok "queue"
   (cd apps/web && npx vite build >/dev/null) && [ -f apps/web/dist/index.html ] && ok "web"
   npx tsc -p apps/api/tsconfig.json && [ -f apps/api/dist/app.js ] && ok "api"
+  # tsc writes dist/ as 750/640 under root, and the service user cannot read it:
+  # Node then reports "Cannot find module .../dist/app.js" (the 2026-09-18 cutover
+  # failure). Readable-by-all is correct here: the tree holds no secret.
+  chmod -R a+rX "$APP" "$OPT/node"
+  ok "readable by the digilog user"
 
   log "Services"
   install -m 0644 "$APP/scripts/linux/systemd/digilog-emqx.service" /etc/systemd/system/digilog-emqx.service
