@@ -12,7 +12,7 @@
 > 2026-08-27, which was wrong; verified against `ls apps/api/src/modules/`),
 > **52** frontend
 > routes (not 76), **36 models / 13 enums** (not 61/23), **42 permissions / 48 reauth
-> actions** (not 102/92), **102 audit actions / 96 audit templates**, **15** sidebar items,
+> actions** (not 102/92), **102 audit actions / 96 audit templates**, **14** sidebar items (15 → 14 on 2026-09-19, `home` removed),
 > **6** graphile-worker tasks. There is
 > no `orgId` review note needed either way (still true: single-tenant). See `CLAUDE.md` for
 > the accurate module/count inventory before using this file for review guidance.

@@ -7,6 +7,7 @@ curl -sk https://localhost:3001/docs/json
 ```
 
 **139 paths across 19 groups.** Method list per path is taken verbatim from the spec.
+(`GET /api/roles/access-matrix` removed 2026-09-19 with the Module Guide page; re-derive the count from `/docs/json` before quoting it.)
 
 ## /config  — 35 paths
 
@@ -161,7 +162,6 @@ curl -sk https://localhost:3001/docs/json
 | Method(s) | Path | Summary |
 |---|---|---|
 | GET · POST | `/api/roles/` | List all roles |
-| GET | `/api/roles/access-matrix` | Role access matrix for the Module Guide |
 | GET | `/api/roles/active` | List active roles |
 | GET | `/api/roles/permissions/all` | List all available permissions |
 | GET · PUT · DELETE | `/api/roles/{name}` | Get role by name |

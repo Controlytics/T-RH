@@ -1106,41 +1106,15 @@ resizes it with no drag. `routes/dashboard/panel-auto-height.ts` holds the maths
 - Cleaning-profile pipeline editor (STAGE / CHECKLIST nodes on a custom canvas)
 - Notification system (email/SMS/Telegram/Slack)
 - Debug trace page for pipeline visibility
-- Home / Module Guide (`/home`, `routes/home/`, 2026-07-06): a `home` sidebar
-  item defined in `components/layout/sidebar.tsx`'s `allNavItems` AND registered
-  in `packages/shared/src/types/sidebar-items.ts` (first entry). **2026-07-13:**
-  Home was made a normal, Roles-&-Access-managed sidebar item — the previous
-  `if (item.id === 'home') return true` force-show in `sidebar.tsx` was removed,
-  so it now follows the same per-role/user `config.sidebarItems` governance as
-  every other item (visible-to-all by permission since it has no `PERMISSION_TREE`
-  group; toggleable per role on Config → Roles & Access → Sidebar; SUPER_ADMIN
-  still bypasses). Existing role_configs were backfilled with `home` at the front
-  so nothing regressed. NOT added to the Permissions/Feature-Privileges tab — it
-  grants no capability, so visibility is governed on the Sidebar tab only.
-  Renders per-module cards via `FlowChart.tsx` (no new deps) in one of **two
-  layouts** chosen by each module's `layout` field in `module-flows.ts`
-  (2026-07-13): `'sequence'` — a true ordered workflow (the 7 modules with
-  review/approve `branch` steps: filter-operations, filter-replacements,
-  pm-schedules, approvals, stage-approvals, report-reviews, admin-requests) —
-  numbered cards joined by arrow connectors, branches drop below via a
-  down-arrow, horizontal scroll + "Scroll for more" cue; `'actions'` (the
-  default when omitted, all other modules) — INDEPENDENT capabilities
-  (Create / Edit / Delete) as a wrapping grid of cards with **no arrows and no
-  step numbers**, so the layout never implies a false order. A test guard
-  (`module-flows.test.ts`) enforces that any module with a `branch` step is
-  `layout: 'sequence'`. For each operation it
-  shows the role(s) **configured live** to perform it, from
-  `GET /api/roles/access-matrix` (active roles + permissions + per-role sidebar
-  config; authenticated, not ROLE_MANAGE-gated). A role shows on a step only if
-  it can see that module's sidebar item AND holds the step's gate; SUPER_ADMIN
-  always. Custom roles appear automatically with their own colour. Each viewer
-  sees only the modules their own role can access (mirrors their sidebar), via
-  `routes/home/viewer-access.ts`. A **"My modules | All modules (audit)" toggle**
-  switches to a full auditor view: every module + every role permitted by the
-  backend gate, ignoring any role's sidebar (`ignoreSidebar` flag on
-  `rolesForStep`/`rolesForGate`). The catalog (`module-flows.ts`) carries each
-  step's real backend `gate` (traceable to routes/`PERMISSION_TREE`); the prior
-  static `default-roles` map + drift-guard were retired for the live matrix.
+- **Home / Module Guide — REMOVED 2026-09-19** (operator: "remove home feature
+  from side bar from entire application"). `/home`, `routes/home/` (FlowChart,
+  module-flows, viewer-access, types, tests), the `home` entry in `SIDEBAR_ITEMS`
+  and `allNavItems`, and its only data source `GET /api/roles/access-matrix` are
+  gone. It had been the ONE sidebar item with no `PERMISSION_TREE` group;
+  `sidebar-visibility.test.ts` now locks that every item has one. Every page's
+  root breadcrumb reads `Dashboard` (it always pointed at `/`). History:
+  `CHANGELOG.md` 2026-07-06 / 2026-07-13 entries and
+  `docs/superpowers/specs/2026-07-06-home-module-guide-design.md`.
 
 ## Theme
 - Unified light theme: bg-white cards, bg-slate-50 sections, border-slate-200

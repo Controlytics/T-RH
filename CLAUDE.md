@@ -19,7 +19,7 @@ re-derive any count from live code before repeating it.
 ```
 apps/api/         — Fastify backend (TypeScript, port 3001)
 apps/web/         — React SPA (Vite, port 5176 dev)
-packages/shared/  — Permissions (44), reauth actions (50), sidebar items (15),
+packages/shared/  — Permissions (44), reauth actions (50), sidebar items (14),
                     permission tree, zod schemas
 packages/queue/   — graphile-worker job queue (Postgres-backed)
 docs/             — Project docs; `docs/recreation/` is the verified inventory
@@ -167,8 +167,10 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   no `digilog_tsdb`**. The test database is migrated **separately**; a migration
   applied to only one of them makes every instrument-touching e2e 500.
 - **Permissions:** **44** constants, **50** reauth actions in **8** categories,
-  **15** sidebar items (`grep -cE` against `permissions.ts` / `reauth-actions.ts`
-  / `sidebar-items.ts`). 14 → 15 sidebar items (2026-09-08): `settings`, every
+  **14** sidebar items (`grep -cE` against `permissions.ts` / `reauth-actions.ts`
+  / `sidebar-items.ts`). 15 → 14 sidebar items (2026-09-19): `home`, the Module
+  Guide, removed with its page and its API route — see the Home removal note.
+  Earlier 14 → 15 sidebar items (2026-09-08): `settings`, every
   instrument's details and attributes in one table — see the Settings note; no
   permission or reauth action moved. 42 → 44 permissions (`REPORT_REVIEW_READ`,
   `REPORT_REVIEW_APPROVE`), 48 → 50 reauth actions (`APPROVE_REPORT`,
@@ -218,7 +220,8 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   `alarm-webhooks.tsx`. **The def count did NOT move** — alarm webhooks are a
   real CRUD module with their own tables, not a `system_config` row, so there
   is no `*.def.ts` for them.
-- **Frontend:** **53** `<Route`s in `main.tsx` (a `/config/attribute-labels` route existed for a few hours on 2026-09-16 and was removed the same day — unchanged; 52 → 53, 2026-09-08: `/settings`; 51 → 52, 2026-09-07: `/reports`; 50 → 51 the same day: `/data-report`) (51 → 50, 2026-08-31: `/config/alarm-rules` removed with the rule feature) (50 → 51, 2026-08-29: `/config/export-options`, a page that had a config def and a dashboard card but no route, so it was unreachable. Earlier 49 → 50, 2026-08-27:
+- **Frontend:** **52** `<Route`s in `main.tsx` (53 → 52, 2026-09-19: `/home`, the
+  Module Guide, removed with the `home` sidebar item; a `/config/attribute-labels` route existed for a few hours on 2026-09-16 and was removed the same day — unchanged; 52 → 53, 2026-09-08: `/settings`; 51 → 52, 2026-09-07: `/reports`; 50 → 51 the same day: `/data-report`) (51 → 50, 2026-08-31: `/config/alarm-rules` removed with the rule feature) (50 → 51, 2026-08-29: `/config/export-options`, a page that had a config def and a dashboard card but no route, so it was unreachable. Earlier 49 → 50, 2026-08-27:
   `/config/alarm-webhooks`).
 - **Queue backend:** graphile-worker (Postgres-backed), **6** tasks.
 - **Tenancy:** single-tenant, single-site. JWT `scope` always stamps `GLOBAL`.
@@ -342,7 +345,7 @@ history; `docs/recreation/` holds the inventory.
   `reason` column; a first fill does not). Admin surface: Config → Roles & Access → Attribute Access.
   Migration `20260819120000_role_attribute_access`, drift guard PASS, applied to both databases.
 - **Themes:** 10 preset color themes (Ocean / Sapphire / Emerald / Amethyst / Sunset / Slate / Ruby / Forest / Midnight / Coral)
-- **Frontend:** **53** Routes in `main.tsx` (unchanged on 2026-09-16 — a `/config/attribute-labels` route lived for a few hours and went the same day; 52 → 53 on 2026-09-08: `/settings`, the Settings page; 51 → 52 on 2026-09-07: `/reports`, the report review workflow; 50 → 51 the same day: `/data-report`, the Instrument History widget's own page; re-derived `grep -cE "<Route"` that day. Earlier, re-derived 2026-09-03 — this line read **51** and was ALREADY STALE: the 2026-08-31 alarm-rules removal took it 51 → 50 and re-synced only the System Stats copy above, which is the same duplicate-inventory defect this file keeps warning about. Earlier verified 2026-08-29 — 50 → 51: `/config/export-options` registered, having never been reachable. Earlier verified 2026-08-27 — 49 → 50: new `/config/alarm-webhooks` page; earlier 48 → 49 on 2026-08-24: the `/instruments/:id/trend` page; the "77" was inherited from upstream DigiLog and was never true in this fork; `/config/role-assignments` removed 2026-08-19 as dead code, 49 → 48), **23** custom hooks (22 → 23 on 2026-09-16: `use-attribute-labels.ts`, the ONE browser reader of the attribute display names; earlier 20 → 22, re-derived `ls apps/web/src/hooks/ | wc -l` 2026-09-03 — ALREADY STALE, nothing on 2026-09-03 added a hook; earlier 18 → 20 on 2026-08-29, audit finding M8), **20** lib modules (19 → 20 on 2026-09-03: `lib/document-identity.ts`, the browser-tab applier) (`ls apps/web/src/hooks/ | wc -l` / `ls apps/web/src/lib/ | wc -l`, each including its own `__tests__` subfolder as one entry — lib 18 → 19 corrected 2026-08-27: `lib/background-style.ts` landed with the wallpaper work (`764fff5`) and this line was never re-synced; the 2026-08-27 trend-sampling work added NO lib module — the "26 / 30" this file carried for months was never true against the live tree and was never re-verified until now)
+- **Frontend:** **52** Routes in `main.tsx` (53 → 52 on 2026-09-19: `/home` removed with the Home sidebar item — re-derived `grep -cE "<Route"`; unchanged on 2026-09-16 — a `/config/attribute-labels` route lived for a few hours and went the same day; 52 → 53 on 2026-09-08: `/settings`, the Settings page; 51 → 52 on 2026-09-07: `/reports`, the report review workflow; 50 → 51 the same day: `/data-report`, the Instrument History widget's own page; re-derived `grep -cE "<Route"` that day. Earlier, re-derived 2026-09-03 — this line read **51** and was ALREADY STALE: the 2026-08-31 alarm-rules removal took it 51 → 50 and re-synced only the System Stats copy above, which is the same duplicate-inventory defect this file keeps warning about. Earlier verified 2026-08-29 — 50 → 51: `/config/export-options` registered, having never been reachable. Earlier verified 2026-08-27 — 49 → 50: new `/config/alarm-webhooks` page; earlier 48 → 49 on 2026-08-24: the `/instruments/:id/trend` page; the "77" was inherited from upstream DigiLog and was never true in this fork; `/config/role-assignments` removed 2026-08-19 as dead code, 49 → 48), **23** custom hooks (22 → 23 on 2026-09-16: `use-attribute-labels.ts`, the ONE browser reader of the attribute display names; earlier 20 → 22, re-derived `ls apps/web/src/hooks/ | wc -l` 2026-09-03 — ALREADY STALE, nothing on 2026-09-03 added a hook; earlier 18 → 20 on 2026-08-29, audit finding M8), **20** lib modules (19 → 20 on 2026-09-03: `lib/document-identity.ts`, the browser-tab applier) (`ls apps/web/src/hooks/ | wc -l` / `ls apps/web/src/lib/ | wc -l`, each including its own `__tests__` subfolder as one entry — lib 18 → 19 corrected 2026-08-27: `lib/background-style.ts` landed with the wallpaper work (`764fff5`) and this line was never re-synced; the 2026-08-27 trend-sampling work added NO lib module — the "26 / 30" this file carried for months was never true against the live tree and was never re-verified until now)
 - **Queue backend:** graphile-worker (Postgres-backed); **6** worker tasks —
   `notification`, `password_expiry_check`, `session_sweep`,
   `telemetry_partition_maintenance`, `alarm_evaluation`, `alarm_webhook`
@@ -973,6 +976,32 @@ GET    /api/config/report-approvers/current     — the administered approver ro
   now NO rule on the Instrument ID beyond non-empty and unique. Do not put the
   pattern back. Pinned by `create.test.tsx` (no `pattern`/`title`/
   `placeholder`; a slash code and a `+` code are sent unchanged, no toast).
+- **The HOME sidebar item and the Module Guide page are GONE (2026-09-19,
+  operator: "remove home feature from side bar from entire application, i dont
+  need home option and that related content").** Removed: the `home` entry in
+  `SIDEBAR_ITEMS` and in `sidebar.tsx`'s `allNavItems`, the `/home` route and
+  `routes/home/` (FlowChart, module-flows, viewer-access, types, 3 test files),
+  and its ONLY data source `GET /api/roles/access-matrix` with
+  `roleService.getAccessMatrix` / `roleRepository.findActiveWithAccess` (nothing
+  else called them — grepped before deleting). Counts: sidebar items 15 → **14**,
+  routes 53 → **52**; no permission, reauth action, model, enum, config def,
+  module, migration or audit action moved. **0 stored `role_configs` /
+  `user_configs` sidebar lists named `home`** (measured before removal, 5 and 4
+  rows), so no stored layout is orphaned; a stale id in one would be filtered by
+  `allNavItems` anyway.
+  - **`home` was the ONLY sidebar item with no `PERMISSION_TREE` group**, and
+    `isSidebarItemVisible` fails OPEN for an ungrouped id. `sidebar-visibility
+    .test.ts` used it as that example; the case is now a LOCK that every
+    `SIDEBAR_ITEMS` id has a group (mutation-checked: an appended ungrouped
+    item fails it). `route-guard-coverage.test.ts` lost `/home` from its
+    unguarded allow-list.
+  - **Every page's root breadcrumb now reads `Dashboard`, not `Home`** (39
+    files, one mechanical rename). The crumb always pointed at `/`, which IS
+    the dashboard — the trend page had already been corrected on 2026-09-01
+    for exactly that mislabel; the word Home would otherwise have survived on
+    every page after the feature it named was removed.
+  - `docs/superpowers/{specs,plans}/2026-07-06-home-module-guide*` stay as
+    history. Restore point: the commit before this note.
 - **SETTINGS: one instrument picker, one square widget of its identity,
   placement and attributes (2026-09-08, operator: "in side bar add settings,
   in that page show the instrument details and attributes, there selected user

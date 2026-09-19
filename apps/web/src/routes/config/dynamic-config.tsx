@@ -283,7 +283,7 @@ export function DynamicConfigPage() {
       <PageHeader
         title={moduleDef.moduleName}
         description={moduleDef.description}
-        crumbs={[{ label: 'Home', to: '/' }, { label: 'Configuration', to: '/config' }, { label: moduleDef.moduleName }]}
+        crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Configuration', to: '/config' }, { label: moduleDef.moduleName }]}
         actions={
           <Button variant="outline" onClick={() => navigate('/config')}>
             Back to Configuration

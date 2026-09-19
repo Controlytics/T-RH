@@ -37,7 +37,7 @@ describe('trendCrumbs', () => {
   });
 
   it('labels the root crumb Dashboard, because that is what `/` renders', () => {
-    // `main.tsx:107` routes `/` to the dashboard; `/home` is a different page.
+    // `main.tsx` routes `/` to the dashboard; there is no Home page (removed 2026-09-19).
     // The old trail called this crumb "Home" and pointed it at `/`.
     const root = trendCrumbs('dashboard', 'i-1', 'X')[0];
     expect(root).toEqual({ label: 'Dashboard', to: '/' });

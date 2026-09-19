@@ -10,9 +10,10 @@
  * one control on the page whose entire job is to say where you are, and following
  * it back lands somewhere you were never at.
  *
- * **`/` is the DASHBOARD, not Home** (`main.tsx:107`; `/home` is a different
- * page at :108). The old trail's first crumb was labelled "Home" and pointed at
- * `/`, so it was mislabelled as well as misordered. Fixed here.
+ * **`/` is the DASHBOARD** (`main.tsx`). The old trail's first crumb was
+ * labelled "Home" and pointed at `/`, so it was mislabelled as well as
+ * misordered. Fixed here. A separate `/home` Module Guide page existed until
+ * 2026-09-19; it is gone, and every page's root crumb now reads Dashboard.
  *
  * The origin travels in React Router's `location.state`, set by whichever link
  * navigated. State is lost on a refresh or a pasted URL, which is exactly the

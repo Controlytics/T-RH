@@ -168,9 +168,9 @@ global limit cannot serve both purposes.
 1. **`NOTIFICATION_VIEW` / `NOTIFICATION_MANAGE` are enforced by no route.**
    They are visibility-only toggles (honestly tagged `enforce: 'c'`). Either
    enforce them or remove them.
-2. **`GET /api/roles/access-matrix` is authenticated but not `ROLE_MANAGE`-gated**
-   — intentional, to power the Module Guide for all users. Worth re-confirming
-   it exposes nothing a viewer could not already infer.
+2. ~~**`GET /api/roles/access-matrix` is authenticated but not `ROLE_MANAGE`-gated**~~
+   — resolved 2026-09-19: the route was removed with the Module Guide page, its
+   only consumer.
 3. **Debug traces are success-only.** They read from `audit_trail`, so there are
    no error codes or durations. Either build real tracing or rename the feature
    to reflect what it is.

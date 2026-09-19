@@ -1,5 +1,50 @@
 # Changelog
 
+## [Unreleased] - Home sidebar item and Module Guide page removed (2026-09-19)
+
+Operator: *"remove home feature from side bar from entire application, i dont
+need home option and that related content"*.
+
+- **Removed.** The `home` entry in `packages/shared/src/types/sidebar-items.ts`
+  and in `components/layout/sidebar.tsx`'s `allNavItems`; the `/home` route and
+  `import HomePage` in `main.tsx`; the whole of `routes/home/` (`index.tsx`,
+  `FlowChart.tsx`, `module-flows.ts`, `viewer-access.ts`, `types.ts` and their
+  three test files); and the page's only data source, `GET /api/roles/
+  access-matrix`, with `roleService.getAccessMatrix`,
+  `roleRepository.findActiveWithAccess` and their service test. Grepped
+  `apps/api/src`, `apps/web/src` and `packages/*/src` for every consumer before
+  deleting — there was none outside the page.
+- **Stored data.** `role_configs` (5 rows) and `user_configs` (4 rows) were
+  queried first: **0** sidebar lists named `home`, so nothing stored is
+  orphaned. The sidebar filters by `allNavItems` regardless, so a stale id
+  would be ignored, not rendered.
+- **Tests re-pointed, not deleted.** `home` was the ONE sidebar item with no
+  `PERMISSION_TREE` group and `sidebar-visibility.test.ts` used it to prove an
+  ungrouped item is visible to every permission set. With no such item left,
+  that case is now a LOCK: every `SIDEBAR_ITEMS` id must have a group
+  (an ungrouped item is visible to everyone, which is the fail-open the guide
+  relied on and nothing else should). Mutation-checked: appending an ungrouped
+  item to `SIDEBAR_ITEMS` fails it. `route-guard-coverage.test.ts` lost `/home`
+  from its unguarded allow-list; the `SIDEBAR_ITEMS`↔`allNavItems` parity test
+  passes with both lists shorter.
+- **Every root breadcrumb now reads `Dashboard`** — 39 pages carried
+  `{ label: 'Home', to: '/' }`, and `/` is the dashboard. The trend page had
+  already been corrected for exactly this mislabel on 2026-09-01; leaving the
+  word Home on every page after removing the feature it named would have read
+  as the feature still being there.
+- **Counts:** sidebar items 15 → **14**, routes 53 → **52** (both re-derived).
+  No permission, reauth action, model, enum, config def, module, migration or
+  audit action moved. `tsc` clean on both apps; touched files green by exit
+  code (web 87 across the two sidebar tests, plus route-guard and
+  trend-breadcrumbs; API role service 25; `packages/shared` 387).
+- **Not seen on screen** — the operator holds the browser session. What needs
+  their eye: the sidebar no longer starts with Home, and `/home` now falls to
+  the not-found route.
+- Docs synced: root `CLAUDE.md` (counts + a Home-removal note), `README.md`,
+  `packages/shared/CLAUDE.md`, `apps/web/CLAUDE.md`, `FRONTEND_GUIDE.md`,
+  `docs/recreation/{04,06,07,10}`. The 2026-07-06 spec and plan under
+  `docs/superpowers/` stay as history.
+
 ## [Unreleased] - Header: the word AWS on the nav bar (2026-09-18)
 
 Operator: *"Add aws text word on nav bar"*, then, asked whether it should show

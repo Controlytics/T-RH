@@ -34,16 +34,6 @@ interface NavItem {
 // independent: one drives the Roles & Access toggles, the other renders the nav.
 export const allNavItems: NavItem[] = [
   {
-    id: 'home',
-    label: 'Home',
-    href: '/home',
-    icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 12l8.954-8.955a1.5 1.5 0 012.122 0L22.28 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75" />
-      </svg>
-    ),
-  },
-  {
     id: 'dashboard',
     label: 'Dashboard',
     href: '/',

@@ -96,41 +96,6 @@ export default async function roleRoutes(app: FastifyInstance) {
     return roleService.listActive(await optionalCallerRole(req));
   });
 
-  // GET /api/roles/access-matrix — active roles + their permissions + per-role
-  // sidebar overrides, for the Module Guide's "which role does which operation"
-  // flowcharts. Authenticated (any logged-in user); NOT public and NOT gated on
-  // ROLE_MANAGE — it only exposes RBAC structure, which the guide documents.
-  app.get('/access-matrix', {
-    schema: {
-      tags: ['Roles'],
-      summary: 'Role access matrix for the Module Guide',
-      description: 'Active roles with permissions and per-role sidebar items, so the Module Guide can show which role(s) perform each operation. Any authenticated user.',
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            roles: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  name: { type: 'string' },
-                  displayName: { type: 'string' },
-                  hierarchyLevel: { type: 'integer' },
-                  color: { type: 'string' },
-                  permissions: { type: 'array', items: { type: 'string' } },
-                  sidebarItems: { type: 'array', items: { type: 'string' } },
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-  }, async (req) => {
-    return roleService.getAccessMatrix(buildContext(req).userRole);
-  });
-
   // GET /api/roles/permissions/all — Get all available permissions
   app.get('/permissions/all', {
     preHandler: [app.requirePermission('ROLE_MANAGE')],

@@ -120,7 +120,7 @@ export function InstrumentBulkCreatePage() {
       <PageHeader
         title="Bulk Upload Instruments"
         description="Valid rows are created even when others fail — one typo does not reject the file."
-        crumbs={[{ label: 'Home', to: '/' }, { label: 'Instruments', to: '/instruments' }, { label: 'Bulk Upload' }]}
+        crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Instruments', to: '/instruments' }, { label: 'Bulk Upload' }]}
       />
 
       <Card>

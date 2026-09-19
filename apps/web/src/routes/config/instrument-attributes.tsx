@@ -344,7 +344,7 @@ export function InstrumentAttributesConfigPage() {
       <PageHeader
         title="Instrument Attributes"
         description="The attributes the New Instrument form asks for, per profile. You set the keys here; whoever registers a device fills in the values."
-        crumbs={[{ label: 'Home', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Instrument Attributes' }]}
+        crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Instrument Attributes' }]}
         icon={
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M4 6h16M4 12h16M4 18h10" />

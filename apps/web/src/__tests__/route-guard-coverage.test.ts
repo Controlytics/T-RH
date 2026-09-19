@@ -13,15 +13,14 @@ const mainTsx = readFileSync(resolve(__dirname, '../main.tsx'), 'utf8');
  *       Pre-authentication surfaces. A permission gate here would lock out the
  *       very users who need them.
  *   /                Dashboard. Visible to every authenticated user.
- *   /home            Module Guide. Has no PERMISSION_TREE group by design —
- *                    governed on the Sidebar tab only (see apps/web/CLAUDE.md).
  *   /profile         The user's own profile. Self-scoped, not permission-scoped.
  *   *                Catch-all / not-found.
  *
  * This list is a LOCK, not an endorsement: it records what is unguarded today so
  * that a NEW unguarded route fails this test and has to be justified here.
  * `/quality-notifications` used to be on it — it was not "closed", the page was
- * deleted in the 2026-07-18 domain strip.
+ * deleted in the 2026-07-18 domain strip. `/home` (the Module Guide, ungrouped
+ * by design) was on it until the page was removed on 2026-09-19.
  */
 const KNOWN_OPEN = [
   '/login',
@@ -29,7 +28,6 @@ const KNOWN_OPEN = [
   '/change-password',
   '/contact-admin',
   '/',
-  '/home',
   '/profile',
   '*',
 ];

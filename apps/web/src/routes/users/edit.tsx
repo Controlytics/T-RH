@@ -193,7 +193,7 @@ export function EditUserPage() {
           the right person. What was missing is the trail back to the list. */}
       <Breadcrumbs
         crumbs={[
-          { label: 'Home', to: '/' },
+          { label: 'Dashboard', to: '/' },
           { label: 'Users', to: '/users' },
           { label: userData.fullName },
         ]}

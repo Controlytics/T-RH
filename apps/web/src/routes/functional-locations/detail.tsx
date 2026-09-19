@@ -145,7 +145,7 @@ export function FunctionalLocationDetailPage() {
 
   /** Before the record loads there is nothing to name it with. */
   const baseCrumbs = [
-    { label: 'Home', to: '/' },
+    { label: 'Dashboard', to: '/' },
     { label: 'Functional Locations', to: '/functional-locations' },
   ];
 

@@ -34,7 +34,7 @@ component library would change every screen's appearance — out of scope for
 | Group | Representative routes |
 |---|---|
 | `auth` | `/login`, `/change-password`, `/forgot-password`, `/contact-admin` |
-| *(root)* | `/` (dashboard), `/home` (Module Guide) |
+| *(root)* | `/` (dashboard) |
 | `users` | `/users`, `/users/create`, `/users/edit/:id` |
 | `admin-requests` | `/admin-requests` |
 | `config` | `/config` + 20 sub-pages |
@@ -165,10 +165,8 @@ containers on wide tables.
    on every reload. Server-side idle timeout handles real closures instead.
 3. **Network error ≠ logout** — `use-auth` distinguishes them, so a blip does not
    eject the user.
-4. **Module Guide (`/home`)** renders each module's workflow with the roles
-   *currently configured* to perform each step, read live from
-   `/api/roles/access-matrix` — plus a "My modules / All modules (audit)" toggle
-   for a full auditor view.
+4. ~~**Module Guide (`/home`)**~~ — removed 2026-09-19 with its sidebar item and
+   `GET /api/roles/access-matrix`.
 5. **PWA update banner** — the service worker uses `skipWaiting` + `clientsClaim`
    so a new bundle activates on the next request, with a dismissible reload
    prompt. This exists because operators on long shifts kept running an old

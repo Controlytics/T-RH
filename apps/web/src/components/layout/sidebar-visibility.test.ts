@@ -25,12 +25,11 @@ const PERM_SETS: Record<string, string[]> = {
   unrelated: ['SOME_FAKE_PERM'],
 };
 
-// All sidebar ids that exist in the privilege map, plus the one real item known
-// NOT to be in it (must default to visible in both old and new).
-const ALL_ITEM_IDS = [
-  ...SIDEBAR_PRIVILEGE_MAP.map(s => s.sidebarId),
-  'home', // a real SIDEBAR_ITEMS entry with no PERMISSION_TREE group
-];
+// Every sidebar id in the privilege map. Until 2026-09-19 the list also carried
+// `home` (the Module Guide), the one real item with no PERMISSION_TREE group;
+// that page was removed, and the lock below is what stops a new ungrouped item
+// arriving unnoticed.
+const ALL_ITEM_IDS = SIDEBAR_PRIVILEGE_MAP.map(s => s.sidebarId);
 
 describe('5B sidebar visibility — tree-based matches legacy SIDEBAR_PRIVILEGE_MAP exactly', () => {
   for (const itemId of ALL_ITEM_IDS) {
@@ -45,11 +44,12 @@ describe('5B sidebar visibility — tree-based matches legacy SIDEBAR_PRIVILEGE_
     expect(isSidebarItemVisible('users', [])).toBe(false);
   });
 
-  it('an item with no tree group / no visibility privileges is visible (e.g. home)', () => {
-    // Assert the premise before the property: a test pinned to an item that has
-    // been deleted passes vacuously, because an unknown id has no group either.
-    expect(SIDEBAR_ITEMS.map((i) => i.id)).toContain('home');
-    expect(SIDEBAR_PRIVILEGE_MAP.map((s) => s.sidebarId)).not.toContain('home');
-    expect(isSidebarItemVisible('home', ['AUDIT_READ'])).toBe(true);
+  it('every registered sidebar item has a PERMISSION_TREE group (no ungrouped item since home went, 2026-09-19)', () => {
+    // An ungrouped item is visible to EVERY permission set (an unknown id has no
+    // group either, so the rule fails open). That was deliberate for the Module
+    // Guide and is a defect for anything else; a new item must pick a group.
+    const mapped = SIDEBAR_PRIVILEGE_MAP.map((s) => s.sidebarId);
+    for (const item of SIDEBAR_ITEMS) expect(mapped, item.id).toContain(item.id);
+    expect(SIDEBAR_ITEMS.map((i) => i.id)).not.toContain('home');
   });
 });

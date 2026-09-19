@@ -28,7 +28,7 @@ export function DisplaySettingsPage() {
       <PageHeader
         title='Display Settings'
         description='Field display names, audit-trail wording, and list page sizes.'
-        crumbs={[{ label: 'Home', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Display Settings' }]}
+        crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Display Settings' }]}
         icon={
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M4 6h16M4 12h16M4 18h10" />

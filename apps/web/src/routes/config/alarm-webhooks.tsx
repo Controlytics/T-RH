@@ -323,7 +323,7 @@ export function AlarmWebhooksConfigPage() {
         className="mb-6"
         title="Alarm Webhooks"
         description="Send an alarm to a device as well as a person — an IP-addressable hooter, a panel, any endpoint on the plant network."
-        crumbs={[{ label: 'Home', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Alarm Webhooks' }]}
+        crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Alarm Webhooks' }]}
         icon={
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />

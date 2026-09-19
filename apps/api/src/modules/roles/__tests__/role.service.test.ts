@@ -4,7 +4,6 @@ const { mockRoleRepo, mockAuditLog } = vi.hoisted(() => ({
   mockRoleRepo: {
     findAll: vi.fn(),
     findActive: vi.fn(),
-    findActiveWithAccess: vi.fn(),
     findByName: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
@@ -75,13 +74,6 @@ describe('roleService', () => {
       expect((await roleService.listActive('SUPER_ADMIN')).map((r: any) => r.name)).toContain('SUPER_ADMIN');
     });
 
-    it('getAccessMatrix hides SUPER_ADMIN from a non-SA caller but keeps it for SA', async () => {
-      mockRoleRepo.findActiveWithAccess.mockResolvedValue(withSA());
-      const nonSa = await roleService.getAccessMatrix('SUPERVISOR');
-      expect(nonSa.roles.map((r: any) => r.name)).not.toContain('SUPER_ADMIN');
-      const sa = await roleService.getAccessMatrix('SUPER_ADMIN');
-      expect(sa.roles.map((r: any) => r.name)).toContain('SUPER_ADMIN');
-    });
   });
 
   describe('getByName', () => {

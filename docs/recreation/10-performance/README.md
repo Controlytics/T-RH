@@ -53,8 +53,8 @@ the initial JS payload for the common case.
   is mounted and the tab is visible.
 
 **Concerns:**
-- **Polling is used fairly freely** — e.g. the Module Guide's role matrix
-  refreshes every 30 s, dashboard cards every 30 s. On a page left open all
+- **Polling is used fairly freely** — e.g. dashboard cards every 30 s (the Module
+  Guide's 30 s role-matrix poll went with that page on 2026-09-19). On a page left open all
   shift this is a steady request stream. With no pub/sub layer there is no
   push alternative today; a rebuild might consider SSE for a few surfaces.
 - **A dead 20 s poll survived for months.** `/api/filters/dashboard-stats` was

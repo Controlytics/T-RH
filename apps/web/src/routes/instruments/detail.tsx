@@ -322,7 +322,7 @@ export function InstrumentDetailPage() {
           which is Instruments. */}
       <Breadcrumbs
         crumbs={[
-          { label: 'Home', to: '/' },
+          { label: 'Dashboard', to: '/' },
           { label: 'Instruments', to: '/instruments' },
           { label: inst.code },
         ]}

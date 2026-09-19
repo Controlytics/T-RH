@@ -173,7 +173,7 @@ export function ResetRequestsPage() {
           <PageHeader
             title='Password Reset Requests'
             description='Review and process password reset requests from users'
-            crumbs={[{ label: 'Home', to: '/' }, { label: 'Users', to: '/users' }, { label: 'Password Reset Requests' }]}
+            crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Users', to: '/users' }, { label: 'Password Reset Requests' }]}
             icon={
               <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />

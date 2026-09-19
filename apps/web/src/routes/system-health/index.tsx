@@ -180,7 +180,7 @@ export function SystemHealthPage() {
             is FOR, and it should not change every ten seconds. */}
         <PageHeader
           title="System Health"
-          crumbs={[{ label: 'Home', to: '/' }, { label: 'System Health' }]}
+          crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'System Health' }]}
           meta={
             <span className="text-[0.8125rem] text-slate-500">
               Server: {data.os.hostname} &middot; Last updated: {formatTime(data.timestamp)}

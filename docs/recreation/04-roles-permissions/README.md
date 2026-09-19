@@ -100,10 +100,9 @@ admin toggles. The other 12 are *enforced-only*: the permission is still checked
 by the backend, but there is no per-role toggle for it (either because it
 duplicates another toggle's capability, or because it is SUPER_ADMIN-only).
 
-**Sidebar items: 10 groups' worth, 9 registered** — `SIDEBAR_ITEMS` holds the 8
-original groups plus `home` (Module Guide), which has no permission group and is
-therefore visible-to-all by permission while still being per-role toggleable on
-the Sidebar tab. The `instruments` group exists in `PERMISSION_TREE` but is
+**Sidebar items** — every `SIDEBAR_ITEMS` entry has a permission group. (Until
+2026-09-19 the list also held `home`, the Module Guide, which had no group and
+was therefore visible-to-all by permission; that page was removed.) The `instruments` group exists in `PERMISSION_TREE` but is
 deliberately NOT yet in `SIDEBAR_ITEMS` — its pages do not exist until Instruments
 Task 9/10, so a toggle for it would point at nothing.
 
@@ -144,7 +143,7 @@ operation that permanently breaks the audit chain, so enabling it is an explicit
 site decision.
 
 Custom roles can be created and appear automatically throughout the UI
-(including the Module Guide) with their own colour.
+with their own colour.
 
 ### Per-role configuration
 
@@ -190,11 +189,9 @@ one route**, so theatre cannot reappear.
 
 ## 8. Access-matrix endpoint
 
-`GET /api/roles/access-matrix` returns active roles + their permissions +
-per-role sidebar config. It is **authenticated but not `ROLE_MANAGE`-gated**,
-because the Module Guide shows every user which roles perform which steps. This
-is an intentional transparency decision, not an oversight — but a rebuild should
-confirm it exposes no permission the viewer could not already infer.
+`GET /api/roles/access-matrix` (active roles + permissions + per-role sidebar
+config, authenticated but not `ROLE_MANAGE`-gated, built for the Module Guide)
+was REMOVED with that page on 2026-09-19; nothing else read it.
 
 ## 9. Rebuild checklist
 

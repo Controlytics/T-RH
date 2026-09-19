@@ -29,31 +29,6 @@ export const roleRepository = {
     return prisma.role.findUnique({ where: { name } });
   },
 
-  /**
-   * Active roles with the fields the Module Guide needs to compute, per role,
-   * which module flowcharts + operations that role can perform: the role's
-   * granted `permissions` plus its per-role sidebar override (`sidebarItems`
-   * from role_configs, keyed by role name — string key, no FK). Ordered by
-   * hierarchy (highest first) so SUPER_ADMIN leads.
-   */
-  async findActiveWithAccess() {
-    const roles = await prisma.role.findMany({
-      where: { isActive: true },
-      orderBy: { hierarchyLevel: 'desc' },
-      select: { name: true, displayName: true, hierarchyLevel: true, color: true, permissions: true },
-    });
-    const configs = await prisma.roleConfig.findMany({ select: { role: true, sidebarItems: true } });
-    const sidebarByRole = new Map(configs.map((c) => [c.role, c.sidebarItems]));
-    return roles.map((r) => ({
-      name: r.name,
-      displayName: r.displayName,
-      hierarchyLevel: r.hierarchyLevel,
-      color: r.color,
-      permissions: Array.isArray(r.permissions) ? (r.permissions as string[]) : [],
-      sidebarItems: (sidebarByRole.get(r.name) as string[] | undefined) ?? [],
-    }));
-  },
-
   /** Create a new role. */
   async create(data: {
     name: string;

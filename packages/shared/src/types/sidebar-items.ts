@@ -16,7 +16,6 @@ export interface SidebarItem {
  * in the Sidebar Configuration page for role/user visibility settings.
  */
 export const SIDEBAR_ITEMS: SidebarItem[] = [
-  { id: 'home', label: 'Home', icon: '\u{1F3E0}', description: 'Module Guide — how each module works, step by step' },
   { id: 'dashboard', label: 'Dashboard', icon: '\u{1F3E0}', description: 'Main dashboard view' },
   { id: 'functional-locations', label: 'Functional Locations', icon: '\u{1F5FA}', description: 'Block and Area grouping for instruments' },
   { id: 'alarms', label: 'Alarms', icon: '\u{1F6A8}', description: 'Limit excursions raised by alarm rules, and their acknowledgement' },

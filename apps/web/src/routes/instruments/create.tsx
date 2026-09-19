@@ -173,7 +173,7 @@ export function InstrumentCreatePage() {
       <PageHeader
         title="New Instrument"
         description="Register a device so its readings, limits and alarms have somewhere to live."
-        crumbs={[{ label: 'Home', to: '/' }, { label: 'Instruments', to: '/instruments' }, { label: 'New Instrument' }]}
+        crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Instruments', to: '/instruments' }, { label: 'New Instrument' }]}
       />
 
       <form onSubmit={submit} className="space-y-6">

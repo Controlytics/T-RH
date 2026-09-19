@@ -151,7 +151,7 @@ export default function FunctionalLocationsPage() {
             inverted
             title="Functional Locations"
             description="Block and Area grouping. An instrument belongs to exactly one location."
-            crumbs={[{ label: 'Home', to: '/' }, { label: 'Functional Locations' }]}
+            crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Functional Locations' }]}
             icon={LocationGlyph}
             actions={actions}
           />

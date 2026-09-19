@@ -46,7 +46,6 @@ them, exist in `main.tsx` or `routes/` today.
 | Path | Page | Notes |
 |---|---|---|
 | `/` | DashboardPage | Instrument dashboard — floorplan view, telemetry table, room detail |
-| `/home` | HomePage | Module flow / navigation overview |
 | `/profile` | ProfilePage | Any authenticated user |
 
 ### User Management

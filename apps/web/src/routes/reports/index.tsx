@@ -115,7 +115,7 @@ export function ReportsPage() {
       <PageHeader
         title="Reports"
         description="Report requests awaiting approval, your own requests, and the approved reports you can download."
-        crumbs={[{ label: 'Home', to: '/' }, { label: 'Reports' }]}
+        crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Reports' }]}
         icon={
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />

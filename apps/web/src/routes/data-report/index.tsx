@@ -29,7 +29,7 @@ export function DataReportPage() {
         className="mb-6"
         title="Data Report"
         description="Readings of a Block, an Area or chosen instruments over a period, and the Data Report download for the selection."
-        crumbs={[{ label: 'Home', to: '/' }, { label: 'Data Report' }]}
+        crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Data Report' }]}
         icon={
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M9 17v-4m3 4v-8m3 8v-2m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />

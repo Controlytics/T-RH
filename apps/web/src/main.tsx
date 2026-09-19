@@ -13,7 +13,6 @@ import { ForgotPasswordPage } from './routes/auth/forgot-password';
 import { ChangePasswordPage } from './routes/auth/change-password';
 import { ContactAdminPage } from './routes/auth/contact-admin';
 import { DashboardPage } from './routes/dashboard';
-import HomePage from './routes/home';
 // AuditTrailPage pulls jspdf + jspdf-autotable (+ ~250 KB gz). Lazy-load it so
 // the main chunk shrinks meaningfully for first paint.
 import { PERMISSIONS } from '@digilog/shared';
@@ -108,7 +107,6 @@ createRoot(document.getElementById('root')!).render(
           {/* Protected routes */}
           <Route element={<RouteErrorBoundary><AppLayout /></RouteErrorBoundary>}>
             <Route path="/" element={<DashboardPage />} />
-            <Route path="/home" element={<HomePage />} />
             <Route path="/profile" element={<ProfilePage />} />
 
             {/* User management — permission-based */}

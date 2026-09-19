@@ -457,7 +457,7 @@ export function ConfigIndexPage() {
       <PageHeader
         title="System Configuration"
         description="Manage system settings, security policies and instrument behaviour."
-        crumbs={[{ label: 'Home', to: '/' }, { label: 'Configuration' }]}
+        crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Configuration' }]}
       />
 
       <ConfigGroup

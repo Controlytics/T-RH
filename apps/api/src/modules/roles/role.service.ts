@@ -146,19 +146,6 @@ export const roleService = {
     return hideSuperAdminFor(await roleRepository.findActive(), callerRole);
   },
 
-  /**
-   * Access matrix for the Module Guide: every active role with its live
-   * permissions + per-role sidebar override. Lets the guide compute, per
-   * module operation, which roles are configured to perform it. Any
-   * authenticated user may read it (no ROLE_MANAGE) — it exposes the RBAC
-   * structure the guide documents, nothing more. SUPER_ADMIN is hidden from
-   * non-SA callers so the guide never surfaces the SA role to lower roles.
-   */
-  async getAccessMatrix(callerRole?: string) {
-    const roles = hideSuperAdminFor(await roleRepository.findActiveWithAccess(), callerRole);
-    return { roles };
-  },
-
   /** Get a single role by name. Throws NotFoundError if missing. */
   async getByName(name: string) {
     const role = await roleRepository.findByName(name);
