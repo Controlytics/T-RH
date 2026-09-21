@@ -14,7 +14,7 @@
 - **25** API modules, **36** Prisma models, **13** enums
 - **32** config definitions with auto-discovery, **23** config pages (re-derived `ls` 2026-09-16; 31 → 32 that day with `attribute-labels`, which adds no page — its column lives on Instrument Attributes; 30 → 31 on 2026-09-07 with `report-approvers`)
 - **44** permissions, **50** reauth actions, **15** sidebar items (re-derive — these drift; see command block below)
-- **102** audit actions, **96** audit templates, **53** `<Route`s, **6** worker tasks
+- **103** audit actions, **97** audit templates, **53** `<Route`s, **6** worker tasks
 - **10** color themes, multi-channel notifications
 - Single PostgreSQL database (`compliance_core_db`); Postgres-backed **graphile-worker** job queue (no Redis, no TimescaleDB). **MQTT IS live** — `mqtt@5` is in `apps/api/package.json` and `/api/ingest/v1` is registered in `app.ts`; the "no MQTT" this line carried until 2026-08-27 repeated a tear-out that was later reversed (see root `CLAUDE.md`).
 

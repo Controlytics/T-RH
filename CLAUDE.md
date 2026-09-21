@@ -186,7 +186,9 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   downloads; no permission or sidebar item was added for it.
   The "102 / 83 / 92 / 26" this file carried for months was upstream DigiLog's and
   was never true here.
-- **Audit registries:** **102** audit actions, **96** audit templates in **7**
+- **Audit registries:** **103** audit actions, **97** audit templates in **7**
+  categories (102 → 103 / 96 → 97 on 2026-09-21: `ALARMS_PURGED`, written only by
+  `apps/api/scripts/purge-alarms.ts`; categories unchanged). Earlier: **102** / **96** in **7**
   categories (98 → 102 / 92 → 96 on 2026-09-07: `REPORT_REVIEW_REQUESTED` /
   `APPROVED` / `REJECTED`, `REPORT_DOWNLOADED`; categories unchanged). Earlier: **98** / **92** in **7**
   categories (97 → 98 / 91 → 92 on 2026-09-05: `INSTRUMENT_ATTRIBUTE_REPORTED`,
@@ -965,6 +967,39 @@ GET    /api/config/report-approvers/current     — the administered approver ro
     and one case each on the form, panel, Settings and Attribute Access tests.
     Mutation-checked: the case-fold, the response schema's `additionalProperties`,
     and the merge's left-this-profile rule.
+  - **WHICH FIELDS THE SETTINGS PAGE SHOWS is administered on the same page
+    (2026-09-21, operator: "in settings page what attributes and details should
+    display in one configuration page, in that configuration page any attribute
+    or any field hide, then that field should not show in the settings page, in
+    configuration page give hid/un hide options").** A **Show in Settings**
+    toggle per key row and one for the **Instrument ID** tile (the widget's only
+    non-attribute field, so it sits above the rows; asked "Instrument ID +
+    attributes" or "also Name / Type / Profile / location", the operator took
+    the first). Stored as a SECOND setting on the SAME `attribute-labels` row —
+    `settingsHidden: {instrumentId: boolean, keys: string[]}`, the HIDDEN set,
+    so a key added tomorrow shows until someone switches it off. **No count
+    moved**: no def, page, route, hook, permission, migration or enum.
+    `coerceSettingsHidden()` / `isHiddenInSettings()` in `@digilog/shared` are
+    the ONE reader and lookup (absent, older or malformed = nothing hidden,
+    never "hide everything"); the def's zod refuses a bad shape and accepts the
+    field's ABSENCE, so an older client's save still lands; the narrow-slice
+    route declares both inner keys in its response schema (Fastify strips an
+    undeclared one silently — mutation-checked); `useAttributeLabels()` returns
+    `settingsHidden` / `isHiddenInSettings(key)` beside `labelFor`, one fetch
+    for both so a tile cannot be labelled and hidden from two versions of the
+    row. The Settings page filters its tiles and, in Edit, gives a hidden field
+    NO input — so nothing on that page can write it; the merge on the
+    Instrument Attributes page (`mergeSettingsHidden`, pure, exported) follows
+    `mergeLabels`' rules exactly: a row decides its own key, a renamed row
+    carries its switch, a key that left this profile drops out UNLESS another
+    profile still lists it. **Presentation over the Settings page ONLY** —
+    the attribute is still stored, still served by the API, still on the
+    instrument detail page, the New Instrument form and the bulk template, and
+    Attribute Access still decides who may edit it. A key typed freely on one
+    instrument (no profile lists it) has no row here and always shows. Pinned by
+    5 shared unit, 3 API e2e, 2 hook, 5 Instrument Attributes page and 3
+    Settings page cases; mutation-checked (schema, the Settings filter, the
+    left-this-profile rule).
 - **The New Instrument form's Instrument ID field carries NO pattern, hint or
   placeholder (2026-09-16, operator: "dont put any instructions, user will
   enter different Instrument ids format so it should not restricted").** The

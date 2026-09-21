@@ -239,6 +239,14 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'Alarm "{targetName}" cleared by {actor}',
     placeholders: ['actor', 'targetName'],
   },
+  ALARMS_PURGED: {
+    label: 'Alarms Purged',
+    category: 'Instruments',
+    // Only the generic placeholder: the counts deleted are in the row's
+    // before-value, so no second substitution is needed in audit-helpers.ts.
+    template: 'All alarm records and webhook delivery receipts purged by {actor}',
+    placeholders: ['actor'],
+  },
   ALARM_WEBHOOK_CREATED: {
     label: 'Alarm Webhook Created',
     category: 'Instruments',

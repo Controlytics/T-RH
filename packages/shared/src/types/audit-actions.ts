@@ -66,6 +66,13 @@ export const AUDIT_ACTIONS = {
   ALARM_ACKNOWLEDGED: 'ALARM_ACKNOWLEDGED',
   ALARM_CLEARED: 'ALARM_CLEARED',
   ALARM_ESCALATED: 'ALARM_ESCALATED',
+  /**
+   * Every alarm record and every webhook delivery receipt deleted at once
+   * (2026-09-21, operator: "once remove all the alarms data"). Written by
+   * `apps/api/scripts/purge-alarms.ts`, never by a route — there is no
+   * endpoint that deletes an alarm. The counts deleted are in the before-value.
+   */
+  ALARMS_PURGED: 'ALARMS_PURGED',
   ALARM_WEBHOOK_CREATED: 'ALARM_WEBHOOK_CREATED',
   ALARM_WEBHOOK_UPDATED: 'ALARM_WEBHOOK_UPDATED',
   ALARM_WEBHOOK_DELETED: 'ALARM_WEBHOOK_DELETED',
