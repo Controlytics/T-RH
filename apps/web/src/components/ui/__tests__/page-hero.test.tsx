@@ -48,4 +48,15 @@ describe('PageHero', () => {
     expect(screen.queryByTestId('page-hero-tiles')).toBeNull();
     expect(screen.queryByTestId('page-hero-toolbar')).toBeNull();
   });
+
+  it('renders meta chips under the title, inside the band', () => {
+    render(<MemoryRouter><PageHero title="CWH/RDU/001-00" meta={<span data-testid="chip">Active</span>} /></MemoryRouter>);
+    expect(screen.getByTestId('page-hero').contains(screen.getByTestId('chip'))).toBe(true);
+  });
+
+  it("can carry a caller's test id and always says it is the v3 hero", () => {
+    render(<MemoryRouter><PageHero title="Blocks" testId="fl-hero" /></MemoryRouter>);
+    expect(screen.getByTestId('fl-hero')).toHaveAttribute('data-hero', 'v3');
+    expect(screen.queryByTestId('page-hero')).toBeNull();
+  });
 });

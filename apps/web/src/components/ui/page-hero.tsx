@@ -26,19 +26,24 @@ export interface HeroTile {
 }
 
 export function PageHero({
-  title, icon, crumbs, actions, tiles, children, className,
+  title, icon, crumbs, actions, meta, tiles, children, className, testId,
 }: {
   title: string;
   icon?: ReactNode;
   crumbs?: Crumb[];
   actions?: ReactNode;
+  /** Status chips and identity lines under the title — the detail and trend pages carry them. */
+  meta?: ReactNode;
   tiles?: HeroTile[];
   children?: ReactNode;
   className?: string;
+  /** A caller's own test id where a page test already names its hero; the root is always `data-hero="v3"`. */
+  testId?: string;
 }) {
   return (
     <section
-      data-testid="page-hero"
+      data-testid={testId ?? 'page-hero'}
+      data-hero="v3"
       className={cn(
         'relative overflow-hidden rounded-[var(--radius-card)] px-6 py-5 text-white shadow-[var(--elev-2)]',
         className,
@@ -48,7 +53,7 @@ export function PageHero({
       <span aria-hidden className="pointer-events-none absolute -right-16 -top-24 h-64 w-64 rounded-full bg-white/10" />
       <span aria-hidden className="pointer-events-none absolute -bottom-28 right-24 h-56 w-56 rounded-full bg-white/[0.06]" />
       <div className="relative space-y-5">
-        <PageHeader inverted title={title} icon={icon} crumbs={crumbs} actions={actions} />
+        <PageHeader inverted title={title} icon={icon} crumbs={crumbs} actions={actions} meta={meta} />
         {tiles && tiles.length > 0 && (
           <dl data-testid="page-hero-tiles" className="flex flex-wrap gap-3">
             {tiles.map((t) => (
