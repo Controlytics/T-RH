@@ -37,7 +37,10 @@
 import { prisma } from '../src/lib/prisma.js';
 import { auditLog } from '../src/lib/audit.js';
 import { Prisma } from '@prisma/client';
-import { QC_ROOMS, QC_CANVAS, QC_ANNOTATIONS, normAnnotations, norm as qcNorm } from '../src/modules/floorplans/qc-layout.js';
+import { QC_ROOMS, QC_BUILDING, QC_ANNOTATIONS } from '../src/modules/floorplans/qc-layout.js';
+import { QC3_LAYOUT } from '../src/modules/floorplans/qc3-layout.js';
+import { MICROBIOLOGY_LAYOUT } from '../src/modules/floorplans/microbiology-layout.js';
+import { canvasOf, normRect, normPlanAnnotations, type TracedLayout } from '../src/modules/floorplans/traced-layout.js';
 
 /**
  * Deterministic [0,1) from a string. Layout randomness comes from the room's
@@ -347,7 +350,15 @@ interface RoomSpec { code: string; label: string | null; grade: Grade; rect: Rec
  * entirely rather than nudged: a real plan and a synthesised one cannot be
  * blended, and a half-traced floor would be harder to trust than either.
  */
-const TRACED_AREA = 'QC';
+/**
+ * The floors we have a DRAWING of, keyed by their functional-location AREA
+ * name. Everything else is generated. `Layouts/CWH/` holds the drawings.
+ */
+const TRACED: Record<string, TracedLayout> = {
+  QC: { area: 'QC', source: 'Layouts/CWH/QC Layout.png', building: QC_BUILDING, rooms: QC_ROOMS, annotations: QC_ANNOTATIONS },
+  [QC3_LAYOUT.area]: QC3_LAYOUT,
+  [MICROBIOLOGY_LAYOUT.area]: MICROBIOLOGY_LAYOUT,
+};
 
 /**
  * Build the QC plan's rooms from the traced table.
@@ -358,19 +369,20 @@ const TRACED_AREA = 'QC';
  * Painting an office blue because the drawing tints it blue would make the
  * legend lie. Rooms with no instrument carry the grade named in the table.
  */
-function tracedQcRooms(
+function tracedRooms(
+  layout: TracedLayout,
   idByCode: Map<string, string>,
   gradeOfInstrument: (id: string) => Grade,
 ): RoomSpec[] {
   const missing: string[] = [];
-  const rooms = QC_ROOMS.map((r) => {
+  const rooms = layout.rooms.map((r) => {
     const id = r.instrument ? idByCode.get(r.instrument) : undefined;
     if (r.instrument && !id) missing.push(r.instrument);
     return {
       code: r.code,
       label: r.label,
       grade: r.grade ?? (id ? gradeOfInstrument(id) : 'UTILITY'),
-      rect: qcNorm(r.px),
+      rect: normRect(layout.building, r.px),
       instruments: id ? [id] : [],
       // An explicit empty array is meaningful: it means the drawing shows no
       // door on that room, and must not fall through to `doorFor()`'s default.
@@ -382,7 +394,7 @@ function tracedQcRooms(
     // Loud, not silent. A renamed instrument would otherwise leave a room drawn
     // correctly but permanently blank, which reads on the wall as a dead sensor.
     throw new Error(
-      `traced QC layout references instruments that are not in the registry: ${missing.join(', ')}`,
+      `traced ${layout.area} layout (${layout.source}) references instruments that are not in the registry: ${missing.join(', ')}`,
     );
   }
   return rooms;
@@ -509,9 +521,8 @@ async function main() {
     // The traced plan's canvas is the BUILDING's own proportions, not a shape
     // derived from its room count — the drawing already decided how tall the
     // floor is, and `canvasFor()` would stretch it to a different aspect.
-    const shape = area.name === TRACED_AREA
-      ? { width: QC_CANVAS.width, height: QC_CANVAS.height }
-      : canvasFor(area.locs.length);
+    const traced = TRACED[area.name];
+    const shape = traced ? canvasOf(traced.building) : canvasFor(area.locs.length);
     let plan = await prisma.floorplan.findFirst({ where: { name: planName }, select: { id: true, imageWidth: true, imageHeight: true } });
     if (!plan) {
       plan = await prisma.floorplan.create({
@@ -545,8 +556,8 @@ async function main() {
     };
     // Grade per ROOM from its instrument's own limits, so a floor carries
     // variety that means something rather than one flat hue.
-    const rooms = area.name === TRACED_AREA
-      ? tracedQcRooms(idByCode, gradeOfInstrument)
+    const rooms = traced
+      ? tracedRooms(traced, idByCode, gradeOfInstrument)
       : buildingLayout(
         area.name, area.locs, grade, used,
         (ids) => gradeOfInstrument(ids[0]),
@@ -563,11 +574,15 @@ async function main() {
     // written here rather than inside drawPlan(). Only the traced plan has one;
     // every generated plan keeps SQL NULL and renders with no legend, because a
     // legend for symbols a plan never uses is furniture.
-    if (area.name === TRACED_AREA) {
+    if (traced) {
       await prisma.floorplan.update({
         where: { id: plan.id },
         data: {
-          annotations: normAnnotations(QC_ANNOTATIONS) as unknown as Prisma.InputJsonValue,
+          // A traced plan with no symbols stores SQL NULL, never `{}` — the
+          // legend is drawn whenever annotations are present.
+          annotations: traced.annotations
+            ? (normPlanAnnotations(traced.building, traced.annotations) as unknown as Prisma.InputJsonValue)
+            : Prisma.DbNull,
           updatedBy: ACTOR,
         },
       });

@@ -1,5 +1,50 @@
 # Changelog
 
+## [Unreleased] - QC 3 and Microbiology floors traced from their drawings (2026-09-21)
+
+Operator: *"do the same for qc 3 and microbiology layouts"* — the two other
+drawings in `Layouts/CWH/`. Until now both floors were GENERATED plans: twelve
+and eight machine-cut boxes, one per instrument.
+
+- **Two new traced tables**, `apps/api/src/modules/floorplans/qc3-layout.ts`
+  (35 rooms, 874x895 drawing, building 824x780) and `microbiology-layout.ts`
+  (22 rooms, 1427x642 drawing, building 1383x577), on the shared shape in
+  `traced-layout.ts` (`TracedLayout`, `normRect`, `canvasOf`,
+  `normPlanAnnotations`). Same method as the QC floor: wall runs scanned,
+  doors from the swing arcs, edges read off 2x gridded crops, the written
+  dimension strings as the cross-check. Both tables TESSELLATE EXACTLY.
+- **Instruments stay where their `Location` attribute puts them**: the twelve
+  QC 3 and eight Microbiology instruments are each sited in the room of that
+  name, verified by SQL after the apply. One judgement call: `CWH/RDU/051-00`
+  reads `Incubator room` with no number and the drawing has two; it is in
+  INCUBATOR ROOM-01 (the larger, unnumbered one). Say so if it belongs in
+  `CWH-I/360`.
+- **Where the tables knowingly depart from the drawings**, each stated in its
+  file's header: QC 3's building is an L, so the `GD ENTRY` yard east of the
+  lower wing is stored as a UTILITY room carrying the drawing's own `8100 x
+  3700`; CORRIDOR-11 is four rectangles and the HOLD AREA two; structural
+  columns are not drawn. The Microbiology image is CUT OFF at the bottom
+  through the south row, so those rooms' south walls are computed from their
+  written depths (all land at y ≈ 660, as does INCUBATOR ROOM-02's written
+  height); INCUBATOR ROOM-01 is an L stored as two pieces; the HPHV
+  sterilizer is an equipment block, not a room.
+- **`draw-cwh-floorplan.ts` now holds a REGISTRY of traced floors** keyed by
+  area name (`TRACED`), replacing the single `TRACED_AREA = 'QC'`;
+  `tracedRooms(layout, …)` replaces `tracedQcRooms`. A traced plan with no
+  annotations writes SQL NULL, so QC 3 draws no symbol legend. Applied
+  `--only "QC 3" --apply` and `--only "QC Microbiology" --apply`: 24 generated
+  rooms deleted, 57 created, one audit row each; the other six plans
+  untouched (room counts checked). **AWS needs the same two runs.**
+- **The view now joins the pieces of ONE code whatever their grade**
+  (`sameSpace()` in `floorplan-view.tsx`): `INCUBATOR-01` + `INCUBATOR-01 (2)`
+  and `CWH-I/187` + `(2)` draw with no wall between them, as the corridor
+  pieces already did; unrelated rooms and the service band stay apart.
+- Pinned by `__tests__/traced-layouts.test.ts` (9 cases per floor: unique
+  codes, inside the building, no overlap, canonical grid, exact tessellation,
+  unit square, doors on their walls, the instrument map, every `(N)` piece
+  beside its first) and 3 more `sameSpace` cases; both `tsc`s clean. Not seen
+  on screen.
+
 ## [Unreleased] - QC floor re-traced from the architectural drawing (2026-09-21)
 
 Operator: *"in layouts folder, in cwh subfolder there is qc layout image check

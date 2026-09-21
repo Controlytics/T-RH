@@ -1248,8 +1248,19 @@ GET    /api/config/report-approvers/current     — the administered approver ro
       still outside the east wall on the drawing too, and are still clipped /
       moved as described below; the pixel numbers there (x=1190, wall 1108)
       are the mockup's.
-    - **`Layouts/CWH/` also holds `QC 3 Layout.png` and `Microbiology.png`.
-      Those two floors are STILL GENERATED plans** — not traced, not asked for.
+    - **QC 3 and QC Microbiology are TRACED too (later the same day, operator:
+      "do the same for qc 3 and microbiology layouts")** from
+      `Layouts/CWH/QC 3 Layout.png` and `Layouts/CWH/Microbiology.png`:
+      `qc3-layout.ts` (35 rooms) and `microbiology-layout.ts` (22 rooms) on
+      the shared `traced-layout.ts`, registered in the drawing script's
+      `TRACED` map (which replaced `TRACED_AREA`). Every instrument sits in the
+      room its `Location` attribute names (SQL-verified); `CWH/RDU/051-00`
+      "Incubator room" is in the unnumbered INCUBATOR ROOM-01 by judgement.
+      Departures are in each file's header — QC 3's L-shaped building carries
+      the `GD ENTRY` yard as a UTILITY room; the Microbiology image is CUT OFF
+      at the bottom, so its south row's south walls are computed from the
+      written depths. Tests: `__tests__/traced-layouts.test.ts`. **Only
+      Stability, Module-E, Module-F and Ware House are still generated.**
     - **The corridor pieces DRAW as one space (same day, operator: "corridor
       single line, not divided into separately").** The seam between two
       adjoining CIRCULATION rooms is cut out of the walls by the VIEW

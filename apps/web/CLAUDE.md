@@ -482,10 +482,15 @@ was; `captionHeader()` below decides whether its four caption lines fit.
   seam is an ABSENCE of wall — no leaf, no arc. Only the rooms actually drawn
   are neighbours (a scoped view must not open a wall onto nothing). A
   continuation piece — `continuationBase(code)` non-null and its base on the
-  plan — prints no code and no name. **Grade is the switch**: a service band
-  that touches the corridor must not be CIRCULATION (QC's `SHAFT-E` is
-  UTILITY for exactly this reason). Pinned in `room-geometry.test.ts` and
-  `floorplan-continuation.test.ts`; mutation-checked.
+  plan — prints no code and no name. **`sameSpace(a, b)` is the ONE rule** for
+  which pair joins: both CIRCULATION, or pieces of one code whatever the grade
+  (`INCUBATOR-01` + `INCUBATOR-01 (2)` on the Microbiology floor, an L-shaped
+  lab). So a service band that touches a corridor must not be CIRCULATION
+  (QC's `SHAFT-E` is UTILITY for exactly this reason). Pinned in
+  `room-geometry.test.ts` and `floorplan-continuation.test.ts`;
+  mutation-checked. QC 3 and Microbiology are traced too since 2026-09-21
+  (`qc3-layout.ts`, `microbiology-layout.ts`); Microbiology carries
+  annotations (a legend), QC 3 stores NULL and draws none.
 
 - **`room.meta.fill` OVERRIDES the zone tint.** The draughtsman's colours say
   what a room is FOR; `grade` says how it is classified. Both are stored, and

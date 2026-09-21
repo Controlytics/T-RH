@@ -31,6 +31,22 @@ export function continuationBase(code: string): string | null {
   const m = /^(.+) \(\d+\)$/.exec(code.trim());
   return m ? m[1].toUpperCase() : null;
 }
+
+/**
+ * Whether two rooms are ONE space the schema had to store as two rectangles:
+ * both circulation (a corridor and its legs), or pieces of one code
+ * (`X` and `X (2)`, or `X (2)` and `X (3)`). The view draws no wall along
+ * the seam between such a pair.
+ */
+export function sameSpace(
+  a: { code: string; grade: string | null },
+  b: { code: string; grade: string | null },
+): boolean {
+  if (a.grade === 'CIRCULATION' && b.grade === 'CIRCULATION') return true;
+  const baseA = continuationBase(a.code) ?? a.code.trim().toUpperCase();
+  const baseB = continuationBase(b.code) ?? b.code.trim().toUpperCase();
+  return baseA === baseB;
+}
 import { Button } from '@/components/ui/button';
 
 /**
@@ -341,19 +357,21 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
               // corridor single line, not divided into separately". Only the
               // rooms actually DRAWN count as neighbours: in a scoped view a
               // hidden piece would otherwise open a wall onto nothing.
-              const openings = room.grade === 'CIRCULATION'
-                ? sharedOpenings(
-                  { x, y, w, h },
-                  roomViews
-                    .filter((o) => o.room.id !== room.id && o.room.grade === 'CIRCULATION')
-                    .map((o) => ({ x: o.room.x * VB_W, y: o.room.y * vbH, w: o.room.w * VB_W, h: o.room.h * vbH })),
-                )
-                : [];
-              // A continuation piece (`CWH-I/217 (2)`) of a corridor whose
-              // first piece is on the plan prints no code and no name of its
-              // own — with the seam gone, a second label inside the same
-              // space is the "divided" reading the seam gave.
-              const continuationOf = room.grade === 'CIRCULATION' ? continuationBase(room.code) : null;
+              // Two rooms are one space when both are circulation, OR when
+              // one is a continuation piece of the other — an L-shaped lab
+              // stored as `INCUBATOR-01` + `INCUBATOR-01 (2)` (Microbiology,
+              // 2026-09-21) has no wall between its halves either.
+              const openings = sharedOpenings(
+                { x, y, w, h },
+                roomViews
+                  .filter((o) => o.room.id !== room.id && sameSpace(room, o.room))
+                  .map((o) => ({ x: o.room.x * VB_W, y: o.room.y * vbH, w: o.room.w * VB_W, h: o.room.h * vbH })),
+              );
+              // A continuation piece (`CWH-I/217 (2)`) whose first piece is
+              // on the plan prints no code and no name of its own — with the
+              // seam gone, a second label inside the same space is the
+              // "divided" reading the seam gave.
+              const continuationOf = continuationBase(room.code);
               const isContinuation = continuationOf !== null
                 && roomViews.some((o) => o.room.id !== room.id && o.room.code.toUpperCase() === continuationOf);
 
