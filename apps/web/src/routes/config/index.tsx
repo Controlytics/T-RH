@@ -31,11 +31,17 @@ function ConfigCard({
   return (
     <Link
       to={card.href}
-      className="group flex h-full flex-col rounded-[var(--radius-card)] border border-slate-200 bg-white p-4 shadow-[var(--elev-1)] transition-[box-shadow,border-color] duration-150 hover:border-slate-300 hover:shadow-[var(--elev-2)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-primary,#2a78d6)]"
+      className="group flex h-full flex-col rounded-[var(--radius-card)] border border-slate-200 bg-white p-4 shadow-[var(--elev-1)] transition-[box-shadow,border-color,background-color] duration-150 hover:border-slate-300 hover:bg-[var(--surface-tint-1)] hover:shadow-[var(--elev-2)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-primary,#2a78d6)]"
     >
       <div className={compact ? 'space-y-3' : 'flex items-start gap-3.5'}>
+        {/* UI v3 (2026-09-21): ONE medallion for every card — the theme band.
+            `card.gradient` stays in the card data unused: the nineteen
+            per-card gradients made the icons compete with the status colours
+            that carry meaning, which is the same reason PageHeader gave up
+            its per-page gradients. */}
         <span
-          className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-gradient-to-br ${card.gradient} text-white shadow-[var(--elev-1)]`}
+          className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-white shadow-[var(--elev-1)]"
+          style={{ background: 'var(--band-gradient)' }}
         >
           {card.icon}
         </span>
