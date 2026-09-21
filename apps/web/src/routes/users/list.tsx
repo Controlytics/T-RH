@@ -23,7 +23,7 @@ import { UserActionDialog } from './components/user-action-dialog';
 import { UserBulkDeleteDialog } from './components/user-bulk-delete-dialog';
 import { UserUnlockDialog } from './components/user-unlock-dialog';
 import { Pagination } from '@/components/ui/pagination';
-import { PageHeader } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
 
 type PendingCount = { count: number };
 
@@ -262,46 +262,45 @@ export function UserListPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <PageHeader
-          title='User Management'
-          description='Manage system users and their access permissions'
-          crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Users', to: '/users' }, { label: 'User Management' }]}
-          icon={
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-            </svg>
-          }
-        />
-        <div className="flex items-center gap-3">
-          {can('users.reset_password') && (
-          <Link to="/users/reset-requests">
-            <Button variant="outline" className="gap-2 relative border-amber-200 text-amber-700 hover:bg-amber-50">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-              </svg>
-              Password Reset Requests
-              {pendingData && pendingData.count > 0 && (
-                <span className="absolute -top-2 -right-2 w-6 h-6 flex items-center justify-center text-xs font-bold bg-gradient-to-r from-red-500 to-rose-500 text-white rounded-full shadow-[var(--elev-2)]">
-                  {pendingData.count}
-                </span>
-              )}
-            </Button>
-          </Link>
-          )}
-          {canCreateUsers && (
-          <Link to="/users/create">
-            <Button className="gap-2 shadow-[var(--elev-2)] text-white hover:opacity-90" style={{ backgroundImage: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-              </svg>
-              Create User
-            </Button>
-          </Link>
-          )}
-        </div>
-      </div>
+      {/* UI v3 (2026-09-21): the shared band, the screen's two actions inside it. */}
+      <PageHero
+        title="User Management"
+        crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Users', to: '/users' }, { label: 'User Management' }]}
+        icon={
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+          </svg>
+        }
+        actions={
+          <>
+            {can('users.reset_password') && (
+              <Link to="/users/reset-requests">
+                <Button className="relative gap-2 border border-white/30 bg-white/10 text-white hover:bg-white/20">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                  </svg>
+                  Password Reset Requests
+                  {pendingData && pendingData.count > 0 && (
+                    <span className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full bg-[var(--status-danger-dot)] text-xs font-bold text-white shadow-[var(--elev-2)]">
+                      {pendingData.count}
+                    </span>
+                  )}
+                </Button>
+              </Link>
+            )}
+            {canCreateUsers && (
+              <Link to="/users/create">
+                <Button className="gap-2 bg-white text-slate-900 shadow-[var(--elev-2)] hover:bg-white/90">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                  Create User
+                </Button>
+              </Link>
+            )}
+          </>
+        }
+      />
 
       {/* Filters */}
       <UserFilters
