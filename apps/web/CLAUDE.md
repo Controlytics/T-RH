@@ -1045,11 +1045,14 @@ gradient — the nineteen per-card gradients (`card.gradient`, still in the
 data, unused) went for the reason the old PageHeader comment gave.
 `config/__tests__/pages-hero.test.tsx` mounts the index, Password Policy,
 Date/Time, System Health and Debug. **Deliberately untouched across all four
-batches:** the dashboard (see Batch 2). **Not done:** per-page `FormSection`
-rewrites of the card-based forms on `backup`, `floorplans`, `pagination` and
-`instrument-attributes` — they still use `Card`/`CardHeader`, which is a
-shared primitive, and rebuilding four working forms for a plate was judged
-not worth the risk; say so if they should follow.
+batches:** the dashboard (see Batch 2). **The four card-based forms followed
+the same day** (operator: "do those four forms also"): Backup (both forms),
+Floorplans (the plan editor — its select and Upload button ride in the plate
+as `actions` — and the room form), Pagination, and Instrument Attributes (the
+key list; its `{kept} keys` count is the plate's action; the profile picker
+above it stays a plain `Card`). Each is a labelled `region` now, which is
+what `pages-hero.test.tsx` and `instrument-attributes.test.tsx` assert. All
+use `columns={1}`: their bodies are stacked controls, not field pairs.
 
 ## Design system (Stage 1 `7ed8329`, Stage 2 2026-08-28)
 

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import useSWR from 'swr';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { FormSection } from '@/components/ui/form-section';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { apiClient } from '@/lib/api-client';
@@ -98,14 +98,7 @@ export function PaginationConfigPage() {
     <div className="space-y-5 max-w-2xl">
       <p className="text-sm text-slate-500">Configure records per page options for all list views.</p>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Page Size Configuration</CardTitle>
-          <CardDescription>
-            Set the maximum page size limit and how many page size options users can choose from on all paginated pages.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
+      <FormSection title="Page Size Configuration" columns={1}>
           {message && (
             <div className={`p-3 rounded-lg text-sm ${
               message.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'
@@ -202,8 +195,7 @@ export function PaginationConfigPage() {
               {saving ? 'Saving...' : 'Save Settings'}
             </Button>
           </div>
-        </CardContent>
-      </Card>
+      </FormSection>
     </div>
   );
 }

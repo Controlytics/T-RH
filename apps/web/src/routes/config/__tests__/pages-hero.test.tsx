@@ -32,6 +32,8 @@ const RESPONSES: Record<string, unknown> = {
     topErrors: [], byTransport: {}, byStatus: {},
   },
   '/api/debug/traces/operation-trace': { enabled: true },
+  '/api/config/pagination': { defaultLimit: 25, maxLimit: 500, optionCount: 4 },
+  '/api/floorplans': { data: [] },
 };
 vi.mock('swr', () => ({
   default: (key: string | null) => {
@@ -92,6 +94,27 @@ describe('configuration and system screens — UI v3 shape', () => {
     const { SystemHealthPage } = await import('../../system-health/index');
     render(<MemoryRouter><SystemHealthPage /></MemoryRouter>);
     heroHas('System Health');
+  });
+  // The four card-based forms rebuilt on FormSection (operator: "do those
+  // four forms also") — each form is a labelled region under the plate.
+  it('Backup: both forms are FormSections', async () => {
+    const { BackupRestorePage } = await import('../backup');
+    render(<MemoryRouter><BackupRestorePage /></MemoryRouter>);
+    heroHas(/backup/i);
+    expect(screen.getByRole('region', { name: 'Create Backup' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Restore from Backup' })).toBeInTheDocument();
+  });
+  it('Pagination: the form is a FormSection', async () => {
+    const { PaginationConfigPage } = await import('../pagination');
+    render(<MemoryRouter><PaginationConfigPage /></MemoryRouter>);
+    expect(screen.getByRole('region', { name: 'Page Size Configuration' })).toBeInTheDocument();
+  });
+  it('Floorplans: the plan editor is a FormSection with its controls in the plate', async () => {
+    const { FloorplansConfigPage } = await import('../floorplans');
+    render(<MemoryRouter><FloorplansConfigPage /></MemoryRouter>);
+    heroHas(/floor/i);
+    const plan = screen.getByRole('region', { name: 'Plan' });
+    expect(plan.contains(screen.getByRole('button', { name: /upload plan/i }))).toBe(true);
   });
   it('Debug traces, with its table on the shared band', async () => {
     const { DebugTracesPage } = await import('../../debug/index');

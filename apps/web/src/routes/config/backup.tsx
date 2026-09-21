@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { FormSection } from '@/components/ui/form-section';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/use-auth';
@@ -225,21 +225,15 @@ export function BackupRestorePage() {
       />
 
       {/* Create Backup */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-slate-100 text-slate-600">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-            </div>
-            <div>
-              <CardTitle>Create Backup</CardTitle>
-              <CardDescription>Download a full backup of all database tables in your preferred format</CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      <FormSection
+        title="Create Backup"
+        columns={1}
+        icon={
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+        }
+      >
           {/* Format Selection */}
           <div>
             <p className="text-sm font-medium text-slate-700 mb-3">Select Backup Format</p>
@@ -304,25 +298,18 @@ export function BackupRestorePage() {
           {exportError && (
             <div className="mt-3 rounded-xl bg-red-50 border border-red-200 p-3 text-sm text-red-700">{exportError}</div>
           )}
-        </CardContent>
-      </Card>
+      </FormSection>
 
       {/* Restore from Backup */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-slate-100 text-slate-600">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-              </svg>
-            </div>
-            <div>
-              <CardTitle>Restore from Backup</CardTitle>
-              <CardDescription>Upload a backup file to restore the database to a previous state</CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      <FormSection
+        title="Restore from Backup"
+        columns={1}
+        icon={
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+          </svg>
+        }
+      >
           {/* File upload area */}
           <div
             className="border-2 border-dashed border-slate-300 rounded-[var(--radius-card)] p-8 text-center hover:border-blue-400 hover:bg-blue-50/30 transition-colors cursor-pointer"
@@ -515,8 +502,7 @@ export function BackupRestorePage() {
               </div>
             </div>
           )}
-        </CardContent>
-      </Card>
+      </FormSection>
 
       {/* Restore Confirmation Dialog */}
       <Dialog open={confirmRestore} onClose={() => setConfirmRestore(false)}>

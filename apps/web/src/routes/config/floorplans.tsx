@@ -7,7 +7,7 @@ import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { FormSection } from '@/components/ui/form-section';
 import type { RoomDoor, DoorWall, DoorKind } from '@/routes/dashboard/room-geometry';
 import { ROOM_GRADES, ROOM_GRADE_META } from '@/routes/dashboard/use-telemetry';
 import { PageHero } from '@/components/ui/page-hero';
@@ -429,14 +429,16 @@ export function FloorplansConfigPage() {
         }
       />
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-4">
-          <CardTitle>Plan</CardTitle>
-          <div className="flex items-center gap-2">
+      <FormSection
+        title="Plan"
+        columns={1}
+        actions={
+          <>
             <select
               value={planId}
               onChange={(e) => { setPlanId(e.target.value); setSelectedRoomId(null); setDraft(null); }}
-              className="ctl"
+              className="ctl h-8 text-slate-900"
+              aria-label="Floor plan"
             >
               {plans.length === 0 && <option value="">No floorplans yet</option>}
               {plans.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -448,13 +450,12 @@ export function FloorplansConfigPage() {
               className="hidden"
               onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadPlan(f); }}
             />
-            <Button variant="outline" onClick={() => fileRef.current?.click()} disabled={uploading}>
+            <Button size="sm" className="border border-white/30 bg-white/10 text-white hover:bg-white/20" onClick={() => fileRef.current?.click()} disabled={uploading}>
               {uploading ? 'Uploading…' : 'Upload plan'}
             </Button>
-          </div>
-        </CardHeader>
-
-        <CardContent>
+          </>
+        }
+      >
           {!plan ? (
             <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
               <p className="text-sm text-slate-600">No floorplan yet.</p>
@@ -591,15 +592,10 @@ export function FloorplansConfigPage() {
               </label>
             </div>
           )}
-        </CardContent>
-      </Card>
+      </FormSection>
 
       {plan && draft && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{selectedRoom ? `Edit ${selectedRoom.code}` : 'New room'}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-5">
+        <FormSection title={selectedRoom ? `Edit ${selectedRoom.code}` : 'New room'} columns={1}>
             <div className="grid gap-4 sm:grid-cols-3">
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700">Room code</label>
@@ -753,8 +749,7 @@ export function FloorplansConfigPage() {
                 Cancel
               </Button>
             </div>
-          </CardContent>
-        </Card>
+        </FormSection>
       )}
 
       <ReauthDialog

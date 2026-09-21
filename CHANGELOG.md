@@ -21,9 +21,13 @@ The last batch. No fetch key, mutation, gate or behaviour changed.
 - **Configuration index:** one medallion for every card, the band gradient,
   in place of nineteen per-card gradients.
 - **Deliberately untouched:** the dashboard (its hero and title were removed at
-  the operator's instruction on 2026-08-29). **Not done:** the four card-based
-  forms (Backup, Floorplans, Pagination, Instrument Attributes) keep their
-  `Card` headers rather than being rebuilt on `FormSection`.
+  the operator's instruction on 2026-08-29).
+- **The four card-based forms followed the same day** (operator: "do those
+  four forms also"): Backup's two forms, the Floorplans plan editor (its plan
+  select and Upload button ride in the plate) and room form, Pagination, and
+  the Instrument Attributes key list (its key count is the plate's action) are
+  `FormSection`s — labelled regions under the gradient plate. Pinned in
+  `pages-hero.test.tsx` (three new cases) and `instrument-attributes.test.tsx`.
 - Verification: `tsc` and `vite build` clean; `npm run check:contrast` passes
   on all ten presets; 7 touched test files pass individually by exit code,
   including the new `pages-hero.test.tsx`. Not seen on screen — the

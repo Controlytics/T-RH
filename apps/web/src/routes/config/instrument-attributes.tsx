@@ -11,7 +11,8 @@ import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Toggle } from '@/components/ui/toggle';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
+import { FormSection } from '@/components/ui/form-section';
 import { PageHero } from '@/components/ui/page-hero';
 import { SkeletonCard } from '@/components/ui/skeleton';
 import { RemarkDialog } from '@/routes/instruments/remark-dialog';
@@ -432,15 +433,14 @@ export function InstrumentAttributesConfigPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-2">
-          <CardTitle>Attribute keys and display names</CardTitle>
-          {/* A count, not a quota. There is no cap (2026-08-07 operator
-              decision) — this is here so an admin can see how long the
-              registration form has become before an operator meets it. */}
-          <span className="text-xs text-slate-500">{kept} key{kept === 1 ? '' : 's'}</span>
-        </CardHeader>
-        <CardContent className="space-y-3">
+      <FormSection
+        title="Attribute keys and display names"
+        columns={1}
+        // A count, not a quota. There is no cap (2026-08-07 operator
+        // decision) — this is here so an admin can see how long the
+        // registration form has become before an operator meets it.
+        actions={<span className="text-xs text-white/85">{kept} key{kept === 1 ? '' : 's'}</span>}
+      >
           {/* The Settings page's ONE non-attribute tile (2026-09-21). Global —
               the Instrument ID is not a profile's key — so it sits above the
               rows rather than among them. */}
@@ -566,8 +566,7 @@ export function InstrumentAttributesConfigPage() {
               </span>
             )}
           </div>
-        </CardContent>
-      </Card>
+      </FormSection>
 
       <div className="flex items-center justify-end gap-3">
         {/* Removing a key does NOT remove it from instruments that already have
