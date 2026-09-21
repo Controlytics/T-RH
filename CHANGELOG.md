@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased] - Audit detail: a multi-line list prints with commas (2026-09-21)
+
+Operator: *"in audit trail record there is no comma in between keys"* — a
+`telemetry-slots` change showed `h_hl h_ll High Humidity Limit …` as one run
+of words. The alias-key settings are stored one key per LINE and the detail
+view's span collapses the line breaks to spaces.
+
+- `maskAuditValue` in `routes/audit/audit-helpers.ts` — the one formatter the
+  Changes row and the full-record panel both read through — now prints a
+  newline-separated string as `a, b, c` (blanks dropped). Single-line values,
+  nulls, objects and masked secrets are unchanged; the stored record is
+  untouched. Neither export prints before/after values, so nothing else moves.
+- Pinned in `audit-helpers.test.ts` (one case covering the formatter and the
+  diff row); 4 audit test files green individually; `tsc` clean.
+
 ## [Unreleased] - UI v3, Batch 4: configuration and system — the design system is on every screen (2026-09-21)
 
 Plan `docs/superpowers/plans/2026-09-21-ui-v3-batch-4-configuration-and-system.md`.

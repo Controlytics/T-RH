@@ -255,6 +255,15 @@ export function maskAuditValue(key: string, value: unknown): string {
   if (SENSITIVE_KEY_RE.test(key)) return '••••••';
   if (value === null || value === undefined) return '-';
   if (typeof value === 'object') return JSON.stringify(value);
+  // A multi-line value is a LIST — the alias-key settings (telemetry-slots,
+  // alarm-limits) store one key per line — and a span collapses its line
+  // breaks to spaces, so it read as one run of words (operator, 2026-09-21:
+  // "no comma in between keys"). Printed with commas, blanks dropped. The
+  // stored value is untouched; this is the one formatter every audit surface
+  // reads through, so the Changes row, the full record and the exports agree.
+  if (typeof value === 'string' && /\r?\n/.test(value)) {
+    return value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean).join(', ');
+  }
   return String(value);
 }
 

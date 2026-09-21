@@ -72,6 +72,19 @@ describe('audit-helpers — before/after diff', () => {
     expect(diffAuditValues(before, after)).toEqual([{ field: 'Name', from: 'A', to: 'B' }]);
   });
 
+  // 2026-09-21, operator: "in audit trail record there is no comma in between
+  // keys". The alias lists (telemetry-slots, alarm-limits) are stored one key
+  // per LINE, and a span collapses the line breaks to spaces, so the record
+  // read `h_hl h_ll High Humidity Limit …` as if it were one run of words.
+  it('maskAuditValue prints a newline-separated list with commas between the items', () => {
+    expect(maskAuditValue('temperatureValuedKeys', 't_hl\nt_ll\nHigh Temperature Limit\n')).toBe('t_hl, t_ll, High Temperature Limit');
+    expect(maskAuditValue('humidityKeys', 'humidity\r\n\r\nh')).toBe('humidity, h');
+    // A single-line value is untouched — no comma appended, no trimming surprise.
+    expect(maskAuditValue('name', 'CWH/RDU/001-00')).toBe('CWH/RDU/001-00');
+    // A diff row goes through the same formatter, so both sides read the same way.
+    expect(diffAuditValues({ keys: 'a\nb' }, { keys: 'a\nb\nc' })).toEqual([{ field: 'Keys', from: 'a, b', to: 'a, b, c' }]);
+  });
+
   it('maskAuditValue handles null and objects', () => {
     expect(maskAuditValue('name', null)).toBe('-');
     expect(maskAuditValue('meta', { a: 1 })).toBe('{"a":1}');
