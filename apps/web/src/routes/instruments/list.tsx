@@ -6,9 +6,11 @@ import { usePaginationConfig } from '@/hooks/use-pagination-config';
 import { isInstrumentReporting, INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN } from '@digilog/shared';
 import { themeGradient, themeGradientBr } from '@/lib/theme-styles';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Pagination } from '@/components/ui/pagination';
+import { PageHero } from '@/components/ui/page-hero';
+import { Toolbar } from '@/components/ui/toolbar';
+import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { SkeletonRows } from '@/components/ui/skeleton';
 
@@ -158,43 +160,25 @@ export function InstrumentListPage() {
 
   return (
     <div className="space-y-6">
-      {/* The one place the brand gradient is spent on this page. */}
-      <div className="relative overflow-hidden rounded-[var(--radius-card)] p-6 text-white shadow-[var(--elev-2)]" style={themeGradient}>
-        <div className="relative z-10 flex flex-wrap items-start justify-between gap-4">
-          <div>
-            {profileId ? (
-              <Link to="/instruments" className="text-[0.6875rem] font-semibold uppercase tracking-[0.2em] text-white/70 hover:text-white">
-                ← All profiles
-              </Link>
-            ) : (
-              <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.2em] text-white/70">Register</p>
-            )}
-            <h1 className="mt-1 text-3xl font-bold">{profile?.name ?? 'Instruments'}</h1>
-            <p className="mt-1 text-sm text-white/80">
-              {profile?.description
-                ?? 'Every device registered to report into this system — and whether it is reporting.'}
-            </p>
-          </div>
-          {can('instruments.create') && (
-            <div className="flex flex-wrap gap-2">
-              <Link to={profileId ? `/instruments/bulk?profileId=${profileId}` : '/instruments/bulk'}>
-                <Button className="border border-white/30 bg-white/10 text-white hover:bg-white/20">
-                  Bulk upload
-                </Button>
-              </Link>
-              <Link to={profileId ? `/instruments/new?profileId=${profileId}` : '/instruments/new'}>
-                <Button className="bg-white text-slate-800 hover:bg-white/90">New instrument</Button>
-              </Link>
-            </div>
-          )}
-        </div>
-        {/* Ambient mast motif — the page's own vocabulary, not generic blobs. */}
-        <div aria-hidden="true" className="pointer-events-none absolute -right-4 bottom-0 flex items-end gap-2 opacity-15">
-          {[24, 44, 68, 96, 120].map((h) => (
-            <span key={h} className="w-4 rounded-t-md bg-white" style={{ height: h }} />
-          ))}
-        </div>
-      </div>
+      {/* UI v3 (2026-09-21): the shared band. A profile view crumbs back to
+          the full list; the "Register" eyebrow and the description sentence
+          went (labels, not prose). */}
+      <PageHero
+        title={profile?.name ?? 'Instruments'}
+        crumbs={profileId
+          ? [{ label: 'Dashboard', to: '/' }, { label: 'Instruments', to: '/instruments' }, { label: profile?.name ?? '…' }]
+          : [{ label: 'Dashboard', to: '/' }, { label: 'Instruments' }]}
+        actions={can('instruments.create') && (
+          <>
+            <Link to={profileId ? `/instruments/bulk?profileId=${profileId}` : '/instruments/bulk'}>
+              <Button className="border border-white/30 bg-white/10 text-white hover:bg-white/20">Bulk upload</Button>
+            </Link>
+            <Link to={profileId ? `/instruments/new?profileId=${profileId}` : '/instruments/new'}>
+              <Button className="bg-white text-slate-800 hover:bg-white/90">New instrument</Button>
+            </Link>
+          </>
+        )}
+      />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <SummaryTile label="Active" value={counts.active} tone="active" active={tileFilter === 'active'} onClick={() => toggle('active')} />
@@ -207,47 +191,38 @@ export function InstrumentListPage() {
         {activeWindow} minute{activeWindow === 1 ? '' : 's'} when it declares none.
       </p>
 
-      <div className="rounded-[var(--radius-card)] border border-slate-200 bg-white p-4">
-        <div className="flex flex-wrap gap-3">
-          <Input
-            className="w-64"
-            placeholder="Search name, code or serial…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+      <Toolbar
+        search={{ name: 'instrument-search', label: 'Search instruments', placeholder: 'Search name, code or serial…', value: search, onChange: setSearch }}
+        filters={
           <Select className="w-40" value={active} onChange={(e) => { setActive(e.target.value); setPage(1); }}>
             <option value="">All statuses</option>
             <option value="true">Active</option>
             <option value="false">Inactive</option>
           </Select>
-          {tileFilter && (
-            <Button variant="ghost" size="sm"
-              type="button"
-              onClick={() => setTileFilter(null)}
-            >
-              Clear {tileFilter} filter
-            </Button>
-          )}
-        </div>
-      </div>
+        }
+        trailing={tileFilter && (
+          <Button variant="ghost" size="sm" type="button" onClick={() => setTileFilter(null)}>
+            Clear {tileFilter} filter
+          </Button>
+        )}
+      />
 
-      <div className="overflow-hidden rounded-[var(--radius-card)] border border-slate-200 bg-white">
-        <table className="tbl w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-200 bg-slate-50/80 text-left">
-              <th className="px-4 py-3 text-[0.6875rem] font-semibold uppercase tracking-wider text-slate-500">Instrument ID</th>
-              <th className="px-4 py-3 text-[0.6875rem] font-semibold uppercase tracking-wider text-slate-500">Status</th>
-              <th className="px-4 py-3" />
+      <Table>
+          <TableHeader>
+            <tr>
+              <TableHead>Instrument ID</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead />
             </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
+          </TableHeader>
+          <TableBody>
             {isLoading && (
               <tr><td colSpan={3} className="px-4 py-4"><SkeletonRows rows={4} columns={3} /></td></tr>
             )}
 
             {!isLoading && rows.length === 0 && (
-              <tr>
-                <td colSpan={3} className="px-4 py-14 text-center">
+              <TableRow>
+                <TableCell colSpan={3} className="py-14 text-center">
                   <div
                     className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-[var(--radius-card)] text-white shadow-[var(--elev-1)]"
                     style={themeGradientBr}
@@ -269,21 +244,21 @@ export function InstrumentListPage() {
                       <Button>Register the first instrument</Button>
                     </Link>
                   )}
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             )}
 
             {!isLoading && rows.length > 0 && shown.length === 0 && (
-              <tr>
-                <td colSpan={3} className="px-4 py-12 text-center text-sm text-slate-500">
+              <TableRow>
+                <TableCell colSpan={3} className="py-12 text-center text-sm text-slate-500">
                   Nothing on this page is {tileFilter === 'gateway' ? 'a gateway' : tileFilter}.
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             )}
 
             {shown.map(({ row: r, reporting }) => (
-              <tr key={r.id} className="group transition-colors hover:bg-slate-50/70">
-                <td className="px-4 py-3">
+              <TableRow key={r.id} className="group">
+                <TableCell>
                   {/* The INSTRUMENT ID leads, with the name beneath.
                       `code` is the Instrument ID throughout this product — the
                       create form labels that field "Instrument ID *", the detail
@@ -306,8 +281,8 @@ export function InstrumentListPage() {
                     </span>
                     <span className="text-xs text-slate-500">{r.name}</span>
                   </Link>
-                </td>
-                <td className="px-4 py-3">
+                </TableCell>
+                <TableCell>
                   <span className="flex flex-wrap items-center gap-1.5">
                     {/* Hand-rolled dot-plus-word before this: the same construction
                         StatusBadge exists to provide, in its own greens. */}
@@ -322,8 +297,8 @@ export function InstrumentListPage() {
                       </span>
                     )}
                   </span>
-                </td>
-                <td className="px-4 py-3 text-right">
+                </TableCell>
+                <TableCell className="text-right">
                   <Link
                     to={`/instruments/${r.id}`}
                     className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50"
@@ -333,12 +308,11 @@ export function InstrumentListPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
                   </Link>
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </TableBody>
+        </Table>
 
       <Pagination
         page={page}
