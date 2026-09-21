@@ -1,5 +1,113 @@
 # Changelog
 
+## [Unreleased] - Alarm status wording repaired: `Cleared â€” Unacknowledged` (2026-09-21)
+
+Operator: *"in alarm page in middle of the text symbols coming"*. Not a
+rendering bug — the STORED wording was wrong.
+
+- **Cause, from the audit trail.** The `alarm-limits` config row was rewritten
+  on 2026-09-16 14:04 by a Python client (`Python-urllib/3.14`, an agent's PUT
+  to repoint the alias keys) that read the row through Windows' default
+  codepage and sent it back as UTF-8. Each em dash in `statusActiveAck` and
+  `statusClearedUnack` became `â€”`. That CONFIG_CHANGED row's before-value
+  still holds the correct text; the shipped defaults in `@digilog/shared` were
+  never wrong. Only that one row, of 32, carried the fault; `alarms`,
+  `instrument_attributes` and the rest were clean.
+- **Repaired with the new `apps/api/scripts/repair-config-mojibake.ts`**, dry
+  run by default, `--apply` to execute. It reverses the exact fault — every
+  character mapped back to its Windows-1252 byte, the bytes decoded as strict
+  UTF-8, and only a value where all of that succeeds and differs is touched —
+  so ordinary text is never "corrected". Each repaired row is written with an
+  audited CONFIG_CHANGED (whole row before and after, targetType `config`),
+  the same record the dynamic PUT writes. Applied: 2 values on `alarm-limits`,
+  audit row 5765; 0 rows still carry the bytes; the chain shows only the 10
+  July anomalies (positions 67..360).
+- **No code changed.** The Alarms page reads these wordings live from
+  `/api/config/alarm-limits/status-texts`, so a refresh shows the fix.
+
+## [Unreleased] - All alarm data purged once, on the local database (2026-09-21)
+
+Operator: *"once remove all the alarms data"*. Asked which database and whether
+to record it, they chose the LOCAL database only and ONE audit row.
+
+- **Done, 2026-09-21 12:56 IST, `compliance_core_db` only.** 225 alarms
+  (1 limit ACTIVE, 73 limit CLEARED, 99 inactivity ACTIVE, 52 inactivity
+  CLEARED, 0 acknowledged, raised 2026-09-03..2026-09-21) and 881 alarm webhook
+  delivery receipts deleted in one transaction. AWS untouched.
+- **New script `apps/api/scripts/purge-alarms.ts`**, dry run by default,
+  `--apply` to execute. Receipts first (`alarm_webhook_deliveries.alarm_id` is
+  ON DELETE RESTRICT), then alarms, then the audit row — all or nothing, and it
+  rolls back if the counts moved between the count and the delete. The audit
+  row goes through the app's logger so the chain stays linked; a raw INSERT
+  would break it.
+- **New audit action `ALARMS_PURGED`** (+ template, `Instruments` category,
+  generic `{actor}` only): actions 102 → **103**, templates 96 → **97**,
+  categories unchanged. Written by the script only — no route deletes an
+  alarm and none was added. Docs re-derived (`grep -cE`).
+- **Chain state after:** `verifyAuditChain()` → `intact: false`, 10 anomalies,
+  ALL at positions 67..360 — the July test-guard corruption already on record.
+  The new row at position 5764 links correctly. Nothing new is broken.
+- **What happened next, as the script's header says it would:** the minute
+  cron at 12:57:00 re-raised 100 alarms for the plant's CURRENT state — 99
+  inactivity (every silent instrument) and 1 high-temperature on CWH/RDU/001-00,
+  this time frozen at today's bound (21.5 against `t_hl` 20.5) — with 210
+  webhook delivery attempts logged in the first minutes. The purge removed the
+  history; it did not change what the plant is doing.
+
+## [Unreleased] - Which fields the Settings page shows is administered (2026-09-21)
+
+Operator: *"in settings page what attributes and details should display in one
+configuration page, in that configuration page any attribute or any field hide,
+then that field should not show in the settings page, in configuration page give
+hid/un hide options"*. Asked whether "details" meant the Instrument ID alone
+(the widget's only non-attribute tile) or also Name / Type / Profile / location,
+they took the first.
+
+- **Where.** Configuration → Instrument Attributes — the page that already has
+  one row per key with its display name — gains a **Show in Settings** toggle
+  per row and one for the **Instrument ID** tile above the rows. No new
+  configuration page or card (the 2026-09-16 "dont give as seperate
+  configuration" precedent).
+- **What is stored.** A second setting on the existing `attribute-labels` row:
+  `settingsHidden: {instrumentId: boolean, keys: string[]}` — the HIDDEN set,
+  so a key added to a profile tomorrow shows until someone switches it off.
+  Global like the names, edited per profile, written whole in the same save and
+  merged by the same rules (`mergeSettingsHidden`, pure, exported beside
+  `mergeLabels`): a row decides its own key, a renamed row carries its switch,
+  a key that left this profile drops out unless another profile still lists it.
+  **No count moved** — no def, page, route, hook, permission, migration or enum.
+- **Reader.** `coerceSettingsHidden()` / `isHiddenInSettings()` in
+  `@digilog/shared` (+ `SETTINGS_HIDDEN_NONE`, `SettingsHidden`). Absent, older
+  or malformed reads as nothing hidden — never as hide-everything. The def's
+  zod refuses a bad shape and accepts the field's ABSENCE, so a client that
+  predates it still saves. `GET /api/config/attribute-labels/current` returns
+  the coerced set beside the labels, both inner keys declared in the response
+  schema (Fastify strips an undeclared one silently; mutation-checked).
+  `useAttributeLabels()` returns `settingsHidden` / `isHiddenInSettings(key)`
+  beside `labelFor` — one fetch, so a tile cannot be labelled and hidden from
+  two versions of the row.
+- **Settings page.** Filters its attribute tiles and the Instrument ID tile by
+  the set; in Edit a hidden field has NO input, so nothing on that page can
+  write it. Header line now reads "the fields configured for it".
+- **Scope, stated plainly.** Presentation over the Settings page ONLY, per the
+  request. The attribute is still stored, still served by the API, still on the
+  instrument detail page, the New Instrument form and the bulk template, and
+  Attribute Access still decides who may edit it. A key typed freely on one
+  instrument — one no profile lists — has no row on the config page and
+  always shows.
+- **Tests.** 5 shared unit (`attribute-labels.test.ts`), 3 API e2e
+  (`attribute-labels.e2e.test.ts`; the unset-row case now asserts the new
+  field), 2 hook, 5 Instrument Attributes page (toggle state incl. case-fold,
+  toggle-only dirty + save body + no profile rewrite, un-hide, rename
+  carry-over + another-profile keep, only-profile drop; the two existing save
+  assertions grew the field), 3 Settings page (hidden key, hidden ID, Edit
+  writes neither). Mutation-checked: the response schema (3 e2e fail), the
+  Settings filter (3 fail), the merge's left-this-profile rule (2 fail).
+  `tsc --noEmit` both apps and `vite build` clean.
+- **Not verified:** on screen. The operator holds the browser session; the
+  layout of the toggle column (a compact Key / Display name / Settings header
+  row was added above the key rows) is the thing that needs their eye.
+
 ## [Unreleased] - Home sidebar item and Module Guide page removed (2026-09-19)
 
 Operator: *"remove home feature from side bar from entire application, i dont
