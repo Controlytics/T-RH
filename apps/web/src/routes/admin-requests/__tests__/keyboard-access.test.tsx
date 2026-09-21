@@ -60,6 +60,8 @@ describe('M83 — admin-requests keyboard accessibility', () => {
 
   it('exposes the request row as a focusable, labelled control', () => {
     render(<AdminRequestsPage />);
+    // UI v3 (2026-09-21): the search rides INSIDE the hero band, with a name.
+    expect(screen.getByTestId('page-hero').contains(screen.getByRole('textbox', { name: 'Search requests' }))).toBe(true);
     const row = getRow();
     expect(row.tagName).toBe('TR');
     expect(row).toHaveAttribute('tabIndex', '0');

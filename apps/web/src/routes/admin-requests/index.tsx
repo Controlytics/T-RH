@@ -9,7 +9,9 @@ import { apiClient } from '@/lib/api-client';
 import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
 import { Pagination } from '@/components/ui/pagination';
 import { Button } from '@/components/ui/button';
-import { PageHeader } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
+import { Toolbar } from '@/components/ui/toolbar';
+import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
 import { SkeletonRows } from '@/components/ui/skeleton';
 
 const TYPE_CFG: Record<string, { label: string; bg: string; text: string; border: string; icon: string }> = {
@@ -31,11 +33,16 @@ const STATUS_CFG: Record<string, { label: string; bg: string; text: string; bord
 };
 
 // Full static class strings (no interpolation) so Tailwind's scanner keeps them.
+/**
+ * UI v3 (2026-09-21): the four filter cards read the `--status-*` tokens, so
+ * "Pending" here is the same amber as a pending badge anywhere else. `cyan`
+ * (All) is the theme's own colour. Keys unchanged — STAT_CARDS names them.
+ */
 const STAT_ACCENTS: Record<string, { iconBg: string; ring: string }> = {
-  cyan: { iconBg: 'bg-cyan-50 text-cyan-600', ring: 'border-cyan-300 ring-2 ring-cyan-100' },
-  amber: { iconBg: 'bg-amber-50 text-amber-600', ring: 'border-amber-300 ring-2 ring-amber-100' },
-  emerald: { iconBg: 'bg-emerald-50 text-emerald-600', ring: 'border-emerald-300 ring-2 ring-emerald-100' },
-  rose: { iconBg: 'bg-rose-50 text-rose-600', ring: 'border-rose-300 ring-2 ring-rose-100' },
+  cyan: { iconBg: 'bg-[var(--theme-primary,#2a78d6)] text-white', ring: 'border-[var(--theme-primary,#2a78d6)] ring-2 ring-[var(--surface-tint-2)]' },
+  amber: { iconBg: 'bg-[var(--status-warn-dot)] text-white', ring: 'border-[var(--status-warn-dot)] ring-2 ring-[var(--status-warn-bg)]' },
+  emerald: { iconBg: 'bg-[var(--status-ok-dot)] text-white', ring: 'border-[var(--status-ok-dot)] ring-2 ring-[var(--status-ok-bg)]' },
+  rose: { iconBg: 'bg-[var(--status-danger-dot)] text-white', ring: 'border-[var(--status-danger-dot)] ring-2 ring-[var(--status-danger-bg)]' },
 };
 
 const ICON = {
@@ -228,33 +235,26 @@ export function AdminRequestsPage() {
     <div className="h-full flex flex-col">
       {/* Header */}
       <div className="px-6 pt-5 pb-4 border-b border-slate-100 bg-white shrink-0 space-y-4">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <PageHeader
-            title='Admin Requests'
-            crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Admin Requests' }]}
-            icon={
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-              </svg>
-            }
-          />
-
-          {/* Search */}
-          <div className="relative w-full sm:w-72">
-            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" />
+        {/* UI v3 (2026-09-21): the shared band, the search inside it. */}
+        <PageHero
+          title="Admin Requests"
+          crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Admin Requests' }]}
+          icon={
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
             </svg>
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search requester or ID…"
-              className="ctl w-full"
-            />
-            {search && (
-              <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 text-lg leading-none">×</button>
-            )}
-          </div>
-        </div>
+          }
+        >
+          <Toolbar
+            className="border-0 bg-transparent p-0 shadow-none"
+            search={{ name: 'admin-request-search', label: 'Search requests', placeholder: 'Search requester or ID…', value: search, onChange: setSearch }}
+            trailing={search ? (
+              <Button variant="ghost" size="sm" type="button" className="text-white hover:bg-white/15 hover:text-white" onClick={() => setSearch('')}>
+                Clear
+              </Button>
+            ) : undefined}
+          />
+        </PageHero>
 
         {/* Stat / filter cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -304,18 +304,18 @@ export function AdminRequestsPage() {
             )}
           </div>
         ) : (
-          <table className="tbl w-full">
-            <thead className="sticky top-0 z-10">
-              <tr className="bg-slate-50 border-b border-slate-200">
+          <Table>
+            <TableHeader>
+              <tr>
                 {['Requester', 'Type', 'Status', 'Submitted', 'Time', ''].map((h, i) => (
                   // The last header is the empty action column — it labels no
                   // column of data, so it gets no scope (an unscoped empty th is
                   // announced as a stray column header by screen readers).
-                  <th key={i} scope={h ? 'col' : undefined} className="text-left px-5 py-3 text-[0.6875rem] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap bg-slate-50">{h}</th>
+                  <TableHead key={i} scope={h ? 'col' : undefined} className="whitespace-nowrap">{h}</TableHead>
                 ))}
               </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 bg-white">
+            </TableHeader>
+            <TableBody>
               {pagedRequests.map((req: any) => {
                 const tc = TYPE_CFG[req.requestType] ?? { label: req.requestType, bg: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200', icon: '?' };
                 const sc = STATUS_CFG[req.status] ?? { label: req.status, bg: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200', dot: 'bg-slate-400' };
@@ -329,7 +329,7 @@ export function AdminRequestsPage() {
                   // `onClick`-only, which locked keyboard/AT users out of the
                   // approval queue entirely. role=button + tabIndex + Enter/Space
                   // is the standard non-native-control pattern.
-                  <tr key={req.id} className={`hover:bg-cyan-50/30 transition-colors group cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-500 ${isPending ? 'bg-amber-50/20' : ''}`}
+                  <TableRow key={req.id} className={`group cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--theme-primary,#2a78d6)] ${isPending ? 'bg-[var(--status-warn-bg)]' : ''}`}
                     role="button"
                     tabIndex={0}
                     aria-label={`${isPending ? 'Review' : 'View'} ${tc.label} request from ${req.requesterName}`}
@@ -340,7 +340,7 @@ export function AdminRequestsPage() {
                         openRequest();
                       }
                     }}>
-                    <td className="px-5 py-3.5">
+                    <TableCell>
                       <div className="flex items-center gap-3">
                         <span className="grid place-items-center w-9 h-9 rounded-full bg-cyan-100 text-cyan-700 font-bold text-[0.8125rem] shrink-0">
                           {(req.requesterName ?? '?')[0].toUpperCase()}
@@ -350,32 +350,32 @@ export function AdminRequestsPage() {
                           {req.requesterEmployeeId && <div className="text-[0.6875rem] text-slate-400">{req.requesterEmployeeId}</div>}
                         </div>
                       </div>
-                    </td>
-                    <td className="px-5 py-3.5">
+                    </TableCell>
+                    <TableCell>
                       <span className={`inline-flex items-center gap-1.5 text-[0.6875rem] px-2.5 py-1 rounded-full border font-bold ${tc.bg} ${tc.text} ${tc.border}`}>
                         <span className="grid place-items-center w-4 h-4 rounded-full bg-white/70 text-[0.625rem] leading-none">{tc.icon}</span>
                         {tc.label}
                       </span>
-                    </td>
-                    <td className="px-5 py-3.5">
+                    </TableCell>
+                    <TableCell>
                       <span className={`inline-flex items-center gap-1.5 text-[0.6875rem] px-2.5 py-1 rounded-full border font-bold ${sc.bg} ${sc.text} ${sc.border}`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
                         {sc.label}
                       </span>
-                    </td>
-                    <td className="px-5 py-3.5 text-[0.8125rem] text-slate-600 whitespace-nowrap tabular-nums">{formatDateTime(req.requestedAt)}</td>
-                    <td className="px-5 py-3.5 text-[0.75rem] text-slate-400">{timeAgo(req.requestedAt)}</td>
-                    <td className="px-5 py-3.5 text-right">
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-[0.8125rem] tabular-nums text-slate-600">{formatDateTime(req.requestedAt)}</TableCell>
+                    <TableCell className="text-[0.75rem] text-slate-400">{timeAgo(req.requestedAt)}</TableCell>
+                    <TableCell className="text-right">
                       <span className="inline-flex items-center gap-1 text-[0.75rem] font-semibold text-cyan-600 opacity-60 group-hover:opacity-100 transition-opacity">
                         {isPending ? 'Review' : 'View'}
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                       </span>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 );
               })}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         )}
       </div>
 
