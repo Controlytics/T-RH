@@ -1,4 +1,4 @@
-import { PageHeader } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
 import { InstrumentHistoryWidget } from '@/routes/instruments/history-widget';
 import { GenerateReportCard } from './generate-report-card';
 import { useHistoryScope } from './use-history-scope';
@@ -25,10 +25,9 @@ export function DataReportPage() {
   const scope = useHistoryScope();
   return (
     <div>
-      <PageHeader
+      <PageHero
         className="mb-6"
         title="Data Report"
-        description="Readings of a Block, an Area or chosen instruments over a period, and the Data Report download for the selection."
         crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Data Report' }]}
         icon={
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

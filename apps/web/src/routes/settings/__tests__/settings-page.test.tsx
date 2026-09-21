@@ -127,6 +127,8 @@ describe('SettingsPage', () => {
   it('names the screen once; the picker offers exactly the instruments the server returned, and the first is shown', () => {
     mount();
     expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    // UI v3 (2026-09-21): the picker rides INSIDE the band, not in a bar under it.
+    expect(screen.getByTestId('page-hero').contains(screen.getByRole('button', { expanded: false }))).toBe(true);
     openPicker();
     const options = screen.getAllByRole('option').map((o) => o.textContent);
     expect(options).toEqual(['CWH/RDU/001-00', 'CWH/RDU/002-00']);

@@ -45,6 +45,8 @@ describe('DataReportPage', () => {
       </MemoryRouter>,
     );
     expect(screen.getByRole('heading', { name: 'Data Report' })).toBeInTheDocument();
+    // UI v3 (2026-09-21): the screen opens with the shared band.
+    expect(screen.getByTestId('page-hero')).toBeInTheDocument();
     expect(screen.getByTestId('history-widget')).toBeInTheDocument();
     // The widget's Block / Area / interval controls are there.
     expect(screen.getByLabelText('Block')).toBeInTheDocument();

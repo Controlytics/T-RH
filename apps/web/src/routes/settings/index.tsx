@@ -10,8 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import { apiClient } from '@/lib/api-client';
 import { useAttributeLabels } from '@/hooks/use-attribute-labels';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
-import { themeGradient } from '@/lib/theme-styles';
-import { PageHeader } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
 import { Button } from '@/components/ui/button';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { type StatusTone } from '@/components/ui/status-badge';
@@ -295,9 +294,8 @@ export function SettingsPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader
+      <PageHero
         title="Settings"
-        description="Pick an instrument; the widget shows the fields configured for it."
         crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Settings' }]}
         icon={
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -305,14 +303,11 @@ export function SettingsPage() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
           </svg>
         }
-      />
-
-      {/* Common settings: the one control every widget on this page reads. */}
-      <section
-        aria-label="Common settings"
-        className="flex flex-wrap items-center gap-4 rounded-[var(--radius-card)] border border-slate-200 bg-white px-5 py-4 shadow-[var(--elev-1)]"
       >
-        <span className="text-xs font-bold uppercase tracking-[0.08em] text-slate-600">Instrument</span>
+        {/* Common settings: the one control every widget on this page reads.
+            Inside the band (UI v3, 2026-09-21), not in a bar under it. */}
+        <section aria-label="Common settings" className="flex flex-wrap items-center gap-4">
+          <span className="text-xs font-bold uppercase tracking-[0.08em] text-white/85">Instrument</span>
         <SearchableSelect
           value={selected?.id ?? ''}
           onChange={pick}
@@ -323,10 +318,11 @@ export function SettingsPage() {
           className="w-72"
         />
         {!isLoading && !error && options.length === 0 && (
-          <span className="text-sm text-slate-500">No instruments are assigned to you.</span>
+          <span className="text-sm text-white/85">No instruments are assigned to you.</span>
         )}
-        {error && <span className="text-sm text-red-700">The instruments could not be loaded. Try again.</span>}
-      </section>
+        {error && <span className="text-sm font-medium text-white">The instruments could not be loaded. Try again.</span>}
+        </section>
+      </PageHero>
 
       {selected && (
         <div
@@ -335,7 +331,7 @@ export function SettingsPage() {
         >
           {/* The one bold element: the site-theme band, the code large, the
               instrument's state and last report beside it. */}
-          <div className="relative px-6 py-5 text-white" style={themeGradient}>
+          <div className="relative px-6 py-5 text-white" style={{ background: 'var(--band-gradient)' }}>
             <div
               aria-hidden
               className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full bg-white/10"
