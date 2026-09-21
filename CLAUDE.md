@@ -1212,6 +1212,44 @@ GET    /api/config/report-approvers/current     — the administered approver ro
   in `apps/api/src/modules/floorplans/qc-layout.ts` and the generator is
   bypassed for that area alone. **No count moved** — no model, enum, migration,
   permission, module, config def or route; 23 rows in `floorplan_rooms` changed.
+  - **RE-TRACED FROM THE ARCHITECTURAL DRAWING on 2026-09-21** (operator: "in
+    layouts folder, in cwh subfolder there is qc layout image check that image
+    once" … "and instrument ids should be remain those areas only"). **The
+    2026-08-31 trace was taken from `QC Layout.png` at the repo ROOT, which is
+    a MOCKUP made from the drawing** (tinted rooms, live readings, a legend,
+    landscape 1204x1046, building 1.11 wide-to-tall); **the drawing is
+    `Layouts/CWH/QC Layout.png`** (portrait 599x802, building 0.74), and the
+    dimension strings written on it add up to the drawing's proportions, not
+    the mockup's. Every rectangle and door in `qc-layout.ts` is now measured
+    from the drawing; `QC_BUILDING` is `{13,5,591,791}` px and the plan's
+    canvas 578x786. **Nothing that identifies a room moved**: codes, names,
+    `fch`/`dims`, and all 12 instrument placements are unchanged (verified by
+    SQL before and after — each instrument sits in the room of the same code).
+    Applied by `draw-cwh-floorplan.ts --only QC --apply`: 23 rooms deleted, 22
+    created, one audit row each. What follows in this bullet is kept as
+    history; where it names a specific it is the MOCKUP's, and these are the
+    corrections:
+    - Rooms are 22, not 23: the mockup's **AIRLOCK and SHAFT-W do not exist on
+      the drawing** and are gone; **CORRIDOR-08 is now THREE rectangles**
+      (`CWH-I/217`, `(2)`, `(3)`) because the CHANGE ROOM's top wall sits
+      inside the corridor band and the short piece above it needed its own
+      box. Coverage is exactly 1.0 — the table tessellates.
+    - **HPLC ROOM HAS TWO DOORS** onto the corridor leg (wall gaps at y
+      324..355 and 574..606). The "drawn with NO door" finding below was the
+      mockup's, not the drawing's. DISSOLUTION ROOM-I also has a SECOND door;
+      SAMPLE DESTRUCTION's door is at the LEFT third of its bottom wall (the
+      mockup had it at the right end); SAMPLE PREPARATION's top door is at the
+      RIGHT end (the mockup had it at the left).
+    - `canvasFor(23)` vs the building no longer "happen to agree" — the
+      generator picks a landscape box and the building is portrait. The bypass
+      is now load-bearing, not free.
+    - The mockup's two airflow arrows are not on the drawing and are gone
+      (`airflow: []`). The two `W` water circles and the exhaust arrows are
+      still outside the east wall on the drawing too, and are still clipped /
+      moved as described below; the pixel numbers there (x=1190, wall 1108)
+      are the mockup's.
+    - **`Layouts/CWH/` also holds `QC 3 Layout.png` and `Microbiology.png`.
+      Those two floors are STILL GENERATED plans** — not traced, not asked for.
   - **Room codes on this plan are ROOM numbers (`CWH-I/216`..`/233`), not
     instrument codes**, and `label` carries the room name. That reverses the
     premise recorded against `GET /api/alarms` above — see it for what follows.

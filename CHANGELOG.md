@@ -1,5 +1,42 @@
 # Changelog
 
+## [Unreleased] - QC floor re-traced from the architectural drawing (2026-09-21)
+
+Operator: *"in layouts folder, in cwh subfolder there is qc layout image check
+that image once"*, then *"and instrument ids should be remain those areas
+only"*; chose a full re-trace when the check showed the plan did not match.
+
+- **The 2026-08-31 trace had the wrong source.** It was measured from
+  `QC Layout.png` at the repo root, which is a MOCKUP made from the drawing
+  (tinted rooms, live readings, a legend; landscape, building 1.11 wide to
+  tall). The drawing is `Layouts/CWH/QC Layout.png` (portrait, building 0.74),
+  and the dimension strings written on it add up to the drawing's proportions.
+  Against it the drawn plan had the north rooms too deep, two doors at the
+  wrong end of their walls (SAMPLE DESTRUCTION, SAMPLE PREPARATION), HPLC
+  ROOM sealed where the drawing gives it two corridor doors, DISSOLUTION
+  ROOM-I missing its second door, an AIRLOCK and a west shaft that are not on
+  the drawing, and the CHANGE ROOM's top wall in the wrong band.
+- **Every rectangle and door in `qc-layout.ts` is now measured from the
+  drawing** (wall runs scanned, door gaps cross-checked against the swing
+  arcs, then read off gridded crops). `QC_BUILDING` = `{13,5,591,791}` px, the
+  plan's canvas 578x786. 22 rooms: AIRLOCK and SHAFT-W gone, CORRIDOR-08 in
+  three pieces (`CWH-I/217`, `(2)`, `(3)`). The table tessellates exactly
+  (coverage 1.0). Annotations re-measured; the mockup's two airflow arrows are
+  not on the drawing and are gone.
+- **Nothing that identifies a room moved.** Codes, names, `fch` / `dims` and
+  all 12 instrument placements are unchanged; the script re-links each
+  instrument by the room code, and a before / after SQL check shows every
+  instrument in the room of the same code. `Layouts/` is now committed so the
+  header comment's source path resolves.
+- Applied to the local database with `draw-cwh-floorplan.ts --only QC
+  --apply`: plan reshaped, 23 rooms deleted and 22 created, one audit row
+  each; the other seven plans untouched (room counts checked). **AWS has not
+  been redrawn** — run the same command there when this deploys.
+- `qc-layout.test.ts`'s canonical wall grid updated to the drawing's
+  positions; 12/12 green by exit code; API `tsc` clean. **`QC 3 Layout.png`
+  and `Microbiology.png` sit beside the QC drawing and those two floors are
+  still GENERATED plans** — not traced, not asked for.
+
 ## [Unreleased] - Audit detail: a multi-line list prints with commas (2026-09-21)
 
 Operator: *"in audit trail record there is no comma in between keys"* — a

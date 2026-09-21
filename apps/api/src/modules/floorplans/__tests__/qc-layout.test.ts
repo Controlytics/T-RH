@@ -67,8 +67,8 @@ describe('QC floor layout', () => {
     // Shared walls must be quoted identically by both rooms that touch them.
     // Asserting membership of one measured set is what stops a local rounding
     // from opening a seam that no room's own numbers look wrong.
-    const XS = new Set([26, 34, 42, 85, 263, 298, 310, 424, 536, 718, 723, 755, 826, 917, 953, 1089, 1099, 1108]);
-    const YS = new Set([21, 27, 156, 223, 362, 394, 426, 586, 688, 799, 868, 992, 996]);
+    const XS = new Set([13, 97, 156, 163, 202, 272, 381, 404, 440, 488, 510, 586, 591]);
+    const YS = new Set([5, 92, 155, 229, 240, 288, 567, 641, 681, 700, 791]);
     for (const r of QC_ROOMS) {
       const b = rect(r.px);
       expect(XS.has(b.x0), `${r.code} left ${b.x0} off-grid`).toBe(true);
