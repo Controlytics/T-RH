@@ -65,6 +65,17 @@
   --status-info-ink: #075985;    --status-info-bg: #e0f2fe;    --status-info-dot: #0284c7;
   --status-idle-ink: #334155;    --status-idle-bg: #f1f5f9;    --status-idle-dot: #64748b;
 
+  /* ── Design tokens: v3 (2026-09-21) ──────────────────────────────────────
+     Everything below derives from the --theme-* variables lib/themes.ts sets,
+     so all ten presets work with no per-preset edit. */
+  --text-figure: 2rem;              /* 32px semibold tabular — the ONE number on a StatCard */
+  --text-figure--line-height: 2.25rem;
+  --text-figure-lg: 2.5rem;         /* 40px — a hero figure tile */
+  --text-figure-lg--line-height: 2.75rem;
+  --surface-tint-1: color-mix(in srgb, var(--theme-primary, #2a78d6) 6%, white);
+  --surface-tint-2: color-mix(in srgb, var(--theme-primary, #2a78d6) 12%, white);
+  --band-gradient: linear-gradient(90deg, var(--theme-gradient-from, #2a78d6), var(--theme-gradient-to, #1e3a5f));
+
   /* Primary brand colors - Professional navy blue */
   --color-primary: #1e3a5f;
   --color-primary-foreground: #ffffff;
