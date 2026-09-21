@@ -1025,6 +1025,32 @@ forever without throwing. Return module-level constants (see the Users test's
 `RESPONSES`). And the real `usePaginationDefaults` returns `options`, not
 `pageSizeOptions` — the shared `Pagination` calls `.includes` on it.
 
+**Batch 4 landed the same day — configuration and system — and closes UI v3:
+the design system is now on every screen.** Twenty-one pages (the
+Configuration index, every page under `routes/config/` incl. the dynamic
+config page, Roles & Access and Help, System Health, Debug traces) open with
+`PageHero`; the six that held the header beside sibling controls carry them
+as `actions`; Help and Roles & Access lost their own emerald / violet
+gradients and their back-arrow links (the crumb is that hop). Eight raw
+tables (`access-matrix`, `action-reauth`, `alarm-webhooks` ×2,
+`export-options`, `help`, `notification-rules`, `notification-logs`,
+`debug`) were rewritten onto the shared `Table` by a tokenising transformer
+(row and cell attributes preserved; `className` dropped from
+table/thead/tbody/th; header rows' grey classes stripped after). **There is
+ONE `FormSection` now**: `components/ui/form-section.tsx`;
+`form-field.tsx` re-exports it (it accepts and ignores the old
+`description`), so the dynamic config page's groups wear the gradient plate
+with no page edit. The Configuration index's medallions are the band
+gradient — the nineteen per-card gradients (`card.gradient`, still in the
+data, unused) went for the reason the old PageHeader comment gave.
+`config/__tests__/pages-hero.test.tsx` mounts the index, Password Policy,
+Date/Time, System Health and Debug. **Deliberately untouched across all four
+batches:** the dashboard (see Batch 2). **Not done:** per-page `FormSection`
+rewrites of the card-based forms on `backup`, `floorplans`, `pagination` and
+`instrument-attributes` — they still use `Card`/`CardHeader`, which is a
+shared primitive, and rebuilding four working forms for a plate was judged
+not worth the risk; say so if they should follow.
+
 ## Design system (Stage 1 `7ed8329`, Stage 2 2026-08-28)
 
 Tokens live in `src/app.css` `@theme`; primitives in `src/components/ui/`.

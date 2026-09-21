@@ -1,5 +1,34 @@
 # Changelog
 
+## [Unreleased] - UI v3, Batch 4: configuration and system — the design system is on every screen (2026-09-21)
+
+Plan `docs/superpowers/plans/2026-09-21-ui-v3-batch-4-configuration-and-system.md`.
+The last batch. No fetch key, mutation, gate or behaviour changed.
+
+- **Twenty-one screens on `PageHero`:** the Configuration index, every page
+  under Configuration including the dynamic config page, Roles & Access and
+  Help, System Health and Debug traces. Six pages that held the header beside
+  sibling controls now carry them in the band. Roles & Access and Help lose
+  their own violet and emerald gradients for the theme band, and their
+  back-arrow links — the breadcrumb is that hop.
+- **Eight raw tables onto the shared band:** Configuration Access, Action
+  Re-authentication, Alarm Webhooks (two), Export Options, Help, Notification
+  Rules, Notification Logs, Debug traces. Rewritten by a tokenising transformer
+  that keeps every row and cell attribute.
+- **One `FormSection`.** The pre-v3 one in `form-field.tsx` is now a re-export
+  of the v3 primitive, so the dynamic config page's groups wear the gradient
+  plate. Its old description sentence is accepted and not rendered.
+- **Configuration index:** one medallion for every card, the band gradient,
+  in place of nineteen per-card gradients.
+- **Deliberately untouched:** the dashboard (its hero and title were removed at
+  the operator's instruction on 2026-08-29). **Not done:** the four card-based
+  forms (Backup, Floorplans, Pagination, Instrument Attributes) keep their
+  `Card` headers rather than being rebuilt on `FormSection`.
+- Verification: `tsc` and `vite build` clean; `npm run check:contrast` passes
+  on all ten presets; 7 touched test files pass individually by exit code,
+  including the new `pages-hero.test.tsx`. Not seen on screen — the
+  Configuration index, Roles & Access and Help first.
+
 ## [Unreleased] - UI v3, Batch 3: people and records (2026-09-21)
 
 Plan `docs/superpowers/plans/2026-09-21-ui-v3-batch-3-people-and-records.md`.
