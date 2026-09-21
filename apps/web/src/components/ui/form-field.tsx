@@ -103,50 +103,13 @@ export function FormField({
 /**
  * A titled group of fields inside a configuration screen.
  *
- * The unit that turns a stack of inputs into a form someone can scan: a heading
- * naming what the group decides, an optional sentence saying why it matters, and
- * a grid that puts related fields side by side instead of one per line.
+ * ONE implementation since UI v3 (2026-09-21): `components/ui/form-section.tsx`,
+ * the gradient-plate section every config, create and edit form is built from.
+ * This re-export keeps the callers that import it from here working. Its old
+ * `description` sentence is accepted there and not rendered — forms carry
+ * labels, not prose.
  */
-export function FormSection({
-  title, description, icon, columns = 2, actions, children, className,
-}: {
-  title: string;
-  description?: string;
-  icon?: ReactNode;
-  /** Fields per row on a wide screen. Always one on a narrow one. */
-  columns?: 1 | 2 | 3;
-  /** Controls belonging to the section itself, not to a field. */
-  actions?: ReactNode;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <section className={cn('rounded-[var(--radius-card)] border border-slate-200 bg-white shadow-[var(--elev-1)]', className)}>
-      <header className="flex items-start gap-3 border-b border-slate-100 px-5 py-3.5">
-        {icon && (
-          <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-slate-100 text-slate-600">
-            {icon}
-          </span>
-        )}
-        <div className="min-w-0">
-          <h3 className="text-[1rem] font-semibold leading-tight text-slate-800">{title}</h3>
-          {description && <p className="mt-0.5 text-[0.75rem] text-slate-500">{description}</p>}
-        </div>
-        {actions && <div className="ml-auto shrink-0">{actions}</div>}
-      </header>
-
-      <div
-        className={cn(
-          'grid gap-x-5 gap-y-4 p-5',
-          columns === 2 && 'md:grid-cols-2',
-          columns === 3 && 'md:grid-cols-2 xl:grid-cols-3',
-        )}
-      >
-        {children}
-      </div>
-    </section>
-  );
-}
+export { FormSection } from './form-section';
 
 /**
  * The save/cancel bar at the foot of a configuration screen.

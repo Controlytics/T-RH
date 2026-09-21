@@ -10,6 +10,13 @@ describe('FormSection', () => {
     expect(screen.getByTestId('form-section-grid')).toHaveAttribute('data-columns', '2');
   });
 
+  it('can be three columns, and form-field re-exports the same primitive', async () => {
+    render(<FormSection title="Limits" columns={3}><p>x</p></FormSection>);
+    expect(screen.getByTestId('form-section-grid')).toHaveAttribute('data-columns', '3');
+    const { FormSection: FromFormField } = await import('../form-field');
+    expect(FromFormField).toBe(FormSection);
+  });
+
   it('can be one column and carries its actions in the plate', () => {
     render(<FormSection title="LDAP" columns={1} actions={<button type="button">Test connection</button>}><p>x</p></FormSection>);
     expect(screen.getByTestId('form-section-grid')).toHaveAttribute('data-columns', '1');

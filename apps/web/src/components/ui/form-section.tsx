@@ -16,7 +16,15 @@ export function FormSection({
   title: string;
   icon?: ReactNode;
   actions?: ReactNode;
-  columns?: 1 | 2;
+  /** Fields per row on a wide screen. Always one on a narrow one. */
+  columns?: 1 | 2 | 3;
+  /**
+   * Accepted and NOT rendered. The pre-v3 `FormSection` in form-field.tsx
+   * printed a sentence under the title; this application's forms carry
+   * labels, not prose (operator, repeatedly). Callers may still pass it while
+   * they migrate, and nothing shows. Remove the prop at the call site.
+   */
+  description?: string;
   children: ReactNode;
   className?: string;
 }) {
@@ -36,7 +44,12 @@ export function FormSection({
       <div
         data-testid="form-section-grid"
         data-columns={columns}
-        className={cn('grid gap-4 p-5', columns === 2 ? 'md:grid-cols-2' : 'grid-cols-1')}
+        className={cn(
+          'grid gap-4 p-5',
+          columns === 1 && 'grid-cols-1',
+          columns === 2 && 'md:grid-cols-2',
+          columns === 3 && 'md:grid-cols-2 xl:grid-cols-3',
+        )}
       >
         {children}
       </div>
