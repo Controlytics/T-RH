@@ -160,9 +160,10 @@ export function ProfilePage() {
     <div className="max-w-3xl mx-auto space-y-6">
       {/* Profile Header Card */}
       <Card className="overflow-hidden">
+        {/* UI v3 (2026-09-21): the cover is the shared band. */}
         <div
           className="h-32 relative"
-          style={{ background: `linear-gradient(135deg, ${branding.primaryColor}, ${branding.secondaryColor})` }}
+          style={{ background: 'var(--band-gradient)' }}
         >
           <div className="absolute -bottom-12 left-8">
             <div className="relative group">

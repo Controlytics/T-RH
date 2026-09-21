@@ -79,6 +79,9 @@ describe('ReportsPage', () => {
     mount();
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Reports');
+    // UI v3 (2026-09-21): the shared band and the shared table band.
+    expect(screen.getByTestId('page-hero')).toBeInTheDocument();
+    expect(document.querySelector('thead')).toHaveAttribute('data-band', 'gradient');
     for (const t of ['For my approval', 'My requests', 'Approved']) expect(screen.getByRole('tab', { name: t })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'For my approval' })).toHaveAttribute('aria-selected', 'true');
     expect(rowOf('Temperature and RH Data Report')).toHaveTextContent('rrq');

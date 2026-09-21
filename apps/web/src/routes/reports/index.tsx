@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { ALL_RECORDS_PARAM } from '@digilog/shared';
-import { PageHeader } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
+import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
 import { Tabs } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Pagination } from '@/components/ui/pagination';
@@ -41,8 +42,6 @@ const TABS: { id: ReviewList; label: string }[] = [
 const STATUS_TONE: Record<ReviewSummary['status'], StatusTone> = { PENDING: 'warn', APPROVED: 'ok', REJECTED: 'danger' };
 const STATUS_WORD: Record<ReviewSummary['status'], string> = { PENDING: 'Pending', APPROVED: 'Approved', REJECTED: 'Rejected' };
 
-const th = 'px-3 py-2 text-left text-[0.6875rem] font-bold uppercase tracking-[0.08em] text-slate-600';
-const td = 'px-3 py-2.5 align-top text-sm text-slate-700';
 
 export function ReportsPage() {
   const { user } = useAuth();
@@ -112,9 +111,8 @@ export function ReportsPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader
+      <PageHero
         title="Reports"
-        description="Report requests awaiting approval, your own requests, and the approved reports you can download."
         crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Reports' }]}
         icon={
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -131,46 +129,45 @@ export function ReportsPage() {
         ) : !isLoading && rows.length === 0 ? (
           <p className="px-5 py-6 text-sm text-slate-500">No requests here.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse">
-              <thead>
-                <tr style={{ backgroundColor: 'color-mix(in srgb, var(--theme-primary, #4f46e5) 8%, #ffffff)' }}>
-                  <th scope="col" className={th}>Report</th>
-                  <th scope="col" className={th}>Period</th>
-                  <th scope="col" className={th}>Requested</th>
-                  <th scope="col" className={th}>Send to</th>
-                  <th scope="col" className={th}>Status</th>
-                  <th scope="col" className={th}>Decided</th>
-                  <th scope="col" className={`${th} !text-right`}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead scope="col">Report</TableHead>
+                  <TableHead scope="col">Period</TableHead>
+                  <TableHead scope="col">Requested</TableHead>
+                  <TableHead scope="col">Send to</TableHead>
+                  <TableHead scope="col">Status</TableHead>
+                  <TableHead scope="col">Decided</TableHead>
+                  <TableHead scope="col" className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {rows.map((r) => (
-                  <tr key={r.id} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/70">
-                    <td className={td}>
+                  <TableRow key={r.id}>
+                    <TableCell className="align-top">
                       <span className="block font-semibold text-slate-800">{r.title}</span>
                       <span className="block text-xs text-slate-500">
                         {r.reportType}
                         {r.requestMeta?.instrumentCodes?.length ? ` · ${r.requestMeta.instrumentCodes.join(', ')}` : ''}
                         {typeof r.requestMeta?.recordCount === 'number' ? ` · ${r.requestMeta.recordCount.toLocaleString()} rows` : ''}
                       </span>
-                    </td>
-                    <td className={td}>{periodText(r)}</td>
-                    <td className={td}>
+                    </TableCell>
+                    <TableCell className="align-top">{periodText(r)}</TableCell>
+                    <TableCell className="align-top">
                       <span className="block">{r.requestedByName}</span>
                       <span className="block text-xs text-slate-500">{formatDateTime(r.requestedAt)}</span>
-                    </td>
-                    <td className={td}>{assigneeText(r, users)}</td>
-                    <td className={td}><StatusBadge tone={STATUS_TONE[r.status]} label={STATUS_WORD[r.status]} /></td>
-                    <td className={td}>
+                    </TableCell>
+                    <TableCell className="align-top">{assigneeText(r, users)}</TableCell>
+                    <TableCell className="align-top"><StatusBadge tone={STATUS_TONE[r.status]} label={STATUS_WORD[r.status]} /></TableCell>
+                    <TableCell className="align-top">
                       {r.decidedByName ? (
                         <>
                           <span className="block">{r.decidedByName}</span>
                           <span className="block text-xs text-slate-500">{r.decidedAt ? formatDateTime(r.decidedAt) : ''}</span>
                         </>
                       ) : '-'}
-                    </td>
-                    <td className={`${td} whitespace-nowrap text-right`}>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap align-top text-right">
                       <div className="flex justify-end gap-1.5">
                         <Button size="sm" variant="secondary" onClick={() => view(r)}>View draft</Button>
                         {mayDecide(r) && (
@@ -183,12 +180,11 @@ export function ReportsPage() {
                           <Button size="sm" onClick={() => download(r)}>Download</Button>
                         )}
                       </div>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+            </Table>
         )}
 
         {total > 0 && !error && (

@@ -27,7 +27,7 @@ import { useExportLimit } from '@/hooks/use-export-limit';
 import { ExportMenu } from '@/components/ExportMenu';
 import { ReportDownloadDialog, type ReportDownloadRequest } from '@/components/report-download-dialog';
 import { useReportLabels } from '../../hooks/use-report-labels';
-import { PageHeader } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
 
 const AUDIT_COLS = ['timestamp', 'action', 'user', 'role', 'targetType', 'description', 'ipAddress'];
 
@@ -393,37 +393,26 @@ export function AuditTrailPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        {/* The title is CONFIGURABLE (Config → Report Configuration → Labels),
-            so the crumb takes the same value rather than a hardcoded one — an
-            operator who renames this screen should not find the breadcrumb
-            still calling it something else. */}
-        <PageHeader
-          title={auditL.title}
-          description="21 CFR Part 11 Compliant Activity Log"
-          crumbs={[{ label: 'Dashboard', to: '/' }, { label: auditL.title }]}
-          icon={
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-          }
-        />
-        <div className="flex items-center gap-4">
-          {data && (
-            <div className="text-right">
-              <p className="text-2xl font-bold text-slate-800">{data.total.toLocaleString()}</p>
-              <p className="text-xs text-slate-500">Total Records</p>
-            </div>
-          )}
-          {canExport && (data?.data?.length ?? 0) > 0 && (
-            <>
-              <ExportMenu surface="audit" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={downloading}
-                className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-colors disabled:opacity-40" />
-            </>
-          )}
-        </div>
-      </div>
+      {/* UI v3 (2026-09-21): the shared band. The title is CONFIGURABLE
+          (Config → Report Configuration → Labels), so the crumb takes the same
+          value rather than a hardcoded one — an operator who renames this
+          screen should not find the breadcrumb still calling it something
+          else. The record total is the band's one figure; the export its
+          action. The old "21 CFR Part 11 Compliant Activity Log" line went:
+          the sidebar's compliance line already says it. */}
+      <PageHero
+        title={auditL.title}
+        crumbs={[{ label: 'Dashboard', to: '/' }, { label: auditL.title }]}
+        icon={
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+        }
+        tiles={data ? [{ label: 'Total records', value: data.total.toLocaleString() }] : undefined}
+        actions={canExport && (data?.data?.length ?? 0) > 0 && (
+          <ExportMenu surface="audit" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={downloading} />
+        )}
+      />
 
       {/* Filters Card */}
       <AuditFilters

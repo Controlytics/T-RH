@@ -12,7 +12,7 @@ import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
 import { Pagination } from '@/components/ui/pagination';
-import { PageHeader } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
 
 interface Notification {
   id: string;
@@ -272,30 +272,24 @@ export function NotificationsPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <PageHeader
-          title='Notifications'
-          crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Notifications' }]}
-          icon={
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-            </svg>
-          }
-        />
-        {data?.unreadCount > 0 && can('notifications.mark') && (
-          <Button
-            onClick={markAllAsRead}
-            variant="outline"
-            className="gap-2 border-amber-200 text-amber-700 hover:bg-amber-50"
-          >
+      {/* UI v3 (2026-09-21): the shared band, Mark All as Read inside it. */}
+      <PageHero
+        title="Notifications"
+        crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Notifications' }]}
+        icon={
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+          </svg>
+        }
+        actions={data?.unreadCount > 0 && can('notifications.mark') && (
+          <Button onClick={markAllAsRead} className="gap-2 border border-white/30 bg-white/10 text-white hover:bg-white/20">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
             Mark All as Read
           </Button>
         )}
-      </div>
+      />
 
       {/* Selection Toolbar */}
       {isSomeSelected && (
