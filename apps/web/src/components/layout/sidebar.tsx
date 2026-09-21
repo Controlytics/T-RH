@@ -328,6 +328,7 @@ export function Sidebar({ userRole: _userRole, open, onClose, collapsed: collaps
               to={item.href}
               onClick={onClose}
               aria-current={active ? 'page' : undefined}
+              data-active={active ? 'true' : 'false'}
               // The native tooltip IS the label when there is no label. Not a
               // custom popover: this has to work for someone tabbing through
               // without a pointer, and `title` is what gets announced.
@@ -336,21 +337,22 @@ export function Sidebar({ userRole: _userRole, open, onClose, collapsed: collaps
                 'group relative flex items-center rounded-[var(--radius-card)] text-[0.875rem] font-medium transition-colors duration-150',
                 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/70',
                 collapsed ? 'h-11 justify-center' : 'gap-3 px-3 py-2.5',
+                // UI v3 (2026-09-21): the active item is a WHITE PILL with the
+                // theme's ink — cc-dashboard.png — so the current screen reads
+                // from across the room. The pill is the marker; the dot at the
+                // right edge is its punctuation. No rail.
                 active
-                  ? 'bg-white/15 text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.08)]'
-                  : 'text-white/70 hover:bg-white/10 hover:text-white',
+                  ? 'bg-white text-[var(--theme-primary,#2a78d6)] shadow-[var(--elev-1)]'
+                  : 'text-white/75 hover:bg-white/10 hover:text-white',
               )}
             >
-              {/* The active RAIL is positioned, not a border-left: a border
-                  would be clipped by this item's own rounded corners and read
-                  as a smear — the same reason .panel-card__rail is positioned. */}
-              {active && (
+              {active && !collapsed && (
                 <span
                   aria-hidden
-                  className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-white"
+                  className="absolute right-3 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-[var(--theme-primary,#2a78d6)]"
                 />
               )}
-              <span className={cn('shrink-0 transition-colors', active ? 'text-white' : 'text-white/60 group-hover:text-white')}>
+              <span className={cn('shrink-0 transition-colors', active ? 'text-[var(--theme-primary,#2a78d6)]' : 'text-white/60 group-hover:text-white')}>
                 {item.icon}
               </span>
               {!collapsed && <span className="truncate">{item.label}</span>}
