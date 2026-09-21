@@ -132,3 +132,13 @@ describe('instrument detail — Details edit form', () => {
     expect(within(details()).getByText('CWH/RDU/001-00')).toBeInTheDocument();
   });
 });
+
+/** UI v3 (2026-09-21): the page opens with the shared band, headed by the code. */
+describe('instrument detail — page hero', () => {
+  it('leads with the Instrument ID in the band, with the actions inside it', () => {
+    renderPage();
+    const hero = screen.getByTestId('page-hero');
+    expect(hero.contains(screen.getByRole('heading', { level: 1, name: 'CWH/RDU/001-00' }))).toBe(true);
+    expect(hero.contains(screen.getByRole('button', { name: 'Disable' }))).toBe(true);
+  });
+});

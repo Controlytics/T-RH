@@ -16,14 +16,13 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { isInstrumentReporting, INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN } from '@digilog/shared';
-import { themeGradient } from '@/lib/theme-styles';
 import { ConnectionInstructions } from './connection-instructions';
 import { TokenDialog } from './token-dialog';
 import { GatewayPanel } from './gateway-panel';
 import { TokenPanel } from './token-panel';
 import { AttributesPanel } from './attributes-panel';
 import { SkeletonCard } from '@/components/ui/skeleton';
-import { Breadcrumbs } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
 
 interface Instrument {
   id: string; name: string; code: string; isActive: boolean;
@@ -316,99 +315,62 @@ export function InstrumentDetailPage() {
 
   return (
     <div className="space-y-6">
-      {/* The profile is deliberately NOT a crumb: the hero already links to it
-          ('in {profileName}'), and two identical links an inch apart is one
-          more than the page needs. The trail answers 'how do I get back out',
-          which is Instruments. */}
-      <Breadcrumbs
+      {/* UI v3 (2026-09-21): the shared band. It leads with the CODE, not the
+          name: the code is what the device authenticates as, what its topics
+          are built from, and what a technician is holding on a label. The
+          profile is deliberately NOT a crumb — the 'in {profileName}' chip
+          already links to it, and two identical links an inch apart is one
+          more than the page needs. */}
+      <PageHero
+        title={inst.code}
         crumbs={[
           { label: 'Dashboard', to: '/' },
           { label: 'Instruments', to: '/instruments' },
           { label: inst.code },
         ]}
-      />
-      {/* The hero leads with the CODE, not the name: the code is what the device
-          authenticates as, what its topics are built from, and what a
-          technician is holding on a label. The name is for people; the code is
-          the identity everything else on this page is keyed to. */}
-      <div className="relative overflow-hidden rounded-[var(--radius-card)] p-6 text-white shadow-[var(--elev-2)]" style={themeGradient}>
-        <div className="relative z-10 flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.2em] text-white/70">Instrument ID</p>
-              {inst.isGateway && (
-                <span className="rounded-md border border-white/40 px-1.5 py-0.5 text-[0.625rem] font-bold uppercase tracking-wide">
-                  Gateway
-                </span>
-              )}
-              {gatewayInst && (
-                <Link
-                  to={`/instruments/${gatewayInst.id}`}
-                  className="rounded-md border border-white/40 px-1.5 py-0.5 text-[0.625rem] font-bold uppercase tracking-wide hover:bg-white/10"
-                >
-                  Child of {gatewayInst.code}
-                </Link>
-              )}
-            </div>
-            <h1 className="mt-0.5 truncate font-mono text-2xl font-bold tracking-tight">{inst.code}</h1>
-            {inst.profileName && (
-              <Link
-                to={`/instruments/profiles/${inst.profileId}`}
-                className="mt-1 inline-block text-xs text-white/70 hover:text-white"
-              >
-                in {inst.profileName}
+        meta={
+          <>
+            <span className="text-[0.6875rem] font-semibold uppercase tracking-[0.2em] text-white/70">Instrument ID</span>
+            {inst.isGateway && (
+              <span className="rounded-md border border-white/40 px-1.5 py-0.5 text-[0.625rem] font-bold uppercase tracking-wide">Gateway</span>
+            )}
+            {gatewayInst && (
+              <Link to={`/instruments/${gatewayInst.id}`} className="rounded-md border border-white/40 px-1.5 py-0.5 text-[0.625rem] font-bold uppercase tracking-wide hover:bg-white/10">
+                Child of {gatewayInst.code}
               </Link>
             )}
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              {/* OBSERVED: is telemetry arriving? */}
-              <span
-                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
-                  reporting ? 'bg-emerald-50 text-emerald-700' : 'bg-white/15 text-white ring-1 ring-white/30'
-                }`}
-              >
-                <span className={`h-1.5 w-1.5 rounded-full ${reporting ? 'bg-emerald-500' : 'bg-white/60'}`} />
-                {reporting ? 'Active' : 'Inactive'}
-              </span>
-              {/* DECLARED: has an operator switched it off? A different fact. */}
-              {!inst.isActive && (
-                <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800">
-                  Disabled — not accepting data
-                </span>
-              )}
-              <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-white/80 ring-1 ring-white/20">
-                {inst.expectedIntervalSec
-                  ? `Expected every ${inst.expectedIntervalSec}s`
-                  : `Inactive after ${activeWindow} min without data`}
-              </span>
-              <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-white/80 ring-1 ring-white/20">
-                Last seen {stamp(inst.lastSeenAt)}
-              </span>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Link to="/instruments">
-              <Button className="border border-white/30 bg-white/10 text-white hover:bg-white/20">Back</Button>
-            </Link>
+            {inst.profileName && (
+              <Link to={`/instruments/profiles/${inst.profileId}`} className="text-xs text-white/70 hover:text-white">in {inst.profileName}</Link>
+            )}
+            {/* OBSERVED: is telemetry arriving? */}
+            <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${reporting ? 'bg-emerald-50 text-emerald-700' : 'bg-white/15 text-white ring-1 ring-white/30'}`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${reporting ? 'bg-emerald-500' : 'bg-white/60'}`} />
+              {reporting ? 'Active' : 'Inactive'}
+            </span>
+            {/* DECLARED: has an operator switched it off? A different fact. */}
+            {!inst.isActive && (
+              <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800">Disabled — not accepting data</span>
+            )}
+            <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-white/80 ring-1 ring-white/20">
+              {inst.expectedIntervalSec ? `Expected every ${inst.expectedIntervalSec}s` : `Inactive after ${activeWindow} min without data`}
+            </span>
+            <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-white/80 ring-1 ring-white/20">Last seen {stamp(inst.lastSeenAt)}</span>
+          </>
+        }
+        actions={
+          <>
+            <Link to="/instruments"><Button className="border border-white/30 bg-white/10 text-white hover:bg-white/20">Back</Button></Link>
             {can('instruments.edit') && (
-              <Button
-                className="border border-white/30 bg-white/10 text-white hover:bg-white/20"
-                disabled={toggling}
-                onClick={() => setConfirmToggle(true)}
-              >
+              <Button className="border border-white/30 bg-white/10 text-white hover:bg-white/20" disabled={toggling} onClick={() => setConfirmToggle(true)}>
                 {inst.isActive ? 'Disable' : 'Enable'}
               </Button>
             )}
             {can('instruments.delete') && (
               <Button variant="destructive" disabled={deleting} onClick={() => setConfirmDelete(true)}>Delete</Button>
             )}
-          </div>
-        </div>
-        <div aria-hidden="true" className="pointer-events-none absolute -right-2 bottom-0 flex items-end gap-1.5 opacity-15">
-          {[18, 34, 52, 74].map((h) => (
-            <span key={h} className="w-3 rounded-t bg-white" style={{ height: h }} />
-          ))}
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* Two columns that do NOT stretch (2026-09-16, operator: "details
           section taking so much empty space, dont show empty page, remove the
