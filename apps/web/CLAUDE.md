@@ -945,6 +945,42 @@ merely switched off now reads RED on every config page, which is right for
 "alarms are not being raised" and stronger than "require an uppercase letter" 
 deserves. Change off to `--status-idle-*` if that becomes a problem.
 
+## UI v3 — one visual language on every screen (Batch 1 landed 2026-09-21)
+
+Spec: `docs/superpowers/specs/2026-09-21-ui-design-system-v3-design.md`; plan
+`docs/superpowers/plans/2026-09-21-ui-v3-batch-1-foundation-shell-auth.md`.
+Operator: "update all the screens ui more professionally"; chose a new design
+system in the language of their mockups (`Alarms.png`, `screen-2.png`,
+`cc-dashboard.png`).
+
+- **Tokens** (in `@theme`): `--text-figure`, `--text-figure-lg`,
+  `--surface-tint-1/2`, `--band-gradient` — every one derived from the
+  `--theme-*` variables, so all ten presets work. **The band's ends are the
+  preset's gradient mixed 78% with black, not the raw colours**: body-size
+  white text on the raw band failed WCAG AA on five of ten presets.
+  `npm run check:contrast` (`scripts/contrast-check.mjs`) holds the same
+  0.78 and proves white-on-band and ink-on-tint for every preset — keep the
+  two numbers in step.
+- **Primitives** in `components/ui/`: `PageHero` (the band every screen
+  starts with; the screen's toolbar goes INSIDE it as `children`), `StatCard`
+  (ONE figure; no sparkline — nothing stores that history), the rebuilt
+  `Table` (`TableHeader band`, `TableGroupRow`, `TableHead sortable` with
+  `aria-sort`, `TableRow accent`, `TableEmpty`, `TableFooter` — the eight
+  existing callers render with the new band and nothing else), `FormSection`
+  (gradient plate, field grid, no description), `DialogBanner` (moved here;
+  `tone="danger"` for a destructive act; the functional-locations file
+  re-exports it), `Toolbar` (search with a distinct `name`, filters, trailing).
+- **Shell**: the sidebar's active item is a white pill with theme ink and a
+  right-hand dot (`data-active`). **Auth**: `routes/auth/auth-shell.tsx`
+  frames login, forgot-password, change-password and contact-admin;
+  `__tests__/auth-pages-render.test.tsx` mounts all four — the first tests
+  those pages have had.
+- **Test gotcha**: `\bbg-white\b` also matches `hover:bg-white/10` (`/` is a
+  word boundary); assert a class token with `(^|\s)bg-white(\s|$)`. And jsdom
+  has no `matchMedia` — the sidebar test stubs it.
+- Batches 2–4 rebuild the screens on these; see the spec §4. Status colours,
+  PDFs, fetch keys and gates are untouched throughout.
+
 ## Design system (Stage 1 `7ed8329`, Stage 2 2026-08-28)
 
 Tokens live in `src/app.css` `@theme`; primitives in `src/components/ui/`.

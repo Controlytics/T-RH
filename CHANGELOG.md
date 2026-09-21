@@ -1,5 +1,25 @@
 # Changelog
 
+## [Unreleased] - UI v3, Batch 1: foundation, shell, auth (2026-09-21)
+
+Operator: *"update all the screens ui more professionally and best ui
+screens"*; chose "New design system, then every screen" in the language of
+their own mockups. Spec `docs/superpowers/specs/2026-09-21-ui-design-system-v3-design.md`,
+plan `docs/superpowers/plans/2026-09-21-ui-v3-batch-1-foundation-shell-auth.md`.
+
+- Five tokens derived from the theme variables; six primitives (`PageHero`,
+  `StatCard`, rebuilt `Table`, `FormSection`, `DialogBanner`, `Toolbar`), each
+  with a render test; sidebar active pill; one `AuthShell` for the four
+  pre-login screens (their first render tests); `npm run check:contrast`
+  over all ten presets.
+- **Finding from the contrast check:** white body text on the raw preset
+  gradient fails WCAG AA on Ocean, Emerald, Sunset, Forest and Coral. The band
+  token therefore mixes each gradient end 78% with black; every preset now
+  passes both ends at body size. Nothing in `themes.ts` changed.
+- No behaviour change anywhere. Existing `Table` callers render with the new
+  header band and nothing else. Not seen on screen — the login page and the
+  sidebar are what need the operator's eye before Batch 2.
+
 ## [Unreleased] - Alarm status wording repaired: `Cleared â€” Unacknowledged` (2026-09-21)
 
 Operator: *"in alarm page in middle of the text symbols coming"*. Not a
