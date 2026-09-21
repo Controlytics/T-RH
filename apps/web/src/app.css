@@ -74,7 +74,16 @@
   --text-figure-lg--line-height: 2.75rem;
   --surface-tint-1: color-mix(in srgb, var(--theme-primary, #2a78d6) 6%, white);
   --surface-tint-2: color-mix(in srgb, var(--theme-primary, #2a78d6) 12%, white);
-  --band-gradient: linear-gradient(90deg, var(--theme-gradient-from, #2a78d6), var(--theme-gradient-to, #1e3a5f));
+  /* The band's ends are the preset's gradient mixed 78% with black, NOT the
+     raw colours: body-size white text on the band (breadcrumbs, tile eyebrows,
+     hints) failed WCAG AA on five of the ten presets at full saturation.
+     `apps/web/scripts/contrast-check.mjs` (`npm run check:contrast`) holds the
+     same 0.78 and proves every preset — keep the two in step. */
+  --band-gradient: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--theme-gradient-from, #2a78d6) 78%, black),
+    color-mix(in srgb, var(--theme-gradient-to, #1e3a5f) 78%, black)
+  );
 
   /* Primary brand colors - Professional navy blue */
   --color-primary: #1e3a5f;
