@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { wallSegments, doorPlacements, type RoomDoor } from '../room-geometry';
+import { wallSegments, doorPlacements, sharedOpenings, type RoomDoor } from '../room-geometry';
 import { tileLayout, captionHeader } from '../room-geometry';
 
 /** A 100x100 box at the origin — every expected number below is readable by hand. */
@@ -268,5 +268,58 @@ describe('captionHeader', () => {
   it('asks for nothing when the drawing gave the room no captions', () => {
     const fit = captionHeader({ x: 0, y: 0, w: 353, h: 345 }, 1, { name: true, lines: 0 });
     expect(fit).toEqual({ headerH: 14, captions: false });
+  });
+});
+
+describe('sharedOpenings — adjoining circulation rooms are one space', () => {
+  // The QC corridor as stored: an east-west run, the north-south leg standing
+  // on its top edge, and the short east piece against its right edge.
+  const run = { x: 0, y: 641, w: 475, h: 59 };
+  const leg = { x: 368, y: 288, w: 59, h: 353 };
+  const east = { x: 475, y: 641, w: 98, h: 40 };
+
+  it('opens the seam on BOTH rooms of an L-junction', () => {
+    const onRun = sharedOpenings(run, [leg]);
+    expect(onRun).toHaveLength(1);
+    expect(onRun[0].wall).toBe('top');
+    expect(onRun[0].offset).toBeCloseTo(368 / 475, 8);
+    expect(onRun[0].width).toBeCloseTo(59 / 475, 8);
+    const onLeg = sharedOpenings(leg, [run]);
+    expect(onLeg).toEqual([{ wall: 'bottom', offset: 0, width: 1 }]);
+  });
+
+  it('opens a vertical seam over the overlapping height only', () => {
+    const onRun = sharedOpenings(run, [east]);
+    expect(onRun).toHaveLength(1);
+    expect(onRun[0].wall).toBe('right');
+    expect(onRun[0].offset).toBe(0);
+    expect(onRun[0].width).toBeCloseTo(40 / 59, 8);
+    expect(sharedOpenings(east, [run])).toEqual([{ wall: 'left', offset: 0, width: 1 }]);
+  });
+
+  it('yields nothing for a room that only touches at a corner, or not at all', () => {
+    const corner = { x: 475, y: 700, w: 50, h: 50 }; // meets `run` at one point
+    expect(sharedOpenings(run, [corner])).toEqual([]);
+    expect(sharedOpenings(run, [{ x: 0, y: 100, w: 100, h: 100 }])).toEqual([]);
+  });
+
+  it('accepts a seam off by float noise but not by a real gap', () => {
+    expect(sharedOpenings(run, [{ ...leg, y: leg.y + 0.0001 }])).toHaveLength(1);
+    expect(sharedOpenings(run, [{ ...leg, y: leg.y - 3 }])).toEqual([]);
+  });
+
+  it('removes the seam from the drawn walls when passed with the doors', () => {
+    const solid = wallSegments(run, []);
+    const opened = wallSegments(run, sharedOpenings(run, [leg, east]));
+    // Top wall cut where the leg stands on it: no drawn segment may run
+    // along the seam for more than a pixel (the remainder starts at its end).
+    const alongLegSeam = opened.filter((s) =>
+      s.y1 === 641 && s.y2 === 641 && Math.min(s.x2, 427) - Math.max(s.x1, 368) > 1);
+    expect(alongLegSeam).toEqual([]);
+    // And the right wall, where the east piece abuts, is gone for the top 40.
+    const alongEastSeam = opened.filter((s) =>
+      s.x1 === 475 && s.x2 === 475 && Math.min(s.y2, 681) - Math.max(s.y1, 641) > 1);
+    expect(alongEastSeam).toEqual([]);
+    expect(opened.length).toBeGreaterThan(solid.length);
   });
 });

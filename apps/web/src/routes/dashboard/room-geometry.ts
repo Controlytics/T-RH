@@ -85,7 +85,7 @@ function pointAt(box: PixelBox, wall: DoorWall, t: number): { x: number; y: numb
  * background colour breaks the moment the room is hovered or the palette
  * changes. A gap has to be an ABSENCE of wall.
  */
-export function wallSegments(box: PixelBox, doors: RoomDoor[] | null | undefined): Segment[] {
+export function wallSegments(box: PixelBox, doors: WallOpening[] | null | undefined): Segment[] {
   const all = doors ?? [];
   const out: Segment[] = [];
 
@@ -114,6 +114,57 @@ export function wallSegments(box: PixelBox, doors: RoomDoor[] | null | undefined
     }
   }
 
+  return out;
+}
+
+/**
+ * An opening in a wall that is NOT a door: the stretch where this room and a
+ * neighbour are one continuous space. Same fractions-of-the-wall shape as a
+ * door so `wallSegments` can cut it out the same way; never given a leaf or
+ * an arc, because there is nothing there to swing.
+ */
+export type WallOpening = Pick<RoomDoor, 'wall' | 'offset' | 'width'>;
+
+/**
+ * Where this room's walls coincide with a neighbour's, as openings.
+ *
+ * A room is ONE rectangle in the schema, so an L-shaped corridor is stored as
+ * two or three of them — and drawn naively, the seam between the pieces is a
+ * wall the building does not have. The operator's words (2026-09-21): "in
+ * layout image corridor single line, not divided into separately". The caller
+ * decides WHICH neighbours qualify (the view passes the other circulation
+ * rooms); this only does the geometry: for each wall, the overlap with the
+ * neighbour's facing wall, when the two lie on the same line within `tol`
+ * viewBox units. Rooms that only touch at a corner produce nothing — a point
+ * is not an opening.
+ */
+export function sharedOpenings(box: PixelBox, neighbours: PixelBox[], tol = 0.5): WallOpening[] {
+  const out: WallOpening[] = [];
+  const near = (a: number, b: number) => Math.abs(a - b) <= tol;
+  for (const n of neighbours) {
+    // Vertical seams: my right against their left, my left against their right.
+    if (near(box.x + box.w, n.x) || near(box.x, n.x + n.w)) {
+      const lo = Math.max(box.y, n.y), hi = Math.min(box.y + box.h, n.y + n.h);
+      if (hi - lo > tol && box.h > 0) {
+        out.push({
+          wall: near(box.x + box.w, n.x) ? 'right' : 'left',
+          offset: clean((lo - box.y) / box.h),
+          width: clean((hi - lo) / box.h),
+        });
+      }
+    }
+    // Horizontal seams: my bottom against their top, my top against their bottom.
+    if (near(box.y + box.h, n.y) || near(box.y, n.y + n.h)) {
+      const lo = Math.max(box.x, n.x), hi = Math.min(box.x + box.w, n.x + n.w);
+      if (hi - lo > tol && box.w > 0) {
+        out.push({
+          wall: near(box.y + box.h, n.y) ? 'bottom' : 'top',
+          offset: clean((lo - box.x) / box.w),
+          width: clean((hi - lo) / box.w),
+        });
+      }
+    }
+  }
   return out;
 }
 

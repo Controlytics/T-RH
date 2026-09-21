@@ -307,11 +307,14 @@ export const QC_ROOMS: Traced[] = [
     grade: 'CIRCULATION', doors: [],
   },
   // The east service band, where the drawing puts its HVAC unit and the two
-  // water points. Narrow on purpose — that is its measured width.
+  // water points. Narrow on purpose — that is its measured width. UTILITY,
+  // not CIRCULATION: nobody walks it, and the view merges adjoining
+  // CIRCULATION rooms into one space (the corridor pieces), which would open
+  // the corridor's east end into this band.
   {
     code: 'SHAFT-E', label: null, px: [586, 5, 591, 791],
     meta: { fill: '#ffffff' },
-    grade: 'CIRCULATION', doors: [],
+    grade: 'UTILITY', doors: [],
   },
 ];
 

@@ -474,6 +474,19 @@ made `floorplan-view.tsx` render three things it never had to before. The plan
 is now PORTRAIT (578x786), so a traced room is shorter on a wide screen than it
 was; `captionHeader()` below decides whether its four caption lines fit.
 
+- **Adjoining CIRCULATION rooms draw as ONE space (2026-09-21, operator: "in
+  layout image corridor single line, not divided into separately").** A room is
+  one rectangle, so an L-shaped corridor is stored as three; `sharedOpenings()`
+  in `room-geometry.ts` returns the stretches where two such rooms' walls
+  coincide and the view passes them to `wallSegments` beside the doors, so the
+  seam is an ABSENCE of wall — no leaf, no arc. Only the rooms actually drawn
+  are neighbours (a scoped view must not open a wall onto nothing). A
+  continuation piece — `continuationBase(code)` non-null and its base on the
+  plan — prints no code and no name. **Grade is the switch**: a service band
+  that touches the corridor must not be CIRCULATION (QC's `SHAFT-E` is
+  UTILITY for exactly this reason). Pinned in `room-geometry.test.ts` and
+  `floorplan-continuation.test.ts`; mutation-checked.
+
 - **`room.meta.fill` OVERRIDES the zone tint.** The draughtsman's colours say
   what a room is FOR; `grade` says how it is classified. Both are stored, and
   `grade` is still returned and still correct. This is only safe because the

@@ -36,6 +36,25 @@ only"*; chose a full re-trace when the check showed the plan did not match.
   positions; 12/12 green by exit code; API `tsc` clean. **`QC 3 Layout.png`
   and `Microbiology.png` sit beside the QC drawing and those two floors are
   still GENERATED plans** — not traced, not asked for.
+- **Follow-up the same day — the corridor draws as ONE space** (operator:
+  *"in layout image corridor single line, not divided into separately"*). A
+  room is one rectangle in the schema, so the L-shaped corridor is stored as
+  three, and the view had been stroking a wall along every seam — three boxes
+  where the drawing has one corridor. `sharedOpenings()` in
+  `routes/dashboard/room-geometry.ts` (pure) finds where two adjoining
+  CIRCULATION rooms' walls coincide and `floorplan-view.tsx` cuts those
+  stretches out exactly as it cuts a door, with no leaf or arc; only rooms
+  actually drawn count as neighbours, so a scoped view never opens a wall onto
+  nothing. A continuation piece (`CWH-I/217 (2)`, `(3)`) whose first piece is
+  on the plan prints no code and no name of its own. The north corridor, the
+  lobby and the corridor leg merge the same way, which is what the drawing
+  shows (no wall scans between them). **SHAFT-E is now UTILITY, not
+  CIRCULATION** — nobody walks the service band, and as CIRCULATION it would
+  have merged into the corridor's east end; re-applied to the local database
+  (22 deleted, 22 created, audited). 5 new geometry cases + 2 for the
+  continuation rule; mutation-checked (disabling the seam detection fails 4).
+  The overview plan's four-sided corridor ring now also reads as one loop.
+  Not seen on screen — the operator holds the session.
 
 ## [Unreleased] - Audit detail: a multi-line list prints with commas (2026-09-21)
 

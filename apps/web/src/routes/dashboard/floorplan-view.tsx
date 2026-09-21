@@ -19,7 +19,18 @@ import {
   type OverviewRow,
 } from './use-telemetry';
 import { RoomDetail } from './room-detail';
-import { wallSegments, doorPlacements, tileLayout, captionHeader } from './room-geometry';
+import { wallSegments, doorPlacements, tileLayout, captionHeader, sharedOpenings } from './room-geometry';
+
+/**
+ * The base code of a continuation piece — `CWH-I/217 (2)` → `CWH-I/217` —
+ * upper-cased for comparison, or null when the code carries no ` (N)` suffix.
+ * The suffix is the drawing script's own convention for a corridor stored as
+ * more than one rectangle (`SERVICE CORRIDOR (2)`, the QC `CWH-I/217 (2)`).
+ */
+export function continuationBase(code: string): string | null {
+  const m = /^(.+) \(\d+\)$/.exec(code.trim());
+  return m ? m[1].toUpperCase() : null;
+}
 import { Button } from '@/components/ui/button';
 
 /**
@@ -322,6 +333,30 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                 ? ROOM_GRADE_META[room.grade as RoomGrade]
                 : null;
 
+              // A corridor is ONE space that the schema stores as several
+              // rectangles (a room is a rectangle; an L is two). The seam
+              // between two adjoining CIRCULATION rooms is therefore not a
+              // wall, and is cut out like a door — without a leaf, since
+              // nothing is there. Operator, 2026-09-21: "in layout image
+              // corridor single line, not divided into separately". Only the
+              // rooms actually DRAWN count as neighbours: in a scoped view a
+              // hidden piece would otherwise open a wall onto nothing.
+              const openings = room.grade === 'CIRCULATION'
+                ? sharedOpenings(
+                  { x, y, w, h },
+                  roomViews
+                    .filter((o) => o.room.id !== room.id && o.room.grade === 'CIRCULATION')
+                    .map((o) => ({ x: o.room.x * VB_W, y: o.room.y * vbH, w: o.room.w * VB_W, h: o.room.h * vbH })),
+                )
+                : [];
+              // A continuation piece (`CWH-I/217 (2)`) of a corridor whose
+              // first piece is on the plan prints no code and no name of its
+              // own — with the seam gone, a second label inside the same
+              // space is the "divided" reading the seam gave.
+              const continuationOf = room.grade === 'CIRCULATION' ? continuationBase(room.code) : null;
+              const isContinuation = continuationOf !== null
+                && roomViews.some((o) => o.room.id !== room.id && o.room.code.toUpperCase() === continuationOf);
+
               return (
                 <g
                   key={room.id}
@@ -374,7 +409,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                     )
                   )}
 
-                  {wallSegments({ x, y, w, h }, room.doors).map((s, i) => (
+                  {wallSegments({ x, y, w, h }, [...(room.doors ?? []), ...openings]).map((s, i) => (
                     <line
                       key={`w${i}`}
                       x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2}
@@ -440,7 +475,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                       as two different things at a glance, and costs the room the
                       vertical space its readings need. The tile wins because it
                       is the thing carrying the values. */}
-                  {!(roomRows.length === 1
+                  {!isContinuation && !(roomRows.length === 1
                     && roomRows[0].code.toUpperCase() === room.code.toUpperCase()
                     && tileLayout({ x, y, w, h }, roomRows.length, headerH).step === 'FULL') && (
                     <text
@@ -455,7 +490,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                       the drawing names every room and a plan of numbered boxes is
                       not the drawing. On a generated plan the old rule stands: the
                       name only appears where no tile is competing for the space. */}
-                  {room.label && (caption || tileLayout({ x, y, w, h }, roomRows.length, headerH).step === 'CODE_ONLY') && (
+                  {room.label && !isContinuation && (caption || tileLayout({ x, y, w, h }, roomRows.length, headerH).step === 'CODE_ONLY') && (
                     <text
                       x={x + w / 2} y={y + 22} textAnchor="middle"
                       fontSize={Math.max(8, Math.min(12, w / 10, h / 6)) * 0.8} fill={PALETTE.labelInk}

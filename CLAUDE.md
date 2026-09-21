@@ -1250,6 +1250,14 @@ GET    /api/config/report-approvers/current     — the administered approver ro
       are the mockup's.
     - **`Layouts/CWH/` also holds `QC 3 Layout.png` and `Microbiology.png`.
       Those two floors are STILL GENERATED plans** — not traced, not asked for.
+    - **The corridor pieces DRAW as one space (same day, operator: "corridor
+      single line, not divided into separately").** The seam between two
+      adjoining CIRCULATION rooms is cut out of the walls by the VIEW
+      (`sharedOpenings()` in `apps/web/.../room-geometry.ts`), and a
+      continuation piece prints no code or name — see `apps/web/CLAUDE.md`.
+      The stored rooms are unchanged: three rectangles, three §11 records.
+      **`SHAFT-E` is UTILITY, not CIRCULATION**, or the corridor would open
+      into the service band. Re-applied to the local database.
   - **Room codes on this plan are ROOM numbers (`CWH-I/216`..`/233`), not
     instrument codes**, and `label` carries the room name. That reverses the
     premise recorded against `GET /api/alarms` above — see it for what follows.
