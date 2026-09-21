@@ -44,11 +44,11 @@ import { BandGauge } from './band-gauge';
 import { TrendChartCard } from './trend-chart-card';
 import { TimeseriesTableCard } from './timeseries-table-card';
 import { AlarmsWidget } from './alarms-widget';
-import { TrendHeader } from './trend-header';
+import { PageHero } from '@/components/ui/page-hero';
+import { statusClasses, readingAge } from '@/routes/dashboard/status';
 import { usePanels } from '@/hooks/use-panels';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Breadcrumbs } from '@/components/ui/page-header';
 import { trendCrumbs, originFrom } from './trend-breadcrumbs';
 import { ALL_RECORDS_PARAM } from '@digilog/shared';
 
@@ -738,6 +738,8 @@ export function InstrumentTrend() {
   // Free-text placement (spec D8) as a caption line. Whatever is recorded, in
   // the order a reader narrows down a location; nothing is invented when a
   // field is blank.
+  // The band's status word: server-resolved, never re-judged here.
+  const heroStatus = trend.overview?.status ? statusClasses(trend.overview.status) : null;
   const placementText = [inst?.location, inst?.area, inst?.block]
     .filter((part): part is string => typeof part === 'string' && part.trim() !== '')
     .join(' · ');
@@ -774,29 +776,42 @@ export function InstrumentTrend() {
       className="-m-3 min-h-full space-y-5 p-3 sm:-m-4 sm:p-4 lg:-m-6 lg:p-6"
       style={{ backgroundColor: '#F7F8FA' }}
     >
-      {/* Above the strip, not inside it: Breadcrumbs is styled for a light
-          ground and TrendHeader is a dark gradient. The strip keeps its own
-          'Back to instrument' link — that is the one hop people take most. */}
-      <Breadcrumbs
-        className="mb-3"
+      {/* UI v3 (2026-09-21): the shared band IS the identity strip — what
+          record is this, where is it, and is it reporting right now, before a
+          single number is read. The crumbs ride inside it; the old strip's own
+          'Back to instrument' link went, because the crumb trail's instrument
+          link is that same hop. The status word is `statusClasses`', never a
+          second vocabulary, and the status itself is SERVER-resolved — this
+          page never re-judges it. */}
+      <PageHero
+        title={inst?.code ?? '…'}
         crumbs={trendCrumbs(originFrom(location.state), id ?? null, inst?.code ?? null)}
-      />
-      {/* The identity strip. What record is this, where is it, and is it
-          reporting right now — before a single number is read. */}
-      <TrendHeader
-        code={inst?.code ?? '…'}
-        name={inst?.name ?? ''}
-        placement={placementText}
-        // Server-resolved; this page never re-judges an instrument's status.
-        status={trend.overview?.status ?? null}
-        lastReadingTs={latestReadingTs}
-        backTo={id ? `/instruments/${id}` : '/instruments'}
         // The page's download is the DATA REPORT — the same document, dialog
         // (period, interval, remarks) and audit type as the Time Series card
         // below. It was the combined-charts document until 2026-09-07
         // (operator: "in that report trends also coming remove those and add
         // interval feature"); the per-chart downloads stay on their own cards.
         actions={<ExportMenu surface="instrument-trend" onExportPdf={() => setPendingReport({ kind: 'timeseries' })} />}
+        meta={
+          <>
+            <span className="text-[0.8125rem] text-white/80">
+              {inst?.name ?? ''}
+              {placementText && <span className="text-white/55"> · {placementText}</span>}
+            </span>
+            <span className="flex items-center gap-1.5 text-xs text-white/85">
+              {heroStatus && (
+                <>
+                  <span className={`h-1.5 w-1.5 rounded-full ${heroStatus.dot}`} aria-hidden="true" />
+                  <span className="font-semibold text-white">{heroStatus.label}</span>
+                  <span className="text-white/60">·</span>
+                </>
+              )}
+              <span className="tabular-nums">
+                {latestReadingTs ? `updated ${readingAge(latestReadingTs)}` : 'no readings yet'}
+              </span>
+            </span>
+          </>
+        }
       />
 
       {/* NO page-level error banner. The chart fetch is the only request this

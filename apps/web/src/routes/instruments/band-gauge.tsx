@@ -265,7 +265,8 @@ export function BandGauge({
        * temperature that was fine.
        *
        * **The header WILL now disagree with this card, and that is correct.**
-       * `trend-header.tsx` prints the same instrument-level status a few rows
+       * the page's hero band (`PageHero` in trend.tsx, which replaced
+       * `trend-header.tsx` on 2026-09-21) prints the same instrument-level status a few rows
        * above, so a humidity breach reads "Out of limit" there and "In limit"
        * here. They have different SUBJECTS — the instrument, and one slot of
        * it — which is exactly why this fall-through had to narrow rather than

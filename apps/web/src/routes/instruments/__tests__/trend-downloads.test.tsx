@@ -517,3 +517,13 @@ describe('trend page downloads', () => {
     expect(logged[0].requestMeta.period.to).toBeTruthy();
   });
 });
+
+/** UI v3 (2026-09-21): the trend page opens with the shared band; the header download rides in it. */
+describe('trend page hero', () => {
+  it('carries the code as the title and the Data Report download inside the band', () => {
+    renderPage();
+    const hero = screen.getByTestId('page-hero');
+    expect(hero.contains(screen.getByRole('heading', { level: 1 }))).toBe(true);
+    expect(hero.contains(exportButtons()[0])).toBe(true);
+  });
+});
