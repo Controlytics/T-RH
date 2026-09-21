@@ -38,6 +38,61 @@ export const ATTRIBUTE_LABEL_KEY_MAX = 64;
 /** The stored shape of the `attribute-labels` config row. */
 export interface AttributeLabelsConfig {
   labels: Record<string, string>;
+  /** Absent on a row written before 2026-09-21 — which reads as nothing hidden. */
+  settingsHidden?: SettingsHidden;
+}
+
+/**
+ * Which fields the SETTINGS page does NOT show (2026-09-21, operator: "in
+ * that configuration page any attribute or any field hide, then that field
+ * should not show in the settings page … give hid/un hide options").
+ *
+ * Stored as the HIDDEN set rather than the shown set, on purpose: a key added
+ * to a profile tomorrow shows until someone switches it off, so nobody can
+ * lose a field by forgetting to list it. Hiding is the deliberate act.
+ *
+ * This is presentation over ONE page. A hidden attribute is still stored,
+ * still served by the API, still on the instrument detail page, the New
+ * Instrument form and the bulk template, and still governed by Attribute
+ * Access. The Instrument ID has its own flag because it is not an attribute.
+ */
+export interface SettingsHidden {
+  instrumentId: boolean;
+  keys: string[];
+}
+
+export const SETTINGS_HIDDEN_NONE: SettingsHidden = Object.freeze({ instrumentId: false, keys: [] }) as SettingsHidden;
+
+/**
+ * The ONE reader of the hidden set on the stored row. Anything but the exact
+ * shape reads as nothing hidden — a row from before the field existed must
+ * not blank the Settings page.
+ */
+export function coerceSettingsHidden(value: unknown): SettingsHidden {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { ...SETTINGS_HIDDEN_NONE };
+  const raw = (value as Record<string, unknown>).settingsHidden;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ...SETTINGS_HIDDEN_NONE };
+  const { instrumentId, keys } = raw as Record<string, unknown>;
+  if (typeof instrumentId !== 'boolean' || !Array.isArray(keys)) return { ...SETTINGS_HIDDEN_NONE };
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const k of keys) {
+    if (typeof k !== 'string') continue;
+    const key = k.trim().slice(0, ATTRIBUTE_LABEL_KEY_MAX);
+    if (!key) continue;
+    const fold = key.toLowerCase();
+    if (seen.has(fold)) continue;
+    seen.add(fold);
+    out.push(key);
+  }
+  return { instrumentId, keys: out };
+}
+
+/** Is this attribute key hidden on the Settings page? Case-folded; false until the set has loaded. */
+export function isHiddenInSettings(hidden: SettingsHidden | undefined, key: string): boolean {
+  if (!hidden) return false;
+  const fold = key.trim().toLowerCase();
+  return hidden.keys.some((k) => k.trim().toLowerCase() === fold);
 }
 
 /** key → display name, already trimmed, blanks dropped, case-folded duplicates removed. */

@@ -53,6 +53,19 @@ export const attributeLabelsDef: ModuleConfigDefinition = {
       default: {},
       group: 'Attribute Display Names',
     },
+    {
+      // Which fields the SETTINGS page does NOT show (2026-09-21). The HIDDEN
+      // set, so a key nobody has considered shows by default. Edited as a
+      // "Show in Settings" toggle per row on the same Instrument Attributes
+      // page, plus one for the Instrument ID tile. Presentation over that one
+      // page only — `coerceSettingsHidden()` in `@digilog/shared` is the reader.
+      key: 'settingsHidden',
+      type: 'json',
+      label: 'Hidden on the Settings page',
+      description: 'The Instrument ID flag and the attribute keys the Settings widget does not show.',
+      default: { instrumentId: false, keys: [] },
+      group: 'Attribute Display Names',
+    },
   ],
   // The dynamic PUT replaces the whole row and validates nothing by type on its
   // own; this is what refuses an array, a number, or a name that would not fit
@@ -63,6 +76,12 @@ export const attributeLabelsDef: ModuleConfigDefinition = {
       z.string().max(ATTRIBUTE_LABEL_KEY_MAX, `An attribute key must be ${ATTRIBUTE_LABEL_KEY_MAX} characters or fewer`),
       z.string().max(ATTRIBUTE_LABEL_MAX, `A display name must be ${ATTRIBUTE_LABEL_MAX} characters or fewer`),
     ),
+    // Optional so a client that predates the field still saves; absent reads
+    // as nothing hidden (the reader's rule), never as "hide everything".
+    settingsHidden: z.object({
+      instrumentId: z.boolean(),
+      keys: z.array(z.string().max(ATTRIBUTE_LABEL_KEY_MAX, `An attribute key must be ${ATTRIBUTE_LABEL_KEY_MAX} characters or fewer`)),
+    }).optional(),
   }).superRefine((v, ctx) => {
     // No two keys and no two names may differ only by case (2026-09-16,
     // operator: "same keys or same display names should not repeat in small

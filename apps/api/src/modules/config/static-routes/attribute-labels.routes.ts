@@ -1,5 +1,5 @@
 import { type FastifyInstance } from 'fastify';
-import { ATTRIBUTE_LABELS_CONFIG_KEY, coerceAttributeLabels } from '@digilog/shared';
+import { ATTRIBUTE_LABELS_CONFIG_KEY, coerceAttributeLabels, coerceSettingsHidden } from '@digilog/shared';
 import { prisma } from '../../../lib/prisma.js';
 
 /**
@@ -31,13 +31,27 @@ export async function attributeLabelsRoutes(app: FastifyInstance) {
             // Declared with additionalProperties, or Fastify strips every key
             // and the map arrives as `{}` with nothing to say why.
             labels: { type: 'object', additionalProperties: { type: 'string' } },
+            // Which fields the Settings page does NOT show (2026-09-21). Both
+            // inner keys declared, or the object serialises as `{}` and the
+            // page reads it as nothing hidden — silently, with no error.
+            settingsHidden: {
+              type: 'object',
+              properties: {
+                instrumentId: { type: 'boolean' },
+                keys: { type: 'array', items: { type: 'string' } },
+              },
+              required: ['instrumentId', 'keys'],
+            },
           },
-          required: ['labels'],
+          required: ['labels', 'settingsHidden'],
         },
       },
     },
   }, async () => {
     const row = await prisma.systemConfig.findUnique({ where: { configKey: ATTRIBUTE_LABELS_CONFIG_KEY } });
-    return { labels: coerceAttributeLabels(row?.configValue) };
+    return {
+      labels: coerceAttributeLabels(row?.configValue),
+      settingsHidden: coerceSettingsHidden(row?.configValue),
+    };
   });
 }

@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import useSWR, { mutate as mutateGlobal } from 'swr';
-import { parseInstrumentAttributeKeys, coerceAttributeLabels, ATTRIBUTE_LABEL_MAX, type AttributeLabels } from '@digilog/shared';
+import {
+  parseInstrumentAttributeKeys, coerceAttributeLabels, coerceSettingsHidden, isHiddenInSettings,
+  ATTRIBUTE_LABEL_MAX, type AttributeLabels, type SettingsHidden,
+} from '@digilog/shared';
 import { ATTRIBUTE_LABELS_URL } from '@/hooks/use-attribute-labels';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Toggle } from '@/components/ui/toggle';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { PageHeader } from '@/components/ui/page-header';
 import { SkeletonCard } from '@/components/ui/skeleton';
@@ -51,7 +55,16 @@ import { RemarkDialog } from '@/routes/instruments/remark-dialog';
  * map (a blank clears a name), a key that left this profile's list loses its
  * name unless another profile still lists it, and every other key is untouched.
  */
-interface Row { id: number; key: string; name: string }
+/**
+ * `shown` is whether the SETTINGS page draws this key (2026-09-21, operator:
+ * "in that configuration page any attribute or any field hide, then that
+ * field should not show in the settings page, in configuration page give
+ * hid/un hide options"). ON by default; what is stored is the HIDDEN set,
+ * beside the names on the same row, so a key nobody has considered shows.
+ * Carried on the row so a rename keeps it; merged on save by the same rules
+ * as the names — see `mergeSettingsHidden`.
+ */
+interface Row { id: number; key: string; name: string; shown: boolean }
 interface Profile { id: string; name: string; instrumentCount: number; attributeKeys: string | null }
 
 const fold = (k: string) => k.trim().toLowerCase();
@@ -91,6 +104,34 @@ export function mergeLabels(
 }
 
 /**
+ * The hidden set a save sends — the Settings-page half of the same row. Pure,
+ * and the SAME merge rule as `mergeLabels`: this profile's rows decide their
+ * own keys (a row switched off is hidden, a row switched on is not), a key that
+ * left this profile drops out unless another profile still lists it, and every
+ * other key — hidden through some other profile — is untouched. A renamed row
+ * carries `shown` with it, so the old spelling drops and the new one takes its
+ * place. Order: the stored keys that survive, then this profile's newly hidden
+ * ones in row order.
+ */
+export function mergeSettingsHidden(
+  stored: SettingsHidden,
+  rows: { key: string; shown: boolean }[],
+  originalKeys: string[],
+  otherProfilesKeys: string[],
+  hideInstrumentId: boolean,
+): SettingsHidden {
+  const rowKeys = new Set(rows.map((r) => fold(r.key)).filter(Boolean));
+  const elsewhere = new Set(otherProfilesKeys.map(fold));
+  const left = new Set(originalKeys.map(fold).filter((k) => !rowKeys.has(k) && !elsewhere.has(k)));
+  const keys = stored.keys.filter((k) => !left.has(fold(k)) && !rowKeys.has(fold(k)));
+  for (const r of rows) {
+    const key = r.key.trim();
+    if (key && !r.shown) keys.push(key);
+  }
+  return { instrumentId: hideInstrumentId, keys };
+}
+
+/**
  * The three keys that are NOT attributes — they are real columns the Instruments
  * list filters and displays on. A profile may omit them; the advisory says what
  * that costs.
@@ -98,7 +139,8 @@ export function mergeLabels(
 const PLACEMENT_KEYS = ['Block', 'Area', 'Location'];
 
 let nextId = 1;
-const toRows = (keys: string[], labels: AttributeLabels): Row[] => keys.map((key) => ({ id: nextId++, key, name: nameOf(labels, key) }));
+const toRows = (keys: string[], labels: AttributeLabels, hidden: SettingsHidden): Row[] =>
+  keys.map((key) => ({ id: nextId++, key, name: nameOf(labels, key), shown: !isHiddenInSettings(hidden, key) }));
 
 export function InstrumentAttributesConfigPage() {
   const { toast } = useToast();
@@ -107,10 +149,13 @@ export function InstrumentAttributesConfigPage() {
   // SUPER_ADMIN); every other screen reads the narrow-slice route instead.
   const { data: labelsRow, mutate: mutateLabels } = useSWR<{ labels?: unknown }>('/api/config/dynamic/attribute-labels');
   const storedLabels = coerceAttributeLabels(labelsRow);
+  const storedHidden = coerceSettingsHidden(labelsRow);
 
   /** Empty until the profile list arrives — there is nothing else to edit. */
   const [target, setTarget] = useState<string>('');
   const [rows, setRows] = useState<Row[] | null>(null);
+  /** Draft of the Settings page's Instrument ID tile: true = hidden. Global, not per profile. */
+  const [hideId, setHideId] = useState(false);
   const [saving, setSaving] = useState(false);
   /**
    * The list as it stands on the server for the CURRENT target, in the same
@@ -122,6 +167,8 @@ export function InstrumentAttributesConfigPage() {
   const [saved, setSaved] = useState<string | null>(null);
   /** The display names as seeded, in the same normalised form a save compares. */
   const [savedNames, setSavedNames] = useState<string | null>(null);
+  /** The Show in Settings switches as seeded — Instrument ID flag plus per-row — same idea. */
+  const [savedHidden, setSavedHidden] = useState<string | null>(null);
   /** The keys the selected profile listed when seeded — what a save may un-name. */
   const [originalKeys, setOriginalKeys] = useState<string[]>([]);
   /**
@@ -157,14 +204,16 @@ export function InstrumentAttributesConfigPage() {
   useEffect(() => {
     if (ready && seededFor !== target) {
       const keys = parseInstrumentAttributeKeys(serverKeys);
-      const seeded = toRows(keys, storedLabels);
+      const seeded = toRows(keys, storedLabels, storedHidden);
       setRows(seeded);
+      setHideId(storedHidden.instrumentId);
       setSaved(keys.join('\n'));
       setSavedNames(JSON.stringify(seeded.map((r) => [r.key, r.name.trim()])));
+      setSavedHidden(JSON.stringify([storedHidden.instrumentId, seeded.map((r) => [r.key, r.shown])]));
       setOriginalKeys(keys);
       setSeededFor(target);
     }
-  }, [ready, seededFor, target, serverKeys, storedLabels]);
+  }, [ready, seededFor, target, serverKeys, storedLabels, storedHidden]);
 
   // Nothing to edit until a profile exists — the keys live ON a profile now, so
   // this page has no meaning without one. Says where to go rather than showing
@@ -242,14 +291,18 @@ export function InstrumentAttributesConfigPage() {
   const keysDirty = saved === null || normalised !== saved;
   const normalisedNames = JSON.stringify(rows.map((r) => [r.key, r.name.trim()]));
   const namesDirty = savedNames === null || normalisedNames !== savedNames;
-  const dirty = keysDirty || namesDirty;
+  const normalisedHidden = JSON.stringify([hideId, rows.map((r) => [r.key, r.shown])]);
+  const hiddenDirty = savedHidden === null || normalisedHidden !== savedHidden;
+  const dirty = keysDirty || namesDirty || hiddenDirty;
 
   const update = (id: number, key: string) =>
     setRows((rs) => (rs ?? []).map((r) => (r.id === id ? { ...r, key } : r)));
   const rename = (id: number, name: string) =>
     setRows((rs) => (rs ?? []).map((r) => (r.id === id ? { ...r, name } : r)));
+  const setShown = (id: number, shown: boolean) =>
+    setRows((rs) => (rs ?? []).map((r) => (r.id === id ? { ...r, shown } : r)));
   const remove = (id: number) => setRows((rs) => (rs ?? []).filter((r) => r.id !== id));
-  const add = () => setRows((rs) => [...(rs ?? []), { id: nextId++, key: '', name: '' }]);
+  const add = () => setRows((rs) => [...(rs ?? []), { id: nextId++, key: '', name: '', shown: true }]);
   const move = (id: number, by: -1 | 1) =>
     setRows((rs) => {
       const list = [...(rs ?? [])];
@@ -307,13 +360,16 @@ export function InstrumentAttributesConfigPage() {
         setRemovalRemarkOpen(false);
         await mutateUsage();
       }
-      if (namesDirty || keysDirty) {
-        // The display names are ONE global map, written WHOLE (the dynamic PUT
-        // replaces the row) and merged — see `mergeLabels`.
+      if (namesDirty || keysDirty || hiddenDirty) {
+        // The display names and the Settings-page hidden set are ONE row,
+        // written WHOLE (the dynamic PUT replaces the row) and merged — see
+        // `mergeLabels` / `mergeSettingsHidden`. Sending one half alone would
+        // erase the other.
         const others = profiles.filter((p) => p.id !== target)
           .flatMap((p) => parseInstrumentAttributeKeys(p.attributeKeys));
         const labels = mergeLabels(storedLabels, rows, originalKeys, others);
-        await apiClient.put('/api/config/dynamic/attribute-labels', { labels });
+        const settingsHidden = mergeSettingsHidden(storedHidden, rows, originalKeys, others, hideId);
+        await apiClient.put('/api/config/dynamic/attribute-labels', { labels, settingsHidden });
         await mutateLabels();
         // Every other screen reads the narrow-slice route; refresh it so an open
         // Attributes panel re-labels at once rather than when its cache expires.
@@ -324,6 +380,7 @@ export function InstrumentAttributesConfigPage() {
       // keystroke.
       setSaved(keys);
       setSavedNames(normalisedNames);
+      setSavedHidden(normalisedHidden);
       setOriginalKeys(keys.split('\n').filter(Boolean));
       await mutateProfiles();
       toast.success(
@@ -385,10 +442,33 @@ export function InstrumentAttributesConfigPage() {
           <span className="text-xs text-slate-500">{kept} key{kept === 1 ? '' : 's'}</span>
         </CardHeader>
         <CardContent className="space-y-3">
+          {/* The Settings page's ONE non-attribute tile (2026-09-21). Global —
+              the Instrument ID is not a profile's key — so it sits above the
+              rows rather than among them. */}
+          <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+            <span className="text-sm font-medium text-slate-700">Instrument ID</span>
+            <Toggle
+              label="Show Instrument ID in Settings"
+              checked={!hideId}
+              onChange={(e) => setHideId(!e.target.checked)}
+            />
+          </div>
+
           {rows.length === 0 && (
             <p className="rounded-lg border border-dashed border-slate-300 px-3 py-6 text-center text-sm text-slate-500">
               This profile asks for no attributes yet. Add one below.
             </p>
+          )}
+
+          {rows.length > 0 && (
+            <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
+              <span className="w-6 shrink-0" />
+              <span className="flex-1">Key</span>
+              <span className="flex-1">Display name</span>
+              {/* Width = the switch (2.75rem) + gap + the On/Off word (1.75rem). */}
+              <span className="w-[5.25rem] shrink-0">Settings</span>
+              <span className="w-[6.75rem] shrink-0" />
+            </div>
           )}
 
           {rows.map((row, i) => (
@@ -412,6 +492,15 @@ export function InstrumentAttributesConfigPage() {
                   placeholder="Display name"
                   aria-label={`Display name ${i + 1}`}
                   onChange={(e) => rename(row.id, e.target.value)}
+                />
+                {/* Whether the SETTINGS page draws this key. Presentation over
+                    that one page; the attribute is still stored and served. */}
+                <Toggle
+                  aria-label={`Show in Settings ${i + 1}`}
+                  title="Show in Settings"
+                  className="shrink-0"
+                  checked={row.shown}
+                  onChange={(e) => setShown(row.id, e.target.checked)}
                 />
                 {/* Order is the order the fields appear on the New Instrument
                     form, so it is worth being able to change without retyping. */}

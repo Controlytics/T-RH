@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -53,6 +53,8 @@ const mutateList = vi.fn();
 const mutateAttrs = vi.fn();
 /** Configuration → Attribute Display Names, as the narrow-slice route returns it. */
 const labels = { current: {} as Record<string, string> };
+/** Which fields the Settings page hides (2026-09-21), from the same route. */
+const hidden = { current: { instrumentId: false, keys: [] as string[] } };
 
 vi.mock('swr', () => ({
   default: (key: any) => {
@@ -64,7 +66,7 @@ vi.mock('swr', () => ({
     }
     if (k === '/api/instruments/attribute-access/me') return { data: access.current, mutate: vi.fn() };
     if (typeof k === 'string' && k.includes('/instrument-activity/')) return { data: { activeWindowMinutes: 3 }, mutate: vi.fn() };
-    if (k === '/api/config/attribute-labels/current') return { data: { labels: labels.current }, mutate: vi.fn() };
+    if (k === '/api/config/attribute-labels/current') return { data: { labels: labels.current, settingsHidden: hidden.current }, mutate: vi.fn() };
     return { data: undefined, isLoading: false, mutate: vi.fn() };
   },
 }));
@@ -272,5 +274,62 @@ describe('SettingsPage', () => {
       expect(within(widget()).queryByRole('textbox', { name: 'Location' })).toBeNull();
       expect(field('Instrument ID')).toBeInTheDocument();
     });
+  });
+});
+
+/**
+ * Settings-page visibility (2026-09-21, operator: "in that configuration page
+ * any attribute or any field hide, then that field should not show in the
+ * settings page"). The hidden set comes from Configuration → Instrument
+ * Attributes through the same route as the display names. A hidden field is
+ * not drawn and, in Edit, has no input — so nothing can be written to it from
+ * here. Presentation over this page only: the API still serves the attribute.
+ */
+describe('SettingsPage — fields hidden by configuration', () => {
+  beforeEach(() => {
+    grants = new Set(['settings.view']);
+    labels.current = {};
+    hidden.current = { instrumentId: false, keys: [] };
+    access.current = { mode: null, keys: [], requireReauth: false };
+    put.mockReset().mockResolvedValue({});
+    putWithReauth.mockReset().mockResolvedValue({});
+    mutateList.mockReset(); mutateAttrs.mockReset();
+    try { localStorage.clear(); } catch { /* jsdom */ }
+  });
+  afterEach(() => { hidden.current = { instrumentId: false, keys: [] }; });
+
+  it('does not draw a tile for a hidden attribute key — matched ignoring case — and keeps the rest', () => {
+    hidden.current = { instrumentId: false, keys: ['enable_humid_nmt', 'High Temperature Limit'] };
+    mount();
+    expect(within(widget()).queryByText('Enable_Humid_NMT')).toBeNull();
+    expect(within(widget()).queryByText('High Temperature Limit')).toBeNull();
+    expect(rowValue('Building')).toBe('CWH Block');
+    expect(rowValue('Location')).toBe('HPLC ROOM');
+    expect(rowValue('Instrument ID')).toBe('CWH/RDU/001-00');
+  });
+
+  it('does not draw the Instrument ID tile when it is hidden, and still draws the attributes', () => {
+    hidden.current = { instrumentId: true, keys: [] };
+    mount();
+    expect(within(widget()).queryByText('Instrument ID')).toBeNull();
+    expect(rowValue('Building')).toBe('CWH Block');
+  });
+
+  it('in Edit, a hidden attribute and a hidden Instrument ID have no input, and a save writes neither', async () => {
+    hidden.current = { instrumentId: true, keys: ['Building'] };
+    grants = new Set(['settings.view', 'settings.edit']);
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    expect(within(widget()).queryByRole('textbox', { name: 'Building' })).toBeNull();
+    expect(within(widget()).queryByRole('textbox', { name: 'Instrument ID' })).toBeNull();
+    fireEvent.change(within(widget()).getByRole('textbox', { name: 'Location' }), { target: { value: 'QC LAB' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    fireEvent.change(screen.getByRole('textbox', { name: /remarks/i }), { target: { value: 'Relayout' } });
+    fireEvent.click(screen.getByRole('button', { name: /^save change/i }));
+    await waitFor(() => expect(put).toHaveBeenCalledWith(
+      '/api/instruments/i-1/attributes/Location', { value: 'QC LAB', reason: 'Relayout' },
+    ));
+    expect(put.mock.calls.some(([url]) => String(url).endsWith('/attributes/Building'))).toBe(false);
+    expect(put.mock.calls.some(([url]) => url === '/api/instruments/i-1')).toBe(false);
   });
 });

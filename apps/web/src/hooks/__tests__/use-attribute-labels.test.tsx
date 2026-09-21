@@ -50,3 +50,31 @@ describe('useAttributeLabels', () => {
     expect(result.current.labelFor('Building')).toBe('Building');
   });
 });
+
+/**
+ * The same hook carries which fields the SETTINGS page hides (2026-09-21) —
+ * the hidden set rides on the same row and the same route as the names, and
+ * one reader means the page cannot label a key and hide it from two different
+ * answers. Nothing is hidden until the set arrives.
+ */
+describe('useAttributeLabels — Settings-page visibility', () => {
+  it('reports a hidden key, case-insensitively, and the hidden Instrument ID flag', () => {
+    response.current = {
+      labels: {},
+      settingsHidden: { instrumentId: true, keys: ['Enable_Temp_NMT'] },
+    } as never;
+    const { result } = renderHook(() => useAttributeLabels());
+    expect(result.current.isHiddenInSettings('enable_temp_nmt')).toBe(true);
+    expect(result.current.isHiddenInSettings('Building')).toBe(false);
+    expect(result.current.settingsHidden.instrumentId).toBe(true);
+  });
+
+  it('hides nothing while loading or when the server predates the field', () => {
+    const { result: loading } = renderHook(() => useAttributeLabels());
+    expect(loading.current.isHiddenInSettings('Building')).toBe(false);
+    expect(loading.current.settingsHidden).toEqual({ instrumentId: false, keys: [] });
+    response.current = { labels: { Area: 'Zone' } };
+    const { result } = renderHook(() => useAttributeLabels());
+    expect(result.current.settingsHidden).toEqual({ instrumentId: false, keys: [] });
+  });
+});

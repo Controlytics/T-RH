@@ -128,9 +128,22 @@ export function SettingsPage() {
 
   const { data: attrs, mutate: mutateAttrs } = useSWR<{ data: Attribute[] }>(selected ? `/api/instruments/${selected.id}/attributes` : null);
   const { mutate: mutateList } = useSWR<{ data: Row[]; total: number }>(`/api/instruments?${ALL_RECORDS_PARAM}`);
-  const { labelFor } = useAttributeLabels();
+  const { labelFor, settingsHidden, isHiddenInSettings } = useAttributeLabels();
   const { toast } = useToast();
   const reauth = useReauth();
+
+  /**
+   * Which fields this page SHOWS is administered (2026-09-21, operator: "in
+   * that configuration page any attribute or any field hide, then that field
+   * should not show in the settings page") — Configuration → Instrument
+   * Attributes, the Show in Settings toggles, read through the same hook as
+   * the display names. A hidden field is not drawn and has no input in Edit,
+   * so nothing on this page can change it. Presentation over THIS page only:
+   * the attribute is still served, still on the instrument page, and Attribute
+   * Access still decides who may edit it.
+   */
+  const visibleAttrs = (attrs?.data ?? []).filter((a) => !isHiddenInSettings(a.key));
+  const showInstrumentId = !settingsHidden.instrumentId;
 
   /**
    * INLINE editing (2026-09-16, operator: "when user clicks on edit values
@@ -167,18 +180,18 @@ export function SettingsPage() {
 
   const startEdit = () => {
     if (!selected) return;
-    setDraft(Object.fromEntries((attrs?.data ?? []).map((a) => [a.key, a.value])));
+    setDraft(Object.fromEntries(visibleAttrs.map((a) => [a.key, a.value])));
     setDraftCode(selected.code);
     setEditing(true);
   };
   const cancelEdit = () => { setEditing(false); setRemarkOpen(false); };
 
-  /** Changed attributes the role may edit — what a Save writes. */
-  const changes = (attrs?.data ?? [])
+  /** Changed VISIBLE attributes the role may edit — what a Save writes. */
+  const changes = visibleAttrs
     .filter((a) => mayEdit(a.key) && draft[a.key] !== undefined && draft[a.key] !== a.value)
     .map((a) => ({ key: a.key, label: labelFor(a.key), from: a.value, to: draft[a.key] }));
   const newCode = draftCode.trim();
-  const codeChanged = Boolean(selected) && newCode !== '' && newCode !== selected!.code;
+  const codeChanged = showInstrumentId && Boolean(selected) && newCode !== '' && newCode !== selected!.code;
 
   const onSave = () => {
     // No rule on the code (2026-09-16, operator) — see `codeSchema` in
@@ -284,7 +297,7 @@ export function SettingsPage() {
     <div className="space-y-5">
       <PageHeader
         title="Settings"
-        description="Pick an instrument; the widget shows its Instrument ID and every attribute."
+        description="Pick an instrument; the widget shows the fields configured for it."
         crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Settings' }]}
         icon={
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -371,10 +384,10 @@ export function SettingsPage() {
             </div>
           </div>
           <dl className="grid grid-cols-1 gap-3 p-5 md:grid-cols-2">
-            {tile('Instrument ID', selected.code, editing
+            {showInstrumentId && tile('Instrument ID', selected.code, editing
               ? { edit: { value: draftCode, onChange: (v) => setDraftCode(v) } }
               : {})}
-            {(attrs?.data ?? []).map((a) => (
+            {visibleAttrs.map((a) => (
               <div key={a.key} className="contents">
                 {tile(labelFor(a.key), a.display ?? (a.value || '(empty)'), {
                   muted: !a.display && !a.value, slot: a.slot, updatedAt: a.updatedAt,

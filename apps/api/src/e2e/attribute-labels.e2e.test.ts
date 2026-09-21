@@ -55,7 +55,7 @@ describe('Attribute display names', () => {
     await prisma.systemConfig.deleteMany({ where: { configKey: ATTRIBUTE_LABELS_CONFIG_KEY } });
     const res = await authGet(app, '/api/config/attribute-labels/current', operatorToken);
     expect(res.statusCode).toBe(200);
-    expect(JSON.parse(res.body)).toEqual({ labels: {} });
+    expect(JSON.parse(res.body)).toEqual({ labels: {}, settingsHidden: { instrumentId: false, keys: [] } });
   });
 
   it('the editor endpoint stays SUPER_ADMIN-only, read and write', async () => {
@@ -113,5 +113,76 @@ describe('Attribute display names', () => {
       labels: { Building: 'x'.repeat(200) },
     });
     expect(put.statusCode).toBe(400);
+  });
+});
+
+/**
+ * Settings-page visibility (2026-09-21, operator: "in that configuration page
+ * any attribute or any field hide, then that field should not show in the
+ * settings page"). The hidden set rides on the SAME row and the SAME
+ * narrow-slice route as the display names. Asserted over HTTP, inner keys
+ * one by one, because Fastify strips an undeclared response property
+ * silently and this repo has been bitten by that repeatedly.
+ */
+describe('Settings-page visibility on the attribute-labels row', () => {
+  let app: FastifyInstance;
+  let adminToken: string;
+  let operatorToken: string;
+  let base: unknown;
+
+  beforeAll(async () => {
+    app = await buildApp();
+    adminToken = await loginAs(app);
+    operatorToken = await loginAs(app, 'RB0001', 'Test@1234');
+    const existing = await prisma.systemConfig.findUnique({ where: { configKey: ATTRIBUTE_LABELS_CONFIG_KEY } });
+    base = existing?.configValue ?? null;
+  });
+
+  afterAll(async () => {
+    if (base === null) {
+      await prisma.systemConfig.deleteMany({ where: { configKey: ATTRIBUTE_LABELS_CONFIG_KEY } });
+    } else {
+      await prisma.systemConfig.upsert({
+        where: { configKey: ATTRIBUTE_LABELS_CONFIG_KEY },
+        create: { configKey: ATTRIBUTE_LABELS_CONFIG_KEY, configValue: base as object, configType: 'display' },
+        update: { configValue: base as object },
+      });
+    }
+    await app.close();
+  });
+
+  it('a saved hidden set reads back COERCED on /current for a non-admin', async () => {
+    const put = await authPut(app, '/api/config/dynamic/attribute-labels', adminToken, {
+      labels: { Room: 'Cleanroom' },
+      settingsHidden: { instrumentId: true, keys: [' Enable_Temp_NMT ', 'enable_temp_nmt', '  '] },
+    });
+    expect(put.statusCode).toBe(200);
+
+    const res = await authGet(app, '/api/config/attribute-labels/current', operatorToken);
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.labels.Room).toBe('Cleanroom');
+    expect(body.settingsHidden.instrumentId).toBe(true);
+    expect(body.settingsHidden.keys).toEqual(['Enable_Temp_NMT']);
+  });
+
+  it('a row saved WITHOUT the field — an older client — reads back as nothing hidden', async () => {
+    const put = await authPut(app, '/api/config/dynamic/attribute-labels', adminToken, {
+      labels: { Room: 'Cleanroom' },
+    });
+    expect(put.statusCode).toBe(200);
+    const body = JSON.parse((await authGet(app, '/api/config/attribute-labels/current', operatorToken)).body);
+    expect(body.settingsHidden).toEqual({ instrumentId: false, keys: [] });
+  });
+
+  it('refuses a hidden set that is not {instrumentId: boolean, keys: string[]}', async () => {
+    const flag = await authPut(app, '/api/config/dynamic/attribute-labels', adminToken, {
+      labels: {}, settingsHidden: { instrumentId: 'yes', keys: [] },
+    });
+    expect(flag.statusCode).toBe(400);
+    const keys = await authPut(app, '/api/config/dynamic/attribute-labels', adminToken, {
+      labels: {}, settingsHidden: { instrumentId: false, keys: 'Building' },
+    });
+    expect(keys.statusCode).toBe(400);
   });
 });

@@ -31,13 +31,16 @@ const mutateProfiles = vi.fn();
 let profilesResponse: unknown = PROFILES;
 /** The stored display-name map, as the SUPER_ADMIN editor endpoint returns it. */
 const LABELS = { current: {} as Record<string, string> };
+/** The stored Settings-page hidden set (2026-09-21), on the same row. */
+const HIDDEN = { current: { instrumentId: false, keys: [] as string[] } };
+const NONE_HIDDEN = { instrumentId: false, keys: [] };
 /** Which keys the selected profile's instruments actually carry, as `/attribute-usage` returns it. */
 const USAGE = { current: {} as Record<string, { key: string; instruments: number }[]> };
 const mutateLabels = vi.fn();
 const globalMutate = vi.fn();
 vi.mock('swr', () => ({
   default: (key: string | null) => {
-    if (key === '/api/config/dynamic/attribute-labels') return { data: { labels: LABELS.current }, mutate: mutateLabels };
+    if (key === '/api/config/dynamic/attribute-labels') return { data: { labels: LABELS.current, settingsHidden: HIDDEN.current }, mutate: mutateLabels };
     if (typeof key === 'string' && key.endsWith('/attribute-usage')) {
       const id = key.split('/')[3];
       return { data: { keys: USAGE.current[id] ?? [] }, mutate: vi.fn() };
@@ -72,6 +75,7 @@ const save = () => fireEvent.click(screen.getByRole('button', { name: /save chan
 beforeEach(() => {
   profilesResponse = PROFILES;
   LABELS.current = {};
+  HIDDEN.current = { instrumentId: false, keys: [] };
   USAGE.current = {};
   put.mockReset().mockResolvedValue({});
   mutateProfiles.mockReset();
@@ -104,7 +108,7 @@ describe('InstrumentAttributesConfigPage — display names', () => {
     fireEvent.change(nameField(3), { target: { value: '' } });   // clears Room's name
     save();
     await waitFor(() => expect(put).toHaveBeenCalledWith('/api/config/dynamic/attribute-labels', {
-      labels: { 'Asset Tag': 'Tag', Area: 'Site area' },
+      labels: { 'Asset Tag': 'Tag', Area: 'Site area' }, settingsHidden: NONE_HIDDEN,
     }));
     // The keys did not change, so the profile is NOT rewritten.
     expect(put.mock.calls.every(([url]) => !String(url).includes('/api/instrument-profiles/'))).toBe(true);
@@ -118,7 +122,7 @@ describe('InstrumentAttributesConfigPage — display names', () => {
     save();
     await waitFor(() => expect(put).toHaveBeenCalledWith('/api/instrument-profiles/p1', { attributeKeys: 'Block\nArea\nRoom No' }));
     await waitFor(() => expect(put).toHaveBeenCalledWith('/api/config/dynamic/attribute-labels', {
-      labels: { 'Room No': 'Cleanroom number' },
+      labels: { 'Room No': 'Cleanroom number' }, settingsHidden: NONE_HIDDEN,
     }));
   });
 
@@ -298,5 +302,77 @@ describe('InstrumentAttributesConfigPage — placement advisory', () => {
     renderPage();
     selectTarget('p4');
     expect(screen.getByText(/Block, Area, Location/)).toBeInTheDocument();
+  });
+});
+
+/**
+ * Show in Settings (2026-09-21, operator: "in that configuration page any
+ * attribute or any field hide, then that field should not show in the settings
+ * page, in configuration page give hid/un hide options"). One toggle per key
+ * row and one for the Instrument ID tile, ON by default. The HIDDEN set is
+ * stored beside the display names on the `attribute-labels` row, written
+ * WHOLE with them and merged by the same rules: this profile's rows decide
+ * their own keys, a key that left this profile drops out unless another
+ * profile lists it, a renamed key keeps its setting, every other key is
+ * untouched. A toggle alone is dirty and never rewrites the profile.
+ */
+describe('InstrumentAttributesConfigPage — Show in Settings', () => {
+  const rowToggle = (n: number) => screen.getByRole('switch', { name: `Show in Settings ${n}` });
+  const idToggle = () => screen.getByRole('switch', { name: 'Show Instrument ID in Settings' });
+
+  it('renders a switch per key and one for the Instrument ID, ON unless the key is hidden (case ignored)', () => {
+    HIDDEN.current = { instrumentId: true, keys: ['room'] };
+    renderPage();
+    expect(rowToggle(1)).toBeChecked();      // Block
+    expect(rowToggle(3)).not.toBeChecked();  // Room
+    expect(idToggle()).not.toBeChecked();
+  });
+
+  it('switching a key off is dirty on its own, saves the hidden set WITH the labels, and does not rewrite the profile', async () => {
+    LABELS.current = { Room: 'Cleanroom number' };
+    renderPage();
+    expect(screen.getByRole('button', { name: /^saved$/i })).toBeDisabled();
+    fireEvent.click(rowToggle(3));
+    fireEvent.click(idToggle());
+    save();
+    await waitFor(() => expect(put).toHaveBeenCalledWith('/api/config/dynamic/attribute-labels', {
+      labels: { Room: 'Cleanroom number' },
+      settingsHidden: { instrumentId: true, keys: ['Room'] },
+    }));
+    expect(put.mock.calls.every(([url]) => !String(url).includes('/api/instrument-profiles/'))).toBe(true);
+    await waitFor(() => expect(globalMutate).toHaveBeenCalledWith('/api/config/attribute-labels/current'));
+  });
+
+  it('switching a hidden key back on removes it from the set and leaves other profiles\' hidden keys alone', async () => {
+    HIDDEN.current = { instrumentId: false, keys: ['Room', 'Asset Tag'] };
+    renderPage();
+    fireEvent.click(rowToggle(3));
+    save();
+    await waitFor(() => expect(put).toHaveBeenCalledWith('/api/config/dynamic/attribute-labels', {
+      labels: {}, settingsHidden: { instrumentId: false, keys: ['Asset Tag'] },
+    }));
+  });
+
+  it('a renamed key keeps its hidden setting; a removed key stays hidden while ANOTHER profile still lists it', async () => {
+    // p3 lists Block too, so deleting it from p1 must not un-hide it there.
+    HIDDEN.current = { instrumentId: false, keys: ['Room', 'Block'] };
+    renderPage();
+    fireEvent.change(keyField(3), { target: { value: 'Room No' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Block' }));
+    save();
+    await waitFor(() => expect(put).toHaveBeenCalledWith('/api/config/dynamic/attribute-labels', {
+      labels: {}, settingsHidden: { instrumentId: false, keys: ['Block', 'Room No'] },
+    }));
+  });
+
+  it('a key removed from its only profile drops out of the hidden set', async () => {
+    HIDDEN.current = { instrumentId: false, keys: ['Asset Tag'] };
+    renderPage();
+    selectTarget('p2');
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Asset Tag' }));
+    save();
+    await waitFor(() => expect(put).toHaveBeenCalledWith('/api/config/dynamic/attribute-labels', {
+      labels: {}, settingsHidden: NONE_HIDDEN,
+    }));
   });
 });
