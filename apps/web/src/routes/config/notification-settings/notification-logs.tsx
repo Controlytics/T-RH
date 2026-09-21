@@ -6,8 +6,9 @@ import { Pagination } from '@/components/ui/pagination';
 import { useDatetimeFormat } from '../../../hooks/use-datetime-format';
 import { usePaginationConfig } from '../../../hooks/use-pagination-config';
 import { Button } from '@/components/ui/button';
-import { PageHeader } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
 import { EmptyState } from '@/components/ui/empty-state';
+import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
 
 interface LogEntry {
   id: string;
@@ -67,18 +68,16 @@ export function NotificationLogsPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <PageHeader
-          title='Notification Logs'
-          description='View email and SMS delivery history'
-          crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Notification Logs' }]}
-          icon={
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-            </svg>
-          }
-        />
-      </div>
+      {/* UI v3 (2026-09-21): the shared band; the screen's controls ride inside it. */}
+      <PageHero
+        title='Notification Logs'
+        crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Notification Logs' }]}
+        icon={
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+          </svg>
+        }
+      />
 
       {/* Stats */}
       {stats && (
@@ -149,47 +148,47 @@ export function NotificationLogsPage() {
       {/* Table */}
       <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 shadow-[var(--elev-1)] overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="tbl w-full text-sm">
-            <thead className="bg-slate-50 border-b border-slate-200">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Channel</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Recipient</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Subject</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Status</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Triggered By</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Time</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Channel</TableHead>
+                <TableHead>Recipient</TableHead>
+                <TableHead>Subject</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Triggered By</TableHead>
+                <TableHead>Time</TableHead>
+                <TableHead>Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {logs.length === 0 && (
-                <tr><td colSpan={7} className="px-4 py-2"><EmptyState compact title="No notification logs found" /></td></tr>
+                <TableRow><TableCell colSpan={7} className="px-4 py-2"><EmptyState compact title="No notification logs found" /></TableCell></TableRow>
               )}
               {logs.map((log) => (
-                <tr key={log.id} className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer" onClick={() => setExpandedId(expandedId === log.id ? null : log.id)}>
-                  <td className="px-4 py-3">
+                <TableRow key={log.id} className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer" onClick={() => setExpandedId(expandedId === log.id ? null : log.id)}>
+                  <TableCell className="px-4 py-3">
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${CHANNEL_COLORS[log.channel] ?? 'bg-slate-100 text-slate-600'}`}>{log.channel}</span>
-                  </td>
-                  <td className="px-4 py-3 text-slate-700 max-w-[200px] truncate">{log.recipient}</td>
-                  <td className="px-4 py-3 text-slate-600 max-w-[200px] truncate">{log.subject ?? '-'}</td>
-                  <td className="px-4 py-3">
+                  </TableCell>
+                  <TableCell className="px-4 py-3 text-slate-700 max-w-[200px] truncate">{log.recipient}</TableCell>
+                  <TableCell className="px-4 py-3 text-slate-600 max-w-[200px] truncate">{log.subject ?? '-'}</TableCell>
+                  <TableCell className="px-4 py-3">
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[log.status] ?? 'bg-slate-100'}`}>{log.status}</span>
                     {log.retryCount > 0 && <span className="ml-1 text-xs text-slate-400">(retry {log.retryCount})</span>}
-                  </td>
-                  <td className="px-4 py-3 text-slate-500 text-xs">{log.triggeredBy ?? '-'}</td>
-                  <td className="px-4 py-3 text-slate-500 text-xs">{formatDateTime(log.createdAt)}</td>
-                  <td className="px-4 py-3">
+                  </TableCell>
+                  <TableCell className="px-4 py-3 text-slate-500 text-xs">{log.triggeredBy ?? '-'}</TableCell>
+                  <TableCell className="px-4 py-3 text-slate-500 text-xs">{formatDateTime(log.createdAt)}</TableCell>
+                  <TableCell className="px-4 py-3">
                     <Button variant="ghost" size="sm"
                       onClick={(e) => { e.stopPropagation(); handleDelete(log.id); }}
                     >
                       Delete
                     </Button>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
               {logs.map((log) => expandedId === log.id && (
-                <tr key={`${log.id}-detail`} className="bg-slate-50">
-                  <td colSpan={7} className="px-6 py-4">
+                <TableRow key={`${log.id}-detail`} className="bg-slate-50">
+                  <TableCell colSpan={7} className="px-6 py-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                       <div>
                         <strong className="text-slate-600">Message:</strong>
@@ -205,11 +204,11 @@ export function NotificationLogsPage() {
                         <div><strong className="text-slate-600">Sent At:</strong> <span className="text-slate-700">{formatDateTime(log.sentAt)}</span></div>
                       )}
                     </div>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
 
         {/* Pagination */}

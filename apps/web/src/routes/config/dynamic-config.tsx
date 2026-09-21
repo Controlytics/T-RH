@@ -7,7 +7,7 @@ import { Select } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Toggle } from '@/components/ui/toggle';
 import { FormField, FormSection, FormActions } from '@/components/ui/form-field';
-import { PageHeader } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
 import { EmptyState, ErrorState } from '@/components/ui/empty-state';
 import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
@@ -280,9 +280,8 @@ export function DynamicConfigPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 pb-4">
-      <PageHeader
+      <PageHero
         title={moduleDef.moduleName}
-        description={moduleDef.description}
         crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Configuration', to: '/config' }, { label: moduleDef.moduleName }]}
         actions={
           <Button variant="outline" onClick={() => navigate('/config')}>

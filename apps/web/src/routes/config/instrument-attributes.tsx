@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Toggle } from '@/components/ui/toggle';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { PageHeader } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
 import { SkeletonCard } from '@/components/ui/skeleton';
 import { RemarkDialog } from '@/routes/instruments/remark-dialog';
 
@@ -398,9 +398,8 @@ export function InstrumentAttributesConfigPage() {
     <div className="mx-auto max-w-3xl space-y-6">
       {/* The "Back to Settings" button is gone: the breadcrumb's Configuration
           link goes to the same place, and a page does not need two. */}
-      <PageHeader
+      <PageHero
         title="Instrument Attributes"
-        description="The attributes the New Instrument form asks for, per profile. You set the keys here; whoever registers a device fills in the values."
         crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Instrument Attributes' }]}
         icon={
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

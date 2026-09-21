@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { FieldIdsPage } from './field-ids';
 import { AuditTemplatesConfigPage } from './audit-templates';
 import { PaginationConfigPage } from './pagination';
-import { PageHeader } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
 import { Tabs, TabPanel } from '@/components/ui/tabs';
 
 /**
@@ -25,9 +25,8 @@ export function DisplaySettingsPage() {
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-5">
       {/* Header */}
-      <PageHeader
+      <PageHero
         title='Display Settings'
-        description='Field display names, audit-trail wording, and list page sizes.'
         crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Display Settings' }]}
         icon={
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

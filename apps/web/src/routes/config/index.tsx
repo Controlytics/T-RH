@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import useSWR from 'swr';
 import { useAuth } from '@/hooks/use-auth';
-import { PageHeader } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
 import { SuperAdminApiAccessCard } from '@/components/super-admin-api-access';
 import { canAccessConfigModule } from './can-access-module';
 
@@ -454,9 +454,8 @@ export function ConfigIndexPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <PageHeader
+      <PageHero
         title="System Configuration"
-        description="Manage system settings, security policies and instrument behaviour."
         crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Configuration' }]}
       />
 

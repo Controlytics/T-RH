@@ -2,7 +2,7 @@ import useSWR from 'swr';
 import { useEffect, useState } from 'react';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { Button } from '@/components/ui/button';
-import { PageHeader } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
 import { SkeletonCard } from '@/components/ui/skeleton';
 
 interface SystemHealthData {
@@ -178,7 +178,7 @@ export function SystemHealthPage() {
         {/* The server name and refresh stamp are live values, so they ride on
             `meta` rather than `description` — a description is what the screen
             is FOR, and it should not change every ten seconds. */}
-        <PageHeader
+        <PageHero
           title="System Health"
           crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'System Health' }]}
           meta={

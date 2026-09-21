@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
+
 import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
@@ -9,8 +9,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { ReauthDialog } from '@/components/reauth-dialog';
-import { PageHeader } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
 import { SkeletonRows } from '@/components/ui/skeleton';
+import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -316,47 +317,18 @@ export function HelpArticlesPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* ── Header ── */}
-      <div className="relative overflow-hidden rounded-[var(--radius-card)] bg-gradient-to-br from-emerald-500 via-teal-600 to-cyan-700 p-6 text-white shadow-[var(--elev-3)]">
-        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxwYXRoIGQ9Ik0zNiAxOGMzLjMxNCAwIDYgMi42ODYgNiA2cy0yLjY4NiA2LTYgNi02LTIuNjg2LTYtNiAyLjY4Ni02IDYtNiIgc3Ryb2tlPSJyZ2JhKDI1NSwyNTUsMjU1LDAuMSkiIHN0cm9rZS13aWR0aD0iMiIvPjwvZz48L3N2Zz4=')] opacity-30" />
-        <div className="relative flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link
-              to="/config"
-              className="p-2.5 rounded-xl bg-white/10 hover:bg-white/20 backdrop-blur-sm transition-all duration-200 border border-white/10"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </Link>
-            <PageHeader
-              inverted
-              title='Help Articles'
-              description='Manage in-app help content and documentation'
-              crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Help Articles' }]}
-              icon={
-                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              }
-            />
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="px-4 py-2 rounded-xl bg-white/10 backdrop-blur-sm border border-white/10 text-center">
-              <p className="text-xs text-teal-100 uppercase tracking-wider">Articles</p>
-              <p className="text-2xl font-bold">{articleList.length}</p>
-            </div>
-            <button
-              onClick={openCreate}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white text-teal-700 hover:bg-teal-50 font-semibold shadow-[var(--elev-2)] transition-all duration-200 text-sm"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              New Article
-            </button>
-          </div>
-        </div>
-      </div>
+      {/* UI v3 (2026-09-21): the shared band replaces this page's own gradient. */}
+      <PageHero
+        title='Help Articles'
+        crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Help Articles' }]}
+        icon={
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        }
+        tiles={[{ label: 'Articles', value: articleList.length }]}
+        actions={<Button className="bg-white text-slate-900 hover:bg-white/90" onClick={openCreate}>New Article</Button>}
+      />
 
       {/* ── Filters ── */}
       <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-[var(--elev-2)] overflow-hidden">
@@ -443,25 +415,24 @@ export function HelpArticlesPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="tbl w-full">
-              <thead>
-                <tr className="bg-gradient-to-r from-slate-50 to-white border-b border-slate-200">
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Title</th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Key</th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Category</th>
-                  <th className="text-center px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Version</th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Updated At</th>
-                  <th className="text-right px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Title</TableHead>
+                  <TableHead>Key</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead>Version</TableHead>
+                  <TableHead>Updated At</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {articleList.map((article) => (
-                  <tr
+                  <TableRow
                     key={article.id}
-                    className="group hover:bg-gradient-to-r hover:from-emerald-50/40 hover:to-teal-50/20 transition-all duration-200"
-                  >
+                    className="group hover:bg-gradient-to-r hover:from-emerald-50/40 hover:to-teal-50/20 transition-all duration-200">
                     {/* Title */}
-                    <td className="px-6 py-4">
+                    <TableCell className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-gradient-to-br from-emerald-500/10 to-teal-500/10 flex items-center justify-center group-hover:from-emerald-500/20 group-hover:to-teal-500/20 transition-all">
                           <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -470,24 +441,24 @@ export function HelpArticlesPage() {
                         </div>
                         <span className="font-semibold text-slate-800 text-sm">{article.title}</span>
                       </div>
-                    </td>
+                    </TableCell>
 
                     {/* Key */}
-                    <td className="px-6 py-4">
+                    <TableCell className="px-6 py-4">
                       <code className="inline-flex items-center px-2.5 py-1 text-xs font-mono bg-gradient-to-r from-slate-100 to-slate-50 rounded-lg text-slate-600 border border-slate-200/60">
                         {article.key}
                       </code>
-                    </td>
+                    </TableCell>
 
                     {/* Category */}
-                    <td className="px-6 py-4">
+                    <TableCell className="px-6 py-4">
                       <Badge className={`border ${getCategoryColor(article.category)}`}>
                         {getCategoryLabel(article.category)}
                       </Badge>
-                    </td>
+                    </TableCell>
 
                     {/* Version */}
-                    <td className="px-6 py-4 text-center">
+                    <TableCell className="px-6 py-4 text-center">
                       <Button variant="secondary" size="sm"
                         onClick={() => openVersions(article)}
                         title="View version history"
@@ -497,15 +468,15 @@ export function HelpArticlesPage() {
                         </svg>
                         v{article.currentVersion}
                       </Button>
-                    </td>
+                    </TableCell>
 
                     {/* Updated At */}
-                    <td className="px-6 py-4">
+                    <TableCell className="px-6 py-4">
                       <span className="text-sm text-slate-500">{formatDateTime(article.updatedAt)}</span>
-                    </td>
+                    </TableCell>
 
                     {/* Actions */}
-                    <td className="px-6 py-4">
+                    <TableCell className="px-6 py-4">
                       <div className="flex items-center justify-end gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                         {/* Versions */}
                         <Button variant="ghost" size="icon"
@@ -537,11 +508,11 @@ export function HelpArticlesPage() {
                           </svg>
                         </Button>
                       </div>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
       </div>

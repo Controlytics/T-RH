@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
-import { PageHeader } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
 
 export function PasswordPolicyPage() {
   const navigate = useNavigate();
@@ -55,9 +55,8 @@ export function PasswordPolicyPage() {
       {/* The back-chevron that used to sit here is gone: the breadcrumb's
           "Configuration" link is the way back, and two ways back a centimetre
           apart is one more than a screen needs. */}
-      <PageHeader
+      <PageHero
         title="General & Password Settings"
-        description="Configure security and authentication policies"
         crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'General & Password' }]}
         icon={
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

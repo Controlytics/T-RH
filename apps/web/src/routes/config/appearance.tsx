@@ -1,5 +1,5 @@
 import { BrandingConfigPage } from './branding';
-import { PageHeader } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
 
 /**
  * Branding — logo, colours, themes, and the company/application name.
@@ -19,9 +19,8 @@ import { PageHeader } from '@/components/ui/page-header';
 export function AppearanceConfigPage() {
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-5">
-      <PageHeader
+      <PageHero
         title='Branding'
-        description='Logo, colours, themes, and company/app name. Dashboard and trend-page panels are assigned on Roles & Access &rarr; Panels.'
         crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Branding' }]}
         icon={
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

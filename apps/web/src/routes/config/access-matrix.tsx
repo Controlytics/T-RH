@@ -5,7 +5,8 @@ import { useToast } from '@/hooks/use-toast';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
-import { PageHeader } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
+import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
 
 type Matrix = Record<string, string[]>;
 
@@ -135,34 +136,36 @@ export function AccessMatrixPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between gap-4">
-        <PageHeader
-          title='Configuration Access'
-          description='Assign configuration modules to roles. SUPER_ADMIN always has access to all modules.'
-          crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Configuration Access' }]}
-          icon={
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-            </svg>
-          }
-        />
-        <div className="flex items-center gap-2">
-          <Button variant="ghost"
-            type="button"
-            onClick={reset}
-            disabled={!dirty || saving}
-          >
-            Reset
-          </Button>
-          <Button 
-            type="button"
-            onClick={save}
-            disabled={!dirty || saving}
-          >
-            {saving ? 'Saving...' : 'Save Changes'}
-          </Button>
-        </div>
-      </div>
+      {/* UI v3 (2026-09-21): the shared band; the screen's controls ride inside it. */}
+      <PageHero
+        title='Configuration Access'
+        crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Configuration Access' }]}
+        icon={
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+          </svg>
+        }
+        actions={
+          <>
+            <div className="flex items-center gap-2">
+              <Button className="text-white hover:bg-white/15 hover:text-white" variant="ghost"
+                type="button"
+                onClick={reset}
+                disabled={!dirty || saving}
+              >
+                Reset
+              </Button>
+              <Button className="bg-white text-slate-900 hover:bg-white/90"
+                type="button"
+                onClick={save}
+                disabled={!dirty || saving}
+              >
+                {saving ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </div>
+          </>
+        }
+      />
 
       {roles.length === 0 ? (
         <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 p-8 text-center text-slate-500">
@@ -171,12 +174,12 @@ export function AccessMatrixPage() {
       ) : (
         <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 shadow-[var(--elev-1)] overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="tbl w-full">
-              <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 z-10">
-                <tr>
-                  <th className="text-left px-5 py-3 text-[0.6875rem] font-bold text-slate-500 uppercase tracking-wider">Module</th>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Module</TableHead>
                   {roles.map(r => (
-                    <th key={r.name} className="px-3 py-3 text-center text-[0.6875rem] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">
+                    <TableHead key={r.name}>
                       <div className="flex flex-col items-center gap-1">
                         <span>{r.displayName}</span>
                         <Button variant="ghost" size="sm"
@@ -186,49 +189,49 @@ export function AccessMatrixPage() {
                           toggle all
                         </Button>
                       </div>
-                    </th>
+                    </TableHead>
                   ))}
-                  <th className="px-3 py-3 text-center text-[0.6875rem] font-bold text-slate-500 uppercase tracking-wider">Row</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
+                  <TableHead>Row</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {[...modulesByCategory.entries()].map(([category, modules]) => (
                   <Fragment key={category}>
-                    <tr className="bg-slate-50/50">
-                      <td colSpan={roles.length + 2} className="px-5 py-2 text-[0.6875rem] font-bold text-slate-600 uppercase tracking-wider">
+                    <TableRow className="bg-slate-50/50">
+                      <TableCell colSpan={roles.length + 2} className="px-5 py-2 text-[0.6875rem] font-bold text-slate-600 uppercase tracking-wider">
                         {category}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                     {modules.map(m => (
-                      <tr key={m.moduleKey} className="hover:bg-slate-50/50">
-                        <td className="px-5 py-3">
+                      <TableRow key={m.moduleKey} className="hover:bg-slate-50/50">
+                        <TableCell className="px-5 py-3">
                           <div className="font-semibold text-[0.8125rem] text-slate-800">{m.moduleName}</div>
                           <div className="text-[0.75rem] text-slate-400 mt-0.5">{m.description}</div>
-                        </td>
+                        </TableCell>
                         {roles.map(r => (
-                          <td key={r.name} className="px-3 py-3 text-center">
+                          <TableCell key={r.name} className="px-3 py-3 text-center">
                             <input
                               type="checkbox"
                               checked={isAssigned(m.moduleKey, r.name)}
                               onChange={() => toggle(m.moduleKey, r.name)}
                               className="ctl-check"
                             />
-                          </td>
+                          </TableCell>
                         ))}
-                        <td className="px-3 py-3 text-center">
+                        <TableCell className="px-3 py-3 text-center">
                           <Button variant="ghost" size="sm"
                             type="button"
                             onClick={() => toggleRowAll(m.moduleKey)}
                           >
                             all
                           </Button>
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ))}
                   </Fragment>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </div>
       )}

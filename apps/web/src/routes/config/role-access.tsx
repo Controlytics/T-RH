@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+
 import useSWR, { useSWRConfig } from 'swr';
 import { Button } from '@/components/ui/button';
 import { apiClient } from '@/lib/api-client';
@@ -21,7 +21,7 @@ import { InstrumentScopeTab } from './roles-components/instrument-scope-tab';
 import { PanelAccessTab } from './roles-components/panel-access-tab';
 import { AttributeAccessTab } from './roles-components/attribute-access-tab';
 import type { ReauthTabHandle } from './roles-components/reauth-tab';
-import { PageHeader } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
 import { Tabs, TabPanel } from '@/components/ui/tabs';
 
 type TabId = 'roles' | 'permissions' | 'sidebar' | 'reauth' | 'instrument-scope' | 'attribute-access' | 'panels';
@@ -191,29 +191,17 @@ export function RoleAccessPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="relative overflow-hidden rounded-[var(--radius-card)] bg-gradient-to-br from-violet-500 via-purple-600 to-indigo-600 p-6 text-white shadow-[var(--elev-3)]">
-        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxwYXRoIGQ9Ik0zNiAxOGMzLjMxNCAwIDYgMi42ODYgNiA2cy0yLjY4NiA2LTYgNi02LTIuNjg2LTYtNiAyLjY4Ni02IDYtNiIgc3Ryb2tlPSJyZ2JhKDI1NSwyNTUsMjU1LDAuMSkiIHN0cm9rZS13aWR0aD0iMiIvPjwvZz48L3N2Zz4=')] opacity-30" />
-        <div className="relative flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link to="/config" className="p-2.5 rounded-xl bg-white/10 hover:bg-white/20 backdrop-blur-sm transition-all duration-200 border border-white/10">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-            </Link>
-            <PageHeader
-              inverted
-              title='Role & Access Configuration'
-              description='Manage roles, permissions, sidebar visibility, and re-authentication'
-              crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Role & Access Configuration' }]}
-              icon={
-                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-                </svg>
-              }
-            />
-          </div>
-          {/* Context-sensitive header action */}
-          {renderHeaderActions()}
-        </div>
-      </div>
+      {/* UI v3 (2026-09-21): the shared band replaces this page's own gradient. */}
+      <PageHero
+        title='Role & Access Configuration'
+        crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Role & Access Configuration' }]}
+        icon={
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+          </svg>
+        }
+        actions={renderHeaderActions()}
+      />
 
       {/* Tab Bar */}
       <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-soft overflow-hidden">

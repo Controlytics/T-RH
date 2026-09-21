@@ -9,8 +9,9 @@ import { ReauthDialog } from '@/components/reauth-dialog';
 import { REAUTH_ACTIONS, REAUTH_ACTION_CATEGORIES } from '@digilog/shared';
 import type { ReauthAction, ReauthActionCategory } from '@digilog/shared';
 import type { RoleData } from '@digilog/shared';
-import { PageHeader } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
 import { SkeletonCard } from '@/components/ui/skeleton';
+import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
 
 type ActionReauthConfig = Record<string, string[]>;
 
@@ -261,23 +262,25 @@ export function ActionReauthPage() {
   return (
     <div className="space-y-6 animate-fade-in pb-24">
       {/* ── Header ── */}
-      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-        <PageHeader
-          title='Action Re-authentication'
-          description='Require password verification for sensitive actions per role'
-          crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Action Re-authentication' }]}
-          icon={
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-            </svg>
-          }
-        />
-        {hasChanges && (
-          <Badge className="bg-amber-100 text-amber-700 border border-amber-300 animate-pulse text-xs px-3 py-1">
-            Unsaved Changes
-          </Badge>
-        )}
-      </div>
+      {/* UI v3 (2026-09-21): the shared band; the screen's controls ride inside it. */}
+      <PageHero
+        title='Action Re-authentication'
+        crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Action Re-authentication' }]}
+        icon={
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+          </svg>
+        }
+        actions={
+          <>
+            {hasChanges && (
+              <Badge className="bg-amber-100 text-amber-700 border border-amber-300 animate-pulse text-xs px-3 py-1">
+                Unsaved Changes
+              </Badge>
+            )}
+          </>
+        }
+      />
 
       {/* ── Stats Cards ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -414,14 +417,14 @@ export function ActionReauthPage() {
       {/* ── Matrix Table ── */}
       <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-[var(--elev-2)]">
         <div className="overflow-x-auto rounded-[var(--radius-card)]">
-          <table className="tbl w-full">
-            <thead>
-              <tr className="border-b border-slate-200" style={{ background: 'linear-gradient(to right, #f8fafc, #f1f5f9)' }}>
-                <th className="text-left px-5 pt-4 pb-3 text-xs font-semibold text-slate-500 uppercase tracking-wider" style={{ minWidth: visibleRoles.length > 3 ? '240px' : '300px' }}>
+          <Table>
+            <TableHeader>
+              <TableRow style={{ background: 'linear-gradient(to right, #f8fafc, #f1f5f9)' }}>
+                <TableHead style={{ minWidth: visibleRoles.length > 3 ? '240px' : '300px' }}>
                   Action
-                </th>
+                </TableHead>
                 {visibleRoles.map(role => (
-                  <th key={role.name} className="px-2 pt-4 pb-3 text-center" style={{ minWidth: visibleRoles.length > 3 ? '105px' : '140px' }}>
+                  <TableHead key={role.name} style={{ minWidth: visibleRoles.length > 3 ? '105px' : '140px' }}>
                     <div className="flex flex-col items-center gap-1">
                       <div
                         className={`inline-flex items-center rounded-lg font-bold text-white shadow-[var(--elev-1)] whitespace-nowrap ${visibleRoles.length > 3 ? 'px-2 py-1 text-[0.625rem]' : 'px-3 py-1.5 text-[0.6875rem]'} ${role.color || 'bg-slate-500'}`}
@@ -445,11 +448,11 @@ export function ActionReauthPage() {
                         </Button>
                       </div>
                     </div>
-                  </th>
+                  </TableHead>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {filteredActionsByCategory.map(({ category, actions }) => {
                 const meta = CATEGORY_META[category as ReauthActionCategory];
                 const isCollapsed = collapsedCategories.has(category);
@@ -473,8 +476,8 @@ export function ActionReauthPage() {
                   />
                 );
               })}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
 
         {filteredActionsByCategory.length === 0 && (
@@ -582,8 +585,8 @@ function CategorySection({
   return (
     <>
       {/* Category Header Row */}
-      <tr className="bg-gradient-to-r from-slate-50 to-white border-y border-slate-100">
-        <td className="px-5 py-3 sticky left-0 bg-gradient-to-r from-slate-50 to-white z-10" colSpan={1}>
+      <TableRow className="bg-gradient-to-r from-slate-50 to-white border-y border-slate-100">
+        <TableCell className="px-5 py-3 sticky left-0 bg-gradient-to-r from-slate-50 to-white z-10" colSpan={1}>
           <div className="flex items-center gap-3">
             <button
               onClick={onToggleCollapse}
@@ -625,27 +628,26 @@ function CategorySection({
               </button>
             </div>
           </div>
-        </td>
-        <td colSpan={roles.length} />
-      </tr>
+        </TableCell>
+        <TableCell colSpan={roles.length} />
+      </TableRow>
       {/* Action Rows (collapsible) */}
       {!isCollapsed && actions.map(({ key, label }, idx) => (
-        <tr
+        <TableRow
           key={key}
           className={`border-b border-slate-50 hover:bg-blue-50/40 transition-colors ${
             idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'
-          }`}
-        >
-          <td className="px-5 py-2.5 sticky left-0 z-10" style={{ background: idx % 2 === 0 ? 'white' : 'rgb(248 250 252 / 0.3)' }}>
+          }`}>
+          <TableCell className="px-5 py-2.5 sticky left-0 z-10" style={{ background: idx % 2 === 0 ? 'white' : 'rgb(248 250 252 / 0.3)' }}>
             <div className="flex items-center gap-2">
               <span className="w-1 h-1 rounded-full bg-slate-300" />
               <span className="text-sm text-slate-700 font-medium">{label}</span>
             </div>
-          </td>
+          </TableCell>
           {roles.map(role => {
             const checked = isChecked(key, role.name);
             return (
-              <td key={role.name} className="px-2 py-2.5 text-center">
+              <TableCell key={role.name} className="px-2 py-2.5 text-center">
                 <label className="inline-flex items-center justify-center cursor-pointer group/check">
                   <div className="relative">
                     <input
@@ -668,10 +670,10 @@ function CategorySection({
                     </div>
                   </div>
                 </label>
-              </td>
+              </TableCell>
             );
           })}
-        </tr>
+        </TableRow>
       ))}
     </>
   );

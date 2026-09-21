@@ -95,6 +95,8 @@ describe('InstrumentAttributesConfigPage — display names', () => {
   it('shows a Display name box beside each key, pre-filled from the stored map', () => {
     LABELS.current = { Room: 'Cleanroom number' };
     renderPage();
+    // UI v3 (2026-09-21): the page opens with the shared band.
+    expect(screen.getByTestId('page-hero')).toBeInTheDocument();
     expect(nameField(1)).toHaveValue('');       // Block
     expect(nameField(3)).toHaveValue('Cleanroom number');
   });

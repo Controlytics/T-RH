@@ -14,10 +14,11 @@ import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { Button } from '@/components/ui/button';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { StatusBadge } from '@/components/ui/status-badge';
-import { PageHeader } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
 import { SkeletonRows } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
 import { ALL_RECORDS_PARAM } from '@digilog/shared';
+import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
 
 export interface WebhookTarget {
   id: string;
@@ -319,10 +320,9 @@ export function AlarmWebhooksConfigPage() {
 
   return (
     <div className="p-6">
-      <PageHeader
+      <PageHero
         className="mb-6"
         title="Alarm Webhooks"
-        description="Send an alarm to a device as well as a person — an IP-addressable hooter, a panel, any endpoint on the plant network."
         crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Alarm Webhooks' }]}
         icon={
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -335,30 +335,30 @@ export function AlarmWebhooksConfigPage() {
       />
 
       <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-        <table className="tbl w-full text-sm">
-          <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-            <tr>
-              <th className="px-4 py-3">Name</th>
-              <th className="px-4 py-3">URL</th>
-              <th className="px-4 py-3">Method</th>
-              <th className="px-4 py-3">Events</th>
-              <th className="px-4 py-3">Scope</th>
-              <th className="px-4 py-3">Last delivery</th>
-              <th className="px-4 py-3">State</th>
-              <th className="px-4 py-3" />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {isLoading && <tr><td colSpan={8} className="px-4 py-4"><SkeletonRows rows={4} columns={6} /></td></tr>}
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>URL</TableHead>
+              <TableHead>Method</TableHead>
+              <TableHead>Events</TableHead>
+              <TableHead>Scope</TableHead>
+              <TableHead>Last delivery</TableHead>
+              <TableHead>State</TableHead>
+              <TableHead />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isLoading && <TableRow><TableCell colSpan={8} className="px-4 py-4"><SkeletonRows rows={4} columns={6} /></TableCell></TableRow>}
             {!isLoading && targets.length === 0 && (
-              <tr><td colSpan={8} className="px-4 py-2"><EmptyState compact title="No targets" /></td></tr>
+              <TableRow><TableCell colSpan={8} className="px-4 py-2"><EmptyState compact title="No targets" /></TableCell></TableRow>
             )}
             {targets.map((t) => (
-              <tr key={t.id} className="hover:bg-slate-50">
-                <td className="px-4 py-3 font-medium text-slate-900">{t.name}</td>
-                <td className="max-w-xs truncate px-4 py-3 text-slate-700" title={t.url}>{t.url}</td>
-                <td className="px-4 py-3 text-slate-700">{t.method}</td>
-                <td className="px-4 py-3">
+              <TableRow key={t.id} className="hover:bg-slate-50">
+                <TableCell className="px-4 py-3 font-medium text-slate-900">{t.name}</TableCell>
+                <TableCell className="max-w-xs truncate px-4 py-3 text-slate-700" title={t.url}>{t.url}</TableCell>
+                <TableCell className="px-4 py-3 text-slate-700">{t.method}</TableCell>
+                <TableCell className="px-4 py-3">
                   {/* All three flags off is as terminal as an empty scope, and was the one
                       mute state carrying no visual weight at all. */}
                   {(() => {
@@ -371,8 +371,8 @@ export function AlarmWebhooksConfigPage() {
                       ? <span className="text-amber-700">No events — this target will not fire</span>
                       : <span className="text-slate-700">{events.join(', ')}</span>;
                   })()}
-                </td>
-                <td className="px-4 py-3">
+                </TableCell>
+                <TableCell className="px-4 py-3">
                   {t.instrumentCount === 0 ? (
                     <span className="text-amber-700">0 instruments — this target will not fire</span>
                   ) : (
@@ -381,8 +381,8 @@ export function AlarmWebhooksConfigPage() {
                       {' · '}{t.instrumentCount} in scope
                     </span>
                   )}
-                </td>
-                <td className="px-4 py-3">
+                </TableCell>
+                <TableCell className="px-4 py-3">
                   {/* Resolved server-side on the list response. "Did this hooter actually
                       work last time" cannot be derived from anything else on the row. */}
                   {t.lastDeliveryStatus === null ? (
@@ -393,11 +393,11 @@ export function AlarmWebhooksConfigPage() {
                       {t.lastDeliveryAt && <span className="text-slate-500"> {'·'} {formatDateTime(t.lastDeliveryAt)}</span>}
                     </span>
                   )}
-                </td>
-                <td className="px-4 py-3">
+                </TableCell>
+                <TableCell className="px-4 py-3">
                   <StatusBadge tone={t.isActive ? 'ok' : 'idle'} label={t.isActive ? 'Active' : 'Inactive'} />
-                </td>
-                <td className="px-4 py-3">
+                </TableCell>
+                <TableCell className="px-4 py-3">
                   <div className="flex justify-end gap-2">
                     <Button size="sm" variant="ghost" onClick={() => setDetailId(detailId === t.id ? null : t.id)}>
                       {detailId === t.id ? 'Hide' : 'Deliveries'}
@@ -420,11 +420,11 @@ export function AlarmWebhooksConfigPage() {
                       </>
                     )}
                   </div>
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
 
       {detail && (
@@ -565,44 +565,44 @@ function TargetDetail({
       )}
 
       <div className="overflow-x-auto">
-        <table className="tbl w-full text-sm">
-          <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-            <tr>
-              <th className="px-4 py-2">Time</th>
-              <th className="px-4 py-2">Event</th>
-              <th className="px-4 py-2">Status</th>
-              <th className="px-4 py-2">HTTP</th>
-              <th className="px-4 py-2">Attempt</th>
-              <th className="px-4 py-2">Response</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {isLoading && <tr><td colSpan={6} className="px-4 py-4"><SkeletonRows rows={4} columns={6} /></td></tr>}
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Time</TableHead>
+              <TableHead>Event</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>HTTP</TableHead>
+              <TableHead>Attempt</TableHead>
+              <TableHead>Response</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isLoading && <TableRow><TableCell colSpan={6} className="px-4 py-4"><SkeletonRows rows={4} columns={6} /></TableCell></TableRow>}
             {!isLoading && rows.length === 0 && (
-              <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-slate-500">
+              <TableRow>
+                <TableCell colSpan={6} className="px-4 py-6 text-center text-slate-500">
                   {/* Unqualified, this says the target has never fired — false, and
                       dangerously so, on a target with 400 rows and a filter applied. */}
                   {status ? `No ${status} deliveries.` : 'No deliveries.'}
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             )}
             {rows.map((d) => (
-              <tr key={d.id} className="hover:bg-slate-50">
-                <td className="px-4 py-2 text-slate-700">{formatDateTime(d.sentAt ?? d.createdAt)}</td>
-                <td className="px-4 py-2 text-slate-700">{d.event}</td>
-                <td className="px-4 py-2">
+              <TableRow key={d.id} className="hover:bg-slate-50">
+                <TableCell className="px-4 py-2 text-slate-700">{formatDateTime(d.sentAt ?? d.createdAt)}</TableCell>
+                <TableCell className="px-4 py-2 text-slate-700">{d.event}</TableCell>
+                <TableCell className="px-4 py-2">
                   <StatusBadge tone={d.status === 'SENT' ? 'ok' : 'danger'} label={d.status} />
-                </td>
-                <td className="px-4 py-2 tabular-nums text-slate-600">{d.httpStatus ?? '—'}</td>
-                <td className="px-4 py-2 tabular-nums text-slate-600">{d.attempt}</td>
-                <td className="max-w-md truncate px-4 py-2 font-mono text-xs text-slate-600" title={d.responseSnippet ?? d.error ?? ''}>
+                </TableCell>
+                <TableCell className="px-4 py-2 tabular-nums text-slate-600">{d.httpStatus ?? '—'}</TableCell>
+                <TableCell className="px-4 py-2 tabular-nums text-slate-600">{d.attempt}</TableCell>
+                <TableCell className="max-w-md truncate px-4 py-2 font-mono text-xs text-slate-600" title={d.responseSnippet ?? d.error ?? ''}>
                   {d.responseSnippet ?? d.error ?? '—'}
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
 
       <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-4 py-2 text-xs text-slate-600">

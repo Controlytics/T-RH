@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useDatetimeFormat } from '../../../hooks/use-datetime-format';
 import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
-import { PageHeader } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
 import { Tabs } from '@/components/ui/tabs';
 
 // ─── Email Types & Constants ──────────────────────────────────────────
@@ -90,9 +90,8 @@ function ChannelSettingsPage({ defaultTab = 'email' }: { defaultTab?: 'email' | 
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <PageHeader
+      <PageHero
         title='Notification Channels'
-        description='Configure email SMTP and SMS provider settings'
         crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Notification Channels' }]}
         icon={
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

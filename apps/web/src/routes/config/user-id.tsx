@@ -6,7 +6,7 @@ import { Select } from '@/components/ui/select';
 import { Card } from '@/components/ui/card';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
-import { PageHeader } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
 
 interface UserIdConfig {
   format: string;
@@ -153,9 +153,8 @@ export function UserIdConfigPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <PageHeader
+      <PageHero
         title='User ID Configuration'
-        description='Configure the format and rules for User IDs'
         crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'User ID Configuration' }]}
         icon={
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

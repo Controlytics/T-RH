@@ -20,8 +20,9 @@ import { PipelineProgressBar } from './components/PipelineProgressBar';
 import { StatusIcon } from './components/StatusIcon';
 import { TraceDetailPanel } from './components/TraceDetailPanel';
 import { StatsCards } from './components/StatsCards';
-import { PageHeader } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
 import { SkeletonRows } from '@/components/ui/skeleton';
+import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
 
 // ---------------------------------------------------------------------------
 // Main Page Component
@@ -184,43 +185,44 @@ export function DebugTracesPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Page Header */}
-      <div className="flex items-start justify-between">
-        <PageHeader
-          title='Pipeline Debug Traces'
-          description='Every API write operation — SUCCESS / FAILED'
-          crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Debug Traces', to: '/debug/traces' }, { label: 'Pipeline Debug Traces' }]}
-          icon={
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" />
-            </svg>
-          }
-        />
-        <div className="flex items-center gap-2">
-          <button
-            onClick={toggleOpTrace}
-            title="When on, every API write operation is recorded as a trace"
-            className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold border transition-colors ${
-              (opTrace?.enabled ?? true)
-                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
-            }`}
-          >
-            <span className={`w-2 h-2 rounded-full ${(opTrace?.enabled ?? true) ? 'bg-emerald-500' : 'bg-slate-400'}`} />
-            Operation tracing {(opTrace?.enabled ?? true) ? 'ON' : 'OFF'}
-          </button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => { mutate(); }}
-            className="gap-2 text-cyan-700 border-cyan-200 hover:bg-cyan-50 hover:border-cyan-300"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            Refresh
-          </Button>
-        </div>
-      </div>
+      {/* UI v3 (2026-09-21): the shared band; the screen's controls ride inside it. */}
+      <PageHero
+        title='Pipeline Debug Traces'
+        crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Debug Traces', to: '/debug/traces' }, { label: 'Pipeline Debug Traces' }]}
+        icon={
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" />
+          </svg>
+        }
+        actions={
+          <>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={toggleOpTrace}
+                title="When on, every API write operation is recorded as a trace"
+                className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold border transition-colors ${
+                  (opTrace?.enabled ?? true)
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                    : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${(opTrace?.enabled ?? true) ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                Operation tracing {(opTrace?.enabled ?? true) ? 'ON' : 'OFF'}
+              </button>
+              <Button
+                size="sm"
+                onClick={() => { mutate(); }}
+                className="gap-2 border border-white/30 bg-white/10 text-white hover:bg-white/20"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Refresh
+              </Button>
+            </div>
+          </>
+        }
+      />
 
       {/* Stats Cards */}
       <StatsCards stats={stats} total={total} />
@@ -343,34 +345,34 @@ export function DebugTracesPage() {
       {/* Traces Table Card */}
       <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-[var(--elev-2)] overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="tbl w-full text-sm">
-            <thead>
-              <tr className="bg-gradient-to-r from-slate-50 to-slate-100/80 border-b border-slate-200">
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs w-8" />
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Time</th>
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Entity</th>
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Type</th>
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Transport</th>
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Pipeline</th>
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Status</th>
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Error Code</th>
-                <th className="text-right px-5 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Duration</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead />
+                <TableHead>Time</TableHead>
+                <TableHead>Entity</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Transport</TableHead>
+                <TableHead>Pipeline</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Error Code</TableHead>
+                <TableHead>Duration</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {/* Loading state */}
               {isLoading && (
-                <tr>
-                  <td colSpan={9} className="px-5 py-4">
+                <TableRow>
+                  <TableCell colSpan={9} className="px-5 py-4">
                     <SkeletonRows rows={5} columns={9} />
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               )}
 
               {/* Empty state */}
               {!isLoading && traces.length === 0 && (
-                <tr>
-                  <td colSpan={9} className="px-5 py-16 text-center">
+                <TableRow>
+                  <TableCell colSpan={9} className="px-5 py-16 text-center">
                     <div className="flex flex-col items-center gap-4">
                       <div className="p-4 rounded-[var(--radius-card)] bg-slate-100">
                         <svg className="w-10 h-10 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -386,8 +388,8 @@ export function DebugTracesPage() {
                         </p>
                       </div>
                     </div>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               )}
 
               {/* Trace rows */}
@@ -397,17 +399,16 @@ export function DebugTracesPage() {
                   const cachedDetail = detailCache[trace.id];
 
                   return [
-                    <tr
+                    <TableRow
                       key={`row-${trace.id}`}
                       onClick={() => handleRowClick(trace)}
                       className={`cursor-pointer transition-colors ${
                         isExpanded
                           ? 'bg-cyan-50/60 hover:bg-cyan-50'
                           : 'hover:bg-slate-50/80'
-                      }`}
-                    >
+                      }`}>
                       {/* Expand chevron */}
-                      <td className="px-5 py-3.5">
+                      <TableCell className="px-5 py-3.5">
                         <svg
                           className={`w-4 h-4 text-slate-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
                           fill="none"
@@ -416,17 +417,17 @@ export function DebugTracesPage() {
                         >
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                         </svg>
-                      </td>
+                      </TableCell>
 
                       {/* Time */}
-                      <td className="px-5 py-3.5">
+                      <TableCell className="px-5 py-3.5">
                         <span className="text-xs text-slate-600 font-mono whitespace-nowrap">
                           {formatDateTime(trace.time)}
                         </span>
-                      </td>
+                      </TableCell>
 
                       {/* Entity */}
-                      <td className="px-5 py-3.5 max-w-[160px]">
+                      <TableCell className="px-5 py-3.5 max-w-[160px]">
                         {trace.entityName ? (
                           <div>
                             <p className="text-sm font-medium text-slate-700 truncate">{trace.entityName}</p>
@@ -439,39 +440,39 @@ export function DebugTracesPage() {
                         ) : (
                           <span className="text-slate-300 text-xs">—</span>
                         )}
-                      </td>
+                      </TableCell>
 
                       {/* Message Type */}
-                      <td className="px-5 py-3.5">
+                      <TableCell className="px-5 py-3.5">
                         <Badge className={getMessageTypeBadgeClass(trace.messageType)}>
                           {trace.messageType}
                         </Badge>
-                      </td>
+                      </TableCell>
 
                       {/* Transport */}
-                      <td className="px-5 py-3.5">
+                      <TableCell className="px-5 py-3.5">
                         <Badge className={getTransportBadgeClass(trace.transport)}>
                           {trace.transport}
                         </Badge>
-                      </td>
+                      </TableCell>
 
                       {/* Pipeline Progress */}
-                      <td className="px-5 py-3.5">
+                      <TableCell className="px-5 py-3.5">
                         <PipelineProgressBar stages={trace.stages} />
-                      </td>
+                      </TableCell>
 
                       {/* Final Status */}
-                      <td className="px-5 py-3.5">
+                      <TableCell className="px-5 py-3.5">
                         <div className="flex items-center gap-1.5">
                           <StatusIcon status={trace.finalStatus} />
                           <Badge className={getStatusBadgeClass(trace.finalStatus)}>
                             {trace.finalStatus === 'SUCCESS_WITH_WARNINGS' ? 'WARNINGS' : trace.finalStatus}
                           </Badge>
                         </div>
-                      </td>
+                      </TableCell>
 
                       {/* Error Code */}
-                      <td className="px-5 py-3.5">
+                      <TableCell className="px-5 py-3.5">
                         {trace.errorCode ? (
                           <span className="text-xs font-mono text-red-600 bg-red-50 border border-red-200 px-2 py-1 rounded-lg">
                             {trace.errorCode}
@@ -479,20 +480,20 @@ export function DebugTracesPage() {
                         ) : (
                           <span className="text-slate-300 text-xs">—</span>
                         )}
-                      </td>
+                      </TableCell>
 
                       {/* Duration */}
-                      <td className="px-5 py-3.5 text-right">
+                      <TableCell className="px-5 py-3.5 text-right">
                         <span className="text-xs font-mono font-semibold text-slate-600">
                           {formatDuration(trace.totalDurationMs)}
                         </span>
-                      </td>
-                    </tr>,
+                      </TableCell>
+                    </TableRow>,
 
                     /* Expanded detail row */
                     isExpanded && (
-                      <tr key={`detail-${trace.id}`} className="bg-slate-50/60">
-                        <td colSpan={9} className="p-0">
+                      <TableRow key={`detail-${trace.id}`} className="bg-slate-50/60">
+                        <TableCell colSpan={9} className="p-0">
                           {loadingDetail && !cachedDetail ? (
                             <div className="px-5 py-4">
                               <SkeletonRows rows={3} columns={4} />
@@ -500,13 +501,13 @@ export function DebugTracesPage() {
                           ) : (
                             <TraceDetailPanel trace={cachedDetail ?? trace} />
                           )}
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ),
                   ];
                 })}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       </div>
 

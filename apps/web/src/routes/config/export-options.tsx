@@ -4,7 +4,8 @@ import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { EXPORT_SURFACES, type ExportFormat } from '@/lib/export-surfaces';
 import { Button } from '@/components/ui/button';
-import { PageHeader } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
+import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
 
 type Matrix = Record<string, Record<string, string>>; // role -> surfaceKey -> format
 
@@ -63,9 +64,8 @@ export function ExportOptionsPage() {
       {/* This page had no header because it had no ROUTE — the config def
           pointed at /config/export-options and nothing was registered there, so
           nobody ever arrived. It gets the same header as its siblings now. */}
-      <PageHeader
+      <PageHero
         title="Export Options"
-        description="Which export formats each role may use on each page. Unset cells default to Both, and SUPER_ADMIN always has both."
         crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Export Options' }]}
         icon={
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -83,41 +83,41 @@ export function ExportOptionsPage() {
         <div className="text-sm text-slate-400 py-12 text-center">No roles to configure.</div>
       ) : (
         <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white">
-          <table className="tbl w-full border-collapse">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="text-left px-4 py-3 text-[0.6875rem] font-bold text-slate-500 uppercase tracking-wider sticky left-0 bg-slate-50">Page</th>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Page</TableHead>
                 {roles.map((r) => (
-                  <th key={r.name} className="px-3 py-2 text-center min-w-[130px]">
+                  <TableHead key={r.name}>
                     <div className="text-[0.75rem] font-bold text-slate-700">{r.displayName || r.name}</div>
                     <select value="" onChange={(e) => { if (e.target.value) setWholeRole(r.name, e.target.value); }}
                       className="ctl mt-1">
                       <option value="">set all…</option>
                       {FORMATS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
                     </select>
-                  </th>
+                  </TableHead>
                 ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {EXPORT_SURFACES.map((s) => (
-                <tr key={s.key} className="hover:bg-slate-50/40">
-                  <td className="px-4 py-2.5 text-[0.8125rem] font-medium text-slate-700 whitespace-nowrap sticky left-0 bg-white">{s.label}</td>
+                <TableRow key={s.key} className="hover:bg-slate-50/40">
+                  <TableCell className="px-4 py-2.5 text-[0.8125rem] font-medium text-slate-700 whitespace-nowrap sticky left-0 bg-white">{s.label}</TableCell>
                   {roles.map((r) => {
                     const val = cell(r.name, s.key);
                     return (
-                      <td key={r.name} className="px-3 py-2 text-center">
+                      <TableCell key={r.name} className="px-3 py-2 text-center">
                         <select value={val} onChange={(e) => setCell(r.name, s.key, e.target.value)}
                           className={`ctl ctl-sm w-full font-semibold ${FMT_CLS[val] ?? FMT_CLS.BOTH}`}>
                           {FORMATS.map((f) => <option key={f.value} value={f.value} className="bg-white text-slate-700">{f.label}</option>)}
                         </select>
-                      </td>
+                      </TableCell>
                     );
                   })}
-                </tr>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
     </div>

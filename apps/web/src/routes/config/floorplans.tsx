@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { RoomDoor, DoorWall, DoorKind } from '@/routes/dashboard/room-geometry';
 import { ROOM_GRADES, ROOM_GRADE_META } from '@/routes/dashboard/use-telemetry';
-import { PageHeader } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
 import { ALL_RECORDS_PARAM } from '@digilog/shared';
 
 /**
@@ -419,9 +419,8 @@ export function FloorplansConfigPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <PageHeader
+      <PageHero
         title="Floorplans"
-        description="Upload a floor layout, drag a box over each room that holds instruments, and set that room's temperature and humidity limits. The dashboard colours each room against these limits."
         crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Configuration', to: '/config' }, { label: 'Floorplans' }]}
         icon={
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
