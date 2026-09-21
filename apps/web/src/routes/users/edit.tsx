@@ -19,7 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { generatePassword, DEFAULT_PASSWORD_POLICY } from '../../lib/password-utils';
 import { SkeletonCard } from '@/components/ui/skeleton';
-import { Breadcrumbs } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
 
 const statusConfig: Record<string, { color: string; bg: string; icon: string }> = {
   ENABLED: { color: 'text-emerald-700', bg: 'bg-gradient-to-r from-emerald-400 to-teal-400', icon: 'M5 13l4 4L19 7' },
@@ -189,46 +189,41 @@ export function EditUserPage() {
 
   return (
     <div className="space-y-8 animate-fade-in">
-      {/* The avatar identity block stays — it is how you confirm you are editing
-          the right person. What was missing is the trail back to the list. */}
-      <Breadcrumbs
+      {/* UI v3 (2026-09-21): the shared band. The initials are the icon and
+          the person's name is the title — how you confirm you are editing the
+          right person — with the trail back to the list inside the band. */}
+      <PageHero
+        title={userData.fullName}
         crumbs={[
           { label: 'Dashboard', to: '/' },
           { label: 'Users', to: '/users' },
           { label: userData.fullName },
         ]}
-      />
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-[var(--radius-card)] bg-[var(--theme-primary,#2a78d6)] flex items-center justify-center text-white text-xl font-bold shadow-[var(--elev-2)]">
-            {userData.fullName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
-          </div>
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-[1.625rem] font-semibold leading-tight tracking-[-0.01em] text-slate-900">{userData.fullName}</h1>
-              <Badge className={`${status.bg} text-white border-0 shadow-[var(--elev-1)]`}>{userData.status}</Badge>
-              {isDirectoryUser && (
-                <Badge className="bg-gradient-to-r from-sky-500 to-blue-600 text-white border-0 shadow-[var(--elev-1)] gap-1">
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2" /></svg>
-                  Active Directory
-                </Badge>
-              )}
-            </div>
-            <p className="text-sm text-slate-500 mt-0.5 font-mono">@{userData.username}</p>
-            {isDirectoryUser && userData.ldapDn && (
-              <p className="text-xs text-slate-400 mt-0.5 font-mono break-all">{userData.ldapDn}</p>
+        icon={<span className="text-base font-bold">{userData.fullName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}</span>}
+        meta={
+          <>
+            <Badge className={`${status.bg} text-white border-0 shadow-[var(--elev-1)]`}>{userData.status}</Badge>
+            {isDirectoryUser && (
+              <Badge className="bg-white/20 text-white border-0 ring-1 ring-inset ring-white/30 gap-1">Active Directory</Badge>
             )}
-          </div>
-        </div>
-        <Link to="/users">
-          <Button variant="outline" className="gap-2">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
-            Back to Users
-          </Button>
-        </Link>
-      </div>
+            <span className="font-mono text-[0.8125rem] text-white/80">@{userData.username}</span>
+            {isDirectoryUser && userData.ldapDn && (
+              <span className="break-all font-mono text-xs text-white/60">{userData.ldapDn}</span>
+            )}
+          </>
+        }
+        actions={
+          <Link to="/users">
+            <Button className="gap-2 border border-white/30 bg-white/10 text-white hover:bg-white/20">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              Back to Users
+            </Button>
+          </Link>
+        }
+      />
+
 
       {/* Form Card */}
       <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-[var(--elev-2)] overflow-hidden">

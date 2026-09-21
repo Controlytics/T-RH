@@ -13,7 +13,8 @@ import { type PasswordPolicyConfig } from '@digilog/shared';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { generatePassword, DEFAULT_PASSWORD_POLICY } from '../../lib/password-utils';
 import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
-import { PageHeader } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
+import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
 
 interface ResetRequest {
   id: string;
@@ -167,29 +168,26 @@ export function ResetRequestsPage() {
 
   return (
     <div className="space-y-8 animate-fade-in">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <PageHeader
-            title='Password Reset Requests'
-            description='Review and process password reset requests from users'
-            crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Users', to: '/users' }, { label: 'Password Reset Requests' }]}
-            icon={
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+      {/* UI v3 (2026-09-21): the shared band, Back inside it. */}
+      <PageHero
+        title="Password Reset Requests"
+        crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Users', to: '/users' }, { label: 'Password Reset Requests' }]}
+        icon={
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+          </svg>
+        }
+        actions={
+          <Link to="/users">
+            <Button className="gap-2 border border-white/30 bg-white/10 text-white hover:bg-white/20">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
               </svg>
-            }
-          />
-        </div>
-        <Link to="/users">
-          <Button variant="outline" className="gap-2">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
-            Back to Users
-          </Button>
-        </Link>
-      </div>
+              Back to Users
+            </Button>
+          </Link>
+        }
+      />
 
       {/* Success Message */}
       {successMessage && (
@@ -341,21 +339,20 @@ export function ResetRequestsPage() {
               <p className="text-sm text-slate-400 mt-1">Processed requests will appear here</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="tbl w-full">
-                <thead>
-                  <tr className="border-b border-slate-100">
-                    <th className="text-left py-4 px-4 font-semibold text-slate-600 text-sm">User</th>
-                    <th className="text-left py-4 px-4 font-semibold text-slate-600 text-sm">Status</th>
-                    <th className="text-left py-4 px-4 font-semibold text-slate-600 text-sm">Requested</th>
-                    <th className="text-left py-4 px-4 font-semibold text-slate-600 text-sm">Processed</th>
-                    <th className="text-left py-4 px-4 font-semibold text-slate-600 text-sm">Processed By</th>
+              <Table>
+                <TableHeader>
+                  <tr>
+                    <TableHead>User</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Requested</TableHead>
+                    <TableHead>Processed</TableHead>
+                    <TableHead>Processed By</TableHead>
                   </tr>
-                </thead>
-                <tbody>
+                </TableHeader>
+                <TableBody>
                   {processedRequests.map((request) => (
-                    <tr key={request.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors">
-                      <td className="py-4 px-4">
+                    <TableRow key={request.id}>
+                      <TableCell>
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center text-sm font-semibold text-slate-600">
                             {(request.userFullName || request.userId).split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
@@ -365,21 +362,21 @@ export function ResetRequestsPage() {
                             {request.userFullName && <p className="text-xs text-slate-400 font-mono">{request.userId}</p>}
                           </div>
                         </div>
-                      </td>
-                      <td className="py-4 px-4">{getStatusBadge(request.status)}</td>
-                      <td className="py-4 px-4 text-sm text-slate-500">
+                      </TableCell>
+                      <TableCell>{getStatusBadge(request.status)}</TableCell>
+                      <TableCell className="text-sm text-slate-500">
                         {formatDate(request.requestedAt)}
                         <span className="block text-xs text-slate-400">{formatTime(request.requestedAt)}</span>
-                      </td>
-                      <td className="py-4 px-4 text-sm text-slate-500">
+                      </TableCell>
+                      <TableCell className="text-sm text-slate-500">
                         {request.processedAt ? (
                           <>
                             {formatDate(request.processedAt)}
                             <span className="block text-xs text-slate-400">{formatTime(request.processedAt)}</span>
                           </>
                         ) : '-'}
-                      </td>
-                      <td className="py-4 px-4">
+                      </TableCell>
+                      <TableCell>
                         {request.processedBy ? (
                           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-sm text-slate-600">
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -388,12 +385,11 @@ export function ResetRequestsPage() {
                             {request.processedBy}
                           </span>
                         ) : '-'}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </TableBody>
+              </Table>
           )}
         </div>
       </div>
