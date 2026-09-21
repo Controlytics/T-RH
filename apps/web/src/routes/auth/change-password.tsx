@@ -7,7 +7,8 @@ import { useToast } from '@/hooks/use-toast';
 import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
+import { CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
+import { AuthShell } from './auth-shell';
 import { useNavigate } from 'react-router-dom';
 import useSWR from 'swr';
 
@@ -102,8 +103,7 @@ export function ChangePasswordPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-100 p-4">
-      <Card className="w-full max-w-md">
+    <AuthShell>
         <CardHeader>
           <CardTitle>Change Password</CardTitle>
           <CardDescription>
@@ -219,7 +219,6 @@ export function ChangePasswordPage() {
             </Button>
           </CardFooter>
         </form>
-      </Card>
-    </div>
+    </AuthShell>
   );
 }

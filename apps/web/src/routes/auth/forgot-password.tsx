@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBranding } from '@/hooks/use-branding';
 import { apiClient } from '@/lib/api-client';
+import { AuthShell } from './auth-shell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -34,21 +35,7 @@ export function ForgotPasswordPage() {
   };
 
   return (
-    <div
-      className="flex min-h-screen items-center justify-center p-8"
-      style={{
-        background: `linear-gradient(to bottom right, ${branding.loginBgStart}, ${branding.loginBgEnd}, ${branding.loginBgStart})`
-      }}
-    >
-      <div className="w-full max-w-md">
-        <div className="relative bg-white/95 backdrop-blur-sm rounded-[var(--radius-card)] shadow-[var(--elev-3)] overflow-hidden">
-          <div
-            className="h-2"
-            style={{
-              background: `linear-gradient(to right, ${branding.gradientStart}, ${branding.gradientMiddle}, ${branding.gradientEnd})`
-            }}
-          />
-
+    <AuthShell>
           <div className="p-8 pt-6">
             {/* Branding */}
             <div className="text-center mb-8">
@@ -204,8 +191,6 @@ export function ForgotPasswordPage() {
               <p className="text-sm text-slate-500 mt-1 font-semibold">Version {branding.version}</p>
             </div>
           </div>
-        </div>
-      </div>
-    </div>
+    </AuthShell>
   );
 }

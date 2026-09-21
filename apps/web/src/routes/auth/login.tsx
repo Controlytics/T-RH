@@ -6,6 +6,7 @@ import { loginSchema, type LoginInput } from '@digilog/shared';
 import { useAuth } from '@/hooks/use-auth';
 import { useBranding } from '@/hooks/use-branding';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
+import { AuthShell } from './auth-shell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -106,23 +107,8 @@ export function LoginPage() {
   };
 
   return (
-    <div
-      className="flex min-h-screen items-center justify-center p-8"
-      style={{
-        background: `linear-gradient(to bottom right, ${branding.loginBgStart}, ${branding.loginBgEnd}, ${branding.loginBgStart})`
-      }}
-    >
-      <div className="w-full max-w-md">
-        {/* Login Card */}
-        <div className="relative bg-white/95 backdrop-blur-sm rounded-[var(--radius-card)] shadow-[var(--elev-3)] overflow-hidden">
-          {/* Decorative gradient header */}
-          <div
-            className="h-2"
-            style={{
-              background: `linear-gradient(to right, ${branding.gradientStart}, ${branding.gradientMiddle}, ${branding.gradientEnd})`
-            }}
-          />
-
+    <>
+      <AuthShell>
           <div className="p-8 pt-6">
             {/* Branding */}
             <div className="text-center mb-8">
@@ -285,8 +271,7 @@ export function LoginPage() {
               <p className="text-sm text-slate-500 mt-1 font-semibold">Version {branding.version}</p>
             </div>
           </div>
-        </div>
-      </div>
+      </AuthShell>
 
       {/* System Session Warning Dialog - Another user is logged in on this system */}
       <Dialog open={showSystemSessionDialog} onClose={() => setShowSystemSessionDialog(false)} className="max-w-md">
@@ -437,6 +422,6 @@ export function LoginPage() {
           </Button>
         </DialogFooter>
       </Dialog>
-    </div>
+    </>
   );
 }
