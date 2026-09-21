@@ -72,6 +72,8 @@ describe('Functional location detail page', () => {
     renderPage('b1');
     const h = within(hero());
     expect(h.getByRole('heading', { name: 'CWH Block' })).toBeInTheDocument();
+    // UI v3 (2026-09-21): the hero IS the shared primitive, not a private copy.
+    expect(hero()).toHaveAttribute('data-hero', 'v3');
     expect(h.getByText('Block')).toBeInTheDocument();
     expect(h.getByTestId('fl-stat-total')).toHaveTextContent('3');
     expect(h.getByTestId('fl-stat-areas')).toHaveTextContent('1');

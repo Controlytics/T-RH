@@ -8,7 +8,7 @@ import { themeGradient } from '@/lib/theme-styles';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
-import { PageHeader } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
 import { LocationDialog, type LocationDraft } from './location-dialog';
 import { ArrangeDialog } from './arrange-dialog';
 import { useReauth } from '@/hooks/use-reauth';
@@ -138,44 +138,32 @@ export default function FunctionalLocationsPage() {
 
   return (
     <div className="space-y-5">
-      {/* The hero: where you are, what the plant holds, and how it is doing. */}
-      <section
-        data-testid="fl-hero"
-        className="relative overflow-hidden rounded-[var(--radius-card)] p-6 text-white shadow-[var(--elev-3)]"
-        style={themeGradient}
+      {/* The hero: where you are, what the plant holds, and how it is doing —
+          the shared band since UI v3 (2026-09-21). */}
+      <PageHero
+        testId="fl-hero"
+        title="Functional Locations"
+        crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Functional Locations' }]}
+        icon={LocationGlyph}
+        actions={actions}
+        tiles={[
+          { testId: 'fl-figure-blocks', value: tree.length, label: tree.length === 1 ? 'Block' : 'Blocks' },
+          { testId: 'fl-figure-areas', value: areaCount, label: areaCount === 1 ? 'Area' : 'Areas' },
+          { testId: 'fl-figure-instruments', value: totalInstruments, label: totalInstruments === 1 ? 'Instrument assigned' : 'Instruments assigned' },
+        ]}
       >
-        <span aria-hidden className="pointer-events-none absolute -right-16 -top-24 h-72 w-72 rounded-full bg-white/10 blur-2xl" />
-        <span aria-hidden className="pointer-events-none absolute -bottom-28 left-1/3 h-64 w-64 rounded-full bg-black/10 blur-3xl" />
-        <div className="relative space-y-5">
-          <PageHeader
-            inverted
-            title="Functional Locations"
-            description="Block and Area grouping. An instrument belongs to exactly one location."
-            crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Functional Locations' }]}
-            icon={LocationGlyph}
-            actions={actions}
-          />
-
-          <div className="grid gap-3 md:grid-cols-[repeat(3,minmax(0,9rem))_minmax(0,1fr)] md:items-stretch">
-            <Figure testId="fl-figure-blocks" value={tree.length} label={tree.length === 1 ? 'Block' : 'Blocks'} />
-            <Figure testId="fl-figure-areas" value={areaCount} label={areaCount === 1 ? 'Area' : 'Areas'} />
-            <Figure testId="fl-figure-instruments" value={totalInstruments} label={totalInstruments === 1 ? 'Instrument assigned' : 'Instruments assigned'} />
-            {tree.length > 0 && (
-              <div className="flex items-center rounded-[var(--radius-card)] bg-white/12 px-4 py-3 ring-1 ring-inset ring-white/20 backdrop-blur-sm">
-                <label className="w-full">
-                  <span className="mb-1.5 block text-[0.8125rem] font-medium text-white/85">Find a block or area</span>
-                  <Input
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search blocks and areas…"
-                    className="h-9 border-white/30 bg-white/90 text-slate-900 placeholder:text-slate-500"
-                  />
-                </label>
-              </div>
-            )}
-          </div>
-        </div>
-      </section>
+        {tree.length > 0 && (
+          <label className="block w-full md:max-w-md">
+            <span className="mb-1.5 block text-[0.8125rem] font-medium text-white/85">Find a block or area</span>
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search blocks and areas…"
+              className="h-9 border-white/30 bg-white/90 text-slate-900 placeholder:text-slate-500"
+            />
+          </label>
+        )}
+      </PageHero>
 
       {isLoading && tree.length === 0 && (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -355,11 +343,3 @@ export default function FunctionalLocationsPage() {
 }
 
 /** One figure in the hero band: the number large, its word under it. */
-function Figure({ value, label, testId }: { value: number; label: string; testId: string }) {
-  return (
-    <div data-testid={testId} className="rounded-[var(--radius-card)] bg-white/12 px-4 py-3 ring-1 ring-inset ring-white/20 backdrop-blur-sm">
-      <span className="font-display block text-[1.75rem] font-bold leading-none tabular-nums">{value}</span>
-      <span className="mt-1 block text-[0.75rem] text-white/80">{label}</span>
-    </div>
-  );
-}

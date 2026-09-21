@@ -14,7 +14,7 @@ const mount = (extra: Partial<Parameters<typeof PageHero>[0]> = {}) => render(
     <PageHero
       title="Alarms"
       crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Alarms' }]}
-      tiles={[{ label: 'Active', value: 16 }, { label: 'Cleared', value: 8, hint: 'today' }]}
+      tiles={[{ label: 'Active', value: 16, testId: 'tile-active' }, { label: 'Cleared', value: 8, hint: 'today' }]}
       {...extra}
     >
       <input aria-label="Search alarms" />
@@ -35,6 +35,7 @@ describe('PageHero', () => {
     expect(within(band).getAllByText('Active')).toHaveLength(1);
     expect(within(band).getAllByText('16')).toHaveLength(1);
     expect(within(band).getByText('today')).toBeInTheDocument();
+    expect(screen.getByTestId('tile-active')).toHaveTextContent('16');
   });
 
   it("puts the caller's toolbar INSIDE the band", () => {

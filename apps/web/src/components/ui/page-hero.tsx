@@ -23,6 +23,8 @@ export interface HeroTile {
   value: ReactNode;
   /** A small line under the figure — a unit or a qualifier, never a sentence. */
   hint?: string;
+  /** For a page test that names its figures (`fl-figure-blocks`); optional. */
+  testId?: string;
 }
 
 export function PageHero({
@@ -57,7 +59,7 @@ export function PageHero({
         {tiles && tiles.length > 0 && (
           <dl data-testid="page-hero-tiles" className="flex flex-wrap gap-3">
             {tiles.map((t) => (
-              <div key={t.label} className="min-w-[8.5rem] rounded-[var(--radius-card)] bg-white/12 px-4 py-3 backdrop-blur-sm">
+              <div key={t.label} data-testid={t.testId} className="min-w-[8.5rem] rounded-[var(--radius-card)] bg-white/12 px-4 py-3 backdrop-blur-sm">
                 <dt className="text-[0.625rem] font-semibold uppercase tracking-[0.12em] text-white/75">{t.label}</dt>
                 <dd className="mt-1 text-[length:var(--text-figure-lg)] font-semibold leading-[var(--text-figure-lg--line-height)] tabular-nums">
                   {t.value}

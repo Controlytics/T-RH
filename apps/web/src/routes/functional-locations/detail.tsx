@@ -4,10 +4,10 @@ import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { useCan } from '@/hooks/use-can';
 import { useToast } from '@/hooks/use-toast';
-import { themeGradient } from '@/lib/theme-styles';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { PageHero } from '@/components/ui/page-hero';
 import { Breadcrumbs } from '@/components/ui/page-header';
 import { LocationDialog, type LocationDraft } from './location-dialog';
 import { InstrumentPanel } from './instrument-panel';
@@ -27,15 +27,6 @@ interface FlDetail {
 }
 
 /** One figure inside the hero band. */
-function Stat({ value, label, hint, testId }: { value: number; label: string; hint?: string; testId: string }) {
-  return (
-    <div data-testid={testId} className="rounded-[var(--radius-card)] bg-white/12 px-4 py-3 ring-1 ring-inset ring-white/20 backdrop-blur-sm">
-      <p className="font-display text-[1.75rem] font-bold leading-none tabular-nums">{value}</p>
-      <p className="mt-1 text-[0.8125rem] font-medium text-white/90">{label}</p>
-      {hint && <p className="mt-0.5 text-[0.6875rem] text-white/65">{hint}</p>}
-    </div>
-  );
-}
 
 /**
  * One functional location: what it is, what sits under it, and which instruments
@@ -178,79 +169,51 @@ export function FunctionalLocationDetailPage() {
 
   return (
     <div className="space-y-5">
-      <section
-        data-testid="fl-detail-hero"
-        className="relative overflow-hidden rounded-[var(--radius-card)] p-6 text-white shadow-[var(--elev-3)]"
-        style={themeGradient}
-      >
-        <span aria-hidden className="pointer-events-none absolute -right-16 -top-24 h-72 w-72 rounded-full bg-white/10 blur-2xl" />
-        <span aria-hidden className="pointer-events-none absolute -bottom-28 left-1/3 h-64 w-64 rounded-full bg-black/10 blur-3xl" />
-        <div className="relative space-y-5">
-          <Breadcrumbs
-            inverted
-            crumbs={[
-              ...baseCrumbs,
-              ...(parentName && data.parentId
-                ? [{ label: parentName, to: `/functional-locations/${data.parentId}` }]
-                : []),
-              { label: data.name },
-            ]}
-          />
-
-          <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
-            <div className="flex min-w-0 items-start gap-3.5">
-              <span aria-hidden className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-card)] bg-white/20 text-white backdrop-blur-sm">
-                {LocationGlyph}
-              </span>
-              <div className="min-w-0">
-                <span className="inline-flex items-center rounded-[var(--radius-pill)] bg-white/20 px-2 py-0.5 text-[0.6875rem] font-semibold tracking-wide text-white ring-1 ring-inset ring-white/30">
-                  {isBlock ? 'Block' : 'Area'}
-                </span>
-                <h1 className="font-display mt-1 text-[1.75rem] font-semibold leading-tight tracking-tight">{data.name}</h1>
-                {parentName && <p className="mt-0.5 text-[0.8125rem] text-white/75">Inside {parentName}</p>}
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              {isBlock && can('functional_locations.create') && (
-                <Button variant="secondary" size="sm" className={white} onClick={() => setAreaOpen(true)}>
-                  Add area
-                </Button>
-              )}
-              {can('functional_locations.edit') && (
-                <Button variant="secondary" size="sm" className={white} onClick={() => setRenameOpen(true)}>
-                  Edit
-                </Button>
-              )}
-              {can('functional_locations.delete') && (
-                <Button variant="secondary" size="sm" className="border-rose-200/60 bg-rose-500/30 text-white hover:bg-rose-500/45" onClick={() => setConfirmDelete(true)}>
-                  Delete
-                </Button>
-              )}
-            </div>
-          </div>
-
-          {/* Two figures on a Block, one on an Area. There is no "Linked
-              directly" tile (operator, 2026-09-17: "remove that linked directly
-              tile also") — the direct list below is that number, counted. */}
-          <div className={`grid gap-3 ${isBlock ? 'sm:grid-cols-2 md:max-w-lg' : 'md:max-w-xs'}`}>
-            <Stat
-              testId="fl-stat-total"
-              value={data.totalCount}
-              label="Instruments in total"
-              hint={isBlock ? 'This block and all its areas' : 'Linked to this area'}
-            />
-            {isBlock && (
-              <Stat
-                testId="fl-stat-areas"
-                value={data.children.length}
-                label={data.children.length === 1 ? 'Area' : 'Areas'}
-                hint={`${data.totalCount - data.ownCount} instrument${data.totalCount - data.ownCount === 1 ? '' : 's'} inside them`}
-              />
+      {/* UI v3 (2026-09-21): the shared band. Two figures on a Block, one on
+          an Area. There is no "Linked directly" tile (operator, 2026-09-17:
+          "remove that linked directly tile also") — the direct list below is
+          that number, counted. */}
+      <PageHero
+        testId="fl-detail-hero"
+        title={data.name}
+        icon={LocationGlyph}
+        crumbs={[
+          ...baseCrumbs,
+          ...(parentName && data.parentId
+            ? [{ label: parentName, to: `/functional-locations/${data.parentId}` }]
+            : []),
+          { label: data.name },
+        ]}
+        meta={
+          <>
+            <span className="inline-flex items-center rounded-[var(--radius-pill)] bg-white/20 px-2 py-0.5 text-[0.6875rem] font-semibold tracking-wide text-white ring-1 ring-inset ring-white/30">
+              {isBlock ? 'Block' : 'Area'}
+            </span>
+            {parentName && <span className="text-[0.8125rem] text-white/75">Inside {parentName}</span>}
+          </>
+        }
+        actions={
+          <>
+            {isBlock && can('functional_locations.create') && (
+              <Button variant="secondary" size="sm" className={white} onClick={() => setAreaOpen(true)}>Add area</Button>
             )}
-          </div>
-        </div>
-      </section>
+            {can('functional_locations.edit') && (
+              <Button variant="secondary" size="sm" className={white} onClick={() => setRenameOpen(true)}>Edit</Button>
+            )}
+            {can('functional_locations.delete') && (
+              <Button variant="secondary" size="sm" className="border-rose-200/60 bg-rose-500/30 text-white hover:bg-rose-500/45" onClick={() => setConfirmDelete(true)}>Delete</Button>
+            )}
+          </>
+        }
+        tiles={[
+          { testId: 'fl-stat-total', value: data.totalCount, label: 'Instruments in total', hint: isBlock ? 'This block and all its areas' : 'Linked to this area' },
+          ...(isBlock ? [{
+            testId: 'fl-stat-areas', value: data.children.length,
+            label: data.children.length === 1 ? 'Area' : 'Areas',
+            hint: `${data.totalCount - data.ownCount} instrument${data.totalCount - data.ownCount === 1 ? '' : 's'} inside them`,
+          }] : []),
+        ]}
+      />
 
       {isBlock && (
         <section data-testid="fl-areas" className="rounded-[var(--radius-card)] border border-slate-200/60 bg-white shadow-soft">
