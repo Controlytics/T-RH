@@ -1,5 +1,30 @@
 # Changelog
 
+## [Unreleased] - UI v3, Batch 3: people and records (2026-09-21)
+
+Plan `docs/superpowers/plans/2026-09-21-ui-v3-batch-3-people-and-records.md`.
+Nine screens rebuilt on the Batch 1 primitives; no fetch key, mutation, gate
+or behaviour changed.
+
+- **Users:** the list opens with `PageHero` carrying Password Reset Requests
+  and Create User; the four counts are `StatCard`s. Create and reset requests
+  carry Back inside the band; the reset history sits on the shared table.
+  Edit is headed by the person, initials as the icon, badges and username as
+  the meta row.
+- **Admin Requests:** `PageHero` with the search inside it (a named box); the
+  four filter cards on the status tokens; the table on the shared band.
+- **Notifications:** `PageHero` with Mark All as Read inside. **Audit Trail:**
+  `PageHero` with the record total as its one figure and the export as its
+  action; the "21 CFR Part 11 Compliant Activity Log" line went, the sidebar's
+  compliance line already says it. **Reports:** `PageHero` and the shared
+  table band. **Profile:** the identity card's cover is the shared gradient.
+- **First render tests** for all four Users pages, Notifications and Audit.
+  One trap recorded in `apps/web/CLAUDE.md`: an `swr` mock returning a fresh
+  object per call hangs vitest through an effect loop that never throws.
+- Verification: `tsc` and `vite build` clean; 9 touched test files pass
+  individually by exit code. Not seen on screen — Users and Admin Requests
+  first.
+
 ## [Unreleased] - UI v3, Batch 2: the monitoring screens (2026-09-21)
 
 Plan `docs/superpowers/plans/2026-09-21-ui-v3-batch-2-monitoring-screens.md`.

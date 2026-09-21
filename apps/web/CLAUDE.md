@@ -1004,6 +1004,27 @@ assertions (`alarms-page`, `alarms-widget`, `selection-alarms`) now check
 `--theme-primary` — the same intent (site theme, no hex), the token that is
 actually there.
 
+**Batch 3 landed the same day — people and records.** Users list
+(`PageHero` with Password Reset Requests and Create User inside; the four
+counts are `StatCard`s in `user-stats-bar.tsx`, same props), Users create /
+reset requests (`PageHero`, Back inside it; the reset history on the shared
+`Table`), Users edit (`PageHero` headed by the person, initials as the icon,
+status / directory badges and username as `meta`), Admin Requests (`PageHero`
+with a `Toolbar` search INSIDE it — named `admin-request-search`; the four
+filter cards on the status tokens; the table on the shared `Table`),
+Notifications (`PageHero`, Mark All as Read inside), Audit Trail (`PageHero`
+with the record total as its one tile and the export as its action; the
+"21 CFR Part 11 Compliant Activity Log" line went — the sidebar's compliance
+line says it), Reports (`PageHero`; the table on the shared band), Profile
+(the identity card's cover is `--band-gradient`). **New render tests:**
+`users/__tests__/pages-render.test.tsx` (all four Users pages),
+`notifications/__tests__/page-render.test.tsx`, `audit/__tests__/page-render.test.tsx`.
+**Test gotcha, and it cost two minutes of a hung vitest:** an `swr` mock that
+returns a FRESH object per call makes any effect keyed on `data` re-run
+forever without throwing. Return module-level constants (see the Users test's
+`RESPONSES`). And the real `usePaginationDefaults` returns `options`, not
+`pageSizeOptions` — the shared `Pagination` calls `.includes` on it.
+
 ## Design system (Stage 1 `7ed8329`, Stage 2 2026-08-28)
 
 Tokens live in `src/app.css` `@theme`; primitives in `src/components/ui/`.
