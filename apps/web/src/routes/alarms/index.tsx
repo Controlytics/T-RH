@@ -17,7 +17,7 @@ import { createReport } from '@/lib/pdf-report';
 import {
   buildAlarmsReport, ALARM_REPORT_LEGEND, reportSeedPeriod, reportLevel,
 } from './alarms-report';
-import { PageHeader } from '@/components/ui/page-header';
+import { PageHero } from '@/components/ui/page-hero';
 import { Pagination } from '@/components/ui/pagination';
 import { SkeletonRows } from '@/components/ui/skeleton';
 import { AlarmStatCards } from './alarm-stat-cards';
@@ -312,16 +312,19 @@ export default function AlarmsPage() {
     // each side, which is why the table appeared not to reach the page edges while
     // the dashboard (which adds none) did. Removed 2026-08-29.
     <div>
-      <PageHeader
+      <PageHero
         className="mb-6"
         title="Alarms"
-        description="Monitor and manage all active alarms across the system"
         crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Alarms' }]}
         icon={
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
           </svg>
         }
+        // The download exports exactly what the filters below select — Block,
+        // Area, Instrument and the period — so it rides in the band as the
+        // screen's one action. Icon only, as on the trend page.
+        actions={<ExportMenu surface="alarms" iconOnly onExportPdf={() => setDownloadOpen(true)} />}
       />
 
       <div className="mb-5">
@@ -329,17 +332,6 @@ export default function AlarmsPage() {
           counts={counts}
           selected={filters.status}
           onSelect={(q) => setFilters((f) => ({ ...f, status: q }))}
-        />
-      </div>
-
-      {/* The download sits ABOVE the filter bar and to the right, because what it
-          exports is exactly what the filters below it select — Block, Area,
-          Instrument and the period. Icon only, as on the trend page. */}
-      <div className="mb-2 flex justify-end">
-        <ExportMenu
-          surface="alarms"
-          iconOnly
-          onExportPdf={() => setDownloadOpen(true)}
         />
       </div>
 

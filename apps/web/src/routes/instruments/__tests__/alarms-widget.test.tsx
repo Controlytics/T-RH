@@ -227,13 +227,17 @@ describe('AlarmsWidget — the row carries the state marker', () => {
 });
 
 describe('AlarmsWidget — the banner follows the site theme', () => {
-  it('paints the header band from --theme-primary, not a hardcoded colour', () => {
+  it('paints the header band from the theme band token, not a hardcoded colour', () => {
     const { container } = renderWith([alarm]);
     const head = container.querySelector('thead');
     // `getAttribute` rather than `.style.backgroundImage`: jsdom's CSS parser
     // does not understand `color-mix()` and drops the declaration from the
     // CSSOM, while the attribute React wrote survives intact.
-    expect(head?.getAttribute('style') ?? '').toContain('var(--theme-primary');
+    // UI v3 (2026-09-21): `--band-gradient`, itself derived from the theme's
+    // gradient variables — still the site theme, and no hex anywhere.
+    const style = head?.getAttribute('style') ?? '';
+    expect(style).toContain('var(--band-gradient)');
+    expect(style).not.toContain('#');
   });
 });
 

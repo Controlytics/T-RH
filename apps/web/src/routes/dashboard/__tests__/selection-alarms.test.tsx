@@ -197,7 +197,8 @@ describe('SelectionAlarms — it renders the SHARED alarm table, not a bespoke l
     // hardcoded indigo — the marker that this is the shared head and not a
     // hand-rolled one.
     const head = container.querySelector('thead')!;
-    expect(head.getAttribute('style')).toContain('--theme-primary');
+    // UI v3 (2026-09-21): the shared band token, derived from the theme's gradient variables.
+    expect(head.getAttribute('style')).toContain('var(--band-gradient)');
   });
 
   it('shows the Alarms page column set, keeping Instrument ID and Location', () => {

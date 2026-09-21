@@ -64,13 +64,16 @@ export const VALUE_INK: Record<BreachDirection, string> = {
  * column needs the SOLID theme colour behind it — a gradient repeated on one
  * cell would not line up with the band it sits in.
  */
-export const ALARM_BANNER_GRADIENT: CSSProperties = {
-  backgroundImage:
-    'linear-gradient(to right, color-mix(in srgb, var(--theme-primary, #2a78d6) 85%, black), var(--theme-primary, #2a78d6))',
-};
+/**
+ * UI v3 (2026-09-21): the banner is `--band-gradient`, the same band every
+ * shared table header wears, so the three alarm tables and the rest of the
+ * product cannot drift apart by a shade.
+ */
+export const ALARM_BANNER_GRADIENT: CSSProperties = { background: 'var(--band-gradient)' };
 
+/** The band's END colour, solid — the sticky action column sits at the right edge of the band. */
 export const ALARM_BANNER_SOLID: CSSProperties = {
-  backgroundColor: 'var(--theme-primary, #2a78d6)',
+  backgroundColor: 'color-mix(in srgb, var(--theme-gradient-to, #1e3a5f) 78%, black)',
 };
 
 /** The banner header band. Give it a single `<tr>` of {@link Th}. */

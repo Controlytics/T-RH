@@ -26,35 +26,15 @@ interface Palette {
   ring: string;
 }
 
+/**
+ * The four tones read the `--status-*` tokens (UI v3, 2026-09-21), so a card
+ * here and a StatCard elsewhere are the same colour for the same meaning.
+ */
 const PALETTE: Record<QuadrantTone, Palette> = {
-  danger: {
-    card: 'border-rose-200/80 bg-gradient-to-br from-rose-50 via-rose-50/70 to-white',
-    icon: 'bg-gradient-to-br from-rose-500 to-red-600',
-    label: 'text-rose-600',
-    value: 'text-rose-700',
-    ring: 'ring-rose-400',
-  },
-  info: {
-    card: 'border-sky-200/80 bg-gradient-to-br from-sky-50 via-sky-50/70 to-white',
-    icon: 'bg-gradient-to-br from-sky-500 to-blue-600',
-    label: 'text-sky-700',
-    value: 'text-sky-700',
-    ring: 'ring-sky-400',
-  },
-  warn: {
-    card: 'border-amber-200/80 bg-gradient-to-br from-amber-50 via-amber-50/70 to-white',
-    icon: 'bg-gradient-to-br from-amber-500 to-orange-600',
-    label: 'text-amber-700',
-    value: 'text-amber-700',
-    ring: 'ring-amber-400',
-  },
-  ok: {
-    card: 'border-emerald-200/80 bg-gradient-to-br from-emerald-50 via-emerald-50/70 to-white',
-    icon: 'bg-gradient-to-br from-emerald-500 to-green-600',
-    label: 'text-emerald-700',
-    value: 'text-emerald-700',
-    ring: 'ring-emerald-400',
-  },
+  danger: { card: 'border-slate-200/70 bg-[var(--status-danger-bg)]', icon: 'bg-[var(--status-danger-dot)]', label: 'text-[var(--status-danger-ink)]', value: 'text-[var(--status-danger-ink)]', ring: 'ring-[var(--status-danger-dot)]' },
+  info:   { card: 'border-slate-200/70 bg-[var(--status-info-bg)]',   icon: 'bg-[var(--status-info-dot)]',   label: 'text-[var(--status-info-ink)]',   value: 'text-[var(--status-info-ink)]',   ring: 'ring-[var(--status-info-dot)]' },
+  warn:   { card: 'border-slate-200/70 bg-[var(--status-warn-bg)]',   icon: 'bg-[var(--status-warn-dot)]',   label: 'text-[var(--status-warn-ink)]',   value: 'text-[var(--status-warn-ink)]',   ring: 'ring-[var(--status-warn-dot)]' },
+  ok:     { card: 'border-slate-200/70 bg-[var(--status-ok-bg)]',     icon: 'bg-[var(--status-ok-dot)]',     label: 'text-[var(--status-ok-ink)]',     value: 'text-[var(--status-ok-ink)]',     ring: 'ring-[var(--status-ok-dot)]' },
 };
 
 /** Each state's glyph, so the card is not colour alone. */
@@ -88,10 +68,12 @@ export function AlarmStatCards({
             aria-pressed={isSelected}
             title={isSelected ? 'Showing only these — click to show all alarms' : `Show only ${q.label.toLowerCase()} alarms`}
             onClick={() => onSelect(isSelected ? null : q.id)}
-            className={`group flex items-center gap-4 rounded-2xl border px-5 py-4 text-left shadow-[var(--elev-1)] transition-all hover:shadow-[var(--elev-2)] ${p.card} ${
+            className={`group relative flex items-center gap-4 overflow-hidden rounded-[var(--radius-card)] border px-5 py-4 text-left shadow-[var(--elev-1)] transition-all hover:shadow-[var(--elev-2)] ${p.card} ${
               isSelected ? `ring-2 ring-offset-1 ${p.ring}` : ''
             }`}
           >
+            {/* The StatCard's top rail, in the tone's dot colour. */}
+            <span aria-hidden className={`absolute inset-x-0 top-0 h-[3px] ${p.icon}`} />
             <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-white shadow-[var(--elev-1)] ${p.icon}`} aria-hidden>
               <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d={ICON[q.id]} />

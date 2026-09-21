@@ -276,7 +276,9 @@ describe('the Acknowledge column stays reachable', () => {
     expect(th.className).toContain('right-0');
     // Opaque, and painted from the site theme rather than a hardcoded colour, so
     // it matches the banner it sits in under every one of the ten presets.
-    expect(th.getAttribute('style') ?? '').toContain('var(--theme-primary');
+    // UI v3: the sticky cell is the band's END colour, derived from the theme's
+    // gradient token — still the site theme, never a hardcoded colour.
+    expect(th.getAttribute('style') ?? '').toContain('var(--theme-gradient-to');
     // The edge shadow that separates the pinned column from what scrolls under it.
     expect(th.className).toContain('shadow-');
   });
@@ -462,5 +464,15 @@ describe('the Alarms page — the governed PDF download', () => {
     expect(url).toContain('pageSize=500');
     expect(url).toContain('from=');
     expect(url).toContain('to=');
+  });
+});
+
+/** UI v3 (2026-09-21): the page opens with the hero band, and the export rides in it as the one action. */
+describe('the page hero', () => {
+  it('carries the title and the export action inside the band', () => {
+    mount();
+    const hero = screen.getByTestId('page-hero');
+    expect(hero.contains(screen.getByRole('heading', { level: 1, name: 'Alarms' }))).toBe(true);
+    expect(hero.contains(screen.getByRole('button', { name: /export/i }))).toBe(true);
   });
 });
