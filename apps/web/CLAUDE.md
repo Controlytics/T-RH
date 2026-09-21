@@ -981,6 +981,29 @@ system in the language of their mockups (`Alarms.png`, `screen-2.png`,
 - Batches 2–4 rebuild the screens on these; see the spec §4. Status colours,
   PDFs, fetch keys and gates are untouched throughout.
 
+**Batch 2 landed the same day — the monitoring screens.** Alarms
+(`PageHero` with the export icon as its action; the four stat cards re-skinned
+on the `--status-*` tokens with a top rail, still filter buttons; the alarm
+table banner is `--band-gradient`, its sticky action cell the band's END
+colour), Instruments list (`PageHero`, `Toolbar` with a named search, the
+shared `Table` — its first render test, `list-page.test.tsx`), Instrument
+detail (`PageHero` headed by the code; the chips are its `meta`), Instrument
+trend (`PageHero` replaced `trend-header.tsx`, which is DELETED; the crumbs
+ride in the band and the strip's own "Back to instrument" link went — the
+crumb's instrument link is that hop), Data Report, Settings (the picker rides
+INSIDE the band as `children`; the widget's own band is `--band-gradient`),
+Functional Locations index and detail (their private hero markup, `Figure`
+and `Stat` went; `PageHero testId` keeps `fl-hero` / `fl-detail-hero`, and
+`HeroTile.testId` keeps `fl-figure-*` / `fl-stat-*`). **Two deliberate
+exceptions:** the DASHBOARD is untouched — its hero and title were removed at
+the operator's instruction on 2026-08-29 and its readings table already
+carries the coloured column groups of `screen-2.png`; and `PageHero` gained
+`meta`, `testId` and per-tile `testId` for these pages. Three banner
+assertions (`alarms-page`, `alarms-widget`, `selection-alarms`) now check
+`var(--band-gradient)` / `var(--theme-gradient-to` instead of
+`--theme-primary` — the same intent (site theme, no hex), the token that is
+actually there.
+
 ## Design system (Stage 1 `7ed8329`, Stage 2 2026-08-28)
 
 Tokens live in `src/app.css` `@theme`; primitives in `src/components/ui/`.

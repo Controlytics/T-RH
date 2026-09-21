@@ -1,5 +1,36 @@
 # Changelog
 
+## [Unreleased] - UI v3, Batch 2: the monitoring screens (2026-09-21)
+
+Plan `docs/superpowers/plans/2026-09-21-ui-v3-batch-2-monitoring-screens.md`.
+Six screens rebuilt on the Batch 1 primitives; no fetch key, mutation, gate
+or behaviour changed.
+
+- **Alarms:** `PageHero` with the export icon as its one action; the four
+  count cards re-skinned on the status tokens with a top rail (still the
+  page's filter buttons); the table banner is the shared band and the sticky
+  action cell its end colour.
+- **Instruments list:** `PageHero`, a `Toolbar` with a named search box, the
+  shared table — and its first render test. **Instrument detail:** `PageHero`
+  headed by the Instrument ID, the status chips as its meta row.
+  **Instrument trend:** `PageHero` replaces the private `trend-header.tsx`
+  (deleted); the crumbs ride in the band; the strip's "Back to instrument"
+  link went, the crumb's instrument link is that hop.
+- **Data Report:** `PageHero`. **Settings:** the instrument picker rides
+  INSIDE the band; the widget's own band is the shared gradient.
+- **Functional Locations, index and detail:** their private hero markup and
+  figure components went; `PageHero` with tiles and, on detail, a type chip
+  and the parent as meta.
+- **Deliberately untouched:** the Dashboard. Its hero and title were removed
+  at the operator's instruction on 2026-08-29, and its readings table already
+  carries the coloured column groups of `screen-2.png`.
+- `PageHero` gained `meta`, `testId` and per-tile `testId`; three banner
+  assertions were re-pointed from `--theme-primary` to the band token the
+  banners now derive from — same intent, the token that is there.
+- Verification: `tsc` and `vite build` clean; 21 touched test files pass
+  individually by exit code (`list-page.test.tsx` is new). Not seen on
+  screen — Alarms and Instruments first.
+
 ## [Unreleased] - UI v3, Batch 1: foundation, shell, auth (2026-09-21)
 
 Operator: *"update all the screens ui more professionally and best ui
