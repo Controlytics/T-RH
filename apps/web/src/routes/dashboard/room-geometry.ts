@@ -217,8 +217,8 @@ const HEADER_H = 14;
 
 /**
  * The renderer (`floorplan-view.tsx`) draws each chip at `fontSize *
- * CHIP_HEIGHT_FACTOR` tall, stacked `CHIP_GAP` apart, starting `CODE_LINE_H +
- * FULL_CODE_GAP` down when a code line precedes them (FULL) or a flat
+ * CHIP_HEIGHT_FACTOR` tall, stacked `CHIP_GAP` apart, starting `TILE_HEADER_H +
+ * FULL_CODE_GAP` down when the ID + Location strip precedes them (FULL) or a flat
  * `VALUES_TOP_GAP` down when it doesn't (VALUES_ONLY / OVERFLOW). It drops any
  * chip whose bottom would exceed the tile — so a layout step is only really
  * FULL or VALUES_ONLY if the tile it hands back is tall enough for BOTH
@@ -240,6 +240,15 @@ export const FULL_CODE_GAP = 3;
 export const VALUES_TOP_GAP = 2;
 export const CODE_LINE_H = 12;
 export const TILE_CODE_FONT = 10;
+/**
+ * The LOCATION line under the ID (operator, 2026-09-22: "in rooms show
+ * Instrument ID, Location and Values dont show any other things"). The tile's
+ * strip is now two lines — ID, then the instrument's `Location` attribute —
+ * and the readings start under both; `TILE_HEADER_H` is that strip.
+ */
+export const LOCATION_LINE_H = 10;
+export const TILE_LOCATION_FONT = 8.5;
+export const TILE_HEADER_H = CODE_LINE_H + LOCATION_LINE_H;
 
 /**
  * THE FONT FILLS THE TILE (operator, 2026-09-22: "in layouts show instruments
@@ -274,7 +283,7 @@ const CHIP_TEXT_PAD = 4;
 function fillFont(base: number, tileW: number, tileH: number, codeLine: boolean): number {
   // twoChipsHeight(f, topGap) = topGap + 2*factor*f + gap, solved for f; the
   // top gap is the fixed code strip in FULL and a flat inset otherwise.
-  const topGap = codeLine ? CODE_LINE_H + FULL_CODE_GAP : VALUES_TOP_GAP;
+  const topGap = codeLine ? TILE_HEADER_H + FULL_CODE_GAP : VALUES_TOP_GAP;
   const byHeight = (tileH - topGap - CHIP_GAP) / (2 * CHIP_HEIGHT_FACTOR);
   const byWidth = (tileW - CHIP_SIDE_INSET - CHIP_TEXT_PAD) / (CHIP_LABEL_GLYPHS * CHIP_GLYPH_EM);
   // Floor to half a unit so the height bound holds after floating-point rounding.
@@ -367,7 +376,7 @@ export function tileLayout(box: PixelBox, count: number, headerH: number = HEADE
   const tileW = box.w / cols;
 
   const fullFontSize = Math.max(8, Math.min(12, tileW / 4.5));
-  const fullRequiredH = twoChipsHeight(fullFontSize, CODE_LINE_H + FULL_CODE_GAP);
+  const fullRequiredH = twoChipsHeight(fullFontSize, TILE_HEADER_H + FULL_CODE_GAP);
   const fullRows = Math.max(0, Math.floor(bodyH / fullRequiredH));
   const fullCapacity = cols * fullRows;
 

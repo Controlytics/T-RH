@@ -1,5 +1,31 @@
 # Changelog
 
+## [Unreleased] - Graphical view: a room prints only the instrument ID, its Location and the values (2026-09-22)
+
+Operator: *"in rooms show Instrument ID, Location and Values dont show any
+other things"*.
+
+- **Gone from every room:** the room CODE (`CWH-I/218`, or the instrument
+  code on a generated plan), the room NAME, the traced plans' ceiling-height
+  and dimension captions, and the IN / OUT word on doors. `captionHeader` is
+  no longer called by the view (it stays exported and tested); the tile grid
+  starts at the room's top edge (`headerH = 0`).
+- **Each tile prints two lines then the readings:** the instrument ID
+  (`TILE_CODE_FONT`) and the instrument's own `Location` ATTRIBUTE
+  (`TILE_LOCATION_FONT`, new `LOCATION_LINE_H`; the dashboard table's Location
+  column, never the room's name), both shrinking to the tile's width. The
+  strip is `TILE_HEADER_H` = 22; `fillFont` and the FULL fit count it, the
+  tests import it. VALUES_ONLY still drops both lines when the room is too
+  short.
+- **Consequences, stated once:** a room with no instrument is an unlabelled
+  box; the traced plans' room numbers and names no longer appear on the floor
+  (still stored, still on Configuration → Floorplans). Walls, doors, the zone
+  tint, the alarm halo, the `+N` overflow marker and the plan-level annotation
+  layer (Microbiology's legend and free text) are drawing, not room labels,
+  and stay — say so if the annotations should go too.
+- No count moved. tsc and `vite build` clean; four floorplan test files green
+  by exit code. **Not seen on screen.**
+
 ## [Unreleased] - Graphical view: smaller readings, and a Full screen mode that shows the whole plan (2026-09-22)
 
 Operator: *"decrease values font sizes and put the layout should complete

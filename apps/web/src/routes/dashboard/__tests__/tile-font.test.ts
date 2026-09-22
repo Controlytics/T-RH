@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { tileLayout, CHIP_HEIGHT_FACTOR, CHIP_GAP, FULL_CODE_GAP, VALUES_TOP_GAP, CODE_LINE_H, MAX_TILE_FONT } from '../room-geometry';
+import { tileLayout, CHIP_HEIGHT_FACTOR, CHIP_GAP, FULL_CODE_GAP, VALUES_TOP_GAP, TILE_HEADER_H, MAX_TILE_FONT } from '../room-geometry';
 
 /**
  * The reading font FILLS the tile (operator, 2026-09-22: "in layouts show
@@ -33,7 +33,7 @@ describe('tileLayout — the font grows to fill the tile', () => {
     for (const box of [{ w: 366, h: 114 }, { w: 145, h: 157 }, { w: 253, h: 128 }, { w: 63, h: 204 }]) {
       const l = tileLayout({ x: 0, y: 0, ...box }, 1);
       expect(l.step).toBe('FULL');
-      expect(twoChips(l.fontSize, CODE_LINE_H + FULL_CODE_GAP)).toBeLessThanOrEqual(l.tile.h);
+      expect(twoChips(l.fontSize, TILE_HEADER_H + FULL_CODE_GAP)).toBeLessThanOrEqual(l.tile.h);
     }
   });
 

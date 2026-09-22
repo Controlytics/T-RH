@@ -21,8 +21,9 @@ import {
 } from './use-telemetry';
 import { RoomDetail } from './room-detail';
 import {
-  wallSegments, doorPlacements, tileLayout, captionHeader, sharedOpenings,
-  CHIP_HEIGHT_FACTOR, CHIP_GAP, FULL_CODE_GAP, VALUES_TOP_GAP, CODE_LINE_H, TILE_CODE_FONT,
+  wallSegments, doorPlacements, tileLayout, sharedOpenings,
+  CHIP_HEIGHT_FACTOR, CHIP_GAP, FULL_CODE_GAP, VALUES_TOP_GAP,
+  CODE_LINE_H, TILE_CODE_FONT, LOCATION_LINE_H, TILE_LOCATION_FONT, TILE_HEADER_H,
 } from './room-geometry';
 
 /**
@@ -475,15 +476,18 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
               const w = room.w * VB_W;
               const h = room.h * vbH;
               const zone = zoneOf(room.grade);
-              // What the drawing prints under the room name. `captionHeader`
-              // costs the lines against the tile grid and drops them if they
-              // would hide a reading — see the reasoning there.
-              const fit = captionHeader({ x, y, w, h }, roomRows.length, {
-                name: Boolean(room.label),
-                lines: (room.meta?.fch ? 1 : 0) + (room.meta?.dims ? 1 : 0),
-              });
-              const caption = fit.captions ? room.meta : undefined;
-              const headerH = fit.headerH;
+              // A ROOM PRINTS NOTHING OF ITS OWN (operator, 2026-09-22: "in rooms
+              // show Instrument ID, Location and Values dont show any other
+              // things"). Until then the room printed its code, its name and,
+              // on a traced plan, the drawing's ceiling height and dimensions
+              // (`captionHeader` costed those lines against the tiles). All of
+              // that is gone; the tile grid starts at the room's top edge, and
+              // each tile prints the instrument ID, its Location attribute and
+              // the two readings. Consequence, stated once: a room with no
+              // instrument is an unlabelled box, and the traced plans' room
+              // numbers and names no longer appear on the floor (they are still
+              // stored and still on the Config -> Floorplans editor).
+              const headerH = 0;
               const gradeMeta = room.grade && room.grade in ROOM_GRADE_META
                 ? ROOM_GRADE_META[room.grade as RoomGrade]
                 : null;
@@ -587,15 +591,9 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                         stroke={PALETTE.door} strokeWidth={1.6}
                       />
                       <path d={d.arc} fill="none" stroke={PALETTE.door} strokeWidth={1} strokeDasharray="3 2" />
-                      {d.kind !== 'PASSAGE' && (
-                        <text
-                          x={(d.start.x1 + d.start.x2) / 2}
-                          y={(d.start.y1 + d.start.y2) / 2 - 2}
-                          textAnchor="middle" fontSize={7} fontWeight={700} fill={PALETTE.inkSoft}
-                        >
-                          {d.kind === 'ENTRY' ? 'IN' : 'OUT'}
-                        </text>
-                      )}
+                      {/* No IN / OUT word (operator, 2026-09-22: nothing but
+                          ID, Location and values in a room). The kind still
+                          shapes the leaf and rides in the room's aria-label. */}
                     </g>
                   ))}
 
@@ -612,70 +610,8 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                     />
                   )}
 
-                  {/* The grade TAB was removed 2026-08-24 at the operator's
-                      request, along with the grade legend below. The zone TINT
-                      stays: it still groups a floor visually. Note the
-                      consequence — with no tab and no legend, that tint is now
-                      decoration rather than a readable classification, so do not
-                      rely on it to tell A from B. Status colour is unaffected
-                      and keeps its legend. */}
-
-                  {/* The room code is the one typographic move on the drawing:
-                      uppercase and tracked, which is what gives it the character
-                      of a drafting label. The tracking is not repeated anywhere
-                      else.
-
-                      SUPPRESSED when it would only repeat what the tile below
-                      already says. Where a room is named for the single
-                      instrument in it, printing the code here AND on the tile
-                      shows the same identifier twice in two sizes — which reads
-                      as two different things at a glance, and costs the room the
-                      vertical space its readings need. The tile wins because it
-                      is the thing carrying the values. */}
-                  {!isContinuation && !(roomRows.length === 1
-                    && roomRows[0].code.toUpperCase() === room.code.toUpperCase()
-                    && tileLayout({ x, y, w, h }, roomRows.length, headerH).step === 'FULL') && (
-                    <text
-                      x={x + w / 2} y={y + 10} textAnchor="middle"
-                      fontSize={Math.max(8, Math.min(12, w / 10, h / 6)) * 0.86} fontWeight={700}
-                      letterSpacing="0.08em" fill={zone.ink}
-                    >
-                      {room.code.toUpperCase()}
-                    </text>
-                  )}
-                  {/* The room NAME. On a traced plan it is always shown, because
-                      the drawing names every room and a plan of numbered boxes is
-                      not the drawing. On a generated plan the old rule stands: the
-                      name only appears where no tile is competing for the space. */}
-                  {room.label && !isContinuation && (caption || tileLayout({ x, y, w, h }, roomRows.length, headerH).step === 'CODE_ONLY') && (
-                    <text
-                      x={x + w / 2} y={y + 22} textAnchor="middle"
-                      fontSize={Math.max(8, Math.min(12, w / 10, h / 6)) * 0.8} fill={PALETTE.labelInk}
-                    >
-                      {room.label}
-                    </text>
-                  )}
-
-                  {/* Ceiling height and floor dimensions, exactly as written on
-                      the plan. Transcribed strings — NEVER computed from `w`/`h`,
-                      which would print a number the drawing does not carry, since
-                      the drawing is schematic and not to scale. */}
-                  {caption?.fch && (
-                    <text
-                      x={x + w / 2} y={y + 32} textAnchor="middle"
-                      fontSize={7.5} fill={PALETTE.labelInk}
-                    >
-                      FCH: {caption.fch}
-                    </text>
-                  )}
-                  {caption?.dims && (
-                    <text
-                      x={x + w / 2} y={y + (caption.fch ? 41.5 : 32)} textAnchor="middle"
-                      fontSize={7.5} fill={PALETTE.labelInk}
-                    >
-                      {caption.dims}
-                    </text>
-                  )}
+                  {/* No room code, name, grade tab or caption here — see the
+                      note at `headerH` above. The zone TINT stays as decoration. */}
 
                   {(() => {
                     const layout = tileLayout({ x, y, w, h }, roomRows.length, headerH);
@@ -703,6 +639,12 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                         TILE_CODE_FONT,
                         Math.max(7, (layout.tile.w - 6) / (Math.max(1, row.code.length) * 0.6)),
                       );
+                      // The instrument's own `Location` ATTRIBUTE (the dashboard
+                      // table's Location column) — never the room's code or name.
+                      const location = row.locationAttribute?.trim() || null;
+                      const locationFontSize = location
+                        ? Math.min(TILE_LOCATION_FONT, Math.max(6.5, (layout.tile.w - 6) / (location.length * 0.55)))
+                        : 0;
 
                       return (
                         <g
@@ -733,6 +675,14 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                               {row.code}
                             </text>
                           )}
+                          {layout.step === 'FULL' && location && (
+                            <text
+                              x={tcx} y={ty + CODE_LINE_H + LOCATION_LINE_H - 3} textAnchor="middle"
+                              fontSize={locationFontSize} fill={PALETTE.labelInk}
+                            >
+                              {location}
+                            </text>
+                          )}
                           {values.map((v, vi) => {
                             const paint = CHIP[v.st];
                             // The value with its unit, nothing else (operator,
@@ -747,7 +697,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                             const cw = Math.min(layout.tile.w - 6, label.length * layout.fontSize * 0.6 + 4);
                             const chipH = layout.fontSize * CHIP_HEIGHT_FACTOR;
                             const cyTop =
-                              ty + (layout.step === 'FULL' ? CODE_LINE_H + FULL_CODE_GAP : VALUES_TOP_GAP)
+                              ty + (layout.step === 'FULL' ? TILE_HEADER_H + FULL_CODE_GAP : VALUES_TOP_GAP)
                               + vi * (chipH + CHIP_GAP);
                             if (cyTop + chipH > ty + layout.tile.h) return null;
                             return (

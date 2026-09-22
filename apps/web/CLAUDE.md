@@ -99,6 +99,16 @@ whole layout at the screen's size. The chip geometry constants are exported from
 the literals again. Tests: `floorplan-values.test.ts`, `tile-font.test.ts`,
 both mutation-checked. Not seen on screen.
 
+**A room prints NOTHING of its own; each tile prints the instrument ID, its
+`Location` ATTRIBUTE and the two readings (2026-09-22, operator: "in rooms
+show Instrument ID, Location and Values dont show any other things").** The
+room code, the room name, the traced captions (`fch`/`dims`) and the door
+IN/OUT word are gone from the floor; `captionHeader` is unused by the view
+(`headerH = 0`); the tile strip is `TILE_HEADER_H` (ID line + Location line)
+and the chip-fit maths and tests count it. The `captionHeader()` paragraph
+below is therefore HISTORY as far as the dashboard is concerned. A room with
+no instrument is an unlabelled box, by instruction.
+
 **The graphical view has NO "Not placed on any plan" tray (removed
 2026-09-22, operator: "in graphical view dont show not placed on any panel
 section").** It listed the selection's room-less instruments under the plan so

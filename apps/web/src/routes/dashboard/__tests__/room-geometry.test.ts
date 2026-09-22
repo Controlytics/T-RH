@@ -141,7 +141,7 @@ describe('tileLayout — degrade steps', () => {
   });
 });
 
-import { CHIP_HEIGHT_FACTOR, CHIP_GAP, FULL_CODE_GAP, VALUES_TOP_GAP, CODE_LINE_H } from '../room-geometry';
+import { CHIP_HEIGHT_FACTOR, CHIP_GAP, FULL_CODE_GAP, VALUES_TOP_GAP, TILE_HEADER_H } from '../room-geometry';
 
 describe('tileLayout — chip fit (regression: a FULL/VALUES_ONLY tile must actually hold two chips)', () => {
   // The renderer's chip geometry (chipH = fontSize * factor, stacked `gap`
@@ -155,7 +155,7 @@ describe('tileLayout — chip fit (regression: a FULL/VALUES_ONLY tile must actu
   it('gives a FULL tile enough height for a code line plus two chips', () => {
     const l = tileLayout({ x: 0, y: 0, w: 244, h: 234 }, 1);
     expect(l.step).toBe('FULL');
-    expect(l.tile.h).toBeGreaterThanOrEqual(requiredHeight(l.fontSize, CODE_LINE_H + FULL_CODE_GAP));
+    expect(l.tile.h).toBeGreaterThanOrEqual(requiredHeight(l.fontSize, TILE_HEADER_H + FULL_CODE_GAP));
   });
 
   it('gives a VALUES_ONLY tile enough height for two chips with no code line', () => {
@@ -168,7 +168,7 @@ describe('tileLayout — chip fit (regression: a FULL/VALUES_ONLY tile must actu
     const l = tileLayout({ x: 0, y: 0, w: 244, h: 234 }, 1);
     // One instrument should not be spread across a 5-column grid it doesn't need.
     expect(l.cols).toBe(1);
-    expect(l.tile.h).toBeGreaterThanOrEqual(requiredHeight(l.fontSize, CODE_LINE_H + FULL_CODE_GAP));
+    expect(l.tile.h).toBeGreaterThanOrEqual(requiredHeight(l.fontSize, TILE_HEADER_H + FULL_CODE_GAP));
   });
 });
 
