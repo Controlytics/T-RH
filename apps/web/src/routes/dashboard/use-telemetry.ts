@@ -5,7 +5,7 @@ import {
   TELEMETRY_DECIMALS_FALLBACK,
   type InstrumentStatus,
 } from '@digilog/shared';
-import type { RoomDoor } from './room-geometry';
+import type { RoomDoor, DoorKind } from './room-geometry';
 
 export interface SlotValue {
   key: string;
@@ -261,6 +261,30 @@ export interface FloorplanRoomShape {
    * computing a size from `w`/`h` would print a different number from the plan.
    */
   meta: RoomMeta | null;
+  /**
+   * The outline as corners in plan units, drawn order (Layout Designer,
+   * 2026-09-22). NULL = a rectangle, whose outline IS the box above. The view
+   * draws `points ?? rectanglePoints(box)` and nothing else re-derives it.
+   */
+  points: { x: number; y: number }[] | null;
+}
+
+/**
+ * A relation the drawing states between two rooms (Layout Designer,
+ * 2026-09-22): an OPENING in the wall they share — on `fromRoomId`'s edge
+ * `fromEdge` at `offset`/`width`, mirrored onto the neighbour at render — or a
+ * CONNECTOR line between two rooms that do not touch.
+ */
+export interface FloorplanLinkShape {
+  id: string;
+  fromRoomId: string;
+  toRoomId: string;
+  kind: 'OPENING' | 'CONNECTOR';
+  fromEdge: number | null;
+  offset: number | null;
+  width: number | null;
+  door: DoorKind | null;
+  label: string | null;
 }
 
 export interface RoomMeta {
@@ -288,12 +312,14 @@ export interface PlanAnnotations {
 export interface FloorplanShape {
   id: string;
   name: string;
-  imagePath: string;
+  /** NULL for a plan drawn on a blank canvas (Layout Designer, 2026-09-22). */
+  imagePath: string | null;
   imageWidth: number;
   imageHeight: number;
   isActive: boolean;
   sortOrder: number;
   rooms: FloorplanRoomShape[];
+  links: FloorplanLinkShape[];
   annotations: PlanAnnotations | null;
 }
 

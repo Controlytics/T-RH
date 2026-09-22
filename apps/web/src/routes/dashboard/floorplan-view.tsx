@@ -5,7 +5,13 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   worstStatus,
   formatDecimals,
+  rectanglePoints,
+  largestInscribedRect,
+  mirrorOpening,
+  centroid,
   type InstrumentStatus,
+  type Polygon,
+  type EdgeOpening,
 } from '@digilog/shared';
 import { statusClasses } from './status';
 import { outOfSpec, NOT_AVAILABLE } from './set-point';
@@ -17,11 +23,12 @@ import {
   ROOM_GRADE_META,
   type RoomGrade,
   type FloorplanRoomShape,
+  type FloorplanLinkShape,
   type OverviewRow,
 } from './use-telemetry';
 import { RoomDetail } from './room-detail';
 import {
-  wallSegments, doorPlacements, tileLayout, sharedOpenings,
+  polygonWalls, polygonDoorPlacements, polygonSharedOpenings, doorToEdgeOpening, tileLayout,
   CHIP_HEIGHT_FACTOR, CHIP_GAP, FULL_CODE_GAP, VALUES_TOP_GAP,
   CODE_LINE_H, TILE_CODE_FONT, LOCATION_LINE_H, TILE_LOCATION_FONT, TILE_HEADER_H,
 } from './room-geometry';
@@ -32,6 +39,53 @@ import {
  * The suffix is the drawing script's own convention for a corridor stored as
  * more than one rectangle (`SERVICE CORRIDOR (2)`, the QC `CWH-I/217 (2)`).
  */
+/**
+ * The outline a room draws, in viewBox units: its polygon when it has one
+ * (Layout Designer, 2026-09-22), else its box as four corners. The ONE place
+ * the rectangle-or-polygon question is answered on the dashboard.
+ */
+export function roomOutline(
+  room: Pick<FloorplanRoomShape, 'x' | 'y' | 'w' | 'h' | 'points'>,
+  vbW: number,
+  vbH: number,
+): Polygon {
+  const pts = room.points ?? rectanglePoints({ x: room.x, y: room.y, w: room.w, h: room.h });
+  return pts.map((p) => ({ x: p.x * vbW, y: p.y * vbH }));
+}
+
+/**
+ * The link OPENINGS that land on THIS room's edges: its own as stored, and a
+ * neighbour's mirrored onto the edge the two share. Only rooms actually DRAWN
+ * count — in a scoped view an opening onto a hidden room would open a wall
+ * onto nothing. Connectors add no opening.
+ */
+export function roomOpenings(
+  room: FloorplanRoomShape,
+  links: FloorplanLinkShape[],
+  drawn: { room: FloorplanRoomShape }[],
+  vbW: number,
+  vbH: number,
+): EdgeOpening[] {
+  const out: EdgeOpening[] = [];
+  for (const l of links) {
+    if (l.kind !== 'OPENING' || l.fromEdge == null || l.offset == null || l.width == null) continue;
+    if (l.fromRoomId === room.id) {
+      if (drawn.some((d) => d.room.id === l.toRoomId)) out.push({ edge: l.fromEdge, offset: l.offset, width: l.width });
+    } else if (l.toRoomId === room.id) {
+      const from = drawn.find((d) => d.room.id === l.fromRoomId)?.room;
+      if (!from) continue;
+      const m = mirrorOpening(
+        roomOutline(from, vbW, vbH),
+        { edge: l.fromEdge, offset: l.offset, width: l.width },
+        roomOutline(room, vbW, vbH),
+        0.5,
+      );
+      if (m) out.push(m);
+    }
+  }
+  return out;
+}
+
 export function continuationBase(code: string): string | null {
   const m = /^(.+) \(\d+\)$/.exec(code.trim());
   return m ? m[1].toUpperCase() : null;
@@ -504,12 +558,29 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
               // one is a continuation piece of the other — an L-shaped lab
               // stored as `INCUBATOR-01` + `INCUBATOR-01 (2)` (Microbiology,
               // 2026-09-21) has no wall between its halves either.
-              const openings = sharedOpenings(
-                { x, y, w, h },
-                roomViews
-                  .filter((o) => o.room.id !== room.id && sameSpace(room, o.room))
-                  .map((o) => ({ x: o.room.x * VB_W, y: o.room.y * vbH, w: o.room.w * VB_W, h: o.room.h * vbH })),
-              );
+              // The outline (a polygon since 2026-09-22; a rectangle is its
+              // four-corner case) and everything cut out of its walls: its own
+              // doors, the seams it shares with the rooms it is one space with,
+              // and the OPENING links the designer drew.
+              const outline = roomOutline(room, VB_W, vbH);
+              const doorOpenings = (room.doors ?? []).flatMap((d) => {
+                const o = doorToEdgeOpening(d, room.points ?? null);
+                return o ? [o] : [];
+              });
+              const openings = [
+                ...polygonSharedOpenings(
+                  outline,
+                  roomViews
+                    .filter((o) => o.room.id !== room.id && sameSpace(room, o.room))
+                    .map((o) => roomOutline(o.room, VB_W, vbH)),
+                ),
+                ...roomOpenings(room, plan?.links ?? [], roomViews, VB_W, vbH),
+              ];
+              // The readings tiles lay out in the largest rectangle INSIDE the
+              // outline, so an L-shaped room never hangs a tile outside a wall.
+              // For a rectangle that IS the box, and nothing moves.
+              const tileBox = largestInscribedRect(outline);
+              const outlinePoints = outline.map((p) => `${p.x},${p.y}`).join(' ');
               // A continuation piece (`CWH-I/217 (2)`) whose first piece is
               // on the plan prints no code and no name of its own — with the
               // seam gone, a second label inside the same space is the
@@ -547,8 +618,8 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                       both removed the tint is decoration anyway. On a generated
                       plan `meta` is null and this is the zone tint exactly as
                       before. */}
-                  <rect
-                    x={x} y={y} width={w} height={h}
+                  <polygon
+                    points={outlinePoints}
                     fill={room.meta?.fill ?? zone.fill}
                     className="fp-room-fill"
                   />
@@ -570,7 +641,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                     )
                   )}
 
-                  {wallSegments({ x, y, w, h }, [...(room.doors ?? []), ...openings]).map((s, i) => (
+                  {polygonWalls(outline, [...doorOpenings, ...openings]).map((s, i) => (
                     <line
                       key={`w${i}`}
                       x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2}
@@ -584,7 +655,13 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                       it is never given STATUS colour, and it is never given ZONE
                       colour either: the zone already speaks through fill, code and
                       tab. */}
-                  {doorPlacements({ x, y, w, h }, room.doors).map((d, i) => (
+                  {polygonDoorPlacements(outline, [
+                    ...(room.doors ?? []),
+                    // An OPENING link with a door leaf, on the from-room's edge.
+                    ...(plan?.links ?? [])
+                      .filter((l) => l.kind === 'OPENING' && l.fromRoomId === room.id && l.door && l.fromEdge != null && l.offset != null && l.width != null)
+                      .map((l) => ({ edge: l.fromEdge!, offset: l.offset!, width: l.width!, kind: l.door! })),
+                  ]).map((d, i) => (
                     <g key={`d${i}`}>
                       <line
                         x1={d.leaf.x1} y1={d.leaf.y1} x2={d.leaf.x2} y2={d.leaf.y2}
@@ -602,12 +679,18 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                       status argue over the same pixels. Skipped on a box too
                       small to inset without the stroke crossing itself. */}
                   {status === 'OUT_OF_SPEC' && w > 12 && h > 12 && (
-                    <rect
-                      className="fp-alarm-halo"
-                      x={x + 4} y={y + 4} width={w - 8} height={h - 8}
-                      fill="none" stroke={PALETTE.alarm} strokeWidth={2}
-                      pointerEvents="none"
-                    />
+                    // A stroke clipped to the outline: only its inner half shows,
+                    // which is an inset band on ANY outline without inset maths.
+                    <>
+                      <clipPath id={`fp-halo-${room.id}`}><polygon points={outlinePoints} /></clipPath>
+                      <polygon
+                        className="fp-alarm-halo"
+                        points={outlinePoints}
+                        fill="none" stroke={PALETTE.alarm} strokeWidth={8}
+                        clipPath={`url(#fp-halo-${room.id})`}
+                        pointerEvents="none"
+                      />
+                    </>
                   )}
 
                   {/* No room code, grade tab or caption here — see the note at
@@ -629,9 +712,10 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                       (w - 6) / (Math.max(1, text.length) * 0.55),
                       h / 3,
                     ));
+                    const c = centroid(outline);
                     return (
                       <text
-                        x={x + w / 2} y={y + h / 2 + fontSize * 0.35} textAnchor="middle"
+                        x={c.x} y={c.y + fontSize * 0.35} textAnchor="middle"
                         fontSize={fontSize} fill={PALETTE.labelInk}
                         pointerEvents="none"
                       >
@@ -641,7 +725,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                   })()}
 
                   {(() => {
-                    const layout = tileLayout({ x, y, w, h }, roomRows.length, headerH);
+                    const layout = tileLayout(tileBox, roomRows.length, headerH);
                     if (layout.visible === 0) return null;
 
                     return roomRows.slice(0, layout.visible).map((row, i) => {
@@ -746,7 +830,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                   })()}
 
                   {(() => {
-                    const layout = tileLayout({ x, y, w, h }, roomRows.length, headerH);
+                    const layout = tileLayout(tileBox, roomRows.length, headerH);
                     if (layout.hidden <= 0) return null;
                     const i = layout.visible;
                     const col = layout.cols > 0 ? i % layout.cols : 0;
@@ -762,6 +846,28 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                       </text>
                     );
                   })()}
+                </g>
+              );
+            })}
+
+            {/* CONNECTOR links (Layout Designer, 2026-09-22): a dashed line
+                between the centres of two rooms that do not touch, in the door
+                blue because it is an opening in spirit, never a status colour.
+                Drawn after the rooms so it rides over both fills; no pointer
+                events so it cannot swallow a click meant for a room. */}
+            {(plan?.links ?? []).filter((l) => l.kind === 'CONNECTOR').map((l) => {
+              const a = roomViews.find((v) => v.room.id === l.fromRoomId)?.room;
+              const b = roomViews.find((v) => v.room.id === l.toRoomId)?.room;
+              if (!a || !b) return null;
+              const ca = centroid(roomOutline(a, VB_W, vbH)), cb = centroid(roomOutline(b, VB_W, vbH));
+              return (
+                <g key={l.id} pointerEvents="none">
+                  <line x1={ca.x} y1={ca.y} x2={cb.x} y2={cb.y} stroke={PALETTE.door} strokeWidth={1.4} strokeDasharray="6 4" />
+                  {l.label && (
+                    <text x={(ca.x + cb.x) / 2} y={(ca.y + cb.y) / 2 - 3} textAnchor="middle" fontSize={8} fill={PALETTE.door}>
+                      {l.label}
+                    </text>
+                  )}
                 </g>
               );
             })}
