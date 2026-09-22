@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Maximize2, Minimize2 } from 'lucide-react';
 import { useSensorWords } from '@/hooks/use-failure-text';
 import { Link, useNavigate } from 'react-router-dom';
@@ -933,28 +934,43 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
           </svg>
   ) : null;
 
-  // FULL SCREEN shows the layout ALONE (operator, 2026-09-22: "full screen
-  // should be like dont show any option, only layout should be opened in the
-  // system full screen, give full screen and normal screen options"): no title
-  // bar, no plan switcher, no legends — the drawing and one Normal screen
-  // button, plus Escape.
+  // FULL SCREEN — the trend widget's pattern (operator, 2026-09-22: "i need
+  // like how full screen option there in trend widget like that i need for
+  // layout"): a fixed full-viewport overlay with the widget's own title bar
+  // and the toggle in the same place, the drawing filling the rest, Escape to
+  // leave. No plan switcher and no legends in it ("dont show any option").
+  //
+  // RENDERED THROUGH A PORTAL, and that is the whole difference from the first
+  // cut, which the operator reported as "not given properly": this view lives
+  // in a react-grid-layout item, which is positioned with a CSS TRANSFORM, and
+  // `position: fixed` inside a transformed ancestor is fixed to THAT ancestor,
+  // not the viewport — the overlay opened inside the panel's own box. The
+  // trend and Data Report widgets never met this because their pages have no
+  // transformed ancestor. `document.body` has none.
   if (fullscreen && plan) {
-    return (
+    return createPortal(
       <div className="fixed inset-0 z-50 flex flex-col bg-white" data-testid="floorplan-view" data-fullscreen="true">
-        <div className="absolute right-3 top-3 z-10">
+        <div
+          className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5"
+          style={{ background: 'linear-gradient(135deg, var(--theme-sidebar-bg), var(--theme-primary-dark))' }}
+        >
+          <h3 className="text-sm font-bold tracking-wide text-white">{plan.name}</h3>
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
             type="button"
             onClick={() => setFullscreen(false)}
-            aria-label="Normal screen — floor plan"
+            aria-pressed
+            aria-label="Exit full screen — floor plan"
             title="Normal screen (Esc)"
+            className="text-white/80 hover:bg-white/15 hover:text-white"
           >
             <Minimize2 className="mr-1 h-4 w-4" aria-hidden="true" /> Normal screen
           </Button>
         </div>
-        <div className="min-h-0 flex-1 p-2">{floorSvg}</div>
-      </div>
+        <div className="min-h-0 flex-1 p-3">{floorSvg}</div>
+      </div>,
+      document.body,
     );
   }
 

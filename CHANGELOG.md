@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased] - Graphical view full screen: the trend widget's pattern, through a portal (2026-09-22)
+
+Operator: *"full screen option you are not given properly, i need like how
+full screen option there in trend widget like that i need for layout"*.
+
+- **The defect.** The floorplan view lives in a react-grid-layout item, which
+  is positioned with a CSS transform, and `position: fixed` inside a
+  transformed ancestor is fixed to THAT ancestor — so the overlay opened
+  inside the panel's own box, not over the screen. The trend and Data Report
+  widgets never met this: their pages have no transformed ancestor.
+- **The fix.** The full-screen overlay is rendered through `createPortal` to
+  `document.body`, and it is now the trend widget's chrome: the dark title bar
+  with the plan name and the toggle in the same place (icon + "Normal
+  screen"), the drawing filling the rest, Escape to leave; no plan switcher,
+  no legends. tsc and `vite build` clean. **Not seen on screen.**
+
 ## [Unreleased] - Designer Remove control; the floor fits its rooms; full screen shows the layout alone (2026-09-22)
 
 Operator, on first use of the Layout Designer: *"in layout editing add remove
