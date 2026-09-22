@@ -254,8 +254,9 @@ export const TILE_CODE_FONT = 10;
  *     in `room-geometry.test.ts` holds at the grown size exactly as it did at
  *     the base size, or a FULL tile would clip its humidity chip again.
  *   - WIDTH: the renderer prints a chip label at CHIP_GLYPH_EM per glyph plus
- *     CHIP_TEXT_PAD, and the longest label is eight glyphs ("▲ 100.0%"), which
- *     must fit inside the tile less CHIP_SIDE_INSET. A tile 63 wide (Module-F's
+ *     CHIP_TEXT_PAD, and the longest label is nine glyphs ("100.0 %RH" — the
+ *     value with its unit, no status glyph since 2026-09-22), which must fit
+ *     inside the tile less CHIP_SIDE_INSET. A tile 63 wide (Module-F's
  *     narrowest) stays width-bound.
  *   - MAX_TILE_FONT: above this a reading stops being a label and becomes a
  *     poster that dwarfs the room it is in.
@@ -264,7 +265,7 @@ export const TILE_CODE_FONT = 10;
  */
 const MAX_TILE_FONT = 26;
 const CHIP_GLYPH_EM = 0.6;
-const CHIP_LABEL_GLYPHS = 8;
+const CHIP_LABEL_GLYPHS = 9;
 const CHIP_SIDE_INSET = 6;
 const CHIP_TEXT_PAD = 4;
 

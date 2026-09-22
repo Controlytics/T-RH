@@ -11,6 +11,7 @@ import { outOfSpec, NOT_AVAILABLE } from './set-point';
 import {
   useFloorplans,
   useTelemetryOverview,
+  formatSlot,
   ROOM_GRADES,
   ROOM_GRADE_META,
   type RoomGrade,
@@ -63,8 +64,14 @@ import { Button } from '@/components/ui/button';
  * Rooms are stored as proportions (0..1), so they map straight onto an SVG
  * viewBox — the layout is resolution-independent and stays crisp at any zoom.
  *
- * Status colour NEVER carries meaning alone: every room that has a status also
- * shows a glyph and a word for it, and the legend repeats the pairing.
+ * A value chip prints the READING WITH ITS UNIT and nothing else — "21.5 °C",
+ * "45 %RH" — and its COLOUR carries the state (operator, 2026-09-22: "just
+ * show value with units"). Until then each chip also carried a glyph (▲ ◷ ◑ ·)
+ * so that colour never stood alone; the operator chose the bare value, and
+ * the consequence is stated once here: on the floor, status is now colour
+ * alone, named by the legend under the plan. The room's own state word
+ * survives in the tile's aria-label, and the readings table still pairs
+ * colour with a word.
  */
 
 /** viewBox width. Height follows the plan's aspect ratio. */
@@ -97,23 +104,27 @@ const VB_W = 1000;
  * and nothing here re-derives it.
  */
 export type ChipTone = InstrumentStatus | 'ERROR';
-const CHIP: Record<ChipTone, { bg: string; glyph: string }> = {
-  OUT_OF_SPEC: { bg: '#dc2626', glyph: '▲' },
-  ERROR: { bg: '#7c3aed', glyph: '✕' },
-  STALE: { bg: '#d97706', glyph: '◷' },
-  PARTIAL: { bg: '#d97706', glyph: '◑' },
-  NO_DATA: { bg: '#64748b', glyph: '·' },
-  OK: { bg: '#15803d', glyph: '' },
+const CHIP: Record<ChipTone, { bg: string }> = {
+  OUT_OF_SPEC: { bg: '#dc2626' },
+  ERROR: { bg: '#7c3aed' },
+  STALE: { bg: '#d97706' },
+  PARTIAL: { bg: '#d97706' },
+  NO_DATA: { bg: '#64748b' },
+  OK: { bg: '#15803d' },
 };
 
-/** The legend's order and wording: in limit, then the three faults, then the two "cannot say". */
-const LEGEND: readonly { tone: ChipTone; label: string }[] = [
-  { tone: 'OK', label: statusClasses('OK').label },
-  { tone: 'OUT_OF_SPEC', label: statusClasses('OUT_OF_SPEC').label },
-  { tone: 'ERROR', label: 'Sensor error' },
-  { tone: 'STALE', label: statusClasses('STALE').label },
-  { tone: 'PARTIAL', label: statusClasses('PARTIAL').label },
-  { tone: 'NO_DATA', label: statusClasses('NO_DATA').label },
+/**
+ * The legend's order and wording: in limit, then the three faults, then the
+ * two "cannot say". `sample` is what a chip of that tone actually prints, so
+ * the legend shows the reader the very thing they will see on the floor.
+ */
+const LEGEND: readonly { tone: ChipTone; label: string; sample: string }[] = [
+  { tone: 'OK', label: statusClasses('OK').label, sample: '21.7 °C' },
+  { tone: 'OUT_OF_SPEC', label: statusClasses('OUT_OF_SPEC').label, sample: '28.4 °C' },
+  { tone: 'ERROR', label: 'Sensor error', sample: 'Error' },
+  { tone: 'STALE', label: statusClasses('STALE').label, sample: '21.7 °C' },
+  { tone: 'PARTIAL', label: statusClasses('PARTIAL').label, sample: '21.7 °C' },
+  { tone: 'NO_DATA', label: statusClasses('NO_DATA').label, sample: NOT_AVAILABLE },
 ];
 
 /**
@@ -152,7 +163,7 @@ export function tileValues(
   } else if (row.sensorError?.temperature) {
     values.push({ text: words.failure, st: 'ERROR', bad: false });
   } else if (tempV !== null) {
-    values.push({ text: `${formatDecimals(tempV, row.decimals.temperature)}°`, st: toneFor(tempBad), bad: tempBad });
+    values.push({ text: formatSlot(row.temperature, row.decimals.temperature, '°C'), st: toneFor(tempBad), bad: tempBad });
   } else {
     values.push({ text: NOT_AVAILABLE, st: 'NO_DATA', bad: false });
   }
@@ -161,7 +172,7 @@ export function tileValues(
   } else if (row.sensorError?.humidity) {
     values.push({ text: words.failure, st: 'ERROR', bad: false });
   } else if (rhV !== null) {
-    values.push({ text: `${formatDecimals(rhV, row.decimals.humidity)}%`, st: toneFor(rhBad), bad: rhBad });
+    values.push({ text: formatSlot(row.humidity, row.decimals.humidity, '%RH'), st: toneFor(rhBad), bad: rhBad });
   } else {
     values.push({ text: NOT_AVAILABLE, st: 'NO_DATA', bad: false });
   }
@@ -572,7 +583,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                       consequence — with no tab and no legend, that tint is now
                       decoration rather than a readable classification, so do not
                       rely on it to tell A from B. Status colour is unaffected
-                      and keeps its glyph and its legend. */}
+                      and keeps its legend. */}
 
                   {/* The room code is the one typographic move on the drawing:
                       uppercase and tracked, which is what gives it the character
@@ -689,12 +700,16 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                           )}
                           {values.map((v, vi) => {
                             const paint = CHIP[v.st];
-                            const label = paint.glyph ? `${paint.glyph} ${v.text}` : v.text;
-                            // The chip spans the tile: the reading is a coloured
-                            // band, not a badge, so the colour reads from across
-                            // the room before the number does (operator,
-                            // 2026-09-22, "highlight").
-                            const cw = layout.tile.w - 6;
+                            // The value with its unit, nothing else (operator,
+                            // 2026-09-22, "just show value with units").
+                            const label = v.text;
+                            // The chip is as wide as its text, capped at the
+                            // tile (operator, 2026-09-22: "dont cover entire room
+                            // width for room values, just card background should
+                            // come till the value only"). It spanned the tile for
+                            // a few hours that day. 0.6em per glyph + 4 of padding
+                            // is the SAME estimate `fillFont` sizes the font by.
+                            const cw = Math.min(layout.tile.w - 6, label.length * layout.fontSize * 0.6 + 4);
                             const chipH = layout.fontSize * CHIP_HEIGHT_FACTOR;
                             const cyTop =
                               ty + (layout.step === 'FULL' ? CODE_LINE_H + FULL_CODE_GAP : VALUES_TOP_GAP)
@@ -885,17 +900,17 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
       )}
 
       {/* Status legend. The room-grade legend was removed 2026-08-24 at the
-          operator's request. Status is never colour alone — every chip keeps
-          its glyph, and that pairing is what this bar exists to teach. */}
+          operator's request. Since 2026-09-22 a chip carries no glyph, so this
+          bar is the ONE place the colours are named — do not remove it. */}
       <div className="flex flex-wrap items-center gap-4 rounded-xl border border-slate-200/70 px-4 py-3">
         <span className="text-xs font-semibold text-slate-700">Reading colour:</span>
-        {LEGEND.map(({ tone, label }) => (
+        {LEGEND.map(({ tone, label, sample }) => (
           <span key={tone} className="flex items-center gap-1.5 text-xs text-slate-600">
             <span
               className="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[0.625rem] font-bold text-white"
               style={{ backgroundColor: CHIP[tone].bg }}
             >
-              {CHIP[tone].glyph || '21.7'}
+              {sample}
             </span>
             {label}
           </span>

@@ -22,18 +22,18 @@ const base = (over: Partial<Row>): Row => ({
 } as Row);
 
 describe('tileValues — one tone per condition', () => {
-  it('a reading inside its limits is green (OK), with the value printed', () => {
+  it('a reading inside its limits is green (OK), printed as the value with its unit and nothing else', () => {
     expect(tileValues(base({}), words)).toEqual([
-      { text: '22.5°', st: 'OK', bad: false },
-      { text: '45%', st: 'OK', bad: false },
+      { text: '22.5 °C', st: 'OK', bad: false },
+      { text: '45 %RH', st: 'OK', bad: false },
     ]);
   });
 
   it('a reading above or below a limit is red, and only that reading', () => {
     const v = tileValues(base({ temperature: slot(29), status: 'OUT_OF_SPEC' }), words);
-    expect(v[0]).toEqual({ text: '29.0°', st: 'OUT_OF_SPEC', bad: true });
+    expect(v[0]).toEqual({ text: '29.0 °C', st: 'OUT_OF_SPEC', bad: true });
     // Humidity is inside its band: green, not red, although the instrument is OUT_OF_SPEC.
-    expect(v[1]).toEqual({ text: '45%', st: 'OK', bad: false });
+    expect(v[1]).toEqual({ text: '45 %RH', st: 'OK', bad: false });
     expect(tileValues(base({ humidity: slot(12), status: 'OUT_OF_SPEC' }), words)[1].st).toBe('OUT_OF_SPEC');
   });
 

@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased] - Graphical view: a value chip prints the reading with its unit, nothing else (2026-09-22)
+
+Operator: *"just show value with units"*.
+
+- A chip now reads `21.5 °C` / `45 %RH` — `formatSlot`, the same formatter
+  the room detail uses, at the instrument's own precision. It read `◷ 21.5°`
+  / `45%`: a status glyph, a bare degree sign and no humidity unit.
+- **The status glyphs are gone from the floor, and the consequence is stated
+  once** in `floorplan-view.tsx`'s header: the rule "status colour never
+  carries meaning alone" (2026-08-13) no longer holds on the plan — the
+  colour IS the state there, and the legend under the plan is the one place
+  the colours are named (its swatches now print what a chip of that tone
+  actually prints: `21.7 °C`, `28.4 °C`, `Error`, `NA`). The tile's aria-label
+  still carries "out of limit" in words, and the readings table still pairs
+  colour with a word.
+- **The chip is as wide as its text again**, capped at the tile (operator,
+  minutes later: *"dont cover entire room width for room values, just card
+  background should come till the value only"*). It had spanned the tile
+  since the morning's "highlight" change.
+- `CHIP_LABEL_GLYPHS` 8 → 9 (`100.0 %RH`) so the width bound on the grown font
+  still fits the longest label. No count moved; tsc and `vite build` clean;
+  `floorplan-values.test.ts` re-pointed at the unit strings. **Not seen on
+  screen.**
+
 ## [Unreleased] - Graphical view: small fixed instrument ID, NA chips, the plan fits its panel (2026-09-22)
 
 Operator, on seeing the previous entry: *"decrease instrument id font size,

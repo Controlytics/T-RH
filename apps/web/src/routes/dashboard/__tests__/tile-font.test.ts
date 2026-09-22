@@ -43,9 +43,10 @@ describe('tileLayout — the font grows to fill the tile', () => {
 
   it('a narrow tile is bound by its width: the height would allow 26, the width refuses any growth', () => {
     const l = tileLayout({ x: 0, y: 0, w: 63, h: 204 }, 1); // Module-F, CWH/RDU/044-00
-    // renderer: an eight-glyph label is 8 × 0.6em + 4 wide inside tile.w − 6, which
-    // at 63 wide allows a font of 11 — below the step's own base of 12, so the
-    // base stands (the step already proved it fits) and nothing grows.
+    // renderer: a nine-glyph label ("100.0 %RH") is 9 × 0.6em + 4 wide inside
+    // tile.w − 6, which at 63 wide allows a font under 10 — below the step's own
+    // base of 12, so the base stands (the step already proved it fits) and
+    // nothing grows.
     expect(l.fontSize).toBeLessThanOrEqual(12);
     expect(l.tile.h).toBeGreaterThan(100); // height was not the constraint
   });

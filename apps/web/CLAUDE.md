@@ -73,12 +73,17 @@ VIOLET (2026-09-22, operator: "show instruments live temperature and humidity
 values … in limits green … crossed red … error other color … offline other
 color").** Every placed instrument already had a tile; the font was capped at
 12 in rooms 100-500 wide. `room-geometry.ts` `fillFont()` now grows it to the
-tile (height-, width- and 26-bounded, never below the step's base) and the
-chip spans the tile's width. `tileValues()` in `floorplan-view.tsx` is the
+tile (height-, width- and 26-bounded, never below the step's base); the
+chip's background is as wide as its TEXT, capped at the tile (it spanned the
+tile for a few hours on 2026-09-22 — operator: "just card background should
+come till the value only"). `tileValues()` in `floorplan-view.tsx` is the
 ONE rule for a chip's tone: green in limit, red crossed, `ERROR` (violet,
 `ChipTone`, not an `InstrumentStatus`) for the server's `sensorError` /
 `rangeError`, amber offline / partial, and **grey `NA` for a slot with no
-reading, so a tile always has both rows** (the same day's correction: 98 of
+reading, so a tile always has both rows**; **a chip prints the value WITH ITS
+UNIT and no glyph** (`21.5 °C` / `45 %RH` via `formatSlot`; operator, "just
+show value with units") — on the floor, status is colour alone, named only by
+the legend under the plan, so do not remove that bar (the same day's correction: 98 of
 100 instruments had never reported and their tiles printed the code over
 nothing). Legend entry **Sensor error**. **The instrument ID is small and
 FIXED** (`TILE_CODE_FONT` 10 in a `CODE_LINE_H` 12 strip; it was 0.85 of the
