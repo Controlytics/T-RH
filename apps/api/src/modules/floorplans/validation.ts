@@ -9,6 +9,7 @@
  * Design: docs/superpowers/specs/2026-08-11-instrument-dashboard-floorplan-design.md
  */
 import { z } from 'zod';
+import { validatePolygon, doorEdge, boundingBox, type Polygon } from '@digilog/shared';
 
 /**
  * Coordinates are normalized against the plan image, never pixels. The 0..1
@@ -30,11 +31,18 @@ const humidity = z.number().min(0).max(100);
  * must never be drawn as though it carries a reading.
  */
 const doorSchema = z.object({
-  wall: z.enum(['top', 'right', 'bottom', 'left']),
+  // A rectangle room names the wall; a polygon room (Layout Designer,
+  // 2026-09-22) names the EDGE index. One of the two is required; both are read
+  // through the shared `doorEdge`, the ONE converter, so a door drawn before
+  // polygons existed still lands on edge 0..3 of its four-corner room.
+  wall: z.enum(['top', 'right', 'bottom', 'left']).optional(),
+  edge: z.number().int().min(0).max(63).optional(),
   offset: normalized,
   width: normalized.refine((v) => v > 0, { message: 'must be greater than 0' }),
   kind: z.enum(['ENTRY', 'EXIT', 'PASSAGE']),
-});
+}).refine((d) => d.wall !== undefined || d.edge !== undefined, { message: 'a door names its wall or its edge' });
+
+export const DOOR_KINDS = ['ENTRY', 'EXIT', 'PASSAGE'] as const;
 
 export type RoomDoor = z.infer<typeof doorSchema>;
 
@@ -67,6 +75,11 @@ export const roomSchema = z.object({
   // NULL = nobody has classified this room; it renders white exactly as
   // before this field existed.
   grade: z.enum(ROOM_GRADES).nullable().optional(),
+  // The polygon outline (Layout Designer, 2026-09-22). Validated below through
+  // the shared `validatePolygon`, not here, so the message names what is wrong
+  // with the outline rather than "invalid input". Omitted on PUT = unchanged;
+  // explicit null = back to a rectangle.
+  points: z.array(z.object({ x: z.number(), y: z.number() })).nullable().optional(),
 });
 
 export type RoomInput = z.infer<typeof roomSchema>;
@@ -82,6 +95,14 @@ export function validateRoomPayload(input: unknown): ValidationResult {
     return { ok: false, error: `${first.path.join('.') || 'payload'}: ${first.message}` };
   }
   const d = parsed.data;
+
+  // The outline, when given, must be a room: simple, inside the plan, not a
+  // sliver. The shared validator is the same one the designer refuses with
+  // before sending, so a 400 here means a client that bypassed the designer.
+  if (d.points) {
+    const poly = validatePolygon(d.points);
+    if (!poly.ok) return { ok: false, error: `points: ${poly.error}` };
+  }
 
   // Normalized coordinates mean a box must FINISH inside the plan, not merely
   // start inside it.
@@ -104,25 +125,37 @@ export function validateRoomPayload(input: unknown): ValidationResult {
 
   // A door must FINISH on its wall, for the same reason a room must finish
   // inside the plan: normalized coordinates make "starts in bounds" too weak.
+  // And it must name an edge the room HAS — a polygon with five corners has
+  // five edges, a rectangle four — or the dashboard would have nothing to cut.
+  const poly: Polygon | null = d.points ?? null;
   const doors = d.doors ?? [];
+  const wallName = (door: { wall?: string; edge?: number }) => door.wall ?? `edge ${door.edge}`;
   for (let i = 0; i < doors.length; i++) {
     const door = doors[i];
+    if (doorEdge(door, poly) < 0) {
+      return { ok: false, error: `doors.${i}: names an edge the room does not have.` };
+    }
     if (door.offset + door.width > 1) {
       return {
         ok: false,
-        error: `doors.${i}: the door runs past the end of the ${door.wall} wall (offset + width must be at most 1).`,
+        error: `doors.${i}: the door runs past the end of the ${wallName(door)} wall (offset + width must be at most 1).`,
       };
     }
   }
 
   // Two openings drawn on top of each other are not representable — one wall
   // cannot have two doors in the same place — so this is a drag that went wrong.
-  for (const wall of DOOR_WALLS) {
-    const onWall = doors.filter((door) => door.wall === wall).sort((a, b) => a.offset - b.offset);
-    for (let i = 1; i < onWall.length; i++) {
-      const prev = onWall[i - 1];
-      if (onWall[i].offset < prev.offset + prev.width) {
-        return { ok: false, error: `doors: two doors overlap on the ${wall} wall.` };
+  const byEdge = new Map<number, typeof doors>();
+  for (const door of doors) {
+    const e = doorEdge(door, poly);
+    byEdge.set(e, [...(byEdge.get(e) ?? []), door]);
+  }
+  for (const [, onEdge] of byEdge) {
+    const sorted = [...onEdge].sort((a, b) => a.offset - b.offset);
+    for (let i = 1; i < sorted.length; i++) {
+      const prev = sorted[i - 1];
+      if (sorted[i].offset < prev.offset + prev.width) {
+        return { ok: false, error: `doors: two doors overlap on the ${wallName(prev)} wall.` };
       }
     }
   }
@@ -130,9 +163,20 @@ export function validateRoomPayload(input: unknown): ValidationResult {
   return { ok: true, data: d };
 }
 
+/**
+ * The box a room is STORED with. A polygon room's `x/y/w/h` are its bounding
+ * box, derived here on every write and never trusted from the client; a
+ * rectangle room's box is the geometry the client sent.
+ */
+export function roomGeometry(room: Pick<RoomInput, 'x' | 'y' | 'w' | 'h' | 'points'>): { x: number; y: number; w: number; h: number } {
+  return room.points ? boundingBox(room.points) : { x: room.x, y: room.y, w: room.w, h: room.h };
+}
+
 export const floorplanSchema = z.object({
   name: z.string().trim().min(1).max(120),
-  imagePath: z.string().trim().min(1).max(500),
+  // NULL = a plan drawn from a blank canvas (Layout Designer, 2026-09-22); the
+  // width/height are then the chosen canvas size.
+  imagePath: z.string().trim().min(1).max(500).nullable().optional(),
   imageWidth: z.number().int().min(1).max(20000),
   imageHeight: z.number().int().min(1).max(20000),
   isActive: z.boolean().optional(),

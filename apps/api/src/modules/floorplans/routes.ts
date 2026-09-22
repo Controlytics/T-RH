@@ -6,7 +6,8 @@ import { buildContext } from '../../lib/build-context.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
-import { validateRoomPayload, floorplanSchema, floorplanUpdateSchema, type RoomDoor } from './validation.js';
+import { validateRoomPayload, roomGeometry, floorplanSchema, floorplanUpdateSchema, type RoomDoor } from './validation.js';
+import type { Point } from '@digilog/shared';
 import { getRoomHistory, HISTORY_WINDOWS, type HistoryWindow } from './room-history.js';
 import { resolveVisibility } from '../instruments/visibility.js';
 
@@ -48,7 +49,7 @@ function doorSummary(doors: unknown): string[] {
     // Safe only because this module reads back doors solely through the
     // validated write path above; a hand-edited row in the DB could violate it.
     const door = d as RoomDoor;
-    return `${door.kind} on ${door.wall} @ ${door.offset}`;
+    return `${door.kind} on ${door.wall ?? `edge ${door.edge}`} @ ${door.offset}`;
   });
 }
 
@@ -56,7 +57,7 @@ const roomSelect = {
   id: true, code: true, label: true,
   x: true, y: true, w: true, h: true,
   tempMin: true, tempMax: true, rhMin: true, rhMax: true,
-  doors: true, grade: true, meta: true,
+  doors: true, grade: true, meta: true, points: true,
 } as const;
 
 const roomProps = {
@@ -75,12 +76,20 @@ const roomProps = {
     items: {
       type: 'object',
       properties: {
-        wall: { type: 'string' },
+        wall: { type: 'string', nullable: true },
+        edge: { type: 'integer', nullable: true },
         offset: { type: 'number' },
         width: { type: 'number' },
         kind: { type: 'string' },
       },
     },
+  },
+  // The polygon outline (Layout Designer, 2026-09-22). NULL = a rectangle.
+  // Declared, or Fastify strips it and every polygon room draws as its box.
+  points: {
+    type: 'array',
+    nullable: true,
+    items: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' } } },
   },
   // NULL = nobody has classified this room; renders white as before this
   // field existed. Fastify strips undeclared response properties, so this
@@ -103,7 +112,7 @@ const roomProps = {
 const planProps = {
   id: { type: 'string' },
   name: { type: 'string' },
-  imagePath: { type: 'string' },
+  imagePath: { type: 'string', nullable: true },
   imageWidth: { type: 'integer' },
   imageHeight: { type: 'integer' },
   isActive: { type: 'boolean' },
@@ -342,10 +351,13 @@ export default async function floorplanRoutes(app: FastifyInstance) {
     if (!result.ok) return reply.code(400).send({ error: 'VALIDATION_ERROR', message: result.error });
 
     try {
-      const { doors, ...roomData } = result.data;
+      const { doors, points, ...roomData } = result.data;
       const room = await prisma.floorplanRoom.create({
         data: {
           ...roomData,
+          // A polygon's box is DERIVED; the client's box is ignored.
+          ...roomGeometry(result.data),
+          points: points ?? Prisma.DbNull,
           doors: doorsForWrite(doors),
           floorplanId: id,
           createdBy: ctx.userId,
@@ -358,7 +370,7 @@ export default async function floorplanRoutes(app: FastifyInstance) {
         targetType: 'floorplan_room', targetId: room.id,
         afterValue: {
           floorplan: plan.name, code: room.code, label: room.label,
-          geometry: { x: room.x, y: room.y, w: room.w, h: room.h },
+          geometry: { x: room.x, y: room.y, w: room.w, h: room.h, corners: Array.isArray(room.points) ? room.points.length : 4 },
           limits: { tempMin: room.tempMin, tempMax: room.tempMax, rhMin: room.rhMin, rhMax: room.rhMax },
           doors: doorSummary(room.doors),
           grade: room.grade,
@@ -415,11 +427,20 @@ export default async function floorplanRoutes(app: FastifyInstance) {
       // `null` or `[]` clears it, so `doors` is left out of the Prisma `data`
       // entirely when the key was never sent, rather than passed through
       // doorsForWrite (which would map that `undefined` to Prisma.DbNull).
-      const { doors, ...roomData } = result.data;
+      const { doors, points, ...roomData } = result.data;
+      // The same rule for `points`: OMITTED leaves the polygon as it is and,
+      // because the box of a polygon room is DERIVED, the box the client sent
+      // is replaced by the stored polygon's box — a client that predates
+      // polygons must not flatten a polygon room into the rectangle it drew.
+      // An explicit null clears the polygon and the sent box stands.
+      const storedPoints = Array.isArray(before.points) ? (before.points as unknown as Point[]) : null;
+      const effectivePoints = points === undefined ? storedPoints : points;
       const after = await prisma.floorplanRoom.update({
         where: { id: roomId },
         data: {
           ...roomData,
+          ...roomGeometry({ ...result.data, points: effectivePoints }),
+          ...(points !== undefined ? { points: points ?? Prisma.DbNull } : {}),
           ...(doors !== undefined ? { doors: doorsForWrite(doors) } : {}),
           updatedBy: ctx.userId,
         },
@@ -433,14 +454,14 @@ export default async function floorplanRoutes(app: FastifyInstance) {
         targetType: 'floorplan_room', targetId: roomId,
         beforeValue: {
           code: before.code, label: before.label,
-          geometry: { x: before.x, y: before.y, w: before.w, h: before.h },
+          geometry: { x: before.x, y: before.y, w: before.w, h: before.h, corners: Array.isArray(before.points) ? before.points.length : 4 },
           limits: { tempMin: before.tempMin, tempMax: before.tempMax, rhMin: before.rhMin, rhMax: before.rhMax },
           doors: doorSummary(before.doors),
           grade: before.grade,
         },
         afterValue: {
           code: after.code, label: after.label,
-          geometry: { x: after.x, y: after.y, w: after.w, h: after.h },
+          geometry: { x: after.x, y: after.y, w: after.w, h: after.h, corners: Array.isArray(after.points) ? after.points.length : 4 },
           limits: { tempMin: after.tempMin, tempMax: after.tempMax, rhMin: after.rhMin, rhMax: after.rhMax },
           doors: doorSummary(after.doors),
           grade: after.grade,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateRoomPayload } from '../validation.js';
+import { validateRoomPayload, roomGeometry } from '../validation.js';
 
 const base = { code: 'CWH-I/142', x: 0.1, y: 0.1, w: 0.2, h: 0.2 };
 
@@ -232,5 +232,48 @@ describe('validateRoomPayload — grade', () => {
     const r = validateRoomPayload(base);
     expect(r.ok).toBe(true);
     expect(r.ok && 'grade' in r.data).toBe(false);
+  });
+});
+
+describe('polygon rooms (Layout Designer, 2026-09-22)', () => {
+  const L = [{ x: 0.1, y: 0.1 }, { x: 0.5, y: 0.1 }, { x: 0.5, y: 0.3 }, { x: 0.3, y: 0.3 }, { x: 0.3, y: 0.5 }, { x: 0.1, y: 0.5 }];
+  const tri = [{ x: 0.1, y: 0.1 }, { x: 0.5, y: 0.1 }, { x: 0.1, y: 0.5 }];
+
+  it('accepts a simple polygon and derives its box', () => {
+    const r = validateRoomPayload({ ...base, points: L });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(roomGeometry(r.data)).toEqual({ x: 0.1, y: 0.1, w: 0.4, h: 0.4 });
+  });
+
+  it('a rectangle room keeps the box it sent', () => {
+    const r = validateRoomPayload(base);
+    if (r.ok) expect(roomGeometry(r.data)).toEqual({ x: 0.1, y: 0.1, w: 0.2, h: 0.2 });
+  });
+
+  it('refuses a bow-tie, naming points', () => {
+    const r = validateRoomPayload({ ...base, points: [{ x: 0, y: 0 }, { x: 1, y: 1 }, { x: 1, y: 0 }, { x: 0, y: 1 }] });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toMatch(/points/);
+  });
+
+  it('accepts a door by edge on a polygon and refuses one past its last edge', () => {
+    expect(validateRoomPayload({ ...base, points: tri, doors: [{ edge: 2, offset: 0.2, width: 0.2, kind: 'ENTRY' }] }).ok).toBe(true);
+    const r = validateRoomPayload({ ...base, points: tri, doors: [{ edge: 3, offset: 0.2, width: 0.2, kind: 'ENTRY' }] });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toMatch(/edge the room does not have/);
+  });
+
+  it('a rectangle door still names a wall, and a door naming neither is refused', () => {
+    expect(validateRoomPayload({ ...base, doors: [{ wall: 'top', offset: 0.2, width: 0.2, kind: 'ENTRY' }] }).ok).toBe(true);
+    expect(validateRoomPayload({ ...base, doors: [{ offset: 0.2, width: 0.2, kind: 'ENTRY' }] }).ok).toBe(false);
+  });
+
+  it('two doors overlapping on one polygon edge are refused', () => {
+    const r = validateRoomPayload({ ...base, points: tri, doors: [
+      { edge: 0, offset: 0.1, width: 0.3, kind: 'ENTRY' },
+      { edge: 0, offset: 0.3, width: 0.3, kind: 'EXIT' },
+    ] });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toMatch(/overlap/);
   });
 });
