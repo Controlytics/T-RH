@@ -107,7 +107,10 @@ IN/OUT word are gone from the floor; `captionHeader` is unused by the view
 (`headerH = 0`); the tile strip is `TILE_HEADER_H` (ID line + Location line)
 and the chip-fit maths and tests count it. The `captionHeader()` paragraph
 below is therefore HISTORY as far as the dashboard is concerned. A room with
-no instrument is an unlabelled box, by instruction.
+no instrument prints ONE centred label — its name, else its code — the
+"Location" for that room (operator, same day: "which doesnt have instrument
+ids for rooms there show Location"); a corridor continuation piece prints
+nothing.
 
 **The graphical view has NO "Not placed on any plan" tray (removed
 2026-09-22, operator: "in graphical view dont show not placed on any panel

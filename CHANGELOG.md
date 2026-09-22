@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased] - Graphical view: a room with no instrument prints its Location (2026-09-22)
+
+Operator: *"which doesnt have instrument ids for rooms there show Location"*
+— the follow-up to the previous entry, which had left such a room blank.
+
+- A room with no instrument prints ONE label, centred: the room's name,
+  falling back to its code (`floorplan-view.tsx`). That is the same text an
+  instrument's `Location` attribute carries for the room it sits in, so the
+  floor keeps one vocabulary. Sized to the box (never wider than it, never
+  taller than a third of it); a corridor's continuation piece prints nothing,
+  its base piece does. Rooms WITH an instrument are unchanged: ID, Location
+  attribute, values.
+- No count moved. tsc and `vite build` clean. **Not seen on screen.**
+
 ## [Unreleased] - Graphical view: a room prints only the instrument ID, its Location and the values (2026-09-22)
 
 Operator: *"in rooms show Instrument ID, Location and Values dont show any

@@ -610,8 +610,35 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                     />
                   )}
 
-                  {/* No room code, name, grade tab or caption here — see the
-                      note at `headerH` above. The zone TINT stays as decoration. */}
+                  {/* No room code, grade tab or caption here — see the note at
+                      `headerH` above. The zone TINT stays as decoration.
+
+                      A room with NO instrument prints its LOCATION — the room's
+                      name, falling back to its code — and nothing else
+                      (operator, 2026-09-22: "which doesnt have instrument ids
+                      for rooms there show Location"). It is the same text an
+                      instrument's Location attribute carries for the room it
+                      sits in, so the floor reads one vocabulary. A continuation
+                      piece of a corridor prints nothing; its base piece does.
+                      Sized to the room: never wider than the box, never taller
+                      than a third of it. */}
+                  {roomRows.length === 0 && !isContinuation && (room.label || room.code) && (() => {
+                    const text = (room.label || room.code).trim();
+                    const fontSize = Math.max(6, Math.min(
+                      TILE_LOCATION_FONT + 1.5,
+                      (w - 6) / (Math.max(1, text.length) * 0.55),
+                      h / 3,
+                    ));
+                    return (
+                      <text
+                        x={x + w / 2} y={y + h / 2 + fontSize * 0.35} textAnchor="middle"
+                        fontSize={fontSize} fill={PALETTE.labelInk}
+                        pointerEvents="none"
+                      >
+                        {text}
+                      </text>
+                    );
+                  })()}
 
                   {(() => {
                     const layout = tileLayout({ x, y, w, h }, roomRows.length, headerH);
