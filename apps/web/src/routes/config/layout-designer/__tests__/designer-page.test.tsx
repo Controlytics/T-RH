@@ -149,6 +149,23 @@ describe('LayoutDesignerPage', () => {
     expect(post.mock.calls[1][1]).toMatchObject({ fromRoomId: 'A', toRoomId: 'C', kind: 'CONNECTOR' });
   });
 
+  it('Remove: a door selected on the canvas is removed through the room endpoint', async () => {
+    const rooms = [{ ...rect('A', 'A', 0.1, 0.1, 0.2, 0.2), doors: [{ wall: 'top', offset: 0.4, width: 0.2, kind: 'ENTRY' }] }];
+    PLANS.current = { data: [{ ...PLAN, rooms }] };
+    DETAIL.current = { ...PLAN, rooms };
+    renderPage();
+    stubCanvas();
+    expect(screen.getByRole('button', { name: /^remove$/i })).toBeDisabled();
+    clickAt(screen.getByTestId('door-A-0'), 200, 75);
+    const remove = screen.getByRole('button', { name: /^remove: door 1 of A$/i });
+    expect(remove).toBeEnabled();
+    fireEvent.click(remove);
+    await waitFor(() => expect(put).toHaveBeenCalled());
+    const [url, body] = put.mock.calls[0];
+    expect(url).toBe('/api/floorplans/p1/rooms/A');
+    expect(body).toMatchObject({ doors: null });
+  });
+
   it('selecting a room and pressing Delete removes it through the audited endpoint', async () => {
     const rooms = [rect('A', 'A', 0.1, 0.1, 0.2, 0.2)];
     PLANS.current = { data: [{ ...PLAN, rooms }] };

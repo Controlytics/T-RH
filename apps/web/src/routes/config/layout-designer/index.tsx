@@ -72,6 +72,7 @@ export function LayoutDesignerPage() {
   }, [planDetail]);
 
   const [state, dispatch] = useReducer(reduce, initialState);
+  const codeOfSafe = (id: string) => plan?.rooms.find((r) => r.id === id)?.code ?? '?';
   const [pending, setPending] = useState<{ points: Polygon; corridor: boolean } | null>(null);
   const [form, setForm] = useState<RoomForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -314,8 +315,23 @@ export function LayoutDesignerPage() {
       const idx = state.selection.index;
       saveGeometry(selectedRoom.id, poly.filter((_, i) => i !== idx));
       dispatch({ type: 'select', selection: { kind: 'room', roomId: selectedRoom.id } });
+    } else if (state.selection.kind === 'door' && selectedRoom) {
+      // Remove ONE door: the room's stored doors without that entry, saved at
+      // once through the room endpoint (a door is part of the room record).
+      const room = selectedRoom;
+      const idx = state.selection.index;
+      const doors = (room.doors ?? []).filter((_, i) => i !== idx);
+      run('UPDATE_FLOORPLAN_ROOM', async (pw) => {
+        await put(`/api/floorplans/${plan!.id}/rooms/${room.id}`, roomBody(room, { ...formOf(room), doors }, null), pw);
+      }, { title: 'Door removed' }, () => dispatch({ type: 'select', selection: { kind: 'room', roomId: room.id } }));
     } else if (state.selection.kind === 'room') deleteRoom();
   };
+
+  const selectionLabel = !state.selection ? null
+    : state.selection.kind === 'room' ? `room ${selectedRoom?.code ?? ''}`
+    : state.selection.kind === 'corner' ? `corner ${state.selection.index + 1} of ${selectedRoom?.code ?? ''}`
+    : state.selection.kind === 'door' ? `door ${state.selection.index + 1} of ${selectedRoom?.code ?? ''}`
+    : selectedLink ? `${selectedLink.kind === 'OPENING' ? 'opening' : 'connector'} ${codeOfSafe(selectedLink.fromRoomId)} ↔ ${codeOfSafe(selectedLink.toRoomId)}` : 'link';
 
   const tracingSrc = plan?.imagePath ? `${getApiBase()}${plan.imagePath}` : null;
   const codeOf = (id: string) => plan?.rooms.find((r) => r.id === id)?.code ?? '?';
@@ -391,6 +407,19 @@ export function LayoutDesignerPage() {
                 {t.label}
               </Button>
             ))}
+            {/* REMOVE whatever is selected — a room, a corner, a door, a link
+                (operator, 2026-09-22: "add remove option for lines or links or
+                any other things"). The same act as the Delete key. */}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={deleteSelection}
+              disabled={!state.selection || saving}
+              title={selectionLabel ? `Remove ${selectionLabel} (Delete)` : 'Select a room, corner, door or link to remove it'}
+              className="mt-2 justify-start border-red-200 text-red-700 hover:bg-red-50"
+            >
+              Remove{selectionLabel ? `: ${selectionLabel}` : ''}
+            </Button>
             <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
               <input type="checkbox" checked={showGrid} onChange={(e) => setShowGrid(e.target.checked)} className="ctl-check" /> Snap to grid
             </label>

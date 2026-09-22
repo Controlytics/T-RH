@@ -40,6 +40,48 @@ import {
  * more than one rectangle (`SERVICE CORRIDOR (2)`, the QC `CWH-I/217 (2)`).
  */
 /**
+ * THE DRAWN FLOOR FITS ITS ROOMS (operator, 2026-09-22: "empty space is
+ * showing more below the rooms, if there no gap below the rooms in last line
+ * then dont give space, layout should be auto adjust"). The viewBox used to be
+ * the plan's whole canvas, so a plan whose rooms stop at 60 % of the height
+ * drew a blank band under them. This is the extent the view shows instead:
+ * the bounding box of every DRAWN room (a scoped view fits the rooms it
+ * shows) and, on an unscoped view, of the annotation layer, plus a small
+ * margin so a wall on the edge is not clipped. Plan units 0..1; never wider
+ * than the canvas. No rooms = the whole canvas, as before.
+ */
+export function planExtent(
+  rooms: Pick<FloorplanRoomShape, 'x' | 'y' | 'w' | 'h' | 'points'>[],
+  annotations: {
+    equipment?: { x: number; y: number; w: number; h: number }[];
+    hvac?: { x: number; y: number; w: number; h: number }[];
+    water?: { x: number; y: number }[];
+    airflow?: { y: number; x0: number; x1: number }[];
+    labels?: { x: number; y: number }[];
+  } | null | undefined,
+  margin = 0.02,
+): { x: number; y: number; w: number; h: number } {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const take = (x: number, y: number) => {
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
+  };
+  for (const r of rooms) {
+    for (const p of r.points ?? rectanglePoints({ x: r.x, y: r.y, w: r.w, h: r.h })) take(p.x, p.y);
+  }
+  if (annotations) {
+    for (const e of [...(annotations.equipment ?? []), ...(annotations.hvac ?? [])]) { take(e.x, e.y); take(e.x + e.w, e.y + e.h); }
+    for (const p of [...(annotations.water ?? []), ...(annotations.labels ?? [])]) take(p.x, p.y);
+    for (const a of annotations.airflow ?? []) { take(a.x0, a.y); take(a.x1, a.y); }
+  }
+  if (!Number.isFinite(minX)) return { x: 0, y: 0, w: 1, h: 1 };
+  const m = Math.max(0.01, Math.min(margin, margin * Math.max(maxX - minX, maxY - minY) * 4));
+  const x = Math.max(0, minX - m), y = Math.max(0, minY - m);
+  const x2 = Math.min(1, maxX + m), y2 = Math.min(1, maxY + m);
+  return { x, y, w: Math.max(0.05, x2 - x), h: Math.max(0.05, y2 - y) };
+}
+
+/**
  * The outline a room draws, in viewBox units: its polygon when it has one
  * (Layout Designer, 2026-09-22), else its box as four corners. The ONE place
  * the rectangle-or-polygon question is answered on the dashboard.
@@ -424,93 +466,15 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
   }
 
   const vbH = plan ? Math.round((VB_W * plan.imageHeight) / plan.imageWidth) : 700;
+  // The part of the canvas actually drawn on — see `planExtent`.
+  const extent = plan
+    ? planExtent(roomViews.map((r) => r.room), functionalLocationId ? null : plan.annotations)
+    : { x: 0, y: 0, w: 1, h: 1 };
+  const vb = { x: extent.x * VB_W, y: extent.y * vbH, w: extent.w * VB_W, h: extent.h * vbH };
 
-  return (
-    // A flex column filling the panel, so the drawing below can take WHAT IS
-    // LEFT and no more (operator, 2026-09-22: "decrease the space in rooms,
-    // layout rooms taking so much large"). Until then the SVG was `w-full
-    // h-auto`: it spanned the panel's width and the plan's aspect ratio set its
-    // height, so a portrait plan (QC is 1000x1360) ran to ~1,500px inside an
-    // 880px panel and scrolled, every room drawn far bigger than the screen.
-    // Now the plan is CONTAINED in the panel; to see it bigger, make the panel
-    // bigger (Arrange), which is the one panel where dragging taller does
-    // something — see `AUTO_HEIGHT_PANELS`.
-    <div
-      className={fullscreen
-        ? 'fixed inset-0 z-50 flex flex-col gap-4 bg-white p-4'
-        : 'flex h-full flex-col gap-4'}
-      data-testid="floorplan-view"
-      data-fullscreen={fullscreen ? 'true' : undefined}
-    >
-      {/* Dark title bar: current plan on the left, the others as links on the
-          right — the reference drawing's chrome. A <select> hid which other plans
-          existed behind a click; these are visible at a glance. */}
-      <div
-        className="flex flex-wrap items-center justify-between gap-3 rounded-t-2xl px-4 py-2.5"
-        style={{ background: 'linear-gradient(135deg, var(--theme-sidebar-bg), var(--theme-primary-dark))' }}
-      >
-        <h3 className="text-sm font-bold tracking-wide text-white">{plan?.name ?? 'Floor plan'}</h3>
-        <div className="flex flex-wrap items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            type="button"
-            onClick={() => setFullscreen((f) => !f)}
-            aria-pressed={fullscreen}
-            aria-label={fullscreen ? 'Exit full screen — floor plan' : 'Full screen — floor plan'}
-            title={fullscreen ? 'Exit full screen (Esc)' : 'Full screen'}
-            className="text-white/80 hover:bg-white/15 hover:text-white"
-          >
-            {fullscreen ? <Minimize2 className="h-4 w-4" aria-hidden="true" /> : <Maximize2 className="h-4 w-4" aria-hidden="true" />}
-          </Button>
-          {plans.filter((p) => p.id !== plan?.id).map((p) => (
-            <Button
-              variant="ghost"
-              size="sm"
-              key={p.id}
-              type="button"
-              onClick={() => setPlanId(p.id)}
-              // This bar is a dark gradient, so ghost's slate ink is invisible
-              // on it. The variant is still right — no fill, no border — it just
-              // has to be the inverse ink here.
-              className="text-white/80 hover:bg-white/15 hover:text-white"
-            >
-              {p.name}
-            </Button>
-          ))}
-        </div>
-      </div>
-
-      {/* Scoped, but none of this location's instruments sit in a room on this
-          plan. Drawing the building with no rooms would read as "the plan is
-          broken"; naming the actual fix is more useful than an empty rectangle. */}
-      {plan && functionalLocationId && plan.rooms.length > 0 && roomViews.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
-          <p className="text-sm font-medium text-slate-700">
-            No instruments in this functional location are placed on {plan.name}.
-          </p>
-          <p className="mt-1 text-xs text-slate-500">
-            Place them on{' '}
-            <Link to="/config/floorplans" className="font-medium underline" style={{ color: 'var(--theme-primary)' }}>
-              Configuration → Layout Designer
-            </Link>
-            , or switch to the Tabular view, which does not need geometry.
-          </p>
-        </div>
-      ) : plan && plan.rooms.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
-          <p className="text-sm font-medium text-slate-700">{plan.name} has no rooms drawn yet.</p>
-          <p className="mt-1 text-xs text-slate-500">
-            Draw them on{' '}
-            <Link to="/config/floorplans" className="font-medium underline" style={{ color: 'var(--theme-primary)' }}>
-              Configuration → Layout Designer
-            </Link>.
-          </p>
-        </div>
-      ) : plan && (
-        <div className="min-h-0 flex-1 overflow-hidden rounded-b-2xl border border-slate-300 bg-white p-3 shadow-soft">
+  const floorSvg = plan ? (
           <svg
-            viewBox={`0 0 ${VB_W} ${vbH}`}
+            viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.h}`}
             className="h-full w-full"
             preserveAspectRatio="xMidYMin meet"
             role="img"
@@ -522,7 +486,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                 the building reads as a drawing laid on something, and so the
                 gaps between rooms are visibly OUTSIDE them. The ink is still the
                 information. */}
-            <rect x={0} y={0} width={VB_W} height={vbH} fill={PALETTE.ground} stroke={PALETTE.wall} strokeWidth={3} />
+            <rect x={vb.x} y={vb.y} width={vb.w} height={vb.h} fill={PALETTE.ground} stroke={PALETTE.wall} strokeWidth={3} />
 
             {roomViews.map(({ room, rows: roomRows, status }) => {
               const x = room.x * VB_W;
@@ -967,6 +931,111 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
               </g>
             )}
           </svg>
+  ) : null;
+
+  // FULL SCREEN shows the layout ALONE (operator, 2026-09-22: "full screen
+  // should be like dont show any option, only layout should be opened in the
+  // system full screen, give full screen and normal screen options"): no title
+  // bar, no plan switcher, no legends — the drawing and one Normal screen
+  // button, plus Escape.
+  if (fullscreen && plan) {
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col bg-white" data-testid="floorplan-view" data-fullscreen="true">
+        <div className="absolute right-3 top-3 z-10">
+          <Button
+            variant="outline"
+            size="sm"
+            type="button"
+            onClick={() => setFullscreen(false)}
+            aria-label="Normal screen — floor plan"
+            title="Normal screen (Esc)"
+          >
+            <Minimize2 className="mr-1 h-4 w-4" aria-hidden="true" /> Normal screen
+          </Button>
+        </div>
+        <div className="min-h-0 flex-1 p-2">{floorSvg}</div>
+      </div>
+    );
+  }
+
+  return (
+    // A flex column filling the panel, so the drawing below can take WHAT IS
+    // LEFT and no more (operator, 2026-09-22: "decrease the space in rooms,
+    // layout rooms taking so much large"). Until then the SVG was `w-full
+    // h-auto`: it spanned the panel's width and the plan's aspect ratio set its
+    // height, so a portrait plan (QC is 1000x1360) ran to ~1,500px inside an
+    // 880px panel and scrolled, every room drawn far bigger than the screen.
+    // Now the plan is CONTAINED in the panel; to see it bigger, make the panel
+    // bigger (Arrange), which is the one panel where dragging taller does
+    // something — see `AUTO_HEIGHT_PANELS`.
+    <div className="flex h-full flex-col gap-4" data-testid="floorplan-view">
+      {/* Dark title bar: current plan on the left, the others as links on the
+          right — the reference drawing's chrome. A <select> hid which other plans
+          existed behind a click; these are visible at a glance. */}
+      <div
+        className="flex flex-wrap items-center justify-between gap-3 rounded-t-2xl px-4 py-2.5"
+        style={{ background: 'linear-gradient(135deg, var(--theme-sidebar-bg), var(--theme-primary-dark))' }}
+      >
+        <h3 className="text-sm font-bold tracking-wide text-white">{plan?.name ?? 'Floor plan'}</h3>
+        <div className="flex flex-wrap items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            type="button"
+            onClick={() => setFullscreen(true)}
+            aria-label="Full screen — floor plan"
+            title="Full screen"
+            className="text-white/80 hover:bg-white/15 hover:text-white"
+          >
+            <Maximize2 className="h-4 w-4" aria-hidden="true" />
+          </Button>
+          {plans.filter((p) => p.id !== plan?.id).map((p) => (
+            <Button
+              variant="ghost"
+              size="sm"
+              key={p.id}
+              type="button"
+              onClick={() => setPlanId(p.id)}
+              // This bar is a dark gradient, so ghost's slate ink is invisible
+              // on it. The variant is still right — no fill, no border — it just
+              // has to be the inverse ink here.
+              className="text-white/80 hover:bg-white/15 hover:text-white"
+            >
+              {p.name}
+            </Button>
+          ))}
+        </div>
+      </div>
+
+      {/* Scoped, but none of this location's instruments sit in a room on this
+          plan. Drawing the building with no rooms would read as "the plan is
+          broken"; naming the actual fix is more useful than an empty rectangle. */}
+      {plan && functionalLocationId && plan.rooms.length > 0 && roomViews.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
+          <p className="text-sm font-medium text-slate-700">
+            No instruments in this functional location are placed on {plan.name}.
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            Place them on{' '}
+            <Link to="/config/floorplans" className="font-medium underline" style={{ color: 'var(--theme-primary)' }}>
+              Configuration → Layout Designer
+            </Link>
+            , or switch to the Tabular view, which does not need geometry.
+          </p>
+        </div>
+      ) : plan && plan.rooms.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
+          <p className="text-sm font-medium text-slate-700">{plan.name} has no rooms drawn yet.</p>
+          <p className="mt-1 text-xs text-slate-500">
+            Draw them on{' '}
+            <Link to="/config/floorplans" className="font-medium underline" style={{ color: 'var(--theme-primary)' }}>
+              Configuration → Layout Designer
+            </Link>.
+          </p>
+        </div>
+      ) : plan && (
+        <div className="min-h-0 flex-1 overflow-hidden rounded-b-2xl border border-slate-300 bg-white p-3 shadow-soft">
+          {floorSvg}
         </div>
       )}
 

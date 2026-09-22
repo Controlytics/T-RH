@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { roomOutline, roomOpenings } from '../floorplan-view';
+import { roomOutline, roomOpenings, planExtent } from '../floorplan-view';
 import type { FloorplanRoomShape, FloorplanLinkShape } from '../use-telemetry';
 
 /**
@@ -42,5 +42,26 @@ describe('roomOpenings', () => {
       { id: 'o', fromRoomId: 'B', toRoomId: 'A', kind: 'OPENING', fromEdge: 3, offset: 0.1, width: 0.2, door: null, label: null },
     ];
     expect(roomOpenings(a, links, [{ room: a }], 1000, 1000)).toEqual([]);
+  });
+});
+
+describe('planExtent — the drawn floor fits its rooms (operator, 2026-09-22: no blank band below the last row)', () => {
+  it('rooms in the top half give an extent that stops just under them, not the whole canvas', () => {
+    const e = planExtent([rect('A', 0.05, 0.05, 0.4, 0.3), rect('B', 0.5, 0.05, 0.4, 0.5)], null);
+    expect(e.y + e.h).toBeLessThan(0.6);
+    expect(e.y + e.h).toBeGreaterThan(0.55);
+    expect(e.x).toBeLessThan(0.05);
+    expect(e.x + e.w).toBeGreaterThan(0.9);
+  });
+  it('no rooms = the whole canvas; a polygon room counts its corners', () => {
+    expect(planExtent([], null)).toEqual({ x: 0, y: 0, w: 1, h: 1 });
+    const e = planExtent([{ ...rect('L', 0, 0, 1, 1), points: [{ x: 0.2, y: 0.2 }, { x: 0.6, y: 0.2 }, { x: 0.2, y: 0.7 }] }], null);
+    expect(e.x + e.w).toBeLessThan(0.65);
+    expect(e.y + e.h).toBeLessThan(0.75);
+  });
+  it('an annotation below the rooms widens the extent, and nothing leaves the canvas', () => {
+    const e = planExtent([rect('A', 0.1, 0.1, 0.2, 0.2)], { labels: [{ x: 0.5, y: 0.95 }] });
+    expect(e.y + e.h).toBeGreaterThan(0.95);
+    expect(e.y + e.h).toBeLessThanOrEqual(1);
   });
 });

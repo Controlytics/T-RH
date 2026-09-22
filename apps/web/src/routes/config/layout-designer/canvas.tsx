@@ -208,7 +208,9 @@ export function DesignerCanvas({
           .filter((l) => l.kind === 'OPENING' && l.fromRoomId === room.id && l.fromEdge != null && l.offset != null && l.width != null)
           .map((l) => ({ edge: l.fromEdge!, offset: l.offset!, width: l.width! }));
         const walls = polygonWalls(outline, [...doorOpenings, ...linkOpenings]);
-        const doors = polygonDoorPlacements(outline, room.doors);
+        // One placement per stored door, KEEPING the stored index, so a click on
+        // a leaf selects the right entry of `room.doors` for Remove.
+        const doors = (room.doors ?? []).map((d, i) => ({ i, p: polygonDoorPlacements(outline, [d])[0] })).filter((x) => x.p);
         const c = px(centroid(poly));
         const isLinkFrom = state.linkFrom === room.id;
         return (
@@ -226,12 +228,27 @@ export function DesignerCanvas({
             {walls.map((s, i) => (
               <line key={`w${i}`} x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} stroke={isSelected ? '#2563eb' : '#1f2937'} strokeWidth={2.5} />
             ))}
-            {doors.map((d, i) => (
-              <g key={`d${i}`} pointerEvents="none">
-                <line x1={d.leaf.x1} y1={d.leaf.y1} x2={d.leaf.x2} y2={d.leaf.y2} stroke="#0ea5e9" strokeWidth={1.6} />
-                <path d={d.arc} fill="none" stroke="#0ea5e9" strokeWidth={1} strokeDasharray="3 2" />
-              </g>
-            ))}
+            {doors.map(({ i, p: d }) => {
+              const doorSelected = state.selection?.kind === 'door' && state.selection.roomId === room.id && state.selection.index === i;
+              const ink = doorSelected ? '#2563eb' : '#0ea5e9';
+              return (
+                <g
+                  key={`d${i}`}
+                  data-testid={`door-${room.code}-${i}`}
+                  onPointerDown={(e) => {
+                    if (state.tool !== 'select') return;
+                    e.stopPropagation();
+                    dispatch({ type: 'select', selection: { kind: 'door', roomId: room.id, index: i } });
+                  }}
+                  style={{ cursor: state.tool === 'select' ? 'pointer' : undefined }}
+                >
+                  {/* A wide transparent stroke over the opening: the hit area. */}
+                  <line x1={d.start.x1} y1={d.start.y1} x2={d.start.x2} y2={d.start.y2} stroke="transparent" strokeWidth={12} />
+                  <line x1={d.leaf.x1} y1={d.leaf.y1} x2={d.leaf.x2} y2={d.leaf.y2} stroke={ink} strokeWidth={doorSelected ? 2.4 : 1.6} pointerEvents="none" />
+                  <path d={d.arc} fill="none" stroke={ink} strokeWidth={1} strokeDasharray="3 2" pointerEvents="none" />
+                </g>
+              );
+            })}
             <text x={c.x} y={c.y} textAnchor="middle" fontSize={Math.max(8, Math.min(12, VB_W / 80))} fontWeight={700} fill="#111827" pointerEvents="none">
               {room.code}
             </text>

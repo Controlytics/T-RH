@@ -1,5 +1,39 @@
 # Changelog
 
+## [Unreleased] - Designer Remove control; the floor fits its rooms; full screen shows the layout alone (2026-09-22)
+
+Operator, on first use of the Layout Designer: *"in layout editing add remove
+option for lines or links or any other things, and also im edited QC layout
+then i see in dashboard empty space is showing more below the rooms, if there
+no gap below the rooms in last line then dont give space, layout should be
+auto adjust and full screen should be like dont show any option, only layout
+should be opened in the system full screen, give full screen and normal
+screen options"*.
+
+- **Remove** (designer toolbar): one button that removes whatever is
+  selected — a room, a corner, a door or a link — naming it (`Remove: door 1
+  of A`), the same act as the Delete key. Doors are now SELECTABLE on the
+  canvas (click the leaf with the Select tool; the placement keeps the stored
+  index so the right entry of `room.doors` goes). A door removal is one PUT of
+  the room without that door; a corner removal a PUT with the shorter outline
+  (never below three); a link removal the link DELETE; a room its DELETE with
+  the confirm. `designer-page.test.tsx` +1 (a door selected and removed →
+  PUT `doors: null`).
+- **The dashboard's drawn floor FITS ITS ROOMS.** `planExtent()` (pure,
+  exported from `floorplan-view.tsx`, 3 cases) is the bounding box of every
+  DRAWN room — a scoped view fits the rooms it shows — plus, unscoped, the
+  annotation layer, with a small margin, and the SVG's viewBox and ground plate
+  follow it instead of the plan's whole canvas. A plan whose rooms stop at 60 %
+  of the canvas no longer draws a blank band under them, and everything draws
+  correspondingly larger. No rooms = the whole canvas as before.
+- **Full screen shows the layout ALONE**: the view moves to a full-viewport
+  overlay with the drawing and one **Normal screen** button (top right), plus
+  Escape — no title bar, no plan switcher, no legends. The title bar's button
+  now only ENTERS full screen. The SVG is one `floorSvg` constant rendered in
+  both modes, so the two cannot drift.
+- tsc, `vite build`, the four affected test files green by exit code. **Not
+  seen on screen.**
+
 ## [Unreleased] - LAYOUT DESIGNER: polygon rooms, corridors, doors, links, blank plans (2026-09-22)
 
 Operator: *"in configurations give one configuration prepare layouts. like

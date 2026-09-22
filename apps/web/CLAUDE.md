@@ -570,6 +570,13 @@ panels), `canvas.tsx` (the SVG surface; every callback receives PLAN UNITS),
 - The dashboard's `floorplan-view.tsx` links to this page as
   "Configuration → Layout Designer" (three places) and so does
   `room-detail.tsx`.
+- **Remove** (toolbar, 2026-09-22, operator: "add remove option for lines or
+  links or any other things"): removes the SELECTION — room, corner, door or
+  link — the same act as the Delete key; doors are selectable on the canvas
+  (the placement keeps the stored index). Same day on the dashboard:
+  `planExtent()` fits the viewBox to the drawn rooms (no blank band under the
+  last row), and full screen shows the drawing ALONE with one Normal screen
+  button — the SVG is one `floorSvg` constant rendered in both modes.
 
 ## The QC floor plan is TRACED, and carries an annotation layer (2026-08-31)
 
