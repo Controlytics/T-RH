@@ -8,6 +8,11 @@
  * Design: docs/superpowers/specs/2026-08-24-scada-floorplan-view-design.md
  */
 
+import {
+  rectanglePoints, polygonEdges, signedArea, doorEdge, sharedEdges,
+  type Polygon, type EdgeOpening,
+} from '@digilog/shared';
+
 export type DoorWall = 'top' | 'right' | 'bottom' | 'left';
 export type DoorKind = 'ENTRY' | 'EXIT' | 'PASSAGE';
 
@@ -15,9 +20,14 @@ export type DoorKind = 'ENTRY' | 'EXIT' | 'PASSAGE';
  * Mirrors the API shape (`floorplans/validation.ts`). `offset` and `width` are
  * fractions of the WALL's length, not of the plan — that is what keeps a door
  * attached to its room when the room moves or is resized.
+ *
+ * A door drawn before 2026-09-22 names its `wall`; a door on a polygon room
+ * (Layout Designer) names its `edge`. `doorToEdgeOpening` is the ONE place the
+ * two are reconciled — including the direction flip below.
  */
 export interface RoomDoor {
-  wall: DoorWall;
+  wall?: DoorWall;
+  edge?: number;
   offset: number;
   width: number;
   kind: DoorKind;
@@ -29,7 +39,10 @@ export interface PixelBox { x: number; y: number; w: number; h: number }
 export interface Segment { x1: number; y1: number; x2: number; y2: number }
 
 export interface DoorPlacement {
-  wall: DoorWall;
+  /** The polygon edge the door sits on (0..3 for a rectangle). */
+  edge: number;
+  /** The wall name, for a door that was stored by wall. */
+  wall?: DoorWall;
   kind: DoorKind;
   /** The opening itself, along the wall. */
   start: Segment;
@@ -39,28 +52,6 @@ export interface DoorPlacement {
   leaf: Segment;
   /** The swing arc, as an SVG path `d`. */
   arc: string;
-}
-
-const WALLS: DoorWall[] = ['top', 'right', 'bottom', 'left'];
-
-/**
- * Where a wall starts and ends, and which way "along" it runs. Every wall is
- * traversed from its own origin so a door's `offset` means the same thing on
- * all four — otherwise a door dragged along the bottom wall would travel the
- * opposite way to one dragged along the top.
- */
-function wallLine(box: PixelBox, wall: DoorWall): { from: { x: number; y: number }; to: { x: number; y: number }; length: number; inward: { x: number; y: number } } {
-  const { x, y, w, h } = box;
-  switch (wall) {
-    case 'top':
-      return { from: { x, y }, to: { x: x + w, y }, length: w, inward: { x: 0, y: 1 } };
-    case 'right':
-      return { from: { x: x + w, y }, to: { x: x + w, y: y + h }, length: h, inward: { x: -1, y: 0 } };
-    case 'bottom':
-      return { from: { x, y: y + h }, to: { x: x + w, y: y + h }, length: w, inward: { x: 0, y: -1 } };
-    case 'left':
-      return { from: { x, y }, to: { x, y: y + h }, length: h, inward: { x: 1, y: 0 } };
-  }
 }
 
 /**
@@ -73,98 +64,69 @@ function clean(n: number): number {
   return Math.round(n * 1e9) / 1e9;
 }
 
-function pointAt(box: PixelBox, wall: DoorWall, t: number): { x: number; y: number } {
-  const { from, to } = wallLine(box, wall);
-  return { x: clean(from.x + (to.x - from.x) * t), y: clean(from.y + (to.y - from.y) * t) };
+/**
+ * A door as an opening on a polygon edge.
+ *
+ * DIRECTION FLIP, and why it is here and nowhere else: a wall-named door's
+ * `offset` runs left→right along the bottom wall and top→bottom along the left
+ * wall (the way the old `wallLine` traversed them), but polygon edges 2 and 3
+ * of a rectangle run right→left and bottom→top (the outline is clockwise). A
+ * stored bottom-wall door at offset 0.4 must still draw 0.4 from the LEFT, so
+ * its fraction is mirrored onto the edge. A door stored by `edge` is already in
+ * edge terms and passes through. Null = an edge the room does not have.
+ */
+export function doorToEdgeOpening(door: RoomDoor, points: Polygon | null): EdgeOpening | null {
+  const edge = doorEdge(door, points);
+  if (edge < 0) return null;
+  const reversed = door.edge === undefined && (door.wall === 'bottom' || door.wall === 'left');
+  const offset = reversed ? clean(1 - door.offset - door.width) : door.offset;
+  return { edge, offset, width: door.width };
+}
+
+function pointOn(points: Polygon, i: number, t: number): { x: number; y: number } {
+  const e = polygonEdges(points)[i];
+  return { x: clean(e.x1 + (e.x2 - e.x1) * t), y: clean(e.y1 + (e.y2 - e.y1) * t) };
+}
+
+/** Unit vector INTO the room from edge i, and the edge's length. */
+function edgeInward(points: Polygon, i: number): { x: number; y: number; length: number } {
+  const e = polygonEdges(points)[i];
+  const len = Math.hypot(e.x2 - e.x1, e.y2 - e.y1) || 1;
+  const dx = (e.x2 - e.x1) / len, dy = (e.y2 - e.y1) / len;
+  // Clockwise on screen (signed area > 0 with y down): inside is to the RIGHT
+  // of the edge direction, i.e. the direction rotated a quarter turn clockwise.
+  return signedArea(points) > 0 ? { x: -dy, y: dx, length: len } : { x: dy, y: -dx, length: len };
 }
 
 /**
- * The four walls, each cut into the pieces the doors leave behind.
+ * Every edge of the outline, each cut into the pieces its openings leave.
  *
- * A stroked `<rect>` cannot have a hole in it, and overpainting a gap with the
- * background colour breaks the moment the room is hovered or the palette
+ * A stroked `<polygon>` cannot have a hole in it, and overpainting a gap with
+ * the background colour breaks the moment the room is hovered or the palette
  * changes. A gap has to be an ABSENCE of wall.
  */
-export function wallSegments(box: PixelBox, doors: WallOpening[] | null | undefined): Segment[] {
-  const all = doors ?? [];
+export function polygonWalls(points: Polygon, openings: EdgeOpening[]): Segment[] {
   const out: Segment[] = [];
-
-  for (const wall of WALLS) {
-    const onWall = all
-      .filter((d) => d.wall === wall)
-      .map((d) => ({ start: d.offset, end: d.offset + d.width }))
+  points.forEach((_, i) => {
+    const onEdge = openings
+      .filter((o) => o.edge === i)
+      .map((o) => ({ start: o.offset, end: clean(o.offset + o.width) }))
       .sort((a, b) => a.start - b.start);
-
     let cursor = 0;
-    for (const opening of onWall) {
-      if (opening.start > cursor) {
-        const a = pointAt(box, wall, cursor);
-        const b = pointAt(box, wall, opening.start);
+    for (const o of onEdge) {
+      if (o.start > cursor) {
+        const a = pointOn(points, i, cursor), b = pointOn(points, i, o.start);
         out.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y });
       }
-      cursor = Math.max(cursor, opening.end);
+      cursor = Math.max(cursor, o.end);
     }
-    // The remainder past the last door. Skipped when a door reaches the corner,
-    // so no zero-length stub is emitted — an invisible segment that still costs
-    // a DOM node and shows up as a dot under a round line cap.
+    // The remainder past the last opening. Skipped when an opening reaches the
+    // corner, so no zero-length stub is emitted.
     if (cursor < 1) {
-      const a = pointAt(box, wall, cursor);
-      const b = pointAt(box, wall, 1);
+      const a = pointOn(points, i, cursor), b = pointOn(points, i, 1);
       out.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y });
     }
-  }
-
-  return out;
-}
-
-/**
- * An opening in a wall that is NOT a door: the stretch where this room and a
- * neighbour are one continuous space. Same fractions-of-the-wall shape as a
- * door so `wallSegments` can cut it out the same way; never given a leaf or
- * an arc, because there is nothing there to swing.
- */
-export type WallOpening = Pick<RoomDoor, 'wall' | 'offset' | 'width'>;
-
-/**
- * Where this room's walls coincide with a neighbour's, as openings.
- *
- * A room is ONE rectangle in the schema, so an L-shaped corridor is stored as
- * two or three of them — and drawn naively, the seam between the pieces is a
- * wall the building does not have. The operator's words (2026-09-21): "in
- * layout image corridor single line, not divided into separately". The caller
- * decides WHICH neighbours qualify (the view passes the other circulation
- * rooms); this only does the geometry: for each wall, the overlap with the
- * neighbour's facing wall, when the two lie on the same line within `tol`
- * viewBox units. Rooms that only touch at a corner produce nothing — a point
- * is not an opening.
- */
-export function sharedOpenings(box: PixelBox, neighbours: PixelBox[], tol = 0.5): WallOpening[] {
-  const out: WallOpening[] = [];
-  const near = (a: number, b: number) => Math.abs(a - b) <= tol;
-  for (const n of neighbours) {
-    // Vertical seams: my right against their left, my left against their right.
-    if (near(box.x + box.w, n.x) || near(box.x, n.x + n.w)) {
-      const lo = Math.max(box.y, n.y), hi = Math.min(box.y + box.h, n.y + n.h);
-      if (hi - lo > tol && box.h > 0) {
-        out.push({
-          wall: near(box.x + box.w, n.x) ? 'right' : 'left',
-          offset: clean((lo - box.y) / box.h),
-          width: clean((hi - lo) / box.h),
-        });
-      }
-    }
-    // Horizontal seams: my bottom against their top, my top against their bottom.
-    if (near(box.y + box.h, n.y) || near(box.y, n.y + n.h)) {
-      const lo = Math.max(box.x, n.x), hi = Math.min(box.x + box.w, n.x + n.w);
-      if (hi - lo > tol && box.w > 0) {
-        out.push({
-          wall: near(box.y + box.h, n.y) ? 'bottom' : 'top',
-          offset: clean((lo - box.x) / box.w),
-          width: clean((hi - lo) / box.w),
-        });
-      }
-    }
-  }
+  });
   return out;
 }
 
@@ -173,25 +135,72 @@ export function sharedOpenings(box: PixelBox, neighbours: PixelBox[], tol = 0.5)
  * quarter-circle it sweeps. Always drawn INTO the room — a leaf swinging out
  * would overlap the neighbouring room and read as that room's door.
  */
-export function doorPlacements(box: PixelBox, doors: RoomDoor[] | null | undefined): DoorPlacement[] {
-  return (doors ?? []).map((door) => {
-    const { length, inward } = wallLine(box, door.wall);
-    const hinge = pointAt(box, door.wall, door.offset);
-    const far = pointAt(box, door.wall, door.offset + door.width);
-    const span = door.width * length;
-
-    const leafEnd = { x: hinge.x + inward.x * span, y: hinge.y + inward.y * span };
-    // Sweep from the open leaf back to the closed position at the far jamb.
-    const arc = `M ${leafEnd.x} ${leafEnd.y} A ${span} ${span} 0 0 1 ${far.x} ${far.y}`;
-
-    return {
+export function polygonDoorPlacements(points: Polygon, doors: RoomDoor[] | null | undefined): DoorPlacement[] {
+  const sweep = signedArea(points) > 0 ? 1 : 0;
+  return (doors ?? []).flatMap((door) => {
+    const o = doorToEdgeOpening(door, points);
+    if (!o) return [];
+    const inward = edgeInward(points, o.edge);
+    const hinge = pointOn(points, o.edge, o.offset);
+    const far = pointOn(points, o.edge, clean(o.offset + o.width));
+    const span = o.width * inward.length;
+    const leafEnd = { x: clean(hinge.x + inward.x * span), y: clean(hinge.y + inward.y * span) };
+    return [{
+      edge: o.edge,
       wall: door.wall,
       kind: door.kind,
       start: { x1: hinge.x, y1: hinge.y, x2: far.x, y2: far.y },
       hinge,
       leaf: { x1: hinge.x, y1: hinge.y, x2: leafEnd.x, y2: leafEnd.y },
-      arc,
-    };
+      arc: `M ${leafEnd.x} ${leafEnd.y} A ${span} ${span} 0 0 ${sweep} ${far.x} ${far.y}`,
+    }];
+  });
+}
+
+/**
+ * Where this outline's edges coincide with a neighbour's, as openings on MY
+ * edges. The caller decides WHICH neighbours qualify (the view passes the other
+ * circulation rooms and the pieces of one code); this only does the geometry.
+ * `tol` is in the caller's units — 0.5 for a 1000-unit viewBox.
+ */
+export function polygonSharedOpenings(points: Polygon, neighbours: Polygon[], tol = 0.5): EdgeOpening[] {
+  return neighbours.flatMap((n) =>
+    sharedEdges(points, n, tol).map((s) => ({ edge: s.aEdge, offset: s.start, width: clean(s.end - s.start) })));
+}
+
+/**
+ * An opening in a wall that is NOT a door: the stretch where this room and a
+ * neighbour are one continuous space. Same fractions-of-the-wall shape as a
+ * door so `wallSegments` can cut it out the same way; never given a leaf or
+ * an arc, because there is nothing there to swing.
+ */
+export type WallOpening = { wall?: DoorWall; edge?: number; offset: number; width: number };
+
+// ── Rectangle wrappers: the old signatures, over the polygon path ────────────
+// A rectangle is `rectanglePoints(box)`; a wall name is an edge 0..3 with the
+// direction flip `doorToEdgeOpening` applies. Kept so every rectangle caller
+// (and its tests) is byte-for-byte the four-corner case of the polygon path.
+
+const WALL_NAMES: DoorWall[] = ['top', 'right', 'bottom', 'left'];
+
+export function wallSegments(box: PixelBox, doors: WallOpening[] | null | undefined): Segment[] {
+  const poly = rectanglePoints(box);
+  const openings = (doors ?? []).flatMap((d) => {
+    const o = doorToEdgeOpening({ ...d, kind: 'PASSAGE' }, null);
+    return o ? [o] : [];
+  });
+  return polygonWalls(poly, openings);
+}
+
+export function doorPlacements(box: PixelBox, doors: RoomDoor[] | null | undefined): DoorPlacement[] {
+  return polygonDoorPlacements(rectanglePoints(box), doors);
+}
+
+export function sharedOpenings(box: PixelBox, neighbours: PixelBox[], tol = 0.5): WallOpening[] {
+  return polygonSharedOpenings(rectanglePoints(box), neighbours.map(rectanglePoints), tol).map((o) => {
+    // Back to wall terms, mirroring edges 2 and 3 the way doorToEdgeOpening does.
+    const reversed = o.edge === 2 || o.edge === 3;
+    return { wall: WALL_NAMES[o.edge], offset: reversed ? clean(1 - o.offset - o.width) : o.offset, width: o.width };
   });
 }
 

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { wallSegments, doorPlacements, sharedOpenings, type RoomDoor } from '../room-geometry';
+import { wallSegments, doorPlacements, sharedOpenings, polygonWalls, polygonDoorPlacements, polygonSharedOpenings, doorToEdgeOpening, type RoomDoor } from '../room-geometry';
+import { rectanglePoints } from '@digilog/shared';
 import { tileLayout, captionHeader } from '../room-geometry';
 
 /** A 100x100 box at the origin — every expected number below is readable by hand. */
@@ -318,5 +319,56 @@ describe('sharedOpenings — adjoining circulation rooms are one space', () => {
       s.x1 === 475 && s.x2 === 475 && Math.min(s.y2, 681) - Math.max(s.y1, 641) > 1);
     expect(alongEastSeam).toEqual([]);
     expect(opened.length).toBeGreaterThan(solid.length);
+  });
+});
+
+describe('polygon walls, doors and openings (Layout Designer, 2026-09-22)', () => {
+  const L = [{ x: 100, y: 100 }, { x: 500, y: 100 }, { x: 500, y: 300 }, { x: 300, y: 300 }, { x: 300, y: 500 }, { x: 100, y: 500 }];
+
+  it('an L with no openings has six wall segments, one per edge', () => {
+    expect(polygonWalls(L, [])).toHaveLength(6);
+  });
+
+  it('an opening on edge 4 (the bottom of the lower arm) splits it in two', () => {
+    const walls = polygonWalls(L, [{ edge: 4, offset: 0.25, width: 0.5 }]);
+    expect(walls).toHaveLength(7);
+    const bottom = walls.filter((w) => w.y1 === 500 && w.y2 === 500);
+    expect(bottom).toHaveLength(2);
+  });
+
+  it('a door leaf on a polygon edge swings INTO the room', () => {
+    const [d] = polygonDoorPlacements(L, [{ edge: 0, offset: 0.1, width: 0.1, kind: 'ENTRY' }]);
+    expect(d.edge).toBe(0);
+    expect(d.leaf.y2).toBeGreaterThan(d.leaf.y1); // edge 0 runs along the top; inside is below (y down)
+    const [left] = polygonDoorPlacements(L, [{ edge: 5, offset: 0.1, width: 0.1, kind: 'ENTRY' }]);
+    expect(left.leaf.x2).toBeGreaterThan(left.leaf.x1); // edge 5 is the left wall; inside is to the right
+  });
+
+  it('a wall-named door on the bottom or left wall keeps its old position (direction flip)', () => {
+    const box = { x: 0, y: 0, w: 100, h: 100 };
+    // Old semantics: bottom offset 0.4 width 0.2 = x 40..60 from the LEFT.
+    const o = doorToEdgeOpening({ wall: 'bottom', offset: 0.4, width: 0.2, kind: 'ENTRY' }, null)!;
+    expect(o.edge).toBe(2);
+    expect(o.offset).toBeCloseTo(0.4, 9); // symmetric case; the flip is 1 - 0.4 - 0.2
+    const asym = doorToEdgeOpening({ wall: 'left', offset: 0.1, width: 0.2, kind: 'ENTRY' }, null)!;
+    expect(asym.offset).toBeCloseTo(0.7, 9);
+    const segs = wallSegments(box, [{ wall: 'left', offset: 0.1, width: 0.2 }]);
+    const leftPieces = segs.filter((w) => w.x1 === 0 && w.x2 === 0);
+    // The gap is y 10..30 from the TOP, as it always was.
+    expect(leftPieces.some((w) => Math.min(w.y1, w.y2) === 30)).toBe(true);
+    expect(leftPieces.some((w) => Math.max(w.y1, w.y2) === 10)).toBe(true);
+  });
+
+  it('the rectangle wrappers still give the old answers', () => {
+    const box = { x: 100, y: 100, w: 200, h: 100 };
+    expect(wallSegments(box, null)).toHaveLength(4);
+    expect(doorPlacements(box, [{ wall: 'left', offset: 0.2, width: 0.3, kind: 'EXIT' }])[0].wall).toBe('left');
+  });
+
+  it('two touching polygons share an opening on the seam', () => {
+    const a = rectanglePoints({ x: 100, y: 100, w: 200, h: 200 });
+    const b = rectanglePoints({ x: 300, y: 100, w: 200, h: 200 });
+    expect(polygonSharedOpenings(a, [b])).toEqual([{ edge: 1, offset: 0, width: 1 }]);
+    expect(sharedOpenings({ x: 100, y: 100, w: 200, h: 200 }, [{ x: 300, y: 100, w: 200, h: 200 }])).toEqual([{ wall: 'right', offset: 0, width: 1 }]);
   });
 });

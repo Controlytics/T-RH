@@ -553,8 +553,8 @@ export function FloorplansConfigPage() {
                           className="absolute bg-sky-600"
                           style={
                             vertical
-                              ? { [d.wall]: -2, top: `${d.offset * 100}%`, height: `${d.width * 100}%`, width: 4 }
-                              : { [d.wall]: -2, left: `${d.offset * 100}%`, width: `${d.width * 100}%`, height: 4 }
+                              ? { [d.wall ?? 'top']: -2, top: `${d.offset * 100}%`, height: `${d.width * 100}%`, width: 4 }
+                              : { [d.wall ?? 'top']: -2, left: `${d.offset * 100}%`, width: `${d.width * 100}%`, height: 4 }
                           }
                         />
                       );
