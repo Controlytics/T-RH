@@ -259,11 +259,13 @@ export const TILE_CODE_FONT = 10;
  *     inside the tile less CHIP_SIDE_INSET. A tile 63 wide (Module-F's
  *     narrowest) stays width-bound.
  *   - MAX_TILE_FONT: above this a reading stops being a label and becomes a
- *     poster that dwarfs the room it is in.
+ *     poster that dwarfs the room it is in. 26 for the first hours of
+ *     2026-09-22; the operator's "decrease values font sizes" brought it to
+ *     16 — a third larger than the 12 the readings printed at before that day.
  *
  * Never SMALLER than the base: the step already proved the base fits.
  */
-const MAX_TILE_FONT = 26;
+export const MAX_TILE_FONT = 16;
 const CHIP_GLYPH_EM = 0.6;
 const CHIP_LABEL_GLYPHS = 9;
 const CHIP_SIDE_INSET = 6;

@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Maximize2, Minimize2 } from 'lucide-react';
 import { useSensorWords } from '@/hooks/use-failure-text';
 import { Link, useNavigate } from 'react-router-dom';
 import {
@@ -326,6 +327,22 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
   // the rooms and nothing else. Place it in a room (Config -> Floorplans) to
   // see it here.
 
+  /**
+   * FULL SCREEN (operator, 2026-09-22: "the layout should complete visible in
+   * full screen"). The view leaves its panel for a fixed overlay over the whole
+   * viewport and, being contained (see the root below), the WHOLE plan is then
+   * visible at once at the largest size the screen allows. Escape leaves it —
+   * a fixed overlay with no keyboard way out is a trap — and so does the same
+   * button. The Data Report widget's pattern (`history-widget.tsx`).
+   */
+  const [fullscreen, setFullscreen] = useState(false);
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setFullscreen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [fullscreen]);
+
   if (openRoomId && plan) {
     return (
       <RoomDetail
@@ -363,7 +380,13 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
     // Now the plan is CONTAINED in the panel; to see it bigger, make the panel
     // bigger (Arrange), which is the one panel where dragging taller does
     // something — see `AUTO_HEIGHT_PANELS`.
-    <div className="flex h-full flex-col gap-4">
+    <div
+      className={fullscreen
+        ? 'fixed inset-0 z-50 flex flex-col gap-4 bg-white p-4'
+        : 'flex h-full flex-col gap-4'}
+      data-testid="floorplan-view"
+      data-fullscreen={fullscreen ? 'true' : undefined}
+    >
       {/* Dark title bar: current plan on the left, the others as links on the
           right — the reference drawing's chrome. A <select> hid which other plans
           existed behind a click; these are visible at a glance. */}
@@ -373,6 +396,18 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
       >
         <h3 className="text-sm font-bold tracking-wide text-white">{plan?.name ?? 'Floor plan'}</h3>
         <div className="flex flex-wrap items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            type="button"
+            onClick={() => setFullscreen((f) => !f)}
+            aria-pressed={fullscreen}
+            aria-label={fullscreen ? 'Exit full screen — floor plan' : 'Full screen — floor plan'}
+            title={fullscreen ? 'Exit full screen (Esc)' : 'Full screen'}
+            className="text-white/80 hover:bg-white/15 hover:text-white"
+          >
+            {fullscreen ? <Minimize2 className="h-4 w-4" aria-hidden="true" /> : <Maximize2 className="h-4 w-4" aria-hidden="true" />}
+          </Button>
           {plans.filter((p) => p.id !== plan?.id).map((p) => (
             <Button
               variant="ghost"

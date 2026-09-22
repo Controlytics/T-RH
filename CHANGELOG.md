@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased] - Graphical view: smaller readings, and a Full screen mode that shows the whole plan (2026-09-22)
+
+Operator: *"decrease values font sizes and put the layout should complete
+visible in full screen"*.
+
+- **`MAX_TILE_FONT` 26 → 16** (`room-geometry.ts`, now exported and pinned by
+  `tile-font.test.ts`). The readings still grow to fill their tile, just to a
+  third above the old 12 rather than more than double it.
+- **A Full screen button on the plan's title bar** (`floorplan-view.tsx`):
+  the view moves to a fixed overlay over the whole viewport, where — being
+  contained since the morning's change — the WHOLE layout is visible at once
+  at the largest size the screen allows. The same button or Escape leaves it.
+  The Data Report widget's own pattern. Marked `data-fullscreen` on the root
+  for tests; no render test of the view exists yet (its data hooks need a
+  harness), so the toggle is **not seen on screen** and not pinned.
+- No count moved. tsc and `vite build` clean; the four floorplan test files
+  green by exit code.
+
 ## [Unreleased] - `send-scenario-telemetry.ts`: every reading state, to every placed instrument, continuously (2026-09-22)
 
 Operator: *"send data to all instruments continously with all type values,

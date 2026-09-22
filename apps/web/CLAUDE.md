@@ -73,7 +73,9 @@ VIOLET (2026-09-22, operator: "show instruments live temperature and humidity
 values … in limits green … crossed red … error other color … offline other
 color").** Every placed instrument already had a tile; the font was capped at
 12 in rooms 100-500 wide. `room-geometry.ts` `fillFont()` now grows it to the
-tile (height-, width- and 26-bounded, never below the step's base); the
+tile (height-, width- and `MAX_TILE_FONT`-bounded — 16 since the operator's
+"decrease values font sizes" later that day, exported and pinned — never
+below the step's base); the
 chip's background is as wide as its TEXT, capped at the tile (it spanned the
 tile for a few hours on 2026-09-22 — operator: "just card background should
 come till the value only"). `tileValues()` in `floorplan-view.tsx` is the
@@ -90,7 +92,9 @@ FIXED** (`TILE_CODE_FONT` 10 in a `CODE_LINE_H` 12 strip; it was 0.85 of the
 reading font and "looking so large"). **The plan is CONTAINED in its panel**
 (flex column, SVG `h-full w-full` with `xMidYMin meet`; it was `w-full
 h-auto` and a portrait plan scrolled at ~1,500px) — enlarge the panel to
-enlarge the plan. The chip geometry constants are exported from
+enlarge the plan, or press the title bar's **Full screen** button (fixed
+overlay, Escape leaves; `data-fullscreen` on the view's root) to see the
+whole layout at the screen's size. The chip geometry constants are exported from
 `room-geometry.ts` and imported by the renderer and the tests; do not copy
 the literals again. Tests: `floorplan-values.test.ts`, `tile-font.test.ts`,
 both mutation-checked. Not seen on screen.

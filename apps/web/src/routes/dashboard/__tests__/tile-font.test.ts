@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { tileLayout, CHIP_HEIGHT_FACTOR, CHIP_GAP, FULL_CODE_GAP, VALUES_TOP_GAP, CODE_LINE_H } from '../room-geometry';
+import { tileLayout, CHIP_HEIGHT_FACTOR, CHIP_GAP, FULL_CODE_GAP, VALUES_TOP_GAP, CODE_LINE_H, MAX_TILE_FONT } from '../room-geometry';
 
 /**
  * The reading font FILLS the tile (operator, 2026-09-22: "in layouts show
@@ -23,7 +23,10 @@ describe('tileLayout — the font grows to fill the tile', () => {
 
   it('never above the ceiling, however big the room', () => {
     const l = tileLayout({ x: 0, y: 0, w: 491, h: 611 }, 1);
-    expect(l.fontSize).toBeLessThanOrEqual(26);
+    expect(l.fontSize).toBeLessThanOrEqual(MAX_TILE_FONT);
+    // The ceiling itself is the operator's judgement (2026-09-22: 26 was
+    // "so large"; 16 stands). Pinned so a "tidy-up" cannot quietly move it.
+    expect(MAX_TILE_FONT).toBe(16);
   });
 
   it('both chips still fit the grown FULL tile (the chip-fit guarantee survives the growth)', () => {
