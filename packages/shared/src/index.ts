@@ -118,6 +118,14 @@ export {
 export type { LimitBound } from './types/alarm-limits.js';
 
 export {
+  POLYGON_MIN_CORNERS, POLYGON_MAX_CORNERS, POLYGON_MIN_AREA, SHARED_EDGE_TOL, WALL_EDGE,
+  rectanglePoints, boundingBox, polygonArea, signedArea, polygonEdges, isSimplePolygon,
+  validatePolygon, pointInPolygon, sharedEdges, mirrorOpening, largestInscribedRect,
+  doorEdge, centroid, isRectilinear, unionRectilinear,
+} from './types/floorplan-geometry.js';
+export type { Point, Box, Segment, Polygon, EdgeOpening, SharedEdge } from './types/floorplan-geometry.js';
+
+export {
   INACTIVITY_ALARMS_DEFAULT, INACTIVITY_GRACE_MIN, INACTIVITY_GRACE_MAX,
   INACTIVITY_TYPE_LABEL, describeInactivity, inactivityLimitText,
   INACTIVITY_TEXT_DEFAULT, INACTIVITY_MINUTES_TOKEN,
