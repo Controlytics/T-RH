@@ -150,7 +150,7 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
 - **Backend:** **25** API modules under `apps/api/src/modules/` (`ls | wc -l`).
   24 → 25 (2026-09-07): `report-reviews`, the report review workflow.
   23 → 24 (2026-08-27): `alarm-webhooks`, the alarm annunciator.
-- **Database:** **36 Prisma models, 13 enums** (35/12 → 36/13 on 2026-09-07: `ReportReview` + `ReportReviewStatus`, migration `20260907120000_report_reviews`) (36/13 → 35/12 on 2026-08-31: `AlarmRule` + `AlarmComparison` removed with the alarm-rules feature) (`grep -cE "^model " / "^enum "`).
+- **Database:** **37 Prisma models, 13 enums** (36/13 → 37/13 on 2026-09-22: `FloorplanRoomLink`, migration `20260922120000_floorplan_polygons_links`; the link `kind` is a validated string, NOT an enum — see the Layout Designer note) (35/12 → 36/13 on 2026-09-07: `ReportReview` + `ReportReviewStatus`, migration `20260907120000_report_reviews`) (36/13 → 35/12 on 2026-08-31: `AlarmRule` + `AlarmComparison` removed with the alarm-rules feature) (`grep -cE "^model " / "^enum "`).
   34 → 36 (2026-08-27): `AlarmWebhookTarget` + `AlarmWebhookDelivery`
   (migration `20260827120000_alarm_webhooks`). **The enum count did NOT move** —
   that target's `method`, `event` and `status` are validated strings, the same
@@ -186,7 +186,10 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   downloads; no permission or sidebar item was added for it.
   The "102 / 83 / 92 / 26" this file carried for months was upstream DigiLog's and
   was never true here.
-- **Audit registries:** **103** audit actions, **97** audit templates in **7**
+- **Audit registries:** **106** audit actions, **100** audit templates in **7**
+  categories (103 → 106 / 97 → 100 on 2026-09-22: `FLOORPLAN_LINK_CREATED` /
+  `UPDATED` / `DELETED`, the Layout Designer's room links; categories
+  unchanged). Earlier: **103** / **97** in **7**
   categories (102 → 103 / 96 → 97 on 2026-09-21: `ALARMS_PURGED`, written only by
   `apps/api/scripts/purge-alarms.ts`; categories unchanged). Earlier: **102** / **96** in **7**
   categories (98 → 102 / 92 → 96 on 2026-09-07: `REPORT_REVIEW_REQUESTED` /
@@ -211,7 +214,9 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   2026-08-31: `sensor-range-alarms.def.ts`, the fifth alarm source; 26 → 27 on
   2026-08-31: `rs485-alarms.def.ts`, the fourth alarm source; 25 → 26 the same day:
   `inactivity-alarms.def.ts`),
-  **23** pages under `apps/web/src/routes/config/` (an `attribute-labels.tsx` existed
+  **22** pages under `apps/web/src/routes/config/` (23 → 22 on 2026-09-22: `floorplans.tsx`
+  DELETED, replaced by the `layout-designer/` FOLDER at the same route — `ls *.tsx`
+  counts files, so the count moved while the `<Route` count did not; an `attribute-labels.tsx` existed
   for a few hours on 2026-09-16 and was folded into `instrument-attributes.tsx` at
   the operator's direction — the count did NOT move; 24 -> 23 on 2026-08-31 with the
   alarm-rules removal — **this line and the duplicate at "Config:" below both still
@@ -236,6 +241,44 @@ history; `docs/recreation/` holds the inventory.
 
 - **Instrument VISIBILITY (2026-08-13, project D; extended 2026-08-28).** `instrument_scope` JSONB on **both** `role_configs` and `user_configs`. **`NULL` = inherit (user → role → unrestricted); an empty selection = SEE NOTHING; otherwise = those functional locations (Blocks expanding to their Areas) UNIONED with those explicitly named instruments.** **TWO SHAPES live in that column, permanently:** rows written before 2026-08-28 are a bare `string[]` of location ids; rows since are `{locationIds, instrumentIds}`. Legacy rows are deliberately NEVER migrated, so `normalizeScope()` in `modules/instruments/visibility.ts` is the ONE reader of both — a second `Array.isArray` test anywhere reads a legacy restricted row as "nothing stored", which means UNRESTRICTED. Resolved once in that same module; a user scope REPLACES the role's and can widen it. Enforced **on the query** — the list merges it into the same `where` the count uses, `GET /:id`, `/:id/telemetry`, `/:id/telemetry-keys` and `/:id/dead-letters` apply it in the lookup and 404 (never 403, which would confirm existence), the overview ANDs selection with visibility, and `GET /api/floorplans/:id/rooms/:roomId/history` filters the room's MEMBERSHIP query. `scopeToWhere` emits `{OR: [{functionalLocationId:{in}}, {id:{in}}]}` with **both branches always present** — `{OR: []}` matches nothing in Prisma while `{}` matches everything. **Unassigned instruments are invisible to the LOCATION branch but ARE reachable by being named outright** (changed 2026-08-28 — assigning a freshly commissioned device must not silently do nothing). Writing a NULL needs `Prisma.DbNull`, never `JsonNull`. Admin surface: Config → Roles & Access → Instrument Scope, whose instrument picker reads the deliberately UNSCOPED `GET /api/roles/instrument-scope/instruments` (ROLE_MANAGE) — a scoped picker would let a restricted admin build a scope silently omitting the rest of the plant. `GET /api/floorplans/:id` is knowingly unscoped: it lists instrument identity per room and is fetched ONLY by the Config → Floorplans editor (verified 2026-08-28), not by the dashboard, which uses `GET /api/floorplans` (rooms only). Prove behaviour with `apps/api/scripts/probe-visibility.ts` and `src/e2e/instrument-scope-selection.test.ts`.
 
+- **LAYOUT DESIGNER (2026-09-22, operator: "in configurations give one
+  configuration prepare layouts. like starts with empty one, draw shapes room
+  redesigns and room to room linking, or empty space in between rooms like
+  corridor …").** `routes/config/layout-designer/` REPLACED `floorplans.tsx`
+  at the same path `/config/floorplans` (a **Layout Designer** card was added
+  to the Configuration page; the old page had none). Spec
+  `docs/superpowers/specs/2026-09-22-layout-designer-design.md`. Five decisions
+  by question: free polygons; replace, not a second editor; links are BOTH an
+  opening in a shared wall and a drawn connector; a corridor is a drawn space;
+  points BESIDE the box.
+  - **`floorplan_rooms.points` is the outline; `x/y/w/h` is its BOUNDING BOX,
+    derived by the server on every write.** NULL points = a rectangle, which is
+    every existing room and every room `draw-cwh-floorplan.ts` writes — so the
+    eight plans, the trace scripts and every box reader (tiles, room history,
+    telemetry overview) are untouched. An OMITTED `points` on PUT keeps the
+    polygon AND its derived box; only an explicit null flattens it.
+  - **Doors name an `edge` on a polygon, a `wall` on a rectangle; `doorEdge()`
+    in `@digilog/shared` is the ONE converter** (top/right/bottom/left = edges
+    0..3 of the corners top-left, top-right, bottom-right, bottom-left). On the
+    web, `doorToEdgeOpening()` ALSO mirrors a bottom/left door's fraction,
+    because those two edges run the other way round a clockwise outline — drop
+    that and every stored bottom-wall door jumps to the far end of its wall.
+  - **Links are a table (`FloorplanRoomLink`, models 36 → 37; `kind` a
+    validated string, enums unchanged).** An OPENING is stored ONCE, on
+    `fromRoom`'s edge, and mirrored onto the neighbour at render
+    (`mirrorOpening`); the API refuses one the rooms' real outlines cannot
+    carry (`NOT_ADJACENT`). A CONNECTOR is a dashed centroid-to-centroid line.
+    Three routes, three audit actions (103 → 106 / 97 → 100).
+  - **The readings tiles lay out in `largestInscribedRect(outline)`**, so an
+    L-shaped room never hangs a tile outside a wall; for a rectangle that IS
+    the box. The polygon maths is ONE shared module
+    (`packages/shared/src/types/floorplan-geometry.ts`) used by the API's
+    validation, the designer and the dashboard — do not re-implement any of it
+    on either side.
+  - Config pages 23 → **22** (`floorplans.tsx` went; the designer is a folder);
+    `<Route` count unchanged. **Not seen on screen** — pinned by 8 API e2e, 20
+    shared unit, 5 page, 6 tool, 7 snapping and 4 render tests, several
+    mutation-checked.
 - **The MQTT client id and topic segment are the instrument CODE (2026-09-04).**
   Operator: "35dd00b3-… this is CWH/RDU/001-00 instrument mqtt client id, i want
   client id as CWH/RDU/001-00". It was the code until 2026-08-07, the UUID from
@@ -325,7 +368,7 @@ history; `docs/recreation/` holds the inventory.
     code accepted, reading lands, UUID refused, foreign token/code refused,
     foreign topic publish and subscribe refused.
 - **Instrument grouping — THREE concepts, one job each (2026-08-13).** Do not confuse them: **`FunctionalLocation`** (Block > Area tree, `Instrument.functionalLocationId`) is the AUTHORITATIVE logical grouping; **`roomId`** → `FloorplanRoom` is geometry on a drawn plan and drives the graphical view; **`profileId`** is device type. The free-text `Instrument.block` / `.area` columns are SUPERSEDED — no longer read for grouping, kept only so the migration stays comparable. A Block's instruments are its own PLUS its Areas', resolved by `functional-locations/tree.ts:resolveLocationIds()`; querying `functionalLocationId = :id` directly silently omits the Areas.
-- **Config:** **32 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **23** corresponding pages (both re-derived `ls | wc -l` 2026-09-16: defs 31 → 32 with `attribute-labels.def.ts`, which adds NO page — its Display name column lives on `instrument-attributes.tsx`; earlier defs re-derived 2026-09-07, 30 → 31 with `report-approvers.def.ts`; both re-derived 2026-09-01; defs 29 → 30 that day with `trend-widgets.def.ts`, which adds no page — it renders through the dynamic config page; the page count read 24 here and in System Stats above until then and was **stale, not moved** — `alarm-rules.tsx` went with the 2026-08-31 rule removal and neither line was re-synced. This is the THIRD time this bullet has drifted from the one above it; the duplication itself is the defect it keeps warning about). **This bullet's def count went stale TWICE while the System Stats section above was current — 25 here against 26 then 27 there.** It is the same self-contradiction the 2026-08-29 audit raised as finding M8 for the page count, in the same bullet, and re-syncing only the half that was wrong that day is why it came back. Two live inventory lines for one number is the actual defect; re-derive both from `ls` whenever either moves. Defs 25 → 26 → 27 on 2026-08-31 (`inactivity-alarms.def.ts`, then `rs485-alarms.def.ts` — both render through the dynamic config page, so the page count did not move). Earlier note, still true: the 25 predated `dashboard-cards.tsx` being deleted on 2026-08-28. Defs verified `ls` 2026-08-27, unchanged at 25 — the def and page counts are NOT equal and should not be expected to be: `alarm-webhooks.tsx` is a page with no def (a CRUD module, not a `system_config` row), and several defs render through the dynamic config page with no file of their own. Earlier: pages 25 → 24 the same day — `routes/config/role-assignments.tsx` deleted as dead code: its 7 config defs went in the Phase 0 strip and `system_config` held 0 rows for them, so every section read an unregistered `/api/config/dynamic/<key>` route. Earlier counts VERIFIED by `ls` 2026-08-17 — `alarm-limits.def.ts` added 2026-08-17: super-admin config for the instrument-limit alarm work — an ordered alias list of attribute keys per bound (High/Low Temperature/Humidity Limit), since this install's keys have already drifted; plus a master switch and four status wordings. (It also carried a `severity`
+- **Config:** **32 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **22** corresponding pages (pages 23 → 22 on 2026-09-22: `floorplans.tsx` → the `layout-designer/` folder; both re-derived `ls | wc -l` 2026-09-16: defs 31 → 32 with `attribute-labels.def.ts`, which adds NO page — its Display name column lives on `instrument-attributes.tsx`; earlier defs re-derived 2026-09-07, 30 → 31 with `report-approvers.def.ts`; both re-derived 2026-09-01; defs 29 → 30 that day with `trend-widgets.def.ts`, which adds no page — it renders through the dynamic config page; the page count read 24 here and in System Stats above until then and was **stale, not moved** — `alarm-rules.tsx` went with the 2026-08-31 rule removal and neither line was re-synced. This is the THIRD time this bullet has drifted from the one above it; the duplication itself is the defect it keeps warning about). **This bullet's def count went stale TWICE while the System Stats section above was current — 25 here against 26 then 27 there.** It is the same self-contradiction the 2026-08-29 audit raised as finding M8 for the page count, in the same bullet, and re-syncing only the half that was wrong that day is why it came back. Two live inventory lines for one number is the actual defect; re-derive both from `ls` whenever either moves. Defs 25 → 26 → 27 on 2026-08-31 (`inactivity-alarms.def.ts`, then `rs485-alarms.def.ts` — both render through the dynamic config page, so the page count did not move). Earlier note, still true: the 25 predated `dashboard-cards.tsx` being deleted on 2026-08-28. Defs verified `ls` 2026-08-27, unchanged at 25 — the def and page counts are NOT equal and should not be expected to be: `alarm-webhooks.tsx` is a page with no def (a CRUD module, not a `system_config` row), and several defs render through the dynamic config page with no file of their own. Earlier: pages 25 → 24 the same day — `routes/config/role-assignments.tsx` deleted as dead code: its 7 config defs went in the Phase 0 strip and `system_config` held 0 rows for them, so every section read an unregistered `/api/config/dynamic/<key>` route. Earlier counts VERIFIED by `ls` 2026-08-17 — `alarm-limits.def.ts` added 2026-08-17: super-admin config for the instrument-limit alarm work — an ordered alias list of attribute keys per bound (High/Low Temperature/Humidity Limit), since this install's keys have already drifted; plus a master switch and four status wordings. (It also carried a `severity`
   select until 2026-09-01, when severity stopped being administered anywhere; the
   def count did not move — a setting was removed, not a def.) Renders through the dynamic config page, so no `routes/config/*.tsx` of its own — the page count stays 25. The "23 corresponding pages" recorded here 2026-08-11 was already stale before this change (the live page count was 25, per `apps/web/CLAUDE.md`'s 2026-08-14 verification); it was never re-synced here until now. Earlier: `telemetry-slots.def.ts` added 2026-08-11: which telemetry keys the dashboard reads as temperature and humidity, since ingest stores whatever key a device sends. Renders through the dynamic config page, so no `routes/config/*.tsx` of its own; the Floorplans placement editor IS a page. Earlier counts VERIFIED by `ls` 2026-08-07 — the previous "36 / 34" was inherited from DigiLog and was never true in this fork; `instrument-attributes.def.ts` added 2026-08-07 — the attribute keys the New Instrument form asks for, renders via the dynamic config page so no new `routes/config/*.tsx`)
 - **Display precision (2026-08-19):** decimal places for temperature/humidity come from each
@@ -461,6 +504,16 @@ GET  /api/floorplans/:id                        — one plan, rooms, and the ins
 POST/PUT/DELETE /api/floorplans[/:id]           — plan CRUD (CONFIG_UPDATE + reauth, audited)
 POST/PUT/DELETE /api/floorplans/:id/rooms[/:roomId]  — room CRUD, geometry + limits + `doors`/`grade` validated
 PUT  /api/floorplans/:id/rooms/:roomId/instruments   — set room membership wholesale
+POST   /api/floorplans/:id/links                — (2026-09-22) link two rooms: OPENING on the shared
+                                                  wall (checked against the rooms' real outlines,
+                                                  400 NOT_ADJACENT otherwise) or CONNECTOR (409 on a
+                                                  duplicate pair); CONFIG_UPDATE + UPDATE_FLOORPLAN_ROOM
+                                                  reauth; audited
+PUT    /api/floorplans/:id/links/:linkId        — update a link (same checks, audited before/after)
+DELETE /api/floorplans/:id/links/:linkId        — delete a link (audited); rooms cascade their links
+                                                  Rooms carry `points` (polygon corners, NULL = a
+                                                  rectangle) and doors by `edge`; plans carry `links`
+                                                  on BOTH reads — all declared in the schemas.
 GET  /api/floorplans/:id/rooms/:roomId/history?window=15m|1h|6h|24h|7d  — bucketed above 6h
 POST /api/uploads/floorplan                     — plan image (CONFIG_UPDATE)
 POST /api/audit/report-export-log               — governed report-download log; requires `remarks` +

@@ -55,7 +55,9 @@ cd apps/web && npx vitest run src/routes/version-history/__tests__/diff.test.ts
 `routes/dashboard.tsx` became `routes/dashboard/` — `index.tsx` (stat cards +
 Table|Graphical toggle), `telemetry-table.tsx`, `floorplan-view.tsx`,
 `room-detail.tsx`, `time-series-chart.tsx`, `status.ts`, `use-telemetry.ts`.
-Plus `routes/config/floorplans.tsx`, the placement editor.
+Plus `routes/config/layout-designer/` (2026-09-22; it REPLACED `routes/config/floorplans.tsx`,
+the rectangle placement editor, at the same `/config/floorplans` path — see the
+Layout Designer section below).
 
 **The Tabular | Graphical toggle HIDES panels, and WHICH ones is one pure rule
 — `view-panels.ts` `hiddenPanelsFor()` (2026-09-22).** Tabular hides the
@@ -526,6 +528,48 @@ the colour MAP did not — the bar was invisible to it.
   that globbed `routes/instruments/*.tsx` reported a tree "quiet" while a file
   in `__tests__/` had been written seconds earlier. Neither instrument errored.
   Both reported success while looking at the wrong surface.
+
+## Layout Designer (2026-09-22) — `routes/config/layout-designer/`
+
+Replaced `routes/config/floorplans.tsx` at the same `/config/floorplans` path
+(operator: "in configurations give one configuration prepare layouts. like
+starts with empty one, draw shapes room redesigns and room to room linking,
+or empty space in between rooms like corridor …"). Spec
+`docs/superpowers/specs/2026-09-22-layout-designer-design.md`; the root
+`CLAUDE.md` note carries the data rules. Files: `index.tsx` (data, saves,
+panels), `canvas.tsx` (the SVG surface; every callback receives PLAN UNITS),
+`properties-panel.tsx`, `tools.ts` (pure reducer), `snapping.ts` (pure),
+`types.ts`.
+
+- **`tools.ts` is a pure reducer and `snapping.ts` is pure** — the drawing
+  rules are tested one at a time without the DOM. Snap priority is a
+  neighbour's CORNER, then its EDGE, then the 2 % grid; a shared wall is only
+  ever exact (within `sharedEdges`' half-unit tolerance) by snapping to the
+  neighbour, so the neighbour beats the grid. Mutation-checked.
+- **A bad outline is refused IN PLACE** (`closedPolygon` → the shared
+  `validatePolygon`), with the reason under the canvas (`role="status"`), and
+  stays open for correction; nothing reaches the server. The server runs the
+  same validator, so a 400 there means a client that bypassed the designer.
+- **Every save is the existing audited, re-authenticated request** through
+  one `run()` helper (`reauth.execute`, revalidate, toast): geometry on
+  release (`onMoveRoom` / `onCornerChange` → PUT with `points` + the derived
+  box), a room on close (the panel asks the code first → POST, then
+  membership), a door on placement (PUT), a link on the second click (POST),
+  properties on Save. A failed geometry save revalidates so the room springs
+  back. Undo covers the OPEN outline only — a saved change is a §11 record.
+- **Merge pieces** (two adjoining CIRCULATION pieces, or two pieces of one
+  code) unions their outlines with the shared `unionRectilinear`, PUTs the
+  union onto the selected room, moves the other's instruments, deletes the
+  other — three requests under one confirm.
+- **jsdom has no `PointerEvent`.** `designer-page.test.tsx` installs a
+  MouseEvent-backed polyfill before importing the page; without it every
+  `fireEvent.pointerDown` carries no `button` and no coordinates and every
+  handler ignores it — all five cases fail with nothing posted, which reads as
+  a broken page and is not. Stub the canvas's `getBoundingClientRect` (the
+  page maps pixels to plan units through it).
+- The dashboard's `floorplan-view.tsx` links to this page as
+  "Configuration → Layout Designer" (three places) and so does
+  `room-detail.tsx`.
 
 ## The QC floor plan is TRACED, and carries an annotation layer (2026-08-31)
 
@@ -1302,7 +1346,7 @@ resizes it with no drag. `routes/dashboard/panel-auto-height.ts` holds the maths
 - Force login (`force: true`) to terminate existing sessions
 
 ## Key Features
-- **23** files in `routes/config/` (re-derived `ls apps/web/src/routes/config/*.tsx | wc -l` 2026-09-16 — unchanged: the `attribute-labels` def's Display name column lives ON `instrument-attributes.tsx` (a separate `attribute-labels.tsx` existed for a few hours that day and was folded in at the operator's direction). That page now saves THREE things (2026-09-21 added the third: the Settings page's hidden set — a Show in Settings toggle per row and one for the Instrument ID, written on the SAME `attribute-labels` row as `settingsHidden` and merged by `mergeSettingsHidden`, pure, exported; a toggle alone is dirty and never rewrites the profile). Before that, TWO: the profile's keys (only when they changed) and the global display-name map (WHOLE, merged by the exported pure `mergeLabels`, through the generic dynamic PUT because that PUT replaces the row), then revalidates `/api/config/attribute-labels/current` so open panels re-label. Earlier re-derived 2026-09-01; 24 -> 23 on 2026-08-31 with the alarm-rules removal — this line was never re-synced then, and the two inventory lines in root CLAUDE.md carried the same stale 24 until 2026-09-01. `trend-widgets.def.ts`, added that day, adds NO file here: it renders through the dynamic config page. Earlier 25 -> 24 on 2026-08-28: `dashboard-cards.tsx` deleted — panel assignment moved to a Panels tab on `role-access.tsx`, stored on `role_configs`/`user_configs` rather than in `system_config`, and gained a per-USER layer. Config -> Appearance lost its second tab with it.) Earlier: **25** files (re-verified `ls apps/web/src/routes/config/*.tsx | wc -l` 2026-08-27 — `alarm-webhooks.tsx` added 2026-08-27, 24 → 25. It has **no config def of its own**: alarm webhooks are a CRUD module with their own tables, not a `system_config` row, so the def count stays at 25 and this page is not driven by the dynamic config page. Its `/config` card is **SUPER_ADMIN-only** — `index.tsx` reads `const visibleSuperAdminCards = isSuperAdmin ? superAdminCards : []` (the delegation allow-list went 2026-08-19) and the card is in `superAdminCards`, so a non-SUPER_ADMIN NEVER sees it and no Configuration Access grant will surface it; `/config/alarm-webhooks` is still reachable by URL, where `RequireRole permissions={[ALARM_RULE_READ]}` admits them. Same as Alarm Rules, which is in the same array. **This line said "default-deny … until `alarm-webhooks` is granted under Configuration Access" until 2026-08-27; that was FALSE.** Earlier: re-verified `ls` 2026-08-19 — `role-assignments.tsx` removed as dead code, 25 → 24; `alarm-limits.def.ts`, added 2026-08-17 for the instrument-limit alarm work, is an auto-discovered def rendered by the dynamic config page, so it adds no file here. Earlier verified `ls` 2026-08-14; the "34" was inherited from DigiLog and was never true here). Most config surfaces are auto-discovered defs rendered by the dynamic page; `alarm-rules.tsx` (2026-08-14) is a real CRUD page, like `floorplans.tsx`
+- **22** files in `routes/config/` (23 → 22 on 2026-09-22: `floorplans.tsx` DELETED, replaced by the `layout-designer/` FOLDER at the same route — `ls *.tsx` counts files; re-derived `ls apps/web/src/routes/config/*.tsx | wc -l`. Earlier, 2026-09-16 — unchanged: the `attribute-labels` def's Display name column lives ON `instrument-attributes.tsx` (a separate `attribute-labels.tsx` existed for a few hours that day and was folded in at the operator's direction). That page now saves THREE things (2026-09-21 added the third: the Settings page's hidden set — a Show in Settings toggle per row and one for the Instrument ID, written on the SAME `attribute-labels` row as `settingsHidden` and merged by `mergeSettingsHidden`, pure, exported; a toggle alone is dirty and never rewrites the profile). Before that, TWO: the profile's keys (only when they changed) and the global display-name map (WHOLE, merged by the exported pure `mergeLabels`, through the generic dynamic PUT because that PUT replaces the row), then revalidates `/api/config/attribute-labels/current` so open panels re-label. Earlier re-derived 2026-09-01; 24 -> 23 on 2026-08-31 with the alarm-rules removal — this line was never re-synced then, and the two inventory lines in root CLAUDE.md carried the same stale 24 until 2026-09-01. `trend-widgets.def.ts`, added that day, adds NO file here: it renders through the dynamic config page. Earlier 25 -> 24 on 2026-08-28: `dashboard-cards.tsx` deleted — panel assignment moved to a Panels tab on `role-access.tsx`, stored on `role_configs`/`user_configs` rather than in `system_config`, and gained a per-USER layer. Config -> Appearance lost its second tab with it.) Earlier: **25** files (re-verified `ls apps/web/src/routes/config/*.tsx | wc -l` 2026-08-27 — `alarm-webhooks.tsx` added 2026-08-27, 24 → 25. It has **no config def of its own**: alarm webhooks are a CRUD module with their own tables, not a `system_config` row, so the def count stays at 25 and this page is not driven by the dynamic config page. Its `/config` card is **SUPER_ADMIN-only** — `index.tsx` reads `const visibleSuperAdminCards = isSuperAdmin ? superAdminCards : []` (the delegation allow-list went 2026-08-19) and the card is in `superAdminCards`, so a non-SUPER_ADMIN NEVER sees it and no Configuration Access grant will surface it; `/config/alarm-webhooks` is still reachable by URL, where `RequireRole permissions={[ALARM_RULE_READ]}` admits them. Same as Alarm Rules, which is in the same array. **This line said "default-deny … until `alarm-webhooks` is granted under Configuration Access" until 2026-08-27; that was FALSE.** Earlier: re-verified `ls` 2026-08-19 — `role-assignments.tsx` removed as dead code, 25 → 24; `alarm-limits.def.ts`, added 2026-08-17 for the instrument-limit alarm work, is an auto-discovered def rendered by the dynamic config page, so it adds no file here. Earlier verified `ls` 2026-08-14; the "34" was inherited from DigiLog and was never true here). Most config surfaces are auto-discovered defs rendered by the dynamic page; `alarm-rules.tsx` (2026-08-14) is a real CRUD page, like `floorplans.tsx`
 - Entity tree with drag-and-drop hierarchy
 - Cleaning-profile pipeline editor (STAGE / CHECKLIST nodes on a custom canvas)
 - Notification system (email/SMS/Telegram/Slack)

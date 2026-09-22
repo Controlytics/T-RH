@@ -346,3 +346,19 @@ subscription to `instruments/#` on the broker at `MQTT_BROKER_URL` — `#` since
 carries slashes; the bridge reads the code between `instruments/` and
 `/telemetry` and ignores its own retained downlink slots by suffix).
 Both funnel into the same `ingestPayload()` core as the routes above.
+
+### /floorplans — room links (added 2026-09-22, Layout Designer)
+
+The floorplan module predates this dossier's floorplan section (none was ever
+written); these three joined the existing plan and room routes that day.
+
+| Method | Path | Gate | Notes |
+|---|---|---|---|
+| POST | `/api/floorplans/:id/links` | CONFIG_UPDATE + `UPDATE_FLOORPLAN_ROOM` reauth | OPENING (on `fromRoom`'s edge, checked against the rooms' real outlines — 400 `NOT_ADJACENT`) or CONNECTOR (409 `DUPLICATE_LINK`); audited `FLOORPLAN_LINK_CREATED` |
+| PUT | `/api/floorplans/:id/links/:linkId` | same | same checks; audited before/after |
+| DELETE | `/api/floorplans/:id/links/:linkId` | same | 204; audited; a room's delete cascades its links |
+
+Rooms carry `points` (polygon corners, NULL = a rectangle) and doors by `edge`;
+plans carry `links` on `GET /api/floorplans` and `GET /api/floorplans/:id`.
+`POST /api/floorplans` accepts `imagePath: null` (a blank plan; width/height are
+then the canvas size).

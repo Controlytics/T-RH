@@ -1,5 +1,104 @@
 # Changelog
 
+## [Unreleased] - LAYOUT DESIGNER: polygon rooms, corridors, doors, links, blank plans (2026-09-22)
+
+Operator: *"in configurations give one configuration prepare layouts. like
+starts with empty one, draw shapes room redesigns and room to room linking, or
+empty space in between rooms like corridor and entire how design system needed
+for layouts do that system in one new configuration"*. Five decisions taken by
+question: free polygons; REPLACE the Floorplans page; links are BOTH an opening
+in a shared wall and a drawn connector; a corridor is a drawn space of its own;
+points beside the existing box. Spec
+`docs/superpowers/specs/2026-09-22-layout-designer-design.md`, plan
+`docs/superpowers/plans/2026-09-22-layout-designer.md`, nine commits.
+
+- **Shared geometry** (`packages/shared/src/types/floorplan-geometry.ts`, 30
+  types files): ONE definition for the API's validation, the designer and the
+  dashboard — `rectanglePoints` (corners top-left, top-right, bottom-right,
+  bottom-left, so a rectangle's four wall names are edges 0..3), `boundingBox`,
+  `isSimplePolygon`, `validatePolygon` (3..64 corners, inside the plan, simple,
+  area ≥ 0.005²), `sharedEdges` / `mirrorOpening` (an opening on one room's edge
+  re-projected onto the neighbour's coincident edge, which usually runs the
+  other way), `largestInscribedRect` (grid search; the readings tiles lay out in
+  it, so an L-shaped room never hangs a tile outside a wall), `doorEdge`,
+  `centroid`, `unionRectilinear` (two touching rectilinear pieces as one
+  outline). 20 unit tests, mutation-checked twice.
+- **Data** (migration `20260922120000_floorplan_polygons_links`, both
+  databases, drift guard PASS, migration guard OK): `floorplan_rooms.points
+  JSONB` — NULL = a rectangle, and every existing room and every room the trace
+  scripts write stays one; when present the server DERIVES `x/y/w/h` as the
+  bounding box on every write, so every box reader is untouched;
+  `floorplans.image_path` nullable (a blank plan); new table
+  `floorplan_room_links` (model `FloorplanRoomLink`: OPENING on `from_room`'s
+  edge at `offset`/`width` with an optional door leaf, or CONNECTOR with a
+  label; `kind` a validated string, not an enum; cascades with either room).
+  **Models 36 → 37, enums 13 unchanged.**
+- **API**: `roomSchema` takes `points` and doors by `edge` (a rectangle door
+  still names its wall; `doorEdge` is the one converter); an OMITTED `points`
+  keeps a polygon and its derived box — a client that predates polygons cannot
+  flatten a polygon room — and an explicit null clears it. Three link routes
+  `POST/PUT/DELETE /api/floorplans/:id/links[/:linkId]` (CONFIG_UPDATE, the
+  existing `UPDATE_FLOORPLAN_ROOM` re-auth); an OPENING is checked against the
+  rooms' real outlines (`NOT_ADJACENT` otherwise), a CONNECTOR refuses a
+  duplicate pair (409). Plans carry `links` on both reads; `points`, door
+  `edge` and `links` are declared in the response schemas and each was
+  mutation-checked by deleting the declaration. **Audit actions 103 → 106,
+  templates 97 → 100** (`FLOORPLAN_LINK_CREATED / UPDATED / DELETED`; `{room}`
+  carries "A ↔ B", no new placeholder). 8 e2e in two new files; the existing
+  floorplan e2e files green unchanged.
+- **Web geometry** (`room-geometry.ts`): `polygonWalls`,
+  `polygonDoorPlacements`, `polygonSharedOpenings` over the shared module;
+  `doorToEdgeOpening` is the ONE place a wall-named door is reconciled with
+  edge order — the bottom and left walls run the other way round a clockwise
+  outline, so their fractions are mirrored and a stored door keeps its place.
+  The rectangle wrappers keep their signatures; every old geometry test is
+  green unchanged.
+- **Dashboard** (`floorplan-view.tsx`): a room's outline is
+  `points ?? rectanglePoints(box)`, the fill a `<polygon>`, the walls cut for
+  doors, seams and OPENING links (a link's door leaf drawn on the from-room's
+  edge), the alarm halo a stroke clipped to the outline, CONNECTOR links dashed
+  centroid-to-centroid lines with their label, the readings tiles in
+  `largestInscribedRect(outline)`. `roomOutline` / `roomOpenings` are the pure
+  halves, tested, the mirror rule mutation-checked. A rectangle room draws
+  exactly as before.
+- **The designer** (`routes/config/layout-designer/`, at the SAME path
+  `/config/floorplans`; `floorplans.tsx` DELETED; the Configuration page gains
+  a **Layout Designer** card — the old page never had one). A plan starts blank
+  at a chosen canvas (landscape 1600×1200, portrait 1200×1600, square) or from
+  a tracing image; tools Select / Draw room / Draw corridor / Door / Link;
+  corner-by-corner drawing with Shift for straight walls, snapping to a
+  neighbour's corner, then its edge, then a 2 % grid (a shared wall is only
+  ever exact by snapping); Enter or a click on the first corner closes, Escape
+  discards, Backspace undoes a corner; a bad outline is refused IN PLACE with
+  the reason and stays open; corners drag, a double-click on a wall inserts
+  one, Delete removes one (never below three); the Door tool places a door on
+  any edge (six per room, no overlap); the Link tool posts an OPENING centred
+  on the shared stretch or a CONNECTOR; **Merge pieces** unions two adjoining
+  corridor pieces (or pieces of one code) into one polygon, moves the
+  instruments and deletes the other — three audited requests, confirmed first.
+  Properties panel as before (code, name, grade, limits, doors, instruments)
+  plus a link panel (door kind or label, delete). Geometry saves on release, a
+  room on close, a link on creation, properties on Save — every one the
+  existing audited, re-authenticated request; nothing batches. Undo covers the
+  open outline only: a saved change is a §11 record. **Config pages 23 → 22**
+  (`ls routes/config/*.tsx` counts files; the designer is a folder); the
+  `<Route` count is unchanged (same path).
+- **Existing plans** open in the designer as four-corner rooms and gain
+  `points` only when a corner is edited; the eight plans, the trace scripts and
+  the traced floors are untouched.
+- **Tests**: `designer-page.test.tsx` (5: a triangle posted as points with the
+  derived box, a bow-tie refused with nothing posted, the corridor preset,
+  opening vs connector, Delete through the endpoint — the refusal path
+  mutation-checked; note the PointerEvent polyfill at its head, jsdom has
+  none), `tools.test.ts` (6), `snapping.test.ts` (7, snap priority
+  mutation-checked), `floorplan-polygon-render.test.ts` (4),
+  `room-geometry.test.ts` +6, `validation.test.ts` +6; `pages-hero.test.tsx`
+  repointed. tsc, `vite build` and both API guards clean throughout.
+- **Not built, by the spec** (§9): curved walls, rotation, dimension labels,
+  printing, automatic corridor detection, image-to-vector import. **Not seen
+  on screen** — the whole feature was verified by tests, typecheck and build;
+  drawing a room end to end in the browser is the first thing to try.
+
 ## [Unreleased] - Graphical view: a room with no instrument prints its Location (2026-09-22)
 
 Operator: *"which doesnt have instrument ids for rooms there show Location"*
