@@ -1,5 +1,34 @@
 # Changelog
 
+## [Unreleased] - `send-scenario-telemetry.ts`: every reading state, to every placed instrument, continuously (2026-09-22)
+
+Operator: *"send data to all instruments continously with all type values,
+like below limits values, higher than limits, NA, error what ever types are
+there those values"*.
+
+- New `apps/api/scripts/send-scenario-telemetry.ts`. Each placed
+  non-gateway instrument gets ONE scenario by its position in code order
+  (four in fourteen in limit; one slot each for temperature/humidity above
+  and below its limit, probe `"NA"` text (RS485 Error), outside the sensor
+  RANGE (OL), humidity never sent (grey NA), and OFFLINE — a report every 8
+  minutes so it goes amber after the 3-minute activity window). Values are
+  generated relative to each instrument's OWN bounds and ranges. Through the
+  real HTTP ingest with revealed tokens, like `send-random-telemetry.ts`;
+  refuses a non-local API without `--force`.
+- **It WROTE LIMITS to 99 instruments first** (`t_ll 18 / t_hl 27 / h_ll 30 /
+  h_hl 60`), the way the gateway does — an MQTT `attributes/report` as each
+  device, one system `INSTRUMENT_ATTRIBUTE_REPORTED` audit row per key — because
+  without a bound nothing can be "above the limit"; 99 of 100 had none since
+  the 2026-09-16 key deletion. Only instruments with none of the four are
+  written; `--no-limits` skips it. **All 100 local instruments now carry the
+  four gateway limit keys.**
+- Proven on the first round: accepted 100/100; the latest table holds 16
+  string values and 7 instruments with no humidity, and within a minute the
+  passes raised 29 INSTRUMENT_LIMIT, 14 RS485_FAILURE and 14 SENSOR_RANGE
+  alarms — the fabricated alarms the header warns about; `purge-alarms.ts`
+  clears them. Left RUNNING detached (`--interval 30`), log in
+  `%TEMP%\cc-scenario-telemetry.log`; stop it by killing that node process.
+
 ## [Unreleased] - Graphical view: a value chip prints the reading with its unit, nothing else (2026-09-22)
 
 Operator: *"just show value with units"*.
