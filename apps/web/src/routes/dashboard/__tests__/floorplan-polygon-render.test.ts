@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { roomOutline, roomOpenings, planExtent } from '../floorplan-view';
+import { roomOutline, roomOpenings, planExtent, SLIVER } from '../floorplan-view';
 import type { FloorplanRoomShape, FloorplanLinkShape } from '../use-telemetry';
 
 /**
@@ -47,21 +47,23 @@ describe('roomOpenings', () => {
 
 describe('planExtent — the drawn floor fits its rooms (operator, 2026-09-22: no blank band below the last row)', () => {
   it('rooms in the top half give an extent that stops just under them, not the whole canvas', () => {
-    const e = planExtent([rect('A', 0.05, 0.05, 0.4, 0.3), rect('B', 0.5, 0.05, 0.4, 0.5)], null);
-    expect(e.y + e.h).toBeLessThan(0.6);
+    const e = planExtent([rect('A', 0.05, 0.05, 0.4, 0.3), rect('B', 0.5, 0.05, 0.4, 0.5)]);
+    expect(e.y + e.h).toBeLessThan(0.58);
     expect(e.y + e.h).toBeGreaterThan(0.55);
     expect(e.x).toBeLessThan(0.05);
     expect(e.x + e.w).toBeGreaterThan(0.9);
   });
   it('no rooms = the whole canvas; a polygon room counts its corners', () => {
-    expect(planExtent([], null)).toEqual({ x: 0, y: 0, w: 1, h: 1 });
-    const e = planExtent([{ ...rect('L', 0, 0, 1, 1), points: [{ x: 0.2, y: 0.2 }, { x: 0.6, y: 0.2 }, { x: 0.2, y: 0.7 }] }], null);
+    expect(planExtent([])).toEqual({ x: 0, y: 0, w: 1, h: 1 });
+    const e = planExtent([{ ...rect('L', 0, 0, 1, 1), points: [{ x: 0.2, y: 0.2 }, { x: 0.6, y: 0.2 }, { x: 0.2, y: 0.7 }] }]);
     expect(e.x + e.w).toBeLessThan(0.65);
     expect(e.y + e.h).toBeLessThan(0.75);
   });
-  it('an annotation below the rooms widens the extent, and nothing leaves the canvas', () => {
-    const e = planExtent([rect('A', 0.1, 0.1, 0.2, 0.2)], { labels: [{ x: 0.5, y: 0.95 }] });
-    expect(e.y + e.h).toBeGreaterThan(0.95);
-    expect(e.y + e.h).toBeLessThanOrEqual(1);
+  it('a sliver (QC\'s SHAFT-E: a 0.9 %-wide strip the full height) does not pin the border to the canvas edge', () => {
+    expect(SLIVER).toBe(0.015);
+    const e = planExtent([rect('A', 0.05, 0.05, 0.4, 0.3), rect('SHAFT-E', 0.991, 0, 0.009, 1)]);
+    expect(e.y + e.h).toBeLessThan(0.4);
+    // A plan of nothing but slivers keeps them, or it would draw nothing.
+    expect(planExtent([rect('SHAFT-E', 0.991, 0, 0.009, 1)]).h).toBeGreaterThan(0.9);
   });
 });

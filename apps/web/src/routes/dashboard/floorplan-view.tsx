@@ -43,42 +43,43 @@ import {
 /**
  * THE DRAWN FLOOR FITS ITS ROOMS (operator, 2026-09-22: "empty space is
  * showing more below the rooms, if there no gap below the rooms in last line
- * then dont give space, layout should be auto adjust"). The viewBox used to be
- * the plan's whole canvas, so a plan whose rooms stop at 60 % of the height
- * drew a blank band under them. This is the extent the view shows instead:
- * the bounding box of every DRAWN room (a scoped view fits the rooms it
- * shows) and, on an unscoped view, of the annotation layer, plus a small
- * margin so a wall on the edge is not clipped. Plan units 0..1; never wider
- * than the canvas. No rooms = the whole canvas, as before.
+ * then dont give space, layout should be auto adjust"; then "below the rooms
+ * and below border line there is so much gap … border line should auto
+ * adjust"). The viewBox used to be the plan's whole canvas, so a plan whose
+ * rooms stop at 60 % of the height drew a blank band under them. This is the
+ * extent the view shows instead: the bounding box of the DRAWN rooms (a scoped
+ * view fits the rooms it shows) plus a small margin so a wall on the edge is
+ * not clipped. Plan units 0..1; never wider than the canvas. No rooms = the
+ * whole canvas, as before.
+ *
+ * SLIVERS DO NOT SET THE EXTENT. A room thinner than `SLIVER` in either axis
+ * (QC's SHAFT-E is a 0.9 %-wide service strip running the full height) is a
+ * line on the drawing, not a space the reader looks for, and letting it pin
+ * the border to the canvas edge is exactly the blank band the operator saw
+ * after moving every real room up. It is still DRAWN; the part past the
+ * border is clipped. A plan of nothing but slivers keeps them.
+ *
+ * The annotation layer no longer takes part: it is not drawn on the dashboard
+ * since the same day ("other symbols remove those").
  */
+export const SLIVER = 0.015;
+
 export function planExtent(
   rooms: Pick<FloorplanRoomShape, 'x' | 'y' | 'w' | 'h' | 'points'>[],
-  annotations: {
-    equipment?: { x: number; y: number; w: number; h: number }[];
-    hvac?: { x: number; y: number; w: number; h: number }[];
-    water?: { x: number; y: number }[];
-    airflow?: { y: number; x0: number; x1: number }[];
-    labels?: { x: number; y: number }[];
-  } | null | undefined,
-  margin = 0.02,
+  margin = 0.01,
 ): { x: number; y: number; w: number; h: number } {
+  const real = rooms.filter((r) => r.w >= SLIVER && r.h >= SLIVER);
+  const use = real.length ? real : rooms;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  const take = (x: number, y: number) => {
-    if (x < minX) minX = x; if (x > maxX) maxX = x;
-    if (y < minY) minY = y; if (y > maxY) maxY = y;
-  };
-  for (const r of rooms) {
-    for (const p of r.points ?? rectanglePoints({ x: r.x, y: r.y, w: r.w, h: r.h })) take(p.x, p.y);
-  }
-  if (annotations) {
-    for (const e of [...(annotations.equipment ?? []), ...(annotations.hvac ?? [])]) { take(e.x, e.y); take(e.x + e.w, e.y + e.h); }
-    for (const p of [...(annotations.water ?? []), ...(annotations.labels ?? [])]) take(p.x, p.y);
-    for (const a of annotations.airflow ?? []) { take(a.x0, a.y); take(a.x1, a.y); }
+  for (const r of use) {
+    for (const p of r.points ?? rectanglePoints({ x: r.x, y: r.y, w: r.w, h: r.h })) {
+      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+    }
   }
   if (!Number.isFinite(minX)) return { x: 0, y: 0, w: 1, h: 1 };
-  const m = Math.max(0.01, Math.min(margin, margin * Math.max(maxX - minX, maxY - minY) * 4));
-  const x = Math.max(0, minX - m), y = Math.max(0, minY - m);
-  const x2 = Math.min(1, maxX + m), y2 = Math.min(1, maxY + m);
+  const x = Math.max(0, minX - margin), y = Math.max(0, minY - margin);
+  const x2 = Math.min(1, maxX + margin), y2 = Math.min(1, maxY + margin);
   return { x, y, w: Math.max(0.05, x2 - x), h: Math.max(0.05, y2 - y) };
 }
 
@@ -313,15 +314,6 @@ const PALETTE = {
   airflow: '#2f9e5e',
 } as const;
 
-/** The drawing's legend, in the drawing's own order. */
-const PLAN_SYMBOLS = [
-  { key: 'door', label: 'Door' },
-  { key: 'airflow', label: 'Airflow direction' },
-  { key: 'hvac', label: 'HVAC / exhaust' },
-  { key: 'equipment', label: 'Equipment' },
-  { key: 'water', label: 'Water' },
-  { key: 'wall', label: 'Wall' },
-] as const;
 
 /**
  * ZONE COLOUR — hue encodes cleanroom GRADE, saturation encodes STATUS.
@@ -468,9 +460,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
 
   const vbH = plan ? Math.round((VB_W * plan.imageHeight) / plan.imageWidth) : 700;
   // The part of the canvas actually drawn on — see `planExtent`.
-  const extent = plan
-    ? planExtent(roomViews.map((r) => r.room), functionalLocationId ? null : plan.annotations)
-    : { x: 0, y: 0, w: 1, h: 1 };
+  const extent = plan ? planExtent(roomViews.map((r) => r.room)) : { x: 0, y: 0, w: 1, h: 1 };
   const vb = { x: extent.x * VB_W, y: extent.y * vbH, w: extent.w * VB_W, h: extent.h * vbH };
 
   const floorSvg = plan ? (
@@ -837,100 +827,11 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
               );
             })}
 
-            {/* -- THE ANNOTATION LAYER --------------------------------------
-                Everything the drawing carries that is not a room. Drawn AFTER
-                the rooms so a symbol sitting against a partition is not buried
-                under the neighbouring room fill, and pointerEvents="none"
-                throughout so none of it can swallow a click meant for the room
-                underneath - these are marks on a drawing, not controls.
-
-                None of it ever takes a status colour. An HVAC block is where a
-                unit is DRAWN; nothing in this install senses one, and colouring
-                it by health would assert a reading nobody measured. */}
-            {plan?.annotations && (
-              <g pointerEvents="none">
-                <defs>
-                  {/* Hatched, because a solid block at this size reads as an
-                      alarm swatch. The hatch is the drawing's own idiom. */}
-                  <pattern id="fp-equip" width={4} height={4} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-                    <rect width={4} height={4} fill={PALETTE.equipFill} />
-                    <line x1={0} y1={0} x2={0} y2={4} stroke={PALETTE.equipInk} strokeWidth={1.4} />
-                  </pattern>
-                </defs>
-
-                {plan.annotations.equipment.map((e, i) => (
-                  <rect
-                    key={`eq${i}`}
-                    x={e.x * VB_W} y={e.y * vbH} width={e.w * VB_W} height={e.h * vbH}
-                    fill="url(#fp-equip)" stroke={PALETTE.equipInk} strokeWidth={1.2} rx={1.5}
-                  />
-                ))}
-
-                {plan.annotations.hvac.map((u, i) => {
-                  const ux = u.x * VB_W, uy = u.y * vbH, uw = u.w * VB_W, uh = u.h * vbH;
-                  return (
-                    <g key={`hv${i}`}>
-                      <rect x={ux} y={uy} width={uw} height={uh}
-                        fill={PALETTE.hvacFill} stroke={PALETTE.hvacInk} strokeWidth={1.2} rx={1.5} />
-                      {/* A fan: four blades round a hub. Legible at 10px, which
-                          a text label would not be. */}
-                      {uw > 6 && uh > 6 && [0, 90, 180, 270].map((deg) => (
-                        <line key={deg}
-                          x1={ux + uw / 2} y1={uy + uh / 2}
-                          x2={ux + uw / 2 + Math.cos((deg * Math.PI) / 180) * (uw / 2 - 1.5)}
-                          y2={uy + uh / 2 + Math.sin((deg * Math.PI) / 180) * (uh / 2 - 1.5)}
-                          stroke={PALETTE.hvacInk} strokeWidth={1.1} />
-                      ))}
-                    </g>
-                  );
-                })}
-
-                {plan.annotations.water.map((pt, i) => (
-                  <g key={`wt${i}`}>
-                    <circle cx={pt.x * VB_W} cy={pt.y * vbH} r={6}
-                      fill={PALETTE.paper} stroke={PALETTE.door} strokeWidth={1.3} />
-                    <text x={pt.x * VB_W} y={pt.y * vbH + 3} textAnchor="middle"
-                      fontSize={7.5} fontWeight={700} fill={PALETTE.door}>W</text>
-                  </g>
-                ))}
-
-                {/* Airflow: dashed, with a head at BOTH ends, because the
-                    drawing claims the corridor is swept in both directions. A
-                    single head would state a direction nobody specified. */}
-                {plan.annotations.airflow.map((f, i) => {
-                  const ay = f.y * vbH, ax0 = f.x0 * VB_W, ax1 = f.x1 * VB_W;
-                  return (
-                    <g key={`af${i}`}>
-                      <line x1={ax0 + 7} y1={ay} x2={ax1 - 7} y2={ay}
-                        stroke={PALETTE.airflow} strokeWidth={1.4} strokeDasharray="7 5" />
-                      <path d={`M ${ax0} ${ay} l 7 -3.5 l 0 7 Z`} fill={PALETTE.airflow} />
-                      <path d={`M ${ax1} ${ay} l -7 -3.5 l 0 7 Z`} fill={PALETTE.airflow} />
-                    </g>
-                  );
-                })}
-
-                {/* A note on a drawing sits wherever it needs to, including
-                    across a wall — so it gets a plate behind it, or the wall
-                    strikes through the word and neither is readable. */}
-                {plan.annotations.labels.map((l, i) => {
-                  const lx = l.x * VB_W, ly = l.y * vbH;
-                  const plateW = l.text.length * 5.4 + 10;
-                  return (
-                    <g key={`lb${i}`}>
-                      <rect
-                        x={lx - plateW / 2} y={ly - 7} width={plateW} height={12}
-                        fill={PALETTE.paper} stroke={PALETTE.wall} strokeWidth={0.8} rx={1.5}
-                      />
-                      <text
-                        x={lx} y={ly + 2} textAnchor="middle"
-                        fontSize={8} fontWeight={700} letterSpacing="0.06em" fill={PALETTE.ink}>
-                        {l.text}
-                      </text>
-                    </g>
-                  );
-                })}
-              </g>
-            )}
+            {/* The drawing's annotation layer (equipment, HVAC, water points,
+                airflow, free text) is NOT drawn here since 2026-09-22
+                (operator: "other symbols remove those"). It is still stored and
+                still served by the API; the dashboard shows rooms, doors, links
+                and readings, nothing else. */}
           </svg>
   ) : null;
 
@@ -1052,53 +953,6 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
       ) : plan && (
         <div className="min-h-0 flex-1 overflow-hidden rounded-b-2xl border border-slate-300 bg-white p-3 shadow-soft">
           {floorSvg}
-        </div>
-      )}
-
-      {/* The drawing's own legend. Shown ONLY for a plan that has an annotation
-          layer: a legend naming symbols a plan never draws is furniture, and it
-          would teach a reader to look for equipment on a floor that has none. */}
-      {plan?.annotations && (
-        <div className="flex flex-wrap items-center gap-5 rounded-xl border border-slate-200/70 px-4 py-3">
-          <span className="text-xs font-semibold text-slate-700">Plan symbols:</span>
-          {PLAN_SYMBOLS.map((item) => (
-            <span key={item.key} className="flex items-center gap-1.5 text-xs text-slate-600">
-              <svg width={22} height={12} aria-hidden="true">
-                {item.key === 'door' && (
-                  <>
-                    <line x1={2} y1={10} x2={2} y2={2} stroke={PALETTE.door} strokeWidth={1.6} />
-                    <path d="M 2 2 A 8 8 0 0 1 10 10" fill="none" stroke={PALETTE.door} strokeWidth={1} strokeDasharray="3 2" />
-                  </>
-                )}
-                {item.key === 'airflow' && (
-                  <>
-                    <line x1={4} y1={6} x2={16} y2={6} stroke={PALETTE.airflow} strokeWidth={1.4} strokeDasharray="4 3" />
-                    <path d="M 21 6 l -5 -2.5 l 0 5 Z" fill={PALETTE.airflow} />
-                  </>
-                )}
-                {item.key === 'hvac' && (
-                  <>
-                    <rect x={5} y={1} width={11} height={10} fill={PALETTE.hvacFill} stroke={PALETTE.hvacInk} strokeWidth={1.1} rx={1.5} />
-                    <line x1={10.5} y1={2.5} x2={10.5} y2={9.5} stroke={PALETTE.hvacInk} strokeWidth={1} />
-                    <line x1={7} y1={6} x2={14} y2={6} stroke={PALETTE.hvacInk} strokeWidth={1} />
-                  </>
-                )}
-                {item.key === 'equipment' && (
-                  <rect x={5} y={1} width={11} height={10} fill={PALETTE.equipFill} stroke={PALETTE.equipInk} strokeWidth={1.2} rx={1.5} />
-                )}
-                {item.key === 'water' && (
-                  <>
-                    <circle cx={10.5} cy={6} r={5} fill={PALETTE.paper} stroke={PALETTE.door} strokeWidth={1.2} />
-                    <text x={10.5} y={8.5} textAnchor="middle" fontSize={7} fontWeight={700} fill={PALETTE.door}>W</text>
-                  </>
-                )}
-                {item.key === 'wall' && (
-                  <line x1={2} y1={6} x2={20} y2={6} stroke={PALETTE.wall} strokeWidth={2.5} />
-                )}
-              </svg>
-              {item.label}
-            </span>
-          ))}
         </div>
       )}
 

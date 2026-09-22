@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased] - Graphical view: the border follows the rooms; the drawing's symbols are gone (2026-09-22)
+
+Operator: *"check in qc below the rooms and below border line there is so much
+gap and other symbols remove those border line should auto adjust"*.
+
+- **Measured on the QC plan:** the operator had moved every real room up to
+  end at 58 % of the canvas, yet the border still ran to the bottom for two
+  reasons — the drawing's annotation symbols (equipment blocks at 78 % and
+  100 %, water points at 83 %) took part in the fit, and `SHAFT-E`, a 0.9 %-wide
+  service strip, still spans the full height.
+- **The annotation layer is no longer drawn on the dashboard**, nor its
+  "Plan symbols" legend: equipment, HVAC, water, airflow and free text
+  (transcribed on 2026-08-31 from the QC and Microbiology drawings). Still
+  stored, still served by the API, still declared in the schema; the
+  dashboard shows rooms, doors, links and readings, nothing else.
+- **`planExtent()` fits ROOMS ONLY, and a sliver does not set the extent**
+  (`SLIVER` = 1.5 % of the plan in either axis): a service strip is a line on
+  the drawing, not a space; it is still drawn and the part past the border is
+  clipped. A plan of nothing but slivers keeps them. Margin 1 %. The border
+  now hugs the QC rooms at ~59 %.
+- 3 extent cases (the sliver one pins `SLIVER`); tsc and `vite build` clean.
+  **Not seen on screen.** If SHAFT-E should end where the rooms do, that is
+  one corner drag in the designer.
+
 ## [Unreleased] - Graphical view full screen: the trend widget's pattern, through a portal (2026-09-22)
 
 Operator: *"full screen option you are not given properly, i need like how
