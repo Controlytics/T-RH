@@ -1130,7 +1130,10 @@ model DeadLetter {
 model Floorplan {
   id          String   @id @default(uuid())
   name        String   @unique
-  imagePath   String   @map("image_path")
+  /// NULL for a plan drawn from a blank canvas in the Layout Designer
+  /// (2026-09-22); `imageWidth`/`imageHeight` then hold the chosen CANVAS size
+  /// (the aspect the plan is drawn at), not an image's pixels.
+  imagePath   String?  @map("image_path")
   imageWidth  Int      @map("image_width")
   imageHeight Int      @map("image_height")
   isActive    Boolean  @default(true) @map("is_active")
@@ -1155,6 +1158,7 @@ model Floorplan {
   annotations Json?
 
   rooms FloorplanRoom[]
+  links FloorplanRoomLink[]
 
   @@map("floorplans")
 }
@@ -1226,6 +1230,18 @@ model FloorplanRoom {
   /// migration per annotation is a tax on transcribing one.
   meta Json?
 
+  /// The room's outline as corners `[{x, y}, …]` in plan units 0..1, drawn
+  /// order, closing edge implied (Layout Designer, 2026-09-22). NULL = a
+  /// rectangle, whose outline IS `x/y/w/h` — every room drawn before this
+  /// column and every room the trace scripts write. When present, `x/y/w/h`
+  /// are the polygon's BOUNDING BOX, derived by the server on every write, so
+  /// every reader that needs only a box is untouched. Validated in
+  /// floorplans/validation.ts through @digilog/shared's `validatePolygon`.
+  points Json?
+
+  linksFrom FloorplanRoomLink[] @relation("linkFrom")
+  linksTo   FloorplanRoomLink[] @relation("linkTo")
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
   createdBy String?  @map("created_by")
@@ -1237,4 +1253,36 @@ model FloorplanRoom {
   @@unique([floorplanId, code])
   @@index([floorplanId])
   @@map("floorplan_rooms")
+}
+
+/// A relation the drawing states between two rooms of one plan (Layout
+/// Designer, 2026-09-22). `kind` is a validated string, not a Postgres enum
+/// (the `grade` precedent): OPENING = a gap in the wall the two rooms share,
+/// on `fromRoom`'s edge `fromEdge` at `offset`/`width` (fractions of that edge)
+/// with an optional door leaf `door` (ENTRY | EXIT | PASSAGE); CONNECTOR = a
+/// drawn line between two rooms that do not touch, optionally labelled. The
+/// dashboard mirrors an OPENING onto the neighbour's edge at render time
+/// (`mirrorOpening`), so only one side is stored. Cascades with either room.
+model FloorplanRoomLink {
+  id          String   @id @default(uuid())
+  floorplanId String   @map("floorplan_id")
+  fromRoomId  String   @map("from_room_id")
+  toRoomId    String   @map("to_room_id")
+  kind        String
+  fromEdge    Int?     @map("from_edge")
+  offset      Float?
+  width       Float?
+  door        String?
+  label       String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdBy   String?  @map("created_by")
+  updatedBy   String?  @map("updated_by")
+
+  floorplan Floorplan     @relation(fields: [floorplanId], references: [id], onDelete: Cascade)
+  fromRoom  FloorplanRoom @relation("linkFrom", fields: [fromRoomId], references: [id], onDelete: Cascade)
+  toRoom    FloorplanRoom @relation("linkTo", fields: [toRoomId], references: [id], onDelete: Cascade)
+
+  @@index([floorplanId])
+  @@map("floorplan_room_links")
 }
