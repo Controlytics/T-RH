@@ -68,6 +68,19 @@ made in one view would persist a layout missing the other view's panels, and a
 panel absent from the layout never comes back. Add to the set there, never by a
 second filter on the page. `__tests__/view-panels.test.ts`, mutation-checked.
 
+**Readings on the floor: the font fills the tile, and a sensor fault is
+VIOLET (2026-09-22, operator: "show instruments live temperature and humidity
+values … in limits green … crossed red … error other color … offline other
+color").** Every placed instrument already had a tile; the font was capped at
+12 in rooms 100-500 wide. `room-geometry.ts` `fillFont()` now grows it to the
+tile (height-, width- and 26-bounded, never below the step's base), the chip
+spans the tile's width, and the code line shrinks to fit. `tileValues()` in
+`floorplan-view.tsx` is the ONE rule for a chip's tone: green in limit, red
+crossed, `ERROR` (violet, `ChipTone`, not an `InstrumentStatus`) for the
+server's `sensorError` / `rangeError`, amber offline / partial. Legend entry
+**Sensor error**. Tests: `floorplan-values.test.ts`, `tile-font.test.ts`,
+both mutation-checked. Not seen on screen.
+
 **The graphical view has NO "Not placed on any plan" tray (removed
 2026-09-22, operator: "in graphical view dont show not placed on any panel
 section").** It listed the selection's room-less instruments under the plan so

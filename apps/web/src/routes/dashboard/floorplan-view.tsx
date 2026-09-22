@@ -80,14 +80,79 @@ const VB_W = 1000;
  *
  * Chip colours are SEMANTIC and deliberately not theme colours: a site that
  * themes the app purple must not end up with a purple "out of spec".
+ *
+ * FOUR colours, one per condition (operator, 2026-09-22: "if in limits green
+ * color, if its crossed or below the limits show red, if error highlight with
+ * other color, if offline also show with other color"): green = in limit,
+ * red = a limit crossed, VIOLET = the probe itself has failed or saturated
+ * (the administered `Error` / `OL` word), amber = offline (the reading is old)
+ * or partial. Until that day a failed probe painted the same red as a breach,
+ * so a dead sensor and a real excursion were one colour, and a dead sensor is
+ * a THIRD thing: not a breach (nothing was measured) and not a silence (the
+ * logger is still talking). `ERROR` is a chip tone, not an `InstrumentStatus`:
+ * the server reports it as `sensorError` / `rangeError` beside a null slot,
+ * and nothing here re-derives it.
  */
-const CHIP: Record<InstrumentStatus, { bg: string; glyph: string }> = {
+export type ChipTone = InstrumentStatus | 'ERROR';
+const CHIP: Record<ChipTone, { bg: string; glyph: string }> = {
   OUT_OF_SPEC: { bg: '#dc2626', glyph: '▲' },
+  ERROR: { bg: '#7c3aed', glyph: '✕' },
   STALE: { bg: '#d97706', glyph: '◷' },
   PARTIAL: { bg: '#d97706', glyph: '◑' },
   NO_DATA: { bg: '#64748b', glyph: '·' },
   OK: { bg: '#15803d', glyph: '' },
 };
+
+/** The legend's order and wording: in limit, then the three faults, then the two "cannot say". */
+const LEGEND: readonly { tone: ChipTone; label: string }[] = [
+  { tone: 'OK', label: statusClasses('OK').label },
+  { tone: 'OUT_OF_SPEC', label: statusClasses('OUT_OF_SPEC').label },
+  { tone: 'ERROR', label: 'Sensor error' },
+  { tone: 'STALE', label: statusClasses('STALE').label },
+  { tone: 'PARTIAL', label: statusClasses('PARTIAL').label },
+  { tone: 'NO_DATA', label: statusClasses('NO_DATA').label },
+];
+
+/**
+ * The two value chips an instrument tile prints, each with its tone. Pure and
+ * exported so the colour rule above is pinned by a test rather than by eye.
+ *
+ * A failed or saturated probe gets a chip of its own rather than being
+ * omitted: a room whose probe has died must not look like a room with nothing
+ * in it. A slot the server judged out of limit is red whatever the instrument's
+ * overall status; a slot inside its limits on an instrument that is OUT_OF_SPEC
+ * (because the OTHER slot breached) is green, not red. One chip per reading is
+ * the whole reason status lives on the chips and not on the room.
+ */
+export function tileValues(
+  row: Pick<OverviewRow, 'temperature' | 'humidity' | 'limits' | 'status' | 'decimals' | 'sensorError' | 'rangeError'>,
+  words: { failure: string; outOfRange: string },
+): { text: string; st: ChipTone; bad: boolean }[] {
+  const tempV = row.temperature?.value ?? null;
+  const rhV = row.humidity?.value ?? null;
+  const lim = row.limits;
+  const tempBad = outOfSpec(tempV, lim?.tempMin, lim?.tempMax);
+  const rhBad = outOfSpec(rhV, lim?.rhMin, lim?.rhMax);
+  const toneFor = (bad: boolean): ChipTone =>
+    bad ? 'OUT_OF_SPEC' : row.status === 'OUT_OF_SPEC' ? 'OK' : row.status;
+
+  const values: { text: string; st: ChipTone; bad: boolean }[] = [];
+  if (row.rangeError?.temperature) {
+    values.push({ text: words.outOfRange, st: 'ERROR', bad: false });
+  } else if (row.sensorError?.temperature) {
+    values.push({ text: words.failure, st: 'ERROR', bad: false });
+  } else if (tempV !== null) {
+    values.push({ text: `${formatDecimals(tempV, row.decimals.temperature)}°`, st: toneFor(tempBad), bad: tempBad });
+  }
+  if (row.rangeError?.humidity) {
+    values.push({ text: words.outOfRange, st: 'ERROR', bad: false });
+  } else if (row.sensorError?.humidity) {
+    values.push({ text: words.failure, st: 'ERROR', bad: false });
+  } else if (rhV !== null) {
+    values.push({ text: `${formatDecimals(rhV, row.decimals.humidity)}%`, st: toneFor(rhBad), bad: rhBad });
+  }
+  return values;
+}
 
 /**
  * One object so a dark wall-display palette is a value swap rather than a
@@ -558,34 +623,16 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                       const lim = row.limits;
                       const tempBad = outOfSpec(tempV, lim?.tempMin, lim?.tempMax);
                       const rhBad = outOfSpec(rhV, lim?.rhMin, lim?.rhMax);
-                      const chipFor = (bad: boolean): InstrumentStatus =>
-                        bad ? 'OUT_OF_SPEC' : row.status === 'OUT_OF_SPEC' ? 'OK' : row.status;
-
-                      // A failed sensor gets a tile of its own rather than being
-                      // omitted: a room whose probe has died must not look like a
-                      // room with nothing in it. OUT_OF_SPEC tone, because a
-                      // reading nobody has is a condition nobody is watching.
-                      const values: { text: string; st: InstrumentStatus }[] = [];
-                      if (row.rangeError?.temperature) {
-                        values.push({ text: sensorWords.outOfRange, st: 'OUT_OF_SPEC' });
-                      } else if (row.sensorError?.temperature) {
-                        values.push({ text: sensorWords.failure, st: 'OUT_OF_SPEC' });
-                      } else if (tempV !== null) {
-                        values.push({
-                          text: `${formatDecimals(tempV, row.decimals.temperature)}°`,
-                          st: chipFor(tempBad),
-                        });
-                      }
-                      if (row.rangeError?.humidity) {
-                        values.push({ text: sensorWords.outOfRange, st: 'OUT_OF_SPEC' });
-                      } else if (row.sensorError?.humidity) {
-                        values.push({ text: sensorWords.failure, st: 'OUT_OF_SPEC' });
-                      } else if (rhV !== null) {
-                        values.push({
-                          text: `${formatDecimals(rhV, row.decimals.humidity)}%`,
-                          st: chipFor(rhBad),
-                        });
-                      }
+                      // The chips and their tones: see `tileValues` for the rule.
+                      const values = tileValues(row, sensorWords);
+                      // The code line shrinks to its tile rather than overrunning
+                      // it: with the reading font grown to fill the tile, a
+                      // 14-glyph code at 0.85 of it would be wider than a
+                      // 100-unit room.
+                      const codeFontSize = Math.min(
+                        layout.fontSize * 0.85,
+                        Math.max(7, (layout.tile.w - 6) / (Math.max(1, row.code.length) * 0.6)),
+                      );
 
                       return (
                         <g
@@ -610,7 +657,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                           {layout.step === 'FULL' && (
                             <text
                               x={tcx} y={ty + layout.fontSize + 1} textAnchor="middle"
-                              fontSize={layout.fontSize * 0.85} fontWeight={600}
+                              fontSize={codeFontSize} fontWeight={600}
                               letterSpacing="0.04em" fill={PALETTE.ink}
                             >
                               {row.code}
@@ -619,7 +666,11 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                           {values.map((v, vi) => {
                             const paint = CHIP[v.st];
                             const label = paint.glyph ? `${paint.glyph} ${v.text}` : v.text;
-                            const cw = Math.min(layout.tile.w - 6, label.length * layout.fontSize * 0.6 + 4);
+                            // The chip spans the tile: the reading is a coloured
+                            // band, not a badge, so the colour reads from across
+                            // the room before the number does (operator,
+                            // 2026-09-22, "highlight").
+                            const cw = layout.tile.w - 6;
                             const chipH = layout.fontSize * 1.3;
                             const cyTop =
                               ty + (layout.step === 'FULL' ? layout.fontSize + 3 : 2) + vi * (chipH + 1.5);
@@ -813,15 +864,15 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
           its glyph, and that pairing is what this bar exists to teach. */}
       <div className="flex flex-wrap items-center gap-4 rounded-xl border border-slate-200/70 px-4 py-3">
         <span className="text-xs font-semibold text-slate-700">Reading colour:</span>
-        {(['OK', 'OUT_OF_SPEC', 'STALE', 'PARTIAL', 'NO_DATA'] as InstrumentStatus[]).map((s) => (
-          <span key={s} className="flex items-center gap-1.5 text-xs text-slate-600">
+        {LEGEND.map(({ tone, label }) => (
+          <span key={tone} className="flex items-center gap-1.5 text-xs text-slate-600">
             <span
               className="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[0.625rem] font-bold text-white"
-              style={{ backgroundColor: CHIP[s].bg }}
+              style={{ backgroundColor: CHIP[tone].bg }}
             >
-              {CHIP[s].glyph || '21.7'}
+              {CHIP[tone].glyph || '21.7'}
             </span>
-            {statusClasses(s).label}
+            {label}
           </span>
         ))}
       </div>

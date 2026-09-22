@@ -231,6 +231,45 @@ const CHIP_GAP = 1.5;
 const FULL_CODE_GAP = 3;
 const VALUES_TOP_GAP = 2;
 
+/**
+ * THE FONT FILLS THE TILE (operator, 2026-09-22: "in layouts show instruments
+ * live temperature and humidity values ..."). Every placed instrument already
+ * had a tile, but the readings printed at 12 units inside rooms 100-500 wide,
+ * so on a wall display the floor read as empty boxes with a smudge in each.
+ * The step chosen above is the font at which the tile FITS; `fillFont` then
+ * grows it until the tile is full, bounded three ways:
+ *
+ *   - HEIGHT: both chips and the gap above them must still fit, the SAME
+ *     equation `twoChipsHeight` states, solved for the font; the chip-fit test
+ *     in `room-geometry.test.ts` holds at the grown size exactly as it did at
+ *     the base size, or a FULL tile would clip its humidity chip again.
+ *   - WIDTH: the renderer prints a chip label at CHIP_GLYPH_EM per glyph plus
+ *     CHIP_TEXT_PAD, and the longest label is eight glyphs ("▲ 100.0%"), which
+ *     must fit inside the tile less CHIP_SIDE_INSET. A tile 63 wide (Module-F's
+ *     narrowest) stays width-bound.
+ *   - MAX_TILE_FONT: above this a reading stops being a label and becomes a
+ *     poster that dwarfs the room it is in.
+ *
+ * Never SMALLER than the base: the step already proved the base fits.
+ */
+const MAX_TILE_FONT = 26;
+const CHIP_GLYPH_EM = 0.6;
+const CHIP_LABEL_GLYPHS = 8;
+const CHIP_SIDE_INSET = 6;
+const CHIP_TEXT_PAD = 4;
+
+function fillFont(base: number, tileW: number, tileH: number, codeLine: boolean): number {
+  const byHeight = codeLine
+    // twoChipsHeight(f, f + FULL_CODE_GAP) = f + FULL_CODE_GAP + 2*factor*f + gap
+    ? (tileH - FULL_CODE_GAP - CHIP_GAP) / (1 + 2 * CHIP_HEIGHT_FACTOR)
+    // twoChipsHeight(f, VALUES_TOP_GAP) = VALUES_TOP_GAP + 2*factor*f + gap
+    : (tileH - VALUES_TOP_GAP - CHIP_GAP) / (2 * CHIP_HEIGHT_FACTOR);
+  const byWidth = (tileW - CHIP_SIDE_INSET - CHIP_TEXT_PAD) / (CHIP_LABEL_GLYPHS * CHIP_GLYPH_EM);
+  // Floor to half a unit so the height bound holds after floating-point rounding.
+  const grown = Math.floor(Math.min(MAX_TILE_FONT, byHeight, byWidth) * 2) / 2;
+  return Math.max(base, grown);
+}
+
 /** The tile height needed to show two stacked chips, given the top offset before the first one. */
 function twoChipsHeight(fontSize: number, topGap: number): number {
   const chipH = fontSize * CHIP_HEIGHT_FACTOR;
@@ -322,11 +361,12 @@ export function tileLayout(box: PixelBox, count: number, headerH: number = HEADE
 
   if (fullRows >= 1 && fullCapacity >= count) {
     const rows = Math.ceil(count / cols);
+    const tileH = bodyH / rows;
     return {
       step: 'FULL', visible: count, hidden: 0,
       cols, rows,
-      tile: { w: tileW, h: bodyH / rows },
-      fontSize: fullFontSize,
+      tile: { w: tileW, h: tileH },
+      fontSize: fillFont(fullFontSize, tileW, tileH, true),
       bodyTop,
     };
   }
@@ -340,11 +380,12 @@ export function tileLayout(box: PixelBox, count: number, headerH: number = HEADE
 
   if (valueRows >= 1 && valueCapacity >= count) {
     const rows = Math.ceil(count / cols);
+    const tileH = bodyH / rows;
     return {
       step: 'VALUES_ONLY', visible: count, hidden: 0,
       cols, rows,
-      tile: { w: tileW, h: bodyH / rows },
-      fontSize: valuesFontSize,
+      tile: { w: tileW, h: tileH },
+      fontSize: fillFont(valuesFontSize, tileW, tileH, false),
       bodyTop,
     };
   }

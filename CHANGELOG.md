@@ -1,5 +1,45 @@
 # Changelog
 
+## [Unreleased] - Graphical view: readings fill their tiles, one colour per condition (2026-09-22)
+
+Operator: *"in layouts show instruments live temperature and humidity values
+and if in limts green color, if its crossed or below the limits show red, if
+error highlight with other color, if offline also show with other color"*.
+
+**Measured first, not assumed:** every one of the 100 placed instruments
+ALREADY had a value tile on its plan (`tileLayout` over the live rooms: 96
+FULL, 4 VALUES_ONLY, 0 dropped) — but the reading font was capped at 12 units
+inside rooms 100-500 units wide, so the values were there and unreadable; and
+a failed probe painted the SAME red as a limit breach.
+
+- **The font fills the tile.** `room-geometry.ts` `fillFont()` grows the
+  step's base font until the tile is full, bounded by the tile's height (both
+  chips must still fit — the same `twoChipsHeight` equation, solved for the
+  font, so the existing chip-fit guarantee survives), by its width (an
+  eight-glyph label inside the tile), and by a ceiling of 26. Never below the
+  base the step already fitted. On the live plans the readings now print at
+  12-26 units (most rooms 26, twice the old size; Module-F's 63-wide room and
+  QC 3's two smallest stay at 12 — width refuses them).
+- **The chip spans the tile** (`cw = tile.w − 6`, was text-width): the
+  reading is a coloured band, so the colour reads from across the room before
+  the number does. The instrument code shrinks to its tile instead of
+  overrunning it at the larger font.
+- **A FOURTH colour, VIOLET, for a sensor fault.** `ChipTone = InstrumentStatus
+  | 'ERROR'`; `tileValues()` (pure, exported from `floorplan-view.tsx`) gives a
+  failed (`Error`) or saturated (`OL`) probe the `ERROR` tone, never
+  `OUT_OF_SPEC` — a dead probe is neither a breach (nothing was measured) nor a
+  silence (the logger is still talking). The legend gains **Sensor error**.
+  Green = in limit, red = crossed, amber = offline / partial, unchanged; a
+  breach on an offline instrument is still red (the judgement outranks the
+  age). The server's `sensorError` / `rangeError` is the source; nothing here
+  re-derives it.
+- Pinned by `__tests__/floorplan-values.test.ts` (7) and
+  `__tests__/tile-font.test.ts` (7); mutation-checked three ways (error tone
+  back to red: 1 fails; growth removed: 2 fail; height bound dropped: 1
+  fails). `room-geometry.test.ts`'s chip-fit cases pass unchanged at the grown
+  size. tsc and `vite build` clean. **Not seen on screen** — the size ceiling
+  (26) and the violet are the two things to judge by eye.
+
 ## [Unreleased] - Graphical view: the "Not placed on any plan" tray is gone (2026-09-22)
 
 Operator: *"in graphical view dont show not placed on any panel section"*.

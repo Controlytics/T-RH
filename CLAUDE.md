@@ -1205,6 +1205,12 @@ GET    /api/config/report-approvers/current     — the administered approver ro
   view now renders ONE TILE PER INSTRUMENT (code, limits, decimals). This
   fixed a defect: the box previously rendered only `rows[0]`, hiding a room's
   second instrument, including when it was the one breaching a limit.
+  **Since 2026-09-22 the reading font FILLS the tile** (was capped at 12 in
+  rooms 100-500 wide; `fillFont()` in `room-geometry.ts`, bounded by height,
+  width and 26) and the chip tone vocabulary is FOUR colours: green in limit,
+  red crossed, **violet for a sensor fault** (`ERROR`, a `ChipTone` beside
+  `InstrumentStatus`; was the breach red), amber offline / partial —
+  `tileValues()` in `floorplan-view.tsx` is the one rule. No count moved.
 - **Cleanroom grade (2026-08-24):** `floorplan_rooms.grade` nullable TEXT
   (`A|B|C|D|CIRCULATION|UTILITY`), zod-validated, deliberately **not** a
   Postgres enum so the vocabulary can grow without a migration — the enum
