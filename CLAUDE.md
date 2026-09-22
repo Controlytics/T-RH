@@ -1185,7 +1185,12 @@ GET    /api/config/report-approvers/current     — the administered approver ro
   button with it. **Its action column is NOT sticky, and the column count argued
   the other way** — what decides it is that a sticky cell needs an opaque
   background, and this panel is deliberately transparent so the operator's
-  PanelCard tint shows.
+  PanelCard tint shows. **It is a TABULAR-view panel since 2026-09-22**
+  (operator: "in graphical view dont show the alarm widget") — Graphical hides
+  it with the readings table; `routes/dashboard/view-panels.ts` is the one rule
+  for which panels each view hides, and the hidden set is carried back into any
+  layout saved from the other view. Hidden, not removed: still in `PANELS` and
+  on Roles & Access → Panels.
 - **On `PUT /api/floorplans/:id/rooms/:roomId`, an omitted `doors` key leaves the
   column unchanged; only an explicit `null`/`[]` clears it.** Deliberate §11
   data-loss guard so a client that predates doors can't silently wipe them.

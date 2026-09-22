@@ -57,6 +57,17 @@ Table|Graphical toggle), `telemetry-table.tsx`, `floorplan-view.tsx`,
 `room-detail.tsx`, `time-series-chart.tsx`, `status.ts`, `use-telemetry.ts`.
 Plus `routes/config/floorplans.tsx`, the placement editor.
 
+**The Tabular | Graphical toggle HIDES panels, and WHICH ones is one pure rule
+— `view-panels.ts` `hiddenPanelsFor()` (2026-09-22).** Tabular hides the
+floorplan; Graphical hides the table AND the alarms widget (operator: "in
+graphical view dont show the alarm widget"; until then only the two reading
+panels swapped). The trend shows in both. A hidden panel keeps its stored
+position and `onGridChange` carries the whole hidden SET back into the draft —
+react-grid-layout reports only what it was given, so without that carry a Save
+made in one view would persist a layout missing the other view's panels, and a
+panel absent from the layout never comes back. Add to the set there, never by a
+second filter on the page. `__tests__/view-panels.test.ts`, mutation-checked.
+
 **The graphical view DRAWS the floor as SVG and never renders the uploaded plan
 image.** The first cut showed the image with transparent hotspots over it and
 read as a scan with rectangles stuck on top. The image now appears only in the

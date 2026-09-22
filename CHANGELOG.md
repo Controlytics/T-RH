@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased] - Graphical view hides the alarms widget (2026-09-22)
+
+Operator: *"in graphical view dont show the alarm widget"*.
+
+- The dashboard's Tabular | Graphical toggle used to swap ONLY the two reading
+  panels; "Active alarms in this selection" showed in both views. Graphical now
+  hides it with the table — the drawn floor already colours every room and tile
+  by its status, so the list beneath said the same thing twice. Tabular is
+  unchanged; the trend still shows in both views.
+- **Which panels each view hides is one pure rule**, `hiddenPanelsFor()` in
+  `apps/web/src/routes/dashboard/view-panels.ts` (`TABULAR_ONLY_PANELS` /
+  `GRAPHICAL_ONLY_PANELS`). `index.tsx` held a single `hiddenPanel` key; it now
+  holds the set, and the `onGridChange` carry that merges a hidden panel's stored
+  position back into the draft covers every member of it — so arranging in the
+  Graphical view still cannot save a layout with the alarms panel MISSING.
+- **Hidden, not removed.** `dashboard_alarms` stays in `PANELS`, in the shipped
+  layout and on Roles & Access → Panels; nothing stored changes. No count moved.
+- Pinned by `__tests__/view-panels.test.ts` (4 cases; mutation-checked —
+  dropping the alarms key from the hidden set fails it). tsc and `vite build`
+  clean. **Not seen on screen.**
+
 ## [Unreleased] - QC 3 and Microbiology floors traced from their drawings (2026-09-21)
 
 Operator: *"do the same for qc 3 and microbiology layouts"* — the two other

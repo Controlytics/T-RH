@@ -8,6 +8,7 @@ import { FloorplanView } from './floorplan-view';
 import { resolveNav, ALL_INSTRUMENTS, type NavNode } from './location-nav';
 import { usePanels } from '@/hooks/use-panels';
 import { SelectionAlarms } from './selection-alarms';
+import { READING_PANELS, hiddenPanelsFor } from './view-panels';
 import { PanelGrid } from './panel-grid';
 import { PanelCard } from './panel-card';
 import { AUTO_HEIGHT_PANELS, applyAutoHeights, keepStoredHeights, nextRows } from './panel-auto-height';
@@ -111,18 +112,15 @@ export function DashboardPage() {
   const locations = tree?.data ?? [];
 
   // ── Tabular / Graphical ────────────────────────────────────────────────────
-  // The toggle governs ONLY these two panels. Everything else in the grid (trend,
-  // alarms) is shown in both views — they answer questions that are not about how
-  // you happen to be looking at the readings.
-  const READING_PANELS = { table: 'telemetry_table', graphical: 'telemetry_floorplan' } as const;
+  // WHICH panels each view hides lives in `view-panels.ts` (Tabular hides the
+  // floorplan; Graphical hides the table AND the alarms widget — operator,
+  // 2026-09-22). The trend shows in both views.
   const hasPanel = (key: string) => layout.items.some((it) => it.i === key) && showPanel(key);
   // Offer the switch only when there is something to switch BETWEEN. A role that
   // cannot see the floorplan gets no toggle rather than a button that blanks the
   // grid.
   const canToggleView = hasPanel(READING_PANELS.table) && hasPanel(READING_PANELS.graphical);
-  const hiddenPanel = !canToggleView
-    ? null
-    : view === 'table' ? READING_PANELS.graphical : READING_PANELS.table;
+  const hiddenPanels = hiddenPanelsFor(view, canToggleView);
 
   /**
    * PANEL HEIGHTS THAT FOLLOW THEIR CONTENT (operator, 2026-09-01).
@@ -151,16 +149,16 @@ export function DashboardPage() {
     return fn;
   }, []);
 
-  const placedItems = hiddenPanel ? layout.items.filter((it) => it.i !== hiddenPanel) : layout.items;
+  const placedItems = hiddenPanels.size ? layout.items.filter((it) => !hiddenPanels.has(it.i)) : layout.items;
   const visibleItems = applyAutoHeights(placedItems, autoRows);
 
   /**
-   * Merge the hidden panel's stored position back into the draft.
+   * Merge the hidden panels' stored positions back into the draft.
    *
    * react-grid-layout reports only the items it was GIVEN, so saving while a view
-   * is filtered would persist a layout with the other reading panel missing — and
-   * a panel absent from the layout never comes back. The hidden item is carried
-   * through untouched, at whatever position it already held.
+   * is filtered would persist a layout with the hidden panels missing — and a
+   * panel absent from the layout never comes back. The hidden items are carried
+   * through untouched, at whatever position they already held.
    */
   const onGridChange = (next: LayoutItem[]) => {
     // Discard the DERIVED heights before they reach the draft. The grid reports
@@ -189,8 +187,8 @@ export function DashboardPage() {
     });
     if (unchanged) return;
 
-    if (!hiddenPanel) return layout.setDraft(kept);
-    const carried = layout.items.filter((it) => it.i === hiddenPanel);
+    if (!hiddenPanels.size) return layout.setDraft(kept);
+    const carried = layout.items.filter((it) => hiddenPanels.has(it.i));
     layout.setDraft([...kept, ...carried]);
   };
 
@@ -320,12 +318,13 @@ export function DashboardPage() {
         removed on 2026-08-28. It reads the `?view=` parameter again. Tabular is the
         default; Graphical swaps in the floorplan.
 
-        IT HIDES, IT DOES NOT DELETE. Only the two READING panels are affected, and
-        the hidden one keeps its stored position — see `onGridChange` below, which
-        merges hidden items back into the draft. Without that merge, arranging while
-        one view is showing would save a layout with the other panel MISSING, and
-        the panel would never come back. That is the trap in filtering the items you
-        hand to react-grid-layout: its onChange reports only what it was given.
+        IT HIDES, IT DOES NOT DELETE. Tabular hides the floorplan; Graphical hides
+        the table and the alarms widget (`view-panels.ts`). A hidden panel keeps its
+        stored position — see `onGridChange` below, which merges hidden items back
+        into the draft. Without that merge, arranging while one view is showing
+        would save a layout with the other panels MISSING, and they would never come
+        back. That is the trap in filtering the items you hand to react-grid-layout:
+        its onChange reports only what it was given.
 
         Each child's `key` MUST equal its layout item's `i`. That is how
         react-grid-layout matches a child to its position; a mismatch silently
