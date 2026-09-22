@@ -642,6 +642,28 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'Room "{room}" deleted by {actor}',
     placeholders: ['actor', 'room'],
   },
+  // A link between two rooms: an opening in their shared wall or a drawn
+  // connector (Layout Designer, 2026-09-22). `{room}` carries "A ↔ B" — the
+  // route writes it as `code`, so the existing substitution prints it and no
+  // new placeholder (and no second edit in audit-helpers.ts) is needed.
+  FLOORPLAN_LINK_CREATED: {
+    label: 'Room Link Created',
+    category: 'Instruments',
+    template: 'Room link {room} created by {actor}',
+    placeholders: ['actor', 'room'],
+  },
+  FLOORPLAN_LINK_UPDATED: {
+    label: 'Room Link Updated',
+    category: 'Instruments',
+    template: 'Room link {room} updated by {actor}',
+    placeholders: ['actor', 'room'],
+  },
+  FLOORPLAN_LINK_DELETED: {
+    label: 'Room Link Deleted',
+    category: 'Instruments',
+    template: 'Room link {room} deleted by {actor}',
+    placeholders: ['actor', 'room'],
+  },
 };
 
 /** Extract just the template strings as defaults for the config schema */

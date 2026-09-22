@@ -1,4 +1,4 @@
-import { type FastifyInstance } from 'fastify';
+import { type FastifyInstance, type FastifyReply } from 'fastify';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
@@ -6,8 +6,8 @@ import { buildContext } from '../../lib/build-context.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
-import { validateRoomPayload, roomGeometry, floorplanSchema, floorplanUpdateSchema, type RoomDoor } from './validation.js';
-import type { Point } from '@digilog/shared';
+import { validateRoomPayload, roomGeometry, validateLinkPayload, floorplanSchema, floorplanUpdateSchema, type RoomDoor, type LinkInput } from './validation.js';
+import { sharedEdges, rectanglePoints, type Point, type Polygon } from '@digilog/shared';
 import { getRoomHistory, HISTORY_WINDOWS, type HistoryWindow } from './room-history.js';
 import { resolveVisibility } from '../instruments/visibility.js';
 
@@ -109,6 +109,29 @@ const roomProps = {
   },
 } as const;
 
+/** A link on the wire. Declared in full: Fastify strips what it does not name. */
+const linkSelect = {
+  id: true, fromRoomId: true, toRoomId: true, kind: true,
+  fromEdge: true, offset: true, width: true, door: true, label: true,
+} as const;
+
+const linkProps = {
+  id: { type: 'string' },
+  fromRoomId: { type: 'string' },
+  toRoomId: { type: 'string' },
+  kind: { type: 'string' },
+  fromEdge: { type: 'integer', nullable: true },
+  offset: { type: 'number', nullable: true },
+  width: { type: 'number', nullable: true },
+  door: { type: 'string', nullable: true },
+  label: { type: 'string', nullable: true },
+} as const;
+
+/** The outline the geometry checks run on: the polygon, else the rectangle's four corners. */
+function polygonOf(room: { x: number; y: number; w: number; h: number; points: unknown }): Polygon {
+  return Array.isArray(room.points) ? (room.points as unknown as Point[]) : rectanglePoints(room);
+}
+
 const planProps = {
   id: { type: 'string' },
   name: { type: 'string' },
@@ -158,6 +181,7 @@ export default async function floorplanRoutes(app: FastifyInstance) {
                 properties: {
                   ...planProps,
                   rooms: { type: 'array', items: { type: 'object', properties: roomProps } },
+                  links: { type: 'array', items: { type: 'object', properties: linkProps } },
                 },
               },
             },
@@ -169,7 +193,10 @@ export default async function floorplanRoutes(app: FastifyInstance) {
   }, async () => {
     const data = await prisma.floorplan.findMany({
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-      include: { rooms: { select: roomSelect, orderBy: { code: 'asc' } } },
+      include: {
+        rooms: { select: roomSelect, orderBy: { code: 'asc' } },
+        links: { select: linkSelect, orderBy: { createdAt: 'asc' } },
+      },
     });
     return { data };
   });
@@ -191,6 +218,7 @@ export default async function floorplanRoutes(app: FastifyInstance) {
           orderBy: { code: 'asc' },
           include: { instruments: { select: { id: true, code: true, name: true }, orderBy: { code: 'asc' } } },
         },
+        links: { select: linkSelect, orderBy: { createdAt: 'asc' } },
       },
     });
     if (!plan) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Floorplan not found.' });
@@ -532,6 +560,182 @@ export default async function floorplanRoutes(app: FastifyInstance) {
   // Gated on INSTRUMENT_READ, not CONFIG_READ: this returns telemetry, and
   // anyone who may see the dashboard may see it. Only the geometry and limit
   // WRITES are a configuration capability.
+  // ───────────────────────────── Links ─────────────────────────────
+  // A relation the drawing states between two rooms (Layout Designer,
+  // 2026-09-22). The OPENING kind is checked against the rooms' real outlines:
+  // nothing is stored that the dashboard could not cut out of a wall.
+
+  type LinkRoom = { id: string; code: string; x: number; y: number; w: number; h: number; points: unknown };
+
+  /**
+   * Both rooms on this plan; for an OPENING, the named edge really shared and
+   * the opening inside the shared stretch; for a CONNECTOR, no second one for
+   * the same pair. Sends the 4xx itself and returns null — the caller just
+   * returns.
+   */
+  async function checkLink(planId: string, l: LinkInput, currentLinkId: string | null, reply: FastifyReply):
+    Promise<{ from: LinkRoom; to: LinkRoom } | null> {
+    const rooms = await prisma.floorplanRoom.findMany({
+      where: { floorplanId: planId, id: { in: [l.fromRoomId, l.toRoomId] } },
+      select: { id: true, code: true, x: true, y: true, w: true, h: true, points: true },
+    });
+    const from = rooms.find((r) => r.id === l.fromRoomId);
+    const to = rooms.find((r) => r.id === l.toRoomId);
+    if (!from || !to) {
+      reply.code(404).send({ error: 'NOT_FOUND', message: 'Both rooms must be on this floorplan.' });
+      return null;
+    }
+    if (l.kind === 'OPENING') {
+      const shared = sharedEdges(polygonOf(from), polygonOf(to)).find((s) =>
+        s.aEdge === l.fromEdge && s.start - 1e-9 <= l.offset! && l.offset! + l.width! <= s.end + 1e-9);
+      if (!shared) {
+        reply.code(400).send({ error: 'NOT_ADJACENT', message: `"${from.code}" and "${to.code}" do not share that stretch of wall.` });
+        return null;
+      }
+    }
+    if (l.kind === 'CONNECTOR') {
+      const dup = await prisma.floorplanRoomLink.findFirst({
+        where: {
+          floorplanId: planId, kind: 'CONNECTOR',
+          OR: [{ fromRoomId: l.fromRoomId, toRoomId: l.toRoomId }, { fromRoomId: l.toRoomId, toRoomId: l.fromRoomId }],
+        },
+        select: { id: true },
+      });
+      if (dup && dup.id !== currentLinkId) {
+        reply.code(409).send({ error: 'DUPLICATE_LINK', message: 'These two rooms are already connected.' });
+        return null;
+      }
+    }
+    return { from, to };
+  }
+
+  const linkBody = (l: LinkInput) => ({
+    kind: l.kind,
+    fromEdge: l.kind === 'OPENING' ? l.fromEdge! : null,
+    offset: l.kind === 'OPENING' ? l.offset! : null,
+    width: l.kind === 'OPENING' ? l.width! : null,
+    door: l.kind === 'OPENING' ? (l.door ?? null) : null,
+    label: l.kind === 'CONNECTOR' ? (l.label ?? null) : null,
+  });
+  const linkAudit = (l: { kind: string; fromEdge: number | null; offset: number | null; width: number | null; door: string | null; label: string | null }, code: string) => ({
+    code, kind: l.kind, fromEdge: l.fromEdge, offset: l.offset, width: l.width, door: l.door, label: l.label,
+  });
+  const linkParams = {
+    type: 'object',
+    properties: { id: { type: 'string', format: 'uuid' }, linkId: { type: 'string', format: 'uuid' } },
+  } as const;
+
+  app.post('/:id/links', {
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    schema: {
+      tags: ['Floorplans'],
+      summary: 'Link two rooms: an opening in their shared wall, or a connector',
+      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
+      response: { 201: { type: 'object', properties: linkProps }, ...errorResponses },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('UPDATE_FLOORPLAN_ROOM', req, reply);
+    if (!ok) return;
+    const { id } = req.params as { id: string };
+    const ctx = buildContext(req);
+    const plan = await prisma.floorplan.findUnique({ where: { id }, select: { id: true, name: true } });
+    if (!plan) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Floorplan not found.' });
+
+    const result = validateLinkPayload(sanitizeStrings((req.body ?? {}) as Record<string, unknown>, ['label']));
+    if (!result.ok) return reply.code(400).send({ error: 'VALIDATION_ERROR', message: result.error });
+    const rooms = await checkLink(id, result.data, null, reply);
+    if (!rooms) return;
+
+    const code = `${rooms.from.code} ↔ ${rooms.to.code}`;
+    const created = await prisma.floorplanRoomLink.create({
+      data: {
+        ...linkBody(result.data),
+        floorplanId: id, fromRoomId: rooms.from.id, toRoomId: rooms.to.id,
+        createdBy: ctx.userId, updatedBy: ctx.userId,
+      },
+      select: linkSelect,
+    });
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole,
+      action: 'FLOORPLAN_LINK_CREATED',
+      targetType: 'floorplan_room_link', targetId: created.id,
+      afterValue: { floorplan: plan.name, ...linkAudit(created, code) },
+      signatureMeaning: `Room link "${code}" created on floorplan "${plan.name}"`,
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    });
+    return reply.code(201).send(created);
+  });
+
+  app.put('/:id/links/:linkId', {
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    schema: {
+      tags: ['Floorplans'],
+      summary: 'Update a room link',
+      params: linkParams,
+      response: { 200: { type: 'object', properties: linkProps }, ...errorResponses },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('UPDATE_FLOORPLAN_ROOM', req, reply);
+    if (!ok) return;
+    const { id, linkId } = req.params as { id: string; linkId: string };
+    const ctx = buildContext(req);
+    const before = await prisma.floorplanRoomLink.findFirst({ where: { id: linkId, floorplanId: id }, select: linkSelect });
+    if (!before) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Link not found on this floorplan.' });
+
+    const result = validateLinkPayload(sanitizeStrings((req.body ?? {}) as Record<string, unknown>, ['label']));
+    if (!result.ok) return reply.code(400).send({ error: 'VALIDATION_ERROR', message: result.error });
+    const rooms = await checkLink(id, result.data, linkId, reply);
+    if (!rooms) return;
+
+    const code = `${rooms.from.code} ↔ ${rooms.to.code}`;
+    const after = await prisma.floorplanRoomLink.update({
+      where: { id: linkId },
+      data: { ...linkBody(result.data), fromRoomId: rooms.from.id, toRoomId: rooms.to.id, updatedBy: ctx.userId },
+      select: linkSelect,
+    });
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole,
+      action: 'FLOORPLAN_LINK_UPDATED',
+      targetType: 'floorplan_room_link', targetId: linkId,
+      beforeValue: linkAudit(before, code),
+      afterValue: linkAudit(after, code),
+      signatureMeaning: `Room link "${code}" updated`,
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    });
+    return after;
+  });
+
+  app.delete('/:id/links/:linkId', {
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    schema: {
+      tags: ['Floorplans'],
+      summary: 'Delete a room link',
+      params: linkParams,
+      response: { 204: { type: 'null' }, ...errorResponses },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('UPDATE_FLOORPLAN_ROOM', req, reply);
+    if (!ok) return;
+    const { id, linkId } = req.params as { id: string; linkId: string };
+    const ctx = buildContext(req);
+    const before = await prisma.floorplanRoomLink.findFirst({
+      where: { id: linkId, floorplanId: id },
+      select: { ...linkSelect, fromRoom: { select: { code: true } }, toRoom: { select: { code: true } } },
+    });
+    if (!before) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Link not found on this floorplan.' });
+    const code = `${before.fromRoom.code} ↔ ${before.toRoom.code}`;
+    await prisma.floorplanRoomLink.delete({ where: { id: linkId } });
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole,
+      action: 'FLOORPLAN_LINK_DELETED',
+      targetType: 'floorplan_room_link', targetId: linkId,
+      beforeValue: linkAudit(before, code),
+      signatureMeaning: `Room link "${code}" deleted`,
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    });
+    return reply.code(204).send();
+  });
+
   app.get('/:id/rooms/:roomId/history', {
     preHandler: [app.requirePermission('INSTRUMENT_READ')],
     schema: {

@@ -184,3 +184,47 @@ export const floorplanSchema = z.object({
 });
 
 export const floorplanUpdateSchema = floorplanSchema.partial();
+
+/**
+ * A LINK between two rooms of one plan (Layout Designer, 2026-09-22).
+ * `kind` is a validated string, not a Postgres enum, the `grade` precedent.
+ * An OPENING sits on `fromRoom`'s edge `fromEdge` at `offset`/`width`
+ * (fractions of that edge) with an optional door leaf; whether that edge is
+ * really shared with `toRoom` is a GEOMETRY question the route answers with
+ * the rooms in hand. A CONNECTOR needs no adjacency and may carry a label.
+ */
+export const LINK_KINDS = ['OPENING', 'CONNECTOR'] as const;
+
+export const linkSchema = z.object({
+  fromRoomId: z.string().uuid(),
+  toRoomId: z.string().uuid(),
+  kind: z.enum(LINK_KINDS),
+  fromEdge: z.number().int().min(0).max(63).nullable().optional(),
+  offset: normalized.nullable().optional(),
+  width: normalized.nullable().optional(),
+  door: z.enum(DOOR_KINDS).nullable().optional(),
+  label: z.string().trim().max(60).nullable().optional(),
+}).superRefine((l, ctx) => {
+  if (l.fromRoomId === l.toRoomId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['toRoomId'], message: 'a room cannot link to itself' });
+  }
+  if (l.kind === 'OPENING') {
+    if (l.fromEdge == null) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['fromEdge'], message: 'an opening names the edge it sits on' });
+    if (l.offset == null || l.width == null || l.width <= 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['width'], message: 'an opening has a position and a width' });
+    } else if (l.offset + l.width > 1 + 1e-9) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['width'], message: 'an opening must finish on its edge' });
+    }
+  }
+});
+
+export type LinkInput = z.infer<typeof linkSchema>;
+
+export function validateLinkPayload(input: unknown): { ok: true; data: LinkInput } | { ok: false; error: string } {
+  const parsed = linkSchema.safeParse(input);
+  if (!parsed.success) {
+    const first = parsed.error.issues[0];
+    return { ok: false, error: `${first.path.join('.') || 'payload'}: ${first.message}` };
+  }
+  return { ok: true, data: parsed.data };
+}
