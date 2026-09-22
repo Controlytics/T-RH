@@ -1,17 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { tileLayout } from '../room-geometry';
+import { tileLayout, CHIP_HEIGHT_FACTOR, CHIP_GAP, FULL_CODE_GAP, VALUES_TOP_GAP, CODE_LINE_H } from '../room-geometry';
 
 /**
  * The reading font FILLS the tile (operator, 2026-09-22: "in layouts show
  * instruments live temperature and humidity values"). Before, it was capped at
  * 12 units whatever the room, so a 500-wide room printed a smudge.
  *
- * Mirrors the renderer's chip geometry exactly, as room-geometry.test.ts does:
- * chipH = fontSize * 1.3, stacked 1.5 apart, the first one `fontSize + 3`
- * down in FULL and `2` down in VALUES_ONLY.
+ * The renderer's chip geometry from the exported constants it draws with:
+ * chipH = fontSize * factor, stacked `gap` apart, the first one a fixed code
+ * strip + gap down in FULL and a flat inset down in VALUES_ONLY.
  */
 function twoChips(fontSize: number, topGap: number): number {
-  return topGap + 2 * fontSize * 1.3 + 1.5;
+  return topGap + 2 * fontSize * CHIP_HEIGHT_FACTOR + CHIP_GAP;
 }
 
 describe('tileLayout — the font grows to fill the tile', () => {
@@ -30,7 +30,7 @@ describe('tileLayout — the font grows to fill the tile', () => {
     for (const box of [{ w: 366, h: 114 }, { w: 145, h: 157 }, { w: 253, h: 128 }, { w: 63, h: 204 }]) {
       const l = tileLayout({ x: 0, y: 0, ...box }, 1);
       expect(l.step).toBe('FULL');
-      expect(twoChips(l.fontSize, l.fontSize + 3)).toBeLessThanOrEqual(l.tile.h);
+      expect(twoChips(l.fontSize, CODE_LINE_H + FULL_CODE_GAP)).toBeLessThanOrEqual(l.tile.h);
     }
   });
 
@@ -38,7 +38,7 @@ describe('tileLayout — the font grows to fill the tile', () => {
     const l = tileLayout({ x: 0, y: 0, w: 366, h: 51 }, 1); // Module-E, CWH/RDU/059-00
     expect(l.step).toBe('VALUES_ONLY');
     expect(l.fontSize).toBeGreaterThan(11);
-    expect(twoChips(l.fontSize, 2)).toBeLessThanOrEqual(l.tile.h);
+    expect(twoChips(l.fontSize, VALUES_TOP_GAP)).toBeLessThanOrEqual(l.tile.h);
   });
 
   it('a narrow tile is bound by its width: the height would allow 26, the width refuses any growth', () => {

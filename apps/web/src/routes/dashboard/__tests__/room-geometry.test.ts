@@ -141,15 +141,12 @@ describe('tileLayout — degrade steps', () => {
   });
 });
 
-describe('tileLayout — chip fit (regression: a FULL/VALUES_ONLY tile must actually hold two chips)', () => {
-  // Mirrors floorplan-view.tsx's own chip geometry exactly (chipH = fontSize *
-  // factor, stacked `gap` apart, starting `topGap` down) — if these numbers
-  // drift from the renderer's literals, this test stops meaning anything.
-  const CHIP_HEIGHT_FACTOR = 1.3;
-  const CHIP_GAP = 1.5;
-  const FULL_CODE_GAP = 3; // renderer: `ty + layout.fontSize + 3` before the first chip
-  const VALUES_TOP_GAP = 2; // renderer: `ty + 2` before the first chip when there's no code line
+import { CHIP_HEIGHT_FACTOR, CHIP_GAP, FULL_CODE_GAP, VALUES_TOP_GAP, CODE_LINE_H } from '../room-geometry';
 
+describe('tileLayout — chip fit (regression: a FULL/VALUES_ONLY tile must actually hold two chips)', () => {
+  // The renderer's chip geometry (chipH = fontSize * factor, stacked `gap`
+  // apart, starting `topGap` down) from the SAME exported constants the
+  // renderer draws with, so the three cannot drift apart.
   function requiredHeight(fontSize: number, topGap: number): number {
     const chipH = fontSize * CHIP_HEIGHT_FACTOR;
     return topGap + 2 * chipH + CHIP_GAP;
@@ -158,7 +155,7 @@ describe('tileLayout — chip fit (regression: a FULL/VALUES_ONLY tile must actu
   it('gives a FULL tile enough height for a code line plus two chips', () => {
     const l = tileLayout({ x: 0, y: 0, w: 244, h: 234 }, 1);
     expect(l.step).toBe('FULL');
-    expect(l.tile.h).toBeGreaterThanOrEqual(requiredHeight(l.fontSize, l.fontSize + FULL_CODE_GAP));
+    expect(l.tile.h).toBeGreaterThanOrEqual(requiredHeight(l.fontSize, CODE_LINE_H + FULL_CODE_GAP));
   });
 
   it('gives a VALUES_ONLY tile enough height for two chips with no code line', () => {
@@ -171,7 +168,7 @@ describe('tileLayout — chip fit (regression: a FULL/VALUES_ONLY tile must actu
     const l = tileLayout({ x: 0, y: 0, w: 244, h: 234 }, 1);
     // One instrument should not be spread across a 5-column grid it doesn't need.
     expect(l.cols).toBe(1);
-    expect(l.tile.h).toBeGreaterThanOrEqual(requiredHeight(l.fontSize, l.fontSize + FULL_CODE_GAP));
+    expect(l.tile.h).toBeGreaterThanOrEqual(requiredHeight(l.fontSize, CODE_LINE_H + FULL_CODE_GAP));
   });
 });
 

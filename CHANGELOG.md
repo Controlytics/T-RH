@@ -1,5 +1,43 @@
 # Changelog
 
+## [Unreleased] - Graphical view: small fixed instrument ID, NA chips, the plan fits its panel (2026-09-22)
+
+Operator, on seeing the previous entry: *"decrease instrument id font size,
+text looking so large and below the instrument ID temperature and humidity
+data was not showing, decrease the space in rooms, layout rooms taking so
+much large"*. Three corrections, one measurement first:
+
+- **"data was not showing" is a DATA fact, then a rendering choice.** Only
+  TWO of the 100 placed instruments hold any latest reading
+  (`instrument_telemetry_latest`: `CWH/RDU/001-00` on 2026-09-21, `IOTGW01`
+  on 2026-09-05); the other 98 have NEVER reported, so their tiles printed the
+  code over nothing — which reads as a broken tile, not a silent instrument.
+  `tileValues()` now prints **`NA` in grey** (NO_DATA, the readings table's
+  own word) for a slot with no reading, so every tile shows its two rows and
+  the grey says why. The values will be live the moment the gateways publish;
+  nothing on the platform side is withholding them.
+- **The instrument ID is SMALL and FIXED.** `TILE_CODE_FONT` (10) inside a
+  `CODE_LINE_H` (12) strip, shrinking further only to fit a narrow tile — it
+  was 0.85 of the grown reading font, so a 26-unit reading came with a
+  22-unit code. `fillFont` and the FULL-step fit now count the fixed strip,
+  not the font, so the readings get the height the code gave back.
+- **The plan is CONTAINED in its panel.** The SVG was `w-full h-auto`: it
+  spanned the panel and its aspect ratio set the height, so a portrait plan
+  (QC 1000x1360, Stability 1000x1300) ran to ~1,500px inside an 880px panel
+  and scrolled, every room far bigger than the screen. The view is now a flex
+  column filling the panel and the SVG takes what is left
+  (`preserveAspectRatio="xMidYMin meet"`). To see a plan bigger, make the
+  panel bigger with Arrange — the floorplan is the one panel where dragging
+  taller does something. Landscape plans that already fitted are unchanged.
+- **The chip geometry constants are EXPORTED** from `room-geometry.ts`
+  (`CHIP_HEIGHT_FACTOR`, `CHIP_GAP`, `FULL_CODE_GAP`, `VALUES_TOP_GAP`,
+  `CODE_LINE_H`, `TILE_CODE_FONT`) and the renderer and both test files
+  import them; each had hand-copied the literals with a comment begging them
+  not to drift.
+- Tests: `floorplan-values.test.ts` (8; the NA rule mutation-checked, 2 fail
+  without it), `tile-font.test.ts` and `room-geometry.test.ts` re-pointed at
+  the fixed code strip. tsc and `vite build` clean. **Not seen on screen.**
+
 ## [Unreleased] - Graphical view: readings fill their tiles, one colour per condition (2026-09-22)
 
 Operator: *"in layouts show instruments live temperature and humidity values

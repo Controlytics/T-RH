@@ -73,12 +73,21 @@ VIOLET (2026-09-22, operator: "show instruments live temperature and humidity
 values … in limits green … crossed red … error other color … offline other
 color").** Every placed instrument already had a tile; the font was capped at
 12 in rooms 100-500 wide. `room-geometry.ts` `fillFont()` now grows it to the
-tile (height-, width- and 26-bounded, never below the step's base), the chip
-spans the tile's width, and the code line shrinks to fit. `tileValues()` in
-`floorplan-view.tsx` is the ONE rule for a chip's tone: green in limit, red
-crossed, `ERROR` (violet, `ChipTone`, not an `InstrumentStatus`) for the
-server's `sensorError` / `rangeError`, amber offline / partial. Legend entry
-**Sensor error**. Tests: `floorplan-values.test.ts`, `tile-font.test.ts`,
+tile (height-, width- and 26-bounded, never below the step's base) and the
+chip spans the tile's width. `tileValues()` in `floorplan-view.tsx` is the
+ONE rule for a chip's tone: green in limit, red crossed, `ERROR` (violet,
+`ChipTone`, not an `InstrumentStatus`) for the server's `sensorError` /
+`rangeError`, amber offline / partial, and **grey `NA` for a slot with no
+reading, so a tile always has both rows** (the same day's correction: 98 of
+100 instruments had never reported and their tiles printed the code over
+nothing). Legend entry **Sensor error**. **The instrument ID is small and
+FIXED** (`TILE_CODE_FONT` 10 in a `CODE_LINE_H` 12 strip; it was 0.85 of the
+reading font and "looking so large"). **The plan is CONTAINED in its panel**
+(flex column, SVG `h-full w-full` with `xMidYMin meet`; it was `w-full
+h-auto` and a portrait plan scrolled at ~1,500px) — enlarge the panel to
+enlarge the plan. The chip geometry constants are exported from
+`room-geometry.ts` and imported by the renderer and the tests; do not copy
+the literals again. Tests: `floorplan-values.test.ts`, `tile-font.test.ts`,
 both mutation-checked. Not seen on screen.
 
 **The graphical view has NO "Not placed on any plan" tray (removed

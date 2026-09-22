@@ -7,7 +7,7 @@ import {
   type InstrumentStatus,
 } from '@digilog/shared';
 import { statusClasses } from './status';
-import { outOfSpec } from './set-point';
+import { outOfSpec, NOT_AVAILABLE } from './set-point';
 import {
   useFloorplans,
   useTelemetryOverview,
@@ -18,7 +18,10 @@ import {
   type OverviewRow,
 } from './use-telemetry';
 import { RoomDetail } from './room-detail';
-import { wallSegments, doorPlacements, tileLayout, captionHeader, sharedOpenings } from './room-geometry';
+import {
+  wallSegments, doorPlacements, tileLayout, captionHeader, sharedOpenings,
+  CHIP_HEIGHT_FACTOR, CHIP_GAP, FULL_CODE_GAP, VALUES_TOP_GAP, CODE_LINE_H, TILE_CODE_FONT,
+} from './room-geometry';
 
 /**
  * The base code of a continuation piece — `CWH-I/217 (2)` → `CWH-I/217` —
@@ -123,6 +126,13 @@ const LEGEND: readonly { tone: ChipTone; label: string }[] = [
  * overall status; a slot inside its limits on an instrument that is OUT_OF_SPEC
  * (because the OTHER slot breached) is green, not red. One chip per reading is
  * the whole reason status lives on the chips and not on the room.
+ *
+ * A slot with NO reading prints `NA` in grey (NO_DATA), the word the readings
+ * table uses for the same fact — so a tile ALWAYS has its two rows (operator,
+ * 2026-09-22: "below the instrument ID temperature and humidity data was not
+ * showing"; on that day 98 of 100 instruments had never reported, and their
+ * tiles printed the code over nothing, which reads as a broken tile rather
+ * than as a silent instrument).
  */
 export function tileValues(
   row: Pick<OverviewRow, 'temperature' | 'humidity' | 'limits' | 'status' | 'decimals' | 'sensorError' | 'rangeError'>,
@@ -143,6 +153,8 @@ export function tileValues(
     values.push({ text: words.failure, st: 'ERROR', bad: false });
   } else if (tempV !== null) {
     values.push({ text: `${formatDecimals(tempV, row.decimals.temperature)}°`, st: toneFor(tempBad), bad: tempBad });
+  } else {
+    values.push({ text: NOT_AVAILABLE, st: 'NO_DATA', bad: false });
   }
   if (row.rangeError?.humidity) {
     values.push({ text: words.outOfRange, st: 'ERROR', bad: false });
@@ -150,6 +162,8 @@ export function tileValues(
     values.push({ text: words.failure, st: 'ERROR', bad: false });
   } else if (rhV !== null) {
     values.push({ text: `${formatDecimals(rhV, row.decimals.humidity)}%`, st: toneFor(rhBad), bad: rhBad });
+  } else {
+    values.push({ text: NOT_AVAILABLE, st: 'NO_DATA', bad: false });
   }
   return values;
 }
@@ -329,7 +343,16 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
   const vbH = plan ? Math.round((VB_W * plan.imageHeight) / plan.imageWidth) : 700;
 
   return (
-    <div className="space-y-4">
+    // A flex column filling the panel, so the drawing below can take WHAT IS
+    // LEFT and no more (operator, 2026-09-22: "decrease the space in rooms,
+    // layout rooms taking so much large"). Until then the SVG was `w-full
+    // h-auto`: it spanned the panel's width and the plan's aspect ratio set its
+    // height, so a portrait plan (QC is 1000x1360) ran to ~1,500px inside an
+    // 880px panel and scrolled, every room drawn far bigger than the screen.
+    // Now the plan is CONTAINED in the panel; to see it bigger, make the panel
+    // bigger (Arrange), which is the one panel where dragging taller does
+    // something — see `AUTO_HEIGHT_PANELS`.
+    <div className="flex h-full flex-col gap-4">
       {/* Dark title bar: current plan on the left, the others as links on the
           right — the reference drawing's chrome. A <select> hid which other plans
           existed behind a click; these are visible at a glance. */}
@@ -384,10 +407,11 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
           </p>
         </div>
       ) : plan && (
-        <div className="overflow-hidden rounded-b-2xl border border-slate-300 bg-white p-3 shadow-soft">
+        <div className="min-h-0 flex-1 overflow-hidden rounded-b-2xl border border-slate-300 bg-white p-3 shadow-soft">
           <svg
             viewBox={`0 0 ${VB_W} ${vbH}`}
-            className="h-auto w-full"
+            className="h-full w-full"
+            preserveAspectRatio="xMidYMin meet"
             role="img"
             aria-label={`${plan.name}: ${roomViews.length} rooms with current temperature and humidity`}
           >
@@ -625,12 +649,12 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                       const rhBad = outOfSpec(rhV, lim?.rhMin, lim?.rhMax);
                       // The chips and their tones: see `tileValues` for the rule.
                       const values = tileValues(row, sensorWords);
-                      // The code line shrinks to its tile rather than overrunning
-                      // it: with the reading font grown to fill the tile, a
-                      // 14-glyph code at 0.85 of it would be wider than a
-                      // 100-unit room.
+                      // The code is SMALL and FIXED (TILE_CODE_FONT), never the
+                      // reading font, and shrinks further to fit a narrow tile
+                      // rather than overrunning it: the readings are what a
+                      // control room reads first, the identity is a caption.
                       const codeFontSize = Math.min(
-                        layout.fontSize * 0.85,
+                        TILE_CODE_FONT,
                         Math.max(7, (layout.tile.w - 6) / (Math.max(1, row.code.length) * 0.6)),
                       );
 
@@ -656,7 +680,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                           />
                           {layout.step === 'FULL' && (
                             <text
-                              x={tcx} y={ty + layout.fontSize + 1} textAnchor="middle"
+                              x={tcx} y={ty + CODE_LINE_H - 2} textAnchor="middle"
                               fontSize={codeFontSize} fontWeight={600}
                               letterSpacing="0.04em" fill={PALETTE.ink}
                             >
@@ -671,12 +695,13 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                             // the room before the number does (operator,
                             // 2026-09-22, "highlight").
                             const cw = layout.tile.w - 6;
-                            const chipH = layout.fontSize * 1.3;
+                            const chipH = layout.fontSize * CHIP_HEIGHT_FACTOR;
                             const cyTop =
-                              ty + (layout.step === 'FULL' ? layout.fontSize + 3 : 2) + vi * (chipH + 1.5);
+                              ty + (layout.step === 'FULL' ? CODE_LINE_H + FULL_CODE_GAP : VALUES_TOP_GAP)
+                              + vi * (chipH + CHIP_GAP);
                             if (cyTop + chipH > ty + layout.tile.h) return null;
                             return (
-                              <g key={v.text}>
+                              <g key={vi}>
                                 <rect x={tcx - cw / 2} y={cyTop} width={cw} height={chipH} rx={2} fill={paint.bg} />
                                 <text
                                   x={tcx} y={cyTop + chipH * 0.75} textAnchor="middle"

@@ -1209,8 +1209,11 @@ GET    /api/config/report-approvers/current     — the administered approver ro
   rooms 100-500 wide; `fillFont()` in `room-geometry.ts`, bounded by height,
   width and 26) and the chip tone vocabulary is FOUR colours: green in limit,
   red crossed, **violet for a sensor fault** (`ERROR`, a `ChipTone` beside
-  `InstrumentStatus`; was the breach red), amber offline / partial —
-  `tileValues()` in `floorplan-view.tsx` is the one rule. No count moved.
+  `InstrumentStatus`; was the breach red), amber offline / partial, grey
+  `NA` for a slot with no reading — `tileValues()` in `floorplan-view.tsx`
+  is the one rule. The instrument ID prints small and FIXED (`TILE_CODE_FONT`),
+  and the plan is CONTAINED in its panel rather than setting its scroll height
+  (both the same day, operator corrections). No count moved.
 - **Cleanroom grade (2026-08-24):** `floorplan_rooms.grade` nullable TEXT
   (`A|B|C|D|CIRCULATION|UTILITY`), zod-validated, deliberately **not** a
   Postgres enum so the vocabulary can grow without a migration — the enum

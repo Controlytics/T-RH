@@ -63,9 +63,17 @@ describe('tileValues — one tone per condition', () => {
     expect(v[1].st).toBe('STALE');
   });
 
-  it('a slot with no reading and no fault prints nothing rather than a blank chip', () => {
+  it('a slot with no reading prints NA in grey, so a tile always shows both rows', () => {
+    // Operator, 2026-09-22: "below the instrument ID temperature and humidity
+    // data was not showing" — 98 of 100 instruments had never reported.
     const v = tileValues(base({ humidity: slot(null), status: 'PARTIAL' }), words);
-    expect(v).toHaveLength(1);
+    expect(v).toHaveLength(2);
     expect(v[0].st).toBe('PARTIAL');
+    expect(v[1]).toEqual({ text: 'NA', st: 'NO_DATA', bad: false });
+  });
+
+  it('an instrument that has never reported prints two grey NA chips, not an empty tile', () => {
+    const v = tileValues(base({ temperature: slot(null), humidity: slot(null), status: 'NO_DATA' }), words);
+    expect(v.map((x) => [x.text, x.st])).toEqual([['NA', 'NO_DATA'], ['NA', 'NO_DATA']]);
   });
 });

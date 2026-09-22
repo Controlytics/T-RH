@@ -217,19 +217,29 @@ const HEADER_H = 14;
 
 /**
  * The renderer (`floorplan-view.tsx`) draws each chip at `fontSize *
- * CHIP_HEIGHT_FACTOR` tall, stacked `CHIP_GAP` apart, starting `fontSize +
+ * CHIP_HEIGHT_FACTOR` tall, stacked `CHIP_GAP` apart, starting `CODE_LINE_H +
  * FULL_CODE_GAP` down when a code line precedes them (FULL) or a flat
  * `VALUES_TOP_GAP` down when it doesn't (VALUES_ONLY / OVERFLOW). It drops any
  * chip whose bottom would exceed the tile — so a layout step is only really
  * FULL or VALUES_ONLY if the tile it hands back is tall enough for BOTH
- * chips, not just the one that happens to fit. These four numbers must track
- * the renderer's literals exactly, or this module can promise a tile that the
- * renderer then quietly clips.
+ * chips, not just the one that happens to fit. EXPORTED, and the renderer and
+ * the tests IMPORT them (2026-09-22): until then each of the three hand-copied
+ * the literals, and a module that promises a tile the renderer then quietly
+ * clips is exactly what a copy that drifted would produce.
+ *
+ * The CODE LINE IS A FIXED HEIGHT, not the reading font (operator, 2026-09-22:
+ * "decrease instrument id font size, text looking so large"). The first cut
+ * of the fill-the-tile font printed the code at 0.85 of the reading font, so a
+ * 26-unit reading came with a 22-unit code: the identity shouting over the
+ * measurement. The code prints at TILE_CODE_FONT (or smaller, to fit its
+ * tile's width) inside a CODE_LINE_H strip, and the readings take the rest.
  */
-const CHIP_HEIGHT_FACTOR = 1.3;
-const CHIP_GAP = 1.5;
-const FULL_CODE_GAP = 3;
-const VALUES_TOP_GAP = 2;
+export const CHIP_HEIGHT_FACTOR = 1.3;
+export const CHIP_GAP = 1.5;
+export const FULL_CODE_GAP = 3;
+export const VALUES_TOP_GAP = 2;
+export const CODE_LINE_H = 12;
+export const TILE_CODE_FONT = 10;
 
 /**
  * THE FONT FILLS THE TILE (operator, 2026-09-22: "in layouts show instruments
@@ -259,11 +269,10 @@ const CHIP_SIDE_INSET = 6;
 const CHIP_TEXT_PAD = 4;
 
 function fillFont(base: number, tileW: number, tileH: number, codeLine: boolean): number {
-  const byHeight = codeLine
-    // twoChipsHeight(f, f + FULL_CODE_GAP) = f + FULL_CODE_GAP + 2*factor*f + gap
-    ? (tileH - FULL_CODE_GAP - CHIP_GAP) / (1 + 2 * CHIP_HEIGHT_FACTOR)
-    // twoChipsHeight(f, VALUES_TOP_GAP) = VALUES_TOP_GAP + 2*factor*f + gap
-    : (tileH - VALUES_TOP_GAP - CHIP_GAP) / (2 * CHIP_HEIGHT_FACTOR);
+  // twoChipsHeight(f, topGap) = topGap + 2*factor*f + gap, solved for f; the
+  // top gap is the fixed code strip in FULL and a flat inset otherwise.
+  const topGap = codeLine ? CODE_LINE_H + FULL_CODE_GAP : VALUES_TOP_GAP;
+  const byHeight = (tileH - topGap - CHIP_GAP) / (2 * CHIP_HEIGHT_FACTOR);
   const byWidth = (tileW - CHIP_SIDE_INSET - CHIP_TEXT_PAD) / (CHIP_LABEL_GLYPHS * CHIP_GLYPH_EM);
   // Floor to half a unit so the height bound holds after floating-point rounding.
   const grown = Math.floor(Math.min(MAX_TILE_FONT, byHeight, byWidth) * 2) / 2;
@@ -355,7 +364,7 @@ export function tileLayout(box: PixelBox, count: number, headerH: number = HEADE
   const tileW = box.w / cols;
 
   const fullFontSize = Math.max(8, Math.min(12, tileW / 4.5));
-  const fullRequiredH = twoChipsHeight(fullFontSize, fullFontSize + FULL_CODE_GAP);
+  const fullRequiredH = twoChipsHeight(fullFontSize, CODE_LINE_H + FULL_CODE_GAP);
   const fullRows = Math.max(0, Math.floor(bodyH / fullRequiredH));
   const fullCapacity = cols * fullRows;
 
