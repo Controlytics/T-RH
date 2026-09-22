@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased] - QC: SHAFT-E trimmed to end where the rooms end (2026-09-22)
+
+Operator: *"shaft-e also should end where rooms end"*. New
+`apps/api/scripts/trim-room-to-rooms.ts` (dry run by default, `--apply`
+writes): shortens ONE room so its bottom sits on the lowest real room's
+bottom — "real" = at least 1.5 % of the plan in both axes, the dashboard's
+own SLIVER rule — as an audited `FLOORPLAN_ROOM_UPDATED` row through Prisma +
+`auditLog`, the trace scripts' way, because an API login would end the
+operator's browser session. Applied to `CWH — QC` / `SHAFT-E`: bottom
+1 → 0.578039 (the bottom of `CWH-I/218`), one audit row, actor `superadmin`.
+Measured first: no other plan has a sliver running past its rooms. The
+local database only; AWS is untouched.
+
 ## [Unreleased] - Graphical view: the border follows the rooms; the drawing's symbols are gone (2026-09-22)
 
 Operator: *"check in qc below the rooms and below border line there is so much
