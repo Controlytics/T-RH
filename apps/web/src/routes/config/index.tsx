@@ -198,6 +198,21 @@ const superAdminCards = [
     gradient: 'from-sky-500 to-cyan-600',
   },
   {
+    // The Layout Designer (2026-09-22) replaced the Floorplans editor at the
+    // same path. It had no card before: the page was reached only from the
+    // dashboard's own links. Drawn rooms, corridors, doors and links, from a
+    // blank canvas or a tracing image.
+    title: 'Layout Designer',
+    description: 'Draw rooms and corridors on a blank canvas, link them, and place instruments',
+    href: '/config/floorplans',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+      </svg>
+    ),
+    gradient: 'from-indigo-500 to-blue-600',
+  },
+  {
     title: 'Telemetry Keys',
     description: 'Which telemetry keys the dashboard reads as temperature and humidity',
     href: '/config/dynamic/telemetry-slots',

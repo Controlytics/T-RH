@@ -109,12 +109,11 @@ describe('configuration and system screens — UI v3 shape', () => {
     render(<MemoryRouter><PaginationConfigPage /></MemoryRouter>);
     expect(screen.getByRole('region', { name: 'Page Size Configuration' })).toBeInTheDocument();
   });
-  it('Floorplans: the plan editor is a FormSection with its controls in the plate', async () => {
-    const { FloorplansConfigPage } = await import('../floorplans');
-    render(<MemoryRouter><FloorplansConfigPage /></MemoryRouter>);
-    heroHas(/floor/i);
-    const plan = screen.getByRole('region', { name: 'Plan' });
-    expect(plan.contains(screen.getByRole('button', { name: /upload plan/i }))).toBe(true);
+  it('Layout Designer (replaced Floorplans, 2026-09-22): opens with the band and offers a new plan', async () => {
+    const { LayoutDesignerPage } = await import('../layout-designer');
+    render(<MemoryRouter><LayoutDesignerPage /></MemoryRouter>);
+    heroHas(/layout designer/i);
+    expect(screen.getByRole('button', { name: /new plan/i })).toBeInTheDocument();
   });
   it('Debug traces, with its table on the shared band', async () => {
     const { DebugTracesPage } = await import('../../debug/index');

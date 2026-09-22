@@ -379,7 +379,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
   // so nothing could be silently absent from the graphical view. Consequence,
   // stated once: an instrument with no room now appears ONLY in the Tabular
   // view (its Room column) and on the Instruments page; the drawn floor shows
-  // the rooms and nothing else. Place it in a room (Config -> Floorplans) to
+  // the rooms and nothing else. Place it in a room (Config -> Layout Designer) to
   // see it here.
 
   /**
@@ -415,7 +415,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
         <p className="mt-1 text-xs text-slate-500">
           Draw one on{' '}
           <Link to="/config/floorplans" className="font-medium underline" style={{ color: 'var(--theme-primary)' }}>
-            Configuration → Floorplans
+            Configuration → Layout Designer
           </Link>
           {' '}to see rooms here.
         </p>
@@ -492,7 +492,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
           <p className="mt-1 text-xs text-slate-500">
             Place them on{' '}
             <Link to="/config/floorplans" className="font-medium underline" style={{ color: 'var(--theme-primary)' }}>
-              Configuration → Floorplans
+              Configuration → Layout Designer
             </Link>
             , or switch to the Tabular view, which does not need geometry.
           </p>
@@ -503,7 +503,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
           <p className="mt-1 text-xs text-slate-500">
             Draw them on{' '}
             <Link to="/config/floorplans" className="font-medium underline" style={{ color: 'var(--theme-primary)' }}>
-              Configuration → Floorplans
+              Configuration → Layout Designer
             </Link>.
           </p>
         </div>

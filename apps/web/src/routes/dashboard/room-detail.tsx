@@ -167,7 +167,7 @@ export function RoomDetail({ floorplanId, roomId, onBack }: Props) {
           <p className="mt-1 text-xs text-slate-500">
             Assign one on{' '}
             <Link to="/config/floorplans" className="font-medium underline" style={{ color: 'var(--theme-primary)' }}>
-              Configuration → Floorplans
+              Configuration → Layout Designer
             </Link>.
           </p>
         </div>
