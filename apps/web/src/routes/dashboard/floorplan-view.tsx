@@ -6,12 +6,11 @@ import {
   formatDecimals,
   type InstrumentStatus,
 } from '@digilog/shared';
-import { statusClasses, readingAge } from './status';
+import { statusClasses } from './status';
 import { outOfSpec } from './set-point';
 import {
   useFloorplans,
   useTelemetryOverview,
-  formatSlot,
   ROOM_GRADES,
   ROOM_GRADE_META,
   type RoomGrade,
@@ -228,9 +227,14 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
     return functionalLocationId ? all.filter((r) => r.rows.length > 0) : all;
   }, [plan, byRoom, functionalLocationId]);
 
-  // Instruments nobody has placed. NEVER omitted — an instrument silently
-  // absent from the dashboard is the failure this tray exists to prevent.
-  const unplaced = rows.filter((r) => !r.room);
+  // There is NO "not placed on any plan" tray here any more (operator,
+  // 2026-09-22: "in graphical view dont show not placed on any panel section").
+  // It listed every instrument in the selection with no room, under the plan,
+  // so nothing could be silently absent from the graphical view. Consequence,
+  // stated once: an instrument with no room now appears ONLY in the Tabular
+  // view (its Room column) and on the Instruments page; the drawn floor shows
+  // the rooms and nothing else. Place it in a room (Config -> Floorplans) to
+  // see it here.
 
   if (openRoomId && plan) {
     return (
@@ -820,42 +824,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
             {statusClasses(s).label}
           </span>
         ))}
-
       </div>
-
-      {unplaced.length > 0 && (
-        <div className="rounded-2xl border border-slate-200/70 p-4">
-          <h3 className="text-sm font-semibold text-slate-800">
-            Not placed on any plan ({unplaced.length})
-          </h3>
-          <p className="mb-3 text-xs text-slate-500">
-            Not on a plan. Each is still checked against its own limit attributes, where it has them.
-          </p>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {unplaced.map((r) => {
-              const c = statusClasses(r.status);
-              const latest = [r.temperature?.ts, r.humidity?.ts].filter(Boolean).sort().pop() ?? null;
-              return (
-                <div key={r.instrumentId} className={`rounded-lg border px-3 py-2 ${c.bg} ${c.border}`}>
-                  <div className="flex items-center justify-between gap-2">
-                    <Link to={`/instruments/${r.instrumentId}`} className="text-sm font-medium text-slate-800 hover:underline">
-                      {r.code}
-                    </Link>
-                    <span className={`flex items-center gap-1 text-[0.6875rem] font-medium ${c.text}`}>
-                      <span className={`h-2 w-2 rounded-full ${c.dot}`} />
-                      {c.label}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-xs tabular-nums text-slate-600">
-                    {formatSlot(r.temperature, r.decimals.temperature, '°C')} · {formatSlot(r.humidity, r.decimals.humidity, '%RH')}
-                    <span className="text-slate-400"> · {readingAge(latest)}</span>
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -68,6 +68,14 @@ made in one view would persist a layout missing the other view's panels, and a
 panel absent from the layout never comes back. Add to the set there, never by a
 second filter on the page. `__tests__/view-panels.test.ts`, mutation-checked.
 
+**The graphical view has NO "Not placed on any plan" tray (removed
+2026-09-22, operator: "in graphical view dont show not placed on any panel
+section").** It listed the selection's room-less instruments under the plan so
+none could be silently absent from the floor; now a room-less instrument shows
+only in the Tabular view and on the Instruments page (one of 101 here, the
+gateway `IOTGW01`). The comment where the tray stood in `floorplan-view.tsx`
+says so; do not put a summary of it back in the legend or the header either.
+
 **The graphical view DRAWS the floor as SVG and never renders the uploaded plan
 image.** The first cut showed the image with transparent hotspots over it and
 read as a scan with rectangles stuck on top. The image now appears only in the

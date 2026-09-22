@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased] - Graphical view: the "Not placed on any plan" tray is gone (2026-09-22)
+
+Operator: *"in graphical view dont show not placed on any panel section"*.
+
+- `floorplan-view.tsx` no longer renders the tray under the plan that listed
+  every instrument in the selection with no room (code, status, both readings,
+  age). It had been kept on the rule "never omitted — an instrument silently
+  absent from the dashboard is the failure this tray exists to prevent"; the
+  operator chose otherwise, and the comment that stands where the tray was says
+  what that costs.
+- **Consequence, stated once:** an instrument with no room now appears ONLY in
+  the Tabular view and on the Instruments page; the Graphical view shows the
+  rooms and nothing else. On this installation that is ONE instrument of 101 —
+  `IOTGW01`, the gateway (measured before the change). Place an instrument in a
+  room (Configuration → Floorplans) to see it on the floor.
+- `formatSlot` and `readingAge` were the tray's only uses in that file and left
+  its imports with it; both are still used by `room-detail.tsx`. No test named
+  the tray. No count moved. tsc and `vite build` clean. **Not seen on screen.**
+
 ## [Unreleased] - Graphical view hides the alarms widget (2026-09-22)
 
 Operator: *"in graphical view dont show the alarm widget"*.
