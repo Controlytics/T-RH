@@ -194,7 +194,10 @@ still the graphical view's entire subject.
 font sizes and make bold and temperature and humidity values and ranges
 should be visible like highlighted"): `.tv-chip` in the unlayered `.tv-*`
 block, tinted from the cell's own ink via `currentColor` — green in spec, red
-on a breach, blue for a set point (`.tv-spec` is `#1e40af` / 800). A slot
+on a breach. The SET POINT is a `RangeBadge` (same file; `.tv-range*`): two
+figures with a bar between them on a plate in the column's hue, `NMT` /
+`NLT` small beside a lone bound, bare NA for none; its `aria-label` is
+`formatSetPoint`'s string (a blue chip lasted an hour — "not good"). A slot
 with no reading prints a bare grey `NA` (`tv-val-na`), never a chip. Cell
 text is 15px; temp / rh columns are 10 % x 2 each, Location 16 %, ID and
 Area 12 %. Pinned in `telemetry-table.test.tsx`.

@@ -2,10 +2,10 @@ import { useMemo, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { readingAge, oldestReadingTs } from './status';
-import { formatSetPoint, outOfSpec, faultWord, NOT_AVAILABLE } from './set-point';
+import { formatSetPoint, outOfSpec, faultWord, boundInForce, NOT_AVAILABLE } from './set-point';
 import { useSensorWords } from '@/hooks/use-failure-text';
 import { usePanelToolbarSlot } from './panel-card';
-import { formatDecimals } from '@digilog/shared';
+import { formatDecimals, clampDecimals } from '@digilog/shared';
 import {
   useTelemetryOverview,
   type OverviewRow,
@@ -249,6 +249,50 @@ function actual(
   if (word) return word;
   if (!v) return NOT_AVAILABLE;
   return formatDecimals(v.value, decimals) ?? NOT_AVAILABLE;
+}
+
+/**
+ * The set point as a RANGE BADGE (operator, 2026-09-25: "temperature humidiy
+ * ranges highlight is not good, make best highlight ui for those"). The blue
+ * pill it replaced printed the range as one string; this draws the two bounds
+ * as two figures with a bar between them, on a plate in the COLUMN's own hue —
+ * the same orange / green the sub-headers wear — with a 3px accent down the
+ * leading edge, so a range reads as a band of its column, not as a third
+ * colour on the row. One bound in force prints its keyword (NMT / NLT) small
+ * beside the figure, the words `formatSetPoint` already uses. No bound in
+ * force prints a bare NA and no badge.
+ *
+ * `aria-label` is `formatSetPoint`'s string, so what a screen reader hears —
+ * and what a test asserts — is unchanged by the drawing.
+ */
+function RangeBadge({ min, max, decimals, hue }: {
+  min: number | null | undefined;
+  max: number | null | undefined;
+  decimals: number;
+  hue: 'temp' | 'rh';
+}) {
+  const text = formatSetPoint(min, max, decimals);
+  if (text === NOT_AVAILABLE) return <>{text}</>;
+  const dp = clampDecimals(decimals);
+  const f = (n: number) => n.toFixed(dp);
+  const hasMin = boundInForce(min);
+  const hasMax = boundInForce(max);
+  return (
+    <span className={`tv-range tv-range-${hue}`} aria-label={text} role="img">
+      {hasMin && hasMax ? (
+        <>
+          <span className="tv-range-v">{f(min)}</span>
+          <span className="tv-range-sep" aria-hidden="true" />
+          <span className="tv-range-v">{f(max)}</span>
+        </>
+      ) : (
+        <>
+          <span className="tv-range-k">{hasMax ? 'NMT' : 'NLT'}</span>
+          <span className="tv-range-v">{f(hasMax ? (max as number) : (min as number))}</span>
+        </>
+      )}
+    </span>
+  );
 }
 
 /** Where a set point came from, as a tooltip. */
@@ -530,11 +574,11 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
               // Hue while in spec, red on breach — see the `.tv-val-*` note in app.css.
               // HIGHLIGHTED (operator, 2026-09-25: "temperature and humidity
               // values and ranges should be visible like highlighted"): the
-              // reading and the set point each sit in a `.tv-chip` — a pill
-              // tinted from the cell's own ink, so an in-spec reading is a green
-              // chip, a breach a red one, a set point a blue one — and a slot with
-              // NO reading prints a plain grey NA, never a green chip around
-              // nothing (`tv-val-na`).
+              // reading sits in a `.tv-chip` — a pill tinted from the cell's own
+              // ink, so an in-spec reading is a green chip, a breach a red one —
+              // and a slot with NO reading prints a plain grey NA, never a green
+              // chip around nothing (`tv-val-na`). The set point is a
+              // `RangeBadge` (below the column list) in the column's own hue.
               const val = (bad: boolean, hue: 'temp' | 'rh', empty: boolean) =>
                 `tv-group tv-cell ${CELL} tabular-nums ${bad ? 'tv-val-bad' : empty ? 'tv-val-na' : `tv-val-${hue}`}`;
               // No size utility: `.tv-spec` / `.tv-chip` are unlayered and set the
@@ -543,8 +587,6 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
               const spec = `tv-cell ${CELL} tabular-nums tv-spec`;
               const tempText = actual(r.temperature, r.decimals.temperature, { failed: r.sensorError?.temperature, outOfRange: r.rangeError?.temperature }, sensorWords);
               const rhText = actual(r.humidity, r.decimals.humidity, { failed: r.sensorError?.humidity, outOfRange: r.rangeError?.humidity }, sensorWords);
-              const tempSp = formatSetPoint(r.limits?.tempMin, r.limits?.tempMax, r.decimals.temperature);
-              const rhSp = formatSetPoint(r.limits?.rhMin, r.limits?.rhMax, r.decimals.humidity);
               const chip = (text: string, unit?: string) =>
                 text === NOT_AVAILABLE
                   ? text
@@ -613,7 +655,7 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
                       it answers "why do two probes in one room show different
                       bands" when asked, without another cell to read past. */}
                   <td className={spec} title={setPointSource(r.limitSource)}>
-                    {chip(tempSp)}
+                    <RangeBadge min={r.limits?.tempMin} max={r.limits?.tempMax} decimals={r.decimals.temperature} hue="temp" />
                   </td>
 
                   <td
@@ -623,7 +665,7 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
                     {chip(rhText, r.humidity ? '%' : undefined)}
                   </td>
                   <td className={spec} title={setPointSource(r.limitSource)}>
-                    {chip(rhSp)}
+                    <RangeBadge min={r.limits?.rhMin} max={r.limits?.rhMax} decimals={r.decimals.humidity} hue="rh" />
                   </td>
 
                   {/* ONLINE / OFFLINE as a pill, per the reference. The word carries

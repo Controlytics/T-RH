@@ -24,6 +24,19 @@ in `app.css`. No count moved.
   `columnWidthTotal()` still asserts the total.
 - Tests: 2 new cases (four chips in order for a full row; bare NA, no chip,
   for a silent slot). 16/16, tsc and vite build clean. Not seen on screen.
+- **Then the set point became a RANGE BADGE** (operator: "temperature humidiy
+  ranges highlight is not good, make best highlight ui for those as per pro
+  ui maker"; the blue chip lasted an hour). `RangeBadge` in
+  `telemetry-table.tsx`: the two bounds as two tabular figures with a short
+  bar between them, on a plate in the COLUMN's own hue — the sub-header's
+  orange / green deepened one step, with a 3px accent on the leading edge —
+  so a range reads as a band of its column rather than a third colour on the
+  row. One bound in force prints `NMT` / `NLT` small beside its figure (the
+  words `formatSetPoint` already uses); none prints a bare NA and no badge.
+  `aria-label` is `formatSetPoint`'s string, so the accessible name is
+  unchanged. `.tv-range*` rules in the `.tv-*` block; `.tv-spec` ink is
+  `#0f172a` (above 12:1 on both plates). The two chip tests were re-pointed
+  (badge classes, figures, bar, keyword, bare NA). 16/16.
 
 ## [Unreleased] - Every page wears the theme ground; every widget wears the band (2026-09-25)
 

@@ -224,21 +224,36 @@ describe('TelemetryTable — readings and set points are highlighted chips (2026
   // pill tinted from the cell's own ink; a slot with NO reading prints a plain
   // grey NA (`tv-val-na`) and no chip — a green pill around nothing would claim
   // a reading that was never taken.
-  it('wraps both readings and both set points in a chip', () => {
+  it('wraps both readings in a chip and draws both set points as range badges', () => {
     const { container } = renderWith([row]);
     const chips = Array.from(container.querySelectorAll('td .tv-chip')).map((c) => c.textContent);
-    expect(chips).toEqual(['22.4°C', '18.0 - 25.0', '47.0%', '40.0 - 60.0']);
-    expect(container.querySelector('td.tv-spec .tv-chip')).not.toBeNull();
+    expect(chips).toEqual(['22.4°C', '47.0%']);
+    // The badge: two figures and a bar, in the column's hue; the accessible
+    // name is still formatSetPoint's string.
+    const badges = Array.from(container.querySelectorAll('td.tv-spec .tv-range'));
+    expect(badges.map((b) => b.getAttribute('aria-label'))).toEqual(['18.0 - 25.0', '40.0 - 60.0']);
+    expect(badges[0].className).toMatch(/(^|\s)tv-range-temp(\s|$)/);
+    expect(badges[1].className).toMatch(/(^|\s)tv-range-rh(\s|$)/);
+    expect(badges[0].querySelectorAll('.tv-range-v')).toHaveLength(2);
+    expect(badges[0].querySelector('.tv-range-sep')).not.toBeNull();
   });
 
-  it('prints a plain NA, no chip, for a slot with no reading', () => {
-    const silent: OverviewRow = { ...row, instrumentId: 'i-3', code: 'CWH/RDU/003-00', temperature: null, limits: { tempMin: null, tempMax: null, rhMin: 40, rhMax: 60 } };
+  it('prints a lone bound with its keyword, and a plain NA with no badge for none', () => {
+    const silent: OverviewRow = { ...row, instrumentId: 'i-3', code: 'CWH/RDU/003-00', temperature: null, limits: { tempMin: null, tempMax: null, rhMin: null, rhMax: 60 } };
     const { container } = renderWith([silent]);
     const tempCell = container.querySelector('td.tv-val-na');
     expect(tempCell).not.toBeNull();
     expect(tempCell?.textContent).toBe('NA');
     expect(tempCell?.querySelector('.tv-chip')).toBeNull();
-    // The humidity reading still gets its chip; the temperature set point is NA, bare.
-    expect(container.querySelectorAll('td .tv-chip')).toHaveLength(2);
+    // Humidity: one bound → NMT keyword + one figure, no bar.
+    const badges = Array.from(container.querySelectorAll('td.tv-spec .tv-range'));
+    expect(badges).toHaveLength(1);
+    expect(badges[0].getAttribute('aria-label')).toBe('NMT 60.0');
+    expect(badges[0].querySelector('.tv-range-k')?.textContent).toBe('NMT');
+    expect(badges[0].querySelector('.tv-range-sep')).toBeNull();
+    // Temperature set point: no bound → bare NA, no badge.
+    const specCells = Array.from(container.querySelectorAll('td.tv-spec'));
+    expect(specCells[0].textContent).toBe('NA');
+    expect(specCells[0].querySelector('.tv-range')).toBeNull();
   });
 });

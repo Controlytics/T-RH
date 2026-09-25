@@ -753,7 +753,6 @@ table {
   background: color-mix(in srgb, currentColor 12%, #ffffff);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 35%, #ffffff);
 }
-.tv-spec .tv-chip { font-size: 1rem; }
 
 /* ⚠ SPECIFICITY: the zebra rules above are `.tv-row:nth-child(odd) > td` (0,2,1),
    which OUTRANKS a bare `.tv-val-bad` (0,1,0) — a breach would have kept the
@@ -775,9 +774,31 @@ table {
    13px measures 10.4:1 on both zebra tones. The size is set HERE rather than with
    a Tailwind size utility on the cell, because these rules are unlayered and would
    override it anyway — one place to look. */
-/* Since 2026-09-25 the set point is a BLUE chip (see `.tv-chip`): #1e40af
-   measures 8.7:1 on white and the chip's tint is 12 % of it. */
-.tv-spec { color: #1e40af; font-weight: 800; font-size: 1rem; }
+/* SET POINT — a RANGE BADGE since 2026-09-25 (operator: "temperature humidiy
+   ranges highlight is not good, make best highlight ui for those"; the blue
+   chip lasted an hour). Two figures with a bar between them, on a plate in
+   the COLUMN's hue (the sub-header's orange / green, deepened one step) with a
+   3px accent on the leading edge — a range reads as a band of its column.
+   Dark ink: #0f172a on #fed7aa / #bbf7d0 is above 12:1. A bare NA (no bound)
+   keeps the cell's own ink and no plate. */
+.tv-spec { color: #0f172a; font-weight: 800; font-size: 0.9375rem; }
+.tv-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.65rem 0.3rem 0.75rem;
+  border-radius: 0.5rem;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.tv-range-temp { background: linear-gradient(135deg, #fff1e6, #fed7aa); box-shadow: inset 0 0 0 1px #fdba74, inset 3px 0 0 #ea580c; }
+.tv-range-rh   { background: linear-gradient(135deg, #ecfdf3, #bbf7d0); box-shadow: inset 0 0 0 1px #86efac, inset 3px 0 0 #16a34a; }
+.tv-range-v   { font-variant-numeric: tabular-nums; }
+/* The bar between the two bounds: the span of the band, not a hyphen. */
+.tv-range-sep { display: inline-block; width: 0.875rem; height: 2px; border-radius: 9999px; background: #94a3b8; }
+/* NMT / NLT beside a lone bound — the keyword `formatSetPoint` prints, small. */
+.tv-range-k   { font-size: 0.625rem; font-weight: 800; letter-spacing: 0.08em; opacity: 0.7; }
 
 /* Status pill. */
 .tv-pill {
