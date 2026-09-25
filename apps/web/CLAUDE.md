@@ -69,15 +69,28 @@ words beside the figure still say which), Blocks / Areas keep their identity
 accents by position (`data-accent`, fixed hex, theme-independent) as 700 → 900
 gradients — the 500 discs would fail the 11px white eyebrows; the light ends
 measure 5.0–6.3:1. Medallion, split chips and View Details are white/15 glass.
-The ground is `.dash-ground` in `app.css`, put on `<main>` by
-`components/layout/app-layout.tsx`, with TWO states switched by `:has()` on
-the page's `data-dashboard-ground`: DEEP on the landing (the preset's
-`--theme-login-bg-*` pair with two glows — operator: "as per cards colors
-make background good color", the pale tint having read as a wash) and LIGHT
-once the readings table is on screen, because the table sits on the ground
-directly (`PanelCard` is transparent). `EntryCards dark` prints the section
-heading white on the deep ground. A wallpaper still wins and every other page
-keeps its grey. The readings table, panels
+The ground is `.page-ground` in `app.css`, put on `<main>` of EVERY page by
+`components/layout/app-layout.tsx` (operator, later the same day: "all pages
+should colorful and background should be good" — the grey gradient is gone),
+with TWO states switched by `:has()` on the page's `data-page-ground`: DEEP
+on the dashboard landing (the preset's `--theme-login-bg-*` pair with two
+glows — operator: "as per cards colors make background good color", the pale
+tint having read as a wash) and LIGHT everywhere else, including the
+dashboard once the readings table is on screen, because the table sits on the
+ground directly (`PanelCard` is transparent). `EntryCards dark` prints the
+section heading white on the deep ground. A wallpaper still wins.
+
+**Every widget HEADER wears the site band (2026-09-25, operator: "do it same
+for trends page and time series in other pages entire dasboard").**
+`.widget-band` / `.widget-band-btn` in `app.css` (`@layer components`): the
+trend page's chart cards, Time Series card and alarms widget, the Data Report
+widget's toolbar, and every dashboard panel on the DEFAULT tint —
+`PANEL_TINTS[0].head` is `var(--band-gradient)` with `headInk: '#ffffff'`
+(`@digilog/shared`; `panel-card.tsx` paints `background: tint.head`, ink
+`headInk ?? text`; the seven named tints keep their pastel plates). Bodies
+stay white. The latest-value cards tint their reading block with the
+quantity's series colour instead (dark ink on a wash). Locked by
+`trend-chart-card.test.tsx` and the shared tint test. The readings table, panels
 and floor are untouched. Tests re-pointed to the card's gradient; not seen on
 screen.
 

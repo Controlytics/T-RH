@@ -120,12 +120,12 @@ export function InstrumentHistoryWidget({ scope }: { scope: HistoryScope }) {
         ? 'fixed inset-0 z-50 flex flex-col overflow-auto bg-white'
         : 'overflow-hidden rounded-[var(--radius-card)] border border-slate-200 bg-white shadow-[var(--elev-2)]'}
     >
-      {/* Toolbar: where, when, how often. One tinted band so the controls read
-          as one instrument panel rather than loose fields. */}
-      <header
-        className="flex flex-wrap items-center justify-between gap-3 px-5 py-4"
-        style={{ background: 'color-mix(in srgb, var(--theme-primary, #2a78d6) 6%, #ffffff)' }}
-      >
+      {/* Toolbar: where, when, how often. The site band (2026-09-25, operator:
+          "time series in other pages … all pages should colorful"; it was a
+          6 % tint) so the controls read as one instrument panel rather than
+          loose fields — white fields on the band, the Settings picker's
+          precedent. */}
+      <header className="widget-band flex flex-wrap items-center justify-between gap-3 px-5 py-4">
         <div className="flex flex-wrap items-center gap-2">
           <Select selectSize="sm" value={blockId} aria-label="Block" onChange={(e) => setBlock(e.target.value)}>
             <option value="">All blocks</option>
@@ -160,7 +160,7 @@ export function InstrumentHistoryWidget({ scope }: { scope: HistoryScope }) {
               </Button>
             ))}
           </div>
-          <label className="flex items-center gap-1.5 text-xs text-slate-600">
+          <label className="flex items-center gap-1.5 text-xs font-semibold text-white">
             From
             <input
               type="datetime-local"
@@ -170,7 +170,7 @@ export function InstrumentHistoryWidget({ scope }: { scope: HistoryScope }) {
               aria-label="History from"
             />
           </label>
-          <label className="flex items-center gap-1.5 text-xs text-slate-600">
+          <label className="flex items-center gap-1.5 text-xs font-semibold text-white">
             To
             <input
               type="datetime-local"
@@ -182,7 +182,7 @@ export function InstrumentHistoryWidget({ scope }: { scope: HistoryScope }) {
           </label>
           <button
             type="button"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
+            className="widget-band-btn h-8 w-8 rounded-lg"
             onClick={() => setFullscreen((v) => !v)}
             aria-pressed={fullscreen}
             aria-label={fullscreen ? 'Exit fullscreen — Data Report' : 'Fullscreen — Data Report'}

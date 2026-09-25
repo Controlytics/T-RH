@@ -111,8 +111,8 @@ export function TrendChartCard({
     return () => window.removeEventListener('keydown', onKey);
   }, [fullscreen]);
 
-  const iconBtn =
-    'inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700';
+  // Glass on the band (app.css `.widget-band-btn`).
+  const iconBtn = 'widget-band-btn h-9 w-9 rounded-lg';
 
   return (
     <section
@@ -122,21 +122,23 @@ export function TrendChartCard({
           : 'overflow-hidden rounded-[var(--radius-card)] border border-slate-200 bg-white shadow-[var(--elev-1)]'
       }
     >
-      <header className="flex flex-wrap items-start justify-between gap-3 px-5 py-4">
+      {/* The site band (2026-09-25, operator: "do it same for trends page …
+          all pages should colorful"): white words on `--band-gradient`, the
+          body below stays white for the chart. */}
+      <header className="widget-band flex flex-wrap items-start justify-between gap-3 px-5 py-4">
         <div className="flex min-w-0 items-center gap-3.5">
-          {/* The pastel disc. A tint of the quantity's own series colour, so the
-              icon, the line below it and the gauge above all read as one
-              quantity — the reference's discs are both the same lilac. */}
+          {/* The disc: glass on the band, the quantity's own series colour on
+              the icon so it still reads as the line below it. */}
           <span
-            className="grid h-12 w-12 shrink-0 place-items-center rounded-full"
-            style={{ backgroundColor: `color-mix(in srgb, ${accent} 14%, #ffffff)`, color: accent }}
+            className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-white/90 ring-1 ring-white/40"
+            style={{ color: accent }}
             aria-hidden="true"
           >
             {icon}
           </span>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2.5">
-              <h3 className="truncate text-lg font-bold tracking-tight text-slate-900">{title}</h3>
+              <h3 className="truncate text-lg font-bold tracking-tight text-white">{title}</h3>
               {/* Status colour never travels alone — the word rides with it.
                   Nothing is printed while the status is unknown: an absent pill
                   says "not loaded", a grey one would say "nothing to judge". */}
@@ -150,7 +152,7 @@ export function TrendChartCard({
                 </span>
               )}
             </div>
-            <p data-testid="trend-chart-subtitle" className="mt-0.5 truncate text-[0.8125rem] text-slate-500">
+            <p data-testid="trend-chart-subtitle" className="mt-0.5 truncate text-[0.8125rem] text-white/80">
               {subtitle}
             </p>
           </div>

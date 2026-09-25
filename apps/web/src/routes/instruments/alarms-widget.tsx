@@ -201,8 +201,11 @@ export function AlarmsWidget({
           different property groups, so tailwind-merge leaves both standing and
           the title stacks above the toolbar. This header must state the
           direction explicitly. */}
-      <CardHeader className="flex flex-row flex-nowrap items-center justify-between gap-3 space-y-0">
-        <CardTitle className="truncate text-base">{labels.alarmsTitle}</CardTitle>
+      {/* `widget-band`: the site band behind the title and its toolbar
+          (2026-09-25, operator: "all pages should colorful"); the controls are
+          white fields on it, the Settings picker's precedent. */}
+      <CardHeader className="widget-band flex flex-row flex-nowrap items-center justify-between gap-3 space-y-0 rounded-t-[var(--radius-card)]">
+        <CardTitle className="truncate text-base text-white">{labels.alarmsTitle}</CardTitle>
 
         {/* The SHARED widget toolbar — the same three controls the dashboard's
             selection panel renders, so a change to either reaches both. The

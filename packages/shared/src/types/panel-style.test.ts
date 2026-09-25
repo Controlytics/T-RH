@@ -16,10 +16,25 @@ describe('the palette is bounded AND readable', () => {
 
   it('every tint heading is readable on its HEADER plate, not just on the body', () => {
     // The plate is a shade deeper than the card, so AA against the body does not
-    // imply AA against the plate — and the title sits on the plate.
+    // imply AA against the plate — and the title sits on the plate. The ink on
+    // the plate is `headInk` where given, else `text`.
+    //
+    // Since 2026-09-25 the DEFAULT plate is the site band gradient (a CSS var,
+    // not a hex), with white ink. That pair cannot be measured here; it is the
+    // same `--band-gradient` `apps/web/scripts/contrast-check.mjs` proves for
+    // white text on all ten presets, so this case pins the SHAPE instead: a
+    // non-hex plate must be that band and must carry white ink.
     for (const t of PANEL_TINTS) {
-      expect(contrastRatio(t.head, t.text), `${t.key} header plate vs text`).toBeGreaterThanOrEqual(4.5);
+      const ink = t.headInk ?? t.text;
+      if (t.head.startsWith('#')) {
+        expect(contrastRatio(t.head, ink), `${t.key} header plate vs ink`).toBeGreaterThanOrEqual(4.5);
+      } else {
+        expect(t.head, `${t.key} plate`).toContain('var(--band-gradient');
+        expect(ink.toLowerCase(), `${t.key} ink on the band`).toBe('#ffffff');
+      }
     }
+    // Exactly one tint wears the band: the default.
+    expect(PANEL_TINTS.filter((t) => !t.head.startsWith('#')).map((t) => t.key)).toEqual(['default']);
   });
 
   it('every rail is a real CSS value, and the default defers to the site theme', () => {

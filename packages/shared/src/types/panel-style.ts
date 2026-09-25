@@ -40,8 +40,19 @@ export interface PanelTint {
    * inconsistency here.
    */
   rail: string;
-  /** The header plate behind the title — a shade deeper than the card body. */
+  /**
+   * The header plate behind the title — a shade deeper than the card body.
+   * A CSS `background` VALUE, so `default` can be the site band gradient
+   * (2026-09-25, operator: "entire dasboard … should colorful").
+   */
   head: string;
+  /**
+   * Ink for the title and eyebrow ON `head`, when it differs from `text`.
+   * `text` stays the ink on `bg` — the swatch in the style editor and any
+   * body text read it — so a gradient header does not turn the swatch's
+   * letter white on white. Absent = `text`.
+   */
+  headInk?: string;
 }
 
 /**
@@ -52,7 +63,7 @@ export interface PanelTint {
 export const PANEL_TINTS: readonly PanelTint[] = [
   // The rail is a CSS value, not only a hex, so `default` can defer to the site
   // theme. Everything consuming it assigns it to a style property.
-  { key: 'default', label: 'Default', bg: '#ffffff', border: '#e2e8f0', text: '#1e293b', rail: 'var(--theme-primary, #2a78d6)', head: '#f8fafc' },
+  { key: 'default', label: 'Default', bg: '#ffffff', border: '#e2e8f0', text: '#1e293b', rail: 'var(--theme-primary, #2a78d6)', head: 'var(--band-gradient)', headInk: '#ffffff' },
   { key: 'slate', label: 'Slate', bg: '#f8fafc', border: '#cbd5e1', text: '#1e293b', rail: '#475569', head: '#f1f5f9' },
   { key: 'sky', label: 'Sky', bg: '#f0f9ff', border: '#7dd3fc', text: '#075985', rail: '#0284c7', head: '#e0f2fe' },
   { key: 'emerald', label: 'Emerald', bg: '#f0fdf4', border: '#6ee7b7', text: '#065f46', rail: '#059669', head: '#d1fae5' },

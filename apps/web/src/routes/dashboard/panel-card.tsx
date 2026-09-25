@@ -169,20 +169,24 @@ export function PanelCard({
       {/* `items-center`, not `items-baseline`: this row now holds form controls as
           well as text, and a select aligned on the title's baseline sits low. The
           Edit button already opted out with `self-center`. */}
+      {/* `background`, not `backgroundColor`: the default tint's plate is the
+          site band GRADIENT since 2026-09-25 (operator: "entire dasboard …
+          should colorful"), with `headInk` for the words on it. The seven
+          named tints keep their pastel plates. */}
       <div
         className="flex shrink-0 items-center gap-3 border-b px-4 py-2.5"
-        style={{ borderColor: tint.border, backgroundColor: tint.head }}
+        style={{ borderColor: tint.border, background: tint.head }}
       >
         <div className="min-w-0">
           <p
-            className="text-[0.625rem] font-semibold uppercase leading-none tracking-[0.14em] opacity-60"
-            style={{ color: tint.text }}
+            className="text-[0.625rem] font-semibold uppercase leading-none tracking-[0.14em] opacity-75"
+            style={{ color: tint.headInk ?? tint.text }}
           >
             {eyebrow}
           </p>
           <h2
-            className="mt-1 truncate text-[0.9375rem] font-semibold leading-tight"
-            style={{ color: tint.text }}
+            className="mt-1 truncate text-[0.9375rem] font-bold leading-tight"
+            style={{ color: tint.headInk ?? tint.text }}
             title={heading}
           >
             {heading}

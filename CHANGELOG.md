@@ -1,5 +1,42 @@
 # Changelog
 
+## [Unreleased] - Every page wears the theme ground; every widget wears the band (2026-09-25)
+
+Operator: *"do it same for trends page and time series in other pages entire
+dasboard all pages should colorful and background should be good"*. No count
+moved.
+
+- **The ground is every page's now.** `.dash-ground` became `.page-ground`
+  (`app.css`) and `app-layout.tsx` puts it on `<main>` for EVERY page when no
+  wallpaper is set — the light theme tint everywhere, the deep theme ground
+  where a page marks `data-page-ground="deep"` (the dashboard landing). The
+  old grey `from-slate-50` gradient is gone.
+- **One widget band, six widgets.** `.widget-band` (`app.css`, in
+  `@layer components`) is `--band-gradient` with white ink — the band the page
+  heroes, the alarm table banner and the Settings widget already wear, proven
+  for white text on all ten presets — and `.widget-band-btn` is the glass icon
+  button on it. Applied to the HEADER of: the trend page's two chart cards
+  (`trend-chart-card.tsx`; the pastel disc is now white glass with the
+  quantity's colour on the icon), the Time Series card
+  (`timeseries-table-card.tsx`), the trend alarms widget
+  (`alarms-widget.tsx`, `CardHeader`), the Data Report widget's toolbar
+  (`history-widget.tsx`; was a 6 % tint; From / To labels white), and
+  **every dashboard panel on the default tint** — `PANEL_TINTS[0].head` in
+  `@digilog/shared` is now `var(--band-gradient)` with a new `headInk:
+  '#ffffff'`, and `panel-card.tsx` paints `background: tint.head` and inks
+  the title with `headInk ?? text`. The seven named tints keep their pastel
+  plates; `text` is untouched so the style editor's swatch letter stays dark.
+  Bodies stay white: readings, charts and tables are dark ink.
+- **The latest-value cards** (`band-gauge.tsx`) tint their reading block with
+  the quantity's own series colour (16 % → 6 % wash); the figure and the
+  status pill on it are still dark ink, so nothing about contrast moved.
+- Tests: the shared tint case that measured the header plate as a hex now
+  pins the SHAPE for a non-hex plate (band + white ink, and ONLY the default
+  wears it) — fails on the old table (stash-checked); `trend-chart-card`
+  gains a band lock. 18 touched web test files green one at a time (274
+  cases, plus the new lock), shared 19/19, tsc and vite build clean; `page-ground` and
+  `widget-band` are in the built CSS. Not seen on screen.
+
 ## [Unreleased] - Dashboard: full-colour entry cards and a theme-tinted ground (2026-09-25)
 
 Operator: *"in dashboard, all instruments card, active alarms cards, blocks

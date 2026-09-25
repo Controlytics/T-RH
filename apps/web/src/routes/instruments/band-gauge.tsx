@@ -379,7 +379,13 @@ export function BandGauge({
         {/* The reading block, bled back out to the card edges so the hills can
             reach them. `overflow-hidden` is what stops those hills running on
             under the footer panel, which in the reference sits on clean white. */}
-        <div className="relative -mx-3 -mt-5 overflow-hidden px-3 pb-4 pt-5">
+        {/* Tinted with the quantity's own series colour (2026-09-25, operator:
+            "do it same for trends page … should colorful") — a wash, not a
+            band: the figure and the status pill on it are dark ink. */}
+        <div
+          className="relative -mx-3 -mt-5 overflow-hidden px-3 pb-4 pt-5"
+          style={{ background: `linear-gradient(135deg, color-mix(in srgb, ${accent} 16%, #ffffff), color-mix(in srgb, ${accent} 6%, #ffffff))` }}
+        >
           {/* Two soft hills in the series colour, from the reference. */}
           <svg
             viewBox="0 0 200 100" preserveAspectRatio="none" aria-hidden="true"

@@ -206,10 +206,10 @@ export function DashboardPage() {
   return (
     <div
       className="space-y-4 animate-fade-in"
-      // Which ground the layout paints (app.css `.dash-ground`): DEEP while only
+      // Which ground the layout paints (app.css `.page-ground`): DEEP while only
       // the colour cards are on screen, LIGHT once the readings table is —
       // dark type on a dark field is the one thing the deep ground cannot hold.
-      data-dashboard-ground={nav.showViews ? 'light' : 'deep'}
+      data-page-ground={nav.showViews ? 'light' : 'deep'}
     >
       {/*
         THE PLATE behind this header is a legibility fix, not decoration.

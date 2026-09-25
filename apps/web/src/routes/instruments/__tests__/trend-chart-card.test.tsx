@@ -228,3 +228,15 @@ describe('TrendChartCard chart chrome', () => {
     expect(screen.queryByText('23.1 °C')).toBeNull();
   });
 });
+
+describe('TrendChartCard — the header wears the site band (2026-09-25)', () => {
+  // Operator: "do it same for trends page … all pages should colorful". The
+  // header is the band (`.widget-band`, white ink on `--band-gradient`); the
+  // body below it stays white for the chart.
+  it('puts .widget-band on the header and white ink on the title', () => {
+    const { container } = renderCard();
+    const header = container.querySelector('header');
+    expect(header?.className).toMatch(/(^|\s)widget-band(\s|$)/);
+    expect(screen.getByText('Temperature Trend').className).toMatch(/(^|\s)text-white(\s|$)/);
+  });
+});

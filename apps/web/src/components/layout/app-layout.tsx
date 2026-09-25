@@ -260,15 +260,15 @@ export function AppLayout() {
             </div>
           )}
           {/* With a wallpaper set the pane goes transparent so the image shows
-              through. Without one the DASHBOARD wears `.dash-ground` (app.css):
-              the DEEP theme ground behind the landing's colour cards, the light
-              tint once the readings table is on screen — the page marks which
-              with `data-dashboard-ground` and the CSS switches on `:has()`.
-              (Operator, 2026-09-25: "background should be fully colorfull",
-              then "as per cards colors make background good color".) Every
-              other page keeps the plain grey gradient it always had. */}
+              through. Without one EVERY page wears `.page-ground` (app.css): the
+              light theme tint, or the DEEP theme ground when the page marks
+              itself `data-page-ground="deep"` — the dashboard landing behind its
+              colour cards — switched in CSS with `:has()`. (Operator,
+              2026-09-25: "background should be fully colorfull", "as per cards
+              colors make background good color", "all pages should colorful and
+              background should be good".) The old grey gradient is gone. */}
           <main
-            className={`absolute inset-0 overflow-y-auto p-3 sm:p-4 lg:p-6 ${backgroundStyle ? '' : onDashboard ? 'dash-ground' : 'bg-gradient-to-br from-slate-50 to-slate-100/50'}`}
+            className={`absolute inset-0 overflow-y-auto p-3 sm:p-4 lg:p-6 ${backgroundStyle ? '' : 'page-ground'}`}
           >
             <Outlet />
           </main>

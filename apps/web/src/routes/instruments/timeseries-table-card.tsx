@@ -224,27 +224,24 @@ export function TimeseriesTableCard({
 
   return (
     <section className="overflow-hidden rounded-[var(--radius-card)] border border-slate-200 bg-white shadow-[var(--elev-1)]">
-      <header className="flex flex-wrap items-start justify-between gap-3 px-5 py-4">
+      {/* The site band (2026-09-25, operator: "time series in other pages …
+          all pages should colorful"): white words on `--band-gradient`, the
+          table below stays white. */}
+      <header className="widget-band flex flex-wrap items-start justify-between gap-3 px-5 py-4">
         <div className="flex min-w-0 items-center gap-3.5">
-          {/* The pastel disc, tinted from the active theme rather than the
-              reference's fixed lilac — this card is not about one quantity, so
-              it takes the site's own accent the way every other neutral
-              chrome element on the page does. */}
+          {/* The disc: glass on the band, the theme's own primary on the icon. */}
           <span
-            className="grid h-12 w-12 shrink-0 place-items-center rounded-full"
-            style={{
-              backgroundColor: 'color-mix(in srgb, var(--theme-primary, #4f46e5) 14%, #ffffff)',
-              color: 'var(--theme-primary, #4f46e5)',
-            }}
+            className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-white/90 ring-1 ring-white/40"
+            style={{ color: 'var(--theme-primary, #4f46e5)' }}
             aria-hidden="true"
           >
             <Activity className="h-6 w-6" />
           </span>
           <div className="min-w-0">
-            <h3 className="truncate text-lg font-bold tracking-tight text-slate-900">
+            <h3 className="truncate text-lg font-bold tracking-tight text-white">
               {title}
             </h3>
-            <p className="mt-0.5 truncate text-[0.8125rem] text-slate-500">
+            <p className="mt-0.5 truncate text-[0.8125rem] text-white/80">
               {subtitle}
             </p>
           </div>
