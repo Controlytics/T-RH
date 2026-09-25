@@ -122,20 +122,37 @@ describe('ReportSnapshot v2', () => {
     expect(pages.join(' ')).not.toContain('Printed By');
   });
 
-  it('APPROVED: prints the two signature lines and no watermark', async () => {
+  it('APPROVED: prints the signature TABLE — signers across the top, Name / Role / Date & Time down the left — and no watermark', async () => {
+    // Operator, 2026-09-25: "name, role, date & Time should come one below
+    // one, headings should be one row left side and reviewed by and approved
+    // by on top side by side".
     const original = await build();
     const approved = await renderSnapshotToPdf(original.getSnapshot(), {
       formatDateTime,
-      signatures: [
-        { label: 'Requested By', value: 'rrq (rrq) — 2026-09-07 14:02' },
-        { label: 'Approved By', value: 'rra (rra) — 2026-09-07 15:10' },
+      signatureTable: [
+        { label: 'Reviewed By', name: 'rrq', role: 'QA', dateTime: '2026-09-07 14:02' },
+        { label: 'Approved By', name: 'rra', role: 'QA_MANAGER', dateTime: '2026-09-07 15:10' },
       ],
     });
     approved.save('approved.pdf');
     const text = pageTexts(approved.doc).join(' ');
-    expect(text).toContain('Requested By: rrq (rrq)');
-    expect(text).toContain('Approved By: rra (rra)');
+    for (const word of ['Reviewed By', 'Approved By', 'Name', 'Role', 'Date & Time', 'rrq', 'rra', 'QA', 'QA_MANAGER', '2026-09-07 14:02', '2026-09-07 15:10']) {
+      expect(text).toContain(word);
+    }
+    // The old line form is gone.
+    expect(text).not.toContain('Requested By:');
     expect(text).not.toContain('DRAFT');
+  });
+
+  it('the old line signatures still print when a caller passes them', async () => {
+    const original = await build();
+    const approved = await renderSnapshotToPdf(original.getSnapshot(), {
+      formatDateTime,
+      signatures: [{ label: 'Printed By', value: 'someone' }],
+    });
+    // The end block is painted at FINALISATION (save / toBlobUrl), not before.
+    approved.save('lines.pdf');
+    expect(pageTexts(approved.doc).join(' ')).toContain('Printed By: someone');
   });
 
   it('normaliseSnapshot accepts only version 2', () => {

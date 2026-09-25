@@ -37,9 +37,9 @@ const approved = {
   id: 'r1', reportType: 'Instrument Time Series', title: 'Temperature and RH Data Report', subtitle: null,
   requestMeta: { period: { from: '2026-08-24T00:00:00.000Z', to: '2026-08-24T01:00:00.000Z', label: 'Custom' } },
   status: 'APPROVED' as const,
-  requestedBy: 'u-req', requestedByName: 'rrq', requestedAt: '2026-09-07T14:02:00.000Z', requestRemarks: 'periodic review',
+  requestedBy: 'u-req', requestedByName: 'rrq', requestedByRole: 'QA', requestedAt: '2026-09-07T14:02:00.000Z', requestRemarks: 'periodic review',
   assigneeUserId: 'u-appr', assigneeRole: null,
-  decidedBy: 'u-appr', decidedByName: 'rra', decidedAt: '2026-09-07T15:10:00.000Z', decisionRemarks: 'checked',
+  decidedBy: 'u-appr', decidedByName: 'rra', decidedByRole: 'QA_MANAGER', decidedAt: '2026-09-07T15:10:00.000Z', decisionRemarks: 'checked',
   createdAt: '2026-09-07T14:02:00.000Z',
   dataSnapshot: snapshot,
 };
@@ -68,17 +68,19 @@ describe('submitReportForReview', () => {
   });
 });
 
-describe('reviewSignatures', () => {
-  it('names each signer with their user id and the date-time of their password-verified action', () => {
+describe('reviewSignatures — the signature TABLE (2026-09-25)', () => {
+  // Operator: "reviewed by and approved by … Name, Role, Date & Time … side by
+  // side". One column per signer, the role FROZEN on the record.
+  it('gives one column per signer with the name, the frozen role and the date-time of their password-verified act', () => {
     expect(reviewSignatures(approved, fmt)).toEqual([
-      { label: 'Requested By', value: 'rrq (rrq) — 2026-09-07 14:02' },
-      { label: 'Approved By', value: 'rra (rra) — 2026-09-07 15:10' },
+      { label: 'Reviewed By', name: 'rrq', role: 'QA', dateTime: '2026-09-07 14:02' },
+      { label: 'Approved By', name: 'rra', role: 'QA_MANAGER', dateTime: '2026-09-07 15:10' },
     ]);
   });
 
-  it('omits Approved By while undecided', () => {
-    const pending = { ...approved, status: 'PENDING' as const, decidedBy: null, decidedByName: null, decidedAt: null };
-    expect(reviewSignatures(pending, fmt)).toEqual([{ label: 'Requested By', value: 'rrq (rrq) — 2026-09-07 14:02' }]);
+  it('omits the Approved By column while undecided, and prints a null role as null (the PDF draws a dash)', () => {
+    const pending = { ...approved, status: 'PENDING' as const, requestedByRole: null, decidedBy: null, decidedByName: null, decidedByRole: null, decidedAt: null };
+    expect(reviewSignatures(pending, fmt)).toEqual([{ label: 'Reviewed By', name: 'rrq', role: null, dateTime: '2026-09-07 14:02' }]);
   });
 });
 
@@ -96,7 +98,9 @@ describe('downloadApproved', () => {
     expect(events).toEqual(['post:/api/report-reviews/r1/download-log', expect.stringMatching(/^save:/)]);
     const opts = (renderSnapshotToPdf as any).mock.calls[0][1];
     expect(opts.draft).toBeUndefined();
-    expect(opts.signatures.map((s: any) => s.label)).toEqual(['Requested By', 'Approved By']);
+    // The signature TABLE (2026-09-25): one column per signer.
+    expect(opts.signatureTable.map((s: any) => s.label)).toEqual(['Reviewed By', 'Approved By']);
+    expect(opts.signatures).toBeUndefined();
     expect(saved[0]).toMatch(/approved\.pdf$/);
   });
 
@@ -123,6 +127,7 @@ describe('openDraft', () => {
     const opts = (renderSnapshotToPdf as any).mock.calls[0][1];
     expect(opts.draft).toBe(true);
     expect(opts.signatures).toBeUndefined();
+    expect(opts.signatureTable).toBeUndefined();
     expect(open).toHaveBeenCalledWith('blob:draft', '_blank');
     expect(events).toEqual([]);
     vi.unstubAllGlobals();

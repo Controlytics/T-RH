@@ -133,6 +133,12 @@ export interface ReportConfig {
    *  set, these REPLACE the role-based single line — used when re-rendering an
    *  approved report from a snapshot so all three signatures print. */
   signatures?: { label: string; value: string }[];
+  /**
+   * The approved copy's SIGNATURE TABLE (2026-09-25): one column per signer
+   * (Reviewed By, Approved By) and Name / Role / Date & Time as the rows.
+   * Wins over `signatures` when given. Drawn with autotable in the end block.
+   */
+  signatureTable?: { label: string; name: string; role: string | null; dateTime: string }[];
   /** Optional abbreviation key. Rendered as a "Legend" on the last page (above
    *  the Printed By stamp). Pass the shortcut words used in the report body
    *  (e.g. NA = Not Applicable). Omitted when empty. */
@@ -484,9 +490,16 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     // snapshot) win — they carry the full Printed/Reviewed/Approved By chain.
     // Otherwise a single line whose label is chosen per role × per report
     // (config → Report Signatories) by the current generator.
+    // The signature TABLE (2026-09-25): head row + three body rows at the label
+    // size — measured by autotable after drawing, but the block has to be
+    // sized BEFORE it is placed, so this is the height it is reserved.
+    const sigTable = !config.draft && config.signatureTable?.length ? config.signatureTable : null;
+    const SIG_TABLE_H = 4 * (t.labelPt * 0.3528 * 1.15 + 2.8) + 2;
     let sigLines: string[];
     if (config.draft) {
       // Unsigned by definition; the signatures arrive with the approved copy.
+      sigLines = [];
+    } else if (sigTable) {
       sigLines = [];
     } else if (config.signatures?.length) {
       sigLines = config.signatures.map((s) => `${s.label}: ${s.value}`);
@@ -497,7 +510,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
 
     const remarksH = 4 + 22 + 3;                         // label + box + gap
     const legendH = legendLines.length ? legendLines.length * legendLineH + 3 : 0;
-    const printedH = 4 + sigLines.length * sigLineH;
+    const printedH = sigTable ? 4 + SIG_TABLE_H : 4 + sigLines.length * sigLineH;
     const blockH = remarksH + legendH + printedH;
 
     const footerLineY = ph - 12;
@@ -520,11 +533,33 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       doc.text(legendLines, 14, by + 2.5);
       by += legendLines.length * legendLineH + 3;
     }
-    // Signatory block (one line each) + Printed Date & Time on the first line.
+    // Signatory block + Printed Date & Time on the first line.
     doc.setDrawColor(...COLORS.border); doc.setLineWidth(0.2);
     doc.line(14, by, pw - 14, by);
     doc.setFontSize(t.labelPt); doc.setTextColor(...COLORS.text);
-    sigLines.forEach((line, i) => doc.text(line, 14, by + sigLineH + i * sigLineH));
+    if (sigTable) {
+      // The table: signers across the top, Name / Role / Date & Time down the
+      // left. It takes the left of the line; Printed Date & Time keeps the
+      // right, as on the line layout.
+      autoTable(doc, {
+        startY: by + 2,
+        margin: { left: 14, right: 14 },
+        tableWidth: Math.max(90, pw - 28 - 64),
+        head: [['', ...sigTable.map((c) => c.label)]],
+        body: [
+          ['Name', ...sigTable.map((c) => c.name)],
+          ['Role', ...sigTable.map((c) => c.role ?? '—')],
+          ['Date & Time', ...sigTable.map((c) => c.dateTime)],
+        ],
+        theme: 'grid',
+        styles: { fontSize: t.labelPt, cellPadding: 1.4, textColor: COLORS.text, lineColor: COLORS.border, lineWidth: 0.2 },
+        headStyles: { fillColor: COLORS.headerBg, textColor: COLORS.primary, fontStyle: 'bold' },
+        columnStyles: { 0: { fontStyle: 'bold', cellWidth: 30 } },
+      });
+    } else {
+      sigLines.forEach((line, i) => doc.text(line, 14, by + sigLineH + i * sigLineH));
+    }
+    doc.setFontSize(t.labelPt); doc.setTextColor(...COLORS.text);
     doc.text(`Printed Date & Time: ${printedAt}`, pw - 14, by + sigLineH, { align: 'right' });
   };
 
@@ -680,7 +715,12 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
  */
 export async function renderSnapshotToPdf(
   snapshot: ReportSnapshot,
-  opts: { formatDateTime: (d: string) => string; signatures?: { label: string; value: string }[]; draft?: boolean },
+  opts: {
+    formatDateTime: (d: string) => string;
+    signatures?: { label: string; value: string }[];
+    signatureTable?: ReportConfig['signatureTable'];
+    draft?: boolean;
+  },
 ): Promise<ReportDoc> {
   const report = await createReport({
     title: snapshot.title,
@@ -692,6 +732,7 @@ export async function renderSnapshotToPdf(
     showAppName: snapshot.config?.showAppName,
     formatDateTime: opts.formatDateTime,
     signatures: opts.signatures,
+    signatureTable: opts.signatureTable,
     draft: opts.draft,
   });
   for (const s of snapshot.sections) {

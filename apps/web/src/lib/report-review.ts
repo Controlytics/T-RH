@@ -35,12 +35,16 @@ export interface ReviewSummary {
   requestedBy: string;
   /** The username — what the signature line prints. */
   requestedByName: string;
+  /** The role held at the request, FROZEN there (2026-09-25); null on a row older than the column. */
+  requestedByRole: string | null;
   requestedAt: string;
   requestRemarks: string;
   assigneeUserId: string | null;
   assigneeRole: string | null;
   decidedBy: string | null;
   decidedByName: string | null;
+  /** The role held at the decision, FROZEN there (2026-09-25). */
+  decidedByRole: string | null;
   decidedAt: string | null;
   decisionRemarks: string | null;
   createdAt: string;
@@ -93,20 +97,29 @@ export function assigneeText(r: Pick<ReviewSummary, 'assigneeUserId' | 'assignee
 }
 
 /**
- * The signature lines the approved PDF prints: each signer's name, user ID and
- * the date-time of their password-verified action. The name IS the user ID
- * here (usernames are the identity this system signs with), so it prints
- * twice on purpose — the label the reader knows and the ID the record keys on.
+ * The SIGNATURE TABLE the approved PDF prints (2026-09-25, operator: "reviewed
+ * by and approved by … should come in table, Name, Role, Date & Time for both
+ * should come side by side" / "name, role, date & Time should come one below
+ * one, headings should be one row left side and reviewed by and approved by
+ * on top side by side"). One column per signer — REVIEWED BY (the requester,
+ * in the operator's words) and APPROVED BY — with Name, Role and Date & Time
+ * as the rows. The name is the username (the identity this system signs
+ * with); the role is the one FROZEN on the record at the password-verified
+ * act, never looked up live; the date-time is that act's. Until then two
+ * lines, "Requested By: name (id) — date-time".
  */
+export interface SignatureColumn { label: string; name: string; role: string | null; dateTime: string }
 export function reviewSignatures(
-  r: Pick<ReviewSummary, 'requestedByName' | 'requestedAt' | 'decidedByName' | 'decidedAt' | 'status'>,
+  r: Pick<ReviewSummary, 'requestedByName' | 'requestedByRole' | 'requestedAt' | 'decidedByName' | 'decidedByRole' | 'decidedAt' | 'status'>,
   formatDateTime: (d: string) => string,
-): { label: string; value: string }[] {
-  const lines = [{ label: 'Requested By', value: `${r.requestedByName} (${r.requestedByName}) — ${formatDateTime(r.requestedAt)}` }];
+): SignatureColumn[] {
+  const columns: SignatureColumn[] = [
+    { label: 'Reviewed By', name: r.requestedByName, role: r.requestedByRole ?? null, dateTime: formatDateTime(r.requestedAt) },
+  ];
   if (r.status === 'APPROVED' && r.decidedByName && r.decidedAt) {
-    lines.push({ label: 'Approved By', value: `${r.decidedByName} (${r.decidedByName}) — ${formatDateTime(r.decidedAt)}` });
+    columns.push({ label: 'Approved By', name: r.decidedByName, role: r.decidedByRole ?? null, dateTime: formatDateTime(r.decidedAt) });
   }
-  return lines;
+  return columns;
 }
 
 function fileSlug(title: string): string {
@@ -134,6 +147,6 @@ export async function downloadApproved(id: string, formatDateTime: (d: string) =
   const r = await fetchReview(id);
   if (r.status !== 'APPROVED') throw new Error('This report is not approved yet.');
   await apiClient.post(`/api/report-reviews/${id}/download-log`, {});
-  const report = await renderSnapshotToPdf(normaliseSnapshot(r.dataSnapshot), { formatDateTime, signatures: reviewSignatures(r, formatDateTime) });
+  const report = await renderSnapshotToPdf(normaliseSnapshot(r.dataSnapshot), { formatDateTime, signatureTable: reviewSignatures(r, formatDateTime) });
   report.save(`${fileSlug(r.title)}-approved.pdf`);
 }

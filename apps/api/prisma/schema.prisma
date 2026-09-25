@@ -850,6 +850,8 @@ model ReportReview {
   requestedBy     String             @map("requested_by") @db.Uuid
   /// The username — what the signature line prints.
   requestedByName String             @map("requested_by_name") @db.VarChar(255)
+  /// The role held at the request — FROZEN, since the signature block prints it (2026-09-25).
+  requestedByRole String?            @map("requested_by_role") @db.VarChar(50)
   requestedAt     DateTime           @default(now()) @map("requested_at") @db.Timestamptz
   requestRemarks  String             @map("request_remarks") @db.Text
 
@@ -859,6 +861,8 @@ model ReportReview {
 
   decidedBy       String?            @map("decided_by") @db.Uuid
   decidedByName   String?            @map("decided_by_name") @db.VarChar(255)
+  /// The role held at the decision — FROZEN (2026-09-25).
+  decidedByRole   String?            @map("decided_by_role") @db.VarChar(50)
   decidedAt       DateTime?          @map("decided_at") @db.Timestamptz
   decisionRemarks String?            @map("decision_remarks") @db.Text
 

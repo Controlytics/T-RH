@@ -139,7 +139,9 @@ describe('POST /api/report-reviews', () => {
     expect(res.statusCode).toBe(201);
     const body = res.json();
     created.push(body.id);
-    expect(body).toMatchObject({ status: 'PENDING', assigneeUserId: idAppr, assigneeRole: null, requestedByName: U_REQ, reportType: 'Instrument Time Series', requestRemarks: 'periodic review' });
+    // `requestedByRole` is FROZEN at the request and DECLARED in the response
+    // schema (2026-09-25) — the approved PDF's signature table prints it.
+    expect(body).toMatchObject({ status: 'PENDING', assigneeUserId: idAppr, assigneeRole: null, requestedByName: U_REQ, requestedByRole: ROLE_REQ, decidedByRole: null, reportType: 'Instrument Time Series', requestRemarks: 'periodic review' });
     expect(body.requestMeta.instrumentCodes).toEqual(['CWH/RDU/001-00']);
     // The snapshot is NOT on the list/summary shape.
     expect(body.dataSnapshot).toBeUndefined();
@@ -289,7 +291,7 @@ describe('POST /api/report-reviews/:id/approve | reject', () => {
   it('approves once — audits, notifies the requester — and refuses a second decision with 409', async () => {
     const res = await decide(created[0], 'approve', tokAppr, 'reviewed against the batch record');
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ status: 'APPROVED', decidedByName: U_APPR, decisionRemarks: 'reviewed against the batch record' });
+    expect(res.json()).toMatchObject({ status: 'APPROVED', decidedByName: U_APPR, decidedByRole: ROLE_APPR, decisionRemarks: 'reviewed against the batch record' });
     expect(res.json().decidedAt).toBeTruthy();
     const audit = await prisma.auditTrail.findFirst({ where: { action: 'REPORT_REVIEW_APPROVED', targetId: created[0] } });
     expect(audit?.userId).toBe(U_APPR);

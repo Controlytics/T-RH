@@ -105,9 +105,9 @@ export interface SubmitInput {
 /** The list rows: everything but the snapshot, which can be hundreds of KB. */
 const SUMMARY_SELECT = {
   id: true, reportType: true, title: true, subtitle: true, requestMeta: true, status: true,
-  requestedBy: true, requestedByName: true, requestedAt: true, requestRemarks: true,
+  requestedBy: true, requestedByName: true, requestedByRole: true, requestedAt: true, requestRemarks: true,
   assigneeUserId: true, assigneeRole: true,
-  decidedBy: true, decidedByName: true, decidedAt: true, decisionRemarks: true,
+  decidedBy: true, decidedByName: true, decidedByRole: true, decidedAt: true, decisionRemarks: true,
   createdAt: true,
 } satisfies Prisma.ReportReviewSelect;
 
@@ -184,6 +184,8 @@ export const reportReviewService = {
         dataSnapshot: input.dataSnapshot as Prisma.InputJsonValue,
         requestedBy: ctx.userSub,
         requestedByName: ctx.userId,
+        // FROZEN at the request: the signature block prints it (2026-09-25).
+        requestedByRole: ctx.userRole,
         requestRemarks: input.remarks,
         ...assignee,
       },
@@ -247,7 +249,8 @@ export const reportReviewService = {
     // nothing and is told so.
     const { count } = await prisma.reportReview.updateMany({
       where: { id, status: 'PENDING' },
-      data: { status: decision, decidedBy: ctx.userSub, decidedByName: ctx.userId, decidedAt: new Date(), decisionRemarks: remarks },
+      // `decidedByRole` FROZEN at the decision: the signature block prints it (2026-09-25).
+      data: { status: decision, decidedBy: ctx.userSub, decidedByName: ctx.userId, decidedByRole: ctx.userRole, decidedAt: new Date(), decisionRemarks: remarks },
     });
     if (count === 0) throw new AppError(409, 'ALREADY_DECIDED', 'This request has already been decided.');
     const after = (await prisma.reportReview.findUnique({ where: { id }, select: SUMMARY_SELECT }))!;

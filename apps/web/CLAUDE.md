@@ -391,7 +391,12 @@ Every PDF download is a REQUEST an approver signs. Spec:
   unwatermarked PDF (review, 2026-09-07). Any new output path goes through
   `finalise()`, never `doc.output` directly);
   Download on APPROVED (`downloadApproved` — audits through
-  `/download-log` BEFORE `save()`, refuses a non-approved row). **Clicking an
+  `/download-log` BEFORE `save()`, refuses a non-approved row; since
+  2026-09-25 it passes `signatureTable: reviewSignatures(r, fmt)` — one
+  `SignatureColumn` per signer (Reviewed By / Approved By: name, the FROZEN
+  `requestedByRole` / `decidedByRole`, date-time) that `pdf-report.ts` draws
+  as an autotable in the end block, Name / Role / Date & Time down the left;
+  the `signatures` line form still exists for other callers). **Clicking an
   APPROVED row opens its report DATA beneath it** (2026-09-25, operator:
   "once approved then if user click on that row, that report data should be
   shown in below that row in table format"): `report-snapshot-view.tsx`

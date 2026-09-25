@@ -882,7 +882,15 @@ GET    /api/config/report-approvers/current     — the administered approver ro
   new **Reports** sidebar page (`/reports`, three lists: For my approval, My
   requests, Approved) and approves or rejects with remarks + password; the
   requester, the approver and SUPER_ADMIN then download the approved copy with
-  **Requested By / Approved By** lines (name, user ID, date-time). The Audit
+  a **signature TABLE** (since 2026-09-25, operator: "Name, Role, Date & Time
+  for both should come side by side" — **Reviewed By** and **Approved By**
+  across the top, Name / Role / Date & Time down the left; two "Requested By"
+  lines until then). **The ROLE is FROZEN on the record at the act** —
+  `report_reviews.requested_by_role` / `decided_by_role`, migration
+  `20260925120000_report_review_roles` (nullable columns, no enum; models stay
+  37, enums 13; rows older than the column were backfilled from `users` by
+  username, the best fact available) — written from `ctx.userRole`, declared
+  in the response schema, never looked up live. The Audit
   page's Excel export is not a PDF and stays direct.
   - **The snapshot is the record.** `ReportSnapshot` v2 (`lib/pdf-report.ts`)
     records EVERY drawing call — tables with bold and spans, pairs, titles,

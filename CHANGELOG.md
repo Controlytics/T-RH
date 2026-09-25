@@ -1,5 +1,45 @@
 # Changelog
 
+## [Unreleased] - Approved PDF: the signatures are a TABLE, and each signer's ROLE is frozen on the record (2026-09-25)
+
+Operator: *"in downloaded report reviewed by and approved by was coming
+right, those should be come in table, Name, Role, Date & Time for both should
+come side by side"*, then *"name, role, date & Time should come one below
+one, headings should be one row left side and reviewed by and approved by on
+top side by side"*.
+
+- **The approved PDF's end block prints a signature table**: **Reviewed By**
+  and **Approved By** as the two column headings across the top (the
+  operator's words — the first is the requester), and **Name**, **Role**,
+  **Date & Time** as the three rows down the left. Drawn with autotable in
+  `pdf-report.ts` (`ReportConfig.signatureTable`, height reserved before the
+  block is placed); the two "Requested By: name (id) — date-time" lines are
+  gone from that copy. The line form (`signatures`) still exists for any
+  other caller and is still tested. Printed Date & Time keeps the right.
+- **The ROLE is FROZEN at the act, never looked up live.** Migration
+  `20260925120000_report_review_roles` adds `report_reviews.requested_by_role`
+  and `decided_by_role` (nullable VARCHAR(50), no enum — models stay 37,
+  enums 13); the service writes `ctx.userRole` on the request and on the
+  decision; the response schema declares both (Fastify would strip them
+  silently — e2e asserts them over HTTP). A signature block must read back
+  the way it was signed, and a user's role can change afterwards.
+  **Backfill, recorded in the migration**: rows written before the column
+  took the signer's CURRENT role from `users` by username — the best fact
+  available, not the role at signing; a signer who no longer exists stays
+  NULL and prints a dash. Local: 3 of 3 requests and 2 of 2 decisions
+  filled. **Applied to both local databases; AWS gets it on the next
+  deploy (`migrate deploy`).** The API dev server was stopped ~15 s for
+  `prisma generate` and restarted; Vite untouched.
+- `reviewSignatures()` in `lib/report-review.ts` now returns
+  `SignatureColumn[]` (label, name, role, dateTime); `ReviewSummary` carries
+  `requestedByRole` / `decidedByRole`.
+- Tests: e2e 19/19 (roles asserted on the request and the decision); web
+  `report-review` 9/9 (the table's columns, a null role, the draft carries
+  neither form), `pdf-report-snapshot` (every heading, name, role and
+  date-time in the rendered text; the line form still prints for another
+  caller), Reports page 13/13; tsc both apps and vite build clean. The
+  rendered PDF was not looked at.
+
 ## [Unreleased] - Reports: an approved row opens its report data beneath it, as tables (2026-09-25)
 
 Operator: *"once approved then if user click on that row, that report data
