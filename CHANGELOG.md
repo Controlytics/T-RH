@@ -44,7 +44,11 @@ pane in `components/layout/app-layout.tsx`. No count moved.
   1.25rem → 1.5rem extrabold (was 0.9375 → 1.0625 bold), the sublabel and the
   Instruments eyebrow 0.8125rem bold (was 0.6875 semibold), the figure 2.25 →
   3rem black (was 1.875 → 2.5 extrabold), the active / inactive chips and
-  View Details one step up and bold. The two hero cards are unchanged.
+  View Details one step up and bold. Then the same for the two hero cards
+  (operator: "same for all instruments and active alarms"): titles 1.25 →
+  1.5rem extrabold, subtitles 0.9375rem semibold, figures 2.5 → 3.5rem black,
+  eyebrows 0.8125rem bold, the awaiting-acknowledgement line 0.875rem, chips
+  and View Details at the block cards' size.
 
 ## [Unreleased] - Contact Admin: the Enable Account request type is gone (2026-09-25)
 

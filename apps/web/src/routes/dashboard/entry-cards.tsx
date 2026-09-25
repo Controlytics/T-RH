@@ -217,22 +217,22 @@ export function EntryCards({
             className="p-5 xl:p-6"
           >
             <div className="min-w-0">
-              <h3 className="text-[0.9375rem] font-bold text-white xl:text-[1.0625rem]">All Instruments</h3>
-              <p className="mt-0.5 text-[0.8125rem] text-white/80">
+              <h3 className="text-[1.25rem] font-extrabold text-white xl:text-[1.5rem]">All Instruments</h3>
+              <p className="mt-1 text-[0.9375rem] font-semibold text-white/85">
                 Every registered instrument across the system
               </p>
             </div>
 
-            <p className="mt-5 text-[2.125rem] font-extrabold leading-none tracking-tight text-white tabular-nums lg:text-[2.5rem] xl:text-[2.875rem]">
+            <p className="mt-5 text-[2.5rem] font-black leading-none tracking-tight text-white tabular-nums lg:text-[3rem] xl:text-[3.5rem]">
               {all.count.toLocaleString()}
             </p>
-            <p className="mt-2 text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-white/70">
+            <p className="mt-2 text-[0.8125rem] font-bold uppercase tracking-[0.14em] text-white/80">
               Instruments
             </p>
-            <ActiveSplit total={all.count} active={all.activeCount} />
+            <ActiveSplit total={all.count} active={all.activeCount} large />
 
             <div className="mt-4 flex justify-end">
-              <ViewDetails />
+              <ViewDetails large />
             </div>
           </CardShell>
         )}
@@ -246,8 +246,8 @@ export function EntryCards({
             data-tone={alarmTone}
           >
             <div className="min-w-0">
-              <h3 className="text-[0.9375rem] font-bold text-white xl:text-[1.0625rem]">Active Alarms</h3>
-              <p className="mt-0.5 text-[0.8125rem] text-white/80">
+              <h3 className="text-[1.25rem] font-extrabold text-white xl:text-[1.5rem]">Active Alarms</h3>
+              <p className="mt-1 text-[0.9375rem] font-semibold text-white/85">
                 {/* Says what to DO, and stays honest at zero. */}
                 {activeAlarms > 0 ? 'Require your attention' : 'Nothing to attend to'}
               </p>
@@ -255,20 +255,20 @@ export function EntryCards({
 
             {/* The CARD is green at zero and red otherwise (`data-tone`); the
                 figure is white on both so it never fights its ground. */}
-            <p className="mt-5 text-[2.125rem] font-extrabold leading-none tracking-tight text-white tabular-nums lg:text-[2.5rem] xl:text-[2.875rem]">
+            <p className="mt-5 text-[2.5rem] font-black leading-none tracking-tight text-white tabular-nums lg:text-[3rem] xl:text-[3.5rem]">
               {activeAlarms.toLocaleString()}
             </p>
-            <p className="mt-2 text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-white/70">
+            <p className="mt-2 text-[0.8125rem] font-bold uppercase tracking-[0.14em] text-white/80">
               Alarms
             </p>
 
             <div className="mt-4 flex items-end justify-between gap-3">
-              <p className="text-[0.75rem] text-white/80">
+              <p className="text-[0.875rem] font-semibold text-white/85">
                 {(alarms.unacknowledged ?? 0) > 0
                   ? `${alarms.unacknowledged} awaiting acknowledgement`
                   : ' '}
               </p>
-              <ViewDetails />
+              <ViewDetails large />
             </div>
           </CardShell>
         )}
@@ -305,9 +305,9 @@ export function EntryCards({
                   {/* Above the wave. The wave is decoration and must never
                       swallow a number. */}
                   <div className="relative z-10 flex h-full flex-col">
-                    {/* One step larger and bolder than the hero cards' text
-                        (operator, 2026-09-25: "make block text bold and
-                        increase font sizes"). */}
+                    {/* One step larger and bolder (operator, 2026-09-25: "make
+                        block text bold and increase font sizes", then "same for
+                        all instruments and active alarms"). */}
                     <h3 className="truncate text-[1.25rem] font-extrabold text-white xl:text-[1.5rem]" title={b.label}>
                       {b.label}
                     </h3>
