@@ -25,6 +25,18 @@ proper colorful and table format and fonts size increase and bold"*.
 - Tests: a new lock (rose row, extrabold ID in the panel); 36/36 there,
   Alarms page 27/27 and trend widget 34/34 untouched; tsc and vite build
   clean. Not seen on screen.
+- **Then the row wash went and the grid came** (operator: "still table
+  format lines was not coming in between columns and colorin was not
+  good"). The panel now has the READINGS TABLE's own structure: `.alarm-grid`
+  (`app.css`, `@layer components`) draws a 1px line around every cell and a
+  white / slate-50 zebra with a blue hover; the column headers wear the
+  `.tv-h-*` hues (Instrument ID blue, Location teal, Raised sky, Generated
+  Value orange, Status violet, Acknowledged by navy — plus two new ones,
+  `tv-h-type` rose and `tv-h-limit` amber), and the reading sits in the
+  readings table's `.tv-chip`, tinted rose for a high breach and sky for a
+  low one. `ROW_TINT` is gone; `alarmRowClass(_, 'lg')` is a plain row. The
+  lock test now asserts the grid class, the header hues, no wash, and the
+  chip. 36/36; the other two alarm tables untouched.
 
 ## [Unreleased] - Dashboard readings table: bigger, bolder, and the readings and set points are chips (2026-09-25)
 

@@ -598,13 +598,22 @@ describe('SelectionAlarms — the lg size mode (2026-09-25)', () => {
   // panel wraps the shared cells in AlarmTableSizeProvider size="lg": each row
   // is washed in its own tone and the type steps up a size and a weight. The
   // Alarms page and the trend widget pass no size and are untouched.
-  it('washes a live unanswered row rose and prints its instrument extrabold', () => {
+  it('is a bordered grid with the readings table\'s column hues and an extrabold ID', () => {
     renderWith([active]);
+    // The grid: lines between every cell and a zebra come from `.alarm-grid`
+    // (app.css); the colour from the `.tv-h-*` headers, not a row wash.
+    const table = screen.getByRole('table');
+    expect(table.className).toMatch(/(^|\s)alarm-grid(\s|$)/);
+    const heads = screen.getAllByRole('columnheader');
+    expect(heads[0].className).toMatch(/(^|\s)tv-h-id(\s|$)/);
+    expect(heads[1].className).toMatch(/(^|\s)tv-h-type(\s|$)/);
     const rows = screen.getAllByRole('row');
     const body = rows[rows.length - 1];
-    expect(body.className).toMatch(/(^|\s)bg-rose-50(\s|$)/);
-    const id = within(body).getAllByRole('cell')[0];
-    expect(id.className).toMatch(/(^|\s)font-extrabold(\s|$)/);
-    expect(id.className).toMatch(/(^|\s)text-base(\s|$)/);
+    expect(body.className).not.toMatch(/bg-rose-50/);
+    const cells = within(body).getAllByRole('cell');
+    expect(cells[0].className).toMatch(/(^|\s)font-extrabold(\s|$)/);
+    expect(cells[0].className).toMatch(/(^|\s)text-base(\s|$)/);
+    // The reading is a tone chip.
+    expect(cells[4].querySelector('.tv-chip')).not.toBeNull();
   });
 });

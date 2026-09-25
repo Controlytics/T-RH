@@ -250,14 +250,18 @@ export function SelectionAlarms({ functionalLocationId }: { functionalLocationId
 
           The inner wrapper clips the shared banner's corners to this one and
           scrolls the table sideways rather than the panel. */}
-      {/* `lg`: the shared cells one size and one weight up, and each row washed
-          in its own tone (operator, 2026-09-25: "make that also proper
-          colorful and table format and fonts size increase and bold"). The
-          Alarms page and the trend widget are untouched. */}
+      {/* `lg`: the shared cells one size and one weight up (operator,
+          2026-09-25: "make that also proper colorful and table format and
+          fonts size increase and bold"), then — "still table format lines was
+          not coming in between columns and colorin was not good" — the
+          readings table's own structure: `.alarm-grid` (a line around every
+          cell, a zebra) and the `.tv-h-*` column-header hues, so the two
+          tables on this dashboard read as one family. The Alarms page and the
+          trend widget are untouched. */}
       <AlarmTableSizeProvider size="lg">
       <div className="overflow-hidden rounded-xl border border-slate-200">
         <div className="overflow-x-auto">
-          <table className="w-full text-[0.9375rem]">
+          <table className="alarm-grid w-full border-collapse text-[0.9375rem]">
             <AlarmTableHead>
               <tr>
                 {/* No `sortKey` on any of these. The Alarms page sorts on the
@@ -265,19 +269,19 @@ export function SelectionAlarms({ functionalLocationId }: { functionalLocationId
                     selection and has no server sort behind it, so a header that
                     reordered only the rows already in hand would claim a sort of
                     the record it is not doing. */}
-                <Th>Instrument ID</Th>
-                <Th>Type</Th>
-                <Th>Location</Th>
-                <Th>Raised</Th>
+                <Th className="tv-h-id">Instrument ID</Th>
+                <Th className="tv-h-type">Type</Th>
+                <Th className="tv-h-loc">Location</Th>
+                <Th className="tv-h-asof">Raised</Th>
                 {/* Stacked one word per line, and the bracketed unit legend under
                     the name — both exactly as the Alarms page has them. `Th` is
                     `whitespace-nowrap`, so an unstacked two-word heading is the
                     widest cell in the table and drags its column out with it,
                     which matters more here than on a full-width page. */}
-                <Th><Stack>Generated</Stack><Stack>Value</Stack><UnitLine>(°C / %RH)</UnitLine></Th>
-                <Th>Limit</Th>
-                <Th>Status</Th>
-                <Th><Stack>Acknowledged</Stack><Stack>by</Stack></Th>
+                <Th className="tv-h-temp"><Stack>Generated</Stack><Stack>Value</Stack><UnitLine>(°C / %RH)</UnitLine></Th>
+                <Th className="tv-h-limit">Limit</Th>
+                <Th className="tv-h-status">Status</Th>
+                <Th className="tv-h-trend"><Stack>Acknowledged</Stack><Stack>by</Stack></Th>
                 {/* The action column, unlabelled as on the Alarms page.
                     **NOT sticky, and the reason is not the column count.** That
                     page pins its action cell because twelve columns overflow a
@@ -290,10 +294,10 @@ export function SelectionAlarms({ functionalLocationId }: { functionalLocationId
                     stripe pinned down the right edge would paint over the tint
                     that change exists to show. The panel scrolls sideways
                     instead. */}
-                <Th />
+                <Th className="tv-h-trend" />
               </tr>
             </AlarmTableHead>
-            <tbody className="divide-y divide-slate-200/80">
+            <tbody>
               {!data && (
                 <AlarmTableMessage colSpan={COLUMNS} className="px-4 py-4">
                   <SkeletonRows rows={3} columns={4} />

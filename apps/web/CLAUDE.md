@@ -749,10 +749,13 @@ Each caller still shows a different subset and each subset has a reason:
 this selection alarm widget make that also proper colorful and table format
 and fonts size increase and bold").** `AlarmTableSizeProvider size="lg"`
 around the dashboard panel's table: every cell steps its type up one size
-and one weight, and `alarmRowClass(tone, 'lg')` washes each row in its tone
-(`ROW_TINT`). The Alarms page and the trend widget pass nothing and are
-unchanged — one set of cells, two sizes; do not fork a cell to size it.
-Pinned in `selection-alarms.test.tsx`.
+and one weight and the reading sits in the readings table's `.tv-chip`. The
+panel's table is `.alarm-grid` (`app.css`: a line around every cell, a
+zebra) with the readings table's `.tv-h-*` column-header hues, so the two
+dashboard tables read as one family (a tone wash over each row lasted an
+hour — "colorin was not good"). The Alarms page and the trend widget pass
+nothing and are unchanged — one set of cells, two sizes; do not fork a cell
+to size it. Pinned in `selection-alarms.test.tsx`.
 
 **The two WIDGETS also share one filter toolbar** — `alarm-widget-filters.tsx`,
 search + type + status (operator, 2026-09-01). Extracted, not copied, for the same

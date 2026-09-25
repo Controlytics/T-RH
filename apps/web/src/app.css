@@ -663,7 +663,10 @@ table {
 
 /* ===========================================================================
    TABULAR VIEW (Dashboard -> Table view) — scoped styling for the room-condition
-   table in routes/dashboard/telemetry-table.tsx. Nothing else uses `.tv-*`.
+   table in routes/dashboard/telemetry-table.tsx. Since 2026-09-25 the
+   dashboard ALARMS panel (routes/dashboard/selection-alarms.tsx) reuses the
+   `.tv-h-*` headers and `.tv-chip` — deliberately, so the two tables on one
+   screen share one palette; nothing else uses `.tv-*`.
 
    Built to the operator's reference `screen-2.png` as REPLACED on 2026-08-29
    18:29 — a second, different design from the one supplied earlier the same day.
@@ -697,6 +700,11 @@ table {
 .tv-h-status { background: linear-gradient(135deg, #5b21b6, #6d28d9); color: #fff; }
 .tv-h-asof   { background: linear-gradient(135deg, #075985, #0369a1); color: #fff; }
 .tv-h-trend  { background: linear-gradient(135deg, #1e3a8a, #1e40af); color: #fff; }
+/* Two hues the dashboard ALARMS panel needs beside the ones above (2026-09-25):
+   it wears the readings table's column headers so the two tables on one
+   screen read as one family — Type in rose, Limit in amber. */
+.tv-h-type   { background: linear-gradient(135deg, #9f1239, #be123c); color: #fff; }
+.tv-h-limit  { background: linear-gradient(135deg, #92400e, #b45309); color: #fff; }
 
 /* Header row 2 — ACTUAL / SET POINT, a light tint of the group's hue with
    near-black ink, so the pairing reads without a second saturated band. */
@@ -994,4 +1002,21 @@ table {
   .widget-band-btn:hover {
     background-color: rgb(255 255 255 / 0.28);
   }
+}
+
+/* ── The dashboard alarms panel's grid (2026-09-25) ───────────────────────
+   Operator: "still table format lines was not coming in between columns and
+   colorin was not good". `.alarm-grid` goes on that panel's <table>: a 1px
+   line around every cell and a zebra, the readings table's own structure,
+   so the two tables on one dashboard read as one family. The colour is in
+   the column HEADERS (`.tv-h-*`, reused) and in the reading's tone chip, not
+   in a wash over the row. In `@layer components` — the shared cells carry no
+   border or background utility, so nothing here fights a call site. */
+@layer components {
+  .alarm-grid th,
+  .alarm-grid td { border: 1px solid #e2e8f0; }
+  .alarm-grid thead th { border-color: rgb(255 255 255 / 0.25); }
+  .alarm-grid tbody tr:nth-child(odd) > td { background: #ffffff; }
+  .alarm-grid tbody tr:nth-child(even) > td { background: #f8fafc; }
+  .alarm-grid tbody tr:hover > td { background: #eff6ff; }
 }

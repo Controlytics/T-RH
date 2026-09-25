@@ -96,20 +96,14 @@ function useLarge(): boolean {
 }
 
 /**
- * The row's ground in the `lg` mode — a wash in the row's own tone, so the
- * table is colourful in the data's colours: rose for an open unacknowledged
- * alarm, amber for a cleared one nobody signed, sky for an acknowledged one
- * still open, emerald for a closed one. The default mode keeps its plain
- * hover ({@link ALARM_ROW_CLASS}).
+ * The row's class per mode. In `lg` the row carries NO tone wash — a wash in
+ * the row's colour lasted an hour on 2026-09-25 ("colorin was not good") —
+ * the grid's own zebra (`.alarm-grid`, app.css) paints the rows, and the
+ * tone lives on the marker, the reading chip and the status pill. The
+ * default mode keeps its plain hover ({@link ALARM_ROW_CLASS}).
  */
-export const ROW_TINT: Record<QuadrantTone, string> = {
-  danger: 'bg-rose-50 hover:bg-rose-100/70',
-  warn: 'bg-amber-50 hover:bg-amber-100/70',
-  info: 'bg-sky-50 hover:bg-sky-100/70',
-  ok: 'bg-emerald-50 hover:bg-emerald-100/70',
-};
-export function alarmRowClass(tone: QuadrantTone, size: AlarmTableSize = 'default'): string {
-  return size === 'lg' ? `group ${ROW_TINT[tone]}` : ALARM_ROW_CLASS;
+export function alarmRowClass(_tone: QuadrantTone, size: AlarmTableSize = 'default'): string {
+  return size === 'lg' ? 'group' : ALARM_ROW_CLASS;
 }
 
 /** The banner header band. Give it a single `<tr>` of {@link Th}. */
@@ -301,9 +295,12 @@ export function AlarmTimeCell({
  */
 export function AlarmValueCell({ a, texts }: { a: AlarmRow; texts?: AlarmDisplayTexts }) {
   const lg = useLarge();
+  // `lg`: the reading sits in the readings table's `.tv-chip`, tinted from
+  // this cell's ink via currentColor — rose for a high breach, sky for a low
+  // one — the same pill the dashboard's Actual column wears.
   return (
     <td className={`whitespace-nowrap ${ALARM_CELL} tabular-nums ${lg ? 'text-lg font-extrabold' : 'font-semibold'} ${VALUE_INK[breachDirection(a)]}`}>
-      {triggeredText(a, texts)}
+      {lg ? <span className="tv-chip">{triggeredText(a, texts)}</span> : triggeredText(a, texts)}
     </td>
   );
 }
