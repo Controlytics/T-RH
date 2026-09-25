@@ -110,18 +110,19 @@ function Sheen() {
  * reader. On the coloured ground the two are white chips: the words carry
  * the meaning, the dot only echoes it.
  */
-function ActiveSplit({ total, active }: { total: number; active?: number }) {
+function ActiveSplit({ total, active, large = false }: { total: number; active?: number; large?: boolean }) {
   // No split available (the "directly linked" card) — say nothing rather than
   // implying everything is active.
   if (active === undefined) return null;
   const inactive = Math.max(0, total - active);
+  const size = large ? 'text-[0.875rem]' : 'text-[0.75rem]';
   return (
-    <p className="mt-3 flex flex-wrap items-center gap-2 text-[0.75rem]">
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 font-semibold text-white ring-1 ring-white/20">
+    <p className={`mt-3 flex flex-wrap items-center gap-2 ${size}`}>
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 font-bold text-white ring-1 ring-white/20">
         <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
         {active.toLocaleString()} active
       </span>
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 font-medium text-white/80 ring-1 ring-white/15">
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 font-semibold text-white/80 ring-1 ring-white/15">
         <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-white/50" />
         {inactive.toLocaleString()} inactive
       </span>
@@ -129,9 +130,9 @@ function ActiveSplit({ total, active }: { total: number; active?: number }) {
   );
 }
 
-function ViewDetails() {
+function ViewDetails({ large = false }: { large?: boolean }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-[0.8125rem] font-semibold text-white ring-1 ring-white/25 transition-colors group-hover:bg-white/25">
+    <span className={`inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 font-bold text-white ring-1 ring-white/25 transition-colors group-hover:bg-white/25 ${large ? 'text-[0.9375rem]' : 'text-[0.8125rem]'}`}>
       View Details
     </span>
   );
@@ -304,23 +305,26 @@ export function EntryCards({
                   {/* Above the wave. The wave is decoration and must never
                       swallow a number. */}
                   <div className="relative z-10 flex h-full flex-col">
-                    <h3 className="truncate text-[0.9375rem] font-bold text-white xl:text-[1.0625rem]" title={b.label}>
+                    {/* One step larger and bolder than the hero cards' text
+                        (operator, 2026-09-25: "make block text bold and
+                        increase font sizes"). */}
+                    <h3 className="truncate text-[1.25rem] font-extrabold text-white xl:text-[1.5rem]" title={b.label}>
                       {b.label}
                     </h3>
-                    <p className="mt-0.5 text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-white/70">
+                    <p className="mt-1 text-[0.8125rem] font-bold uppercase tracking-[0.14em] text-white/80">
                       {b.sublabel}
                     </p>
 
-                    <p className="mt-4 text-[1.875rem] font-extrabold leading-none tracking-tight text-white tabular-nums lg:text-[2.125rem] xl:text-[2.5rem]">
+                    <p className="mt-4 text-[2.25rem] font-black leading-none tracking-tight text-white tabular-nums lg:text-[2.5rem] xl:text-[3rem]">
                       {b.count.toLocaleString()}
                     </p>
-                    <p className="mt-2 text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-white/70">
+                    <p className="mt-2 text-[0.8125rem] font-bold uppercase tracking-[0.14em] text-white/80">
                       Instruments
                     </p>
-                    <ActiveSplit total={b.count} active={b.activeCount} />
+                    <ActiveSplit total={b.count} active={b.activeCount} large />
 
                     <div className="mt-5 flex justify-end xl:mt-6">
-                      <ViewDetails />
+                      <ViewDetails large />
                     </div>
                   </div>
                 </CardShell>

@@ -39,6 +39,12 @@ pane in `components/layout/app-layout.tsx`. No count moved.
   and its number; the block's NAME is what keeps colour from being the only
   signal. The wave and sheen stay as decoration. Locked by a test: every SVG
   left on the landing is a wave (17/17).
+- **Then: bigger, bolder Block / Area text** (operator: "make block text bold
+  and increase font sizes"). On the block and area cards only: the name
+  1.25rem → 1.5rem extrabold (was 0.9375 → 1.0625 bold), the sublabel and the
+  Instruments eyebrow 0.8125rem bold (was 0.6875 semibold), the figure 2.25 →
+  3rem black (was 1.875 → 2.5 extrabold), the active / inactive chips and
+  View Details one step up and bold. The two hero cards are unchanged.
 
 ## [Unreleased] - Contact Admin: the Enable Account request type is gone (2026-09-25)
 
