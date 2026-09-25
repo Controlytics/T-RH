@@ -162,6 +162,16 @@ describe('EntryCards — accessibility', () => {
     for (const s of svgs) expect(s.getAttribute('aria-hidden')).toBe('true');
   });
 
+  // Operator, 2026-09-25: "remove symbols in cards". The only SVGs left are the
+  // block waves — no glyph discs, no corner icons, no link arrow.
+  it('prints no symbols: every SVG is a wave', () => {
+    const { container } = render(<EntryCards cards={FOUR} onSelect={noop} alarms={{ active: 2, unacknowledged: 0 }} onOpenAlarms={noop} />);
+    const svgs = container.querySelectorAll('svg');
+    const waves = container.querySelectorAll('svg.pointer-events-none');
+    expect(svgs.length).toBe(waves.length);
+    expect(waves.length).toBe(4);
+  });
+
   it('does not let the decorative wave intercept clicks', () => {
     const { container } = render(<EntryCards cards={FOUR} onSelect={noop} alarms={null} onOpenAlarms={noop} />);
     const waves = container.querySelectorAll('svg.pointer-events-none');

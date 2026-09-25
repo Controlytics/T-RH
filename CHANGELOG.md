@@ -33,6 +33,12 @@ pane in `components/layout/app-layout.tsx`. No count moved.
   equals the first); green-at-zero asserts `data-tone` and that the ground
   changes. 16/16, and 3 of them fail on the previous cards (stash-checked).
   Not seen on screen.
+- **Later the same day — no symbols** (operator: "remove symbols in cards").
+  The glyph discs, the two corner icons and the View Details arrow are gone
+  from every card; `BLOCK_GLYPHS` with them. A card is its colour, its words
+  and its number; the block's NAME is what keeps colour from being the only
+  signal. The wave and sheen stay as decoration. Locked by a test: every SVG
+  left on the landing is a wave (17/17).
 
 ## [Unreleased] - Contact Admin: the Enable Account request type is gone (2026-09-25)
 

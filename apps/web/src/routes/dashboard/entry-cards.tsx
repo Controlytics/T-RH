@@ -10,9 +10,13 @@ import { ALL_INSTRUMENTS } from './location-nav';
  * reference rather than reinterpreting it. What IS a decision here is
  * everything the reference could not specify: it showed exactly four blocks
  * named CWH / FD / PFI / MUPS, and this installation can have any number with
- * any names, so accent colour and glyph are assigned BY POSITION from fixed
- * cycles below. Same block, same colour, every load — and a fifth block gets a
+ * any names, so accent colour is assigned BY POSITION from a fixed cycle
+ * below. Same block, same colour, every load — and a fifth block gets a
  * colour instead of falling off the end of a hardcoded list.
+ *
+ * NO SYMBOLS (operator, 2026-09-25: "remove symbols in cards"): the glyph
+ * discs, the corner icons and the link arrow are gone. A card is its colour,
+ * its words and its number.
  *
  * FULL-COLOUR CARDS since 2026-09-25 (operator: "all instruments card, active
  * alarms cards, blocks cards and areas cards and background should be fully
@@ -32,8 +36,8 @@ import { ALL_INSTRUMENTS } from './location-nav';
    so a supervisor can find "the orange one" at a glance across the room, and
    that only works if the colours stay put when an operator switches theme.
    Same reasoning as the `--chart-series-*` palette: identity colours are data,
-   not chrome. Ordered for maximum adjacent separation, and each pairs a hue
-   with a distinct glyph so colour is never the only signal.
+   not chrome. Ordered for maximum adjacent separation; the block's NAME is
+   printed on every card, so colour is never the only signal.
 
    Both gradient ends are the 700 / 900 weights, NOT the 500s the medallions
    used to wear: white body text (the 11px eyebrows) needs 4.5:1, and the light
@@ -64,30 +68,6 @@ const gradient = (from: string, to: string) => `linear-gradient(135deg, ${from} 
     mix is `--band-gradient`'s, proven for white text on all ten presets. */
 const THEME_GRADIENT =
   'linear-gradient(135deg, color-mix(in srgb, var(--theme-gradient-from, #2a78d6) 78%, black), color-mix(in srgb, var(--theme-gradient-to, #1e3a5f) 78%, black))';
-
-/* Glyphs cycle alongside the accents. Line icons at 24px, matching the app's
-   existing stroke-1.5/2 set — a filled or duotone set here would read as a
-   different product two cards along. */
-const BLOCK_GLYPHS: ReactNode[] = [
-  // factory
-  <path key="f" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-    d="M3 21h18M5 21V9l5 3V9l5 3V6l4 2v13M9 21v-4h4v4" />,
-  // leaf
-  <path key="l" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-    d="M4 20c8 2 15-3 16-13-9-1-15 3-16 9a5 5 0 001 4zm0 0l7-7" />,
-  // gear
-  <path key="g" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-    d="M12 15a3 3 0 100-6 3 3 0 000 6zm8-3a8 8 0 01-.1 1.2l2 1.6-2 3.4-2.4-1a8 8 0 01-2 1.2L15 21H9l-.5-2.6a8 8 0 01-2-1.2l-2.4 1-2-3.4 2-1.6a8 8 0 010-2.4l-2-1.6 2-3.4 2.4 1a8 8 0 012-1.2L9 3h6l.5 2.6a8 8 0 012 1.2l2.4-1 2 3.4-2 1.6c.1.4.1.8.1 1.2z" />,
-  // bolt
-  <path key="b" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-    d="M13 2L4.5 13.5H11L10 22l8.5-11.5H12L13 2z" />,
-  // beaker
-  <path key="k" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-    d="M9 3v6.5L4.5 18A2 2 0 006.2 21h11.6a2 2 0 001.7-3L15 9.5V3M8 3h8M7.5 14h9" />,
-  // building
-  <path key="d" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-    d="M4 21V5a2 2 0 012-2h7a2 2 0 012 2v16M15 21V11h3a2 2 0 012 2v8M8 7h3M8 11h3M8 15h3" />,
-];
 
 /** The wave that closes each block card in the reference. */
 function CardWave({ color }: { color: string }) {
@@ -153,21 +133,6 @@ function ViewDetails() {
   return (
     <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-[0.8125rem] font-semibold text-white ring-1 ring-white/25 transition-colors group-hover:bg-white/25">
       View Details
-      <svg className="h-4 w-4 transition-transform group-hover:translate-x-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h13m0 0l-5-5m5 5l-5 5" />
-      </svg>
-    </span>
-  );
-}
-
-/** The icon disc every card opens with. Glass over the gradient, not a colour
-    of its own — the card is the colour now. */
-function Medallion({ children }: { children: ReactNode }) {
-  return (
-    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/15 text-white shadow-sm ring-1 ring-white/30 backdrop-blur-sm xl:h-14 xl:w-14">
-      <svg className="h-6 w-6 xl:h-7 xl:w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
-        {children}
-      </svg>
     </span>
   );
 }
@@ -250,22 +215,11 @@ export function EntryCards({
             background={THEME_GRADIENT}
             className="p-5 xl:p-6"
           >
-            <div className="flex items-start gap-4">
-              <Medallion>
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-                  d="M12 3l9 4.5-9 4.5-9-4.5L12 3zM3 12l9 4.5 9-4.5M3 16.5L12 21l9-4.5" />
-              </Medallion>
-              <div className="min-w-0 flex-1">
-                <h3 className="text-[0.9375rem] font-bold text-white xl:text-[1.0625rem]">All Instruments</h3>
-                <p className="mt-0.5 text-[0.8125rem] text-white/80">
-                  Every registered instrument across the system
-                </p>
-              </div>
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/12 text-white/90 ring-1 ring-white/20 xl:h-11 xl:w-11">
-                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 17l5-6 4 4 6-8" />
-                </svg>
-              </span>
+            <div className="min-w-0">
+              <h3 className="text-[0.9375rem] font-bold text-white xl:text-[1.0625rem]">All Instruments</h3>
+              <p className="mt-0.5 text-[0.8125rem] text-white/80">
+                Every registered instrument across the system
+              </p>
             </div>
 
             <p className="mt-5 text-[2.125rem] font-extrabold leading-none tracking-tight text-white tabular-nums lg:text-[2.5rem] xl:text-[2.875rem]">
@@ -290,24 +244,12 @@ export function EntryCards({
             className="p-5 xl:p-6"
             data-tone={alarmTone}
           >
-            <div className="flex items-start gap-4">
-              <Medallion>
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-                  d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0a3 3 0 11-6 0m6 0H9" />
-              </Medallion>
-              <div className="min-w-0 flex-1">
-                <h3 className="text-[0.9375rem] font-bold text-white xl:text-[1.0625rem]">Active Alarms</h3>
-                <p className="mt-0.5 text-[0.8125rem] text-white/80">
-                  {/* Says what to DO, and stays honest at zero. */}
-                  {activeAlarms > 0 ? 'Require your attention' : 'Nothing to attend to'}
-                </p>
-              </div>
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/12 text-white/90 ring-1 ring-white/20 xl:h-11 xl:w-11">
-                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M12 9v4m0 4h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L14.7 3.9a2 2 0 00-3.4 0z" />
-                </svg>
-              </span>
+            <div className="min-w-0">
+              <h3 className="text-[0.9375rem] font-bold text-white xl:text-[1.0625rem]">Active Alarms</h3>
+              <p className="mt-0.5 text-[0.8125rem] text-white/80">
+                {/* Says what to DO, and stays honest at zero. */}
+                {activeAlarms > 0 ? 'Require your attention' : 'Nothing to attend to'}
+              </p>
             </div>
 
             {/* The CARD is green at zero and red otherwise (`data-tone`); the
@@ -348,7 +290,6 @@ export function EntryCards({
             {blocks.map((b, i) => {
               const slot = i % BLOCK_ACCENTS.length;
               const accent = BLOCK_ACCENTS[slot];
-              const glyph = BLOCK_GLYPHS[i % BLOCK_GLYPHS.length];
               return (
                 <CardShell
                   key={b.id}
@@ -363,9 +304,7 @@ export function EntryCards({
                   {/* Above the wave. The wave is decoration and must never
                       swallow a number. */}
                   <div className="relative z-10 flex h-full flex-col">
-                    <Medallion>{glyph}</Medallion>
-
-                    <h3 className="mt-3.5 truncate text-[0.9375rem] font-bold text-white xl:text-[1.0625rem]" title={b.label}>
+                    <h3 className="truncate text-[0.9375rem] font-bold text-white xl:text-[1.0625rem]" title={b.label}>
                       {b.label}
                     </h3>
                     <p className="mt-0.5 text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-white/70">
