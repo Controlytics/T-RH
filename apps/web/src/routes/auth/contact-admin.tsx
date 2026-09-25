@@ -50,42 +50,17 @@ export function ContactAdminPage() {
   const [lookupError, setLookupError] = useState('');
   const [lookingUp, setLookingUp] = useState(false);
 
-  // Requester lookup (by Employee ID) — required for audit trail traceability
-  const [requesterUser, setRequesterUser] = useState<LookupUser | null>(null);
-  const [requesterLookupError, setRequesterLookupError] = useState('');
-  const [requesterLookingUp, setRequesterLookingUp] = useState(false);
-
-  const performRequesterLookup = async () => {
-    const trimmed = requesterEmployeeId.trim();
-    if (!trimmed) return;
-    setRequesterLookingUp(true);
-    setRequesterLookupError('');
-    setRequesterUser(null);
-    try {
-      const res = await fetch(apiUrl(`/api/admin-requests/user-lookup?username=${encodeURIComponent(trimmed)}`));
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setRequesterLookupError(data.message ?? `Lookup failed (${res.status})`);
-        return;
-      }
-      // Delta-audit (May 16 H1) — endpoint now returns minimal info to prevent
-      // unauthenticated org enumeration. Email + role + department dropped;
-      // operator must type them in the form below.
-      const data = await res.json() as { exists: boolean; username: string };
-      if (!data.exists) {
-        setRequesterLookupError('Employee ID does not exist in the application');
-        return;
-      }
-      // fullName is no longer returned (audit M1 — PII to an anonymous caller);
-      // the operator types their own name in the field below.
-      setRequesterUser({ username: data.username });
-      
-    } catch (err: any) {
-      setRequesterLookupError(err.message ?? 'Lookup failed');
-    } finally {
-      setRequesterLookingUp(false);
-    }
-  };
+  /**
+   * The requester's Employee ID is typed, not looked up (operator, 2026-09-25:
+   * "there i dont need verification"). Until then a Verify button checked it
+   * against `GET /admin-requests/user-lookup` and hid the rest of the form
+   * until it matched a login. The server never checked it on submit and still
+   * does not — `admin-request.service.ts` records it as an unverified
+   * identity; the admin's approval signature is the verified one. What the
+   * removal costs: a mistyped ID is no longer caught before the request waits
+   * for an admin. The TARGET account lookup below is unchanged — a request has
+   * to name a real account to act on.
+   */
 
   // Every type EXCEPT create acts on an existing account, so all of them need the
   // target-user field. Omitting one here hides the field and the form silently
@@ -103,19 +78,6 @@ export function ContactAdminPage() {
     setNewValue('');
     setNewUserId('');
   }, [requestType]);
-
-  // When requester identity is cleared (Employee ID changed after verify), reset the form below
-  useEffect(() => {
-    if (!requesterUser) {
-      setRequestType('');
-      setNewUserId('');
-      setFullName('');
-      setDepartment('');
-      setEmail('');
-      setRequestedRole('');
-      setRemarks('');
-    }
-  }, [requesterUser]);
 
   // Reset modify selection when user lookup changes
   useEffect(() => {
@@ -211,27 +173,10 @@ export function ContactAdminPage() {
    * submission-time state is not the state being acted on.
    */
 
-  const canSubmit = () => {
-    if (!requestType || !requesterName.trim() || !remarks.trim()) return false;
-    if (!requesterUser) return false;
-    switch (requestType) {
-      case 'CREATE_USER':
-        return newUserId.trim().length >= 6 && fullName.trim() && requestedRole;
-      case 'MODIFY_USER':
-        return !!lookupUser && !!modifyField && newValue.trim() !== '';
-      case 'UNLOCK':
-      case 'FORGOT_PASSWORD':
-      case 'ENABLE_ACCOUNT':
-      case 'DISABLE_ACCOUNT':
-        return !!lookupUser;
-      default:
-        return false;
-    }
-  };
-
   const getMissingFields = (): string[] => {
     const missing: string[] = [];
-    if (!requesterUser) missing.push('Your Employee ID (verify required)');
+    if (!requesterName.trim()) missing.push('Your Name');
+    if (!requesterEmployeeId.trim()) missing.push('Your Employee ID');
     if (!requestType) missing.push('Request Type');
     if (requestType === 'CREATE_USER') {
       if (!newUserId.trim()) missing.push('User ID');
@@ -280,7 +225,7 @@ export function ContactAdminPage() {
          * shape to distrust.
          */
         requesterName: requesterName.trim(),
-        requesterEmployeeId: (requesterUser?.username || requesterEmployeeId).trim(),
+        requesterEmployeeId: requesterEmployeeId.trim(),
         requesterEmail: requesterEmail.trim() || undefined,
         requestData: buildRequestData(),
         remarks: remarks.trim(),
@@ -347,69 +292,42 @@ export function ContactAdminPage() {
             <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Your Information</h3>
             <p className="text-xs text-slate-500">Enter the Employee ID of the account you're submitting this request from. It will be recorded in the audit trail.</p>
             <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1">Your Name <span className="text-red-500">*</span></label>
+              <input
+                type="text"
+                value={requesterName}
+                onChange={e => setRequesterName(e.target.value)}
+                placeholder="Your name"
+                aria-label="Your Name"
+                className="ctl w-full"
+              />
+            </div>
+            <div>
               <label className="block text-sm font-medium text-slate-600 mb-1">Your Employee ID <span className="text-red-500">*</span></label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={requesterEmployeeId}
-                  onChange={e => {
-                    setRequesterEmployeeId(e.target.value);
-                    setRequesterUser(null);
-                    setRequesterLookupError('');
-                  }}
-                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); performRequesterLookup(); } }}
-                  placeholder="EMP-001"
-                  className="ctl flex-1"
-                />
-                <Button 
-                  type="button"
-                  onClick={performRequesterLookup}
-                  disabled={!requesterEmployeeId.trim() || requesterLookingUp}
-                >
-                  {requesterLookingUp ? 'Verifying...' : 'Verify'}
-                </Button>
-              </div>
-              {requesterLookupError && (
-                <p className="mt-2 text-sm text-red-600">{requesterLookupError}</p>
-              )}
-              {requesterUser && (
-                <div className="mt-2 rounded-lg bg-emerald-50 border border-emerald-200 p-3 text-sm">
-                  <div className="flex items-start gap-2">
-                    <svg className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                    <div>
-                      {/* The username is the ONLY field this endpoint returns; the
-                          three that stood here rendered an empty confirmation box. */}
-                      <div className="font-semibold text-emerald-800">{requesterUser.username}</div>
-                      <div className="text-[0.75rem] text-emerald-700">Employee ID verified</div>
-                    </div>
-                  </div>
-                </div>
-              )}
+              <input
+                type="text"
+                value={requesterEmployeeId}
+                onChange={e => setRequesterEmployeeId(e.target.value)}
+                placeholder="EMP-001"
+                aria-label="Your Employee ID"
+                className="ctl w-full"
+              />
             </div>
           </div>
 
-          {/* Request Type — only after Employee ID is verified */}
-          {!requesterUser ? (
-            <div className="pt-2">
-              <div className="rounded-lg bg-slate-50 border border-slate-200 p-4 text-sm text-slate-500 text-center">
-                Verify your Employee ID to continue.
-              </div>
+          {/* Request Type */}
+          <div className="pt-2 space-y-3">
+            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Request Details</h3>
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1">Request Type <span className="text-red-500">*</span></label>
+              <select value={requestType} onChange={e => setRequestType(e.target.value)}
+                aria-label="Request Type"
+                className="ctl w-full">
+                <option value="">Select request type...</option>
+                {REQUEST_TYPES.map(rt => <option key={rt.value} value={rt.value}>{rt.label}</option>)}
+              </select>
             </div>
-          ) : (
-            <div className="pt-2 space-y-3">
-              <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Request Details</h3>
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">Request Type <span className="text-red-500">*</span></label>
-                <select value={requestType} onChange={e => setRequestType(e.target.value)}
-                  className="ctl w-full">
-                  <option value="">Select request type...</option>
-                  {REQUEST_TYPES.map(rt => <option key={rt.value} value={rt.value}>{rt.label}</option>)}
-                </select>
-              </div>
-            </div>
-          )}
+          </div>
 
           {/* Dynamic Fields Based on Request Type */}
           {requestType === 'CREATE_USER' && (

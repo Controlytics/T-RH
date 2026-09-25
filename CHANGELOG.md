@@ -1,5 +1,37 @@
 # Changelog
 
+## [Unreleased] - Contact Admin: the requester's Employee ID is typed, not verified (2026-09-25)
+
+Operator: *"there i dont need verification"*, after asking whether the
+Employee ID on the Contact Admin page was checked against the users table.
+It was — in the browser only. A **Verify** button called the public
+`GET /api/admin-requests/user-lookup`, refused an ID no login matched, and
+hid Request Type until it matched. Removed: the button, the lookup, the
+"Employee ID verified" box, the "Verify your Employee ID to continue"
+placeholder, and the effect that wiped the form when the ID changed. The
+field is a plain required text box and Request Type shows at once.
+
+- **What it costs, stated once:** a mistyped ID is no longer caught before
+  the request waits for an admin. The server never checked the requester's
+  ID on submit and still does not (`admin-request.service.ts` records it as
+  an unverified identity; the approval signature is the verified one). The
+  TARGET account lookup on Modify / Unlock / Forgot Password / Enable /
+  Disable is unchanged — a request has to name a real account to act on.
+- **Defect found and fixed on the way:** the form had NO input for the
+  requester's name since `7b7ae32` (the PII audit dropped the lookup's
+  `fullName`, and the 2026-09-02 fix switched to "the typed value" — of a
+  field that did not exist). Every submission since sent `requesterName: ""`
+  against a `minLength: 1` schema and was refused with a 400. A **Your Name**
+  input is back above the Employee ID; both are required client-side, as the
+  route already requires them.
+- `canSubmit()` deleted — nothing called it (the button gates on
+  `submitting` alone; `getMissingFields()` is the guard).
+- No count moved: no route, permission, schema, def or API change.
+- Pinned by `contact-admin-requester.test.tsx` (3 cases: Request Type shown
+  at once with no Verify button; a submission carries the typed ID and makes
+  no user-lookup call; a blank ID is refused before any request). All three
+  FAIL on the previous page (stash-checked) and pass now. Not seen on screen.
+
 ## [Unreleased] - QC: SHAFT-E trimmed to end where the rooms end (2026-09-22)
 
 Operator: *"shaft-e also should end where rooms end"*. New
