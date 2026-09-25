@@ -69,10 +69,15 @@ words beside the figure still say which), Blocks / Areas keep their identity
 accents by position (`data-accent`, fixed hex, theme-independent) as 700 → 900
 gradients — the 500 discs would fail the 11px white eyebrows; the light ends
 measure 5.0–6.3:1. Medallion, split chips and View Details are white/15 glass.
-The ground is `DASHBOARD_GROUND` in `components/layout/app-layout.tsx` — a
-TINT built from `--theme-*`, not the band, because the readings table sits on
-it directly at the deeper levels (`PanelCard` is transparent); a wallpaper
-still wins and every other page keeps its grey. The readings table, panels
+The ground is `.dash-ground` in `app.css`, put on `<main>` by
+`components/layout/app-layout.tsx`, with TWO states switched by `:has()` on
+the page's `data-dashboard-ground`: DEEP on the landing (the preset's
+`--theme-login-bg-*` pair with two glows — operator: "as per cards colors
+make background good color", the pale tint having read as a wash) and LIGHT
+once the readings table is on screen, because the table sits on the ground
+directly (`PanelCard` is transparent). `EntryCards dark` prints the section
+heading white on the deep ground. A wallpaper still wins and every other page
+keeps its grey. The readings table, panels
 and floor are untouched. Tests re-pointed to the card's gradient; not seen on
 screen.
 

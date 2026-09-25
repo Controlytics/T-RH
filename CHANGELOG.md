@@ -56,6 +56,18 @@ pane in `components/layout/app-layout.tsx`. No count moved.
   heading floating mid-card. `CardShell` is now a column flex box — content
   stacks from the top — and every card's footer carries `mt-auto`, so View
   Details lines up along the bottom of the row. Locked by a test (18/18).
+- **The ground is DEEP behind the cards** (operator: "background color was
+  not good background of cards, as per cards colors make background good
+  color"). The pale tint read as a wash beside saturated cards. Now
+  `.dash-ground` in `app.css` (the inline style on `<main>` is gone) has two
+  states, switched with `:has()` on the page's `data-dashboard-ground`:
+  **deep** on the landing — the preset's own dark pair
+  (`--theme-login-bg-start/end`, the login page's ground) with a
+  theme-primary glow and an accent glow, so the colour cards sit on a rich
+  dark field; **light** the moment the readings table is on screen (any
+  selection), because the table sits directly on the ground and needs dark
+  type. The Blocks Overview heading prints white on the deep ground
+  (`dark` prop on `EntryCards`, pinned: 19/19). A wallpaper still wins.
 
 ## [Unreleased] - Contact Admin: the Enable Account request type is gone (2026-09-25)
 

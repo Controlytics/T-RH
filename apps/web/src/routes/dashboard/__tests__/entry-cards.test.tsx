@@ -105,6 +105,15 @@ describe('EntryCards — behaviour', () => {
     expect(screen.queryByText('Active Alarms')).toBeNull();
   });
 
+  // The landing's ground is DEEP (only these cards on screen), so the section
+  // heading must print white there and slate over the light tint.
+  it('prints the section heading in white on the deep ground', () => {
+    const { rerender } = render(<EntryCards cards={FOUR} onSelect={noop} alarms={null} onOpenAlarms={noop} dark />);
+    expect(screen.getByText('Blocks Overview').className).toMatch(/(^|\s)text-white(\s|$)/);
+    rerender(<EntryCards cards={FOUR} onSelect={noop} alarms={null} onOpenAlarms={noop} />);
+    expect(screen.getByText('Blocks Overview').className).toMatch(/(^|\s)text-slate-900(\s|$)/);
+  });
+
   it('drops the Blocks Overview section when there are no blocks', () => {
     render(<EntryCards cards={[card(ALL_INSTRUMENTS, 'All Instruments', 3, '')]} onSelect={noop} alarms={null} onOpenAlarms={noop} />);
     expect(screen.queryByText('Blocks Overview')).toBeNull();

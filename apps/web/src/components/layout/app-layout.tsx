@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react';
+import { useState } from 'react';
 import { Outlet, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/use-auth';
 import { useSession } from '@/hooks/use-session';
@@ -34,27 +34,6 @@ function readCollapsedPreference(): boolean {
     return false;
   }
 }
-
-/**
- * The dashboard's ground when no wallpaper is set (operator, 2026-09-25: "all
- * instruments card, active alarms cards, blocks cards and areas cards and
- * background should be fully colorfull"). Built from the `--theme-*` variables
- * so all ten presets work with no per-preset edit: a diagonal theme wash with a
- * primary glow at the top-left and an accent glow at the bottom-right.
- *
- * It is a TINT, not the band. The readings table sits directly on this ground at
- * the deeper levels — `PanelCard` is deliberately transparent so the operator's
- * panel tint shows — so the ground has to stay light enough for dark type; the
- * strong colour lives on the cards. A wallpaper, when set, still wins.
- */
-const DASHBOARD_GROUND: CSSProperties = {
-  backgroundImage: [
-    'radial-gradient(60rem 32rem at 0% 0%, color-mix(in srgb, var(--theme-gradient-from, #2a78d6) 26%, transparent), transparent 70%)',
-    'radial-gradient(52rem 30rem at 100% 100%, color-mix(in srgb, var(--theme-accent, #14b8a6) 24%, transparent), transparent 70%)',
-    'linear-gradient(135deg, color-mix(in srgb, var(--theme-gradient-from, #2a78d6) 12%, white), color-mix(in srgb, var(--theme-gradient-to, #1e3a5f) 10%, white))',
-  ].join(', '),
-  backgroundAttachment: 'local',
-};
 
 export function AppLayout() {
   useDragScroll(); // App-wide click-drag horizontal panning for wide tables/grids
@@ -281,12 +260,15 @@ export function AppLayout() {
             </div>
           )}
           {/* With a wallpaper set the pane goes transparent so the image shows
-              through. Without one the DASHBOARD gets the theme-tinted ground
-              (operator, 2026-09-25: "…and background should be fully colorfull")
-              and every other page keeps the plain grey gradient it always had. */}
+              through. Without one the DASHBOARD wears `.dash-ground` (app.css):
+              the DEEP theme ground behind the landing's colour cards, the light
+              tint once the readings table is on screen — the page marks which
+              with `data-dashboard-ground` and the CSS switches on `:has()`.
+              (Operator, 2026-09-25: "background should be fully colorfull",
+              then "as per cards colors make background good color".) Every
+              other page keeps the plain grey gradient it always had. */}
           <main
-            className={`absolute inset-0 overflow-y-auto p-3 sm:p-4 lg:p-6 ${backgroundStyle || onDashboard ? '' : 'bg-gradient-to-br from-slate-50 to-slate-100/50'}`}
-            style={!backgroundStyle && onDashboard ? DASHBOARD_GROUND : undefined}
+            className={`absolute inset-0 overflow-y-auto p-3 sm:p-4 lg:p-6 ${backgroundStyle ? '' : onDashboard ? 'dash-ground' : 'bg-gradient-to-br from-slate-50 to-slate-100/50'}`}
           >
             <Outlet />
           </main>

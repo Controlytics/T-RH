@@ -196,12 +196,16 @@ export interface EntryCardsProps {
    */
   sectionTitle?: string | null;
   sectionSubtitle?: string | null;
+  /** True when the page ground is the DEEP one (only these cards on screen), so
+      the section heading prints in white; false over the light tint. */
+  dark?: boolean;
 }
 
 export function EntryCards({
   cards, onSelect, alarms, onOpenAlarms,
   sectionTitle = 'Blocks Overview',
   sectionSubtitle = 'Overview of all functional blocks',
+  dark = false,
 }: EntryCardsProps) {
   const all = cards.find((c) => c.id === ALL_INSTRUMENTS);
   const blocks = cards.filter((c) => c.id !== ALL_INSTRUMENTS);
@@ -288,9 +292,9 @@ export function EntryCards({
         <section>
           {sectionTitle && (
             <>
-              <h2 className="text-[0.9375rem] font-bold text-slate-900 xl:text-[1.0625rem]">{sectionTitle}</h2>
+              <h2 className={`text-[1.125rem] font-extrabold xl:text-[1.25rem] ${dark ? 'text-white' : 'text-slate-900'}`}>{sectionTitle}</h2>
               {sectionSubtitle && (
-                <p className="mt-0.5 text-[0.8125rem] text-slate-600">{sectionSubtitle}</p>
+                <p className={`mt-0.5 text-[0.875rem] font-medium ${dark ? 'text-white/75' : 'text-slate-600'}`}>{sectionSubtitle}</p>
               )}
             </>
           )}
