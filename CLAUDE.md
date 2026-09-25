@@ -1229,9 +1229,12 @@ GET    /api/config/report-approvers/current     — the administered approver ro
   (2026-09-01).** `routes/dashboard/selection-alarms.tsx` was a bespoke `<ul>`;
   it now renders the cells from `routes/alarms/alarm-table.tsx`, the same ones
   the Alarms page and the trend widget use — a THIRD copy would have drifted the
-  way the trend widget's copy did. It shows EIGHT columns plus an action cell,
-  not twelve: its query is `state=ACTIVE`, so Cleared, Cleared Value and Duration
-  would be structurally blank. **Acknowledging IS available and carries the whole
+  way the trend widget's copy did. It shows TEN columns plus an action cell
+  since 2026-09-25 (operator: "cleared value and cleared time was not there in
+  widget"): its query spans EVERY state, not `state=ACTIVE` — so a cleared
+  alarm stays on the dashboard with its Cleared time and Cleared Value; only
+  Duration and Area are omitted, and the panel is titled "Alarms in this
+  selection" (was "Active alarms …"). **Acknowledging IS available and carries the whole
   §11 flow** — the `alarms.acknowledge` gate, the re-auth dialog, `postWithReauth`
   and a revalidation. It shipped without the button earlier the same day,
   correctly, because it had none of those; if one is ever stripped, strip the

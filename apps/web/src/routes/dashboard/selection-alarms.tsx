@@ -11,7 +11,7 @@ import { SkeletonRows } from '@/components/ui/skeleton';
 import { Pagination } from '@/components/ui/pagination';
 import { usePanelToolbarSlot } from './panel-card';
 import {
-  AlarmWidgetFilters, applyWidgetFilters, EMPTY_WIDGET_FILTERS, ACTIVE_QUADRANTS,
+  AlarmWidgetFilters, applyWidgetFilters, EMPTY_WIDGET_FILTERS,
   type AlarmWidgetFilterValue,
 } from '@/routes/alarms/alarm-widget-filters';
 import { usePaginationDefaults } from '@/hooks/use-pagination-config';
@@ -24,7 +24,7 @@ import {
 } from '@/routes/alarms/alarm-display';
 import {
   AlarmTableHead, Th, Stack, UnitLine, AlarmTableMessage, AlarmTableSizeProvider, alarmRowClass,
-  AlarmInstrumentCell, AlarmTypeCell, AlarmLocationCell, AlarmTimeCell,
+  AlarmInstrumentCell, AlarmTypeCell, AlarmLocationCell, AlarmTimeCell, AlarmClearedValueCell,
   AlarmValueCell, AlarmLimitCell, AlarmStatusCell, AlarmAckByCell,
 } from '@/routes/alarms/alarm-table';
 
@@ -61,22 +61,23 @@ import {
  */
 
 /**
- * NINE columns — eight of the Alarms page's twelve, plus its unlabelled action
- * cell.
+ * ELEVEN columns — ten of the Alarms page's thirteen, plus its unlabelled
+ * action cell.
  *
- * The three that are missing are missing for one reason: this panel queries
- * `state=ACTIVE` only, so `clearedAt` is null on every row it can ever show.
- * **Cleared, Cleared Value and Duration would be structurally blank** — three
- * columns of dashes, in a panel that lives inside a resizable `PanelCard` rather
- * than at full page width. **If the query below ever widens beyond ACTIVE, add
- * those three back**; the cells for them are already exported and take the same
- * props as their neighbours here.
+ * Cleared and Cleared Value are here since 2026-09-25 (operator: "cleared
+ * value and cleared time was not there in widget"), and they carry values
+ * because the query below now spans EVERY state, not `state=ACTIVE` only —
+ * until then `clearedAt` was null on every row the panel could show and the
+ * two would have been columns of dashes. Duration is still omitted: it was
+ * not asked for, and the panel lives inside a resizable `PanelCard` rather
+ * than at page width. Area is omitted as on 2026-09-01 (Location falls back
+ * to it, `areaShown` false).
  *
  * Instrument ID and Location are KEPT, unlike the trend page's widget, which
  * drops both: that one is scoped to a single instrument named in the page header
  * above it, and this one spans every instrument in the selection.
  */
-const COLUMNS = 9;
+const COLUMNS = 11;
 
 export function SelectionAlarms({ functionalLocationId }: { functionalLocationId?: string }) {
   const { formatDate, formatTime, formatDateTime } = useDatetimeFormat();
@@ -123,9 +124,12 @@ export function SelectionAlarms({ functionalLocationId }: { functionalLocationId
    * screen to contradict it and no way to reach the rest without leaving for the
    * Alarms page.
    *
-   * The `state=ACTIVE` scope and the location scope are UNCHANGED. Only how many
-   * rows are shown at once has changed, and the pagination now states the total,
-   * so what the panel is showing is legible rather than assumed.
+   * The location scope is unchanged. The `state=ACTIVE` scope WENT on
+   * 2026-09-25 — the panel lists every alarm in the selection, newest first,
+   * so a cleared excursion is still on the dashboard with its cleared time and
+   * value (operator: "cleared value and cleared time was not there"). The
+   * pagination states the total, so what the panel is showing is legible
+   * rather than assumed.
    *
    * `defaultLimit` is the administered page size, the same one the Alarms page
    * opens at, rather than a second hardcoded 25 that would drift from it.
@@ -145,7 +149,6 @@ export function SelectionAlarms({ functionalLocationId }: { functionalLocationId
   const toolbarSlot = usePanelToolbarSlot();
 
   const qs = new URLSearchParams({
-    state: 'ACTIVE',
     page: String(page),
     pageSize: String(pageSize),
   });
@@ -221,13 +224,11 @@ export function SelectionAlarms({ functionalLocationId }: { functionalLocationId
       value={filters}
       onChange={setFilters}
       typeNames={typeNames}
-      /* TWO options, not four. This panel's query is pinned to `state=ACTIVE`,
-         and `quadrantWhere` emits `state: 'CLEARED'` for the other two — ANDed
-         together they match nothing, always. Offering them would be two controls
-         that can only ever empty the table, and they would read as a filter that
-         found nothing rather than one that could not. */
-      statusOptions={ACTIVE_QUADRANTS}
-      searchLabel="Search the active alarms in this selection"
+      /* All FOUR statuses (the component's default) since the query spans
+         every state — until 2026-09-25 it was pinned to `state=ACTIVE` and
+         offered only the two active ones, because the cleared two could never
+         match. */
+      searchLabel="Search the alarms in this selection"
       searchName="selection-alarm-search"
     />
   );
@@ -280,6 +281,8 @@ export function SelectionAlarms({ functionalLocationId }: { functionalLocationId
                     which matters more here than on a full-width page. */}
                 <Th className="tv-h-temp"><Stack>Generated</Stack><Stack>Value</Stack><UnitLine>(°C / %RH)</UnitLine></Th>
                 <Th className="tv-h-limit">Limit</Th>
+                <Th className="tv-h-asof">Cleared</Th>
+                <Th className="tv-h-rh"><Stack>Cleared</Stack><Stack>Value</Stack><UnitLine>(°C / %RH)</UnitLine></Th>
                 <Th className="tv-h-status">Status</Th>
                 <Th className="tv-h-trend"><Stack>Acknowledged</Stack><Stack>by</Stack></Th>
                 {/* The action column, unlabelled as on the Alarms page.
@@ -325,6 +328,10 @@ export function SelectionAlarms({ functionalLocationId }: { functionalLocationId
                       as on the Alarms page. The cell falls back to a dash for the
                       sources that carry no bound of their own. */}
                   <AlarmLimitCell a={a} texts={texts} />
+                  {/* A dash while it is still open — the same two cells the
+                      Alarms page and the trend widget render. */}
+                  <AlarmTimeCell value={a.clearedAt} formatDate={formatDate} formatTime={formatTime} emptyTitle="Still active — not cleared yet" />
+                  <AlarmClearedValueCell a={a} texts={texts} />
                   {/* Keyed off `quadrantTone(a)` inside the cell, NEVER off
                       severity. That is the single reason this pill is a shared
                       component and not two lines of JSX here. */}

@@ -216,22 +216,29 @@ describe('SelectionAlarms — it renders the SHARED alarm table, not a bespoke l
     expect(head.getByText('Generated')).toBeInTheDocument();
     expect(head.getByText('Acknowledged')).toBeInTheDocument();
     // The unit legend lives in the HEADER, never on the cells.
-    expect(head.getByText('(°C / %RH)')).toBeInTheDocument();
+    // Twice since 2026-09-25: under Generated Value and under Cleared Value.
+    expect(head.getAllByText('(°C / %RH)')).toHaveLength(2);
   });
 
-  it('omits Cleared, Cleared Value and Duration — the query is state=ACTIVE', () => {
-    // Not a style choice: `clearedAt` is null on every row this panel can show,
-    // so those three would be columns of dashes. If the query ever widens, these
-    // assertions are what should fail.
+  it('shows Cleared and Cleared Value — the query spans every state (2026-09-25); Duration still omitted', () => {
+    // Operator: "cleared value and cleared time was not there in widget". The
+    // panel no longer sends state=ACTIVE, so a cleared alarm is on the
+    // dashboard with the time and the reading that ended it.
     const { container } = renderWith();
     const head = within(container.querySelector('thead')!);
-    expect(head.queryByText('Cleared')).toBeNull();
+    expect(head.getAllByText('Cleared').length).toBeGreaterThanOrEqual(2);
     expect(head.queryByText('Duration')).toBeNull();
     // colSpan on the empty-state row must match the column count, or a hairline
     // of unpainted table shows beside the message.
-    // NINE: the eight named columns plus the unlabelled action cell.
+    // ELEVEN: the ten named columns plus the unlabelled action cell.
     const headers = container.querySelectorAll('thead th');
-    expect(headers.length).toBe(9);
+    expect(headers.length).toBe(11);
+  });
+
+  it('asks the server for every state, not state=ACTIVE', () => {
+    renderWith([active]);
+    expect(alarmsKey).toBeTruthy();
+    expect(alarmsKey).not.toContain('state=');
   });
 });
 
@@ -473,11 +480,11 @@ describe('SelectionAlarms — pagination', () => {
     expect(q.get('limit')).toBeNull();
   });
 
-  it('keeps the ACTIVE and location scopes exactly as they were', () => {
+  it('keeps the location scope exactly as it was, and sends no state (every state since 2026-09-25)', () => {
     // Paging changes how many rows are shown at once. It must not change WHICH
     // records a compliance panel is reporting on.
     const q = new URL((renderWith([active]), alarmsKey!), 'https://x').searchParams;
-    expect(q.get('state')).toBe('ACTIVE');
+    expect(q.has('state')).toBe(false);
     expect(q.get('functionalLocationId')).toBe('fl-1');
   });
 
@@ -531,31 +538,27 @@ describe('SelectionAlarms — the shared widget filters', () => {
    */
   it('renders search, type and status', () => {
     renderWith([active]);
-    expect(screen.getByRole('searchbox', { name: /search the active alarms/i })).toBeInTheDocument();
+    expect(screen.getByRole('searchbox', { name: /search the alarms in this selection/i })).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: /filter by alarm type/i })).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: /filter by status/i })).toBeInTheDocument();
   });
 
-  it('offers only the ACTIVE statuses — the cleared two could never match', () => {
-    /**
-     * THE assertion of this block. This panel's query is pinned to
-     * `state=ACTIVE`, and `quadrantWhere('cleared-…')` emits `state: 'CLEARED'`;
-     * ANDed together they match nothing, always. Offering them would be two
-     * options that can only empty the table, reading as a filter that found
-     * nothing rather than one that could not.
-     */
+  it('offers all FOUR statuses now that the query spans every state', () => {
+    // Until 2026-09-25 the query was pinned to state=ACTIVE and the two cleared
+    // options could never match, so only the active pair was offered.
     renderWith([active]);
     const status = screen.getByRole('combobox', { name: /filter by status/i });
     const labels = within(status).getAllByRole('option').map((o) => o.textContent);
-    expect(labels).toEqual(['All statuses', 'Active Acknowledged', 'Active Unacknowledged']);
-    expect(labels.some((l) => /cleared/i.test(l ?? ''))).toBe(false);
+    expect(labels[0]).toBe('All statuses');
+    expect(labels).toHaveLength(5);
+    expect(labels.filter((l) => /cleared/i.test(l ?? ''))).toHaveLength(2);
   });
 
   it('sends each filter to the SERVER, not to the rows in hand', () => {
     // A client-side filter on a paged panel narrows ONE PAGE while reading as a
     // filter of the selection — the defect the Alarms page was rebuilt to remove.
     renderWith([active]);
-    fireEvent.change(screen.getByRole('searchbox', { name: /search the active alarms/i }), {
+    fireEvent.change(screen.getByRole('searchbox', { name: /search the alarms in this selection/i }), {
       target: { value: 'CWH/RDU/006' },
     });
     fireEvent.change(screen.getByRole('combobox', { name: /filter by status/i }), {
@@ -564,8 +567,9 @@ describe('SelectionAlarms — the shared widget filters', () => {
     const q = new URL(alarmsKey!, 'https://x').searchParams;
     expect(q.get('search')).toBe('CWH/RDU/006');
     expect(q.get('status')).toBe('active-unack');
-    // And the scope is still the panel's own.
-    expect(q.get('state')).toBe('ACTIVE');
+    // And the scope is still the panel's own: the location, and no state pin.
+    expect(q.get('functionalLocationId')).toBe('fl-1');
+    expect(q.has('state')).toBe(false);
   });
 
   it('omits an untouched control rather than sending an empty value', () => {
@@ -615,5 +619,18 @@ describe('SelectionAlarms — the lg size mode (2026-09-25)', () => {
     expect(cells[0].className).toMatch(/(^|\s)text-base(\s|$)/);
     // The reading is a tone chip.
     expect(cells[4].querySelector('.tv-chip')).not.toBeNull();
+  });
+
+  it('prints a WORD value as a small pill, not the number chip', () => {
+    // Operator: "offline text was not looking good in generated value". An
+    // inactivity alarm's Generated Value is a word; the 18px number chip
+    // around it read as a shout.
+    inactivityTextsResponse = { textGeneratedValue: 'No data', textLimit: 'quiet > {minutes}m', textClearedValue: 'Data resumed' };
+    renderWith([inactivity]);
+    const rows = screen.getAllByRole('row');
+    const cells = within(rows[rows.length - 1]).getAllByRole('cell');
+    expect(cells[4].querySelector('.tv-chip')).toBeNull();
+    const word = within(cells[4]).getByText('No data');
+    expect(word.className).toMatch(/(^|\s)text-sm(\s|$)/);
   });
 });

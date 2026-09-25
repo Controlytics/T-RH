@@ -414,7 +414,7 @@ export function DashboardPage() {
                 )}
                 {it.i === 'dashboard_alarms' && (
                   <PanelCard
-                    title="Active alarms in this selection"
+                    title="Alarms in this selection"
                     eyebrow="Alarms"
                     editing={layout.editing}
                     style={it.style}

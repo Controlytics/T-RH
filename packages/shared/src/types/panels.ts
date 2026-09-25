@@ -86,8 +86,11 @@ export const PANELS: readonly PanelDefinition[] = [
   {
     key: 'dashboard_alarms',
     page: 'dashboard',
-    label: 'Active alarms in this selection',
-    description: 'Alarms currently raised on the instruments in the current drill-down',
+    // "Active alarms in this selection" until 2026-09-25, when the panel's
+    // query widened from `state=ACTIVE` to every state so a cleared alarm shows
+    // with its cleared time and value. The KEY is stored and never changes.
+    label: 'Alarms in this selection',
+    description: 'Alarms raised on the instruments in the current drill-down, active and cleared',
   },
   {
     key: 'trend_gauges',

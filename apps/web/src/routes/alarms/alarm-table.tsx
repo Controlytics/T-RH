@@ -295,14 +295,37 @@ export function AlarmTimeCell({
  */
 export function AlarmValueCell({ a, texts }: { a: AlarmRow; texts?: AlarmDisplayTexts }) {
   const lg = useLarge();
-  // `lg`: the reading sits in the readings table's `.tv-chip`, tinted from
-  // this cell's ink via currentColor — rose for a high breach, sky for a low
-  // one — the same pill the dashboard's Actual column wears.
+  // `lg`: a NUMBER sits in the readings table's `.tv-chip`, tinted from this
+  // cell's ink via currentColor — rose for a high breach, sky for a low one —
+  // the same pill the dashboard's Actual column wears. A WORD (`No data`,
+  // `Error`, `OL` — the three sources that carry no number) is a small slate
+  // pill instead: the 18px number chip around "No data" read as a shout
+  // (operator, 2026-09-25: "offline text was not looking good in generated
+  // value").
+  const text = triggeredText(a, texts);
   return (
     <td className={`whitespace-nowrap ${ALARM_CELL} tabular-nums ${lg ? 'text-lg font-extrabold' : 'font-semibold'} ${VALUE_INK[breachDirection(a)]}`}>
-      {lg ? <span className="tv-chip">{triggeredText(a, texts)}</span> : triggeredText(a, texts)}
+      {lg ? valueMark(text, isWordSource(a)) : text}
     </td>
   );
+}
+
+/** The three sources whose Generated / Cleared Value is a WORD, never a number. */
+function isWordSource(a: AlarmRow): boolean {
+  return a.source === 'INACTIVITY' || a.source === 'RS485_FAILURE' || a.source === 'SENSOR_RANGE';
+}
+
+/** The `lg` mark for a value cell: a number chip, a word pill, or a bare dash. */
+function valueMark(text: string, word: boolean): ReactNode {
+  if (text === '—' || text === '') return text;
+  if (word) {
+    return (
+      <span className="inline-flex items-center rounded-md bg-slate-100 px-2.5 py-1 text-sm font-bold tracking-wide text-slate-700 ring-1 ring-slate-200">
+        {text}
+      </span>
+    );
+  }
+  return <span className="tv-chip">{text}</span>;
 }
 
 /** The bound it fired against, from the FROZEN snapshot. */
@@ -324,7 +347,15 @@ export function AlarmLimitCell({ a, texts, limits }: {
 /** The reading that brought it back in limit. */
 export function AlarmClearedValueCell({ a, texts }: { a: AlarmRow; texts?: AlarmDisplayTexts }) {
   const lg = useLarge();
-  return <td className={`whitespace-nowrap ${ALARM_CELL} tabular-nums ${lg ? 'font-semibold text-slate-800' : 'text-slate-600'}`}>{clearedText(a, texts)}</td>;
+  // `lg`: the reading that brought it back is a green chip — it is the value
+  // that ended the excursion — and a word (`Data resumed`) the same slate pill
+  // as Generated Value's. A still-open alarm keeps its bare dash.
+  const text = clearedText(a, texts);
+  return (
+    <td className={`whitespace-nowrap ${ALARM_CELL} tabular-nums ${lg ? 'text-lg font-extrabold text-emerald-700' : 'text-slate-600'}`}>
+      {lg ? valueMark(text, isWordSource(a)) : text}
+    </td>
+  );
 }
 
 /**

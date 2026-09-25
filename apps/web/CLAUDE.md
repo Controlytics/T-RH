@@ -739,11 +739,13 @@ Each caller still shows a different subset and each subset has a reason:
 - **The trend widget: ten.** Instrument ID and Location are redundant for a
   single-instrument view named in the page header, so its state marker rides on
   the TYPE cell instead. Not sticky — ten columns at full width do not overflow.
-- **The dashboard's selection panel: nine** (2026-09-01). It KEEPS Instrument ID
-  and Location — it spans every instrument in the drill-down — and drops Cleared,
-  Cleared Value and Duration, because its query is `state=ACTIVE` and `clearedAt`
-  is null on every row it can show. Three columns of dashes, in a panel narrower
-  than either full-width table. **If that query ever widens, add them back.**
+- **The dashboard's selection panel: ELEVEN** (nine from 2026-09-01 until
+  2026-09-25). It KEEPS Instrument ID and Location — it spans every instrument
+  in the drill-down. Cleared and Cleared Value came back on 2026-09-25 when
+  its query WIDENED from `state=ACTIVE` to every state (operator: "cleared
+  value and cleared time was not there in widget"); Duration and Area are
+  still omitted. The panel is titled "Alarms in this selection" now (the
+  `dashboard_alarms` KEY is unchanged).
 
 **The shared cells have a SIZE MODE (2026-09-25, operator: "active alarms in
 this selection alarm widget make that also proper colorful and table format
@@ -764,12 +766,14 @@ was the one that drifted. **It is not `alarm-filters.tsx`** — that is the Alar
 PAGE's bar, with a date range, a location tree and an advanced disclosure, which
 is a page-sized control set. The Alarms page keeps it.
 
-- **The selection panel passes `ACTIVE_QUADRANTS` — two options, not four.** Its
-  query is pinned to `state=ACTIVE` and `quadrantWhere` emits `state: 'CLEARED'`
-  for the other two, so ANDed they match nothing, always. Two options that can
-  only empty the table would read as a filter that found nothing rather than one
-  that could not — the decoy rule again. The trend widget passes all four; it
-  shows a period, in which alarms clear.
+- **Both widgets offer all FOUR statuses** (the component's default). The
+  selection panel passed `ACTIVE_QUADRANTS` — two options — while its query was
+  pinned to `state=ACTIVE` (2026-09-01 to 2026-09-25), because `quadrantWhere`
+  emits `state: 'CLEARED'` for the other two and ANDed they matched nothing:
+  two controls that can only empty the table read as a filter that found
+  nothing rather than one that could not. The query spans every state now, so
+  the decoy rule no longer bites; `ACTIVE_QUADRANTS` stays exported for any
+  future ACTIVE-only surface.
 - **`searchName` is required and distinct per surface.** An unnamed text input
   beside a password field is what Chrome reaches for when it hunts for a username
   to fill — it typed the logged-in username into the Alarms search box on

@@ -1,5 +1,32 @@
 # Changelog
 
+## [Unreleased] - Dashboard alarms panel: every state, Cleared + Cleared Value, and a word is not a number (2026-09-25)
+
+Operator: *"offlne text was not looking good in generated value and also
+cleared value and cleared time was not there in wudget"*. No count moved.
+
+- **The panel's query spans EVERY state.** `state=ACTIVE` is gone from
+  `selection-alarms.tsx`, so a cleared excursion stays on the dashboard with
+  its **Cleared** time and **Cleared Value** — two columns added (nine → 11;
+  Duration and Area still omitted). The status filter offers all four
+  quadrants (it offered the two active ones while the cleared two could
+  never match). The panel is titled **Alarms in this selection** —
+  `PANELS` label and description in `@digilog/shared`, and the dashboard's
+  `PanelCard` title; the stored `dashboard_alarms` KEY is unchanged, so no
+  saved layout moves.
+- **A word wears a small pill, a number the chip.** In the `lg` mode the
+  Generated Value cell put the 18px number chip around `No data` / `Error` /
+  `OL` — the three sources whose value is a word — and it read as a shout.
+  `valueMark()` in `alarm-table.tsx` now prints a word as a 14px slate pill
+  and a number as the tone chip; Cleared Value follows the same rule with a
+  green chip for the reading that ended the excursion and a bare dash while
+  the alarm is open. The Alarms page and the trend widget are untouched.
+- Tests: the "omits Cleared" case is re-pointed to 11 columns with both
+  Cleared headings; new cases pin no `state=` on the request, all four
+  status options, and the word pill on an inactivity row. 38/38; Alarms
+  page 27/27 and trend widget 34/34 untouched; shared panels test green;
+  tsc and vite build clean. Not seen on screen.
+
 ## [Unreleased] - Dashboard alarms panel: bigger, bolder, and every row in its own colour (2026-09-25)
 
 Operator: *"active alarms in this selection alarm widget make that also
