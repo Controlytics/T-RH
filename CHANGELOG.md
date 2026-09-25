@@ -1,5 +1,30 @@
 # Changelog
 
+## [Unreleased] - Dashboard readings table: bigger, bolder, and the readings and set points are chips (2026-09-25)
+
+Operator: *"in instruments readings increase font sizes and make bold and
+temperature and humidity values and ranges should be visible like
+highlighted"*. `routes/dashboard/telemetry-table.tsx` and the `.tv-*` block
+in `app.css`. No count moved.
+
+- **Cell text 13 → 15px**; Area and Location semibold, slate-800.
+- **Each reading and each set point is a `.tv-chip`** — a pill tinted from
+  the cell's OWN ink via `currentColor`, so one rule gives a green chip in
+  spec, a red one on a breach (the cell's existing `.tv-val-bad` field and
+  bar stay under it) and a blue one for a set point (`.tv-spec` is now
+  `#1e40af` / 800, 8.7:1 on white). Reading 18px / 800 with the unit at 12px
+  inside the chip; set point 16px / 800. The meaning is still carried by the
+  cell colour that `outOfSpec` decides; the chip only makes it visible from
+  across the room.
+- **A slot with NO reading prints a plain grey `NA` and no chip** (new
+  `tv-val-na`) — a green pill around nothing would claim a reading that was
+  never taken. Fault words (`Error` / `OL`) sit in the red chip as before.
+- **Widths rebalanced to 100**: temp / rh 8 → 10 each (the chips need the
+  room), Location 20 → 16, Instrument ID and Area 14 → 12 each;
+  `columnWidthTotal()` still asserts the total.
+- Tests: 2 new cases (four chips in order for a full row; bare NA, no chip,
+  for a silent slot). 16/16, tsc and vite build clean. Not seen on screen.
+
 ## [Unreleased] - Every page wears the theme ground; every widget wears the band (2026-09-25)
 
 Operator: *"do it same for trends page and time series in other pages entire

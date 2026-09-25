@@ -217,3 +217,28 @@ describe('TelemetryTable — the hand-balanced column widths', () => {
     ])).toBe(100);
   });
 });
+
+describe('TelemetryTable — readings and set points are highlighted chips (2026-09-25)', () => {
+  // Operator: "temperature and humidity values and ranges should be visible
+  // like highlighted". Each reading and each set point sits in a `.tv-chip`
+  // pill tinted from the cell's own ink; a slot with NO reading prints a plain
+  // grey NA (`tv-val-na`) and no chip — a green pill around nothing would claim
+  // a reading that was never taken.
+  it('wraps both readings and both set points in a chip', () => {
+    const { container } = renderWith([row]);
+    const chips = Array.from(container.querySelectorAll('td .tv-chip')).map((c) => c.textContent);
+    expect(chips).toEqual(['22.4°C', '18.0 - 25.0', '47.0%', '40.0 - 60.0']);
+    expect(container.querySelector('td.tv-spec .tv-chip')).not.toBeNull();
+  });
+
+  it('prints a plain NA, no chip, for a slot with no reading', () => {
+    const silent: OverviewRow = { ...row, instrumentId: 'i-3', code: 'CWH/RDU/003-00', temperature: null, limits: { tempMin: null, tempMax: null, rhMin: 40, rhMax: 60 } };
+    const { container } = renderWith([silent]);
+    const tempCell = container.querySelector('td.tv-val-na');
+    expect(tempCell).not.toBeNull();
+    expect(tempCell?.textContent).toBe('NA');
+    expect(tempCell?.querySelector('.tv-chip')).toBeNull();
+    // The humidity reading still gets its chip; the temperature set point is NA, bare.
+    expect(container.querySelectorAll('td .tv-chip')).toHaveLength(2);
+  });
+});

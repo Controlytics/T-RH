@@ -61,7 +61,10 @@ import {
  * final content separately, so changing columns should be an edit to that list.
  */
 
-const CELL = 'px-2 py-2 text-center text-[0.8125rem] whitespace-nowrap';
+// 15px, up from 13 (operator, 2026-09-25: "in instruments readings increase
+// font sizes and make bold"). The reading and set-point chips set their own
+// size in `.tv-chip` / `.tv-spec` — those rules are unlayered and win anyway.
+const CELL = 'px-2 py-2 text-center text-[0.9375rem] whitespace-nowrap';
 const HEAD = 'px-2 py-2 text-[0.6875rem] font-bold uppercase tracking-wider';
 
 /**
@@ -138,17 +141,20 @@ export interface ColumnGroup {
  * deliberately UNLAYERED (see the note there), so a new one is not a free edit.
  *
  * Widths are hand-balanced and MUST total 100 — a grouped column counts once per
- * sub-column, so temp and rh contribute 8 x 2 each. `columnWidthTotal()` below
+ * sub-column, so temp and rh contribute 10 x 2 each. `columnWidthTotal()` below
  * computes it and a unit test asserts it, since the <colgroup> is generated from
- * this list and a drifting total silently squeezes the readings.
+ * this list and a drifting total silently squeezes the readings. (temp and rh
+ * are 10 x 2 each since 2026-09-25.)
  */
 const COLUMN_GROUPS: ColumnGroup[] = [
-  { key: 'code', label: 'Instrument ID', align: 'left', width: '14%', head: 'tv-h-id' },
-  { key: 'area', label: 'Area', align: 'left', width: '14%', head: 'tv-h-loc' },
+  { key: 'code', label: 'Instrument ID', align: 'left', width: '12%', head: 'tv-h-id' },
+  { key: 'area', label: 'Area', align: 'left', width: '12%', head: 'tv-h-loc' },
   // The widest text on the row lands here — "Working standard & reference
   // Standard storage Room (or) stability Room" — so the Room column's 11% went
   // mostly to this one rather than being spread evenly.
-  { key: 'location', label: 'Location', align: 'left', width: '20%', head: 'tv-h-loc' },
+  // 20 → 16 on 2026-09-25, with Instrument ID and Area 14 → 12 each: the
+  // reading and set-point CHIPS took the 8 points (temp / rh 8 → 10).
+  { key: 'location', label: 'Location', align: 'left', width: '16%', head: 'tv-h-loc' },
   /**
    * There is NO Room column (operator, 2026-09-01). It was removed as a literal
    * duplicate of Location, and the database says so rather than the eye:
@@ -171,8 +177,8 @@ const COLUMN_GROUPS: ColumnGroup[] = [
    *
    * The room stays SEARCHABLE. See the filter below.
    */
-  { key: 'temp', label: 'Temperature (°C)', sub: ['Actual', 'Set Point'], width: '8%', head: 'tv-h-temp', subHead: 'tv-sub-temp' },
-  { key: 'rh', label: 'Humidity (%)', sub: ['Actual', 'Set Point'], width: '8%', head: 'tv-h-rh', subHead: 'tv-sub-rh' },
+  { key: 'temp', label: 'Temperature (°C)', sub: ['Actual', 'Set Point'], width: '10%', head: 'tv-h-temp', subHead: 'tv-sub-temp' },
+  { key: 'rh', label: 'Humidity (%)', sub: ['Actual', 'Set Point'], width: '10%', head: 'tv-h-rh', subHead: 'tv-sub-rh' },
   { key: 'status', label: 'Status', width: '9%', head: 'tv-h-status' },
   // Added 2026-08-28. The payload always carried the reading timestamps and this
   // table only ever showed them in a tooltip, so a value that stopped updating an
@@ -522,11 +528,27 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
               // ACTUAL is the number people read; SET POINT is reference. Weight
               // and size carry that, so the eye lands on the reading first.
               // Hue while in spec, red on breach — see the `.tv-val-*` note in app.css.
-              const val = (bad: boolean, hue: 'temp' | 'rh') =>
-                `tv-group tv-cell ${CELL} tabular-nums text-[0.9375rem] ${bad ? 'tv-val-bad' : `tv-val-${hue}`}`;
-              // No size utility: `.tv-spec` is unlayered and sets the size itself, so a
-              // Tailwind text-[...] here would be overridden and read as if it applied.
+              // HIGHLIGHTED (operator, 2026-09-25: "temperature and humidity
+              // values and ranges should be visible like highlighted"): the
+              // reading and the set point each sit in a `.tv-chip` — a pill
+              // tinted from the cell's own ink, so an in-spec reading is a green
+              // chip, a breach a red one, a set point a blue one — and a slot with
+              // NO reading prints a plain grey NA, never a green chip around
+              // nothing (`tv-val-na`).
+              const val = (bad: boolean, hue: 'temp' | 'rh', empty: boolean) =>
+                `tv-group tv-cell ${CELL} tabular-nums ${bad ? 'tv-val-bad' : empty ? 'tv-val-na' : `tv-val-${hue}`}`;
+              // No size utility: `.tv-spec` / `.tv-chip` are unlayered and set the
+              // size themselves, so a Tailwind text-[...] here would be overridden
+              // and read as if it applied.
               const spec = `tv-cell ${CELL} tabular-nums tv-spec`;
+              const tempText = actual(r.temperature, r.decimals.temperature, { failed: r.sensorError?.temperature, outOfRange: r.rangeError?.temperature }, sensorWords);
+              const rhText = actual(r.humidity, r.decimals.humidity, { failed: r.sensorError?.humidity, outOfRange: r.rangeError?.humidity }, sensorWords);
+              const tempSp = formatSetPoint(r.limits?.tempMin, r.limits?.tempMax, r.decimals.temperature);
+              const rhSp = formatSetPoint(r.limits?.rhMin, r.limits?.rhMax, r.decimals.humidity);
+              const chip = (text: string, unit?: string) =>
+                text === NOT_AVAILABLE
+                  ? text
+                  : <span className="tv-chip">{text}{unit && <span className="tv-unit">{unit}</span>}</span>;
 
               return (
                 <tr key={r.instrumentId} className="tv-row transition-colors">
@@ -551,7 +573,7 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
                   <td className={`tv-cell ${CELL} text-left !whitespace-normal`}>
                     {r.functionalLocationName
                       ? (
-                        <span className="line-clamp-2 font-medium text-slate-700" title={r.functionalLocationName}>
+                        <span className="line-clamp-2 font-semibold text-slate-800" title={r.functionalLocationName}>
                           {r.functionalLocationName}
                         </span>
                       )
@@ -570,7 +592,7 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
                   <td className={`tv-cell ${CELL} text-left !whitespace-normal`}>
                     {r.locationAttribute
                       ? (
-                        <span className="line-clamp-2 text-slate-700" title={r.locationAttribute}>
+                        <span className="line-clamp-2 font-semibold text-slate-800" title={r.locationAttribute}>
                           {r.locationAttribute}
                         </span>
                       )
@@ -582,28 +604,26 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
                        `outOfSpec`, which is false here because a fault NULLS the
                        slot — so without this the administered word rendered in the
                        ordinary temperature hue and read like a healthy value. */
-                    className={val(tempBad || Boolean(r.sensorError?.temperature || r.rangeError?.temperature), 'temp')}
+                    className={val(tempBad || Boolean(r.sensorError?.temperature || r.rangeError?.temperature), 'temp', tempText === NOT_AVAILABLE)}
                     title={tempBad ? 'Outside the room specification' : undefined}
                   >
-                    {actual(r.temperature, r.decimals.temperature, { failed: r.sensorError?.temperature, outOfRange: r.rangeError?.temperature }, sensorWords)}
-                    {r.temperature && <span className="tv-unit">°C</span>}
+                    {chip(tempText, r.temperature ? '°C' : undefined)}
                   </td>
                   {/* `title` only — the source is a tooltip, not a visible column:
                       it answers "why do two probes in one room show different
                       bands" when asked, without another cell to read past. */}
                   <td className={spec} title={setPointSource(r.limitSource)}>
-                    {formatSetPoint(r.limits?.tempMin, r.limits?.tempMax, r.decimals.temperature)}
+                    {chip(tempSp)}
                   </td>
 
                   <td
-                    className={val(rhBad || Boolean(r.sensorError?.humidity || r.rangeError?.humidity), 'rh')}
+                    className={val(rhBad || Boolean(r.sensorError?.humidity || r.rangeError?.humidity), 'rh', rhText === NOT_AVAILABLE)}
                     title={rhBad ? 'Outside the room specification' : undefined}
                   >
-                    {actual(r.humidity, r.decimals.humidity, { failed: r.sensorError?.humidity, outOfRange: r.rangeError?.humidity }, sensorWords)}
-                    {r.humidity && <span className="tv-unit">%</span>}
+                    {chip(rhText, r.humidity ? '%' : undefined)}
                   </td>
                   <td className={spec} title={setPointSource(r.limitSource)}>
-                    {formatSetPoint(r.limits?.rhMin, r.limits?.rhMax, r.decimals.humidity)}
+                    {chip(rhSp)}
                   </td>
 
                   {/* ONLINE / OFFLINE as a pill, per the reference. The word carries
