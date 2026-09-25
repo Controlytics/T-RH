@@ -163,3 +163,36 @@ describe('ReportsPage', () => {
     expect(screen.getByText(/no requests/i)).toBeInTheDocument();
   });
 });
+
+describe('ReportsPage — View draft only while PENDING (2026-09-25)', () => {
+  // Operator: "if request is approved or rejected then view draft should not
+  // come". The draft is a thing to review; once decided, an approved report
+  // downloads signed and a rejected one is closed.
+  beforeEach(() => { me = asApprover; listError = undefined; openDraft.mockClear(); });
+
+  it('offers Download and no View draft on an approved row', () => {
+    mount();
+    fireEvent.click(screen.getByRole('tab', { name: 'Approved' }));
+    const row = rowOf('Temperature and RH Data Report');
+    expect(within(row).getByRole('button', { name: 'Download' })).toBeInTheDocument();
+    expect(within(row).queryByRole('button', { name: 'View draft' })).toBeNull();
+  });
+
+  it('offers neither on a rejected row', () => {
+    const rejected = { ...base, id: 'r-no', status: 'REJECTED', requestedBy: 'u-appr', requestedByName: 'qa1', assigneeUserId: 'u-x', assigneeRole: null, title: 'REJECTED REPORT', decidedBy: 'u-x', decidedByName: 'x', decidedAt: '2026-09-07T16:00:00.000Z', decisionRemarks: 'wrong period' };
+    const before = lists.mine;
+    lists.mine = [rejected];
+    try {
+      mount();
+      fireEvent.click(screen.getByRole('tab', { name: 'My requests' }));
+      const row = rowOf('REJECTED REPORT');
+      expect(within(row).queryByRole('button', { name: 'View draft' })).toBeNull();
+      expect(within(row).queryByRole('button', { name: 'Download' })).toBeNull();
+      // And a pending row in the queue still offers it.
+      fireEvent.click(screen.getByRole('tab', { name: 'For my approval' }));
+      expect(within(rowOf('ALARM REPORT')).getByRole('button', { name: 'View draft' })).toBeInTheDocument();
+    } finally {
+      lists.mine = before;
+    }
+  });
+});

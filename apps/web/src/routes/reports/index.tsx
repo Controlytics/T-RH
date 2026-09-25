@@ -26,10 +26,11 @@ import { DecisionDialog } from './decision-dialog';
  * Three lists, each the server's own answer to "what may I see" (party-scoped
  * there, never here): the requests waiting for MY decision, the requests I
  * raised, and the approved reports I am a party to. A row's actions follow
- * its state and my part in it: any party may look at the DRAFT; only the
- * assignee (by user, or by holding the role) may decide a PENDING one, and
- * only with the `reports.approve` gate; an APPROVED one downloads with both
- * signatures. Design:
+ * its state and my part in it: any party may look at the DRAFT while the
+ * request is PENDING (not once it is approved or rejected — operator,
+ * 2026-09-25); only the assignee (by user, or by holding the role) may decide
+ * a PENDING one, and only with the `reports.approve` gate; an APPROVED one
+ * downloads with both signatures. Design:
  * docs/superpowers/specs/2026-09-07-report-review-workflow-design.md
  */
 
@@ -169,7 +170,14 @@ export function ReportsPage() {
                     </TableCell>
                     <TableCell className="whitespace-nowrap align-top text-right">
                       <div className="flex justify-end gap-1.5">
-                        <Button size="sm" variant="secondary" onClick={() => view(r)}>View draft</Button>
+                        {/* The DRAFT is a thing to review, so it is offered only while
+                            there is still a decision to make (operator, 2026-09-25:
+                            "if request is approved or rejected then view draft should
+                            not come"). An approved report downloads signed; a rejected
+                            one is closed. */}
+                        {r.status === 'PENDING' && (
+                          <Button size="sm" variant="secondary" onClick={() => view(r)}>View draft</Button>
+                        )}
                         {mayDecide(r) && (
                           <>
                             <Button size="sm" onClick={() => { setDialogError(''); setPending({ review: r, decision: 'approve' }); }}>Approve</Button>

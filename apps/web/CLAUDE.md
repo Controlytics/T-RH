@@ -382,7 +382,9 @@ Every PDF download is a REQUEST an approver signs. Spec:
   `reports.approve` gate, and never on my own request — unless I am
   SUPER_ADMIN, who decides any pending request, their own included
   (2026-09-08; `isSelfDecision` mirrors the server's); View draft for any
-  party (`openDraft` → `report.toBlobUrl()` in a new tab; nothing saved or
+  party **while the request is PENDING only** (2026-09-25, operator: "if
+  request is approved or rejected then view draft should not come")
+  (`openDraft` → `report.toBlobUrl()` in a new tab; nothing saved or
   audited. **`toBlobUrl` FINALISES the document** — the watermark, page numbers
   and end block are painted at finalisation, and the raw `doc.output('bloburl')`
   it used to call skipped all three, so the approver's tab opened a clean

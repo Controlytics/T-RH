@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased] - Reports: View draft only while a request is pending (2026-09-25)
+
+Operator: *"in reports if request is approved or rejected then view draft
+should not come"*. `routes/reports/index.tsx`: the View draft button renders
+only on a `PENDING` row. An approved report downloads signed; a rejected one
+is closed. Nothing server-side moved — the draft route was never the
+control, and the approved copy still comes through `downloadApproved`. Test:
+an Approved row offers Download and no View draft; a Rejected row in My
+requests offers neither. No count moved. Not seen on screen.
+
 ## [Unreleased] - Every page's ground is white; one colour per card kind (2026-09-25)
 
 Operator: *"make dashboard background white color in all pages"*, then
