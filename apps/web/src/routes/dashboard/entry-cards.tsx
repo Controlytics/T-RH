@@ -5,14 +5,24 @@ import { ALL_INSTRUMENTS } from './location-nav';
 /**
  * The dashboard landing — two hero cards, then Blocks Overview.
  *
- * Built to a supplied reference design (`Screen-1.png`, 2026-08-29). The layout,
- * palette and card anatomy are the operator's call, not a proposal, so this
- * follows the reference rather than reinterpreting it. What IS a decision here
- * is everything the reference could not specify: it showed exactly four blocks
+ * Built to a supplied reference design (`Screen-1.png`, 2026-08-29). The layout
+ * and card anatomy are the operator's call, not a proposal, so this follows the
+ * reference rather than reinterpreting it. What IS a decision here is
+ * everything the reference could not specify: it showed exactly four blocks
  * named CWH / FD / PFI / MUPS, and this installation can have any number with
  * any names, so accent colour and glyph are assigned BY POSITION from fixed
  * cycles below. Same block, same colour, every load — and a fifth block gets a
  * colour instead of falling off the end of a hardcoded list.
+ *
+ * FULL-COLOUR CARDS since 2026-09-25 (operator: "all instruments card, active
+ * alarms cards, blocks cards and areas cards and background should be fully
+ * colorfull"). Until then each card was white with a coloured medallion and
+ * figure; now the whole card is its colour — a diagonal gradient with white
+ * type, the house band pattern (`PageHero`, `--band-gradient`) applied per
+ * card. The palette is still identity, not status: the same block keeps the
+ * same colour whatever theme is chosen. The one card whose colour DOES carry
+ * meaning is Active Alarms — green at zero, red above — and that meaning is
+ * also stated in words beside the figure, so colour never travels alone.
  *
  * Every count is live. Nothing here holds a number of its own.
  */
@@ -23,15 +33,37 @@ import { ALL_INSTRUMENTS } from './location-nav';
    that only works if the colours stay put when an operator switches theme.
    Same reasoning as the `--chart-series-*` palette: identity colours are data,
    not chrome. Ordered for maximum adjacent separation, and each pairs a hue
-   with a distinct glyph so colour is never the only signal. */
+   with a distinct glyph so colour is never the only signal.
+
+   Both gradient ends are the 700 / 900 weights, NOT the 500s the medallions
+   used to wear: white body text (the 11px eyebrows) needs 4.5:1, and the light
+   end measures 5.0–6.3:1 on every pair here (checked with the same formula as
+   `apps/web/scripts/contrast-check.mjs`). A brighter end would read as more
+   colour and fail the eyebrow. `wave` stays pale: it is drawn translucent over
+   the gradient, not written on. */
 const BLOCK_ACCENTS = [
-  { ring: '#0d9488', text: '#0f766e', wave: '#5eead4' }, // teal
-  { ring: '#16a34a', text: '#15803d', wave: '#86efac' }, // green
-  { ring: '#f97316', text: '#ea580c', wave: '#fdba74' }, // orange
-  { ring: '#a855f7', text: '#9333ea', wave: '#d8b4fe' }, // violet
-  { ring: '#0284c7', text: '#0369a1', wave: '#7dd3fc' }, // sky
-  { ring: '#e11d48', text: '#be123c', wave: '#fda4af' }, // rose
+  { from: '#0f766e', to: '#134e4a', wave: '#5eead4' }, // teal
+  { from: '#15803d', to: '#14532d', wave: '#86efac' }, // green
+  { from: '#c2410c', to: '#7c2d12', wave: '#fdba74' }, // orange
+  { from: '#7e22ce', to: '#581c87', wave: '#d8b4fe' }, // violet
+  { from: '#0369a1', to: '#0c4a6e', wave: '#7dd3fc' }, // sky
+  { from: '#be123c', to: '#881337', wave: '#fda4af' }, // rose
 ] as const;
+
+/** Active Alarms: red when there is something to attend to, green at zero. A red
+    zero trains people to ignore red. Same contrast rule as the block accents. */
+const ALARM_TONES = {
+  danger: { from: '#e11d48', to: '#9f1239' },
+  ok: { from: '#047857', to: '#065f46' },
+} as const;
+
+/** One diagonal, the same on every card, so the row reads as one set. */
+const gradient = (from: string, to: string) => `linear-gradient(135deg, ${from} 0%, ${to} 100%)`;
+
+/** All Instruments wears the THEME, the way the page heroes do. The 78 % black
+    mix is `--band-gradient`'s, proven for white text on all ten presets. */
+const THEME_GRADIENT =
+  'linear-gradient(135deg, color-mix(in srgb, var(--theme-gradient-from, #2a78d6) 78%, black), color-mix(in srgb, var(--theme-gradient-to, #1e3a5f) 78%, black))';
 
 /* Glyphs cycle alongside the accents. Line icons at 24px, matching the app's
    existing stroke-1.5/2 set — a filled or duotone set here would read as a
@@ -74,6 +106,17 @@ function CardWave({ color }: { color: string }) {
   );
 }
 
+/** A soft highlight in the card's top-right corner: the sheen that makes a flat
+    gradient read as a surface. Pure decoration, behind everything. */
+function Sheen() {
+  return (
+    <>
+      <span aria-hidden className="pointer-events-none absolute -right-12 -top-16 h-44 w-44 rounded-full bg-white/15 blur-2xl" />
+      <span aria-hidden className="pointer-events-none absolute -left-10 bottom-6 h-28 w-28 rounded-full bg-white/10 blur-2xl" />
+    </>
+  );
+}
+
 /**
  * The active / inactive split under a count.
  *
@@ -82,9 +125,10 @@ function CardWave({ color }: { color: string }) {
  * headline, and "100 instruments — 60 active, 30 inactive" is a defect an
  * operator has to reason about mid-shift.
  *
- * Colour is never the only signal. Inactive is greyed AND labelled, so the
+ * Colour is never the only signal. Inactive is dimmed AND labelled, so the
  * distinction survives a monochrome print of a §11 report and a colour-blind
- * reader.
+ * reader. On the coloured ground the two are white chips: the words carry
+ * the meaning, the dot only echoes it.
  */
 function ActiveSplit({ total, active }: { total: number; active?: number }) {
   // No split available (the "directly linked" card) — say nothing rather than
@@ -92,49 +136,67 @@ function ActiveSplit({ total, active }: { total: number; active?: number }) {
   if (active === undefined) return null;
   const inactive = Math.max(0, total - active);
   return (
-    <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.75rem]">
-      <span className="inline-flex items-center gap-1.5 font-medium text-emerald-700">
-        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+    <p className="mt-3 flex flex-wrap items-center gap-2 text-[0.75rem]">
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 font-semibold text-white ring-1 ring-white/20">
+        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
         {active.toLocaleString()} active
       </span>
-      <span className="inline-flex items-center gap-1.5 font-medium text-slate-500">
-        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 font-medium text-white/80 ring-1 ring-white/15">
+        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-white/50" />
         {inactive.toLocaleString()} inactive
       </span>
     </p>
   );
 }
 
-function ViewDetails({ color }: { color: string }) {
+function ViewDetails() {
   return (
-    <span className="inline-flex items-center gap-1.5 text-[0.8125rem] font-semibold" style={{ color }}>
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-[0.8125rem] font-semibold text-white ring-1 ring-white/25 transition-colors group-hover:bg-white/25">
       View Details
-      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
+      <svg className="h-4 w-4 transition-transform group-hover:translate-x-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h13m0 0l-5-5m5 5l-5 5" />
       </svg>
     </span>
   );
 }
 
-/** Shared card chrome. A button, so it is keyboard-reachable and announces as one. */
+/** The icon disc every card opens with. Glass over the gradient, not a colour
+    of its own — the card is the colour now. */
+function Medallion({ children }: { children: ReactNode }) {
+  return (
+    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/15 text-white shadow-sm ring-1 ring-white/30 backdrop-blur-sm xl:h-14 xl:w-14">
+      <svg className="h-6 w-6 xl:h-7 xl:w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
+        {children}
+      </svg>
+    </span>
+  );
+}
+
+/** Shared card chrome. A button, so it is keyboard-reachable and announces as one.
+    `background` is the card's whole colour — a gradient string. */
 function CardShell({
-  onClick, label, className, style, children,
+  onClick, label, background, className, style, children, ...data
 }: {
   onClick: () => void;
   /** What a screen reader hears. The visible text is split across the card. */
   label: string;
+  background: string;
   className?: string;
   style?: React.CSSProperties;
   children: ReactNode;
+  'data-tone'?: string;
+  'data-accent'?: number;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-label={label}
-      className={`group relative isolate overflow-hidden rounded-2xl border border-slate-200/80 bg-white text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${className ?? ''}`}
-      style={{ boxShadow: 'var(--elev-1)', ...style }}
+      {...data}
+      className={`group relative isolate overflow-hidden rounded-2xl border border-white/15 text-left text-white transition-all duration-200 hover:-translate-y-0.5 hover:shadow-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 ${className ?? ''}`}
+      style={{ boxShadow: 'var(--elev-2)', backgroundImage: background, ...style }}
     >
+      <Sheen />
       {children}
     </button>
   );
@@ -170,6 +232,7 @@ export function EntryCards({
   const all = cards.find((c) => c.id === ALL_INSTRUMENTS);
   const blocks = cards.filter((c) => c.id !== ALL_INSTRUMENTS);
   const activeAlarms = alarms?.active ?? 0;
+  const alarmTone = activeAlarms > 0 ? 'danger' : 'ok';
 
   return (
     <div className="space-y-8">
@@ -184,38 +247,37 @@ export function EntryCards({
           <CardShell
             onClick={() => onSelect(all.id)}
             label={`All instruments — ${all.count}. View details.`}
-            className="p-5 focus-visible:ring-blue-500 xl:p-6"
+            background={THEME_GRADIENT}
+            className="p-5 xl:p-6"
           >
             <div className="flex items-start gap-4">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-sm xl:h-14 xl:w-14">
-                <svg className="h-6 w-6 xl:h-7 xl:w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-                    d="M12 3l9 4.5-9 4.5-9-4.5L12 3zM3 12l9 4.5 9-4.5M3 16.5L12 21l9-4.5" />
-                </svg>
-              </span>
+              <Medallion>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+                  d="M12 3l9 4.5-9 4.5-9-4.5L12 3zM3 12l9 4.5 9-4.5M3 16.5L12 21l9-4.5" />
+              </Medallion>
               <div className="min-w-0 flex-1">
-                <h3 className="text-[0.9375rem] font-bold text-slate-900 xl:text-[1.0625rem]">All Instruments</h3>
-                <p className="mt-0.5 text-[0.8125rem] text-slate-500">
+                <h3 className="text-[0.9375rem] font-bold text-white xl:text-[1.0625rem]">All Instruments</h3>
+                <p className="mt-0.5 text-[0.8125rem] text-white/80">
                   Every registered instrument across the system
                 </p>
               </div>
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 xl:h-11 xl:w-11">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/12 text-white/90 ring-1 ring-white/20 xl:h-11 xl:w-11">
                 <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 17l5-6 4 4 6-8" />
                 </svg>
               </span>
             </div>
 
-            <p className="mt-5 text-[2.125rem] font-extrabold leading-none tracking-tight text-blue-600 tabular-nums lg:text-[2.5rem] xl:text-[2.875rem]">
+            <p className="mt-5 text-[2.125rem] font-extrabold leading-none tracking-tight text-white tabular-nums lg:text-[2.5rem] xl:text-[2.875rem]">
               {all.count.toLocaleString()}
             </p>
-            <p className="mt-2 text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-slate-500">
+            <p className="mt-2 text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-white/70">
               Instruments
             </p>
             <ActiveSplit total={all.count} active={all.activeCount} />
 
             <div className="mt-4 flex justify-end">
-              <ViewDetails color="#2563eb" />
+              <ViewDetails />
             </div>
           </CardShell>
         )}
@@ -224,26 +286,23 @@ export function EntryCards({
           <CardShell
             onClick={onOpenAlarms}
             label={`Active alarms — ${activeAlarms}. View details.`}
-            className="p-5 focus-visible:ring-rose-500 xl:p-6"
-            // The pink wash from the reference. It is the only card that carries
-            // a tint, which is what makes it read as the exception on the page.
-            style={{ backgroundImage: 'linear-gradient(135deg, #fff 40%, #fff1f2 100%)' }}
+            background={gradient(ALARM_TONES[alarmTone].from, ALARM_TONES[alarmTone].to)}
+            className="p-5 xl:p-6"
+            data-tone={alarmTone}
           >
             <div className="flex items-start gap-4">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-rose-500 to-red-600 text-white shadow-sm xl:h-14 xl:w-14">
-                <svg className="h-6 w-6 xl:h-7 xl:w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-                    d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0a3 3 0 11-6 0m6 0H9" />
-                </svg>
-              </span>
+              <Medallion>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+                  d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0a3 3 0 11-6 0m6 0H9" />
+              </Medallion>
               <div className="min-w-0 flex-1">
-                <h3 className="text-[0.9375rem] font-bold text-slate-900 xl:text-[1.0625rem]">Active Alarms</h3>
-                <p className="mt-0.5 text-[0.8125rem] text-slate-500">
+                <h3 className="text-[0.9375rem] font-bold text-white xl:text-[1.0625rem]">Active Alarms</h3>
+                <p className="mt-0.5 text-[0.8125rem] text-white/80">
                   {/* Says what to DO, and stays honest at zero. */}
                   {activeAlarms > 0 ? 'Require your attention' : 'Nothing to attend to'}
                 </p>
               </div>
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-600 xl:h-11 xl:w-11">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/12 text-white/90 ring-1 ring-white/20 xl:h-11 xl:w-11">
                 <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                     d="M12 9v4m0 4h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L14.7 3.9a2 2 0 00-3.4 0z" />
@@ -251,24 +310,22 @@ export function EntryCards({
               </span>
             </div>
 
-            {/* Green at zero, red otherwise. A red 0 trains people to ignore red. */}
-            <p
-              className="mt-5 text-[2.125rem] font-extrabold leading-none tracking-tight tabular-nums lg:text-[2.5rem] xl:text-[2.875rem]"
-              style={{ color: activeAlarms > 0 ? '#e11d48' : '#059669' }}
-            >
+            {/* The CARD is green at zero and red otherwise (`data-tone`); the
+                figure is white on both so it never fights its ground. */}
+            <p className="mt-5 text-[2.125rem] font-extrabold leading-none tracking-tight text-white tabular-nums lg:text-[2.5rem] xl:text-[2.875rem]">
               {activeAlarms.toLocaleString()}
             </p>
-            <p className="mt-2 text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-slate-500">
+            <p className="mt-2 text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-white/70">
               Alarms
             </p>
 
             <div className="mt-4 flex items-end justify-between gap-3">
-              <p className="text-[0.75rem] text-slate-500">
+              <p className="text-[0.75rem] text-white/80">
                 {(alarms.unacknowledged ?? 0) > 0
                   ? `${alarms.unacknowledged} awaiting acknowledgement`
-                  : ' '}
+                  : ' '}
               </p>
-              <ViewDetails color={activeAlarms > 0 ? '#e11d48' : '#059669'} />
+              <ViewDetails />
             </div>
           </CardShell>
         )}
@@ -282,57 +339,49 @@ export function EntryCards({
             <>
               <h2 className="text-[0.9375rem] font-bold text-slate-900 xl:text-[1.0625rem]">{sectionTitle}</h2>
               {sectionSubtitle && (
-                <p className="mt-0.5 text-[0.8125rem] text-slate-500">{sectionSubtitle}</p>
+                <p className="mt-0.5 text-[0.8125rem] text-slate-600">{sectionSubtitle}</p>
               )}
             </>
           )}
 
           <div className={`${sectionTitle ? 'mt-4 ' : ''}grid gap-4 sm:grid-cols-2 xl:grid-cols-4 xl:gap-5`}>
             {blocks.map((b, i) => {
-              const accent = BLOCK_ACCENTS[i % BLOCK_ACCENTS.length];
+              const slot = i % BLOCK_ACCENTS.length;
+              const accent = BLOCK_ACCENTS[slot];
               const glyph = BLOCK_GLYPHS[i % BLOCK_GLYPHS.length];
               return (
                 <CardShell
                   key={b.id}
                   onClick={() => onSelect(b.id)}
                   label={`${b.label} — ${b.count} instruments. View details.`}
+                  background={gradient(accent.from, accent.to)}
                   className="p-5 xl:p-6"
-                  style={{ ['--tw-ring-color' as string]: accent.ring }}
+                  data-accent={slot}
                 >
                   <CardWave color={accent.wave} />
 
                   {/* Above the wave. The wave is decoration and must never
                       swallow a number. */}
                   <div className="relative z-10 flex h-full flex-col">
-                    <span
-                      className="flex h-12 w-12 items-center justify-center rounded-full text-white shadow-sm xl:h-14 xl:w-14"
-                      style={{ backgroundColor: accent.ring }}
-                    >
-                      <svg className="h-6 w-6 xl:h-7 xl:w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
-                        {glyph}
-                      </svg>
-                    </span>
+                    <Medallion>{glyph}</Medallion>
 
-                    <h3 className="mt-3.5 truncate text-[0.9375rem] font-bold text-slate-900 xl:text-[1.0625rem]" title={b.label}>
+                    <h3 className="mt-3.5 truncate text-[0.9375rem] font-bold text-white xl:text-[1.0625rem]" title={b.label}>
                       {b.label}
                     </h3>
-                    <p className="mt-0.5 text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    <p className="mt-0.5 text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-white/70">
                       {b.sublabel}
                     </p>
 
-                    <p
-                      className="mt-4 text-[1.875rem] font-extrabold leading-none tracking-tight tabular-nums lg:text-[2.125rem] xl:text-[2.5rem]"
-                      style={{ color: accent.text }}
-                    >
+                    <p className="mt-4 text-[1.875rem] font-extrabold leading-none tracking-tight text-white tabular-nums lg:text-[2.125rem] xl:text-[2.5rem]">
                       {b.count.toLocaleString()}
                     </p>
-                    <p className="mt-2 text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    <p className="mt-2 text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-white/70">
                       Instruments
                     </p>
                     <ActiveSplit total={b.count} active={b.activeCount} />
 
                     <div className="mt-5 flex justify-end xl:mt-6">
-                      <ViewDetails color={accent.text} />
+                      <ViewDetails />
                     </div>
                   </div>
                 </CardShell>

@@ -1,5 +1,39 @@
 # Changelog
 
+## [Unreleased] - Dashboard: full-colour entry cards and a theme-tinted ground (2026-09-25)
+
+Operator: *"in dashboard, all instruments card, active alarms cards, blocks
+cards and areas cards and background should be fully colorfull and all should
+best proper ui look"*. `routes/dashboard/entry-cards.tsx` and the dashboard
+pane in `components/layout/app-layout.tsx`. No count moved.
+
+- **Every entry card is now its colour end to end** — a 135° gradient with
+  white type, a glass medallion (`bg-white/15` + ring), white/15 chips for
+  the active / inactive split and the View Details pill, a soft sheen in the
+  corner. Until now each card was white with a coloured disc and figure.
+  - **All Instruments** wears the THEME (the `--band-gradient` 78 % black
+    mix, diagonal), like the page heroes.
+  - **Active Alarms** is the one card whose colour means something: green at
+    zero, red above — now the whole card (`data-tone`), the figure white on
+    both; the words beside it still say which.
+  - **Blocks and Areas** keep their identity accents by position (teal /
+    green / orange / violet / sky / rose, fixed hex, theme-independent), but
+    as 700 → 900 gradients rather than 500 discs: white 11px eyebrows need
+    4.5:1 and the light end measures **5.0–6.3:1** on every pair (same
+    formula as `scripts/contrast-check.mjs`). A brighter end fails the
+    eyebrow. The wave stays, pale and translucent, per accent.
+- **The dashboard ground** (no wallpaper set) is a theme-tinted wash — a
+  primary glow top-left, an accent glow bottom-right, a 12 % / 10 % diagonal
+  mix — built from `--theme-*` so all ten presets work. A TINT, not the band:
+  the readings table sits directly on it at the deeper levels (`PanelCard` is
+  transparent by design), so it stays light enough for dark type. A wallpaper
+  still wins; every other page keeps its grey gradient.
+- Tests re-pointed, not dropped: the six-distinct / seventh-wraps accent
+  cases now read the CARD's gradient (`button[data-accent]`, and the seventh
+  equals the first); green-at-zero asserts `data-tone` and that the ground
+  changes. 16/16, and 3 of them fail on the previous cards (stash-checked).
+  Not seen on screen.
+
 ## [Unreleased] - Contact Admin: the Enable Account request type is gone (2026-09-25)
 
 Operator: *"in contact admin page remove enable user account feature"*.

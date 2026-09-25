@@ -59,8 +59,10 @@ describe('EntryCards — accents cycle past the reference’s four', () => {
       ...Array.from({ length: 6 }, (_, i) => card(`b${i}`, `Block ${i}`, i)),
     ];
     const { container } = render(<EntryCards cards={six} onSelect={noop} alarms={null} onOpenAlarms={noop} />);
-    const circles = container.querySelectorAll('[style*="background-color"]');
-    const colours = new Set(Array.from(circles).map((el) => el.getAttribute('style')));
+    // Since 2026-09-25 the CARD is the colour: a gradient on the button itself.
+    const blocks = container.querySelectorAll('button[data-accent]');
+    const colours = new Set(Array.from(blocks).map((el) => el.getAttribute('style')));
+    expect(blocks).toHaveLength(6);
     expect(colours.size).toBe(6);
   });
 
@@ -71,9 +73,12 @@ describe('EntryCards — accents cycle past the reference’s four', () => {
       ...Array.from({ length: 7 }, (_, i) => card(`b${i}`, `Block ${i}`, i)),
     ];
     const { container } = render(<EntryCards cards={seven} onSelect={noop} alarms={null} onOpenAlarms={noop} />);
-    const circles = container.querySelectorAll('[style*="background-color"]');
-    expect(circles).toHaveLength(7);
-    for (const c of circles) expect(c.getAttribute('style')).toMatch(/background-color/);
+    const blocks = container.querySelectorAll('button[data-accent]');
+    expect(blocks).toHaveLength(7);
+    for (const c of blocks) expect(c.getAttribute('style')).toMatch(/linear-gradient/);
+    // The seventh wears the first accent again, not a blank.
+    expect(blocks[6].getAttribute('data-accent')).toBe('0');
+    expect(blocks[6].getAttribute('style')).toBe(blocks[0].getAttribute('style'));
   });
 });
 
@@ -106,19 +111,23 @@ describe('EntryCards — behaviour', () => {
   });
 
   // A red zero teaches people to ignore red. Green at zero, red when it matters.
+  // Since 2026-09-25 the whole CARD carries the tone (the figure is white on
+  // both), so assert the card's tone and that its ground actually changes.
   it('reads green at zero alarms and red above it', () => {
-    // React serialises an inline hex to rgb(), so assert the RENDERED colour
-    // rather than the source literal — matching on '#059669' passed vacuously
-    // against nothing at all.
-    // Alarms card only — FOUR contains blocks holding 0, which would make
-    // getByText('0') ambiguous rather than wrong.
     const onlyAll = [card(ALL_INSTRUMENTS, 'All Instruments', 42, '')];
     const { rerender } = render(
       <EntryCards cards={onlyAll} onSelect={noop} alarms={{ active: 0, unacknowledged: 0 }} onOpenAlarms={noop} />,
     );
-    expect(screen.getByText('0')).toHaveStyle({ color: 'rgb(5, 150, 105)' });
+    const atZero = screen.getByRole('button', { name: /Active alarms/i });
+    expect(atZero).toHaveAttribute('data-tone', 'ok');
+    const groundAtZero = atZero.getAttribute('style');
+    expect(groundAtZero).toMatch(/linear-gradient/);
+
     rerender(<EntryCards cards={onlyAll} onSelect={noop} alarms={{ active: 3, unacknowledged: 0 }} onOpenAlarms={noop} />);
-    expect(screen.getByText('3')).toHaveStyle({ color: 'rgb(225, 29, 72)' });
+    const above = screen.getByRole('button', { name: /Active alarms/i });
+    expect(above).toHaveAttribute('data-tone', 'danger');
+    expect(above.getAttribute('style')).toMatch(/linear-gradient/);
+    expect(above.getAttribute('style')).not.toBe(groundAtZero);
   });
 
   it('says there is nothing to attend to at zero', () => {
