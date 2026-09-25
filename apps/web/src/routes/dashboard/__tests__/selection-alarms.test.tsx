@@ -591,3 +591,20 @@ describe('SelectionAlarms — the shared widget filters', () => {
     expect(new URL(alarmsKey!, 'https://x').searchParams.get('page')).toBe('1');
   });
 });
+
+describe('SelectionAlarms — the lg size mode (2026-09-25)', () => {
+  // Operator: "active alarms in this selection alarm widget make that also
+  // proper colorful and table format and fonts size increase and bold". The
+  // panel wraps the shared cells in AlarmTableSizeProvider size="lg": each row
+  // is washed in its own tone and the type steps up a size and a weight. The
+  // Alarms page and the trend widget pass no size and are untouched.
+  it('washes a live unanswered row rose and prints its instrument extrabold', () => {
+    renderWith([active]);
+    const rows = screen.getAllByRole('row');
+    const body = rows[rows.length - 1];
+    expect(body.className).toMatch(/(^|\s)bg-rose-50(\s|$)/);
+    const id = within(body).getAllByRole('cell')[0];
+    expect(id.className).toMatch(/(^|\s)font-extrabold(\s|$)/);
+    expect(id.className).toMatch(/(^|\s)text-base(\s|$)/);
+  });
+});

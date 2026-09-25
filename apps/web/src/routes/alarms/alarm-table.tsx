@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from 'react';
+import { createContext, useContext, type CSSProperties, type ReactNode } from 'react';
 import { StatusBadge } from '@/components/ui/status-badge';
 import {
   quadrantTone, statusText, breachDirection, triggeredText, clearedText, screenLimitText,
@@ -76,11 +76,48 @@ export const ALARM_BANNER_SOLID: CSSProperties = {
   backgroundColor: 'color-mix(in srgb, var(--theme-gradient-to, #1e3a5f) 78%, black)',
 };
 
+/**
+ * SIZE MODE (2026-09-25, operator: "active alarms in this selection alarm
+ * widget make that also proper colorful and table format and fonts size
+ * increase and bold"). The dashboard panel wraps its table in
+ * `<AlarmTableSizeProvider size="lg">`; every shared cell reads the mode and
+ * steps its type up one size and one weight, and the rows take a tint in
+ * their tone (`alarmRowClass`). The Alarms page and the trend widget pass
+ * nothing and render exactly as before — ONE set of cells, two sizes, so the
+ * three tables still cannot drift in what they SAY, only in how large.
+ */
+export type AlarmTableSize = 'default' | 'lg';
+const AlarmTableSizeContext = createContext<AlarmTableSize>('default');
+export function AlarmTableSizeProvider({ size, children }: { size: AlarmTableSize; children: ReactNode }) {
+  return <AlarmTableSizeContext.Provider value={size}>{children}</AlarmTableSizeContext.Provider>;
+}
+function useLarge(): boolean {
+  return useContext(AlarmTableSizeContext) === 'lg';
+}
+
+/**
+ * The row's ground in the `lg` mode — a wash in the row's own tone, so the
+ * table is colourful in the data's colours: rose for an open unacknowledged
+ * alarm, amber for a cleared one nobody signed, sky for an acknowledged one
+ * still open, emerald for a closed one. The default mode keeps its plain
+ * hover ({@link ALARM_ROW_CLASS}).
+ */
+export const ROW_TINT: Record<QuadrantTone, string> = {
+  danger: 'bg-rose-50 hover:bg-rose-100/70',
+  warn: 'bg-amber-50 hover:bg-amber-100/70',
+  info: 'bg-sky-50 hover:bg-sky-100/70',
+  ok: 'bg-emerald-50 hover:bg-emerald-100/70',
+};
+export function alarmRowClass(tone: QuadrantTone, size: AlarmTableSize = 'default'): string {
+  return size === 'lg' ? `group ${ROW_TINT[tone]}` : ALARM_ROW_CLASS;
+}
+
 /** The banner header band. Give it a single `<tr>` of {@link Th}. */
 export function AlarmTableHead({ children }: { children: ReactNode }) {
+  const lg = useLarge();
   return (
     <thead
-      className="text-left text-xs font-semibold uppercase tracking-wider text-white"
+      className={`text-left uppercase tracking-wider text-white ${lg ? 'text-[0.75rem] font-bold' : 'text-xs font-semibold'}`}
       style={ALARM_BANNER_GRADIENT}
     >
       {children}
@@ -159,7 +196,8 @@ export const ALARM_ROW_CLASS = 'group hover:bg-slate-50/70';
  * {@link ALARM_LEAD_CELL}, which supplies the `relative` it positions against.
  */
 export function StateMarker({ tone }: { tone: QuadrantTone }) {
-  return <span className={`absolute inset-y-0 left-0 w-1 ${ACCENT[tone]}`} aria-hidden />;
+  const lg = useLarge();
+  return <span className={`absolute inset-y-0 left-0 ${lg ? 'w-1.5' : 'w-1'} ${ACCENT[tone]}`} aria-hidden />;
 }
 
 /** Padding for the cell that carries the {@link StateMarker}. */
@@ -170,8 +208,9 @@ export const ALARM_CELL = 'px-4 py-3';
 
 /** The instrument the alarm is about. */
 export function AlarmInstrumentCell({ a, marker }: { a: AlarmRow; marker?: QuadrantTone }) {
+  const lg = useLarge();
   return (
-    <td className={`${marker ? ALARM_LEAD_CELL : ALARM_CELL} font-semibold text-slate-900`}>
+    <td className={`${marker ? ALARM_LEAD_CELL : ALARM_CELL} text-slate-900 ${lg ? 'text-base font-extrabold' : 'font-semibold'}`}>
       {marker && <StateMarker tone={marker} />}
       {instrumentLabel(a)}
     </td>
@@ -190,8 +229,9 @@ export function AlarmInstrumentCell({ a, marker }: { a: AlarmRow; marker?: Quadr
 export function AlarmTypeCell({
   a, texts, marker,
 }: { a: AlarmRow; texts?: AlarmDisplayTexts; marker?: QuadrantTone }) {
+  const lg = useLarge();
   return (
-    <td className={`${marker ? ALARM_LEAD_CELL : ALARM_CELL} text-slate-700`}>
+    <td className={`${marker ? ALARM_LEAD_CELL : ALARM_CELL} ${lg ? 'font-bold text-slate-900' : 'text-slate-700'}`}>
       {marker && <StateMarker tone={marker} />}
       {alarmTypeText(a, texts)}
     </td>
@@ -207,13 +247,15 @@ export function AlarmTypeCell({
  * columns print the same string on every instrument with no typed Location.
  */
 export function AlarmLocationCell({ a, areaShown = false }: { a: AlarmRow; areaShown?: boolean }) {
-  return <td className={`${ALARM_CELL} text-slate-700`}>{locationText(a, { areaShown })}</td>;
+  const lg = useLarge();
+  return <td className={`${ALARM_CELL} ${lg ? 'font-semibold text-slate-800' : 'text-slate-700'}`}>{locationText(a, { areaShown })}</td>;
 }
 
 /** The FUNCTIONAL location — the authoritative Block > Area grouping, and the
  *  same fact the dashboard readings table's Area column shows. */
 export function AlarmAreaCell({ a }: { a: AlarmRow }) {
-  return <td className={`${ALARM_CELL} text-slate-700`}>{areaText(a)}</td>;
+  const lg = useLarge();
+  return <td className={`${ALARM_CELL} ${lg ? 'font-semibold text-slate-800' : 'text-slate-700'}`}>{areaText(a)}</td>;
 }
 
 /**
@@ -235,12 +277,13 @@ export function AlarmTimeCell({
   /** What the dash means when there is no timestamp. Omitted = a plain dash. */
   emptyTitle?: string;
 }) {
+  const lg = useLarge();
   return (
-    <td className={`whitespace-nowrap ${ALARM_CELL} text-slate-600`}>
+    <td className={`whitespace-nowrap ${ALARM_CELL} ${lg ? 'text-slate-800' : 'text-slate-600'}`}>
       {value ? (
         <>
-          <span className="block">{formatDate(value)}</span>
-          <span className="block text-xs text-slate-400">{formatTime(value)}</span>
+          <span className={`block ${lg ? 'font-semibold' : ''}`}>{formatDate(value)}</span>
+          <span className={`block ${lg ? 'text-sm font-medium text-slate-500' : 'text-xs text-slate-400'}`}>{formatTime(value)}</span>
         </>
       ) : (
         <span className="font-medium text-amber-700" title={emptyTitle}>—</span>
@@ -257,8 +300,9 @@ export function AlarmTimeCell({
  * and widens the column (operator, 2026-08-29 and again 2026-08-31).
  */
 export function AlarmValueCell({ a, texts }: { a: AlarmRow; texts?: AlarmDisplayTexts }) {
+  const lg = useLarge();
   return (
-    <td className={`whitespace-nowrap ${ALARM_CELL} font-semibold tabular-nums ${VALUE_INK[breachDirection(a)]}`}>
+    <td className={`whitespace-nowrap ${ALARM_CELL} tabular-nums ${lg ? 'text-lg font-extrabold' : 'font-semibold'} ${VALUE_INK[breachDirection(a)]}`}>
       {triggeredText(a, texts)}
     </td>
   );
@@ -276,12 +320,14 @@ export function AlarmLimitCell({ a, texts, limits }: {
    */
   limits?: { tempMin?: number | null; tempMax?: number | null; rhMin?: number | null; rhMax?: number | null } | null;
 }) {
-  return <td className={`whitespace-nowrap ${ALARM_CELL} tabular-nums text-slate-500`}>{screenLimitText(a, texts, limits)}</td>;
+  const lg = useLarge();
+  return <td className={`whitespace-nowrap ${ALARM_CELL} tabular-nums ${lg ? 'font-semibold text-slate-700' : 'text-slate-500'}`}>{screenLimitText(a, texts, limits)}</td>;
 }
 
 /** The reading that brought it back in limit. */
 export function AlarmClearedValueCell({ a, texts }: { a: AlarmRow; texts?: AlarmDisplayTexts }) {
-  return <td className={`whitespace-nowrap ${ALARM_CELL} tabular-nums text-slate-600`}>{clearedText(a, texts)}</td>;
+  const lg = useLarge();
+  return <td className={`whitespace-nowrap ${ALARM_CELL} tabular-nums ${lg ? 'font-semibold text-slate-800' : 'text-slate-600'}`}>{clearedText(a, texts)}</td>;
 }
 
 /**
@@ -301,12 +347,14 @@ export function AlarmClearedValueCell({ a, texts }: { a: AlarmRow; texts?: Alarm
 export function AlarmStatusCell({
   a, texts,
 }: { a: AlarmRow; texts?: Partial<AlarmStatusTexts> }) {
+  const lg = useLarge();
   return (
     <td className={ALARM_CELL}>
       <StatusBadge
         tone={quadrantTone(a)}
         label={statusText(a, texts)}
         pulse={a.state === 'ACTIVE' && !a.acknowledgedAt}
+        className={lg ? 'px-3 py-1 text-sm font-bold' : undefined}
       />
     </td>
   );
@@ -314,9 +362,10 @@ export function AlarmStatusCell({
 
 /** How long it lasted, raised → cleared. Blank while it is still open. */
 export function AlarmDurationCell({ a }: { a: AlarmRow }) {
+  const lg = useLarge();
   return (
     <td
-      className={`whitespace-nowrap ${ALARM_CELL} tabular-nums text-slate-700`}
+      className={`whitespace-nowrap ${ALARM_CELL} tabular-nums ${lg ? 'font-semibold text-slate-800' : 'text-slate-700'}`}
       title={a.clearedAt ? undefined : 'Still active — no cleared time yet'}
     >
       {alarmDurationText(a)}
@@ -333,15 +382,16 @@ export function AlarmDurationCell({ a }: { a: AlarmRow }) {
 export function AlarmAckByCell({
   a, formatDateTime,
 }: { a: AlarmRow; formatDateTime: (v: string) => string }) {
+  const lg = useLarge();
   return (
     <td className={ALARM_CELL}>
       {a.acknowledgedAt ? (
-        <span title={a.acknowledgeReason ?? undefined} className="text-slate-700">
-          <span className="block font-medium">{a.acknowledgedBy}</span>
-          <span className="block text-xs text-slate-400">{formatDateTime(a.acknowledgedAt)}</span>
+        <span title={a.acknowledgeReason ?? undefined} className={lg ? 'text-slate-900' : 'text-slate-700'}>
+          <span className={`block ${lg ? 'font-bold' : 'font-medium'}`}>{a.acknowledgedBy}</span>
+          <span className={`block ${lg ? 'text-sm font-medium text-slate-500' : 'text-xs text-slate-400'}`}>{formatDateTime(a.acknowledgedAt)}</span>
         </span>
       ) : (
-        <span className="font-medium text-rose-600">Awaiting</span>
+        <span className={`${lg ? 'font-bold' : 'font-medium'} text-rose-600`}>Awaiting</span>
       )}
     </td>
   );

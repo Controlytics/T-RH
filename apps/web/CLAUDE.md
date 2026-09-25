@@ -745,6 +745,15 @@ Each caller still shows a different subset and each subset has a reason:
   is null on every row it can show. Three columns of dashes, in a panel narrower
   than either full-width table. **If that query ever widens, add them back.**
 
+**The shared cells have a SIZE MODE (2026-09-25, operator: "active alarms in
+this selection alarm widget make that also proper colorful and table format
+and fonts size increase and bold").** `AlarmTableSizeProvider size="lg"`
+around the dashboard panel's table: every cell steps its type up one size
+and one weight, and `alarmRowClass(tone, 'lg')` washes each row in its tone
+(`ROW_TINT`). The Alarms page and the trend widget pass nothing and are
+unchanged — one set of cells, two sizes; do not fork a cell to size it.
+Pinned in `selection-alarms.test.tsx`.
+
 **The two WIDGETS also share one filter toolbar** — `alarm-widget-filters.tsx`,
 search + type + status (operator, 2026-09-01). Extracted, not copied, for the same
 reason `alarm-table.tsx` was: the trend widget's hand-written copy of the table

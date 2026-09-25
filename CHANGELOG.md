@@ -1,5 +1,31 @@
 # Changelog
 
+## [Unreleased] - Dashboard alarms panel: bigger, bolder, and every row in its own colour (2026-09-25)
+
+Operator: *"active alarms in this selection alarm widget make that also
+proper colorful and table format and fonts size increase and bold"*.
+`routes/dashboard/selection-alarms.tsx` over the shared
+`routes/alarms/alarm-table.tsx`. No count moved.
+
+- **A size mode on the shared cells, not a fourth copy.** `alarm-table.tsx`
+  gains `AlarmTableSizeProvider` (`'default' | 'lg'`); every cell reads it
+  and in `lg` steps its type up one size and one weight — Instrument ID
+  16px extrabold, Type bold, the reading 18px extrabold, dates and names
+  semibold with 14px sub-lines, the status pill 14px bold, the banner 12px
+  bold. The Alarms page and the trend widget pass nothing and render exactly
+  as before (their tests unchanged and green), so the three tables still
+  cannot drift in what they SAY.
+- **Rows washed in their own tone** (`ROW_TINT` / `alarmRowClass`): rose for
+  an open unacknowledged alarm, amber for a cleared one nobody signed, sky
+  for an acknowledged one still open, emerald for a closed one — colour in
+  the data's colours, beside the state marker that already carried them.
+  The panel's wrapper stays transparent for the operator's PanelCard tint.
+- The panel's table is 15px, the marker 6px, the Acknowledge button full
+  size and bold, the empty line 16px.
+- Tests: a new lock (rose row, extrabold ID in the panel); 36/36 there,
+  Alarms page 27/27 and trend widget 34/34 untouched; tsc and vite build
+  clean. Not seen on screen.
+
 ## [Unreleased] - Dashboard readings table: bigger, bolder, and the readings and set points are chips (2026-09-25)
 
 Operator: *"in instruments readings increase font sizes and make bold and

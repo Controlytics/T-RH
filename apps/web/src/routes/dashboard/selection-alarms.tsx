@@ -23,7 +23,7 @@ import {
   type AlarmDisplayTexts, type InactivityTextsResponse,
 } from '@/routes/alarms/alarm-display';
 import {
-  AlarmTableHead, Th, Stack, UnitLine, ALARM_ROW_CLASS, AlarmTableMessage,
+  AlarmTableHead, Th, Stack, UnitLine, AlarmTableMessage, AlarmTableSizeProvider, alarmRowClass,
   AlarmInstrumentCell, AlarmTypeCell, AlarmLocationCell, AlarmTimeCell,
   AlarmValueCell, AlarmLimitCell, AlarmStatusCell, AlarmAckByCell,
 } from '@/routes/alarms/alarm-table';
@@ -250,9 +250,14 @@ export function SelectionAlarms({ functionalLocationId }: { functionalLocationId
 
           The inner wrapper clips the shared banner's corners to this one and
           scrolls the table sideways rather than the panel. */}
-      <div className="overflow-hidden rounded-xl border border-slate-200/70">
+      {/* `lg`: the shared cells one size and one weight up, and each row washed
+          in its own tone (operator, 2026-09-25: "make that also proper
+          colorful and table format and fonts size increase and bold"). The
+          Alarms page and the trend widget are untouched. */}
+      <AlarmTableSizeProvider size="lg">
+      <div className="overflow-hidden rounded-xl border border-slate-200">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-[0.9375rem]">
             <AlarmTableHead>
               <tr>
                 {/* No `sortKey` on any of these. The Alarms page sorts on the
@@ -288,19 +293,19 @@ export function SelectionAlarms({ functionalLocationId }: { functionalLocationId
                 <Th />
               </tr>
             </AlarmTableHead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-slate-200/80">
               {!data && (
                 <AlarmTableMessage colSpan={COLUMNS} className="px-4 py-4">
                   <SkeletonRows rows={3} columns={4} />
                 </AlarmTableMessage>
               )}
               {data && rows.length === 0 && (
-                <AlarmTableMessage colSpan={COLUMNS} className="px-4 py-6 text-sm text-slate-500">
+                <AlarmTableMessage colSpan={COLUMNS} className="px-4 py-6 text-base font-medium text-slate-500">
                   No active alarms here.
                 </AlarmTableMessage>
               )}
               {rows.map((a) => (
-                <tr key={a.id} className={ALARM_ROW_CLASS}>
+                <tr key={a.id} className={alarmRowClass(quadrantTone(a), 'lg')}>
                   {/* The state marker rides on the LEADING cell — Instrument ID
                       here, as on the Alarms page, since this panel keeps that
                       column. It is what finds an unanswered row without reading
@@ -329,7 +334,7 @@ export function SelectionAlarms({ functionalLocationId }: { functionalLocationId
                       the server's 403 is the control. */}
                   <td className="whitespace-nowrap px-4 py-3 text-right">
                     {needsAcknowledgement(a) && can('alarms.acknowledge') && (
-                      <Button size="sm" variant="outline" onClick={() => { setDialogError(''); setTarget(a); }}>
+                      <Button variant="outline" className="font-bold" onClick={() => { setDialogError(''); setTarget(a); }}>
                         Acknowledge
                       </Button>
                     )}
@@ -355,6 +360,7 @@ export function SelectionAlarms({ functionalLocationId }: { functionalLocationId
           />
         )}
       </div>
+      </AlarmTableSizeProvider>
 
       {/* `inactivityTexts` is the SAME bag the rows render from, not a second
           lookup: the dialog restates the alarm being signed for, and that
