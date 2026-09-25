@@ -7,12 +7,14 @@ import { ALL_INSTRUMENTS } from './location-nav';
  *
  * Built to a supplied reference design (`Screen-1.png`, 2026-08-29). The layout
  * and card anatomy are the operator's call, not a proposal, so this follows the
- * reference rather than reinterpreting it. What IS a decision here is
- * everything the reference could not specify: it showed exactly four blocks
- * named CWH / FD / PFI / MUPS, and this installation can have any number with
- * any names, so accent colour is assigned BY POSITION from a fixed cycle
- * below. Same block, same colour, every load — and a fifth block gets a
- * colour instead of falling off the end of a hardcoded list.
+ * reference rather than reinterpreting it.
+ *
+ * ONE COLOUR PER KIND (operator, 2026-09-25: "blocks card colors should be
+ * one color, and areas cards should one color"): every Block card is teal
+ * and every Area card is sky, whatever the block. Until then each block took
+ * its own accent by position from a six-hue cycle (the reference's four
+ * blocks in four colours); that identity-by-colour is gone, and the NAME on
+ * the card is what tells blocks apart.
  *
  * NO SYMBOLS (operator, 2026-09-25: "remove symbols in cards"): the glyph
  * discs, the corner icons and the link arrow are gone. A card is its colour,
@@ -31,28 +33,19 @@ import { ALL_INSTRUMENTS } from './location-nav';
  * Every count is live. Nothing here holds a number of its own.
  */
 
-/* ── Accents ──────────────────────────────────────────────────────────────
-   Fixed hex, not `--theme-*`. The reference gives each block its own identity
-   so a supervisor can find "the orange one" at a glance across the room, and
-   that only works if the colours stay put when an operator switches theme.
-   Same reasoning as the `--chart-series-*` palette: identity colours are data,
-   not chrome. Ordered for maximum adjacent separation; the block's NAME is
-   printed on every card, so colour is never the only signal.
-
-   Both gradient ends are the 700 / 900 weights, NOT the 500s the medallions
-   used to wear: white body text (the 11px eyebrows) needs 4.5:1, and the light
-   end measures 5.0–6.3:1 on every pair here (checked with the same formula as
-   `apps/web/scripts/contrast-check.mjs`). A brighter end would read as more
-   colour and fail the eyebrow. `wave` stays pale: it is drawn translucent over
-   the gradient, not written on. */
-const BLOCK_ACCENTS = [
-  { from: '#0f766e', to: '#134e4a', wave: '#5eead4' }, // teal
-  { from: '#15803d', to: '#14532d', wave: '#86efac' }, // green
-  { from: '#c2410c', to: '#7c2d12', wave: '#fdba74' }, // orange
-  { from: '#7e22ce', to: '#581c87', wave: '#d8b4fe' }, // violet
-  { from: '#0369a1', to: '#0c4a6e', wave: '#7dd3fc' }, // sky
-  { from: '#be123c', to: '#881337', wave: '#fda4af' }, // rose
-] as const;
+/* ── Kind colours ─────────────────────────────────────────────────────────
+   Fixed hex, not `--theme-*`: a Block and an Area must read as a Block and an
+   Area under every theme, and the readings table already names locations in
+   teal (`tv-h-loc`). Both gradient ends are the 700 / 900 weights: white body
+   text (the 13px eyebrows) needs 4.5:1, and the light ends measure 5.5:1
+   (teal) and 5.9:1 (sky) — checked with the same formula as
+   `apps/web/scripts/contrast-check.mjs`. `wave` stays pale: it is drawn
+   translucent over the gradient, not written on. */
+export type EntryCardKind = 'block' | 'area';
+const KIND_ACCENTS: Record<EntryCardKind, { from: string; to: string; wave: string }> = {
+  block: { from: '#0f766e', to: '#134e4a', wave: '#5eead4' }, // teal — the location hue
+  area: { from: '#0369a1', to: '#0c4a6e', wave: '#7dd3fc' },  // sky
+};
 
 /** Active Alarms: red when there is something to attend to, green at zero. A red
     zero trains people to ignore red. Same contrast rule as the block accents. */
@@ -159,7 +152,7 @@ function CardShell({
   style?: React.CSSProperties;
   children: ReactNode;
   'data-tone'?: string;
-  'data-accent'?: number;
+  'data-kind'?: EntryCardKind;
 }) {
   return (
     <button
@@ -196,21 +189,22 @@ export interface EntryCardsProps {
    */
   sectionTitle?: string | null;
   sectionSubtitle?: string | null;
-  /** True when the page ground is the DEEP one (only these cards on screen), so
-      the section heading prints in white; false over the light tint. */
-  dark?: boolean;
+  /** What the lower grid lists — Blocks at the top level, one Block's Areas a
+      level down. Decides the ONE colour every card in that grid wears. */
+  cardKind?: EntryCardKind;
 }
 
 export function EntryCards({
   cards, onSelect, alarms, onOpenAlarms,
   sectionTitle = 'Blocks Overview',
   sectionSubtitle = 'Overview of all functional blocks',
-  dark = false,
+  cardKind = 'block',
 }: EntryCardsProps) {
   const all = cards.find((c) => c.id === ALL_INSTRUMENTS);
   const blocks = cards.filter((c) => c.id !== ALL_INSTRUMENTS);
   const activeAlarms = alarms?.active ?? 0;
   const alarmTone = activeAlarms > 0 ? 'danger' : 'ok';
+  const accent = KIND_ACCENTS[cardKind];
 
   return (
     <div className="space-y-8">
@@ -292,17 +286,15 @@ export function EntryCards({
         <section>
           {sectionTitle && (
             <>
-              <h2 className={`text-[1.125rem] font-extrabold xl:text-[1.25rem] ${dark ? 'text-white' : 'text-slate-900'}`}>{sectionTitle}</h2>
+              <h2 className="text-[1.125rem] font-extrabold text-slate-900 xl:text-[1.25rem]">{sectionTitle}</h2>
               {sectionSubtitle && (
-                <p className={`mt-0.5 text-[0.875rem] font-medium ${dark ? 'text-white/75' : 'text-slate-600'}`}>{sectionSubtitle}</p>
+                <p className="mt-0.5 text-[0.875rem] font-medium text-slate-600">{sectionSubtitle}</p>
               )}
             </>
           )}
 
           <div className={`${sectionTitle ? 'mt-4 ' : ''}grid gap-4 sm:grid-cols-2 xl:grid-cols-4 xl:gap-5`}>
-            {blocks.map((b, i) => {
-              const slot = i % BLOCK_ACCENTS.length;
-              const accent = BLOCK_ACCENTS[slot];
+            {blocks.map((b) => {
               return (
                 <CardShell
                   key={b.id}
@@ -310,7 +302,7 @@ export function EntryCards({
                   label={`${b.label} — ${b.count} instruments. View details.`}
                   background={gradient(accent.from, accent.to)}
                   className="p-5 xl:p-6"
-                  data-accent={slot}
+                  data-kind={cardKind}
                 >
                   <CardWave color={accent.wave} />
 

@@ -260,15 +260,16 @@ export function AppLayout() {
             </div>
           )}
           {/* With a wallpaper set the pane goes transparent so the image shows
-              through. Without one EVERY page wears `.page-ground` (app.css): the
-              light theme tint, or the DEEP theme ground when the page marks
-              itself `data-page-ground="deep"` — the dashboard landing behind its
-              colour cards — switched in CSS with `:has()`. (Operator,
-              2026-09-25: "background should be fully colorfull", "as per cards
-              colors make background good color", "all pages should colorful and
-              background should be good".) The old grey gradient is gone. */}
+              through. Without one every page's ground is WHITE (operator,
+              2026-09-25: "make dashboard background white color in all pages").
+              That closed a day of grounds: a grey gradient, then a theme tint
+              ("background should be fully colorfull"), then a deep theme ground
+              behind the dashboard's colour cards ("as per cards colors make
+              background good color", "all pages should colorful"), then white.
+              The colour lives on the cards, the bands and the tables now, not
+              behind them. */}
           <main
-            className={`absolute inset-0 overflow-y-auto p-3 sm:p-4 lg:p-6 ${backgroundStyle ? '' : 'page-ground'}`}
+            className={`absolute inset-0 overflow-y-auto p-3 sm:p-4 lg:p-6 ${backgroundStyle ? '' : 'bg-white'}`}
           >
             <Outlet />
           </main>

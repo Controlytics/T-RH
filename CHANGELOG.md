@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased] - Every page's ground is white; one colour per card kind (2026-09-25)
+
+Operator: *"make dashboard background white color in all pages"*, then
+*"and also blocks card colors should be one color, and areas cards should
+one color"*. No count moved.
+
+- **The ground is white** on every page when no wallpaper is set
+  (`app-layout.tsx`: `bg-white` on `<main>`). That closes a day of grounds —
+  grey gradient → theme tint → deep theme ground behind the dashboard cards
+  → white. `.page-ground` and its `:has()` switch are gone from `app.css`,
+  the dashboard's `data-page-ground` mark with it, and `EntryCards` lost its
+  `dark` prop (the Blocks Overview heading is slate on white); its test
+  went with the prop. A wallpaper still wins.
+- **One colour per kind.** Every Block card is teal (the readings table's
+  location hue) and every Area card is sky, `KIND_ACCENTS` keyed by the new
+  `cardKind` prop the dashboard passes from `nav.level`. The six-hue
+  by-position cycle (`BLOCK_ACCENTS`, `data-accent`) is gone; the name on
+  the card is what tells blocks apart. Both light ends pass AA for the
+  white eyebrows (5.5:1 teal, 5.9:1 sky). The two accent-cycle tests became
+  two one-colour tests (every Block the same gradient; every Area one
+  gradient, different from the Blocks'). 18/18. Not seen on screen.
+
 ## [Unreleased] - Audit Trail as a bordered grid, 15px, bold (2026-09-25)
 
 Operator: *"make audit trail page in to table format"*, then *"font sizes

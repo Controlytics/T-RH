@@ -204,13 +204,7 @@ export function DashboardPage() {
   };
 
   return (
-    <div
-      className="space-y-4 animate-fade-in"
-      // Which ground the layout paints (app.css `.page-ground`): DEEP while only
-      // the colour cards are on screen, LIGHT once the readings table is —
-      // dark type on a dark field is the one thing the deep ground cannot hold.
-      data-page-ground={nav.showViews ? 'light' : 'deep'}
-    >
+    <div className="space-y-4 animate-fade-in">
       {/*
         THE PLATE behind this header is a legibility fix, not decoration.
 
@@ -294,7 +288,6 @@ export function DashboardPage() {
            filtering. Deeper levels are about one location's instruments, where
            a global alarm count would be misleading. */
         <EntryCards
-          dark={!nav.showViews}
           cards={nav.cards}
           onSelect={go}
           alarms={selected === null && canSeeAlarms
@@ -312,6 +305,8 @@ export function DashboardPage() {
           // had just named. null, not '' — the default only fires on undefined.
           sectionTitle={nav.level === 0 ? 'Blocks Overview' : null}
           sectionSubtitle={nav.level === 0 ? 'Overview of all functional blocks' : null}
+          // One colour per kind (operator, 2026-09-25): Blocks teal, Areas sky.
+          cardKind={nav.level === 0 ? 'block' : 'area'}
         />
       )}
 

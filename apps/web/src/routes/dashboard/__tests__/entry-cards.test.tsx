@@ -52,33 +52,39 @@ describe('EntryCards — the numbers are live', () => {
   });
 });
 
-describe('EntryCards — accents cycle past the reference’s four', () => {
-  it('gives each of six blocks a distinct accent', () => {
+describe('EntryCards — one colour per kind (2026-09-25)', () => {
+  // Operator: "blocks card colors should be one color, and areas cards should
+  // one color". Until then each block took its own accent by position.
+  it('gives every Block card the same gradient', () => {
     const six = [
       card(ALL_INSTRUMENTS, 'All Instruments', 0, ''),
       ...Array.from({ length: 6 }, (_, i) => card(`b${i}`, `Block ${i}`, i)),
     ];
     const { container } = render(<EntryCards cards={six} onSelect={noop} alarms={null} onOpenAlarms={noop} />);
-    // Since 2026-09-25 the CARD is the colour: a gradient on the button itself.
-    const blocks = container.querySelectorAll('button[data-accent]');
-    const colours = new Set(Array.from(blocks).map((el) => el.getAttribute('style')));
+    const blocks = container.querySelectorAll('button[data-kind="block"]');
     expect(blocks).toHaveLength(6);
-    expect(colours.size).toBe(6);
+    const styles = new Set(Array.from(blocks).map((el) => el.getAttribute('style')));
+    expect(styles.size).toBe(1);
+    expect([...styles][0]).toMatch(/linear-gradient/);
   });
 
-  // The cycle is what stops a seventh block rendering with no colour at all.
-  it('wraps rather than running out on a seventh block', () => {
-    const seven = [
+  it('gives every Area card one gradient, and a different one from the Blocks', () => {
+    const cards = [
       card(ALL_INSTRUMENTS, 'All Instruments', 0, ''),
-      ...Array.from({ length: 7 }, (_, i) => card(`b${i}`, `Block ${i}`, i)),
+      ...Array.from({ length: 3 }, (_, i) => card(`a${i}`, `Area ${i}`, i, 'Area')),
     ];
-    const { container } = render(<EntryCards cards={seven} onSelect={noop} alarms={null} onOpenAlarms={noop} />);
-    const blocks = container.querySelectorAll('button[data-accent]');
-    expect(blocks).toHaveLength(7);
-    for (const c of blocks) expect(c.getAttribute('style')).toMatch(/linear-gradient/);
-    // The seventh wears the first accent again, not a blank.
-    expect(blocks[6].getAttribute('data-accent')).toBe('0');
-    expect(blocks[6].getAttribute('style')).toBe(blocks[0].getAttribute('style'));
+    const { container: asAreas } = render(
+      <EntryCards cards={cards} onSelect={noop} alarms={null} onOpenAlarms={noop} cardKind="area" sectionTitle={null} />,
+    );
+    const areas = asAreas.querySelectorAll('button[data-kind="area"]');
+    expect(areas).toHaveLength(3);
+    const areaStyles = new Set(Array.from(areas).map((el) => el.getAttribute('style')));
+    expect(areaStyles.size).toBe(1);
+    const { container: asBlocks } = render(
+      <EntryCards cards={cards} onSelect={noop} alarms={null} onOpenAlarms={noop} />,
+    );
+    const blockStyle = asBlocks.querySelector('button[data-kind="block"]')!.getAttribute('style');
+    expect([...areaStyles][0]).not.toBe(blockStyle);
   });
 });
 
@@ -103,15 +109,6 @@ describe('EntryCards — behaviour', () => {
   it('omits the alarms card when alarms are null', () => {
     render(<EntryCards cards={FOUR} onSelect={noop} alarms={null} onOpenAlarms={noop} />);
     expect(screen.queryByText('Active Alarms')).toBeNull();
-  });
-
-  // The landing's ground is DEEP (only these cards on screen), so the section
-  // heading must print white there and slate over the light tint.
-  it('prints the section heading in white on the deep ground', () => {
-    const { rerender } = render(<EntryCards cards={FOUR} onSelect={noop} alarms={null} onOpenAlarms={noop} dark />);
-    expect(screen.getByText('Blocks Overview').className).toMatch(/(^|\s)text-white(\s|$)/);
-    rerender(<EntryCards cards={FOUR} onSelect={noop} alarms={null} onOpenAlarms={noop} />);
-    expect(screen.getByText('Blocks Overview').className).toMatch(/(^|\s)text-slate-900(\s|$)/);
   });
 
   it('drops the Blocks Overview section when there are no blocks', () => {

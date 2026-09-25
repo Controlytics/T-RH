@@ -65,20 +65,18 @@ cards and areas cards and background should be fully colorfull").**
 `entry-cards.tsx`: every card is a 135° gradient with white type — All
 Instruments wears the theme (`--band-gradient`'s 78 % black mix, diagonal),
 Active Alarms is green at zero and red above as a WHOLE card (`data-tone`; the
-words beside the figure still say which), Blocks / Areas keep their identity
-accents by position (`data-accent`, fixed hex, theme-independent) as 700 → 900
-gradients — the 500 discs would fail the 11px white eyebrows; the light ends
-measure 5.0–6.3:1. Medallion, split chips and View Details are white/15 glass.
-The ground is `.page-ground` in `app.css`, put on `<main>` of EVERY page by
-`components/layout/app-layout.tsx` (operator, later the same day: "all pages
-should colorful and background should be good" — the grey gradient is gone),
-with TWO states switched by `:has()` on the page's `data-page-ground`: DEEP
-on the dashboard landing (the preset's `--theme-login-bg-*` pair with two
-glows — operator: "as per cards colors make background good color", the pale
-tint having read as a wash) and LIGHT everywhere else, including the
-dashboard once the readings table is on screen, because the table sits on the
-ground directly (`PanelCard` is transparent). `EntryCards dark` prints the
-section heading white on the deep ground. A wallpaper still wins.
+words beside the figure still say which), and **every Block card is teal and
+every Area card is sky** (`KIND_ACCENTS`, `cardKind` from `nav.level`,
+`data-kind`; operator, later the same day: "blocks card colors should be one
+color, and areas cards should one color" — the six-hue by-position cycle is
+gone). 700 → 900 gradients: the 500s would fail the white eyebrows. Medallion,
+split chips and View Details are white/15 glass.
+**The ground is WHITE on every page** (`bg-white` on `<main>` in
+`components/layout/app-layout.tsx`; operator: "make dashboard background
+white color in all pages"), after a grey gradient, a theme tint and a deep
+theme ground behind the dashboard cards each lasted hours that day. The
+colour is on the cards, the bands and the tables, never behind them. A
+wallpaper still wins.
 
 **Every widget HEADER wears the site band (2026-09-25, operator: "do it same
 for trends page and time series in other pages entire dasboard").**

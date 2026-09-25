@@ -941,42 +941,6 @@ table {
   .animate-pulse { animation: none; }
 }
 
-/* ── The page ground (2026-09-25) ─────────────────────────────────────────
-   Operator: "background should be fully colorfull", then "background color
-   was not good … as per cards colors make background good color", then
-   "entire dasboard all pages should colorful and background should be good".
-   EVERY page wears `.page-ground` (app-layout puts it on <main> whenever no
-   wallpaper is set). Two states, switched on what the page is showing:
-
-   DEEP — the landing, where only the colour cards are on screen: the
-   preset's own dark pair (`--theme-login-bg-*`, the login page's ground,
-   proven behind white text on all ten presets) with a theme-primary glow and
-   an accent glow, so the saturated cards sit on a rich dark field instead of
-   a pale wash. The page marks it with `data-dashboard-ground="deep"`.
-
-   LIGHT — everywhere else, including the dashboard once the readings table
-   is on screen (any selection): a faint theme tint. The table sits DIRECTLY
-   on the ground at those levels (`PanelCard` is transparent so the
-   operator's panel tint shows), and every other page's tables and forms are
-   white cards on it, so it has to stay light for dark type.
-
-   In `@layer components` like every shared class here (see above). */
-@layer components {
-  .page-ground {
-    background-image:
-      radial-gradient(60rem 32rem at 0% 0%, color-mix(in srgb, var(--theme-gradient-from, #2a78d6) 22%, transparent), transparent 70%),
-      radial-gradient(52rem 30rem at 100% 100%, color-mix(in srgb, var(--theme-accent, #14b8a6) 18%, transparent), transparent 70%),
-      linear-gradient(135deg, color-mix(in srgb, var(--theme-gradient-from, #2a78d6) 8%, white), color-mix(in srgb, var(--theme-gradient-to, #1e3a5f) 6%, white));
-    background-attachment: local;
-  }
-  .page-ground:has([data-page-ground="deep"]) {
-    background-image:
-      radial-gradient(64rem 36rem at 0% 0%, color-mix(in srgb, var(--theme-primary, #2a78d6) 45%, transparent), transparent 70%),
-      radial-gradient(56rem 32rem at 100% 100%, color-mix(in srgb, var(--theme-accent, #14b8a6) 35%, transparent), transparent 70%),
-      linear-gradient(160deg, var(--theme-login-bg-start, #0f172a), var(--theme-login-bg-end, #1e3a5f));
-  }
-}
-
 /* ── The widget band (2026-09-25) ─────────────────────────────────────────
    Operator: "do it same for trends page and time series in other pages
    entire dasboard all pages should colorful". Every widget's HEADER wears
