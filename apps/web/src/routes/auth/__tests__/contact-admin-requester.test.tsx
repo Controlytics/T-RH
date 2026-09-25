@@ -41,6 +41,10 @@ describe('contact admin — requester Employee ID is not looked up', () => {
     const { ContactAdminPage } = await import('../contact-admin');
     render(<MemoryRouter><ContactAdminPage /></MemoryRouter>);
     expect(screen.getByLabelText('Request Type')).toBeInTheDocument();
+    // Enable Account is not offered (operator, 2026-09-25); Disable still is.
+    const offered = Array.from((screen.getByLabelText('Request Type') as HTMLSelectElement).options).map(o => o.value);
+    expect(offered).not.toContain('ENABLE_ACCOUNT');
+    expect(offered).toContain('DISABLE_ACCOUNT');
     expect(screen.queryByRole('button', { name: /verify/i })).toBeNull();
     expect(screen.queryByText(/verify your employee id/i)).toBeNull();
   });

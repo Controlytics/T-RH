@@ -4,12 +4,14 @@ import { apiUrl } from '@/lib/url-utils';
 import { AuthShell } from './auth-shell';
 import { Button } from '@/components/ui/button';
 
+// ENABLE_ACCOUNT is not offered (operator, 2026-09-25: "in contact admin page
+// remove enable user account feature"); the public route refuses it too. The
+// admin page still labels and processes a request stored before the removal.
 const REQUEST_TYPES = [
   { value: 'CREATE_USER', label: 'Create User Account' },
   { value: 'MODIFY_USER', label: 'Modify User Account' },
   { value: 'UNLOCK', label: 'Unlock Account' },
   { value: 'FORGOT_PASSWORD', label: 'Forgot Password' },
-  { value: 'ENABLE_ACCOUNT', label: 'Enable Account' },
   { value: 'DISABLE_ACCOUNT', label: 'Disable Account' },
 ];
 
@@ -67,7 +69,7 @@ export function ContactAdminPage() {
   // cannot be completed for that type.
   const needsLookup = requestType === 'MODIFY_USER' || requestType === 'UNLOCK'
     || requestType === 'FORGOT_PASSWORD'
-    || requestType === 'ENABLE_ACCOUNT' || requestType === 'DISABLE_ACCOUNT';
+    || requestType === 'DISABLE_ACCOUNT';
 
   // Reset dependent state when request type changes
   useEffect(() => {
@@ -146,7 +148,6 @@ export function ContactAdminPage() {
       case 'UNLOCK':
         return { username: lookupUser?.username ?? username };
       case 'FORGOT_PASSWORD':
-      case 'ENABLE_ACCOUNT':
       case 'DISABLE_ACCOUNT':
         return { username: lookupUser?.username ?? username };
       default:
@@ -189,7 +190,7 @@ export function ContactAdminPage() {
       if (lookupUser && !modifyField) missing.push('What to Modify');
       if (lookupUser && modifyField && !newValue.trim()) missing.push('New Value');
     }
-    if (requestType === 'UNLOCK' || requestType === 'ENABLE_ACCOUNT' || requestType === 'DISABLE_ACCOUNT') {
+    if (requestType === 'UNLOCK' || requestType === 'DISABLE_ACCOUNT') {
       if (!lookupUser) missing.push('Employee ID (target user)');
     }
     if (requestType === 'FORGOT_PASSWORD') {

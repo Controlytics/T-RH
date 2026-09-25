@@ -61,6 +61,22 @@ describe('admin-requests e2e', () => {
       created.push(body.requestId);
     });
 
+    it('refuses ENABLE_ACCOUNT — removed from the form on 2026-09-25', async () => {
+      const STAMP = Date.now();
+      const res = await app.inject({
+        method: 'POST', url: '/api/admin-requests',
+        payload: {
+          requestType: 'ENABLE_ACCOUNT',
+          requesterName: 'Nobody',
+          requesterEmployeeId: `gone-${STAMP}`,
+          requestData: { username: 'someone' },
+          remarks: 'should be refused',
+        },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(await prisma.adminRequest.count({ where: { requesterEmployeeId: `gone-${STAMP}` } })).toBe(0);
+    });
+
     it('rejects an unknown requestType', async () => {
       const res = await app.inject({
         method: 'POST',
@@ -198,16 +214,30 @@ describe('admin-requests e2e', () => {
 
     /** Submit through the PUBLIC route and approve through the ADMIN one, so the
      *  whole path is exercised rather than the service in isolation. */
+    const fixturePayload = (requestType: string, username: string) => ({
+      requestType,
+      requesterName: 'State Fixture',
+      requesterEmployeeId: `req-${STAMP}`,
+      requestData: { username },
+      remarks: 'e2e state guard',
+    });
+
+    async function approve(id: string) {
+      // Approving is a §11 e-signature — `enforceReauth('APPROVE_ADMIN_REQUEST')`
+      // 401s without a password. Sent as the header rather than `_currentPassword`
+      // so the request body stays exactly what the route's schema declares.
+      const res = await app.inject({
+        method: 'POST', url: `/api/admin-requests/${id}/process`,
+        headers: { authorization: `Bearer ${token}`, 'x-reauth-password': 'Admin@123' },
+        payload: { action: 'approve', adminRemarks: 'e2e' },
+      });
+      return { res, requestId: id };
+    }
+
     async function submitAndApprove(requestType: string, username: string) {
       const sub = await app.inject({
         method: 'POST', url: '/api/admin-requests',
-        payload: {
-          requestType,
-          requesterName: 'State Fixture',
-          requesterEmployeeId: `req-${STAMP}`,
-          requestData: { username },
-          remarks: 'e2e state guard',
-        },
+        payload: fixturePayload(requestType, username),
       });
       expect(sub.statusCode).toBe(201);
       const found = await prisma.adminRequest.findFirst({
@@ -216,15 +246,23 @@ describe('admin-requests e2e', () => {
       });
       if (!found) throw new Error('fixture: request was not stored');
       requests.push(found.id);
-      // Approving is a §11 e-signature — `enforceReauth('APPROVE_ADMIN_REQUEST')`
-      // 401s without a password. Sent as the header rather than `_currentPassword`
-      // so the request body stays exactly what the route's schema declares.
-      const res = await app.inject({
-        method: 'POST', url: `/api/admin-requests/${found.id}/process`,
-        headers: { authorization: `Bearer ${token}`, 'x-reauth-password': 'Admin@123' },
-        payload: { action: 'approve', adminRemarks: 'e2e' },
+      return approve(found.id);
+    }
+
+    /**
+     * ENABLE_ACCOUNT can no longer be SUBMITTED (operator, 2026-09-25: "in contact
+     * admin page remove enable user account feature" — the page option and the
+     * public route's enum both went; the refusal is pinned under "public
+     * submission"). The approval path survives so a request stored BEFORE the
+     * removal can still be decided and rendered, so these fixtures are seeded
+     * straight into the table, the way such a row would already exist.
+     */
+    async function seedAndApprove(requestType: string, username: string) {
+      const row = await prisma.adminRequest.create({
+        data: { ...fixturePayload(requestType, username), status: 'PENDING' },
       });
-      return { res, requestId: found.id };
+      requests.push(row.id);
+      return approve(row.id);
     }
 
     const auditRowsFor = (userId: string, action: string) =>
@@ -275,7 +313,7 @@ describe('admin-requests e2e', () => {
 
     it('ENABLE_ACCOUNT on an already-enabled account changes nothing', async () => {
       const u = await makeUser('enable-noop', 'ENABLED');
-      const { res } = await submitAndApprove('ENABLE_ACCOUNT', u.username);
+      const { res } = await seedAndApprove('ENABLE_ACCOUNT', u.username);
       expect(res.statusCode).toBe(200);
       expect(res.json().changed).toBe(false);
       expect(res.json().message).toContain('already enabled');
@@ -284,7 +322,7 @@ describe('admin-requests e2e', () => {
 
     it('ENABLE_ACCOUNT on a disabled account enables it', async () => {
       const u = await makeUser('enable-real', 'DISABLED');
-      const { res } = await submitAndApprove('ENABLE_ACCOUNT', u.username);
+      const { res } = await seedAndApprove('ENABLE_ACCOUNT', u.username);
       expect(res.json().changed).toBe(true);
       const after = await prisma.user.findUnique({ where: { id: u.id }, select: { status: true } });
       expect(after?.status).toBe('ENABLED');
@@ -313,7 +351,7 @@ describe('admin-requests e2e', () => {
        * account acted on nor its role.
        */
       const u = await makeUser('audit-name', 'DISABLED');
-      const { requestId } = await submitAndApprove('ENABLE_ACCOUNT', u.username);
+      const { requestId } = await seedAndApprove('ENABLE_ACCOUNT', u.username);
 
       const row = await prisma.auditTrail.findFirst({
         where: { targetId: requestId, action: 'ADMIN_REQUEST_APPROVED' },

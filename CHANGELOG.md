@@ -1,5 +1,25 @@
 # Changelog
 
+## [Unreleased] - Contact Admin: the Enable Account request type is gone (2026-09-25)
+
+Operator: *"in contact admin page remove enable user account feature"*.
+The **Enable Account** option is removed from the Contact Admin form and
+`POST /api/admin-requests` refuses `requestType: ENABLE_ACCOUNT` (400), so
+the type cannot be raised from the page or from a direct call. Disable
+Account, Unlock, Forgot Password, Modify and Create are unchanged.
+
+- **Kept on purpose:** the APPROVAL path (`admin-request.service.ts`,
+  `account-state.ts`) and the Admin Requests page's label for the type. A
+  request stored before the removal is a §11 record and must still render
+  and be decidable. Receipt: **0** rows in `admin_requests` and **0** audit
+  rows name `ENABLE_ACCOUNT` on the local database; AWS was not queried.
+- No count moved: no route, permission, model, enum, def or migration.
+- Tests: the page test asserts the option is absent (Disable present); the
+  e2e gains "refuses ENABLE_ACCOUNT" (400, nothing stored) and its three
+  ENABLE approval cases now seed the row directly (`seedAndApprove`), as a
+  pre-removal record would already exist. `account-state.test.ts` unchanged.
+  Not seen on screen.
+
 ## [Unreleased] - Contact Admin: the requester's Employee ID is typed, not verified (2026-09-25)
 
 Operator: *"there i dont need verification"*, after asking whether the

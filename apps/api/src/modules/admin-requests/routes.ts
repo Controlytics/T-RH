@@ -26,10 +26,13 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['requestType', 'requesterName', 'requesterEmployeeId', 'requestData'],
         properties: {
-          // ENABLE_ACCOUNT / DISABLE_ACCOUNT added 2026-09-02 (operator). Both are
-          // state changes on an existing account, guarded at APPROVAL by
-          // `decideAccountState` — see admin-requests/account-state.ts.
-          requestType: { type: 'string', enum: ['CREATE_USER', 'MODIFY_USER', 'UNLOCK', 'FORGOT_PASSWORD', 'ENABLE_ACCOUNT', 'DISABLE_ACCOUNT'] },
+          // DISABLE_ACCOUNT added 2026-09-02 (operator): a state change on an
+          // existing account, guarded at APPROVAL by `decideAccountState` — see
+          // admin-requests/account-state.ts. ENABLE_ACCOUNT was added beside it and
+          // REMOVED from submission on 2026-09-25 (operator: "in contact admin page
+          // remove enable user account feature"). The process path keeps its
+          // branch so a request stored before then can still be decided.
+          requestType: { type: 'string', enum: ['CREATE_USER', 'MODIFY_USER', 'UNLOCK', 'FORGOT_PASSWORD', 'DISABLE_ACCOUNT'] },
           requesterName: { type: 'string', minLength: 1, maxLength: 100 },
           requesterEmployeeId: { type: 'string', minLength: 1, maxLength: 50 },
           requesterEmail: { type: 'string', format: 'email', maxLength: 100 },
