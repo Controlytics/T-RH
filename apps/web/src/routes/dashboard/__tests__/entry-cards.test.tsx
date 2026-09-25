@@ -172,6 +172,20 @@ describe('EntryCards — accessibility', () => {
     expect(waves.length).toBe(4);
   });
 
+  // A <button> centres its content vertically; in a shared grid row the shorter
+  // hero card's heading floated mid-card (operator, 2026-09-25: "why gap coming
+  // on active alarms heading top"). Every card is a column flex box so content
+  // stacks from the top, and the footer is pushed down with mt-auto.
+  it('stacks card content from the top and pins View Details to the bottom', () => {
+    render(<EntryCards cards={FOUR} onSelect={noop} alarms={{ active: 2, unacknowledged: 0 }} onOpenAlarms={noop} />);
+    for (const b of screen.getAllByRole('button')) {
+      expect(b.className).toMatch(/(^|\s)flex(\s|$)/);
+      expect(b.className).toMatch(/(^|\s)flex-col(\s|$)/);
+      const footer = Array.from(b.querySelectorAll('div')).find((d) => d.textContent?.includes('View Details') && d.className.includes('mt-auto'));
+      expect(footer).toBeTruthy();
+    }
+  });
+
   it('does not let the decorative wave intercept clicks', () => {
     const { container } = render(<EntryCards cards={FOUR} onSelect={noop} alarms={null} onOpenAlarms={noop} />);
     const waves = container.querySelectorAll('svg.pointer-events-none');

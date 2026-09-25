@@ -49,6 +49,13 @@ pane in `components/layout/app-layout.tsx`. No count moved.
   1.5rem extrabold, subtitles 0.9375rem semibold, figures 2.5 → 3.5rem black,
   eyebrows 0.8125rem bold, the awaiting-acknowledgement line 0.875rem, chips
   and View Details at the block cards' size.
+- **Fixed: a gap above the Active Alarms heading** (operator: "why gap coming
+  on active alarms heading top"). A `<button>` centres its content vertically
+  by default; the two hero cards share a grid row, so the shorter one (no
+  active / inactive chips) was stretched to its neighbour's height with its
+  heading floating mid-card. `CardShell` is now a column flex box — content
+  stacks from the top — and every card's footer carries `mt-auto`, so View
+  Details lines up along the bottom of the row. Locked by a test (18/18).
 
 ## [Unreleased] - Contact Admin: the Enable Account request type is gone (2026-09-25)
 

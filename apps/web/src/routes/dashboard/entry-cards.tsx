@@ -139,7 +139,15 @@ function ViewDetails({ large = false }: { large?: boolean }) {
 }
 
 /** Shared card chrome. A button, so it is keyboard-reachable and announces as one.
-    `background` is the card's whole colour — a gradient string. */
+    `background` is the card's whole colour — a gradient string.
+
+    `flex flex-col` is load-bearing: a <button> CENTRES its content vertically
+    by default, and the two hero cards share one grid row, so the shorter one
+    (Active Alarms, no active/inactive chips) was stretched to its neighbour's
+    height with its heading floating mid-card (operator, 2026-09-25: "why gap
+    coming on active alarms heading top"). As a column flex box the content
+    stacks from the top and each card's footer is pushed to the bottom with
+    `mt-auto`, so View Details lines up across the row. */
 function CardShell({
   onClick, label, background, className, style, children, ...data
 }: {
@@ -159,7 +167,7 @@ function CardShell({
       onClick={onClick}
       aria-label={label}
       {...data}
-      className={`group relative isolate overflow-hidden rounded-2xl border border-white/15 text-left text-white transition-all duration-200 hover:-translate-y-0.5 hover:shadow-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 ${className ?? ''}`}
+      className={`group relative isolate flex flex-col overflow-hidden rounded-2xl border border-white/15 text-left text-white transition-all duration-200 hover:-translate-y-0.5 hover:shadow-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 ${className ?? ''}`}
       style={{ boxShadow: 'var(--elev-2)', backgroundImage: background, ...style }}
     >
       <Sheen />
@@ -231,7 +239,7 @@ export function EntryCards({
             </p>
             <ActiveSplit total={all.count} active={all.activeCount} large />
 
-            <div className="mt-4 flex justify-end">
+            <div className="mt-auto flex justify-end pt-4">
               <ViewDetails large />
             </div>
           </CardShell>
@@ -262,7 +270,7 @@ export function EntryCards({
               Alarms
             </p>
 
-            <div className="mt-4 flex items-end justify-between gap-3">
+            <div className="mt-auto flex items-end justify-between gap-3 pt-4">
               <p className="text-[0.875rem] font-semibold text-white/85">
                 {(alarms.unacknowledged ?? 0) > 0
                   ? `${alarms.unacknowledged} awaiting acknowledgement`
@@ -304,7 +312,7 @@ export function EntryCards({
 
                   {/* Above the wave. The wave is decoration and must never
                       swallow a number. */}
-                  <div className="relative z-10 flex h-full flex-col">
+                  <div className="relative z-10 flex flex-1 flex-col">
                     {/* One step larger and bolder (operator, 2026-09-25: "make
                         block text bold and increase font sizes", then "same for
                         all instruments and active alarms"). */}
@@ -323,7 +331,7 @@ export function EntryCards({
                     </p>
                     <ActiveSplit total={b.count} active={b.activeCount} large />
 
-                    <div className="mt-5 flex justify-end xl:mt-6">
+                    <div className="mt-auto flex justify-end pt-5 xl:pt-6">
                       <ViewDetails large />
                     </div>
                   </div>
