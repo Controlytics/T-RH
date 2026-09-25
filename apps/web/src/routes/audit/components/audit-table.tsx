@@ -89,9 +89,13 @@ export function AuditTable({
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <Table>
+            {/* A GRID, 15px, bold (operator, 2026-09-25: "make audit trail
+                page in to table format … font sizes increased and bold, and
+                table lines shoud be visibl"). The header row used to carry
+                a translucent slate wash over the band; the band shows now. */}
+            <Table grid size="lg">
               <TableHeader>
-                <TableRow className="bg-slate-50/80">
+                <TableRow>
                   {canDestroy && (
                     <TableHead className="w-10">
                       <input
@@ -103,34 +107,34 @@ export function AuditTable({
                     </TableHead>
                   )}
                   <TableHead>
-                    <button onClick={() => toggleSort('timestamp')} className="flex items-center gap-1.5 font-semibold text-slate-600 hover:text-indigo-600 transition-colors group">
+                    <button onClick={() => toggleSort('timestamp')} className="flex items-center gap-1.5 text-[0.75rem] font-bold text-white hover:text-white/80 transition-colors group">
                       Timestamp
-                      <span className={`transition-colors ${sortBy === 'timestamp' ? 'text-indigo-600' : 'text-slate-300 group-hover:text-slate-400'}`}>
+                      <span className={`transition-colors ${sortBy === 'timestamp' ? 'text-white' : 'text-white/50 group-hover:text-white/70'}`}>
                         {sortBy === 'timestamp' ? (sortOrder === 'asc' ? '\u2191' : '\u2193') : '\u2195'}
                       </span>
                     </button>
                   </TableHead>
-                  <TableHead className="font-semibold text-slate-600">Description</TableHead>
+                  <TableHead className="text-[0.75rem] font-bold text-white">Description</TableHead>
                   <TableHead>
-                    <button onClick={() => toggleSort('action')} className="flex items-center gap-1.5 font-semibold text-slate-600 hover:text-indigo-600 transition-colors group">
+                    <button onClick={() => toggleSort('action')} className="flex items-center gap-1.5 text-[0.75rem] font-bold text-white hover:text-white/80 transition-colors group">
                       Action
-                      <span className={`transition-colors ${sortBy === 'action' ? 'text-indigo-600' : 'text-slate-300 group-hover:text-slate-400'}`}>
+                      <span className={`transition-colors ${sortBy === 'action' ? 'text-white' : 'text-white/50 group-hover:text-white/70'}`}>
                         {sortBy === 'action' ? (sortOrder === 'asc' ? '\u2191' : '\u2193') : '\u2195'}
                       </span>
                     </button>
                   </TableHead>
                   <TableHead>
-                    <button onClick={() => toggleSort('userId')} className="flex items-center gap-1.5 font-semibold text-slate-600 hover:text-indigo-600 transition-colors group">
+                    <button onClick={() => toggleSort('userId')} className="flex items-center gap-1.5 text-[0.75rem] font-bold text-white hover:text-white/80 transition-colors group">
                       Performed By
-                      <span className={`transition-colors ${sortBy === 'userId' ? 'text-indigo-600' : 'text-slate-300 group-hover:text-slate-400'}`}>
+                      <span className={`transition-colors ${sortBy === 'userId' ? 'text-white' : 'text-white/50 group-hover:text-white/70'}`}>
                         {sortBy === 'userId' ? (sortOrder === 'asc' ? '\u2191' : '\u2193') : '\u2195'}
                       </span>
                     </button>
                   </TableHead>
-                  <TableHead className="font-semibold text-slate-600">Status</TableHead>
+                  <TableHead className="text-[0.75rem] font-bold text-white">Status</TableHead>
                   {/* Always shown: opening a record is a READ, available to anyone
                       who can see the trail. Only the buttons inside are gated. */}
-                  <TableHead className="font-semibold text-slate-600 text-center">Details</TableHead>
+                  <TableHead className="text-[0.75rem] font-bold text-white text-center">Details</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -157,10 +161,10 @@ export function AuditTable({
                           </svg>
                         </div>
                         <div>
-                          <p className="text-sm font-medium text-slate-800">
+                          <p className="text-[0.9375rem] font-bold text-slate-900">
                             {formatDate(record.timestamp)}
                           </p>
-                          <p className="text-xs text-slate-500">
+                          <p className="text-sm font-medium text-slate-500">
                             {formatTime(record.timestamp)}
                           </p>
                         </div>
@@ -202,7 +206,7 @@ export function AuditTable({
                               </div>
                             )}
                             <span className="relative inline-block group">
-                              <span className="text-sm text-slate-700 cursor-default">
+                              <span className="text-[0.9375rem] font-semibold text-slate-800 cursor-default">
                                 {shown}
                               </span>
                               {isTruncated && (
@@ -232,7 +236,7 @@ export function AuditTable({
                     </TableCell>
                     <TableCell>
                       <span
-                        className={`inline-flex px-2.5 py-1 rounded-lg text-xs font-medium border ${ACTION_COLORS[record.action] || 'bg-slate-100 text-slate-700 border-slate-200'}`}
+                        className={`inline-flex px-2.5 py-1 rounded-lg text-sm font-bold border ${ACTION_COLORS[record.action] || 'bg-slate-100 text-slate-700 border-slate-200'}`}
                         title={record.action}
                       >
                         {formatActionLabel(record.action, record.afterValue, record.beforeValue)}
@@ -243,7 +247,7 @@ export function AuditTable({
                         <div className="w-7 h-7 rounded-full bg-gradient-to-br from-slate-200 to-slate-300 flex items-center justify-center text-xs font-bold text-slate-600">
                           {record.userId?.charAt(0)?.toUpperCase() || '?'}
                         </div>
-                        <span className="text-sm font-medium text-slate-700">{record.userId}</span>
+                        <span className="text-[0.9375rem] font-bold text-slate-900">{record.userId}</span>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -254,6 +258,7 @@ export function AuditTable({
                       <StatusBadge
                         tone={status === 'Success' ? 'ok' : 'danger'}
                         label={status === 'Success' ? 'Success' : 'Fail'}
+                        className="px-3 py-1 text-sm font-bold"
                       />
                     </TableCell>
                     <TableCell className="text-center">

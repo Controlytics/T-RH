@@ -25,11 +25,24 @@ import type { StatusTone } from './status-badge';
  *  - `TableEmpty` / `TableFooter`: the empty state and the pagination INSIDE
  *    the frame, so a table never ends in a bare edge.
  */
-export function Table({ className, ...props }: React.HTMLAttributes<HTMLTableElement>) {
+/**
+ * `grid` (2026-09-25): a 1px line around every cell and a zebra — `.tbl-grid`
+ * in app.css, the readings table's structure — for a screen the operator
+ * reads as a ledger (the Audit Trail: "table lines shoud be visibl").
+ * `size="lg"` steps the table's base type to 15px; the screen's own cells
+ * set their weights. Both default off, so the other callers are untouched.
+ */
+export function Table({
+  grid = false, size = 'default', className, ...props
+}: React.HTMLAttributes<HTMLTableElement> & { grid?: boolean; size?: 'default' | 'lg' }) {
   return (
     <div className="relative w-full overflow-hidden rounded-[var(--radius-card)] border border-slate-200/70 bg-white shadow-[var(--elev-1)]">
       <div className="overflow-auto">
-        <table className={cn('w-full caption-bottom text-sm', className)} {...props} />
+        <table
+          data-grid={grid || undefined}
+          className={cn('w-full caption-bottom', size === 'lg' ? 'text-[0.9375rem]' : 'text-sm', grid && 'tbl-grid border-collapse', className)}
+          {...props}
+        />
       </div>
     </div>
   );

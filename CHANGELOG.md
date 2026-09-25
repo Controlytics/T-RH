@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased] - Audit Trail as a bordered grid, 15px, bold (2026-09-25)
+
+Operator: *"make audit trail page in to table format"*, then *"font sizes
+increased and bold, and table lines shoud be visibl"*. No count moved.
+
+- **The shared `Table` gained `grid` and `size`** (`components/ui/table.tsx`;
+  both default off, so its other callers are untouched). `grid` puts
+  `.tbl-grid` on the table — the same rules as the dashboard alarms panel's
+  `.alarm-grid`, now one selector list in `app.css`: a 1px line around every
+  cell and a white / slate-50 zebra with a blue hover. `size="lg"` is 15px
+  base type.
+- **`audit-table.tsx`** uses both. Header labels are 12px bold white on the
+  band (they were slate-600 under a translucent slate wash that hid the
+  band); Timestamp, Performed By 15px bold; Description 15px semibold; the
+  Action pill and the Success / Fail badge 14px bold; the time line 14px.
+- Test: a page lock (the `.tbl-grid` table, `data-grid`, the bold 15px
+  Performed By cell). Not seen on screen.
+
 ## [Unreleased] - Dashboard alarms panel: every state, Cleared + Cleared Value, and a word is not a number (2026-09-25)
 
 Operator: *"offlne text was not looking good in generated value and also

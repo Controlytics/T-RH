@@ -1168,6 +1168,12 @@ system in the language of their mockups (`Alarms.png`, `screen-2.png`,
   `npm run check:contrast` (`scripts/contrast-check.mjs`) holds the same
   0.78 and proves white-on-band and ink-on-tint for every preset — keep the
   two numbers in step.
+- **`Table grid` / `size="lg"` (2026-09-25)**: `grid` puts `.tbl-grid`
+  (`app.css` — a line around every cell, a zebra; the same rules as the
+  dashboard alarms panel's `.alarm-grid`) on the table, `size="lg"` is 15px
+  base type. The Audit Trail uses both (operator: "table format … table
+  lines shoud be visibl"); every other caller passes nothing and is
+  unchanged.
 - **Primitives** in `components/ui/`: `PageHero` (the band every screen
   starts with; the screen's toolbar goes INSIDE it as `children`), `StatCard`
   (ONE figure; no sparkline — nothing stores that history), the rebuilt

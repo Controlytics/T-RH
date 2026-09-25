@@ -70,3 +70,19 @@ describe('AuditTrailPage — UI v3 shape', () => {
     expect(hero.contains(screen.getByRole('button', { name: /export/i }))).toBe(true);
   });
 });
+
+describe('AuditTrailPage — a bordered grid, 15px, bold (2026-09-25)', () => {
+  // Operator: "make audit trail page in to table format … font sizes
+  // increased and bold, and table lines shoud be visibl". The shared Table's
+  // `grid` puts `.tbl-grid` (a line around every cell, a zebra) on the
+  // table; the audit cells set 15px bold type.
+  it('renders the records as a .tbl-grid table with bold 15px identity cells', () => {
+    render(<MemoryRouter><AuditTrailPage /></MemoryRouter>);
+    const table = screen.getByRole('table');
+    expect(table.className).toMatch(/(^|\s)tbl-grid(\s|$)/);
+    expect(table).toHaveAttribute('data-grid', 'true');
+    const by = screen.getByText('u-1');
+    expect(by.className).toMatch(/(^|\s)font-bold(\s|$)/);
+    expect(by.className).toMatch(/text-\[0\.9375rem\]/);
+  });
+});
