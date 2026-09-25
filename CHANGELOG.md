@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased] - Reports: an approved row opens its report data beneath it, as tables (2026-09-25)
+
+Operator: *"once approved then if user click on that row, that report data
+should be shown in below that row in table format"*. No count moved.
+
+- **Click an APPROVED row** on the Reports page and a detail row opens under
+  it with the report's data; click again to close. One row at a time. A
+  pending or rejected row does not open; the Download button does not
+  toggle the row it sits in.
+- **The data is the signed record.** It is the frozen v2 `ReportSnapshot`
+  from `GET /api/report-reviews/:id` — the same one the approved download
+  replays — fetched only when a row is opened, never a re-query that could
+  pick up late telemetry or a renamed alarm type. New pure component
+  `routes/reports/report-snapshot-view.tsx` renders it section by section:
+  a `table` as a bordered `.tbl-grid` with the band header (spans and bold
+  cells honoured), a `pairs` block as a two-column label / value grid, a
+  `title` as a heading, a `note` in its colour, a chart `image` as drawn, a
+  `page-break` as a rule.
+- Tests: two cases (the snapshot's two tables render as `.tbl-grid` directly
+  beneath the row and close on a second click; a pending row does not open
+  and Download does not toggle). 13/13. Not seen on screen.
+
 ## [Unreleased] - Reports: View draft only while a request is pending (2026-09-25)
 
 Operator: *"in reports if request is approved or rejected then view draft

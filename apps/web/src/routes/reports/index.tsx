@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { ALL_RECORDS_PARAM } from '@digilog/shared';
 import { PageHero } from '@/components/ui/page-hero';
@@ -17,6 +17,9 @@ import {
   type ReviewSummary, type ReviewList,
 } from '@/lib/report-review';
 import { DecisionDialog } from './decision-dialog';
+import { ReportSnapshotView } from './report-snapshot-view';
+import { normaliseSnapshot } from '@/lib/pdf-report';
+import type { ReviewFull } from '@/lib/report-review';
 
 /**
  * Reports (2026-09-07). Operator: *"once review completed and approved then
@@ -54,6 +57,20 @@ export function ReportsPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(defaultLimit);
   const [pending, setPending] = useState<{ review: ReviewSummary; decision: 'approve' | 'reject' } | null>(null);
+  /**
+   * The APPROVED row that is open, showing its report data beneath it as
+   * tables (operator, 2026-09-25: "once approved then if user click on that
+   * row, that report data should be shown in below that row in table
+   * format"). The data is the frozen snapshot from `GET /api/report-reviews/:id`
+   * — the same record the signed download replays — fetched only when a row
+   * is opened. One row at a time; clicking it again closes it.
+   */
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const { data: expanded, error: expandedError } = useSWR<ReviewFull>(expandedId ? `/api/report-reviews/${expandedId}` : null);
+  const toggleExpanded = (r: ReviewSummary) => {
+    if (r.status !== 'APPROVED') return;
+    setExpandedId((cur) => (cur === r.id ? null : r.id));
+  };
   const [submitting, setSubmitting] = useState(false);
   const [dialogError, setDialogError] = useState('');
 
@@ -144,7 +161,14 @@ export function ReportsPage() {
               </TableHeader>
               <TableBody>
                 {rows.map((r) => (
-                  <TableRow key={r.id}>
+                  <Fragment key={r.id}>
+                  <TableRow
+                    data-review-id={r.id}
+                    data-expanded={expandedId === r.id || undefined}
+                    className={r.status === 'APPROVED' ? 'cursor-pointer' : undefined}
+                    aria-expanded={r.status === 'APPROVED' ? expandedId === r.id : undefined}
+                    onClick={() => toggleExpanded(r)}
+                  >
                     <TableCell className="align-top">
                       <span className="block font-semibold text-slate-800">{r.title}</span>
                       <span className="block text-xs text-slate-500">
@@ -168,7 +192,9 @@ export function ReportsPage() {
                         </>
                       ) : '-'}
                     </TableCell>
-                    <TableCell className="whitespace-nowrap align-top text-right">
+                    {/* The buttons are their own acts: a click on one must not also
+                        open or close the row under it. */}
+                    <TableCell className="whitespace-nowrap align-top text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-1.5">
                         {/* The DRAFT is a thing to review, so it is offered only while
                             there is still a decision to make (operator, 2026-09-25:
@@ -190,6 +216,20 @@ export function ReportsPage() {
                       </div>
                     </TableCell>
                   </TableRow>
+                  {expandedId === r.id && (
+                    <TableRow data-review-detail={r.id}>
+                      <TableCell colSpan={7} className="bg-[var(--surface-tint-1)] px-5 py-4">
+                        {expandedError ? (
+                          <p className="text-sm font-medium text-red-700">The report could not be loaded. Try again.</p>
+                        ) : !expanded ? (
+                          <p className="text-sm text-slate-500">Loading the report…</p>
+                        ) : (
+                          <ReportSnapshotView snapshot={normaliseSnapshot(expanded.dataSnapshot)} />
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  </Fragment>
                 ))}
               </TableBody>
             </Table>

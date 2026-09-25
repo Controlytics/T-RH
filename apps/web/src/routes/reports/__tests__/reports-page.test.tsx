@@ -31,6 +31,14 @@ const myOwn = { ...base, id: 'r-own', status: 'PENDING', requestedBy: 'u-appr', 
 const superAdminsOwn = { ...base, id: 'r-sa-own', status: 'PENDING', requestedBy: 'u-sa', requestedByName: 'superadmin', assigneeUserId: null, assigneeRole: 'ADMIN', title: 'SUPER ADMIN OWN REQUEST' };
 
 const lists: Record<string, any[]> = { queue: [toMe, toMyRole, toSomeoneElse, myOwn, superAdminsOwn], mine: [], approved: [approved] };
+/** The frozen v2 snapshot the approved row opens beneath itself. */
+const SNAPSHOT = {
+  version: 2, reportType: 'Instrument Time Series', title: 'Temperature and RH Data Report', config: {},
+  sections: [
+    { kind: 'pairs', pairs: [['Instrument ID', 'CWH/RDU/001-00'], ['Interval', '15 minutes']] },
+    { kind: 'table', head: ['Date', 'Time', 'Temperature', 'Humidity'], body: [['24/08/2026', '00:15', '22.4', '47.0'], ['24/08/2026', '00:00', '22.1', '46.8']], bold: [[false, false, false, false], [false, false, false, false]] },
+  ],
+};
 let listError: unknown = undefined;
 const mutate = vi.fn();
 
@@ -44,6 +52,7 @@ vi.mock('swr', () => ({
     }
     if (typeof k === 'string' && k.includes('/config/pagination')) return { data: { limit: 25, options: [10, 25, 50] }, mutate: vi.fn() };
     if (typeof k === 'string' && k.startsWith('/api/users?')) return { data: { data: [{ id: 'u-appr', username: 'qa1' }, { id: 'u-x', username: 'other' }] }, mutate: vi.fn() };
+    if (k === '/api/report-reviews/r-ok') return { data: { ...approved, dataSnapshot: SNAPSHOT }, isLoading: false, mutate: vi.fn() };
     return { data: undefined, isLoading: false, mutate: vi.fn() };
   },
 }));
@@ -194,5 +203,50 @@ describe('ReportsPage — View draft only while PENDING (2026-09-25)', () => {
     } finally {
       lists.mine = before;
     }
+  });
+});
+
+describe('ReportsPage — an approved row opens its report data beneath it (2026-09-25)', () => {
+  // Operator: "once approved then if user click on that row, that report data
+  // should be shown in below that row in table format". The data is the
+  // frozen snapshot the approver signed, rendered as bordered tables.
+  beforeEach(() => { me = asApprover; listError = undefined; downloadApproved.mockClear(); });
+
+  it('shows the snapshot as tables under the row on click, and closes on a second click', () => {
+    mount();
+    fireEvent.click(screen.getByRole('tab', { name: 'Approved' }));
+    const row = rowOf('Temperature and RH Data Report');
+    expect(row).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('report-snapshot')).toBeNull();
+
+    fireEvent.click(row);
+    expect(row).toHaveAttribute('aria-expanded', 'true');
+    const view = screen.getByTestId('report-snapshot');
+    // The pairs block and the readings table, both as .tbl-grid tables.
+    const tables = within(view).getAllByRole('table');
+    expect(tables).toHaveLength(2);
+    for (const t of tables) expect(t.className).toMatch(/(^|\s)tbl-grid(\s|$)/);
+    expect(within(view).getByText('CWH/RDU/001-00')).toBeInTheDocument();
+    expect(within(view).getByRole('columnheader', { name: 'Temperature' })).toBeInTheDocument();
+    expect(within(view).getByText('22.4')).toBeInTheDocument();
+    // Directly beneath the row.
+    expect(row.nextElementSibling).toHaveAttribute('data-review-detail', 'r-ok');
+
+    fireEvent.click(row);
+    expect(screen.queryByTestId('report-snapshot')).toBeNull();
+  });
+
+  it('does not open on a pending row, and the Download button does not toggle the row', () => {
+    mount();
+    const pendingRow = rowOf('ALARM REPORT');
+    fireEvent.click(pendingRow);
+    expect(pendingRow).not.toHaveAttribute('aria-expanded');
+    expect(screen.queryByTestId('report-snapshot')).toBeNull();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Approved' }));
+    const row = rowOf('Temperature and RH Data Report');
+    fireEvent.click(within(row).getByRole('button', { name: 'Download' }));
+    expect(row).toHaveAttribute('aria-expanded', 'false');
+    expect(downloadApproved).toHaveBeenCalledWith('r-ok', expect.any(Function));
   });
 });

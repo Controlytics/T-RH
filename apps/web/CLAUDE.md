@@ -391,7 +391,14 @@ Every PDF download is a REQUEST an approver signs. Spec:
   unwatermarked PDF (review, 2026-09-07). Any new output path goes through
   `finalise()`, never `doc.output` directly);
   Download on APPROVED (`downloadApproved` — audits through
-  `/download-log` BEFORE `save()`, refuses a non-approved row). The decision
+  `/download-log` BEFORE `save()`, refuses a non-approved row). **Clicking an
+  APPROVED row opens its report DATA beneath it** (2026-09-25, operator:
+  "once approved then if user click on that row, that report data should be
+  shown in below that row in table format"): `report-snapshot-view.tsx`
+  renders the frozen v2 snapshot from `GET /api/report-reviews/:id` — the
+  signed record, never a re-query — as `.tbl-grid` tables; one row open at a
+  time, the action cell stops propagation so Download does not toggle it.
+  The decision
   dialog (`decision-dialog.tsx`) collects remarks + `SignaturePasswordInput`
   in one act with the request restated, the acknowledge dialog's shape.
 - **Tests replay the submitted snapshot.** The three page tests
