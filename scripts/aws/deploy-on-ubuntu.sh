@@ -103,6 +103,16 @@ elif [ "$lock_changed" = 1 ]; then
 else
   Ok "lockfile unchanged - skipping npm ci"
 fi
+# The Prisma client is generated from schema.prisma, not from the lockfile. A
+# schema change with no dependency change (2026-09-29: the 09-22 and 09-25
+# migrations) otherwise leaves a stale client, and the API fails to compile
+# against the fields the migration just added.
+if [ "$lock_changed" = 0 ] || [ "$SKIP_INSTALL" = 1 ]; then
+  if [ "$FORCE" = 1 ] || git diff --name-only "$before" "$after" 2>/dev/null | grep -q '^apps/api/prisma/schema\.prisma$'; then
+    (cd apps/api && npx prisma generate >/dev/null) || Die "prisma generate failed."
+    Ok "prisma client regenerated (schema changed)"
+  fi
+fi
 
 # ---------------------------------------------------------------- 3. migrations
 Step "Database migrations"
