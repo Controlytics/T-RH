@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { AttributeValueInput } from '@/components/attribute-value-input';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import useSWR from 'swr';
 import { parseInstrumentAttributeKeys, placementColumnFor, ALL_RECORDS_PARAM } from '@digilog/shared';
@@ -270,9 +271,10 @@ export function InstrumentCreatePage() {
                   <label key={key} className="space-y-1">
                     {/* The administered display name; the KEY is what is sent. */}
                     <span className="text-sm font-medium text-slate-700">{labelFor(key)}</span>
-                    <Input
+                    <AttributeValueInput
+                      attrKey={key}
                       value={attrs[key] ?? ''}
-                      onChange={(e) => setAttrs((a) => ({ ...a, [key]: e.target.value }))}
+                      onChange={(v) => setAttrs((a) => ({ ...a, [key]: v }))}
                     />
                   </label>
                 ))}

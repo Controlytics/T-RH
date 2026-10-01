@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { AttributeValueInput } from '@/components/attribute-value-input';
 import useSWR from 'swr';
 import {
   parseInstrumentAttributeKeys,
@@ -332,9 +333,10 @@ export function AttributesPanel(
               value={newKey} autoComplete="off" placeholder="Key (e.g. Calibration Due)"
               onChange={(e) => setNewKey(e.target.value)}
             />
-            <Input
-              value={newValue} autoComplete="off" placeholder="Value (may be left empty)"
-              onChange={(e) => setNewValue(e.target.value)}
+            {/* A sensor offset (2026-10-01) gets the + / - choice once its key is typed. */}
+            <AttributeValueInput
+              attrKey={newKey} value={newValue} placeholder="Value (may be left empty)"
+              onChange={setNewValue}
             />
             <div className="flex gap-2">
               <Button type="button" size="sm" disabled={busy || !newKey.trim()} onClick={() => void add()}>
@@ -382,17 +384,17 @@ export function AttributesPanel(
                       // Configured but never answered. The input IS the value
                       // cell rather than a row in a separate block, so the list
                       // reads as one thing with some blanks in it.
-                      <Input
+                      <AttributeValueInput
+                        attrKey={k}
                         className="max-w-xs"
                         value={fills[k] ?? ''}
-                        autoComplete="off"
-                        aria-label={k}
+                        ariaLabel={k}
                         placeholder="Not set"
-                        onChange={(e) => setFills((f) => ({ ...f, [k]: e.target.value }))}
+                        onChange={(v) => setFills((f) => ({ ...f, [k]: v }))}
                         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void fill(k); } }}
                       />
                     ) : editingKey === a.key ? (
-                      <Input value={editValue} autoComplete="off" onChange={(e) => setEditValue(e.target.value)} />
+                      <AttributeValueInput attrKey={a.key} value={editValue} onChange={setEditValue} />
                     ) : (
                       // An empty value is a legitimate state the backend
                       // accepts ("we track this, we do not know it yet"), so it

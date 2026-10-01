@@ -1,4 +1,5 @@
 import { type FastifyInstance, type FastifyRequest } from 'fastify';
+import { offsetKeyTest } from '../instruments/load-offsets.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { buildContext } from '../../lib/build-context.js';
 import { AppError } from '../../lib/errors.js';
@@ -659,8 +660,11 @@ export default async function roleRoutes(app: FastifyInstance) {
       seen.add(fold);
       availableKeys.push(key);
     };
-    for (const r of recorded) offer(r.key);
-    for (const p of profiles) for (const k of parseInstrumentAttributeKeys(p.attributeKeys)) offer(k);
+    // Sensor offsets are SUPER_ADMIN-only whatever a role's Attribute Access
+    // says (2026-10-01), so they are not offered as keys to protect.
+    const isOffset = await offsetKeyTest();
+    for (const r of recorded) if (!isOffset(r.key)) offer(r.key);
+    for (const p of profiles) for (const k of parseInstrumentAttributeKeys(p.attributeKeys)) if (!isOffset(k)) offer(k);
     availableKeys.sort((a, b) => a.localeCompare(b));
 
     return {

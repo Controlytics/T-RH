@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { AttributeValueInput } from '@/components/attribute-value-input';
 import useSWR from 'swr';
 import {
   ALL_RECORDS_PARAM, isInstrumentReporting, INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN,
@@ -255,7 +256,7 @@ export function SettingsPage() {
   const tile = (
     label: string,
     value: string | null | undefined,
-    opts: { muted?: boolean; slot?: Attribute['slot']; updatedAt?: string; edit?: { value: string; onChange: (v: string) => void; problem?: string | null } } = {},
+    opts: { muted?: boolean; slot?: Attribute['slot']; updatedAt?: string; edit?: { value: string; onChange: (v: string) => void; problem?: string | null; attrKey?: string } } = {},
   ) => {
     const hue = TILE[opts.slot ?? 'other'];
     return (
@@ -268,11 +269,12 @@ export function SettingsPage() {
         {opts.edit ? (
           <dd className="min-w-0">
             {/* The STORED value is edited, never the display form. */}
-            <Input
+            {/* An attribute's value box — with the + / - choice for a sensor offset. */}
+            <AttributeValueInput
+              attrKey={opts.edit.attrKey ?? ''}
               value={opts.edit.value}
-              autoComplete="off"
-              aria-label={label}
-              onChange={(e) => opts.edit!.onChange(e.target.value)}
+              ariaLabel={label}
+              onChange={(v) => opts.edit!.onChange(v)}
               className={`font-display text-lg font-semibold ${opts.edit.problem ? 'border-red-400' : ''}`}
             />
             {opts.edit.problem && <span className="mt-1 block text-xs text-red-600">{opts.edit.problem}</span>}
@@ -390,7 +392,7 @@ export function SettingsPage() {
                   // Only a key the role may edit becomes an input; the rest
                   // stay tiles, exactly as the Attributes panel would refuse them.
                   ...(editing && mayEdit(a.key)
-                    ? { edit: { value: draft[a.key] ?? a.value, onChange: (v: string) => setDraft((d) => ({ ...d, [a.key]: v })) } }
+                    ? { edit: { attrKey: a.key, value: draft[a.key] ?? a.value, onChange: (v: string) => setDraft((d) => ({ ...d, [a.key]: v })) } }
                     : {}),
                 })}
               </div>

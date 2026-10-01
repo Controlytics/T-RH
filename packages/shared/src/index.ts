@@ -65,6 +65,11 @@ export {
   worstStatus,
 } from './types/telemetry-slots.js';
 export type { TelemetrySlot, InstrumentStatus, RoomLimits } from './types/telemetry-slots.js';
+export {
+  SENSOR_OFFSETS_CONFIG_KEY, SENSOR_OFFSET_KEYS_DEFAULT, SENSOR_OFFSET_VALUE_MESSAGE,
+  coerceSensorOffsetConfig, isOffsetAttributeKey, parseOffsetValue, formatOffsetValue, applyOffset, offsetReadings,
+} from './types/sensor-offsets.js';
+export type { SensorOffsetConfig } from './types/sensor-offsets.js';
 
 export {
   TELEMETRY_DECIMALS_KEYS_DEFAULT,

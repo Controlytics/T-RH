@@ -41,8 +41,11 @@ export async function writeBatch(
 ): Promise<void> {
   if (rows.length === 0) return;
 
+  // `raw_value` is what the device sent when a sensor offset corrected the
+  // reading (2026-10-01) — kept for the record, NULL otherwise, never shown.
   const histValues = Prisma.join(rows.map((r) => Prisma.sql`(
-    ${r.instrumentId}, ${r.key}, ${JSON.stringify(r.value)}::jsonb, ${r.valueType}, ${r.ts})`));
+    ${r.instrumentId}, ${r.key}, ${JSON.stringify(r.value)}::jsonb, ${r.valueType}, ${r.ts},
+    ${r.rawValue === undefined ? null : JSON.stringify(r.rawValue)}::jsonb)`));
 
   // Collapse to ONE row per (instrument, key), keeping the newest ts.
   //
@@ -70,7 +73,7 @@ export async function writeBatch(
   await prisma.$transaction([
     prisma.$executeRaw`
       INSERT INTO instrument_telemetry_history
-        (instrument_id, key, value, value_type, ts)
+        (instrument_id, key, value, value_type, ts, raw_value)
       VALUES ${histValues}
       ON CONFLICT (instrument_id, key, ts) DO NOTHING`,
     // A device that re-sends the same (instrument, key, ts) is a duplicate, not

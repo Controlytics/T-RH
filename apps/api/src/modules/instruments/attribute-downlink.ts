@@ -1,4 +1,5 @@
 import { logger } from '../../lib/logger.js';
+import { offsetKeyTest } from './load-offsets.js';
 /**
  * Attribute DOWNLINK — the first platform→device path in this codebase.
  *
@@ -245,6 +246,12 @@ export async function publishAttributeDownlink(
   d: AttributeDownlink,
   log?: PublishLogger,
 ): Promise<void> {
+  // Sensor offsets never reach a device (2026-10-01): the platform applies them
+  // at ingest, and firmware applying them as well would correct twice. A change
+  // to an offset therefore changes nothing the device holds — publish nothing.
+  const isOffset = await offsetKeyTest();
+  if (d.changedKey && isOffset(d.changedKey)) return;
+  d = { ...d, attributes: Object.fromEntries(Object.entries(d.attributes).filter(([k]) => !isOffset(k))) };
   await publishRetained(
     attributeDownlinkTopic(d.code, d.gatewayCode),
     JSON.stringify(buildAttributeDownlinkPayload(d)),

@@ -1,4 +1,5 @@
 import { publishRetained, EVENT_PUBLISH_OPTIONS, type PublishLogger } from './attribute-downlink.js';
+import { offsetKeyTest } from './load-offsets.js';
 import { prisma } from '../../lib/prisma.js';
 import { logger } from '../../lib/logger.js';
 
@@ -67,6 +68,8 @@ export async function publishChildAttributeChange(
   change: BundleChange,
   log?: PublishLogger,
 ): Promise<void> {
+  // A sensor offset is never announced to a gateway (2026-10-01).
+  if ((await offsetKeyTest())(change.key)) return;
   await publishRetained(
     childAttributesBundleTopic(gatewayCode),
     JSON.stringify(buildChildAttributeChange(gatewayCode, change)),

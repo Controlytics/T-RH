@@ -1,4 +1,5 @@
-import { type FastifyInstance } from 'fastify';
+import { type FastifyInstance, type FastifyRequest } from 'fastify';
+import { offsetKeyTest } from '../instruments/load-offsets.js';
 import {
   createInstrumentProfileSchema,
   updateInstrumentProfileSchema,
@@ -128,6 +129,17 @@ async function announceRemoval(
  * instrument were toggled between them, and a card showing "3 instruments, 4
  * active" is worse than a stale number.
  */
+/**
+ * Sensor-offset keys are SUPER_ADMIN-only (2026-10-01). To anyone else a
+ * profile's key list simply does not contain them — the New Instrument form and
+ * the bulk template then never ask for them.
+ */
+async function keysFor(req: FastifyRequest): Promise<(attributeKeys: string | null) => string | null> {
+  if (req.user?.role === 'SUPER_ADMIN') return (k) => k;
+  const isOffset = await offsetKeyTest();
+  return (k) => (k === null ? null : parseInstrumentAttributeKeys(k).filter((key) => !isOffset(key)).join('\n'));
+}
+
 function present(row: ProfileRow) {
   const instruments = row.instruments ?? [];
   const { instruments: _omit, ...rest } = row;
@@ -189,7 +201,8 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
     // Every profile is still LISTED, including ones holding nothing the caller can
     // see. A profile is a device type, not an instrument: hiding the type would
     // make the New Instrument form's dropdown depend on who is looking.
-    return { data: rows.map((r) => present(r as ProfileRow)), total: rows.length };
+    const strip = await keysFor(req);
+    return { data: rows.map((r) => { const p = present(r as ProfileRow); return { ...p, attributeKeys: strip(p.attributeKeys) }; }), total: rows.length };
   });
 
   // GET /api/instrument-profiles/:id
@@ -208,7 +221,8 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
       where: { id }, include: withInstruments(visibility),
     });
     if (!row) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Profile not found.' });
-    return present(row as ProfileRow);
+    const p = present(row as ProfileRow);
+    return { ...p, attributeKeys: (await keysFor(req))(p.attributeKeys) };
   });
 
   // GET /api/instrument-profiles/:id/attribute-usage — which keys the
@@ -236,7 +250,10 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const profile = await prisma.instrumentProfile.findUnique({ where: { id }, select: { attributeKeys: true } });
     if (!profile) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Profile not found.' });
-    return { keys: await attributeUsage(id, parseInstrumentAttributeKeys(profile.attributeKeys)) };
+    const usage = await attributeUsage(id, parseInstrumentAttributeKeys(profile.attributeKeys));
+    if (req.user?.role === 'SUPER_ADMIN') return { keys: usage };
+    const isOffset = await offsetKeyTest();
+    return { keys: usage.filter((u) => !isOffset(u.key)) };
   });
 
   // POST /api/instrument-profiles
@@ -282,7 +299,12 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
     // the exact confusion per-profile keys exist to remove. The cost is that
     // Block / Area / Location are not asked for until they are added; the
     // config page warns about that per profile.
-    const attributeKeys = parsed.data.attributeKeys ?? '';
+    let attributeKeys = parsed.data.attributeKeys ?? '';
+    // Only a super admin may list a sensor-offset key on a profile (2026-10-01).
+    if (req.user?.role !== 'SUPER_ADMIN') {
+      const isOffset = await offsetKeyTest();
+      attributeKeys = parseInstrumentAttributeKeys(attributeKeys).filter((k) => !isOffset(k)).join('\n');
+    }
 
     try {
       // A profile that has just been created holds nothing, so there is no scope
@@ -353,6 +375,17 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
 
     const before = await prisma.instrumentProfile.findUnique({ where: { id } });
     if (!before) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Profile not found.' });
+    // SENSOR OFFSETS (2026-10-01): a non-SUPER_ADMIN never SEES the offset keys
+    // (they are stripped from every read), so the list they send never mentions
+    // them. Taken literally that would REMOVE them — and removing a key from a
+    // profile deletes it from every instrument of the profile. So for them the
+    // stored offset keys are carried over unchanged, and any offset key they
+    // send is dropped.
+    if (req.user?.role !== 'SUPER_ADMIN' && typeof data.attributeKeys === 'string') {
+      const isOffset = await offsetKeyTest();
+      const kept = parseInstrumentAttributeKeys(before.attributeKeys).filter((k) => isOffset(k));
+      data.attributeKeys = [...parseInstrumentAttributeKeys(data.attributeKeys).filter((k) => !isOffset(k)), ...kept].join('\n');
+    }
     const ctx = buildContext(req);
 
     // Which listed keys this PUT DROPS, and which of those instruments carry.

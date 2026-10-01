@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { offsetKeyTest } from './load-offsets.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { parsePayload } from './payload-parser.js';
@@ -147,7 +148,12 @@ export async function ingestAttributeReport(input: {
   let refused = 0;
 
   for (const target of targets) {
-    const { accepted, refused: refusedKeys } = splitWritable(perInstrument.get(target.id)!.entries(), allow);
+    // A device may never set its own sensor offset (2026-10-01) — refused like
+    // a key outside the writable list, and dead-lettered by name the same way.
+    const isOffset = await offsetKeyTest();
+    const split = splitWritable(perInstrument.get(target.id)!.entries(), allow);
+    const accepted = split.accepted.filter(([k]) => !isOffset(k));
+    const refusedKeys = [...split.refused, ...split.accepted.filter(([k]) => isOffset(k)).map(([k]) => k)];
     for (const key of refusedKeys) {
       refused++;
       await deadLetter(identity.id, `Attribute report: "${key}" is not a device-writable attribute key (Configuration → Instrument Attributes)`, raw);

@@ -7,6 +7,7 @@ import { fanoutDevices } from './gateway-fanout.js';
 import { childMapFor } from './gateway-children.js';
 import type { IngestIdentity } from './ingest-auth.js';
 import { logger } from '../../lib/logger.js';
+import { applySensorOffsets } from './load-offsets.js';
 
 /**
  * Transport-agnostic ingest core.
@@ -163,7 +164,8 @@ export async function ingestPayload(args: {
     }
 
     if (readings.length > 0) {
-      await writeBatch(readings);
+      // Each child's own sensor offset, applied before the write (2026-10-01).
+      await writeBatch(await applySensorOffsets(readings));
       await stampLastSeen([...new Set(readings.map((r) => r.instrumentId))], 'gateway');
       // Readings landed, so judge them now rather than at the next minute tick.
       // ENQUEUES, never evaluates: the evaluator must stay out of this path, or a
@@ -203,7 +205,9 @@ export async function ingestPayload(args: {
   }
 
   const readings = toReadings(parsed.values, ts);
-  await writeBatch(readings.map((r) => ({ ...r, instrumentId: identity.id })));
+  // The instrument's sensor offset, applied BEFORE the write (2026-10-01): the
+  // corrected value is what is stored, shown and alarmed on.
+  await writeBatch(await applySensorOffsets(readings.map((r) => ({ ...r, instrumentId: identity.id }))));
   // "Is it talking?" is answered by the INSTRUMENT's own column, not by the
   // credential's lastUsedAt (spec D9) — a gateway-reported child never
   // presents a credential of its own. Throttled and never allowed to fail an

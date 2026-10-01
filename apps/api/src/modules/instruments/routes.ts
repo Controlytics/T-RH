@@ -1,4 +1,6 @@
 import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
+import { offsetKeyTest, withoutOffsets } from './load-offsets.js';
+import { parseOffsetValue, formatOffsetValue, SENSOR_OFFSET_VALUE_MESSAGE } from '@digilog/shared';
 import { Prisma } from '@prisma/client';
 import {
   createInstrumentSchema,
@@ -1506,7 +1508,12 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     // The file may carry the profile's ATTRIBUTES, headed by their administered
     // display names (2026-09-16). The parser maps a heading back to the KEY;
     // this is the one place the profile's list and the display-name map meet.
-    const attributeColumns = await bulkAttributeColumns(parsed.data.profileId);
+    // Sensor-offset columns exist only for a SUPER_ADMIN (2026-10-01): for anyone
+    // else they are not columns of this profile, so a heading naming one is an
+    // unknown heading — ignored with the parser's one warning, never written.
+    const isOffset = await offsetKeyTest();
+    const attributeColumns = (await bulkAttributeColumns(parsed.data.profileId))
+      .filter((c) => req.user?.role === 'SUPER_ADMIN' || !isOffset(c.key));
     const { rows, rowNumbers, errors, warnings, codeHeading } = parseInstrumentCsv(parsed.data.csv, attributeColumns);
     const ctx = buildContext(req);
     const created: { id: string; code: string; name: string; token: string }[] = [];
@@ -1518,6 +1525,16 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       const draft: InstrumentDraft = rows[i];
       try {
         const { attributes, ...identity } = draft;
+        // An offset cell must be a signed number, checked BEFORE the instrument
+        // is created so a bad cell fails its row rather than half-registering it.
+        const badOffset = Object.entries(attributes ?? {}).find(([k, v]) => isOffset(k) && v.trim() !== '' && parseOffsetValue(v) === null);
+        if (badOffset) {
+          errors.push({ row: rowNumbers[i], column: badOffset[0], message: SENSOR_OFFSET_VALUE_MESSAGE });
+          continue;
+        }
+        if (attributes) {
+          for (const [k, v] of Object.entries(attributes)) if (isOffset(k) && v.trim() !== '') attributes[k] = formatOffsetValue(parseOffsetValue(v)!);
+        }
         const row = await createWithCredential(
           {
             ...sanitizeStrings(identity as unknown as Record<string, unknown>, IDENTITY_FIELDS),
@@ -2270,8 +2287,23 @@ export default async function instrumentRoutes(app: FastifyInstance) {
    */
   const attributeWriteRefused = async (
     req: FastifyRequest, reply: FastifyReply,
-    opts: { key: string; isNewKey: boolean; remark?: string | null },
+    opts: { key: string; isNewKey: boolean; remark?: string | null; value?: string },
   ): Promise<boolean> => {
+    // SENSOR OFFSETS (2026-10-01) — SUPER_ADMIN only, and a signed number.
+    // Checked FIRST: to any other role the key does not exist (404 on an edit
+    // or a delete, the same answer as a key the instrument does not have; 403
+    // on an attempt to create one).
+    if ((await offsetKeyTest())(opts.key)) {
+      if (req.user?.role !== 'SUPER_ADMIN') {
+        if (!opts.isNewKey) { reply.code(404).send(noSuchAttribute(opts.key)); return true; }
+        reply.code(403).send({ error: 'ATTRIBUTE_RESTRICTED', message: 'Only a super admin can set a sensor offset.' });
+        return true;
+      }
+      if (opts.value !== undefined && parseOffsetValue(opts.value) === null) {
+        reply.code(400).send({ error: 'INVALID_OFFSET', message: SENSOR_OFFSET_VALUE_MESSAGE });
+        return true;
+      }
+    }
     const access = await loadAttributeAccess(req.user?.role);
     const refusal = refuseAttributeWrite({
       access,
@@ -2418,7 +2450,8 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       const rows = await prisma.instrumentAttribute.findMany({ where: { instrumentId: instrument.id }, select: { key: true, value: true } });
       await publishRetained(
         attributeDownlinkTopic(instrument.code, gatewayCode),
-        JSON.stringify({ attributes: Object.fromEntries(rows.map((r) => [r.key, r.value])), changed: {}, ts: new Date().toISOString() }),
+        // Offsets never reach a device (2026-10-01).
+        JSON.stringify({ attributes: await withoutOffsets(Object.fromEntries(rows.map((r) => [r.key, r.value]))), changed: {}, ts: new Date().toISOString() }),
         'DOWNLINK NOT DELIVERED — the renamed instrument\'s attribute set was not republished under its new id',
         log,
       );
@@ -2527,9 +2560,12 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const exists = await prisma.instrument.findUnique({ where: { id }, select: { id: true } });
     if (!exists) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
 
-    const data = await prisma.instrumentAttribute.findMany({
+    const all = await prisma.instrumentAttribute.findMany({
       where: { instrumentId: id }, select: attributeSelect, orderBy: { key: 'asc' },
     });
+    // Sensor offsets are SUPER_ADMIN-only (2026-10-01): absent, not masked.
+    const isOffset = await offsetKeyTest();
+    const data = req.user?.role === 'SUPER_ADMIN' ? all : all.filter((a) => !isOffset(a.key));
 
     // A limit or a range is a reading, so it is shown at the same precision as
     // the reading it bounds — resolved here, from this instrument's own decimals
@@ -2612,7 +2648,8 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     if (!parsed.success) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
     }
-    const { key, value } = parsed.data;
+    const { key } = parsed.data;
+    let value = parsed.data.value;
     // EXEMPT from HTML stripping, like every other free-text reason in this
     // codebase (see the alarms acknowledge route). `stripHtml` turns anything
     // tag-shaped into the empty string, so a remark reading "value < 20 per SOP"
@@ -2631,7 +2668,10 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       where: { instrumentId_key: { instrumentId: id, key } },
       select: { key: true },
     });
-    if (await attributeWriteRefused(req, reply, { key, isNewKey: !already, remark: reason })) return;
+    if (await attributeWriteRefused(req, reply, { key, isNewKey: !already, remark: reason, value })) return;
+    // A sensor offset is stored with its sign always written (`2` → `+2`), so
+    // the + / - the super admin chose reads back as chosen (2026-10-01).
+    if ((await offsetKeyTest())(key)) value = formatOffsetValue(parseOffsetValue(value)!);
 
     const ctx = buildContext(req);
     const { row, created } = await prisma.$transaction(async (tx) => {
@@ -2707,7 +2747,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     if (!parsed.success) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
     }
-    const value = parsed.data.value;
+    let value = parsed.data.value;
     const key = normaliseKey(rawKey);
     const reason = readRemark(req);
 
@@ -2715,7 +2755,8 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
     if (!key) return reply.code(404).send(noSuchAttribute(rawKey));
 
-    if (await attributeWriteRefused(req, reply, { key, isNewKey: false, remark: reason })) return;
+    if (await attributeWriteRefused(req, reply, { key, isNewKey: false, remark: reason, value })) return;
+    if ((await offsetKeyTest())(key)) value = formatOffsetValue(parseOffsetValue(value)!);
 
     const ctx = buildContext(req);
     try {

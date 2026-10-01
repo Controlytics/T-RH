@@ -312,6 +312,20 @@ const superAdminCards = [
     gradient: 'from-emerald-500 to-teal-600',
   },
   {
+    // 2026-10-01: each instrument's Temp / Humid Off set corrects its readings
+    // as they arrive. The VALUES are attributes (super admin only); this card is
+    // the switch and which attribute keys hold them.
+    title: 'Sensor Offsets',
+    description: 'Correct temperature and humidity readings, as they arrive, by an offset set on each instrument (+ adds, - subtracts)',
+    href: '/config/dynamic/sensor-offsets',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
+      </svg>
+    ),
+    gradient: 'from-amber-500 to-orange-600',
+  },
+  {
     title: 'Alarm Webhooks',
     description: 'Hooters and HTTP endpoints alarms are announced to, and what body to send',
     href: '/config/alarm-webhooks',

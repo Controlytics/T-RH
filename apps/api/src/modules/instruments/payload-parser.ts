@@ -20,6 +20,9 @@ export interface Reading {
   valueType: ValueType;
   ts: Date;
   quality?: string;
+  /** What the device sent, when a sensor offset corrected `value` (2026-10-01).
+   *  Stored in history's `raw_value`; never shown. */
+  rawValue?: unknown;
 }
 
 export interface ParsedPayload {
