@@ -1,5 +1,44 @@
 # Changelog
 
+## [Unreleased] - "CWH — QC" is drawn in the 2D architectural design; one QC plan (2026-10-01)
+
+Operator, shown three concepts (`Layouts/CWH/concepts/`: 2D, 3D isometric,
+heat-map): *"2d layout was good replace with that QC layout"*; asked where,
+*"replace in CWH - QC layout"*, with the side panel ("Legend + summary + north
+arrow"), and *"One plan: CWH — QC"* (the second plan deleted, consequence stated).
+
+- **Data** (`scripts/draw-qc-layout-2.ts --apply`, applied LOCALLY): "CWH — QC"
+  is redrawn with the QC Layout-2 rooms, doors and structure; its 22 older rooms
+  and the 2 Layout Designer connectors on it (to LOBBY / CORRIDOR — NORTH, rooms
+  the traced floor does not have) are deleted; the 12 instruments are placed
+  back on it; "CWH — QC Layout-2" (17 rooms) is deleted. One audit row per room,
+  link and plan. `draw-cwh-floorplan.ts` no longer draws QC at all
+  (`DRAWN_ELSEWHERE`), so a full run cannot put the older trace back.
+  **AWS needs the same run.**
+- **Style flag:** `floorplans.annotations.style = 'architectural'` (JSONB, no
+  migration; declared in the response schema — mutation-checked). Only
+  "CWH — QC" carries it; every other plan draws exactly as before.
+- **The 2D style** (`floorplan-view.tsx`): double walls drawn over all floors,
+  rooms WASHED by status (`roomTone`), one CARD per instrument (ID band, its
+  Location, both readings, TEMP / HUMIDITY) placed by `placeCard` — full size at
+  the clear spot nearest the room's centre, clear of every door swing and
+  column, stepping down only when nothing is clear — dashed door swings, grey
+  hatched columns, windows with a glazing line, a drafting-grid ground, and a
+  side panel (legend, counts that sum, PLAN north: the drawing marks no true
+  north, and the caption says so). No pulsing alarm band in this style (the
+  wash and the red card carry the alarm; the band showed through door gaps).
+- Both styles: tiles step clear of door swings (`avoidDoorSwings`, the
+  CWH/RDU/024-00-on-its-door fix) and of columns (`avoidObstacles`).
+- **Instrument ID and Location larger and BOLD** (operator, same day: "increase
+  location font size and bold same for instrument id also"): the 2D card's ID
+  15.5 / weight 800 and Location 14 / bold (was 13 and 11 regular); the standard
+  tiles' ID 16 bold, Location 14 bold (was 14 / 600 and 12 regular). Both still
+  shrink to fit a narrow card, so a long Location in a small room prints smaller.
+- Tests: 12 new web cases (`floorplan-arch.test.tsx`), 5 swing cases, 2 API
+  (style through the schema; plan name / retire); 27 dashboard + designer test
+  files green one by one. Seen as a render of the real component with sample
+  readings, not on the live dashboard.
+
 ## [Unreleased] - Every table is the Audit Trail table (2026-10-01)
 
 Operator: *"in all pages where ever tables are there those should be shown

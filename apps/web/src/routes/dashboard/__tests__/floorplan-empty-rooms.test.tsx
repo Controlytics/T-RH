@@ -72,13 +72,15 @@ describe('rooms without an instrument are not clickable (2026-10-01)', () => {
     expect(screen.getByTestId('where')).toHaveTextContent('/instruments/i1/trend');
   });
 
-  it('prints the instrument ID and its Location larger than before (14 and 12)', () => {
-    expect(TILE_CODE_FONT).toBe(14);
-    expect(TILE_LOCATION_FONT).toBe(12);
+  it('prints the instrument ID and its Location large and BOLD (16 and 14; operator: "increase location font size and bold same for instrument id also")', () => {
+    expect(TILE_CODE_FONT).toBe(16);
+    expect(TILE_LOCATION_FONT).toBe(14);
     mount();
     const code = screen.getByText('CWH/RDU/001-00');
     const loc = screen.getByText('Wet lab (QC)');
     expect(Number(code.getAttribute('font-size'))).toBeGreaterThan(10);
     expect(Number(loc.getAttribute('font-size'))).toBeGreaterThan(8.5);
+    expect(code.getAttribute('font-weight')).toBe('700');
+    expect(loc.getAttribute('font-weight')).toBe('700');
   });
 });

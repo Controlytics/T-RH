@@ -30,7 +30,7 @@ import {
 import {
   polygonWalls, polygonDoorPlacements, polygonSharedOpenings, doorToEdgeOpening, tileLayout,
   CHIP_HEIGHT_FACTOR, CHIP_GAP, FULL_CODE_GAP, VALUES_TOP_GAP,
-  CODE_LINE_H, TILE_CODE_FONT, LOCATION_LINE_H, TILE_LOCATION_FONT, TILE_HEADER_H,
+  CODE_LINE_H, TILE_CODE_FONT, LOCATION_LINE_H, TILE_LOCATION_FONT, TILE_HEADER_H, avoidDoorSwings, avoidObstacles, placeCard, swingSquare, MAX_TILE_FONT,
 } from './room-geometry';
 
 /**
@@ -327,6 +327,91 @@ export function tileValues(
 }
 
 /**
+ * THE 2D ARCHITECTURAL STYLE (2026-10-01, operator: "2d layout was good
+ * replace with that QC layout", choosing concept A of three —
+ * `Layouts/CWH/concepts/concept-a-2d.png`). A plan opts in through
+ * `annotations.style = 'architectural'` (only "CWH — QC" does); every other
+ * plan draws exactly as before.
+ *
+ * What it changes, and the one rule it reverses: the ROOM FLOOR is tinted by
+ * the room's status here (a wash, not the chip colour), because that is the
+ * design chosen. A room with two readings that disagree still shows both on
+ * its card, so nothing is hidden by the wash. Walls are drawn double, doors
+ * as a dark leaf with a dashed swing, and each instrument is a CARD (header
+ * band with its ID, its Location, both readings) rather than chips.
+ */
+export const ARCH = {
+  wallOuter: '#1e293b',
+  wallInner: '#94a3b8',
+  doorLeaf: '#1e293b',
+  doorSwing: '#2563eb',
+  ground: '#f8fafc',
+  grid: '#e8eef6',
+  columnFill: '#e2e8f0',
+  columnInk: '#64748b',
+  windowFill: '#e0f2fe',
+  windowInk: '#0284c7',
+  roomName: '#475569',
+  roomCode: '#94a3b8',
+  /** Floor washes per tone; an empty room is white, circulation a cool grey. */
+  wash: {
+    OK: '#f0fdf4', OUT_OF_SPEC: '#fef2f2', ERROR: '#f5f3ff', STALE: '#fffbeb', PARTIAL: '#fffbeb', NO_DATA: '#f8fafc',
+  } as Record<ChipTone, string>,
+  /** A reading's ink on a card: dark when in limit, the tone colour otherwise. */
+  ink: {
+    OK: '#0f172a', OUT_OF_SPEC: '#dc2626', ERROR: '#7c3aed', STALE: '#b45309', PARTIAL: '#b45309', NO_DATA: '#94a3b8',
+  } as Record<ChipTone, string>,
+} as const;
+
+/** Worst first: what a card's band and a room's wash show when readings differ. */
+const TONE_ORDER: readonly ChipTone[] = ['OUT_OF_SPEC', 'ERROR', 'STALE', 'PARTIAL', 'NO_DATA', 'OK'];
+
+/**
+ * One instrument's tone on a card: its worst reading (a breach, then a failed
+ * probe), else the server's status for the instrument. Nothing is re-derived:
+ * the per-reading tones are `tileValues`', the rest is `row.status`.
+ */
+export function cardTone(
+  row: Parameters<typeof tileValues>[0],
+  words: { failure: string; outOfRange: string },
+): ChipTone {
+  const sts = tileValues(row, words).map((v) => v.st);
+  if (sts.includes('OUT_OF_SPEC') || row.status === 'OUT_OF_SPEC') return 'OUT_OF_SPEC';
+  if (sts.includes('ERROR')) return 'ERROR';
+  return row.status;
+}
+
+/** A room's tone: the worst of its instruments', or null for a room with none. */
+export function roomTone(
+  rows: Parameters<typeof tileValues>[0][],
+  words: { failure: string; outOfRange: string },
+): ChipTone | null {
+  if (!rows.length) return null;
+  const tones = rows.map((r) => cardTone(r, words));
+  return TONE_ORDER.find((t) => tones.includes(t)) ?? 'OK';
+}
+
+/** The side panel's counts — one bucket per instrument, so they sum. */
+export function archSummary(
+  rows: Parameters<typeof tileValues>[0][],
+  words: { failure: string; outOfRange: string },
+): { total: number; ok: number; outOfLimit: number; fault: number; other: number } {
+  const out = { total: rows.length, ok: 0, outOfLimit: 0, fault: 0, other: 0 };
+  for (const r of rows) {
+    const t = cardTone(r, words);
+    if (t === 'OK') out.ok += 1;
+    else if (t === 'OUT_OF_SPEC') out.outOfLimit += 1;
+    else if (t === 'ERROR') out.fault += 1;
+    else out.other += 1;
+  }
+  return out;
+}
+
+/** Card geometry at scale 1 — the concept's 196 x 104 card. */
+const CARD_W = 196;
+const CARD_H = 104;
+
+/**
  * One object so a dark wall-display palette is a value swap rather than a
  * rewrite. The dark values are deliberately NOT authored yet — a scheme guessed
  * at without seeing it on the target display is wasted work.
@@ -517,6 +602,92 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
     : { x: 0, y: 0, w: 1, h: 1 };
   const vb = { x: extent.x * VB_W, y: extent.y * vbH, w: extent.w * VB_W, h: extent.h * vbH };
 
+  const arch = plan?.annotations?.style === 'architectural';
+
+  // Each room's outline, the openings cut from its walls and the box its
+  // readings lay out in — computed ONCE and read by every layer below (the 2D
+  // style draws walls, cards and doors in their own passes, over all rooms).
+  const columnBoxes = (plan?.annotations?.columns ?? []).map((c) => ({ x: c.x * VB_W, y: c.y * vbH, w: c.w * VB_W, h: c.h * vbH }));
+  const geoms = new Map(roomViews.map(({ room, rows: roomRows }) => {
+    // A corridor is ONE space that the schema stores as several
+    // rectangles (a room is a rectangle; an L is two). The seam
+    // between two adjoining CIRCULATION rooms is therefore not a
+    // wall, and is cut out like a door — without a leaf, since
+    // nothing is there. Operator, 2026-09-21: "in layout image
+    // corridor single line, not divided into separately". Only the
+    // rooms actually DRAWN count as neighbours: in a scoped view a
+    // hidden piece would otherwise open a wall onto nothing.
+    // Two rooms are one space when both are circulation, OR when
+    // one is a continuation piece of the other — an L-shaped lab
+    // stored as `INCUBATOR-01` + `INCUBATOR-01 (2)` (Microbiology,
+    // 2026-09-21) has no wall between its halves either.
+    // The outline (a polygon since 2026-09-22; a rectangle is its
+    // four-corner case) and everything cut out of its walls: its own
+    // doors, the seams it shares with the rooms it is one space with,
+    // and the OPENING links the designer drew.
+    const outline = roomOutline(room, VB_W, vbH);
+    const doorOpenings = (room.doors ?? []).flatMap((d) => {
+      const o = doorToEdgeOpening(d, room.points ?? null);
+      return o ? [o] : [];
+    });
+    const openings = [
+      ...polygonSharedOpenings(
+        outline,
+        roomViews
+          .filter((o) => o.room.id !== room.id && sameSpace(room, o.room))
+          .map((o) => roomOutline(o.room, VB_W, vbH)),
+      ),
+      ...roomOpenings(room, plan?.links ?? [], roomViews, VB_W, vbH),
+      ...neighbourDoorOpenings(room, roomViews, VB_W, vbH),
+    ];
+    // The readings tiles lay out in the largest rectangle INSIDE the
+    // outline, so an L-shaped room never hangs a tile outside a wall.
+    // For a rectangle that IS the box, and nothing moves.
+    // ...and stepped clear of a door swing that would sit on the tile's
+    // text (QC Layout-2's DISSOLUTION ROOM-II printed its ID on its door).
+    // In the 2D style the text is the whole CARD, so the band is the card's.
+    const doors = polygonDoorPlacements(outline, room.doors ?? []);
+    // ...and clear of the structural columns standing in it.
+    const tileBox = roomRows.length > 0
+      ? avoidObstacles(
+        avoidDoorSwings(
+          largestInscribedRect(outline),
+          doors,
+          arch ? CARD_H + 12 : TILE_HEADER_H + FULL_CODE_GAP + 2 * MAX_TILE_FONT * CHIP_HEIGHT_FACTOR + CHIP_GAP,
+        ),
+        columnBoxes,
+      )
+      : largestInscribedRect(outline);
+    // A continuation piece (`CWH-I/217 (2)`) whose first piece is
+    // on the plan prints no code and no name of its own — with the
+    // seam gone, a second label inside the same space is the
+    // "divided" reading the seam gave.
+    const continuationOf = continuationBase(room.code);
+    const isContinuation = continuationOf !== null
+      && roomViews.some((o) => o.room.id !== room.id && o.room.code.toUpperCase() === continuationOf);
+    // The 2D style places a room's ONE card by search (see `placeCard`),
+    // clear of every swing on the plan (a neighbour's door can swing in) and of
+    // the columns; a room with several instruments keeps the tile grid.
+    const card = arch && roomRows.length === 1
+      ? placeCard(
+        largestInscribedRect(outline),
+        [...roomViews.flatMap((o) => polygonDoorPlacements(roomOutline(o.room, VB_W, vbH), o.room.doors ?? []).map(swingSquare)), ...columnBoxes],
+        CARD_W, CARD_H,
+      )
+      : null;
+    return [room.id, {
+      outline, doorOpenings, openings, tileBox, isContinuation, card,
+      outlinePoints: outline.map((pt) => `${pt.x},${pt.y}`).join(' '),
+      // Doors, plus an OPENING link's leaf on the from-room's edge.
+      doorPlacements: polygonDoorPlacements(outline, [
+        ...(room.doors ?? []),
+        ...(plan?.links ?? [])
+          .filter((l) => l.kind === 'OPENING' && l.fromRoomId === room.id && l.door && l.fromEdge != null && l.offset != null && l.width != null)
+          .map((l) => ({ edge: l.fromEdge!, offset: l.offset!, width: l.width!, kind: l.door! })),
+      ]),
+    }] as const;
+  }));
+
   const floorSvg = plan ? (
           <svg
             viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.h}`}
@@ -531,7 +702,19 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                 the building reads as a drawing laid on something, and so the
                 gaps between rooms are visibly OUTSIDE them. The ink is still the
                 information. */}
-            <rect x={vb.x} y={vb.y} width={vb.w} height={vb.h} fill={PALETTE.ground} stroke={PALETTE.wall} strokeWidth={3} />
+            {arch ? (
+              <>
+                <defs>
+                  <pattern id="fp-arch-grid" width="20" height="20" patternUnits="userSpaceOnUse">
+                    <path d="M20 0H0V20" fill="none" stroke={ARCH.grid} strokeWidth={1} />
+                  </pattern>
+                </defs>
+                <rect x={vb.x} y={vb.y} width={vb.w} height={vb.h} fill={ARCH.ground} />
+                <rect x={vb.x} y={vb.y} width={vb.w} height={vb.h} fill="url(#fp-arch-grid)" />
+              </>
+            ) : (
+              <rect x={vb.x} y={vb.y} width={vb.w} height={vb.h} fill={PALETTE.ground} stroke={PALETTE.wall} strokeWidth={3} />
+            )}
 
             {roomViews.map(({ room, rows: roomRows, status }) => {
               const x = room.x * VB_W;
@@ -555,49 +738,8 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                 ? ROOM_GRADE_META[room.grade as RoomGrade]
                 : null;
 
-              // A corridor is ONE space that the schema stores as several
-              // rectangles (a room is a rectangle; an L is two). The seam
-              // between two adjoining CIRCULATION rooms is therefore not a
-              // wall, and is cut out like a door — without a leaf, since
-              // nothing is there. Operator, 2026-09-21: "in layout image
-              // corridor single line, not divided into separately". Only the
-              // rooms actually DRAWN count as neighbours: in a scoped view a
-              // hidden piece would otherwise open a wall onto nothing.
-              // Two rooms are one space when both are circulation, OR when
-              // one is a continuation piece of the other — an L-shaped lab
-              // stored as `INCUBATOR-01` + `INCUBATOR-01 (2)` (Microbiology,
-              // 2026-09-21) has no wall between its halves either.
-              // The outline (a polygon since 2026-09-22; a rectangle is its
-              // four-corner case) and everything cut out of its walls: its own
-              // doors, the seams it shares with the rooms it is one space with,
-              // and the OPENING links the designer drew.
-              const outline = roomOutline(room, VB_W, vbH);
-              const doorOpenings = (room.doors ?? []).flatMap((d) => {
-                const o = doorToEdgeOpening(d, room.points ?? null);
-                return o ? [o] : [];
-              });
-              const openings = [
-                ...polygonSharedOpenings(
-                  outline,
-                  roomViews
-                    .filter((o) => o.room.id !== room.id && sameSpace(room, o.room))
-                    .map((o) => roomOutline(o.room, VB_W, vbH)),
-                ),
-                ...roomOpenings(room, plan?.links ?? [], roomViews, VB_W, vbH),
-                ...neighbourDoorOpenings(room, roomViews, VB_W, vbH),
-              ];
-              // The readings tiles lay out in the largest rectangle INSIDE the
-              // outline, so an L-shaped room never hangs a tile outside a wall.
-              // For a rectangle that IS the box, and nothing moves.
-              const tileBox = largestInscribedRect(outline);
-              const outlinePoints = outline.map((p) => `${p.x},${p.y}`).join(' ');
-              // A continuation piece (`CWH-I/217 (2)`) whose first piece is
-              // on the plan prints no code and no name of its own — with the
-              // seam gone, a second label inside the same space is the
-              // "divided" reading the seam gave.
-              const continuationOf = continuationBase(room.code);
-              const isContinuation = continuationOf !== null
-                && roomViews.some((o) => o.room.id !== room.id && o.room.code.toUpperCase() === continuationOf);
+              const { outline, doorOpenings, openings, tileBox, outlinePoints, isContinuation, doorPlacements } = geoms.get(room.id)!;
+              const tone = arch ? roomTone(roomRows, sensorWords) : null;
 
               return (
                 <g
@@ -642,7 +784,10 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                       before. */}
                   <polygon
                     points={outlinePoints}
-                    fill={room.meta?.fill ?? zone.fill}
+                    fill={arch
+                      ? (tone ? ARCH.wash[tone] : room.grade === 'CIRCULATION' ? '#f1f5f9' : room.grade === 'UTILITY' ? '#f8fafc' : '#ffffff')
+                      : room.meta?.fill ?? zone.fill}
+                    data-tone={tone ?? undefined}
                     // The hover darkening says "clickable" — only where it is.
                     className={roomRows.length > 0 ? 'fp-room-fill' : undefined}
                   />
@@ -653,7 +798,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                   {/* Only on a RECTANGLE: a polygon corridor (QC Layout-2's one
                       corridor wraps three blocks) would have its box's centre
                       line run straight through the rooms it goes round. */}
-                  {room.grade === 'CIRCULATION' && (!room.points || room.points.length === 4) && (
+                  {!arch && room.grade === 'CIRCULATION' && (!room.points || room.points.length === 4) && (
                     w >= h ? (
                       <line
                         x1={x + 6} y1={y + h / 2} x2={x + w - 6} y2={y + h / 2}
@@ -667,7 +812,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                     )
                   )}
 
-                  {polygonWalls(outline, [...doorOpenings, ...openings]).map((s, i) => (
+                  {!arch && polygonWalls(outline, [...doorOpenings, ...openings]).map((s, i) => (
                     <line
                       key={`w${i}`}
                       x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2}
@@ -679,7 +824,10 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                       grade, and an alarm that recoloured it would make grade and
                       status argue over the same pixels. Skipped on a box too
                       small to inset without the stroke crossing itself. */}
-                  {status === 'OUT_OF_SPEC' && w > 12 && h > 12 && (
+                  {/* Not in the 2D style: there the room's red wash and its red
+                      card carry the alarm, and the band showed through every
+                      door gap in the double wall as a loose red sliver. */}
+                  {!arch && status === 'OUT_OF_SPEC' && w > 12 && h > 12 && (
                     // A stroke clipped to the outline: only its inner half shows,
                     // which is an inset band on ANY outline without inset maths.
                     <>
@@ -706,7 +854,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                       piece of a corridor prints nothing; its base piece does.
                       Sized to the room: never wider than the box, never taller
                       than a third of it. */}
-                  {roomRows.length === 0 && !isContinuation && (room.label || room.code) && (() => {
+                  {!arch && roomRows.length === 0 && !isContinuation && (room.label || room.code) && (() => {
                     const text = (room.label || room.code).trim();
                     const fontSize = Math.max(6, Math.min(
                       TILE_LOCATION_FONT + 1.5,
@@ -728,7 +876,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                     );
                   })()}
 
-                  {(() => {
+                  {!arch && (() => {
                     const layout = tileLayout(tileBox, roomRows.length, headerH);
                     if (layout.visible === 0) return null;
 
@@ -755,13 +903,13 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                       // control room reads first, the identity is a caption.
                       const codeFontSize = Math.min(
                         TILE_CODE_FONT,
-                        Math.max(7, (layout.tile.w - 6) / (Math.max(1, row.code.length) * 0.6)),
+                        Math.max(7, (layout.tile.w - 6) / (Math.max(1, row.code.length) * 0.66)),
                       );
                       // The instrument's own `Location` ATTRIBUTE (the dashboard
                       // table's Location column) — never the room's code or name.
                       const location = row.locationAttribute?.trim() || null;
                       const locationFontSize = location
-                        ? Math.min(TILE_LOCATION_FONT, Math.max(6.5, (layout.tile.w - 6) / (location.length * 0.55)))
+                        ? Math.min(TILE_LOCATION_FONT, Math.max(6.5, (layout.tile.w - 6) / (location.length * 0.6)))
                         : 0;
 
                       return (
@@ -792,7 +940,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                           {layout.step === 'FULL' && (
                             <text
                               x={tcx} y={ty + CODE_LINE_H - 2} textAnchor="middle"
-                              fontSize={codeFontSize} fontWeight={600}
+                              fontSize={codeFontSize} fontWeight={700}
                               letterSpacing="0.04em" fill={PALETTE.ink}
                             >
                               {row.code}
@@ -801,7 +949,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                           {layout.step === 'FULL' && location && (
                             <text
                               x={tcx} y={ty + CODE_LINE_H + LOCATION_LINE_H - 3} textAnchor="middle"
-                              fontSize={locationFontSize} fill={PALETTE.labelInk}
+                              fontSize={locationFontSize} fontWeight={700} fill={PALETTE.labelInk}
                             >
                               {location}
                             </text>
@@ -841,7 +989,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                     });
                   })()}
 
-                  {(() => {
+                  {!arch && (() => {
                     const layout = tileLayout(tileBox, roomRows.length, headerH);
                     if (layout.hidden <= 0) return null;
                     const i = layout.visible;
@@ -867,13 +1015,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                       it is never given STATUS colour, and it is never given ZONE
                       colour either: the zone already speaks through fill, code and
                       tab. */}
-                  {polygonDoorPlacements(outline, [
-                    ...(room.doors ?? []),
-                    // An OPENING link with a door leaf, on the from-room's edge.
-                    ...(plan?.links ?? [])
-                      .filter((l) => l.kind === 'OPENING' && l.fromRoomId === room.id && l.door && l.fromEdge != null && l.offset != null && l.width != null)
-                      .map((l) => ({ edge: l.fromEdge!, offset: l.offset!, width: l.width!, kind: l.door! })),
-                  ]).map((d, i) => (
+                  {!arch && doorPlacements.map((d, i) => (
                     <g key={`d${i}`}>
                       {/* Drawn as the plant's drawings draw a door (2026-10-01,
                           "doors not matched with image"): a dark leaf standing
@@ -893,6 +1035,122 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                 </g>
               );
             })}
+
+            {arch && (
+              <g data-testid="fp-arch">
+                {/* WALLS — a dark line with a light core, the drawing's double
+                    wall. Drawn over ALL the floors, so a neighbour's fill can
+                    never cover half of a wall drawn before it. */}
+                <g pointerEvents="none">
+                  {roomViews.flatMap(({ room }) => {
+                    const g = geoms.get(room.id)!;
+                    return polygonWalls(g.outline, [...g.doorOpenings, ...g.openings]).map((w, i) => (
+                      <line key={`wo-${room.id}-${i}`} x1={w.x1} y1={w.y1} x2={w.x2} y2={w.y2}
+                        stroke={ARCH.wallOuter} strokeWidth={8} strokeLinecap="square" />
+                    ));
+                  })}
+                  {roomViews.flatMap(({ room }) => {
+                    const g = geoms.get(room.id)!;
+                    return polygonWalls(g.outline, [...g.doorOpenings, ...g.openings]).map((w, i) => (
+                      <line key={`wi-${room.id}-${i}`} x1={w.x1} y1={w.y1} x2={w.x2} y2={w.y2}
+                        stroke={ARCH.wallInner} strokeWidth={2.5} strokeLinecap="square" />
+                    ));
+                  })}
+                </g>
+
+                {/* A room with no instrument: its name, letter-spaced, and its
+                    number under it; a continuation piece prints nothing. */}
+                <g pointerEvents="none">
+                  {roomViews.map(({ room, rows: roomRows }) => {
+                    const g = geoms.get(room.id)!;
+                    if (roomRows.length > 0 || g.isContinuation) return null;
+                    const name = (room.label || room.code).trim();
+                    const fs = Math.max(7, Math.min(15, (g.tileBox.w - 16) / (Math.max(1, name.length) * 0.75), g.tileBox.h / 4));
+                    const cx = g.tileBox.x + g.tileBox.w / 2, cy = g.tileBox.y + g.tileBox.h / 2;
+                    return (
+                      <g key={`n-${room.id}`}>
+                        <text x={cx} y={cy} textAnchor="middle" fontSize={fs} fill={ARCH.roomName} letterSpacing="0.08em">{name}</text>
+                        {room.label && (
+                          <text x={cx} y={cy + fs * 1.15} textAnchor="middle" fontSize={fs * 0.72} fill={ARCH.roomCode}>{room.code}</text>
+                        )}
+                      </g>
+                    );
+                  })}
+                </g>
+
+                {/* CARDS — one per instrument, laid out in the room's tile box
+                    (inscribed, clear of door swings), centred in its tile and
+                    scaled down to fit, never up. */}
+                <defs>
+                  <filter id="fp-card-shadow" x="-20%" y="-20%" width="140%" height="140%">
+                    <feDropShadow dx="0" dy="2" stdDeviation="2.5" floodColor="#0f172a" floodOpacity="0.18" />
+                  </filter>
+                </defs>
+                {roomViews.flatMap(({ room, rows: roomRows }) => {
+                  const g = geoms.get(room.id)!;
+                  const box = { x: g.tileBox.x + 6, y: g.tileBox.y + 6, w: g.tileBox.w - 12, h: g.tileBox.h - 12 };
+                  const layout = tileLayout(box, roomRows.length, 0);
+                  return roomRows.slice(0, Math.max(1, layout.visible)).map((row, i) => {
+                    const col = layout.cols > 0 ? i % layout.cols : 0;
+                    const rowIx = layout.cols > 0 ? Math.floor(i / layout.cols) : 0;
+                    const tileW = layout.cols > 0 ? layout.tile.w : box.w;
+                    const tileH = layout.cols > 0 ? layout.tile.h : box.h;
+                    const placed = roomRows.length === 1 ? g.card : null;
+                    const k = placed ? placed.k : Math.min(1, (tileW - 6) / CARD_W, (tileH - 6) / CARD_H);
+                    const cw = CARD_W * k, ch = CARD_H * k;
+                    const x0 = placed ? placed.x : box.x + col * tileW + (tileW - cw) / 2;
+                    const y0 = placed ? placed.y : (layout.cols > 0 ? layout.bodyTop : box.y) + rowIx * tileH + (tileH - ch) / 2;
+                    const tone = cardTone(row, sensorWords);
+                    const band = CHIP[tone].bg;
+                    const [t, h] = tileValues(row, sensorWords);
+                    const location = row.locationAttribute?.trim() || room.label || '';
+                    const go = () => navigate(`/instruments/${row.instrumentId}/trend`);
+                    const tempV = row.temperature?.value ?? null;
+                    const rhV = row.humidity?.value ?? null;
+                    return (
+                      <g
+                        key={`c-${row.instrumentId}`}
+                        data-testid="fp-card"
+                        data-tone={tone}
+                        onClick={(e) => { e.stopPropagation(); go(); }}
+                        role="button"
+                        tabIndex={0}
+                        style={{ cursor: 'pointer' }}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); go(); } }}
+                        aria-label={`${row.code}${
+                          tempV !== null ? `, ${formatDecimals(tempV, row.decimals.temperature)} degrees${t.bad ? ' out of limit' : ''}` : ''
+                        }${rhV !== null ? `, ${formatDecimals(rhV, row.decimals.humidity)} percent humidity${h.bad ? ' out of limit' : ''}` : ''}`}
+                      >
+                        <rect x={x0} y={y0} width={cw} height={ch} rx={9 * k} fill="#ffffff" stroke={band} strokeWidth={2} filter="url(#fp-card-shadow)" />
+                        <path
+                          d={`M${x0},${y0 + 26 * k} V${y0 + 9 * k} Q${x0},${y0} ${x0 + 9 * k},${y0} H${x0 + cw - 9 * k} Q${x0 + cw},${y0} ${x0 + cw},${y0 + 9 * k} V${y0 + 26 * k} Z`}
+                          fill={band}
+                        />
+                        <text x={x0 + cw / 2} y={y0 + 19 * k} textAnchor="middle" fontSize={Math.min(15.5 * k, (cw - 10) / (row.code.length * 0.64))} fontWeight={800} fill="#ffffff">{row.code}</text>
+                        {location && (
+                          <text x={x0 + cw / 2} y={y0 + 46 * k} textAnchor="middle" fontSize={Math.min(14 * k, (cw - 10) / (location.length * 0.62))} fontWeight={700} fill="#334155">{location}</text>
+                        )}
+                        <text x={x0 + 13 * k} y={y0 + 78 * k} fontSize={20 * k} fontWeight={700} fill={ARCH.ink[t.st]} style={{ fontVariantNumeric: 'tabular-nums' }}>{t.text}</text>
+                        <text x={x0 + cw - 13 * k} y={y0 + 78 * k} textAnchor="end" fontSize={20 * k} fontWeight={700} fill={ARCH.ink[h.st]} style={{ fontVariantNumeric: 'tabular-nums' }}>{h.text}</text>
+                        <text x={x0 + 13 * k} y={y0 + 95 * k} fontSize={8.5 * k} fill={ARCH.roomCode} letterSpacing="0.06em">TEMP</text>
+                        <text x={x0 + cw - 13 * k} y={y0 + 95 * k} textAnchor="end" fontSize={8.5 * k} fill={ARCH.roomCode} letterSpacing="0.06em">HUMIDITY</text>
+                      </g>
+                    );
+                  });
+                })}
+
+                {/* DOORS last: the leaf and a dashed swing, the drawing's door.
+                    Never a status colour. */}
+                <g pointerEvents="none">
+                  {roomViews.flatMap(({ room }) => geoms.get(room.id)!.doorPlacements.map((d, i) => (
+                    <g key={`d-${room.id}-${i}`} data-testid="fp-arch-door">
+                      <path d={d.arc} fill="none" stroke={ARCH.doorSwing} strokeWidth={1.3} strokeDasharray="4 3" />
+                      <line x1={d.leaf.x1} y1={d.leaf.y1} x2={d.leaf.x2} y2={d.leaf.y2} stroke={ARCH.doorLeaf} strokeWidth={2.5} />
+                    </g>
+                  )))}
+                </g>
+              </g>
+            )}
 
             {/* CONNECTOR links (Layout Designer, 2026-09-22): a dashed line
                 between the centres of two rooms that do not touch, in the door
@@ -933,21 +1191,30 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
               <g pointerEvents="none" data-testid="fp-structure">
                 <defs>
                   <pattern id="fp-column-hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-                    <rect width="4" height="4" fill="#f97316" />
-                    <line x1="0" y1="0" x2="0" y2="4" stroke="#c2410c" strokeWidth="1.4" />
+                    <rect width="4" height="4" fill={arch ? ARCH.columnFill : '#f97316'} />
+                    <line x1="0" y1="0" x2="0" y2="4" stroke={arch ? ARCH.columnInk : '#c2410c'} strokeWidth="1.4" />
                   </pattern>
                 </defs>
                 {(structure.walls ?? []).map((l, i) => (
                   <line key={`sw${i}`} x1={l.x1 * VB_W} y1={l.y1 * vbH} x2={l.x2 * VB_W} y2={l.y2 * vbH}
-                    stroke={PALETTE.wall} strokeWidth={2.5} strokeLinecap="butt" />
+                    stroke={arch ? ARCH.wallOuter : PALETTE.wall} strokeWidth={arch ? 7 : 2.5} strokeLinecap="butt" />
                 ))}
-                {(structure.windows ?? []).map((b, i) => (
-                  <rect key={`win${i}`} data-structure="window" x={b.x * VB_W} y={b.y * vbH} width={b.w * VB_W} height={b.h * vbH}
-                    fill="#dbeafe" stroke="#1d4ed8" strokeWidth={1.2} />
-                ))}
+                {(structure.windows ?? []).map((b, i) => {
+                  const x = b.x * VB_W, y = b.y * vbH, w = b.w * VB_W, h = b.h * vbH;
+                  return (
+                    <g key={`win${i}`}>
+                      <rect data-structure="window" x={x} y={y} width={w} height={h}
+                        fill={arch ? ARCH.windowFill : '#dbeafe'} stroke={arch ? ARCH.windowInk : '#1d4ed8'} strokeWidth={arch ? 1.5 : 1.2} />
+                      {/* The glazing line along the window's long side. */}
+                      {arch && (h > w
+                        ? <line x1={x + w / 2} y1={y} x2={x + w / 2} y2={y + h} stroke={ARCH.windowInk} strokeWidth={1} />
+                        : <line x1={x} y1={y + h / 2} x2={x + w} y2={y + h / 2} stroke={ARCH.windowInk} strokeWidth={1} />)}
+                    </g>
+                  );
+                })}
                 {(structure.columns ?? []).map((b, i) => (
                   <rect key={`col${i}`} data-structure="column" x={b.x * VB_W} y={b.y * vbH} width={b.w * VB_W} height={b.h * vbH}
-                    fill="url(#fp-column-hatch)" stroke="#0891b2" strokeWidth={1.2} />
+                    fill="url(#fp-column-hatch)" stroke={arch ? ARCH.wallOuter : '#0891b2'} strokeWidth={arch ? 2 : 1.2} />
                 ))}
               </g>
             ) : null}
@@ -1069,6 +1336,15 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
             </Link>.
           </p>
         </div>
+      ) : plan && arch ? (
+        // The 2D style's side panel (operator chose "Legend + summary + north
+        // arrow"): the drawing takes what is left of the panel's width.
+        <div className="flex min-h-0 flex-1 gap-3">
+          <div className="min-h-0 min-w-0 flex-1 overflow-hidden rounded-b-2xl border border-slate-300 bg-white p-3 shadow-soft">
+            {floorSvg}
+          </div>
+          <ArchSidePanel summary={archSummary(roomViews.flatMap((v) => v.rows), sensorWords)} />
+        </div>
       ) : plan && (
         <div className="min-h-0 flex-1 overflow-hidden rounded-b-2xl border border-slate-300 bg-white p-3 shadow-soft">
           {floorSvg}
@@ -1078,7 +1354,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
       {/* Status legend. The room-grade legend was removed 2026-08-24 at the
           operator's request. Since 2026-09-22 a chip carries no glyph, so this
           bar is the ONE place the colours are named — do not remove it. */}
-      <div className="flex flex-wrap items-center gap-4 rounded-xl border border-slate-200/70 px-4 py-3">
+      {!arch && <div className="flex flex-wrap items-center gap-4 rounded-xl border border-slate-200/70 px-4 py-3">
         <span className="text-xs font-semibold text-slate-700">Reading colour:</span>
         {LEGEND.map(({ tone, label, sample }) => (
           <span key={tone} className="flex items-center gap-1.5 text-xs text-slate-600">
@@ -1091,7 +1367,93 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
             {label}
           </span>
         ))}
-      </div>
+      </div>}
     </div>
+  );
+}
+
+/**
+ * The 2D style's side panel: what each mark means, how many instruments are
+ * in each state, and the plan's orientation. The counts are the server's
+ * statuses bucketed (`archSummary`), one bucket per instrument, so they sum.
+ *
+ * The arrow is PLAN north — the top of the drawing. The source drawing
+ * (`Layouts/CWH/QC Layout-2.png`) marks no true north, and an unqualified "N"
+ * would assert an orientation nobody recorded; the caption says so.
+ */
+function ArchSidePanel({ summary }: { summary: ReturnType<typeof archSummary> }) {
+  const states: { tone: ChipTone; label: string }[] = [
+    { tone: 'OK', label: statusClasses('OK').label },
+    { tone: 'OUT_OF_SPEC', label: statusClasses('OUT_OF_SPEC').label },
+    { tone: 'ERROR', label: 'Sensor error' },
+    { tone: 'STALE', label: statusClasses('STALE').label },
+  ];
+  const counts: { label: string; value: number; color: string }[] = [
+    { label: 'Instruments', value: summary.total, color: '#0f172a' },
+    { label: statusClasses('OK').label, value: summary.ok, color: CHIP.OK.bg },
+    { label: statusClasses('OUT_OF_SPEC').label, value: summary.outOfLimit, color: CHIP.OUT_OF_SPEC.bg },
+    { label: 'Sensor error', value: summary.fault, color: CHIP.ERROR.bg },
+    { label: 'Offline / no data', value: summary.other, color: CHIP.STALE.bg },
+  ];
+  return (
+    <aside
+      className="flex w-56 shrink-0 flex-col gap-4 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 text-sm shadow-soft"
+      data-testid="fp-arch-panel"
+      aria-label="Floor plan legend and summary"
+    >
+      <section>
+        <h4 className="mb-2 text-xs font-bold tracking-wider text-slate-900">LEGEND</h4>
+        <ul className="space-y-2 text-slate-700">
+          {states.map(({ tone, label }) => (
+            <li key={tone} className="flex items-center gap-2.5">
+              <span className="h-4 w-6 rounded" style={{ background: ARCH.wash[tone], border: `2px solid ${CHIP[tone].bg}` }} aria-hidden="true" />
+              {label}
+            </li>
+          ))}
+          <li className="flex items-center gap-2.5">
+            <span className="h-4 w-6 rounded border-2 border-slate-300 bg-white" aria-hidden="true" />
+            No instrument
+          </li>
+          <li className="flex items-center gap-2.5">
+            <svg width="24" height="10" aria-hidden="true"><line x1="0" y1="5" x2="24" y2="5" stroke={ARCH.wallOuter} strokeWidth="7" /><line x1="0" y1="5" x2="24" y2="5" stroke={ARCH.wallInner} strokeWidth="2" /></svg>
+            Wall
+          </li>
+          <li className="flex items-center gap-2.5">
+            <svg width="24" height="20" aria-hidden="true"><path d="M3 18 A16 16 0 0 0 19 2" fill="none" stroke={ARCH.doorSwing} strokeDasharray="3 2" /><line x1="3" y1="18" x2="3" y2="2" stroke={ARCH.doorLeaf} strokeWidth="2.5" /></svg>
+            Door and swing
+          </li>
+          <li className="flex items-center gap-2.5">
+            <svg width="24" height="16" aria-hidden="true">
+              <defs><pattern id="fp-legend-hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="4" height="4" fill={ARCH.columnFill} /><line x1="0" y1="0" x2="0" y2="4" stroke={ARCH.columnInk} strokeWidth="1.4" /></pattern></defs>
+              <rect x="1" y="1" width="22" height="14" fill="url(#fp-legend-hatch)" stroke={ARCH.wallOuter} strokeWidth="1.5" />
+            </svg>
+            Structural column
+          </li>
+          <li className="flex items-center gap-2.5">
+            <svg width="24" height="10" aria-hidden="true"><rect x="1" y="1" width="22" height="8" fill={ARCH.windowFill} stroke={ARCH.windowInk} /><line x1="1" y1="5" x2="23" y2="5" stroke={ARCH.windowInk} /></svg>
+            Window
+          </li>
+        </ul>
+      </section>
+      <section>
+        <h4 className="mb-2 text-xs font-bold tracking-wider text-slate-900">SUMMARY</h4>
+        <dl className="space-y-1.5">
+          {counts.map(({ label, value, color }) => (
+            <div key={label} className="flex items-baseline justify-between">
+              <dt className="text-slate-600">{label}</dt>
+              <dd className="text-base font-bold tabular-nums" style={{ color }}>{value}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+      <section className="mt-auto flex flex-col items-center gap-1 text-center">
+        <svg width="64" height="64" viewBox="-32 -32 64 64" role="img" aria-label="Plan north: the top of the drawing">
+          <circle r="30" fill="#ffffff" stroke="#cbd5e1" />
+          <path d="M0 -22 L9 9 L0 3 L-9 9 Z" fill="#0f172a" />
+          <text y="23" textAnchor="middle" fontSize="11" fontWeight="700" fill="#0f172a">N</text>
+        </svg>
+        <p className="text-[0.6875rem] leading-tight text-slate-500">Plan north. True north is not marked on the drawing.</p>
+      </section>
+    </aside>
   );
 }

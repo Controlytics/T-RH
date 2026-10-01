@@ -644,6 +644,34 @@ panels), `canvas.tsx` (the SVG surface; every callback receives PLAN UNITS),
   last row), and full screen shows the drawing ALONE with one Normal screen
   button — the SVG is one `floorSvg` constant rendered in both modes.
 
+## The 2D ARCHITECTURAL style (2026-10-01) — "CWH — QC" only
+
+A plan whose `annotations.style` is `'architectural'` draws differently; every
+other plan is untouched. Operator chose concept A of three
+(`Layouts/CWH/concepts/concept-a-2d.png`): *"2d layout was good replace with
+that QC layout"*.
+
+- **Layers, not per-room groups.** The room `<g>` keeps only its fill (and its
+  click / aria); walls, empty-room names, cards and doors are drawn in passes
+  over ALL rooms from one `geoms` map, so a neighbour's floor can never cover
+  half of a thick wall drawn before it.
+- **The floor IS tinted by status here** (`roomTone`, worst instrument first) —
+  a reversal of this file's "status lives on the chips" rule, by the chosen
+  design; the card still shows both readings, so nothing is hidden.
+- **`placeCard` (room-geometry.ts) places a one-instrument room's card**: the
+  largest scale the inscribed rect allows, at the clear position nearest its
+  centre, avoiding every door swing on the plan (`swingSquare`) and the columns;
+  it steps down in size only when nothing is clear. Several instruments keep the
+  tile grid. The standard style shrinks its tile box instead (`avoidDoorSwings`,
+  `avoidObstacles`).
+- **No alarm halo in this style** — it showed through door gaps; the wash and
+  the red card carry the alarm.
+- **The side panel's arrow is PLAN north** and says so: the drawing marks no
+  true north.
+- `cardTone` / `roomTone` / `archSummary` bucket the SERVER's statuses; nothing
+  is re-derived. Tests: `floorplan-arch.test.tsx` (12, mutation-checked: the
+  style switch and the obstacle test).
+
 ## The QC floor plan is TRACED, and carries an annotation layer (2026-08-31)
 
 > **SUPERSEDED IN PART, 2026-09-22 (operator: "other symbols remove those

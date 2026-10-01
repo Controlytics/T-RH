@@ -37,7 +37,6 @@
 import { prisma } from '../src/lib/prisma.js';
 import { auditLog } from '../src/lib/audit.js';
 import { Prisma } from '@prisma/client';
-import { QC_ROOMS, QC_BUILDING, QC_ANNOTATIONS } from '../src/modules/floorplans/qc-layout.js';
 import { QC3_LAYOUT } from '../src/modules/floorplans/qc3-layout.js';
 import { MICROBIOLOGY_LAYOUT } from '../src/modules/floorplans/microbiology-layout.js';
 import { canvasOf, normRect, normPlanAnnotations, type TracedLayout } from '../src/modules/floorplans/traced-layout.js';
@@ -354,8 +353,10 @@ interface RoomSpec { code: string; label: string | null; grade: Grade; rect: Rec
  * The floors we have a DRAWING of, keyed by their functional-location AREA
  * name. Everything else is generated. `Layouts/CWH/` holds the drawings.
  */
+/** Areas whose plan another script owns; this one leaves them alone. */
+const DRAWN_ELSEWHERE: Record<string, string> = { QC: 'scripts/draw-qc-layout-2.ts' };
+
 const TRACED: Record<string, TracedLayout> = {
-  QC: { area: 'QC', source: 'Layouts/CWH/QC Layout.png', building: QC_BUILDING, rooms: QC_ROOMS, annotations: QC_ANNOTATIONS },
   [QC3_LAYOUT.area]: QC3_LAYOUT,
   [MICROBIOLOGY_LAYOUT.area]: MICROBIOLOGY_LAYOUT,
 };
@@ -518,6 +519,14 @@ async function main() {
     const area = areaList[idx];
     if (ONLY && area.name !== ONLY) continue;
     const planName = `CWH — ${area.name}`;
+    // QC is drawn by its OWN script since 2026-10-01 (traced from
+    // `QC Layout-2.png`, polygons, the 2D style) — redrawing it here would put
+    // the older rectangle trace back over it. `src/modules/floorplans/qc-layout.ts`
+    // is that older trace, kept for its types and its test.
+    if (DRAWN_ELSEWHERE[area.name]) {
+      console.log(`  ${planName.padEnd(28)} skipped — drawn by ${DRAWN_ELSEWHERE[area.name]}`);
+      continue;
+    }
     // The traced plan's canvas is the BUILDING's own proportions, not a shape
     // derived from its room count — the drawing already decided how tall the
     // floor is, and `canvasFor()` would stretch it to a different aspect.

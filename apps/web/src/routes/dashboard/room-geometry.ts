@@ -266,16 +266,16 @@ export const VALUES_TOP_GAP = 2;
 // 2026-10-01 (operator: "increase location name font size and instrument id
 // font size"): 10 -> 14, and the Location line 8.5 -> 12 below. Each still
 // shrinks to fit a narrow tile, and the readings are sized from what is left.
-export const CODE_LINE_H = 17;
-export const TILE_CODE_FONT = 14;
+export const CODE_LINE_H = 19;
+export const TILE_CODE_FONT = 16;
 /**
  * The LOCATION line under the ID (operator, 2026-09-22: "in rooms show
  * Instrument ID, Location and Values dont show any other things"). The tile's
  * strip is now two lines — ID, then the instrument's `Location` attribute —
  * and the readings start under both; `TILE_HEADER_H` is that strip.
  */
-export const LOCATION_LINE_H = 15;
-export const TILE_LOCATION_FONT = 12;
+export const LOCATION_LINE_H = 17;
+export const TILE_LOCATION_FONT = 14;
 export const TILE_HEADER_H = CODE_LINE_H + LOCATION_LINE_H;
 
 /**
@@ -463,4 +463,105 @@ export function tileLayout(box: PixelBox, count: number, headerH: number = HEADE
   }
 
   return empty;
+}
+
+/**
+ * The tile box, stepped CLEAR of any door swing that would land on the tile's
+ * text (2026-10-01, operator: "on QC layout 2 instrument id CWH/RDU/024-00
+ * showing on door"). A door's swing is the square its leaf sweeps; when that
+ * square overlaps the band the tile prints in (its top `contentH`), the box
+ * gives up the side the door is on: a door in the top wall pushes the text
+ * below the swing, one in a side wall narrows the box away from it. A swing
+ * clear of the text (a door low in a tall room) costs nothing. Never shrinks
+ * below a quarter of the original in either axis — a box that small is better
+ * left overlapping than emptied.
+ */
+export function avoidDoorSwings(box: PixelBox, doors: DoorPlacement[], contentH: number): PixelBox {
+  let { x, y, w, h } = box;
+  for (const d of doors) {
+    const vx = d.leaf.x2 - d.leaf.x1, vy = d.leaf.y2 - d.leaf.y1;
+    const b = swingSquare(d);
+    const sq = { x0: b.x, x1: b.x + b.w, y0: b.y, y1: b.y + b.h };
+    const band = { x0: x, x1: x + w, y0: y, y1: y + Math.min(h, contentH) };
+    const overlaps = sq.x0 < band.x1 && sq.x1 > band.x0 && sq.y0 < band.y1 && sq.y1 > band.y0;
+    if (!overlaps) continue;
+    // The leaf points INTO the room, away from the wall the door is in.
+    if (Math.abs(vy) >= Math.abs(vx)) {
+      if (vy > 0 && sq.y1 - y < h * 0.75) { h -= sq.y1 - y; y = sq.y1; }          // top wall
+      else if (vy < 0 && y + h - sq.y0 < h * 0.75) { h = sq.y0 - y; }              // bottom wall
+    } else if (vx > 0 && sq.x1 - x < w * 0.75) { w -= sq.x1 - x; x = sq.x1; }       // left wall
+    else if (vx < 0 && x + w - sq.x0 < w * 0.75) { w = sq.x0 - x; }                 // right wall
+  }
+  return { x, y, w, h };
+}
+
+/**
+ * The tile box, stepped clear of solid OBSTACLES inside the room — the
+ * structural columns a traced plan carries (2026-10-01, "CWH — QC": SAMPLE
+ * STORAGE ROOM's card sat on the column in its corner). The box gives up the
+ * side the obstacle is nearest to (the axis on which the obstacle's centre is
+ * further from the box's, relative to the box's size). Same limit as
+ * `avoidDoorSwings`: never more than three quarters of the box.
+ */
+export function avoidObstacles(box: PixelBox, obstacles: PixelBox[]): PixelBox {
+  let { x, y, w, h } = box;
+  for (const o of obstacles) {
+    const overlaps = o.x < x + w && o.x + o.w > x && o.y < y + h && o.y + o.h > y;
+    if (!overlaps) continue;
+    const dx = (o.x + o.w / 2 - (x + w / 2)) / w;
+    const dy = (o.y + o.h / 2 - (y + h / 2)) / h;
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      if (dx > 0 && x + w - o.x < w * 0.75) w = o.x - x;
+      else if (dx <= 0 && o.x + o.w - x < w * 0.75) { w -= o.x + o.w - x; x = o.x + o.w; }
+    } else if (dy > 0 && y + h - o.y < h * 0.75) h = o.y - y;
+    else if (dy <= 0 && o.y + o.h - y < h * 0.75) { h -= o.y + o.h - y; y = o.y + o.h; }
+  }
+  return { x, y, w, h };
+}
+
+/** The square a door's leaf sweeps: hinge, far jamb, leaf tip and the corner they span. */
+export function swingSquare(d: DoorPlacement): PixelBox {
+  const far = d.start.x1 === d.hinge.x && d.start.y1 === d.hinge.y ? { x: d.start.x2, y: d.start.y2 } : { x: d.start.x1, y: d.start.y1 };
+  const vx = d.leaf.x2 - d.leaf.x1, vy = d.leaf.y2 - d.leaf.y1;
+  const xs = [d.hinge.x, far.x, d.leaf.x2, far.x + vx], ys = [d.hinge.y, far.y, d.leaf.y2, far.y + vy];
+  const x = Math.min(...xs), y = Math.min(...ys);
+  return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+}
+
+/**
+ * Where ONE card of `baseW` x `baseH` goes in a room (the 2D style,
+ * 2026-10-01): the largest scale that fits the room's inscribed `box`, at the
+ * position NEAREST the box's centre that touches no obstacle (door swings,
+ * columns); if no position is clear the card steps down in size and tries
+ * again. Null when nothing fits even at the smallest step — the caller then
+ * falls back to the shrunk tile box. Searching beats shrinking the box: a tall
+ * room with a door near its top keeps a full-size card in its middle instead
+ * of a card sized to what is left above the swing.
+ */
+export function placeCard(
+  box: PixelBox,
+  obstacles: PixelBox[],
+  baseW: number,
+  baseH: number,
+  pad = 6,
+): { x: number; y: number; w: number; h: number; k: number } | null {
+  const kMax = Math.min(1, (box.w - 2 * pad) / baseW, (box.h - 2 * pad) / baseH);
+  if (kMax <= 0) return null;
+  const cx = box.x + box.w / 2, cy = box.y + box.h / 2;
+  for (const f of [1, 0.9, 0.8, 0.7, 0.6, 0.5]) {
+    const k = kMax * f;
+    const w = baseW * k, h = baseH * k;
+    let best: { d: number; x: number; y: number } | null = null;
+    const step = Math.max(2, Math.min(w, h) / 12);
+    for (let y = box.y + pad; y <= box.y + box.h - pad - h + 1e-9; y += step) {
+      for (let x = box.x + pad; x <= box.x + box.w - pad - w + 1e-9; x += step) {
+        const clear = obstacles.every((o) => !(x < o.x + o.w && x + w > o.x && y < o.y + o.h && y + h > o.y));
+        if (!clear) continue;
+        const d = (x + w / 2 - cx) ** 2 + (y + h / 2 - cy) ** 2;
+        if (!best || d < best.d) best = { d, x, y };
+      }
+    }
+    if (best) return { x: best.x, y: best.y, w, h, k };
+  }
+  return null;
 }

@@ -302,6 +302,9 @@ export interface RoomMeta {
  * DRAWN; it is not a unit that reports, and it must never take a status colour.
  */
 export interface PlanAnnotations {
+  /** How the dashboard draws the plan (2026-10-01): 'architectural' = the 2D
+   *  design ("CWH — QC"); absent = the standard drawing. */
+  style?: 'architectural';
   equipment: { x: number; y: number; w: number; h: number }[];
   hvac: { x: number; y: number; w: number; h: number }[];
   water: { x: number; y: number }[];

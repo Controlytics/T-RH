@@ -26,6 +26,8 @@ let planId: string;
 const PLAN = `fixture-annotations-${Date.now()}`;
 
 const ANNOTATIONS = {
+  // How the dashboard draws the plan (2026-10-01, "CWH — QC" in the 2D design).
+  style: 'architectural',
   equipment: [{ x: 0.27, y: 0.42, w: 0.03, h: 0.03 }],
   hvac: [{ x: 0.98, y: 0.25, w: 0.02, h: 0.05 }],
   water: [{ x: 0.99, y: 0.11 }],
@@ -132,5 +134,11 @@ describe('the building STRUCTURE survives the response filter (2026-10-01)', () 
     expect(plan.annotations.columns).toEqual(ANNOTATIONS.columns);
     expect(plan.annotations.windows).toEqual(ANNOTATIONS.windows);
     expect(plan.annotations.walls).toEqual(ANNOTATIONS.walls);
+  });
+  it('the drawing STYLE reaches the client (or the plan silently draws in the standard style)', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/floorplans', headers: auth });
+    expect(res.json().data.find((p: any) => p.id === planId).annotations.style).toBe('architectural');
+    const one = await app.inject({ method: 'GET', url: `/api/floorplans/${planId}`, headers: auth });
+    expect(one.json().annotations.style).toBe('architectural');
   });
 });

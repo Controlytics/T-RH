@@ -150,6 +150,10 @@ const planProps = {
     type: 'object',
     nullable: true,
     properties: {
+      // How the dashboard draws the plan (2026-10-01): 'architectural' = the
+      // 2D design (double walls, status-tinted rooms, reading cards, side
+      // panel); absent = the standard drawing. Declared, or Fastify strips it.
+      style: { type: 'string' },
       equipment: { type: 'array', items: { type: 'object', properties: {
         x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' } } } },
       hvac: { type: 'array', items: { type: 'object', properties: {

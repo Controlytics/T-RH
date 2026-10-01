@@ -210,6 +210,9 @@ export function annotations2() {
   const box = ([x0, y0, x1, y1]: [number, number, number, number]) =>
     ({ x: nx(x0), y: ny(y0), w: nx(x1) - nx(x0), h: ny(y1) - ny(y0) });
   return {
+    // The dashboard draws this plan in the 2D ARCHITECTURAL style the operator
+    // chose from three concepts (Layouts/CWH/concepts/concept-a-2d.png).
+    style: 'architectural' as const,
     equipment: [], hvac: [], water: [], airflow: [], labels: [],
     columns: QC2_ANNOTATIONS.columns.map(box),
     windows: QC2_ANNOTATIONS.windows.map(box),
@@ -217,5 +220,10 @@ export function annotations2() {
   };
 }
 
-export const QC2_PLAN_NAME = 'CWH — QC Layout-2';
+/** The plan this floor is drawn ON (2026-10-01, later the same day, operator:
+ *  "2d layout was good replace with that QC layout" -> "One plan: CWH — QC"):
+ *  the QC area's own plan, replacing its older trace. It was drawn first as a
+ *  second plan, `QC2_RETIRED_PLAN_NAME`, which the draw script now deletes. */
+export const QC2_PLAN_NAME = 'CWH — QC';
+export const QC2_RETIRED_PLAN_NAME = 'CWH — QC Layout-2';
 export const QC2_SOURCE = 'Layouts/CWH/QC Layout-2.png';

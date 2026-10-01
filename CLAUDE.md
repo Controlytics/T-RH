@@ -1425,6 +1425,14 @@ GET    /api/config/report-downloads/current     — (2026-10-01) per report KIND
       The stored rooms are unchanged: three rectangles, three §11 records.
       **`SHAFT-E` is UTILITY, not CIRCULATION**, or the corridor would open
       into the service band. Re-applied to the local database.
+  - **SUPERSEDED the same day: there is ONE QC plan, "CWH — QC", drawn from
+    `qc-layout-2.ts` in the 2D ARCHITECTURAL style** (operator chose concept A
+    of three in `Layouts/CWH/concepts/`). `scripts/draw-qc-layout-2.ts` redraws
+    "CWH — QC" and deleted "CWH — QC Layout-2" (audited); `draw-cwh-floorplan.ts`
+    skips QC (`DRAWN_ELSEWHERE`). The style is `annotations.style =
+    'architectural'` (declared in the schema); `floorplan-view.tsx` draws such a
+    plan with double walls, status-washed rooms, one card per instrument placed
+    by `placeCard`, dashed swings and a side panel. The bullet below is history.
   - **A SECOND QC plan, "CWH — QC Layout-2" (2026-10-01)**, traced from
     `Layouts/CWH/QC Layout-2.png` (the same floor, clean) in
     `qc-layout-2.ts` by `scripts/draw-qc-layout-2.ts`: polygon rooms (the two

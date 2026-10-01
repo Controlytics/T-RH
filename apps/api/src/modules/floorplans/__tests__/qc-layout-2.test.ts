@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { polygonArea, pointInPolygon, validatePolygon, sharedEdges } from '@digilog/shared';
-import { QC2_ROOMS, QC2_BUILDING, QC2_ANNOTATIONS, points2, edgeDoor } from '../qc-layout-2.js';
+import { QC2_ROOMS, QC2_BUILDING, QC2_ANNOTATIONS, QC2_PLAN_NAME, QC2_RETIRED_PLAN_NAME, points2, edgeDoor, annotations2 } from '../qc-layout-2.js';
 import { QC_ROOMS } from '../qc-layout.js';
 
 /**
@@ -14,6 +14,12 @@ const px = (r: (typeof QC2_ROOMS)[number]) => r.outline.map(([x, y]) => ({ x, y 
 const INNER = { x0: 23, y0: 10, x1: 1055, y1: 1426 };
 
 describe('QC Layout-2 trace', () => {
+  it('is drawn ON "CWH — QC" in the 2D style, and retires the second plan (2026-10-01)', () => {
+    expect(QC2_PLAN_NAME).toBe('CWH — QC');
+    expect(QC2_RETIRED_PLAN_NAME).toBe('CWH — QC Layout-2');
+    expect(annotations2().style).toBe('architectural');
+  });
+
   it('every outline is a valid simple polygon, stored inside the plan', () => {
     for (const r of QC2_ROOMS) {
       const v = validatePolygon(points2(r));
