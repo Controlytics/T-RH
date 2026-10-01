@@ -489,7 +489,7 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
       {toolbarSlot ? createPortal(toolbarRow, toolbarSlot) : toolbarRow}
 
       <div className="overflow-hidden overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-elevated">
-        <table className="min-w-full table-fixed border-collapse">
+        <table className="tbl-grid min-w-full table-fixed border-collapse">
           <colgroup>
             {COLUMN_GROUPS.flatMap((g) =>
               Array.from({ length: g.sub ? g.sub.length : 1 }, (_, i) => (

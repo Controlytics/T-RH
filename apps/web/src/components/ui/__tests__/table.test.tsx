@@ -63,3 +63,18 @@ describe('DataTable', () => {
     expect(onPageChange).toHaveBeenCalledWith(1);
   });
 });
+
+describe('every table is the Audit Trail table by default (2026-10-01)', () => {
+  it('a plain <Table> carries the grid and the 15px size; a caller can still opt out', () => {
+    const { container, rerender } = render(<Table><tbody><tr><td>x</td></tr></tbody></Table>);
+    let t = container.querySelector('table')!;
+    expect(t.className).toMatch(/(^|\s)tbl-grid(\s|$)/);
+    expect(t.className).toContain('text-[0.9375rem]');
+    expect(t.getAttribute('data-grid')).toBe('true');
+    rerender(<Table grid={false} size="default"><tbody><tr><td>x</td></tr></tbody></Table>);
+    t = container.querySelector('table')!;
+    expect(t.className).not.toMatch(/(^|\s)tbl-grid(\s|$)/);
+    expect(t.className).toContain('text-sm');
+  });
+});
+

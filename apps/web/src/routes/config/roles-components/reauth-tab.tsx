@@ -383,7 +383,7 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
             {/* Matrix Table */}
             <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-[var(--elev-2)]">
               <div className="overflow-x-auto rounded-[var(--radius-card)]">
-                <table className="tbl w-full">
+                <table className="tbl tbl-grid w-full border-collapse text-[0.9375rem]">
                   <thead>
                     <tr className="border-b border-slate-200" style={{ background: 'linear-gradient(to right, #f8fafc, #f1f5f9)' }}>
                       <th className="text-left px-5 pt-4 pb-3 text-xs font-semibold text-slate-500 uppercase tracking-wider" style={{ minWidth: reauthVisibleRoles.length > 3 ? '240px' : '300px' }}>

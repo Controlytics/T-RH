@@ -33,7 +33,11 @@ import type { StatusTone } from './status-badge';
  * set their weights. Both default off, so the other callers are untouched.
  */
 export function Table({
-  grid = false, size = 'default', className, ...props
+  // EVERY table is the Audit Trail's (2026-10-01, operator: "in all pages
+  // where ever tables are there those should be shown like audit trail
+  // table"): a line around every cell, a zebra, 15px. `grid={false}` /
+  // `size="default"` opt a caller back out.
+  grid = true, size = 'lg', className, ...props
 }: React.HTMLAttributes<HTMLTableElement> & { grid?: boolean; size?: 'default' | 'lg' }) {
   return (
     <div className="relative w-full overflow-hidden rounded-[var(--radius-card)] border border-slate-200/70 bg-white shadow-[var(--elev-1)]">

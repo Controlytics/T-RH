@@ -982,7 +982,11 @@ table {
   .alarm-grid th, .tbl-grid th,
   .alarm-grid td, .tbl-grid td { border: 1px solid #e2e8f0; }
   .alarm-grid thead th, .tbl-grid thead th { border-color: rgb(255 255 255 / 0.25); }
-  .alarm-grid tbody tr:nth-child(odd) > td, .tbl-grid tbody tr:nth-child(odd) > td { background: #ffffff; }
-  .alarm-grid tbody tr:nth-child(even) > td, .tbl-grid tbody tr:nth-child(even) > td { background: #f8fafc; }
-  .alarm-grid tbody tr:hover > td, .tbl-grid tbody tr:hover > td { background: #eff6ff; }
+  /* The zebra and the hover sit on the ROW, not the cell (2026-10-01): a
+     row's own tint (a selected audit or user row, a pending admin request) is
+     a utility on the <tr>, and a cell background painted over it hid every
+     one of them. On the row, in this layer, the row's utility wins. */
+  .alarm-grid tbody tr:nth-child(odd), .tbl-grid tbody tr:nth-child(odd) { background: #ffffff; }
+  .alarm-grid tbody tr:nth-child(even), .tbl-grid tbody tr:nth-child(even) { background: #f8fafc; }
+  .alarm-grid tbody tr:hover, .tbl-grid tbody tr:hover { background: #eff6ff; }
 }

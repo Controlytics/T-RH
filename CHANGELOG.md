@@ -1,5 +1,25 @@
 # Changelog
 
+## [Unreleased] - Every table is the Audit Trail table (2026-10-01)
+
+Operator: *"in all pages where ever tables are there those should be shown
+like audit trail table"*; chose to keep the coloured headers the dashboard
+readings table and the Alarms tables already have (the bold question was not
+answered — every table keeps its current text weights).
+
+- The shared `Table` now defaults to `grid` + `size="lg"` (a line around every
+  cell, a zebra, 15px), so the ~19 screens built on it change at once; `grid={false}`
+  / `size="default"` opt out. The hand-built tables take `.tbl-grid` too: the
+  Alarms page, the trend page's alarms widget and Time Series table, the Data
+  Report history table, the Roles & Access re-auth tab and the dashboard
+  readings table (the dashboard alarms panel and the Reports snapshot already had it).
+- **Fixed on the way:** the zebra painted every CELL, which hid a row's own
+  tint — a selected Audit Trail or Users row and an Admin Requests PENDING row
+  did not look selected / pending on a grid table. The zebra and the hover now
+  sit on the ROW, in `@layer components`, so a row's utility tint wins.
+- Tests: 71 page/component test files green one by one; one new case pins the
+  default. Not seen on screen.
+
 ## [Unreleased] - Floor plan: empty rooms unclickable, a room opens its trend page, bigger ID and Location (2026-10-01)
 
 Operator: *"which ever dont have instrument ids those rooms should be

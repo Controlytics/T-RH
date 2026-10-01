@@ -264,7 +264,7 @@ export function TimeseriesTableCard({
         <p className="px-6 pb-4 text-sm text-slate-500">No readings in this window.</p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse">
+          <table className="tbl-grid w-full border-collapse text-[0.9375rem]">
             <thead>
               {/* A tint of the active theme, not the reference's fixed lavender,
                   so the band follows all ten colour presets — the same call the

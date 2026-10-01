@@ -232,7 +232,7 @@ export function AlarmsWidget({
           the table sideways rather than the page. */}
       <div className="overflow-hidden rounded-b-[var(--radius-card)] border-t border-slate-200/60">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="tbl-grid w-full border-collapse text-[0.9375rem]">
             <AlarmTableHead>
               <tr>
                 {/* No sortKey on any of these. The Alarms page sorts on the

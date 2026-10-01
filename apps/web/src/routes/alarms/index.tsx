@@ -364,7 +364,7 @@ export default function AlarmsPage() {
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[var(--elev-1)]">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="tbl-grid w-full border-collapse text-[0.9375rem]">
             {/* The mock's dark banner, painted from the site theme rather than a
                 hardcoded indigo, so this table follows all ten colour presets
                 instead of being the one screen with a palette of its own. */}

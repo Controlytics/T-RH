@@ -259,7 +259,7 @@ export function InstrumentHistoryWidget({ scope }: { scope: HistoryScope }) {
         <p className="border-t border-slate-100 px-6 py-6 text-center text-sm text-slate-500">No readings in this period.</p>
       ) : (
         <div className="overflow-x-auto border-t border-slate-100">
-          <table className="w-full border-collapse">
+          <table className="tbl-grid w-full border-collapse text-[0.9375rem]">
             <thead>
               <tr style={{ backgroundColor: 'color-mix(in srgb, var(--theme-primary, #4f46e5) 10%, #ffffff)' }}>
                 <th scope="col" className={`${th} pl-6 text-slate-600`}>Instrument</th>

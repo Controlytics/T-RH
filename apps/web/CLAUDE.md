@@ -1187,6 +1187,11 @@ system in the language of their mockups (`Alarms.png`, `screen-2.png`,
   `npm run check:contrast` (`scripts/contrast-check.mjs`) holds the same
   0.78 and proves white-on-band and ink-on-tint for every preset — keep the
   two numbers in step.
+- **SINCE 2026-10-01 `grid` and `size="lg"` are the DEFAULTS** — every table
+  in the app is the Audit Trail's (operator). Hand-built tables carry
+  `.tbl-grid` themselves. The zebra / hover are on the `<tr>`, not the `<td>`:
+  a cell background hid every row tint (selected, pending). Do not move them
+  back onto the cell.
 - **`Table grid` / `size="lg"` (2026-09-25)**: `grid` puts `.tbl-grid`
   (`app.css` — a line around every cell, a zebra; the same rules as the
   dashboard alarms panel's `.alarm-grid`) on the table, `size="lg"` is 15px
