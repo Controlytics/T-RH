@@ -35,7 +35,7 @@ vi.mock('../use-telemetry', async (orig) => ({
   useTelemetryOverview: () => ({ rows: ROWS, isLoading: false, error: undefined }),
 }));
 
-const { FloorplanView, cardTone, roomTone, archSummary, splitLabel, cardSpec, locationFont, chooseCard, LEGIBLE_LOC_FONT } = await import('../floorplan-view');
+const { FloorplanView, cardTone, roomTone, archSummary, splitLabel, cardSpec, locationFont, chooseCard, LEGIBLE_LOC_FONT, ARCH } = await import('../floorplan-view');
 function Where() { const l = useLocation(); return <p data-testid="where">{l.pathname}</p>; }
 const mount = () => render(
   <MemoryRouter initialEntries={['/']}>
@@ -284,9 +284,9 @@ describe('placeRoomName', () => {
     a.x < o.x + o.w && a.x + a.w > o.x && a.y < o.y + o.h && a.y + a.h > o.y;
 
   it('a room with nothing in the way keeps its name in the middle, at the size it always had', () => {
-    expect(placeRoomName(box, [], 8, true)).toEqual({ cx: 100, cy: 50, fs: 15 });
+    expect(placeRoomName(box, [], 8, true)).toEqual({ cx: 100, cy: 50, fs: 15, vertical: false });
     // An obstacle elsewhere in the room changes nothing.
-    expect(placeRoomName(box, [{ x: 170, y: 0, w: 30, h: 20 }], 8, true)).toEqual({ cx: 100, cy: 50, fs: 15 });
+    expect(placeRoomName(box, [{ x: 170, y: 0, w: 30, h: 20 }], 8, true)).toEqual({ cx: 100, cy: 50, fs: 15, vertical: false });
   });
 
   it('a door swing over the middle moves the name to the nearest clear spot', () => {
@@ -301,7 +301,86 @@ describe('placeRoomName', () => {
   });
 
   it('with no clear spot at all it stays in the middle rather than vanishing', () => {
-    expect(placeRoomName(box, [{ x: 0, y: 0, w: 200, h: 100 }], 8, true)).toEqual({ cx: 100, cy: 50, fs: 15 });
+    expect(placeRoomName(box, [{ x: 0, y: 0, w: 200, h: 100 }], 8, true)).toEqual({ cx: 100, cy: 50, fs: 15, vertical: false });
+  });
+
+  // Microbiology's INCUBATOR ROOM-02: 104 units wide, 412 tall, a 17-character
+  // name. Across the room it printed at 7 units; the drawing prints it up the room.
+  it('a tall narrow room prints its name UP its length, much larger', () => {
+    const tall = { x: 10, y: 20, w: 104, h: 412 };
+    const p = placeRoomName(tall, [], 17, true);
+    expect(p.vertical).toBe(true);
+    expect(p.fs).toBe(15);
+    // Anchored on the room's long axis, half way up it.
+    expect(p.cy).toBeCloseTo(20 + 412 / 2);
+    expect(p.cx).toBeCloseTo(10 + 104 / 2);
+    // ...and still steps clear of what is in the room: a swing across the middle
+    // of its width pushes the turned name to one side of it.
+    const swing = { x: 74, y: 180, w: 40, h: 90 };
+    const q = placeRoomName(tall, [swing], 17, true);
+    expect(q.vertical).toBe(true);
+    expect(q.cx + q.fs * 1.35).toBeLessThanOrEqual(swing.x);
+  });
+
+  it('a name that reads across stays across, however tall the room', () => {
+    // A short name in the same room is legible across it: no turn.
+    expect(placeRoomName({ x: 0, y: 0, w: 104, h: 412 }, [], 6, true).vertical).toBe(false);
+    // QC's corridor spine: 100 units wide, over a thousand tall, "CORRIDOR-08".
+    // Across it the name prints at 10.2 — legible — so it stays across, though
+    // turned it would print at 15. This is what leaves the QC plan as it was.
+    const spine = placeRoomName({ x: 0, y: 0, w: 100, h: 1077 }, [], 11, true);
+    expect(spine.vertical).toBe(false);
+    expect(spine.fs).toBeCloseTo(10.18, 1);
+    // A wide room never turns its name.
+    expect(placeRoomName({ x: 0, y: 0, w: 120, h: 130 }, [], 17, true).vertical).toBe(false);
+  });
+});
+
+/**
+ * Operator, on the Microbiology floor in the dashboard: "width is small,rooms
+ * and text are slightly no space and look is not good". That plan is 2.2 times
+ * as wide as it is tall, so the panel's WIDTH sizes it — and the legend panel
+ * beside it took a fifth of that width while the space under it stood empty.
+ */
+describe('a landscape plan gets the whole width', () => {
+  const portrait = () => ({ ...planOf('architectural'), imageWidth: 600, imageHeight: 1000 });
+  const wallWeight = () => Number(screen.getByTestId('fp-arch').querySelector(`line[stroke="${ARCH.wallOuter}"]`)!.getAttribute('stroke-width'));
+
+  it('its legend is a STRIP under the drawing; a portrait plan keeps the panel beside it', () => {
+    PLAN = planOf('architectural'); ROWS = [row({})];   // 1000 x 600, rooms across it: landscape
+    const first = mount();
+    const strip = screen.getByTestId('fp-arch-panel');
+    expect(strip).toHaveAttribute('data-layout', 'strip');
+    expect(strip.parentElement!.className).toContain('flex-col');
+    // Under it: the drawing's box comes first in that column.
+    expect(strip.previousElementSibling!.querySelector('svg[role="img"]')).not.toBeNull();
+    // Nothing lost in the move: the same legend, the same counts, the north mark.
+    expect(strip).toHaveTextContent('Structural column');
+    expect(strip).toHaveTextContent('Instruments');
+    expect(strip).toHaveTextContent('Plan north');
+    first.unmount();
+
+    PLAN = portrait() as typeof PLAN;
+    mount();
+    const side = screen.getByTestId('fp-arch-panel');
+    expect(side).toHaveAttribute('data-layout', 'side');
+    expect(side.parentElement!.className).not.toContain('flex-col');
+    PLAN = planOf('architectural');
+  });
+
+  it('walls keep their weight IN THE DRAWING: lighter units on a wider canvas, never heavier than QC\'s', () => {
+    PLAN = { ...planOf('architectural'), imageWidth: 2138, imageHeight: 1283 }; ROWS = [row({})];
+    const wide = mount();
+    expect(wallWeight()).toBeCloseTo(4);                // twice QC's canvas: half the units
+    wide.unmount();
+    PLAN = { ...planOf('architectural'), imageWidth: 1069, imageHeight: 641 };
+    const qc = mount();
+    expect(wallWeight()).toBe(8);                       // QC's own canvas: exactly as it was
+    qc.unmount();
+    PLAN = { ...planOf('architectural'), imageWidth: 500, imageHeight: 300 };
+    mount();
+    expect(wallWeight()).toBe(8);                       // a narrower canvas is not made heavier
+    PLAN = planOf('architectural');
   });
 });
 

@@ -1471,6 +1471,13 @@ GET    /api/config/report-downloads/current     — (2026-10-01) per report KIND
       (`annotations.equipment` / `labels`, drawn in the 2D style only).
       **A side-by-side picture is not a comparison: lay the render OVER the
       drawing, half transparent, at the same scale, and look at each wall.**
+    - **A LANDSCAPE plan's legend sits UNDER it as a strip (same day,
+      operator: "width is small,rooms and text are slightly no space and look
+      is not good").** The Microbiology plan is 2.2:1, so the panel's width
+      sizes it and the side panel cost a fifth of that. Also: 2D line weights
+      scale with the canvas width (QC's 1069 is the reference; never heavier),
+      and a tall narrow empty room prints its name up its length. QC is
+      unchanged by all three — see `apps/web/CLAUDE.md`.
     - **Two more card shapes, `tall` and `compact`, exist for rooms the design
       cards cannot serve** — tried ONLY when `std` / `wide` print the Location
       under `LEGIBLE_LOC_FONT` (9 units; `chooseCard` in `floorplan-view.tsx`).

@@ -589,8 +589,34 @@ export function placeCard(
  * clear spot `placeCard` finds, shrinking only if nothing its size is clear.
  * So a room with nothing in the way draws exactly as before. `cy` is the
  * name's BASELINE; `twoLines` says the room's number prints under it.
+ *
+ * A TALL NARROW room prints its name UP its length (`vertical`), as the
+ * plant's drawings do (Microbiology's INCUBATOR ROOM-02 is 104 units wide and
+ * 412 tall: across it the 17-character name printed at 7 units; along it, at
+ * 15). Only when the name across is under `LEGIBLE_NAME_FONT`, the room is at
+ * least twice as tall as wide, and the turn buys a third more size — so a name
+ * that reads across stays across. `cx`, `cy` are then the point the turned
+ * text is anchored at and rotated about (-90 degrees: it reads bottom to top).
  */
+export const LEGIBLE_NAME_FONT = 9;
+
 export function placeRoomName(
+  box: PixelBox,
+  obstacles: PixelBox[],
+  chars: number,
+  twoLines: boolean,
+): { cx: number; cy: number; fs: number; vertical: boolean } {
+  const across = placeNameAcross(box, obstacles, chars, twoLines);
+  if (across.fs >= LEGIBLE_NAME_FONT || box.h < box.w * 2) return { ...across, vertical: false };
+  // The same placement in the room turned on its side: x and y swap, and the
+  // text's "below the baseline" becomes the room's +x.
+  const turn = (b: PixelBox): PixelBox => ({ x: b.y, y: b.x, w: b.h, h: b.w });
+  const along = placeNameAcross(turn(box), obstacles.map(turn), chars, twoLines);
+  if (along.fs < across.fs * 1.3) return { ...across, vertical: false };
+  return { cx: along.cy, cy: along.cx, fs: along.fs, vertical: true };
+}
+
+function placeNameAcross(
   box: PixelBox,
   obstacles: PixelBox[],
   chars: number,

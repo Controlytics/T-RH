@@ -1,5 +1,36 @@
 # Changelog
 
+## [Unreleased] - A landscape floor plan gets the whole panel width; lighter walls; a tall room's name runs up it (2026-10-01)
+
+Operator, on the Microbiology floor in the dashboard: *"width is small,rooms and
+text are slightly no space and look is not good"*. Rendered at a real panel's
+size (1240 px wide, built stylesheet) the cause was plain: that plan is 2.2
+times as wide as it is tall, so the panel's WIDTH sizes it — and the 224 px
+legend panel beside it took a fifth of that width while the space under the
+drawing stood empty.
+
+- **The legend goes UNDER a landscape plan, as a strip** (`ArchSidePanel
+  strip`; a plan wider than 1.5 times its height, `LANDSCAPE_RATIO`): the same
+  legend, counts and north mark in one or two lines, and the drawing takes the
+  whole width — about 1,210 px against 1,000 on a 1,240 px panel, so every room
+  and every word on it is a fifth larger. A portrait plan (QC) is sized by
+  height and keeps the panel beside it.
+- **Walls, stubs and door leaves keep their weight IN THE DRAWING** (`lineK`,
+  `ARCH_REF_CANVAS_W`): the viewBox is 1000 units wide whatever the drawing's
+  width, so 8-unit walls were heavier on Microbiology's 1406 px canvas than on
+  QC's 1069 — a twelfth of each ~100-unit room. They now scale with the canvas
+  (6.1 units there), never heavier than QC's.
+- **A tall narrow room prints its name up its length** (`placeRoomName` →
+  `vertical`), as the drawing does: INCUBATOR ROOM-02's name went from 7 units
+  across the room to 15 along it. Only when the name across is under 9 units,
+  the room is twice as tall as wide and the turn buys a third more size.
+- QC unchanged: side panel, line weights and corridor name as they were; its
+  rendered SVG is byte-identical.
+- Tests: `floorplan-arch.test.tsx` 26 → 30; six mutation checks, all caught
+  (one survived first — the legibility gate on the turned name — and got the
+  QC-corridor case that pins it). Checked on a render of the whole view at
+  panel size, not in the running app.
+
 ## [Unreleased] - Microbiology floor corrected against the drawing: two west walls, an exit that opens out, the sterilizer and bench outlined (2026-10-01)
 
 Operator, on the first version below: *"rooms dooars and room lines are some

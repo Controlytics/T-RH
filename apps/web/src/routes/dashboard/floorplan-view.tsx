@@ -365,6 +365,11 @@ export const ARCH = {
   } as Record<ChipTone, string>,
 } as const;
 
+/** The canvas width the 2D style's line weights were drawn for ("CWH — QC"). */
+export const ARCH_REF_CANVAS_W = 1069;
+/** Wider than this many times its height, a plan is LANDSCAPE: its legend goes under it. */
+export const LANDSCAPE_RATIO = 1.5;
+
 /** Worst first: what a card's band and a room's wash show when readings differ. */
 const TONE_ORDER: readonly ChipTone[] = ['OUT_OF_SPEC', 'ERROR', 'STALE', 'PARTIAL', 'NO_DATA', 'OK'];
 
@@ -721,6 +726,16 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
   const vb = { x: extent.x * VB_W, y: extent.y * vbH, w: extent.w * VB_W, h: extent.h * vbH };
 
   const arch = plan?.annotations?.style === 'architectural';
+  // A plan much wider than it is tall is sized by the panel's WIDTH; its
+  // legend then goes UNDER it (see the 2D branch of the return).
+  const landscape = arch && vb.w > vb.h * LANDSCAPE_RATIO;
+  // The viewBox is 1000 units wide whatever the drawing's width, so on a wider
+  // canvas a unit is a smaller piece of the building: Microbiology's 1406 px
+  // against QC's 1069. Lines of a fixed unit weight would then be heavier on
+  // the wider floor — its rooms are ~100 units across and 8-unit walls took a
+  // twelfth of each. The 2D style's line weights are QC's, scaled so a wall is
+  // the same thickness IN THE DRAWING on every plan; never heavier than QC's.
+  const lineK = arch && plan ? Math.min(1, ARCH_REF_CANVAS_W / plan.imageWidth) : 1;
 
   // Each room's outline, the openings cut from its walls and the box its
   // readings lay out in — computed ONCE and read by every layer below (the 2D
@@ -1172,14 +1187,14 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                     const g = geoms.get(room.id)!;
                     return polygonWalls(g.outline, [...g.doorOpenings, ...g.openings]).map((w, i) => (
                       <line key={`wo-${room.id}-${i}`} x1={w.x1} y1={w.y1} x2={w.x2} y2={w.y2}
-                        stroke={ARCH.wallOuter} strokeWidth={8} strokeLinecap="square" />
+                        stroke={ARCH.wallOuter} strokeWidth={8 * lineK} strokeLinecap="square" />
                     ));
                   })}
                   {roomViews.flatMap(({ room }) => {
                     const g = geoms.get(room.id)!;
                     return polygonWalls(g.outline, [...g.doorOpenings, ...g.openings]).map((w, i) => (
                       <line key={`wi-${room.id}-${i}`} x1={w.x1} y1={w.y1} x2={w.x2} y2={w.y2}
-                        stroke={ARCH.wallInner} strokeWidth={2.5} strokeLinecap="square" />
+                        stroke={ARCH.wallInner} strokeWidth={2.5 * lineK} strokeLinecap="square" />
                     ));
                   })}
                 </g>
@@ -1195,9 +1210,10 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                     const g = geoms.get(room.id)!;
                     if (roomRows.length > 0 || g.isContinuation) return null;
                     const name = (room.label || room.code).trim();
-                    const { cx, cy, fs } = placeRoomName(g.tileBox, planObstacles, name.length, !!room.label);
+                    const { cx, cy, fs, vertical } = placeRoomName(g.tileBox, planObstacles, name.length, !!room.label);
                     return (
-                      <g key={`n-${room.id}`}>
+                      // A tall narrow room's name runs UP it, as on the drawing.
+                      <g key={`n-${room.id}`} data-vertical={vertical || undefined} transform={vertical ? `rotate(-90 ${cx} ${cy})` : undefined}>
                         <text x={cx} y={cy} textAnchor="middle" fontSize={fs} fill={ARCH.roomName} letterSpacing="0.08em">{name}</text>
                         {room.label && (
                           <text x={cx} y={cy + fs * 1.15} textAnchor="middle" fontSize={fs * 0.72} fill={ARCH.roomCode}>{room.code}</text>
@@ -1294,7 +1310,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                   {roomViews.flatMap(({ room }) => geoms.get(room.id)!.doorPlacements.map((d, i) => (
                     <g key={`d-${room.id}-${i}`} data-testid="fp-arch-door">
                       <path d={d.arc} fill="none" stroke={ARCH.doorSwing} strokeWidth={1.3} strokeDasharray="4 3" />
-                      <line x1={d.leaf.x1} y1={d.leaf.y1} x2={d.leaf.x2} y2={d.leaf.y2} stroke={ARCH.doorLeaf} strokeWidth={2.5} />
+                      <line x1={d.leaf.x1} y1={d.leaf.y1} x2={d.leaf.x2} y2={d.leaf.y2} stroke={ARCH.doorLeaf} strokeWidth={2.5 * lineK} />
                     </g>
                   )))}
                 </g>
@@ -1363,7 +1379,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                 ))}
                 {(structure.walls ?? []).map((l, i) => (
                   <line key={`sw${i}`} x1={l.x1 * VB_W} y1={l.y1 * vbH} x2={l.x2 * VB_W} y2={l.y2 * vbH}
-                    stroke={arch ? ARCH.wallOuter : PALETTE.wall} strokeWidth={arch ? 7 : 2.5} strokeLinecap="butt" />
+                    stroke={arch ? ARCH.wallOuter : PALETTE.wall} strokeWidth={arch ? 7 * lineK : 2.5} strokeLinecap="butt" />
                 ))}
                 {(structure.windows ?? []).map((b, i) => {
                   const x = b.x * VB_W, y = b.y * vbH, w = b.w * VB_W, h = b.h * vbH;
@@ -1505,11 +1521,19 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
       ) : plan && arch ? (
         // The 2D style's side panel (operator chose "Legend + summary + north
         // arrow"): the drawing takes what is left of the panel's width.
-        <div className="flex min-h-0 flex-1 gap-3">
-          <div className="min-h-0 min-w-0 flex-1 overflow-hidden rounded-b-2xl border border-slate-300 bg-white p-3 shadow-soft">
+        //
+        // UNDER the drawing for a LANDSCAPE plan (2026-10-01, Microbiology,
+        // operator: "width is small,rooms and text are slightly no space and
+        // look is not good"). A plan that wide is sized by the panel's WIDTH,
+        // and the 224px panel beside it cost a fifth of that while the space
+        // under the drawing stood empty: the same legend as a strip gives the
+        // drawing the whole width — every room and every word on it a fifth
+        // larger. A portrait plan (QC) is sized by HEIGHT and keeps the side.
+        <div className={landscape ? 'flex min-h-0 flex-1 flex-col gap-2' : 'flex min-h-0 flex-1 gap-3'}>
+          <div className={`min-h-0 min-w-0 flex-1 overflow-hidden rounded-b-2xl border border-slate-300 bg-white shadow-soft ${landscape ? 'p-1.5' : 'p-3'}`}>
             {floorSvg}
           </div>
-          <ArchSidePanel summary={archSummary(roomViews.flatMap((v) => v.rows), sensorWords)} />
+          <ArchSidePanel summary={archSummary(roomViews.flatMap((v) => v.rows), sensorWords)} strip={landscape} />
         </div>
       ) : plan && (
         <div className="min-h-0 flex-1 overflow-hidden rounded-b-2xl border border-slate-300 bg-white p-3 shadow-soft">
@@ -1547,7 +1571,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
  * (`Layouts/CWH/QC Layout-2.png`) marks no true north, and an unqualified "N"
  * would assert an orientation nobody recorded; the caption says so.
  */
-function ArchSidePanel({ summary }: { summary: ReturnType<typeof archSummary> }) {
+function ArchSidePanel({ summary, strip = false }: { summary: ReturnType<typeof archSummary>; strip?: boolean }) {
   const states: { tone: ChipTone; label: string }[] = [
     { tone: 'OK', label: statusClasses('OK').label },
     { tone: 'OUT_OF_SPEC', label: statusClasses('OUT_OF_SPEC').label },
@@ -1561,64 +1585,75 @@ function ArchSidePanel({ summary }: { summary: ReturnType<typeof archSummary> })
     { label: 'Sensor error', value: summary.fault, color: CHIP.ERROR.bg },
     { label: 'Offline / no data', value: summary.other, color: CHIP.STALE.bg },
   ];
+  // Under a LANDSCAPE plan the same content is one STRIP: beside it, the panel
+  // took a fifth of the width from a drawing whose width is what limits its
+  // size (see `landscape` in FloorplanView).
+  const item = strip ? 'flex items-center gap-1.5' : 'flex items-center gap-2.5';
   return (
     <aside
-      className="flex w-56 shrink-0 flex-col gap-4 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 text-sm shadow-soft"
+      className={strip
+        ? 'flex shrink-0 flex-wrap items-center gap-x-5 gap-y-1.5 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-xs shadow-soft'
+        : 'flex w-56 shrink-0 flex-col gap-4 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 text-sm shadow-soft'}
       data-testid="fp-arch-panel"
+      data-layout={strip ? 'strip' : 'side'}
       aria-label="Floor plan legend and summary"
     >
-      <section>
-        <h4 className="mb-2 text-xs font-bold tracking-wider text-slate-900">LEGEND</h4>
-        <ul className="space-y-2 text-slate-700">
+      <section className={strip ? 'flex flex-wrap items-center gap-x-3 gap-y-1' : undefined}>
+        <h4 className={strip ? 'text-[0.6875rem] font-bold tracking-wider text-slate-900' : 'mb-2 text-xs font-bold tracking-wider text-slate-900'}>LEGEND</h4>
+        <ul className={strip ? 'flex flex-wrap items-center gap-x-3.5 gap-y-1 text-slate-700' : 'space-y-2 text-slate-700'}>
           {states.map(({ tone, label }) => (
-            <li key={tone} className="flex items-center gap-2.5">
+            <li key={tone} className={item}>
               <span className="h-4 w-6 rounded" style={{ background: ARCH.wash[tone], border: `2px solid ${CHIP[tone].bg}` }} aria-hidden="true" />
               {label}
             </li>
           ))}
-          <li className="flex items-center gap-2.5">
+          <li className={item}>
             <span className="h-4 w-6 rounded border-2 border-slate-300 bg-white" aria-hidden="true" />
             No instrument
           </li>
-          <li className="flex items-center gap-2.5">
+          <li className={item}>
             <svg width="24" height="10" aria-hidden="true"><line x1="0" y1="5" x2="24" y2="5" stroke={ARCH.wallOuter} strokeWidth="7" /><line x1="0" y1="5" x2="24" y2="5" stroke={ARCH.wallInner} strokeWidth="2" /></svg>
             Wall
           </li>
-          <li className="flex items-center gap-2.5">
+          <li className={item}>
             <svg width="24" height="20" aria-hidden="true"><path d="M3 18 A16 16 0 0 0 19 2" fill="none" stroke={ARCH.doorSwing} strokeDasharray="3 2" /><line x1="3" y1="18" x2="3" y2="2" stroke={ARCH.doorLeaf} strokeWidth="2.5" /></svg>
             Door and swing
           </li>
-          <li className="flex items-center gap-2.5">
+          <li className={item}>
             <svg width="24" height="16" aria-hidden="true">
               <defs><pattern id="fp-legend-hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="4" height="4" fill={ARCH.columnFill} /><line x1="0" y1="0" x2="0" y2="4" stroke={ARCH.columnInk} strokeWidth="1.4" /></pattern></defs>
               <rect x="1" y="1" width="22" height="14" fill="url(#fp-legend-hatch)" stroke={ARCH.wallOuter} strokeWidth="1.5" />
             </svg>
             Structural column
           </li>
-          <li className="flex items-center gap-2.5">
+          <li className={item}>
             <svg width="24" height="10" aria-hidden="true"><rect x="1" y="1" width="22" height="8" fill={ARCH.windowFill} stroke={ARCH.windowInk} /><line x1="1" y1="5" x2="23" y2="5" stroke={ARCH.windowInk} /></svg>
             Window
           </li>
         </ul>
       </section>
-      <section>
-        <h4 className="mb-2 text-xs font-bold tracking-wider text-slate-900">SUMMARY</h4>
-        <dl className="space-y-1.5">
+      <section className={strip ? 'flex flex-wrap items-center gap-x-3 gap-y-1' : undefined}>
+        <h4 className={strip ? 'text-[0.6875rem] font-bold tracking-wider text-slate-900' : 'mb-2 text-xs font-bold tracking-wider text-slate-900'}>SUMMARY</h4>
+        <dl className={strip ? 'flex flex-wrap items-baseline gap-x-3.5 gap-y-1' : 'space-y-1.5'}>
           {counts.map(({ label, value, color }) => (
-            <div key={label} className="flex items-baseline justify-between">
+            <div key={label} className={strip ? 'flex items-baseline gap-1.5' : 'flex items-baseline justify-between'}>
               <dt className="text-slate-600">{label}</dt>
-              <dd className="text-base font-bold tabular-nums" style={{ color }}>{value}</dd>
+              <dd className={strip ? 'text-sm font-bold tabular-nums' : 'text-base font-bold tabular-nums'} style={{ color }}>{value}</dd>
             </div>
           ))}
         </dl>
       </section>
-      <section className="mt-auto flex flex-col items-center gap-1 text-center">
-        <svg width="64" height="64" viewBox="-32 -32 64 64" role="img" aria-label="Plan north: the top of the drawing">
-          <circle r="30" fill="#ffffff" stroke="#cbd5e1" />
+      <section
+        className={strip ? 'ml-auto flex items-center gap-1.5' : 'mt-auto flex flex-col items-center gap-1 text-center'}
+        title={strip ? 'Plan north. True north is not marked on the drawing.' : undefined}
+      >
+        <svg width={strip ? 26 : 64} height={strip ? 26 : 64} viewBox="-32 -32 64 64" role="img" aria-label="Plan north: the top of the drawing">
+          <circle r="30" fill="#ffffff" stroke="#cbd5e1" strokeWidth={strip ? 2.5 : 1} />
           <path d="M0 -22 L9 9 L0 3 L-9 9 Z" fill="#0f172a" />
           <text y="23" textAnchor="middle" fontSize="11" fontWeight="700" fill="#0f172a">N</text>
         </svg>
-        <p className="text-[0.6875rem] leading-tight text-slate-500">Plan north. True north is not marked on the drawing.</p>
+        {/* The strip says it in two words and keeps the sentence as a tooltip. */}
+        <p className="text-[0.6875rem] leading-tight text-slate-500">{strip ? 'Plan north' : 'Plan north. True north is not marked on the drawing.'}</p>
       </section>
     </aside>
   );

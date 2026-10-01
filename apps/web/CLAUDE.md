@@ -689,11 +689,29 @@ qc"*).
 - **The side panel's arrow is PLAN north** and says so: the drawing marks no
   true north.
 - `cardTone` / `roomTone` / `archSummary` bucket the SERVER's statuses; nothing
-  is re-derived. Tests: `floorplan-arch.test.tsx` (26, mutation-checked: the
+  is re-derived. Tests: `floorplan-arch.test.tsx` (30, mutation-checked: the
+  landscape strip, the line weights, the turned name, the
   style switch, the obstacle test, the legibility gate, the bracket break, the
   stacked readings, the name placement, the outlined plant, the outward
   door's frame) and `floorplan-polygon-render.test.ts` (18; the outward leaf
   and its arc).
+- **A LANDSCAPE plan's legend is a STRIP under it (same day, operator: "width
+  is small,rooms and text are slightly no space and look is not good").** A
+  plan wider than `LANDSCAPE_RATIO` (1.5) times its height is sized by the
+  panel's WIDTH, and the 224px side panel cost it a fifth of that; `ArchSidePanel
+  strip` lays the same legend, counts and north mark out in a row under the
+  drawing. A portrait plan (QC) is sized by height and keeps the side panel.
+  **Line weights scale with the canvas** (`lineK = min(1, ARCH_REF_CANVAS_W /
+  imageWidth)`): the viewBox is always 1000 units wide, so a fixed 8-unit wall
+  is heavier on a wider drawing; QC's canvas (1069) is the reference and gets
+  exactly 8. **A tall narrow empty room prints its name up its length**
+  (`placeRoomName` returns `vertical`; gated on the across-size being under 9,
+  which is what keeps QC's corridor name across).
+- **Judge a floor at a PANEL's size, not at 2000px.** The first Microbiology
+  renders were checked at ~2000px wide and looked roomy; in the dashboard the
+  drawing was 1000px wide. Dump the mounted view's `container.innerHTML`, load
+  it with the BUILT stylesheet (`dist/assets/*.css`, after `vite build`) inside
+  a 1240 x 760 box, and screenshot that.
 - **A door may swing OUT (`swing: 'out'` on `RoomDoor`, same day).**
   `polygonDoorPlacements` flips the leaf to the far side of the wall and turns
   the arc the other way; the plan's frame (`planExtent`'s `extra`) takes the
