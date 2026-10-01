@@ -404,6 +404,20 @@ node apps/api/dist/app.js
     code (`CWH-I/235` and `CWH-I/235 (2)`): a stored outline cannot have a
     hole. Pinned by `__tests__/qc3-layout.test.ts` (14, mutation-checked: an
     off-grid edge, touching leaves, an exit swinging in).
+  - **QC 3's NORTH ROW is drawn larger than the drawing has it (same day,
+    operator: "rooms are very small and those data was showing very
+    small", "increase widgth") — the ONE deliberate departure on any traced
+    floor.** `NORTH_ROW` (32 px taller), `NORTH_X` (the four partitions: the
+    two LCMS rooms 82 px wide, the three glass-ware rooms ~50) and `qc3Y`
+    are exported from `qc3-layout.ts`; the room table still holds the
+    MEASURED y values and the export maps them (`drawn`, `drawnBox`), so a
+    re-measure compares like with like. A hinged door in a vertical wall
+    and a column keep their own size inside the stretched band; rooms below
+    it move 32 px down unchanged. Canvas 870 x 850. The test file checks
+    edges against the drawing's lines passed through `qc3Y` (20 tests now;
+    five more mutation checks: the row not stretched, rooms below not
+    shifted, a door or a column stretched with the row, the LCMS rooms at
+    the drawn width). Re-applied to `compliance_core_db`; AWS needs it.
 - **2026-09-16 — the instrument CODE is changeable.** `PUT /api/instruments/:id`
   accepts `code` (shared `updateInstrumentSchema`, same `codeSchema` as create).
   **No count moved, no migration.** The code is the MQTT client id and every

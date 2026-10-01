@@ -1,5 +1,64 @@
 # Changelog
 
+## [Unreleased] - QC 3: the top row is drawn larger, the legend sits under the plan, and a narrow room's card grows with its room (2026-10-01)
+
+Operator, on the QC 3 floor: *"on top cwh/RDU/012-00,CWH/RDU/002-01 rooms are
+very small and those data was showing very small"*, then *"increase widgth and
+give legend on below the layout"*.
+
+- **The north row LEAVES THE DRAWING — the one place the plan does**
+  (`qc3-layout.ts`: `NORTH_ROW`, `NORTH_X`, `qc3Y`). The two LCMS rooms are
+  82 px wide and 100.5 tall (57 / 55.5 x 68.5 on the drawing; on the plan
+  65 x 79 units became 94 x 115). The three glass-ware rooms between them, which
+  hold no instrument, share what is left (about 50 px each, for 62 / 75 / 64).
+  The row's two ends, the building's width, the corridor and every other room
+  are where the drawing has them; everything below the row is the same shape,
+  32 px lower (canvas 870 x 818 -> 870 x 850). A door or a column inside the
+  row keeps its own size. This REVERSES the entry below ("The rooms are not
+  enlarged"), at the operator's instruction.
+- **The `mini` card grows with its room.** A card is scaled DOWN to its room
+  and never up, and `mini` was drawn 60 x 55 with a 9.5-unit ID, so it could not
+  use the larger room. It is now drawn at the other cards' type sizes
+  (120 x 108, its own line height) and is tried LAST (`NARROW_ROOM_SHAPES`),
+  only when `tall` / `compact` still leave a heading under 9 units. In the two
+  LCMS rooms: ID 8.2-8.5 -> **13.0** units, Location 5.8 -> 10.0-10.3, readings
+  -> 13.0.
+- **The same rule reaches three Microbiology cards** (CWH/RDU/045-00, 046-00,
+  047-00 in the LAF / BSC rooms, 94-98 units wide): the ID was 8.0-8.5 on one
+  line and is 13.0-13.6 on two; their Locations print exactly as they did and
+  their readings within 0.3 (13.2-13.8 -> 13.0-13.6). Nothing else on that
+  floor moved. **QC renders byte-identically.**
+- **The legend goes UNDER every 2D plan that is not portrait**
+  (`LEGEND_UNDER_RATIO` 0.9 replaces `LANDSCAPE_RATIO` 1.5): QC 3 is 1.02 wide
+  to tall and gets the strip; QC (0.74) keeps the side panel. **This is a trade
+  on QC 3, not a gain, and it is stated here because the request read as if it
+  were one:** every stored dashboard layout has the floor panel at full width
+  and 16 rows (880 px) - read from `user_configs` - so a square plan there is
+  sized by the panel's HEIGHT, and the strip takes height from it. With the row
+  32 px taller as well, the rest of the floor draws a few per cent smaller than
+  before. What makes that plan larger is a taller panel (the panel's Height
+  setting) or Full screen.
+- **A tall narrow room wraps its name ALONG the room** (`placeRoomName`): the
+  narrower glass-ware rooms are 45 units across and 100 along, with names of
+  thirty characters - three lines across fitted at 4 units; two lines up the
+  room fit at 7.7. Only when that is clear of what stands in the room (the
+  middle one has a column and two pass boxes and keeps its name across), and a
+  wrap that would run through an obstacle is never preferred to one that does
+  not.
+- **Applied to the local database** (`draw-architectural-floor.ts --area "QC 3"
+  --apply`: 31 rooms redrawn, the 12 instruments in the same rooms). The plan
+  as STORED renders the same geometry as the trace (31 outlines, 481 wall /
+  structure lines, 45 paths compared). **AWS needs the same run after the next
+  deploy.**
+- Checked by laying the render over the drawing with the same band of the
+  IMAGE stretched the same way: every wall below the row sits on the drawing's
+  line; in the row only the four partitions differ, by design.
+- Tests: `qc3-layout.test.ts` 14 -> 20, `floorplan-arch.test.tsx` 40 -> 49;
+  fifteen mutation checks, all caught (two survived at first and got a test
+  each). `tsc` clean on both apps, `vite build` OK. **Not seen in the running
+  app** - rendered from the real component at panel size
+  (`Layouts/CWH/concepts/applied-cwh-qc-3.png`, `applied-cwh-qc-microbiology.png`).
+
 ## [Unreleased] - QC 3's two smallest rooms get a card that is readable: the instrument ID on two lines (2026-10-01)
 
 Operator, on the QC 3 floor: *"rooms are very small at top"*. The north row is

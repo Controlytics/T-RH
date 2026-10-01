@@ -35,7 +35,7 @@ vi.mock('../use-telemetry', async (orig) => ({
   useTelemetryOverview: () => ({ rows: ROWS, isLoading: false, error: undefined }),
 }));
 
-const { FloorplanView, cardTone, roomTone, archSummary, splitLabel, cardSpec, locationFont, chooseCard, LEGIBLE_LOC_FONT, ARCH, splitCode, codeFont } = await import('../floorplan-view');
+const { FloorplanView, cardTone, roomTone, archSummary, splitLabel, cardSpec, locationFont, chooseCard, LEGIBLE_LOC_FONT, ARCH, splitCode, codeFont, LEGEND_UNDER_RATIO, CARD_SHAPES } = await import('../floorplan-view');
 function Where() { const l = useLocation(); return <p data-testid="where">{l.pathname}</p>; }
 const mount = () => render(
   <MemoryRouter initialEntries={['/']}>
@@ -255,7 +255,9 @@ describe('small rooms get a card whose Location is legible', () => {
   it('the tall card draws the two readings one above the other, centred', () => {
     PLAN = {
       ...planOf('architectural'),
-      rooms: [room('lab', 'R-LAB', 'LAF-1', 0.05, { y: 0.1, w: 0.1, h: 0.5 })],
+      // 130 units wide: too narrow for the design cards, wide enough for the
+      // tall card to print the ID on one line at a legible size.
+      rooms: [room('lab', 'R-LAB', 'LAF-1', 0.05, { y: 0.1, w: 0.13, h: 0.5 })],
       annotations: { ...ANN, columns: [], style: 'architectural' },
     };
     ROWS = [row({ locationAttribute: 'LAF-1(Microbiology)' })];
@@ -334,6 +336,94 @@ describe('placeRoomName', () => {
     // A wide room never turns its name.
     expect(placeRoomName({ x: 0, y: 0, w: 120, h: 130 }, [], 'INCUBATOR ROOM-02', true).vertical).toBe(false);
   });
+
+  /**
+   * QC 3's glass-ware rooms once the LCMS rooms beside them were drawn wider:
+   * 45 units across, 103 along, names of thirty characters. One line up the
+   * room needs 4 units; three lines across, 4. Two lines UP the room fit at 7.7.
+   */
+  describe('a tall narrow room whose name is too long for one line up it', () => {
+    const NAME = 'UNCLEANED GLASS WARE HOLD ROOM';
+    const glass = { x: 300, y: 10, w: 45, h: 103 };
+
+    it('wraps the name ALONG the room: the lines run up it side by side, inside it', () => {
+      const p = placeRoomName(glass, [], NAME, true);
+      expect(p.vertical).toBe(true);
+      expect(p.lines).toEqual(['UNCLEANED GLASS', 'WARE HOLD ROOM']);
+      expect(p.fs).toBeGreaterThan(7.5);
+      // Along the room: the longest line is inside its height.
+      expect(15 * 0.75 * p.fs).toBeLessThanOrEqual(glass.h);
+      // Across it: the first line's top to the room number under the last, inside its width.
+      const left = p.cx - p.fs * 0.85, right = p.cx + 1.15 * p.fs + p.fs * 1.35;
+      expect(left).toBeGreaterThanOrEqual(glass.x);
+      expect(right).toBeLessThanOrEqual(glass.x + glass.w);
+      // What it replaces: three lines across at half the size.
+      expect((glass.w - 16) / (10 * 0.75)).toBeLessThan(p.fs / 1.9);
+    });
+
+    it('a pass box against one wall does not put it back on one line running out of the room', () => {
+      // With the box in the way the name ACROSS shrinks to nothing, which made
+      // one line UP the room look a third larger — at the 7-unit floor, 157
+      // units long in a room of 103.
+      const passBox = { x: 335, y: 50, w: 10, h: 14 };
+      const p = placeRoomName(glass, [passBox], NAME, true);
+      expect(p.vertical).toBe(true);
+      expect(p.lines).toHaveLength(2);
+      expect(15 * 0.75 * p.fs).toBeLessThanOrEqual(glass.h);
+      // The lines and the room number are to the LEFT of the box.
+      expect(p.cx + 1.15 * p.fs + p.fs * 1.35).toBeLessThanOrEqual(passBox.x);
+    });
+
+    it('a name one line serves up the room keeps one line', () => {
+      expect(placeRoomName({ x: 10, y: 20, w: 104, h: 412 }, [], 'INCUBATOR ROOM-02', true).lines).toEqual(['INCUBATOR ROOM-02']);
+    });
+
+    // A name's block across the room: its first line's top to the room number under its last.
+    const span = (p: ReturnType<typeof placeRoomName>) => [p.cy - p.fs * 0.85, p.cy + (p.lines.length - 1) * 1.15 * p.fs + p.fs * 1.35];
+    const clearOf = (p: ReturnType<typeof placeRoomName>, bands: { y: number; h: number }[]) => {
+      const [top, bottom] = span(p);
+      return bands.every((b) => bottom <= b.y || top >= b.y + b.h);
+    };
+
+    it('stays ACROSS, clear of what stands in the room, when along it there is no clear run', () => {
+      // GLASS WARE CLEANING & DRYING ROOM has a column and two pass boxes: here,
+      // two bands across the whole width, leaving no run long enough for a
+      // turned line and one tall enough for three lines across.
+      const bands = [{ x: 300, y: 40, w: 45, h: 15 }, { x: 300, y: 75, w: 45, h: 5 }];
+      const p = placeRoomName(glass, bands, NAME, true);
+      expect(p.vertical).toBe(false);
+      expect(p.lines).toHaveLength(3);
+      expect(clearOf(p, bands)).toBe(true);
+    });
+
+    it('never takes more lines if that puts the name through an obstacle', () => {
+      // Bands every 12 units: two lines fit between two of them, three do not.
+      const bands = [22, 34, 46, 58, 70, 82, 94, 106].map((y) => ({ x: 300, y, w: 45, h: 3 }));
+      const p = placeRoomName(glass, bands, NAME, true);
+      expect(p.vertical).toBe(false);
+      expect(p.lines).toHaveLength(2);
+      expect(clearOf(p, bands)).toBe(true);
+    });
+
+    it('draws the turned lines in one rotated group, the room number after the last', () => {
+      PLAN = {
+        ...planOf('architectural'),
+        rooms: [room('g', 'CWH-I/247', NAME, 0.3, { y: 0.1, w: 0.057, h: 0.2 }), room('lab', 'R-LAB', 'LAB', 0.5)],
+        annotations: { ...ANN, columns: [], style: 'architectural' },
+      };
+      ROWS = [];
+      mount();
+      const a = screen.getByText('UNCLEANED GLASS'), b = screen.getByText('WARE HOLD ROOM'), code = screen.getByText('CWH-I/247');
+      const g = a.parentElement!;
+      expect(g).toHaveAttribute('data-vertical', 'true');
+      expect(g.getAttribute('transform')).toMatch(/^rotate\(-90 /);
+      expect(b.parentElement).toBe(g); expect(code.parentElement).toBe(g);
+      // In the group's own frame the lines go down the page: turned, left to right.
+      const y = (el: HTMLElement) => Number(el.getAttribute('y'));
+      expect(y(b)).toBeGreaterThan(y(a)); expect(y(code)).toBeGreaterThan(y(b));
+      PLAN = planOf('architectural');
+    });
+  });
 });
 
 /**
@@ -343,7 +433,8 @@ describe('placeRoomName', () => {
  * beside it took a fifth of that width while the space under it stood empty.
  */
 describe('a landscape plan gets the whole width', () => {
-  const portrait = () => ({ ...planOf('architectural'), imageWidth: 600, imageHeight: 1000 });
+  // The rooms span 0.9 of the width and 0.6 of the height: 600 x 1400 is 0.64 wide-to-tall as drawn.
+  const portrait = () => ({ ...planOf('architectural'), imageWidth: 600, imageHeight: 1400 });
   const wallWeight = () => Number(screen.getByTestId('fp-arch').querySelector(`line[stroke="${ARCH.wallOuter}"]`)!.getAttribute('stroke-width'));
 
   it('its legend is a STRIP under the drawing; a portrait plan keeps the panel beside it', () => {
@@ -365,6 +456,25 @@ describe('a landscape plan gets the whole width', () => {
     const side = screen.getByTestId('fp-arch-panel');
     expect(side).toHaveAttribute('data-layout', 'side');
     expect(side.parentElement!.className).not.toContain('flex-col');
+    PLAN = planOf('architectural');
+  });
+
+  /**
+   * Operator, on QC 3 (1.02 wide-to-tall): "increase widgth and give legend on
+   * below the layout". Until then only a plan 1.5 times as wide as tall had it
+   * under; now every plan but a portrait one.
+   */
+  it('a plan that is about SQUARE has its legend under it too', () => {
+    // Rooms 0.9 x 0.6 of a 1000 x 1500 canvas: drawn 920 x 930 with the margin.
+    PLAN = { ...planOf('architectural'), imageWidth: 1000, imageHeight: 1500 }; ROWS = [row({})];
+    mount();
+    const vb = document.querySelector('svg[role="img"]')!.getAttribute('viewBox')!.split(' ').map(Number);
+    expect(vb[2] / vb[3]).toBeGreaterThan(LEGEND_UNDER_RATIO);
+    expect(vb[2] / vb[3]).toBeLessThan(1.1);
+    expect(screen.getByTestId('fp-arch-panel')).toHaveAttribute('data-layout', 'strip');
+    expect(LEGEND_UNDER_RATIO).toBeLessThan(1);
+    // QC, the portrait plan the side panel was designed for, is 0.74.
+    expect(LEGEND_UNDER_RATIO).toBeGreaterThan(0.74);
     PLAN = planOf('architectural');
   });
 
@@ -534,9 +644,57 @@ describe('long words in small rooms', () => {
     });
 
     it('a room the other shapes serve never gets it', () => {
-      // Microbiology's LAF-1: 97 units wide. The tall card prints both headings larger.
-      expect(chooseCard({ x: 0, y: 0, w: 97, h: 168 }, [{ x: 8, y: 0, w: 40, h: 40 }], 'LAF-1(Microbiology)', 'CWH/RDU/045-00')!.shape).toBe('tall');
+      // 110 units wide: the tall card prints both headings at a legible size, so
+      // the two-line ID is not even tried.
+      const room110 = { x: 0, y: 0, w: 110, h: 168 }, swing = { x: 8, y: 0, w: 40, h: 40 };
+      const card = chooseCard(room110, [swing], 'LAF-1(Microbiology)', 'CWH/RDU/045-00')!;
+      expect(card.shape).toBe('tall');
+      const tall = cardSpec('tall', 'LAF-1(Microbiology)');
+      expect(Math.min(locationFont(tall, card.k), codeFont(tall, card.k, 'CWH/RDU/045-00'))).toBeGreaterThanOrEqual(LEGIBLE_LOC_FONT);
+      // ...though the mini card WOULD print the ID larger there: it is the last resort, not a rival.
+      const mini = cardSpec('mini', 'LAF-1(Microbiology)');
+      const miniK = placeCard(room110, [swing], mini.w, mini.h)!.k;
+      expect(codeFont(mini, miniK, 'CWH/RDU/045-00')).toBeGreaterThan(codeFont(tall, card.k, 'CWH/RDU/045-00') + 0.25);
       expect(chooseCard({ x: 0, y: 0, w: 300, h: 300 }, [], 'Wet lab (QC)', 'CWH/RDU/022-00')!.shape).toBe('std');
+    });
+
+    /**
+     * Operator, after the mini card: "rooms are very small and those data was
+     * showing very small", "increase widgth". The north row is drawn larger
+     * since; a card is scaled down to its room and never up, so the mini card is
+     * drawn at the other cards' type sizes and grows with the room.
+     */
+    it('GROWS with the room: in the LCMS room as now drawn the ID prints at 13, not 8', () => {
+      // 94 x 107 units inside the walls, the door swing in a bottom corner.
+      const big = { x: 0, y: 0, w: 94, h: 107 }, swing = { x: 71, y: 84, w: 23, h: 23 };
+      const loc = 'LCMS Room-II';
+      const card = chooseCard(big, [swing], loc, CODE)!;
+      expect(card.shape).toBe('mini');
+      const mini = cardSpec('mini', loc);
+      expect(codeFont(mini, card.k, CODE)).toBeGreaterThan(12.5);
+      expect(mini.valFont * card.k).toBeGreaterThan(12.5);
+      expect(locationFont(mini, card.k)).toBeGreaterThan(9.5);
+      // The one-line cards cannot: the room's width caps a 14-character line near 8.
+      const tall = cardSpec('tall', loc);
+      expect(codeFont(tall, placeCard(big, [swing], tall.w, tall.h)!.k, CODE)).toBeLessThan(LEGIBLE_LOC_FONT);
+      // Never scaled UP: in a room larger than the card it prints at its own size.
+      expect(placeCard({ x: 0, y: 0, w: 400, h: 400 }, [], mini.w, mini.h)!.k).toBe(1);
+      expect(CARD_SHAPES.mini.idFont).toBeGreaterThanOrEqual(CARD_SHAPES.std.idFont);
+    });
+
+    it('the same rule reaches Microbiology\'s LAF rooms: 98 units wide, the ID was 8.5 on one line', () => {
+      const laf = { x: 0, y: 0, w: 98, h: 168 }, swing = { x: 52, y: 0, w: 46, h: 46 };
+      const card = chooseCard(laf, [swing], 'LAF-1(Microbiology)', 'CWH/RDU/045-00')!;
+      expect(card.shape).toBe('mini');
+      const mini = cardSpec('mini', 'LAF-1(Microbiology)'), tall = cardSpec('tall', 'LAF-1(Microbiology)');
+      const tallK = placeCard(laf, [swing], tall.w, tall.h)!.k;
+      expect(codeFont(tall, tallK, 'CWH/RDU/045-00')).toBeLessThan(LEGIBLE_LOC_FONT);
+      expect(codeFont(mini, card.k, 'CWH/RDU/045-00')).toBeGreaterThan(13);
+      // Its Location wraps before the bracket; the card grows by its own line height.
+      expect(mini.lines).toEqual(['LAF-1', '(Microbiology)']);
+      expect(mini.h).toBe(CARD_SHAPES.mini.h + CARD_SHAPES.mini.line);
+      // Nothing is lost for it: the Location prints as large as it did.
+      expect(locationFont(mini, card.k)).toBeGreaterThanOrEqual(locationFont(tall, tallK) - 0.25);
     });
 
     it('draws the ID on two lines in the band, one size, the second under the first', () => {

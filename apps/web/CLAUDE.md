@@ -689,7 +689,9 @@ qc"*).
 - **The side panel's arrow is PLAN north** and says so: the drawing marks no
   true north.
 - `cardTone` / `roomTone` / `archSummary` bucket the SERVER's statuses; nothing
-  is re-derived. Tests: `floorplan-arch.test.tsx` (40, mutation-checked: the
+  is re-derived. Tests: `floorplan-arch.test.tsx` (49, mutation-checked: the
+  growing mini card and its tier, the legend under a square plan, a name
+  wrapped along a narrow room, the
   mini card and its two-line ID, the
   wrapped names, the three-line Location, the
   landscape strip, the line weights, the turned name, the
@@ -709,6 +711,14 @@ qc"*).
   exactly 8. **A tall narrow empty room prints its name up its length**
   (`placeRoomName` returns `vertical`; gated on the across-size being under 9,
   which is what keeps QC's corridor name across).
+  **SUPERSEDED IN PART the same day: the legend is under every 2D plan that
+  is not PORTRAIT** (`LEGEND_UNDER_RATIO` 0.9 replaced `LANDSCAPE_RATIO`;
+  operator, on QC 3, which is 1.02 wide to tall: "increase widgth and give
+  legend on below the layout"). QC (0.74) keeps the side panel. On a
+  near-square plan this is a trade, not a gain: every stored layout has the
+  floor panel full width and 880 px tall, so that plan is sized by HEIGHT
+  and the strip takes some. Do not "optimise" it back to the side without
+  being asked; a taller panel or Full screen is what enlarges the plan.
 - **A long room NAME wraps; a very long Location takes three lines (QC 3,
   same day).** `placeRoomName(box, obstacles, name, hasCode)` returns `lines`:
   one line while that is legible (9 units), else turned (tall narrow room),
@@ -732,6 +742,31 @@ qc"*).
   NOT enlarged: they are the drawing's size, and the card's width is what
   binds, so making the row taller would not help. QC and Microbiology render
   byte-identically (their IDs were never the smaller heading).
+- **The `mini` card GROWS with its room, and is the LAST resort (same day,
+  operator: "rooms are very small and those data was showing very small",
+  "increase widgth").** The rooms WERE then enlarged (QC 3's north row, see
+  `qc3-layout.ts`), and the card could not use them: a card is scaled DOWN
+  to its room, never up, and `mini` was drawn 60 x 55. It is now drawn at
+  the other cards' type sizes (120 x 108; each shape has its own `line`, the
+  height an extra Location line adds) and sits in its own tier,
+  `NARROW_ROOM_SHAPES`, tried only when `tall` / `compact` still leave a
+  heading under 9. LCMS rooms: ID 8.2–8.5 → 13.0, readings → 13.0.
+  **Consequence, accepted: Microbiology's three LAF / BSC cards take it too**
+  (ID 8.0–8.5 on one line → 13.0–13.6 on two; Location and readings as
+  they were). QC is byte-identical. The gate matters both ways — always
+  trying `mini` takes over rooms `tall` serves legibly; never trying it
+  loses the two-line ID (both mutation-checked).
+- **A tall narrow room wraps its name ALONG the room (same day).** The
+  glass-ware rooms beside the widened LCMS rooms are 45 units across and
+  100 along with thirty-character names. `placeRoomName` now tries two or
+  three lines turned (they run up the room side by side; the renderer's
+  rotated group already stacks `lines`), takes that only when it fits a
+  third larger than the best across AND is clear of what stands in the
+  room (`placeNameAcross` returns `clear`: false when it had to stay
+  centred over an obstacle), and never prefers a wrap that runs through an
+  obstacle to one that does not. One turned line is refused when it does
+  not FIT (`MIN_NAME_FONT`) — with the across name crushed by an obstacle
+  it used to look a third larger and ran out of the room.
 - **Judge a floor at a PANEL's size, not at 2000px.** The first Microbiology
   renders were checked at ~2000px wide and looked roomy; in the dashboard the
   drawing was 1000px wide. Dump the mounted view's `container.innerHTML`, load

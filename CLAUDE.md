@@ -1492,7 +1492,17 @@ GET    /api/config/report-downloads/current     — (2026-10-01) per report KIND
       14-character ID on one line; the operator's next message was "rooms are
       very small at top", and they now get a `mini` card with the ID on two
       lines (`splitCode`; `chooseCard` scores the smaller of Location and ID).
-      The ROOMS were not enlarged — they are the drawing's size.
+      The ROOMS were not enlarged then — and WERE two messages later ("rooms
+      are very small and those data was showing very small", "increase
+      widgth and give legend on below the layout"): **QC 3's north row is
+      the ONE place a traced plan leaves its drawing** — 32 px taller, the
+      two LCMS rooms 82 px wide, the three glass-ware rooms between them
+      narrower (`NORTH_ROW`, `NORTH_X`, `qc3Y` in `qc3-layout.ts`; every
+      other wall is the drawing's, the rooms below 32 px lower). The `mini`
+      card is drawn at the other cards' sizes so it GROWS with the room
+      (ID 8 → 13 units) and is tried last (`NARROW_ROOM_SHAPES`); the same
+      rule gave three Microbiology cards a two-line ID. Re-applied locally;
+      **AWS needs the QC 3 run again.**
       In the view, same day: a long room NAME wraps to two or three lines
       inside a small room (`placeRoomName` → `lines`, judged on `fit`, not the
       7-unit floor) and a very long Location takes three lines (`splitLabel`).
@@ -1502,7 +1512,13 @@ GET    /api/config/report-downloads/current     — (2026-10-01) per report KIND
       sizes it and the side panel cost a fifth of that. Also: 2D line weights
       scale with the canvas width (QC's 1069 is the reference; never heavier),
       and a tall narrow empty room prints its name up its length. QC is
-      unchanged by all three — see `apps/web/CLAUDE.md`.
+      unchanged by all three — see `apps/web/CLAUDE.md`. **Later the same
+      day the rule became "every 2D plan that is not portrait"**
+      (`LEGEND_UNDER_RATIO` 0.9; operator, on QC 3: "give legend on below
+      the layout"). On a near-square plan that is a TRADE: the floor panel
+      is full width and 880 px tall in every stored layout, so such a plan
+      is sized by HEIGHT and the strip costs it some. A taller panel or
+      Full screen is what enlarges it.
     - **Two more card shapes, `tall` and `compact`, exist for rooms the design
       cards cannot serve** — tried ONLY when `std` / `wide` print the Location
       under `LEGIBLE_LOC_FONT` (9 units; `chooseCard` in `floorplan-view.tsx`).

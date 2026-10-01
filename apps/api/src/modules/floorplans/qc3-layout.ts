@@ -58,6 +58,9 @@
  *     row's partitions, outlined.
  *
  * ─── WHERE THIS IS NOT THE DRAWING ───────────────────────────────────────
+ *   - THE NORTH ROW IS DRAWN LARGER, at the operator's instruction: 32 px
+ *     taller, the two LCMS rooms wider and the three glass-ware rooms between
+ *     them narrower. See `NORTH_ROW` below. Everything else is as measured.
  *   - A wall is drawn at the 2D style's weight where the drawing has a single
  *     line, and resumes at a door's jamb.
  *   - Not drawn: the hold area's floor grid, the hand-wash symbol by the
@@ -69,7 +72,50 @@
  * keeps the grade it has. The corridor is CIRCULATION, everything else
  * UTILITY. In this style a grade only tints an EMPTY room.
  */
-import { rect, vDoor, hDoor, vPair, hPair, type ArchLayout, type ArchRoom } from './architectural-layout.js';
+import { rect, vDoor, hDoor, vPair, hPair, type ArchLayout, type ArchRoom, type ArchDoor } from './architectural-layout.js';
+
+/**
+ * ─── THE NORTH ROW IS DRAWN LARGER THAN THE DRAWING HAS IT ────────────────
+ * Operator, 2026-10-01, on the floor drawn exactly: "rooms are very small at
+ * top"; then "on top cwh/RDU/012-00,CWH/RDU/002-01 rooms are very small and
+ * those data was showing very small"; then "increase widgth". The drawing gives
+ * the two LCMS rooms 57 and 55.5 px by 68.5 (about 2.5 m x 2.9 m); a reading
+ * card cannot be read at that size on a wall display, whatever its layout.
+ *
+ * So, and ONLY here, the plan leaves the drawing:
+ *   - the row is 100.5 px tall instead of 68.5 (`NORTH_ROW`): every y on the
+ *     plan is the drawing's, passed through `qc3Y` — stretched inside the row,
+ *     shifted 32 px down below it. Nothing below the row changes shape.
+ *   - the two LCMS rooms are 82 px wide; the three glass-ware rooms between
+ *     them, which hold no instrument, share what is left (about 50 px each,
+ *     for 62 / 75 / 64 on the drawing). The row's two ends — and so the
+ *     building, the corridor and every other room — are where the drawing has
+ *     them.
+ * The measured numbers stay in the table below; the adjustment is this block.
+ */
+export const NORTH_ROW = { top: 6, bottom: 74.5, add: 32 } as const;
+/** The four partitions between the five north-row rooms, as DRAWN HERE. */
+export const NORTH_X = [274.5, 324.5, 374.5, 424] as const;
+
+/** A y on the drawing → the y it is drawn at. */
+export function qc3Y(y: number): number {
+  const { top, bottom, add } = NORTH_ROW;
+  if (y <= top) return y;
+  if (y >= bottom) return y + add;
+  return top + ((y - top) * (bottom - top + add)) / (bottom - top);
+}
+
+/** A room as measured → as drawn: every corner and every door moved by `qc3Y`.
+ *  A door in a vertical wall keeps its WIDTH (it is moved by its top jamb). */
+function drawn(r: ArchRoom): ArchRoom {
+  const door = (d: ArchDoor): ArchDoor => (d.axis === 'y'
+    ? { ...d, at: qc3Y(d.at) }
+    : { ...d, from: qc3Y(d.from), to: d.hinge === 'none' ? qc3Y(d.to) : qc3Y(d.from) + (d.to - d.from) });
+  return { ...r, outline: r.outline.map(([x, y]) => [x, qc3Y(y)]), doors: r.doors.map(door) };
+}
+type Box = [number, number, number, number];
+/** A column, window or outlined box: moved by its top edge, its size kept. */
+const drawnBox = ([x0, y0, x1, y1]: Box): Box => [x0, qc3Y(y0), x1, qc3Y(y0) + (y1 - y0)];
 
 const ROOMS: ArchRoom[] = [
   // ── West column ────────────────────────────────────────────────────────
@@ -92,20 +138,22 @@ const ROOMS: ArchRoom[] = [
     meta: { fch: '2.5m', dims: '7550 x 5320' },
     doors: [vDoor(192.5, 669, 690, 'from'), ...hPair(785.5, 28, 59, 'EXIT')] },   // from the corridor; the exterior pair
 
-  // ── North row ──────────────────────────────────────────────────────────
-  { code: 'CWH-I/246', label: 'LCMS ROOM', outline: rect(192.5, 6, 249.5, 74.5),
+  // ── North row — NOT at the drawing's size: see NORTH_ROW below ───────────
+  // The partitions are drawn at NORTH_X (the drawing has them at 249.5, 311.5,
+  // 386.5, 450.5); each door keeps its distance from its room's own wall.
+  { code: 'CWH-I/246', label: 'LCMS ROOM', outline: rect(192.5, 6, NORTH_X[0], 74.5),
     grade: 'C', instrument: 'CWH/RDU/012-00', meta: { fch: '2.5m', dims: '2500 x 2900' },
     doors: [hDoor(74.5, 197, 217, 'from')] },
   // Its door opens INTO the corridor, so it is stored on the corridor.
-  { code: 'CWH-I/247', label: 'UNCLEANED GLASS WARE HOLD ROOM', outline: rect(249.5, 6, 311.5, 74.5), grade: 'UTILITY',
+  { code: 'CWH-I/247', label: 'UNCLEANED GLASS WARE HOLD ROOM', outline: rect(NORTH_X[0], 6, NORTH_X[1], 74.5), grade: 'UTILITY',
     meta: { fch: '2.5m', dims: '2730 x 2900' }, doors: [] },
-  { code: 'CWH-I/248', label: 'GLASS WARE CLEANING & DRYING ROOM', outline: rect(311.5, 6, 386.5, 74.5), grade: 'UTILITY',
+  { code: 'CWH-I/248', label: 'GLASS WARE CLEANING & DRYING ROOM', outline: rect(NORTH_X[1], 6, NORTH_X[2], 74.5), grade: 'UTILITY',
     meta: { fch: '2.5m', dims: '3280 x 2900' },
-    doors: [hDoor(74.5, 363, 383, 'to')] },
-  { code: 'CWH-I/249', label: 'CLEANED GLASS WARE STORAGE ROOM', outline: rect(386.5, 6, 450.5, 74.5), grade: 'UTILITY',
+    doors: [hDoor(74.5, NORTH_X[2] - 23.5, NORTH_X[2] - 3.5, 'to')] },
+  { code: 'CWH-I/249', label: 'CLEANED GLASS WARE STORAGE ROOM', outline: rect(NORTH_X[2], 6, NORTH_X[3], 74.5), grade: 'UTILITY',
     meta: { fch: '2.5m', dims: '2800 x 2900' },
-    doors: [hDoor(74.5, 426, 446, 'to')] },
-  { code: 'CWH-I/250', label: 'LCMS ROOM-II', outline: rect(450.5, 6, 506, 74.5),
+    doors: [hDoor(74.5, NORTH_X[3] - 24.5, NORTH_X[3] - 4.5, 'to')] },
+  { code: 'CWH-I/250', label: 'LCMS ROOM-II', outline: rect(NORTH_X[3], 6, 506, 74.5),
     grade: 'C', instrument: 'CWH/RDU/002-01', meta: { fch: '2.5m', dims: '2430 x 2900' },
     doors: [hDoor(74.5, 481, 501, 'to')] },
 
@@ -174,7 +222,7 @@ const ROOMS: ArchRoom[] = [
       [238.5, 120], [238.5, 785.5], [192.5, 785.5],
     ],
     doors: [
-      hDoor(74.5, 288, 308, 'to'),
+      hDoor(74.5, NORTH_X[1] - 23.5, NORTH_X[1] - 3.5, 'to'),   // room 247's
       ...hPair(785.5, 465, 501, 'EXIT', 'out'),      // the EE exit, to CORRIDOR-1
       ...hPair(785.5, 197, 235, 'EXIT', 'out'),
     ] },
@@ -193,28 +241,30 @@ export const QC3_LAYOUT: ArchLayout = {
   source: 'Layouts/CWH/QC 3 Layout.png',
   // The canvas: the L, the columns standing outside its west and east walls,
   // and — below the south wall — the leaves of the two exits, which open out.
-  building: { x0: 0, y0: -4, x1: 870, y1: 814 },
-  rooms: ROOMS,
+  // 32 px taller than the drawing's, for the north row.
+  building: { x0: 0, y0: -4, x1: 870, y1: 814 + NORTH_ROW.add },
+  rooms: ROOMS.map(drawn),
   annotations: {
-    columns: [
-      ...COL_Y.flatMap(([y0, y1]) => COL_X.map(([x0, x1]): [number, number, number, number] => [x0, y0, x1, y1])),
+    columns: ([
+      ...COL_Y.flatMap(([y0, y1]) => COL_X.map(([x0, x1]): Box => [x0, y0, x1, y1])),
       // Set into the west wall, half outside it.
-      ...[8, 135, 261, 388, 514, 640, 765].map((y): [number, number, number, number] => [7, y, 24, y + 17]),
+      ...[8, 135, 261, 388, 514, 640, 765].map((y): Box => [7, y, 24, y + 17]),
       // ...and the east wall, down to where the building steps in.
       [845, 7, 863, 25], [845, 260, 863, 280], [845, 512, 863, 531],
-    ],
-    windows: [
+    ] as Box[]).map(drawnBox),
+    windows: ([
       // The blue bars in the west wall.
       [17, 59, 26, 100], [17, 186, 26, 227], [17, 313, 26, 353], [17, 439, 26, 479], [17, 565, 26, 606], [17, 691, 26, 731],
       // The BREAKABLE GLASS panel in OFFICE-04's south wall.
       [646, 781, 674, 790],
-    ],
+    ] as Box[]).map(drawnBox),
     // The short wall beside the hold area's sliding door (y 54).
-    walls: [[834, 54, 845, 54]],
-    // The sliding door itself, and the two pass boxes in the north row's partitions.
-    equipment: [
+    walls: [[834, qc3Y(54), 845, qc3Y(54)]],
+    // The sliding door itself, and the two pass boxes — each on its partition
+    // (the drawing has them on x 311.5 and x 386.5).
+    equipment: ([
       [788, 55, 837, 61],
-      [303, 42, 333, 56], [365, 37, 396, 51],
-    ],
+      [NORTH_X[1] - 8.5, 42, NORTH_X[1] + 21.5, 56], [NORTH_X[2] - 21.5, 37, NORTH_X[2] + 9.5, 51],
+    ] as Box[]).map(drawnBox),
   },
 };

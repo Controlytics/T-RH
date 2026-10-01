@@ -367,8 +367,14 @@ export const ARCH = {
 
 /** The canvas width the 2D style's line weights were drawn for ("CWH — QC"). */
 export const ARCH_REF_CANVAS_W = 1069;
-/** Wider than this many times its height, a plan is LANDSCAPE: its legend goes under it. */
-export const LANDSCAPE_RATIO = 1.5;
+/**
+ * A plan at least this many times as wide as it is tall has its legend UNDER
+ * it; only a plan clearly taller than wide (QC, 0.74) keeps the panel beside
+ * it. It was 1.5 — landscape plans only — until the operator asked for the
+ * legend under QC 3, which is nearly square (1.02): "give legend on below the
+ * layout".
+ */
+export const LEGEND_UNDER_RATIO = 0.9;
 
 /** Worst first: what a card's band and a room's wash show when readings differ. */
 const TONE_ORDER: readonly ChipTone[] = ['OUT_OF_SPEC', 'ERROR', 'STALE', 'PARTIAL', 'NO_DATA', 'OK'];
@@ -417,7 +423,8 @@ export function archSummary(
 /** The portrait card's height at scale 1 — the band `avoidDoorSwings` keeps clear
  *  in a room the tile grid lays out (see `CARD_SHAPES` for the full geometry). */
 const CARD_H = 104;
-/** The extra height a card takes when its Location wraps to a second line. */
+/** The extra height a card takes when its Location wraps to a second line —
+ *  each shape's `line`; this is the design cards'. */
 const CARD_LINE = 15;
 
 /**
@@ -484,22 +491,34 @@ export function splitLabel(text: string, max = 20): string[] {
  * lines, broken after its last slash (`idLines`, `splitCode`), which is what
  * lets it print at nearly twice the size in the same room.
  *
- * `wrap` is how long a Location may be before it takes two lines; `val2Y` is
- * the second reading's baseline on a stacked card; `idPitch` the second ID
- * line's drop.
+ * It is drawn at the OTHER cards' type sizes (it was 60 x 55 with a 9.5-unit
+ * ID, the size that fitted those rooms as drawn). A card is scaled DOWN to its
+ * room, never up, so at that size it could not grow when the rooms did: QC 3's
+ * north row is drawn larger since the operator's "rooms are very small and
+ * those data was showing very small", and there it now prints the ID at 13
+ * units where the one-line `tall` card prints 8. In a room as small as before
+ * it prints what it did. It is tried LAST, and only when `tall` / `compact`
+ * still leave a heading under `LEGIBLE_LOC_FONT` — otherwise its two-line ID
+ * would take over rooms those serve (Microbiology's LAF rooms).
+ *
+ * `wrap` is how long a Location may be before it takes two lines and `line`
+ * the height each extra line adds; `val2Y` is the second reading's baseline on
+ * a stacked card; `idPitch` the second ID line's drop.
  */
 export const CARD_SHAPES = {
-  std: { w: 196, h: 104, band: 26, idY: 19, idFont: 15.5, idLines: 1, idPitch: 0, locY: 46, locFont: 14, valY: 78, val2Y: 0, valFont: 20, capY: 95, wrap: 20, captions: true, stack: false },
-  wide: { w: 280, h: 74, band: 24, idY: 17, idFont: 15.5, idLines: 1, idPitch: 0, locY: 43, locFont: 14, valY: 68, val2Y: 0, valFont: 20, capY: 0, wrap: 30, captions: false, stack: false },
-  tall: { w: 124, h: 102, band: 24, idY: 17, idFont: 14, idLines: 1, idPitch: 0, locY: 42, locFont: 14, valY: 69, val2Y: 93, valFont: 20, capY: 0, wrap: 14, captions: false, stack: true },
-  compact: { w: 170, h: 60, band: 20, idY: 14.5, idFont: 13, idLines: 1, idPitch: 0, locY: 35, locFont: 13, valY: 54, val2Y: 0, valFont: 17, capY: 0, wrap: 26, captions: false, stack: false },
-  mini: { w: 60, h: 55, band: 22.5, idY: 9.5, idFont: 9.5, idLines: 2, idPitch: 10, locY: 31.5, locFont: 8, valY: 42, val2Y: 52, valFont: 9.5, capY: 0, wrap: 12, captions: false, stack: true },
+  std: { w: 196, h: 104, band: 26, idY: 19, idFont: 15.5, idLines: 1, idPitch: 0, locY: 46, locFont: 14, line: CARD_LINE, valY: 78, val2Y: 0, valFont: 20, capY: 95, wrap: 20, captions: true, stack: false },
+  wide: { w: 280, h: 74, band: 24, idY: 17, idFont: 15.5, idLines: 1, idPitch: 0, locY: 43, locFont: 14, line: CARD_LINE, valY: 68, val2Y: 0, valFont: 20, capY: 0, wrap: 30, captions: false, stack: false },
+  tall: { w: 124, h: 102, band: 24, idY: 17, idFont: 14, idLines: 1, idPitch: 0, locY: 42, locFont: 14, line: CARD_LINE, valY: 69, val2Y: 93, valFont: 20, capY: 0, wrap: 14, captions: false, stack: true },
+  compact: { w: 170, h: 60, band: 20, idY: 14.5, idFont: 13, idLines: 1, idPitch: 0, locY: 35, locFont: 13, line: CARD_LINE, valY: 54, val2Y: 0, valFont: 17, capY: 0, wrap: 26, captions: false, stack: false },
+  mini: { w: 120, h: 108, band: 44, idY: 18.5, idFont: 19, idLines: 2, idPitch: 20, locY: 62, locFont: 15, line: 17, valY: 83, val2Y: 102, valFont: 19, capY: 0, wrap: 12, captions: false, stack: true },
 } as const;
 export type CardShape = keyof typeof CARD_SHAPES;
-/** The design's shapes, tried first; and the small-room shapes, tried only
- *  when those print the Location under `LEGIBLE_LOC_FONT`. */
+/** The design's shapes, tried first; the small-room shapes, tried only when
+ *  those print a heading under `LEGIBLE_LOC_FONT`; and the narrow-room shape,
+ *  tried only when the small-room ones still do. */
 export const DESIGN_SHAPES = ['std', 'wide'] as const satisfies readonly CardShape[];
-export const SMALL_ROOM_SHAPES = ['tall', 'compact', 'mini'] as const satisfies readonly CardShape[];
+export const SMALL_ROOM_SHAPES = ['tall', 'compact'] as const satisfies readonly CardShape[];
+export const NARROW_ROOM_SHAPES = ['mini'] as const satisfies readonly CardShape[];
 
 /**
  * An instrument ID on `lines` lines: one, or two broken AFTER its last slash
@@ -518,7 +537,7 @@ export const LEGIBLE_LOC_FONT = 9;
 export function cardSpec(shape: CardShape, location: string) {
   const c = CARD_SHAPES[shape];
   const lines = splitLabel(location, c.wrap);
-  const extra = (lines.length - 1) * CARD_LINE;
+  const extra = (lines.length - 1) * c.line;
   return { ...c, lines, extra, h: c.h + extra };
 }
 
@@ -567,6 +586,7 @@ export function chooseCard(
   };
   tryShapes(DESIGN_SHAPES);
   if (bestFont < LEGIBLE_LOC_FONT) tryShapes(SMALL_ROOM_SHAPES);
+  if (bestFont < LEGIBLE_LOC_FONT) tryShapes(NARROW_ROOM_SHAPES);
   return best;
 }
 
@@ -774,9 +794,9 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
   const vb = { x: extent.x * VB_W, y: extent.y * vbH, w: extent.w * VB_W, h: extent.h * vbH };
 
   const arch = plan?.annotations?.style === 'architectural';
-  // A plan much wider than it is tall is sized by the panel's WIDTH; its
-  // legend then goes UNDER it (see the 2D branch of the return).
-  const landscape = arch && vb.w > vb.h * LANDSCAPE_RATIO;
+  // The legend goes UNDER every 2D plan but a portrait one (see the 2D branch
+  // of the return).
+  const legendUnder = arch && vb.w > vb.h * LEGEND_UNDER_RATIO;
   // The viewBox is 1000 units wide whatever the drawing's width, so on a wider
   // canvas a unit is a smaller piece of the building: Microbiology's 1406 px
   // against QC's 1069. Lines of a fixed unit weight would then be heavier on
@@ -1334,7 +1354,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                           <text key={`id${li}`} x={x0 + cw / 2} y={y0 + spec.idY * k + li * spec.idPitch * k} textAnchor="middle" fontSize={codeFont(spec, k, row.code)} fontWeight={800} fill="#ffffff">{line}</text>
                         ))}
                         {locLines[0] && locLines.map((line, li) => (
-                          <text key={li} x={x0 + cw / 2} y={y0 + spec.locY * k + li * CARD_LINE * k} textAnchor="middle" fontSize={locFont} fontWeight={700} fill="#334155">{line}</text>
+                          <text key={li} x={x0 + cw / 2} y={y0 + spec.locY * k + li * spec.line * k} textAnchor="middle" fontSize={locFont} fontWeight={700} fill="#334155">{line}</text>
                         ))}
                         {/* The two readings: side by side, or one above the
                             other on the narrow `tall` card. */}
@@ -1585,11 +1605,18 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
         // under the drawing stood empty: the same legend as a strip gives the
         // drawing the whole width — every room and every word on it a fifth
         // larger. A portrait plan (QC) is sized by HEIGHT and keeps the side.
-        <div className={landscape ? 'flex min-h-0 flex-1 flex-col gap-2' : 'flex min-h-0 flex-1 gap-3'}>
-          <div className={`min-h-0 min-w-0 flex-1 overflow-hidden rounded-b-2xl border border-slate-300 bg-white shadow-soft ${landscape ? 'p-1.5' : 'p-3'}`}>
+        //
+        // And under a plan that is about SQUARE too (QC 3, same day, operator:
+        // "increase widgth and give legend on below the layout"). In a panel
+        // wider than the plan that is a trade, not a gain: such a plan is
+        // sized by the panel's HEIGHT, and the strip takes about 45px of it.
+        // The operator asked for it; a taller panel, or Full screen, is what
+        // makes that plan larger.
+        <div className={legendUnder ? 'flex min-h-0 flex-1 flex-col gap-2' : 'flex min-h-0 flex-1 gap-3'}>
+          <div className={`min-h-0 min-w-0 flex-1 overflow-hidden rounded-b-2xl border border-slate-300 bg-white shadow-soft ${legendUnder ? 'p-1.5' : 'p-3'}`}>
             {floorSvg}
           </div>
-          <ArchSidePanel summary={archSummary(roomViews.flatMap((v) => v.rows), sensorWords)} strip={landscape} />
+          <ArchSidePanel summary={archSummary(roomViews.flatMap((v) => v.rows), sensorWords)} strip={legendUnder} />
         </div>
       ) : plan && (
         <div className="min-h-0 flex-1 overflow-hidden rounded-b-2xl border border-slate-300 bg-white p-3 shadow-soft">
@@ -1643,7 +1670,7 @@ function ArchSidePanel({ summary, strip = false }: { summary: ReturnType<typeof 
   ];
   // Under a LANDSCAPE plan the same content is one STRIP: beside it, the panel
   // took a fifth of the width from a drawing whose width is what limits its
-  // size (see `landscape` in FloorplanView).
+  // size (see `legendUnder` in FloorplanView).
   const item = strip ? 'flex items-center gap-1.5' : 'flex items-center gap-2.5';
   return (
     <aside
