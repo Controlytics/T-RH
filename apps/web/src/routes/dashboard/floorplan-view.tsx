@@ -27,7 +27,6 @@ import {
   type FloorplanLinkShape,
   type OverviewRow,
 } from './use-telemetry';
-import { RoomDetail } from './room-detail';
 import {
   polygonWalls, polygonDoorPlacements, polygonSharedOpenings, doorToEdgeOpening, tileLayout,
   CHIP_HEIGHT_FACTOR, CHIP_GAP, FULL_CODE_GAP, VALUES_TOP_GAP,
@@ -431,7 +430,6 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
   const { rows } = useTelemetryOverview({ functionalLocationId, directOnly });
 
   const [planId, setPlanId] = useState<string>('');
-  const [openRoomId, setOpenRoomId] = useState<string | null>(null);
 
   const plan = plans.find((p) => p.id === planId) ?? plans[0] ?? null;
 
@@ -491,15 +489,8 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
     return () => window.removeEventListener('keydown', onKey);
   }, [fullscreen]);
 
-  if (openRoomId && plan) {
-    return (
-      <RoomDetail
-        floorplanId={plan.id}
-        roomId={openRoomId}
-        onBack={() => setOpenRoomId(null)}
-      />
-    );
-  }
+  // The room-detail panel is no longer opened from here (2026-10-01): a room
+  // opens its instrument's TREND page instead (see the room's onClick).
 
   if (!plansLoading && plans.length === 0) {
     return (
@@ -611,11 +602,23 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
               return (
                 <g
                   key={room.id}
-                  onClick={() => setOpenRoomId(room.id)}
-                  style={{ cursor: 'pointer' }}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setOpenRoomId(room.id); }}
+                  // A room with NO instrument is not a button (2026-10-01,
+                  // operator: "which ever dont have instrument ids those rooms
+                  // should be unclickable"): no click, no pointer, no tab stop —
+                  // its detail page would only ever say "no instruments".
+                  // A room WITH one opens its instrument's TREND page (same day:
+                  // "when user click on room redirect to that instrument trends
+                  // page") — the first instrument when a room holds several;
+                  // each tile opens its own.
+                  {...(roomRows.length > 0
+                    ? {
+                      onClick: () => navigate(`/instruments/${roomRows[0].instrumentId}/trend`),
+                      style: { cursor: 'pointer' },
+                      role: 'button',
+                      tabIndex: 0,
+                      onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') navigate(`/instruments/${roomRows[0].instrumentId}/trend`); },
+                    }
+                    : { role: 'group' })}
                   aria-label={`${room.code}${room.label ? ` ${room.label}` : ''}${
                     // Zone colour is never the only carrier of the grade.
                     gradeMeta ? `, grade ${gradeMeta.label}` : ''
@@ -640,7 +643,8 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                   <polygon
                     points={outlinePoints}
                     fill={room.meta?.fill ?? zone.fill}
-                    className="fp-room-fill"
+                    // The hover darkening says "clickable" — only where it is.
+                    className={roomRows.length > 0 ? 'fp-room-fill' : undefined}
                   />
 
                   {/* Corridor centre-line. Runs the room's long axis and makes
@@ -763,13 +767,13 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                       return (
                         <g
                           key={row.instrumentId}
-                          onClick={(e) => { e.stopPropagation(); navigate(`/instruments/${row.instrumentId}`); }}
+                          onClick={(e) => { e.stopPropagation(); navigate(`/instruments/${row.instrumentId}/trend`); }}
                           role="button"
                           tabIndex={0}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' || e.key === ' ') {
                               e.stopPropagation();
-                              navigate(`/instruments/${row.instrumentId}`);
+                              navigate(`/instruments/${row.instrumentId}/trend`);
                             }
                           }}
                           aria-label={`${row.code}${

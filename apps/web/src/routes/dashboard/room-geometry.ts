@@ -263,16 +263,19 @@ export const CHIP_HEIGHT_FACTOR = 1.3;
 export const CHIP_GAP = 1.5;
 export const FULL_CODE_GAP = 3;
 export const VALUES_TOP_GAP = 2;
-export const CODE_LINE_H = 12;
-export const TILE_CODE_FONT = 10;
+// 2026-10-01 (operator: "increase location name font size and instrument id
+// font size"): 10 -> 14, and the Location line 8.5 -> 12 below. Each still
+// shrinks to fit a narrow tile, and the readings are sized from what is left.
+export const CODE_LINE_H = 17;
+export const TILE_CODE_FONT = 14;
 /**
  * The LOCATION line under the ID (operator, 2026-09-22: "in rooms show
  * Instrument ID, Location and Values dont show any other things"). The tile's
  * strip is now two lines — ID, then the instrument's `Location` attribute —
  * and the readings start under both; `TILE_HEADER_H` is that strip.
  */
-export const LOCATION_LINE_H = 10;
-export const TILE_LOCATION_FONT = 8.5;
+export const LOCATION_LINE_H = 15;
+export const TILE_LOCATION_FONT = 12;
 export const TILE_HEADER_H = CODE_LINE_H + LOCATION_LINE_H;
 
 /**

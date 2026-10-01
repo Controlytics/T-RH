@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased] - Floor plan: empty rooms unclickable, a room opens its trend page, bigger ID and Location (2026-10-01)
+
+Operator: *"which ever dont have instrument ids those rooms should be
+unclickable and increase location name font size and instrument id font
+size"*, then *"when user click on room redirect to that instrument trends
+page"*.
+
+- A room with NO instrument is not a button: no click, no pointer, no tab stop,
+  no hover darkening (`role="group"`).
+- Clicking a room opens `/instruments/:id/trend` of its (first) instrument;
+  clicking a reading tile opens that instrument's trend page (was the
+  instrument detail page). The room-detail panel is therefore no longer opened
+  from the floor plan; `room-detail.tsx`, `useRoomHistory` and
+  `GET /api/floorplans/:id/rooms/:roomId/history` are now unused — left in
+  place, not removed.
+- Instrument ID 10 → 14, Location 8.5 → 12 (`TILE_CODE_FONT` /
+  `TILE_LOCATION_FONT`, line heights with them); both still shrink to fit a
+  narrow tile. An empty room's name grows with the Location font.
+- Tests: `floorplan-empty-rooms.test.tsx` (5, the real `FloorplanView`); checked
+  on a rendered screenshot of QC Layout-2.
+
 ## [Unreleased] - "CWH — QC Layout-2": the QC floor traced from `QC Layout-2.png`, with columns and windows (2026-10-01)
 
 Operator: *"in layouts folder there is one image QC Layout-2 image, In QC add
