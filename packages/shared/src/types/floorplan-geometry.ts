@@ -265,6 +265,48 @@ export function largestInscribedRect(points: Polygon): Box {
 }
 
 /**
+ * EVERY maximal axis-aligned rectangle inside the polygon, largest first — the
+ * same grid search as `largestInscribedRect`, keeping each rectangle that no
+ * other inscribed rectangle contains. An L-shaped room has two (its two arms);
+ * `largestInscribedRect` is the first of them.
+ *
+ * Why the others matter (Module-E, 2026-10-01): API DISPENSING is an L whose
+ * tall narrow arm is 2 % larger in area than its wide one, so the "largest"
+ * rectangle was the arm a reading card fits worst. The caller that lays a card
+ * out tries the next ones when the largest cannot hold a legible card.
+ */
+export function inscribedRects(points: Polygon): Box[] {
+  const xs = uniqSorted(points.map((p) => p.x)), ys = uniqSorted(points.map((p) => p.y));
+  const nx = xs.length - 1, ny = ys.length - 1;
+  if (nx < 1 || ny < 1) return [boundingBox(points)];
+  const pre: number[][] = Array.from({ length: nx + 1 }, () => new Array<number>(ny + 1).fill(0));
+  for (let i = 0; i < nx; i++) {
+    for (let j = 0; j < ny; j++) {
+      const c = { x: (xs[i] + xs[i + 1]) / 2, y: (ys[j] + ys[j + 1]) / 2 };
+      pre[i + 1][j + 1] = (pointInPolygon(c, points) ? 1 : 0) + pre[i][j + 1] + pre[i + 1][j] - pre[i][j];
+    }
+  }
+  const full = (i0: number, i1: number, j0: number, j1: number) =>
+    i0 >= 0 && j0 >= 0 && i1 <= nx && j1 <= ny
+    && pre[i1][j1] - pre[i0][j1] - pre[i1][j0] + pre[i0][j0] === (i1 - i0) * (j1 - j0);
+  const out: Box[] = [];
+  for (let i0 = 0; i0 < nx; i0++) {
+    for (let i1 = i0 + 1; i1 <= nx; i1++) {
+      for (let j0 = 0; j0 < ny; j0++) {
+        for (let j1 = j0 + 1; j1 <= ny; j1++) {
+          if (!full(i0, i1, j0, j1)) continue;
+          // Maximal: it cannot grow by one grid step on any side and stay inside.
+          if (full(i0 - 1, i1, j0, j1) || full(i0, i1 + 1, j0, j1) || full(i0, i1, j0 - 1, j1) || full(i0, i1, j0, j1 + 1)) continue;
+          out.push({ x: xs[i0], y: ys[j0], w: clean(xs[i1] - xs[i0]), h: clean(ys[j1] - ys[j0]) });
+        }
+      }
+    }
+  }
+  if (!out.length) return [boundingBox(points)];
+  return out.sort((a, b) => b.w * b.h - a.w * a.h);
+}
+
+/**
  * Which edge a door sits on. A door stored by wall name (every door drawn
  * before 2026-09-22) maps through WALL_EDGE; a door stored by edge index is
  * checked against the polygon it names. -1 = no such edge, which the caller

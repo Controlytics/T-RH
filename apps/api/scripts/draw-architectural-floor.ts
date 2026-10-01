@@ -34,11 +34,13 @@ import { validateRoomPayload, roomGeometry } from '../src/modules/floorplans/val
 import { archCanvas, archPoints, archAnnotations, edgeDoor, type ArchLayout } from '../src/modules/floorplans/architectural-layout.js';
 import { MICROBIOLOGY_LAYOUT } from '../src/modules/floorplans/microbiology-layout.js';
 import { QC3_LAYOUT } from '../src/modules/floorplans/qc3-layout.js';
+import { MODULE_E_LAYOUT } from '../src/modules/floorplans/module-e-layout.js';
 
 /** The floors drawn in this style by this script, keyed by AREA name. */
 const LAYOUTS: Record<string, ArchLayout> = {
   [MICROBIOLOGY_LAYOUT.area]: MICROBIOLOGY_LAYOUT,
   [QC3_LAYOUT.area]: QC3_LAYOUT,
+  [MODULE_E_LAYOUT.area]: MODULE_E_LAYOUT,
 };
 
 const APPLY = process.argv.includes('--apply');

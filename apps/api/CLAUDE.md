@@ -418,6 +418,20 @@ node apps/api/dist/app.js
     five more mutation checks: the row not stretched, rooms below not
     shifted, a door or a column stretched with the row, the LCMS rooms at
     the drawn width). Re-applied to `compliance_core_db`; AWS needs it.
+  - **Module-E is the fourth such floor (same day).** `module-e-layout.ts`
+    (25 rooms, 22 door leaves + 13 leafless openings, 17 columns, 7 windows,
+    4 stubs, 12 sliding-door bars), `draw-architectural-floor.ts --area
+    "Module-E"`; `draw-cwh-floorplan.ts` skips it. **The source is a vector
+    PDF and the numbers are PDF POINTS read from the file** (PyMuPDF,
+    `page.get_drawings()` x `page.rotation_matrix` — the page is stored
+    rotated 270 degrees), each partition on the midline of its two faces.
+    New in this trace: VOIDS (ducts, column casings, cavities) that no room
+    covers — the test's tiling check is "exactly one room, or a listed
+    void" — and a duplicate room code on the drawing (CWH-I/017 twice; the
+    second stored as `CWH-I/017 (3.5KL BLENDER)`, which the view's
+    continuation rule does not match because that needs `(digits)`).
+    Pinned by `__tests__/module-e-layout.test.ts` (16, mutation-checked six
+    ways). Applied to `compliance_core_db` only; AWS needs the script run.
 - **2026-09-16 — the instrument CODE is changeable.** `PUT /api/instruments/:id`
   accepts `code` (shared `updateInstrumentSchema`, same `codeSchema` as create).
   **No count moved, no migration.** The code is the MQTT client id and every

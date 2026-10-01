@@ -125,7 +125,7 @@ export type { LimitBound } from './types/alarm-limits.js';
 export {
   POLYGON_MIN_CORNERS, POLYGON_MAX_CORNERS, POLYGON_MIN_AREA, SHARED_EDGE_TOL, WALL_EDGE,
   rectanglePoints, boundingBox, polygonArea, signedArea, polygonEdges, isSimplePolygon,
-  validatePolygon, pointInPolygon, sharedEdges, mirrorOpening, largestInscribedRect,
+  validatePolygon, pointInPolygon, sharedEdges, mirrorOpening, largestInscribedRect, inscribedRects,
   doorEdge, centroid, isRectilinear, unionRectilinear,
 } from './types/floorplan-geometry.js';
 export type { Point, Box, Segment, Polygon, EdgeOpening, SharedEdge } from './types/floorplan-geometry.js';

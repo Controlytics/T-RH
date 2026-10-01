@@ -1529,6 +1529,24 @@ GET    /api/config/report-downloads/current     — (2026-10-01) per report KIND
       only** - the generated floors' fixed tiles break when stretched and
       stay centred. `planExtent` no longer clips drawn content at the
       canvas edge (only its margin stops there). See `apps/web/CLAUDE.md`.
+    - **"CWH — Module-E" is the FOURTH floor in this style (same day,
+      operator: "do module-e layout also same like qc").**
+      `module-e-layout.ts`, traced from `Layouts/CWH/Module-E layout.pdf` —
+      a VECTOR PDF, so the walls were READ from the file (PyMuPDF
+      `get_drawings()`), not scanned; coordinates are PDF points. 25 rooms:
+      the module only (the connecting corridor, staircases and main corridor
+      are outside its walls and not drawn); GRANULATION AREA is one
+      24-corner room; return ducts and column casings are VOIDS closed by
+      stubs; twelve sliding doors are a leafless opening plus an outlined
+      bar; two rooms share CWH-I/017 on the drawing, the second is
+      `CWH-I/017 (3.5KL BLENDER)`. The 8 instruments sit where their
+      `Location` says (031-00 "Blender Area" in the BLENDER AREA by
+      judgement); **the drawing's nine numbered sensor marks are NOT these
+      instruments** and are not drawn. Applied LOCALLY; **AWS needs
+      `draw-architectural-floor.ts --area "Module-E" --apply`.** Only
+      Stability, Module-F and Ware House are still generated. In the view:
+      a card in an L-shaped room tries the room's other arms
+      (`inscribedRects`, shared) when the largest holds no legible card.
     - **Two more card shapes, `tall` and `compact`, exist for rooms the design
       cards cannot serve** — tried ONLY when `std` / `wide` print the Location
       under `LEGIBLE_LOC_FONT` (9 units; `chooseCard` in `floorplan-view.tsx`).

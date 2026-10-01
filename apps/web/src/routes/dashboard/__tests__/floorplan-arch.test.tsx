@@ -813,3 +813,40 @@ describe('full screen fills the screen', () => {
     PLAN = planOf('architectural');
   });
 });
+
+/**
+ * Module-E's API DISPENSING is an L: the bay north of the room is tall and
+ * narrow, and 2 % LARGER in area than the room proper — so "the largest
+ * rectangle inside the room" was the arm a card fits worst, and the card went
+ * into the bay at half the size.
+ */
+describe('an L-shaped room: the card goes in the arm that holds it best', () => {
+  // The two arms in viewBox units, as drawn: the bay (the larger) and the room.
+  const BAY = { x: 155, y: 15, w: 63.3, h: 154.6 };
+  const ROOM = { x: 155, y: 92, w: 122.7, h: 77.9 };
+  const LOC = 'API Dispensing Area', CODE = 'CWH/RDU/030-00';
+  const smaller = (c: NonNullable<ReturnType<typeof chooseCard>>) => {
+    const spec = cardSpec(c.shape, LOC);
+    return Math.min(locationFont(spec, c.k), codeFont(spec, c.k, CODE));
+  };
+
+  it('with only the largest rectangle the Location prints under 5.5 units', () => {
+    const card = chooseCard(BAY, [], LOC, CODE)!;
+    expect(smaller(card)).toBeLessThan(5.5);
+  });
+
+  it('given the other arm it takes it: both headings over 8 units, the card inside that arm', () => {
+    const card = chooseCard(BAY, [], LOC, CODE, () => [ROOM])!;
+    expect(smaller(card)).toBeGreaterThan(8);
+    expect(card.x).toBeGreaterThanOrEqual(ROOM.x); expect(card.x + card.w).toBeLessThanOrEqual(ROOM.x + ROOM.w);
+    expect(card.y).toBeGreaterThanOrEqual(ROOM.y); expect(card.y + card.h).toBeLessThanOrEqual(ROOM.y + ROOM.h);
+  });
+
+  it('a room whose card is legible in the largest rectangle never looks at the others', () => {
+    const others = vi.fn(() => [{ x: 0, y: 0, w: 600, h: 600 }]);
+    const card = chooseCard({ x: 0, y: 0, w: 300, h: 300 }, [], 'Wet lab (QC)', 'CWH/RDU/022-00', others)!;
+    expect(card.shape).toBe('std');
+    expect(others).not.toHaveBeenCalled();
+    expect(card.x + card.w).toBeLessThanOrEqual(300);
+  });
+});

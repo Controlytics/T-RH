@@ -1,5 +1,68 @@
 # Changelog
 
+## [Unreleased] - "CWH — Module-E" traced from its drawing and drawn in the 2D architectural design (2026-10-01)
+
+Operator: *"do module-e layout also same like qc"* (the drawing,
+`Layouts/CWH/Module-E layout.pdf`, was put in the folder on 2026-09-29).
+
+- **The trace** (`apps/api/src/modules/floorplans/module-e-layout.ts`, new):
+  25 rooms as polygons on the drawing's own wall lines. Until now this floor was
+  GENERATED - ten boxes cut from a room count, each coded with its
+  instrument's code.
+  - **Measured from the PDF's vectors, not from pixels.** The drawing is a
+    vector PDF; every wall is a pair of lines whose coordinates were read out
+    of the file (PyMuPDF `get_drawings()` through the page's rotation matrix).
+    Coordinates are PDF points of the page as displayed.
+  - **The module only** (x 200.5-1061.4, y 253.5-580.5). The connecting
+    corridor (CWH-I/075), the two staircases, the scrap exit (CWH-I/076), the
+    main corridor (CWH-I/338) and the entrance are outside the module's walls
+    and are not drawn.
+  - **GRANULATION AREA (CWH-I/014) is ONE room** of 24 corners - the drawing
+    labels it twice, WEST SIDE and EAST SIDE, with no wall between. API
+    DISPENSING is an L.
+  - **Doors:** 19 with a leaf (16 single, 3 double), each on the wall, gap and
+    hinge side the drawing shows; the gents entry's exit opens OUT. **Twelve
+    sliding doors** (an opening with no leaf plus an outlined bar), and binder
+    preparation's open side.
+  - **The return ducts and column casings are VOIDS** - no room covers them;
+    a wall stub closes one where no room does.
+  - **Two rooms carry the code CWH-I/017 on the drawing** (BLENDING AREA and
+    BLENDER AREA (3.5KL BLENDER)); the second is stored as
+    `CWH-I/017 (3.5KL BLENDER)`.
+  - Structure: 17 columns, 4 windows, the breakable-glass emergency panel, 2
+    glazed panels in the blender area.
+- **Instruments: each of the eight is in the room its `Location` attribute
+  names** (verified by reading them back after applying). ONE is a judgement:
+  CWH/RDU/031-00 says "Blender Area" and is placed in the BLENDER AREA (3.5KL
+  BLENDER), not the BLENDING AREA, on the name.
+- **The drawing also marks nine numbered sensor positions (01-06, 08-10) and
+  they do NOT correspond to these eight instruments** - they sit in wash areas,
+  binder preparation, the blending area, the inspection room and three places
+  in the granulation area. Not drawn; nothing was moved to them.
+- **Not as the drawing:** the CHANGE ROOM CWH's lining (a second wall line
+  inside its west and south walls) is left out - drawn, it made a black band
+  twice the weight of every other wall.
+- **In the view** (`floorplan-view.tsx`, `@digilog/shared`): a card in an
+  L-shaped room goes in the arm that holds it best. API DISPENSING's tall
+  narrow bay is 2 % larger in area than the room proper, so "the largest
+  rectangle inside the room" put the card in the bay with the Location at 4.9
+  units; `inscribedRects()` (new, shared) gives the room's other arms and
+  `chooseCard` tries them ONLY when the largest holds no legible card: 8.5
+  now. QC, Microbiology and QC 3 render byte-identically.
+- `scripts/draw-architectural-floor.ts --area "Module-E"` draws it;
+  `draw-cwh-floorplan.ts` skips Module-E now and generates only Stability,
+  Module-F and Ware House. **Applied to the local database** (10 rooms out, 25
+  in, 8 instruments placed); the stored plan renders the same geometry as the
+  trace (25 outlines, 406 lines, 23 paths). **AWS needs
+  `draw-architectural-floor.ts --area "Module-E" --apply` after the next
+  deploy.**
+- Checked by laying the render over the drawing at the same scale, tile by
+  tile, BEFORE applying: walls, door arcs, columns and windows coincide.
+- Tests: `module-e-layout.test.ts` (16, new), `floorplan-arch.test.tsx`
+  53 -> 56, shared `floorplan-geometry.test.ts` 20 -> 23; ten mutation checks,
+  all caught. `tsc` clean on all three packages. **Not seen in the running
+  app** (`Layouts/CWH/concepts/applied-cwh-module-e.png`).
+
 ## [Unreleased] - Full screen: a 2D floor plan fills the screen (2026-10-01)
 
 Operator: *"when i opened microbiology layout in full screen its exactly filt to

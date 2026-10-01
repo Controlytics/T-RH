@@ -791,6 +791,16 @@ qc"*).
   obstacle to one that does not. One turned line is refused when it does
   not FIT (`MIN_NAME_FONT`) — with the across name crushed by an obstacle
   it used to look a third larger and ran out of the room.
+- **A card in an L-shaped room goes in the arm that holds it best (Module-E,
+  same day).** `chooseCard(inner, obstacles, location, code, others?)`:
+  `inner` is `largestInscribedRect(outline)`; `others` (lazy) is
+  `inscribedRects(outline).slice(1, 6)` — every other MAXIMAL rectangle
+  inside the room, new in `@digilog/shared`. They are tried, tier by tier
+  like the first, ONLY when the largest leaves the smaller heading under 9.
+  Module-E's API DISPENSING: its tall bay is 2 % larger than the room
+  proper, and the card sat in the bay with the Location at 4.9 units; 8.5
+  now. The gate is what keeps every other floor's cards where they are
+  (byte-identical; mutation-checked both ways).
 - **Judge a floor at a PANEL's size, not at 2000px.** The first Microbiology
   renders were checked at ~2000px wide and looked roomy; in the dashboard the
   drawing was 1000px wide. Dump the mounted view's `container.innerHTML`, load

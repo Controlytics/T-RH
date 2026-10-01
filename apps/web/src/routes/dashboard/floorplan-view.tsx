@@ -8,6 +8,7 @@ import {
   formatDecimals,
   rectanglePoints,
   largestInscribedRect,
+  inscribedRects,
   mirrorOpening,
   centroid,
   type InstrumentStatus,
@@ -607,28 +608,45 @@ export function codeFont(spec: ReturnType<typeof cardSpec>, k: number, code: str
  * The ID counts because a room can be too NARROW for it while the Location
  * still fits: QC 3's LCMS ROOM-II printed "LCMS Room-II" at 5.8 on the tall
  * card and on the mini card alike, and the ID at 4.7 against 8.3.
+ *
+ * `inner` is the room's LARGEST inscribed rectangle. In an L-shaped room that
+ * can be the arm a card fits worst (Module-E's API DISPENSING: the tall narrow
+ * bay is 2 % larger than the room proper, and the card went into the bay at
+ * half the size). `others` gives the room's other inscribed rectangles; they
+ * are tried, the same way, ONLY when the largest cannot hold a legible card —
+ * so a room whose card is legible where it is never moves.
  */
 export function chooseCard(
   inner: PixelBox,
   obstacles: PixelBox[],
   location: string,
   code?: string,
+  others?: () => PixelBox[],
 ): (NonNullable<ReturnType<typeof placeCard>> & { shape: CardShape }) | null {
   let best: (NonNullable<ReturnType<typeof placeCard>> & { shape: CardShape }) | null = null;
   let bestFont = -1;
-  const tryShapes = (shapes: readonly CardShape[]) => {
+  const tryShapes = (box: PixelBox, shapes: readonly CardShape[]) => {
     for (const shape of shapes) {
       const spec = cardSpec(shape, location);
-      const placed = placeCard(inner, obstacles, spec.w, spec.h);
+      const placed = placeCard(box, obstacles, spec.w, spec.h);
       if (!placed) continue;
       const loc = locationFont(spec, placed.k);
       const font = code ? Math.min(loc, codeFont(spec, placed.k, code)) : loc;
       if (font > bestFont + 0.25) { bestFont = font; best = { ...placed, shape }; }
     }
   };
-  tryShapes(DESIGN_SHAPES);
-  if (bestFont < LEGIBLE_LOC_FONT) tryShapes(SMALL_ROOM_SHAPES);
-  if (bestFont < LEGIBLE_LOC_FONT) tryShapes(NARROW_ROOM_SHAPES);
+  const tryBox = (box: PixelBox) => {
+    tryShapes(box, DESIGN_SHAPES);
+    if (bestFont < LEGIBLE_LOC_FONT) tryShapes(box, SMALL_ROOM_SHAPES);
+    if (bestFont < LEGIBLE_LOC_FONT) tryShapes(box, NARROW_ROOM_SHAPES);
+  };
+  tryBox(inner);
+  if (bestFont < LEGIBLE_LOC_FONT && others) {
+    for (const box of others()) {
+      if (bestFont >= LEGIBLE_LOC_FONT) break;
+      tryBox(box);
+    }
+  }
   return best;
 }
 
@@ -952,7 +970,9 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
     // the columns; a room with several instruments keeps the tile grid.
     // The shape is whichever prints the Location largest — see `chooseCard`.
     const card = arch && roomRows.length === 1
-      ? chooseCard(largestInscribedRect(outline), planObstacles, cardLocation(roomRows[0], room), roomRows[0].code)
+      ? chooseCard(largestInscribedRect(outline), planObstacles, cardLocation(roomRows[0], room), roomRows[0].code,
+        // The room's other arms, tried only when the largest holds no legible card.
+        () => inscribedRects(outline).slice(1, 6))
       : null;
     return [room.id, {
       outline, doorOpenings, openings, tileBox, isContinuation, card,

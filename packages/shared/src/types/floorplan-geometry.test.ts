@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   rectanglePoints, boundingBox, polygonArea, isSimplePolygon, validatePolygon,
-  pointInPolygon, sharedEdges, mirrorOpening, largestInscribedRect, doorEdge,
+  pointInPolygon, sharedEdges, mirrorOpening, largestInscribedRect, inscribedRects, doorEdge,
   centroid, unionRectilinear, isRectilinear, POLYGON_MAX_CORNERS,
 } from './floorplan-geometry.js';
 
@@ -100,6 +100,33 @@ describe('largestInscribedRect', () => {
     for (const c of rectanglePoints(r)) {
       expect(pointInPolygon({ x: Math.min(0.499, Math.max(0.101, c.x)), y: Math.min(0.499, Math.max(0.101, c.y)) }, L)).toBe(true);
     }
+  });
+});
+
+describe('inscribedRects', () => {
+  it('a rectangle has one: itself', () => {
+    expect(inscribedRects(square)).toEqual([{ x: 0.1, y: 0.1, w: 0.2, h: 0.2 }]);
+  });
+  it('an L has two, its arms, the larger first — and the first is largestInscribedRect', () => {
+    const all = inscribedRects(L);
+    expect(all).toHaveLength(2);
+    expect(all[0]).toEqual(largestInscribedRect(L));
+    expect(all[0].w * all[0].h).toBeGreaterThanOrEqual(all[1].w * all[1].h);
+    // Neither contains the other, and both are inside the L.
+    const [a, b] = all;
+    const contains = (o: typeof a, i: typeof a) => i.x >= o.x && i.y >= o.y && i.x + i.w <= o.x + o.w && i.y + i.h <= o.y + o.h;
+    expect(contains(a, b) || contains(b, a)).toBe(false);
+    for (const r of all) {
+      expect(pointInPolygon({ x: r.x + r.w / 2, y: r.y + r.h / 2 }, L)).toBe(true);
+    }
+  });
+  it('the API DISPENSING room of Module-E: the tall arm is the larger, the wide arm is still offered', () => {
+    // The L as drawn, in PDF points: the bay north of the room, and the room.
+    const api = [{ x: 326.8, y: 253.5 }, { x: 382.6, y: 253.5 }, { x: 382.6, y: 321.2 }, { x: 435, y: 321.2 }, { x: 435, y: 389.9 }, { x: 326.8, y: 389.9 }];
+    const [first, second] = inscribedRects(api);
+    expect(first.h).toBeGreaterThan(first.w);        // 55.8 x 136.4
+    expect(second.w).toBeGreaterThan(second.h);      // 108.2 x 68.7
+    expect(second.w).toBeCloseTo(108.2, 6);
   });
 });
 
