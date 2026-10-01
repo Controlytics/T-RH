@@ -4,250 +4,354 @@ import { buildApp, loginAs } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
 import { invalidateReauthCache } from '../lib/reauth-check.js';
 import { invalidateRolePermsCache } from '../plugins/rbac.js';
+import { fixtureProfileId } from '../test-support/fixture-profile.js';
 
 /**
- * HTTP-level coverage of the report review workflow (2026-09-07):
- * docs/superpowers/specs/2026-09-07-report-review-workflow-design.md
+ * HTTP-level coverage of the report review workflow — as reshaped 2026-10-01:
  *
- * Three people, each with their own role and bearer, because the rules are
- * about WHO: a requester (may raise requests), an approver (may decide), and a
- * third party with the same READ permission who is a party to nothing. Every
- * assertion is over `app.inject` — the only thing that catches a field the
- * response schema forgot to declare.
+ *  - The requester chooses NOBODY. A request goes to every configured approver
+ *    role and user (Configuration → Report Approvers), FROZEN onto the row.
+ *  - The requester's ROLE-MATES and every approver may view it, and download it
+ *    once approved; only approvers may decide.
+ *  - All of them only within their INSTRUMENT SCOPE ("any" overlap). The two
+ *    signers and SUPER_ADMIN are not scope-bound.
+ *  - Whether a type is requested at all, with remarks, with the password, is
+ *    per-type configuration (Configuration → Report Downloads).
  *
- * The `action-reauth` config is pinned so the three gated actions REQUIRE a
- * password for these roles; otherwise "wrong password → 401" passes vacuously
- * on an install where nobody switched re-auth on. Restored FIRST in `afterAll`
- * (the 2026-08-31 incident: a teardown that threw before its restore left
- * `compliance_core_db_test` misconfigured for two unrelated suites).
+ * The cast, by what each proves:
+ *   U_REQ       raises the requests                          (ROLE_REQ)
+ *   U_MATE      the requester's role-mate — sees, never decides (ROLE_REQ)
+ *   U_MATE_OUT  a role-mate scoped to the OTHER instrument     (ROLE_REQ, scope B)
+ *   U_APPR      an approver by ROLE                           (ROLE_APPR)
+ *   U_APPR_OUT  an approver by role, scoped to the other one  (ROLE_APPR, scope B)
+ *   U_NAMED     an approver named OUTRIGHT                    (ROLE_OTHER)
+ *   U_OTHER     same role as U_NAMED, not named — a stranger  (ROLE_OTHER)
+ *
+ * Every assertion is over `app.inject`, the only thing that catches a field the
+ * response schema forgot to declare. Config rows are pinned and restored FIRST
+ * in `afterAll` (the 2026-08-31 incident).
  */
 
 const PASSWORD = 'ReportReview@Test1';
 const STAMP = String(Date.now()).slice(-6);
-const ROLE_REQ = `RR_OPERATOR_${STAMP}`;
-const ROLE_APPR = `RR_APPROVER_${STAMP}`;
-const U_REQ = `rrq${STAMP}`;   // usernames are short here: a login-path column is varchar(20)
-const U_APPR = `rra${STAMP}`;
-const U_THIRD = `rrt${STAMP}`;
+const ROLE_REQ = `RR_OP_${STAMP}`;
+const ROLE_APPR = `RR_SUP_${STAMP}`;
+const ROLE_OTHER = `RR_QA_${STAMP}`;
+// Short usernames: a login-path column is varchar(20).
+const U = {
+  REQ: `rrq${STAMP}`, MATE: `rrm${STAMP}`, MATE_OUT: `rro${STAMP}`,
+  APPR: `rra${STAMP}`, APPR_OUT: `rrx${STAMP}`, NAMED: `rrn${STAMP}`, OTHER: `rrz${STAMP}`,
+};
+const USERNAMES = Object.values(U);
+const CONFIG_KEYS = ['action-reauth', 'report-approvers', 'report-downloads'] as const;
 
 let app: FastifyInstance;
-let tokReq = '';
-let tokAppr = '';
-let tokThird = '';
+const tok: Record<keyof typeof U, string> = { REQ: '', MATE: '', MATE_OUT: '', APPR: '', APPR_OUT: '', NAMED: '', OTHER: '' };
 let tokAdmin = '';
-let idReq = '';
-let idAppr = '';
-let originalReauthRow: { configValue: unknown; configType: string; requiresReauth: boolean } | null = null;
-let originalApproversRow: { configValue: unknown; configType: string; requiresReauth: boolean } | null = null;
+const ids: Partial<Record<keyof typeof U, string>> = {};
+let instA = '';
+let instB = '';
+const originals = new Map<string, { configValue: unknown; configType: string; requiresReauth: boolean } | null>();
 const created: string[] = [];
 
-/** Which roles may approve — administered by SUPER_ADMIN (2026-09-07). Pinned so the request checks are exercised, not skipped. */
-async function setApproverRoles(roles: string[]) {
-  const value = { approverRoles: roles } as never;
+async function setConfig(key: string, value: unknown, type = 'system') {
   await prisma.systemConfig.upsert({
-    where: { configKey: 'report-approvers' },
-    update: { configValue: value, configType: 'system', requiresReauth: false },
-    create: { configKey: 'report-approvers', configValue: value, configType: 'system', requiresReauth: false },
+    where: { configKey: key },
+    update: { configValue: value as never, configType: type, requiresReauth: false },
+    create: { configKey: key, configValue: value as never, configType: type, requiresReauth: false },
   });
 }
+const setApprovers = (roles: string[], userIds: string[]) => setConfig('report-approvers', { approverRoles: roles, approverUserIds: userIds });
 
 const snapshot = {
   version: 2, reportType: 'Instrument Time Series', title: 'Temperature and RH Data Report',
   config: { showAppName: false },
   sections: [{ kind: 'table', head: ['DATE', 'TIME'], body: [['2026-08-24', '00:20']] }],
 };
-const requestMeta = { period: { from: '2026-08-24T00:00:00.000Z', to: '2026-08-24T01:00:00.000Z', label: 'Custom' }, intervalMs: null, instrumentCodes: ['CWH/RDU/001-00'] };
+const requestMeta = { period: { from: '2026-08-24T00:00:00.000Z', to: '2026-08-24T01:00:00.000Z', label: 'Custom' }, intervalMs: null };
 
 const bearer = (t: string, password?: string) => ({ authorization: `Bearer ${t}`, ...(password ? { 'x-reauth-password': password } : {}) });
 
-async function submit(token: string, extra: Record<string, unknown> = {}, password: string | undefined = PASSWORD) {
+/** `password` '' = send none (an `undefined` argument would take the default). */
+async function submit(token: string, extra: Record<string, unknown> = {}, password = PASSWORD) {
   return app.inject({
     method: 'POST', url: '/api/report-reviews', headers: bearer(token, password),
-    payload: { reportType: 'Instrument Time Series', title: 'Temperature and RH Data Report', requestMeta, dataSnapshot: snapshot, remarks: 'periodic review', assigneeUserId: idAppr, ...extra },
+    payload: {
+      reportKind: 'data-report', reportType: 'Instrument Time Series', title: 'Temperature and RH Data Report',
+      requestMeta, dataSnapshot: snapshot, remarks: 'periodic review', instrumentIds: [instA], ...extra,
+    },
   });
 }
+const get = (url: string, token: string) => app.inject({ method: 'GET', url, headers: bearer(token) });
+const listIds = async (list: string, token: string) => (await get(`/api/report-reviews?list=${list}&pageSize=200`, token)).json().data.map((r: any) => r.id);
 
 async function makeUser(username: string, role: string) {
   const { hashPassword } = await import('../lib/password.js');
   const passwordHash = await hashPassword(PASSWORD);
-  return prisma.user.create({
+  return (await prisma.user.create({
     data: { username, passwordHash, fullName: username, email: `${username}@test.example`, role, status: 'ENABLED', forcePasswordChange: false, isTemporaryPassword: false },
     select: { id: true },
+  })).id;
+}
+async function scopeUserTo(userId: string, instrumentIds: string[]) {
+  await prisma.userConfig.upsert({
+    where: { userId },
+    update: { instrumentScope: { locationIds: [], instrumentIds } as never },
+    create: { userId, instrumentScope: { locationIds: [], instrumentIds } as never },
   });
 }
 
 beforeAll(async () => {
   app = await buildApp();
   await prisma.role.create({ data: { name: ROLE_REQ, displayName: 'RR Operator', hierarchyLevel: 1, permissions: ['REPORT_REVIEW_READ', 'INSTRUMENT_READ'] } });
-  await prisma.role.create({ data: { name: ROLE_APPR, displayName: 'RR Approver', hierarchyLevel: 2, permissions: ['REPORT_REVIEW_READ', 'REPORT_REVIEW_APPROVE'] } });
+  await prisma.role.create({ data: { name: ROLE_APPR, displayName: 'RR Supervisor', hierarchyLevel: 2, permissions: ['REPORT_REVIEW_READ', 'REPORT_REVIEW_APPROVE', 'INSTRUMENT_READ'] } });
+  await prisma.role.create({ data: { name: ROLE_OTHER, displayName: 'RR QA', hierarchyLevel: 2, permissions: ['REPORT_REVIEW_READ', 'REPORT_REVIEW_APPROVE', 'INSTRUMENT_READ'] } });
   invalidateRolePermsCache();
-  idReq = (await makeUser(U_REQ, ROLE_REQ)).id;
-  idAppr = (await makeUser(U_APPR, ROLE_APPR)).id;
-  await makeUser(U_THIRD, ROLE_REQ);
-  tokReq = await loginAs(app, U_REQ, PASSWORD);
-  tokAppr = await loginAs(app, U_APPR, PASSWORD);
-  tokThird = await loginAs(app, U_THIRD, PASSWORD);
+
+  const profileId = await fixtureProfileId('fixture:report-reviews');
+  instA = (await prisma.instrument.create({ data: { name: `RR-A-${STAMP}`, code: `RR-A-${STAMP}`, profileId } })).id;
+  instB = (await prisma.instrument.create({ data: { name: `RR-B-${STAMP}`, code: `RR-B-${STAMP}`, profileId } })).id;
+
+  ids.REQ = await makeUser(U.REQ, ROLE_REQ);
+  ids.MATE = await makeUser(U.MATE, ROLE_REQ);
+  ids.MATE_OUT = await makeUser(U.MATE_OUT, ROLE_REQ);
+  ids.APPR = await makeUser(U.APPR, ROLE_APPR);
+  ids.APPR_OUT = await makeUser(U.APPR_OUT, ROLE_APPR);
+  ids.NAMED = await makeUser(U.NAMED, ROLE_OTHER);
+  ids.OTHER = await makeUser(U.OTHER, ROLE_OTHER);
+  await scopeUserTo(ids.MATE_OUT, [instB]);
+  await scopeUserTo(ids.APPR_OUT, [instB]);
+  for (const k of Object.keys(U) as (keyof typeof U)[]) tok[k] = await loginAs(app, U[k], PASSWORD);
   tokAdmin = await loginAs(app);
 
-  const existing = await prisma.systemConfig.findUnique({ where: { configKey: 'action-reauth' } });
-  if (existing) originalReauthRow = { configValue: existing.configValue, configType: existing.configType, requiresReauth: existing.requiresReauth };
-  const gated = { DOWNLOAD_REPORT: [ROLE_REQ, ROLE_APPR], APPROVE_REPORT: [ROLE_APPR], REJECT_REPORT: [ROLE_APPR] } as never;
-  await prisma.systemConfig.upsert({
-    where: { configKey: 'action-reauth' },
-    update: { configValue: gated, configType: 'security', requiresReauth: false },
-    create: { configKey: 'action-reauth', configValue: gated, configType: 'security', requiresReauth: false },
-  });
+  for (const key of CONFIG_KEYS) {
+    const row = await prisma.systemConfig.findUnique({ where: { configKey: key } });
+    originals.set(key, row ? { configValue: row.configValue, configType: row.configType, requiresReauth: row.requiresReauth } : null);
+  }
+  await setConfig('action-reauth', { APPROVE_REPORT: [ROLE_APPR, ROLE_OTHER], REJECT_REPORT: [ROLE_APPR, ROLE_OTHER] }, 'security');
   invalidateReauthCache();
-
-  const approvers = await prisma.systemConfig.findUnique({ where: { configKey: 'report-approvers' } });
-  if (approvers) originalApproversRow = { configValue: approvers.configValue, configType: approvers.configType, requiresReauth: approvers.requiresReauth };
-  await setApproverRoles([ROLE_APPR]);
+  await setApprovers([ROLE_APPR], [ids.NAMED]);
+  await setConfig('report-downloads', {
+    dataReportMode: 'REQUEST', dataReportRemarks: true, dataReportPassword: true,
+    alarmsMode: 'REQUEST', alarmsRemarks: false, alarmsPassword: false,
+    trendChartMode: 'DIRECT',
+  });
 });
 
 beforeEach(() => invalidateReauthCache());
 
 afterAll(async () => {
-  // Config restore FIRST, and each step guarded, so a failing teardown still
-  // hands back what it borrowed.
-  try {
-    if (originalReauthRow) {
-      await prisma.systemConfig.update({ where: { configKey: 'action-reauth' }, data: originalReauthRow as never });
-    } else {
-      await prisma.systemConfig.deleteMany({ where: { configKey: 'action-reauth' } });
-    }
-    invalidateReauthCache();
-  } catch (e) { console.error('reauth restore failed', e); }
-  try {
-    if (originalApproversRow) {
-      await prisma.systemConfig.update({ where: { configKey: 'report-approvers' }, data: originalApproversRow as never });
-    } else {
-      await prisma.systemConfig.deleteMany({ where: { configKey: 'report-approvers' } });
-    }
-  } catch (e) { console.error('approvers restore failed', e); }
+  for (const key of CONFIG_KEYS) {
+    try {
+      const o = originals.get(key);
+      if (o) await prisma.systemConfig.update({ where: { configKey: key }, data: o as never });
+      else await prisma.systemConfig.deleteMany({ where: { configKey: key } });
+    } catch (e) { console.error(`${key} restore failed`, e); }
+  }
+  invalidateReauthCache();
   try { await prisma.reportReview.deleteMany({ where: { id: { in: created } } }); } catch (e) { console.error(e); }
-  try { await prisma.notification.deleteMany({ where: { OR: [{ forUserId: { in: [U_REQ, U_APPR, U_THIRD] } }, { forRole: { in: [ROLE_REQ, ROLE_APPR] } }] } }); } catch (e) { console.error(e); }
-  try { await prisma.session.deleteMany({ where: { user: { username: { in: [U_REQ, U_APPR, U_THIRD] } } } }); } catch { /* sessions may cascade */ }
-  try { await prisma.user.deleteMany({ where: { username: { in: [U_REQ, U_APPR, U_THIRD] } } }); } catch (e) { console.error(e); }
-  try { await prisma.role.deleteMany({ where: { name: { in: [ROLE_REQ, ROLE_APPR] } } }); } catch (e) { console.error(e); }
+  try { await prisma.notification.deleteMany({ where: { forUserId: { in: USERNAMES } } }); } catch (e) { console.error(e); }
+  try { await prisma.userConfig.deleteMany({ where: { userId: { in: Object.values(ids) as string[] } } }); } catch (e) { console.error(e); }
+  try { await prisma.session.deleteMany({ where: { user: { username: { in: USERNAMES } } } }); } catch { /* sessions may cascade */ }
+  try { await prisma.user.deleteMany({ where: { username: { in: USERNAMES } } }); } catch (e) { console.error(e); }
+  try { await prisma.instrument.deleteMany({ where: { id: { in: [instA, instB].filter(Boolean) } } }); } catch (e) { console.error(e); }
+  try { await prisma.role.deleteMany({ where: { name: { in: [ROLE_REQ, ROLE_APPR, ROLE_OTHER] } } }); } catch (e) { console.error(e); }
   invalidateRolePermsCache();
   await app.close();
 });
 
 describe('POST /api/report-reviews', () => {
-  it('records a PENDING request to a user, audits it, and notifies the assignee', async () => {
-    const res = await submit(tokReq);
+  it('sends the request to EVERY configured approver, frozen on the row, with its instruments; audits; notifies approvers in scope, per user', async () => {
+    const res = await submit(tok.REQ);
     expect(res.statusCode).toBe(201);
     const body = res.json();
     created.push(body.id);
-    // `requestedByRole` is FROZEN at the request and DECLARED in the response
-    // schema (2026-09-25) — the approved PDF's signature table prints it.
-    expect(body).toMatchObject({ status: 'PENDING', assigneeUserId: idAppr, assigneeRole: null, requestedByName: U_REQ, requestedByRole: ROLE_REQ, decidedByRole: null, reportType: 'Instrument Time Series', requestRemarks: 'periodic review' });
-    expect(body.requestMeta.instrumentCodes).toEqual(['CWH/RDU/001-00']);
-    // The snapshot is NOT on the list/summary shape.
+    expect(body).toMatchObject({
+      status: 'PENDING', requestedByName: U.REQ, requestedByRole: ROLE_REQ, requestRemarks: 'periodic review',
+      approverRoles: [ROLE_APPR], approverUserIds: [ids.NAMED], instrumentIds: [instA],
+      assigneeUserId: null, assigneeRole: null,
+    });
     expect(body.dataSnapshot).toBeUndefined();
-    const audit = await prisma.auditTrail.findFirst({ where: { action: 'REPORT_REVIEW_REQUESTED', targetId: body.id }, orderBy: { timestamp: 'desc' } });
-    expect(audit).toBeTruthy();
-    expect(audit!.userId).toBe(U_REQ);
-    expect(audit!.targetType).toBe('Instrument Time Series');
-    const note = await prisma.notification.findFirst({ where: { type: 'REPORT_REVIEW_REQUESTED', forUserId: U_APPR } });
-    expect(note).toBeTruthy();
+    const audit = await prisma.auditTrail.findFirst({ where: { action: 'REPORT_REVIEW_REQUESTED', targetId: body.id } });
+    expect((audit!.afterValue as any).approvers).toEqual({ roles: [ROLE_APPR], userIds: [ids.NAMED] });
+    const notified = (await prisma.notification.findMany({ where: { type: 'REPORT_REVIEW_REQUESTED', forUserId: { in: USERNAMES } } })).map((n) => n.forUserId);
+    expect(notified.sort()).toEqual([U.APPR, U.NAMED].sort());
+    // Never a role broadcast — it would reach the out-of-scope approver.
+    expect(await prisma.notification.count({ where: { forRole: { in: [ROLE_APPR, ROLE_OTHER] } } })).toBe(0);
   });
 
-  it('records a request to a ROLE and notifies the role', async () => {
-    const res = await submit(tokReq, { assigneeUserId: undefined, assigneeRole: ROLE_APPR });
+  it('a type with remarks and password OFF is requested with neither', async () => {
+    const res = await submit(tok.REQ, { reportKind: 'alarms', reportType: 'Alarms', title: 'ALARM REPORT', remarks: '', instrumentIds: [instA] }, '');
     expect(res.statusCode).toBe(201);
     created.push(res.json().id);
-    expect(res.json()).toMatchObject({ assigneeUserId: null, assigneeRole: ROLE_APPR });
-    const note = await prisma.notification.findFirst({ where: { type: 'REPORT_REVIEW_REQUESTED', forRole: ROLE_APPR } });
-    expect(note).toBeTruthy();
+    expect(res.json().requestRemarks).toBe('');
   });
 
-  it('refuses no assignee, both assignees, blank remarks, self-assignment, and a wrong password', async () => {
-    expect((await submit(tokReq, { assigneeUserId: undefined })).statusCode).toBe(400);
-    expect((await submit(tokReq, { assigneeRole: ROLE_APPR })).statusCode).toBe(400);
-    expect((await submit(tokReq, { remarks: '   ' })).statusCode).toBe(400);
-    const self = await submit(tokReq, { assigneeUserId: idReq });
-    expect(self.statusCode).toBe(400);
-    expect(self.json().error).toBe('SELF_ASSIGNMENT');
-    expect((await submit(tokReq, {}, 'wrong-password')).statusCode).toBe(401);
+  it('refuses: wrong or missing password, blank remarks, no instruments, an unknown or out-of-scope instrument', async () => {
+    expect((await submit(tok.REQ, {}, 'wrong-password')).statusCode).toBe(401);
+    expect((await submit(tok.REQ, {}, '')).json().error).toBe('REAUTH_REQUIRED');
+    expect((await submit(tok.REQ, { remarks: '   ' })).statusCode).toBe(400);
+    expect((await submit(tok.REQ, { instrumentIds: [] })).statusCode).toBe(400);
+    expect((await submit(tok.REQ, { instrumentIds: ['00000000-0000-0000-0000-000000000000'] })).statusCode).toBe(404);
+    // The role-mate scoped to B cannot request a report about A.
+    expect((await submit(tok.MATE_OUT, { instrumentIds: [instA] })).statusCode).toBe(404);
   });
 
-  it('refuses a role that is not a configured approver role, and a user whose role is not one', async () => {
-    // The requester's own role is not in the administered list.
-    const role = await submit(tokReq, { assigneeUserId: undefined, assigneeRole: ROLE_REQ });
-    expect(role.statusCode).toBe(400);
-    expect(role.json().error).toBe('ROLE_NOT_APPROVER');
-    // The third user holds ROLE_REQ, which is not an approver role.
-    const third = await prisma.user.findFirstOrThrow({ where: { username: U_THIRD }, select: { id: true } });
-    const user = await submit(tokReq, { assigneeUserId: third.id });
-    expect(user.statusCode).toBe(400);
-    expect(user.json().error).toBe('USER_NOT_APPROVER');
+  it('refuses a DIRECT type (409), a missing or unknown kind (400), and an Audit Trail that names instruments', async () => {
+    const direct = await submit(tok.REQ, { reportKind: 'trend-chart' });
+    expect(direct.statusCode).toBe(409);
+    expect(direct.json().error).toBe('REPORT_IS_DIRECT');
+    expect((await submit(tok.REQ, { reportKind: undefined })).statusCode).toBe(400);
+    expect((await submit(tok.REQ, { reportKind: 'Instrument Time Series' })).statusCode).toBe(400);
+    expect((await submit(tok.REQ, { reportKind: 'audit-trail', instrumentIds: [instA] })).statusCode).toBe(400);
   });
 
-  it('refuses EVERY request while no approver role is configured — fail closed, with a message naming the fix', async () => {
-    await setApproverRoles([]);
+  it('refuses EVERY request while no approver is configured — fail closed, naming the fix', async () => {
+    await setApprovers([], []);
     try {
-      const res = await submit(tokReq);
+      const res = await submit(tok.REQ);
       expect(res.statusCode).toBe(400);
-      expect(res.json().error).toBe('NO_APPROVER_ROLE');
-      expect(res.json().message).toMatch(/super admin/i);
-      const asRole = await submit(tokReq, { assigneeUserId: undefined, assigneeRole: ROLE_APPR });
-      expect(asRole.json().error).toBe('NO_APPROVER_ROLE');
+      expect(res.json().error).toBe('NO_APPROVER');
+      expect(res.json().message).toMatch(/Report Approvers/);
     } finally {
-      await setApproverRoles([ROLE_APPR]);
+      await setApprovers([ROLE_APPR], [ids.NAMED]);
     }
   });
 
-  it('is refused without REPORT_REVIEW_READ', async () => {
-    // A role with no permission at all: the seeded OPERATOR has none of ours.
-    const res = await app.inject({ method: 'POST', url: '/api/report-reviews', headers: bearer(tokAdmin), payload: {} });
-    // SUPER_ADMIN passes the permission gate and fails the body schema instead.
+  it('a later configuration change does NOT re-route a request already raised', async () => {
+    await setApprovers([ROLE_OTHER], []);
+    try {
+      const res = await get(`/api/report-reviews/${created[0]}`, tok.REQ);
+      expect(res.json()).toMatchObject({ approverRoles: [ROLE_APPR], approverUserIds: [ids.NAMED] });
+      // And U_OTHER, now an approver by role for NEW requests, still cannot see the old one.
+      expect((await get(`/api/report-reviews/${created[0]}`, tok.OTHER)).statusCode).toBe(404);
+    } finally {
+      await setApprovers([ROLE_APPR], [ids.NAMED]);
+    }
+  });
+});
+
+describe('a request nobody could approve is REFUSED (2026-10-01)', () => {
+  // Ticking a role or user is not enough: the approver must hold the approve
+  // permission, have the instruments in scope, and not be the requester.
+  // Otherwise only a super admin could ever decide it, while the requester was
+  // told the approvers had been notified.
+  const expectRefused = async (token: string) => {
+    const res = await submit(token);
     expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('NO_ELIGIBLE_APPROVER');
+    expect(res.json().message).toMatch(/Report Approvers/);
+  };
+
+  it('when the only approver is scoped away from the request\'s instruments', async () => {
+    await setApprovers([], [ids.APPR_OUT!]);
+    try { await expectRefused(tok.REQ); } finally { await setApprovers([ROLE_APPR], [ids.NAMED!]); }
+  });
+
+  it('when the only named approver lacks the approve permission', async () => {
+    await setApprovers([], [ids.MATE!]);
+    try { await expectRefused(tok.REQ); } finally { await setApprovers([ROLE_APPR], [ids.NAMED!]); }
+  });
+
+  it('when the requester is the only approver', async () => {
+    await setApprovers([], [ids.NAMED!]);
+    try { await expectRefused(tok.NAMED); } finally { await setApprovers([ROLE_APPR], [ids.NAMED!]); }
+  });
+
+  it('and nothing was written by any of them', async () => {
+    const rows = await prisma.reportReview.count({ where: { requestedBy: { in: [ids.REQ!, ids.NAMED!] }, id: { notIn: created } } });
+    expect(rows).toBe(0);
   });
 });
 
-describe('GET /api/config/report-approvers/current', () => {
-  it('every authenticated user reads the configured approver roles, already coerced', async () => {
-    const res = await app.inject({ method: 'GET', url: '/api/config/report-approvers/current', headers: bearer(tokReq) });
+describe('the configuration round-trips through the REAL save path (the dynamic PUT)', () => {
+  // The other cases pin the rows with prisma. This one saves them the way the
+  // Configuration page does, so the keys the page writes are proven to be the
+  // keys the readers read — the route-shape vs stored-shape mistake already
+  // happened once on the browser side.
+  const put = (key: string, body: unknown) => app.inject({ method: 'PUT', url: `/api/config/dynamic/${key}`, headers: bearer(tokAdmin), payload: body as never });
+
+  it('report-downloads: a saved Direct / no remarks / no password reads back for that kind only', async () => {
+    const before = await prisma.systemConfig.findUnique({ where: { configKey: 'report-downloads' } });
+    try {
+      const res = await put('report-downloads', { alarmsMode: 'DIRECT', alarmsRemarks: false, alarmsPassword: false, dataReportMode: 'REQUEST' });
+      expect(res.statusCode).toBe(200);
+      const cur = (await get('/api/config/report-downloads/current', tok.REQ)).json();
+      expect(cur.alarms).toEqual({ mode: 'DIRECT', remarksRequired: false, passwordRequired: false });
+      expect(cur['data-report']).toEqual({ mode: 'REQUEST', remarksRequired: true, passwordRequired: true });
+    } finally {
+      if (before) await prisma.systemConfig.update({ where: { configKey: 'report-downloads' }, data: { configValue: before.configValue as never } });
+    }
+  });
+
+  it('report-approvers: saved roles AND users read back, and a request then goes to both', async () => {
+    const res = await put('report-approvers', { approverRoles: [ROLE_APPR], approverUserIds: [ids.NAMED] });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ approverRoles: [ROLE_APPR] });
-  });
-
-  it('the editor stays SUPER_ADMIN-only', async () => {
-    const res = await app.inject({ method: 'GET', url: '/api/config/dynamic/report-approvers', headers: bearer(tokReq) });
-    expect(res.statusCode).toBe(403);
-    const admin = await app.inject({ method: 'GET', url: '/api/config/dynamic/report-approvers', headers: bearer(tokAdmin) });
-    expect(admin.statusCode).toBe(200);
+    expect((await get('/api/config/report-approvers/current', tok.REQ)).json()).toEqual({ approverRoles: [ROLE_APPR], approverUserIds: [ids.NAMED] });
   });
 });
 
-describe('GET /api/report-reviews', () => {
-  it('queue: the approver sees it, the requester does not, SUPER_ADMIN sees everything pending', async () => {
-    const forAppr = await app.inject({ method: 'GET', url: '/api/report-reviews?list=queue', headers: bearer(tokAppr) });
-    expect(forAppr.statusCode).toBe(200);
-    expect(forAppr.json().data.map((r: any) => r.id)).toEqual(expect.arrayContaining(created));
-    const forReq = await app.inject({ method: 'GET', url: '/api/report-reviews?list=queue', headers: bearer(tokReq) });
-    expect(forReq.json().data.map((r: any) => r.id)).not.toEqual(expect.arrayContaining(created));
-    const forAdmin = await app.inject({ method: 'GET', url: '/api/report-reviews?list=queue&pageSize=200', headers: bearer(tokAdmin) });
-    expect(forAdmin.json().data.map((r: any) => r.id)).toEqual(expect.arrayContaining(created));
-    expect(typeof forAdmin.json().total).toBe('number');
+describe('the config reads', () => {
+  it('report-approvers/current: every user reads both lists, already coerced', async () => {
+    const res = await get('/api/config/report-approvers/current', tok.REQ);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ approverRoles: [ROLE_APPR], approverUserIds: [ids.NAMED] });
   });
 
-  it('mine: the requester sees their own, the approver does not', async () => {
-    const mine = await app.inject({ method: 'GET', url: '/api/report-reviews?list=mine', headers: bearer(tokReq) });
-    expect(mine.json().data.map((r: any) => r.id)).toEqual(expect.arrayContaining(created));
-    const notMine = await app.inject({ method: 'GET', url: '/api/report-reviews?list=mine', headers: bearer(tokAppr) });
-    expect(notMine.json().data).toHaveLength(0);
+  it('report-downloads/current: every user reads all five kinds, coerced (absent = REQUEST, remarks + password on)', async () => {
+    const res = await get('/api/config/report-downloads/current', tok.REQ);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      'data-report': { mode: 'REQUEST', remarksRequired: true, passwordRequired: true },
+      'trend-chart': { mode: 'DIRECT', remarksRequired: true, passwordRequired: true },
+      'instrument-alarms': { mode: 'REQUEST', remarksRequired: true, passwordRequired: true },
+      alarms: { mode: 'REQUEST', remarksRequired: false, passwordRequired: false },
+      'audit-trail': { mode: 'REQUEST', remarksRequired: true, passwordRequired: true },
+    });
+  });
+
+  it('report-approvers/candidates lists enabled users as "username … (role)" for the config page, and needs CONFIG_READ', async () => {
+    expect((await get('/api/config/report-approvers/candidates', tok.REQ)).statusCode).toBe(403);
+    const res = await get('/api/config/report-approvers/candidates', tokAdmin);
+    expect(res.statusCode).toBe(200);
+    const mine = res.json().find((o: any) => o.value === ids.APPR);
+    expect(mine.label).toContain(U.APPR);
+    expect(mine.label).toContain(ROLE_APPR);
+    expect(res.json().some((o: any) => /\(SUPER_ADMIN\)$/.test(o.label))).toBe(false);
+  });
+
+  it('both editors stay SUPER_ADMIN-only', async () => {
+    for (const key of ['report-approvers', 'report-downloads']) {
+      expect((await get(`/api/config/dynamic/${key}`, tok.REQ)).statusCode).toBe(403);
+      expect((await get(`/api/config/dynamic/${key}`, tokAdmin)).statusCode).toBe(200);
+    }
   });
 });
 
-describe('GET /api/report-reviews/:id', () => {
-  it('returns the snapshot to a party and 404 to anyone else', async () => {
-    const asAppr = await app.inject({ method: 'GET', url: `/api/report-reviews/${created[0]}`, headers: bearer(tokAppr) });
-    expect(asAppr.statusCode).toBe(200);
-    expect(asAppr.json().dataSnapshot.sections[0].body[0]).toEqual(['2026-08-24', '00:20']);
-    const asThird = await app.inject({ method: 'GET', url: `/api/report-reviews/${created[0]}`, headers: bearer(tokThird) });
-    expect(asThird.statusCode).toBe(404);
+describe('who sees what', () => {
+  it('queue: approvers by role and by name, in scope — never the requester, a role-mate, or an out-of-scope approver', async () => {
+    expect(await listIds('queue', tok.APPR)).toContain(created[0]);
+    expect(await listIds('queue', tok.NAMED)).toContain(created[0]);
+    for (const k of ['APPR_OUT', 'REQ', 'MATE', 'OTHER'] as const) expect(await listIds('queue', tok[k])).not.toContain(created[0]);
+    expect(await listIds('queue', tokAdmin)).toContain(created[0]);
+  });
+
+  it('mine ("Requests"): raised by me or by my role, in my scope', async () => {
+    expect(await listIds('mine', tok.REQ)).toContain(created[0]);
+    expect(await listIds('mine', tok.MATE)).toContain(created[0]);
+    expect(await listIds('mine', tok.MATE_OUT)).not.toContain(created[0]);
+    expect(await listIds('mine', tok.APPR)).not.toContain(created[0]);
+  });
+
+  it('GET /:id: the snapshot to every party in scope; 404 to the out-of-scope and the strangers', async () => {
+    for (const k of ['REQ', 'MATE', 'APPR', 'NAMED'] as const) {
+      const res = await get(`/api/report-reviews/${created[0]}`, tok[k]);
+      expect(res.statusCode, k).toBe(200);
+      expect(res.json().dataSnapshot.sections[0].body[0]).toEqual(['2026-08-24', '00:20']);
+    }
+    for (const k of ['MATE_OUT', 'APPR_OUT', 'OTHER'] as const) {
+      expect((await get(`/api/report-reviews/${created[0]}`, tok[k])).statusCode, k).toBe(404);
+    }
   });
 });
 
@@ -255,82 +359,61 @@ describe('POST /api/report-reviews/:id/approve | reject', () => {
   const decide = (id: string, verb: 'approve' | 'reject', token: string, remarks = 'checked', password: string | undefined = PASSWORD) =>
     app.inject({ method: 'POST', url: `/api/report-reviews/${id}/${verb}`, headers: bearer(token, password), payload: { remarks } });
 
-  it('the requester cannot approve their own request', async () => {
-    const res = await decide(created[0], 'approve', tokReq);
-    // The requester lacks REPORT_REVIEW_APPROVE too, so the permission gate
-    // answers first; the SELF_APPROVAL rule itself is pinned by the unit test
-    // on isSelfDecision — an approver-role user who is also the requester
-    // cannot be built here without a second approver role.
-    expect(res.statusCode).toBe(403);
+  it('a role-mate may not decide (no APPROVE permission); an out-of-scope approver gets 404; a stranger approver 404', async () => {
+    expect((await decide(created[0], 'approve', tok.MATE)).statusCode).toBe(403);
+    expect((await decide(created[0], 'approve', tok.APPR_OUT)).statusCode).toBe(404);
+    expect((await decide(created[0], 'approve', tok.OTHER)).statusCode).toBe(404);
+  });
+
+  it('a wrong password is 401 and blank remarks 400 — the decision is always signed and reasoned', async () => {
+    expect((await decide(created[0], 'approve', tok.APPR, 'checked', 'wrong')).statusCode).toBe(401);
+    expect((await decide(created[0], 'approve', tok.APPR, '  ')).statusCode).toBe(400);
+  });
+
+  it('the NAMED approver approves once — audited, requester notified — and a second decision is 409', async () => {
+    const res = await decide(created[0], 'approve', tok.NAMED, 'reviewed against the batch record');
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ status: 'APPROVED', decidedByName: U.NAMED, decidedByRole: ROLE_OTHER });
+    const note = await prisma.notification.findFirst({ where: { type: 'REPORT_REVIEW_APPROVED', forUserId: U.REQ } });
+    expect(note).toBeTruthy();
+    expect((await decide(created[0], 'approve', tok.APPR)).statusCode).toBe(409);
+  });
+
+  it('an approver by ROLE rejects the other request', async () => {
+    const res = await decide(created[1], 'reject', tok.APPR, 'wrong period');
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ status: 'REJECTED', decidedByName: U.APPR });
   });
 
   it('SUPER_ADMIN may approve a request they raised themselves (operator, 2026-09-08)', async () => {
     const own = await app.inject({
       method: 'POST', url: '/api/report-reviews', headers: bearer(tokAdmin, 'Admin@123'),
-      payload: { reportType: 'Alarms', title: 'ALARM REPORT', requestMeta, dataSnapshot: snapshot, remarks: 'own', assigneeRole: ROLE_APPR },
+      payload: { reportKind: 'audit-trail', reportType: 'Audit Trail', title: 'AUDIT TRAIL', requestMeta, dataSnapshot: snapshot, remarks: 'own' },
     });
     expect(own.statusCode).toBe(201);
     created.push(own.json().id);
+    expect(own.json().instrumentIds).toEqual([]);
     const res = await decide(own.json().id, 'approve', tokAdmin, 'checked', 'Admin@123');
     expect(res.statusCode).toBe(200);
-    expect(res.json().status).toBe('APPROVED');
-    // Both signature lines name the same person — that is the consequence the
-    // operator accepted when asking for this. (The test DB's super admin is
-    // `admin`, not `superadmin`; compare, don't name.)
     expect(res.json().decidedByName).toBe(res.json().requestedByName);
-  });
-
-  it('a non-party approver gets 404, a wrong password 401, and blank remarks 400', async () => {
-    // created[0] is assigned to the approver USER; the third user holds neither.
-    const asThird = await decide(created[0], 'approve', tokThird);
-    expect([403, 404]).toContain(asThird.statusCode); // 403: no APPROVE permission
-    expect((await decide(created[0], 'approve', tokAppr, 'checked', 'wrong')).statusCode).toBe(401);
-    expect((await decide(created[0], 'approve', tokAppr, '  ')).statusCode).toBe(400);
-  });
-
-  it('approves once — audits, notifies the requester — and refuses a second decision with 409', async () => {
-    const res = await decide(created[0], 'approve', tokAppr, 'reviewed against the batch record');
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ status: 'APPROVED', decidedByName: U_APPR, decidedByRole: ROLE_APPR, decisionRemarks: 'reviewed against the batch record' });
-    expect(res.json().decidedAt).toBeTruthy();
-    const audit = await prisma.auditTrail.findFirst({ where: { action: 'REPORT_REVIEW_APPROVED', targetId: created[0] } });
-    expect(audit?.userId).toBe(U_APPR);
-    const note = await prisma.notification.findFirst({ where: { type: 'REPORT_REVIEW_APPROVED', forUserId: U_REQ } });
-    expect(note).toBeTruthy();
-    expect((await decide(created[0], 'approve', tokAppr)).statusCode).toBe(409);
-    expect((await decide(created[0], 'reject', tokAppr)).statusCode).toBe(409);
-  });
-
-  it('rejects the role-assigned request through a holder of the role', async () => {
-    const res = await decide(created[1], 'reject', tokAppr, 'wrong period');
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ status: 'REJECTED', decidedByName: U_APPR });
-    const audit = await prisma.auditTrail.findFirst({ where: { action: 'REPORT_REVIEW_REJECTED', targetId: created[1] } });
-    expect(audit?.userId).toBe(U_APPR);
-    const note = await prisma.notification.findFirst({ where: { type: 'REPORT_REVIEW_REJECTED', forUserId: U_REQ } });
-    expect(note).toBeTruthy();
   });
 });
 
 describe('approved list and download-log', () => {
-  it('approved: both parties see it, a third user sees nothing', async () => {
-    for (const t of [tokReq, tokAppr]) {
-      const res = await app.inject({ method: 'GET', url: '/api/report-reviews?list=approved', headers: bearer(t) });
-      expect(res.json().data.map((r: any) => r.id)).toContain(created[0]);
-      expect(res.json().data.map((r: any) => r.id)).not.toContain(created[1]);
-    }
-    const third = await app.inject({ method: 'GET', url: '/api/report-reviews?list=approved', headers: bearer(tokThird) });
-    expect(third.json().total).toBe(0);
+  it('approved: the requester, the role-mate, the approver who signed and the approver role in scope see it; the out-of-scope and strangers do not', async () => {
+    for (const k of ['REQ', 'MATE', 'NAMED', 'APPR'] as const) expect(await listIds('approved', tok[k]), k).toContain(created[0]);
+    for (const k of ['MATE_OUT', 'APPR_OUT', 'OTHER'] as const) expect(await listIds('approved', tok[k]), k).not.toContain(created[0]);
+    // A rejected one is never in the approved list.
+    expect(await listIds('approved', tok.REQ)).not.toContain(created[1]);
   });
 
-  it('download-log: audits a party downloading the APPROVED document; 404 for a non-party; 409 when not approved', async () => {
-    const ok = await app.inject({ method: 'POST', url: `/api/report-reviews/${created[0]}/download-log`, headers: bearer(tokReq), payload: {} });
+  it('download-log: the role-mate may take a signed copy; out of scope 404; not approved 409', async () => {
+    const ok = await app.inject({ method: 'POST', url: `/api/report-reviews/${created[0]}/download-log`, headers: bearer(tok.MATE), payload: {} });
     expect(ok.statusCode).toBe(200);
     const audit = await prisma.auditTrail.findFirst({ where: { action: 'REPORT_DOWNLOADED', targetId: created[0] } });
-    expect(audit?.userId).toBe(U_REQ);
-    expect((audit?.afterValue as any)?.signatures?.map((s: any) => s.label)).toEqual(['Requested By', 'Approved By']);
-    expect((await app.inject({ method: 'POST', url: `/api/report-reviews/${created[0]}/download-log`, headers: bearer(tokThird), payload: {} })).statusCode).toBe(404);
-    expect((await app.inject({ method: 'POST', url: `/api/report-reviews/${created[1]}/download-log`, headers: bearer(tokReq), payload: {} })).statusCode).toBe(409);
+    expect(audit?.userId).toBe(U.MATE);
+    expect((await app.inject({ method: 'POST', url: `/api/report-reviews/${created[0]}/download-log`, headers: bearer(tok.APPR_OUT), payload: {} })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'POST', url: `/api/report-reviews/${created[1]}/download-log`, headers: bearer(tok.REQ), payload: {} })).statusCode).toBe(409);
   });
 
   it('has no DELETE route — a request is a §11 record', async () => {

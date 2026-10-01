@@ -10,11 +10,11 @@
  */
 import { type FastifyInstance } from 'fastify';
 import { buildContext } from '../../lib/build-context.js';
-import { enforceReauth } from '../../lib/reauth-check.js';
+import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { resolvePageSize } from '../../lib/page-size.js';
-import { reportReviewService, type ReviewList } from './service.js';
+import { reportReviewService, policyForKind, type ReviewList } from './service.js';
 
 const summaryProps = {
   id: { type: 'string' },
@@ -31,6 +31,10 @@ const summaryProps = {
   requestRemarks: { type: 'string' },
   assigneeUserId: { type: 'string', nullable: true },
   assigneeRole: { type: 'string', nullable: true },
+  // The frozen approvers and instruments (2026-10-01) — declared, or stripped.
+  approverRoles: { type: 'array', items: { type: 'string' } },
+  approverUserIds: { type: 'array', items: { type: 'string' } },
+  instrumentIds: { type: 'array', items: { type: 'string' } },
   decidedBy: { type: 'string', nullable: true },
   decidedByName: { type: 'string', nullable: true },
   decidedByRole: { type: 'string', nullable: true },
@@ -60,37 +64,44 @@ export default async function reportReviewRoutes(app: FastifyInstance) {
       summary: 'Raise a report request (every PDF download is one)',
       body: {
         type: 'object',
-        required: ['reportType', 'title', 'requestMeta', 'dataSnapshot', 'remarks'],
+        required: ['reportKind', 'reportType', 'title', 'requestMeta', 'dataSnapshot'],
         properties: {
+          // Which configured report type this is (2026-10-01) — decides whether
+          // it may be requested at all, and whether remarks and the password are required.
+          reportKind: { type: 'string', maxLength: 50 },
           reportType: { type: 'string', minLength: 1, maxLength: 100 },
           title: { type: 'string', minLength: 1, maxLength: 500 },
           subtitle: { type: 'string', maxLength: 1000 },
           requestMeta: { type: 'object', additionalProperties: true },
           dataSnapshot: { type: 'object', additionalProperties: true },
-          remarks: { type: 'string', minLength: 1, maxLength: 500 },
-          assigneeUserId: { type: 'string' },
-          assigneeRole: { type: 'string', maxLength: 50 },
+          remarks: { type: 'string', maxLength: 500 },
+          instrumentIds: { type: 'array', items: { type: 'string' }, maxItems: 1000 },
         },
       },
       response: { 201: summarySchema, ...errorResponses },
     },
   }, async (req, reply) => {
-    // The request IS the signature event the download used to be.
-    const { ok } = await enforceReauth('DOWNLOAD_REPORT', req, reply);
-    if (!ok) return;
     const raw = req.body as Record<string, unknown>;
+    // The kind's policy BEFORE the password: nobody is asked to sign a request
+    // the configuration refuses. Password = Yes asks EVERY role (2026-10-01);
+    // the request is then the signature event the download used to be.
+    const { kind, policy } = await policyForKind(raw.reportKind);
+    if (policy.passwordRequired) {
+      const { ok } = await enforceReauthAlways('DOWNLOAD_REPORT', req, reply);
+      if (!ok) return;
+    }
     // Remarks are a free-text reason and exempt from HTML stripping, like every
     // other reason here ("value < 20 per SOP" must survive). The snapshot and
     // the meta are data, not text fields, and are not sanitised either.
     const body = sanitizeStrings(raw, ['remarks', 'dataSnapshot', 'requestMeta']);
-    const remarks = requireRemarks(body.remarks);
-    if (!remarks) return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'remarks is required and cannot be blank.' });
+    // Blank is allowed only when the kind's remarks are off — the service checks.
+    const remarks = requireRemarks(body.remarks) ?? '';
     const row = await reportReviewService.submit(buildContext(req), {
+      reportKind: kind, policy,
       reportType: String(body.reportType), title: String(body.title),
       subtitle: typeof body.subtitle === 'string' ? body.subtitle : undefined,
       requestMeta: body.requestMeta, dataSnapshot: body.dataSnapshot, remarks,
-      assigneeUserId: typeof body.assigneeUserId === 'string' ? body.assigneeUserId : undefined,
-      assigneeRole: typeof body.assigneeRole === 'string' ? body.assigneeRole : undefined,
+      instrumentIds: Array.isArray(body.instrumentIds) ? (body.instrumentIds as unknown[]).filter((x): x is string => typeof x === 'string') : [],
     });
     return reply.code(201).send(row);
   });
@@ -100,7 +111,7 @@ export default async function reportReviewRoutes(app: FastifyInstance) {
     preHandler: [app.requirePermission('REPORT_REVIEW_READ')],
     schema: {
       tags: ['Report Reviews'],
-      summary: 'List requests: queue (for my approval), mine, or approved',
+      summary: 'List requests: queue (for my approval), mine (raised by me or my role), or approved',
       querystring: {
         type: 'object',
         properties: {
@@ -144,7 +155,7 @@ export default async function reportReviewRoutes(app: FastifyInstance) {
       preHandler: [app.requirePermission('REPORT_REVIEW_APPROVE')],
       schema: {
         tags: ['Report Reviews'],
-        summary: `${verb === 'approve' ? 'Approve' : 'Reject'} a request (assignee only; password re-auth)`,
+        summary: `${verb === 'approve' ? 'Approve' : 'Reject'} a request (approvers in scope only; password re-auth)`,
         params: { type: 'object', properties: { id: { type: 'string' } } },
         body: { type: 'object', required: ['remarks'], properties: { remarks: { type: 'string', minLength: 1, maxLength: 500 } } },
         response: { 200: summarySchema, ...errorResponses },

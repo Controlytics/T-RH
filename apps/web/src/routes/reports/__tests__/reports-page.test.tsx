@@ -22,13 +22,16 @@ const base = {
   requestedBy: 'u-req', requestedByName: 'rrq', requestedAt: '2026-09-07T14:02:00.000Z', requestRemarks: 'periodic review',
   decidedBy: null, decidedByName: null, decidedAt: null, decisionRemarks: null, createdAt: '2026-09-07T14:02:00.000Z',
 };
-const toMe = { ...base, id: 'r-user', status: 'PENDING', assigneeUserId: 'u-appr', assigneeRole: null };
-const toMyRole = { ...base, id: 'r-role', status: 'PENDING', assigneeUserId: null, assigneeRole: 'QA', title: 'ALARM REPORT', reportType: 'Alarms' };
-const toSomeoneElse = { ...base, id: 'r-other', status: 'PENDING', assigneeUserId: 'u-x', assigneeRole: null, title: 'Instrument Trend — Temperature', reportType: 'Instrument Trend — Temperature' };
-const approved = { ...base, id: 'r-ok', status: 'APPROVED', assigneeUserId: 'u-appr', assigneeRole: null, decidedBy: 'u-appr', decidedByName: 'qa1', decidedAt: '2026-09-07T15:10:00.000Z', decisionRemarks: 'checked' };
+// The approvers are the FROZEN set from configuration (2026-10-01): roles and
+// named users. The legacy single assignee columns are null on every row.
+const legacy = { assigneeUserId: null, assigneeRole: null, instrumentIds: ['i1'] };
+const toMe = { ...base, ...legacy, id: 'r-user', status: 'PENDING', approverRoles: [], approverUserIds: ['u-appr'] };
+const toMyRole = { ...base, ...legacy, id: 'r-role', status: 'PENDING', approverRoles: ['QA'], approverUserIds: [], title: 'ALARM REPORT', reportType: 'Alarms' };
+const toSomeoneElse = { ...base, ...legacy, id: 'r-other', status: 'PENDING', approverRoles: ['SUPERVISOR'], approverUserIds: ['u-x'], title: 'Instrument Trend — Temperature', reportType: 'Instrument Trend — Temperature' };
+const approved = { ...base, ...legacy, id: 'r-ok', status: 'APPROVED', approverRoles: ['QA'], approverUserIds: ['u-appr'], decidedBy: 'u-appr', decidedByName: 'qa1', decidedAt: '2026-09-07T15:10:00.000Z', decisionRemarks: 'checked' };
 
-const myOwn = { ...base, id: 'r-own', status: 'PENDING', requestedBy: 'u-appr', requestedByName: 'qa1', assigneeUserId: null, assigneeRole: 'QA', title: 'MY OWN REQUEST' };
-const superAdminsOwn = { ...base, id: 'r-sa-own', status: 'PENDING', requestedBy: 'u-sa', requestedByName: 'superadmin', assigneeUserId: null, assigneeRole: 'ADMIN', title: 'SUPER ADMIN OWN REQUEST' };
+const myOwn = { ...base, ...legacy, id: 'r-own', status: 'PENDING', requestedBy: 'u-appr', requestedByName: 'qa1', approverRoles: ['QA'], approverUserIds: [], title: 'MY OWN REQUEST' };
+const superAdminsOwn = { ...base, ...legacy, id: 'r-sa-own', status: 'PENDING', requestedBy: 'u-sa', requestedByName: 'superadmin', approverRoles: ['ADMIN'], approverUserIds: [], title: 'SUPER ADMIN OWN REQUEST' };
 
 const lists: Record<string, any[]> = { queue: [toMe, toMyRole, toSomeoneElse, myOwn, superAdminsOwn], mine: [], approved: [approved] };
 /** The frozen v2 snapshot the approved row opens beneath itself. */
@@ -39,6 +42,8 @@ const SNAPSHOT = {
     { kind: 'table', head: ['Date', 'Time', 'Temperature', 'Humidity'], body: [['24/08/2026', '00:15', '22.4', '47.0'], ['24/08/2026', '00:00', '22.1', '46.8']], bold: [[false, false, false, false], [false, false, false, false]] },
   ],
 };
+const APPROVED_FULL = { ...approved, dataSnapshot: SNAPSHOT };
+const PENDING_FULL = { ...toMyRole, dataSnapshot: SNAPSHOT };
 let listError: unknown = undefined;
 const mutate = vi.fn();
 
@@ -52,7 +57,8 @@ vi.mock('swr', () => ({
     }
     if (typeof k === 'string' && k.includes('/config/pagination')) return { data: { limit: 25, options: [10, 25, 50] }, mutate: vi.fn() };
     if (typeof k === 'string' && k.startsWith('/api/users?')) return { data: { data: [{ id: 'u-appr', username: 'qa1' }, { id: 'u-x', username: 'other' }] }, mutate: vi.fn() };
-    if (k === '/api/report-reviews/r-ok') return { data: { ...approved, dataSnapshot: SNAPSHOT }, isLoading: false, mutate: vi.fn() };
+    if (k === '/api/report-reviews/r-ok') return { data: APPROVED_FULL, isLoading: false, mutate: vi.fn() };
+    if (k === '/api/report-reviews/r-role') return { data: PENDING_FULL, isLoading: false, mutate: vi.fn() };
     return { data: undefined, isLoading: false, mutate: vi.fn() };
   },
 }));
@@ -65,12 +71,10 @@ vi.mock('@/hooks/use-datetime-format', () => ({
 vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), post: vi.fn(), postWithReauth: vi.fn() } }));
 
 const decideReview = vi.fn(async () => ({ ...toMe, status: 'APPROVED' }));
-const openDraft = vi.fn(async () => {});
 const downloadApproved = vi.fn(async () => {});
 vi.mock('@/lib/report-review', async (orig) => ({
   ...(await orig<typeof import('@/lib/report-review')>()),
   decideReview: (...a: unknown[]) => decideReview(...(a as [])),
-  openDraft: (...a: unknown[]) => openDraft(...(a as [])),
   downloadApproved: (...a: unknown[]) => downloadApproved(...(a as [])),
 }));
 
@@ -82,7 +86,7 @@ function mount() {
 const rowOf = (title: string) => screen.getByText(title).closest('tr')!;
 
 describe('ReportsPage', () => {
-  beforeEach(() => { me = asApprover; listError = undefined; mutate.mockClear(); decideReview.mockClear(); openDraft.mockClear(); downloadApproved.mockClear(); });
+  beforeEach(() => { me = asApprover; listError = undefined; mutate.mockClear(); decideReview.mockClear(); downloadApproved.mockClear(); });
 
   it('names the screen once and opens on the approval queue with the three lists as tabs', () => {
     mount();
@@ -91,21 +95,25 @@ describe('ReportsPage', () => {
     // UI v3 (2026-09-21): the shared band and the shared table band.
     expect(screen.getByTestId('page-hero')).toBeInTheDocument();
     expect(document.querySelector('thead')).toHaveAttribute('data-band', 'gradient');
-    for (const t of ['For my approval', 'My requests', 'Approved']) expect(screen.getByRole('tab', { name: t })).toBeInTheDocument();
+    for (const t of ['For my approval', 'Requests', 'Approved']) expect(screen.getByRole('tab', { name: t })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'For my approval' })).toHaveAttribute('aria-selected', 'true');
     expect(rowOf('Temperature and RH Data Report')).toHaveTextContent('rrq');
     expect(rowOf('Temperature and RH Data Report')).toHaveTextContent('qa1');   // Send to: the named user
     expect(rowOf('ALARM REPORT')).toHaveTextContent('any QA');                  // Send to: the role
+    // Every frozen approver is named — roles and users together.
+    expect(rowOf('Instrument Trend — Temperature')).toHaveTextContent('any SUPERVISOR, other');
+    // The second tab lists my ROLE's requests too (2026-10-01).
+    expect(screen.getByRole('tab', { name: 'Requests' })).toBeInTheDocument();
   });
 
-  it('offers Approve and Reject only on a PENDING row assigned to me — by user or by my role', () => {
+  it('offers Approve and Reject only on a PENDING row I am an approver of — named, or by my role', () => {
     mount();
     expect(within(rowOf('Temperature and RH Data Report')).getByRole('button', { name: 'Approve' })).toBeInTheDocument();
     expect(within(rowOf('ALARM REPORT')).getByRole('button', { name: 'Approve' })).toBeInTheDocument();
     expect(within(rowOf('Instrument Trend — Temperature')).queryByRole('button', { name: 'Approve' })).toBeNull();
     expect(within(rowOf('Instrument Trend — Temperature')).queryByRole('button', { name: 'Reject' })).toBeNull();
-    // Every party can look at the draft.
-    expect(within(rowOf('Instrument Trend — Temperature')).getByRole('button', { name: 'View draft' })).toBeInTheDocument();
+    // There is no View draft any more (2026-10-01) — on any row.
+    expect(screen.queryByRole('button', { name: 'View draft' })).toBeNull();
     // My own request, though assigned to my role, is not mine to decide.
     expect(within(rowOf('MY OWN REQUEST')).queryByRole('button', { name: 'Approve' })).toBeNull();
   });
@@ -143,12 +151,6 @@ describe('ReportsPage', () => {
     expect(confirm).toBeEnabled();
   });
 
-  it('opens the draft for review', async () => {
-    mount();
-    fireEvent.click(within(rowOf('ALARM REPORT')).getByRole('button', { name: 'View draft' }));
-    await waitFor(() => expect(openDraft).toHaveBeenCalledWith('r-role', expect.any(Function)));
-  });
-
   it('downloads only from the Approved list, and shows who signed', async () => {
     mount();
     fireEvent.click(screen.getByRole('tab', { name: 'Approved' }));
@@ -168,38 +170,41 @@ describe('ReportsPage', () => {
 
   it('says "No requests" only when the list is genuinely empty', () => {
     mount();
-    fireEvent.click(screen.getByRole('tab', { name: 'My requests' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Requests' }));
     expect(screen.getByText(/no requests/i)).toBeInTheDocument();
   });
 });
 
-describe('ReportsPage — View draft only while PENDING (2026-09-25)', () => {
-  // Operator: "if request is approved or rejected then view draft should not
-  // come". The draft is a thing to review; once decided, an approved report
-  // downloads signed and a rejected one is closed.
-  beforeEach(() => { me = asApprover; listError = undefined; openDraft.mockClear(); });
+describe('ReportsPage — no View draft; a PENDING row opens its data beneath it (2026-10-01)', () => {
+  // Operator: "remove view draft and how you are showing after approval that
+  // below the request show like that only". The approver reads the frozen
+  // snapshot under the row and signs there.
+  beforeEach(() => { me = asApprover; listError = undefined; });
 
-  it('offers Download and no View draft on an approved row', () => {
+  it('a pending row opens its snapshot as tables, and its Approve button does not toggle it', () => {
     mount();
-    fireEvent.click(screen.getByRole('tab', { name: 'Approved' }));
-    const row = rowOf('Temperature and RH Data Report');
-    expect(within(row).getByRole('button', { name: 'Download' })).toBeInTheDocument();
-    expect(within(row).queryByRole('button', { name: 'View draft' })).toBeNull();
+    const row = rowOf('ALARM REPORT');
+    expect(row).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(row);
+    expect(row).toHaveAttribute('aria-expanded', 'true');
+    expect(row.nextElementSibling).toHaveAttribute('data-review-detail', 'r-role');
+    expect(within(screen.getByTestId('report-snapshot')).getByText('22.4')).toBeInTheDocument();
+    fireEvent.click(within(row).getByRole('button', { name: 'Approve' }));
+    expect(row).toHaveAttribute('aria-expanded', 'true');
   });
 
-  it('offers neither on a rejected row', () => {
-    const rejected = { ...base, id: 'r-no', status: 'REJECTED', requestedBy: 'u-appr', requestedByName: 'qa1', assigneeUserId: 'u-x', assigneeRole: null, title: 'REJECTED REPORT', decidedBy: 'u-x', decidedByName: 'x', decidedAt: '2026-09-07T16:00:00.000Z', decisionRemarks: 'wrong period' };
+  it('a rejected row offers no Download and does not open', () => {
+    const rejected = { ...base, ...legacy, id: 'r-no', status: 'REJECTED', requestedBy: 'u-appr', requestedByName: 'qa1', approverRoles: [], approverUserIds: ['u-x'], title: 'REJECTED REPORT', decidedBy: 'u-x', decidedByName: 'x', decidedAt: '2026-09-07T16:00:00.000Z', decisionRemarks: 'wrong period' };
     const before = lists.mine;
     lists.mine = [rejected];
     try {
       mount();
-      fireEvent.click(screen.getByRole('tab', { name: 'My requests' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Requests' }));
       const row = rowOf('REJECTED REPORT');
-      expect(within(row).queryByRole('button', { name: 'View draft' })).toBeNull();
       expect(within(row).queryByRole('button', { name: 'Download' })).toBeNull();
-      // And a pending row in the queue still offers it.
-      fireEvent.click(screen.getByRole('tab', { name: 'For my approval' }));
-      expect(within(rowOf('ALARM REPORT')).getByRole('button', { name: 'View draft' })).toBeInTheDocument();
+      fireEvent.click(row);
+      expect(row).not.toHaveAttribute('aria-expanded');
+      expect(screen.queryByTestId('report-snapshot')).toBeNull();
     } finally {
       lists.mine = before;
     }
@@ -236,13 +241,8 @@ describe('ReportsPage — an approved row opens its report data beneath it (2026
     expect(screen.queryByTestId('report-snapshot')).toBeNull();
   });
 
-  it('does not open on a pending row, and the Download button does not toggle the row', () => {
+  it('the Download button does not toggle the row', () => {
     mount();
-    const pendingRow = rowOf('ALARM REPORT');
-    fireEvent.click(pendingRow);
-    expect(pendingRow).not.toHaveAttribute('aria-expanded');
-    expect(screen.queryByTestId('report-snapshot')).toBeNull();
-
     fireEvent.click(screen.getByRole('tab', { name: 'Approved' }));
     const row = rowOf('Temperature and RH Data Report');
     fireEvent.click(within(row).getByRole('button', { name: 'Download' }));

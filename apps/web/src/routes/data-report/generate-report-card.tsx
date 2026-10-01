@@ -2,12 +2,10 @@ import { useState } from 'react';
 import { TELEMETRY_DECIMALS_FALLBACK } from '@digilog/shared';
 import { ExportMenu } from '@/components/ExportMenu';
 import { ReportDownloadDialog, type ReportDownloadRequest } from '@/components/report-download-dialog';
-import { ReauthDialog } from '@/components/reauth-dialog';
-import { useReauth } from '@/hooks/use-reauth';
 import { useExportOptions } from '@/hooks/use-export-options';
 import { useSensorWords } from '@/hooks/use-failure-text';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
-import { submitReportForReview } from '@/lib/report-review';
+import { deliverReport, deliveryToast } from '@/lib/report-delivery';
 import { useToast } from '@/hooks/use-toast';
 import { themeGradient } from '@/lib/theme-styles';
 import { useTrendPeriod } from '@/routes/instruments/use-trend-data';
@@ -61,7 +59,6 @@ export function GenerateReportCard({ scope }: { scope: HistoryScope }) {
   const { period } = useTrendPeriod();
   const [pendingDownload, setPendingDownload] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
-  const reauth = useReauth();
   const { toast } = useToast();
   const sensorWords = useSensorWords();
   const { formatDate, formatTime, formatDateTime } = useDatetimeFormat();
@@ -73,7 +70,7 @@ export function GenerateReportCard({ scope }: { scope: HistoryScope }) {
     const interval = req.intervalMs !== undefined ? req.intervalMs : period.intervalMs;
     const fmt = { formatDate, formatTime };
     try {
-      await reauth.executeWithResult('DOWNLOAD_REPORT', async (password) => {
+      {
         // Every instrument is read (two requests each) with a few in flight at
         // once — an Area of thirty read one after another was 60 serial round
         // trips (review, 2026-09-07). Sections land by INDEX, so the document
@@ -117,25 +114,23 @@ export function GenerateReportCard({ scope }: { scope: HistoryScope }) {
         await mapWithConcurrency(targets, READ_CONCURRENCY, readOne);
         setProgress('Building the report…');
         const report = await renderDataReports({ formatDateTime, instruments: sections });
-        // A REQUEST, not a file (2026-09-07): the frozen document goes to the
-        // approver; the requester downloads it, signed, from the Reports page.
-        const snapshot = report.getSnapshot();
-        await submitReportForReview({
-          snapshot, reportType: 'Instrument Time Series', title: snapshot.title,
+        // Direct or Request, as Configuration → Report Downloads says for the
+        // Data Report (2026-10-01). The instrument IDS go with a request — they
+        // decide who may see it; the codes are only what the list prints.
+        const outcome = await deliverReport({
+          kind: 'data-report', req, report, reportType: 'Instrument Time Series', title: report.getSnapshot().title,
           requestMeta: {
             period: reportPeriod, intervalMs: interval,
             recordCount: sections.reduce((n, s) => n + s.rows.length, 0),
             instrumentCodes: targets.map((t) => t.code),
           },
-          remarks: req.remarks, assignee: req.assignee, password,
+          instrumentIds: targets.map((t) => t.id),
         });
-      });
-      setPendingDownload(false);
-      toast.success('Sent for approval', `The request is with ${req.assigneeLabel || 'the approver'} — see Reports.`);
+        setPendingDownload(false);
+        toast.success(...deliveryToast(outcome));
+      }
     } catch (e: any) {
-      // A cancelled reauth prompt is not a failure. Any other error rethrows so
-      // the dialog surfaces it and stays open.
-      if (e?.error === 'REAUTH_CANCELLED') { setPendingDownload(false); return; }
+      // Any error rethrows so the dialog surfaces it and stays open.
       throw e;
     } finally {
       setProgress(null);
@@ -185,6 +180,7 @@ export function GenerateReportCard({ scope }: { scope: HistoryScope }) {
       <ReportDownloadDialog
         open={pendingDownload}
         reportName="Data Report"
+        kind="data-report"
         showPeriod
         showInterval
         initialPeriod={{ from: period.from, to: period.to, label: period.label }}
@@ -192,16 +188,6 @@ export function GenerateReportCard({ scope }: { scope: HistoryScope }) {
         progress={progress}
         onCancel={() => setPendingDownload(false)}
         onConfirm={runDownload}
-      />
-      <ReauthDialog
-        open={reauth.isOpen}
-        password={reauth.password}
-        error={reauth.error}
-        isVerifying={reauth.isVerifying}
-        onPasswordChange={reauth.setPassword}
-        onConfirm={reauth.confirm}
-        onCancel={reauth.cancel}
-        actionLabel="Download Report"
       />
     </>
   );

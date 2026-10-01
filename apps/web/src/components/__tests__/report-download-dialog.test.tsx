@@ -1,205 +1,196 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ReportDownloadDialog } from '../report-download-dialog';
 
-// Which roles may approve is administered (2026-09-07); a test overrides it here.
-const approverState = vi.hoisted(() => ({ override: null as string[] | null }));
-
-// The Send-to picker (2026-09-07) reads the active roles and users.
+/**
+ * The dialog shapes itself from Configuration → Report Downloads (2026-10-01):
+ * Direct or Request, a remarks box or none, a password box or none — and the
+ * requester never chooses an approver (the Send-to picker is gone).
+ *
+ * The swr mock returns MODULE-LEVEL constants per key: a fresh object per call
+ * makes an effect keyed on the data re-run forever (the UI v3 hang).
+ */
+const POLICY = {
+  REQUEST_FULL: { mode: 'REQUEST', remarksRequired: true, passwordRequired: true },
+  DIRECT_FULL: { mode: 'DIRECT', remarksRequired: true, passwordRequired: true },
+  DIRECT_BARE: { mode: 'DIRECT', remarksRequired: false, passwordRequired: false },
+} as const;
+const APPROVERS = { SOME: { approverRoles: ['SUPERVISOR'], approverUserIds: ['u1', 'u2'] }, NONE: { approverRoles: [], approverUserIds: [] } };
+const state = vi.hoisted(() => ({ downloads: undefined as unknown, approvers: undefined as unknown }));
+const responses = new Map<string, unknown>();
+function setPolicy(alarms: unknown, approvers: unknown = APPROVERS.SOME) {
+  responses.set('/api/config/report-downloads/current', {
+    'data-report': alarms, 'trend-chart': alarms, 'instrument-alarms': alarms, alarms, 'audit-trail': alarms,
+  });
+  responses.set('/api/config/report-approvers/current', approvers);
+}
 vi.mock('swr', () => ({
-  default: (key: any) => {
-    const k = typeof key === 'function' ? key() : key;
-    if (typeof k === 'string' && k.startsWith('/api/roles/active')) return { data: [{ name: 'QA', displayName: 'QA Approver' }, { name: 'OPS', displayName: 'Operations' }, { name: 'SUPER_ADMIN', displayName: 'Super Admin' }] };
-    if (typeof k === 'string' && k.startsWith('/api/users?')) return { data: { data: [{ id: 'u-appr', username: 'qa1', fullName: 'QA One', role: 'QA' }, { id: 'u-ops', username: 'ops1', fullName: 'Ops One', role: 'OPS' }] } };
-    if (typeof k === 'string' && k.startsWith('/api/config/report-approvers/current')) return { data: { approverRoles: approverState.override ?? ['QA'] } };
-    return { data: undefined };
-  },
+  default: (key: any) => ({ data: typeof key === 'string' ? responses.get(key) : undefined }),
 }));
+void state;
 
 const period = { from: '2026-08-01T00:00:00.000Z', to: '2026-08-24T00:00:00.000Z', label: 'Last 24 days' };
+const open = (extra: Record<string, unknown> = {}, onConfirm = vi.fn().mockResolvedValue(undefined)) => {
+  render(<ReportDownloadDialog open reportName="Alarm Report" kind="alarms" initialPeriod={period} onCancel={() => {}} onConfirm={onConfirm} {...extra} />);
+  return onConfirm;
+};
+const password = () => document.getElementById('report-download-password') as HTMLInputElement;
 
-describe('ReportDownloadDialog', () => {
+beforeEach(() => { responses.clear(); setPolicy(POLICY.REQUEST_FULL); });
+
+describe('ReportDownloadDialog — the basics', () => {
   it('renders nothing when closed', () => {
     const { container } = render(
-      <ReportDownloadDialog open={false} reportName="Audit Trail" initialPeriod={period}
-        onCancel={() => {}} onConfirm={async () => {}} />,
+      <ReportDownloadDialog open={false} reportName="Audit Trail" kind="audit-trail" initialPeriod={period} onCancel={() => {}} onConfirm={async () => {}} />,
     );
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('refuses to confirm with empty remarks — a report must state its reason', async () => {
-    const onConfirm = vi.fn();
-    render(
-      <ReportDownloadDialog open reportName="Audit Trail" initialPeriod={period}
-        onCancel={() => {}} onConfirm={onConfirm} />,
-    );
-    fireEvent.click(screen.getByRole('button', { name: /request approval/i }));
-    await waitFor(() => expect(onConfirm).not.toHaveBeenCalled());
+  it('says Loading and offers no action until the configuration arrives — it never guesses a mode', () => {
+    responses.clear();
+    open();
+    expect(screen.getByText('Loading…')).toBeInTheDocument();
+    expect(screen.queryByLabelText(/remarks/i)).toBeNull();
+    expect(screen.getAllByRole('button').filter((b) => !/cancel/i.test(b.textContent ?? '')).every((b) => (b as HTMLButtonElement).disabled)).toBe(true);
   });
 
-  it('refuses whitespace-only remarks', async () => {
-    const onConfirm = vi.fn();
-    render(
-      <ReportDownloadDialog open reportName="Audit Trail" initialPeriod={period}
-        onCancel={() => {}} onConfirm={onConfirm} />,
-    );
-    fireEvent.change(screen.getByLabelText(/remarks/i), { target: { value: '   ' } });
-    fireEvent.click(screen.getByRole('button', { name: /request approval/i }));
-    await waitFor(() => expect(onConfirm).not.toHaveBeenCalled());
+  it('calls onCancel without confirming', () => {
+    const onCancel = vi.fn(); const onConfirm = vi.fn();
+    render(<ReportDownloadDialog open reportName="Audit Trail" kind="audit-trail" initialPeriod={period} onCancel={onCancel} onConfirm={onConfirm} />);
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    expect(onCancel).toHaveBeenCalled();
+    expect(onConfirm).not.toHaveBeenCalled();
   });
 
-  it('passes the trimmed remarks and the period through on confirm', async () => {
-    const onConfirm = vi.fn().mockResolvedValue(undefined);
-    render(
-      <ReportDownloadDialog open reportName="Audit Trail" initialPeriod={period}
-        onCancel={() => {}} onConfirm={onConfirm} />,
-    );
+  it('hides the period fields when showPeriod is false', () => {
+    open({ showPeriod: false });
+    expect(screen.queryByLabelText(/^from$/i)).toBeNull();
+  });
+});
+
+describe('REQUEST mode', () => {
+  it('names the action Request approval, names who it goes to, and has NO Send-to picker', () => {
+    open();
+    expect(screen.getByRole('heading', { name: 'Request approval — Alarm Report' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Request approval' })).toBeInTheDocument();
+    expect(screen.getByTestId('report-download-approvers')).toHaveTextContent('any SUPERVISOR, and 2 named users');
+    expect(screen.queryByLabelText(/send to/i)).toBeNull();
+    expect(screen.queryByRole('combobox', { name: /send to/i })).toBeNull();
+  });
+
+  it('with no approver configured it says so, names the fix, and cannot be sent', () => {
+    setPolicy(POLICY.REQUEST_FULL, APPROVERS.NONE);
+    open();
+    expect(screen.getByRole('alert')).toHaveTextContent(/Report Approvers/);
+    expect(screen.getByRole('button', { name: 'Request approval' })).toBeDisabled();
+  });
+
+  it('carries the trimmed remarks, the password and mode REQUEST on confirm', async () => {
+    const onConfirm = open();
     fireEvent.change(screen.getByLabelText(/remarks/i), { target: { value: '  monthly review  ' } });
-    fireEvent.change(screen.getByLabelText(/send to/i), { target: { value: 'QA' } });
-    fireEvent.click(screen.getByRole('button', { name: /request approval/i }));
-    await waitFor(() => expect(onConfirm).toHaveBeenCalledWith(
-      expect.objectContaining({ remarks: 'monthly review', period: expect.objectContaining({ from: period.from }) }),
-    ));
+    fireEvent.change(password(), { target: { value: 'pw' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Request approval' }));
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({
+      remarks: 'monthly review', password: 'pw', mode: 'REQUEST', period: expect.objectContaining({ from: period.from }),
+    })));
+  });
+});
+
+describe('DIRECT mode', () => {
+  it('names the action Download and says nothing about approvers', () => {
+    setPolicy(POLICY.DIRECT_FULL);
+    open();
+    expect(screen.getByRole('heading', { name: 'Download — Alarm Report' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Download' })).toBeInTheDocument();
+    expect(screen.queryByTestId('report-download-approvers')).toBeNull();
   });
 
-  it('offers no interval unless asked, and then carries the chosen one on confirm', async () => {
-    const onConfirm = vi.fn().mockResolvedValue(undefined);
-    const { unmount } = render(
-      <ReportDownloadDialog open reportName="Alarms" initialPeriod={period}
-        onCancel={() => {}} onConfirm={onConfirm} />,
-    );
-    expect(screen.queryByLabelText(/^Interval$/)).toBeNull();
-    fireEvent.change(screen.getByLabelText(/remarks/i), { target: { value: 'x' } });
-    fireEvent.change(screen.getByLabelText(/send to/i), { target: { value: 'QA' } });
-    fireEvent.click(screen.getByRole('button', { name: /request approval/i }));
+  it('with remarks and password OFF shows neither box and confirms with neither', async () => {
+    setPolicy(POLICY.DIRECT_BARE);
+    const onConfirm = open();
+    expect(screen.queryByLabelText(/remarks/i)).toBeNull();
+    expect(password()).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Download' }));
     await waitFor(() => expect(onConfirm).toHaveBeenCalled());
-    expect(onConfirm.mock.calls[0][0]).not.toHaveProperty('intervalMs');
-    unmount();
+    const req = onConfirm.mock.calls[0][0];
+    expect(req).toMatchObject({ mode: 'DIRECT', remarks: '' });
+    expect(req).not.toHaveProperty('password');
+  });
+});
 
-    onConfirm.mockClear();
-    render(
-      <ReportDownloadDialog open reportName="Data Report" initialPeriod={period}
-        showInterval initialIntervalMs={300_000}
-        onCancel={() => {}} onConfirm={onConfirm} />,
-    );
-    // Seeded from the page, sits between the period and the remarks.
+describe('remarks and password, when required', () => {
+  it('refuses empty or whitespace-only remarks', async () => {
+    const onConfirm = open();
+    fireEvent.change(password(), { target: { value: 'pw' } });
+    fireEvent.change(screen.getByLabelText(/remarks/i), { target: { value: '   ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Request approval' }));
+    await waitFor(() => expect(onConfirm).not.toHaveBeenCalled());
+  });
+
+  it('refuses a missing password', async () => {
+    const onConfirm = open();
+    fireEvent.change(screen.getByLabelText(/remarks/i), { target: { value: 'x' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Request approval' }));
+    await waitFor(() => expect(onConfirm).not.toHaveBeenCalled());
+  });
+
+  it('shows a wrong password IN the dialog and stays open', async () => {
+    const onConfirm = open({}, vi.fn().mockRejectedValue({ error: 'REAUTH_FAILED', message: 'x' }));
+    fireEvent.change(screen.getByLabelText(/remarks/i), { target: { value: 'x' } });
+    fireEvent.change(password(), { target: { value: 'bad' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Request approval' }));
+    expect(await screen.findByText('Incorrect password. Please try again.')).toBeInTheDocument();
+    expect(onConfirm).toHaveBeenCalled();
+  });
+
+  it('a `policy` override replaces the configuration (the Audit Trail Excel export)', () => {
+    open({ policy: POLICY.DIRECT_BARE });
+    expect(screen.getByRole('button', { name: 'Download' })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/remarks/i)).toBeNull();
+  });
+});
+
+describe('interval and progress', () => {
+  it('offers no interval unless asked, and then carries the chosen one on confirm', async () => {
+    setPolicy(POLICY.DIRECT_BARE);
+    const first = open();
+    expect(screen.queryByLabelText(/^Interval$/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Download' }));
+    await waitFor(() => expect(first).toHaveBeenCalled());
+    expect(first.mock.calls[0][0]).not.toHaveProperty('intervalMs');
+  });
+
+  it('seeds the interval from the page, between the period and the remarks', async () => {
+    const onConfirm = open({ showInterval: true, initialIntervalMs: 300_000 });
     const select = screen.getByLabelText(/^Interval$/) as HTMLSelectElement;
     expect(select.value).toBe(String(300_000));
     const order = [screen.getByLabelText(/^From$/), select, screen.getByLabelText(/remarks/i)];
     expect(order[0].compareDocumentPosition(order[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(order[1].compareDocumentPosition(order[2]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    fireEvent.change(select, { target: { value: '' } });   // Raw
+    fireEvent.change(select, { target: { value: '' } });
     fireEvent.change(screen.getByLabelText(/remarks/i), { target: { value: 'x' } });
-    fireEvent.change(screen.getByLabelText(/send to/i), { target: { value: 'QA' } });
-    fireEvent.click(screen.getByRole('button', { name: /request approval/i }));
+    fireEvent.change(password(), { target: { value: 'pw' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Request approval' }));
     await waitFor(() => expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({ intervalMs: null })));
   });
 
-  it('shows the caller\'s progress line only while a download is running', async () => {
+  it('shows the caller\'s progress line only while running', async () => {
+    setPolicy(POLICY.DIRECT_BARE);
     let finish: () => void = () => {};
     const onConfirm = vi.fn(() => new Promise<void>((resolve) => { finish = resolve; }));
     const { rerender } = render(
-      <ReportDownloadDialog open reportName="Instrument History" initialPeriod={period}
-        progress="Reading CWH/RDU/001-00 (1 of 30)…" onCancel={() => {}} onConfirm={onConfirm} />,
+      <ReportDownloadDialog open reportName="Data Report" kind="data-report" initialPeriod={period}
+        progress="Read 1 of 30 instruments…" onCancel={() => {}} onConfirm={onConfirm} />,
     );
-    // Not busy yet: no status line, even though the caller passed one.
     expect(screen.queryByRole('status')).toBeNull();
-    fireEvent.change(screen.getByLabelText(/remarks/i), { target: { value: 'x' } });
-    fireEvent.change(screen.getByLabelText(/send to/i), { target: { value: 'QA' } });
-    fireEvent.click(screen.getByRole('button', { name: /request approval/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Download' }));
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('1 of 30'));
     rerender(
-      <ReportDownloadDialog open reportName="Instrument History" initialPeriod={period}
-        progress="Reading CWH/RDU/002-00 (2 of 30)…" onCancel={() => {}} onConfirm={onConfirm} />,
+      <ReportDownloadDialog open reportName="Data Report" kind="data-report" initialPeriod={period}
+        progress="Read 2 of 30 instruments…" onCancel={() => {}} onConfirm={onConfirm} />,
     );
     expect(screen.getByRole('status')).toHaveTextContent('2 of 30');
     finish();
     await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
-  });
-
-  it('hides the period fields when showPeriod is false', () => {
-    render(
-      <ReportDownloadDialog open reportName="Alarms" initialPeriod={period} showPeriod={false}
-        onCancel={() => {}} onConfirm={async () => {}} />,
-    );
-    expect(screen.queryByLabelText(/from/i)).toBeNull();
-  });
-
-  it('calls onCancel without confirming', () => {
-    const onCancel = vi.fn(); const onConfirm = vi.fn();
-    render(
-      <ReportDownloadDialog open reportName="Audit Trail" initialPeriod={period}
-        onCancel={onCancel} onConfirm={onConfirm} />,
-    );
-    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
-    expect(onCancel).toHaveBeenCalled();
-    expect(onConfirm).not.toHaveBeenCalled();
-  });
-});
-
-describe('Send to — only the ADMINISTERED approver roles, and their holders (2026-09-07)', () => {
-  // Operator: "that approval role should be configurable which role user should
-  // be approved that role will set by super admin in configurations". The
-  // picker is presentation; the server refuses anything outside the list.
-  const period = { from: '2026-08-24T00:00:00.000Z', to: '2026-08-24T01:00:00.000Z', label: 'Custom' };
-
-  it('offers only the configured roles, and only users holding one of them', () => {
-    render(<ReportDownloadDialog open reportName="Data Report" initialPeriod={period} onCancel={() => {}} onConfirm={vi.fn()} />);
-    const roleSelect = screen.getByLabelText(/send to/i) as HTMLSelectElement;
-    expect([...roleSelect.options].map((o) => o.value).filter(Boolean)).toEqual(['QA']);
-    fireEvent.click(screen.getByRole('button', { name: /to a user/i }));
-    const userSelect = screen.getByLabelText(/send to/i) as HTMLSelectElement;
-    expect([...userSelect.options].map((o) => o.value).filter(Boolean)).toEqual(['u-appr']);
-  });
-
-  it('with no approver role configured it says so, names the fix, and offers nothing', () => {
-    approverState.override = [];
-    try {
-      render(<ReportDownloadDialog open reportName="Data Report" initialPeriod={period} onCancel={() => {}} onConfirm={vi.fn()} />);
-      expect(screen.getByRole('alert')).toHaveTextContent(/no approver role is configured/i);
-      expect(screen.getByRole('alert')).toHaveTextContent(/super admin/i);
-      expect(screen.queryByLabelText(/send to/i)).toBeNull();
-    } finally {
-      approverState.override = null;
-    }
-  });
-});
-
-describe('Send to — the request needs an approver (2026-09-07)', () => {
-  // Every download is a REQUEST now: the dialog names who approves it, and the
-  // confirm button says so. Design: docs/superpowers/specs/2026-09-07-report-review-workflow-design.md
-  const period = { from: '2026-08-24T00:00:00.000Z', to: '2026-08-24T01:00:00.000Z', label: 'Custom' };
-
-  it('refuses to confirm until an approver is chosen, and names the button Request approval', async () => {
-    const onConfirm = vi.fn().mockResolvedValue(undefined);
-    render(<ReportDownloadDialog open reportName="Data Report" initialPeriod={period} onCancel={() => {}} onConfirm={onConfirm} />);
-    expect(screen.getByRole('button', { name: /request approval/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^download$/i })).toBeNull();
-    fireEvent.change(screen.getByLabelText(/remarks/i), { target: { value: 'monthly review' } });
-    fireEvent.click(screen.getByRole('button', { name: /request approval/i }));
-    expect(await screen.findByText(/choose who approves/i)).toBeInTheDocument();
-    expect(onConfirm).not.toHaveBeenCalled();
-  });
-
-  it('carries the chosen USER on confirm', async () => {
-    const onConfirm = vi.fn().mockResolvedValue(undefined);
-    render(<ReportDownloadDialog open reportName="Data Report" initialPeriod={period} onCancel={() => {}} onConfirm={onConfirm} />);
-    fireEvent.change(screen.getByLabelText(/remarks/i), { target: { value: 'monthly review' } });
-    fireEvent.click(screen.getByRole('button', { name: /to a user/i }));
-    fireEvent.change(screen.getByLabelText(/send to/i), { target: { value: 'u-appr' } });
-    fireEvent.click(screen.getByRole('button', { name: /request approval/i }));
-    await waitFor(() => expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({ remarks: 'monthly review', assignee: { userId: 'u-appr' } })));
-  });
-
-  it('carries the chosen ROLE on confirm, and never offers SUPER_ADMIN', async () => {
-    const onConfirm = vi.fn().mockResolvedValue(undefined);
-    render(<ReportDownloadDialog open reportName="Alarms" initialPeriod={period} onCancel={() => {}} onConfirm={onConfirm} />);
-    fireEvent.change(screen.getByLabelText(/remarks/i), { target: { value: 'x' } });
-    fireEvent.change(screen.getByLabelText(/send to/i), { target: { value: 'QA' } });
-    const roleSelect = screen.getByLabelText(/send to/i) as HTMLSelectElement;
-    expect([...roleSelect.options].map((o) => o.value)).not.toContain('SUPER_ADMIN');
-    fireEvent.change(roleSelect, { target: { value: 'QA' } });
-    fireEvent.click(screen.getByRole('button', { name: /request approval/i }));
-    await waitFor(() => expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({ assignee: { role: 'QA' } })));
   });
 });

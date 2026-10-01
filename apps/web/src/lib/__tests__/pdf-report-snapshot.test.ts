@@ -103,7 +103,7 @@ describe('ReportSnapshot v2', () => {
   });
 
   it('DRAFT: watermarks every page and prints no signature — on the path the approver actually opens', async () => {
-    // `openDraft` never calls `save()`; it hands the document to a new tab as a
+    // Draft rendering has had NO caller since 2026-10-01 (`openDraft` and View draft removed); kept as a renderer capability. It never calls `save()`; it hands the document to a new tab as a
     // blob URL. The watermark and the page numbers are painted by the same
     // finalisation `save()` runs, so the blob path must run it too (review,
     // 2026-09-07: the approver's tab opened clean, unpaginated, unwatermarked).

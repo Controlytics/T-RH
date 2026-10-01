@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { usePaginationDefaults } from '@/hooks/use-pagination-config';
 import {
-  decideReview, openDraft, downloadApproved, assigneeText,
+  decideReview, downloadApproved, approversText,
   type ReviewSummary, type ReviewList,
 } from '@/lib/report-review';
 import { DecisionDialog } from './decision-dialog';
@@ -26,20 +26,26 @@ import type { ReviewFull } from '@/lib/report-review';
  * user and approved user can get that approved data in side bar new option
  * there user can download reports"*.
  *
- * Three lists, each the server's own answer to "what may I see" (party-scoped
- * there, never here): the requests waiting for MY decision, the requests I
- * raised, and the approved reports I am a party to. A row's actions follow
- * its state and my part in it: any party may look at the DRAFT while the
- * request is PENDING (not once it is approved or rejected — operator,
- * 2026-09-25); only the assignee (by user, or by holding the role) may decide
- * a PENDING one, and only with the `reports.approve` gate; an APPROVED one
- * downloads with both signatures. Design:
- * docs/superpowers/specs/2026-09-07-report-review-workflow-design.md
+ * Three lists, each the server's own answer to "what may I see" (scoped
+ * there, never here — by party AND by instrument scope since 2026-10-01): the
+ * requests waiting for MY decision, the requests raised by me OR ANYONE IN MY
+ * ROLE, and the approved reports I may see. A row's actions follow its state
+ * and my part in it: only an approver (a configured role or user) may decide a
+ * PENDING one, and only with the `reports.approve` gate; an APPROVED one
+ * downloads with both signatures.
+ *
+ * **No "View draft" (removed 2026-10-01, operator: "remove view draft and how
+ * you are showing after approval that below the request show like that
+ * only").** A PENDING row opens its frozen snapshot beneath it as tables, the
+ * way an approved row does — the approver reads the data there and signs.
+ * Design: docs/superpowers/specs/2026-09-07-report-review-workflow-design.md
  */
 
 const TABS: { id: ReviewList; label: string }[] = [
   { id: 'queue', label: 'For my approval' },
-  { id: 'mine', label: 'My requests' },
+  // Raised by me or anyone in my role (2026-10-01): "if one operator user send
+  // request … then all operator user can view and download the report".
+  { id: 'mine', label: 'Requests' },
   { id: 'approved', label: 'Approved' },
 ];
 
@@ -58,17 +64,20 @@ export function ReportsPage() {
   const [pageSize, setPageSize] = useState(defaultLimit);
   const [pending, setPending] = useState<{ review: ReviewSummary; decision: 'approve' | 'reject' } | null>(null);
   /**
-   * The APPROVED row that is open, showing its report data beneath it as
-   * tables (operator, 2026-09-25: "once approved then if user click on that
-   * row, that report data should be shown in below that row in table
-   * format"). The data is the frozen snapshot from `GET /api/report-reviews/:id`
-   * — the same record the signed download replays — fetched only when a row
-   * is opened. One row at a time; clicking it again closes it.
+   * The row that is open, showing its report data beneath it as tables
+   * (operator, 2026-09-25: "once approved then if user click on that row, that
+   * report data should be shown in below that row in table format"; since
+   * 2026-10-01 a PENDING row opens the same way, replacing View draft). The
+   * data is the frozen snapshot from `GET /api/report-reviews/:id` — the same
+   * record the signed download replays — fetched only when a row is opened.
+   * One row at a time; clicking it again closes it. A REJECTED row does not
+   * open: it is closed, and nobody acts on its data.
    */
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const { data: expanded, error: expandedError } = useSWR<ReviewFull>(expandedId ? `/api/report-reviews/${expandedId}` : null);
+  const opens = (r: ReviewSummary) => r.status !== 'REJECTED';
   const toggleExpanded = (r: ReviewSummary) => {
-    if (r.status !== 'APPROVED') return;
+    if (!opens(r)) return;
     setExpandedId((cur) => (cur === r.id ? null : r.id));
   };
   const [submitting, setSubmitting] = useState(false);
@@ -76,7 +85,7 @@ export function ReportsPage() {
 
   const qs = new URLSearchParams({ list, page: String(page), pageSize: String(pageSize) });
   const { data, error, isLoading, mutate } = useSWR<{ data: ReviewSummary[]; total: number }>(`/api/report-reviews?${qs}`);
-  // Usernames for the Send-to column: a request names its assignee by id.
+  // Usernames for the Send-to column: a request names its approver users by id.
   const { data: usersData } = useSWR<any>(`/api/users?${ALL_RECORDS_PARAM}`);
   const users = useMemo(() => {
     const raw = Array.isArray(usersData) ? usersData : (usersData?.data ?? usersData?.users ?? []);
@@ -86,13 +95,16 @@ export function ReportsPage() {
   const rows = data?.data ?? [];
   const total = data?.total ?? 0;
 
-  const isAssignee = (r: ReviewSummary) =>
-    !!user && ((r.assigneeUserId !== null && r.assigneeUserId === user.id) || (r.assigneeRole !== null && r.assigneeRole === user.role) || user.role === 'SUPER_ADMIN');
+  // Presentation only: whether to SHOW Approve/Reject. The server decides
+  // (approver + instrument scope + separation of duties); a row out of my
+  // scope is not in my lists at all.
+  const isApprover = (r: ReviewSummary) =>
+    !!user && (user.role === 'SUPER_ADMIN' || (r.approverRoles ?? []).includes(user.role) || (r.approverUserIds ?? []).includes(user.id));
   // Mirrors the server's isSelfDecision: the requester never decides their own
   // request, SUPER_ADMIN excepted (operator, 2026-09-08). Presentation only —
   // the 403 in report-reviews/service.ts is the control.
   const isSelfDecision = (r: ReviewSummary) => user?.role !== 'SUPER_ADMIN' && r.requestedBy === user?.id;
-  const mayDecide = (r: ReviewSummary) => r.status === 'PENDING' && can('reports.approve') && isAssignee(r) && !isSelfDecision(r);
+  const mayDecide = (r: ReviewSummary) => r.status === 'PENDING' && can('reports.approve') && isApprover(r) && !isSelfDecision(r);
 
   const switchList = (next: ReviewList) => { setList(next); setPage(1); };
 
@@ -112,10 +124,6 @@ export function ReportsPage() {
     }
   };
 
-  const view = async (r: ReviewSummary) => {
-    try { await openDraft(r.id, formatDateTime); }
-    catch (e: any) { toast.error('Could not open the draft', e?.message ?? 'Please try again.'); }
-  };
   const download = async (r: ReviewSummary) => {
     try { await downloadApproved(r.id, formatDateTime); }
     catch (e: any) { toast.error('Could not download the report', e?.message ?? 'Please try again.'); }
@@ -165,8 +173,8 @@ export function ReportsPage() {
                   <TableRow
                     data-review-id={r.id}
                     data-expanded={expandedId === r.id || undefined}
-                    className={r.status === 'APPROVED' ? 'cursor-pointer' : undefined}
-                    aria-expanded={r.status === 'APPROVED' ? expandedId === r.id : undefined}
+                    className={opens(r) ? 'cursor-pointer' : undefined}
+                    aria-expanded={opens(r) ? expandedId === r.id : undefined}
                     onClick={() => toggleExpanded(r)}
                   >
                     <TableCell className="align-top">
@@ -182,7 +190,7 @@ export function ReportsPage() {
                       <span className="block">{r.requestedByName}</span>
                       <span className="block text-xs text-slate-500">{formatDateTime(r.requestedAt)}</span>
                     </TableCell>
-                    <TableCell className="align-top">{assigneeText(r, users)}</TableCell>
+                    <TableCell className="align-top">{approversText(r, users)}</TableCell>
                     <TableCell className="align-top"><StatusBadge tone={STATUS_TONE[r.status]} label={STATUS_WORD[r.status]} /></TableCell>
                     <TableCell className="align-top">
                       {r.decidedByName ? (
@@ -196,14 +204,6 @@ export function ReportsPage() {
                         open or close the row under it. */}
                     <TableCell className="whitespace-nowrap align-top text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-1.5">
-                        {/* The DRAFT is a thing to review, so it is offered only while
-                            there is still a decision to make (operator, 2026-09-25:
-                            "if request is approved or rejected then view draft should
-                            not come"). An approved report downloads signed; a rejected
-                            one is closed. */}
-                        {r.status === 'PENDING' && (
-                          <Button size="sm" variant="secondary" onClick={() => view(r)}>View draft</Button>
-                        )}
                         {mayDecide(r) && (
                           <>
                             <Button size="sm" onClick={() => { setDialogError(''); setPending({ review: r, decision: 'approve' }); }}>Approve</Button>

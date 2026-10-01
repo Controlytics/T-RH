@@ -1,5 +1,30 @@
 # tasks/todo.md
 
+## 2026-10-01 — Report download modes, configured approvers, scoped requests
+
+Operator (several messages): remove Send-to from the request dialog; approvers
+(several roles and/or users) set in Configuration; the requester's ROLE and the
+approver roles/users can all view + download; only approvers approve; no View
+draft (a pending row opens its tables like an approved one); a request is seen
+only by users whose instrument scope covers ANY of its instruments; a per
+report-type setting Direct / Request, remarks required yes/no, password
+required yes/no — for ALL report types incl. the Audit Trail PDF. Defaults =
+today's behaviour (Request, remarks on, password on). Existing requests keep
+their assignee.
+
+- [x] shared: `report-downloads.ts` (kinds, policy coercer) + approver users in `report-approvers.ts` + tests
+- [x] migration: `report_reviews.approver_roles / approver_user_ids / instrument_ids` (+ backfill), both DBs
+- [x] API: `report-downloads` def + narrow route; approver users setting + candidates route
+- [x] API: report-reviews service — frozen approvers, one visibility predicate (+ scope), per-user notify, mode/remarks/password rules
+- [x] API: report-export-log honours the per-type mode/remarks/password
+- [x] API e2e
+- [x] web: dialog (no picker, mode-aware, password field), hook, 5 call sites, Alarms sends instrument ids
+- [x] web: Reports page — no View draft, pending rows expand, Send to = frozen approvers, tab for role requests
+- [x] web tests; tsc; vite build
+- [x] docs: CLAUDE.md counts, CHANGELOG, memory
+
+Found on the way: the web hook read the narrow route with the stored-row reader (every type read as Request) — fixed with `coerceReportDownloadsResponse`. Not done: AWS migration (next deploy); not seen on screen.
+
 ## 2026-09-18 — Replace the AWS Windows instance with Ubuntu 24.04
 
 Operator: "make this instance into ubuntu" (i-0be63a2077d4a82e0). Decisions taken

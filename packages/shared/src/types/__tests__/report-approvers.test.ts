@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { coerceApproverRoles, REPORT_APPROVERS_CONFIG_KEY, REPORT_APPROVERS_NONE_MESSAGE } from '../report-approvers.js';
+import { coerceApproverRoles, coerceApproverUserIds, coerceReportApprovers, REPORT_APPROVERS_CONFIG_KEY, REPORT_APPROVERS_NONE_MESSAGE } from '../report-approvers.js';
 
 /**
  * Which roles may approve a report is administered by SUPER_ADMIN
@@ -29,5 +29,18 @@ describe('coerceApproverRoles', () => {
     expect(REPORT_APPROVERS_CONFIG_KEY).toBe('report-approvers');
     expect(REPORT_APPROVERS_NONE_MESSAGE).toMatch(/super admin/i);
     expect(REPORT_APPROVERS_NONE_MESSAGE).toMatch(/Report Approvers/);
+  });
+});
+
+describe('coerceApproverUserIds / coerceReportApprovers (2026-10-01)', () => {
+  it('returns the stored user ids, trimmed and de-duplicated, and nothing for a malformed row', () => {
+    expect(coerceApproverUserIds({ approverUserIds: [' a ', 'a', 'b', 3, ''] })).toEqual(['a', 'b']);
+    expect(coerceApproverUserIds({ approverUserIds: 'a' })).toEqual([]);
+    expect(coerceApproverUserIds(undefined)).toEqual([]);
+  });
+
+  it('reads both halves; an older row with roles only still works', () => {
+    expect(coerceReportApprovers({ approverRoles: ['QA'] })).toEqual({ approverRoles: ['QA'], approverUserIds: [] });
+    expect(coerceReportApprovers({ approverRoles: ['QA'], approverUserIds: ['u1'] })).toEqual({ approverRoles: ['QA'], approverUserIds: ['u1'] });
   });
 });

@@ -9,10 +9,8 @@ import { usePaginationDefaults } from '@/hooks/use-pagination-config';
 import { Button } from '@/components/ui/button';
 import { AcknowledgeDialog } from './acknowledge-dialog';
 import { ExportMenu } from '@/components/ExportMenu';
-import { ReauthDialog } from '@/components/reauth-dialog';
-import { useReauth } from '@/hooks/use-reauth';
 import { ReportDownloadDialog, type ReportDownloadRequest } from '@/components/report-download-dialog';
-import { submitReportForReview } from '@/lib/report-review';
+import { deliverReport, deliveryToast } from '@/lib/report-delivery';
 import { createReport } from '@/lib/pdf-report';
 import {
   buildAlarmsReport, ALARM_REPORT_LEGEND, reportSeedPeriod, reportLevel,
@@ -63,7 +61,6 @@ export default function AlarmsPage() {
   const { toast } = useToast();
   const { formatDate, formatTime, formatDateTime } = useDatetimeFormat();
   const { defaultLimit } = usePaginationDefaults();
-  const reauth = useReauth();
   const [downloadOpen, setDownloadOpen] = useState(false);
 
   const [filters, setFilters] = useState<AlarmFilterState>(EMPTY_FILTERS);
@@ -175,12 +172,12 @@ export default function AlarmsPage() {
    * THE GOVERNED PDF DOWNLOAD (operator, 2026-09-01), built to the supplied
    * `Alarm Report.pdf`.
    *
-   * The chain is the one every report download in this product goes through, in
-   * this order and for this reason: the dialog collects a PERIOD and a mandatory
-   * REMARKS, `reauth.executeWithResult('DOWNLOAD_REPORT', …)` collects the
-   * PASSWORD, `logReportExport` writes the §11 audit record and THROWS if it
-   * cannot — fail-closed, so a download that was never recorded never happens —
-   * and only then is the file built and saved.
+   * The chain is the one every report download in this product goes through:
+   * the dialog collects a PERIOD and — as Configuration → Report Downloads says
+   * for the Alarm Report (2026-10-01) — the remarks and the password, then
+   * `deliverReport` either audits and saves (Direct) or sends the frozen
+   * document for approval (Request). Fail-closed: a download that was never
+   * recorded never happens.
    */
   // The API has NO pageSize ceiling since 2026-09-02 (lib/page-size.ts) — this is
   // now just the block size this loop walks in, not a limit imposed on it.
@@ -235,7 +232,7 @@ export default function AlarmsPage() {
       label: req.period.label,
     };
 
-    await reauth.executeWithResult('DOWNLOAD_REPORT', async (password) => {
+    {
       const { rows: all, total: grand } = await fetchAllForReport(period);
 
       const doc = await createReport({
@@ -264,19 +261,18 @@ export default function AlarmsPage() {
         texts: inactivityTexts,
         level: reportLevel(filters),
       });
-      // A REQUEST, not a file (2026-09-07): the frozen document goes to the
-      // approver; the requester downloads it, signed, from the Reports page.
-      // recordCount is what the PAPER shows, never `grand`: a record claiming
+      // Direct or Request, as configured (2026-10-01). recordCount is what the PAPER shows, never `grand`: a record claiming
       // 3,000 alarms beside a document printing 500 would contradict itself.
-      const snapshot = doc.getSnapshot();
-      await submitReportForReview({
-        snapshot, reportType: 'Alarms', title: snapshot.title,
+      // The instruments are the ones the PRINTED alarms belong to — what scopes
+      // who may see a request (2026-10-01); a report of no alarms is about none.
+      const outcome = await deliverReport({
+        kind: 'alarms', req, report: doc, reportType: 'Alarms', title: doc.getSnapshot().title,
         requestMeta: { period, recordCount: all.length, search: search.trim() || undefined },
-        remarks: req.remarks, assignee: req.assignee, password,
+        instrumentIds: [...new Set(all.map((a) => a.instrumentId))],
       });
-    });
-    setDownloadOpen(false);
-    toast.success('Sent for approval', `The request is with ${req.assigneeLabel || 'the approver'} — see Reports.`);
+      setDownloadOpen(false);
+      toast.success(...deliveryToast(outcome));
+    }
   };
 
   const counts = data?.counts ?? { 'active-unack': 0, 'active-ack': 0, 'cleared-unack': 0, 'cleared-ack': 0 };
@@ -494,23 +490,10 @@ export default function AlarmsPage() {
       <ReportDownloadDialog
         open={downloadOpen}
         reportName="Alarm Report"
+        kind="alarms"
         initialPeriod={reportSeedPeriod(filters)}
         onCancel={() => setDownloadOpen(false)}
         onConfirm={runDownload}
-      />
-
-      {/* The password prompt `reauth.executeWithResult` drives. Without it the
-          DOWNLOAD_REPORT signature can never be collected and every export fails
-          closed at the audit-log write. */}
-      <ReauthDialog
-        open={reauth.isOpen}
-        password={reauth.password}
-        error={reauth.error}
-        isVerifying={reauth.isVerifying}
-        onPasswordChange={reauth.setPassword}
-        onConfirm={reauth.confirm}
-        onCancel={reauth.cancel}
-        actionLabel="Download Report"
       />
 
       <AcknowledgeDialog

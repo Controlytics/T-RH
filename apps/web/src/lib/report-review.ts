@@ -1,5 +1,6 @@
 import { apiClient } from './api-client';
 import { renderSnapshotToPdf, normaliseSnapshot, type ReportSnapshot } from './pdf-report';
+import type { ReportKind } from '@digilog/shared';
 
 /**
  * The report review workflow's client (2026-09-07). Every PDF download in the
@@ -11,8 +12,6 @@ import { renderSnapshotToPdf, normaliseSnapshot, type ReportSnapshot } from './p
  *
  * Design: docs/superpowers/specs/2026-09-07-report-review-workflow-design.md
  */
-
-export type Assignee = { userId: string } | { role: string };
 
 export interface RequestMeta {
   period?: { from: string; to: string; label: string };
@@ -39,8 +38,15 @@ export interface ReviewSummary {
   requestedByRole: string | null;
   requestedAt: string;
   requestRemarks: string;
+  /** The requester's own choice, on rows raised before 2026-10-01 — kept, no longer written. */
   assigneeUserId: string | null;
   assigneeRole: string | null;
+  /** The APPROVERS, frozen from Configuration → Report Approvers at the request
+   *  (2026-10-01; older rows carry their single assignee here). */
+  approverRoles: string[];
+  approverUserIds: string[];
+  /** The instruments the report is about — what scopes who may see it. */
+  instrumentIds: string[];
   decidedBy: string | null;
   decidedByName: string | null;
   /** The role held at the decision, FROZEN there (2026-09-25). */
@@ -54,25 +60,37 @@ export interface ReviewFull extends ReviewSummary { dataSnapshot: unknown }
 
 export type ReviewList = 'queue' | 'mine' | 'approved';
 
+/**
+ * Raise a request. Since 2026-10-01 it names NO approver — the server sends it
+ * to every configured approver role and user — and it carries its REPORT KIND
+ * (which decides whether it may be requested at all, and whether remarks and
+ * the password are required) and the ids of the instruments it is about (which
+ * decide who may see it).
+ */
 export async function submitReportForReview(input: {
+  reportKind: ReportKind;
   snapshot: ReportSnapshot;
   reportType: string;
   title: string;
   subtitle?: string;
   requestMeta: RequestMeta;
+  instrumentIds: string[];
   remarks: string;
-  assignee: Assignee;
   password?: string;
 }): Promise<ReviewSummary> {
-  return apiClient.postWithReauth<ReviewSummary>('/api/report-reviews', {
+  const body = {
+    reportKind: input.reportKind,
     reportType: input.reportType,
     title: input.title,
     ...(input.subtitle ? { subtitle: input.subtitle } : {}),
     requestMeta: input.requestMeta,
     dataSnapshot: input.snapshot,
+    instrumentIds: input.instrumentIds,
     remarks: input.remarks,
-    ...('userId' in input.assignee ? { assigneeUserId: input.assignee.userId } : { assigneeRole: input.assignee.role }),
-  }, input.password ?? '');
+  };
+  return input.password
+    ? apiClient.postWithReauth<ReviewSummary>('/api/report-reviews', body, input.password)
+    : apiClient.post<ReviewSummary>('/api/report-reviews', body);
 }
 
 export async function fetchReview(id: string): Promise<ReviewFull> {
@@ -83,17 +101,20 @@ export async function decideReview(id: string, decision: 'approve' | 'reject', r
   return apiClient.postWithReauth<ReviewSummary>(`/api/report-reviews/${id}/${decision}`, { remarks }, password);
 }
 
-/** "user qa1" / "any QA" — who will approve, for a toast or a list cell. */
-export function assigneeLabel(assignee: Assignee, users: { id: string; username: string }[] = []): string {
-  if ('userId' in assignee) return users.find((u) => u.id === assignee.userId)?.username ?? assignee.userId;
-  return `any ${assignee.role}`;
-}
-
-/** What a row's Send-to column prints. */
-export function assigneeText(r: Pick<ReviewSummary, 'assigneeUserId' | 'assigneeRole'>, users: { id: string; username: string }[] = []): string {
-  if (r.assigneeUserId) return assigneeLabel({ userId: r.assigneeUserId }, users);
-  if (r.assigneeRole) return assigneeLabel({ role: r.assigneeRole });
-  return '-';
+/**
+ * What a row's "Send to" column prints: the frozen approvers — "any SUPERVISOR,
+ * qa1". A user id the list cannot name (deleted, or not readable by this
+ * caller) prints as the id rather than vanishing.
+ */
+export function approversText(
+  r: Pick<ReviewSummary, 'approverRoles' | 'approverUserIds'>,
+  users: { id: string; username: string }[] = [],
+): string {
+  const parts = [
+    ...(r.approverRoles ?? []).map((role) => `any ${role}`),
+    ...(r.approverUserIds ?? []).map((id) => users.find((u) => u.id === id)?.username ?? id),
+  ];
+  return parts.length ? parts.join(', ') : '-';
 }
 
 /**
@@ -122,22 +143,14 @@ export function reviewSignatures(
   return columns;
 }
 
-function fileSlug(title: string): string {
+export function fileSlug(title: string): string {
   return (title || 'report').replace(/[^\w-]+/g, '_').replace(/^_+|_+$/g, '') || 'report';
 }
 
-/**
- * The approver's view: the exact document, watermarked, unsigned, in a new tab.
- * Nothing is saved or audited. `toBlobUrl` FINALISES the document first — the
- * watermark and page numbers are painted at finalisation, and the raw
- * `doc.output('bloburl')` this used to call skipped it, so the approver's tab
- * opened a clean, unpaginated, unwatermarked PDF (review, 2026-09-07).
- */
-export async function openDraft(id: string, formatDateTime: (d: string) => string): Promise<void> {
-  const r = await fetchReview(id);
-  const report = await renderSnapshotToPdf(normaliseSnapshot(r.dataSnapshot), { formatDateTime, draft: true });
-  window.open(report.toBlobUrl(), '_blank');
-}
+// `openDraft` (the watermarked draft in a new tab) was REMOVED 2026-10-01 with
+// the View draft button (operator: "remove view draft and how you are showing
+// after approval that below the request show like that only"). A pending row
+// now opens its frozen snapshot beneath it as tables, as an approved one does.
 
 /**
  * The approved copy. Audited BEFORE the file is saved — fail-closed: a file on

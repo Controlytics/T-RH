@@ -223,8 +223,16 @@ export {
 } from './types/trend-widgets.js';
 export {
   REPORT_APPROVERS_CONFIG_KEY, REPORT_APPROVERS_NONE_MESSAGE, coerceApproverRoles,
+  coerceApproverUserIds, coerceReportApprovers,
 } from './types/report-approvers.js';
 export type { ReportApproversConfig } from './types/report-approvers.js';
+export {
+  REPORT_DOWNLOADS_CONFIG_KEY, REPORT_KINDS, REPORT_KIND_POLICY_DEFAULT,
+  isReportKind, reportKindSettingKeys, coerceReportDownloads, coerceReportDownloadsResponse, reportKindLabel,
+} from './types/report-downloads.js';
+export type {
+  ReportKind, ReportDownloadMode, ReportKindPolicy, ReportDownloadsPolicy,
+} from './types/report-downloads.js';
 export {
   ATTRIBUTE_LABELS_CONFIG_KEY, ATTRIBUTE_LABEL_MAX, ATTRIBUTE_LABEL_KEY_MAX,
   coerceAttributeLabels, attributeLabel,

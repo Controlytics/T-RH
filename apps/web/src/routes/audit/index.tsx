@@ -22,7 +22,7 @@ import { AuditDeleteDialog } from './components/audit-delete-dialog';
 import { createReport } from '../../lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
 import { logReportExport } from '@/lib/report-export-log';
-import { submitReportForReview } from '@/lib/report-review';
+import { deliverReport, deliveryToast } from '@/lib/report-delivery';
 import { useExportLimit } from '@/hooks/use-export-limit';
 import { ExportMenu } from '@/components/ExportMenu';
 import { ReportDownloadDialog, type ReportDownloadRequest } from '@/components/report-download-dialog';
@@ -343,45 +343,55 @@ export function AuditTrailPage() {
   // period selector in its filters above, and `currentPeriod()`/`fromDateTime`/
   // `toDateTime` are what actually drive `fetchAllFilteredRecords`, so the
   // dialog is shown without period fields for this surface (`showPeriod={false}`).
+  /**
+   * The PDF follows Configuration → Report Downloads for the Audit Trail
+   * (2026-10-01): the dialog collects the remarks and the password it asks for,
+   * and `deliverReport` audits-and-saves (Direct) or sends it for approval
+   * (Request). The EXCEL export is not a PDF and is not configured there: it
+   * keeps remarks always and the per-role DOWNLOAD_REPORT re-auth, which is
+   * why only that branch still runs through `reauth.executeWithResult`.
+   */
+  const fetchForExport = async () => {
+    const records = await fetchAllFilteredRecords();
+    if (records.length === 0) throw new Error('No audit records match the current filters.');
+    if (records.length > exportLimit.maxRecords) throw new Error(exportLimit.tooLargeMessage(records.length));
+    return records;
+  };
+
   const runDownload = async (req: ReportDownloadRequest) => {
     const format = downloadFormat;
     if (!format) return;
     try {
-      await reauth.executeWithResult('DOWNLOAD_REPORT', async (password) => {
-        setDownloading(true);
-        const records = await fetchAllFilteredRecords();
-        if (records.length === 0) throw new Error('No audit records match the current filters.');
-        if (records.length > exportLimit.maxRecords) throw new Error(exportLimit.tooLargeMessage(records.length));
-
-        if (format === 'PDF') {
-          const report = await createReport({ reportKey: 'audit-trail',
-            title: auditL.title,
-            subtitle: auditL.subtitle || `Period: ${currentPeriod()}${search ? `  |  Search: "${search}"` : ''}  |  Total: ${records.length} record(s)  |  21 CFR Part 11 Compliant`,
-            orientation: 'landscape',
-            formatDateTime,
-          });
-          report.addTable({ head: auditHead, body: mapAuditRows(records), columnStyles: { 0: { cellWidth: 35 }, 5: { cellWidth: 65 } } });
-          // A REQUEST, not a file (2026-09-07): the frozen document goes to the
-          // approver; the requester downloads it, signed, from the Reports page.
-          // The Excel branch below is not a PDF and still saves directly.
-          const snapshot = report.getSnapshot();
-          const period = fromDateTime && toDateTime
-            ? { from: new Date(fromDateTime).toISOString(), to: new Date(toDateTime).toISOString(), label: currentPeriod() }
-            : undefined;
-          await submitReportForReview({
-            snapshot, reportType: 'Audit Trail', title: snapshot.title, subtitle: snapshot.subtitle,
-            requestMeta: { ...(period ? { period } : {}), recordCount: records.length, search: search || undefined },
-            remarks: req.remarks, assignee: req.assignee, password,
-          });
-          toast.success('Sent for approval', `The request is with ${req.assigneeLabel || 'the approver'} — see Reports.`);
-        } else {
+      setDownloading(true);
+      if (format === 'PDF') {
+        const records = await fetchForExport();
+        const report = await createReport({ reportKey: 'audit-trail',
+          title: auditL.title,
+          subtitle: auditL.subtitle || `Period: ${currentPeriod()}${search ? `  |  Search: "${search}"` : ''}  |  Total: ${records.length} record(s)  |  21 CFR Part 11 Compliant`,
+          orientation: 'landscape',
+          formatDateTime,
+        });
+        report.addTable({ head: auditHead, body: mapAuditRows(records), columnStyles: { 0: { cellWidth: 35 }, 5: { cellWidth: 65 } } });
+        const snapshot = report.getSnapshot();
+        const period = fromDateTime && toDateTime
+          ? { from: new Date(fromDateTime).toISOString(), to: new Date(toDateTime).toISOString(), label: currentPeriod() }
+          : undefined;
+        const outcome = await deliverReport({
+          kind: 'audit-trail', req, report, reportType: 'Audit Trail', title: snapshot.title, subtitle: snapshot.subtitle,
+          requestMeta: { ...(period ? { period } : {}), recordCount: records.length, search: search || undefined },
+          // The Audit Trail is about no instrument — it is not scope-restricted.
+          instrumentIds: [],
+        });
+        toast.success(...deliveryToast(outcome));
+      } else {
+        await reauth.executeWithResult('DOWNLOAD_REPORT', async (password) => {
+          const records = await fetchForExport();
           await logExport('Excel', records.length, req.remarks, password);
           exportToExcel({ filename: `audit-trail-${new Date().toISOString().slice(0, 10)}`, sheetName: 'Audit Trail', head: auditHead, rows: mapAuditRows(records) });
-        }
-      });
+        });
+      }
       setDownloadFormat(null);
     } catch (e: any) {
-      setDownloading(false);
       // A cancelled reauth prompt is not a failure — just drop the pending
       // download quietly rather than showing it as an error in the dialog.
       if (e?.error === 'REAUTH_CANCELLED') { setDownloadFormat(null); return; }
@@ -556,7 +566,11 @@ export function AuditTrailPage() {
 
       <ReportDownloadDialog
         open={downloadFormat !== null}
-        reportName="Audit Trail"
+        reportName={downloadFormat === 'Excel' ? 'Audit Trail (Excel)' : 'Audit Trail'}
+        kind="audit-trail"
+        // Excel is outside Configuration → Report Downloads: always a direct
+        // download with remarks; its password is the per-role re-auth prompt.
+        policy={downloadFormat === 'Excel' ? { mode: 'DIRECT', remarksRequired: true, passwordRequired: false } : undefined}
         // The Audit Trail already has a real period selector in its filters
         // above, which is what actually drives the export — the dialog is
         // shown without period fields for this surface rather than a second,

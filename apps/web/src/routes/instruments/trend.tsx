@@ -8,12 +8,10 @@ import {
   type InactivityColumnTexts,
 } from '@digilog/shared';
 import { apiClient } from '@/lib/api-client';
-import { useReauth } from '@/hooks/use-reauth';
 import { useSensorWords, useAlarmTypeNames } from '@/hooks/use-failure-text';
-import { ReauthDialog } from '@/components/reauth-dialog';
 import { ExportMenu } from '@/components/ExportMenu';
 import { ReportDownloadDialog, type ReportDownloadRequest } from '@/components/report-download-dialog';
-import { submitReportForReview } from '@/lib/report-review';
+import { deliverReport, deliveryToast } from '@/lib/report-delivery';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -348,7 +346,6 @@ export function InstrumentTrend() {
   const fmtTempCard = useDatetimeFormat(widgets.formats.tempCard);
   const fmtHumidCard = useDatetimeFormat(widgets.formats.humidCard);
   const fmtTimeseries = useDatetimeFormat(widgets.formats.timeseries);
-  const reauth = useReauth();
   const { toast } = useToast();
   // Same endpoint, same mapping, as `routes/alarms/index.tsx` — the ONE place
   // the API's `status*`-prefixed keys are reconciled with the unprefixed
@@ -420,10 +417,10 @@ export function InstrumentTrend() {
 
   // ── Governed downloads (Task 8) ──────────────────────────────────────────
   // One dialog instance, reused for whichever of the three widgets the
-  // operator picked — `pendingReport` says which. The dialog does not prompt
-  // for reauth itself; `runDownload` wraps the whole fetch+build+log+save in
-  // `reauth.execute('DOWNLOAD_REPORT', …)`, the one reauth pattern this app
-  // uses everywhere else.
+  // operator picked — `pendingReport` says which. Since 2026-10-01 the dialog
+  // collects the remarks and the password its report type is configured for
+  // (Configuration → Report Downloads) and `deliverReport` downloads or
+  // requests, as that type says.
   const [pendingReport, setPendingReport] = useState<PendingReport | null>(null);
 
   const instrumentInfo = (): ReportInstrument => ({
@@ -580,7 +577,8 @@ export function InstrumentTrend() {
     const reportPeriod = { from: req.period.from, to: req.period.to, label: req.period.label };
 
     try {
-      await reauth.executeWithResult('DOWNLOAD_REPORT', async (password) => {
+      let outcome: 'DOWNLOADED' | 'REQUESTED';
+      {
       const instrument = instrumentInfo();
 
       if (which.kind === 'trend') {
@@ -640,15 +638,14 @@ export function InstrumentTrend() {
           // ignore the banner that matters.
           coverage: { returned: fetched.history.length, total: fetched.historyTotal ?? fetched.history.length },
         });
-        // A REQUEST, not a file (2026-09-07): the frozen document goes to the
-        // approver; the requester downloads it, signed, from the Reports page.
-        // Names the SLOT: two trend reports both requested as "Instrument
-        // Trend" would leave a record that cannot say which one a row is.
+        // Direct or Request, as configured (2026-10-01). Names the SLOT: two
+        // trend reports both logged as "Instrument Trend" would leave a record
+        // that cannot say which one a row is.
         const snapshot = report.getSnapshot();
-        await submitReportForReview({
-          snapshot, reportType: `Instrument Trend — ${slotLabel}`, title: snapshot.title, subtitle: snapshot.subtitle,
+        outcome = await deliverReport({
+          kind: 'trend-chart', req, report, reportType: `Instrument Trend — ${slotLabel}`, title: snapshot.title, subtitle: snapshot.subtitle,
           requestMeta: { period: reportPeriod, recordCount: pivoted.length, instrumentCodes: [instrument.code] },
-          remarks: req.remarks, assignee: req.assignee, password,
+          instrumentIds: [id],
         });
       } else if (which.kind === 'timeseries') {
         // THE DATA REPORT (2026-09-04) — the Time Series widget's download,
@@ -699,33 +696,32 @@ export function InstrumentTrend() {
           coverage,
           words: sensorWords,
         });
-        // A REQUEST, not a file (2026-09-07). The type is UNCHANGED: rows
-        // already logged under it are this same document.
+        // The Data Report kind (2026-10-01) — the same document the Data
+        // Report page prints. The audit type is UNCHANGED: rows already logged
+        // under it are this same document.
         const snapshot = report.getSnapshot();
-        await submitReportForReview({
-          snapshot, reportType: 'Instrument Time Series', title: snapshot.title, subtitle: snapshot.subtitle,
+        outcome = await deliverReport({
+          kind: 'data-report', req, report, reportType: 'Instrument Time Series', title: snapshot.title, subtitle: snapshot.subtitle,
           requestMeta: { period: reportPeriod, intervalMs: reportInterval, recordCount: rows.length, instrumentCodes: [instrument.code] },
-          remarks: req.remarks, assignee: req.assignee, password,
+          instrumentIds: [id],
         });
       } else {
         const rows = await fetchAlarmsForPeriod(reportPeriod.from, reportPeriod.to);
         const report = await renderAlarmsReport(rows, instrument, reportPeriod, formatDateTime, statusTexts, inactivityTexts);
         const snapshot = report.getSnapshot();
-        await submitReportForReview({
-          snapshot, reportType: 'Instrument Alarms', title: snapshot.title, subtitle: snapshot.subtitle,
+        outcome = await deliverReport({
+          kind: 'instrument-alarms', req, report, reportType: 'Instrument Alarms', title: snapshot.title, subtitle: snapshot.subtitle,
           requestMeta: { period: reportPeriod, recordCount: rows.length, instrumentCodes: [instrument.code] },
-          remarks: req.remarks, assignee: req.assignee, password,
+          instrumentIds: [id],
         });
         }
-      });
+      }
       setPendingReport(null);
-      toast.success('Sent for approval', `The request is with ${req.assigneeLabel || 'the approver'} — see Reports.`);
+      toast.success(...deliveryToast(outcome));
     } catch (e: any) {
-      // A cancelled reauth prompt is not a failure — drop the pending download
-      // quietly. Any other error rethrows so `ReportDownloadDialog`'s own
+      // Any error rethrows so `ReportDownloadDialog`'s own
       // catch surfaces it INSIDE the dialog and keeps it open, rather than the
       // dialog silently closing on a download whose audit write never landed.
-      if (e?.error === 'REAUTH_CANCELLED') { setPendingReport(null); return; }
       throw e;
     }
   };
@@ -1154,6 +1150,7 @@ export function InstrumentTrend() {
       <ReportDownloadDialog
         open={pendingReport !== null}
         reportName={reportDialogName}
+        kind={pendingReport?.kind === 'trend' ? 'trend-chart' : pendingReport?.kind === 'alarms' ? 'instrument-alarms' : 'data-report'}
         showPeriod
         initialPeriod={{ from: period.from, to: period.to, label: period.label }}
         // Only the Data Report is built per interval; the trend and alarm
@@ -1164,16 +1161,6 @@ export function InstrumentTrend() {
         onConfirm={runDownload}
       />
 
-      <ReauthDialog
-        open={reauth.isOpen}
-        password={reauth.password}
-        error={reauth.error}
-        isVerifying={reauth.isVerifying}
-        onPasswordChange={reauth.setPassword}
-        onConfirm={reauth.confirm}
-        onCancel={reauth.cancel}
-        actionLabel="Download Report"
-      />
     </div>
   );
 }

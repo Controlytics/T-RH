@@ -57,6 +57,13 @@ const overviewRow = {
   decimals: { temperature: 1, humidity: 1 }, reporting: true, status: 'OK',
 };
 
+/** Configuration → Report Downloads as the narrow route returns it (2026-10-01):
+ *  every kind REQUEST with remarks and password — today's behaviour. Constant,
+ *  so the swr mock never hands back a fresh object. */
+const KIND_REQUEST = { mode: 'REQUEST', remarksRequired: true, passwordRequired: true };
+const DOWNLOADS = { 'data-report': KIND_REQUEST, 'trend-chart': KIND_REQUEST, 'instrument-alarms': KIND_REQUEST, alarms: KIND_REQUEST, 'audit-trail': KIND_REQUEST };
+const APPROVERS = { approverRoles: ['QA'], approverUserIds: [] };
+
 function dataFor(key: string | null): any {
   if (!key) return undefined;
   if (key.includes('/telemetry-overview')) return { data: [overviewRow] };
@@ -68,9 +75,8 @@ function dataFor(key: string | null): any {
     return { latest: [], history, historyTotal: history.length + (whole ? 0 : extraTotal) };
   }
   if (key.includes('/api/alarms')) return { data: [] };
-  if (key.startsWith('/api/roles/active')) return [{ name: 'QA', displayName: 'QA Approver' }];
-  if (key.startsWith('/api/config/report-approvers/current')) return { approverRoles: ['QA'] };
-  if (key.startsWith('/api/users?')) return { data: [{ id: 'u-appr', username: 'qa1', fullName: 'QA One', role: 'QA' }] };
+  if (key.startsWith('/api/config/report-downloads/current')) return DOWNLOADS;
+  if (key.startsWith('/api/config/report-approvers/current')) return APPROVERS;
   if (key.includes('action-reauth/my-actions')) return { actions: [] };
   if (key.includes('/api/functional-locations')) {
     return { data: [{ id: 'b1', name: 'CWH Block', children: [{ id: 'a1', name: 'QC 3(AHU-033)' }] }] };
@@ -113,13 +119,13 @@ vi.mock('@/lib/report-review', async () => {
   return {
     submitReportForReview: vi.fn(async (input: any) => {
       logged.push({ reportType: input.reportType, title: input.title, remarks: input.remarks, password: input.password,
-        assignee: input.assignee, requestMeta: input.requestMeta, snapshotVersion: input.snapshot?.version });
+        reportKind: input.reportKind, instrumentIds: input.instrumentIds, requestMeta: input.requestMeta, snapshotVersion: input.snapshot?.version });
       events.push(`log:${input.reportType}`);
       const doc = await renderSnapshotToPdf(input.snapshot, { formatDateTime: (d: string) => d });
       doc.save(`replay-${input.reportType}.pdf`);
       return { id: 'r1', status: 'PENDING' };
     }),
-    assigneeLabel: () => 'qa1',
+    fileSlug: (t: string) => t.replace(/\W+/g, '_'),
   };
 });
 
@@ -180,10 +186,10 @@ function exportButtons() {
 
 /** Click the nth "Export as PDF" button, fill the required remarks, confirm. */
 
-/** The dialog needs an approver since 2026-09-07: pick the one user the mock offers. */
+/** No approver is chosen since 2026-10-01; the configured password is signed
+ *  in the dialog itself. (Name kept: it is the step before Request approval.) */
 function pickApprover() {
-  fireEvent.click(screen.getByRole('button', { name: /to a user/i }));
-  fireEvent.change(screen.getByLabelText(/send to/i), { target: { value: 'u-appr' } });
+  fireEvent.change(document.getElementById('report-download-password') as HTMLInputElement, { target: { value: 'Secret@123' } });
 }
 
 async function download(buttonIndex: number) {
@@ -279,7 +285,10 @@ describe('trend page downloads', () => {
       expect(events[0]).toMatch(/^log:/);
       expect(events[1]).toMatch(/^save:replay-/);
       for (const name of saved) expect(name).toMatch(/^replay-/);
-      expect(logged[0].assignee).toEqual({ userId: 'u-appr' });
+      // The configured KIND rides on each, and the instrument id that scopes it (2026-10-01).
+      expect(logged[0].reportKind).toBe(['data-report', 'trend-chart', 'trend-chart', 'data-report', 'instrument-alarms'][idx]);
+      expect(logged[0].instrumentIds).toHaveLength(1);
+      expect(logged[0].password).toBe('Secret@123');
       expect(logged[0].snapshotVersion).toBe(2);
       view.unmount();
     }

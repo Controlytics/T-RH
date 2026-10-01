@@ -67,6 +67,19 @@ const clearedUnack = {
 const listState: { rows: unknown[]; error: unknown; keepData: boolean } =
   { rows: [activeUnack], error: undefined, keepData: false };
 
+/** Configuration → Report Downloads as the narrow route returns it (2026-10-01).
+ *  Module-level constants: a fresh object per call re-runs effects forever. */
+const KIND_POLICY = {
+  REQUEST: { mode: 'REQUEST', remarksRequired: true, passwordRequired: true },
+  DIRECT: { mode: 'DIRECT', remarksRequired: true, passwordRequired: true },
+} as const;
+const DOWNLOADS = {
+  REQUEST: { 'data-report': KIND_POLICY.REQUEST, 'trend-chart': KIND_POLICY.REQUEST, 'instrument-alarms': KIND_POLICY.REQUEST, alarms: KIND_POLICY.REQUEST, 'audit-trail': KIND_POLICY.REQUEST },
+  DIRECT: { 'data-report': KIND_POLICY.REQUEST, 'trend-chart': KIND_POLICY.REQUEST, 'instrument-alarms': KIND_POLICY.REQUEST, alarms: KIND_POLICY.DIRECT, 'audit-trail': KIND_POLICY.REQUEST },
+};
+const APPROVERS = { approverRoles: ['QA'], approverUserIds: [] };
+let downloads: unknown = DOWNLOADS.REQUEST;
+
 vi.mock('swr', () => ({
   default: (key: unknown) => {
     const k = typeof key === 'function' ? (key as () => string)() : key;
@@ -85,9 +98,8 @@ vi.mock('swr', () => ({
     if (k.includes('/status-texts')) return { data: undefined, mutate: vi.fn() };
     if (k.includes('/api/functional-locations')) return { data: { data: [] }, mutate: vi.fn() };
     if (k.includes('/config/pagination')) return { data: { limit: 10, count: 0, options: [10, 25, 50] }, mutate: vi.fn() };
-    if (k.startsWith('/api/roles/active')) return { data: [{ name: 'QA', displayName: 'QA Approver' }], mutate: vi.fn() };
-    if (k.startsWith('/api/config/report-approvers/current')) return { data: { approverRoles: ['QA'] }, mutate: vi.fn() };
-    if (k.startsWith('/api/users?')) return { data: { data: [{ id: 'u-appr', username: 'qa1', fullName: 'QA One', role: 'QA' }] }, mutate: vi.fn() };
+    if (k.startsWith('/api/config/report-downloads/current')) return { data: downloads, mutate: vi.fn() };
+    if (k.startsWith('/api/config/report-approvers/current')) return { data: APPROVERS, mutate: vi.fn() };
     return { data: undefined, isLoading: false, mutate: vi.fn() };
   },
 }));
@@ -99,28 +111,20 @@ vi.mock('@/hooks/use-can', () => ({ useCan: () => () => true }));
  * them can be asserted — that is the §11 property, not the PDF's contents.
  */
 const submitRequest = vi.fn();
+const logExport = vi.fn();
 const savePdf = vi.fn();
 const buildAlarmsReport = vi.fn();
-/** Stands in for the re-auth prompt: hands a password to the callback, as the
- *  real `executeWithResult` does once the operator has signed. */
-let reauthGrants = true;
-vi.mock('@/hooks/use-reauth', () => ({
-  useReauth: () => ({
-    isOpen: false, password: '', error: '', isVerifying: false,
-    setPassword: vi.fn(), confirm: vi.fn(), cancel: vi.fn(),
-    executeWithResult: async (_action: string, cb: (p?: string) => Promise<void>) => {
-      if (!reauthGrants) return;      // operator cancelled the password prompt
-      await cb('Secret@123');
-    },
-  }),
-}));
+const order: string[] = [];
 vi.mock('@/lib/report-review', () => ({
   submitReportForReview: (...a: unknown[]) => submitRequest(...a),
-  assigneeLabel: () => 'qa1',
+  fileSlug: (t: string) => t.replace(/\W+/g, '_'),
+}));
+vi.mock('@/lib/report-export-log', () => ({
+  logReportExport: (...a: unknown[]) => { order.push('log'); return logExport(...a); },
 }));
 vi.mock('@/lib/pdf-report', () => ({
   createReport: async () => ({
-    save: savePdf, addKeyValue: vi.fn(), addTable: vi.fn(), addSectionTitle: vi.fn(),
+    save: (...a: unknown[]) => { order.push('save'); savePdf(...a); }, addKeyValue: vi.fn(), addTable: vi.fn(), addSectionTitle: vi.fn(),
     getSnapshot: () => ({ version: 2, reportType: 'alarms', title: 'ALARM REPORT', config: {}, sections: [] }),
   }),
 }));
@@ -384,7 +388,7 @@ describe('the Alarms page — the governed PDF download', () => {
   const openDialog = async () => {
     mount();
     fireEvent.click(screen.getByRole('button', { name: /export|download/i }));
-    return screen.findByRole('button', { name: /^request approval$/i });
+    return screen.findByRole('button', { name: downloads === DOWNLOADS.DIRECT ? /^download$/i : /^request approval$/i });
   };
 
   beforeEach(() => {
@@ -392,7 +396,9 @@ describe('the Alarms page — the governed PDF download', () => {
     savePdf.mockReset();
     buildAlarmsReport.mockReset();
     apiGet.mockReset().mockResolvedValue({ data: [], total: 0 });
-    reauthGrants = true;
+    logExport.mockReset().mockResolvedValue(undefined);
+    order.length = 0;
+    downloads = DOWNLOADS.REQUEST;
   });
 
   const confirm = async () => {
@@ -402,9 +408,9 @@ describe('the Alarms page — the governed PDF download', () => {
     fireEvent.change(screen.getByRole('textbox', { name: /remark|reason/i }), {
       target: { value: 'Monthly QA review of excursions.' },
     });
-    // The dialog needs an approver since 2026-09-07: pick the one user the mock offers.
-    fireEvent.click(screen.getByRole('button', { name: /to a user/i }));
-    fireEvent.change(screen.getByLabelText(/send to/i), { target: { value: 'u-appr' } });
+    // No approver is chosen any more (2026-10-01) — the password is signed in
+    // the dialog itself, as the Alarm Report's configuration requires.
+    fireEvent.change(document.getElementById('report-download-password') as HTMLInputElement, { target: { value: 'Secret@123' } });
     fireEvent.click(btn);
   };
 
@@ -421,7 +427,32 @@ describe('the Alarms page — the governed PDF download', () => {
     await confirm();
     await waitFor(() => expect(submitRequest).toHaveBeenCalled());
     expect(savePdf).not.toHaveBeenCalled();
-    expect(submitRequest.mock.calls[0][0]).toMatchObject({ reportType: 'Alarms', snapshot: { version: 2 }, assignee: { userId: 'u-appr' } });
+    expect(submitRequest.mock.calls[0][0]).toMatchObject({ reportKind: 'alarms', reportType: 'Alarms', snapshot: { version: 2 }, instrumentIds: [] });
+    expect(submitRequest.mock.calls[0][0]).not.toHaveProperty('assignee');
+  });
+
+  it('sends the ids of the instruments the PRINTED alarms belong to, once each — they decide who may see the request', async () => {
+    apiGet.mockResolvedValue({ data: [{ ...activeUnack, instrumentId: 'i1' }, { ...activeUnack, id: 'a2', instrumentId: 'i1' }, { ...activeUnack, id: 'a3', instrumentId: 'i2' }], total: 3 });
+    await confirm();
+    await waitFor(() => expect(submitRequest).toHaveBeenCalled());
+    expect(submitRequest.mock.calls[0][0].instrumentIds).toEqual(['i1', 'i2']);
+  });
+
+  it('DIRECT (configured, 2026-10-01): audits FIRST, then saves the file, and requests nothing', async () => {
+    downloads = DOWNLOADS.DIRECT;
+    await confirm();
+    await waitFor(() => expect(savePdf).toHaveBeenCalled());
+    expect(order).toEqual(['log', 'save']);
+    expect(logExport.mock.calls[0][0]).toMatchObject({ reportKind: 'alarms', reportType: 'Alarms', format: 'PDF', password: 'Secret@123', remarks: 'Monthly QA review of excursions.' });
+    expect(submitRequest).not.toHaveBeenCalled();
+  });
+
+  it('DIRECT: saves NOTHING when the audit write fails', async () => {
+    downloads = DOWNLOADS.DIRECT;
+    logExport.mockRejectedValue(new Error('audit unavailable'));
+    await confirm();
+    await waitFor(() => expect(logExport).toHaveBeenCalled());
+    expect(savePdf).not.toHaveBeenCalled();
   });
 
   it('saves NOTHING when the request fails', async () => {
@@ -431,16 +462,17 @@ describe('the Alarms page — the governed PDF download', () => {
     expect(savePdf).not.toHaveBeenCalled();
   });
 
-  it('posts NOTHING when the operator cancels the password prompt', async () => {
-    reauthGrants = false;
-    await confirm();
-    await waitFor(() => expect(savePdf).not.toHaveBeenCalled());
-    expect(submitRequest).not.toHaveBeenCalled();
+  it('posts NOTHING without the password the configuration requires', async () => {
+    const btn = await openDialog();
+    fireEvent.change(screen.getByRole('textbox', { name: /remark|reason/i }), { target: { value: 'x' } });
+    fireEvent.click(btn);
+    await waitFor(() => expect(submitRequest).not.toHaveBeenCalled());
+    expect(savePdf).not.toHaveBeenCalled();
   });
 
-  it('signs the request with the re-auth password', async () => {
-    // Without it the request goes out unsigned and the DOWNLOAD_REPORT policy is
-    // not actually enforced.
+  it('signs the request with the password typed in the dialog', async () => {
+    // Without it the request goes out unsigned and the configured password
+    // requirement is not actually enforced.
     await confirm();
     await waitFor(() => expect(submitRequest).toHaveBeenCalled());
     expect(submitRequest.mock.calls[0][0]).toMatchObject({ reportType: 'Alarms', password: 'Secret@123' });

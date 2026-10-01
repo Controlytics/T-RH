@@ -1,7 +1,14 @@
 import type { ModuleConfigDefinition } from '../../../lib/config-registry.js';
 
 /**
- * Which roles may APPROVE a report (2026-09-07).
+ * Which roles — and, since 2026-10-01, which users — may APPROVE a report.
+ *
+ * Since 2026-10-01 the requester chooses nobody: a request goes to every
+ * configured role and user, frozen onto the request (operator: "per user or
+ * per role option should be removed in request place and add that in
+ * configuration"). What follows about the Send-to list is history.
+ *
+ * Roles since 2026-09-07.
  *
  * Operator: "that approval role should be configurable which role user should
  * be approved that role will set by super admin in configurations". Every PDF
@@ -23,7 +30,7 @@ import type { ModuleConfigDefinition } from '../../../lib/config-registry.js';
 export const reportApproversDef: ModuleConfigDefinition = {
   moduleKey: 'report-approvers',
   moduleName: 'Report Approvers',
-  description: 'Which roles may approve a report request. A report can only be sent to one of these roles, or to a user holding one.',
+  description: 'Who approves report requests: every holder of a ticked role and every ticked user. A request goes to all of them; any one may approve.',
   icon: 'check-badge',
   category: 'system',
   sortOrder: 24,
@@ -37,10 +44,23 @@ export const reportApproversDef: ModuleConfigDefinition = {
       type: 'multiselect',
       label: 'Approver roles',
       description:
-        'Roles whose holders may approve report requests. Requesters can send a report only to one of these roles, or to a user who holds one. With none ticked, NO report can be requested until this is set — the workflow fails closed. Super Admin is never an approver.',
+        'Every user holding one of these roles may approve report requests, and sees them. With no role and no user ticked, NO report can be requested — the workflow fails closed. Super Admin is never an approver role.',
       default: [],
       options: [],
       dynamicOptionsSource: '/api/roles/active',
+      group: 'Report Approvers',
+    },
+    {
+      // 2026-10-01: users named outright, beside the roles. Ids; the options
+      // come from a narrow route that labels each one "username (role)".
+      key: 'approverUserIds',
+      type: 'multiselect',
+      label: 'Approver users',
+      description:
+        'Users who may approve report requests whatever their role, and see them. A request goes to every approver role and every approver user at once; a later change here does not re-route a request already raised.',
+      default: [],
+      options: [],
+      dynamicOptionsSource: '/api/config/report-approvers/candidates',
       group: 'Report Approvers',
     },
   ],

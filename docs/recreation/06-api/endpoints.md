@@ -140,7 +140,7 @@ curl -sk https://localhost:3001/docs/json
 | GET | `/api/audit/` | Query audit trail |
 | POST | `/api/audit/bulk-delete` | Permanently delete selected audit records |
 | POST | `/api/audit/bulk-redact` | Redact selected audit records |
-| POST | `/api/audit/report-export-log` | Record a report download/generation as an auditable event |
+| POST | `/api/audit/report-export-log` | Record a report download/generation as an auditable event. Since 2026-10-01 a **PDF** must name its `reportKind` and follows Configuration → Report Downloads: 409 `REPORT_REQUIRES_APPROVAL` when that type is Request; remarks and the password (`enforceReauthAlways`) exactly as configured. **Excel** keeps the per-role `DOWNLOAD_REPORT` re-auth and required remarks |
 | GET | `/api/audit/verify-chain` | Verify audit chain integrity |
 | GET · DELETE | `/api/audit/{id}` | Get audit record by ID |
 | POST | `/api/audit/{id}/redact` | Redact audit record |
@@ -362,3 +362,20 @@ Rooms carry `points` (polygon corners, NULL = a rectangle) and doors by `edge`;
 plans carry `links` on `GET /api/floorplans` and `GET /api/floorplans/:id`.
 `POST /api/floorplans` accepts `imagePath: null` (a blank plan; width/height are
 then the canvas size).
+
+## /report-reviews and the report download configuration (2026-09-07; reshaped 2026-10-01)
+
+Missing from this dossier until 2026-10-01 — the module landed on 2026-09-07 without a row here.
+
+| Method | Path | Gate | Notes |
+|---|---|---|---|
+| POST | `/api/report-reviews` | `REPORT_REVIEW_READ`; password per the type's config | Raise a request: `reportKind`, `reportType`, `title`, `requestMeta`, `dataSnapshot`, `instrumentIds`, `remarks` (blank allowed only when the type's remarks are off). **Names no approver** — the configured roles and users are FROZEN onto the row. 409 `REPORT_IS_DIRECT` for a Direct type; 400 `NO_APPROVER` (none configured) or `NO_ELIGIBLE_APPROVER` (nobody but the requester could decide it: permission, scope, not self); 404 for an instrument outside the requester's scope |
+| GET | `/api/report-reviews?list=queue\|mine\|approved&page&pageSize` | `REPORT_REVIEW_READ` | queue = pending, I am an approver, in my scope, not mine; mine = raised by me or my ROLE, in my scope; approved = visible to me |
+| GET | `/api/report-reviews/:id` | `REPORT_REVIEW_READ` | The row with its frozen snapshot; 404 (never 403) unless SUPER_ADMIN, a signer, or the requester's role / an approver within instrument scope |
+| POST | `/api/report-reviews/:id/approve` · `/reject` | `REPORT_REVIEW_APPROVE` + `APPROVE_REPORT` / `REJECT_REPORT` re-auth | An approver in scope; never the requester (SUPER_ADMIN exempt); one decision (409) |
+| POST | `/api/report-reviews/:id/download-log` | `REPORT_REVIEW_READ` | Audits a download of the APPROVED copy, written before the save |
+| GET | `/api/config/report-approvers/current` | authenticated | `{approverRoles, approverUserIds}`, coerced |
+| GET | `/api/config/report-approvers/candidates` | `CONFIG_READ` | `[{value: userId, label: "username — name (ROLE)"}]` for the Approver users setting; enabled, never SUPER_ADMIN |
+| GET | `/api/config/report-downloads/current` | authenticated | `{ [kind]: {mode, remarksRequired, passwordRequired} }` for the five kinds, coerced. NOT the stored row's shape |
+| GET · PUT | `/api/config/dynamic/report-downloads` | SUPER_ADMIN | The stored row: `<prefix>Mode` / `<prefix>Remarks` / `<prefix>Password` per kind |
+

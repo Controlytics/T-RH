@@ -57,7 +57,7 @@ describe('POST /api/audit/report-export-log', () => {
       url: '/api/audit/report-export-log',
       headers: { authorization: `Bearer ${token}` },
       payload: {
-        reportType: 'Audit Trail', format: 'PDF', recordCount: 42, period: 'All Time',
+        reportType: 'Audit Trail', format: 'Excel', recordCount: 42, period: 'All Time',
         remarks: 'Monthly compliance review',
       },
     });
@@ -73,7 +73,7 @@ describe('POST /api/audit/report-export-log', () => {
     expect(row!.userId).toBe(TEST_USERNAME);
     const after = row!.afterValue as Record<string, unknown>;
     expect(after.reportType).toBe('Audit Trail');
-    expect(after.format).toBe('PDF');
+    expect(after.format).toBe('Excel');
     expect(after.recordCount).toBe(42);
     // The whole point of the field: the reason must reach the audit row, both
     // in the structured payload and in the human-readable `reason` string.
@@ -105,12 +105,11 @@ describe('POST /api/audit/report-export-log', () => {
       method: 'POST',
       url: '/api/audit/report-export-log',
       headers: { authorization: `Bearer ${token}` },
-      payload: { reportType: 'Filters', format: 'PDF', recordCount: 1 },
+      payload: { reportType: 'Filters', format: 'Excel', recordCount: 1 },
     });
     expect(res.statusCode).toBe(400);
-    // Fastify/ajv's own "must have required property 'remarks'" message names
-    // the field — assert on that rather than a hand-written string so this
-    // doesn't silently drift from whatever ajv actually says.
+    // Since 2026-10-01 `remarks` is no longer schema-required (a PDF type may
+    // switch it off), so the route's own check answers — and names the field.
     expect(JSON.stringify(res.json())).toMatch(/remarks/);
   });
 
@@ -124,13 +123,13 @@ describe('POST /api/audit/report-export-log', () => {
       method: 'POST',
       url: '/api/audit/report-export-log',
       headers: { authorization: `Bearer ${token}` },
-      payload: { reportType: 'Filters', format: 'PDF', recordCount: 1, remarks: '   ' },
+      payload: { reportType: 'Filters', format: 'Excel', recordCount: 1, remarks: '   ' },
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toBe('VALIDATION_ERROR');
   });
 
-  describe('DOWNLOAD_REPORT reauth gate', () => {
+  describe('DOWNLOAD_REPORT reauth gate (Excel — the per-role policy)', () => {
     let originalReauthRow: { configValue: any; configType: string; requiresReauth: boolean } | null = null;
 
     beforeAll(async () => {
@@ -169,7 +168,7 @@ describe('POST /api/audit/report-export-log', () => {
         method: 'POST',
         url: '/api/audit/report-export-log',
         headers: { authorization: `Bearer ${token}` },
-        payload: { reportType: 'Audit Trail', format: 'PDF', recordCount: 1, remarks: 'reauth check' },
+        payload: { reportType: 'Audit Trail', format: 'Excel', recordCount: 1, remarks: 'reauth check' },
       });
       expect(res.statusCode).toBe(401);
       const body = res.json();
@@ -182,7 +181,7 @@ describe('POST /api/audit/report-export-log', () => {
         method: 'POST',
         url: '/api/audit/report-export-log',
         headers: { authorization: `Bearer ${token}`, 'x-reauth-password': 'DefinitelyWrong@1' },
-        payload: { reportType: 'Audit Trail', format: 'PDF', recordCount: 1, remarks: 'reauth check' },
+        payload: { reportType: 'Audit Trail', format: 'Excel', recordCount: 1, remarks: 'reauth check' },
       });
       expect(res.statusCode).toBe(401);
     });
@@ -192,10 +191,79 @@ describe('POST /api/audit/report-export-log', () => {
         method: 'POST',
         url: '/api/audit/report-export-log',
         headers: { authorization: `Bearer ${token}`, 'x-reauth-password': TEST_PASSWORD },
-        payload: { reportType: 'Audit Trail', format: 'PDF', recordCount: 1, remarks: 'reauth check' },
+        payload: { reportType: 'Audit Trail', format: 'Excel', recordCount: 1, remarks: 'reauth check' },
       });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ success: true });
+    });
+  });
+  /**
+   * A PDF follows its REPORT TYPE's configuration (Configuration → Report
+   * Downloads, 2026-10-01): refused when the type is reviewed, and the password
+   * and remarks required exactly when the type says so. The row is pinned and
+   * restored FIRST in afterAll.
+   */
+  describe('PDF — per report type (report-downloads)', () => {
+    let original: { configValue: any; configType: string; requiresReauth: boolean } | null = null;
+    const pin = async (value: Record<string, unknown>) => {
+      await prisma.systemConfig.upsert({
+        where: { configKey: 'report-downloads' },
+        update: { configValue: value as any, configType: 'system', requiresReauth: false },
+        create: { configKey: 'report-downloads', configValue: value as any, configType: 'system', requiresReauth: false },
+      });
+    };
+    const post = (payload: Record<string, unknown>, password?: string) => app.inject({
+      method: 'POST', url: '/api/audit/report-export-log',
+      headers: { authorization: `Bearer ${token}`, ...(password ? { 'x-reauth-password': password } : {}) },
+      payload: { reportType: 'Audit Trail', format: 'PDF', recordCount: 3, ...payload },
+    });
+
+    beforeAll(async () => {
+      const row = await prisma.systemConfig.findUnique({ where: { configKey: 'report-downloads' } });
+      if (row) original = { configValue: row.configValue, configType: row.configType, requiresReauth: row.requiresReauth };
+      await pin({
+        auditTrailMode: 'DIRECT', auditTrailRemarks: false, auditTrailPassword: false,
+        dataReportMode: 'DIRECT', dataReportRemarks: true, dataReportPassword: true,
+        // alarms left absent = REQUEST
+      });
+    });
+
+    afterAll(async () => {
+      if (original) await prisma.systemConfig.update({ where: { configKey: 'report-downloads' }, data: original });
+      else await prisma.systemConfig.deleteMany({ where: { configKey: 'report-downloads' } });
+    });
+
+    it('a DIRECT type with remarks and password OFF downloads with neither — and the audit row says so', async () => {
+      const res = await post({ reportKind: 'audit-trail' });
+      expect(res.statusCode).toBe(200);
+      const row = await prisma.auditTrail.findFirst({ where: { action: 'REPORT_GENERATED', userId: TEST_USERNAME }, orderBy: { timestamp: 'desc' } });
+      expect((row!.afterValue as any).reportKind).toBe('audit-trail');
+      expect((row!.afterValue as any).remarks).toBeNull();
+    });
+
+    it('a DIRECT type with password ON asks EVERY role (SUPER_ADMIN included), and accepts the right one', async () => {
+      const none = await post({ reportKind: 'data-report', remarks: 'x' });
+      expect(none.statusCode).toBe(401);
+      expect(none.json().error).toBe('REAUTH_REQUIRED');
+      expect((await post({ reportKind: 'data-report', remarks: 'x' }, 'Wrong@Pass1')).statusCode).toBe(401);
+      expect((await post({ reportKind: 'data-report', remarks: 'x' }, TEST_PASSWORD)).statusCode).toBe(200);
+    });
+
+    it('a DIRECT type with remarks ON refuses blank remarks', async () => {
+      const res = await post({ reportKind: 'data-report', remarks: '  ' }, TEST_PASSWORD);
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toBe('VALIDATION_ERROR');
+    });
+
+    it('a REQUEST type cannot be downloaded directly — this route is not a way round the approval', async () => {
+      const res = await post({ reportKind: 'alarms', remarks: 'x' }, TEST_PASSWORD);
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error).toBe('REPORT_REQUIRES_APPROVAL');
+    });
+
+    it('a PDF with no or an unknown report kind is refused', async () => {
+      expect((await post({ remarks: 'x' }, TEST_PASSWORD)).statusCode).toBe(400);
+      expect((await post({ reportKind: 'Audit Trail', remarks: 'x' }, TEST_PASSWORD)).statusCode).toBe(400);
     });
   });
 });

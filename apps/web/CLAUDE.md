@@ -317,6 +317,13 @@ Block), `detail.tsx` (hero band + Areas tiles + two instrument lists),
 Every PDF download is a REQUEST an approver signs. Spec:
 `docs/superpowers/specs/2026-09-07-report-review-workflow-design.md`.
 
+- **SUPERSEDED 2026-10-01 — there is no Send to and no View draft.** The
+  dialog takes a `kind`, reads `use-report-downloads.ts` (Direct or Request,
+  remarks, password — Configuration → Report Downloads), collects the password
+  itself, and every page hands the built report to `lib/report-delivery.ts`
+  `deliverReport()`. Approvers are configured and frozen on the request; a
+  PENDING row on Reports opens its snapshot beneath it. The rest of this bullet
+  is history; see root `CLAUDE.md`.
 - **`ReportDownloadDialog` collects Send to** (`components/assignee-picker.tsx`
   — a user or a role, never SUPER_ADMIN; lifted from the removed
   `SendForReviewButton`) and its button reads *Request approval*.

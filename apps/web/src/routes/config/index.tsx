@@ -298,7 +298,7 @@ const superAdminCards = [
   },
   {
     title: 'Report Approvers',
-    description: 'Which roles may approve a report request — a report can only be sent to one of them, or to a user holding one',
+    description: 'Who approves report requests — the roles and users every request goes to',
     href: '/config/dynamic/report-approvers',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -306,6 +306,21 @@ const superAdminCards = [
       </svg>
     ),
     gradient: 'from-emerald-500 to-teal-600',
+  },
+  {
+    // 2026-10-01 (operator: "add report downloads configuration in super admin
+    // settings"): per report type, Direct download or Request approval, and
+    // whether remarks and the password are required. SUPER_ADMIN-only card,
+    // rendered by the dynamic config page.
+    title: 'Report Downloads',
+    description: 'For each report type: download directly or request approval first, and whether remarks and the password are required',
+    href: '/config/dynamic/report-downloads',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+      </svg>
+    ),
+    gradient: 'from-sky-500 to-indigo-600',
   },
   {
     title: 'Alarm Webhooks',

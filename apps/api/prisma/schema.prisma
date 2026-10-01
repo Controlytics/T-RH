@@ -855,9 +855,17 @@ model ReportReview {
   requestedAt     DateTime           @default(now()) @map("requested_at") @db.Timestamptz
   requestRemarks  String             @map("request_remarks") @db.Text
 
-  /// Exactly one of the two.
+  /// Exactly one of the two — the requester's own choice, on rows raised
+  /// before 2026-10-01. No longer written; the arrays below carry it.
   assigneeUserId  String?            @map("assignee_user_id") @db.Uuid
   assigneeRole    String?            @map("assignee_role") @db.VarChar(50)
+  /// The APPROVERS, frozen from Configuration → Report Approvers at the request
+  /// (2026-10-01): any holder of one of these roles, or any of these users.
+  approverRoles   String[]           @default([]) @map("approver_roles") @db.VarChar(50)
+  approverUserIds String[]           @default([]) @map("approver_user_ids") @db.Uuid
+  /// The instruments the report is about (2026-10-01). A user sees the request
+  /// only if their instrument scope covers ANY of them; empty = not scoped.
+  instrumentIds   String[]           @default([]) @map("instrument_ids")
 
   decidedBy       String?            @map("decided_by") @db.Uuid
   decidedByName   String?            @map("decided_by_name") @db.VarChar(255)
@@ -872,6 +880,8 @@ model ReportReview {
   @@index([status, assigneeUserId])
   @@index([status, assigneeRole])
   @@index([requestedBy, createdAt])
+  @@index([approverRoles], type: Gin)
+  @@index([instrumentIds], type: Gin)
   @@map("report_reviews")
 }
 

@@ -27,6 +27,7 @@ import { sensorRangeDisplayTextRoutes } from './static-routes/sensor-range-alarm
 import { alarmTypeNamesRoutes } from './static-routes/alarm-type-names.routes.js';
 import { trendWidgetsRoutes } from './static-routes/trend-widgets.routes.js';
 import { reportApproversRoutes } from './static-routes/report-approvers.routes.js';
+import { reportDownloadsRoutes } from './static-routes/report-downloads.routes.js';
 import { attributeLabelsRoutes } from './static-routes/attribute-labels.routes.js';
 
 // Map config keys to reauth action names (consumed by the generic configEndpoint factory).
@@ -55,6 +56,7 @@ export default async function configRoutes(app: FastifyInstance) {
   await alarmTypeNamesRoutes(app);
   await trendWidgetsRoutes(app);
   await reportApproversRoutes(app);
+  await reportDownloadsRoutes(app);
   await attributeLabelsRoutes(app);
 
   // Generic CRUD factory for configs whose only work is get/update a typed blob.

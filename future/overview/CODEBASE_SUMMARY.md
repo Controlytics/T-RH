@@ -99,7 +99,7 @@
 - **26 sidebar items** with privilege binding via `sidebar-privilege-map.ts`
 - Audit trail with hash-chain integrity (`apps/api/src/lib/hash-chain.ts`)
 - 21 CFR Part 11 e-signatures + reauth checks (`apps/api/src/lib/reauth-check.ts`)
-- Config system: **35 config definitions** (`apps/api/src/modules/config/defs/`) auto-discovered via `config-discovery.ts`; **34 corresponding pages** under `apps/web/src/routes/config/`; routes split per-tab in `config/static-routes/`
+- Config system: **33 config definitions** (re-derived `ls` 2026-10-01 — the 35 here was stale) (`apps/api/src/modules/config/defs/`) auto-discovered via `config-discovery.ts`; **34 corresponding pages** under `apps/web/src/routes/config/`; routes split per-tab in `config/static-routes/`
 - Audit-template UUID hiding (per-action templates registered in `packages/shared/src/types/audit-templates.ts`)
 - Branding + theme system (10 preset themes, CSS variables)
 - Multi-tenant super-admin

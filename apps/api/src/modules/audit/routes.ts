@@ -5,7 +5,8 @@ import { auditLog } from '../../lib/audit.js';
 import { auditQuerySchema } from '@digilog/shared';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { verifyAuditChain } from '../../lib/audit-verify.js';
-import { enforceReauth } from '../../lib/reauth-check.js';
+import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
+import { policyForKind } from '../report-reviews/service.js';
 import { resolvePageSize } from '../../lib/page-size.js';
 import {
   withAuditDeletesAllowed,
@@ -318,16 +319,17 @@ export default async function auditRoutes(app: FastifyInstance) {
       description: 'Writes a REPORT_GENERATED audit row capturing who generated which report, the format, the record count, and any active filters.',
       body: {
         type: 'object',
-        required: ['reportType', 'format', 'recordCount', 'remarks'],
+        required: ['reportType', 'format', 'recordCount'],
         properties: {
           reportType: { type: 'string', minLength: 1, maxLength: 100, description: 'Human report name, e.g. "Audit Trail", "Instrument Activity"' },
+          reportKind: { type: 'string', maxLength: 50, description: 'The configured report type (Configuration → Report Downloads). Required for a PDF.' },
           format: { type: 'string', enum: ['PDF', 'Excel'] },
           recordCount: { type: 'integer', minimum: 0 },
           period: { type: 'string' },
           search: { type: 'string' },
           startDate: { type: 'string' },
           endDate: { type: 'string' },
-          remarks: { type: 'string', minLength: 1, maxLength: 500, description: 'Why this report was generated. Required — a §11 record states its reason.' },
+          remarks: { type: 'string', maxLength: 500, description: 'Why this report was generated. Required unless the report type\'s remarks are switched off (PDF only).' },
         },
       },
       response: {
@@ -336,21 +338,39 @@ export default async function auditRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    // Configurable, not welded on: enforceReauth consults the per-role policy,
-    // so an administrator can relax this for a role that downloads routinely
-    // without the requirement disappearing from the registry.
-    const { ok } = await enforceReauth('DOWNLOAD_REPORT', req, reply);
-    if (!ok) return;
+    const { reportType, reportKind, format, recordCount, period, search, startDate, endDate, remarks } =
+      req.body as { reportType: string; reportKind?: string; format: string; recordCount: number; period?: string; search?: string; startDate?: string; endDate?: string; remarks?: string };
 
-    const { reportType, format, recordCount, period, search, startDate, endDate, remarks } =
-      req.body as { reportType: string; format: string; recordCount: number; period?: string; search?: string; startDate?: string; endDate?: string; remarks: string };
+    // A PDF follows its report type's configuration (Configuration → Report
+    // Downloads, 2026-10-01): refused outright when the type is reviewed — this
+    // route is otherwise a way round the approval — and the password and the
+    // remarks are required exactly when the type says so. Checked BEFORE the
+    // password, so nobody signs a refused download.
+    //
+    // The Audit Trail's EXCEL export is not a PDF and keeps the old rule: the
+    // per-role DOWNLOAD_REPORT policy, remarks always required.
+    let remarksRequired = true;
+    if (format === 'PDF') {
+      const { policy } = await policyForKind(reportKind);
+      if (policy.mode !== 'DIRECT') {
+        return reply.code(409).send({ error: 'REPORT_REQUIRES_APPROVAL', message: 'This report must be requested for approval; it cannot be downloaded directly.' });
+      }
+      if (policy.passwordRequired) {
+        const { ok } = await enforceReauthAlways('DOWNLOAD_REPORT', req, reply);
+        if (!ok) return;
+      }
+      remarksRequired = policy.remarksRequired;
+    } else {
+      const { ok } = await enforceReauth('DOWNLOAD_REPORT', req, reply);
+      if (!ok) return;
+    }
     // Schema `minLength: 1` alone would accept a whitespace-only string — a
     // blank padded with spaces states no reason. Trim server-side rather than
     // trust the dialog's client-side trim: this endpoint is the ONLY place a
     // report download is captured, so it is the last line of defence for the
     // §11 requirement that the record state its reason.
-    const trimmedRemarks = remarks?.trim();
-    if (!trimmedRemarks) {
+    const trimmedRemarks = remarks?.trim() ?? '';
+    if (remarksRequired && !trimmedRemarks) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'remarks is required and cannot be blank.' });
     }
     await auditLog({
@@ -365,9 +385,10 @@ export default async function auditRoutes(app: FastifyInstance) {
         search: search ?? null,
         startDate: startDate ?? null,
         endDate: endDate ?? null,
-        remarks: trimmedRemarks,
+        remarks: trimmedRemarks || null,
+        reportKind: reportKind ?? null,
       },
-      reason: `Report generated: ${reportType} (${recordCount} record(s)) as ${format} — ${trimmedRemarks}`,
+      reason: `Report generated: ${reportType} (${recordCount} record(s)) as ${format}${trimmedRemarks ? ` — ${trimmedRemarks}` : ''}`,
       signatureMeaning: `${req.user.username} generated the ${reportType} report (${recordCount} record(s)) as ${format}`,
       ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
     });

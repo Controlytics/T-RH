@@ -28,7 +28,7 @@ vi.mock('@/lib/pdf-report', async (orig) => {
   };
 });
 
-const { submitReportForReview, downloadApproved, reviewSignatures, assigneeLabel, openDraft } = await import('../report-review');
+const { submitReportForReview, downloadApproved, reviewSignatures, approversText } = await import('../report-review');
 const { renderSnapshotToPdf } = await import('@/lib/pdf-report');
 
 const snapshot = { version: 2 as const, reportType: 'Instrument Time Series', title: 'Temperature and RH Data Report', config: {}, sections: [] };
@@ -38,7 +38,7 @@ const approved = {
   requestMeta: { period: { from: '2026-08-24T00:00:00.000Z', to: '2026-08-24T01:00:00.000Z', label: 'Custom' } },
   status: 'APPROVED' as const,
   requestedBy: 'u-req', requestedByName: 'rrq', requestedByRole: 'QA', requestedAt: '2026-09-07T14:02:00.000Z', requestRemarks: 'periodic review',
-  assigneeUserId: 'u-appr', assigneeRole: null,
+  assigneeUserId: null, assigneeRole: null, approverRoles: ['QA_MANAGER'], approverUserIds: ['u-appr'], instrumentIds: ['i1'],
   decidedBy: 'u-appr', decidedByName: 'rra', decidedByRole: 'QA_MANAGER', decidedAt: '2026-09-07T15:10:00.000Z', decisionRemarks: 'checked',
   createdAt: '2026-09-07T14:02:00.000Z',
   dataSnapshot: snapshot,
@@ -46,25 +46,27 @@ const approved = {
 
 beforeEach(() => { events.length = 0; saved.length = 0; post.mockClear(); postWithReauth.mockClear(); get.mockReset(); (renderSnapshotToPdf as any).mockClear(); });
 
-describe('submitReportForReview', () => {
-  it('posts the snapshot, the meta and the assignee through the re-auth client', async () => {
+describe('submitReportForReview (2026-10-01)', () => {
+  it('posts the KIND, the snapshot, the meta and the instrument ids — and names NO approver — through the re-auth client', async () => {
     const res = await submitReportForReview({
-      snapshot, reportType: 'Instrument Time Series', title: snapshot.title,
+      reportKind: 'data-report', snapshot, reportType: 'Instrument Time Series', title: snapshot.title,
       requestMeta: { period: approved.requestMeta.period, intervalMs: null, instrumentCodes: ['CWH/RDU/001-00'] },
-      remarks: 'periodic review', assignee: { userId: 'u-appr' }, password: 'pw',
+      instrumentIds: ['i1'], remarks: 'periodic review', password: 'pw',
     });
     expect(postWithReauth).toHaveBeenCalledTimes(1);
     const [url, body, password] = postWithReauth.mock.calls[0] as any[];
     expect(url).toBe('/api/report-reviews');
     expect(password).toBe('pw');
-    expect(body).toMatchObject({ reportType: 'Instrument Time Series', title: snapshot.title, remarks: 'periodic review', assigneeUserId: 'u-appr', dataSnapshot: snapshot });
+    expect(body).toMatchObject({ reportKind: 'data-report', reportType: 'Instrument Time Series', remarks: 'periodic review', instrumentIds: ['i1'], dataSnapshot: snapshot });
+    expect(body).not.toHaveProperty('assigneeUserId');
     expect(body).not.toHaveProperty('assigneeRole');
     expect(res.status).toBe('PENDING');
   });
 
-  it('sends a role assignee as assigneeRole', async () => {
-    await submitReportForReview({ snapshot, reportType: 'Alarms', title: 'ALARM REPORT', requestMeta: {}, remarks: 'x', assignee: { role: 'QA' } });
-    expect((postWithReauth.mock.calls[0] as any[])[1]).toMatchObject({ assigneeRole: 'QA' });
+  it('with no password (the type does not require one) it posts plainly', async () => {
+    await submitReportForReview({ reportKind: 'alarms', snapshot, reportType: 'Alarms', title: 'ALARM REPORT', requestMeta: {}, instrumentIds: [], remarks: '' });
+    expect(postWithReauth).not.toHaveBeenCalled();
+    expect(post).toHaveBeenCalledWith('/api/report-reviews', expect.objectContaining({ reportKind: 'alarms', remarks: '' }));
   });
 });
 
@@ -84,10 +86,10 @@ describe('reviewSignatures — the signature TABLE (2026-09-25)', () => {
   });
 });
 
-describe('assigneeLabel', () => {
-  it('reads as who will approve', () => {
-    expect(assigneeLabel({ userId: 'u1' }, [{ id: 'u1', username: 'qa1' }])).toBe('qa1');
-    expect(assigneeLabel({ role: 'QA' }, [])).toBe('any QA');
+describe('approversText', () => {
+  it('reads as who may approve: every role, then every named user by username (the id when unknown)', () => {
+    expect(approversText({ approverRoles: ['QA', 'SUP'], approverUserIds: ['u1', 'u9'] }, [{ id: 'u1', username: 'qa1' }])).toBe('any QA, any SUP, qa1, u9');
+    expect(approversText({ approverRoles: [], approverUserIds: [] })).toBe('-');
   });
 });
 
@@ -118,18 +120,5 @@ describe('downloadApproved', () => {
   });
 });
 
-describe('openDraft', () => {
-  it('renders the DRAFT (no signatures) and opens it without saving or auditing', async () => {
-    get.mockResolvedValue({ ...approved, status: 'PENDING' });
-    const open = vi.fn();
-    vi.stubGlobal('open', open);
-    await openDraft('r1', fmt);
-    const opts = (renderSnapshotToPdf as any).mock.calls[0][1];
-    expect(opts.draft).toBe(true);
-    expect(opts.signatures).toBeUndefined();
-    expect(opts.signatureTable).toBeUndefined();
-    expect(open).toHaveBeenCalledWith('blob:draft', '_blank');
-    expect(events).toEqual([]);
-    vi.unstubAllGlobals();
-  });
-});
+// `openDraft` was removed 2026-10-01 with the View draft button — a pending
+// row now opens its snapshot beneath it on the Reports page.

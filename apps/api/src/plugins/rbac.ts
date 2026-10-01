@@ -46,6 +46,19 @@ async function getRolePerms(roleName: string): Promise<string[]> {
   return perms;
 }
 
+/**
+ * Does a ROLE hold a permission — by exactly the rule `requirePermission`
+ * applies at a route (SUPER_ADMIN always; otherwise the role's grants through
+ * `hasEffectivePermission`'s fallbacks)? For a check made about SOMEONE ELSE,
+ * where no request is being gated: e.g. "could anyone approve this report?"
+ * (report-reviews, 2026-10-01). One resolver, so the answer cannot differ from
+ * the 403 that person would get.
+ */
+export async function roleHasPermission(roleName: string, permission: string): Promise<boolean> {
+  if (roleName === 'SUPER_ADMIN') return true;
+  return hasEffectivePermission(await getRolePerms(roleName), permission);
+}
+
 /** Clear the role-perms cache. Call from role.service.ts after a role
  *  permissions change so the next request picks up the new value
  *  immediately (rather than waiting up to 5s for the TTL to lapse). */

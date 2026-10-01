@@ -1,5 +1,98 @@
 # Changelog
 
+## [Unreleased] - Report downloads: Direct or Request per report type; approvers configured, not chosen; requests scoped by role and instrument (2026-10-01)
+
+Operator, over several messages: *"per user or per role option should be
+removed in request place and add that in configuration … if there role
+selected then for that role users can see the report data, and also who are
+requesting report also that role users can see the data"*; *"if one operator
+user send request to supervisor then all operator user can view and download
+the report, and also all supervisor users can view and download reports, and
+also remove view draft … which are assigned to role or user for that users
+only assigned instruments report requests should come"*; *"provide one
+configuration for which one we need report request and normal time period
+selection download option … for which report type remarks should be there or
+not … request or direct download configuration should be come for all report
+types"*; *"password reauthentication should be required or not also should be
+selectable"*; *"add report downloads configuration in super admin settings"*.
+Choices put to them: Audit Trail PDF in the configuration like the others;
+password required on Direct; defaults = today; scope "any" instrument;
+several approvers; existing requests keep their assignee.
+
+- **Configuration → Report Downloads** (new def `report-downloads`, 32 → 33;
+  SUPER_ADMIN-only card beside Report Approvers; rendered by the dynamic page).
+  Per report type — Data Report, Trend Chart, Instrument Alarms, Alarm Report,
+  Audit Trail (PDF) — **Download mode** (Direct / Request approval),
+  **Remarks required**, **Password required**. Defaults are today's behaviour
+  (Request, remarks on, password on), so nothing changes until a super admin
+  does. `coerceReportDownloads` (stored row) and
+  `coerceReportDownloadsResponse` (the narrow route's per-kind shape) in
+  `@digilog/shared` are the two readers; every switch fails CLOSED. Served by
+  `GET /api/config/report-downloads/current`.
+  - **Direct**: the dialog reads "Download — <report>"; the PDF is audited
+    (`REPORT_GENERATED`, now with `reportKind`) and THEN saved — fail-closed.
+    **Request**: unchanged workflow, minus the picker.
+  - **Enforced on the server, both ways.** `POST /api/audit/report-export-log`
+    refuses a PDF whose type is Request (409 `REPORT_REQUIRES_APPROVAL` — it
+    was a way round the approval) and requires a valid `reportKind` for a PDF;
+    `POST /api/report-reviews` refuses a Direct type (409 `REPORT_IS_DIRECT`).
+    Remarks and the password are demanded exactly as configured, and checked
+    BEFORE the password, so nobody signs a refused act.
+  - **Password = Yes asks EVERY role** (`enforceReauthAlways`); No asks
+    nobody. For these PDFs the setting replaces the per-role
+    `DOWNLOAD_REPORT` policy, which still governs the Audit Trail's **Excel**
+    export (not a PDF, not configured here: always direct, remarks required).
+  - The password is typed IN the download dialog now, beside the remarks
+    (`SignaturePasswordInput`), not in a second re-auth prompt.
+- **No Send to.** The requester chooses nobody: a request goes to EVERY
+  approver role and every approver USER configured under Configuration →
+  Report Approvers (new setting **Approver users**, beside the roles; options
+  from the new `GET /api/config/report-approvers/candidates`). The set is
+  **frozen on the request** — migration `20261001120000_report_review_approvers_scope`
+  adds `report_reviews.approver_roles`, `approver_user_ids`, `instrument_ids`
+  (arrays, backfilled from the old single assignee and, best effort, from
+  `requestMeta.instrumentCodes`); the old `assignee_*` columns are kept and no
+  longer written. Models 37 / enums 13 unchanged. Applied to both local
+  databases; **NOT on AWS — the next deploy applies it**.
+- **Who sees a request**: the requester's ROLE-mates (by the frozen
+  `requestedByRole`) and every approver may view its data and download the
+  approved copy; only approvers decide (`REPORT_REVIEW_APPROVE`, separation of
+  duties unchanged, SUPER_ADMIN still exempt). **All of them only within their
+  INSTRUMENT SCOPE** — a request is visible when the user's scope covers ANY of
+  its instruments; the Audit Trail PDF is about none and is not scoped. The
+  two signers and SUPER_ADMIN are not scope-bound. Out of scope = 404. ONE
+  predicate (`isParty` / `mayDecide` / `inScope` in
+  `report-reviews/service.ts`) used by the lists, the detail read, the decision
+  and the download log; the lists' SQL is its translation. The server checks
+  that every instrument a request names is real and inside the REQUESTER's
+  scope. Notifications go per USER, filtered by scope — never a role
+  broadcast, which would name the instruments to approvers who cannot see them.
+- **Reports page**: View draft REMOVED (with `openDraft`); a PENDING row opens
+  its frozen data beneath it as tables, as an approved one does; the second tab
+  is **Requests** (raised by me or anyone in my role); Send to lists the frozen
+  approvers. `components/assignee-picker.tsx` deleted.
+- One delivery path for every page: `lib/report-delivery.ts`
+  (`deliverReport`) — Alarms page, Audit Trail PDF, Data Report card, the trend
+  page's four downloads. The Alarms report sends the ids of the instruments its
+  PRINTED alarms belong to.
+- **Found and fixed on the way:** the web hook first read the narrow route's
+  response with the stored-row reader, which turned every type into Request —
+  Direct could never have reached a dialog. Caught by the dialog test; the
+  response reader is separate and both are tested against each other's shape.
+- Not changed: the PDF renderer's draft watermark and `toBlobUrl()` now have NO
+  caller (View draft is gone); kept as a renderer capability.
+- Counts: config defs 32 → **33**, web hooks 23 → **24**
+  (`use-report-downloads.ts`), web lib 20 → **21** (`report-delivery.ts`),
+  shared type files 30 → **31** (`report-downloads.ts`). No permission, reauth
+  action, audit action, route or sidebar item moved.
+- Pinned by: 21 API e2e (`report-reviews.e2e.test.ts`, a seven-user cast incl.
+  out-of-scope approver and role-mate) + 5 new PDF cases in
+  `audit-export-log.test.ts`, 11 unit (`service.test.ts`), 12 shared unit, and
+  web: dialog 16, alarms page 30, data report card 7, trend downloads 24,
+  reports page 12, client lib 8. Mutation-checked: disabling the scope rule
+  fails 8 e2e; saving before the audit write fails 2 page cases. Drift guard
+  PASS. **Not seen on screen.**
+
 ## [Unreleased] - Approved PDF: the signatures are a TABLE, and each signer's ROLE is frozen on the record (2026-09-25)
 
 Operator: *"in downloaded report reviewed by and approved by was coming

@@ -199,7 +199,9 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   re-derived by the two greps in the verification block). Earlier: **97** / **91** in **7**
   categories. 93 → 97 / 87 → 91 (2026-08-27): create / update / delete / test
   for alarm webhook targets; categories unchanged.
-- **Config:** **32** definitions (`config/defs/*.def.ts`) + auto-discovery (31 → 32 on
+- **Config:** **33** definitions (`config/defs/*.def.ts`) + auto-discovery (32 → 33 on
+  2026-10-01: `report-downloads.def.ts` — per report type Direct / Request, remarks
+  and password; SUPER_ADMIN card, dynamic page, page count unchanged. 31 → 32 on
   2026-09-16: `attribute-labels.def.ts` — what each instrument attribute KEY is CALLED
   on screen; NO page of its own — edited as a column on the Instrument Attributes
   page, see the Attribute Display Names note. 30 → 31 on
@@ -368,7 +370,7 @@ history; `docs/recreation/` holds the inventory.
     code accepted, reading lands, UUID refused, foreign token/code refused,
     foreign topic publish and subscribe refused.
 - **Instrument grouping — THREE concepts, one job each (2026-08-13).** Do not confuse them: **`FunctionalLocation`** (Block > Area tree, `Instrument.functionalLocationId`) is the AUTHORITATIVE logical grouping; **`roomId`** → `FloorplanRoom` is geometry on a drawn plan and drives the graphical view; **`profileId`** is device type. The free-text `Instrument.block` / `.area` columns are SUPERSEDED — no longer read for grouping, kept only so the migration stays comparable. A Block's instruments are its own PLUS its Areas', resolved by `functional-locations/tree.ts:resolveLocationIds()`; querying `functionalLocationId = :id` directly silently omits the Areas.
-- **Config:** **32 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **22** corresponding pages (pages 23 → 22 on 2026-09-22: `floorplans.tsx` → the `layout-designer/` folder; both re-derived `ls | wc -l` 2026-09-16: defs 31 → 32 with `attribute-labels.def.ts`, which adds NO page — its Display name column lives on `instrument-attributes.tsx`; earlier defs re-derived 2026-09-07, 30 → 31 with `report-approvers.def.ts`; both re-derived 2026-09-01; defs 29 → 30 that day with `trend-widgets.def.ts`, which adds no page — it renders through the dynamic config page; the page count read 24 here and in System Stats above until then and was **stale, not moved** — `alarm-rules.tsx` went with the 2026-08-31 rule removal and neither line was re-synced. This is the THIRD time this bullet has drifted from the one above it; the duplication itself is the defect it keeps warning about). **This bullet's def count went stale TWICE while the System Stats section above was current — 25 here against 26 then 27 there.** It is the same self-contradiction the 2026-08-29 audit raised as finding M8 for the page count, in the same bullet, and re-syncing only the half that was wrong that day is why it came back. Two live inventory lines for one number is the actual defect; re-derive both from `ls` whenever either moves. Defs 25 → 26 → 27 on 2026-08-31 (`inactivity-alarms.def.ts`, then `rs485-alarms.def.ts` — both render through the dynamic config page, so the page count did not move). Earlier note, still true: the 25 predated `dashboard-cards.tsx` being deleted on 2026-08-28. Defs verified `ls` 2026-08-27, unchanged at 25 — the def and page counts are NOT equal and should not be expected to be: `alarm-webhooks.tsx` is a page with no def (a CRUD module, not a `system_config` row), and several defs render through the dynamic config page with no file of their own. Earlier: pages 25 → 24 the same day — `routes/config/role-assignments.tsx` deleted as dead code: its 7 config defs went in the Phase 0 strip and `system_config` held 0 rows for them, so every section read an unregistered `/api/config/dynamic/<key>` route. Earlier counts VERIFIED by `ls` 2026-08-17 — `alarm-limits.def.ts` added 2026-08-17: super-admin config for the instrument-limit alarm work — an ordered alias list of attribute keys per bound (High/Low Temperature/Humidity Limit), since this install's keys have already drifted; plus a master switch and four status wordings. (It also carried a `severity`
+- **Config:** **33 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **22** corresponding pages (defs 32 → 33 on 2026-10-01: `report-downloads.def.ts`, no page; pages 23 → 22 on 2026-09-22: `floorplans.tsx` → the `layout-designer/` folder; both re-derived `ls | wc -l` 2026-09-16: defs 31 → 32 with `attribute-labels.def.ts`, which adds NO page — its Display name column lives on `instrument-attributes.tsx`; earlier defs re-derived 2026-09-07, 30 → 31 with `report-approvers.def.ts`; both re-derived 2026-09-01; defs 29 → 30 that day with `trend-widgets.def.ts`, which adds no page — it renders through the dynamic config page; the page count read 24 here and in System Stats above until then and was **stale, not moved** — `alarm-rules.tsx` went with the 2026-08-31 rule removal and neither line was re-synced. This is the THIRD time this bullet has drifted from the one above it; the duplication itself is the defect it keeps warning about). **This bullet's def count went stale TWICE while the System Stats section above was current — 25 here against 26 then 27 there.** It is the same self-contradiction the 2026-08-29 audit raised as finding M8 for the page count, in the same bullet, and re-syncing only the half that was wrong that day is why it came back. Two live inventory lines for one number is the actual defect; re-derive both from `ls` whenever either moves. Defs 25 → 26 → 27 on 2026-08-31 (`inactivity-alarms.def.ts`, then `rs485-alarms.def.ts` — both render through the dynamic config page, so the page count did not move). Earlier note, still true: the 25 predated `dashboard-cards.tsx` being deleted on 2026-08-28. Defs verified `ls` 2026-08-27, unchanged at 25 — the def and page counts are NOT equal and should not be expected to be: `alarm-webhooks.tsx` is a page with no def (a CRUD module, not a `system_config` row), and several defs render through the dynamic config page with no file of their own. Earlier: pages 25 → 24 the same day — `routes/config/role-assignments.tsx` deleted as dead code: its 7 config defs went in the Phase 0 strip and `system_config` held 0 rows for them, so every section read an unregistered `/api/config/dynamic/<key>` route. Earlier counts VERIFIED by `ls` 2026-08-17 — `alarm-limits.def.ts` added 2026-08-17: super-admin config for the instrument-limit alarm work — an ordered alias list of attribute keys per bound (High/Low Temperature/Humidity Limit), since this install's keys have already drifted; plus a master switch and four status wordings. (It also carried a `severity`
   select until 2026-09-01, when severity stopped being administered anywhere; the
   def count did not move — a setting was removed, not a def.) Renders through the dynamic config page, so no `routes/config/*.tsx` of its own — the page count stays 25. The "23 corresponding pages" recorded here 2026-08-11 was already stale before this change (the live page count was 25, per `apps/web/CLAUDE.md`'s 2026-08-14 verification); it was never re-synced here until now. Earlier: `telemetry-slots.def.ts` added 2026-08-11: which telemetry keys the dashboard reads as temperature and humidity, since ingest stores whatever key a device sends. Renders through the dynamic config page, so no `routes/config/*.tsx` of its own; the Floorplans placement editor IS a page. Earlier counts VERIFIED by `ls` 2026-08-07 — the previous "36 / 34" was inherited from DigiLog and was never true in this fork; `instrument-attributes.def.ts` added 2026-08-07 — the attribute keys the New Instrument form asks for, renders via the dynamic config page so no new `routes/config/*.tsx`)
 - **Display precision (2026-08-19):** decimal places for temperature/humidity come from each
@@ -390,7 +392,7 @@ history; `docs/recreation/` holds the inventory.
   `reason` column; a first fill does not). Admin surface: Config → Roles & Access → Attribute Access.
   Migration `20260819120000_role_attribute_access`, drift guard PASS, applied to both databases.
 - **Themes:** 10 preset color themes (Ocean / Sapphire / Emerald / Amethyst / Sunset / Slate / Ruby / Forest / Midnight / Coral)
-- **Frontend:** **52** Routes in `main.tsx` (53 → 52 on 2026-09-19: `/home` removed with the Home sidebar item — re-derived `grep -cE "<Route"`; unchanged on 2026-09-16 — a `/config/attribute-labels` route lived for a few hours and went the same day; 52 → 53 on 2026-09-08: `/settings`, the Settings page; 51 → 52 on 2026-09-07: `/reports`, the report review workflow; 50 → 51 the same day: `/data-report`, the Instrument History widget's own page; re-derived `grep -cE "<Route"` that day. Earlier, re-derived 2026-09-03 — this line read **51** and was ALREADY STALE: the 2026-08-31 alarm-rules removal took it 51 → 50 and re-synced only the System Stats copy above, which is the same duplicate-inventory defect this file keeps warning about. Earlier verified 2026-08-29 — 50 → 51: `/config/export-options` registered, having never been reachable. Earlier verified 2026-08-27 — 49 → 50: new `/config/alarm-webhooks` page; earlier 48 → 49 on 2026-08-24: the `/instruments/:id/trend` page; the "77" was inherited from upstream DigiLog and was never true in this fork; `/config/role-assignments` removed 2026-08-19 as dead code, 49 → 48), **23** custom hooks (22 → 23 on 2026-09-16: `use-attribute-labels.ts`, the ONE browser reader of the attribute display names; earlier 20 → 22, re-derived `ls apps/web/src/hooks/ | wc -l` 2026-09-03 — ALREADY STALE, nothing on 2026-09-03 added a hook; earlier 18 → 20 on 2026-08-29, audit finding M8), **20** lib modules (19 → 20 on 2026-09-03: `lib/document-identity.ts`, the browser-tab applier) (`ls apps/web/src/hooks/ | wc -l` / `ls apps/web/src/lib/ | wc -l`, each including its own `__tests__` subfolder as one entry — lib 18 → 19 corrected 2026-08-27: `lib/background-style.ts` landed with the wallpaper work (`764fff5`) and this line was never re-synced; the 2026-08-27 trend-sampling work added NO lib module — the "26 / 30" this file carried for months was never true against the live tree and was never re-verified until now)
+- **Frontend:** **52** Routes in `main.tsx` (53 → 52 on 2026-09-19: `/home` removed with the Home sidebar item — re-derived `grep -cE "<Route"`; unchanged on 2026-09-16 — a `/config/attribute-labels` route lived for a few hours and went the same day; 52 → 53 on 2026-09-08: `/settings`, the Settings page; 51 → 52 on 2026-09-07: `/reports`, the report review workflow; 50 → 51 the same day: `/data-report`, the Instrument History widget's own page; re-derived `grep -cE "<Route"` that day. Earlier, re-derived 2026-09-03 — this line read **51** and was ALREADY STALE: the 2026-08-31 alarm-rules removal took it 51 → 50 and re-synced only the System Stats copy above, which is the same duplicate-inventory defect this file keeps warning about. Earlier verified 2026-08-29 — 50 → 51: `/config/export-options` registered, having never been reachable. Earlier verified 2026-08-27 — 49 → 50: new `/config/alarm-webhooks` page; earlier 48 → 49 on 2026-08-24: the `/instruments/:id/trend` page; the "77" was inherited from upstream DigiLog and was never true in this fork; `/config/role-assignments` removed 2026-08-19 as dead code, 49 → 48), **24** custom hooks (23 → 24 on 2026-10-01: `use-report-downloads.ts`, the ONE reader of the per-type download policy; 22 → 23 on 2026-09-16: `use-attribute-labels.ts`, the ONE browser reader of the attribute display names; earlier 20 → 22, re-derived `ls apps/web/src/hooks/ | wc -l` 2026-09-03 — ALREADY STALE, nothing on 2026-09-03 added a hook; earlier 18 → 20 on 2026-08-29, audit finding M8), **21** lib modules (20 → 21 on 2026-10-01: `lib/report-delivery.ts`, the ONE place a built report is downloaded or requested; 19 → 20 on 2026-09-03: `lib/document-identity.ts`, the browser-tab applier) (`ls apps/web/src/hooks/ | wc -l` / `ls apps/web/src/lib/ | wc -l`, each including its own `__tests__` subfolder as one entry — lib 18 → 19 corrected 2026-08-27: `lib/background-style.ts` landed with the wallpaper work (`764fff5`) and this line was never re-synced; the 2026-08-27 trend-sampling work added NO lib module — the "26 / 30" this file carried for months was never true against the live tree and was never re-verified until now)
 - **Queue backend:** graphile-worker (Postgres-backed); **6** worker tasks —
   `notification`, `password_expiry_check`, `session_sweep`,
   `telemetry_partition_maintenance`, `alarm_evaluation`, `alarm_webhook`
@@ -516,9 +518,11 @@ DELETE /api/floorplans/:id/links/:linkId        — delete a link (audited); roo
                                                   on BOTH reads — all declared in the schemas.
 GET  /api/floorplans/:id/rooms/:roomId/history?window=15m|1h|6h|24h|7d  — bucketed above 6h
 POST /api/uploads/floorplan                     — plan image (CONFIG_UPDATE)
-POST /api/audit/report-export-log               — governed report-download log; requires `remarks` +
-                                                    `DOWNLOAD_REPORT` reauth (2026-08-24); reuses the
-                                                    existing `REPORT_GENERATED` audit action, no new one added
+POST /api/audit/report-export-log               — governed report-download log; reuses `REPORT_GENERATED`.
+                                                    PDF (2026-10-01): `reportKind` required; 409
+                                                    REPORT_REQUIRES_APPROVAL when the kind is Request; remarks and
+                                                    password exactly as configured. Excel: remarks + per-role
+                                                    `DOWNLOAD_REPORT` reauth, as before
 GET    /api/alarm-webhooks                      — targets + the instrument count each currently resolves to
 POST   /api/alarm-webhooks                      — create target (ALARM_RULE_MANAGE + MANAGE_ALARM_WEBHOOK reauth, audited)
 GET    /api/alarm-webhooks/:id                  — one target
@@ -526,21 +530,30 @@ PUT    /api/alarm-webhooks/:id                  — update target (reauth, audit
 DELETE /api/alarm-webhooks/:id                  — delete target (reauth, audited; REFUSED while deliveries reference it)
 POST   /api/alarm-webhooks/:id/test             — test fire (reauth, audited — it makes a real buzzer sound)
 GET    /api/alarm-webhooks/:id/deliveries?status= — paged §11 delivery log, filtered server-side
-POST   /api/report-reviews                      — raise a report REQUEST (every PDF download is one, 2026-09-07):
-                                                    reportType, title, requestMeta, dataSnapshot (the frozen
-                                                    document), remarks, assigneeUserId | assigneeRole;
-                                                    REPORT_REVIEW_READ + DOWNLOAD_REPORT reauth; audited
-GET    /api/report-reviews?list=queue|mine|approved&page&pageSize — the three lists, party-scoped server-side
+POST   /api/report-reviews                      — raise a report REQUEST (2026-09-07; reshaped 2026-10-01):
+                                                    reportKind, reportType, title, requestMeta, dataSnapshot (the
+                                                    frozen document), instrumentIds, remarks — NO approver: the
+                                                    configured roles + users are frozen onto the row.
+                                                    REPORT_REVIEW_READ; password / remarks as the KIND is configured;
+                                                    409 REPORT_IS_DIRECT, 400 NO_APPROVER / NO_ELIGIBLE_APPROVER;
+                                                    audited; approvers notified per user, scope-filtered
+GET    /api/report-reviews?list=queue|mine|approved&page&pageSize — the three lists, party- AND instrument-scoped
+                                                    server-side; `mine` = raised by me or my role
 GET    /api/report-reviews/:id                  — the full row with its snapshot; 404 (never 403) for a non-party
+                                                    (party = signer, SUPER_ADMIN, or requester's role / approver in scope)
 POST   /api/report-reviews/:id/approve | reject — assignee only, never the requester — EXCEPT SUPER_ADMIN,
                                                     who may decide ANY pending request, their own included (2026-09-08);
                                                     REPORT_REVIEW_APPROVE + APPROVE_REPORT / REJECT_REPORT reauth;
                                                     one decision (409 on a second); audited; requester notified
 POST   /api/report-reviews/:id/download-log     — a party downloading the APPROVED copy; written BEFORE save
-GET    /api/config/report-approvers/current     — the administered approver roles (2026-09-07), every
-                                                    authenticated user; the SEVENTH narrow-slice route.
-                                                    `{approverRoles: string[]}`, already coerced (never
-                                                    SUPER_ADMIN); EMPTY = no report can be requested
+GET    /api/config/report-approvers/current     — the administered approvers, every authenticated user; the
+                                                    SEVENTH narrow-slice route. `{approverRoles, approverUserIds}`
+                                                    (users since 2026-10-01), coerced; BOTH empty = no report can
+                                                    be requested
+GET    /api/config/report-approvers/candidates  — (2026-10-01) options for the Approver users setting, CONFIG_READ
+GET    /api/config/report-downloads/current     — (2026-10-01) per report KIND {mode, remarksRequired,
+                                                    passwordRequired}, every authenticated user; read it with
+                                                    coerceReportDownloadsResponse, NOT the stored-row reader
 ```
 
 - **Inactivity alarms — a THIRD alarm source (2026-08-31).** `AlarmSource` gains
@@ -951,6 +964,44 @@ GET    /api/config/report-approvers/current     — the administered approver ro
     request survives a later config change — it is a record.
   - No migration, model, enum, permission, reauth action, page or sidebar item.
     Not seeded; the e2e pins its own row and restores it first in `afterAll`.
+- **REPORT DOWNLOADS ARE CONFIGURED PER TYPE, APPROVERS ARE CONFIGURED, AND
+  REQUESTS ARE SCOPED (2026-10-01; see the CHANGELOG entry for the operator's
+  words and choices).** This SUPERSEDES the "Send to" half of the two bullets
+  above and the "every PDF download is a request" premise.
+  - **Configuration → Report Downloads** (def `report-downloads`, 33 defs):
+    per KIND — `data-report`, `trend-chart`, `instrument-alarms`, `alarms`,
+    `audit-trail` (`REPORT_KINDS` in `@digilog/shared`, NOT the audit
+    `reportType` string, which two surfaces share) — mode DIRECT | REQUEST,
+    remarks yes/no, password yes/no. Defaults = Request + both on.
+    **Two readers, two shapes, never swapped**: `coerceReportDownloads` reads
+    the STORED flat row (`alarmsMode`, …); `coerceReportDownloadsResponse` reads
+    the narrow route's per-kind JSON. Using the first on the second turns every
+    type into Request silently — it shipped that way for an hour.
+  - **Server-enforced both ways**: `report-export-log` 409s a PDF whose type is
+    Request; `report-reviews` 409s a Direct type; remarks and password demanded
+    exactly as configured (`enforceReauthAlways` when Yes — every role — none
+    when No; the per-role `DOWNLOAD_REPORT` policy now governs only the Audit
+    Excel export). `policyForKind()` runs BEFORE the password check.
+  - **No requester-chosen approver.** Approvers = the configured roles AND
+    users (`approverUserIds`, new setting), FROZEN onto the row
+    (`approver_roles`, `approver_user_ids`; migration
+    `20261001120000_report_review_approvers_scope`, also `instrument_ids`).
+    Old rows were backfilled from `assignee_role` / `assignee_user_id`, which
+    are kept and no longer written. Read ONE shape: the arrays.
+  - **Visibility = `isParty`**: SUPER_ADMIN; the requester and the decider
+    (unscoped — they signed); otherwise the requester's frozen ROLE or an
+    approver, AND `inScope` (the user's instrument scope covers ANY of
+    `instrument_ids`; empty = unscoped, the Audit Trail). `mayDecide` = an
+    approver in scope. The list SQL (`visibilityWhere` / `scopeWhere`) must
+    stay the translation of `isParty` — change both or neither. Notifications
+    go per user, scope-filtered, never `forRole`.
+  - Web: `lib/report-delivery.ts` `deliverReport()` is the ONE branch on the
+    mode (Direct: `logReportExport` THEN `save()`; Request:
+    `submitReportForReview` with `reportKind` + `instrumentIds`). The dialog
+    takes `kind`, shapes itself from `use-report-downloads.ts`, and collects
+    the password itself. Reports page: no View draft; a PENDING row opens its
+    snapshot; tab `mine` is labelled **Requests** (mine or my role's).
+  - **Applied to both local databases; NOT on AWS until the next deploy.**
 - **ATTRIBUTE DISPLAY NAMES (2026-09-16, operator: "for attributes key i need
   key is one thing and that key display name should be configurable").** An
   attribute KEY is the stored identity — what a device writes over MQTT, what

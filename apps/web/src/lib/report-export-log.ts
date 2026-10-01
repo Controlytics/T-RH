@@ -1,15 +1,20 @@
 import { apiClient } from './api-client';
+import type { ReportKind } from '@digilog/shared';
 
 export interface ReportExportLogInput {
   /** Human report name shown in the audit trail, e.g. "Audit Trail", "Filters". */
   reportType: string;
+  /** The configured report type (Configuration → Report Downloads, 2026-10-01).
+   *  REQUIRED for a PDF — the server applies that type's mode, remarks and
+   *  password rules. Not sent for Excel, which keeps the per-role policy. */
+  reportKind?: ReportKind;
   format: 'PDF' | 'Excel';
   recordCount: number;
   period?: string;
   search?: string;
   startDate?: string;
   endDate?: string;
-  /** Why this report was generated. Required — a §11 record states its reason. */
+  /** Why this report was generated. '' when the report type's remarks are off. */
   remarks: string;
   /** Carries the operator's re-authentication signature, when the role's policy requires one. */
   password?: string;
@@ -27,13 +32,14 @@ export interface ReportExportLogInput {
 export async function logReportExport(input: ReportExportLogInput): Promise<void> {
   const body = {
     reportType: input.reportType,
+    ...(input.reportKind ? { reportKind: input.reportKind } : {}),
     format: input.format,
     recordCount: input.recordCount,
     period: input.period || undefined,
     search: input.search || undefined,
     startDate: input.startDate || undefined,
     endDate: input.endDate || undefined,
-    remarks: input.remarks,
+    ...(input.remarks ? { remarks: input.remarks } : {}),
   };
   // The password rides the reauth path the rest of the app uses — plain post
   // when the role's policy doesn't require one.
