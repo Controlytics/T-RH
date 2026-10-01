@@ -35,7 +35,7 @@ vi.mock('../use-telemetry', async (orig) => ({
   useTelemetryOverview: () => ({ rows: ROWS, isLoading: false, error: undefined }),
 }));
 
-const { FloorplanView, cardTone, roomTone, archSummary, splitLabel, cardSpec, locationFont, chooseCard, LEGIBLE_LOC_FONT, ARCH, splitCode, codeFont, LEGEND_UNDER_RATIO, CARD_SHAPES, fillHeight } = await import('../floorplan-view');
+const { FloorplanView, cardTone, roomTone, archSummary, splitLabel, cardSpec, locationFont, chooseCard, LEGIBLE_LOC_FONT, ARCH, splitCode, codeFont, LEGEND_UNDER_RATIO, CARD_SHAPES, fillHeight, readingPill, PILL_ABOVE, PILL_HEIGHT } = await import('../floorplan-view');
 function Where() { const l = useLocation(); return <p data-testid="where">{l.pathname}</p>; }
 const mount = () => render(
   <MemoryRouter initialEntries={['/']}>
@@ -848,5 +848,144 @@ describe('an L-shaped room: the card goes in the arm that holds it best', () => 
     expect(card.shape).toBe('std');
     expect(others).not.toHaveBeenCalled();
     expect(card.x + card.w).toBeLessThanOrEqual(300);
+  });
+});
+
+/**
+ * Operator, 2026-10-01: "these layouts look wise not good, make those layout
+ * more professional and beautiful and colorful ui". Shown three concept images
+ * (Layouts/CWH/concepts/look-*.png) and chose A, "vivid status". All of it is
+ * paint: these pin what the paint MEANS, so a restyle cannot quietly change it.
+ */
+describe('the vivid-status look', () => {
+  const RED = '#dc2626';
+  const reading = (card: HTMLElement, q: string) => card.querySelector(`[data-testid="fp-reading"][data-quantity="${q}"]`)!;
+  const num = (el: Element, a: string) => Number(el.getAttribute(a));
+
+  it('an in-limit reading sits in a soft tint of its QUANTITY; any other state is SOLID in the status colour', () => {
+    expect(readingPill('OK', 'temperature')).toEqual({ ...ARCH.pill.temperature, solid: false });
+    expect(readingPill('OK', 'humidity')).toEqual({ ...ARCH.pill.humidity, solid: false });
+    expect(ARCH.pill.temperature.bg).not.toBe(ARCH.pill.humidity.bg);
+    for (const st of ['OUT_OF_SPEC', 'ERROR', 'STALE', 'PARTIAL', 'NO_DATA'] as const) {
+      for (const q of ['temperature', 'humidity'] as const) {
+        const pill = readingPill(st, q);
+        expect(pill.solid, st).toBe(true);
+        expect(pill.ink, st).toBe('#ffffff');
+        // Never a quantity's tint: an offline amber must not read as an in-limit temperature.
+        expect([ARCH.pill.temperature.bg, ARCH.pill.humidity.bg], st).not.toContain(pill.bg);
+      }
+    }
+    // The same state is the same colour whichever reading it is on.
+    expect(readingPill('OUT_OF_SPEC', 'temperature').bg).toBe(readingPill('OUT_OF_SPEC', 'humidity').bg);
+  });
+
+  it('on the card: the breached reading is solid red, the one in limit keeps its tint, each text centred inside its pill', () => {
+    PLAN = planOf('architectural'); ROWS = [row({ humidity: { key: 'h', value: 72 }, status: 'OUT_OF_SPEC' })];
+    mount();
+    const card = screen.getByTestId('fp-card');
+    const t = reading(card, 'temperature'), h = reading(card, 'humidity');
+    expect(h).toHaveAttribute('data-solid', 'true');
+    expect(t).not.toHaveAttribute('data-solid');
+    expect(h.querySelector('rect')!.getAttribute('fill')).toBe(RED);
+    expect(h.querySelector('text')!.getAttribute('fill')).toBe('#ffffff');
+    expect(t.querySelector('rect')!.getAttribute('fill')).toBe(ARCH.pill.temperature.bg);
+    expect(t.querySelector('text')!.getAttribute('fill')).toBe(ARCH.pill.temperature.ink);
+    for (const g of [t, h]) {
+      const r = g.querySelector('rect')!, txt = g.querySelector('text')!;
+      expect(txt.getAttribute('text-anchor')).toBe('middle');
+      expect(num(txt, 'x')).toBeCloseTo(num(r, 'x') + num(r, 'width') / 2, 6);
+      // The text fits its pill, and the baseline is inside it.
+      expect(txt.textContent!.length * 0.6 * num(txt, 'font-size')).toBeLessThanOrEqual(num(r, 'width'));
+      expect(num(txt, 'y')).toBeGreaterThan(num(r, 'y'));
+      expect(num(txt, 'y')).toBeLessThan(num(r, 'y') + num(r, 'height'));
+    }
+    // Side by side on this card: the two pills do not overlap.
+    const tr = t.querySelector('rect')!, hr = h.querySelector('rect')!;
+    expect(num(tr, 'x') + num(tr, 'width')).toBeLessThan(num(hr, 'x'));
+    expect(card).toHaveTextContent('72 %RH');
+    expect(card).toHaveTextContent('TEMP');
+  });
+
+  it('a long reading shrinks to its pill rather than running out of it; a failed probe prints its word, solid', () => {
+    PLAN = planOf('architectural');
+    // "100.0 %RH": nine characters, where the card's size fits seven.
+    ROWS = [row({
+      temperature: null, sensorError: { temperature: true, humidity: false },
+      humidity: { key: 'h', value: 100 }, decimals: { temperature: 1, humidity: 1 }, status: 'OUT_OF_SPEC',
+    })];
+    mount();
+    const card = screen.getByTestId('fp-card');
+    const t = reading(card, 'temperature'), h = reading(card, 'humidity');
+    expect(t.querySelector('text')!.textContent).toBe('Error');
+    expect(t).toHaveAttribute('data-solid', 'true');
+    const r = h.querySelector('rect')!, txt = h.querySelector('text')!;
+    expect(txt.textContent).toBe('100.0 %RH');
+    expect(num(txt, 'font-size')).toBeLessThan(num(t.querySelector('text')!, 'font-size'));
+    expect(txt.textContent!.length * 0.6 * num(txt, 'font-size')).toBeLessThanOrEqual(num(r, 'width'));
+  });
+
+  it('every card shape has room for its pills: under the Location, inside the card, and not on each other', () => {
+    for (const [name, c] of Object.entries(CARD_SHAPES)) {
+      const top = (y: number) => y - PILL_ABOVE * c.valFont, bottom = (y: number) => top(y) + PILL_HEIGHT * c.valFont;
+      expect(top(c.valY), `${name}: pill over the Location`).toBeGreaterThanOrEqual(c.locY);
+      const last = c.stack ? c.val2Y : c.valY;
+      expect(bottom(last), `${name}: pill out of the card`).toBeLessThan(c.captions ? c.capY - 8.5 * 0.8 : c.h);
+      if (c.stack) expect(top(c.val2Y), `${name}: stacked pills overlap`).toBeGreaterThanOrEqual(bottom(c.valY));
+    }
+  });
+
+  it('the floor is a gradient of the room\u2019s status; an empty room and a corridor have their own', () => {
+    PLAN = {
+      ...planOf('architectural'),
+      rooms: [room('lab', 'R-LAB', 'LAB', 0.05), room('off', 'R-OFF', 'OFFICE', 0.55, { w: 0.2 }), room('cor', 'R-COR', 'CORRIDOR', 0.77, { w: 0.18, grade: 'CIRCULATION' })],
+    };
+    ROWS = [row({ humidity: { key: 'h', value: 72 }, status: 'OUT_OF_SPEC' })];
+    mount();
+    const fill = (code: string) => document.querySelector(`g[aria-label^="${code}"] polygon`)!.getAttribute('fill');
+    expect(fill('R-LAB')).toBe('url(#fp-wash-OUT_OF_SPEC)');
+    expect(fill('R-OFF')).toBe('url(#fp-wash-empty)');
+    expect(fill('R-COR')).toBe(ARCH.corridor);
+    const stops = [...document.querySelectorAll('#fp-wash-OUT_OF_SPEC stop')].map((x) => x.getAttribute('stop-color'));
+    expect(stops).toEqual([ARCH.wash.OUT_OF_SPEC, ARCH.washTo.OUT_OF_SPEC]);
+    // The card's header is the tone's gradient too, ending on the status colour itself.
+    const band = screen.getByTestId('fp-card').querySelector('path')!;
+    expect(band.getAttribute('fill')).toBe('url(#fp-band-OUT_OF_SPEC)');
+    expect([...document.querySelectorAll('#fp-band-OUT_OF_SPEC stop')].pop()!.getAttribute('stop-color')).toBe(RED);
+    PLAN = planOf('architectural');
+  });
+
+  it('the plate is plain white: no grid behind the building', () => {
+    PLAN = planOf('architectural'); ROWS = [row({})];
+    mount();
+    expect(document.querySelector('#fp-arch-grid')).toBeNull();
+    expect(ARCH.ground).toBe('#ffffff');
+    const plate = document.querySelector('svg[role="img"] > rect')!;
+    expect(plate.getAttribute('fill')).toBe('#ffffff');
+  });
+
+  it('a partition stub is drawn like a wall: the dark line and its light core', () => {
+    PLAN = { ...planOf('architectural'), annotations: { ...ANN, style: 'architectural', walls: [{ x1: 0.5, y1: 0.1, x2: 0.5, y2: 0.7 }] } } as unknown as typeof PLAN;
+    ROWS = [row({})];
+    mount();
+    const cores = document.querySelectorAll('[data-structure="stub-core"]');
+    expect(cores).toHaveLength(1);
+    expect(cores[0].getAttribute('stroke')).toBe(ARCH.wallInner);
+    PLAN = planOf('architectural');
+  });
+
+  it('the legend names the two pill colours, like every other colour on the plan', () => {
+    PLAN = planOf('architectural'); ROWS = [row({})];
+    mount();
+    const panel = screen.getByTestId('fp-arch-panel');
+    expect(panel).toHaveTextContent('Temperature');
+    expect(panel).toHaveTextContent('Humidity');
+  });
+
+  it('the standard style has none of it', () => {
+    PLAN = planOf(); ROWS = [row({})];
+    mount();
+    expect(document.querySelector('[data-testid="fp-reading"]')).toBeNull();
+    expect(document.querySelector('#fp-wash-OK')).toBeNull();
+    PLAN = planOf('architectural');
   });
 });

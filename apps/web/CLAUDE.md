@@ -652,6 +652,33 @@ other plan is untouched. Operator chose concept A of three
 that QC layout"*; the Microbiology floor followed the same day (*"same like
 qc"*).
 
+- **THE LOOK IS "VIVID STATUS" (2026-10-01, operator: "these layouts look wise
+  not good, make those layout more professional and beautiful and colorful
+  ui"; shown three concept images, chose A — `Layouts/CWH/concepts/look-*.png`).**
+  All of it is paint, in the `ARCH` palette and `readingPill()`:
+  - **Floors**: `url(#fp-wash-<tone>)`, a top-to-bottom gradient `wash` →
+    `washTo` per status; an empty room `#fp-wash-empty`; a corridor
+    `ARCH.corridor`. The plate is plain white and **the grid is gone** — the
+    colour is on the rooms, never behind them (the same rule the dashboard
+    ground ended on).
+  - **Readings sit in PILLS, and the pill's colour has ONE rule**: in limit
+    it is a soft tint of the QUANTITY (`ARCH.pill.temperature` orange,
+    `.humidity` blue, dark ink of the same hue); in ANY other state it is
+    SOLID in the status colour (`CHIP[st].bg`) with white ink. Do not give a
+    non-OK state a tinted pill: offline amber beside an in-limit
+    temperature's orange is the pair that reads alike. The text is centred
+    in its pill and its font shrinks to the pill (`100.0 %RH`). Geometry is
+    `PILL_ABOVE` / `PILL_HEIGHT` in units of the reading's font; a test walks
+    every `CARD_SHAPES` entry for room under the Location, inside the card,
+    and between two stacked pills — change a shape's `valY` and it tells you.
+  - **Card band** `url(#fp-band-<tone>)` (lighter → the chip colour); border
+    the chip colour. **Walls** navy `wallOuter` + light `wallInner`; a
+    `walls` stub is drawn with the same core (`data-structure="stub-core"`).
+  - The legend names the two pill tints, because they carry a meaning.
+  - The standard style has none of it (byte-identical render).
+  To restyle again: make concept IMAGES first by repainting a dumped SVG
+  (parse it, change fills / strokes, screenshot) and let the operator pick —
+  it took one question. Tests pin what each colour MEANS, not its hex.
 - **Layers, not per-room groups.** The room `<g>` keeps only its fill (and its
   click / aria); walls, empty-room names, cards and doors are drawn in passes
   over ALL rooms from one `geoms` map, so a neighbour's floor can never cover
@@ -689,7 +716,8 @@ qc"*).
 - **The side panel's arrow is PLAN north** and says so: the drawing marks no
   true north.
 - `cardTone` / `roomTone` / `archSummary` bucket the SERVER's statuses; nothing
-  is re-derived. Tests: `floorplan-arch.test.tsx` (49, mutation-checked: the
+  is re-derived. Tests: `floorplan-arch.test.tsx` (65 since the look and the
+  L-room card; was 49, mutation-checked: the
   growing mini card and its tier, the legend under a square plan, a name
   wrapped along a narrow room, the
   mini card and its two-line ID, the

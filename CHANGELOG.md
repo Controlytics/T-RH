@@ -1,5 +1,44 @@
 # Changelog
 
+## [Unreleased] - The drawn floor plans get the "vivid status" look (2026-10-01)
+
+Operator: *"these layouts look wise not good, make those layout more
+professional and beautiful and colorful ui"*. Shown three concept images made
+from the real Module-E render (`Layouts/CWH/concepts/look-A-vivid-status.png`,
+`look-B-colour-zones.png`, `look-C-dark-control-room.png`; `look-0-today.png`
+is what it replaced) and chose **A**.
+
+It applies to every plan in the 2D style - QC, QC Microbiology, QC 3 and
+Module-E - in the dashboard panel and in full screen. It is paint only: no
+wall, door, room, card position or card shape moved (card shapes and widths
+compared before and after on the three older floors; three shapes are 1.5-3
+units taller to make room for the pills).
+
+- **Room floors are a gradient of the room's STATUS colour** - green in limit,
+  red out of limit, violet for a sensor error, amber offline. A room with no
+  instrument is a cool blue-white, a corridor a warm cream. The plate under the
+  building is plain white; the grid behind it is gone.
+- **Walls are navy with a light-blue core.** A partition stub is drawn the
+  same way - it was one solid dark line, heavier than the walls beside it.
+- **Each reading sits in a PILL.** In limit, the pill is a soft tint of the
+  quantity - orange for temperature, blue for humidity. In any other state the
+  pill is SOLID in the status colour with white text, so a state can never be
+  mistaken for a quantity's tint (an offline amber next to an in-limit
+  temperature's orange is the pair that would otherwise read alike). The text
+  is centred in its pill and shrinks to fit (`100.0 %RH`, `Error`).
+- **Card headers are a gradient of the card's status colour**; the card's
+  shadow is a little deeper; room names are darker and semi-bold.
+- **The legend names the two pill colours** (Temperature, Humidity) and its
+  status swatches carry the same gradients.
+- The standard style (the three generated floors) is untouched - its render
+  is byte-identical.
+- Tests: `floorplan-arch.test.tsx` 56 -> 65 (what each colour MEANS is pinned,
+  not the hex values); twelve mutation checks, all caught. `tsc` clean,
+  `vite build` OK. **Not seen in the running app** - rendered from the real
+  component, in every state, at panel size and full screen
+  (`Layouts/CWH/concepts/applied-*.png`, `fullscreen-*.png`). No data change;
+  nothing to re-apply.
+
 ## [Unreleased] - "CWH — Module-E" traced from its drawing and drawn in the 2D architectural design (2026-10-01)
 
 Operator: *"do module-e layout also same like qc"* (the drawing,

@@ -384,29 +384,71 @@ export function tileValues(
  * its card, so nothing is hidden by the wash. Walls are drawn double, doors
  * as a dark leaf with a dashed swing, and each instrument is a CARD (header
  * band with its ID, its Location, both readings) rather than chips.
+ *
+ * THE LOOK IS "VIVID STATUS" since 2026-10-01 (operator: "these layouts look
+ * wise not good, make those layout more professional and beautiful and
+ * colorful ui"; shown three concept images — `Layouts/CWH/concepts/look-*.png`
+ * — and chose A). What that is, all of it paint and none of it geometry:
+ *   - the room floor is a GRADIENT of its status colour (`wash` → `washTo`),
+ *     an empty room a cool blue-white, a corridor a warm cream; the plate under
+ *     the building is plain white — the grid went;
+ *   - walls are navy with a light-blue core; a partition stub is drawn the same
+ *     way (it was one solid dark line, heavier than the walls beside it);
+ *   - a card's header band is a gradient of its tone, and each reading sits in
+ *     a PILL: see `readingPill`;
+ *   - room names are darker and semi-bold.
+ * Status keeps its four colours and its words; nothing here re-derives it.
  */
 export const ARCH = {
-  wallOuter: '#1e293b',
-  wallInner: '#94a3b8',
-  doorLeaf: '#1e293b',
+  wallOuter: '#1e3a5f',
+  wallInner: '#bfdbfe',
+  doorLeaf: '#1e3a5f',
   doorSwing: '#2563eb',
-  ground: '#f8fafc',
-  grid: '#e8eef6',
+  ground: '#ffffff',
   columnFill: '#e2e8f0',
   columnInk: '#64748b',
-  windowFill: '#e0f2fe',
+  windowFill: '#bae6fd',
   windowInk: '#0284c7',
-  roomName: '#475569',
-  roomCode: '#94a3b8',
-  /** Floor washes per tone; an empty room is white, circulation a cool grey. */
+  roomName: '#1e293b',
+  roomCode: '#64748b',
+  /** Floor washes per tone: the top of the gradient (and the legend's swatch)... */
   wash: {
     OK: '#f0fdf4', OUT_OF_SPEC: '#fef2f2', ERROR: '#f5f3ff', STALE: '#fffbeb', PARTIAL: '#fffbeb', NO_DATA: '#f8fafc',
   } as Record<ChipTone, string>,
-  /** A reading's ink on a card: dark when in limit, the tone colour otherwise. */
-  ink: {
-    OK: '#0f172a', OUT_OF_SPEC: '#dc2626', ERROR: '#7c3aed', STALE: '#b45309', PARTIAL: '#b45309', NO_DATA: '#94a3b8',
+  /** ...and the bottom of it. */
+  washTo: {
+    OK: '#d1fae5', OUT_OF_SPEC: '#fecaca', ERROR: '#ddd6fe', STALE: '#fde68a', PARTIAL: '#fde68a', NO_DATA: '#e2e8f0',
   } as Record<ChipTone, string>,
+  /** A room with no instrument, top and bottom; and a corridor. */
+  emptyWash: '#f8fbff',
+  emptyWashTo: '#e8f1fb',
+  corridor: '#fff7e6',
+  /** The lighter end of a card's header band, per tone; the darker end is the chip colour. */
+  bandFrom: {
+    OK: '#22c55e', OUT_OF_SPEC: '#f87171', ERROR: '#a78bfa', STALE: '#fbbf24', PARTIAL: '#fbbf24', NO_DATA: '#cbd5e1',
+  } as Record<ChipTone, string>,
+  /** An IN-LIMIT reading's pill: the quantity's own tint. */
+  pill: {
+    temperature: { bg: '#ffedd5', ink: '#9a3412' },
+    humidity: { bg: '#dbeafe', ink: '#1e40af' },
+  },
 } as const;
+
+/**
+ * The pill a reading sits in on a card, and its ink.
+ *
+ * IN LIMIT, the pill is a soft tint of the QUANTITY — orange for temperature,
+ * blue for humidity — with dark ink of the same hue: the two readings can be
+ * told apart at a glance without their units. ANYTHING ELSE (out of limit, a
+ * sensor error, offline, no reading) the pill is SOLID in the status colour
+ * with white ink, so a state can never be mistaken for a quantity's tint —
+ * an offline amber beside an in-limit temperature's orange is the pair that
+ * would otherwise read alike.
+ */
+export function readingPill(st: ChipTone, quantity: 'temperature' | 'humidity'): { bg: string; ink: string; solid: boolean } {
+  if (st === 'OK') return { ...ARCH.pill[quantity], solid: false };
+  return { bg: CHIP[st].bg, ink: '#ffffff', solid: true };
+}
 
 /** The canvas width the 2D style's line weights were drawn for ("CWH — QC"). */
 export const ARCH_REF_CANVAS_W = 1069;
@@ -550,12 +592,17 @@ export function splitLabel(text: string, max = 20): string[] {
  */
 export const CARD_SHAPES = {
   std: { w: 196, h: 104, band: 26, idY: 19, idFont: 15.5, idLines: 1, idPitch: 0, locY: 46, locFont: 14, line: CARD_LINE, valY: 78, val2Y: 0, valFont: 20, capY: 95, wrap: 20, captions: true, stack: false },
-  wide: { w: 280, h: 74, band: 24, idY: 17, idFont: 15.5, idLines: 1, idPitch: 0, locY: 43, locFont: 14, line: CARD_LINE, valY: 68, val2Y: 0, valFont: 20, capY: 0, wrap: 30, captions: false, stack: false },
+  wide: { w: 280, h: 76, band: 24, idY: 17, idFont: 15.5, idLines: 1, idPitch: 0, locY: 43, locFont: 14, line: CARD_LINE, valY: 68, val2Y: 0, valFont: 20, capY: 0, wrap: 30, captions: false, stack: false },
   tall: { w: 124, h: 102, band: 24, idY: 17, idFont: 14, idLines: 1, idPitch: 0, locY: 42, locFont: 14, line: CARD_LINE, valY: 69, val2Y: 93, valFont: 20, capY: 0, wrap: 14, captions: false, stack: true },
-  compact: { w: 170, h: 60, band: 20, idY: 14.5, idFont: 13, idLines: 1, idPitch: 0, locY: 35, locFont: 13, line: CARD_LINE, valY: 54, val2Y: 0, valFont: 17, capY: 0, wrap: 26, captions: false, stack: false },
-  mini: { w: 120, h: 108, band: 44, idY: 18.5, idFont: 19, idLines: 2, idPitch: 20, locY: 62, locFont: 15, line: 17, valY: 83, val2Y: 102, valFont: 19, capY: 0, wrap: 12, captions: false, stack: true },
+  compact: { w: 170, h: 62, band: 20, idY: 14.5, idFont: 13, idLines: 1, idPitch: 0, locY: 35, locFont: 13, line: CARD_LINE, valY: 54.5, val2Y: 0, valFont: 17, capY: 0, wrap: 26, captions: false, stack: false },
+  mini: { w: 120, h: 112, band: 44, idY: 18.5, idFont: 19, idLines: 2, idPitch: 20, locY: 60.5, locFont: 15, line: 17, valY: 82, val2Y: 104, valFont: 19, capY: 0, wrap: 12, captions: false, stack: true },
 } as const;
 export type CardShape = keyof typeof CARD_SHAPES;
+/** A reading's pill, in units of the reading's font: how far it starts above
+ *  the baseline, and how tall it is. Two stacked pills need `val2Y - valY` to
+ *  be more than the height — every stacked shape's is. */
+export const PILL_ABOVE = 0.84;
+export const PILL_HEIGHT = 1.1;
 /** The design's shapes, tried first; the small-room shapes, tried only when
  *  those print a heading under `LEGIBLE_LOC_FONT`; and the narrow-room shape,
  *  tried only when the small-room ones still do. */
@@ -1001,15 +1048,28 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                 the building reads as a drawing laid on something, and so the
                 gaps between rooms are visibly OUTSIDE them. The ink is still the
                 information. */}
+            {/* The 2D style: a plain white plate (the grid went with the
+                "vivid status" look — the colour is on the rooms, never behind
+                them), and the gradients its floors and card bands are filled
+                with. Each runs top to bottom of the shape it fills. */}
             {arch ? (
               <>
                 <defs>
-                  <pattern id="fp-arch-grid" width="20" height="20" patternUnits="userSpaceOnUse">
-                    <path d="M20 0H0V20" fill="none" stroke={ARCH.grid} strokeWidth={1} />
-                  </pattern>
+                  {TONE_ORDER.map((t) => (
+                    <linearGradient key={`w-${t}`} id={`fp-wash-${t}`} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0" stopColor={ARCH.wash[t]} /><stop offset="1" stopColor={ARCH.washTo[t]} />
+                    </linearGradient>
+                  ))}
+                  {TONE_ORDER.map((t) => (
+                    <linearGradient key={`b-${t}`} id={`fp-band-${t}`} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0" stopColor={ARCH.bandFrom[t]} /><stop offset="1" stopColor={CHIP[t].bg} />
+                    </linearGradient>
+                  ))}
+                  <linearGradient id="fp-wash-empty" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0" stopColor={ARCH.emptyWash} /><stop offset="1" stopColor={ARCH.emptyWashTo} />
+                  </linearGradient>
                 </defs>
                 <rect x={vb.x} y={vb.y} width={vb.w} height={vb.h} fill={ARCH.ground} />
-                <rect x={vb.x} y={vb.y} width={vb.w} height={vb.h} fill="url(#fp-arch-grid)" />
               </>
             ) : (
               <rect x={vb.x} y={vb.y} width={vb.w} height={vb.h} fill={PALETTE.ground} stroke={PALETTE.wall} strokeWidth={3} />
@@ -1084,7 +1144,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                   <polygon
                     points={outlinePoints}
                     fill={arch
-                      ? (tone ? ARCH.wash[tone] : room.grade === 'CIRCULATION' ? '#f1f5f9' : room.grade === 'UTILITY' ? '#f8fafc' : '#ffffff')
+                      ? (tone ? `url(#fp-wash-${tone})` : room.grade === 'CIRCULATION' ? ARCH.corridor : 'url(#fp-wash-empty)')
                       : room.meta?.fill ?? zone.fill}
                     data-tone={tone ?? undefined}
                     // The hover darkening says "clickable" — only where it is.
@@ -1375,7 +1435,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                       // a long name in a small room wraps (`lines`).
                       <g key={`n-${room.id}`} data-vertical={vertical || undefined} transform={vertical ? `rotate(-90 ${cx} ${cy})` : undefined}>
                         {lines.map((line, li) => (
-                          <text key={li} x={cx} y={cy + li * NAME_LINE * fs} textAnchor="middle" fontSize={fs} fill={ARCH.roomName} letterSpacing="0.08em">{line}</text>
+                          <text key={li} x={cx} y={cy + li * NAME_LINE * fs} textAnchor="middle" fontSize={fs} fontWeight={600} fill={ARCH.roomName} letterSpacing="0.08em">{line}</text>
                         ))}
                         {room.label && (
                           <text x={cx} y={cy + below + fs * 1.15} textAnchor="middle" fontSize={fs * 0.72} fill={ARCH.roomCode}>{room.code}</text>
@@ -1390,7 +1450,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                     scaled down to fit, never up. */}
                 <defs>
                   <filter id="fp-card-shadow" x="-20%" y="-20%" width="140%" height="140%">
-                    <feDropShadow dx="0" dy="2" stdDeviation="2.5" floodColor="#0f172a" floodOpacity="0.18" />
+                    <feDropShadow dx="0" dy="2.5" stdDeviation="3" floodColor="#0f172a" floodOpacity="0.22" />
                   </filter>
                 </defs>
                 {roomViews.flatMap(({ room, rows: roomRows }) => {
@@ -1412,7 +1472,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                     const x0 = placed ? placed.x : box.x + col * tileW + (tileW - cw) / 2;
                     const y0 = placed ? placed.y : (layout.cols > 0 ? layout.bodyTop : box.y) + rowIx * tileH + (tileH - ch) / 2;
                     const tone = cardTone(row, sensorWords);
-                    const band = CHIP[tone].bg;
+                    const band = CHIP[tone].bg;        // the card's border; its header is the tone's gradient
                     const [t, h] = tileValues(row, sensorWords);
                     const locFont = locationFont(spec, k);
                     const idLines = splitCode(row.code, spec.idLines);
@@ -1437,7 +1497,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                         <rect x={x0} y={y0} width={cw} height={ch} rx={9 * k} fill="#ffffff" stroke={band} strokeWidth={2} filter="url(#fp-card-shadow)" />
                         <path
                           d={`M${x0},${y0 + spec.band * k} V${y0 + 9 * k} Q${x0},${y0} ${x0 + 9 * k},${y0} H${x0 + cw - 9 * k} Q${x0 + cw},${y0} ${x0 + cw},${y0 + 9 * k} V${y0 + spec.band * k} Z`}
-                          fill={band}
+                          fill={`url(#fp-band-${tone})`}
                         />
                         {/* The ID: one line, or two on the `mini` card. */}
                         {idLines.map((line, li) => (
@@ -1446,25 +1506,30 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                         {locLines[0] && locLines.map((line, li) => (
                           <text key={li} x={x0 + cw / 2} y={y0 + spec.locY * k + li * spec.line * k} textAnchor="middle" fontSize={locFont} fontWeight={700} fill="#334155">{line}</text>
                         ))}
-                        {/* The two readings: side by side, or one above the
-                            other on the narrow `tall` card. */}
-                        {spec.stack ? (
-                          <>
-                            <text x={x0 + cw / 2} y={y0 + spec.valY * k + dy} textAnchor="middle" fontSize={spec.valFont * k} fontWeight={700} fill={ARCH.ink[t.st]} style={{ fontVariantNumeric: 'tabular-nums' }}>{t.text}</text>
-                            <text x={x0 + cw / 2} y={y0 + spec.val2Y * k + dy} textAnchor="middle" fontSize={spec.valFont * k} fontWeight={700} fill={ARCH.ink[h.st]} style={{ fontVariantNumeric: 'tabular-nums' }}>{h.text}</text>
-                          </>
-                        ) : (
-                          <>
-                            <text x={x0 + 13 * k} y={y0 + spec.valY * k + dy} fontSize={spec.valFont * k} fontWeight={700} fill={ARCH.ink[t.st]} style={{ fontVariantNumeric: 'tabular-nums' }}>{t.text}</text>
-                            <text x={x0 + cw - 13 * k} y={y0 + spec.valY * k + dy} textAnchor="end" fontSize={spec.valFont * k} fontWeight={700} fill={ARCH.ink[h.st]} style={{ fontVariantNumeric: 'tabular-nums' }}>{h.text}</text>
-                          </>
-                        )}
-                        {spec.captions && (
-                          <>
-                            <text x={x0 + 13 * k} y={y0 + spec.capY * k + dy} fontSize={8.5 * k} fill={ARCH.roomCode} letterSpacing="0.06em">TEMP</text>
-                            <text x={x0 + cw - 13 * k} y={y0 + spec.capY * k + dy} textAnchor="end" fontSize={8.5 * k} fill={ARCH.roomCode} letterSpacing="0.06em">HUMIDITY</text>
-                          </>
-                        )}
+                        {/* The two readings, each in its PILL (see `readingPill`):
+                            side by side, or one above the other on the narrow
+                            cards. The text is centred in its pill and shrinks
+                            to it — `Error` or `100.0 %RH` must not run out. */}
+                        {([
+                          { v: t, q: 'temperature' as const, caption: 'TEMP', baseline: spec.valY, left: true },
+                          { v: h, q: 'humidity' as const, caption: 'HUMIDITY', baseline: spec.stack ? spec.val2Y : spec.valY, left: false },
+                        ]).map(({ v, q, caption, baseline, left }) => {
+                          const gap = 3 * k, pad = 8 * k;
+                          const pw = spec.stack ? cw - 2 * pad : (cw - 2 * pad - 2 * gap) / 2;
+                          const px = spec.stack ? x0 + pad : left ? x0 + pad : x0 + cw / 2 + gap;
+                          const by = y0 + baseline * k + dy;
+                          const fs = Math.min(spec.valFont * k, (pw - 4 * k) / (Math.max(1, v.text.length) * 0.6));
+                          const pill = readingPill(v.st, q);
+                          return (
+                            <g key={q} data-testid="fp-reading" data-quantity={q} data-solid={pill.solid || undefined}>
+                              <rect x={px} y={by - PILL_ABOVE * spec.valFont * k} width={pw} height={PILL_HEIGHT * spec.valFont * k} rx={5 * k} fill={pill.bg} />
+                              <text x={px + pw / 2} y={by} textAnchor="middle" fontSize={fs} fontWeight={700} fill={pill.ink} style={{ fontVariantNumeric: 'tabular-nums' }}>{v.text}</text>
+                              {spec.captions && (
+                                <text x={px + pw / 2} y={y0 + spec.capY * k + dy} textAnchor="middle" fontSize={8.5 * k} fill={ARCH.roomCode} letterSpacing="0.06em">{caption}</text>
+                              )}
+                            </g>
+                          );
+                        })}
                       </g>
                     );
                   });
@@ -1545,7 +1610,12 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                 ))}
                 {(structure.walls ?? []).map((l, i) => (
                   <line key={`sw${i}`} x1={l.x1 * VB_W} y1={l.y1 * vbH} x2={l.x2 * VB_W} y2={l.y2 * vbH}
-                    stroke={arch ? ARCH.wallOuter : PALETTE.wall} strokeWidth={arch ? 7 * lineK : 2.5} strokeLinecap="butt" />
+                    stroke={arch ? ARCH.wallOuter : PALETTE.wall} strokeWidth={arch ? 8 * lineK : 2.5} strokeLinecap="butt" />
+                ))}
+                {/* ...and in the 2D style a stub is a WALL: the same light core. */}
+                {arch && (structure.walls ?? []).map((l, i) => (
+                  <line key={`swi${i}`} data-structure="stub-core" x1={l.x1 * VB_W} y1={l.y1 * vbH} x2={l.x2 * VB_W} y2={l.y2 * vbH}
+                    stroke={ARCH.wallInner} strokeWidth={2.5 * lineK} strokeLinecap="butt" />
                 ))}
                 {(structure.windows ?? []).map((b, i) => {
                   const x = b.x * VB_W, y = b.y * vbH, w = b.w * VB_W, h = b.h * vbH;
@@ -1778,14 +1848,22 @@ function ArchSidePanel({ summary, strip = false }: { summary: ReturnType<typeof 
         <ul className={strip ? 'flex flex-wrap items-center gap-x-3.5 gap-y-1 text-slate-700' : 'space-y-2 text-slate-700'}>
           {states.map(({ tone, label }) => (
             <li key={tone} className={item}>
-              <span className="h-4 w-6 rounded" style={{ background: ARCH.wash[tone], border: `2px solid ${CHIP[tone].bg}` }} aria-hidden="true" />
+              <span className="h-4 w-6 rounded" style={{ background: `linear-gradient(${ARCH.wash[tone]}, ${ARCH.washTo[tone]})`, border: `2px solid ${CHIP[tone].bg}` }} aria-hidden="true" />
               {label}
             </li>
           ))}
           <li className={item}>
-            <span className="h-4 w-6 rounded border-2 border-slate-300 bg-white" aria-hidden="true" />
+            <span className="h-4 w-6 rounded border-2 border-slate-300" style={{ background: `linear-gradient(${ARCH.emptyWash}, ${ARCH.emptyWashTo})` }} aria-hidden="true" />
             No instrument
           </li>
+          {/* The two pill tints carry a meaning — which reading is which — so
+              they are named here like every other colour on the plan. */}
+          {(['temperature', 'humidity'] as const).map((q) => (
+            <li key={q} className={item}>
+              <span className="h-4 w-6 rounded" style={{ background: ARCH.pill[q].bg, border: `1px solid ${ARCH.pill[q].ink}` }} aria-hidden="true" />
+              {q === 'temperature' ? 'Temperature' : 'Humidity'}
+            </li>
+          ))}
           <li className={item}>
             <svg width="24" height="10" aria-hidden="true"><line x1="0" y1="5" x2="24" y2="5" stroke={ARCH.wallOuter} strokeWidth="7" /><line x1="0" y1="5" x2="24" y2="5" stroke={ARCH.wallInner} strokeWidth="2" /></svg>
             Wall

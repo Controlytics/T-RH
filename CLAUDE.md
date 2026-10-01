@@ -1547,6 +1547,15 @@ GET    /api/config/report-downloads/current     — (2026-10-01) per report KIND
       Stability, Module-F and Ware House are still generated. In the view:
       a card in an L-shaped room tries the room's other arms
       (`inscribedRects`, shared) when the largest holds no legible card.
+    - **THE 2D STYLE'S LOOK IS "VIVID STATUS" (same day, operator: "make those
+      layout more professional and beautiful and colorful ui"; chose concept A
+      of three, `Layouts/CWH/concepts/look-*.png`).** Paint only, in
+      `floorplan-view.tsx` (`ARCH`, `readingPill`): room floors are a gradient
+      of the room's status colour, the plate is white (no grid), walls navy
+      with a light core, card headers a status gradient, and each reading in
+      a pill - a soft tint of the QUANTITY when in limit, SOLID status colour
+      with white text otherwise. The legend names the pill colours. The
+      standard style is untouched. See `apps/web/CLAUDE.md`.
     - **Two more card shapes, `tall` and `compact`, exist for rooms the design
       cards cannot serve** — tried ONLY when `std` / `wide` print the Location
       under `LEGIBLE_LOC_FONT` (9 units; `chooseCard` in `floorplan-view.tsx`).
