@@ -60,8 +60,8 @@ let exportFormat: string | undefined;
  *  every kind REQUEST with remarks and password — today's behaviour. Constant,
  *  so the swr mock never hands back a fresh object. */
 const KIND_REQUEST = { mode: 'REQUEST', remarksRequired: true, passwordRequired: true };
-const DOWNLOADS = { 'data-report': KIND_REQUEST, 'trend-chart': KIND_REQUEST, 'instrument-alarms': KIND_REQUEST, alarms: KIND_REQUEST, 'audit-trail': KIND_REQUEST };
-const APPROVERS = { approverRoles: ['QA'], approverUserIds: [] };
+const DOWNLOADS = { 'data-report': KIND_REQUEST, 'time-series': KIND_REQUEST, 'trend-header': KIND_REQUEST, 'temperature-trend': KIND_REQUEST, 'humidity-trend': KIND_REQUEST, 'instrument-alarms': KIND_REQUEST, alarms: KIND_REQUEST, 'audit-trail': KIND_REQUEST };
+const APPROVERS = { approverRoles: ['QA'], approverUserCount: 0 };
 
 function dataFor(key: string | null): any {
   if (!key) return undefined;

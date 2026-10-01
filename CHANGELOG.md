@@ -1,5 +1,49 @@
 # Changelog
 
+## [Unreleased] - Report Settings: one configuration page; eight report types; code-review fixes (2026-10-01, second round)
+
+Operator: *"combine report approvers and report downloads into one
+configuration, and give both trend options seperately and … one seperate data
+report seperately … both should be seperate options"*; then *"own row for
+header, copy values ok, yes go"*.
+
+- **Configuration → Report Settings** (`/config/report-settings`, SUPER_ADMIN)
+  replaces the two cards: Approvers (roles + users) and a table of every report
+  type (mode, remarks, password). **The two stored rows are unchanged** —
+  `report-approvers` and `report-downloads` — each saved WHOLE through the
+  generic dynamic PUT, and only when it changed; both keys are excluded from
+  the auto-discovered section. Routes 52 → **53**, config pages 22 → **23**;
+  no def, migration, model, enum or permission moved.
+- **Eight report types** (was five): Data Report (the sidebar page), **Time
+  Series** (the trend page's card), **Trend Page Report** (the trend page
+  header's Export as PDF), **Temperature Trend**, **Humidity Trend**,
+  Instrument Alarms, Alarm Report, Audit Trail (PDF). A split type reads the
+  setting it came from (`inheritsFrom`) while its own keys are absent, so
+  nothing changed on the day; the page saves every type's own keys
+  (`reportDownloadsRow`).
+- **Code-review fixes to `f84671f`:**
+  - the configured mode and remarks are refused BEFORE the password on both
+    routes (a refused request verified, and counted toward lockout, a password);
+  - a kind is BOUND to its audit `reportType` (`reportTypeMatchesKind`, 400
+    `REPORT_TYPE_MISMATCH`) and Excel is accepted for the Audit Trail alone, so
+    a Direct kind cannot be borrowed to write a download record for a reviewed
+    report. Stated plainly: the PDF is built in the browser, so the server
+    controls the RECORD, not whether a file can be produced;
+  - an EMPTY instrument list is unscoped ONLY for the Audit Trail; any other
+    report with none (an Alarm Report of no alarms, or an older Alarms row the
+    backfill could not resolve) is visible only to UNRESTRICTED viewers and the
+    signers — it was visible to every role-mate and approver;
+  - an eligible approver needs `REPORT_REVIEW_READ` as well as `APPROVE`;
+  - `/report-approvers/current` returns the ACTIVE approvers (what a request
+    would freeze), with users as a COUNT (`approverUserCount`) rather than ids,
+    so the dialog cannot promise a disabled approver.
+  - Not changed: a request still resolves each candidate approver's scope one
+    by one (fine at this plant's size; noted by the review).
+- Tests: shared 35, API e2e 30 (+ unit 12, export-log 16, config 62), web
+  dialog 16, alarms 30, data report 7, trend 24, reports 12, Report Settings 5.
+  Mutation-checked: the empty-list rule fails its case when reverted. Not seen
+  on screen.
+
 ## [Unreleased] - Report downloads: Direct or Request per report type; approvers configured, not chosen; requests scoped by role and instrument (2026-10-01)
 
 Operator, over several messages: *"per user or per role option should be

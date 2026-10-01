@@ -85,7 +85,7 @@ describe('POST /api/audit/report-export-log', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/audit/report-export-log',
-      payload: { reportType: 'Filters', format: 'Excel', recordCount: 1, remarks: 'test' },
+      payload: { reportType: 'Audit Trail', format: 'Excel', recordCount: 1, remarks: 'test' },
     });
     expect(res.statusCode).toBe(401);
   });
@@ -105,7 +105,7 @@ describe('POST /api/audit/report-export-log', () => {
       method: 'POST',
       url: '/api/audit/report-export-log',
       headers: { authorization: `Bearer ${token}` },
-      payload: { reportType: 'Filters', format: 'Excel', recordCount: 1 },
+      payload: { reportType: 'Audit Trail', format: 'Excel', recordCount: 1 },
     });
     expect(res.statusCode).toBe(400);
     // Since 2026-10-01 `remarks` is no longer schema-required (a PDF type may
@@ -123,7 +123,7 @@ describe('POST /api/audit/report-export-log', () => {
       method: 'POST',
       url: '/api/audit/report-export-log',
       headers: { authorization: `Bearer ${token}` },
-      payload: { reportType: 'Filters', format: 'Excel', recordCount: 1, remarks: '   ' },
+      payload: { reportType: 'Audit Trail', format: 'Excel', recordCount: 1, remarks: '   ' },
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toBe('VALIDATION_ERROR');
@@ -242,23 +242,42 @@ describe('POST /api/audit/report-export-log', () => {
     });
 
     it('a DIRECT type with password ON asks EVERY role (SUPER_ADMIN included), and accepts the right one', async () => {
-      const none = await post({ reportKind: 'data-report', remarks: 'x' });
+      const none = await post({ reportKind: 'data-report', reportType: 'Instrument Time Series', remarks: 'x' });
       expect(none.statusCode).toBe(401);
       expect(none.json().error).toBe('REAUTH_REQUIRED');
-      expect((await post({ reportKind: 'data-report', remarks: 'x' }, 'Wrong@Pass1')).statusCode).toBe(401);
-      expect((await post({ reportKind: 'data-report', remarks: 'x' }, TEST_PASSWORD)).statusCode).toBe(200);
+      expect((await post({ reportKind: 'data-report', reportType: 'Instrument Time Series', remarks: 'x' }, 'Wrong@Pass1')).statusCode).toBe(401);
+      expect((await post({ reportKind: 'data-report', reportType: 'Instrument Time Series', remarks: 'x' }, TEST_PASSWORD)).statusCode).toBe(200);
     });
 
     it('a DIRECT type with remarks ON refuses blank remarks', async () => {
-      const res = await post({ reportKind: 'data-report', remarks: '  ' }, TEST_PASSWORD);
+      const res = await post({ reportKind: 'data-report', reportType: 'Instrument Time Series', remarks: '  ' }, TEST_PASSWORD);
       expect(res.statusCode).toBe(400);
       expect(res.json().error).toBe('VALIDATION_ERROR');
     });
 
     it('a REQUEST type cannot be downloaded directly — this route is not a way round the approval', async () => {
-      const res = await post({ reportKind: 'alarms', remarks: 'x' }, TEST_PASSWORD);
+      const res = await post({ reportKind: 'alarms', reportType: 'Alarms', remarks: 'x' }, TEST_PASSWORD);
       expect(res.statusCode).toBe(409);
       expect(res.json().error).toBe('REPORT_REQUIRES_APPROVAL');
+    });
+
+    it('a reviewed report cannot borrow a Direct kind to get a download record (code review, 2026-10-01)', async () => {
+      // audit-trail is Direct here; an Alarm Report labelled with it is refused.
+      const res = await post({ reportKind: 'audit-trail', reportType: 'Alarms', remarks: 'x' });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toBe('REPORT_TYPE_MISMATCH');
+    });
+
+    it('Excel is accepted for the Audit Trail alone — it is not a way round a PDF type\'s review', async () => {
+      const res = await post({ format: 'Excel', reportType: 'Alarms', remarks: 'x' }, TEST_PASSWORD);
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('a refused PDF is refused BEFORE the password — no password is asked for, none is counted', async () => {
+      const res = await post({ reportKind: 'alarms', reportType: 'Alarms', remarks: 'x' });
+      expect(res.statusCode).toBe(409);
+      const blank = await post({ reportKind: 'data-report', reportType: 'Instrument Time Series', remarks: ' ' });
+      expect(blank.statusCode).toBe(400);
     });
 
     it('a PDF with no or an unknown report kind is refused', async () => {

@@ -342,25 +342,37 @@ export default async function auditRoutes(app: FastifyInstance) {
       req.body as { reportType: string; reportKind?: string; format: string; recordCount: number; period?: string; search?: string; startDate?: string; endDate?: string; remarks?: string };
 
     // A PDF follows its report type's configuration (Configuration → Report
-    // Downloads, 2026-10-01): refused outright when the type is reviewed — this
-    // route is otherwise a way round the approval — and the password and the
-    // remarks are required exactly when the type says so. Checked BEFORE the
-    // password, so nobody signs a refused download.
+    // Settings, 2026-10-01): refused when the type is reviewed, and the password
+    // and the remarks are required exactly when the type says so. Checked
+    // BEFORE the password, so nobody signs a refused download.
     //
-    // The Audit Trail's EXCEL export is not a PDF and keeps the old rule: the
-    // per-role DOWNLOAD_REPORT policy, remarks always required.
+    // WHAT THIS CAN AND CANNOT ENFORCE, stated plainly: the PDF is built in the
+    // browser, so this route controls the RECORD — whether a download record of
+    // a reviewed report type can be written — not whether a determined client
+    // can produce a file. The kind is bound to its `reportType`
+    // (`reportTypeMatchesKind`), so a Direct kind cannot be borrowed to label a
+    // reviewed report, and Excel is accepted for the Audit Trail alone.
+    //
+    // The Audit Trail's EXCEL export keeps the old rule: the per-role
+    // DOWNLOAD_REPORT policy, remarks always required.
     let remarksRequired = true;
     if (format === 'PDF') {
-      const { policy } = await policyForKind(reportKind);
+      const { policy } = await policyForKind(reportKind, reportType);
       if (policy.mode !== 'DIRECT') {
         return reply.code(409).send({ error: 'REPORT_REQUIRES_APPROVAL', message: 'This report must be requested for approval; it cannot be downloaded directly.' });
+      }
+      remarksRequired = policy.remarksRequired;
+      if (remarksRequired && !remarks?.trim()) {
+        return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'remarks is required and cannot be blank.' });
       }
       if (policy.passwordRequired) {
         const { ok } = await enforceReauthAlways('DOWNLOAD_REPORT', req, reply);
         if (!ok) return;
       }
-      remarksRequired = policy.remarksRequired;
     } else {
+      if (reportType !== 'Audit Trail') {
+        return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'Only the Audit Trail is exported as Excel.' });
+      }
       const { ok } = await enforceReauth('DOWNLOAD_REPORT', req, reply);
       if (!ok) return;
     }

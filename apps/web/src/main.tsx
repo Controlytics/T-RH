@@ -22,6 +22,7 @@ import { EditUserPage } from './routes/users/edit';
 import { ResetRequestsPage } from './routes/users/reset-requests';
 import { ConfigIndexPage } from './routes/config/index';
 import { PasswordPolicyPage } from './routes/config/password-policy';
+const ReportSettingsConfigPage = lazy(() => import('./routes/config/report-settings').then(m => ({ default: m.ReportSettingsConfigPage })));
 const InstrumentAttributesConfigPage = lazy(() => import('./routes/config/instrument-attributes').then(m => ({ default: m.InstrumentAttributesConfigPage })));
 const LayoutDesignerPage = lazy(() => import('./routes/config/layout-designer').then(m => ({ default: m.LayoutDesignerPage })));
 const AlarmWebhooksConfigPage = lazy(() => import('./routes/config/alarm-webhooks').then(m => ({ default: m.AlarmWebhooksConfigPage })));
@@ -121,6 +122,8 @@ createRoot(document.getElementById('root')!).render(
             {/* SUPER_ADMIN, matching the def's requiredRole — the key list drives
                 what every operator is asked for at registration. */}
             <Route path="/config/instrument-attributes" element={<RequireRole roles={['SUPER_ADMIN']}><InstrumentAttributesConfigPage /></RequireRole>} />
+            {/* Report Approvers + Report Downloads on one page (2026-10-01). */}
+            <Route path="/config/report-settings" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><ReportSettingsConfigPage /></Suspense></RequireRole>} />
             <Route path="/config/floorplans" element={<RequireRole roles={['SUPER_ADMIN']}><LayoutDesignerPage /></RequireRole>} />
             <Route path="/config/alarm-webhooks" element={<RequireRole permissions={[PERMISSIONS.ALARM_RULE_READ]}><AlarmWebhooksConfigPage /></RequireRole>} />
             <Route path="/config/report-page-titles" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><ReportPageTitlesPage /></Suspense></RequireRole>} />

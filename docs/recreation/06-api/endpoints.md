@@ -374,8 +374,8 @@ Missing from this dossier until 2026-10-01 — the module landed on 2026-09-07 w
 | GET | `/api/report-reviews/:id` | `REPORT_REVIEW_READ` | The row with its frozen snapshot; 404 (never 403) unless SUPER_ADMIN, a signer, or the requester's role / an approver within instrument scope |
 | POST | `/api/report-reviews/:id/approve` · `/reject` | `REPORT_REVIEW_APPROVE` + `APPROVE_REPORT` / `REJECT_REPORT` re-auth | An approver in scope; never the requester (SUPER_ADMIN exempt); one decision (409) |
 | POST | `/api/report-reviews/:id/download-log` | `REPORT_REVIEW_READ` | Audits a download of the APPROVED copy, written before the save |
-| GET | `/api/config/report-approvers/current` | authenticated | `{approverRoles, approverUserIds}`, coerced |
+| GET | `/api/config/report-approvers/current` | authenticated | `{approverRoles, approverUserCount}` — the ACTIVE approvers a request would freeze; users as a count, never ids |
 | GET | `/api/config/report-approvers/candidates` | `CONFIG_READ` | `[{value: userId, label: "username — name (ROLE)"}]` for the Approver users setting; enabled, never SUPER_ADMIN |
-| GET | `/api/config/report-downloads/current` | authenticated | `{ [kind]: {mode, remarksRequired, passwordRequired} }` for the five kinds, coerced. NOT the stored row's shape |
+| GET | `/api/config/report-downloads/current` | authenticated | `{ [kind]: {mode, remarksRequired, passwordRequired} }` for the EIGHT kinds, coerced (a split kind inherits). NOT the stored row's shape. Both rows are edited on the `/config/report-settings` page |
 | GET · PUT | `/api/config/dynamic/report-downloads` | SUPER_ADMIN | The stored row: `<prefix>Mode` / `<prefix>Remarks` / `<prefix>Password` per kind |
 

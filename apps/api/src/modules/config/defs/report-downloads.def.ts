@@ -68,5 +68,8 @@ export const reportDownloadsDef: ModuleConfigDefinition = {
   requiredRole: 'SUPER_ADMIN',
   requiresReauth: false,
   hasCustomPage: false,
+  // Edited on the combined Report Settings page (2026-10-01); FALSE above keeps
+  // the generic dynamic GET/PUT (validation, SUPER_ADMIN, audit) in service.
+  customPagePath: '/config/report-settings',
   settings,
 };

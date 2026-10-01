@@ -15,12 +15,12 @@ const POLICY = {
   DIRECT_FULL: { mode: 'DIRECT', remarksRequired: true, passwordRequired: true },
   DIRECT_BARE: { mode: 'DIRECT', remarksRequired: false, passwordRequired: false },
 } as const;
-const APPROVERS = { SOME: { approverRoles: ['SUPERVISOR'], approverUserIds: ['u1', 'u2'] }, NONE: { approverRoles: [], approverUserIds: [] } };
+const APPROVERS = { SOME: { approverRoles: ['SUPERVISOR'], approverUserCount: 2 }, NONE: { approverRoles: [], approverUserCount: 0 } };
 const state = vi.hoisted(() => ({ downloads: undefined as unknown, approvers: undefined as unknown }));
 const responses = new Map<string, unknown>();
 function setPolicy(alarms: unknown, approvers: unknown = APPROVERS.SOME) {
   responses.set('/api/config/report-downloads/current', {
-    'data-report': alarms, 'trend-chart': alarms, 'instrument-alarms': alarms, alarms, 'audit-trail': alarms,
+    'data-report': alarms, 'time-series': alarms, 'trend-header': alarms, 'temperature-trend': alarms, 'humidity-trend': alarms, 'instrument-alarms': alarms, alarms, 'audit-trail': alarms,
   });
   responses.set('/api/config/report-approvers/current', approvers);
 }
@@ -81,7 +81,7 @@ describe('REQUEST mode', () => {
   it('with no approver configured it says so, names the fix, and cannot be sent', () => {
     setPolicy(POLICY.REQUEST_FULL, APPROVERS.NONE);
     open();
-    expect(screen.getByRole('alert')).toHaveTextContent(/Report Approvers/);
+    expect(screen.getByRole('alert')).toHaveTextContent(/Report Settings/);
     expect(screen.getByRole('button', { name: 'Request approval' })).toBeDisabled();
   });
 

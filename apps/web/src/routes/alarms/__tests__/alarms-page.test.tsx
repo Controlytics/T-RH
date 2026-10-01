@@ -74,10 +74,10 @@ const KIND_POLICY = {
   DIRECT: { mode: 'DIRECT', remarksRequired: true, passwordRequired: true },
 } as const;
 const DOWNLOADS = {
-  REQUEST: { 'data-report': KIND_POLICY.REQUEST, 'trend-chart': KIND_POLICY.REQUEST, 'instrument-alarms': KIND_POLICY.REQUEST, alarms: KIND_POLICY.REQUEST, 'audit-trail': KIND_POLICY.REQUEST },
-  DIRECT: { 'data-report': KIND_POLICY.REQUEST, 'trend-chart': KIND_POLICY.REQUEST, 'instrument-alarms': KIND_POLICY.REQUEST, alarms: KIND_POLICY.DIRECT, 'audit-trail': KIND_POLICY.REQUEST },
+  REQUEST: { 'data-report': KIND_POLICY.REQUEST, 'time-series': KIND_POLICY.REQUEST, 'trend-header': KIND_POLICY.REQUEST, 'temperature-trend': KIND_POLICY.REQUEST, 'humidity-trend': KIND_POLICY.REQUEST, 'instrument-alarms': KIND_POLICY.REQUEST, alarms: KIND_POLICY.REQUEST, 'audit-trail': KIND_POLICY.REQUEST },
+  DIRECT: { 'data-report': KIND_POLICY.REQUEST, 'time-series': KIND_POLICY.REQUEST, 'trend-header': KIND_POLICY.REQUEST, 'temperature-trend': KIND_POLICY.REQUEST, 'humidity-trend': KIND_POLICY.REQUEST, 'instrument-alarms': KIND_POLICY.REQUEST, alarms: KIND_POLICY.DIRECT, 'audit-trail': KIND_POLICY.REQUEST },
 };
-const APPROVERS = { approverRoles: ['QA'], approverUserIds: [] };
+const APPROVERS = { approverRoles: ['QA'], approverUserCount: 0 };
 let downloads: unknown = DOWNLOADS.REQUEST;
 
 vi.mock('swr', () => ({

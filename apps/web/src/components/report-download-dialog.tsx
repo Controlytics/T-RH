@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import useSWR from 'swr';
 import {
-  INTERVALS, REPORT_APPROVERS_NONE_MESSAGE, coerceReportApprovers,
+  INTERVALS, REPORT_APPROVERS_NONE_MESSAGE, coerceApproverRoles,
   type ReportKind, type ReportKindPolicy, type ReportDownloadMode,
 } from '@digilog/shared';
 import { Button } from '@/components/ui/button';
@@ -92,8 +92,12 @@ export function ReportDownloadDialog({
   const policy: ReportKindPolicy | undefined = policyOverride ?? configured?.[kind];
   const requesting = policy?.mode === 'REQUEST';
   const { data: approversData } = useSWR<unknown>(open && requesting ? '/api/config/report-approvers/current' : null);
-  const approvers = approversData === undefined ? undefined : coerceReportApprovers(approversData);
-  const noApprover = requesting && approvers !== undefined && approvers.approverRoles.length === 0 && approvers.approverUserIds.length === 0;
+  // The server's ACTIVE approvers — roles, and users as a count (never ids).
+  const approvers = approversData === undefined ? undefined : {
+    approverRoles: coerceApproverRoles(approversData),
+    userCount: Math.max(0, Number((approversData as { approverUserCount?: unknown }).approverUserCount) || 0),
+  };
+  const noApprover = requesting && approvers !== undefined && approvers.approverRoles.length === 0 && approvers.userCount === 0;
 
   // Re-seed from the page's current period, and clear stale state, each time
   // the dialog is (re)opened — not while it stays open, which would stomp on
@@ -237,7 +241,7 @@ export function ReportDownloadDialog({
                   <p role="alert" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{REPORT_APPROVERS_NONE_MESSAGE}</p>
                 ) : (
                   <p className="text-sm text-slate-600" data-testid="report-download-approvers">
-                    Goes for approval to {approvers === undefined ? '…' : approverSummary(approvers.approverRoles, approvers.approverUserIds.length)}.
+                    Goes for approval to {approvers === undefined ? '…' : approverSummary(approvers.approverRoles, approvers.userCount)}.
                     The approved copy is downloaded from <span className="font-medium">Reports</span>.
                   </p>
                 )

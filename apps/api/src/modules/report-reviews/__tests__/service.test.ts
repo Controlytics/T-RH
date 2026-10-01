@@ -9,6 +9,7 @@ import { isParty, isApprover, mayDecide, inScope, isSelfDecision, type ReviewPar
  * is bounded by their INSTRUMENT SCOPE ("any" of the request's instruments).
  */
 const row: ReviewParties = {
+  reportType: 'Instrument Time Series',
   requestedBy: 'u-req', requestedByRole: 'OPERATOR',
   approverRoles: ['SUPERVISOR'], approverUserIds: ['u-named'],
   decidedBy: null, instrumentIds: ['i1', 'i2'],
@@ -20,8 +21,13 @@ const SEES_I9 = new Set(['i9']);        // does not
 describe('inScope', () => {
   it('is true for an unrestricted scope, for a request about no instrument, and for ANY overlap', () => {
     expect(inScope(row, ALL)).toBe(true);
-    expect(inScope({ instrumentIds: [] }, SEES_I9)).toBe(true);
+    expect(inScope({ instrumentIds: [], reportType: 'Audit Trail' }, SEES_I9)).toBe(true);
     expect(inScope(row, SEES_I2)).toBe(true);
+  });
+
+  it('an EMPTY list on any report but the Audit Trail is NOT unscoped — only an unrestricted viewer sees it (code review, 2026-10-01)', () => {
+    expect(inScope({ instrumentIds: [], reportType: 'Alarms' }, SEES_I9)).toBe(false);
+    expect(inScope({ instrumentIds: [], reportType: 'Alarms' }, ALL)).toBe(true);
   });
   it('is false with no overlap — including a scope of no instruments at all', () => {
     expect(inScope(row, SEES_I9)).toBe(false);

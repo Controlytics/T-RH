@@ -1,5 +1,5 @@
 import { type FastifyInstance } from 'fastify';
-import { loadReportApprovers } from '../../report-reviews/load-approvers.js';
+import { activeApprovers } from '../../report-reviews/service.js';
 import { prisma } from '../../../lib/prisma.js';
 
 /**
@@ -17,20 +17,23 @@ export async function reportApproversRoutes(app: FastifyInstance) {
       tags: ['Config'],
       summary: 'Get the roles and users that approve report requests',
       description:
-        'The administered approvers, already coerced (SUPER_ADMIN never an approver role). Available to all authenticated users. Both lists empty means no report can be requested until a super admin sets one.',
+        'The ACTIVE approvers — the same set a request would freeze (inactive roles and disabled users dropped). Available to all authenticated users, so users are given as a COUNT, never their ids. Both empty means no report can be requested.',
       response: {
         200: {
           type: 'object',
           properties: {
             approverRoles: { type: 'array', items: { type: 'string' } },
-            // Declared (2026-10-01), or Fastify strips it silently.
-            approverUserIds: { type: 'array', items: { type: 'string' } },
+            // Declared, or Fastify strips it silently.
+            approverUserCount: { type: 'integer' },
           },
-          required: ['approverRoles', 'approverUserIds'],
+          required: ['approverRoles', 'approverUserCount'],
         },
       },
     },
-  }, async () => loadReportApprovers());
+  }, async () => {
+    const a = await activeApprovers();
+    return { approverRoles: a.approverRoles, approverUserCount: a.approverUserIds.length };
+  });
 
   /**
    * The options for the "Approver users" setting (2026-10-01): enabled users,

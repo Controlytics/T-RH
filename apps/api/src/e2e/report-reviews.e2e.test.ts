@@ -198,12 +198,19 @@ describe('POST /api/report-reviews', () => {
   });
 
   it('refuses a DIRECT type (409), a missing or unknown kind (400), and an Audit Trail that names instruments', async () => {
-    const direct = await submit(tok.REQ, { reportKind: 'trend-chart' });
+    // temperature-trend inherits Direct from the legacy trendChart setting.
+    const direct = await submit(tok.REQ, { reportKind: 'temperature-trend', reportType: 'Instrument Trend — Temperature' });
     expect(direct.statusCode).toBe(409);
     expect(direct.json().error).toBe('REPORT_IS_DIRECT');
     expect((await submit(tok.REQ, { reportKind: undefined })).statusCode).toBe(400);
     expect((await submit(tok.REQ, { reportKind: 'Instrument Time Series' })).statusCode).toBe(400);
-    expect((await submit(tok.REQ, { reportKind: 'audit-trail', instrumentIds: [instA] })).statusCode).toBe(400);
+    expect((await submit(tok.REQ, { reportKind: 'audit-trail', reportType: 'Audit Trail', instrumentIds: [instA] })).statusCode).toBe(400);
+    // A kind is bound to its report type: a reviewed one cannot be relabelled.
+    const mismatch = await submit(tok.REQ, { reportKind: 'alarms' });
+    expect(mismatch.statusCode).toBe(400);
+    expect(mismatch.json().error).toBe('REPORT_TYPE_MISMATCH');
+    // Refused BEFORE the password: no password sent, still the 409, not a 401.
+    expect((await submit(tok.REQ, { reportKind: 'temperature-trend', reportType: 'Instrument Trend — Temperature' }, '')).statusCode).toBe(409);
   });
 
   it('refuses EVERY request while no approver is configured — fail closed, naming the fix', async () => {
@@ -212,7 +219,7 @@ describe('POST /api/report-reviews', () => {
       const res = await submit(tok.REQ);
       expect(res.statusCode).toBe(400);
       expect(res.json().error).toBe('NO_APPROVER');
-      expect(res.json().message).toMatch(/Report Approvers/);
+      expect(res.json().message).toMatch(/Report Settings/);
     } finally {
       await setApprovers([ROLE_APPR], [ids.NAMED]);
     }
@@ -240,7 +247,7 @@ describe('a request nobody could approve is REFUSED (2026-10-01)', () => {
     const res = await submit(token);
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toBe('NO_ELIGIBLE_APPROVER');
-    expect(res.json().message).toMatch(/Report Approvers/);
+    expect(res.json().message).toMatch(/Report Settings/);
   };
 
   it('when the only approver is scoped away from the request\'s instruments', async () => {
@@ -261,6 +268,37 @@ describe('a request nobody could approve is REFUSED (2026-10-01)', () => {
   it('and nothing was written by any of them', async () => {
     const rows = await prisma.reportReview.count({ where: { requestedBy: { in: [ids.REQ!, ids.NAMED!] }, id: { notIn: created } } });
     expect(rows).toBe(0);
+  });
+});
+
+describe('code-review fixes (2026-10-01)', () => {
+  it('an approver whose role can APPROVE but not READ is not eligible — they could never open the queue', async () => {
+    const ROLE_BLIND = `RR_BLIND_${STAMP}`;
+    await prisma.role.create({ data: { name: ROLE_BLIND, displayName: 'RR Blind', hierarchyLevel: 2, permissions: ['REPORT_REVIEW_APPROVE', 'INSTRUMENT_READ'] } });
+    const blind = await makeUser(`rrb${STAMP}`, ROLE_BLIND);
+    invalidateRolePermsCache();
+    await setApprovers([], [blind]);
+    try {
+      const res = await submit(tok.REQ);
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toBe('NO_ELIGIBLE_APPROVER');
+    } finally {
+      await setApprovers([ROLE_APPR], [ids.NAMED!]);
+      await prisma.user.delete({ where: { id: blind } });
+      await prisma.role.delete({ where: { name: ROLE_BLIND } });
+      invalidateRolePermsCache();
+    }
+  });
+
+  it('an Alarm Report about NO instruments is seen only by unrestricted viewers, never by a scoped role-mate', async () => {
+    const res = await submit(tok.REQ, { reportKind: 'alarms', reportType: 'Alarms', title: 'EMPTY ALARM REPORT', remarks: '', instrumentIds: [] }, '');
+    expect(res.statusCode).toBe(201);
+    created.push(res.json().id);
+    const id = res.json().id;
+    expect((await get(`/api/report-reviews/${id}`, tok.MATE)).statusCode).toBe(200);      // unrestricted role-mate
+    expect((await get(`/api/report-reviews/${id}`, tok.MATE_OUT)).statusCode).toBe(404);  // scoped role-mate
+    expect(await listIds('mine', tok.MATE_OUT)).not.toContain(id);
+    expect(await listIds('queue', tok.APPR_OUT)).not.toContain(id);
   });
 });
 
@@ -287,7 +325,7 @@ describe('the configuration round-trips through the REAL save path (the dynamic 
   it('report-approvers: saved roles AND users read back, and a request then goes to both', async () => {
     const res = await put('report-approvers', { approverRoles: [ROLE_APPR], approverUserIds: [ids.NAMED] });
     expect(res.statusCode).toBe(200);
-    expect((await get('/api/config/report-approvers/current', tok.REQ)).json()).toEqual({ approverRoles: [ROLE_APPR], approverUserIds: [ids.NAMED] });
+    expect((await get('/api/config/report-approvers/current', tok.REQ)).json()).toEqual({ approverRoles: [ROLE_APPR], approverUserCount: 1 });
   });
 });
 
@@ -295,15 +333,29 @@ describe('the config reads', () => {
   it('report-approvers/current: every user reads both lists, already coerced', async () => {
     const res = await get('/api/config/report-approvers/current', tok.REQ);
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ approverRoles: [ROLE_APPR], approverUserIds: [ids.NAMED] });
+    // The ACTIVE approvers; users as a COUNT, never their ids (code review, 2026-10-01).
+    expect(res.json()).toEqual({ approverRoles: [ROLE_APPR], approverUserCount: 1 });
   });
 
-  it('report-downloads/current: every user reads all five kinds, coerced (absent = REQUEST, remarks + password on)', async () => {
+  it('report-approvers/current drops a disabled approver user, so the dialog never promises one the server refuses', async () => {
+    await prisma.user.update({ where: { id: ids.NAMED! }, data: { status: 'DISABLED' } });
+    try {
+      expect((await get('/api/config/report-approvers/current', tok.REQ)).json()).toEqual({ approverRoles: [ROLE_APPR], approverUserCount: 0 });
+    } finally {
+      await prisma.user.update({ where: { id: ids.NAMED! }, data: { status: 'ENABLED' } });
+    }
+  });
+
+  it('report-downloads/current: every user reads all EIGHT kinds, coerced — the split ones inheriting', async () => {
     const res = await get('/api/config/report-downloads/current', tok.REQ);
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({
       'data-report': { mode: 'REQUEST', remarksRequired: true, passwordRequired: true },
-      'trend-chart': { mode: 'DIRECT', remarksRequired: true, passwordRequired: true },
+      'time-series': { mode: 'REQUEST', remarksRequired: true, passwordRequired: true },
+      'trend-header': { mode: 'REQUEST', remarksRequired: true, passwordRequired: true },
+      // Both split out of the legacy trendChart setting, which this suite set to Direct.
+      'temperature-trend': { mode: 'DIRECT', remarksRequired: true, passwordRequired: true },
+      'humidity-trend': { mode: 'DIRECT', remarksRequired: true, passwordRequired: true },
       'instrument-alarms': { mode: 'REQUEST', remarksRequired: true, passwordRequired: true },
       alarms: { mode: 'REQUEST', remarksRequired: false, passwordRequired: false },
       'audit-trail': { mode: 'REQUEST', remarksRequired: true, passwordRequired: true },

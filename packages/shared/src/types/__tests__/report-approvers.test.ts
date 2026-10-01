@@ -28,7 +28,7 @@ describe('coerceApproverRoles', () => {
   it('names the config key and the message a requester sees when nothing is configured', () => {
     expect(REPORT_APPROVERS_CONFIG_KEY).toBe('report-approvers');
     expect(REPORT_APPROVERS_NONE_MESSAGE).toMatch(/super admin/i);
-    expect(REPORT_APPROVERS_NONE_MESSAGE).toMatch(/Report Approvers/);
+    expect(REPORT_APPROVERS_NONE_MESSAGE).toMatch(/Report Settings/);
   });
 });
 

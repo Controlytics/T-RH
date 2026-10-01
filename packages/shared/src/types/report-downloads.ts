@@ -33,12 +33,25 @@
  */
 export const REPORT_DOWNLOADS_CONFIG_KEY = 'report-downloads';
 
+/**
+ * The report types, one per download POINT the operator can tell apart
+ * (2026-10-01, second cut — operator: "give both trend options seperately and
+ * … one seperate data report seperately"; the trend page header got its own
+ * row by their answer). `inheritsFrom` names the setting a type was SPLIT OUT
+ * of: while a type's own keys are absent from the stored row, it reads that
+ * one's values, so splitting changed nothing on the day it shipped ("copy
+ * values ok"). The first save of the Report Settings page writes every type's
+ * own keys and the inheritance stops mattering.
+ */
 export const REPORT_KINDS = [
-  { key: 'data-report', settingPrefix: 'dataReport', label: 'Data Report', hint: 'The Data Report page and the trend page\'s Time Series / header download.' },
-  { key: 'trend-chart', settingPrefix: 'trendChart', label: 'Trend Chart', hint: 'The trend page\'s Temperature and Humidity chart downloads.' },
-  { key: 'instrument-alarms', settingPrefix: 'instrumentAlarms', label: 'Instrument Alarms', hint: 'The trend page\'s alarms widget download.' },
-  { key: 'alarms', settingPrefix: 'alarms', label: 'Alarm Report', hint: 'The Alarms page download.' },
-  { key: 'audit-trail', settingPrefix: 'auditTrail', label: 'Audit Trail (PDF)', hint: 'The Audit Trail PDF export. The Excel export is not a PDF and always downloads directly.' },
+  { key: 'data-report', reportType: 'Instrument Time Series', settingPrefix: 'dataReport', inheritsFrom: null, label: 'Data Report', hint: 'The Data Report page in the sidebar.' },
+  { key: 'time-series', reportType: 'Instrument Time Series', settingPrefix: 'timeSeries', inheritsFrom: 'dataReport', label: 'Time Series', hint: 'The Time Series card on an instrument\'s trend page.' },
+  { key: 'trend-header', reportType: 'Instrument Time Series', settingPrefix: 'trendHeader', inheritsFrom: 'dataReport', label: 'Trend Page Report', hint: 'Export as PDF in the trend page header (that instrument\'s Data Report).' },
+  { key: 'temperature-trend', reportType: 'Instrument Trend — Temperature', settingPrefix: 'temperatureTrend', inheritsFrom: 'trendChart', label: 'Temperature Trend', hint: 'The Temperature chart download on the trend page.' },
+  { key: 'humidity-trend', reportType: 'Instrument Trend — Humidity', settingPrefix: 'humidityTrend', inheritsFrom: 'trendChart', label: 'Humidity Trend', hint: 'The Humidity chart download on the trend page.' },
+  { key: 'instrument-alarms', reportType: 'Instrument Alarms', settingPrefix: 'instrumentAlarms', inheritsFrom: null, label: 'Instrument Alarms', hint: 'The alarms widget download on the trend page.' },
+  { key: 'alarms', reportType: 'Alarms', settingPrefix: 'alarms', inheritsFrom: null, label: 'Alarm Report', hint: 'The Alarms page download.' },
+  { key: 'audit-trail', reportType: 'Audit Trail', settingPrefix: 'auditTrail', inheritsFrom: null, label: 'Audit Trail (PDF)', hint: 'The Audit Trail PDF export. The Excel export is not a PDF and always downloads directly.' },
 ] as const;
 
 export type ReportKind = (typeof REPORT_KINDS)[number]['key'];
@@ -77,15 +90,41 @@ export function reportKindSettingKeys(kind: ReportKind): { mode: string; remarks
 export function coerceReportDownloads(value: unknown): ReportDownloadsPolicy {
   const o = value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
   const out = {} as ReportDownloadsPolicy;
-  for (const { key } of REPORT_KINDS) {
+  for (const { key, inheritsFrom } of REPORT_KINDS) {
     const k = reportKindSettingKeys(key);
+    // A type's OWN key wins; absent, the setting it was split out of.
+    const read = (own: string, suffix: string) =>
+      o[own] !== undefined ? o[own] : inheritsFrom ? o[`${inheritsFrom}${suffix}`] : undefined;
     out[key] = {
-      mode: o[k.mode] === 'DIRECT' ? 'DIRECT' : 'REQUEST',
-      remarksRequired: o[k.remarks] !== false,
-      passwordRequired: o[k.password] !== false,
+      mode: read(k.mode, 'Mode') === 'DIRECT' ? 'DIRECT' : 'REQUEST',
+      remarksRequired: read(k.remarks, 'Remarks') !== false,
+      passwordRequired: read(k.password, 'Password') !== false,
     };
   }
   return out;
+}
+
+/** The stored row for a policy — every type's OWN keys (what the Report
+ *  Settings page saves; the legacy `trendChart*` keys are not written). */
+export function reportDownloadsRow(policy: ReportDownloadsPolicy): Record<string, string | boolean> {
+  const row: Record<string, string | boolean> = {};
+  for (const { key } of REPORT_KINDS) {
+    const k = reportKindSettingKeys(key);
+    row[k.mode] = policy[key].mode;
+    row[k.remarks] = policy[key].remarksRequired;
+    row[k.password] = policy[key].passwordRequired;
+  }
+  return row;
+}
+
+/**
+ * Does a request's audit `reportType` belong to the kind it claims? (2026-10-01,
+ * code review.) The kind decides the policy and the type names the record; a
+ * client naming a Direct kind for a reviewed report would otherwise write a
+ * download record for a report the configuration says must be reviewed.
+ */
+export function reportTypeMatchesKind(kind: ReportKind, reportType: string): boolean {
+  return REPORT_KINDS.find((k) => k.key === kind)!.reportType === reportType;
 }
 
 export function reportKindLabel(kind: ReportKind): string {

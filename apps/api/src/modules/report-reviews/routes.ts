@@ -14,7 +14,7 @@ import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { resolvePageSize } from '../../lib/page-size.js';
-import { reportReviewService, policyForKind, type ReviewList } from './service.js';
+import { reportReviewService, policyForKind, assertRequestable, type ReviewList } from './service.js';
 
 const summaryProps = {
   id: { type: 'string' },
@@ -85,17 +85,19 @@ export default async function reportReviewRoutes(app: FastifyInstance) {
     // The kind's policy BEFORE the password: nobody is asked to sign a request
     // the configuration refuses. Password = Yes asks EVERY role (2026-10-01);
     // the request is then the signature event the download used to be.
-    const { kind, policy } = await policyForKind(raw.reportKind);
-    if (policy.passwordRequired) {
-      const { ok } = await enforceReauthAlways('DOWNLOAD_REPORT', req, reply);
-      if (!ok) return;
-    }
+    const { kind, policy } = await policyForKind(raw.reportKind, raw.reportType);
     // Remarks are a free-text reason and exempt from HTML stripping, like every
     // other reason here ("value < 20 per SOP" must survive). The snapshot and
     // the meta are data, not text fields, and are not sanitised either.
     const body = sanitizeStrings(raw, ['remarks', 'dataSnapshot', 'requestMeta']);
-    // Blank is allowed only when the kind's remarks are off — the service checks.
+    // Blank is allowed only when the kind's remarks are off.
     const remarks = requireRemarks(body.remarks) ?? '';
+    // Mode and remarks BEFORE the password (code review, 2026-10-01).
+    assertRequestable(kind, policy, remarks);
+    if (policy.passwordRequired) {
+      const { ok } = await enforceReauthAlways('DOWNLOAD_REPORT', req, reply);
+      if (!ok) return;
+    }
     const row = await reportReviewService.submit(buildContext(req), {
       reportKind: kind, policy,
       reportType: String(body.reportType), title: String(body.title),

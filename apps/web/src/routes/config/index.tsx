@@ -297,30 +297,19 @@ const superAdminCards = [
     gradient: 'from-violet-500 to-fuchsia-600',
   },
   {
-    title: 'Report Approvers',
-    description: 'Who approves report requests — the roles and users every request goes to',
-    href: '/config/dynamic/report-approvers',
+    // ONE card for both report configurations (2026-10-01, operator: "combine
+    // report approvers and report downloads into one configuration"). The two
+    // stored rows are unchanged; the page saves each through the generic
+    // dynamic PUT. Both keys are excluded from the auto-discovered section below.
+    title: 'Report Settings',
+    description: 'Who approves report requests, and for each report type: download directly or request approval, remarks and password',
+    href: '/config/report-settings',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 01-1.043 3.296 3.745 3.745 0 01-3.296 1.043A3.745 3.745 0 0112 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 01-3.296-1.043 3.745 3.745 0 01-1.043-3.296A3.745 3.745 0 013 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 011.043-3.296 3.746 3.746 0 013.296-1.043A3.746 3.746 0 0112 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 013.296 1.043 3.746 3.746 0 011.043 3.296A3.745 3.745 0 0121 12z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
       </svg>
     ),
     gradient: 'from-emerald-500 to-teal-600',
-  },
-  {
-    // 2026-10-01 (operator: "add report downloads configuration in super admin
-    // settings"): per report type, Direct download or Request approval, and
-    // whether remarks and the password are required. SUPER_ADMIN-only card,
-    // rendered by the dynamic config page.
-    title: 'Report Downloads',
-    description: 'For each report type: download directly or request approval first, and whether remarks and the password are required',
-    href: '/config/dynamic/report-downloads',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-      </svg>
-    ),
-    gradient: 'from-sky-500 to-indigo-600',
   },
   {
     title: 'Alarm Webhooks',
@@ -463,6 +452,9 @@ export function ConfigIndexPage() {
     // a card of its own (operator, 2026-09-16) — so the auto-discovered section
     // must not offer a second door to it.
     'attribute-labels',
+    // Both edited on the Report Settings page (2026-10-01).
+    'report-approvers',
+    'report-downloads',
   ]);
 
   // Group manifest entries by category

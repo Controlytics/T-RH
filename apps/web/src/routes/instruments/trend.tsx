@@ -12,6 +12,7 @@ import { useSensorWords, useAlarmTypeNames } from '@/hooks/use-failure-text';
 import { ExportMenu } from '@/components/ExportMenu';
 import { ReportDownloadDialog, type ReportDownloadRequest } from '@/components/report-download-dialog';
 import { deliverReport, deliveryToast } from '@/lib/report-delivery';
+import type { ReportKind } from '@digilog/shared';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -84,8 +85,18 @@ const TREND_SLOT_LABEL: Record<TrendSlot, string> = {
 
 type PendingReport =
   | { kind: 'trend'; slot: TrendSlot }
-  | { kind: 'timeseries' }
+  // `header`: the page header's Export as PDF — the same Data Report document
+  // as the Time Series card, but its OWN configured report type (2026-10-01).
+  | { kind: 'timeseries'; header?: boolean }
   | { kind: 'alarms' };
+
+/** Which configured report type (Configuration → Report Settings) a download is. */
+function reportKindOf(p: PendingReport | null): ReportKind {
+  if (!p) return 'time-series';
+  if (p.kind === 'trend') return p.slot === 'humidity' ? 'humidity-trend' : 'temperature-trend';
+  if (p.kind === 'alarms') return 'instrument-alarms';
+  return p.header ? 'trend-header' : 'time-series';
+}
 
 /** Rows this page actually charts/pivots are all numeric — a non-numeric
  *  reading (a raw JSON blob on some other key) has no place on an axis or in
@@ -643,7 +654,7 @@ export function InstrumentTrend() {
         // that cannot say which one a row is.
         const snapshot = report.getSnapshot();
         outcome = await deliverReport({
-          kind: 'trend-chart', req, report, reportType: `Instrument Trend — ${slotLabel}`, title: snapshot.title, subtitle: snapshot.subtitle,
+          kind: reportKindOf(which), req, report, reportType: `Instrument Trend — ${slotLabel}`, title: snapshot.title, subtitle: snapshot.subtitle,
           requestMeta: { period: reportPeriod, recordCount: pivoted.length, instrumentCodes: [instrument.code] },
           instrumentIds: [id],
         });
@@ -701,7 +712,7 @@ export function InstrumentTrend() {
         // under it are this same document.
         const snapshot = report.getSnapshot();
         outcome = await deliverReport({
-          kind: 'data-report', req, report, reportType: 'Instrument Time Series', title: snapshot.title, subtitle: snapshot.subtitle,
+          kind: reportKindOf(which), req, report, reportType: 'Instrument Time Series', title: snapshot.title, subtitle: snapshot.subtitle,
           requestMeta: { period: reportPeriod, intervalMs: reportInterval, recordCount: rows.length, instrumentCodes: [instrument.code] },
           instrumentIds: [id],
         });
@@ -787,7 +798,7 @@ export function InstrumentTrend() {
         // below. It was the combined-charts document until 2026-09-07
         // (operator: "in that report trends also coming remove those and add
         // interval feature"); the per-chart downloads stay on their own cards.
-        actions={<ExportMenu surface="instrument-trend" onExportPdf={() => setPendingReport({ kind: 'timeseries' })} />}
+        actions={<ExportMenu surface="instrument-trend" onExportPdf={() => setPendingReport({ kind: 'timeseries', header: true })} />}
         meta={
           <>
             <span className="text-[0.8125rem] text-white/80">
@@ -1150,7 +1161,7 @@ export function InstrumentTrend() {
       <ReportDownloadDialog
         open={pendingReport !== null}
         reportName={reportDialogName}
-        kind={pendingReport?.kind === 'trend' ? 'trend-chart' : pendingReport?.kind === 'alarms' ? 'instrument-alarms' : 'data-report'}
+        kind={reportKindOf(pendingReport)}
         showPeriod
         initialPeriod={{ from: period.from, to: period.to, label: period.label }}
         // Only the Data Report is built per interval; the trend and alarm

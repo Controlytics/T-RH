@@ -33,7 +33,7 @@ export interface ReportApproversConfig {
 
 /** What a requester is told when the list is empty — the fix, not just the fact. */
 export const REPORT_APPROVERS_NONE_MESSAGE =
-  'No report approver is configured. Ask a super admin to set one under Configuration → Report Approvers.';
+  'No report approver is configured. Ask a super admin to set one under Configuration → Report Settings.';
 
 /**
  * Since 2026-10-01 the requester no longer chooses an approver: every request

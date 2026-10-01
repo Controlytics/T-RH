@@ -36,7 +36,7 @@ import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { createNotification } from '../notifications/notification.service.js';
 import { clampSignature } from '../alarms/validation.js';
-import { REPORT_APPROVERS_NONE_MESSAGE, isReportKind, reportKindLabel, type ReportKind, type ReportKindPolicy } from '@digilog/shared';
+import { REPORT_APPROVERS_NONE_MESSAGE, isReportKind, reportKindLabel, reportTypeMatchesKind, type ReportKind, type ReportKindPolicy } from '@digilog/shared';
 import { loadReportApprovers } from './load-approvers.js';
 import { loadReportDownloads } from './load-downloads.js';
 import { resolveVisibility } from '../instruments/visibility.js';
@@ -52,6 +52,8 @@ export type ReviewDecision = 'APPROVED' | 'REJECTED';
  * the arrays by the migration, so there is ONE shape to read.
  */
 export interface ReviewParties {
+  /** The audit report type — decides whether an EMPTY instrument list is unscoped. */
+  reportType: string;
   requestedBy: string;
   requestedByRole: string | null;
   approverRoles: string[];
@@ -71,10 +73,19 @@ export type VisibleInstruments = Set<string> | null;
  * instrument (the Audit Trail PDF) is not scope-restricted; otherwise the
  * caller must see ANY of its instruments (operator's choice: "any").
  */
-export function inScope(row: Pick<ReviewParties, 'instrumentIds'>, visible: VisibleInstruments): boolean {
-  if (visible === null || row.instrumentIds.length === 0) return true;
+export function inScope(row: Pick<ReviewParties, 'instrumentIds' | 'reportType'>, visible: VisibleInstruments): boolean {
+  if (visible === null) return true;
+  // Only the Audit Trail is genuinely about no instrument. Any other report
+  // with an EMPTY list — an Alarm Report of no alarms, or a row older than the
+  // column that the backfill could not resolve — is visible only to
+  // UNRESTRICTED viewers: its subtitle can still name a location, and an empty
+  // list must never mean "everyone" (code review, 2026-10-01).
+  if (row.instrumentIds.length === 0) return row.reportType === UNSCOPED_REPORT_TYPE;
   return row.instrumentIds.some((id) => visible.has(id));
 }
+
+/** The one report type that is about no instrument. */
+export const UNSCOPED_REPORT_TYPE = 'Audit Trail';
 
 /** Is the caller one of the frozen approvers — by holding a role, or named? */
 export function isApprover(ctx: Actor, row: Pick<ReviewParties, 'approverRoles' | 'approverUserIds'>): boolean {
@@ -139,7 +150,7 @@ export async function visibleInstrumentsFor(ctx: { userId: string; userRole: str
  *  no instruments sees only the unscoped (no-instrument) requests. */
 function scopeWhere(visible: VisibleInstruments): Prisma.ReportReviewWhereInput {
   if (visible === null) return {};
-  return { OR: [{ instrumentIds: { isEmpty: true } }, { instrumentIds: { hasSome: [...visible] } }] };
+  return { OR: [{ instrumentIds: { isEmpty: true }, reportType: UNSCOPED_REPORT_TYPE }, { instrumentIds: { hasSome: [...visible] } }] };
 }
 
 /** `isParty` as a Prisma fragment — keep the two in step. */
@@ -164,10 +175,31 @@ function visibilityWhere(ctx: Actor, visible: VisibleInstruments): Prisma.Report
  * 2026-10-01). Thrown as a 400 for an unknown kind. Both download routes call
  * this BEFORE the password check, so nobody is asked to sign a refused act.
  */
-export async function policyForKind(kind: unknown): Promise<{ kind: ReportKind; policy: ReportKindPolicy }> {
+export async function policyForKind(kind: unknown, reportType: unknown): Promise<{ kind: ReportKind; policy: ReportKindPolicy }> {
   if (!isReportKind(kind)) throw new AppError(400, 'VALIDATION_ERROR', 'reportKind is missing or unknown.');
+  if (typeof reportType !== 'string' || !reportTypeMatchesKind(kind, reportType)) {
+    throw new AppError(400, 'REPORT_TYPE_MISMATCH', 'The report type does not belong to that report kind.');
+  }
   const policy = (await loadReportDownloads())[kind];
   return { kind, policy };
+}
+
+/**
+ * The configured approvers that still EXIST and are active — inactive roles and
+ * disabled users dropped. What a request freezes, and what the request dialog
+ * is told through `/report-approvers/current`, so the dialog never promises an
+ * approver the server will then refuse (code review, 2026-10-01).
+ */
+export async function activeApprovers(): Promise<{ approverRoles: string[]; approverUserIds: string[] }> {
+  const configured = await loadReportApprovers();
+  const [roles, users] = await Promise.all([
+    prisma.role.findMany({ where: { name: { in: configured.approverRoles }, isActive: true }, select: { name: true } }),
+    prisma.user.findMany({ where: { id: { in: configured.approverUserIds }, status: 'ENABLED', role: { not: 'SUPER_ADMIN' } }, select: { id: true } }),
+  ]);
+  return {
+    approverRoles: configured.approverRoles.filter((r) => roles.some((x) => x.name === r)),
+    approverUserIds: configured.approverUserIds.filter((u) => users.some((x) => x.id === u)),
+  };
 }
 
 export interface SubmitInput {
@@ -186,7 +218,7 @@ export interface SubmitInput {
 
 /** Kinds that are always about at least one instrument. The Alarm Report may
  *  legitimately cover none (no alarm in the period); the Audit Trail never does. */
-const INSTRUMENT_KINDS: ReportKind[] = ['data-report', 'trend-chart', 'instrument-alarms'];
+const INSTRUMENT_KINDS: ReportKind[] = ['data-report', 'time-series', 'trend-header', 'temperature-trend', 'humidity-trend', 'instrument-alarms'];
 
 /** The list rows: everything but the snapshot, which can be hundreds of KB. */
 const SUMMARY_SELECT = {
@@ -217,7 +249,7 @@ function titleLabel(title: string): string {
  * decide while telling the requester "the approvers have been notified".
  */
 async function eligibleApprovers(
-  row: Pick<ReviewParties, 'requestedBy' | 'approverRoles' | 'approverUserIds' | 'instrumentIds'>,
+  row: Pick<ReviewParties, 'requestedBy' | 'approverRoles' | 'approverUserIds' | 'instrumentIds' | 'reportType'>,
 ): Promise<string[]> {
   const users = await prisma.user.findMany({
     where: {
@@ -230,7 +262,10 @@ async function eligibleApprovers(
   });
   const out: string[] = [];
   for (const u of users) {
+    // READ as well as APPROVE: the queue, the detail and the decision routes
+    // are all behind REPORT_REVIEW_READ, and APPROVE does not imply it.
     if (!(await roleHasPermission(u.role, 'REPORT_REVIEW_APPROVE'))) continue;
+    if (!(await roleHasPermission(u.role, 'REPORT_REVIEW_READ'))) continue;
     if (!inScope(row, await visibleInstrumentsFor({ userId: u.username, userRole: u.role }))) continue;
     out.push(u.username);
   }
@@ -271,28 +306,33 @@ function auditBase(ctx: RequestContext) {
   return { userId: ctx.userId, userRole: ctx.userRole, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId };
 }
 
+/**
+ * The configuration's refusals that need no database — mode and remarks. The
+ * ROUTE calls this BEFORE the password check (code review, 2026-10-01: the
+ * password was verified, and a mistype counted toward lockout, for a request
+ * the configuration then refused); `submit` calls it again as the guard of
+ * record.
+ */
+export function assertRequestable(kind: ReportKind, policy: ReportKindPolicy, remarks: string): void {
+  // Direct kinds never come here; the dialog downloads them. Refused rather
+  // than accepted, so the configuration is the ONE answer to "is this type
+  // reviewed".
+  if (policy.mode !== 'REQUEST') {
+    throw new AppError(409, 'REPORT_IS_DIRECT', `The ${reportKindLabel(kind)} downloads directly — it is not sent for approval.`);
+  }
+  if (policy.remarksRequired && !remarks) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'remarks is required and cannot be blank.');
+  }
+}
+
 export const reportReviewService = {
   async submit(ctx: RequestContext, input: SubmitInput): Promise<ReviewSummary> {
-    // Direct kinds never come here; the dialog downloads them. Refused rather
-    // than accepted, so the configuration is the ONE answer to "is this type
-    // reviewed".
-    if (input.policy.mode !== 'REQUEST') {
-      throw new AppError(409, 'REPORT_IS_DIRECT', `The ${reportKindLabel(input.reportKind)} downloads directly — it is not sent for approval.`);
-    }
-    if (input.policy.remarksRequired && !input.remarks) {
-      throw new AppError(400, 'VALIDATION_ERROR', 'remarks is required and cannot be blank.');
-    }
+    assertRequestable(input.reportKind, input.policy, input.remarks);
 
     // The approvers are ADMINISTERED (Configuration → Report Approvers) and
     // FROZEN here — a later change never re-routes this request. Inactive roles
     // and disabled users are dropped first; nobody left = refused, naming the fix.
-    const configured = await loadReportApprovers();
-    const [roles, users] = await Promise.all([
-      prisma.role.findMany({ where: { name: { in: configured.approverRoles }, isActive: true }, select: { name: true } }),
-      prisma.user.findMany({ where: { id: { in: configured.approverUserIds }, status: 'ENABLED', role: { not: 'SUPER_ADMIN' } }, select: { id: true } }),
-    ]);
-    const approverRoles = configured.approverRoles.filter((r) => roles.some((x) => x.name === r));
-    const approverUserIds = configured.approverUserIds.filter((u) => users.some((x) => x.id === u));
+    const { approverRoles, approverUserIds } = await activeApprovers();
     if (approverRoles.length === 0 && approverUserIds.length === 0) {
       throw new AppError(400, 'NO_APPROVER', REPORT_APPROVERS_NONE_MESSAGE);
     }
@@ -316,10 +356,10 @@ export const reportReviewService = {
 
     // Somebody must be able to DECIDE it. A super admin may decide anything,
     // their own request included, so their requests are always decidable.
-    const approvers = await eligibleApprovers({ requestedBy: ctx.userSub, approverRoles, approverUserIds, instrumentIds });
+    const approvers = await eligibleApprovers({ requestedBy: ctx.userSub, approverRoles, approverUserIds, instrumentIds, reportType: input.reportType });
     if (approvers.length === 0 && ctx.userRole !== 'SUPER_ADMIN') {
       throw new AppError(400, 'NO_ELIGIBLE_APPROVER',
-        'Nobody can approve this report: no configured approver other than you holds the approve permission and has these instruments assigned. Ask a super admin to check Configuration → Report Approvers and Roles & Access.');
+        'Nobody can approve this report: no configured approver other than you holds the approve permission and has these instruments assigned. Ask a super admin to check Configuration → Report Settings and Roles & Access.');
     }
 
     const row = await prisma.reportReview.create({

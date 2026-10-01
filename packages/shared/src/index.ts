@@ -229,6 +229,7 @@ export type { ReportApproversConfig } from './types/report-approvers.js';
 export {
   REPORT_DOWNLOADS_CONFIG_KEY, REPORT_KINDS, REPORT_KIND_POLICY_DEFAULT,
   isReportKind, reportKindSettingKeys, coerceReportDownloads, coerceReportDownloadsResponse, reportKindLabel,
+  reportDownloadsRow, reportTypeMatchesKind,
 } from './types/report-downloads.js';
 export type {
   ReportKind, ReportDownloadMode, ReportKindPolicy, ReportDownloadsPolicy,

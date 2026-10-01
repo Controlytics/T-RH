@@ -61,8 +61,8 @@ const overviewRow = {
  *  every kind REQUEST with remarks and password — today's behaviour. Constant,
  *  so the swr mock never hands back a fresh object. */
 const KIND_REQUEST = { mode: 'REQUEST', remarksRequired: true, passwordRequired: true };
-const DOWNLOADS = { 'data-report': KIND_REQUEST, 'trend-chart': KIND_REQUEST, 'instrument-alarms': KIND_REQUEST, alarms: KIND_REQUEST, 'audit-trail': KIND_REQUEST };
-const APPROVERS = { approverRoles: ['QA'], approverUserIds: [] };
+const DOWNLOADS = { 'data-report': KIND_REQUEST, 'time-series': KIND_REQUEST, 'trend-header': KIND_REQUEST, 'temperature-trend': KIND_REQUEST, 'humidity-trend': KIND_REQUEST, 'instrument-alarms': KIND_REQUEST, alarms: KIND_REQUEST, 'audit-trail': KIND_REQUEST };
+const APPROVERS = { approverRoles: ['QA'], approverUserCount: 0 };
 
 function dataFor(key: string | null): any {
   if (!key) return undefined;
@@ -286,7 +286,7 @@ describe('trend page downloads', () => {
       expect(events[1]).toMatch(/^save:replay-/);
       for (const name of saved) expect(name).toMatch(/^replay-/);
       // The configured KIND rides on each, and the instrument id that scopes it (2026-10-01).
-      expect(logged[0].reportKind).toBe(['data-report', 'trend-chart', 'trend-chart', 'data-report', 'instrument-alarms'][idx]);
+      expect(logged[0].reportKind).toBe(['trend-header', 'temperature-trend', 'humidity-trend', 'time-series', 'instrument-alarms'][idx]);
       expect(logged[0].instrumentIds).toHaveLength(1);
       expect(logged[0].password).toBe('Secret@123');
       expect(logged[0].snapshotVersion).toBe(2);
