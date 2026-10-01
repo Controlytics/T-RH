@@ -50,7 +50,7 @@ Verified against `apps/api/src/app.ts` 2026-08-24 (import order + registration o
    (verified against the `taskList` in `app.ts:458-489`, 2026-08-27; the
    "3 tasks" figure root `CLAUDE.md` carried until 2026-08-24 was stale and has
    since been corrected there too)
-10. **Config discovery** — auto-registers 33 config definitions (re-derived `ls` 2026-10-01; this line read 25 and was stale)
+10. **Config discovery** — auto-registers 34 config definitions (re-derived `ls` 2026-10-01; this line read 25 and was stale)
 11. **Static uploads** — serves `/uploads/` directory
 12. **Health check** — `GET /api/health`
 13. **Error handler** — unified error responses (AppError → HTTP codes)
@@ -108,7 +108,7 @@ DigiLog is single-tenant, single-site (`Organization` model + `org-admin`/`tenan
 
 | Module | Prefix | Key Features |
 |---|---|---|
-| `config` | `/api/config` | 33 config definitions (`config/defs/`, `ls` 2026-10-01), `dynamic-routes.ts` for registry-discovered surfaces + `static-routes/` per-tab files |
+| `config` | `/api/config` | 34 config definitions (`config/defs/`, `ls` 2026-10-01), `dynamic-routes.ts` for registry-discovered surfaces + `static-routes/` per-tab files |
 
 ### Infrastructure
 
@@ -307,7 +307,7 @@ that was torn out.
 4. **Re-authentication** — `enforceReauth('ACTION', req, reply)`, **48** reauth actions defined in `packages/shared/src/types/reauth-actions.ts` (verified `grep -cE "^\s+[A-Z_]+:"`; the "81 sensitive operations" figure previously here was a leftover from the removed filter/PM/RFID domain's reauth-gated actions)
 5. **Audit logging** — Every mutation auto-logged with SHA-256 hash chain (optionally keyed HMAC-SHA256, see `AUDIT_CHAIN_KEY` above)
 6. **Input sanitization** — All text fields stripped of HTML via `sanitize.ts`
-7. **Config registry** — 33 config definitions (2026-10-01) auto-discovered at startup
+7. **Config registry** — 34 config definitions (2026-10-01) auto-discovered at startup
 8. **Instrument governance** — per-role/per-user instrument visibility scope (`instrument_scope` JSONB), per-role attribute editability (`attribute_access` JSONB), per-instrument display-decimal precision frozen onto alarm records at raise time — see root `CLAUDE.md` System Stats for the full rules. (The old point 8 here described `FilterCleaningProfile`/`ChecklistProfile`/`EquipmentGroup` versioning sidecars and a "Tablet/offline contract" — those models and the whole versioning scheme are gone with the filter domain. `future/offline-version-sync-contract.md` still exists on disk as a forward-looking design note, per its `future/` location, but nothing in live code implements it.)
 9. **Immutable audit trail** — audit rows stored with checksums, never modified (21 CFR Part 11); the old point 9 ("Filter events stored with checksums") described the removed `FilterEvent` model specifically
 10. **Error handling** — `AppError(statusCode, code, message)` → unified JSON error response

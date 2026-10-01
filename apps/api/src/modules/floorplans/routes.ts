@@ -81,6 +81,8 @@ const roomProps = {
         offset: { type: 'number' },
         width: { type: 'number' },
         kind: { type: 'string' },
+        // Declared (2026-10-01), or Fastify strips it and every door hinges at its start.
+        hinge: { type: 'string' },
       },
     },
   },
@@ -158,6 +160,14 @@ const planProps = {
         y: { type: 'number' }, x0: { type: 'number' }, x1: { type: 'number' } } } },
       labels: { type: 'array', items: { type: 'object', properties: {
         x: { type: 'number' }, y: { type: 'number' }, text: { type: 'string' } } } },
+      // The building's STRUCTURE (2026-10-01, QC Layout-2) — the one part of
+      // the layer the dashboard draws. Declared, or Fastify strips it.
+      columns: { type: 'array', items: { type: 'object', properties: {
+        x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' } } } },
+      windows: { type: 'array', items: { type: 'object', properties: {
+        x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' } } } },
+      walls: { type: 'array', items: { type: 'object', properties: {
+        x1: { type: 'number' }, y1: { type: 'number' }, x2: { type: 'number' }, y2: { type: 'number' } } } },
     },
   },
 } as const;

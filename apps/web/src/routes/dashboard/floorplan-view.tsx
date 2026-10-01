@@ -67,6 +67,9 @@ export const SLIVER = 0.015;
 export function planExtent(
   rooms: Pick<FloorplanRoomShape, 'x' | 'y' | 'w' | 'h' | 'points'>[],
   margin = 0.01,
+  /** Columns and windows (2026-10-01): they sit IN the outer walls, outside
+   *  every room, and a frame fitted to the rooms alone would cut them off. */
+  extra: { x: number; y: number; w: number; h: number }[] = [],
 ): { x: number; y: number; w: number; h: number } {
   const real = rooms.filter((r) => r.w >= SLIVER && r.h >= SLIVER);
   const use = real.length ? real : rooms;
@@ -75,6 +78,12 @@ export function planExtent(
     for (const p of r.points ?? rectanglePoints({ x: r.x, y: r.y, w: r.w, h: r.h })) {
       if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
       if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+    }
+  }
+  if (Number.isFinite(minX)) {
+    for (const b of extra) {
+      minX = Math.min(minX, b.x); minY = Math.min(minY, b.y);
+      maxX = Math.max(maxX, b.x + b.w); maxY = Math.max(maxY, b.y + b.h);
     }
   }
   if (!Number.isFinite(minX)) return { x: 0, y: 0, w: 1, h: 1 };
@@ -128,6 +137,45 @@ export function roomOpenings(
     }
   }
   return out;
+}
+
+/**
+ * The DOORS of the rooms around this one, mirrored onto the edge this room
+ * shares with each (2026-10-01). A door is stored once, on the room it opens
+ * into, but every room strokes its own walls — so without this the room on the
+ * other side draws a solid wall straight across the gap and the door
+ * disappears. Only drawn rooms count; the leaf and swing stay with the owner.
+ */
+export function neighbourDoorOpenings(
+  room: FloorplanRoomShape,
+  drawn: { room: FloorplanRoomShape }[],
+  vbW: number,
+  vbH: number,
+): EdgeOpening[] {
+  const mine = roomOutline(room, vbW, vbH);
+  const out: EdgeOpening[] = [];
+  for (const { room: o } of drawn) {
+    if (o.id === room.id || !o.doors?.length) continue;
+    const theirs = roomOutline(o, vbW, vbH);
+    for (const d of o.doors) {
+      const opening = doorToEdgeOpening(d, o.points ?? null);
+      if (!opening) continue;
+      const m = mirrorOpening(theirs, opening, mine, 0.5);
+      if (m) out.push(m);
+    }
+  }
+  return out;
+}
+
+/**
+ * Which rooms a plan draws (2026-10-01). Unscoped: all of them. Scoped to a
+ * location: the WHOLE plan when any room shows one of its instruments (the
+ * plan is that floor), nothing when none does — the view then says no
+ * instrument of this location is placed on the plan.
+ */
+export function roomsToDraw<T extends { rows: unknown[] }>(all: T[], scoped: boolean): T[] {
+  if (!scoped) return all;
+  return all.some((r) => r.rows.length > 0) ? all : [];
 }
 
 export function continuationBase(code: string): string | null {
@@ -294,6 +342,9 @@ const PALETTE = {
   wall: '#1f2937',
   /** Doors read as openings, and match the operator's reference drawing. */
   door: '#0ea5e9',
+  /** A door as the plant's drawings show it (2026-10-01): dark leaf, orange swing. */
+  doorLeaf: '#4b5563',
+  doorSwing: '#f97316',
   ink: '#111827',
   inkSoft: '#374151',
   /** Room label — subordinate to the code by size AND colour. */
@@ -405,7 +456,14 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
     // Scoped to a functional location: draw ONLY rooms holding one of its
     // instruments, otherwise selecting "Module-E" still renders the entire
     // building and the filter appears to have done nothing.
-    return functionalLocationId ? all.filter((r) => r.rows.length > 0) : all;
+    //
+    // SINCE 2026-10-01 (QC Layout-2, "match with the image"): a plan that shows
+    // ANY of the selection's instruments is that floor, so it is drawn WHOLE —
+    // its corridors, offices and empty rooms are the building the readings sit
+    // in, and dropping them left windows floating in space. Readings are still
+    // only the selection's (the rows are scoped server-side). A plan holding
+    // none of them still draws nothing, and says so below.
+    return roomsToDraw(all, !!functionalLocationId);
   }, [plan, byRoom, functionalLocationId]);
 
   // There is NO "not placed on any plan" tray here any more (operator,
@@ -460,7 +518,12 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
 
   const vbH = plan ? Math.round((VB_W * plan.imageHeight) / plan.imageWidth) : 700;
   // The part of the canvas actually drawn on — see `planExtent`.
-  const extent = plan ? planExtent(roomViews.map((r) => r.room)) : { x: 0, y: 0, w: 1, h: 1 };
+  const structure = plan?.annotations ?? null;
+  // The frame takes in the columns and windows set into the outer walls — a
+  // plan is drawn whole whether or not a location is selected (see roomViews).
+  const extent = plan
+    ? planExtent(roomViews.map((r) => r.room), 0.01, [...(structure?.columns ?? []), ...(structure?.windows ?? [])])
+    : { x: 0, y: 0, w: 1, h: 1 };
   const vb = { x: extent.x * VB_W, y: extent.y * vbH, w: extent.w * VB_W, h: extent.h * vbH };
 
   const floorSvg = plan ? (
@@ -530,6 +593,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                     .map((o) => roomOutline(o.room, VB_W, vbH)),
                 ),
                 ...roomOpenings(room, plan?.links ?? [], roomViews, VB_W, vbH),
+                ...neighbourDoorOpenings(room, roomViews, VB_W, vbH),
               ];
               // The readings tiles lay out in the largest rectangle INSIDE the
               // outline, so an L-shaped room never hangs a tile outside a wall.
@@ -582,7 +646,10 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                   {/* Corridor centre-line. Runs the room's long axis and makes
                       the corridors read as one connected circulation system
                       rather than as leftover space between rooms. */}
-                  {room.grade === 'CIRCULATION' && (
+                  {/* Only on a RECTANGLE: a polygon corridor (QC Layout-2's one
+                      corridor wraps three blocks) would have its box's centre
+                      line run straight through the rooms it goes round. */}
+                  {room.grade === 'CIRCULATION' && (!room.points || room.points.length === 4) && (
                     w >= h ? (
                       <line
                         x1={x + 6} y1={y + h / 2} x2={x + w - 6} y2={y + h / 2}
@@ -602,31 +669,6 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                       x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2}
                       stroke={PALETTE.wall} strokeWidth={2.5} strokeLinecap="butt"
                     />
-                  ))}
-
-                  {/* Doors: leaf + swing arc in the door blue, which reads as an
-                      opening and matches the operator's reference drawing. A door
-                      carries no reading — nothing in this install senses one — so
-                      it is never given STATUS colour, and it is never given ZONE
-                      colour either: the zone already speaks through fill, code and
-                      tab. */}
-                  {polygonDoorPlacements(outline, [
-                    ...(room.doors ?? []),
-                    // An OPENING link with a door leaf, on the from-room's edge.
-                    ...(plan?.links ?? [])
-                      .filter((l) => l.kind === 'OPENING' && l.fromRoomId === room.id && l.door && l.fromEdge != null && l.offset != null && l.width != null)
-                      .map((l) => ({ edge: l.fromEdge!, offset: l.offset!, width: l.width!, kind: l.door! })),
-                  ]).map((d, i) => (
-                    <g key={`d${i}`}>
-                      <line
-                        x1={d.leaf.x1} y1={d.leaf.y1} x2={d.leaf.x2} y2={d.leaf.y2}
-                        stroke={PALETTE.door} strokeWidth={1.6}
-                      />
-                      <path d={d.arc} fill="none" stroke={PALETTE.door} strokeWidth={1} strokeDasharray="3 2" />
-                      {/* No IN / OUT word (operator, 2026-09-22: nothing but
-                          ID, Location and values in a room). The kind still
-                          shapes the leaf and rides in the room's aria-label. */}
-                    </g>
                   ))}
 
                   {/* Alarm halo. It NEVER repaints the fill: the fill is the
@@ -664,10 +706,13 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                     const text = (room.label || room.code).trim();
                     const fontSize = Math.max(6, Math.min(
                       TILE_LOCATION_FONT + 1.5,
-                      (w - 6) / (Math.max(1, text.length) * 0.55),
-                      h / 3,
+                      (tileBox.w - 6) / (Math.max(1, text.length) * 0.55),
+                      tileBox.h / 3,
                     ));
-                    const c = centroid(outline);
+                    // The middle of the largest rectangle INSIDE the room, not the
+                    // centroid: a corridor that wraps three blocks has its
+                    // centroid inside another room (2026-10-01, QC Layout-2).
+                    const c = { x: tileBox.x + tileBox.w / 2, y: tileBox.y + tileBox.h / 2 };
                     return (
                       <text
                         x={c.x} y={c.y + fontSize * 0.35} textAnchor="middle"
@@ -686,7 +731,10 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                     return roomRows.slice(0, layout.visible).map((row, i) => {
                       const col = i % layout.cols;
                       const rowIx = Math.floor(i / layout.cols);
-                      const tx = x + col * layout.tile.w;
+                      // From the INSCRIBED box, not the room's bounding box: on
+                      // an L-shaped room the two differ, and a tile placed from
+                      // the bounding box sat half outside its wall (2026-10-01).
+                      const tx = tileBox.x + col * layout.tile.w;
                       const ty = layout.bodyTop + rowIx * layout.tile.h;
                       const tcx = tx + layout.tile.w / 2;
 
@@ -730,7 +778,12 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                         >
                           <rect
                             x={tx + 1.5} y={ty + 1} width={layout.tile.w - 3} height={layout.tile.h - 2}
-                            rx={3} fill={PALETTE.tile} stroke={PALETTE.tileBorder} strokeWidth={0.8}
+                            rx={3} fill={PALETTE.tile}
+                            // A lone tile draws no border (2026-10-01): it fills
+                            // the room's inner rectangle, and on an L-shaped room
+                            // its edge read as a wall the drawing does not have.
+                            // The border is what separates SEVERAL tiles.
+                            stroke={layout.visible > 1 ? PALETTE.tileBorder : 'none'} strokeWidth={0.8}
                           />
                           {layout.step === 'FULL' && (
                             <text
@@ -792,7 +845,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                     const rowIx = layout.cols > 0 ? Math.floor(i / layout.cols) : 0;
                     return (
                       <text
-                        x={x + col * layout.tile.w + layout.tile.w / 2}
+                        x={tileBox.x + col * layout.tile.w + layout.tile.w / 2}
                         y={layout.bodyTop + rowIx * layout.tile.h + layout.fontSize + 2}
                         textAnchor="middle" fontSize={layout.fontSize * 0.85}
                         fontWeight={700} fill={PALETTE.inkSoft}
@@ -801,6 +854,38 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                       </text>
                     );
                   })()}
+
+                  {/* Doors LAST in the room (2026-10-01): a reading tile is opaque and,
+                      drawn after them, it hid every arc inside an instrument room.
+                      Leaf + swing arc in the door blue, which reads as an
+                      opening and matches the operator's reference drawing. A door
+                      carries no reading — nothing in this install senses one — so
+                      it is never given STATUS colour, and it is never given ZONE
+                      colour either: the zone already speaks through fill, code and
+                      tab. */}
+                  {polygonDoorPlacements(outline, [
+                    ...(room.doors ?? []),
+                    // An OPENING link with a door leaf, on the from-room's edge.
+                    ...(plan?.links ?? [])
+                      .filter((l) => l.kind === 'OPENING' && l.fromRoomId === room.id && l.door && l.fromEdge != null && l.offset != null && l.width != null)
+                      .map((l) => ({ edge: l.fromEdge!, offset: l.offset!, width: l.width!, kind: l.door! })),
+                  ]).map((d, i) => (
+                    <g key={`d${i}`}>
+                      {/* Drawn as the plant's drawings draw a door (2026-10-01,
+                          "doors not matched with image"): a dark leaf standing
+                          open and a SOLID orange swing — not the dashed blue it
+                          was. Still never a status colour. */}
+                      <line
+                        x1={d.leaf.x1} y1={d.leaf.y1} x2={d.leaf.x2} y2={d.leaf.y2}
+                        stroke={PALETTE.doorLeaf} strokeWidth={1.6}
+                      />
+                      <path d={d.arc} fill="none" stroke={PALETTE.doorSwing} strokeWidth={1.4} />
+                      {/* No IN / OUT word (operator, 2026-09-22: nothing but
+                          ID, Location and values in a room). The kind still
+                          shapes the leaf and rides in the room's aria-label. */}
+                    </g>
+                  ))}
+
                 </g>
               );
             })}
@@ -831,7 +916,37 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                 airflow, free text) is NOT drawn here since 2026-09-22
                 (operator: "other symbols remove those"). It is still stored and
                 still served by the API; the dashboard shows rooms, doors, links
-                and readings, nothing else. */}
+                and readings, nothing else.
+
+                EXCEPT the building's STRUCTURE (2026-10-01, QC Layout-2:
+                "show columns and windows"): columns, windows and partition
+                stubs, drawn as the drawing draws them — hatched orange squares,
+                blue-framed lights, wall-weight lines. Part of the building, not
+                a status: none of it ever takes a status colour, and none of it
+                takes a click. A plan without them (every other plan) draws
+                nothing here. */}
+            {structure && (structure.columns?.length || structure.windows?.length || structure.walls?.length) ? (
+              <g pointerEvents="none" data-testid="fp-structure">
+                <defs>
+                  <pattern id="fp-column-hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                    <rect width="4" height="4" fill="#f97316" />
+                    <line x1="0" y1="0" x2="0" y2="4" stroke="#c2410c" strokeWidth="1.4" />
+                  </pattern>
+                </defs>
+                {(structure.walls ?? []).map((l, i) => (
+                  <line key={`sw${i}`} x1={l.x1 * VB_W} y1={l.y1 * vbH} x2={l.x2 * VB_W} y2={l.y2 * vbH}
+                    stroke={PALETTE.wall} strokeWidth={2.5} strokeLinecap="butt" />
+                ))}
+                {(structure.windows ?? []).map((b, i) => (
+                  <rect key={`win${i}`} data-structure="window" x={b.x * VB_W} y={b.y * vbH} width={b.w * VB_W} height={b.h * vbH}
+                    fill="#dbeafe" stroke="#1d4ed8" strokeWidth={1.2} />
+                ))}
+                {(structure.columns ?? []).map((b, i) => (
+                  <rect key={`col${i}`} data-structure="column" x={b.x * VB_W} y={b.y * vbH} width={b.w * VB_W} height={b.h * vbH}
+                    fill="url(#fp-column-hatch)" stroke="#0891b2" strokeWidth={1.2} />
+                ))}
+              </g>
+            ) : null}
           </svg>
   ) : null;
 

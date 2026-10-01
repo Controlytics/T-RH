@@ -307,6 +307,11 @@ export interface PlanAnnotations {
   water: { x: number; y: number }[];
   airflow: { y: number; x0: number; x1: number }[];
   labels: { x: number; y: number; text: string }[];
+  /** The building's structure (2026-10-01, QC Layout-2), drawn on the
+   *  dashboard: columns and windows as boxes, partition stubs as segments. */
+  columns?: { x: number; y: number; w: number; h: number }[];
+  windows?: { x: number; y: number; w: number; h: number }[];
+  walls?: { x1: number; y1: number; x2: number; y2: number }[];
 }
 
 export interface FloorplanShape {

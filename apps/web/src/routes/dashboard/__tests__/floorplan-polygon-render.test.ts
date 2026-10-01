@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { roomOutline, roomOpenings, planExtent, SLIVER } from '../floorplan-view';
+import { roomOutline, roomOpenings, planExtent, neighbourDoorOpenings, roomsToDraw, SLIVER } from '../floorplan-view';
+import { polygonDoorPlacements } from '../room-geometry';
 import type { FloorplanRoomShape, FloorplanLinkShape } from '../use-telemetry';
 
 /**
@@ -65,5 +66,73 @@ describe('planExtent — the drawn floor fits its rooms (operator, 2026-09-22: n
     expect(e.y + e.h).toBeLessThan(0.4);
     // A plan of nothing but slivers keeps them, or it would draw nothing.
     expect(planExtent([rect('SHAFT-E', 0.991, 0, 0.009, 1)]).h).toBeGreaterThan(0.9);
+  });
+});
+
+describe('neighbourDoorOpenings — a door is cut out of BOTH walls (2026-10-01)', () => {
+  // A door is stored on the room it opens into; the room on the other side
+  // strokes its own wall, and without this drew it straight across the gap.
+  it("a neighbour's door lands on this room's shared edge, mirrored", () => {
+    const a = { ...rect('A', 0.1, 0.1, 0.2, 0.2), doors: [{ wall: 'right' as const, offset: 0.2, width: 0.3, kind: 'ENTRY' as const }] };
+    const b = rect('B', 0.3, 0.1, 0.2, 0.2);
+    const drawn = [{ room: a }, { room: b }];
+    expect(neighbourDoorOpenings(b, drawn, 1000, 1000)).toEqual([{ edge: 3, offset: 0.5, width: 0.3 }]);
+    // Its own doors are not repeated here — the room already cuts those.
+    expect(neighbourDoorOpenings(a, drawn, 1000, 1000)).toEqual([]);
+  });
+  it('a door on an edge-indexed polygon reaches the neighbour too, and a room not drawn contributes nothing', () => {
+    const l = { ...rect('L', 0, 0, 1, 1), points: [{ x: 0.1, y: 0.1 }, { x: 0.3, y: 0.1 }, { x: 0.3, y: 0.3 }, { x: 0.1, y: 0.3 }], doors: [{ edge: 1, offset: 0, width: 0.25, kind: 'ENTRY' as const }] };
+    const b = rect('B', 0.3, 0.1, 0.2, 0.2);
+    expect(neighbourDoorOpenings(b, [{ room: l }, { room: b }], 1000, 1000)).toEqual([{ edge: 3, offset: 0.75, width: 0.25 }]);
+    expect(neighbourDoorOpenings(b, [{ room: b }], 1000, 1000)).toEqual([]);
+  });
+});
+
+describe('planExtent — the building structure (columns, windows) is inside the frame (2026-10-01)', () => {
+  it('a column set in the outer wall, outside every room, widens the frame to take it in', () => {
+    const rooms = [rect('A', 0.1, 0.1, 0.8, 0.8)];
+    const without = planExtent(rooms);
+    const withCols = planExtent(rooms, 0.01, [{ x: 0.02, y: 0.85, w: 0.04, h: 0.13 }]);
+    expect(without.x).toBeGreaterThan(0.05);
+    expect(withCols.x).toBeLessThanOrEqual(0.02);
+    expect(withCols.y + withCols.h).toBeGreaterThanOrEqual(0.98);
+  });
+});
+
+describe('roomsToDraw — a selected location draws the WHOLE floor its instruments are on (2026-10-01)', () => {
+  const rooms = [{ id: 'lab', rows: [1] }, { id: 'corridor', rows: [] }, { id: 'office', rows: [] }];
+  it('unscoped, and scoped with any reading on the plan: every room, empty ones included', () => {
+    expect(roomsToDraw(rooms, false).map((r) => r.id)).toEqual(['lab', 'corridor', 'office']);
+    expect(roomsToDraw(rooms, true).map((r) => r.id)).toEqual(['lab', 'corridor', 'office']);
+  });
+  it('scoped with none of the location on the plan: nothing (the view says so)', () => {
+    expect(roomsToDraw([{ id: 'a', rows: [] }], true)).toEqual([]);
+  });
+});
+
+describe('door swing — a quarter circle CENTRED ON THE HINGE (2026-10-01)', () => {
+  // The SVG arc flag was inverted on every plan until 2026-10-01: each swing
+  // was centred on the far inner corner, bulging toward the hinge.
+  const square = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }];
+  const centreOf = (arc: string) => {
+    const m = /M ([\d.-]+) ([\d.-]+) A ([\d.]+) [\d.]+ 0 0 (\d) ([\d.-]+) ([\d.-]+)/.exec(arc)!;
+    const [sx, sy, r, sw, ex, ey] = [m[1], m[2], m[3], m[4], m[5], m[6]].map(Number);
+    const mx = (sx + ex) / 2, my = (sy + ey) / 2, dx = ex - sx, dy = ey - sy, d = Math.hypot(dx, dy);
+    const k = Math.sqrt(Math.max(r * r - (d / 2) ** 2, 0));
+    const c1 = { x: mx - (dy / d) * k, y: my + (dx / d) * k }, c2 = { x: mx + (dy / d) * k, y: my - (dx / d) * k };
+    const cross = (c: { x: number; y: number }) => (sx - c.x) * (ey - c.y) - (sy - c.y) * (ex - c.x);
+    return (cross(c1) > 0) === (sw === 1) ? c1 : c2;
+  };
+  for (const hinge of ['start', 'end'] as const) {
+    it(`hinged at the ${hinge}: the arc's centre IS the leaf's hinge point`, () => {
+      const [p] = polygonDoorPlacements(square, [{ edge: 0, offset: 0.4, width: 0.3, kind: 'ENTRY', hinge }]);
+      const c = centreOf(p.arc);
+      expect(c.x).toBeCloseTo(p.leaf.x1, 6);
+      expect(c.y).toBeCloseTo(p.leaf.y1, 6);
+      expect(p.leaf.x1).toBeCloseTo(hinge === 'start' ? 40 : 70, 6);
+    });
+  }
+  it("hinge 'none' is an opening: no leaf, no swing", () => {
+    expect(polygonDoorPlacements(square, [{ edge: 0, offset: 0.4, width: 0.3, kind: 'EXIT', hinge: 'none' }])).toEqual([]);
   });
 });

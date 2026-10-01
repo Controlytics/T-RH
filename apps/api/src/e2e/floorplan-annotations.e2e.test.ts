@@ -31,6 +31,10 @@ const ANNOTATIONS = {
   water: [{ x: 0.99, y: 0.11 }],
   airflow: [{ y: 0.83, x0: 0.05, x1: 0.47 }],
   labels: [{ x: 0.83, y: 0.14, text: 'NOD' }],
+  // The building's structure (2026-10-01, QC Layout-2) — drawn on the dashboard.
+  columns: [{ x: 0.22, y: 0.36, w: 0.045, h: 0.035 }],
+  windows: [{ x: 0.001, y: 0.216, w: 0.017, h: 0.044 }],
+  walls: [{ x1: 0.337, y1: 0.538, x2: 0.337, y2: 0.6 }],
 };
 
 beforeAll(async () => {
@@ -118,5 +122,15 @@ describe('floorplan annotation layer over the wire', () => {
     // classification. Anything reading grade must go on seeing it.
     const rooms = (await qcPlan()).rooms as Record<string, unknown>[];
     expect(rooms.find((r) => r.code === 'FIX-I/001')!.grade).toBe('C');
+  });
+});
+
+describe('the building STRUCTURE survives the response filter (2026-10-01)', () => {
+  it('columns, windows and partition stubs reach the client, inner keys and all', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/floorplans', headers: auth });
+    const plan = res.json().data.find((p: any) => p.id === planId);
+    expect(plan.annotations.columns).toEqual(ANNOTATIONS.columns);
+    expect(plan.annotations.windows).toEqual(ANNOTATIONS.windows);
+    expect(plan.annotations.walls).toEqual(ANNOTATIONS.walls);
   });
 });

@@ -31,6 +31,10 @@ export interface RoomDoor {
   offset: number;
   width: number;
   kind: DoorKind;
+  /** Which end of the opening the leaf hangs on, along the EDGE's direction:
+   *  'start' (default — every door before 2026-10-01), 'end', or 'none' (an
+   *  opening with no leaf). */
+  hinge?: 'start' | 'end' | 'none';
 }
 
 /** A room's box in viewBox units — already multiplied out of normalized space. */
@@ -140,11 +144,23 @@ export function polygonDoorPlacements(points: Polygon, doors: RoomDoor[] | null 
   return (doors ?? []).flatMap((door) => {
     const o = doorToEdgeOpening(door, points);
     if (!o) return [];
+    // An opening with no leaf: the wall is cut (by the caller), nothing swings.
+    if (door.hinge === 'none') return [];
     const inward = edgeInward(points, o.edge);
-    const hinge = pointOn(points, o.edge, o.offset);
-    const far = pointOn(points, o.edge, clean(o.offset + o.width));
+    const a = pointOn(points, o.edge, o.offset);
+    const b = pointOn(points, o.edge, clean(o.offset + o.width));
+    // Hung at the END: the leaf stands at the far end and the swing runs back
+    // the other way round, so the sweep flag flips with it.
+    const atEnd = door.hinge === 'end';
+    const hinge = atEnd ? b : a;
+    const far = atEnd ? a : b;
     const span = o.width * inward.length;
     const leafEnd = { x: clean(hinge.x + inward.x * span), y: clean(hinge.y + inward.y * span) };
+    // The swing is a quarter circle CENTRED ON THE HINGE. The flag below was
+    // inverted until 2026-10-01 — every door on every plan drew its arc
+    // centred on the far inner corner, bulging toward the hinge (found by
+    // computing each rendered arc's centre against the QC Layout-2 drawing).
+    const turn = atEnd ? sweep : 1 - sweep;
     return [{
       edge: o.edge,
       wall: door.wall,
@@ -152,7 +168,7 @@ export function polygonDoorPlacements(points: Polygon, doors: RoomDoor[] | null 
       start: { x1: hinge.x, y1: hinge.y, x2: far.x, y2: far.y },
       hinge,
       leaf: { x1: hinge.x, y1: hinge.y, x2: leafEnd.x, y2: leafEnd.y },
-      arc: `M ${leafEnd.x} ${leafEnd.y} A ${span} ${span} 0 0 ${sweep} ${far.x} ${far.y}`,
+      arc: `M ${leafEnd.x} ${leafEnd.y} A ${span} ${span} 0 0 ${turn} ${far.x} ${far.y}`,
     }];
   });
 }

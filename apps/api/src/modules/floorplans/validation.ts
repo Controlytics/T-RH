@@ -40,6 +40,11 @@ const doorSchema = z.object({
   offset: normalized,
   width: normalized.refine((v) => v > 0, { message: 'must be greater than 0' }),
   kind: z.enum(['ENTRY', 'EXIT', 'PASSAGE']),
+  // Which end of the opening the leaf is hung on (2026-10-01, QC Layout-2:
+  // half the drawing's doors hinge at the far end). 'start' (or absent) = the
+  // end the offset is measured from, as every door before this; 'end' = the
+  // other; 'none' = an OPENING with no leaf, cut from the wall with no swing.
+  hinge: z.enum(['start', 'end', 'none']).optional(),
 }).refine((d) => d.wall !== undefined || d.edge !== undefined, { message: 'a door names its wall or its edge' });
 
 export const DOOR_KINDS = ['ENTRY', 'EXIT', 'PASSAGE'] as const;

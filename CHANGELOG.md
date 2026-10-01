@@ -1,5 +1,124 @@
 # Changelog
 
+## [Unreleased] - "CWH — QC Layout-2": the QC floor traced from `QC Layout-2.png`, with columns and windows (2026-10-01)
+
+Operator: *"in layouts folder there is one image QC Layout-2 image, In QC add
+that one as another layout, it should match with 100% complete design with
+image, give properly"*. Choices: move the 12 QC instruments onto it; show
+columns and windows; the name above.
+
+- **The drawing** (`Layouts/CWH/QC Layout-2.png`, 1083x1452) is the SAME floor as
+  `QC Layout.png`, clean and text-free at ~1.8x the resolution. Traced in
+  `apps/api/src/modules/floorplans/qc-layout-2.ts` from pixel measurement (wall
+  centre lines by dark-pixel projection, door gaps by run-length, cross-checked
+  one-for-one against the 20 swing arcs, columns and windows by colour
+  clustering) and verified by drawing the trace back over the image.
+- **17 rooms as polygons**: SAMPLE PREPARATION and HPLC are the interlocking
+  L-shapes the drawing has (the first trace had to store each as a box); the
+  CORRIDOR is ONE 12-corner polygon (north arm, spine, south arm) with no
+  seams. **24 doors** on their real edges, including 4 exterior ones (two west
+  openings, Office-02 and the Change Room). Names, numbers, grades and meta
+  carried BY CODE from "CWH — QC" (this drawing has none; local edits kept).
+- **Structure layer**: 10 columns, 17 windows (11 vision panels, 6 in the outer
+  walls), 2 partition stubs — new annotation kinds `columns` / `windows` /
+  `walls`, DECLARED in the plan response schema (mutation-checked) and the ONE
+  part of the annotation layer the dashboard draws (hatched orange columns,
+  blue-framed windows, wall-weight stubs; never a status colour, no clicks).
+  Unscoped, the frame takes them in (`planExtent(..., extra)`).
+- **Fixed on the dashboard, every plan:** a door is now cut out of the
+  NEIGHBOUR's wall too (`neighbourDoorOpenings`) — each room strokes its own
+  walls and the room on the far side drew a solid line over every door gap.
+  And a polygon corridor draws no box centre-line (it ran through rooms).
+- **Second pass, after "still not matched with image doors and room lines"** —
+  this time the REAL dashboard component was rendered with the plan's data and
+  screenshotted beside the drawing, and every difference fixed at its cause:
+  - **Door arcs were drawn on the wrong corner on EVERY plan** — the SVG sweep
+    flag in `polygonDoorPlacements` was inverted, so each swing was centred on
+    the far inner corner and bulged toward its hinge. Found by computing every
+    rendered arc's centre (22 of 22 wrong); now centred on the hinge, and a
+    test asserts it for both hinge ends (mutation-checked).
+  - **Doors gained a `hinge`** (`start` default | `end` | `none` = an opening
+    with no leaf), declared in the door schema and response; read off the
+    drawing per door (the arc meets the wall at the FREE end). Half the
+    drawing's doors hinge at the far end; the two west openings have no leaf.
+  - **Door arcs inside instrument rooms were hidden** under the opaque reading
+    tile, drawn after them — doors now draw LAST in each room.
+  - **A tile sat at the room's BOUNDING box, not its inscribed rectangle** — on
+    an L-shaped room it hung across the partition (the two-tone HPLC). Fixed;
+    and a lone tile draws no border (its edge read as a wall).
+  - **Doors look like the drawings'**: dark leaf, solid orange swing (was
+    dashed blue) — on every plan.
+  - **A room's name prints in its inscribed rectangle**, not at its centroid
+    (the wrapping corridor's centroid is inside HPLC).
+  - **Selecting a location now draws the WHOLE floor** its instruments are on
+    (`roomsToDraw`) — it drew only the instrument rooms, so the corridor,
+    offices and wash area vanished and the windows floated. A plan holding
+    none of the location's instruments still draws nothing.
+  - This plan's rooms are WHITE (`meta.fill`), as drawn.
+  Known remaining difference: the drawing's walls are double lines and its
+  outer walls a thick red band; the dashboard draws single wall lines and a
+  thin frame.
+- Built by `apps/api/scripts/draw-qc-layout-2.ts` (dry run default, `--apply`;
+  every room through the API's `validateRoomPayload`; one audit row per plan /
+  room). Applied locally: 17 rooms, 12 instruments moved — "CWH — QC" now holds
+  none. **AWS needs the same run.** No migration; no count moved.
+- Tests: 7 trace-geometry (valid polygons, exact tiling of the interior, the
+  stepped partition shared, 24 doors on their edges, symbols inside the
+  building, instruments in the same-code rooms), +1 API e2e on the response
+  schema, +3 dashboard cases. Not seen on screen.
+
+## [Unreleased] - Sensor offsets: Temp / Humid Off set correct readings as they arrive (2026-10-01)
+
+Operator: *"for instruments profiles Add 2 attributes Temp Off set, Humid Off
+set, those should be visible only for superadmin … values should be integer or
+decimal … whenever temperature is received and temp off set value is 2 then 2
+will be added to temperature value and that value should show every where …
+same like humidity also … give configuration also"*, then *"there should be +
+or - option if + it should add, if - value should be decrease"*. Choices: applied
+at INGEST; negative allowed; names as written; the device value NOT shown.
+
+- **Two attributes on the instrument profile**, `Temp Off set` and `Humid Off
+  set` (added to `T&RH Sensors` locally through the audited profile PUT; AWS
+  needs the same). Their value is a number with a **+ / -** sign — + adds, -
+  subtracts — stored sign-first (`2` → `+2`); anything else is a 400
+  `INVALID_OFFSET`. Typed in a + / − selector beside the number wherever an
+  attribute value is typed (Attributes panel, Settings page, New Instrument
+  form); bulk-upload cells are validated per row.
+- **Applied as the reading ARRIVES** (`ingest-core.ts` → `applySensorOffsets`,
+  both the direct and the gateway path, each child its own offset): the
+  corrected value is what is STORED, so every screen, report, PDF and alarm
+  uses it with no change to any of them, and an offset change affects new
+  readings only. Only the slot keys (Configuration → Telemetry Slots) are
+  corrected, only when the value is a reading — a failure word (`NA`) is stored
+  as sent, so RS485 detection still sees it. What the device sent is kept in
+  the new `instrument_telemetry_history.raw_value` (migration
+  `20261001150000_telemetry_raw_value`, nullable, the partitioned parent) and
+  shown nowhere. A failure to apply stores the reading UNCORRECTED and logs it.
+- **SUPER_ADMIN only.** Every other role: absent from `GET /:id/attributes`,
+  from profile key lists and the usage endpoint (so the New Instrument form and
+  the bulk template never ask), from the Attribute Access picker; 403 on
+  create, 404 on edit/delete; offset columns in their bulk file are unknown
+  headings. Their profile save can neither drop the hidden keys (which would
+  cascade-delete the offsets from every instrument) nor add one. Offsets are
+  never sent to a device (downlinks and the child change event strip them —
+  firmware applying them too would correct twice) and a device's own report of
+  one is refused and dead-lettered.
+  **Not hidden: the audit trail.** Setting an offset writes the usual
+  `INSTRUMENT_ATTRIBUTE_SET` row with its value, visible to anyone with
+  `AUDIT_READ` — a §11 record is not filtered by role.
+- **Configuration → Sensor Offsets** (def `sensor-offsets`, 33 → **34**;
+  SUPER_ADMIN card; dynamic page): master switch (default ON — nothing happens
+  until an offset is typed) and the attribute keys for each slot.
+- Counts: config defs 33 → 34; web hooks 24 → 25 (`use-offset-keys.ts`);
+  shared type files 31 → 32 (`sensor-offsets.ts`). Models 37 / enums 13
+  unchanged (the history table is outside the datamodel).
+- Tests: shared 8; API e2e 8 (`sensor-offsets.e2e.test.ts`, incl. a
+  non-SUPER_ADMIN engineer role), and 18 related API files green one by one;
+  web: the input 4, Attributes panel 44, Settings 16, New Instrument 21,
+  Configuration 8. Mutation-checked (no correction at ingest fails 2 e2e).
+  Drift guard PASS. Not seen on screen. `mqtt-attribute-report` exits 1 on an
+  unhandled `reconnectPeriod` TypeError — present on the previous commit too.
+
 ## [Unreleased] - Report Settings: one configuration page; eight report types; code-review fixes (2026-10-01, second round)
 
 Operator: *"combine report approvers and report downloads into one
