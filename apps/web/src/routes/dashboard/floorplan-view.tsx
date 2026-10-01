@@ -407,9 +407,63 @@ export function archSummary(
   return out;
 }
 
-/** Card geometry at scale 1 — the concept's 196 x 104 card. */
-const CARD_W = 196;
+/** The portrait card's height at scale 1 — the band `avoidDoorSwings` keeps clear
+ *  in a room the tile grid lays out (see `CARD_SHAPES` for the full geometry). */
 const CARD_H = 104;
+/** The extra height a card takes when its Location wraps to a second line. */
+const CARD_LINE = 15;
+
+/**
+ * A card's Location, on ONE line or TWO (2026-10-01, operator: "cwh/rdu/018-00
+ * instrument location name is large its not visible increase the font" — its
+ * Location is "Sieving& Sample destruction chamber room(QC)", 44 characters,
+ * which on one line in a small room printed at about 5px). Longer than
+ * `max` characters, it breaks at the space nearest its middle, so the font is
+ * sized by the longer HALF; a label with no space stays on one line.
+ */
+export function splitLabel(text: string, max = 20): string[] {
+  const t = text.trim();
+  if (t.length <= max) return [t];
+  const mid = t.length / 2;
+  let best = -1;
+  for (let i = 0; i < t.length; i++) {
+    if (t[i] === ' ' && (best < 0 || Math.abs(i - mid) < Math.abs(best - mid))) best = i;
+  }
+  return best < 0 ? [t] : [t.slice(0, best).trim(), t.slice(best + 1).trim()];
+}
+
+/**
+ * The two card SHAPES, at scale 1. `std` is the concept's portrait card;
+ * `wide` is a landscape card with no TEMP / HUMIDITY captions, for a SHORT
+ * room where the portrait card would have to shrink to clear a door swing
+ * (SAMPLE DESTRUCTION ROOM: its Location printed at ~5px). A one-instrument
+ * room tries both and keeps whichever prints the Location LARGER.
+ * `wrap` is how long a Location may be before it takes two lines.
+ */
+export const CARD_SHAPES = {
+  std: { w: 196, h: 104, band: 26, idY: 19, locY: 46, valY: 78, capY: 95, wrap: 20, captions: true },
+  wide: { w: 280, h: 74, band: 24, idY: 17, locY: 43, valY: 68, capY: 0, wrap: 30, captions: false },
+} as const;
+export type CardShape = keyof typeof CARD_SHAPES;
+const LOC_FONT = 14;
+
+/** A card's base size and Location lines for a given shape and Location text. */
+export function cardSpec(shape: CardShape, location: string) {
+  const c = CARD_SHAPES[shape];
+  const lines = splitLabel(location, c.wrap);
+  const extra = lines.length > 1 ? CARD_LINE : 0;
+  return { ...c, lines, extra, h: c.h + extra };
+}
+
+/** The Location font a card of `spec` prints at scale `k`. */
+export function locationFont(spec: ReturnType<typeof cardSpec>, k: number): number {
+  const longest = Math.max(1, ...spec.lines.map((l) => l.length));
+  return Math.min(LOC_FONT * k, (spec.w * k - 10) / (longest * 0.6));
+}
+
+/** The card's Location text for a row: its own Location attribute, else the room's name. */
+const cardLocation = (row: { locationAttribute?: string | null }, room: { label: string | null }) =>
+  row.locationAttribute?.trim() || room.label || '';
 
 /**
  * One object so a dark wall-display palette is a value swap rather than a
@@ -668,13 +722,21 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
     // The 2D style places a room's ONE card by search (see `placeCard`),
     // clear of every swing on the plan (a neighbour's door can swing in) and of
     // the columns; a room with several instruments keeps the tile grid.
-    const card = arch && roomRows.length === 1
-      ? placeCard(
-        largestInscribedRect(outline),
-        [...roomViews.flatMap((o) => polygonDoorPlacements(roomOutline(o.room, VB_W, vbH), o.room.doors ?? []).map(swingSquare)), ...columnBoxes],
-        CARD_W, CARD_H,
-      )
-      : null;
+    let card: (NonNullable<ReturnType<typeof placeCard>> & { shape: CardShape }) | null = null;
+    if (arch && roomRows.length === 1) {
+      const inner = largestInscribedRect(outline);
+      const obstacles = [...roomViews.flatMap((o) => polygonDoorPlacements(roomOutline(o.room, VB_W, vbH), o.room.doors ?? []).map(swingSquare)), ...columnBoxes];
+      const loc = cardLocation(roomRows[0], room);
+      let bestFont = -1;
+      for (const shape of ['std', 'wide'] as const) {
+        const spec = cardSpec(shape, loc);
+        const placed = placeCard(inner, obstacles, spec.w, spec.h);
+        if (!placed) continue;
+        const font = locationFont(spec, placed.k);
+        // The portrait card wins a tie: it is the design; the wide one is the fallback.
+        if (font > bestFont + 0.25) { bestFont = font; card = { ...placed, shape }; }
+      }
+    }
     return [room.id, {
       outline, doorOpenings, openings, tileBox, isContinuation, card,
       outlinePoints: outline.map((pt) => `${pt.x},${pt.y}`).join(' '),
@@ -1096,14 +1158,18 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                     const tileW = layout.cols > 0 ? layout.tile.w : box.w;
                     const tileH = layout.cols > 0 ? layout.tile.h : box.h;
                     const placed = roomRows.length === 1 ? g.card : null;
-                    const k = placed ? placed.k : Math.min(1, (tileW - 6) / CARD_W, (tileH - 6) / CARD_H);
-                    const cw = CARD_W * k, ch = CARD_H * k;
+                    const spec = cardSpec(placed?.shape ?? 'std', cardLocation(row, room));
+                    const locLines = spec.lines;
+                    const k = placed ? placed.k : Math.min(1, (tileW - 6) / spec.w, (tileH - 6) / spec.h);
+                    const cw = spec.w * k, ch = spec.h * k;
+                    // Everything under the Location moves down by the second line.
+                    const dy = spec.extra * k;
                     const x0 = placed ? placed.x : box.x + col * tileW + (tileW - cw) / 2;
                     const y0 = placed ? placed.y : (layout.cols > 0 ? layout.bodyTop : box.y) + rowIx * tileH + (tileH - ch) / 2;
                     const tone = cardTone(row, sensorWords);
                     const band = CHIP[tone].bg;
                     const [t, h] = tileValues(row, sensorWords);
-                    const location = row.locationAttribute?.trim() || room.label || '';
+                    const locFont = locationFont(spec, k);
                     const go = () => navigate(`/instruments/${row.instrumentId}/trend`);
                     const tempV = row.temperature?.value ?? null;
                     const rhV = row.humidity?.value ?? null;
@@ -1112,6 +1178,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                         key={`c-${row.instrumentId}`}
                         data-testid="fp-card"
                         data-tone={tone}
+                        data-shape={placed?.shape ?? 'std'}
                         onClick={(e) => { e.stopPropagation(); go(); }}
                         role="button"
                         tabIndex={0}
@@ -1123,17 +1190,21 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                       >
                         <rect x={x0} y={y0} width={cw} height={ch} rx={9 * k} fill="#ffffff" stroke={band} strokeWidth={2} filter="url(#fp-card-shadow)" />
                         <path
-                          d={`M${x0},${y0 + 26 * k} V${y0 + 9 * k} Q${x0},${y0} ${x0 + 9 * k},${y0} H${x0 + cw - 9 * k} Q${x0 + cw},${y0} ${x0 + cw},${y0 + 9 * k} V${y0 + 26 * k} Z`}
+                          d={`M${x0},${y0 + spec.band * k} V${y0 + 9 * k} Q${x0},${y0} ${x0 + 9 * k},${y0} H${x0 + cw - 9 * k} Q${x0 + cw},${y0} ${x0 + cw},${y0 + 9 * k} V${y0 + spec.band * k} Z`}
                           fill={band}
                         />
-                        <text x={x0 + cw / 2} y={y0 + 19 * k} textAnchor="middle" fontSize={Math.min(15.5 * k, (cw - 10) / (row.code.length * 0.64))} fontWeight={800} fill="#ffffff">{row.code}</text>
-                        {location && (
-                          <text x={x0 + cw / 2} y={y0 + 46 * k} textAnchor="middle" fontSize={Math.min(14 * k, (cw - 10) / (location.length * 0.62))} fontWeight={700} fill="#334155">{location}</text>
+                        <text x={x0 + cw / 2} y={y0 + spec.idY * k} textAnchor="middle" fontSize={Math.min(15.5 * k, (cw - 10) / (row.code.length * 0.64))} fontWeight={800} fill="#ffffff">{row.code}</text>
+                        {locLines[0] && locLines.map((line, li) => (
+                          <text key={li} x={x0 + cw / 2} y={y0 + spec.locY * k + li * CARD_LINE * k} textAnchor="middle" fontSize={locFont} fontWeight={700} fill="#334155">{line}</text>
+                        ))}
+                        <text x={x0 + 13 * k} y={y0 + spec.valY * k + dy} fontSize={20 * k} fontWeight={700} fill={ARCH.ink[t.st]} style={{ fontVariantNumeric: 'tabular-nums' }}>{t.text}</text>
+                        <text x={x0 + cw - 13 * k} y={y0 + spec.valY * k + dy} textAnchor="end" fontSize={20 * k} fontWeight={700} fill={ARCH.ink[h.st]} style={{ fontVariantNumeric: 'tabular-nums' }}>{h.text}</text>
+                        {spec.captions && (
+                          <>
+                            <text x={x0 + 13 * k} y={y0 + spec.capY * k + dy} fontSize={8.5 * k} fill={ARCH.roomCode} letterSpacing="0.06em">TEMP</text>
+                            <text x={x0 + cw - 13 * k} y={y0 + spec.capY * k + dy} textAnchor="end" fontSize={8.5 * k} fill={ARCH.roomCode} letterSpacing="0.06em">HUMIDITY</text>
+                          </>
                         )}
-                        <text x={x0 + 13 * k} y={y0 + 78 * k} fontSize={20 * k} fontWeight={700} fill={ARCH.ink[t.st]} style={{ fontVariantNumeric: 'tabular-nums' }}>{t.text}</text>
-                        <text x={x0 + cw - 13 * k} y={y0 + 78 * k} textAnchor="end" fontSize={20 * k} fontWeight={700} fill={ARCH.ink[h.st]} style={{ fontVariantNumeric: 'tabular-nums' }}>{h.text}</text>
-                        <text x={x0 + 13 * k} y={y0 + 95 * k} fontSize={8.5 * k} fill={ARCH.roomCode} letterSpacing="0.06em">TEMP</text>
-                        <text x={x0 + cw - 13 * k} y={y0 + 95 * k} textAnchor="end" fontSize={8.5 * k} fill={ARCH.roomCode} letterSpacing="0.06em">HUMIDITY</text>
                       </g>
                     );
                   });

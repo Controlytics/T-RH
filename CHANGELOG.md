@@ -34,6 +34,14 @@ arrow"), and *"One plan: CWH — QC"* (the second plan deleted, consequence stat
   15.5 / weight 800 and Location 14 / bold (was 13 and 11 regular); the standard
   tiles' ID 16 bold, Location 14 bold (was 14 / 600 and 12 regular). Both still
   shrink to fit a narrow card, so a long Location in a small room prints smaller.
+- **A long Location stays readable** (operator: "cwh/rdu/018-00 instrument
+  location name is large its not visible increase the font"; its Location is
+  44 characters and printed at ~5 units): a Location longer than the card's
+  wrap length takes TWO lines (`splitLabel`, the space nearest the middle) and
+  the card grows by a line; a one-instrument room tries the portrait card AND a
+  WIDE card (no TEMP/HUMIDITY captions) and keeps whichever prints the Location
+  larger (`CARD_SHAPES`, `locationFont`). 018-00 now prints it at 11.6, wide;
+  013-00 also goes wide. 3 tests, mutation-checked (portrait only fails one).
 - Tests: 12 new web cases (`floorplan-arch.test.tsx`), 5 swing cases, 2 API
   (style through the schema; plan name / retire); 27 dashboard + designer test
   files green one by one. Seen as a render of the real component with sample

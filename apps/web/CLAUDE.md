@@ -664,6 +664,10 @@ that QC layout"*.
   it steps down in size only when nothing is clear. Several instruments keep the
   tile grid. The standard style shrinks its tile box instead (`avoidDoorSwings`,
   `avoidObstacles`).
+- **Two card shapes** (`CARD_SHAPES`): portrait, and a WIDE one for short
+  rooms; a one-instrument room keeps whichever prints its Location larger, and a
+  long Location wraps to two lines (`splitLabel`). Added for CWH/RDU/018-00,
+  whose 44-character Location printed at ~5 units.
 - **No alarm halo in this style** — it showed through door gaps; the wash and
   the red card carry the alarm.
 - **The side panel's arrow is PLAN north** and says so: the drawing marks no

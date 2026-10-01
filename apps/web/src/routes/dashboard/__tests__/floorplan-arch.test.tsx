@@ -35,7 +35,7 @@ vi.mock('../use-telemetry', async (orig) => ({
   useTelemetryOverview: () => ({ rows: ROWS, isLoading: false, error: undefined }),
 }));
 
-const { FloorplanView, cardTone, roomTone, archSummary } = await import('../floorplan-view');
+const { FloorplanView, cardTone, roomTone, archSummary, splitLabel, cardSpec, locationFont } = await import('../floorplan-view');
 function Where() { const l = useLocation(); return <p data-testid="where">{l.pathname}</p>; }
 const mount = () => render(
   <MemoryRouter initialEntries={['/']}>
@@ -157,5 +157,39 @@ describe('avoidObstacles', () => {
     const box = { x: 0, y: 0, w: 260, h: 140 };
     expect(avoidObstacles(box, [{ x: 225, y: 90, w: 60, h: 60 }])).toEqual({ x: 0, y: 0, w: 225, h: 140 });
     expect(avoidObstacles(box, [{ x: 400, y: 0, w: 10, h: 10 }])).toEqual(box);
+  });
+});
+
+describe('a long Location stays readable (operator: "cwh/rdu/018-00 instrument location name is large its not visible increase the font")', () => {
+  const LONG = 'Sieving& Sample destruction chamber room(QC)';
+  it('splitLabel breaks a long label at the space nearest its middle, and leaves a short one alone', () => {
+    expect(splitLabel('Wet lab (QC)')).toEqual(['Wet lab (QC)']);
+    expect(splitLabel(LONG)).toEqual(['Sieving& Sample destruction', 'chamber room(QC)']);
+    expect(splitLabel('Averyveryverylonglabelwithnospace')).toEqual(['Averyveryverylonglabelwithnospace']);
+  });
+  it('two lines make the card taller, and the font is sized by the longer half', () => {
+    expect(cardSpec('std', LONG).h).toBeGreaterThan(cardSpec('std', 'Wet lab').h);
+    const one = Math.min(14, (196 - 10) / (LONG.length * 0.6));
+    expect(locationFont(cardSpec('std', LONG), 1)).toBeGreaterThan(one * 1.4);
+  });
+  it('in a SHORT room with a door swing, the card goes wide and prints the Location far larger', () => {
+    // 018-00's room: wide and short, its door in the bottom wall towards the left.
+    PLAN = {
+      ...planOf('architectural'),
+      rooms: [room('lab', 'R-LAB', 'SAMPLE DESTRUCTION ROOM', 0.05, {
+        y: 0.1, w: 0.26, h: 0.2,
+        doors: [{ edge: 2, offset: 0.55, width: 0.17, kind: 'ENTRY', hinge: 'start' }],
+      })],
+      annotations: { ...ANN, columns: [], style: 'architectural' },
+    };
+    ROWS = [row({ locationAttribute: LONG })];
+    mount();
+    const card = screen.getByTestId('fp-card');
+    expect(card).toHaveAttribute('data-shape', 'wide');
+    const loc = [...card.querySelectorAll('text')].find((t) => t.textContent === 'Sieving& Sample destruction')!;
+    // On one line in the portrait card this room printed it at about 5 units;
+    // the real room renders it at 11.6. Well clear of the defect, not of a guess.
+    expect(Number(loc.getAttribute('font-size'))).toBeGreaterThan(9);
+    PLAN = planOf('architectural');
   });
 });
