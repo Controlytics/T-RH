@@ -597,39 +597,86 @@ export function placeCard(
  * least twice as tall as wide, and the turn buys a third more size — so a name
  * that reads across stays across. `cx`, `cy` are then the point the turned
  * text is anchored at and rotated about (-90 degrees: it reads bottom to top).
+ *
+ * A LONG name in a small room WRAPS, to two or three lines (2026-10-01, QC 3:
+ * "UNCLEANED GLASS WARE HOLD ROOM" in a room 71 units wide — on one line, at
+ * the 7-unit floor, it ran 150 units, across both neighbours). Same gate: only
+ * when the name on one line is under `LEGIBLE_NAME_FONT` and the room is not
+ * one whose name turns. `lines` is what to print, top line first, `cy` the
+ * FIRST line's baseline; lines are `NAME_LINE` font-heights apart.
  */
 export const LEGIBLE_NAME_FONT = 9;
+/** A wrapped name's line pitch, in font heights. */
+export const NAME_LINE = 1.15;
+
+export interface RoomNamePlacement { cx: number; cy: number; fs: number; vertical: boolean; lines: string[] }
 
 export function placeRoomName(
   box: PixelBox,
   obstacles: PixelBox[],
-  chars: number,
+  name: string,
   twoLines: boolean,
-): { cx: number; cy: number; fs: number; vertical: boolean } {
-  const across = placeNameAcross(box, obstacles, chars, twoLines);
-  if (across.fs >= LEGIBLE_NAME_FONT || box.h < box.w * 2) return { ...across, vertical: false };
-  // The same placement in the room turned on its side: x and y swap, and the
-  // text's "below the baseline" becomes the room's +x.
-  const turn = (b: PixelBox): PixelBox => ({ x: b.y, y: b.x, w: b.h, h: b.w });
-  const along = placeNameAcross(turn(box), obstacles.map(turn), chars, twoLines);
-  if (along.fs < across.fs * 1.3) return { ...across, vertical: false };
-  return { cx: along.cy, cy: along.cx, fs: along.fs, vertical: true };
+): RoomNamePlacement {
+  const one = [name];
+  const across = placeNameAcross(box, obstacles, one, twoLines);
+  if (across.fs >= LEGIBLE_NAME_FONT) return { cx: across.cx, cy: across.cy, fs: across.fs, vertical: false, lines: one };
+  if (box.h >= box.w * 2) {
+    // The same placement in the room turned on its side: x and y swap, and the
+    // text's "below the baseline" becomes the room's +x.
+    const turn = (b: PixelBox): PixelBox => ({ x: b.y, y: b.x, w: b.h, h: b.w });
+    const along = placeNameAcross(turn(box), obstacles.map(turn), one, twoLines);
+    if (along.fs >= across.fs * 1.3) return { cx: along.cy, cy: along.cx, fs: along.fs, vertical: true, lines: one };
+  }
+  // Wrapped: the fewest lines that FIT it largest. Judged on `fit`, not on the
+  // printed size — a name is never printed under 7 units, so one that does not
+  // fit prints at 7 and runs out of its room, and comparing printed sizes would
+  // call that a tie with the wrapped name that stays inside.
+  let best = { ...across, lines: one };
+  for (const n of [2, 3]) {
+    const lines = balanceLines(name, n);
+    if (lines.length !== n) continue;
+    const p = placeNameAcross(box, obstacles, lines, twoLines);
+    if (p.fit > best.fit * 1.1) best = { ...p, lines };
+  }
+  return { cx: best.cx, cy: best.cy, fs: best.fs, vertical: false, lines: best.lines };
+}
+
+/** `name` on exactly `n` lines, broken at spaces so the longest line is as
+ *  short as it can be; fewer lines when it has fewer words. */
+export function balanceLines(name: string, n: number): string[] {
+  const words = name.trim().split(/\s+/);
+  if (words.length < n) return [name.trim()];
+  let best: string[] = [name.trim()], bestLen = Infinity;
+  const tryCuts = (cuts: number[]) => {
+    const lines = [...cuts, words.length].map((end, i) => words.slice(i === 0 ? 0 : cuts[i - 1], end).join(' '));
+    const longest = Math.max(...lines.map((l) => l.length));
+    if (longest < bestLen) { bestLen = longest; best = lines; }
+  };
+  if (n === 2) for (let a = 1; a < words.length; a++) tryCuts([a]);
+  else for (let a = 1; a < words.length - 1; a++) for (let b = a + 1; b < words.length; b++) tryCuts([a, b]);
+  return best;
 }
 
 function placeNameAcross(
   box: PixelBox,
   obstacles: PixelBox[],
-  chars: number,
+  lines: string[],
   twoLines: boolean,
-): { cx: number; cy: number; fs: number } {
-  const fs = Math.max(7, Math.min(15, (box.w - 16) / (Math.max(1, chars) * 0.75), box.h / 4));
-  const cx = box.x + box.w / 2, cy = box.y + box.h / 2;
-  // The text's own box: the name's height above its baseline, the number below.
-  const w = Math.max(1, chars) * 0.75 * fs, up = fs * 0.85, down = twoLines ? fs * 1.35 : fs * 0.25;
+): { cx: number; cy: number; fs: number; fit: number } {
+  const chars = Math.max(1, ...lines.map((l) => l.length));
+  const extra = lines.length - 1;
+  // `fit` is the size at which the text stays inside the room; `fs`, what is
+  // printed, has a floor of 7 — below that a name is not worth printing smaller.
+  const fit = Math.min(15, (box.w - 16) / (chars * 0.75), box.h / (4 + extra * NAME_LINE));
+  const fs = Math.max(7, fit);
+  // The text's own box: the first line's height above its baseline; the other
+  // lines and the room's number below it. One line: exactly as it always was.
+  const w = chars * 0.75 * fs, up = fs * 0.85, down = extra * NAME_LINE * fs + (twoLines ? fs * 1.35 : fs * 0.25);
+  const cx = box.x + box.w / 2, cy = box.y + box.h / 2 - (extra * NAME_LINE * fs) / 2;
   const centred = { x: cx - w / 2, y: cy - up, w, h: up + down };
   const hit = obstacles.some((o) => centred.x < o.x + o.w && centred.x + centred.w > o.x && centred.y < o.y + o.h && centred.y + centred.h > o.y);
-  if (!hit) return { cx, cy, fs };
+  if (!hit) return { cx, cy, fs, fit };
   const p = placeCard(box, obstacles, w, up + down, 3);
-  if (!p) return { cx, cy, fs };
-  return { cx: p.x + p.w / 2, cy: p.y + up * p.k, fs: fs * p.k };
+  if (!p) return { cx, cy, fs, fit };
+  return { cx: p.x + p.w / 2, cy: p.y + up * p.k, fs: fs * p.k, fit: Math.min(fit, fs * p.k) };
 }

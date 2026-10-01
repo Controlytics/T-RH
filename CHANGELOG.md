@@ -1,5 +1,49 @@
 # Changelog
 
+## [Unreleased] - "CWH — QC 3" re-traced and drawn in the 2D architectural design (2026-10-01)
+
+Operator: *"there is QC 3 image was there as same like QC and microbiology
+layout do this one also,everything should 100 % matched doors and room lines
+everything"*.
+
+- **The trace** (`apps/api/src/modules/floorplans/qc3-layout.ts`, REWRITTEN in
+  place from `Layouts/CWH/QC 3 Layout.png`): 31 rooms as polygons on the
+  drawing's own wall lines, tiling the L-shaped building exactly — the 2026-09-21
+  rectangle trace had 35 boxes, the corridor in four pieces, the hold area in
+  two, and a made-up `GD ENTRY` room to square the building off (the yard is
+  outside the building and is no longer drawn).
+  - **Doors:** 30 with a leaf — 16 single, 14 double (two leaves meeting in the
+    middle) — each on the wall, gap and hinge side the drawing shows; the two
+    corridor exits open OUT. The older trace had doors on four walls that have
+    none — one of them from the corridor into the KF room, which is entered
+    through the airlock.
+  - **Openings without a leaf:** the three weighing areas are open bays; the
+    hot zone opens into the wet lab through a gap in their wall.
+  - **CORRIDOR-11** runs right round the middle block. An outline cannot have a
+    hole, so it is two pieces of one code, drawn as one space.
+  - **Structure:** 26 columns (a 4 x 4 grid, 7 in the west wall, 3 in the east),
+    6 windows and the breakable-glass panel, the hold area's sliding door and
+    the two pass boxes outlined.
+- **Data** (`scripts/draw-architectural-floor.ts --area "QC 3" --apply`, applied
+  LOCALLY): 35 rooms deleted, 31 created, the 12 instruments placed back in the
+  rooms of the same codes; one audit row per room and one for the plan.
+  **AWS needs the same run after the next deploy.**
+- **Checked against the drawing BEFORE applying**: the render laid half
+  transparent over the image at the same scale, twelve tiles, every wall and
+  door; then again from the database.
+- **Long names in small rooms** (`placeRoomName`, `splitLabel`): a room name
+  that does not fit on one line wraps to two or three inside its room (the north
+  row's thirty-character names ran across their neighbours), and a Location
+  whose halves are still far too long takes a third line (CWH/RDU/003-00's is
+  68 characters: 7.9 → 10 units). QC and Microbiology render byte-identically.
+- **Removed:** `traced-layout.ts`, `traced-layouts.test.ts` and the `TRACED`
+  branch of `draw-cwh-floorplan.ts` — no floor is a rectangle trace any more.
+- **Known, not solved:** the two LCMS rooms are about 2.5 m wide on the drawing
+  (65 units); a 14-character instrument ID cannot print legibly inside them at
+  any card shape, and their cards are small. Full screen helps.
+- No count moved. Tests: `qc3-layout.test.ts` (14, new), `floorplan-arch.test.tsx`
+  30 → 36; seven mutation checks, all caught. Not seen in the running app.
+
 ## [Unreleased] - A landscape floor plan gets the whole panel width; lighter walls; a tall room's name runs up it (2026-10-01)
 
 Operator, on the Microbiology floor in the dashboard: *"width is small,rooms and

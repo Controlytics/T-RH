@@ -80,6 +80,22 @@ export const rect = (x0: number, y0: number, x1: number, y1: number): Pt[] => [[
 export const vDoor = (at: number, from: number, to: number, hinge: ArchDoor['hinge'], kind: ArchDoor['kind'] = 'ENTRY'): ArchDoor => ({ axis: 'x', at, from, to, hinge, kind });
 export const hDoor = (at: number, from: number, to: number, hinge: ArchDoor['hinge'], kind: ArchDoor['kind'] = 'ENTRY'): ArchDoor => ({ axis: 'y', at, from, to, hinge, kind });
 
+/**
+ * A DOUBLE door: two leaves hung on the two jambs, meeting in the middle. The
+ * leaves are stored 1 px apart — the room check refuses two doors that touch
+ * on one edge once their fractions are rounded.
+ */
+function pair(axis: ArchDoor['axis'], at: number, from: number, to: number, kind: ArchDoor['kind'], swing?: 'out'): ArchDoor[] {
+  const mid = (from + to) / 2;
+  const extra = swing ? { swing } : {};
+  return [
+    { axis, at, from, to: mid - 0.5, hinge: 'from', kind, ...extra },
+    { axis, at, from: mid + 0.5, to, hinge: 'to', kind, ...extra },
+  ];
+}
+export const vPair = (at: number, from: number, to: number, kind: ArchDoor['kind'] = 'ENTRY', swing?: 'out') => pair('x', at, from, to, kind, swing);
+export const hPair = (at: number, from: number, to: number, kind: ArchDoor['kind'] = 'ENTRY', swing?: 'out') => pair('y', at, from, to, kind, swing);
+
 /** The plan's stored canvas: only the RATIO matters (it sets the viewBox height). */
 export function archCanvas(b: ArchBuilding): { width: number; height: number } {
   return { width: b.x1 - b.x0, height: b.y1 - b.y0 };

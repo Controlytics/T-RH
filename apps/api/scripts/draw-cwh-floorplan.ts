@@ -37,8 +37,6 @@
 import { prisma } from '../src/lib/prisma.js';
 import { auditLog } from '../src/lib/audit.js';
 import { Prisma } from '@prisma/client';
-import { QC3_LAYOUT } from '../src/modules/floorplans/qc3-layout.js';
-import { canvasOf, normRect, normPlanAnnotations, type TracedLayout } from '../src/modules/floorplans/traced-layout.js';
 
 /**
  * Deterministic [0,1) from a string. Layout randomness comes from the room's
@@ -341,69 +339,23 @@ function doorTowardCorridorLocal(cell: Cell, corridorRows: Set<number>): Door[] 
 interface RoomSpec { code: string; label: string | null; grade: Grade; rect: Rect; instruments: string[]; door?: Door[]; meta?: Record<string, string> }
 
 /**
- * The one area whose plan is TRACED from a drawing instead of generated.
+ * The floors we have a DRAWING of (`Layouts/CWH/`) are not this script's:
+ * each is a polygon trace drawn in the 2D architectural style by its own
+ * script, and this one leaves those areas alone. `buildingLayout()` invents a
+ * plausible floor from a room count; a real plan and a synthesised one cannot
+ * be blended, so a traced area is bypassed entirely rather than nudged.
  *
- * `buildingLayout()` invents a plausible floor from a room count. For QC we
- * have the actual floor (`QC Layout.png`), so the generator is bypassed
- * entirely rather than nudged: a real plan and a synthesised one cannot be
- * blended, and a half-traced floor would be harder to trust than either.
+ * QC and QC Microbiology went that way on 2026-10-01, QC 3 later the same day.
+ * From 2026-09-21 until then QC 3 and Microbiology were RECTANGLE traces drawn
+ * here through a `TRACED` map (`traced-layout.ts`); that path went with the
+ * last floor that used it. What is left here is generated: Stability,
+ * Module-E, Module-F and Ware House, which have no drawing.
  */
-/**
- * The floors we have a DRAWING of, keyed by their functional-location AREA
- * name. Everything else is generated. `Layouts/CWH/` holds the drawings.
- */
-/** Areas whose plan another script owns; this one leaves them alone. Both are
- *  drawn in the 2D architectural style from a polygon trace — QC since
- *  2026-10-01, QC Microbiology since later the same day (it was in `TRACED`
- *  below, as rectangles, from 2026-09-21 until then). */
 const DRAWN_ELSEWHERE: Record<string, string> = {
   QC: 'scripts/draw-qc-layout-2.ts',
   'QC Microbiology': 'scripts/draw-architectural-floor.ts --area "QC Microbiology"',
+  'QC 3': 'scripts/draw-architectural-floor.ts --area "QC 3"',
 };
-
-const TRACED: Record<string, TracedLayout> = {
-  [QC3_LAYOUT.area]: QC3_LAYOUT,
-};
-
-/**
- * Build the QC plan's rooms from the traced table.
- *
- * Grade still comes from the instrument's OWN limits, exactly as the generated
- * plans do — the drawing's colours encode room FUNCTION, which is not the same
- * thing as a cleanroom classification, and the legend on screen says "grade".
- * Painting an office blue because the drawing tints it blue would make the
- * legend lie. Rooms with no instrument carry the grade named in the table.
- */
-function tracedRooms(
-  layout: TracedLayout,
-  idByCode: Map<string, string>,
-  gradeOfInstrument: (id: string) => Grade,
-): RoomSpec[] {
-  const missing: string[] = [];
-  const rooms = layout.rooms.map((r) => {
-    const id = r.instrument ? idByCode.get(r.instrument) : undefined;
-    if (r.instrument && !id) missing.push(r.instrument);
-    return {
-      code: r.code,
-      label: r.label,
-      grade: r.grade ?? (id ? gradeOfInstrument(id) : 'UTILITY'),
-      rect: normRect(layout.building, r.px),
-      instruments: id ? [id] : [],
-      // An explicit empty array is meaningful: it means the drawing shows no
-      // door on that room, and must not fall through to `doorFor()`'s default.
-      door: r.doors ?? [],
-      meta: r.meta as Record<string, string> | undefined,
-    } satisfies RoomSpec;
-  });
-  if (missing.length) {
-    // Loud, not silent. A renamed instrument would otherwise leave a room drawn
-    // correctly but permanently blank, which reads on the wall as a dead sensor.
-    throw new Error(
-      `traced ${layout.area} layout (${layout.source}) references instruments that are not in the registry: ${missing.join(', ')}`,
-    );
-  }
-  return rooms;
-}
 
 /** Replace a plan's rooms wholesale, audited, and place its instruments. */
 async function drawPlan(planId: string, planName: string, rooms: RoomSpec[]): Promise<number> {
@@ -484,9 +436,6 @@ async function main() {
     select: { instrumentId: true, key: true, value: true },
   });
   const codeById = new Map<string, string>(instruments.map((i) => [i.id, i.code]));
-  // The traced QC table names instruments by CODE, because a code is what the
-  // drawing and the spreadsheet both carry; ids are local to this database.
-  const idByCode = new Map<string, string>(instruments.map((i) => [i.code, i.id]));
   const attrsByInstrument = new Map<string, Map<string, string>>();
   for (const a of attrRows) {
     let m = attrsByInstrument.get(a.instrumentId);
@@ -523,20 +472,13 @@ async function main() {
     const area = areaList[idx];
     if (ONLY && area.name !== ONLY) continue;
     const planName = `CWH — ${area.name}`;
-    // QC is drawn by its OWN script since 2026-10-01 (traced from
-    // `QC Layout-2.png`, polygons, the 2D style) — redrawing it here would put
-    // the older rectangle trace back over it. `src/modules/floorplans/qc-layout.ts`
-    // is that older trace, kept for its types and its test. QC Microbiology
-    // went the same way that day; its rectangle trace was replaced in place.
+    // A floor traced from a drawing is drawn by its OWN script (polygons, the
+    // 2D style) — redrawing it here would put a generated floor over it.
     if (DRAWN_ELSEWHERE[area.name]) {
       console.log(`  ${planName.padEnd(28)} skipped — drawn by ${DRAWN_ELSEWHERE[area.name]}`);
       continue;
     }
-    // The traced plan's canvas is the BUILDING's own proportions, not a shape
-    // derived from its room count — the drawing already decided how tall the
-    // floor is, and `canvasFor()` would stretch it to a different aspect.
-    const traced = TRACED[area.name];
-    const shape = traced ? canvasOf(traced.building) : canvasFor(area.locs.length);
+    const shape = canvasFor(area.locs.length);
     let plan = await prisma.floorplan.findFirst({ where: { name: planName }, select: { id: true, imageWidth: true, imageHeight: true } });
     if (!plan) {
       plan = await prisma.floorplan.create({
@@ -570,37 +512,17 @@ async function main() {
     };
     // Grade per ROOM from its instrument's own limits, so a floor carries
     // variety that means something rather than one flat hue.
-    const rooms = traced
-      ? tracedRooms(traced, idByCode, gradeOfInstrument)
-      : buildingLayout(
-        area.name, area.locs, grade, used,
-        (ids) => gradeOfInstrument(ids[0]),
-        (ids) => {
-          // Two instruments in one location: name the room for the first and
-          // say there is another, rather than silently showing only one.
-          const codes = ids.map((id) => codeById.get(id)).filter(Boolean) as string[];
-          if (!codes.length) return null;
-          return codes.length === 1 ? codes[0] : `${codes[0]} +${codes.length - 1}`;
-        },
-      );
-
-    // The annotation layer belongs to the PLAN, not to any room, so it is
-    // written here rather than inside drawPlan(). Only the traced plan has one;
-    // every generated plan keeps SQL NULL and renders with no legend, because a
-    // legend for symbols a plan never uses is furniture.
-    if (traced) {
-      await prisma.floorplan.update({
-        where: { id: plan.id },
-        data: {
-          // A traced plan with no symbols stores SQL NULL, never `{}` — the
-          // legend is drawn whenever annotations are present.
-          annotations: traced.annotations
-            ? (normPlanAnnotations(traced.building, traced.annotations) as unknown as Prisma.InputJsonValue)
-            : Prisma.DbNull,
-          updatedBy: ACTOR,
-        },
-      });
-    }
+    const rooms = buildingLayout(
+      area.name, area.locs, grade, used,
+      (ids) => gradeOfInstrument(ids[0]),
+      (ids) => {
+        // Two instruments in one location: name the room for the first and
+        // say there is another, rather than silently showing only one.
+        const codes = ids.map((id) => codeById.get(id)).filter(Boolean) as string[];
+        if (!codes.length) return null;
+        return codes.length === 1 ? codes[0] : `${codes[0]} +${codes.length - 1}`;
+      },
+    );
 
     const placed = await drawPlan(plan.id, planName, rooms);
     totalRooms += rooms.length; totalPlaced += placed;

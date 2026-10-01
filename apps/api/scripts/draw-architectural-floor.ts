@@ -6,7 +6,8 @@
  *   npx tsx scripts/draw-architectural-floor.ts --area "QC Microbiology" --apply    # writes
  *
  * Floors it knows: QC Microbiology (`microbiology-layout.ts`, traced from
- * `Layouts/CWH/Microbiology.png`, 2026-10-01). The QC floor is drawn the same
+ * `Layouts/CWH/Microbiology.png`) and QC 3 (`qc3-layout.ts`, from
+ * `Layouts/CWH/QC 3 Layout.png`), both 2026-10-01. The QC floor is drawn the same
  * way by its OWN script, `draw-qc-layout-2.ts`, which was written first and
  * also retires the second plan that floor was once drawn on; this is that
  * script without the retire step, for every floor after it.
@@ -32,10 +33,12 @@ import { auditLog } from '../src/lib/audit.js';
 import { validateRoomPayload, roomGeometry } from '../src/modules/floorplans/validation.js';
 import { archCanvas, archPoints, archAnnotations, edgeDoor, type ArchLayout } from '../src/modules/floorplans/architectural-layout.js';
 import { MICROBIOLOGY_LAYOUT } from '../src/modules/floorplans/microbiology-layout.js';
+import { QC3_LAYOUT } from '../src/modules/floorplans/qc3-layout.js';
 
 /** The floors drawn in this style by this script, keyed by AREA name. */
 const LAYOUTS: Record<string, ArchLayout> = {
   [MICROBIOLOGY_LAYOUT.area]: MICROBIOLOGY_LAYOUT,
+  [QC3_LAYOUT.area]: QC3_LAYOUT,
 };
 
 const APPLY = process.argv.includes('--apply');

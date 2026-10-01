@@ -392,6 +392,18 @@ node apps/api/dist/app.js
     each line from the response schema. `ArchAnnotations` gained optional
     `equipment` / `labels` (outlined plant and its caption); a trace without
     them emits the same JSON as before.
+  - **QC 3 is the third such floor (same day), and the rectangle-trace path is
+    GONE.** `qc3-layout.ts` rewritten in place as an `ArchLayout` (31 rooms
+    tiling an L-shaped building, 44 door leaves + 4 leafless openings, 26
+    columns, 7 windows, 3 outlined boxes); `draw-architectural-floor.ts --area
+    "QC 3"`. With no floor left on it, `traced-layout.ts`,
+    `__tests__/traced-layouts.test.ts` and the `TRACED` / `tracedRooms` branch
+    of `draw-cwh-floorplan.ts` were removed; that script now only generates
+    Stability, Module-E, Module-F and Ware House. `vPair` / `hPair` build a
+    double door. A corridor that runs right round a block is two rooms of ONE
+    code (`CWH-I/235` and `CWH-I/235 (2)`): a stored outline cannot have a
+    hole. Pinned by `__tests__/qc3-layout.test.ts` (14, mutation-checked: an
+    off-grid edge, touching leaves, an exit swinging in).
 - **2026-09-16 — the instrument CODE is changeable.** `PUT /api/instruments/:id`
   accepts `code` (shared `updateInstrumentSchema`, same `codeSchema` as create).
   **No count moved, no migration.** The code is the MQTT client id and every

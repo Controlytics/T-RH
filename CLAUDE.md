@@ -1419,7 +1419,9 @@ GET    /api/config/report-downloads/current     — (2026-10-01) per report KIND
       Stability, Module-E, Module-F and Ware House are still generated.**
       **Microbiology's half of this is SUPERSEDED (2026-10-01): it is a polygon
       trace in the 2D architectural style now — see the Microbiology bullet
-      below. `TRACED` holds QC 3 alone.**
+      below. QC 3 followed the same day, and the `TRACED` map, `traced-layout.ts`
+      and `traced-layouts.test.ts` went with it — no floor is a rectangle trace
+      any more.**
     - **The corridor pieces DRAW as one space (same day, operator: "corridor
       single line, not divided into separately").** The seam between two
       adjoining CIRCULATION rooms is cut out of the walls by the VIEW
@@ -1471,6 +1473,27 @@ GET    /api/config/report-downloads/current     — (2026-10-01) per report KIND
       (`annotations.equipment` / `labels`, drawn in the 2D style only).
       **A side-by-side picture is not a comparison: lay the render OVER the
       drawing, half transparent, at the same scale, and look at each wall.**
+    - **"CWH — QC 3" is the third floor in this style (same day, operator:
+      "do this one also,everything should 100 % matched doors and room lines
+      everything").** `qc3-layout.ts` REWRITTEN in place from
+      `Layouts/CWH/QC 3 Layout.png`: 31 rooms tiling an L-shaped building (no
+      made-up `GD ENTRY` room — the yard is outside and not drawn), 30 doors
+      (16 single, 14 double; the two corridor exits open OUT), the three
+      weighing areas as open bays and the hot zone's gap into the wet lab as
+      leafless openings, 26 columns, 7 windows, the hold area's sliding door
+      and two pass boxes outlined. **CORRIDOR-11 runs right round the middle
+      block, and an outline cannot have a hole: it is two pieces of ONE code**
+      (`CWH-I/235` the U, `CWH-I/235 (2)` the south band), which the view joins
+      with no wall. Drawn by `draw-architectural-floor.ts --area "QC 3"`;
+      applied LOCALLY (35 rooms out, 31 in, 12 instruments in the same rooms);
+      **AWS needs that run.** `vPair` / `hPair` in `architectural-layout.ts`
+      make a double door. Checked by overlay on the drawing, tile by tile,
+      BEFORE applying. **Known small:** the two LCMS rooms are ~65 units wide
+      and their cards print the ID under 5 units — the room is too narrow for
+      a 14-character ID at any card shape; said to the operator, not solved.
+      In the view, same day: a long room NAME wraps to two or three lines
+      inside a small room (`placeRoomName` → `lines`, judged on `fit`, not the
+      7-unit floor) and a very long Location takes three lines (`splitLabel`).
     - **A LANDSCAPE plan's legend sits UNDER it as a strip (same day,
       operator: "width is small,rooms and text are slightly no space and look
       is not good").** The Microbiology plan is 2.2:1, so the panel's width

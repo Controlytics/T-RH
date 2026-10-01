@@ -30,7 +30,7 @@ import {
 import {
   polygonWalls, polygonDoorPlacements, polygonSharedOpenings, doorToEdgeOpening, tileLayout,
   CHIP_HEIGHT_FACTOR, CHIP_GAP, FULL_CODE_GAP, VALUES_TOP_GAP,
-  CODE_LINE_H, TILE_CODE_FONT, LOCATION_LINE_H, TILE_LOCATION_FONT, TILE_HEADER_H, avoidDoorSwings, avoidObstacles, placeCard, placeRoomName, swingSquare, MAX_TILE_FONT,
+  CODE_LINE_H, TILE_CODE_FONT, LOCATION_LINE_H, TILE_LOCATION_FONT, TILE_HEADER_H, avoidDoorSwings, avoidObstacles, placeCard, placeRoomName, NAME_LINE, swingSquare, MAX_TILE_FONT,
   type PixelBox,
 } from './room-geometry';
 
@@ -443,7 +443,22 @@ export function splitLabel(text: string, max = 20): string[] {
     if (breaks && (best < 0 || Math.abs(i - mid) < Math.abs(best - mid))) best = i;
   }
   if (best < 0) return [t];
-  return [t.slice(0, best).trim(), t.slice(t[best] === ' ' ? best + 1 : best).trim()];
+  const two = [t.slice(0, best).trim(), t.slice(t[best] === ' ' ? best + 1 : best).trim()];
+  // THREE lines for a Location so long that its halves are still half as long
+  // again as the card wraps at (QC 3, CWH/RDU/003-00: "Working standard &
+  // reference Standard storage Room (or) stability Room", 68 characters — in
+  // two lines it printed at 7.9 units). A label two lines serve keeps two.
+  if (Math.max(two[0].length, two[1].length) <= max * 1.5) return two;
+  const words = t.split(/\s+/);
+  let three = two, longest = Math.max(two[0].length, two[1].length);
+  for (let a = 1; a < words.length - 1; a++) {
+    for (let b = a + 1; b < words.length; b++) {
+      const lines = [words.slice(0, a).join(' '), words.slice(a, b).join(' '), words.slice(b).join(' ')];
+      const len = Math.max(...lines.map((l) => l.length));
+      if (len < longest) { longest = len; three = lines; }
+    }
+  }
+  return three;
 }
 
 /**
@@ -484,7 +499,7 @@ export const LEGIBLE_LOC_FONT = 9;
 export function cardSpec(shape: CardShape, location: string) {
   const c = CARD_SHAPES[shape];
   const lines = splitLabel(location, c.wrap);
-  const extra = lines.length > 1 ? CARD_LINE : 0;
+  const extra = (lines.length - 1) * CARD_LINE;
   return { ...c, lines, extra, h: c.h + extra };
 }
 
@@ -1210,13 +1225,17 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                     const g = geoms.get(room.id)!;
                     if (roomRows.length > 0 || g.isContinuation) return null;
                     const name = (room.label || room.code).trim();
-                    const { cx, cy, fs, vertical } = placeRoomName(g.tileBox, planObstacles, name.length, !!room.label);
+                    const { cx, cy, fs, vertical, lines } = placeRoomName(g.tileBox, planObstacles, name, !!room.label);
+                    const below = (lines.length - 1) * NAME_LINE * fs;
                     return (
-                      // A tall narrow room's name runs UP it, as on the drawing.
+                      // A tall narrow room's name runs UP it, as on the drawing;
+                      // a long name in a small room wraps (`lines`).
                       <g key={`n-${room.id}`} data-vertical={vertical || undefined} transform={vertical ? `rotate(-90 ${cx} ${cy})` : undefined}>
-                        <text x={cx} y={cy} textAnchor="middle" fontSize={fs} fill={ARCH.roomName} letterSpacing="0.08em">{name}</text>
+                        {lines.map((line, li) => (
+                          <text key={li} x={cx} y={cy + li * NAME_LINE * fs} textAnchor="middle" fontSize={fs} fill={ARCH.roomName} letterSpacing="0.08em">{line}</text>
+                        ))}
                         {room.label && (
-                          <text x={cx} y={cy + fs * 1.15} textAnchor="middle" fontSize={fs * 0.72} fill={ARCH.roomCode}>{room.code}</text>
+                          <text x={cx} y={cy + below + fs * 1.15} textAnchor="middle" fontSize={fs * 0.72} fill={ARCH.roomCode}>{room.code}</text>
                         )}
                       </g>
                     );

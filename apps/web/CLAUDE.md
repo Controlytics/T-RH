@@ -644,7 +644,7 @@ panels), `canvas.tsx` (the SVG surface; every callback receives PLAN UNITS),
   last row), and full screen shows the drawing ALONE with one Normal screen
   button — the SVG is one `floorSvg` constant rendered in both modes.
 
-## The 2D ARCHITECTURAL style (2026-10-01) — "CWH — QC" and "CWH — QC Microbiology"
+## The 2D ARCHITECTURAL style (2026-10-01) — "CWH — QC", "CWH — QC Microbiology", "CWH — QC 3"
 
 A plan whose `annotations.style` is `'architectural'` draws differently; every
 other plan is untouched. Operator chose concept A of three
@@ -689,7 +689,8 @@ qc"*).
 - **The side panel's arrow is PLAN north** and says so: the drawing marks no
   true north.
 - `cardTone` / `roomTone` / `archSummary` bucket the SERVER's statuses; nothing
-  is re-derived. Tests: `floorplan-arch.test.tsx` (30, mutation-checked: the
+  is re-derived. Tests: `floorplan-arch.test.tsx` (36, mutation-checked: the
+  wrapped names, the three-line Location, the
   landscape strip, the line weights, the turned name, the
   style switch, the obstacle test, the legibility gate, the bracket break, the
   stacked readings, the name placement, the outlined plant, the outward
@@ -707,6 +708,22 @@ qc"*).
   exactly 8. **A tall narrow empty room prints its name up its length**
   (`placeRoomName` returns `vertical`; gated on the across-size being under 9,
   which is what keeps QC's corridor name across).
+- **A long room NAME wraps; a very long Location takes three lines (QC 3,
+  same day).** `placeRoomName(box, obstacles, name, hasCode)` returns `lines`:
+  one line while that is legible (9 units), else turned (tall narrow room),
+  else two or three balanced lines (`balanceLines`). **It compares on `fit` —
+  the size at which the text stays inside the room — not on the printed size**,
+  which has a floor of 7: a name that does not fit prints at 7 and runs across
+  its neighbours, and on printed sizes that ties with the wrapped name that
+  stays inside (mutation-checked). `splitLabel` gives a card's Location a third
+  line only when its halves are still over 1.5 times the wrap length, so every
+  two-line card is unchanged; `cardSpec.extra` counts each extra line. The QC
+  and Microbiology renders are byte-identical before and after.
+- **Not solved: a room too narrow for the ID.** QC 3's two LCMS rooms are ~65
+  units wide; "CWH/RDU/012-00" needs ~80 at a legible size, so their cards
+  print the ID under 5 units whatever the shape. Full screen helps; a real fix
+  is a design decision (a two-line ID, or a card allowed to cover the door
+  swing).
 - **Judge a floor at a PANEL's size, not at 2000px.** The first Microbiology
   renders were checked at ~2000px wide and looked roomy; in the dashboard the
   drawing was 1000px wide. Dump the mounted view's `container.innerHTML`, load

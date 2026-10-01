@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
-import { placeCard, avoidObstacles, placeRoomName } from '../room-geometry';
+import { placeCard, avoidObstacles, placeRoomName, balanceLines } from '../room-geometry';
 
 /**
  * The 2D ARCHITECTURAL style (2026-10-01, operator: "2d layout was good replace
@@ -284,14 +284,14 @@ describe('placeRoomName', () => {
     a.x < o.x + o.w && a.x + a.w > o.x && a.y < o.y + o.h && a.y + a.h > o.y;
 
   it('a room with nothing in the way keeps its name in the middle, at the size it always had', () => {
-    expect(placeRoomName(box, [], 8, true)).toEqual({ cx: 100, cy: 50, fs: 15, vertical: false });
+    expect(placeRoomName(box, [], 'CH.RM-03', true)).toEqual({ cx: 100, cy: 50, fs: 15, vertical: false, lines: ['CH.RM-03'] });
     // An obstacle elsewhere in the room changes nothing.
-    expect(placeRoomName(box, [{ x: 170, y: 0, w: 30, h: 20 }], 8, true)).toEqual({ cx: 100, cy: 50, fs: 15, vertical: false });
+    expect(placeRoomName(box, [{ x: 170, y: 0, w: 30, h: 20 }], 'CH.RM-03', true)).toEqual({ cx: 100, cy: 50, fs: 15, vertical: false, lines: ['CH.RM-03'] });
   });
 
   it('a door swing over the middle moves the name to the nearest clear spot', () => {
     const swing = { x: 60, y: 40, w: 80, h: 60 };
-    const p = placeRoomName(box, [swing], 8, true);
+    const p = placeRoomName(box, [swing], 'CH.RM-03', true);
     expect(hits(nameBox(p, 8), swing)).toBe(false);
     expect(p.cy).toBeLessThan(50);            // above the swing
     expect(p.fs).toBeGreaterThan(9);          // moved, not crushed
@@ -301,14 +301,14 @@ describe('placeRoomName', () => {
   });
 
   it('with no clear spot at all it stays in the middle rather than vanishing', () => {
-    expect(placeRoomName(box, [{ x: 0, y: 0, w: 200, h: 100 }], 8, true)).toEqual({ cx: 100, cy: 50, fs: 15, vertical: false });
+    expect(placeRoomName(box, [{ x: 0, y: 0, w: 200, h: 100 }], 'CH.RM-03', true)).toEqual({ cx: 100, cy: 50, fs: 15, vertical: false, lines: ['CH.RM-03'] });
   });
 
   // Microbiology's INCUBATOR ROOM-02: 104 units wide, 412 tall, a 17-character
   // name. Across the room it printed at 7 units; the drawing prints it up the room.
   it('a tall narrow room prints its name UP its length, much larger', () => {
     const tall = { x: 10, y: 20, w: 104, h: 412 };
-    const p = placeRoomName(tall, [], 17, true);
+    const p = placeRoomName(tall, [], 'INCUBATOR ROOM-02', true);
     expect(p.vertical).toBe(true);
     expect(p.fs).toBe(15);
     // Anchored on the room's long axis, half way up it.
@@ -317,22 +317,22 @@ describe('placeRoomName', () => {
     // ...and still steps clear of what is in the room: a swing across the middle
     // of its width pushes the turned name to one side of it.
     const swing = { x: 74, y: 180, w: 40, h: 90 };
-    const q = placeRoomName(tall, [swing], 17, true);
+    const q = placeRoomName(tall, [swing], 'INCUBATOR ROOM-02', true);
     expect(q.vertical).toBe(true);
     expect(q.cx + q.fs * 1.35).toBeLessThanOrEqual(swing.x);
   });
 
   it('a name that reads across stays across, however tall the room', () => {
     // A short name in the same room is legible across it: no turn.
-    expect(placeRoomName({ x: 0, y: 0, w: 104, h: 412 }, [], 6, true).vertical).toBe(false);
+    expect(placeRoomName({ x: 0, y: 0, w: 104, h: 412 }, [], 'OFFICE', true).vertical).toBe(false);
     // QC's corridor spine: 100 units wide, over a thousand tall, "CORRIDOR-08".
     // Across it the name prints at 10.2 — legible — so it stays across, though
     // turned it would print at 15. This is what leaves the QC plan as it was.
-    const spine = placeRoomName({ x: 0, y: 0, w: 100, h: 1077 }, [], 11, true);
+    const spine = placeRoomName({ x: 0, y: 0, w: 100, h: 1077 }, [], 'CORRIDOR-08', true);
     expect(spine.vertical).toBe(false);
     expect(spine.fs).toBeCloseTo(10.18, 1);
     // A wide room never turns its name.
-    expect(placeRoomName({ x: 0, y: 0, w: 120, h: 130 }, [], 17, true).vertical).toBe(false);
+    expect(placeRoomName({ x: 0, y: 0, w: 120, h: 130 }, [], 'INCUBATOR ROOM-02', true).vertical).toBe(false);
   });
 });
 
@@ -439,5 +439,71 @@ describe('the plant the drawing outlines, and a door that opens out', () => {
     expect(inward).toBeCloseTo(234);              // the room's top wall less the margin
     expect(outward).toBeLessThan(inward - 70);    // the leaf's 80 units above it are in frame
     PLAN = planOf('architectural');
+  });
+});
+
+/**
+ * The QC 3 floor (2026-10-01): its north row is five rooms about 70 units wide
+ * with names of thirty characters, and one instrument's Location is 68.
+ */
+describe('long words in small rooms', () => {
+  const NAME = 'UNCLEANED GLASS WARE HOLD ROOM';
+  // The room as drawn: 71 units wide, 79 tall, nothing in the way of its name.
+  const small = { x: 100, y: 10, w: 71, h: 79 };
+
+  it('balanceLines breaks at spaces so the longest line is as short as it can be', () => {
+    expect(balanceLines(NAME, 2)).toEqual(['UNCLEANED GLASS', 'WARE HOLD ROOM']);
+    expect(balanceLines(NAME, 3)).toEqual(['UNCLEANED', 'GLASS WARE', 'HOLD ROOM']);
+    // Fewer words than lines: left whole.
+    expect(balanceLines('CH.RM-03', 2)).toEqual(['CH.RM-03']);
+  });
+
+  it('a long name WRAPS and stays inside its room — on one line it ran across both neighbours', () => {
+    const p = placeRoomName(small, [], NAME, true);
+    expect(p.lines).toEqual(['UNCLEANED', 'GLASS WARE', 'HOLD ROOM']);
+    expect(p.vertical).toBe(false);
+    const widest = Math.max(...p.lines.map((l) => l.length)) * 0.75 * p.fs;
+    expect(widest).toBeLessThanOrEqual(small.w);
+    // What it replaced: one line at the 7-unit floor, twice the room's width.
+    expect(NAME.length * 0.75 * 7).toBeGreaterThan(small.w * 2);
+    // The block of lines is centred on the room, not hung from its middle.
+    const mid = p.cy + ((p.lines.length - 1) * 1.15 * p.fs) / 2;
+    expect(mid).toBeCloseTo(small.y + small.h / 2, 5);
+  });
+
+  it('a name that is legible on one line is left on one line', () => {
+    expect(placeRoomName({ x: 0, y: 0, w: 300, h: 120 }, [], 'TRAINING/MEETING ROOM', true).lines).toEqual(['TRAINING/MEETING ROOM']);
+  });
+
+  it('the wrapped lines are drawn top to bottom with the room number under the last', () => {
+    PLAN = {
+      ...planOf('architectural'),
+      rooms: [room('g', 'CWH-I/247', NAME, 0.05, { y: 0.1, w: 0.071, h: 0.13 }), room('lab', 'R-LAB', 'LAB', 0.3)],
+      annotations: { ...ANN, columns: [], style: 'architectural' },
+    };
+    ROWS = [];
+    mount();
+    const ys = ['UNCLEANED', 'GLASS WARE', 'HOLD ROOM', 'CWH-I/247'].map((t) => Number(screen.getByText(t).getAttribute('y')));
+    expect(ys[1]).toBeGreaterThan(ys[0]); expect(ys[2]).toBeGreaterThan(ys[1]); expect(ys[3]).toBeGreaterThan(ys[2]);
+    expect(screen.queryByText(NAME)).toBeNull();
+    PLAN = planOf('architectural');
+  });
+
+  // CWH/RDU/003-00's Location, as stored.
+  const LONG3 = 'Working standard & reference Standard storage Room (or) stability Room';
+  it('a Location whose halves are still far too long takes THREE lines; one two lines serve keeps two', () => {
+    const three = splitLabel(LONG3);
+    expect(three).toHaveLength(3);
+    expect(three.join(' ')).toBe(LONG3);
+    expect(Math.max(...three.map((l) => l.length))).toBeLessThan(30);
+    // 018-00's on the QC floor: 27 / 16 in two lines — within half as long again.
+    expect(splitLabel('Sieving& Sample destruction chamber room(QC)')).toHaveLength(2);
+  });
+
+  it('each extra line makes the card one line taller, and the font is sized by the longest', () => {
+    const one = cardSpec('std', 'Wet Lab'), three = cardSpec('std', LONG3);
+    expect(three.h - one.h).toBe(30);
+    const twoLineFont = (196 - 10) / (35 * 0.6);     // its longer half, 35 characters
+    expect(locationFont(three, 1)).toBeGreaterThan(twoLineFont * 1.3);
   });
 });
