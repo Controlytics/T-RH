@@ -1,13 +1,16 @@
 /**
- * The QC 3 and Microbiology floors are hand-traced tables, and a hand-traced
+ * The QC 3 floor is a hand-traced table of RECTANGLES, and a hand-traced
  * table can be WRONG in ways a generated plan cannot: a mistyped digit puts
  * two rooms on top of each other or opens a seam, and both look fine in the
  * table. The operator holds the browser session, so these assertions are the
  * check — the same set `qc-layout.test.ts` runs for the QC floor.
+ *
+ * The Microbiology floor was a second case here until 2026-10-01, when it was
+ * re-traced as polygons in the 2D style; its checks are
+ * `microbiology-layout.test.ts`.
  */
 import { describe, it, expect } from 'vitest';
 import { QC3_LAYOUT } from '../qc3-layout.js';
-import { MICROBIOLOGY_LAYOUT } from '../microbiology-layout.js';
 import { normRect, canvasOf, type TracedLayout } from '../traced-layout.js';
 
 const rect = (px: [number, number, number, number]) => ({ x0: px[0], y0: px[1], x1: px[2], y1: px[3] });
@@ -32,21 +35,6 @@ const CASES: { layout: TracedLayout; xs: number[]; ys: number[]; instruments: Re
       'CWH-I/242': 'CWH/RDU/011-00', // HPLC Room
       'CWH-I/246': 'CWH/RDU/012-00', // LCMS Room-I
       'CWH-I/240': 'CWH/RDU/026-00', // Sample Receipt & Sample Storage Room
-    },
-  },
-  {
-    layout: MICROBIOLOGY_LAYOUT,
-    xs: [0, 150, 294, 431, 491, 574, 710, 716, 841, 946, 1054, 1137, 1174, 1383],
-    ys: [83, 181, 227, 320, 386, 413, 515, 660],
-    instruments: {
-      'CWH-I/209': 'CWH/RDU/045-00',    // LAF-1(Microbiology)
-      'CWH-I/210': 'CWH/RDU/046-00',    // LAF-2(Microbiology)
-      'CWH-I/211': 'CWH/RDU/047-00',    // BSC Room (Microbiology)
-      'CWH-I/198': 'CWH/RDU/048-00',    // Water wet analysis Room (Microbiology)
-      'CWH-I/213': 'CWH/RDU/049-00',    // Media Preparation Room (Microbiology)
-      'CWH-I/201': 'CWH/RDU/050-00',    // General Lab (Microbiology)
-      'INCUBATOR-01': 'CWH/RDU/051-00', // Incubator room (Microbiology) — unnumbered on the drawing
-      'CWH-I/215': 'CWH/RDU/052-00',    // Media Storage room (Microbiology)
     },
   },
 ];

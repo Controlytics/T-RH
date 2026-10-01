@@ -362,6 +362,25 @@ node apps/api/dist/app.js
   declaration (the eighth time the Fastify strip has mattered here). Pinned by
   `e2e/floorplan-polygons.e2e.test.ts` (5) and `e2e/floorplan-links.e2e.test.ts`
   (3) plus 6 unit cases; the older floorplan e2e files green unchanged.
+- **2026-10-01 — floors in the 2D architectural style: one shared trace module,
+  one generic draw script.** **No count moved, no migration.**
+  `modules/floorplans/architectural-layout.ts` holds the trace types
+  (`ArchLayout`, `ArchRoom`, `ArchDoor`) and the px → stored conversions
+  (`archPoints`, `edgeDoor`, `archAnnotations`, which sets `style:
+  'architectural'`); they were lifted out of `qc-layout-2.ts` unchanged when
+  Microbiology became the second such floor, and QC's output was compared byte
+  for byte. `microbiology-layout.ts` was rewritten in place as an `ArchLayout`
+  (21 polygon rooms, 25 door leaves, 4 columns, 7 windows; the rectangle trace
+  and its `TRACED` entry are gone). `scripts/draw-architectural-floor.ts --area
+  "QC Microbiology" [--apply]` draws it — dry run by default, every room
+  through `validateRoomPayload`, one audit row per room / link / plan, label /
+  grade / meta carried by room code. QC keeps `draw-qc-layout-2.ts`.
+  `draw-cwh-floorplan.ts` skips both (`DRAWN_ELSEWHERE`). Two leaves of a
+  double door are stored 1 px apart: the door overlap check refuses two doors
+  that touch on one edge once their fractions are rounded. Pinned by
+  `__tests__/microbiology-layout.test.ts` (13, mutation-checked three ways:
+  hinge end, an off-grid edge, a door on the wrong room). Applied to
+  `compliance_core_db` only; AWS needs the script run after the next deploy.
 - **2026-09-16 — the instrument CODE is changeable.** `PUT /api/instruments/:id`
   accepts `code` (shared `updateInstrumentSchema`, same `codeSchema` as create).
   **No count moved, no migration.** The code is the MQTT client id and every

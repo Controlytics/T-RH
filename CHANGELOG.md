@@ -1,5 +1,52 @@
 # Changelog
 
+## [Unreleased] - "CWH — QC Microbiology" re-traced and drawn in the 2D architectural design (2026-10-01)
+
+Operator: *"same like qc layout there Microbiology layout image in folder make
+layout as per that image same like qc"*.
+
+- **The trace** (`apps/api/src/modules/floorplans/microbiology-layout.ts`,
+  REWRITTEN in place): `Layouts/CWH/Microbiology.png` re-measured as POLYGONS on
+  the wall centre lines — 21 rooms (INCUBATOR ROOM-01 is the one L-shape; it was
+  two rectangles), 25 door leaves on the wall and hinge side the drawing shows
+  (21 single doors, the blue pair between the incubator rooms, the red
+  emergency-exit pair), the 4 structural columns and 7 windows. The 2026-09-21
+  trace had 22 rectangles, doors as rough fractions of a box side, and took the
+  columns for equipment. Departures are in the file header: the south wall is
+  still COMPUTED (the image is cut off at the bottom), the cavity wall beside
+  INCUBATOR ROOM-02 is one wall, the emergency exit swings in, the HPHV
+  sterilizer and the change room's cross-over bench are not drawn.
+- **Shared with QC:** `architectural-layout.ts` holds the trace types and the
+  px → stored conversions, lifted out of `qc-layout-2.ts` unchanged (its output
+  compared byte for byte before and after).
+- **Data** (`scripts/draw-architectural-floor.ts --area "QC Microbiology"
+  --apply`, a new generic script; applied LOCALLY): the plan's canvas, structure
+  layer and `style: 'architectural'`; 22 rooms deleted, 21 created, the 8
+  instruments placed back in the rooms of the same codes — one audit row per
+  room and one for the plan. `draw-cwh-floorplan.ts` now skips this area
+  (`DRAWN_ELSEWHERE`). **AWS needs the same run after the next deploy.**
+- **Small rooms stay legible** (`floorplan-view.tsx`): the three LAF / BSC rooms
+  are ~100 units wide and WATER WET ANALYSIS has a door swing in one corner and
+  a column in the other; with the two design cards their Locations printed at
+  5.7–6.1 units, the size already reported as "not visible" on QC. Two more
+  card shapes — `tall` (narrow, the two readings stacked) and `compact` (the
+  wide card with less air) — are tried ONLY when the design shapes print the
+  Location under 9 units (`chooseCard`, `LEGIBLE_LOC_FONT`). Those five cards
+  now print it at 8.1–9.2. `splitLabel` also breaks before a bracket, for
+  `LAF-1(Microbiology)`, which has no space. **Every QC card is unchanged** —
+  its smallest Location is 9.1 — and the QC plan's rendered SVG is byte-identical
+  before and after.
+- **An empty room's name steps clear of door swings and columns**
+  (`placeRoomName` in `room-geometry.ts`): the four change rooms are ~97 x 65
+  units and a swing swept through every name. A name with nothing in its way is
+  exactly where it was.
+- No count moved: no model, enum, migration, permission, route, config def or
+  page. Tests: `microbiology-layout.test.ts` (13), `floorplan-arch.test.tsx`
+  (15 → 23); seven mutation checks, all caught. Verified by rendering the real
+  `FloorplanView` with the stored plan beside the drawing
+  (`Layouts/CWH/concepts/applied-cwh-qc-microbiology.png`); not seen in the
+  running app.
+
 ## [Unreleased] - "CWH — QC" is drawn in the 2D architectural design; one QC plan (2026-10-01)
 
 Operator, shown three concepts (`Layouts/CWH/concepts/`: 2D, 3D isometric,

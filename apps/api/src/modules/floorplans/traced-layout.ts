@@ -6,8 +6,13 @@
  * `draw-cwh-floorplan.ts`'s guillotine split. `qc-layout.ts` (2026-08-31,
  * re-traced 2026-09-21) was the first and carries its own copies of these
  * types with the long header on how a drawing is measured; `qc3-layout.ts`
- * and `microbiology-layout.ts` (2026-09-21) use these. The three are kept as
- * separate files on purpose — each is one drawing, read against one image.
+ * (2026-09-21) uses these. Each floor is its own file on purpose — one
+ * drawing, read against one image.
+ *
+ * These are the RECTANGLE traces. A floor drawn in the 2D architectural style
+ * is a polygon trace on `architectural-layout.ts` instead: QC
+ * (`qc-layout-2.ts`) and, since 2026-10-01, Microbiology
+ * (`microbiology-layout.ts`, which used these types until then).
  */
 import type { Grade, Door, RoomMeta, PlanAnnotations } from './qc-layout.js';
 

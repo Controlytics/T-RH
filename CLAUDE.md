@@ -1417,6 +1417,9 @@ GET    /api/config/report-downloads/current     — (2026-10-01) per report KIND
       at the bottom, so its south row's south walls are computed from the
       written depths. Tests: `__tests__/traced-layouts.test.ts`. **Only
       Stability, Module-E, Module-F and Ware House are still generated.**
+      **Microbiology's half of this is SUPERSEDED (2026-10-01): it is a polygon
+      trace in the 2D architectural style now — see the Microbiology bullet
+      below. `TRACED` holds QC 3 alone.**
     - **The corridor pieces DRAW as one space (same day, operator: "corridor
       single line, not divided into separately").** The seam between two
       adjoining CIRCULATION rooms is cut out of the walls by the VIEW
@@ -1433,6 +1436,38 @@ GET    /api/config/report-downloads/current     — (2026-10-01) per report KIND
     'architectural'` (declared in the schema); `floorplan-view.tsx` draws such a
     plan with double walls, status-washed rooms, one card per instrument placed
     by `placeCard`, dashed swings and a side panel. The bullet below is history.
+  - **"CWH — QC Microbiology" is drawn the same way (2026-10-01, operator:
+    "same like qc layout there Microbiology layout image in folder make layout
+    as per that image same like qc").** `microbiology-layout.ts` was REWRITTEN
+    in place: `Layouts/CWH/Microbiology.png` re-measured as polygons on the wall
+    centre lines — 21 rooms (INCUBATOR ROOM-01 is ONE L-shape, no `(2)` piece),
+    25 door leaves by measured gap and hinge side, 4 columns, 7 windows.
+    **No count moved** — no model, enum, migration, route, config def or page.
+    - **`architectural-layout.ts` is the ONE home of the trace types and the
+      px → stored conversions** (`ArchLayout`, `edgeDoor`, `archPoints`,
+      `archAnnotations`), lifted out of `qc-layout-2.ts` unchanged; QC's output
+      was compared byte for byte before and after. A third floor in this style
+      is a new `ArchLayout` file plus one line in the script's `LAYOUTS`.
+    - **`scripts/draw-architectural-floor.ts --area "<area>" [--apply]`** draws
+      it (dry run by default; audited like the other drawing scripts; label /
+      grade / meta carried by room code). QC keeps its own
+      `draw-qc-layout-2.ts`, which also retires the second QC plan.
+      `draw-cwh-floorplan.ts` skips both areas (`DRAWN_ELSEWHERE`).
+      **Applied LOCALLY; AWS needs `draw-architectural-floor.ts --area "QC
+      Microbiology" --apply` after the next deploy.**
+    - **Still true from the first trace:** the image is CUT OFF at the bottom,
+      so the south wall (y 660) is computed from the written depths; and
+      `CWH/RDU/051-00` sits in the unnumbered INCUBATOR ROOM-01 by judgement.
+      New departures (file header): the cavity wall beside INCUBATOR ROOM-02 is
+      one wall; the emergency-exit pair swings IN (a door is drawn on its own
+      room); the HPHV sterilizer and the cross-over bench are not drawn.
+    - **Two more card shapes, `tall` and `compact`, exist for rooms the design
+      cards cannot serve** — tried ONLY when `std` / `wide` print the Location
+      under `LEGIBLE_LOC_FONT` (9 units; `chooseCard` in `floorplan-view.tsx`).
+      The LAF / BSC rooms are ~100 units wide and printed it at ~6. **Do not
+      drop that gate**: without it the compact card wins in mid-size rooms and
+      changes QC's cards, whose smallest Location is 9.1. An empty room's name
+      steps clear of door swings and columns (`placeRoomName`).
   - **A SECOND QC plan, "CWH — QC Layout-2" (2026-10-01)**, traced from
     `Layouts/CWH/QC Layout-2.png` (the same floor, clean) in
     `qc-layout-2.ts` by `scripts/draw-qc-layout-2.ts`: polygon rooms (the two

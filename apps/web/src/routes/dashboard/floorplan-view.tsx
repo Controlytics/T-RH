@@ -30,7 +30,8 @@ import {
 import {
   polygonWalls, polygonDoorPlacements, polygonSharedOpenings, doorToEdgeOpening, tileLayout,
   CHIP_HEIGHT_FACTOR, CHIP_GAP, FULL_CODE_GAP, VALUES_TOP_GAP,
-  CODE_LINE_H, TILE_CODE_FONT, LOCATION_LINE_H, TILE_LOCATION_FONT, TILE_HEADER_H, avoidDoorSwings, avoidObstacles, placeCard, swingSquare, MAX_TILE_FONT,
+  CODE_LINE_H, TILE_CODE_FONT, LOCATION_LINE_H, TILE_LOCATION_FONT, TILE_HEADER_H, avoidDoorSwings, avoidObstacles, placeCard, placeRoomName, swingSquare, MAX_TILE_FONT,
+  type PixelBox,
 } from './room-geometry';
 
 /**
@@ -330,7 +331,8 @@ export function tileValues(
  * THE 2D ARCHITECTURAL STYLE (2026-10-01, operator: "2d layout was good
  * replace with that QC layout", choosing concept A of three —
  * `Layouts/CWH/concepts/concept-a-2d.png`). A plan opts in through
- * `annotations.style = 'architectural'` (only "CWH — QC" does); every other
+ * `annotations.style = 'architectural'` ("CWH — QC", and "CWH — QC
+ * Microbiology" since later the same day: "same like qc"); every other
  * plan draws exactly as before.
  *
  * What it changes, and the one rule it reverses: the ROOM FLOOR is tinted by
@@ -420,32 +422,58 @@ const CARD_LINE = 15;
  * which on one line in a small room printed at about 5px). Longer than
  * `max` characters, it breaks at the space nearest its middle, so the font is
  * sized by the longer HALF; a label with no space stays on one line.
+ *
+ * An opening bracket is a break point too (Microbiology, same day:
+ * "LAF-1(Microbiology)" has no space at all, and in a narrow room it has to
+ * wrap) — the bracket starts the second line. A space still wins when it is
+ * nearer the middle.
  */
 export function splitLabel(text: string, max = 20): string[] {
   const t = text.trim();
   if (t.length <= max) return [t];
   const mid = t.length / 2;
   let best = -1;
-  for (let i = 0; i < t.length; i++) {
-    if (t[i] === ' ' && (best < 0 || Math.abs(i - mid) < Math.abs(best - mid))) best = i;
+  for (let i = 1; i < t.length; i++) {
+    const breaks = t[i] === ' ' || (t[i] === '(' && t[i - 1] !== ' ');
+    if (breaks && (best < 0 || Math.abs(i - mid) < Math.abs(best - mid))) best = i;
   }
-  return best < 0 ? [t] : [t.slice(0, best).trim(), t.slice(best + 1).trim()];
+  if (best < 0) return [t];
+  return [t.slice(0, best).trim(), t.slice(t[best] === ' ' ? best + 1 : best).trim()];
 }
 
 /**
- * The two card SHAPES, at scale 1. `std` is the concept's portrait card;
- * `wide` is a landscape card with no TEMP / HUMIDITY captions, for a SHORT
- * room where the portrait card would have to shrink to clear a door swing
- * (SAMPLE DESTRUCTION ROOM: its Location printed at ~5px). A one-instrument
- * room tries both and keeps whichever prints the Location LARGER.
- * `wrap` is how long a Location may be before it takes two lines.
+ * The card SHAPES, at scale 1. `std` is the concept's portrait card; `wide` is
+ * a landscape card with no TEMP / HUMIDITY captions, for a SHORT room where
+ * the portrait card would have to shrink to clear a door swing (SAMPLE
+ * DESTRUCTION ROOM: its Location printed at ~5px). A one-instrument room tries
+ * both and keeps whichever prints the Location LARGER.
+ *
+ * `tall` and `compact` are for the rooms where NEITHER does (Microbiology,
+ * 2026-10-01: the three LAF / BSC rooms are ~100 units wide and the WATER WET
+ * ANALYSIS room has a door swing in one corner and a column in the other —
+ * their Locations printed at about 6 units, the size the operator had already
+ * called "not visible" on QC). `tall` is a narrow card with the two readings
+ * STACKED; `compact` is the wide card with less air in it. They are tried only
+ * when the first two print the Location under `LEGIBLE_LOC_FONT`, so a room
+ * the design's own card serves keeps it — every QC card is unchanged.
+ *
+ * `wrap` is how long a Location may be before it takes two lines; `val2Y` is
+ * the second reading's baseline on a stacked card.
  */
 export const CARD_SHAPES = {
-  std: { w: 196, h: 104, band: 26, idY: 19, locY: 46, valY: 78, capY: 95, wrap: 20, captions: true },
-  wide: { w: 280, h: 74, band: 24, idY: 17, locY: 43, valY: 68, capY: 0, wrap: 30, captions: false },
+  std: { w: 196, h: 104, band: 26, idY: 19, idFont: 15.5, locY: 46, locFont: 14, valY: 78, val2Y: 0, valFont: 20, capY: 95, wrap: 20, captions: true, stack: false },
+  wide: { w: 280, h: 74, band: 24, idY: 17, idFont: 15.5, locY: 43, locFont: 14, valY: 68, val2Y: 0, valFont: 20, capY: 0, wrap: 30, captions: false, stack: false },
+  tall: { w: 124, h: 102, band: 24, idY: 17, idFont: 14, locY: 42, locFont: 14, valY: 69, val2Y: 93, valFont: 20, capY: 0, wrap: 14, captions: false, stack: true },
+  compact: { w: 170, h: 60, band: 20, idY: 14.5, idFont: 13, locY: 35, locFont: 13, valY: 54, val2Y: 0, valFont: 17, capY: 0, wrap: 26, captions: false, stack: false },
 } as const;
 export type CardShape = keyof typeof CARD_SHAPES;
-const LOC_FONT = 14;
+/** The design's shapes, tried first; and the small-room shapes, tried only
+ *  when those print the Location under `LEGIBLE_LOC_FONT`. */
+export const DESIGN_SHAPES = ['std', 'wide'] as const satisfies readonly CardShape[];
+export const SMALL_ROOM_SHAPES = ['tall', 'compact'] as const satisfies readonly CardShape[];
+/** Under this many units a Location is hard to read on a wall display. The
+ *  smallest Location on the QC floor prints at 9.1. */
+export const LEGIBLE_LOC_FONT = 9;
 
 /** A card's base size and Location lines for a given shape and Location text. */
 export function cardSpec(shape: CardShape, location: string) {
@@ -458,7 +486,35 @@ export function cardSpec(shape: CardShape, location: string) {
 /** The Location font a card of `spec` prints at scale `k`. */
 export function locationFont(spec: ReturnType<typeof cardSpec>, k: number): number {
   const longest = Math.max(1, ...spec.lines.map((l) => l.length));
-  return Math.min(LOC_FONT * k, (spec.w * k - 10) / (longest * 0.6));
+  return Math.min(spec.locFont * k, (spec.w * k - 10) / (longest * 0.6));
+}
+
+/**
+ * Which shape a one-instrument room's card takes, and where it goes: the
+ * shape that prints the Location LARGEST. The portrait card wins a tie (it is
+ * the design; the others are fallbacks), and the small-room shapes are not
+ * even tried while a design shape is legible. Null when no shape fits clear
+ * of the obstacles — the caller falls back to the tile grid's box.
+ */
+export function chooseCard(
+  inner: PixelBox,
+  obstacles: PixelBox[],
+  location: string,
+): (NonNullable<ReturnType<typeof placeCard>> & { shape: CardShape }) | null {
+  let best: (NonNullable<ReturnType<typeof placeCard>> & { shape: CardShape }) | null = null;
+  let bestFont = -1;
+  const tryShapes = (shapes: readonly CardShape[]) => {
+    for (const shape of shapes) {
+      const spec = cardSpec(shape, location);
+      const placed = placeCard(inner, obstacles, spec.w, spec.h);
+      if (!placed) continue;
+      const font = locationFont(spec, placed.k);
+      if (font > bestFont + 0.25) { bestFont = font; best = { ...placed, shape }; }
+    }
+  };
+  tryShapes(DESIGN_SHAPES);
+  if (bestFont < LEGIBLE_LOC_FONT) tryShapes(SMALL_ROOM_SHAPES);
+  return best;
 }
 
 /** The card's Location text for a row: its own Location attribute, else the room's name. */
@@ -662,6 +718,11 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
   // readings lay out in — computed ONCE and read by every layer below (the 2D
   // style draws walls, cards and doors in their own passes, over all rooms).
   const columnBoxes = (plan?.annotations?.columns ?? []).map((c) => ({ x: c.x * VB_W, y: c.y * vbH, w: c.w * VB_W, h: c.h * vbH }));
+  // What a card or a room's name must stay clear of in the 2D style: every
+  // door swing on the plan (a neighbour's door can swing in) and the columns.
+  const planObstacles = arch
+    ? [...roomViews.flatMap((o) => polygonDoorPlacements(roomOutline(o.room, VB_W, vbH), o.room.doors ?? []).map(swingSquare)), ...columnBoxes]
+    : [];
   const geoms = new Map(roomViews.map(({ room, rows: roomRows }) => {
     // A corridor is ONE space that the schema stores as several
     // rectangles (a room is a rectangle; an L is two). The seam
@@ -722,21 +783,10 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
     // The 2D style places a room's ONE card by search (see `placeCard`),
     // clear of every swing on the plan (a neighbour's door can swing in) and of
     // the columns; a room with several instruments keeps the tile grid.
-    let card: (NonNullable<ReturnType<typeof placeCard>> & { shape: CardShape }) | null = null;
-    if (arch && roomRows.length === 1) {
-      const inner = largestInscribedRect(outline);
-      const obstacles = [...roomViews.flatMap((o) => polygonDoorPlacements(roomOutline(o.room, VB_W, vbH), o.room.doors ?? []).map(swingSquare)), ...columnBoxes];
-      const loc = cardLocation(roomRows[0], room);
-      let bestFont = -1;
-      for (const shape of ['std', 'wide'] as const) {
-        const spec = cardSpec(shape, loc);
-        const placed = placeCard(inner, obstacles, spec.w, spec.h);
-        if (!placed) continue;
-        const font = locationFont(spec, placed.k);
-        // The portrait card wins a tie: it is the design; the wide one is the fallback.
-        if (font > bestFont + 0.25) { bestFont = font; card = { ...placed, shape }; }
-      }
-    }
+    // The shape is whichever prints the Location largest — see `chooseCard`.
+    const card = arch && roomRows.length === 1
+      ? chooseCard(largestInscribedRect(outline), planObstacles, cardLocation(roomRows[0], room))
+      : null;
     return [room.id, {
       outline, doorOpenings, openings, tileBox, isContinuation, card,
       outlinePoints: outline.map((pt) => `${pt.x},${pt.y}`).join(' '),
@@ -1121,14 +1171,17 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                 </g>
 
                 {/* A room with no instrument: its name, letter-spaced, and its
-                    number under it; a continuation piece prints nothing. */}
+                    number under it; a continuation piece prints nothing. The
+                    name sits in the room's middle unless a door swing or a
+                    column is there — then at the nearest clear spot
+                    (`placeRoomName`; Microbiology's four change rooms are
+                    small enough that a door swept through every name). */}
                 <g pointerEvents="none">
                   {roomViews.map(({ room, rows: roomRows }) => {
                     const g = geoms.get(room.id)!;
                     if (roomRows.length > 0 || g.isContinuation) return null;
                     const name = (room.label || room.code).trim();
-                    const fs = Math.max(7, Math.min(15, (g.tileBox.w - 16) / (Math.max(1, name.length) * 0.75), g.tileBox.h / 4));
-                    const cx = g.tileBox.x + g.tileBox.w / 2, cy = g.tileBox.y + g.tileBox.h / 2;
+                    const { cx, cy, fs } = placeRoomName(g.tileBox, planObstacles, name.length, !!room.label);
                     return (
                       <g key={`n-${room.id}`}>
                         <text x={cx} y={cy} textAnchor="middle" fontSize={fs} fill={ARCH.roomName} letterSpacing="0.08em">{name}</text>
@@ -1193,12 +1246,23 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                           d={`M${x0},${y0 + spec.band * k} V${y0 + 9 * k} Q${x0},${y0} ${x0 + 9 * k},${y0} H${x0 + cw - 9 * k} Q${x0 + cw},${y0} ${x0 + cw},${y0 + 9 * k} V${y0 + spec.band * k} Z`}
                           fill={band}
                         />
-                        <text x={x0 + cw / 2} y={y0 + spec.idY * k} textAnchor="middle" fontSize={Math.min(15.5 * k, (cw - 10) / (row.code.length * 0.64))} fontWeight={800} fill="#ffffff">{row.code}</text>
+                        <text x={x0 + cw / 2} y={y0 + spec.idY * k} textAnchor="middle" fontSize={Math.min(spec.idFont * k, (cw - 10) / (row.code.length * 0.64))} fontWeight={800} fill="#ffffff">{row.code}</text>
                         {locLines[0] && locLines.map((line, li) => (
                           <text key={li} x={x0 + cw / 2} y={y0 + spec.locY * k + li * CARD_LINE * k} textAnchor="middle" fontSize={locFont} fontWeight={700} fill="#334155">{line}</text>
                         ))}
-                        <text x={x0 + 13 * k} y={y0 + spec.valY * k + dy} fontSize={20 * k} fontWeight={700} fill={ARCH.ink[t.st]} style={{ fontVariantNumeric: 'tabular-nums' }}>{t.text}</text>
-                        <text x={x0 + cw - 13 * k} y={y0 + spec.valY * k + dy} textAnchor="end" fontSize={20 * k} fontWeight={700} fill={ARCH.ink[h.st]} style={{ fontVariantNumeric: 'tabular-nums' }}>{h.text}</text>
+                        {/* The two readings: side by side, or one above the
+                            other on the narrow `tall` card. */}
+                        {spec.stack ? (
+                          <>
+                            <text x={x0 + cw / 2} y={y0 + spec.valY * k + dy} textAnchor="middle" fontSize={spec.valFont * k} fontWeight={700} fill={ARCH.ink[t.st]} style={{ fontVariantNumeric: 'tabular-nums' }}>{t.text}</text>
+                            <text x={x0 + cw / 2} y={y0 + spec.val2Y * k + dy} textAnchor="middle" fontSize={spec.valFont * k} fontWeight={700} fill={ARCH.ink[h.st]} style={{ fontVariantNumeric: 'tabular-nums' }}>{h.text}</text>
+                          </>
+                        ) : (
+                          <>
+                            <text x={x0 + 13 * k} y={y0 + spec.valY * k + dy} fontSize={spec.valFont * k} fontWeight={700} fill={ARCH.ink[t.st]} style={{ fontVariantNumeric: 'tabular-nums' }}>{t.text}</text>
+                            <text x={x0 + cw - 13 * k} y={y0 + spec.valY * k + dy} textAnchor="end" fontSize={spec.valFont * k} fontWeight={700} fill={ARCH.ink[h.st]} style={{ fontVariantNumeric: 'tabular-nums' }}>{h.text}</text>
+                          </>
+                        )}
                         {spec.captions && (
                           <>
                             <text x={x0 + 13 * k} y={y0 + spec.capY * k + dy} fontSize={8.5 * k} fill={ARCH.roomCode} letterSpacing="0.06em">TEMP</text>

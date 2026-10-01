@@ -644,12 +644,13 @@ panels), `canvas.tsx` (the SVG surface; every callback receives PLAN UNITS),
   last row), and full screen shows the drawing ALONE with one Normal screen
   button — the SVG is one `floorSvg` constant rendered in both modes.
 
-## The 2D ARCHITECTURAL style (2026-10-01) — "CWH — QC" only
+## The 2D ARCHITECTURAL style (2026-10-01) — "CWH — QC" and "CWH — QC Microbiology"
 
 A plan whose `annotations.style` is `'architectural'` draws differently; every
 other plan is untouched. Operator chose concept A of three
 (`Layouts/CWH/concepts/concept-a-2d.png`): *"2d layout was good replace with
-that QC layout"*.
+that QC layout"*; the Microbiology floor followed the same day (*"same like
+qc"*).
 
 - **Layers, not per-room groups.** The room `<g>` keeps only its fill (and its
   click / aria); walls, empty-room names, cards and doors are drawn in passes
@@ -668,13 +669,35 @@ that QC layout"*.
   rooms; a one-instrument room keeps whichever prints its Location larger, and a
   long Location wraps to two lines (`splitLabel`). Added for CWH/RDU/018-00,
   whose 44-character Location printed at ~5 units.
+- **Two MORE shapes for rooms those two cannot serve — `tall` and `compact`
+  (Microbiology, same day).** The three LAF / BSC rooms are ~100 units wide and
+  WATER WET ANALYSIS has a door swing in one corner and a column in the other;
+  the design cards printed their Locations at 5.7–6.1 units. `tall` is narrow
+  with the two readings STACKED (`stack`, `val2Y`); `compact` is the wide card
+  with less air (its own `idFont` / `locFont` / `valFont`). **`chooseCard` tries
+  them ONLY when `std` / `wide` print the Location under `LEGIBLE_LOC_FONT`
+  (9)** — remove that gate and `compact` wins in every mid-size room, which
+  changes QC's approved cards (smallest Location there: 9.1). `splitLabel` also
+  breaks before a bracket (`LAF-1(Microbiology)` has no space). The QC plan's
+  rendered SVG was byte-identical before and after.
+- **An empty room's name steps clear of door swings and columns**
+  (`placeRoomName`, room-geometry.ts): centred as before unless something is in
+  the way, then the nearest clear spot. Microbiology's four change rooms are
+  ~97 x 65 units and a swing swept through every name.
 - **No alarm halo in this style** — it showed through door gaps; the wash and
   the red card carry the alarm.
 - **The side panel's arrow is PLAN north** and says so: the drawing marks no
   true north.
 - `cardTone` / `roomTone` / `archSummary` bucket the SERVER's statuses; nothing
-  is re-derived. Tests: `floorplan-arch.test.tsx` (12, mutation-checked: the
-  style switch and the obstacle test).
+  is re-derived. Tests: `floorplan-arch.test.tsx` (23, mutation-checked: the
+  style switch, the obstacle test, the legibility gate, the bracket break, the
+  stacked readings, the name placement).
+- **To SEE a floor without the browser session:** mount the real
+  `FloorplanView` in a throwaway vitest file with `useFloorplans` /
+  `useTelemetryOverview` mocked to the stored plan, write the SVG's `outerHTML`
+  to a file, and screenshot it with headless Chrome beside the drawing. That is
+  how both floors were checked; `Layouts/CWH/concepts/applied-*.png` are the
+  results.
 
 ## The QC floor plan is TRACED, and carries an annotation layer (2026-08-31)
 
@@ -710,7 +733,10 @@ was; `captionHeader()` below decides whether its four caption lines fit.
   `room-geometry.test.ts` and `floorplan-continuation.test.ts`;
   mutation-checked. QC 3 and Microbiology are traced too since 2026-09-21
   (`qc3-layout.ts`, `microbiology-layout.ts`); Microbiology carries
-  annotations (a legend), QC 3 stores NULL and draws none.
+  annotations (a legend), QC 3 stores NULL and draws none. (Since 2026-10-01
+  Microbiology is a POLYGON trace in the 2D style: INCUBATOR ROOM-01 is one
+  L-shaped room and there is no `INCUBATOR-01 (2)` piece any more; QC 3 still
+  has two continuation pieces, `CWH-I/187 (2)` and `CWH-I/235 (2)`.)
 
 - **`room.meta.fill` OVERRIDES the zone tint.** The draughtsman's colours say
   what a room is FOR; `grade` says how it is classified. Both are stored, and

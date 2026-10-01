@@ -39,43 +39,25 @@
  * faces of the outer walls; the walls themselves are the band out to BUILDING.
  */
 
-export type Grade = 'A' | 'B' | 'C' | 'D' | 'CIRCULATION' | 'UTILITY';
-type Pt = [number, number];
+// The types and the px -> stored conversions are shared with every floor drawn
+// in this style since the Microbiology floor became the second (same day);
+// they were lifted out of this file unchanged. The names below are kept as
+// aliases so this file still reads against its own test.
+import {
+  rect, vDoor, hDoor, edgeDoor, archCanvas, archPoints, archAnnotations,
+  type Grade, type ArchDoor, type ArchRoom, type ArchAnnotations,
+} from './architectural-layout.js';
+
+export type { Grade };
+export type Door2 = ArchDoor;
+/** `label` is used only when the existing QC plan has no room of this code. */
+export type Room2 = ArchRoom;
+export { edgeDoor };
 
 /** The outer faces of the exterior walls — the plan's canvas. The rooms stop at
  *  the inner faces, so the band between is the wall, with its windows and the
  *  south columns sitting in it. */
 export const QC2_BUILDING = { x0: 5, y0: 2, x1: 1074, y1: 1452 } as const;
-
-/** A door as MEASURED: the gap on one wall line of the room it opens into. */
-export interface Door2 {
-  /** 'x' = a vertical wall at x = `at`; 'y' = a horizontal wall at y = `at`. */
-  axis: 'x' | 'y';
-  at: number;
-  /** The gap along the wall, px. */
-  from: number;
-  to: number;
-  kind: 'ENTRY' | 'EXIT' | 'PASSAGE';
-  /** The end the leaf is hung on, in DRAWING terms: 'from' (the lower
-   *  coordinate) or 'to'; 'none' = an opening with no leaf. Read off the image:
-   *  the swing arc meets the wall at the FREE end. */
-  hinge: 'from' | 'to' | 'none';
-}
-
-export interface Room2 {
-  code: string;
-  /** Used only when the existing QC plan has no room of this code. */
-  label: string | null;
-  /** Clockwise on screen (y down), px. */
-  outline: Pt[];
-  grade?: Grade;
-  doors: Door2[];
-  instrument?: string;
-}
-
-const rect = (x0: number, y0: number, x1: number, y1: number): Pt[] => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
-const vDoor = (at: number, from: number, to: number, hinge: Door2['hinge'], kind: Door2['kind'] = 'ENTRY'): Door2 => ({ axis: 'x', at, from, to, hinge, kind });
-const hDoor = (at: number, from: number, to: number, hinge: Door2['hinge'], kind: Door2['kind'] = 'ENTRY'): Door2 => ({ axis: 'y', at, from, to, hinge, kind });
 
 export const QC2_ROOMS: Room2[] = [
   // ── North block ─────────────────────────────────────────────────────────
@@ -130,12 +112,7 @@ export const QC2_ROOMS: Room2[] = [
 ];
 
 /** Plan annotations in drawing px. Boxes are [x0, y0, x1, y1]. */
-export interface Annotations2 {
-  columns: [number, number, number, number][];
-  windows: [number, number, number, number][];
-  /** Partition stubs that are not a room boundary: [x1, y1, x2, y2]. */
-  walls: [number, number, number, number][];
-}
+export type Annotations2 = ArchAnnotations;
 
 export const QC2_ANNOTATIONS: Annotations2 = {
   // The orange hatched squares (cyan-framed): four at the corners of HPLC /
@@ -163,61 +140,16 @@ export const QC2_ANNOTATIONS: Annotations2 = {
 
 // ── Conversion to what the schema stores (0..1 against the building) ───────
 
-const W = QC2_BUILDING.x1 - QC2_BUILDING.x0;
-const H = QC2_BUILDING.y1 - QC2_BUILDING.y0;
-const nx = (x: number) => Math.round(((x - QC2_BUILDING.x0) / W) * 1e6) / 1e6;
-const ny = (y: number) => Math.round(((y - QC2_BUILDING.y0) / H) * 1e6) / 1e6;
-
-export const QC2_CANVAS = { width: W, height: H } as const;
+export const QC2_CANVAS = archCanvas(QC2_BUILDING);
 
 /** A room's outline as normalized points. */
 export function points2(room: Room2): { x: number; y: number }[] {
-  return room.outline.map(([x, y]) => ({ x: nx(x), y: ny(y) }));
-}
-
-/**
- * A measured door → `{edge, offset, width, kind}` on the room's own outline:
- * the edge that lies on the wall line and covers the gap; `offset` measured
- * from that edge's START corner along its direction, as fractions of its
- * length (the polygon convention). Throws when no edge carries the gap — a
- * door on the wrong room is a measuring mistake, never something to guess.
- */
-export function edgeDoor(room: Room2, d: Door2): { edge: number; offset: number; width: number; kind: Door2['kind']; hinge: 'start' | 'end' | 'none' } {
-  const pts = room.outline;
-  for (let i = 0; i < pts.length; i++) {
-    const [x1, y1] = pts[i];
-    const [x2, y2] = pts[(i + 1) % pts.length];
-    const onLine = d.axis === 'x' ? (x1 === d.at && x2 === d.at) : (y1 === d.at && y2 === d.at);
-    if (!onLine) continue;
-    const s = d.axis === 'x' ? y1 : x1;
-    const e = d.axis === 'x' ? y2 : x2;
-    const lo = Math.min(s, e), hi = Math.max(s, e);
-    if (d.from < lo - 0.5 || d.to > hi + 0.5) continue;
-    const len = hi - lo;
-    // Along the edge's direction: from its start corner.
-    const startAlong = e >= s ? d.from - s : s - d.to;
-    const r6 = (v: number) => Math.round(v * 1e6) / 1e6;
-    // 'from' is the LOWER coordinate; the edge may run either way.
-    const ascending = e >= s;
-    const hinge = d.hinge === 'none' ? 'none' : ((d.hinge === 'from') === ascending ? 'start' : 'end');
-    return { edge: i, offset: r6(startAlong / len), width: r6((d.to - d.from) / len), kind: d.kind, hinge };
-  }
-  throw new Error(`door ${d.axis}=${d.at} ${d.from}..${d.to} is on no edge of ${room.code}`);
+  return archPoints(QC2_BUILDING, room);
 }
 
 /** The annotation layer as stored: columns and windows as boxes, stubs as segments. */
 export function annotations2() {
-  const box = ([x0, y0, x1, y1]: [number, number, number, number]) =>
-    ({ x: nx(x0), y: ny(y0), w: nx(x1) - nx(x0), h: ny(y1) - ny(y0) });
-  return {
-    // The dashboard draws this plan in the 2D ARCHITECTURAL style the operator
-    // chose from three concepts (Layouts/CWH/concepts/concept-a-2d.png).
-    style: 'architectural' as const,
-    equipment: [], hvac: [], water: [], airflow: [], labels: [],
-    columns: QC2_ANNOTATIONS.columns.map(box),
-    windows: QC2_ANNOTATIONS.windows.map(box),
-    walls: QC2_ANNOTATIONS.walls.map(([x1, y1, x2, y2]) => ({ x1: nx(x1), y1: ny(y1), x2: nx(x2), y2: ny(y2) })),
-  };
+  return archAnnotations(QC2_BUILDING, QC2_ANNOTATIONS);
 }
 
 /** The plan this floor is drawn ON (2026-10-01, later the same day, operator:

@@ -38,7 +38,6 @@ import { prisma } from '../src/lib/prisma.js';
 import { auditLog } from '../src/lib/audit.js';
 import { Prisma } from '@prisma/client';
 import { QC3_LAYOUT } from '../src/modules/floorplans/qc3-layout.js';
-import { MICROBIOLOGY_LAYOUT } from '../src/modules/floorplans/microbiology-layout.js';
 import { canvasOf, normRect, normPlanAnnotations, type TracedLayout } from '../src/modules/floorplans/traced-layout.js';
 
 /**
@@ -353,12 +352,17 @@ interface RoomSpec { code: string; label: string | null; grade: Grade; rect: Rec
  * The floors we have a DRAWING of, keyed by their functional-location AREA
  * name. Everything else is generated. `Layouts/CWH/` holds the drawings.
  */
-/** Areas whose plan another script owns; this one leaves them alone. */
-const DRAWN_ELSEWHERE: Record<string, string> = { QC: 'scripts/draw-qc-layout-2.ts' };
+/** Areas whose plan another script owns; this one leaves them alone. Both are
+ *  drawn in the 2D architectural style from a polygon trace — QC since
+ *  2026-10-01, QC Microbiology since later the same day (it was in `TRACED`
+ *  below, as rectangles, from 2026-09-21 until then). */
+const DRAWN_ELSEWHERE: Record<string, string> = {
+  QC: 'scripts/draw-qc-layout-2.ts',
+  'QC Microbiology': 'scripts/draw-architectural-floor.ts --area "QC Microbiology"',
+};
 
 const TRACED: Record<string, TracedLayout> = {
   [QC3_LAYOUT.area]: QC3_LAYOUT,
-  [MICROBIOLOGY_LAYOUT.area]: MICROBIOLOGY_LAYOUT,
 };
 
 /**
@@ -522,7 +526,8 @@ async function main() {
     // QC is drawn by its OWN script since 2026-10-01 (traced from
     // `QC Layout-2.png`, polygons, the 2D style) — redrawing it here would put
     // the older rectangle trace back over it. `src/modules/floorplans/qc-layout.ts`
-    // is that older trace, kept for its types and its test.
+    // is that older trace, kept for its types and its test. QC Microbiology
+    // went the same way that day; its rectangle trace was replaced in place.
     if (DRAWN_ELSEWHERE[area.name]) {
       console.log(`  ${planName.padEnd(28)} skipped — drawn by ${DRAWN_ELSEWHERE[area.name]}`);
       continue;

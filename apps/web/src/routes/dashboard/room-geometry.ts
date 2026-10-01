@@ -565,3 +565,33 @@ export function placeCard(
   }
   return null;
 }
+
+/**
+ * Where an EMPTY room's name goes in the 2D style (2026-10-01, Microbiology:
+ * the four change rooms are ~97 x 65 units with a door swing in one corner,
+ * and a name centred in the room was swept through by the swing; a column did
+ * the same to DECONTAMINATION's).
+ *
+ * The name stays where it always was — the middle of `box`, sized to it —
+ * unless that spot touches an obstacle; only then is it moved, to the nearest
+ * clear spot `placeCard` finds, shrinking only if nothing its size is clear.
+ * So a room with nothing in the way draws exactly as before. `cy` is the
+ * name's BASELINE; `twoLines` says the room's number prints under it.
+ */
+export function placeRoomName(
+  box: PixelBox,
+  obstacles: PixelBox[],
+  chars: number,
+  twoLines: boolean,
+): { cx: number; cy: number; fs: number } {
+  const fs = Math.max(7, Math.min(15, (box.w - 16) / (Math.max(1, chars) * 0.75), box.h / 4));
+  const cx = box.x + box.w / 2, cy = box.y + box.h / 2;
+  // The text's own box: the name's height above its baseline, the number below.
+  const w = Math.max(1, chars) * 0.75 * fs, up = fs * 0.85, down = twoLines ? fs * 1.35 : fs * 0.25;
+  const centred = { x: cx - w / 2, y: cy - up, w, h: up + down };
+  const hit = obstacles.some((o) => centred.x < o.x + o.w && centred.x + centred.w > o.x && centred.y < o.y + o.h && centred.y + centred.h > o.y);
+  if (!hit) return { cx, cy, fs };
+  const p = placeCard(box, obstacles, w, up + down, 3);
+  if (!p) return { cx, cy, fs };
+  return { cx: p.x + p.w / 2, cy: p.y + up * p.k, fs: fs * p.k };
+}
