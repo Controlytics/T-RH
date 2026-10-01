@@ -159,3 +159,19 @@ describe('door swing — a quarter circle CENTRED ON THE HINGE (2026-10-01)', ()
     expect(polygonDoorPlacements(square, [{ ...door, swing: 'in' }])).toEqual(polygonDoorPlacements(square, [door]));
   });
 });
+
+describe('planExtent — what is drawn is never clipped at the canvas edge (2026-10-01)', () => {
+  // In full screen a plan is re-proportioned and an outward door's swing, which
+  // keeps its size while the canvas gets shorter, can reach past the canvas.
+  it('an outward swing past the bottom of the canvas is inside the frame', () => {
+    const rooms = [rect('A', 0.1, 0.1, 0.8, 0.86)];
+    const e = planExtent(rooms, 0.01, [{ x: 0.4, y: 0.96, w: 0.05, h: 0.07 }]);
+    expect(e.y + e.h).toBeCloseTo(1.03, 9);
+  });
+
+  it('the MARGIN still stops at the canvas', () => {
+    const e = planExtent([rect('A', 0.005, 0.1, 0.99, 0.5)]);
+    expect(e.x).toBe(0);
+    expect(e.x + e.w).toBe(1);
+  });
+});

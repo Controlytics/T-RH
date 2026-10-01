@@ -719,6 +719,30 @@ qc"*).
   floor panel full width and 880 px tall, so that plan is sized by HEIGHT
   and the strip takes some. Do not "optimise" it back to the side without
   being asked; a taller panel or Full screen is what enlarges the plan.
+- **FULL SCREEN lays a 2D plan out to the SCREEN's proportions (same day,
+  operator: "microbiology layout in full screen its exactly filt to full
+  screen but, QC 3 and QC layouts only there is center of the screen not
+  adjusted to full screen").** A plan is always 1000 units wide, so its
+  viewBox HEIGHT sets its proportions; `fillHeight(naturalVbH, extentAt,
+  box)` returns the height at which the drawn extent has the shape of the
+  full-screen box (`fp-full-box`, measured in a layout effect and on window
+  resize; a few rounds, because an outward door's swing makes the extent
+  depend on the height). Everything downstream already reads `vbH`, so the
+  ROOMS re-proportion and cards / names / arcs are placed again inside them
+  at their own shapes - **never `preserveAspectRatio="none"`, which would
+  squash the type.** Three rules: (1) the PANEL keeps the drawing's
+  proportions - the stretch is `fullscreen && arch` only, and the panel
+  renders of all three traced floors are byte-identical; (2) **2D style
+  only** - the standard style's fixed tiles drop IDs, overflow Locations
+  and get door arcs over the readings when a portrait generated plan is
+  drawn at 1.9:1 (tried on Stability, withdrawn); (3) no measured box (first
+  frame, jsdom) = the drawing's height. `planExtent` clamps only its MARGIN
+  to the canvas now: drawn content past the edge (an outward swing in the
+  stretched frame) is inside the frame. To see it without the browser, the
+  dump harness clicks Full screen with `getBoundingClientRect` stubbed for
+  `fp-full-box` and writes `document.body.innerHTML` (the overlay is a
+  portal). Tests: `floorplan-arch.test.tsx` (53) and
+  `floorplan-polygon-render.test.ts` (20); mutation-checked eight ways.
 - **A long room NAME wraps; a very long Location takes three lines (QC 3,
   same day).** `placeRoomName(box, obstacles, name, hasCode)` returns `lines`:
   one line while that is legible (9 units), else turned (tall narrow room),

@@ -1519,6 +1519,16 @@ GET    /api/config/report-downloads/current     — (2026-10-01) per report KIND
       is full width and 880 px tall in every stored layout, so such a plan
       is sized by HEIGHT and the strip costs it some. A taller panel or
       Full screen is what enlarges it.
+    - **In FULL SCREEN a 2D plan is laid out to the SCREEN's proportions
+      (same day, operator: "QC 3 and QC layouts only there is center of
+      the screen not adjusted to full screen").** `fillHeight` in
+      `floorplan-view.tsx` picks the viewBox height that makes the drawn
+      extent the shape of the measured box; rooms are re-proportioned and
+      every card, name and arc is drawn undistorted inside them. The panel
+      view keeps the drawing's proportions, byte for byte. **2D style
+      only** - the generated floors' fixed tiles break when stretched and
+      stay centred. `planExtent` no longer clips drawn content at the
+      canvas edge (only its margin stops there). See `apps/web/CLAUDE.md`.
     - **Two more card shapes, `tall` and `compact`, exist for rooms the design
       cards cannot serve** — tried ONLY when `std` / `wide` print the Location
       under `LEGIBLE_LOC_FONT` (9 units; `chooseCard` in `floorplan-view.tsx`).

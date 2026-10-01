@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { placeCard, avoidObstacles, placeRoomName, balanceLines } from '../room-geometry';
 
@@ -35,7 +35,7 @@ vi.mock('../use-telemetry', async (orig) => ({
   useTelemetryOverview: () => ({ rows: ROWS, isLoading: false, error: undefined }),
 }));
 
-const { FloorplanView, cardTone, roomTone, archSummary, splitLabel, cardSpec, locationFont, chooseCard, LEGIBLE_LOC_FONT, ARCH, splitCode, codeFont, LEGEND_UNDER_RATIO, CARD_SHAPES } = await import('../floorplan-view');
+const { FloorplanView, cardTone, roomTone, archSummary, splitLabel, cardSpec, locationFont, chooseCard, LEGIBLE_LOC_FONT, ARCH, splitCode, codeFont, LEGEND_UNDER_RATIO, CARD_SHAPES, fillHeight } = await import('../floorplan-view');
 function Where() { const l = useLocation(); return <p data-testid="where">{l.pathname}</p>; }
 const mount = () => render(
   <MemoryRouter initialEntries={['/']}>
@@ -724,5 +724,92 @@ describe('long words in small rooms', () => {
     expect(three.h - one.h).toBe(30);
     const twoLineFont = (196 - 10) / (35 * 0.6);     // its longer half, 35 characters
     expect(locationFont(three, 1)).toBeGreaterThan(twoLineFont * 1.3);
+  });
+});
+
+/**
+ * Operator, 2026-10-01: "when i opened microbiology layout in full screen its
+ * exactly filt to full screen but, QC 3 and QC layouts only there is center of
+ * the screen not adjusted to full screen". Microbiology is about a screen's
+ * shape as drawn; QC 3 is square and QC portrait. In full screen a 2D plan is
+ * now laid out to the SCREEN's proportions.
+ */
+describe('full screen fills the screen', () => {
+  const SCREEN = { w: 1896, h: 1004 };
+  // jsdom lays nothing out: give the drawing's box the size a 1920 x 1080 screen leaves it.
+  const withBox = (box: { w: number; h: number } | null, run: () => void) => {
+    const real = HTMLElement.prototype.getBoundingClientRect;
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      if (box && this.dataset.testid === 'fp-full-box') {
+        return { x: 0, y: 0, left: 0, top: 0, right: box.w, bottom: box.h, width: box.w, height: box.h, toJSON() {} } as DOMRect;
+      }
+      return real.call(this);
+    };
+    try { run(); } finally { HTMLElement.prototype.getBoundingClientRect = real; }
+  };
+  const aspect = (root: ParentNode = document) => {
+    const vb = root.querySelector('svg[role="img"]')!.getAttribute('viewBox')!.split(' ').map(Number);
+    return vb[2] / vb[3];
+  };
+  // Rooms 0.9 x 0.6 of a 1000 x 1500 canvas: about square, like QC 3.
+  const square = (style?: string) => ({ ...planOf(style), imageWidth: 1000, imageHeight: 1500 });
+
+  it('fillHeight: the height at which the drawn extent has the box\'s proportions', () => {
+    const flat = () => ({ w: 0.92, h: 0.62 });
+    const h = fillHeight(1500, flat, SCREEN);
+    expect((0.92 * 1000) / (0.62 * h)).toBeCloseTo(SCREEN.w / SCREEN.h, 6);
+    // An outward door's swing keeps its size while the canvas gets shorter, so
+    // the extent depends on the height: it still settles on the box's shape.
+    const withSwing = (vbH: number) => ({ w: 0.92, h: 0.6 + 22 / vbH });
+    const h2 = fillHeight(1500, withSwing, SCREEN);
+    expect((0.92 * 1000) / (withSwing(h2).h * h2)).toBeCloseTo(SCREEN.w / SCREEN.h, 2);
+    // No box measured yet: the drawing's own height.
+    expect(fillHeight(1500, flat, null)).toBe(1500);
+    expect(fillHeight(1500, flat, { w: 0, h: 500 })).toBe(1500);
+  });
+
+  it('a square 2D plan is drawn to the screen\'s shape in full screen, and to the drawing\'s outside it', () => {
+    PLAN = square('architectural') as typeof PLAN; ROWS = [row({})];
+    withBox(SCREEN, () => {
+      mount();
+      const drawn = aspect();
+      expect(drawn).toBeGreaterThan(0.9); expect(drawn).toBeLessThan(1.1);
+      fireEvent.click(screen.getByRole('button', { name: /^Full screen/ }));
+      const full = document.querySelector('[data-fullscreen="true"]')!;
+      expect(aspect(full)).toBeCloseTo(SCREEN.w / SCREEN.h, 2);
+      // The ROOMS are re-proportioned, not the picture: no stretch on the svg,
+      // and the card is still drawn at its own shape.
+      const svg = full.querySelector('svg[role="img"]')!;
+      expect(svg.getAttribute('preserveAspectRatio')).toBe('xMidYMin meet');
+      const r = within(full as HTMLElement).getByTestId('fp-card').querySelector('rect')!;
+      const shape = CARD_SHAPES[within(full as HTMLElement).getByTestId('fp-card').getAttribute('data-shape') as keyof typeof CARD_SHAPES];
+      expect(Number(r.getAttribute('width')) / Number(r.getAttribute('height'))).toBeCloseTo(shape.w / shape.h, 1);
+      // Back in the panel: the drawing's proportions again.
+      fireEvent.click(screen.getByRole('button', { name: /^Exit full screen/ }));
+      expect(aspect()).toBeCloseTo(drawn, 6);
+    });
+    PLAN = planOf('architectural');
+  });
+
+  it('a plan in the STANDARD style keeps its proportions in full screen', () => {
+    PLAN = square() as typeof PLAN; ROWS = [row({})];
+    withBox(SCREEN, () => {
+      mount();
+      const drawn = aspect();
+      fireEvent.click(screen.getByRole('button', { name: /^Full screen/ }));
+      expect(aspect(document.querySelector('[data-fullscreen="true"]')!)).toBeCloseTo(drawn, 6);
+    });
+    PLAN = planOf('architectural');
+  });
+
+  it('with no box measured it stays as drawn rather than collapsing', () => {
+    PLAN = square('architectural') as typeof PLAN; ROWS = [row({})];
+    withBox(null, () => {
+      mount();
+      const drawn = aspect();
+      fireEvent.click(screen.getByRole('button', { name: /^Full screen/ }));
+      expect(aspect(document.querySelector('[data-fullscreen="true"]')!)).toBeCloseTo(drawn, 6);
+    });
+    PLAN = planOf('architectural');
   });
 });

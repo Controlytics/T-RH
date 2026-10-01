@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Maximize2, Minimize2 } from 'lucide-react';
 import { useSensorWords } from '@/hooks/use-failure-text';
@@ -87,9 +87,51 @@ export function planExtent(
     }
   }
   if (!Number.isFinite(minX)) return { x: 0, y: 0, w: 1, h: 1 };
-  const x = Math.max(0, minX - margin), y = Math.max(0, minY - margin);
-  const x2 = Math.min(1, maxX + margin), y2 = Math.min(1, maxY + margin);
+  // The MARGIN stops at the canvas; what is drawn never does. In full screen a
+  // plan is re-proportioned (`fillHeight`) and an outward door's swing, which
+  // keeps its size while the canvas gets shorter, can reach past the canvas
+  // edge — clamped there, QC 3's two exits were cut off at the bottom.
+  const x = Math.min(minX, Math.max(0, minX - margin)), y = Math.min(minY, Math.max(0, minY - margin));
+  const x2 = Math.max(maxX, Math.min(1, maxX + margin)), y2 = Math.max(maxY, Math.min(1, maxY + margin));
   return { x, y, w: Math.max(0.05, x2 - x), h: Math.max(0.05, y2 - y) };
+}
+
+/**
+ * The viewBox HEIGHT at which a plan exactly fills a box `box` px in size — a
+ * plan is always 1000 units wide, so its height is what sets its proportions.
+ *
+ * FULL SCREEN draws a plan to the SCREEN's proportions, not the drawing's
+ * (operator, 2026-10-01: "when i opened microbiology layout in full screen its
+ * exactly filt to full screen but, QC 3 and QC layouts only there is center of
+ * the screen not adjusted to full screen"). Microbiology is 2.2 wide to tall
+ * and a screen is about 1.9, so it nearly filled one as drawn; QC 3 is 1.02
+ * and QC 0.74, and at the drawing's proportions they stood in the middle with
+ * half the screen empty either side.
+ *
+ * It is the ROOMS that are re-proportioned, never the type: every wall, door
+ * and column is laid out again in the stretched frame and every card, name and
+ * arc is then drawn in it at its own shape, so nothing is squashed. Each room
+ * touches the same neighbours through the same doors; what no longer holds, in
+ * full screen only, is the drawing's scale between width and height. In its
+ * panel a plan keeps the drawing's proportions.
+ *
+ * `extentAt(h)` is the plan's drawn extent (fractions of the canvas) at a
+ * given height — it depends on the height only through an outward door's
+ * swing, so a few rounds settle it. No box yet (the first frame, or a test
+ * without layout) = the drawing's own height.
+ */
+export function fillHeight(
+  naturalVbH: number,
+  extentAt: (vbH: number) => { w: number; h: number },
+  box: { w: number; h: number } | null,
+): number {
+  if (!box || !(box.w > 0) || !(box.h > 0)) return naturalVbH;
+  let vbH = naturalVbH;
+  for (let i = 0; i < 4; i++) {
+    const e = extentAt(vbH);
+    vbH = (e.w * VB_W * box.h) / (box.w * e.h);
+  }
+  return vbH;
 }
 
 /**
@@ -757,6 +799,21 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
     return () => window.removeEventListener('keydown', onKey);
   }, [fullscreen]);
 
+  // The box the full-screen drawing has to fill, in CSS px — see `fillHeight`.
+  // The overlay is fixed to the viewport, so it changes size only with the window.
+  const fullBoxRef = useRef<HTMLDivElement | null>(null);
+  const [fullBox, setFullBox] = useState<{ w: number; h: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!fullscreen) { setFullBox(null); return; }
+    const measure = () => {
+      const r = fullBoxRef.current?.getBoundingClientRect();
+      setFullBox(r && r.width > 0 && r.height > 0 ? { w: r.width, h: r.height } : null);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [fullscreen, plan?.id]);
+
   // The room-detail panel is no longer opened from here (2026-10-01): a room
   // opens its instrument's TREND page instead (see the room's onClick).
 
@@ -775,25 +832,38 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
     );
   }
 
-  const vbH = plan ? Math.round((VB_W * plan.imageHeight) / plan.imageWidth) : 700;
   // The part of the canvas actually drawn on — see `planExtent`.
   const structure = plan?.annotations ?? null;
   // The frame takes in the columns and windows set into the outer walls — a
   // plan is drawn whole whether or not a location is selected (see roomViews).
   // ...and an exterior door that swings OUT of the building: its leaf and arc
   // stand outside every room, and a frame fitted to the rooms would cut them.
-  const outSwings = roomViews.flatMap(({ room }) => {
-    const out = (room.doors ?? []).filter((d) => d.swing === 'out');
-    if (!out.length) return [];
-    return polygonDoorPlacements(roomOutline(room, VB_W, vbH), out).map(swingSquare)
-      .map((b) => ({ x: b.x / VB_W, y: b.y / vbH, w: b.w / VB_W, h: b.h / vbH }));
-  });
-  const extent = plan
-    ? planExtent(roomViews.map((r) => r.room), 0.01, [...(structure?.columns ?? []), ...(structure?.windows ?? []), ...outSwings])
-    : { x: 0, y: 0, w: 1, h: 1 };
+  const extentAt = (h: number) => {
+    if (!plan) return { x: 0, y: 0, w: 1, h: 1 };
+    const outSwings = roomViews.flatMap(({ room }) => {
+      const out = (room.doors ?? []).filter((d) => d.swing === 'out');
+      if (!out.length) return [];
+      return polygonDoorPlacements(roomOutline(room, VB_W, h), out).map(swingSquare)
+        .map((b) => ({ x: b.x / VB_W, y: b.y / h, w: b.w / VB_W, h: b.h / h }));
+    });
+    return planExtent(roomViews.map((r) => r.room), 0.01, [...(structure?.columns ?? []), ...(structure?.windows ?? []), ...outSwings]);
+  };
+  const arch = plan?.annotations?.style === 'architectural';
+  // In its panel a plan has the DRAWING's proportions. In FULL SCREEN a 2D
+  // plan is drawn to the screen's — see `fillHeight`.
+  //
+  // ONLY the 2D style. Its cards and names are PLACED, by search, clear of
+  // every door swing, so they find their place again in the re-proportioned
+  // rooms. The standard style lays a fixed tile out per room: rendered at a
+  // screen's proportions the generated Stability floor (0.77 wide to tall)
+  // lost the instrument ID in several rooms, ran Locations across their
+  // neighbours and swept door arcs over the readings. Those floors keep their
+  // proportions in full screen, centred, until they are drawn in the 2D style.
+  const naturalVbH = plan ? Math.round((VB_W * plan.imageHeight) / plan.imageWidth) : 700;
+  const vbH = fullscreen && arch ? fillHeight(naturalVbH, extentAt, fullBox) : naturalVbH;
+  const extent = extentAt(vbH);
   const vb = { x: extent.x * VB_W, y: extent.y * vbH, w: extent.w * VB_W, h: extent.h * vbH };
 
-  const arch = plan?.annotations?.style === 'architectural';
   // The legend goes UNDER every 2D plan but a portrait one (see the 2D branch
   // of the return).
   const legendUnder = arch && vb.w > vb.h * LEGEND_UNDER_RATIO;
@@ -1513,7 +1583,9 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
             <Minimize2 className="mr-1 h-4 w-4" aria-hidden="true" /> Normal screen
           </Button>
         </div>
-        <div className="min-h-0 flex-1 p-3">{floorSvg}</div>
+        <div className="min-h-0 flex-1 p-3">
+          <div ref={fullBoxRef} className="h-full w-full" data-testid="fp-full-box">{floorSvg}</div>
+        </div>
       </div>,
       document.body,
     );

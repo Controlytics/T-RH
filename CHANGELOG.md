@@ -1,5 +1,51 @@
 # Changelog
 
+## [Unreleased] - Full screen: a 2D floor plan fills the screen (2026-10-01)
+
+Operator: *"when i opened microbiology layout in full screen its exactly filt to
+full screen but, QC 3 and QC layouts only there is center of the screen not
+adjusted to full screen"*.
+
+- **Why it happened.** Full screen drew every plan at its DRAWING's
+  proportions, contained in the screen. Microbiology is 2.2 wide to tall, about
+  a screen's shape; QC 3 is 1.02 and QC 0.74, so they stood in the middle with
+  the screen empty either side.
+- **Now a plan in the 2D style is laid out to the SCREEN's proportions in full
+  screen** (`fillHeight` in `floorplan-view.tsx`; the drawing's box is measured
+  and re-measured when the window is resized). It is the ROOMS that are
+  re-proportioned, never the picture: walls, doors and columns are laid out in
+  the wider frame and each card, room name and door arc is then drawn in it at
+  its own shape, so no text is squashed. Every room keeps its neighbours and its
+  doors. **What no longer holds in full screen is the drawing's scale between
+  width and height** - QC is drawn about two and a half times as wide for its
+  height as the drawing has it. In its dashboard panel a plan keeps the
+  drawing's proportions exactly as before.
+- **Sizes, measured on a 1920 x 1080 render:** a unit of the plan is 1.9 px
+  where it was 1.0 (QC 3) and 0.74 (QC), so a full-size card is 372 px wide
+  where it was about 200 / 145. The exception is a room that is short for its
+  width once stretched: QC 3's two LCMS rooms. There LCMS Room-I keeps the
+  two-line card (ID and readings 16.7 px) and LCMS Room-II takes the flat
+  `compact` card (ID 12 px, readings 15.5 px), where the square layout printed
+  all of them at 13.5 px - so one ID is slightly smaller than before, and the
+  two neighbouring cards are not the same shape. Left as the card rule gives
+  it; not tuned in this change.
+- **`planExtent` no longer clips what is drawn at the canvas edge** - only its
+  margin stops there. In the stretched frame an outward door's swing reaches
+  past the canvas; clamped, QC 3's two exits were cut off at the bottom. No
+  plan's panel render changed (QC, Microbiology, QC 3 and the generated
+  Stability plan compared byte for byte).
+- **NOT changed: the four generated floors (Stability, Module-E, Module-F,
+  Ware House), which are portrait and still stand in the middle in full
+  screen.** Tried and withdrawn: at a screen's proportions the standard style's
+  fixed tiles lost the instrument ID in several rooms, ran Locations across
+  their neighbours and swept door arcs over the readings. They fill the screen
+  once they are drawn in the 2D style, which needs their drawings.
+- Tests: `floorplan-arch.test.tsx` 49 -> 53, `floorplan-polygon-render.test.ts`
+  18 -> 20; eight mutation checks, all caught. `tsc` clean, `vite build` OK.
+  **Not seen in the running app** - rendered from the real component at
+  1920 x 1080 (`Layouts/CWH/concepts/fullscreen-cwh-qc-3.png`,
+  `fullscreen-cwh-qc.png`). No data change; nothing to re-apply, on AWS either.
+
 ## [Unreleased] - QC 3: the top row is drawn larger, the legend sits under the plan, and a narrow room's card grows with its room (2026-10-01)
 
 Operator, on the QC 3 floor: *"on top cwh/RDU/012-00,CWH/RDU/002-01 rooms are
