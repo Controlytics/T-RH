@@ -122,6 +122,17 @@ describe('validateRoomPayload — doors', () => {
     expect(validateRoomPayload({ ...base, doors: [] }).ok).toBe(true);
   });
 
+  // 2026-10-01: an exterior door that opens OUT of the building. The parsed
+  // payload is what the HTTP route stores, so a field the schema does not name
+  // is dropped there — the door would be saved, and drawn, swinging in.
+  it('KEEPS a door\'s hinge end and swing side, and refuses a side that is neither', () => {
+    const r = validateRoomPayload({ ...base, doors: [{ ...door, kind: 'EXIT', hinge: 'end', swing: 'out' }] });
+    expect(r.ok).toBe(true);
+    expect(r.ok && r.data.doors).toEqual([{ ...door, kind: 'EXIT', hinge: 'end', swing: 'out' }]);
+    expect(validateRoomPayload({ ...base, doors: [{ ...door, swing: 'in' }] }).ok).toBe(true);
+    expect(validateRoomPayload({ ...base, doors: [{ ...door, swing: 'sideways' }] }).ok).toBe(false);
+  });
+
   it('accepts one door on each wall', () => {
     const doors = (['top', 'right', 'bottom', 'left'] as const).map((wall) => ({ ...door, wall }));
     expect(validateRoomPayload({ ...base, doors }).ok).toBe(true);

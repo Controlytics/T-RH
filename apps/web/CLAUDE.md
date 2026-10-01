@@ -689,15 +689,29 @@ qc"*).
 - **The side panel's arrow is PLAN north** and says so: the drawing marks no
   true north.
 - `cardTone` / `roomTone` / `archSummary` bucket the SERVER's statuses; nothing
-  is re-derived. Tests: `floorplan-arch.test.tsx` (23, mutation-checked: the
+  is re-derived. Tests: `floorplan-arch.test.tsx` (26, mutation-checked: the
   style switch, the obstacle test, the legibility gate, the bracket break, the
-  stacked readings, the name placement).
+  stacked readings, the name placement, the outlined plant, the outward
+  door's frame) and `floorplan-polygon-render.test.ts` (18; the outward leaf
+  and its arc).
+- **A door may swing OUT (`swing: 'out'` on `RoomDoor`, same day).**
+  `polygonDoorPlacements` flips the leaf to the far side of the wall and turns
+  the arc the other way; the plan's frame (`planExtent`'s `extra`) takes the
+  outward leaf in, or it is cut off. For an EXTERIOR door only (Microbiology's
+  emergency exit) — an interior door is stored on the room it swings into.
+- **The 2D style outlines fixed plant** (`annotations.equipment`, with
+  `labels` as captions): thin opaque boxes drawn in the structure layer, so a
+  wall an autoclave stands in stops at it; they are obstacles for cards and
+  room names. The standard style still draws none of it (the 2026-09-22 "other
+  symbols remove those" stands there).
 - **To SEE a floor without the browser session:** mount the real
   `FloorplanView` in a throwaway vitest file with `useFloorplans` /
   `useTelemetryOverview` mocked to the stored plan, write the SVG's `outerHTML`
-  to a file, and screenshot it with headless Chrome beside the drawing. That is
-  how both floors were checked; `Layouts/CWH/concepts/applied-*.png` are the
-  results.
+  to a file, and screenshot it with headless Chrome. **Then lay it OVER the
+  drawing, half transparent, at the same scale** (drawing px → viewBox units
+  through the plan's canvas) — the first Microbiology floor was checked side by
+  side only, looked right, and had four wall / door mismatches the overlay
+  showed at once. `Layouts/CWH/concepts/applied-*.png` are the results.
 
 ## The QC floor plan is TRACED, and carries an annotation layer (2026-08-31)
 

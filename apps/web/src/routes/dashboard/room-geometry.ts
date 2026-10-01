@@ -35,6 +35,10 @@ export interface RoomDoor {
    *  'start' (default — every door before 2026-10-01), 'end', or 'none' (an
    *  opening with no leaf). */
   hinge?: 'start' | 'end' | 'none';
+  /** Which side of the wall the leaf swings to: 'in' (default) = into this
+   *  room; 'out' = away from it — an EXTERIOR door that opens out of the
+   *  building (2026-10-01, Microbiology's emergency exit). */
+  swing?: 'in' | 'out';
 }
 
 /** A room's box in viewBox units — already multiplied out of normalized space. */
@@ -136,17 +140,25 @@ export function polygonWalls(points: Polygon, openings: EdgeOpening[]): Segment[
 
 /**
  * Each door as plan notation: the opening, a leaf hinged at its start, and the
- * quarter-circle it sweeps. Always drawn INTO the room — a leaf swinging out
- * would overlap the neighbouring room and read as that room's door.
+ * quarter-circle it sweeps. Drawn INTO the room — a leaf swinging out would
+ * overlap the neighbouring room and read as that room's door — unless the
+ * door says `swing: 'out'`, which is for an EXTERIOR door with nothing on its
+ * far side (2026-10-01: Microbiology's emergency exit opens out of the
+ * building, and drawing it inward did not match the plant's drawing).
  */
 export function polygonDoorPlacements(points: Polygon, doors: RoomDoor[] | null | undefined): DoorPlacement[] {
-  const sweep = signedArea(points) > 0 ? 1 : 0;
+  const clockwise = signedArea(points) > 0 ? 1 : 0;
   return (doors ?? []).flatMap((door) => {
     const o = doorToEdgeOpening(door, points);
     if (!o) return [];
     // An opening with no leaf: the wall is cut (by the caller), nothing swings.
     if (door.hinge === 'none') return [];
-    const inward = edgeInward(points, o.edge);
+    const into = edgeInward(points, o.edge);
+    // Outward: the leaf stands on the other side of the wall, so the arc turns
+    // the other way round as well.
+    const out = door.swing === 'out';
+    const inward = out ? { x: -into.x, y: -into.y, length: into.length } : into;
+    const sweep = out ? 1 - clockwise : clockwise;
     const a = pointOn(points, o.edge, o.offset);
     const b = pointOn(points, o.edge, clean(o.offset + o.width));
     // Hung at the END: the leaf stands at the far end and the swing runs back

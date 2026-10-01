@@ -96,4 +96,25 @@ describe('polygon rooms', () => {
     const bad = await room(p.id, { points: L, doors: [{ edge: 6, offset: 0.2, width: 0.2, kind: 'ENTRY' }] });
     expect(bad.statusCode).toBe(400);
   });
+
+  // A door's hinge end (2026-10-01) and its swing side (later that day: an
+  // exterior door that opens OUT of the building) are two fields the browser
+  // draws from. Each must be named in the body schema to be STORED and in the
+  // response schema to be SERVED; lose either and the door still saves and
+  // still draws — hung on the wrong end, or swinging into the room.
+  it('a door\'s hinge end and swing side survive the write and BOTH reads', async () => {
+    const p = await blankPlan(`Swing ${s}`);
+    const door = { edge: 0, offset: 0.2, width: 0.2, kind: 'EXIT', hinge: 'end', swing: 'out' };
+    const made = await room(p.id, { points: L, doors: [door] });
+    expect(made.statusCode).toBe(201);
+    expect(made.json().doors[0]).toMatchObject({ hinge: 'end', swing: 'out' });
+    const list = await app.inject({ method: 'GET', url: '/api/floorplans', headers: auth });
+    const mine = (list.json().data as { id: string; rooms: { doors: Record<string, unknown>[] }[] }[]).find((x) => x.id === p.id)!;
+    expect(mine.rooms[0].doors[0]).toMatchObject({ hinge: 'end', swing: 'out' });
+    const detail = await app.inject({ method: 'GET', url: `/api/floorplans/${p.id}`, headers: auth });
+    expect(detail.json().rooms[0].doors[0]).toMatchObject({ hinge: 'end', swing: 'out' });
+    // A side that is neither is refused, not stored.
+    const bad = await room(p.id, { points: L, doors: [{ ...door, swing: 'sideways' }] });
+    expect(bad.statusCode).toBe(400);
+  });
 });

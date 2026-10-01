@@ -83,6 +83,9 @@ const roomProps = {
         kind: { type: 'string' },
         // Declared (2026-10-01), or Fastify strips it and every door hinges at its start.
         hinge: { type: 'string' },
+        // Declared (2026-10-01, later), or Fastify strips it and an exterior
+        // door that opens outward draws swinging into its room.
+        swing: { type: 'string' },
       },
     },
   },

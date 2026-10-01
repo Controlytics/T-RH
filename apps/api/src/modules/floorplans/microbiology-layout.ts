@@ -27,9 +27,26 @@
  * black, the green one, the blue pair, the red pair). The pixel numbers are
  * kept as-is so the next person can re-measure against the same file.
  *
- * Wall grid (px, centre lines): x ∈ {0, 157, 297, 433, 488, 570.5, 707, 719,
- * 844, 949, 1057, 1134, 1177, 1381}; y ∈ {80, 178.5, 230.5, 323, 382.5, 415,
- * 512.5, 660}.
+ * Wall grid (px, centre lines): x ∈ {0, 146.5, 165, 297, 433, 488, 570.5, 707,
+ * 719, 844, 949, 1057, 1134, 1177, 1381}; y ∈ {80, 178.5, 230.5, 323, 382.5,
+ * 415, 512.5, 660}.
+ *
+ * ─── CHECKED BY OVERLAY, AND CORRECTED (same day) ──────────────────────────
+ * Operator, on the first version: "rooms dooars and room lines are some places
+ * not matches with image". The rendered floor was laid half-transparent over
+ * the drawing at the same scale, and four things did not sit on it. All four
+ * had been written down as deliberate departures; they were the mismatches:
+ *   - INCUBATOR ROOM-02's east side is TWO walls 18 px apart — its own
+ *     partition at x 143-150 and the labs' wall at x 165 — and had been drawn
+ *     as one at x 157, which sat on neither and carried the double door and two
+ *     windows 8 px off. Now the labs' wall is the room edge (x 165, the wall the
+ *     door pair hangs on) and the partition is a wall stub at x 146.5, broken
+ *     where the doors are; above y 178.5 the partition alone bounds CORRIDOR-10.
+ *   - The EMERGENCY EXIT pair swings OUT of the building, as drawn (`swing:
+ *     'out'`); the canvas starts at y 28 to hold its leaves.
+ *   - The HPHV STERILIZER and the CHANGE ROOM's cross-over bench (`COB`) are
+ *     outlined, as `equipment` — they are lines on the drawing. The wall
+ *     between the COOLING ZONE and STERILIZATION stops at the sterilizer.
  *
  * ─── THE DRAWING IS CUT OFF AT THE BOTTOM ──────────────────────────────────
  * The image ends at y 642, through the south row (INCUBATOR ROOM-01, GENERAL
@@ -42,17 +59,12 @@
  * fuller drawing turns up, re-measure both.
  *
  * ─── WHERE THIS IS DELIBERATELY NOT THE DRAWING ──────────────────────────
- *   - INCUBATOR ROOM-02's east side is a CAVITY wall: its own glazed partition
- *     at x 143-150 and the labs' wall at x 165, 15 px apart. It is drawn as ONE
- *     wall on the cavity's centre, x 157, and the BREAKABLE GLASS panel and the
- *     BSC room's window are put on that line.
- *   - The EMERGENCY EXIT pair in INCUBATOR ROOM-02's north wall swings OUT of
- *     the building on the drawing. A door is drawn on the room it belongs to,
- *     so here it swings in.
- *   - The HPHV STERILIZER (a pass-through autoclave standing in the wall
- *     between the COOLING ZONE and STERILIZATION, y 82-175) is not drawn; that
- *     wall runs straight through it. Nor is the cross-over bench (`COB`) in the
- *     CHANGE ROOM. The dashboard draws rooms, doors and structure, no equipment.
+ *   - The 18 px between INCUBATOR ROOM-02's two east walls is a void on the
+ *     drawing. It is inside that room's outline here (a room is one polygon and
+ *     the floor must tile), behind the partition stub.
+ *   - A wall is drawn ~11 px thick (the style's weight) where the drawing's
+ *     double line is 6, and the wall resumes at the door's free jamb — the
+ *     drawing leaves another ~10 px there for the frame.
  *   - INCUBATOR ROOM-01 carries no room number on the drawing; its code stays
  *     `INCUBATOR-01`. `CWH/RDU/051-00` reads `Incubator room (Microbiology)`
  *     with no number and is sited there, as before. Move it to `CWH-I/360` if
@@ -69,23 +81,28 @@ import { rect, vDoor, hDoor, type ArchLayout, type ArchRoom } from './architectu
 
 const ROOMS: ArchRoom[] = [
   // ── West ───────────────────────────────────────────────────────────────
-  { code: 'CWH-I/360', label: 'INCUBATOR ROOM-02', outline: rect(0, 80, 157, 660), grade: 'UTILITY',
+  // Its east side steps: the partition (x 146.5) bounds it beside CORRIDOR-10,
+  // the labs' wall (x 165) below — see the header. The door pair hangs on the
+  // labs' wall, where the drawing hangs it.
+  { code: 'CWH-I/360', label: 'INCUBATOR ROOM-02', grade: 'UTILITY',
     meta: { dims: '9550 x 2550' },
+    outline: [[0, 80], [146.5, 80], [146.5, 178.5], [165, 178.5], [165, 660], [0, 660]],
     doors: [
-      hDoor(80, 44, 84.5, 'from', 'EXIT'), hDoor(80, 85.5, 126, 'to', 'EXIT'),   // the red pair: emergency exit
-      vDoor(157, 488, 529.5, 'from'), vDoor(157, 530.5, 572, 'to'),              // the blue pair, from INCUBATOR ROOM-01
+      // the red pair: the emergency exit, opening OUT of the building
+      { ...hDoor(80, 44, 84.5, 'from', 'EXIT'), swing: 'out' }, { ...hDoor(80, 85.5, 126, 'to', 'EXIT'), swing: 'out' },
+      vDoor(165, 488, 529.5, 'from'), vDoor(165, 530.5, 572, 'to'),              // the blue pair, from INCUBATOR ROOM-01
     ] },
   // The L: under the three LAF rooms to the corridor wall, then down the west
   // side of the GENERAL LAB.
   { code: 'INCUBATOR-01', label: 'INCUBATOR ROOM-01', grade: 'C', instrument: 'CWH/RDU/051-00',
     meta: { dims: '5190 x 4015' },
-    outline: [[157, 415], [570.5, 415], [570.5, 512.5], [488, 512.5], [488, 660], [157, 660]],
+    outline: [[165, 415], [570.5, 415], [570.5, 512.5], [488, 512.5], [488, 660], [165, 660]],
     doors: [vDoor(570.5, 432, 487, 'from')] },                                    // from CORRIDOR-09
 
   // ── North-west block ───────────────────────────────────────────────────
-  { code: 'CWH-I/208', label: 'CORRIDOR-10', outline: rect(157, 80, 570.5, 178.5), grade: 'CIRCULATION',
+  { code: 'CWH-I/208', label: 'CORRIDOR-10', outline: rect(146.5, 80, 570.5, 178.5), grade: 'CIRCULATION',
     meta: { dims: '6555 x 1500' }, doors: [] },
-  { code: 'CWH-I/211', label: 'BIO SAFETY CABINET', outline: rect(157, 178.5, 297, 415), grade: 'C', instrument: 'CWH/RDU/047-00',
+  { code: 'CWH-I/211', label: 'BIO SAFETY CABINET', outline: rect(165, 178.5, 297, 415), grade: 'C', instrument: 'CWH/RDU/047-00',
     meta: { fch: '2.7m', dims: '2055 x 3795' },
     doors: [hDoor(178.5, 225, 282, 'to')] },
   { code: 'CWH-I/210', label: 'LAF-2', outline: rect(297, 178.5, 433, 415), grade: 'C', instrument: 'CWH/RDU/046-00',
@@ -162,8 +179,9 @@ export const MICROBIOLOGY_LAYOUT: ArchLayout = {
   planName: 'CWH — QC Microbiology',
   source: 'Layouts/CWH/Microbiology.png',
   // The canvas: the rooms' extent plus the band the outer walls, the north
-  // windows and the east column stand in.
-  building: { x0: -8, y0: 70, x1: 1398, y1: 670 },
+  // windows and the east column stand in — and, above the north wall, the
+  // emergency exit's leaves, which open outward to y 38.
+  building: { x0: -8, y0: 30, x1: 1398, y1: 670 },
   rooms: ROOMS,
   annotations: {
     // The orange hatched squares, one bay apart (~453 px) along the south row.
@@ -175,10 +193,24 @@ export const MICROBIOLOGY_LAYOUT: ArchLayout = {
       [312, 75, 384, 85], [495, 75, 567, 85], [697, 75, 767, 85], [1206, 75, 1277, 85],
       // OFFICE ROOM-01's window in the east wall.
       [1376, 271, 1386, 342],
-      // The west partition (drawn at x 143-170, here on the wall line x 157):
-      // the BREAKABLE GLASS panel off CORRIDOR-10, and the BSC room's window.
-      [152, 90, 162, 172], [152, 271, 162, 342],
+      // The BREAKABLE GLASS panel, in INCUBATOR ROOM-02's partition off
+      // CORRIDOR-10 (x 143-150); the BSC room's window, in the labs' wall (x 165).
+      [142, 90, 151, 172], [160, 271, 170, 342],
     ],
-    walls: [],
+    // INCUBATOR ROOM-02's partition below CORRIDOR-10, broken at the door pair.
+    // Each run stops at the FACE of the wall it meets (a wall is ~11 px thick),
+    // so a stub never paints over that wall's light core.
+    walls: [
+      [146.5, 184, 146.5, 488], [146.5, 572, 146.5, 654.5],
+    ],
+    // Outlined on the drawing: the HPHV STERILIZER standing in the COOLING
+    // ZONE | STERILIZATION wall (inside the north wall's face), and the CHANGE
+    // ROOM's cross-over bench.
+    equipment: [
+      [799, 86, 881, 175], [1278, 388, 1293, 507],
+    ],
+    labels: [
+      { x: 840, y: 127, text: 'HPHV' }, { x: 840, y: 138, text: 'STERILIZER' },
+    ],
   },
 };

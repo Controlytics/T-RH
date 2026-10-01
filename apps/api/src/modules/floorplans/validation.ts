@@ -45,6 +45,12 @@ const doorSchema = z.object({
   // end the offset is measured from, as every door before this; 'end' = the
   // other; 'none' = an OPENING with no leaf, cut from the wall with no swing.
   hinge: z.enum(['start', 'end', 'none']).optional(),
+  // Which SIDE of the wall the leaf swings to (2026-10-01, Microbiology: its
+  // emergency exit opens OUT of the building). 'in' (or absent) = into the
+  // room the door is stored on, as every door before this; 'out' = away from
+  // it. For an exterior door only: an interior door that swings out of one
+  // room swings INTO its neighbour, and is stored on that neighbour.
+  swing: z.enum(['in', 'out']).optional(),
 }).refine((d) => d.wall !== undefined || d.edge !== undefined, { message: 'a door names its wall or its edge' });
 
 export const DOOR_KINDS = ['ENTRY', 'EXIT', 'PASSAGE'] as const;

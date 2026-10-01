@@ -1,5 +1,43 @@
 # Changelog
 
+## [Unreleased] - Microbiology floor corrected against the drawing: two west walls, an exit that opens out, the sterilizer and bench outlined (2026-10-01)
+
+Operator, on the first version below: *"rooms dooars and room lines are some
+places not matches with image"*. The rendered floor was laid half-transparent
+over `Layouts/CWH/Microbiology.png` at the same scale; four things did not sit
+on it — each one a "deliberate departure" in the first version's notes.
+
+- **INCUBATOR ROOM-02's east side is TWO walls** (its partition at x 143-150,
+  the labs' wall at x 165) and had been merged into one at x 157, which sat on
+  neither and put the double door and two windows 8 px off. The labs' wall is
+  now the room edge and carries the door pair; the partition is a wall stub,
+  broken at the doors; the breakable-glass panel and the BSC window sit on
+  their own walls.
+- **The emergency exit opens OUT of the building**, as drawn. New optional door
+  field **`swing: 'in' | 'out'`** (absent = in, every existing door): named in
+  the body schema (`validation.ts`) so it is stored and in the response schema
+  (`routes.ts`) so it is served; `polygonDoorPlacements` draws the leaf and arc
+  on the far side, and the plan's frame takes the outward leaf in. For exterior
+  doors only — an interior door that swings out of one room is stored on the
+  room it swings into.
+- **The HPHV sterilizer and the change room's cross-over bench are outlined**
+  (`annotations.equipment` + `labels`, already in the schema): thin boxes, the
+  drawing's caption on the sterilizer, drawn in the 2D style only; the wall
+  between COOLING ZONE and STERILIZATION stops at the sterilizer, as drawn; a
+  card or a room name keeps clear of them. The standard style still draws none.
+- **Data:** `draw-architectural-floor.ts --area "QC Microbiology" --apply` run
+  again LOCALLY (21 rooms replaced by 21, 8 instruments in the same rooms;
+  canvas 1406 x 640). AWS needs one run after the next deploy.
+- QC untouched: its trace output and its rendered SVG are byte-identical.
+- Still not the drawing, by necessity: the south wall is computed (the image is
+  cut off), walls draw ~11 px thick against the drawing's 6, and the 18 px void
+  between the two west walls is inside INCUBATOR ROOM-02's outline.
+- Tests: `microbiology-layout.test.ts` 13 → 16, `floorplan-arch.test.tsx`
+  23 → 26, `floorplan-polygon-render.test.ts` 15 → 18, `validation.test.ts`
+  50 → 51, `floorplan-polygons.e2e.test.ts` 5 → 6 (hinge and swing survive the
+  write and both reads). Nine mutation checks, all caught — including deleting
+  each of `hinge` / `swing` from the response schema.
+
 ## [Unreleased] - "CWH — QC Microbiology" re-traced and drawn in the 2D architectural design (2026-10-01)
 
 Operator: *"same like qc layout there Microbiology layout image in folder make
@@ -13,9 +51,10 @@ layout as per that image same like qc"*.
   emergency-exit pair), the 4 structural columns and 7 windows. The 2026-09-21
   trace had 22 rectangles, doors as rough fractions of a box side, and took the
   columns for equipment. Departures are in the file header: the south wall is
-  still COMPUTED (the image is cut off at the bottom), the cavity wall beside
-  INCUBATOR ROOM-02 is one wall, the emergency exit swings in, the HPHV
-  sterilizer and the change room's cross-over bench are not drawn.
+  still COMPUTED (the image is cut off at the bottom). (This first version also
+  merged the two walls beside INCUBATOR ROOM-02, swung the emergency exit in
+  and left out the sterilizer and the cross-over bench — all four corrected the
+  same day, see the entry above.)
 - **Shared with QC:** `architectural-layout.ts` holds the trace types and the
   px → stored conversions, lifted out of `qc-layout-2.ts` unchanged (its output
   compared byte for byte before and after).

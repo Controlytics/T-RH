@@ -15,7 +15,7 @@ import { validateRoomPayload, roomGeometry } from '../validation.js';
  */
 const px = (r: (typeof L.rooms)[number]) => r.outline.map(([x, y]) => ({ x, y }));
 const INNER = { x0: 0, y0: 80, x1: 1381, y1: 660 };
-const XS = new Set([0, 157, 297, 433, 488, 570.5, 707, 719, 844, 949, 1057, 1134, 1177, 1381]);
+const XS = new Set([0, 146.5, 165, 297, 433, 488, 570.5, 707, 719, 844, 949, 1057, 1134, 1177, 1381]);
 const YS = new Set([80, 178.5, 230.5, 323, 382.5, 415, 512.5, 660]);
 const room = (code: string) => L.rooms.find((r) => r.code === code)!;
 
@@ -98,7 +98,7 @@ describe('Microbiology trace', () => {
     const top = edgeDoor(bsc, bsc.doors[0]);
     expect(top.edge).toBe(0);
     expect(top.hinge).toBe('end');
-    expect(top.offset).toBeCloseTo((225 - 157) / 140, 5);
+    expect(top.offset).toBeCloseTo((225 - 165) / 132, 5);
     // CORRIDOR-09's bottom wall runs RIGHT TO LEFT (edge 2), so the same
     // drawing-side hinge ('to', the higher x) is that edge's START.
     const cor = room('CWH-I/203');
@@ -106,6 +106,65 @@ describe('Microbiology trace', () => {
     expect(south.edge).toBe(2);
     expect(south.hinge).toBe('start');
     expect(south.offset).toBeCloseTo((1134 - 793) / 563.5, 5);
+  });
+
+  /**
+   * The four things the overlay on the drawing found off (operator: "rooms
+   * dooars and room lines are some places not matches with image").
+   */
+  describe('where the first version did not sit on the drawing', () => {
+    const inc2 = room('CWH-I/360');
+
+    it('INCUBATOR ROOM-02 has TWO east walls: the labs\' wall is its edge, its own partition a stub broken at the doors', () => {
+      // The room steps from the partition (beside the corridor) to the labs' wall.
+      expect(inc2.outline).toEqual([[0, 80], [146.5, 80], [146.5, 178.5], [165, 178.5], [165, 660], [0, 660]]);
+      expect(room('CWH-I/208').outline[0]).toEqual([146.5, 80]);          // CORRIDOR-10 starts at the partition
+      expect(room('CWH-I/211').outline[0]).toEqual([165, 178.5]);         // the BSC room at the labs' wall
+      expect(room('INCUBATOR-01').outline[0]).toEqual([165, 415]);
+      // The door pair hangs on the labs' wall, x 165, as drawn...
+      const pair = inc2.doors.filter((d) => d.axis === 'x');
+      expect(pair.map((d) => d.at)).toEqual([165, 165]);
+      // ...and the partition stub leaves exactly that stretch open.
+      const [upper, lower] = L.annotations.walls;
+      expect([upper[0], upper[2], lower[0], lower[2]]).toEqual([146.5, 146.5, 146.5, 146.5]);
+      expect([upper[3], lower[1]]).toEqual([pair[0].from, pair[1].to]);
+      expect([pair[0].from, pair[1].to]).toEqual([488, 572]);
+      // ...starting below CORRIDOR-10's wall and stopping short of the south wall.
+      expect(upper[1]).toBeGreaterThan(178.5); expect(upper[1]).toBeLessThan(190);
+      expect(lower[3]).toBeLessThan(660); expect(lower[3]).toBeGreaterThan(648);
+      // Each window sits ON its wall line.
+      const onLine = (x: number) => L.annotations.windows.filter(([x0, , x1]) => x0 < x && x1 > x && x1 - x0 < 20);
+      expect(onLine(146.5)).toHaveLength(1);    // the breakable glass
+      expect(onLine(165)).toHaveLength(1);      // the BSC room's window
+    });
+
+    it('the emergency exit pair swings OUT of the building, and the canvas holds its leaves', () => {
+      const exit = inc2.doors.filter((d) => d.axis === 'y');
+      expect(exit).toHaveLength(2);
+      for (const d of exit) {
+        expect(d.swing).toBe('out');
+        expect(edgeDoor(inc2, d).swing).toBe('out');
+        // A leaf as long as its gap, standing above the north wall (y 80).
+        expect(80 - (d.to - d.from)).toBeGreaterThan(L.building.y0);
+      }
+      // Every other door swings into its own room, and says nothing.
+      const others = L.rooms.flatMap((r) => r.doors.map((d) => edgeDoor(r, d))).filter((d) => d.swing !== undefined);
+      expect(others).toHaveLength(2);
+    });
+
+    it('the sterilizer and the cross-over bench are outlined, inside the building, clear of the wall faces', () => {
+      const ann = archAnnotations(L.building, L.annotations);
+      expect(ann.equipment).toHaveLength(2);
+      expect(ann.labels.map((l) => l.text)).toEqual(['HPHV', 'STERILIZER']);
+      const [ster, cob] = L.annotations.equipment!;
+      // The sterilizer straddles the COOLING ZONE | STERILIZATION wall (x 844).
+      expect(ster[0]).toBeLessThan(844); expect(ster[2]).toBeGreaterThan(844);
+      // The bench stands inside the CHANGE ROOM, wall to wall.
+      const change = room('CWH-I/196').outline;
+      expect(cob[0]).toBeGreaterThan(change[0][0]); expect(cob[2]).toBeLessThan(change[1][0]);
+      expect(cob[1]).toBeGreaterThan(change[0][1]); expect(cob[3]).toBeLessThan(change[2][1]);
+      for (const b of ann.equipment) { expect(b.w).toBeGreaterThan(0); expect(b.h).toBeGreaterThan(0); }
+    });
   });
 
   it('every room passes the API\'s own room validation, pairs of leaves included', () => {
@@ -134,7 +193,7 @@ describe('Microbiology trace', () => {
     const b = L.building;
     expect(INNER.x0 - b.x0).toBeGreaterThanOrEqual(6); expect(b.x1 - INNER.x1).toBeGreaterThanOrEqual(6);
     expect(INNER.y0 - b.y0).toBeGreaterThanOrEqual(6); expect(b.y1 - INNER.y1).toBeGreaterThanOrEqual(6);
-    expect(archCanvas(b)).toEqual({ width: 1406, height: 600 });
+    expect(archCanvas(b)).toEqual({ width: 1406, height: 640 });
   });
 
   it('sites each instrument in the room its Location attribute names, once', () => {

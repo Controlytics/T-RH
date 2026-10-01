@@ -707,8 +707,16 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
   const structure = plan?.annotations ?? null;
   // The frame takes in the columns and windows set into the outer walls — a
   // plan is drawn whole whether or not a location is selected (see roomViews).
+  // ...and an exterior door that swings OUT of the building: its leaf and arc
+  // stand outside every room, and a frame fitted to the rooms would cut them.
+  const outSwings = roomViews.flatMap(({ room }) => {
+    const out = (room.doors ?? []).filter((d) => d.swing === 'out');
+    if (!out.length) return [];
+    return polygonDoorPlacements(roomOutline(room, VB_W, vbH), out).map(swingSquare)
+      .map((b) => ({ x: b.x / VB_W, y: b.y / vbH, w: b.w / VB_W, h: b.h / vbH }));
+  });
   const extent = plan
-    ? planExtent(roomViews.map((r) => r.room), 0.01, [...(structure?.columns ?? []), ...(structure?.windows ?? [])])
+    ? planExtent(roomViews.map((r) => r.room), 0.01, [...(structure?.columns ?? []), ...(structure?.windows ?? []), ...outSwings])
     : { x: 0, y: 0, w: 1, h: 1 };
   const vb = { x: extent.x * VB_W, y: extent.y * vbH, w: extent.w * VB_W, h: extent.h * vbH };
 
@@ -718,10 +726,16 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
   // readings lay out in — computed ONCE and read by every layer below (the 2D
   // style draws walls, cards and doors in their own passes, over all rooms).
   const columnBoxes = (plan?.annotations?.columns ?? []).map((c) => ({ x: c.x * VB_W, y: c.y * vbH, w: c.w * VB_W, h: c.h * vbH }));
+  // Fixed plant the drawing outlines (an autoclave in a wall, a cross-over
+  // bench) — drawn in the 2D style only.
+  const equipmentBoxes = arch
+    ? (plan?.annotations?.equipment ?? []).map((c) => ({ x: c.x * VB_W, y: c.y * vbH, w: c.w * VB_W, h: c.h * vbH }))
+    : [];
   // What a card or a room's name must stay clear of in the 2D style: every
-  // door swing on the plan (a neighbour's door can swing in) and the columns.
+  // door swing on the plan (a neighbour's door can swing in), the columns and
+  // the outlined plant.
   const planObstacles = arch
-    ? [...roomViews.flatMap((o) => polygonDoorPlacements(roomOutline(o.room, VB_W, vbH), o.room.doors ?? []).map(swingSquare)), ...columnBoxes]
+    ? [...roomViews.flatMap((o) => polygonDoorPlacements(roomOutline(o.room, VB_W, vbH), o.room.doors ?? []).map(swingSquare)), ...columnBoxes, ...equipmentBoxes]
     : [];
   const geoms = new Map(roomViews.map(({ room, rows: roomRows }) => {
     // A corridor is ONE space that the schema stores as several
@@ -1321,8 +1335,18 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                 blue-framed lights, wall-weight lines. Part of the building, not
                 a status: none of it ever takes a status colour, and none of it
                 takes a click. A plan without them (every other plan) draws
-                nothing here. */}
-            {structure && (structure.columns?.length || structure.windows?.length || structure.walls?.length) ? (
+                nothing here.
+
+                AND, in the 2D style only, the fixed plant the drawing OUTLINES
+                (2026-10-01, Microbiology, operator: "rooms dooars and room
+                lines are some places not matches with image"): the pass-through
+                autoclave standing in a wall and the change room's cross-over
+                bench are lines on that drawing, and a plan without them did
+                not match it. A thin outlined box with the drawing's caption —
+                opaque, so the wall the autoclave stands in stops at it, as it
+                does on the drawing. Not a symbol with a legend, never a status
+                colour; the standard style still draws none of it. */}
+            {structure && (structure.columns?.length || structure.windows?.length || structure.walls?.length || equipmentBoxes.length) ? (
               <g pointerEvents="none" data-testid="fp-structure">
                 <defs>
                   <pattern id="fp-column-hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
@@ -1330,6 +1354,13 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                     <line x1="0" y1="0" x2="0" y2="4" stroke={arch ? ARCH.columnInk : '#c2410c'} strokeWidth="1.4" />
                   </pattern>
                 </defs>
+                {equipmentBoxes.map((b, i) => (
+                  <rect key={`eq${i}`} data-structure="equipment" x={b.x} y={b.y} width={b.w} height={b.h}
+                    fill="#ffffff" stroke={ARCH.wallOuter} strokeWidth={1.5} />
+                ))}
+                {arch && (structure.labels ?? []).map((l, i) => (
+                  <text key={`lbl${i}`} x={l.x * VB_W} y={l.y * vbH} textAnchor="middle" fontSize={6.5} fill={ARCH.roomName} letterSpacing="0.04em">{l.text}</text>
+                ))}
                 {(structure.walls ?? []).map((l, i) => (
                   <line key={`sw${i}`} x1={l.x1 * VB_W} y1={l.y1 * vbH} x2={l.x2 * VB_W} y2={l.y2 * vbH}
                     stroke={arch ? ARCH.wallOuter : PALETTE.wall} strokeWidth={arch ? 7 : 2.5} strokeLinecap="butt" />

@@ -304,3 +304,61 @@ describe('placeRoomName', () => {
     expect(placeRoomName(box, [{ x: 0, y: 0, w: 200, h: 100 }], 8, true)).toEqual({ cx: 100, cy: 50, fs: 15 });
   });
 });
+
+/**
+ * Operator, on the first Microbiology floor: "rooms dooars and room lines are
+ * some places not matches with image". Laid over the drawing, the plan lacked
+ * the lines the drawing has for a pass-through autoclave and a cross-over
+ * bench, and its emergency exit swung into the room instead of out.
+ */
+describe('the plant the drawing outlines, and a door that opens out', () => {
+  // Dead centre of the LAB room (viewBox 200..300 x 180..300).
+  const EQUIP = { x: 0.2, y: 0.3, w: 0.1, h: 0.2 };
+  const withPlant = (style?: string) => ({
+    ...planOf(style),
+    annotations: { ...ANN, columns: [], equipment: [EQUIP], labels: [{ x: 0.25, y: 0.4, text: 'HPHV' }], ...(style ? { style } : {}) },
+  });
+
+  it('the 2D style draws the outline and its caption, and the card keeps clear of it', () => {
+    PLAN = withPlant('architectural') as unknown as typeof PLAN; ROWS = [row({})];
+    mount();
+    const boxes = document.querySelectorAll('[data-structure="equipment"]');
+    expect(boxes).toHaveLength(1);
+    expect(Number(boxes[0].getAttribute('x'))).toBeCloseTo(200);
+    expect(Number(boxes[0].getAttribute('width'))).toBeCloseTo(100);
+    expect(screen.getByText('HPHV')).toBeInTheDocument();
+    const r = screen.getByTestId('fp-card').querySelector('rect')!;
+    const c = { x: Number(r.getAttribute('x')), y: Number(r.getAttribute('y')), w: Number(r.getAttribute('width')), h: Number(r.getAttribute('height')) };
+    expect(c.x < 300 && c.x + c.w > 200 && c.y < 300 && c.y + c.h > 180).toBe(false);
+    PLAN = planOf('architectural');
+  });
+
+  it('the standard style draws none of it', () => {
+    PLAN = withPlant() as unknown as typeof PLAN; ROWS = [row({})];
+    mount();
+    expect(document.querySelectorAll('[data-structure="equipment"]')).toHaveLength(0);
+    expect(screen.queryByText('HPHV')).toBeNull();
+    PLAN = planOf('architectural');
+  });
+
+  it('the frame takes in a door that opens OUT of the building', () => {
+    // One room whose top wall is at y 240; an exit 80 units wide in it.
+    const door = { edge: 0, offset: 0.1, width: 0.2, kind: 'EXIT', hinge: 'start' };
+    const top = (swing?: 'out') => {
+      PLAN = {
+        ...planOf('architectural'),
+        rooms: [room('lab', 'R-LAB', 'LAB', 0.05, { y: 0.4, h: 0.4, doors: [swing ? { ...door, swing } : door] })],
+        annotations: { ...ANN, columns: [], style: 'architectural' },
+      };
+      ROWS = [];
+      const { unmount } = mount();
+      const y = Number(document.querySelector('svg[role="img"]')!.getAttribute('viewBox')!.split(' ')[1]);
+      unmount();
+      return y;
+    };
+    const inward = top(), outward = top('out');
+    expect(inward).toBeCloseTo(234);              // the room's top wall less the margin
+    expect(outward).toBeLessThan(inward - 70);    // the leaf's 80 units above it are in frame
+    PLAN = planOf('architectural');
+  });
+});

@@ -378,9 +378,20 @@ node apps/api/dist/app.js
   `draw-cwh-floorplan.ts` skips both (`DRAWN_ELSEWHERE`). Two leaves of a
   double door are stored 1 px apart: the door overlap check refuses two doors
   that touch on one edge once their fractions are rounded. Pinned by
-  `__tests__/microbiology-layout.test.ts` (13, mutation-checked three ways:
-  hinge end, an off-grid edge, a door on the wrong room). Applied to
+  `__tests__/microbiology-layout.test.ts` (16, mutation-checked: hinge end, an
+  off-grid edge, a door on the wrong room, the outward swing). Applied to
   `compliance_core_db` only; AWS needs the script run after the next deploy.
+  - **A door has an optional `swing: 'in' | 'out'` (same day).** `'out'` is an
+    EXTERIOR door that opens out of the building (Microbiology's emergency
+    exit); absent = in, every door before it. It is named in `doorSchema`
+    (`validation.ts`) — the parsed payload is what the route stores, so an
+    unnamed field is dropped on save — AND in `roomProps.doors` (`routes.ts`),
+    or Fastify strips it on the way out. `hinge` had the same two requirements
+    and no HTTP test until now: `e2e/floorplan-polygons.e2e.test.ts` asserts
+    both fields over the write and both reads, mutation-checked by deleting
+    each line from the response schema. `ArchAnnotations` gained optional
+    `equipment` / `labels` (outlined plant and its caption); a trace without
+    them emits the same JSON as before.
 - **2026-09-16 — the instrument CODE is changeable.** `PUT /api/instruments/:id`
   accepts `code` (shared `updateInstrumentSchema`, same `codeSchema` as create).
   **No count moved, no migration.** The code is the MQTT client id and every

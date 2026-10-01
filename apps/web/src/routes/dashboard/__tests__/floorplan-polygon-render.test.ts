@@ -135,4 +135,27 @@ describe('door swing — a quarter circle CENTRED ON THE HINGE (2026-10-01)', ()
   it("hinge 'none' is an opening: no leaf, no swing", () => {
     expect(polygonDoorPlacements(square, [{ edge: 0, offset: 0.4, width: 0.3, kind: 'EXIT', hinge: 'none' }])).toEqual([]);
   });
+
+  // An exterior door that opens OUT of the building (2026-10-01, Microbiology's
+  // emergency exit: drawn swinging in, it did not match the plant's drawing).
+  for (const hinge of ['start', 'end'] as const) {
+    it(`swing 'out', hinged at the ${hinge}: the leaf stands OUTSIDE the room and the arc is still centred on the hinge`, () => {
+      const door = { edge: 0, offset: 0.4, width: 0.3, kind: 'EXIT', hinge } as const;
+      const [inn] = polygonDoorPlacements(square, [door]);
+      const [out] = polygonDoorPlacements(square, [{ ...door, swing: 'out' }]);
+      // Edge 0 is the top wall (y 0); the room is below it.
+      expect(inn.leaf.y2).toBeCloseTo(30, 6);
+      expect(out.leaf.y2).toBeCloseTo(-30, 6);
+      // Same opening, same hinge — only the side changes.
+      expect(out.start).toEqual(inn.start);
+      expect(out.hinge).toEqual(inn.hinge);
+      const c = centreOf(out.arc);
+      expect(c.x).toBeCloseTo(out.leaf.x1, 6);
+      expect(c.y).toBeCloseTo(out.leaf.y1, 6);
+    });
+  }
+  it("swing 'in' is the default: a door that says nothing draws exactly as one that says 'in'", () => {
+    const door = { edge: 0, offset: 0.4, width: 0.3, kind: 'ENTRY' } as const;
+    expect(polygonDoorPlacements(square, [{ ...door, swing: 'in' }])).toEqual(polygonDoorPlacements(square, [door]));
+  });
 });

@@ -105,7 +105,7 @@ async function main() {
   }
   for (const o of dropped) console.log(`  room ${o.code} — on the plan today, not in the trace: deleted`);
   for (const l of target.links) console.log(`  link ${l.kind} ${linkCode(l)} — deleted (its rooms are replaced)`);
-  console.log(`structure: ${ann.columns.length} columns, ${ann.windows.length} windows, ${ann.walls.length} stubs`);
+  console.log(`structure: ${ann.columns.length} columns, ${ann.windows.length} windows, ${ann.walls.length} stubs, ${ann.equipment.length} outlined plant`);
   if (!APPLY) { console.log('\nDry run only. Re-run with --apply to execute.'); await prisma.$disconnect(); return; }
 
   // 0. Links die with their rooms (FK cascade) WITHOUT an audit row of their
@@ -129,7 +129,7 @@ async function main() {
     });
     await auditLog({
       ...audit, action: 'FLOORPLAN_UPDATED', targetType: 'floorplan', targetId: target.id,
-      afterValue: { name: layout.planName, source: layout.source, canvas, style: ann.style, structure: { columns: ann.columns.length, windows: ann.windows.length } },
+      afterValue: { name: layout.planName, source: layout.source, canvas, style: ann.style, structure: { columns: ann.columns.length, windows: ann.windows.length, stubs: ann.walls.length, equipment: ann.equipment.length } },
       reason: REASON, signatureMeaning: `Floor plan "${layout.planName}" redrawn from ${layout.source}`,
     }, tx);
   });

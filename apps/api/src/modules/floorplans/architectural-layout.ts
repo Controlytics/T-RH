@@ -31,6 +31,10 @@ export interface ArchDoor {
    *  coordinate) or 'to'; 'none' = an opening with no leaf. Read off the image:
    *  the swing arc meets the wall at the FREE end. */
   hinge: 'from' | 'to' | 'none';
+  /** 'out' = the leaf swings AWAY from the room the door is stored on — an
+   *  exterior door that opens out of the building (Microbiology's emergency
+   *  exit). Absent = into the room, as every other door. */
+  swing?: 'out';
 }
 
 export interface ArchRoom {
@@ -52,6 +56,11 @@ export interface ArchAnnotations {
   windows: [number, number, number, number][];
   /** Partition stubs that are not a room boundary: [x1, y1, x2, y2]. */
   walls: [number, number, number, number][];
+  /** Fixed plant the drawing shows as an outlined box — an autoclave built
+   *  into a wall, a cross-over bench. Drawn as an outline, never a status. */
+  equipment?: [number, number, number, number][];
+  /** A caption the drawing prints on such a box. */
+  labels?: { x: number; y: number; text: string }[];
 }
 
 /** One floor, as the generic draw script takes it. */
@@ -97,7 +106,7 @@ export function archPoints(b: ArchBuilding, room: ArchRoom): { x: number; y: num
  * length (the polygon convention). Throws when no edge carries the gap — a
  * door on the wrong room is a measuring mistake, never something to guess.
  */
-export function edgeDoor(room: ArchRoom, d: ArchDoor): { edge: number; offset: number; width: number; kind: ArchDoor['kind']; hinge: 'start' | 'end' | 'none' } {
+export function edgeDoor(room: ArchRoom, d: ArchDoor): { edge: number; offset: number; width: number; kind: ArchDoor['kind']; hinge: 'start' | 'end' | 'none'; swing?: 'out' } {
   const pts = room.outline;
   for (let i = 0; i < pts.length; i++) {
     const [x1, y1] = pts[i];
@@ -114,7 +123,7 @@ export function edgeDoor(room: ArchRoom, d: ArchDoor): { edge: number; offset: n
     // 'from' is the LOWER coordinate; the edge may run either way.
     const ascending = e >= s;
     const hinge = d.hinge === 'none' ? 'none' : ((d.hinge === 'from') === ascending ? 'start' : 'end');
-    return { edge: i, offset: r6(startAlong / len), width: r6((d.to - d.from) / len), kind: d.kind, hinge };
+    return { edge: i, offset: r6(startAlong / len), width: r6((d.to - d.from) / len), kind: d.kind, hinge, ...(d.swing === 'out' ? { swing: 'out' as const } : {}) };
   }
   throw new Error(`door ${d.axis}=${d.at} ${d.from}..${d.to} is on no edge of ${room.code}`);
 }
@@ -128,7 +137,9 @@ export function archAnnotations(b: ArchBuilding, a: ArchAnnotations) {
     // The dashboard draws this plan in the 2D ARCHITECTURAL style the operator
     // chose from three concepts (Layouts/CWH/concepts/concept-a-2d.png).
     style: 'architectural' as const,
-    equipment: [], hvac: [], water: [], airflow: [], labels: [],
+    equipment: (a.equipment ?? []).map(box),
+    hvac: [], water: [], airflow: [],
+    labels: (a.labels ?? []).map((l) => ({ x: nx(l.x), y: ny(l.y), text: l.text })),
     columns: a.columns.map(box),
     windows: a.windows.map(box),
     walls: a.walls.map(([x1, y1, x2, y2]) => ({ x1: nx(x1), y1: ny(y1), x2: nx(x2), y2: ny(y2) })),

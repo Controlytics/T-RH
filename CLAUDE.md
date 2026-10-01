@@ -1458,9 +1458,19 @@ GET    /api/config/report-downloads/current     — (2026-10-01) per report KIND
     - **Still true from the first trace:** the image is CUT OFF at the bottom,
       so the south wall (y 660) is computed from the written depths; and
       `CWH/RDU/051-00` sits in the unnumbered INCUBATOR ROOM-01 by judgement.
-      New departures (file header): the cavity wall beside INCUBATOR ROOM-02 is
-      one wall; the emergency-exit pair swings IN (a door is drawn on its own
-      room); the HPHV sterilizer and the cross-over bench are not drawn.
+      Walls draw ~11 px thick against the drawing's 6.
+    - **CORRECTED the same day against an OVERLAY (operator: "rooms dooars and
+      room lines are some places not matches with image").** The first version
+      listed four "deliberate departures"; laid over the drawing at the same
+      scale, they were exactly the four mismatches. Now: INCUBATOR ROOM-02 has
+      its TWO east walls (the labs' wall x 165 is the room edge and carries the
+      door pair; its own partition x 146.5 is a wall stub broken at the doors);
+      the emergency exit swings OUT (**new optional door field `swing: 'in' |
+      'out'`**, in the body schema AND the response schema — exterior doors
+      only); the HPHV sterilizer and the cross-over bench are outlined
+      (`annotations.equipment` / `labels`, drawn in the 2D style only).
+      **A side-by-side picture is not a comparison: lay the render OVER the
+      drawing, half transparent, at the same scale, and look at each wall.**
     - **Two more card shapes, `tall` and `compact`, exist for rooms the design
       cards cannot serve** — tried ONLY when `std` / `wide` print the Location
       under `LEGIBLE_LOC_FONT` (9 units; `chooseCard` in `floorplan-view.tsx`).
