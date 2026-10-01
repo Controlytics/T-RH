@@ -689,7 +689,8 @@ qc"*).
 - **The side panel's arrow is PLAN north** and says so: the drawing marks no
   true north.
 - `cardTone` / `roomTone` / `archSummary` bucket the SERVER's statuses; nothing
-  is re-derived. Tests: `floorplan-arch.test.tsx` (36, mutation-checked: the
+  is re-derived. Tests: `floorplan-arch.test.tsx` (40, mutation-checked: the
+  mini card and its two-line ID, the
   wrapped names, the three-line Location, the
   landscape strip, the line weights, the turned name, the
   style switch, the obstacle test, the legibility gate, the bracket break, the
@@ -719,11 +720,18 @@ qc"*).
   line only when its halves are still over 1.5 times the wrap length, so every
   two-line card is unchanged; `cardSpec.extra` counts each extra line. The QC
   and Microbiology renders are byte-identical before and after.
-- **Not solved: a room too narrow for the ID.** QC 3's two LCMS rooms are ~65
-  units wide; "CWH/RDU/012-00" needs ~80 at a legible size, so their cards
-  print the ID under 5 units whatever the shape. Full screen helps; a real fix
-  is a design decision (a two-line ID, or a card allowed to cover the door
-  swing).
+- **A room too narrow for the ID gets the `mini` card (QC 3, same day,
+  operator: "rooms are very small at top").** QC 3's two LCMS rooms are ~65
+  units wide, as drawn; "CWH/RDU/012-00" on one line needs ~80 at a legible
+  size and printed under 5 on every shape. `mini` (a fifth `CARD_SHAPES`
+  entry, in `SMALL_ROOM_SHAPES`) prints the ID on TWO lines, broken after its
+  last slash (`splitCode`), stacked readings, no captions: ID 4.7–4.9 → 8.2–8.5.
+  **`chooseCard` now scores a shape by the SMALLER of its Location and its ID
+  font (`codeFont`)** — on LCMS ROOM-II the Location printed the same on `tall`
+  and `mini`, so the Location alone never chose it. The rooms themselves are
+  NOT enlarged: they are the drawing's size, and the card's width is what
+  binds, so making the row taller would not help. QC and Microbiology render
+  byte-identically (their IDs were never the smaller heading).
 - **Judge a floor at a PANEL's size, not at 2000px.** The first Microbiology
   renders were checked at ~2000px wide and looked roomy; in the dashboard the
   drawing was 1000px wide. Dump the mounted view's `container.innerHTML`, load

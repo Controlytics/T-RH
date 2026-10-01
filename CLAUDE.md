@@ -1488,9 +1488,11 @@ GET    /api/config/report-downloads/current     — (2026-10-01) per report KIND
       applied LOCALLY (35 rooms out, 31 in, 12 instruments in the same rooms);
       **AWS needs that run.** `vPair` / `hPair` in `architectural-layout.ts`
       make a double door. Checked by overlay on the drawing, tile by tile,
-      BEFORE applying. **Known small:** the two LCMS rooms are ~65 units wide
-      and their cards print the ID under 5 units — the room is too narrow for
-      a 14-character ID at any card shape; said to the operator, not solved.
+      BEFORE applying. The two LCMS rooms are ~65 units wide, too narrow for a
+      14-character ID on one line; the operator's next message was "rooms are
+      very small at top", and they now get a `mini` card with the ID on two
+      lines (`splitCode`; `chooseCard` scores the smaller of Location and ID).
+      The ROOMS were not enlarged — they are the drawing's size.
       In the view, same day: a long room NAME wraps to two or three lines
       inside a small room (`placeRoomName` → `lines`, judged on `fit`, not the
       7-unit floor) and a very long Location takes three lines (`splitLabel`).

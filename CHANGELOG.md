@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased] - QC 3's two smallest rooms get a card that is readable: the instrument ID on two lines (2026-10-01)
+
+Operator, on the QC 3 floor: *"rooms are very small at top"*. The north row is
+five rooms about 2.5 m wide on the drawing — 65 units on the plan — and the two
+with an instrument (LCMS ROOM, LCMS ROOM-II) printed their ID under 5 units:
+"CWH/RDU/012-00" on one line needs about 80 units at a legible size.
+
+- **`mini` card** (`CARD_SHAPES`, tried with the other small-room shapes): the
+  ID on TWO lines, broken after its last slash (`splitCode` — "CWH/RDU/" over
+  "012-00"), the Location, the two readings stacked. ID 4.7–4.9 → 8.2–8.5 units
+  in the same room, clear of the door swing.
+- **`chooseCard` scores a shape by the smaller of its Location and its ID**
+  (`codeFont`). On LCMS ROOM-II the Location printed the same on the `tall` and
+  `mini` cards, so the Location alone would never have picked the one whose ID
+  can be read.
+- **The rooms are not enlarged.** They are the size the drawing gives them, and
+  it is the room's WIDTH that limits the card — a taller row would not help.
+  Widening them would stop the plan matching the drawing; not done.
+- QC and Microbiology render byte-identically. No data change, nothing to
+  re-apply. Tests: `floorplan-arch.test.tsx` 36 → 40; three mutation checks,
+  all caught. Not seen in the running app.
+
 ## [Unreleased] - "CWH — QC 3" re-traced and drawn in the 2D architectural design (2026-10-01)
 
 Operator: *"there is QC 3 image was there as same like QC and microbiology
@@ -38,9 +60,9 @@ everything"*.
   68 characters: 7.9 → 10 units). QC and Microbiology render byte-identically.
 - **Removed:** `traced-layout.ts`, `traced-layouts.test.ts` and the `TRACED`
   branch of `draw-cwh-floorplan.ts` — no floor is a rectangle trace any more.
-- **Known, not solved:** the two LCMS rooms are about 2.5 m wide on the drawing
-  (65 units); a 14-character instrument ID cannot print legibly inside them at
-  any card shape, and their cards are small. Full screen helps.
+- **Known at the time, fixed in the entry above:** the two LCMS rooms are about
+  2.5 m wide on the drawing (65 units), and a 14-character instrument ID on one
+  line could not print legibly inside them.
 - No count moved. Tests: `qc3-layout.test.ts` (14, new), `floorplan-arch.test.tsx`
   30 → 36; seven mutation checks, all caught. Not seen in the running app.
 

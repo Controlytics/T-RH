@@ -477,20 +477,39 @@ export function splitLabel(text: string, max = 20): string[] {
  * when the first two print the Location under `LEGIBLE_LOC_FONT`, so a room
  * the design's own card serves keeps it — every QC card is unchanged.
  *
+ * `mini` is for a room too NARROW for the instrument ID (QC 3, same day,
+ * operator: "rooms are very small at top" — the two LCMS rooms are 65 units
+ * wide, as drawn, and "CWH/RDU/012-00" on one line needs about 80 at a legible
+ * size; every other shape printed it under 5 units). It prints the ID on TWO
+ * lines, broken after its last slash (`idLines`, `splitCode`), which is what
+ * lets it print at nearly twice the size in the same room.
+ *
  * `wrap` is how long a Location may be before it takes two lines; `val2Y` is
- * the second reading's baseline on a stacked card.
+ * the second reading's baseline on a stacked card; `idPitch` the second ID
+ * line's drop.
  */
 export const CARD_SHAPES = {
-  std: { w: 196, h: 104, band: 26, idY: 19, idFont: 15.5, locY: 46, locFont: 14, valY: 78, val2Y: 0, valFont: 20, capY: 95, wrap: 20, captions: true, stack: false },
-  wide: { w: 280, h: 74, band: 24, idY: 17, idFont: 15.5, locY: 43, locFont: 14, valY: 68, val2Y: 0, valFont: 20, capY: 0, wrap: 30, captions: false, stack: false },
-  tall: { w: 124, h: 102, band: 24, idY: 17, idFont: 14, locY: 42, locFont: 14, valY: 69, val2Y: 93, valFont: 20, capY: 0, wrap: 14, captions: false, stack: true },
-  compact: { w: 170, h: 60, band: 20, idY: 14.5, idFont: 13, locY: 35, locFont: 13, valY: 54, val2Y: 0, valFont: 17, capY: 0, wrap: 26, captions: false, stack: false },
+  std: { w: 196, h: 104, band: 26, idY: 19, idFont: 15.5, idLines: 1, idPitch: 0, locY: 46, locFont: 14, valY: 78, val2Y: 0, valFont: 20, capY: 95, wrap: 20, captions: true, stack: false },
+  wide: { w: 280, h: 74, band: 24, idY: 17, idFont: 15.5, idLines: 1, idPitch: 0, locY: 43, locFont: 14, valY: 68, val2Y: 0, valFont: 20, capY: 0, wrap: 30, captions: false, stack: false },
+  tall: { w: 124, h: 102, band: 24, idY: 17, idFont: 14, idLines: 1, idPitch: 0, locY: 42, locFont: 14, valY: 69, val2Y: 93, valFont: 20, capY: 0, wrap: 14, captions: false, stack: true },
+  compact: { w: 170, h: 60, band: 20, idY: 14.5, idFont: 13, idLines: 1, idPitch: 0, locY: 35, locFont: 13, valY: 54, val2Y: 0, valFont: 17, capY: 0, wrap: 26, captions: false, stack: false },
+  mini: { w: 60, h: 55, band: 22.5, idY: 9.5, idFont: 9.5, idLines: 2, idPitch: 10, locY: 31.5, locFont: 8, valY: 42, val2Y: 52, valFont: 9.5, capY: 0, wrap: 12, captions: false, stack: true },
 } as const;
 export type CardShape = keyof typeof CARD_SHAPES;
 /** The design's shapes, tried first; and the small-room shapes, tried only
  *  when those print the Location under `LEGIBLE_LOC_FONT`. */
 export const DESIGN_SHAPES = ['std', 'wide'] as const satisfies readonly CardShape[];
-export const SMALL_ROOM_SHAPES = ['tall', 'compact'] as const satisfies readonly CardShape[];
+export const SMALL_ROOM_SHAPES = ['tall', 'compact', 'mini'] as const satisfies readonly CardShape[];
+
+/**
+ * An instrument ID on `lines` lines: one, or two broken AFTER its last slash
+ * ("CWH/RDU/" over "012-00"). An ID with no slash to break at stays on one.
+ */
+export function splitCode(code: string, lines: number): string[] {
+  const at = code.lastIndexOf('/');
+  if (lines < 2 || at <= 0 || at >= code.length - 1) return [code];
+  return [code.slice(0, at + 1), code.slice(at + 1)];
+}
 /** Under this many units a Location is hard to read on a wall display. The
  *  smallest Location on the QC floor prints at 9.1. */
 export const LEGIBLE_LOC_FONT = 9;
@@ -509,17 +528,30 @@ export function locationFont(spec: ReturnType<typeof cardSpec>, k: number): numb
   return Math.min(spec.locFont * k, (spec.w * k - 10) / (longest * 0.6));
 }
 
+/** The instrument-ID font a card of `spec` prints `code` at, scale `k`: the
+ *  shape's size, or less when the card is too narrow for its longest ID line. */
+export function codeFont(spec: ReturnType<typeof cardSpec>, k: number, code: string): number {
+  const longest = Math.max(1, ...splitCode(code, spec.idLines).map((l) => l.length));
+  return Math.min(spec.idFont * k, (spec.w * k - 10) / (longest * 0.64));
+}
+
 /**
  * Which shape a one-instrument room's card takes, and where it goes: the
- * shape that prints the Location LARGEST. The portrait card wins a tie (it is
- * the design; the others are fallbacks), and the small-room shapes are not
- * even tried while a design shape is legible. Null when no shape fits clear
- * of the obstacles — the caller falls back to the tile grid's box.
+ * shape whose SMALLER heading — the Location, or the instrument ID when
+ * `code` is given — prints largest. The portrait card wins a tie (it is the
+ * design; the others are fallbacks), and the small-room shapes are not even
+ * tried while a design shape is legible. Null when no shape fits clear of the
+ * obstacles — the caller falls back to the tile grid's box.
+ *
+ * The ID counts because a room can be too NARROW for it while the Location
+ * still fits: QC 3's LCMS ROOM-II printed "LCMS Room-II" at 5.8 on the tall
+ * card and on the mini card alike, and the ID at 4.7 against 8.3.
  */
 export function chooseCard(
   inner: PixelBox,
   obstacles: PixelBox[],
   location: string,
+  code?: string,
 ): (NonNullable<ReturnType<typeof placeCard>> & { shape: CardShape }) | null {
   let best: (NonNullable<ReturnType<typeof placeCard>> & { shape: CardShape }) | null = null;
   let bestFont = -1;
@@ -528,7 +560,8 @@ export function chooseCard(
       const spec = cardSpec(shape, location);
       const placed = placeCard(inner, obstacles, spec.w, spec.h);
       if (!placed) continue;
-      const font = locationFont(spec, placed.k);
+      const loc = locationFont(spec, placed.k);
+      const font = code ? Math.min(loc, codeFont(spec, placed.k, code)) : loc;
       if (font > bestFont + 0.25) { bestFont = font; best = { ...placed, shape }; }
     }
   };
@@ -829,7 +862,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
     // the columns; a room with several instruments keeps the tile grid.
     // The shape is whichever prints the Location largest — see `chooseCard`.
     const card = arch && roomRows.length === 1
-      ? chooseCard(largestInscribedRect(outline), planObstacles, cardLocation(roomRows[0], room))
+      ? chooseCard(largestInscribedRect(outline), planObstacles, cardLocation(roomRows[0], room), roomRows[0].code)
       : null;
     return [room.id, {
       outline, doorOpenings, openings, tileBox, isContinuation, card,
@@ -1272,6 +1305,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                     const band = CHIP[tone].bg;
                     const [t, h] = tileValues(row, sensorWords);
                     const locFont = locationFont(spec, k);
+                    const idLines = splitCode(row.code, spec.idLines);
                     const go = () => navigate(`/instruments/${row.instrumentId}/trend`);
                     const tempV = row.temperature?.value ?? null;
                     const rhV = row.humidity?.value ?? null;
@@ -1295,7 +1329,10 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                           d={`M${x0},${y0 + spec.band * k} V${y0 + 9 * k} Q${x0},${y0} ${x0 + 9 * k},${y0} H${x0 + cw - 9 * k} Q${x0 + cw},${y0} ${x0 + cw},${y0 + 9 * k} V${y0 + spec.band * k} Z`}
                           fill={band}
                         />
-                        <text x={x0 + cw / 2} y={y0 + spec.idY * k} textAnchor="middle" fontSize={Math.min(spec.idFont * k, (cw - 10) / (row.code.length * 0.64))} fontWeight={800} fill="#ffffff">{row.code}</text>
+                        {/* The ID: one line, or two on the `mini` card. */}
+                        {idLines.map((line, li) => (
+                          <text key={`id${li}`} x={x0 + cw / 2} y={y0 + spec.idY * k + li * spec.idPitch * k} textAnchor="middle" fontSize={codeFont(spec, k, row.code)} fontWeight={800} fill="#ffffff">{line}</text>
+                        ))}
                         {locLines[0] && locLines.map((line, li) => (
                           <text key={li} x={x0 + cw / 2} y={y0 + spec.locY * k + li * CARD_LINE * k} textAnchor="middle" fontSize={locFont} fontWeight={700} fill="#334155">{line}</text>
                         ))}

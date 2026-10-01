@@ -35,7 +35,7 @@ vi.mock('../use-telemetry', async (orig) => ({
   useTelemetryOverview: () => ({ rows: ROWS, isLoading: false, error: undefined }),
 }));
 
-const { FloorplanView, cardTone, roomTone, archSummary, splitLabel, cardSpec, locationFont, chooseCard, LEGIBLE_LOC_FONT, ARCH } = await import('../floorplan-view');
+const { FloorplanView, cardTone, roomTone, archSummary, splitLabel, cardSpec, locationFont, chooseCard, LEGIBLE_LOC_FONT, ARCH, splitCode, codeFont } = await import('../floorplan-view');
 function Where() { const l = useLocation(); return <p data-testid="where">{l.pathname}</p>; }
 const mount = () => render(
   <MemoryRouter initialEntries={['/']}>
@@ -498,6 +498,67 @@ describe('long words in small rooms', () => {
     expect(Math.max(...three.map((l) => l.length))).toBeLessThan(30);
     // 018-00's on the QC floor: 27 / 16 in two lines — within half as long again.
     expect(splitLabel('Sieving& Sample destruction chamber room(QC)')).toHaveLength(2);
+  });
+
+  /**
+   * Operator, on QC 3: "rooms are very small at top". The two LCMS rooms are
+   * 65 units wide, as the drawing has them; a 14-character instrument ID on
+   * one line cannot print legibly inside. The `mini` card breaks it in two.
+   */
+  describe('a room too narrow for the instrument ID', () => {
+    // LCMS ROOM-II as drawn: 64 x 79 units, its door swing in a bottom corner.
+    const LCMS = { x: 0, y: 0, w: 64, h: 79 };
+    const SWING = { x: 36, y: 56, w: 23, h: 23 };
+    const CODE = 'CWH/RDU/002-01';
+
+    it('splitCode breaks an ID after its last slash, and leaves one it cannot break alone', () => {
+      expect(splitCode(CODE, 2)).toEqual(['CWH/RDU/', '002-01']);
+      expect(splitCode(CODE, 1)).toEqual([CODE]);
+      expect(splitCode('IOTGW01', 2)).toEqual(['IOTGW01']);
+      expect(splitCode('TRAILING/', 2)).toEqual(['TRAILING/']);
+    });
+
+    it('takes the MINI card: the Location prints the same, the ID nearly twice as large', () => {
+      const loc = 'LCMS Room-II';
+      const card = chooseCard(LCMS, [SWING], loc, CODE)!;
+      expect(card.shape).toBe('mini');
+      const tall = cardSpec('tall', loc);
+      const tallK = placeCard(LCMS, [SWING], tall.w, tall.h)!.k;
+      const mini = cardSpec('mini', loc);
+      // The Location alone would not have chosen it...
+      expect(Math.abs(locationFont(mini, card.k) - locationFont(tall, tallK))).toBeLessThan(0.25);
+      expect(chooseCard(LCMS, [SWING], loc)!.shape).toBe('tall');
+      // ...the ID does.
+      expect(codeFont(tall, tallK, CODE)).toBeLessThan(5);
+      expect(codeFont(mini, card.k, CODE)).toBeGreaterThan(codeFont(tall, tallK, CODE) * 1.6);
+    });
+
+    it('a room the other shapes serve never gets it', () => {
+      // Microbiology's LAF-1: 97 units wide. The tall card prints both headings larger.
+      expect(chooseCard({ x: 0, y: 0, w: 97, h: 168 }, [{ x: 8, y: 0, w: 40, h: 40 }], 'LAF-1(Microbiology)', 'CWH/RDU/045-00')!.shape).toBe('tall');
+      expect(chooseCard({ x: 0, y: 0, w: 300, h: 300 }, [], 'Wet lab (QC)', 'CWH/RDU/022-00')!.shape).toBe('std');
+    });
+
+    it('draws the ID on two lines in the band, one size, the second under the first', () => {
+      PLAN = {
+        ...planOf('architectural'),
+        rooms: [room('lab', 'CWH-I/250', 'LCMS ROOM-II', 0.05, { y: 0.1, w: 0.064, h: 0.13 })],
+        annotations: { ...ANN, columns: [], style: 'architectural' },
+      };
+      ROWS = [row({ code: CODE, locationAttribute: 'LCMS Room-II' })];
+      mount();
+      const card = screen.getByTestId('fp-card');
+      expect(card).toHaveAttribute('data-shape', 'mini');
+      const text = (s: string) => [...card.querySelectorAll('text')].find((t) => t.textContent === s)!;
+      const a = text('CWH/RDU/'), b = text('002-01');
+      expect(a).toBeTruthy(); expect(b).toBeTruthy();
+      expect(a.getAttribute('font-size')).toBe(b.getAttribute('font-size'));
+      expect(Number(b.getAttribute('y'))).toBeGreaterThan(Number(a.getAttribute('y')));
+      expect(Number(a.getAttribute('font-size'))).toBeGreaterThan(7);
+      // The whole ID is still what a screen reader hears.
+      expect(card.getAttribute('aria-label')).toContain(CODE);
+      PLAN = planOf('architectural');
+    });
   });
 
   it('each extra line makes the card one line taller, and the font is sized by the longest', () => {
