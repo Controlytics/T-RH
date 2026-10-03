@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blueprint</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  html { --bg: #0B3D7A; --plate: #0A3568; --ink: #EAF2FF; --ink-2: #A9C4E6; --line: #1E4F8E; --accent: #FFFFFF; --tab-bg: #0D4484; }
+  body { background: #0B3D7A; }
+  .plan { font-family: "Cascadia Mono", "Consolas", "Courier New", monospace; }
+  .plan .paper { fill: #0C4283; }
+  .plan .ink { stroke: #EAF2FF; fill: none; }
+  .plan .faint { stroke: #EAF2FF; stroke-opacity: .45; fill: none; }
+  .plan .room-line { stroke: #EAF2FF; stroke-opacity: .55; fill: none; }
+  .plan .name { fill: #EAF2FF; letter-spacing: .06em; }
+  .plan .code { fill: #A9C4E6; }
+  .plan .dims { fill: #A9C4E6; }
+  .plan .tag { fill: #EAF2FF; }
+  .plan .tag-muted { fill: #A9C4E6; }
+  .plan .title-block text { fill: #EAF2FF; }
+  .plan .title-block .k { fill: #A9C4E6; }
+</style>
+</head>
+<body>
+<main class="lm-stage" id="stage"></main>
+<script src="data/layouts.js"></script>
+<script src="common.js"></script>
+<script>
+(function () {
+  const { STATUS, el, pathOf, wallSegments, allDoors, doorLeaf, largestInscribedRect, reading, fmt, roomStatus, roomName, counts, bindTip } = LM;
+  const stage = document.getElementById('stage');
+
+  function draw(floor) {
+    stage.innerHTML = '';
+    const b = floor.building, W = b.x1 - b.x0, H = b.y1 - b.y0;
+    const scale = 1000 / Math.max(W, H);
+    const u = (v) => v / scale;
+    const pad = u(40), tb = u(78); // margin and the title block's height under the plan
+    const vw = W + 2 * pad, vh = H + 2 * pad + tb;
+    const svg = el('svg', { viewBox: `${b.x0 - pad} ${b.y0 - pad} ${vw} ${vh}`, class: 'plan', style: LM.fitStyle(vw, vh), 'aria-label': `${floor.title}, blueprint` }, stage);
+    const defs = el('defs', {}, svg);
+    const fine = el('pattern', { id: 'fine', width: u(10), height: u(10), patternUnits: 'userSpaceOnUse' }, defs);
+    el('path', { d: `M ${u(10)} 0 L 0 0 0 ${u(10)}`, fill: 'none', stroke: '#EAF2FF', 'stroke-opacity': 0.07, 'stroke-width': u(0.5) }, fine);
+    const coarse = el('pattern', { id: 'coarse', width: u(50), height: u(50), patternUnits: 'userSpaceOnUse' }, defs);
+    el('rect', { width: u(50), height: u(50), fill: 'url(#fine)' }, coarse);
+    el('path', { d: `M ${u(50)} 0 L 0 0 0 ${u(50)}`, fill: 'none', stroke: '#EAF2FF', 'stroke-opacity': 0.16, 'stroke-width': u(0.7) }, coarse);
+    const hatch = el('pattern', { id: 'hatch', width: u(5), height: u(5), patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' }, defs);
+    el('line', { x1: 0, y1: 0, x2: 0, y2: u(5), stroke: '#EAF2FF', 'stroke-width': u(1.2) }, hatch);
+    // Paper and grid.
+    el('rect', { x: b.x0 - pad, y: b.y0 - pad, width: vw, height: vh, class: 'paper' }, svg);
+    el('rect', { x: b.x0 - pad, y: b.y0 - pad, width: vw, height: vh, fill: 'url(#coarse)' }, svg);
+    // Border with a double line, the drawing-sheet convention.
+    el('rect', { x: b.x0 - pad + u(8), y: b.y0 - pad + u(8), width: vw - u(16), height: vh - u(16), class: 'ink', 'stroke-width': u(1.6) }, svg);
+    el('rect', { x: b.x0 - pad + u(12), y: b.y0 - pad + u(12), width: vw - u(24), height: vh - u(24), class: 'faint', 'stroke-width': u(0.6) }, svg);
+
+    // Rooms: a hover target each; alarm rooms get a hatched inner band in the status colour.
+    for (const r of floor.rooms) {
+      const g = el('g', {}, svg);
+      el('path', { d: pathOf(r.outline), fill: 'transparent', class: 'room-line', 'stroke-width': u(0.5) }, g);
+      const s = roomStatus(r);
+      if (s && s !== 'OK' && s !== 'NO_DATA') {
+        const id = `room-${r.code.replace(/[^a-z0-9]/gi, '')}`;
+        const cp = el('clipPath', { id }, defs); el('path', { d: pathOf(r.outline) }, cp);
+        el('path', { d: pathOf(r.outline), fill: 'none', stroke: STATUS[s].color, 'stroke-width': u(14), 'stroke-opacity': 0.55, 'clip-path': `url(#${id})` }, g);
+      }
+      bindTip(g, r);
+    }
+    // Walls as a double line: a thick white run for the exterior, a fine pair for partitions.
+    const gW = el('g', {}, svg);
+    for (const s of wallSegments(floor)) {
+      if (s.exterior) { el('line', { x1: s.a[0], y1: s.a[1], x2: s.b[0], y2: s.b[1], class: 'ink', 'stroke-width': u(5), 'stroke-linecap': 'square' }, gW); continue; }
+      const vertical = Math.abs(s.a[0] - s.b[0]) < 0.01, o = u(1.2);
+      for (const d of [-o, o]) el('line', { x1: s.a[0] + (vertical ? d : 0), y1: s.a[1] + (vertical ? 0 : d), x2: s.b[0] + (vertical ? d : 0), y2: s.b[1] + (vertical ? 0 : d), class: 'ink', 'stroke-width': u(0.9), 'stroke-linecap': 'square' }, gW);
+    }
+    for (const [x1, y1, x2, y2] of floor.annotations.walls) el('line', { x1, y1, x2, y2, class: 'ink', 'stroke-width': u(1.2) }, gW);
+    for (const d of allDoors(floor)) {
+      const L = doorLeaf(d);
+      if (L.leafless) { el('line', { x1: L.F[0], y1: L.F[1], x2: L.H[0], y2: L.H[1], class: 'faint', 'stroke-width': u(0.8), 'stroke-dasharray': `${u(2)} ${u(2)}` }, gW); continue; }
+      el('line', { x1: L.H[0], y1: L.H[1], x2: L.tip[0], y2: L.tip[1], class: 'ink', 'stroke-width': u(1.4) }, gW);
+      el('path', { d: L.arc, class: 'ink', 'stroke-width': u(0.7) }, gW);
+    }
+    for (const [x0, y0, x1, y1] of floor.annotations.windows) {
+      // Three parallel lines along the window's long side.
+      const vertical = (y1 - y0) > (x1 - x0);
+      for (let i = 0; i < 3; i++) {
+        const t = (i + 0.5) / 3;
+        if (vertical) el('line', { x1: x0 + (x1 - x0) * t, y1: y0, x2: x0 + (x1 - x0) * t, y2: y1, class: 'ink', 'stroke-width': u(0.7) }, gW);
+        else el('line', { x1: x0, y1: y0 + (y1 - y0) * t, x2: x1, y2: y0 + (y1 - y0) * t, class: 'ink', 'stroke-width': u(0.7) }, gW);
+      }
+    }
+    for (const [x0, y0, x1, y1] of floor.annotations.columns) el('rect', { x: x0, y: y0, width: x1 - x0, height: y1 - y0, fill: 'url(#hatch)', class: 'ink', 'stroke-width': u(1) }, gW);
+    for (const [x0, y0, x1, y1] of floor.annotations.equipment) el('rect', { x: x0, y: y0, width: x1 - x0, height: y1 - y0, class: 'faint', 'stroke-width': u(0.9), 'stroke-dasharray': `${u(3)} ${u(2)}` }, gW);
+    for (const l of floor.annotations.labels) el('text', { x: l.x, y: l.y, 'font-size': u(7), 'text-anchor': 'middle', class: 'code' }, gW).textContent = l.text;
+
+    // Captions: NAME in capitals, room number, the drawing's dimensions where it carries them, and the instrument tag.
+    const gT = el('g', {}, svg);
+    for (const r of floor.rooms) { const g = el('g', {}, gT); caption(r, g, u); bindTip(g, r); }
+
+    // Dimension line across the top and down the left: the building's extent, in drawing units.
+    dim(svg, b.x0, b.y0 - u(16), b.x1, b.y0 - u(16), `${Math.round(W)}`, u, false);
+    dim(svg, b.x0 - u(16), b.y0, b.x0 - u(16), b.y1, `${Math.round(H)}`, u, true);
+
+    // Title block, bottom right.
+    const n = counts(floor);
+    const tbx = b.x1 - u(330), tby = b.y1 + pad - u(4);
+    const g = el('g', { class: 'title-block' }, svg);
+    el('rect', { x: tbx, y: tby, width: u(330), height: tb - u(14), class: 'ink', 'stroke-width': u(1.2), fill: '#0A3568' }, g);
+    el('line', { x1: tbx, y1: tby + u(20), x2: tbx + u(330), y2: tby + u(20), class: 'ink', 'stroke-width': u(0.7) }, g);
+    el('line', { x1: tbx + u(190), y1: tby, x2: tbx + u(190), y2: tby + tb - u(14), class: 'ink', 'stroke-width': u(0.7) }, g);
+    const row = (x, y, k, v, size = 7) => { el('text', { x, y, 'font-size': u(size), class: 'k' }, g).textContent = k; el('text', { x, y: y + u(size * 1.35), 'font-size': u(size * 1.15) }, g).textContent = v; };
+    el('text', { x: tbx + u(8), y: tby + u(14), 'font-size': u(9.5), 'font-weight': 700 }, g).textContent = 'CWH — TEMPERATURE & RH MONITORING';
+    el('text', { x: tbx + u(198), y: tby + u(14), 'font-size': u(8) }, g).textContent = `SHEET ${floor.id.toUpperCase()}`;
+    row(tbx + u(8), tby + u(32), 'DRAWING', floor.title.toUpperCase(), 7);
+    row(tbx + u(8), tby + u(52), 'SOURCE', floor.source.replace(/^Layouts\//, '').toUpperCase(), 6);
+    row(tbx + u(198), tby + u(32), 'INSTRUMENTS', `${Object.values(n).reduce((a, c) => a + c, 0)}  ·  ${n.OUT_OF_SPEC + n.ERROR} ALARM`, 7);
+    row(tbx + u(198), tby + u(52), 'STATUS', 'SAMPLE SNAPSHOT  ·  NOT TO SCALE', 6);
+    // The legend: one square per status, left of the title block.
+    // Two rows of three / two, so it fits beside the title block on a portrait sheet too.
+    LM.STATUS_ORDER.forEach((k, i) => {
+      const lx = b.x0 + u((i % 3) * 112), ly = tby + u(6 + Math.floor(i / 3) * 14);
+      el('rect', { x: lx, y: ly, width: u(9), height: u(9), fill: STATUS[k].color, class: 'ink', 'stroke-width': u(0.6) }, g);
+      el('text', { x: lx + u(13), y: ly + u(7.5), 'font-size': u(6.5) }, g).textContent = `${STATUS[k].label.toUpperCase()} (${n[k]})`;
+    });
+    el('text', { x: b.x0, y: tby + u(44), 'font-size': u(6), class: 'k' }, g).textContent = 'WALLS AND DOORS AS TRACED FROM THE ARCHITECTURAL DRAWING. DIMENSIONS IN DRAWING UNITS.';
+    el('text', { x: b.x0, y: tby + u(54), 'font-size': u(6), class: 'k' }, g).textContent = 'ROOM TAG: INSTRUMENT ID · TEMPERATURE °C · HUMIDITY %RH · STATUS SQUARE.';
+  }
+
+  function dim(svg, x1, y1, x2, y2, label, u, vertical) {
+    const g = el('g', {}, svg);
+    el('line', { x1, y1, x2, y2, class: 'ink', 'stroke-width': u(0.6) }, g);
+    const tick = u(3);
+    for (const [x, y] of [[x1, y1], [x2, y2]]) el('line', { x1: x - tick, y1: y + tick, x2: x + tick, y2: y - tick, class: 'ink', 'stroke-width': u(0.9) }, g);
+    const t = el('text', { x: (x1 + x2) / 2, y: (y1 + y2) / 2 - u(3), 'font-size': u(7), 'text-anchor': 'middle', class: 'code' }, g);
+    if (vertical) t.setAttribute('transform', `rotate(-90 ${(x1 + x2) / 2} ${(y1 + y2) / 2 - u(3)})`);
+    t.textContent = label;
+  }
+
+  function caption(room, g, u) {
+    const rect = largestInscribedRect(room.outline);
+    const ip = u(6), w = rect.w - 2 * ip, h = rect.h - 2 * ip;
+    if (w < u(22) || h < u(12)) return;
+    const rd = reading(room);
+    const name = roomName(room).toUpperCase();
+    let y = rect.y + ip;
+    const fit = /\(\d+\)\s*$/.test(room.code) ? null : LM.fitName(name, w / u(1) / 1.08, Math.min(h / u(1) * 0.45, 24), 9.5, 6);
+    if (fit) {
+      const nf = u(fit.font);
+      for (const line of fit.lines) { y += nf; el('text', { x: rect.x + ip, y, 'font-size': nf, class: 'name' }, g).textContent = line; }
+      if (h > u(40)) { y += nf * 0.95; el('text', { x: rect.x + ip, y, 'font-size': nf * 0.8, class: 'code' }, g).textContent = room.code + (room.meta && room.meta.dims ? `   ${room.meta.dims}` : ''); }
+      y += nf * 0.5;
+    }
+    if (!rd) return;
+    // The instrument tag: a boxed label as a drawing would carry it.
+    const left = h - (y - rect.y - ip);
+    const s = Math.max(0.45, Math.min(1.1, w / u(118), left / u(40)));
+    const f = (v) => u(v * s);
+    const tw = f(114), th = f(34);
+    if (tw > w || th > left) {
+      el('rect', { x: rect.x + ip, y, width: u(7), height: u(7), fill: STATUS[rd.status].color, class: 'ink', 'stroke-width': u(0.6) }, g);
+      return;
+    }
+    const x = rect.x + ip;
+    el('rect', { x, y, width: tw, height: th, fill: '#0A3568', class: 'ink', 'stroke-width': f(1) }, g);
+    el('line', { x1: x, y1: y + f(13), x2: x + tw, y2: y + f(13), class: 'ink', 'stroke-width': f(0.6) }, g);
+    el('text', { x: x + f(5), y: y + f(9.5), 'font-size': f(7.5), class: 'tag', 'font-weight': 700 }, g).textContent = rd.code;
+    el('rect', { x: x + tw - f(12), y: y + f(3), width: f(7), height: f(7), fill: STATUS[rd.status].color, class: 'ink', 'stroke-width': f(0.6) }, g);
+    const t = el('text', { x: x + f(5), y: y + f(27), 'font-size': f(11), class: 'tag', 'font-weight': 700 }, g);
+    t.textContent = fmt(rd.temperature, rd.decimals.temperature);
+    el('tspan', { 'font-size': f(6.5), class: 'tag-muted', dx: f(1.5), 'font-weight': 400 }, t).textContent = typeof rd.temperature === 'number' ? '°C' : '';
+    el('tspan', { dx: f(9) }, t).textContent = fmt(rd.humidity, rd.decimals.humidity);
+    el('tspan', { 'font-size': f(6.5), class: 'tag-muted', dx: f(1.5), 'font-weight': 400 }, t).textContent = typeof rd.humidity === 'number' ? '%RH' : '';
+  }
+
+  LM.mountChrome(document.body, { modelName: 'Blueprint', subtitle: 'Drawing-office sheet with title block and tags', onFloor: draw });
+})();
+</script>
+</body>
+</html>

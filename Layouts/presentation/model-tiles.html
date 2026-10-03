@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tile wall</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  body { background: #090F1A; }
+  .lm-stage { display: block !important; padding: 16px 20px; overflow: auto; }
+  .board { width: 100%; }
+  .board { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+  .tile { position: relative; border-radius: 12px; padding: 14px 16px 12px; min-height: 150px; color: #FFFFFF; background: var(--c); overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 10px 24px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.18); }
+  .tile::after { content: ''; position: absolute; inset: 0; background: linear-gradient(160deg, rgba(255,255,255,.14), rgba(255,255,255,0) 45%, rgba(0,0,0,.18)); pointer-events: none; }
+  .tile.ok { --c: #157A44; }
+  .tile.out { --c: #C73A32; }
+  .tile.err { --c: #6D2FD6; }
+  .tile.off { --c: #B97606; }
+  .tile.nodata { --c: #3B4657; }
+  .tile.out, .tile.err { animation: throb 2.6s ease-in-out infinite; }
+  @keyframes throb { 0%, 100% { box-shadow: 0 10px 24px rgba(0,0,0,.35), 0 0 0 0 rgba(255,255,255,0); } 50% { box-shadow: 0 10px 24px rgba(0,0,0,.35), 0 0 0 6px rgba(255,255,255,.14); } }
+  .tile .room { padding-right: 86px; font-size: 15px; font-weight: 600; line-height: 1.2; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .tile .id { font-size: 11.5px; opacity: .8; margin-top: 2px; }
+  .tile .vals { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: auto; padding-top: 10px; }
+  .tile .v { display: flex; flex-direction: column; gap: 4px; }
+  .tile .v .n { font-size: 34px; font-weight: 700; line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .tile .v .n small { font-size: 12px; font-weight: 400; opacity: .8; margin-left: 3px; }
+  .tile .v .k { font-size: 11px; opacity: .8; display: flex; align-items: center; gap: 5px; }
+  .tile .v .k svg { width: 12px; height: 12px; fill: currentColor; opacity: .9; }
+  .tile .bar { position: relative; height: 4px; border-radius: 2px; background: rgba(255,255,255,.22); margin-top: 6px; }
+  .tile .bar i { position: absolute; top: 0; bottom: 0; background: rgba(255,255,255,.45); border-radius: 2px; }
+  .tile .bar b { position: absolute; top: -3px; width: 4px; height: 10px; border-radius: 2px; background: #FFFFFF; transform: translateX(-50%); }
+  .tile .state { position: absolute; top: 12px; right: 14px; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: rgba(0,0,0,.22); }
+  .section { grid-column: 1 / -1; color: #8FA3BF; font-size: 12px; margin: 10px 0 -4px; display: flex; align-items: center; gap: 10px; }
+  .section::after { content: ''; flex: 1; height: 1px; background: #1E2C45; }
+  .empty { grid-column: 1 / -1; color: #8FA3BF; padding: 20px 0; }
+</style>
+</head>
+<body>
+<main class="lm-stage" id="stage"></main>
+<script src="data/layouts.js"></script>
+<script src="common.js"></script>
+<script>
+(function () {
+  const { STATUS, ICONS, reading, fmt, roomName, slotTone } = LM;
+  const stage = document.getElementById('stage');
+  const CLASS = { OK: 'ok', OUT_OF_SPEC: 'out', ERROR: 'err', OFFLINE: 'off', NO_DATA: 'nodata' };
+  const ORDER = { OUT_OF_SPEC: 0, ERROR: 1, OFFLINE: 2, NO_DATA: 3, OK: 4 };
+  const svg = (kind) => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[kind]}"/></svg>`;
+
+  function bar(value, lo, hi) {
+    if (typeof value !== 'number' || (lo === null && hi === null)) return '';
+    const span = (hi ?? lo) - (lo ?? hi) || 1, pad = span * 0.35;
+    const min = (lo ?? hi) - pad, max = (hi ?? lo) + pad;
+    const t = (v) => Math.max(0, Math.min(100, ((v - min) / (max - min)) * 100));
+    return `<div class="bar"><i style="left:${t(lo ?? min)}%;width:${t(hi ?? max) - t(lo ?? min)}%"></i><b style="left:${t(value)}%"></b></div>`;
+  }
+  function tile(room, rd) {
+    const d = document.createElement('div');
+    d.className = `tile ${CLASS[rd.status]}`;
+    const v = (kind, label, value, dec, unit, lo, hi) => `<div class="v"><span class="k">${svg(kind)}${label}</span><span class="n">${fmt(value, dec)}${typeof value === 'number' ? `<small>${unit}</small>` : ''}</span>${bar(value, lo, hi)}</div>`;
+    d.innerHTML = `<span class="state">${STATUS[rd.status].label}</span><div class="room">${roomName(room)}</div><div class="id">${rd.code} · ${room.code}</div>
+      <div class="vals">${v('temperature', 'Temperature', rd.temperature, rd.decimals.temperature, '°C', rd.limits.tempMin, rd.limits.tempMax)}${v('humidity', 'Humidity', rd.humidity, rd.decimals.humidity, '%RH', rd.limits.rhMin, rd.limits.rhMax)}</div>`;
+    LM.bindTip(d, room);
+    return d;
+  }
+
+  function draw(floor) {
+    stage.innerHTML = '';
+    const board = document.createElement('div'); board.className = 'board'; stage.appendChild(board);
+    const rows = floor.rooms.map((r) => ({ r, rd: reading(r) })).filter((x) => x.rd).sort((a, b) => ORDER[a.rd.status] - ORDER[b.rd.status] || a.rd.code.localeCompare(b.rd.code));
+    if (!rows.length) { board.innerHTML = '<div class="empty">No instruments on this floor.</div>'; return; }
+    // Alarms first, under their own rule; then everything in limit.
+    const alarms = rows.filter((x) => x.rd.status !== 'OK'), fine = rows.filter((x) => x.rd.status === 'OK');
+    if (alarms.length) { const h = document.createElement('div'); h.className = 'section'; h.textContent = `Needs attention · ${alarms.length}`; board.appendChild(h); for (const x of alarms) board.appendChild(tile(x.r, x.rd)); }
+    if (fine.length) { const h = document.createElement('div'); h.className = 'section'; h.textContent = `In limit · ${fine.length}`; board.appendChild(h); for (const x of fine) board.appendChild(tile(x.r, x.rd)); }
+  }
+
+  LM.mountChrome(document.body, { modelName: 'Tile wall', subtitle: 'One tile per instrument, alarms first', onFloor: draw });
+})();
+</script>
+</body>
+</html>

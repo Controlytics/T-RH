@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Normal — flat schematic</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  body { background: linear-gradient(180deg, #F7F8FB 0%, #EEF1F6 100%); }
+  .plan text { font-family: inherit; }
+  .plan .wall { stroke: #334155; fill: none; }
+  .plan .door-leaf { stroke: #334155; }
+  .plan .door-arc { stroke: #94A0B4; fill: none; }
+  .plan .window { fill: #D6ECFF; stroke: #3A7BD5; }
+  .plan .column { fill: #3C475A; }
+  .plan .equipment { fill: #FFFFFF; stroke: #94A0B4; }
+  .plan .room-name { fill: #1B2430; font-weight: 600; }
+  .plan .room-code { fill: #6B7A90; }
+  .plan .card { fill: #FFFFFF; filter: url(#card-shadow); }
+  .plan .card-id { fill: #1B2430; font-weight: 600; }
+  .plan .unit { fill: #6B7A90; }
+  .plan .annot { fill: #6B7A90; font-style: italic; }
+  .plan .room:hover .card { filter: url(#card-shadow-hover); }
+</style>
+</head>
+<body>
+<main class="lm-stage" id="stage"></main>
+<script src="data/layouts.js"></script>
+<script src="common.js"></script>
+<script>
+(function () {
+  const { STATUS, el, pathOf, wallSegments, allDoors, doorLeaf, largestInscribedRect, reading, fmt, roomStatus, slotTone, roomName, icon, limitBar, bindTip } = LM;
+  // Room washes: a light gradient of the status colour, deeper toward the bottom-right.
+  const WASH = { OK: ['#F0FAF3', '#CFEBDA'], OUT_OF_SPEC: ['#FDF0EE', '#F6C9C4'], ERROR: ['#F5F0FE', '#DCCDF6'], OFFLINE: ['#FEF7EA', '#F9DEA9'], NO_DATA: ['#F5F7FA', '#DDE2E9'] };
+  const stage = document.getElementById('stage');
+
+  function draw(floor) {
+    stage.innerHTML = '';
+    const b = floor.building, W = b.x1 - b.x0, H = b.y1 - b.y0;
+    const scale = 1000 / Math.max(W, H);
+    const u = (v) => v / scale;              // "units" → drawing px, so every floor shares one visual weight
+    const lw = u(3), outer = u(7), pad = u(14);
+    const svg = el('svg', { viewBox: `${b.x0 - pad} ${b.y0 - pad} ${W + 2 * pad} ${H + 2 * pad}`, class: 'plan', style: LM.fitStyle(W + 2 * pad, H + 2 * pad), 'aria-label': `${floor.title} floor plan` }, stage);
+    const defs = el('defs', {}, svg);
+    for (const k in WASH) {
+      const g = el('linearGradient', { id: `wash-${k}`, x1: 0, y1: 0, x2: 1, y2: 1 }, defs);
+      el('stop', { offset: 0, 'stop-color': WASH[k][0] }, g); el('stop', { offset: 1, 'stop-color': WASH[k][1] }, g);
+    }
+    const neutral = el('linearGradient', { id: 'wash-neutral', x1: 0, y1: 0, x2: 1, y2: 1 }, defs);
+    el('stop', { offset: 0, 'stop-color': '#FFFFFF' }, neutral); el('stop', { offset: 1, 'stop-color': '#EEF1F5' }, neutral);
+    const corridor = el('pattern', { id: 'corridor', width: u(10), height: u(10), patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' }, defs);
+    el('rect', { width: u(10), height: u(10), fill: '#F3F5F8' }, corridor);
+    el('line', { x1: 0, y1: 0, x2: 0, y2: u(10), stroke: '#E6EAF0', 'stroke-width': u(1.2) }, corridor);
+    const sh = el('filter', { id: 'card-shadow', x: '-15%', y: '-20%', width: '130%', height: '160%' }, defs);
+    el('feDropShadow', { dx: 0, dy: u(1.5), stdDeviation: u(2), 'flood-color': '#1B2430', 'flood-opacity': 0.18 }, sh);
+    const sh2 = el('filter', { id: 'card-shadow-hover', x: '-20%', y: '-30%', width: '140%', height: '180%' }, defs);
+    el('feDropShadow', { dx: 0, dy: u(3), stdDeviation: u(4), 'flood-color': '#1B2430', 'flood-opacity': 0.28 }, sh2);
+    const glow = el('filter', { id: 'glow', x: '-10%', y: '-10%', width: '120%', height: '120%' }, defs);
+    el('feGaussianBlur', { stdDeviation: u(4) }, glow);
+
+    // Rooms: a group per room so the hover panel covers the floor, the caption and the card.
+    const gRooms = el('g', {}, svg);
+    for (const r of floor.rooms) {
+      const s = roomStatus(r);
+      const g = el('g', { class: 'room' }, gRooms);
+      const fill = s ? `url(#wash-${s})` : r.grade === 'CIRCULATION' ? 'url(#corridor)' : 'url(#wash-neutral)';
+      el('path', { d: pathOf(r.outline), fill }, g);
+      if (s && s !== 'OK' && s !== 'NO_DATA') {
+        // An alarm room is ringed from the inside: a blurred halo and a crisp stroke, both clipped to the room.
+        const id = `room-${r.code.replace(/[^a-z0-9]/gi, '')}`;
+        const cp = el('clipPath', { id }, defs); el('path', { d: pathOf(r.outline) }, cp);
+        el('path', { d: pathOf(r.outline), fill: 'none', stroke: STATUS[s].color, 'stroke-width': u(16), 'stroke-opacity': 0.4, filter: 'url(#glow)', 'clip-path': `url(#${id})` }, g);
+        el('path', { d: pathOf(r.outline), fill: 'none', stroke: STATUS[s].color, 'stroke-width': u(4), 'stroke-opacity': 0.9, 'clip-path': `url(#${id})` }, g);
+      }
+      bindTip(g, r);
+    }
+    // Structure
+    const gStruct = el('g', {}, svg);
+    for (const [x0, y0, x1, y1] of floor.annotations.equipment) el('rect', { x: x0, y: y0, width: x1 - x0, height: y1 - y0, rx: u(1.5), class: 'equipment', 'stroke-width': u(1), 'stroke-dasharray': `${u(4)} ${u(2)}` }, gStruct);
+    for (const l of floor.annotations.labels) el('text', { x: l.x, y: l.y, 'font-size': u(9), 'text-anchor': 'middle', class: 'annot' }, gStruct).textContent = l.text;
+    const gWalls = el('g', { class: 'wall', 'stroke-width': lw }, svg);
+    for (const s of wallSegments(floor)) el('line', { x1: s.a[0], y1: s.a[1], x2: s.b[0], y2: s.b[1], 'stroke-width': s.exterior ? outer : null, 'stroke-linecap': s.exterior ? 'square' : null }, gWalls);
+    for (const [x1, y1, x2, y2] of floor.annotations.walls) el('line', { x1, y1, x2, y2, class: 'wall', 'stroke-width': lw * 0.7 }, gWalls);
+    const gDoors = el('g', {}, svg);
+    for (const d of allDoors(floor)) {
+      const L = doorLeaf(d);
+      if (L.leafless) continue;
+      el('line', { x1: L.H[0], y1: L.H[1], x2: L.tip[0], y2: L.tip[1], class: 'door-leaf', 'stroke-width': u(1.6) }, gDoors);
+      el('path', { d: L.arc, class: 'door-arc', 'stroke-width': u(1), 'stroke-dasharray': `${u(3)} ${u(3)}` }, gDoors);
+    }
+    for (const [x0, y0, x1, y1] of floor.annotations.windows) el('rect', { x: x0, y: y0, width: x1 - x0, height: y1 - y0, class: 'window', 'stroke-width': u(0.8) }, svg);
+    for (const [x0, y0, x1, y1] of floor.annotations.columns) el('rect', { x: x0, y: y0, width: x1 - x0, height: y1 - y0, class: 'column' }, svg);
+    // Captions and cards last, over the walls; each room's text group shares the floor group's hover panel.
+    const gText = el('g', {}, svg);
+    for (const r of floor.rooms) { const g = el('g', { class: 'room' }, gText); caption(r, g, u); bindTip(g, r); }
+  }
+
+  function caption(room, g, u) {
+    const rect = largestInscribedRect(room.outline);
+    const ip = u(6), w = rect.w - 2 * ip, h = rect.h - 2 * ip;
+    if (w < u(24) || h < u(14)) return;
+    const rd = reading(room);
+    const name = roomName(room);
+    let y = rect.y + ip;
+    const fit = /\(\d+\)\s*$/.test(room.code) ? null : LM.fitName(name, w / u(1), Math.min(h / u(1) * 0.5, 30), 12, 7);
+    if (fit) {
+      const nf = u(fit.font);
+      for (const line of fit.lines) { y += nf; el('text', { x: rect.x + ip, y, 'font-size': nf, class: 'room-name' }, g).textContent = line; }
+      if (h > u(44)) { y += nf * 0.95; el('text', { x: rect.x + ip, y, 'font-size': nf * 0.8, class: 'room-code' }, g).textContent = room.code; }
+      y += nf * 0.45;
+    }
+    if (!rd) return;
+    // The card: 132 x 66 units at s = 1 — ID, two readings with icons, two limit bars.
+    const left = h - (y - rect.y - ip);
+    const s = Math.max(0.42, Math.min(1.15, w / u(136), left / u(70)));
+    const f = (v) => u(v * s);
+    const cw = f(132), ch = f(66);
+    if (cw > w || ch > left) {
+      // Too small for a card: a status pill with the ID when it fits.
+      const c = STATUS[rd.status].color;
+      const pw = Math.min(w, u(78)), ph = u(12);
+      el('rect', { x: rect.x + ip, y, width: pw, height: ph, rx: ph / 2, fill: c }, g);
+      if (pw >= u(70)) el('text', { x: rect.x + ip + pw / 2, y: y + ph * 0.72, 'font-size': u(7), fill: '#FFFFFF', 'font-weight': 600, 'text-anchor': 'middle' }, g).textContent = rd.code;
+      return;
+    }
+    const cx = rect.x + ip, cy = y + u(2);
+    el('rect', { x: cx, y: cy, width: cw, height: ch, rx: f(5), class: 'card' }, g);
+    // Status strip, clipped to the card's radius.
+    const clipId = `clip-${room.code.replace(/[^a-z0-9]/gi, '')}`;
+    const cp = el('clipPath', { id: clipId }, g); el('rect', { x: cx, y: cy, width: cw, height: ch, rx: f(5) }, cp);
+    el('rect', { x: cx, y: cy, width: cw, height: f(5), fill: STATUS[rd.status].color, 'clip-path': `url(#${clipId})` }, g);
+    el('text', { x: cx + f(9), y: cy + f(19), 'font-size': f(10), class: 'card-id' }, g).textContent = rd.code;
+    el('circle', { cx: cx + cw - f(10), cy: cy + f(15.5), r: f(3.2), fill: STATUS[rd.status].color }, g);
+    const slot = (kind, x, value, dec, unit, lo, hi) => {
+      const tone = STATUS[slotTone(rd, kind)].color;
+      icon(kind, cx + x, cy + f(25), f(12), tone, g);
+      const t = el('text', { x: cx + x + f(14), y: cy + f(37), 'font-size': f(15), 'font-weight': 600, fill: tone }, g);
+      t.textContent = fmt(value, dec);
+      el('tspan', { 'font-size': f(7.5), 'font-weight': 400, class: 'unit', dx: f(2) }, t).textContent = typeof value === 'number' ? unit : '';
+      limitBar(g, cx + x + f(1), cy + f(49), f(50), f(3), value, lo, hi, tone);
+    };
+    slot('temperature', f(8), rd.temperature, rd.decimals.temperature, '°C', rd.limits.tempMin, rd.limits.tempMax);
+    slot('humidity', f(70), rd.humidity, rd.decimals.humidity, '%RH', rd.limits.rhMin, rd.limits.rhMax);
+  }
+
+  LM.mountChrome(document.body, { modelName: 'Normal — flat schematic', subtitle: 'Flat plan, washed rooms, cards with limit bars', onFloor: draw });
+})();
+</script>
+</body>
+</html>

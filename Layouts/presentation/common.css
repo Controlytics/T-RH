@@ -1,0 +1,61 @@
+/* Chrome shared by every model page. The plan itself is styled by each page. */
+:root {
+  --bg: #F6F7F9;
+  --plate: #FFFFFF;
+  --ink: #1B2430;
+  --ink-2: #5B6B7F;
+  --line: #D9DEE6;
+  --accent: #1E4E8C;
+  --tab-bg: #E9EDF3;
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+html[data-theme="dark"] {
+  --bg: #0B1322;
+  --plate: #0F1A2E;
+  --ink: #E6EDF7;
+  --ink-2: #8FA3BF;
+  --line: #22314A;
+  --accent: #5CC8FF;
+  --tab-bg: #16233A;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--ink); display: flex; flex-direction: column; min-height: 100vh; }
+.lm-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.25fr); align-items: center; gap: 16px; padding: 10px 20px; border-bottom: 1px solid var(--line); background: var(--plate); }
+.lm-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.lm-back { text-decoration: none; color: var(--ink-2); font-size: 26px; line-height: 1; width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 6px; }
+.lm-back:hover { color: var(--ink); border-color: var(--ink-2); }
+.lm-model { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+.lm-sub { font-size: 12px; color: var(--ink-2); }
+.lm-tabs { display: flex; gap: 4px; background: var(--tab-bg); padding: 4px; border-radius: 8px; }
+.lm-tabs button { font: inherit; font-size: 13px; padding: 6px 12px; border: 0; border-radius: 6px; background: transparent; color: var(--ink-2); cursor: pointer; white-space: nowrap; }
+.lm-tabs button:hover { color: var(--ink); }
+.lm-tabs button.is-active { background: var(--plate); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+.lm-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.lm-legend { display: flex; justify-content: flex-end; gap: 11px; font-size: 11.5px; color: var(--ink-2); flex-wrap: wrap; }
+.lm-key { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.lm-key i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.lm-key b { font-weight: 600; color: var(--ink); min-width: 1ch; }
+.lm-key.is-zero { opacity: .45; }
+.lm-tip { position: fixed; z-index: 50; display: none; min-width: 240px; max-width: 320px; padding: 12px 14px; border-radius: 10px; background: rgba(17,24,36,.94); color: #F2F5F9; font-size: 12.5px; line-height: 1.4; box-shadow: 0 10px 30px rgba(0,0,0,.35); pointer-events: none; backdrop-filter: blur(6px); }
+.lm-tip-h { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.lm-tip-h b { font-size: 14px; font-weight: 600; }
+.lm-tip-h span { color: #9FB0C8; font-size: 11px; }
+.lm-tip-id { display: flex; justify-content: space-between; gap: 12px; margin: 6px 0 8px; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,.12); font-weight: 600; }
+.lm-tip-row { display: grid; grid-template-columns: 8px 1fr auto; column-gap: 8px; align-items: baseline; padding: 3px 0; }
+.lm-tip-row i { width: 8px; height: 8px; border-radius: 2px; align-self: center; }
+.lm-tip-row b { font-size: 16px; font-weight: 600; }
+.lm-tip-row b small { font-size: 10px; font-weight: 400; color: #9FB0C8; }
+.lm-tip-row em { grid-column: 2 / 4; font-style: normal; color: #9FB0C8; font-size: 11px; }
+.lm-tip-muted { color: #9FB0C8; font-size: 11px; margin-top: 6px; }
+.lm-stage { flex: 1; display: grid; place-items: center; padding: 16px 20px; min-height: 0; }
+.lm-stage svg, .lm-stage canvas { max-width: 100%; max-height: calc(100vh - 118px); }
+.lm-foot { display: flex; justify-content: space-between; gap: 20px; padding: 8px 20px; font-size: 12px; color: var(--ink-2); border-top: 1px solid var(--line); background: var(--plate); }
+.lm-foot b { color: var(--ink); font-weight: 600; }
+@media (max-width: 1100px) {
+  .lm-bar { grid-template-columns: 1fr; }
+  .lm-legend { justify-content: flex-start; }
+  .lm-tabs { overflow-x: auto; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

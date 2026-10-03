@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Thermal heatmap</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  body { background: linear-gradient(180deg, #F7F8FB 0%, #ECEFF4 100%); }
+  .lm-stage { grid-template-rows: auto 1fr; place-items: stretch; gap: 10px; }
+  .hm-bar { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .seg { display: inline-flex; background: #E3E8EF; padding: 3px; border-radius: 8px; }
+  .seg button { font: inherit; font-size: 13px; padding: 6px 14px; border: 0; border-radius: 6px; background: transparent; color: #5B6B7F; cursor: pointer; }
+  .seg button.is-active { background: #FFFFFF; color: #1B2430; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+  .scale { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #5B6B7F; }
+  .scale canvas { width: 220px; height: 12px; border-radius: 6px; }
+  .scale .ticks { position: relative; width: 220px; height: 14px; }
+  .scale .ticks span { position: absolute; transform: translateX(-50%); font-size: 11px; }
+  .scale .lim { position: absolute; top: -16px; width: 2px; height: 14px; background: #1B2430; transform: translateX(-50%); }
+  .plan-wrap { display: grid; place-items: center; min-height: 0; }
+  .plan { max-height: calc(100vh - 170px) !important; }
+  .plan text { font-family: inherit; }
+  .plan .wall { stroke: #1B2430; fill: none; stroke-opacity: .75; }
+  .plan .door-leaf { stroke: #1B2430; stroke-opacity: .6; }
+  .plan .door-arc { stroke: #1B2430; stroke-opacity: .35; fill: none; }
+  .plan .column { fill: #1B2430; fill-opacity: .7; }
+  .plan .name { fill: #1B2430; font-weight: 600; paint-order: stroke; stroke: rgba(255,255,255,.7); stroke-width: 2.2px; stroke-linejoin: round; }
+  .plan .pin { filter: url(#pin-shadow); }
+  .plan .pin-value { font-weight: 700; fill: #1B2430; }
+  .plan .pin-id { fill: #1B2430; font-weight: 600; paint-order: stroke; stroke: rgba(255,255,255,.75); stroke-width: 2px; stroke-linejoin: round; }
+</style>
+</head>
+<body>
+<main class="lm-stage" id="stage"></main>
+<script src="data/layouts.js"></script>
+<script src="common.js"></script>
+<script>
+(function () {
+  const { STATUS, el, pathOf, wallSegments, allDoors, doorLeaf, largestInscribedRect, reading, fmt, roomName, pointInPolygon, bindTip } = LM;
+  const stage = document.getElementById('stage');
+  let metric = /metric=humidity/.test(location.hash) ? 'humidity' : 'temperature';
+  let current = null;
+
+  // Colour ramps: temperature cool blue → teal → green → amber → red; humidity dry sand → teal → deep blue.
+  const RAMPS = {
+    temperature: [[0, [37, 99, 235]], [0.3, [34, 197, 194]], [0.5, [52, 199, 89]], [0.72, [250, 204, 21]], [0.88, [249, 115, 22]], [1, [220, 38, 38]]],
+    humidity: [[0, [217, 164, 65]], [0.35, [210, 214, 120]], [0.55, [52, 199, 150]], [0.8, [37, 150, 235]], [1, [49, 46, 180]]],
+  };
+  const RANGE = { temperature: [15, 30], humidity: [20, 75] };
+  const UNIT = { temperature: '°C', humidity: '%RH' };
+  function ramp(kind, t) {
+    const r = RAMPS[kind]; t = Math.max(0, Math.min(1, t));
+    for (let i = 1; i < r.length; i++) if (t <= r[i][0]) {
+      const k = (t - r[i - 1][0]) / (r[i][0] - r[i - 1][0]), a = r[i - 1][1], b = r[i][1];
+      return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+    }
+    return r[r.length - 1][1];
+  }
+
+  function controls(floor) {
+    const bar = document.createElement('div'); bar.className = 'hm-bar';
+    const seg = document.createElement('div'); seg.className = 'seg';
+    for (const [k, label] of [['temperature', 'Temperature'], ['humidity', 'Humidity']]) {
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.className = k === metric ? 'is-active' : '';
+      b.onclick = () => { metric = k; location.hash = `floor=${floor.id}&metric=${k}`; draw(floor); };
+      seg.appendChild(b);
+    }
+    bar.appendChild(seg);
+    // The colour scale with the typical limits marked.
+    const sc = document.createElement('div'); sc.className = 'scale';
+    const cv = document.createElement('canvas'); cv.width = 220; cv.height = 1;
+    const g = cv.getContext('2d'); for (let x = 0; x < 220; x++) { const c = ramp(metric, x / 219); g.fillStyle = `rgb(${c.map(Math.round)})`; g.fillRect(x, 0, 1, 1); }
+    const [lo, hi] = RANGE[metric];
+    const lims = typicalLimits(floor);
+    const ticks = document.createElement('div'); ticks.className = 'ticks';
+    for (let i = 0; i <= 3; i++) { const v = lo + ((hi - lo) * i) / 3; const s = document.createElement('span'); s.style.left = `${(i / 3) * 100}%`; s.textContent = `${Math.round(v)}`; ticks.appendChild(s); }
+    for (const v of lims) { const m = document.createElement('i'); m.className = 'lim'; m.style.left = `${((v - lo) / (hi - lo)) * 100}%`; m.title = `limit ${v}`; ticks.appendChild(m); }
+    const wrap = document.createElement('div'); wrap.style.cssText = 'display:flex;flex-direction:column;gap:2px';
+    wrap.appendChild(cv); wrap.appendChild(ticks);
+    sc.innerHTML = `<span>${UNIT[metric]}</span>`; sc.appendChild(wrap);
+    const note = document.createElement('span'); note.textContent = lims.length ? `Black marks: the limits most instruments on this floor carry (${lims.join(' / ')} ${UNIT[metric]})` : '';
+    sc.appendChild(note);
+    bar.appendChild(sc);
+    return bar;
+  }
+  function typicalLimits(floor) {
+    const n = new Map();
+    for (const r of floor.rooms) { const rd = reading(r); if (!rd) continue;
+      for (const v of metric === 'temperature' ? [rd.limits.tempMin, rd.limits.tempMax] : [rd.limits.rhMin, rd.limits.rhMax]) if (v !== null) n.set(v, (n.get(v) || 0) + 1); }
+    return [...n.entries()].sort((a, b) => b[1] - a[1]).slice(0, 2).map((e) => e[0]).sort((a, b) => a - b);
+  }
+
+  function draw(floor) {
+    current = floor;
+    stage.innerHTML = '';
+    stage.appendChild(controls(floor));
+    const wrap = document.createElement('div'); wrap.className = 'plan-wrap'; stage.appendChild(wrap);
+    const b = floor.building, W = b.x1 - b.x0, H = b.y1 - b.y0;
+    const scale = 1000 / Math.max(W, H);
+    const u = (v) => v / scale;
+    const pad = u(14);
+    const svg = el('svg', { viewBox: `${b.x0 - pad} ${b.y0 - pad} ${W + 2 * pad} ${H + 2 * pad}`, class: 'plan', style: LM.fitStyle(W + 2 * pad, H + 2 * pad), 'aria-label': `${floor.title}, ${metric} heatmap` }, wrap);
+    const defs = el('defs', {}, svg);
+    const clip = el('clipPath', { id: 'rooms' }, defs);
+    for (const r of floor.rooms) el('path', { d: pathOf(r.outline) }, clip);
+    const sh = el('filter', { id: 'pin-shadow', x: '-20%', y: '-20%', width: '140%', height: '160%' }, defs);
+    el('feDropShadow', { dx: 0, dy: u(1.2), stdDeviation: u(1.6), 'flood-color': '#1B2430', 'flood-opacity': 0.3 }, sh);
+
+    // Sample points: every instrument with a numeric reading, at its room's card spot.
+    const pts = [];
+    for (const r of floor.rooms) {
+      const rd = reading(r); if (!rd) continue;
+      const rect = largestInscribedRect(r.outline);
+      const v = rd[metric];
+      pts.push({ r, rd, x: rect.x + rect.w / 2, y: rect.y + rect.h / 2, v: rd.reporting && typeof v === 'number' ? v : null });
+    }
+    // The field: inverse-distance weighting on a coarse grid, blurred by the browser's upscaling.
+    const live = pts.filter((p) => p.v !== null);
+    const cw = 160, ch = Math.max(40, Math.round((160 * H) / W));
+    const cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
+    const g = cv.getContext('2d'); const img = g.createImageData(cw, ch);
+    const [lo, hi] = RANGE[metric];
+    const sx = W / cw, sy = H / ch, R2 = Math.pow(Math.max(W, H) * 0.08, 2);
+    for (let j = 0; j < ch; j++) for (let i = 0; i < cw; i++) {
+      const x = b.x0 + (i + 0.5) * sx, y = b.y0 + (j + 0.5) * sy;
+      let num = 0, den = 0;
+      for (const p of live) { const d2 = (x - p.x) ** 2 + (y - p.y) ** 2 + R2 * 0.05; const w = 1 / (d2 * d2 / R2); num += w * p.v; den += w; }
+      const v = den ? num / den : null;
+      const c = v === null ? [230, 233, 238] : ramp(metric, (v - lo) / (hi - lo));
+      const o = (j * cw + i) * 4; img.data[o] = c[0]; img.data[o + 1] = c[1]; img.data[o + 2] = c[2]; img.data[o + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+    // Blur a little at a higher resolution so the gradient is smooth, then place it under the rooms.
+    const big = document.createElement('canvas'); big.width = cw * 4; big.height = ch * 4;
+    const bg = big.getContext('2d'); bg.filter = `blur(${3}px)`; bg.imageSmoothingEnabled = true; bg.imageSmoothingQuality = 'high'; bg.drawImage(cv, 0, 0, big.width, big.height);
+    el('image', { href: big.toDataURL(), x: b.x0, y: b.y0, width: W, height: H, preserveAspectRatio: 'none', 'clip-path': 'url(#rooms)', opacity: 0.92 }, svg);
+    // A soft white veil keeps the lines legible.
+    el('rect', { x: b.x0, y: b.y0, width: W, height: H, fill: '#FFFFFF', 'fill-opacity': 0.12, 'clip-path': 'url(#rooms)' }, svg);
+    // Rooms without an instrument are hatched: the field there is interpolated, not measured.
+    const hatch = el('pattern', { id: 'hatch', width: u(8), height: u(8), patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' }, defs);
+    el('line', { x1: 0, y1: 0, x2: 0, y2: u(8), stroke: '#FFFFFF', 'stroke-opacity': 0.55, 'stroke-width': u(2) }, hatch);
+    for (const r of floor.rooms) {
+      const g2 = el('g', {}, svg);
+      el('path', { d: pathOf(r.outline), fill: reading(r) ? 'transparent' : 'url(#hatch)', stroke: '#1B2430', 'stroke-opacity': 0.12, 'stroke-width': u(0.6) }, g2);
+      bindTip(g2, r);
+    }
+    // Walls, doors, columns in ink over the field.
+    const gWalls = el('g', { class: 'wall' }, svg);
+    for (const s of wallSegments(floor)) el('line', { x1: s.a[0], y1: s.a[1], x2: s.b[0], y2: s.b[1], 'stroke-width': s.exterior ? u(5) : u(2), 'stroke-linecap': 'square' }, gWalls);
+    for (const [x1, y1, x2, y2] of floor.annotations.walls) el('line', { x1, y1, x2, y2, class: 'wall', 'stroke-width': u(1.4) }, gWalls);
+    for (const d of allDoors(floor)) {
+      const L = doorLeaf(d); if (L.leafless) continue;
+      el('line', { x1: L.H[0], y1: L.H[1], x2: L.tip[0], y2: L.tip[1], class: 'door-leaf', 'stroke-width': u(1.2) }, svg);
+      el('path', { d: L.arc, class: 'door-arc', 'stroke-width': u(0.8), 'stroke-dasharray': `${u(2.5)} ${u(2.5)}` }, svg);
+    }
+    for (const [x0, y0, x1, y1] of floor.annotations.columns) el('rect', { x: x0, y: y0, width: x1 - x0, height: y1 - y0, class: 'column' }, svg);
+    // Room names, small, top-left.
+    for (const r of floor.rooms) {
+      if (/\(\d+\)\s*$/.test(r.code)) continue;
+      const rect = largestInscribedRect(r.outline);
+      const fit = LM.fitName(roomName(r), (rect.w - u(10)) / u(1), 22, 10, 6.5);
+      if (!fit) continue;
+      let y = rect.y + u(5);
+      for (const line of fit.lines) { y += u(fit.font); el('text', { x: rect.x + u(5), y, 'font-size': u(fit.font), class: 'name', 'fill-opacity': 0.85 }, svg).textContent = line; }
+    }
+    // Pins: the measured value at each instrument, status-coloured ring.
+    const gPins = el('g', {}, svg);
+    for (const p of pts) {
+      const grp = el('g', { class: 'pin' }, gPins); bindTip(grp, p.r);
+      const color = STATUS[p.rd.status].color;
+      const label = p.v === null ? (p.rd.reporting ? 'Error' : 'Offline') : fmt(p.v, metric === 'temperature' ? p.rd.decimals.temperature : p.rd.decimals.humidity);
+      const w = u(Math.max(44, label.length * 9 + 18)), h = u(22);
+      el('rect', { x: p.x - w / 2, y: p.y - h / 2, width: w, height: h, rx: h / 2, fill: '#FFFFFF', stroke: color, 'stroke-width': u(2) }, grp);
+      el('circle', { cx: p.x - w / 2 + h / 2, cy: p.y, r: u(4.5), fill: color }, grp);
+      el('text', { x: p.x + u(5), y: p.y + u(4), 'font-size': u(11), 'text-anchor': 'middle', class: 'pin-value', fill: p.v === null ? color : null }, grp).textContent = label;
+      el('text', { x: p.x, y: p.y + h / 2 + u(9), 'font-size': u(7), 'text-anchor': 'middle', class: 'pin-id' }, grp).textContent = p.rd.code;
+    }
+  }
+
+  LM.mountChrome(document.body, { modelName: 'Thermal heatmap', subtitle: 'Temperature or humidity blended across the floor', onFloor: (f) => { metric = /metric=humidity/.test(location.hash) ? 'humidity' : /metric=temperature/.test(location.hash) ? 'temperature' : metric; draw(f); } });
+})();
+</script>
+</body>
+</html>

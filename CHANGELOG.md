@@ -1,5 +1,51 @@
 # Changelog
 
+## [Unreleased] - Floor layout models for the client to choose from (2026-10-03)
+
+Operator: *"now prepare layouts not 2d, and other like normal and 3d and other
+models and generate them as html pages separately, dont disturb current ones
+… so then i can give presentations to client which one is good they will
+decide, make a presentation ppt also"*. Asked which models, they took all
+four offered.
+
+- **`Layouts/presentation/`** — standalone pages, opened by double-click, no
+  server or internet: `model-normal.html` (flat schematic),
+  `model-3d.html` (three.js, bundled in `vendor/`; orbit / zoom / pan /
+  hover), `model-isometric.html` (SVG 2.5D), `model-dark.html` (control-room
+  theme with status counters), `index.html` (launcher), and
+  `Layout-Models.pptx` (10 slides: today's 2D, one per model with
+  screenshots and trade-offs, the same floor in all four, a comparison
+  matrix, the decision). `README.md` there is the runbook.
+- **The app is untouched.** The pages read `data/layouts.js`, written by the
+  new read-only `apps/api/scripts/export-layout-models.ts` from the six
+  `ArchLayout` traces (QC, Microbiology, QC 3, Module-E, Module-F × 2) plus
+  a one-time snapshot of readings through `buildTelemetryOverview()`. The
+  snapshot is a labelled SAMPLE: last readings shown as current, empty slots
+  filled with the limit midpoint, five instruments forced into
+  out-of-limit / offline / sensor-fault so every colour shows — each change
+  recorded in the file. No count moved; no model, route, def, page or
+  migration.
+- **Second pass the same day** (operator: *"is there any other models and
+  also can u give best in already given models becuase they are so
+  basic"*; offered a polish of the four plus four new models, they took
+  all). The four pages gained gradient room washes, thermometer / droplet
+  icons, a limit bar under each value, alarm rooms ringed with a clipped
+  glow (pulsing on the dark page), a hover panel with both readings and
+  their limits (`bindTip` / `tipHtml` in `common.js`, one panel per page),
+  legend counts per floor, shaded wall faces and beacons in isometric,
+  beacons with pulsing rings in 3D. Four new pages: `model-heatmap.html`
+  (inverse-distance field on a canvas clipped to the rooms, temperature or
+  humidity, hatching where the field is interpolated), `model-blueprint.html`
+  (double-line partitions, hatched columns, dimension lines, title block,
+  boxed tags), `model-twin.html` (the 3D scene with glass partitions on
+  sills, tiled floors, status glow per room, auto-rotate that yields to the
+  mouse) and `model-tiles.html` (a geometry-free tile board). Deck rebuilt
+  for eight models; the launcher shows real thumbnails (`thumbs/`).
+- Shared geometry in `common.js`: walls are classified by probing both sides
+  of each run, so an L-shaped floor gets its real outline (not its bounding
+  box) and two pieces of one corridor code draw as one space — the same two
+  rules the dashboard's view applies.
+
 ## [Unreleased] - Mean Kinetic Temperature on the Data Report, per instrument (2026-10-03)
 
 Operator: *"in attributes isMktcalculationenabled attributes is true then in

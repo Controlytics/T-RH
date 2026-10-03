@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dark control room</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  body { background: radial-gradient(ellipse at 50% 0%, #142238 0%, #0B1322 55%, #070D18 100%); }
+  .lm-stage { grid-template-rows: auto 1fr; place-items: stretch; gap: 12px; }
+  .kpis { display: flex; gap: 10px; }
+  .kpi { min-width: 190px; background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.015)); border: 1px solid #1E2C45; border-radius: 8px; padding: 10px 14px; display: flex; align-items: center; gap: 12px; position: relative; overflow: hidden; }
+  .kpi::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 100%; background: var(--c); opacity: .07; }
+  .kpi b { font-size: 30px; font-weight: 600; line-height: 1; color: var(--c); text-shadow: 0 0 14px var(--c); }
+  .kpi span { font-size: 12px; color: #8FA3BF; }
+  .kpi.is-zero b { color: #3E5272; text-shadow: none; }
+  .plan-wrap { display: grid; place-items: center; min-height: 0; }
+  .plan { max-height: calc(100vh - 190px) !important; }
+  .plan text { font-family: inherit; }
+  .plan .room-line { fill: none; stroke: rgba(125,211,252,.22); }
+  .plan .wall { stroke: #A8E6FF; fill: none; }
+  .plan .wall-glow { stroke: rgba(125,211,252,.30); fill: none; }
+  .plan .door-leaf { stroke: #A8E6FF; }
+  .plan .door-arc { stroke: #3C5A7A; fill: none; }
+  .plan .window { fill: rgba(125,211,252,.28); stroke: #7DD3FC; }
+  .plan .column { fill: #1E2F4C; stroke: #7DD3FC; }
+  .plan .equipment { fill: rgba(125,211,252,.05); stroke: #3C5A7A; }
+  .plan .name { fill: #C8D5E8; font-weight: 600; }
+  .plan .code { fill: #5F7496; }
+  .plan .id { fill: #8FA3BF; font-weight: 600; }
+  .plan .unit { fill: #6E829F; }
+  .plan .alarm { animation: pulse 2.4s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
+</style>
+</head>
+<body>
+<main class="lm-stage" id="stage"></main>
+<script src="data/layouts.js"></script>
+<script src="common.js"></script>
+<script>
+(function () {
+  const { STATUS, el, pathOf, wallSegments, allDoors, doorLeaf, largestInscribedRect, reading, fmt, roomStatus, slotTone, roomName, counts, icon, limitBar, bindTip } = LM;
+  const stage = document.getElementById('stage');
+  const rgb = (hex) => { const n = parseInt(hex.slice(1), 16); return `${n >> 16},${(n >> 8) & 255},${n & 255}`; };
+
+  function draw(floor) {
+    stage.innerHTML = '';
+    const n = counts(floor);
+    const kp = document.createElement('div'); kp.className = 'kpis';
+    kp.innerHTML = ['OK', 'OUT_OF_SPEC', 'ERROR', 'OFFLINE'].map((k) => `<div class="kpi${n[k] ? '' : ' is-zero'}" style="--c:${STATUS[k].color}"><b>${n[k]}</b><span>${STATUS[k].label}</span></div>`).join('');
+    stage.appendChild(kp);
+    const wrap = document.createElement('div'); wrap.className = 'plan-wrap'; stage.appendChild(wrap);
+
+    const b = floor.building, W = b.x1 - b.x0, H = b.y1 - b.y0;
+    const scale = 1000 / Math.max(W, H);
+    const u = (v) => v / scale;
+    const lw = u(2), outer = u(3.5), pad = u(14);
+    const svg = el('svg', { viewBox: `${b.x0 - pad} ${b.y0 - pad} ${W + 2 * pad} ${H + 2 * pad}`, class: 'plan', style: LM.fitStyle(W + 2 * pad, H + 2 * pad), 'aria-label': `${floor.title}, control room view` }, wrap);
+    const defs = el('defs', {}, svg);
+    for (const k in STATUS) {
+      // A room's wash: the status colour, strongest at its centre, fading to the walls.
+      const g = el('radialGradient', { id: `wash-${k}`, cx: '50%', cy: '45%', r: '75%' }, defs);
+      el('stop', { offset: 0, 'stop-color': STATUS[k].color, 'stop-opacity': k === 'OK' ? 0.30 : 0.42 }, g);
+      el('stop', { offset: 1, 'stop-color': STATUS[k].color, 'stop-opacity': k === 'OK' ? 0.08 : 0.14 }, g);
+    }
+    const pat = el('pattern', { id: 'grid', width: u(50), height: u(50), patternUnits: 'userSpaceOnUse' }, defs);
+    el('path', { d: `M ${u(50)} 0 L 0 0 0 ${u(50)}`, fill: 'none', stroke: '#15223A', 'stroke-width': u(0.6) }, pat);
+    const glow = el('filter', { id: 'glow', x: '-10%', y: '-10%', width: '120%', height: '120%' }, defs);
+    el('feGaussianBlur', { stdDeviation: u(5) }, glow);
+    el('rect', { x: b.x0 - pad, y: b.y0 - pad, width: W + 2 * pad, height: H + 2 * pad, fill: 'url(#grid)' }, svg);
+
+    const gRooms = el('g', {}, svg);
+    for (const r of floor.rooms) {
+      const s = roomStatus(r);
+      const g = el('g', {}, gRooms);
+      const fill = s ? `url(#wash-${s})` : r.grade === 'CIRCULATION' ? '#0E192C' : '#111D33';
+      el('path', { d: pathOf(r.outline), fill, class: s === 'OUT_OF_SPEC' || s === 'ERROR' ? 'alarm' : '' }, g);
+      if (s && s !== 'OK' && s !== 'NO_DATA') {
+        const id = `room-${r.code.replace(/[^a-z0-9]/gi, '')}`;
+        const cp = el('clipPath', { id }, defs); el('path', { d: pathOf(r.outline) }, cp);
+        el('path', { d: pathOf(r.outline), fill: 'none', stroke: STATUS[s].color, 'stroke-width': u(18), 'stroke-opacity': 0.55, filter: 'url(#glow)', 'clip-path': `url(#${id})`, class: 'alarm' }, g);
+      }
+      el('path', { d: pathOf(r.outline), class: 'room-line', 'stroke-width': u(0.6) }, g);
+      bindTip(g, r);
+    }
+    for (const [x0, y0, x1, y1] of floor.annotations.equipment) el('rect', { x: x0, y: y0, width: x1 - x0, height: y1 - y0, class: 'equipment', 'stroke-width': u(0.8), 'stroke-dasharray': `${u(3)} ${u(2)}` }, svg);
+    const segs = wallSegments(floor);
+    const gGlow = el('g', {}, svg);
+    for (const s of segs) el('line', { x1: s.a[0], y1: s.a[1], x2: s.b[0], y2: s.b[1], class: 'wall-glow', 'stroke-width': (s.exterior ? outer : lw) * 3.2, 'stroke-linecap': 'round' }, gGlow);
+    const gWalls = el('g', {}, svg);
+    for (const s of segs) el('line', { x1: s.a[0], y1: s.a[1], x2: s.b[0], y2: s.b[1], class: 'wall', 'stroke-width': s.exterior ? outer : lw, 'stroke-linecap': 'square' }, gWalls);
+    for (const [x1, y1, x2, y2] of floor.annotations.walls) el('line', { x1, y1, x2, y2, class: 'wall', 'stroke-width': lw * 0.7 }, gWalls);
+    const gDoors = el('g', {}, svg);
+    for (const d of allDoors(floor)) {
+      const L = doorLeaf(d);
+      if (L.leafless) continue;
+      el('line', { x1: L.H[0], y1: L.H[1], x2: L.tip[0], y2: L.tip[1], class: 'door-leaf', 'stroke-width': u(1.2) }, gDoors);
+      el('path', { d: L.arc, class: 'door-arc', 'stroke-width': u(0.8), 'stroke-dasharray': `${u(2.5)} ${u(2.5)}` }, gDoors);
+    }
+    for (const [x0, y0, x1, y1] of floor.annotations.windows) el('rect', { x: x0, y: y0, width: x1 - x0, height: y1 - y0, class: 'window', 'stroke-width': u(0.6) }, svg);
+    for (const [x0, y0, x1, y1] of floor.annotations.columns) el('rect', { x: x0, y: y0, width: x1 - x0, height: y1 - y0, class: 'column', 'stroke-width': u(0.6) }, svg);
+    const gText = el('g', {}, svg);
+    for (const r of floor.rooms) { const g = el('g', {}, gText); caption(r, g, u); bindTip(g, r); }
+  }
+
+  function caption(room, g, u) {
+    const rect = largestInscribedRect(room.outline);
+    const ip = u(6), w = rect.w - 2 * ip, h = rect.h - 2 * ip;
+    if (w < u(20) || h < u(12)) return;
+    const rd = reading(room);
+    const name = roomName(room);
+    let y = rect.y + ip;
+    const fit = /\(\d+\)\s*$/.test(room.code) ? null : LM.fitName(name, w / u(1), Math.min(h / u(1) * 0.45, 26), 11, 6.5);
+    if (fit) {
+      const nf = u(fit.font);
+      for (const line of fit.lines) { y += nf; el('text', { x: rect.x + ip, y, 'font-size': nf, class: 'name' }, g).textContent = line; }
+      if (!rd && h > u(40)) { y += nf * 0.95; el('text', { x: rect.x + ip, y, 'font-size': nf * 0.8, class: 'code' }, g).textContent = room.code; }
+      y += nf * 0.3;
+    }
+    if (!rd) return;
+    // The reading IS the room: big glowing numerals, icon, unit and a limit bar per slot. No card.
+    const left = h - (y - rect.y - ip);
+    const s = Math.max(0.4, Math.min(1.3, w / u(126), left / u(56)));
+    const f = (v) => u(v * s);
+    if (f(126) > w || f(54) > left) {
+      const rr = u(3.5);
+      el('circle', { cx: rect.x + ip + rr, cy: y + rr * 1.4, r: rr, fill: STATUS[rd.status].color, class: rd.status === 'OK' ? '' : 'alarm' }, g);
+      return;
+    }
+    el('text', { x: rect.x + ip, y: y + f(9), 'font-size': f(8), class: 'id' }, g).textContent = rd.code;
+    const slot = (kind, ox, value, dec, unit, lo, hi) => {
+      const tone = STATUS[slotTone(rd, kind)].color;
+      icon(kind, rect.x + ip + ox, y + f(16), f(11), tone, g);
+      const t = el('text', { x: rect.x + ip + ox + f(12), y: y + f(36), 'font-size': f(24), 'font-weight': 600, 'letter-spacing': '-0.02em', fill: tone, style: `text-shadow: 0 0 ${f(10)}px rgba(${rgb(tone)},.65)` }, g);
+      t.textContent = fmt(value, dec);
+      el('tspan', { 'font-size': f(8), 'font-weight': 400, class: 'unit', dx: f(2) }, t).textContent = typeof value === 'number' ? unit : '';
+      limitBar(g, rect.x + ip + ox + f(1), y + f(45), f(50), f(3), value, lo, hi, tone, 'rgba(255,255,255,.08)');
+    };
+    slot('temperature', 0, rd.temperature, rd.decimals.temperature, '°C', rd.limits.tempMin, rd.limits.tempMax);
+    slot('humidity', f(64), rd.humidity, rd.decimals.humidity, '%RH', rd.limits.rhMin, rd.limits.rhMax);
+  }
+
+  LM.mountChrome(document.body, { modelName: 'Dark control room', subtitle: 'Glowing walls, big numerals, status counters', onFloor: draw });
+})();
+</script>
+</body>
+</html>

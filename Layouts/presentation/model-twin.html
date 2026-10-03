@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Digital twin 3D</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  html { --bg: #0A1322; --plate: #0F1A2E; --ink: #E6EDF7; --ink-2: #8FA3BF; --line: #22314A; --accent: #5CC8FF; --tab-bg: #16233A; }
+  body { background: radial-gradient(ellipse at 50% 10%, #1A2A48 0%, #0A1322 55%, #05090F 100%); }
+  .hint { background: rgba(15,26,46,.85); color: #8FA3BF; border-color: #22314A; }
+  .reset { background: #16233A; color: #E6EDF7; border-color: #2B3D5C; }
+  .lm-stage { padding: 0; position: relative; display: block; }
+  #view { position: absolute; inset: 0; }
+  #view canvas { display: block; width: 100% !important; height: 100% !important; max-height: none !important; cursor: grab; }
+  #view canvas:active { cursor: grabbing; }
+  .hint { position: absolute; left: 20px; bottom: 14px; font-size: 12px; color: #5B6B7F; background: rgba(255,255,255,.8); padding: 6px 10px; border-radius: 6px; border: 1px solid #D9DEE6; }
+  .reset { position: absolute; right: 20px; bottom: 14px; font: inherit; font-size: 12px; padding: 6px 12px; border-radius: 6px; border: 1px solid #C9D1DC; background: #FFFFFF; color: #1B2430; cursor: pointer; }
+  .reset:hover { border-color: #1E4E8C; }
+  .tip { position: absolute; display: none; transform: translate(14px, -50%); }
+</style>
+</head>
+<body>
+<main class="lm-stage" id="stage">
+  <div id="view"></div>
+  <div class="hint">Drag to orbit · scroll to zoom · right-drag to pan · hover a room for its reading</div>
+  <button class="reset" id="reset" type="button">Reset view</button>
+  <div class="tip lm-tip" id="tip"></div>
+</main>
+<script src="data/layouts.js"></script>
+<script src="common.js"></script>
+<script src="vendor/three.min.js"></script>
+<script src="vendor/OrbitControls.js"></script>
+<script>
+(function () {
+  const { STATUS, wallSegments, allDoors, doorLeaf, largestInscribedRect, reading, fmt, roomStatus, slotTone, roomName, limitsText } = LM;
+  const TINT = { OK: 0x1F9D55, OUT_OF_SPEC: 0xD6453D, ERROR: 0x7C3AED, OFFLINE: 0xD98E04, NO_DATA: 0x8A94A6 };
+  const U = 10;                   // drawing px per world unit
+  const WALL_H = 4.0, WALL_T = 0.34, EXT_T = 0.6, SLAB = 0.5;
+  const view = document.getElementById('view'), tip = document.getElementById('tip');
+
+  const STILL = /still/.test(location.search); // `?still`: one frame per floor, kept in the buffer — for headless screenshots
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: STILL });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  view.appendChild(renderer.domElement);
+  const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 2000);
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true; controls.dampingFactor = 0.08;
+  controls.maxPolarAngle = Math.PI * 0.47; controls.minDistance = 8;
+  // A slow turntable for the demo; a touch stops it and it resumes after a few idle seconds.
+  controls.autoRotate = true; controls.autoRotateSpeed = 0.5;
+  let idleTimer = null;
+  controls.addEventListener('start', () => { controls.autoRotate = false; clearTimeout(idleTimer); });
+  controls.addEventListener('end', () => { clearTimeout(idleTimer); idleTimer = setTimeout(() => { controls.autoRotate = true; }, 6000); });
+  let scene = null, pickables = [], home = null, pulses = [];
+
+  function resize() {
+    const w = view.clientWidth, h = view.clientHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h; camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', resize);
+
+  // ── Textures drawn on canvases: the floating card and the floor name ──────
+  function cardTexture(rd) {
+    const c = document.createElement('canvas'); c.width = 512; c.height = 216;
+    const g = c.getContext('2d');
+    const rr = (x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
+    g.shadowColor = 'rgba(27,36,48,.25)'; g.shadowBlur = 14; g.shadowOffsetY = 4;
+    g.fillStyle = '#FFFFFF'; rr(8, 8, 496, 196, 18); g.fill();
+    g.shadowColor = 'transparent';
+    g.fillStyle = STATUS[rd.status].color; rr(8, 8, 496, 22, 11); g.fill(); g.fillRect(8, 20, 496, 10);
+    g.fillStyle = '#1B2430'; g.font = '600 44px "Segoe UI", system-ui, sans-serif'; g.textBaseline = 'alphabetic';
+    g.fillText(rd.code, 30, 86);
+    g.font = '600 72px "Segoe UI", system-ui, sans-serif';
+    let x = 30;
+    const put = (txt, color, unit) => {
+      g.fillStyle = color; g.font = '600 72px "Segoe UI", system-ui, sans-serif'; g.fillText(txt, x, 170); x += g.measureText(txt).width + 6;
+      g.fillStyle = '#6B7A90'; g.font = '400 34px "Segoe UI", system-ui, sans-serif'; g.fillText(unit, x, 170); x += g.measureText(unit).width + 34;
+    };
+    put(fmt(rd.temperature, rd.decimals.temperature), STATUS[slotTone(rd, 'temperature')].color, '°C');
+    put(fmt(rd.humidity, rd.decimals.humidity), STATUS[slotTone(rd, 'humidity')].color, '%RH');
+    const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; t.anisotropy = 4;
+    return t;
+  }
+  function nameTexture(lines, color) {
+    const c = document.createElement('canvas'); c.width = 1024; c.height = lines.length > 1 ? 256 : 128;
+    const g = c.getContext('2d');
+    g.fillStyle = color; g.font = '600 72px "Segoe UI", system-ui, sans-serif'; g.textBaseline = 'middle';
+    lines.forEach((l, i) => g.fillText(l, 16, lines.length > 1 ? 70 + i * 110 : 64));
+    const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; t.anisotropy = 4;
+    return t;
+  }
+
+  function build(floor) {
+    if (scene) scene.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { if (m.map) m.map.dispose(); m.dispose(); }); });
+    scene = new THREE.Scene();
+    pickables = []; pulses = [];
+    const b = floor.building;
+    const X = (x) => (x - b.x0) / U, Z = (y) => (y - b.y0) / U;
+    const W = X(b.x1), D = Z(b.y1);
+
+    // Light
+    scene.fog = new THREE.FogExp2(0x0A1322, 0.0022);
+    scene.add(new THREE.HemisphereLight(0xCFE3FF, 0x0B1424, 0.7));
+    const rim = new THREE.DirectionalLight(0x6FB6FF, 0.35); rim.position.set(-W, Math.max(W, D) * 0.4, -D); scene.add(rim);
+    const sun = new THREE.DirectionalLight(0xFFF2DC, 0.9);
+    sun.position.set(W * 0.3, Math.max(W, D) * 0.9, D * 0.9); sun.castShadow = true;
+    sun.shadow.mapSize.set(1536, 1536);
+    const sc = sun.shadow.camera; sc.left = -Math.max(W, D); sc.right = Math.max(W, D); sc.top = Math.max(W, D); sc.bottom = -Math.max(W, D); sc.near = 1; sc.far = Math.max(W, D) * 4;
+    scene.add(sun);
+
+    // Ground: a soft shadow-catching plate and a faint grid.
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(Math.max(W, D) * 6, Math.max(W, D) * 6), new THREE.MeshStandardMaterial({ color: 0x06101E, roughness: 1, metalness: 0 }));
+    ground.rotation.x = -Math.PI / 2; ground.position.set(W / 2, -SLAB - 0.02, D / 2); ground.receiveShadow = true; scene.add(ground);
+    const grid = new THREE.GridHelper(Math.max(W, D) * 3, 60, 0x1E3350, 0x16263F);
+    grid.position.set(W / 2, -SLAB - 0.01, D / 2); scene.add(grid);
+    // A floor texture: large pale tiles with fine joints, shared by every room.
+    const tileCv = document.createElement('canvas'); tileCv.width = tileCv.height = 256;
+    const tg = tileCv.getContext('2d'); tg.fillStyle = '#E9EDF2'; tg.fillRect(0, 0, 256, 256);
+    tg.strokeStyle = '#D5DBE4'; tg.lineWidth = 3; tg.strokeRect(1.5, 1.5, 253, 253); tg.strokeRect(128, 1.5, 0.1, 253); tg.strokeRect(1.5, 128, 253, 0.1);
+    const tileTex = new THREE.CanvasTexture(tileCv); tileTex.wrapS = tileTex.wrapT = THREE.RepeatWrapping; tileTex.repeat.set(1 / 6, 1 / 6); tileTex.encoding = THREE.sRGBEncoding;
+
+    // Floors: each room extruded down into the slab, its top the status tint.
+    const sideMat = new THREE.MeshStandardMaterial({ color: 0x2A3A55, roughness: 0.9 });
+    for (const r of floor.rooms) {
+      // Shape (sx, sy) extruded along +sz, then rotated +90° about X: world = (sx, -sz, sy),
+      // so drawing y becomes world z, the top face sits at y = 0 and the slab hangs below it.
+      const shape = new THREE.Shape(r.outline.map(([x, y]) => new THREE.Vector2(X(x), Z(y))));
+      const geo = new THREE.ExtrudeGeometry(shape, { depth: SLAB, bevelEnabled: false });
+      const s = roomStatus(r);
+      const top = new THREE.MeshStandardMaterial({ map: tileTex, color: s ? 0xFFFFFF : r.grade === 'CIRCULATION' ? 0xB9C3D2 : 0xD8DEE7, roughness: 0.35, metalness: 0.05 });
+      // The floor's status: a wash of its colour, strongest at the instrument, laid over the tiles.
+      if (s) {
+        const washCv = document.createElement('canvas'); washCv.width = washCv.height = 256;
+        const wg = washCv.getContext('2d'); const grd = wg.createRadialGradient(128, 128, 10, 128, 128, 150);
+        const hex = '#' + TINT[s].toString(16).padStart(6, '0');
+        grd.addColorStop(0, hex + 'B8'); grd.addColorStop(0.6, hex + '66'); grd.addColorStop(1, hex + '22');
+        wg.fillStyle = grd; wg.fillRect(0, 0, 256, 256);
+        const bb = LM.bbox(r.outline);
+        const wash = new THREE.Mesh(new THREE.ShapeGeometry(new THREE.Shape(r.outline.map(([x, y]) => new THREE.Vector2(X(x), -Z(y))))),
+          new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(washCv), transparent: true, depthWrite: false }));
+        // Map the gradient square onto the room's bounding box.
+        const pos = wash.geometry.attributes.position, uv = wash.geometry.attributes.uv;
+        for (let i = 0; i < pos.count; i++) uv.setXY(i, (pos.getX(i) - X(bb.x)) / (bb.w / U), (-pos.getY(i) - Z(bb.y)) / (bb.h / U));
+        wash.rotation.x = -Math.PI / 2; wash.position.y = 0.015; wash.renderOrder = 1; scene.add(wash);
+      }
+      const mesh = new THREE.Mesh(geo, [top, sideMat]);
+      mesh.rotation.x = Math.PI / 2;
+      mesh.receiveShadow = true; mesh.userData.room = r;
+      scene.add(mesh); pickables.push(mesh);
+      // Name on the floor
+      if (!/\(\d+\)\s*$/.test(r.code)) {
+        const rect = largestInscribedRect(r.outline);
+        const fit = LM.fitName(roomName(r), rect.w * 0.92, 40, 14, 6);
+        if (fit) {
+          const tex = nameTexture(fit.lines, '#2A3647');
+          const h = (fit.font * fit.lines.length * 1.5) / U, w = h * (1024 / tex.image.height);
+          const pl = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
+          pl.rotation.x = -Math.PI / 2;
+          pl.position.set(X(rect.x) + w / 2 + 0.3, 0.02, Z(rect.y) + h / 2 + 0.3);
+          scene.add(pl);
+        }
+      }
+    }
+
+    // Walls
+    // Interior partitions are glass on a low sill; exterior walls are solid.
+    const wallMat = new THREE.MeshPhysicalMaterial({ color: 0xBFE3FF, roughness: 0.08, metalness: 0, transparent: true, opacity: 0.32, side: THREE.DoubleSide, depthWrite: false });
+    const sillMat = new THREE.MeshStandardMaterial({ color: 0xDDE3EB, roughness: 0.5 });
+    const extMat = new THREE.MeshStandardMaterial({ color: 0xE6EBF2, roughness: 0.5 });
+    for (const s of wallSegments(floor)) {
+      const len = Math.hypot(s.b[0] - s.a[0], s.b[1] - s.a[1]) / U;
+      const t = s.exterior ? EXT_T : WALL_T;
+      const mx = X((s.a[0] + s.b[0]) / 2), mz = Z((s.a[1] + s.b[1]) / 2), ry = -Math.atan2(s.b[1] - s.a[1], s.b[0] - s.a[0]);
+      if (s.exterior) {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(len + t, WALL_H, t), extMat);
+        m.position.set(mx, WALL_H / 2, mz); m.rotation.y = ry; m.castShadow = true; m.receiveShadow = true; scene.add(m);
+      } else {
+        const sill = new THREE.Mesh(new THREE.BoxGeometry(len + t, 1.0, t), sillMat);
+        sill.position.set(mx, 0.5, mz); sill.rotation.y = ry; sill.castShadow = true; sill.receiveShadow = true; scene.add(sill);
+        const glass = new THREE.Mesh(new THREE.BoxGeometry(len + t, WALL_H - 1.0, t * 0.4), wallMat);
+        glass.position.set(mx, 1.0 + (WALL_H - 1.0) / 2, mz); glass.rotation.y = ry; glass.renderOrder = 2; scene.add(glass);
+        const cap = new THREE.Mesh(new THREE.BoxGeometry(len + t, 0.12, t), sillMat);
+        cap.position.set(mx, WALL_H - 0.06, mz); cap.rotation.y = ry; scene.add(cap);
+      }
+    }
+    for (const [x1, y1, x2, y2] of floor.annotations.walls) {
+      const len = Math.hypot(x2 - x1, y2 - y1) / U;
+      const m = new THREE.Mesh(new THREE.BoxGeometry(len, WALL_H * 0.6, WALL_T * 0.8), wallMat);
+      m.position.set(X((x1 + x2) / 2), WALL_H * 0.3, Z((y1 + y2) / 2)); m.rotation.y = -Math.atan2(y2 - y1, x2 - x1);
+      m.castShadow = true; scene.add(m);
+    }
+    // Doors: the leaf standing part-open, the swing marked on the floor.
+    const leafMat = new THREE.MeshStandardMaterial({ color: 0x8A6A4A, roughness: 0.6 });
+    const arcMat = new THREE.LineDashedMaterial({ color: 0x8A96A8, dashSize: 0.5, gapSize: 0.35 });
+    for (const d of allDoors(floor)) {
+      const L = doorLeaf(d);
+      if (L.leafless) continue;
+      const w = L.w / U;
+      const leaf = new THREE.Mesh(new THREE.BoxGeometry(w, WALL_H * 0.86, 0.12), leafMat);
+      const base = Math.atan2(L.F[1] - L.H[1], L.F[0] - L.H[0]);
+      const toTip = Math.atan2(L.tip[1] - L.H[1], L.tip[0] - L.H[0]);
+      let da = toTip - base; while (da > Math.PI) da -= 2 * Math.PI; while (da < -Math.PI) da += 2 * Math.PI;
+      const ang = base + da * 0.78; // part open
+      leaf.position.set(X(L.H[0]) + (Math.cos(ang) * w) / 2, WALL_H * 0.43, Z(L.H[1]) + (Math.sin(ang) * w) / 2);
+      leaf.rotation.y = -ang; leaf.castShadow = true; scene.add(leaf);
+      const pts = [];
+      for (let i = 0; i <= 12; i++) { const a = base + (da * i) / 12; pts.push(new THREE.Vector3(X(L.H[0]) + Math.cos(a) * w, 0.03, Z(L.H[1]) + Math.sin(a) * w)); }
+      pts.push(new THREE.Vector3(X(L.H[0]), 0.03, Z(L.H[1])));
+      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), arcMat); line.computeLineDistances(); scene.add(line);
+    }
+    // Columns, windows, equipment
+    const colMat = new THREE.MeshStandardMaterial({ color: 0x8A96A8, roughness: 0.4, metalness: 0.3 });
+    for (const [x0, y0, x1, y1] of floor.annotations.columns) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry((x1 - x0) / U, WALL_H + 0.1, (y1 - y0) / U), colMat);
+      m.position.set(X((x0 + x1) / 2), (WALL_H + 0.1) / 2, Z((y0 + y1) / 2)); m.castShadow = true; scene.add(m);
+    }
+    const winMat = new THREE.MeshStandardMaterial({ color: 0x9CCBF5, transparent: true, opacity: 0.55, roughness: 0.2 });
+    for (const [x0, y0, x1, y1] of floor.annotations.windows) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(Math.max((x1 - x0) / U, 0.2) + 0.1, 1.3, Math.max((y1 - y0) / U, 0.2) + 0.1), winMat);
+      m.position.set(X((x0 + x1) / 2), 1.75, Z((y0 + y1) / 2)); scene.add(m);
+    }
+    const eqMat = new THREE.MeshStandardMaterial({ color: 0xB8C2CF, roughness: 0.3, metalness: 0.5 });
+    for (const [x0, y0, x1, y1] of floor.annotations.equipment) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry((x1 - x0) / U, 1.6, (y1 - y0) / U), eqMat);
+      m.position.set(X((x0 + x1) / 2), 0.8, Z((y0 + y1) / 2)); m.castShadow = true; scene.add(m);
+    }
+    // Cards: a sprite above each instrument's room, a stem down to the floor.
+    const stemMat = new THREE.LineBasicMaterial({ color: 0x9FB0C8 });
+    for (const r of floor.rooms) {
+      const rd = reading(r); if (!rd) continue;
+      const rect = largestInscribedRect(r.outline);
+      const cx = X(rect.x + rect.w / 2), cz = Z(rect.y + rect.h / 2);
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: cardTexture(rd), depthTest: false, transparent: true }));
+      const sw = Math.min(15, Math.max(9, Math.max(W, D) * 0.11)); sp.scale.set(sw, sw * 216 / 512, 1); sp.position.set(cx, WALL_H + 3.4, cz); sp.renderOrder = 10;
+      sp.userData.room = r; scene.add(sp); pickables.push(sp);
+      const stem = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(cx, 0.05, cz), new THREE.Vector3(cx, WALL_H + 2.2, cz)]), stemMat);
+      scene.add(stem);
+      const dot = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.06, 20), new THREE.MeshBasicMaterial({ color: STATUS[rd.status].color }));
+      dot.position.set(cx, 0.06, cz); scene.add(dot);
+      if (rd.status === 'OUT_OF_SPEC' || rd.status === 'ERROR') {
+        // A beacon: a glowing sphere at the stem's top and a pulsing ring on the floor.
+        const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.42, 20, 20), new THREE.MeshBasicMaterial({ color: STATUS[rd.status].color }));
+        beacon.position.set(cx, WALL_H + 2.2, cz); scene.add(beacon);
+        const ring = new THREE.Mesh(new THREE.RingGeometry(0.6, 0.9, 40), new THREE.MeshBasicMaterial({ color: STATUS[rd.status].color, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false }));
+        ring.rotation.x = -Math.PI / 2; ring.position.set(cx, 0.08, cz); ring.userData.pulse = Math.random() * Math.PI * 2; scene.add(ring); pulses.push(ring);
+      }
+    }
+
+    // Camera: from the south-west, high enough to read every card.
+    // Fit the building's bounding circle in the view from the south-west, 50° up.
+    const vTan = Math.tan((camera.fov * Math.PI) / 360), hTan = vTan * Math.max(camera.aspect, 1);
+    const dist = 1.1 * Math.max((W / 2) / hTan, (D * 0.95) / 2 / vTan);
+    const dir = new THREE.Vector3(-0.08, 0.95, 0.8).normalize();
+    home = { pos: new THREE.Vector3(W / 2, 0, D / 2).addScaledVector(dir, dist), target: new THREE.Vector3(W / 2, 0, D / 2) };
+    resetView();
+  }
+  function resetView() { camera.position.copy(home.pos); controls.target.copy(home.target); controls.update(); }
+  document.getElementById('reset').onclick = resetView;
+
+  // Hover
+  const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
+  renderer.domElement.addEventListener('pointermove', (e) => {
+    const rct = renderer.domElement.getBoundingClientRect();
+    mouse.set(((e.clientX - rct.left) / rct.width) * 2 - 1, -((e.clientY - rct.top) / rct.height) * 2 + 1);
+    ray.setFromCamera(mouse, camera);
+    const hit = ray.intersectObjects(pickables, false)[0];
+    if (!hit) { tip.style.display = 'none'; return; }
+    const r = hit.object.userData.room;
+    tip.innerHTML = LM.tipHtml(r);
+    tip.style.left = `${e.clientX - rct.left}px`; tip.style.top = `${e.clientY - rct.top}px`; tip.style.display = 'block';
+  });
+  renderer.domElement.addEventListener('pointerleave', () => { tip.style.display = 'none'; });
+
+  function loop(t) {
+    requestAnimationFrame(loop); controls.update();
+    for (const r of pulses) { const k = ((t / 1000 + r.userData.pulse) % 1.8) / 1.8; r.scale.setScalar(1 + k * 3); r.material.opacity = 0.8 * (1 - k); }
+    if (scene) renderer.render(scene, camera);
+  }
+  LM.mountChrome(document.body, { modelName: 'Digital twin 3D', subtitle: 'Glass partitions, tiled floors; turns on its own', onFloor: (f) => { resize(); build(f); if (STILL) requestAnimationFrame(() => {
+      // A headless screenshot does not composite a WebGL canvas: show the frame as an image instead.
+      resize(); renderer.render(scene, camera);
+      let img = document.getElementById('still'); if (!img) { img = document.createElement('img'); img.id = 'still'; img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%'; view.appendChild(img); }
+      img.src = renderer.domElement.toDataURL('image/png');
+    }); } });
+  resize(); if (!STILL) loop();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Isometric 2.5D</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  body { background: radial-gradient(ellipse at 50% 20%, #FFFFFF 0%, #EEF2F7 60%, #DFE5EE 100%); }
+  .plan text { font-family: inherit; }
+  .plan .slab-side { fill: #AEB8C6; stroke: #96A1B1; stroke-width: 0.6; stroke-linejoin: round; }
+  .plan .wall { stroke: #3E4A5C; stroke-width: 0.8; stroke-linejoin: round; }
+  .plan .wall.ext { stroke: #2F3A4A; stroke-width: 1.2; }
+  .plan .arc { fill: none; stroke: #7F8B9C; }
+  .plan .col-top { fill: #8A96A8; stroke: #6B7789; stroke-width: 0.5; }
+  .plan .col-a { fill: #A6B0BF; }
+  .plan .col-b { fill: #BCC5D2; }
+  .plan .name { fill: #2A3442; font-weight: 600; }
+  .plan .code { fill: #7A879A; }
+  .plan .stem { stroke: #5B6B7F; }
+  .plan .card { fill: #FFFFFF; filter: url(#shadow); }
+  .plan .card-id { fill: #1B2430; font-weight: 600; }
+  .plan .unit { fill: #6B7A90; }
+  .plan .beacon { animation: beacon 2s ease-out infinite; transform-box: fill-box; transform-origin: center; }
+  @keyframes beacon { 0% { transform: scale(.6); opacity: .8; } 100% { transform: scale(2.4); opacity: 0; } }
+</style>
+</head>
+<body>
+<main class="lm-stage" id="stage"></main>
+<script src="data/layouts.js"></script>
+<script src="common.js"></script>
+<script>
+(function () {
+  const { STATUS, el, wallSegments, allDoors, doorLeaf, largestInscribedRect, reading, fmt, roomStatus, slotTone, roomName, icon, limitBar, bindTip } = LM;
+  const WASH = { OK: ['#E6F6EC', '#BFE3CC'], OUT_OF_SPEC: ['#FBE4E1', '#F0B3AD'], ERROR: ['#EDE4FB', '#D0BDF2'], OFFLINE: ['#FDEFD3', '#F6D08C'], NO_DATA: ['#EBEEF3', '#D0D7E0'] };
+  const C = Math.cos(Math.PI / 6), S = Math.sin(Math.PI / 6);
+  const stage = document.getElementById('stage');
+
+  function draw(floor) {
+    stage.innerHTML = '';
+    const b = floor.building, W = b.x1 - b.x0, H = b.y1 - b.y0;
+    const k = Math.max(W, H) / 1000;
+    const wallH = 46 * k, slab = 10 * k;
+    const P = (x, y, z = 0) => [((x - b.x0) - (y - b.y0)) * C, ((x - b.x0) + (y - b.y0)) * S - z];
+    const poly = (pts, z = 0) => pts.map(([x, y]) => P(x, y, z));
+    const d = (pp) => pp.map((p, i) => `${i ? 'L' : 'M'} ${p[0].toFixed(2)} ${p[1].toFixed(2)}`).join(' ') + ' Z';
+    const depth = (x, y) => (x - b.x0) + (y - b.y0);
+
+    const corners = [[b.x0, b.y0], [b.x1, b.y0], [b.x1, b.y1], [b.x0, b.y1]].map(([x, y]) => P(x, y));
+    const xs = corners.map((p) => p[0]), ys = corners.map((p) => p[1]);
+    const m = 30 * k, top = 110 * k;
+    const vx = Math.min(...xs) - m, vy = Math.min(...ys) - top - slab, vw = Math.max(...xs) - Math.min(...xs) + 2 * m, vh = Math.max(...ys) - Math.min(...ys) + top + slab + m;
+    const svg = el('svg', { viewBox: `${vx} ${vy} ${vw} ${vh}`, class: 'plan', style: LM.fitStyle(vw, vh), 'aria-label': `${floor.title}, isometric` }, stage);
+    const defs = el('defs', {}, svg);
+    const f = el('filter', { id: 'shadow', x: '-10%', y: '-10%', width: '130%', height: '150%' }, defs);
+    el('feDropShadow', { dx: 0, dy: 2 * k, stdDeviation: 2 * k, 'flood-color': '#1B2430', 'flood-opacity': 0.25 }, f);
+    const soft = el('filter', { id: 'soft', x: '-30%', y: '-30%', width: '160%', height: '160%' }, defs);
+    el('feGaussianBlur', { stdDeviation: 6 * k }, soft);
+    for (const key in WASH) {
+      const g = el('linearGradient', { id: `wash-${key}`, x1: 0, y1: 0, x2: 1, y2: 1 }, defs);
+      el('stop', { offset: 0, 'stop-color': WASH[key][0] }, g); el('stop', { offset: 1, 'stop-color': WASH[key][1] }, g);
+    }
+    // Two wall faces: the one facing south-west is lit, the one facing south-east is in shade.
+    const faceA = el('linearGradient', { id: 'face-a', x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
+    el('stop', { offset: 0, 'stop-color': '#FFFFFF', 'stop-opacity': 0.92 }, faceA); el('stop', { offset: 1, 'stop-color': '#E3E8EF', 'stop-opacity': 0.92 }, faceA);
+    const faceB = el('linearGradient', { id: 'face-b', x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
+    el('stop', { offset: 0, 'stop-color': '#EEF1F6', 'stop-opacity': 0.92 }, faceB); el('stop', { offset: 1, 'stop-color': '#CCD4DF', 'stop-opacity': 0.92 }, faceB);
+
+    // Ground shadow under the building, then the slab, then the floors.
+    const hull = [[b.x0, b.y0], [b.x1, b.y0], [b.x1, b.y1], [b.x0, b.y1]];
+    el('path', { d: d(poly(hull, -slab - 4 * k)), fill: '#1B2430', 'fill-opacity': 0.18, filter: 'url(#soft)' }, svg);
+    const gSlab = el('g', {}, svg);
+    for (const r of floor.rooms) {
+      const pts = r.outline;
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[i], c = pts[(i + 1) % pts.length];
+        el('path', { d: d([P(a[0], a[1], 0), P(c[0], c[1], 0), P(c[0], c[1], -slab), P(a[0], a[1], -slab)]), class: 'slab-side' }, gSlab);
+      }
+    }
+    const gFloor = el('g', {}, svg);
+    for (const r of floor.rooms) {
+      const s = roomStatus(r);
+      const fill = s ? `url(#wash-${s})` : r.grade === 'CIRCULATION' ? '#E9EDF2' : r.grade === 'UTILITY' ? '#EEF1F5' : '#F6F7FA';
+      const p = el('path', { d: d(poly(r.outline)), fill, stroke: 'rgba(27,36,48,.15)', 'stroke-width': 0.6 * k }, gFloor);
+      bindTip(p, r);
+      if (s === 'OUT_OF_SPEC' || s === 'ERROR') el('path', { d: d(poly(r.outline)), fill: 'none', stroke: STATUS[s].color, 'stroke-width': 3 * k, 'stroke-opacity': 0.8 }, gFloor);
+    }
+    // Door swings on the floor.
+    const gArc = el('g', {}, svg);
+    for (const dr of allDoors(floor)) {
+      const L = doorLeaf(dr);
+      if (L.leafless) continue;
+      const pts = [];
+      const a0 = Math.atan2(L.F[1] - L.H[1], L.F[0] - L.H[0]), a1 = Math.atan2(L.tip[1] - L.H[1], L.tip[0] - L.H[0]);
+      let da = a1 - a0; while (da > Math.PI) da -= 2 * Math.PI; while (da < -Math.PI) da += 2 * Math.PI;
+      for (let i = 0; i <= 8; i++) { const a = a0 + (da * i) / 8; pts.push(P(L.H[0] + Math.cos(a) * L.w, L.H[1] + Math.sin(a) * L.w)); }
+      pts.push(P(L.H[0], L.H[1]));
+      el('path', { d: pts.map((p, i) => `${i ? 'L' : 'M'} ${p[0].toFixed(2)} ${p[1].toFixed(2)}`).join(' '), class: 'arc', 'stroke-width': 0.8 * k, 'stroke-dasharray': `${3 * k} ${2.5 * k}` }, gArc);
+    }
+    // Room names lie on the floor plane.
+    const gName = el('g', {}, svg);
+    for (const r of floor.rooms) {
+      if (/\(\d+\)\s*$/.test(r.code)) continue;
+      const rect = largestInscribedRect(r.outline);
+      const fit = LM.fitName(roomName(r), (rect.w - 10 * k) / k, 26, 13, 7.5);
+      if (!fit) continue;
+      const [px, py] = P(rect.x + 5 * k, rect.y + 5 * k + fit.font * k);
+      const t = el('text', { transform: `matrix(${C} ${S} ${-C} ${S} ${px} ${py})`, 'font-size': fit.font * k, class: 'name' }, gName);
+      fit.lines.forEach((line, i) => { el('tspan', { x: 0, dy: i ? fit.font * k * 1.05 : 0 }, t).textContent = line; });
+      if (rect.h > 40 * k) {
+        const t2 = el('text', { transform: `matrix(${C} ${S} ${-C} ${S} ${px} ${py})`, 'font-size': fit.font * k * 0.75, class: 'code' }, gName);
+        el('tspan', { x: 0, dy: fit.font * k * (fit.lines.length * 1.05 + 0.1) }, t2).textContent = r.code;
+      }
+    }
+    // Walls, far to near: a lit or shaded face by orientation, a dark top edge.
+    const gWall = el('g', {}, svg);
+    const segs = wallSegments(floor).map((s) => Object.assign({ z: depth((s.a[0] + s.b[0]) / 2, (s.a[1] + s.b[1]) / 2) }, s)).sort((p, q) => p.z - q.z);
+    for (const s of segs) {
+      const vertical = Math.abs(s.a[0] - s.b[0]) < 0.01;
+      el('path', { d: d([P(s.a[0], s.a[1]), P(s.b[0], s.b[1]), P(s.b[0], s.b[1], wallH), P(s.a[0], s.a[1], wallH)]), fill: vertical ? 'url(#face-b)' : 'url(#face-a)', class: `wall${s.exterior ? ' ext' : ''}`, 'stroke-width': (s.exterior ? 1.2 : 0.8) * k }, gWall);
+    }
+    // Columns as blocks with two shaded faces and a top.
+    const gCol = el('g', {}, svg);
+    const cols = floor.annotations.columns.map((c) => ({ c, z: depth((c[0] + c[2]) / 2, (c[1] + c[3]) / 2) })).sort((p, q) => p.z - q.z);
+    for (const { c: [x0, y0, x1, y1] } of cols) {
+      el('path', { d: d([P(x0, y1), P(x1, y1), P(x1, y1, wallH), P(x0, y1, wallH)]), class: 'col-a' }, gCol);
+      el('path', { d: d([P(x1, y0), P(x1, y1), P(x1, y1, wallH), P(x1, y0, wallH)]), class: 'col-b' }, gCol);
+      el('path', { d: d([P(x0, y0, wallH), P(x1, y0, wallH), P(x1, y1, wallH), P(x0, y1, wallH)]), class: 'col-top' }, gCol);
+    }
+    // Cards float above their room, nearest last.
+    const gCard = el('g', {}, svg);
+    const cards = floor.rooms.filter((r) => reading(r)).map((r) => { const rect = largestInscribedRect(r.outline); return { r, rect, z: depth(rect.x + rect.w / 2, rect.y + rect.h / 2) }; }).sort((p, q) => p.z - q.z);
+    for (const { r, rect } of cards) card(r, rect, gCard, P, k, wallH);
+  }
+
+  function card(room, rect, g, P, k, wallH) {
+    const rd = reading(room);
+    const foot = P(rect.x + rect.w / 2, rect.y + rect.h / 2, 0);
+    const [ax, ay] = P(rect.x + rect.w / 2, rect.y + rect.h / 2, wallH + 30 * k);
+    const cw = 124 * k, ch = 62 * k;
+    const grp = el('g', {}, g);
+    bindTip(grp, room);
+    const color = STATUS[rd.status].color;
+    el('line', { x1: foot[0], y1: foot[1], x2: ax, y2: ay, class: 'stem', 'stroke-width': 0.9 * k }, grp);
+    if (rd.status === 'OUT_OF_SPEC' || rd.status === 'ERROR') el('circle', { cx: foot[0], cy: foot[1], r: 5 * k, fill: color, class: 'beacon' }, grp);
+    el('circle', { cx: foot[0], cy: foot[1], r: 2.6 * k, fill: color, stroke: '#FFFFFF', 'stroke-width': 0.8 * k }, grp);
+    const x = ax - cw / 2, y = ay - ch;
+    el('rect', { x, y, width: cw, height: ch, rx: 5 * k, class: 'card' }, grp);
+    const id = `clip-${room.code.replace(/[^a-z0-9]/gi, '')}`;
+    const cp = el('clipPath', { id }, grp); el('rect', { x, y, width: cw, height: ch, rx: 5 * k }, cp);
+    el('rect', { x, y, width: cw, height: 5 * k, fill: color, 'clip-path': `url(#${id})` }, grp);
+    el('text', { x: x + 8 * k, y: y + 18 * k, 'font-size': 9.5 * k, class: 'card-id' }, grp).textContent = rd.code;
+    el('circle', { cx: x + cw - 9 * k, cy: y + 14.5 * k, r: 3 * k, fill: color }, grp);
+    const slot = (kind, ox, value, dec, unit, lo, hi) => {
+      const tone = STATUS[slotTone(rd, kind)].color;
+      icon(kind, x + ox, y + 23 * k, 11 * k, tone, grp);
+      const t = el('text', { x: x + ox + 13 * k, y: y + 34 * k, 'font-size': 14 * k, 'font-weight': 600, fill: tone }, grp);
+      t.textContent = fmt(value, dec);
+      el('tspan', { 'font-size': 7 * k, 'font-weight': 400, class: 'unit', dx: 2 * k }, t).textContent = typeof value === 'number' ? unit : '';
+      limitBar(grp, x + ox + 1 * k, y + 46 * k, 46 * k, 3 * k, value, lo, hi, tone);
+    };
+    slot('temperature', 8 * k, rd.temperature, rd.decimals.temperature, '°C', rd.limits.tempMin, rd.limits.tempMax);
+    slot('humidity', 66 * k, rd.humidity, rd.decimals.humidity, '%RH', rd.limits.rhMin, rd.limits.rhMax);
+  }
+
+  LM.mountChrome(document.body, { modelName: 'Isometric 2.5D', subtitle: 'Raised walls, floating cards, beacons on alarms', onFloor: draw });
+})();
+</script>
+</body>
+</html>
