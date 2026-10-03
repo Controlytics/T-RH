@@ -26,8 +26,15 @@ also"*.
   malformed = none) and `trendCrumbs()` HEADS its crumbs with it, so the
   trail reads Dashboard / All Instruments / <code> / Trend, or Dashboard /
   CWH Block / Stability / <code> / Trend, each a link back to exactly that
-  view. The code crumb still goes to the instrument's detail page; a refresh
-  or pasted URL still falls back to the hierarchy.
+  view. A refresh or pasted URL still falls back to the hierarchy.
+- **Second pass, same day** (operator: *"still its going to instrument page
+  not going to all instruments widget"*): the INSTRUMENT crumb was the one
+  being pressed to go back, and it linked to the detail page — a page the
+  reader never saw on the way in from the dashboard. From the dashboard the
+  code is now a PLAIN crumb (named, not linked); the only links are the
+  trail before it, so the hop back is All Instruments / the Area. From the
+  Instruments list the detail page IS the way in and the crumb still links.
+  `trend-breadcrumbs.test.ts` 13 → **14**.
 - Tests: `trend-breadcrumbs.test.ts` 9 → **13**, `location-nav.test.ts`
   18 → **21**, `telemetry-table.test.tsx` 17 → **18** and
   `floorplan-empty-rooms.test.tsx` 5 → **7** — the last two read the state at

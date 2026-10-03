@@ -43,16 +43,29 @@ describe('trendCrumbs', () => {
     expect(root).toEqual({ label: 'Dashboard', to: '/' });
   });
 
-  it('keeps the instrument in the trail either way — the trend IS a view of it', () => {
+  it('names the instrument in the trail either way — the trend IS a view of it', () => {
     for (const origin of ['dashboard', 'instruments'] as const) {
-      const crumbs = trendCrumbs(origin, 'i-1', 'CWH/RDU/001-00');
-      expect(crumbs).toContainEqual({ label: 'CWH/RDU/001-00', to: '/instruments/i-1' });
+      expect(trendCrumbs(origin, 'i-1', 'CWH/RDU/001-00').map((c) => c.label)).toContain('CWH/RDU/001-00');
     }
   });
 
+  /**
+   * 2026-10-03, operator: "still its going to instrument page not going to all
+   * instruments widget". From the dashboard the detail page was never on the
+   * path, and its crumb was the one pressed to go back. So from the dashboard
+   * the code is a PLAIN crumb — the only links are the trail before it. From
+   * the Instruments list the detail page IS the way in, and the crumb links.
+   */
+  it('links the instrument crumb to its detail page ONLY when the reader came through Instruments', () => {
+    expect(trendCrumbs('instruments', 'i-1', 'CWH/RDU/001-00')).toContainEqual({ label: 'CWH/RDU/001-00', to: '/instruments/i-1' });
+    const fromDashboard = trendCrumbs('dashboard', 'i-1', 'CWH/RDU/001-00');
+    expect(fromDashboard).toContainEqual({ label: 'CWH/RDU/001-00' });
+    expect(fromDashboard.some((c) => c.to === '/instruments/i-1')).toBe(false);
+  });
+
   it('says "Instrument" rather than leaving a gap before the code loads', () => {
-    const crumbs = trendCrumbs('dashboard', 'i-1', null);
-    expect(crumbs).toContainEqual({ label: 'Instrument', to: '/instruments/i-1' });
+    expect(trendCrumbs('dashboard', 'i-1', null)).toContainEqual({ label: 'Instrument' });
+    expect(trendCrumbs('instruments', 'i-1', null)).toContainEqual({ label: 'Instrument', to: '/instruments/i-1' });
   });
 
   it('omits the instrument crumb entirely when there is no id to link to', () => {
@@ -93,7 +106,8 @@ describe('the dashboard trail', () => {
     expect(crumbs).toEqual([
       { label: 'Dashboard', to: '/' },
       { label: 'All Instruments', to: '/?fl=__all__' },
-      { label: 'CWH/RDU/001-00', to: '/instruments/i-1' },
+      // Plain: the detail page is not on this path, and All Instruments is the way back.
+      { label: 'CWH/RDU/001-00' },
       { label: 'Trend' },
     ]);
   });

@@ -91,12 +91,23 @@ export function trendCrumbs(
     ? (trail && trail.length > 0 ? trail : [{ label: 'Dashboard', to: '/' }])
     : [{ label: 'Dashboard', to: '/' }, { label: 'Instruments', to: '/instruments' }];
 
+  // The instrument itself is always NAMED in the trail: the trend page is a
+  // view OF that record. Whether its crumb LINKS depends on the way in. From
+  // the Instruments list the detail page is on the path and the crumb links
+  // to it. From the DASHBOARD it is not — the reader never saw the detail
+  // page, and that crumb was the one they pressed to go "back" (operator,
+  // 2026-10-03: "still its going to instrument page not going to all
+  // instruments widget"). So from the dashboard the code is a plain crumb;
+  // the way back is the trail before it, and that is the only link.
+  const instrument = instrumentId
+    ? [origin === 'dashboard'
+      ? { label: code ?? 'Instrument' }
+      : { label: code ?? 'Instrument', to: `/instruments/${instrumentId}` }]
+    : [];
+
   return [
     ...head,
-    // The instrument itself is always in the trail whichever way you arrived:
-    // the trend page is a view OF that record, and its detail page is the one
-    // hop back that is true in both journeys.
-    ...(instrumentId ? [{ label: code ?? 'Instrument', to: `/instruments/${instrumentId}` }] : []),
+    ...instrument,
     { label: 'Trend' },
   ];
 }

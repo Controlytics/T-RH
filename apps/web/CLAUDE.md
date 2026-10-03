@@ -220,9 +220,13 @@ the tile click and both keyboard paths — four bare `navigate()` calls sent no
 state until then, so the floor's trend page claimed a path through
 Instruments). The trend page reads it with `trailFrom(location.state)` and
 `trendCrumbs()` heads its crumbs with it: Dashboard / All Instruments /
-<code> / Trend. Add a new way into the trend page and it MUST carry both;
-the two destination-probe tests (`telemetry-table`, `floorplan-empty-rooms`)
-are the pattern.
+<code> / Trend. **From the dashboard the <code> crumb is PLAIN, not a link**
+(same day, operator: "still its going to instrument page not going to all
+instruments widget" — that crumb was the one pressed to go back, and the
+detail page was never on the path); from the Instruments list it links to
+the detail page as before. Add a new way into the trend page and it MUST
+carry both; the two destination-probe tests (`telemetry-table`,
+`floorplan-empty-rooms`) are the pattern.
 
 **"Live" is polling.** There is no browser-facing WebSocket or SSE channel here
 (the `@fastify/websocket` registration is INBOUND device ingest), so every live
