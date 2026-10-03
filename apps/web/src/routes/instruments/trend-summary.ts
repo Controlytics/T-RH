@@ -149,6 +149,10 @@ export interface ServerSlotSummary {
    *  Optional: a server from before 2026-10-03 sends neither. */
   limitMinText?: string | null;
   limitMaxText?: string | null;
+  /** Mean Kinetic Temperature over the whole range, °C — temperature slot
+   *  only, and only when the instrument's `isMktCalculationEnabled` is on.
+   *  Null / absent = the Data Report prints no MKT. */
+  mkt?: number | null;
 }
 
 /**

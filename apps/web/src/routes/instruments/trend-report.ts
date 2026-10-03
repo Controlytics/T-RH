@@ -12,7 +12,7 @@ import { scopeColumnStyles, CONTENT_WIDTH_MM } from '@/routes/alarms/alarms-repo
 import {
   DATA_REPORT_TITLE, DATA_REPORT_HEAD, DATA_REPORT_TYPOGRAPHY, DATA_REPORT_LABEL_MM,
   dataReportLegend, dataReportParameterRows, dataReportRows,
-  dataReportColumnStyles, emptyDataReportRow, limitText as slotLimitText,
+  dataReportColumnStyles, emptyDataReportRow, limitText as slotLimitText, printsMkt,
   type DataReportScope, type DataReportFormatters, type DataReportWords, type ReportSlotRow,
   type SlotBounds, type SlotExtremes,
 } from './data-report';
@@ -516,6 +516,8 @@ export async function renderDataReports(input: DataReportsInput): Promise<Report
   const legend = dataReportLegend(
     sections.flatMap((s) => s.limitTexts),
     sections.some((s) => s.body.printedNoData),
+    // MKT is keyed iff some page printed it — the server's number decides.
+    sections.some((s) => printsMkt(s.input.temp)),
   );
   const report = await createReport(dataReportChrome(input.formatDateTime, legend));
   if (sections.length === 0) {

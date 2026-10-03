@@ -68,6 +68,24 @@ describe('the reference layout', () => {
     ]);
   });
 
+  // Operator, 2026-10-03: "isMktCalculationEnabled is true then in data report
+  // mkt value should come, if false then mkt value should not come". The server
+  // sends `mkt` only when the flag is on; the report prints the row iff it is a
+  // number, at the temperature precision, beside the interval — no empty cell.
+  it('prints MKT beside the interval when the server sent one, and keys the legend', () => {
+    const rows = dataReportParameterRows({
+      scope, period, temp: { ...temp, periodMkt: 23.456 }, rh, intervalMs: 3_600_000, fmt,
+    });
+    expect(rows[6]).toEqual(['Interval :', '1 hour', 'MKT :', '23.5']);
+    expect(dataReportLegend([], false, true)).toContainEqual({ abbr: 'MKT', meaning: 'Mean Kinetic Temperature' });
+  });
+
+  it('prints no MKT cell when the server sent none — the interval takes the row as before', () => {
+    const rows = dataReportParameterRows({ scope, period, temp: { ...temp, periodMkt: null }, rh, intervalMs: 3_600_000, fmt });
+    expect(rows[6]).toEqual(['Interval :', { content: '1 hour', colSpan: 3 }]);
+    expect(dataReportLegend([], false, false).map((l) => l.abbr)).not.toContain('MKT');
+  });
+
   it('prints the limits in this system’s own words', () => {
     expect(limitText({ min: null, max: 27, decimals: 1 })).toBe('NMT 27.0');
     expect(limitText({ min: 18, max: null, decimals: 1 })).toBe('NLT 18.0');

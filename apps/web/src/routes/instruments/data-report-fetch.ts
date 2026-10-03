@@ -6,7 +6,13 @@ import type { TelemetryLongRow } from './use-trend-data';
 import type { ReportCoverage } from './trend-report';
 
 /** What the sampled chart path returns per key — the whole-range extremes. */
-export interface ServerSlotSummary { min: number | null; max: number | null }
+export interface ServerSlotSummary {
+  min: number | null;
+  max: number | null;
+  /** MKT over the whole period, °C; sent only for a temperature slot whose
+   *  instrument has `isMktCalculationEnabled` on. Absent on older servers. */
+  mkt?: number | null;
+}
 
 /**
  * The rows and extremes ONE instrument's Data Report is built from, fetched
@@ -59,11 +65,12 @@ export async function fetchDataReportRows(input: {
   };
 }
 
-/** The period extremes of one slot, or nulls for a slot with no key. */
+/** The period extremes of one slot — and its MKT when the server sent one —
+ *  or nulls for a slot with no key. */
 export function slotExtremes(
   summaries: Record<string, ServerSlotSummary>,
   key: string | null,
-): { periodMax: number | null; periodMin: number | null } {
+): { periodMax: number | null; periodMin: number | null; periodMkt: number | null } {
   const s = key ? summaries[key] : undefined;
-  return { periodMax: s?.max ?? null, periodMin: s?.min ?? null };
+  return { periodMax: s?.max ?? null, periodMin: s?.min ?? null, periodMkt: s?.mkt ?? null };
 }

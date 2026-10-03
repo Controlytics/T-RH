@@ -121,10 +121,12 @@ export const DATA_REPORT_LEGEND_BASE = [
 export function dataReportLegend(
   limitTexts: readonly string[],
   printedNoData = false,
+  printedMkt = false,
 ): { abbr: string; meaning: string }[] {
   const out = [...DATA_REPORT_LEGEND_BASE];
   if (limitTexts.some((t) => /\bNMT\b/.test(t))) out.push({ abbr: 'NMT', meaning: 'Not More Than' });
   if (limitTexts.some((t) => /\bNLT\b/.test(t))) out.push({ abbr: 'NLT', meaning: 'Not Less Than' });
+  if (printedMkt) out.push({ abbr: 'MKT', meaning: 'Mean Kinetic Temperature' });
   if (printedNoData) out.push({ abbr: DATA_REPORT_NO_DATA, meaning: 'No data' });
   return out;
 }
@@ -182,6 +184,20 @@ export interface DataReportWords {
 export interface SlotExtremes {
   periodMax: number | null;
   periodMin: number | null;
+  /**
+   * Mean Kinetic Temperature over EVERY reading in the period, °C — the
+   * SERVER's figure (`summaries[key].mkt`), sent only for the temperature
+   * slot of an instrument whose `isMktCalculationEnabled` attribute is on
+   * (operator, 2026-10-03). A number prints the `MKT :` cell; null / absent
+   * prints nothing. Nothing here re-reads the attribute or re-derives the
+   * figure from the printed rows, which would miss the readings between them.
+   */
+  periodMkt?: number | null;
+}
+
+/** Does this slot print an MKT cell? The SERVER's number is the whole test. */
+export function printsMkt(s: SlotExtremes): boolean {
+  return typeof s.periodMkt === 'number' && Number.isFinite(s.periodMkt);
 }
 
 /** A dash, never an empty cell: on paper a blank reads as a rendering fault. */
@@ -262,6 +278,9 @@ export function dataReportIntervalText(intervalMs: number | null): string {
  * The last row is `Interval` spanning the row. The reference has it alone on
  * the RIGHT with the left half blank; a blank half is an empty box, which the
  * operator asked not to print (2026-09-07), so it moved left and took the row.
+ * When the server sent an MKT for the temperature slot (2026-10-03) it takes
+ * the right half of that row — `MKT :` at the temperature precision — so the
+ * block grows no taller and no cell is ever empty.
  */
 export function dataReportParameterRows(input: {
   scope: DataReportScope;
@@ -280,7 +299,9 @@ export function dataReportParameterRows(input: {
     ['Inst ID :', orDash(scope.instrumentLabel), 'End Time :', fmt.formatTime(period.to)],
     ['Temp. Limit :', limitText(temp), 'RH Limit :', limitText(rh)],
     ...(extremes ? [extremes] : []),
-    ['Interval :', { content: dataReportIntervalText(input.intervalMs), colSpan: 3 }],
+    printsMkt(temp)
+      ? ['Interval :', dataReportIntervalText(input.intervalMs), 'MKT :', num(temp.periodMkt, temp.decimals)]
+      : ['Interval :', { content: dataReportIntervalText(input.intervalMs), colSpan: 3 }],
   ];
 }
 

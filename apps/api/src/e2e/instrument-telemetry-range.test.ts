@@ -32,6 +32,7 @@ import { fixtureProfileId } from '../test-support/fixture-profile.js';
 import { invalidateRolePermsCache } from '../plugins/rbac.js';
 // The route's own decision about which number `historyTotal` reports.
 import { chartRangeTotal } from '../modules/instruments/telemetry.repository.js';
+import { mktCelsius } from '@digilog/shared';
 
 let app: FastifyInstance;
 let auth: Record<string, string>;
@@ -141,6 +142,7 @@ interface ChartBody {
     belowCount: number | null; aboveCount: number | null; outOfSpecCount: number | null;
     limitMin: number | null; limitMax: number | null;
     limitMinText?: string | null; limitMaxText?: string | null;
+    mkt?: number | null;
   }>;
 }
 
@@ -749,5 +751,52 @@ describe('a limit carrying text, on the chart summary', () => {
     // A bare number carries no text — the report prints it at the precision.
     expect(sum.limitMin).toBe(18);
     expect(sum.limitMinText).toBeNull();
+  });
+});
+
+/**
+ * Mean Kinetic Temperature on the chart summary (operator, 2026-10-03: "in
+ * attributes isMktcalculationenabled attributes is true then in data report
+ * mkt value should come, if false then mkt value should not come"). The SERVER
+ * decides from the attribute and computes it in SQL over EVERY reading in the
+ * range; the Data Report prints the row iff `mkt` is a number. Over the wire,
+ * because Fastify strips an undeclared summary key silently.
+ */
+describe('Mean Kinetic Temperature on the chart summary', () => {
+  const readings = [20, 30, 25, 22.5];
+  let onId: string;
+  let offId: string;
+  let absentId: string;
+
+  beforeAll(async () => {
+    onId = await createInstrument(`TRNG-MKT-ON-${s}`);
+    offId = await createInstrument(`TRNG-MKT-OFF-${s}`);
+    absentId = await createInstrument(`TRNG-MKT-ABS-${s}`);
+    await prisma.instrumentAttribute.createMany({
+      data: [
+        { instrumentId: onId, key: 'isMktCalculationEnabled', value: 'True' },
+        { instrumentId: offId, key: 'isMktCalculationEnabled', value: '0' },
+      ],
+    });
+    for (const id of [onId, offId, absentId]) {
+      await seed(id, 'temperature', readings.map((value, i) => ({ ts: new Date(t0.getTime() + i * STEP_MS), value })));
+      await seed(id, 'humidity', [{ ts: new Date(t0.getTime()), value: 45 }]);
+    }
+  });
+
+  it('is the ICH figure over every reading when the attribute is on — temperature slot only', async () => {
+    const res = await telemetry(onId, `?from=${FROM}&to=${TO}&points=100`);
+    const sums = (res.json() as ChartBody).summaries!;
+    expect(sums.temperature.mkt).toBeCloseTo(mktCelsius(readings)!, 6);
+    // Hotter readings weigh more: above the plain mean of 24.375.
+    expect(sums.temperature.mkt!).toBeGreaterThan(sums.temperature.avg);
+    expect(sums.humidity.mkt).toBeNull();
+  });
+
+  it('is null when the attribute is off, and when it is absent', async () => {
+    const off = (await telemetry(offId, `?from=${FROM}&to=${TO}&points=100`)).json() as ChartBody;
+    expect(off.summaries!.temperature.mkt).toBeNull();
+    const abs = (await telemetry(absentId, `?from=${FROM}&to=${TO}&points=100`)).json() as ChartBody;
+    expect(abs.summaries!.temperature.mkt).toBeNull();
   });
 });

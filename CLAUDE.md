@@ -1724,6 +1724,20 @@ GET    /api/config/report-downloads/current     — (2026-10-01) per report KIND
       Fastify strips undeclared response properties silently and this repo has
       been bitten by that twice. Mutation-checked: dropping `labels[].text` from
       the schema fails it.
+- **MEAN KINETIC TEMPERATURE on the Data Report, per instrument (2026-10-03,
+  operator: "isMktcalculationenabled attributes is true then in data report
+  mkt value should come, if false … should not come").** `MKT :` prints on
+  the `Interval :` row's right half, at the temperature precision, iff the
+  SERVER sent `summaries[<temp key>].mkt` on the chart path — which it does
+  iff the instrument's `isMktCalculationEnabled` attribute is on
+  (`isMktEnabled` in `@digilog/shared`, OFF by default: absent / blank /
+  anything else = no figure — the opposite default from the limit enable
+  flags, on purpose). ICH Q1A / USP <1150>, ΔH/R = 10,000 K, computed in SQL
+  over EVERY reading in the period (`getRangeSummary` → `mktExpMean` →
+  `mktFromExpMean`), the same population as Max / Min. Temperature slot only.
+  The browser never re-reads the flag or re-derives the figure. Every local
+  instrument carries `0`, so nothing prints until one is set to `1`. Shared
+  type files 32 → **33** (`mkt.ts`); no other count moved.
 - **The Time Series widget's download is the DATA REPORT (2026-09-04)** — built
   to `Data Report.pdf` at the repo root, the way the Alarm Report was built to
   `Alarm Report.pdf`. Pure layout in `routes/instruments/data-report.ts`,

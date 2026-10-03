@@ -25,6 +25,7 @@
  *    stamp on telemetry rows.
  */
 import { Prisma } from '@prisma/client';
+import { MKT_DELTA_H_OVER_R_K, KELVIN_OFFSET } from '@digilog/shared';
 import { resolvePageSize } from '../../lib/page-size.js';
 import { prisma } from '../../lib/prisma.js';
 import type { Reading } from './payload-parser.js';
@@ -236,6 +237,16 @@ export interface RangeSummary {
   aboveCount: number | null;
   /** Sum of the bounds that WERE given; null only when neither was. */
   outOfSpecCount: number | null;
+  /**
+   * The MEAN of exp(-10000 / (reading + 273.15)) over every numeric reading in
+   * the range — the Mean Kinetic Temperature's inner sum (ICH Q1A / USP
+   * <1150>), computed here for the same reason `max` is: MKT over the printed
+   * interval rows would miss the hot readings between them. Turned into
+   * degrees by `mktFromExpMean` in @digilog/shared. Only meaningful for a
+   * temperature key in °C; the ROUTE decides whether to expose it. Null when
+   * no reading is above absolute zero.
+   */
+  mktExpMean: number | null;
 }
 
 /**
@@ -296,6 +307,7 @@ export async function getRangeSummary(opts: {
     count: bigint; numericCount: bigint; min: number | null; max: number | null; avg: number | null;
     first: Date | null; last: Date | null;
     belowCount: bigint | null; aboveCount: bigint | null;
+    mktExpMean: number | null;
   }[]>`
     SELECT count(*)::bigint AS count,
            count(${numeric})::bigint AS "numericCount",
@@ -305,7 +317,9 @@ export async function getRangeSummary(opts: {
            min(ts) AS first,
            max(ts) AS last,
            ${below} AS "belowCount",
-           ${above} AS "aboveCount"
+           ${above} AS "aboveCount",
+           avg(exp(-${MKT_DELTA_H_OVER_R_K}::float8 / (${numeric} + ${KELVIN_OFFSET}::float8)))
+             FILTER (WHERE ${numeric} > -${KELVIN_OFFSET}::float8) AS "mktExpMean"
     FROM instrument_telemetry_history
     WHERE instrument_id = ${opts.instrumentId}
       AND key = ${opts.key}
@@ -328,6 +342,7 @@ export async function getRangeSummary(opts: {
     // the breaches against THAT bound — a real, checked number — and the
     // report says which bound it was assessed against.
     outOfSpecCount: belowCount === null && aboveCount === null ? null : (belowCount ?? 0) + (aboveCount ?? 0),
+    mktExpMean: r.mktExpMean,
   };
 }
 

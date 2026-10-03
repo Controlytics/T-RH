@@ -33,6 +33,7 @@ import { loadAttributeAccess, refuseAttributeWrite, needsReauth } from './attrib
 import {
   ATTRIBUTE_REMARK_MAX, lttb, isInstrumentReporting,
   parseInstrumentAttributeKeys, coerceAttributeLabels, ATTRIBUTE_LABELS_CONFIG_KEY,
+  isMktEnabled, mktFromExpMean,
 } from '@digilog/shared';
 import { invalidateIngestAuthCache } from './ingest-auth.js';
 import { invalidateChildMapCache } from './gateway-children.js';
@@ -179,10 +180,17 @@ const CHART_HARD_CAP = 200_000;
  * that produced the count. `null` means no bound was resolved for this key,
  * which is the server's statement, not a client inference.
  */
-type SerialisedSummary = Omit<RangeSummary, 'first' | 'last'> & {
+type SerialisedSummary = Omit<RangeSummary, 'first' | 'last' | 'mktExpMean'> & {
   first: string; last: string; limitMin: number | null; limitMax: number | null;
   /** The text each bound prints in place of its number; null = the number. */
   limitMinText: string | null; limitMaxText: string | null;
+  /**
+   * Mean Kinetic Temperature over EVERY reading in the range, °C — ONLY on the
+   * temperature slot of an instrument whose `isMktCalculationEnabled`
+   * attribute is on (operator, 2026-10-03); null otherwise. The SERVER
+   * decides, so the Data Report prints the row iff this is a number.
+   */
+  mkt: number | null;
 };
 
 type CredentialRow = { tokenPrefix: string; tokenEncrypted?: string | null };
@@ -1060,6 +1068,9 @@ export default async function instrumentRoutes(app: FastifyInstance) {
                   // (2026-10-03). Declared or Fastify strips it silently.
                   limitMinText: { type: 'string', nullable: true },
                   limitMaxText: { type: 'string', nullable: true },
+                  // Mean Kinetic Temperature, °C, temperature slot only and
+                  // only when the instrument's `isMktCalculationEnabled` is on.
+                  mkt: { type: 'number', nullable: true },
                   min: { type: 'number' }, max: { type: 'number' }, avg: { type: 'number' },
                   first: { type: 'string' }, last: { type: 'string' },
                 },
@@ -1275,18 +1286,26 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       historyTotal = perKey.reduce((n, k) => n + k.total, 0);
       historySampled = perKey.some((k) => k.truncated || k.dropped);
       summaries = {};
+      // MKT is the INSTRUMENT's choice (`isMktCalculationEnabled`), decided
+      // here from the attributes already loaded, so the Data Report prints the
+      // row iff the server sent a number — nothing in the browser re-reads the
+      // flag. Temperature slot only: the formula is in kelvin from °C, and a
+      // "mean kinetic humidity" is not a thing.
+      const mktOn = isMktEnabled(attributes);
       for (const k of perKey) {
         if (!k.summary) continue;
+        const { mktExpMean, ...rest } = k.summary;
         // ISO explicitly rather than trusting Date→string coercion in the
         // serialiser: the wire contract for these two is a timestamp string.
         summaries[k.key] = {
-          ...k.summary,
+          ...rest,
           first: k.summary.first.toISOString(),
           last: k.summary.last.toISOString(),
           limitMin: k.bounds.low,
           limitMax: k.bounds.high,
           limitMinText: k.bounds.lowText,
           limitMaxText: k.bounds.highText,
+          mkt: mktOn && slotFor(k.key) === 'temperature' ? mktFromExpMean(mktExpMean) : null,
         };
       }
     }

@@ -121,6 +121,11 @@ export {
   limitDisplayText,
   resolveLimit,
 } from './types/alarm-limits.js';
+
+export {
+  MKT_ATTRIBUTE_KEY, MKT_DELTA_H_OVER_R_K, KELVIN_OFFSET,
+  isMktEnabled, mktFromExpMean, mktCelsius,
+} from './types/mkt.js';
 export type { LimitBound } from './types/alarm-limits.js';
 
 export {

@@ -1,5 +1,37 @@
 # Changelog
 
+## [Unreleased] - Mean Kinetic Temperature on the Data Report, per instrument (2026-10-03)
+
+Operator: *"in attributes isMktcalculationenabled attributes is true then in
+data report mkt value should come, if false then mkt value should not come in
+data report"*.
+
+- **What prints**: on the Data Report's `Interval :` row, a right-hand
+  `MKT : 23.5` cell at the instrument's temperature precision, and `MKT -
+  Mean Kinetic Temperature` in the legend — only when the instrument's
+  `isMktCalculationEnabled` attribute is on (`1` / `True` / `yes` / `on`,
+  case-folded). Off, absent or unreadable = no cell, no legend entry; the
+  interval takes the row as before. The block never grows taller and no cell
+  is ever empty.
+- **How it is computed**: ICH Q1A(R2) / USP <1150>, ΔH/R = 10,000 K, in SQL
+  over EVERY reading in the period (`getRangeSummary` → `mktExpMean`), the
+  same population as the report's Max / Min — never over the printed
+  interval rows, which would miss the hot readings between them. Temperature
+  slot only. `packages/shared/src/types/mkt.ts` holds the constant, the
+  degrees conversion and the pure reference `mktCelsius` the SQL is tested
+  against; `isMktEnabled` is the ONE reader of the flag, OFF by default — the
+  opposite of the limit enable flags, because a derived figure on a §11
+  report must fail toward absence.
+- **The SERVER decides**: `summaries[key].mkt` on `GET /:id/telemetry?points=`
+  is a number iff the flag is on and the key is the temperature slot; the
+  browser prints the row iff it received a number and never re-reads the
+  attribute. Declared in the response schema (mutation-checked).
+- **On this installation every instrument carries
+  `isMktCalculationEnabled = 0`**, so no report shows MKT until it is set
+  to `1` on an instrument (Settings page or Attributes panel, audited).
+- Pinned by 6 shared unit cases, 2 API e2e, 2 Data Report cases. Shared
+  type files 32 → 33 (`mkt.ts`); no other count moved.
+
 ## [Unreleased] - A limit or range attribute may carry text beside its number (2026-10-03)
 
 Operator, on being shown why CWH/RDU/101-00's humidity limit had vanished
