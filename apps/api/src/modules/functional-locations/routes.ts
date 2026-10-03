@@ -46,6 +46,25 @@ const flTreeProps = {
   children: { type: 'array', items: { type: 'object', properties: flProps } },
 } as const;
 
+/**
+ * A signature meaning that lists `names` as far as the audit column allows
+ * (`signature_meaning VARCHAR(255)`), then counts the rest — the row's
+ * `afterValue` carries them all.
+ */
+export function boundedMeaning(prefix: string, names: string[], max = 255): string {
+  const listed: string[] = [];
+  for (const [i, name] of names.entries()) {
+    const rest = names.length - i - 1;
+    const tail = rest > 0 ? ` … and ${rest} more` : '';
+    const candidate = prefix + [...listed, name].join(', ') + tail;
+    if (candidate.length > max) break;
+    listed.push(name);
+  }
+  const rest = names.length - listed.length;
+  const out = prefix + listed.join(', ') + (rest > 0 ? (listed.length ? ` … and ${rest} more` : `${rest} location(s)`) : '');
+  return out.length <= max ? out : out.slice(0, max - 1) + '…';
+}
+
 async function loadNodes(): Promise<FlNode[]> {
   const rows = await prisma.functionalLocation.findMany({
     select: { id: true, name: true, type: true, parentId: true, sortOrder: true },
@@ -435,9 +454,14 @@ export default async function functionalLocationRoutes(app: FastifyInstance) {
       // "what order did they choose?", and a list of uuids cannot answer it.
       beforeValue: { scope: path ?? 'Blocks', order: before },
       afterValue: { scope: path ?? 'Blocks', order: after },
-      signatureMeaning:
-        `Display order of ${ids.length} functional location(s) under `
-        + `"${path ?? 'Blocks'}" changed to: ${after.join(', ')}`,
+      // `signature_meaning` is VARCHAR(255) and the insert is raw, so a
+      // meaning longer than that is a 500, not a truncation — found 2026-10-03
+      // when the test database's leftover blocks pushed this one past it. The
+      // full order is in `afterValue`; the meaning names what fits and counts
+      // the rest.
+      signatureMeaning: boundedMeaning(
+        `Display order of ${ids.length} functional location(s) under "${path ?? 'Blocks'}" changed to: `, after,
+      ),
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
 
@@ -509,13 +533,28 @@ export default async function functionalLocationRoutes(app: FastifyInstance) {
     return { ...updated, ownCount: counts.get(id) ?? 0, totalCount: counts.get(id) ?? 0 };
   });
 
-  // DELETE /:id — refused while it holds anything.
+  // DELETE /:id — refused while it holds anything, UNLESS a SUPER_ADMIN asks
+  // for `?cascade=true` (2026-10-03, operator: "add delete option for
+  // functional locations for super admin"). Then the Block's Areas go with it
+  // and every instrument in any of them is UNLINKED — set to no location, never
+  // deleted: an instrument is a registered device with its readings and alarms,
+  // and a grouping being removed is no reason to lose any of that. Each
+  // location deleted gets its own audit row naming the instruments it released.
+  //
+  // Only a super admin, and only when asked explicitly: a role holding
+  // FUNCTIONAL_LOCATION_DELETE still gets the 409 for a non-empty location, so
+  // nobody deletes a hundred instruments' grouping by mistaking the button.
+  // What a cascade does NOT touch, stated once: a role or user whose instrument
+  // scope named the location keeps the stale id (the location branch then
+  // grants nothing; the instruments are reachable again when re-linked or named
+  // outright), and an alarm webhook target scoped to it likewise.
   app.delete('/:id', {
     preHandler: [app.requirePermission('FUNCTIONAL_LOCATION_DELETE')],
     schema: {
       tags: ['Functional Locations'],
-      summary: 'Delete a functional location',
+      summary: 'Delete a functional location (a SUPER_ADMIN may delete one that holds areas and instruments with ?cascade=true)',
       params: { type: 'object', properties: { id: { type: 'string' } } },
+      querystring: { type: 'object', properties: { cascade: { type: 'boolean' } } },
       response: { 204: { type: 'null' }, ...errorResponses },
     },
   }, async (req, reply) => {
@@ -523,38 +562,83 @@ export default async function functionalLocationRoutes(app: FastifyInstance) {
     if (!ok) return;
 
     const { id } = req.params as { id: string };
+    const cascade = (req.query as { cascade?: boolean }).cascade === true;
     const ctx = buildContext(req);
     const nodes = await loadNodes();
     const current = nodes.find((n) => n.id === id);
     if (!current) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Functional location not found.' });
 
+    // Everything under it: its Areas (the tree is BLOCK > AREA, so these are
+    // all the descendants) and the instruments linked to it or to them.
+    const ids = resolveLocationIds(id, nodes);
+    const areas = nodes.filter((n) => n.parentId === id);
+    const linked = await prisma.instrument.findMany({
+      where: { functionalLocationId: { in: ids } },
+      select: { id: true, code: true, functionalLocationId: true },
+      orderBy: { code: 'asc' },
+    });
+
     // The FK is RESTRICT, so the database would refuse this anyway — but a
     // constraint error is not something an operator can act on. These 409s name
     // the counts so they know what to move.
-    const [children, linked] = await Promise.all([
-      prisma.functionalLocation.count({ where: { parentId: id } }),
-      prisma.instrument.count({ where: { functionalLocationId: id } }),
-    ]);
-    if (children > 0 || linked > 0) {
+    if (areas.length > 0 || linked.length > 0) {
       const parts = [
-        linked > 0 ? `${linked} instrument(s)` : null,
-        children > 0 ? `${children} area(s)` : null,
+        linked.length > 0 ? `${linked.length} instrument(s)` : null,
+        areas.length > 0 ? `${areas.length} area(s)` : null,
       ].filter(Boolean).join(' and ');
-      return reply.code(409).send({
-        error: 'NOT_EMPTY',
-        message: `"${current.name}" still holds ${parts}. Move or unlink them before deleting it.`,
-      });
+      if (!cascade) {
+        return reply.code(409).send({
+          error: 'NOT_EMPTY',
+          message: `"${current.name}" still holds ${parts}. Move or unlink them before deleting it${ctx.userRole === 'SUPER_ADMIN' ? ', or delete it with everything in it' : ''}.`,
+        });
+      }
+      if (ctx.userRole !== 'SUPER_ADMIN') {
+        return reply.code(403).send({
+          error: 'SUPER_ADMIN_ONLY',
+          message: `Only a super admin can delete "${current.name}" while it holds ${parts}.`,
+        });
+      }
     }
 
     const path = locationPath(id, nodes);
-    await prisma.functionalLocation.delete({ where: { id } });
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole,
-      action: 'FUNCTIONAL_LOCATION_DELETED',
-      targetType: 'functional_location', targetId: id,
-      beforeValue: { location: path, name: current.name, type: current.type, parentId: current.parentId },
-      signatureMeaning: `Functional location "${path}" deleted`,
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    await prisma.$transaction(async (tx) => {
+      // Instruments first, released from every location about to go.
+      if (linked.length > 0) {
+        await tx.instrument.updateMany({ where: { id: { in: linked.map((i) => i.id) } }, data: { functionalLocationId: null } });
+      }
+      // Areas before their Block (the parent FK is RESTRICT), one audit row each.
+      for (const area of areas) {
+        await tx.functionalLocation.delete({ where: { id: area.id } });
+        await auditLog({
+          userId: ctx.userId, userRole: ctx.userRole,
+          action: 'FUNCTIONAL_LOCATION_DELETED',
+          targetType: 'functional_location', targetId: area.id,
+          beforeValue: {
+            location: locationPath(area.id, nodes), name: area.name, type: area.type, parentId: area.parentId,
+            instrumentsUnlinked: linked.filter((i) => i.functionalLocationId === area.id).map((i) => i.code),
+          },
+          signatureMeaning: `Functional location "${locationPath(area.id, nodes)}" deleted with its block "${current.name}"`,
+          ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+        }, tx);
+      }
+      await tx.functionalLocation.delete({ where: { id } });
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole,
+        action: 'FUNCTIONAL_LOCATION_DELETED',
+        targetType: 'functional_location', targetId: id,
+        beforeValue: {
+          location: path, name: current.name, type: current.type, parentId: current.parentId,
+          ...(cascade ? {
+            areasDeleted: areas.map((a) => a.name),
+            instrumentsUnlinked: linked.filter((i) => i.functionalLocationId === id).map((i) => i.code),
+            instrumentsUnlinkedInAreas: linked.filter((i) => i.functionalLocationId !== id).map((i) => i.code),
+          } : {}),
+        },
+        signatureMeaning: cascade && (areas.length > 0 || linked.length > 0)
+          ? `Functional location "${path}" deleted with ${areas.length} area(s); ${linked.length} instrument(s) unlinked`
+          : `Functional location "${path}" deleted`,
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      }, tx);
     });
     return reply.code(204).send();
   });

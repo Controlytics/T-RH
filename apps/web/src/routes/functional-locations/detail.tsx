@@ -6,8 +6,10 @@ import { useCan } from '@/hooks/use-can';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { PageHero } from '@/components/ui/page-hero';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
+import { useDeleteLocation } from './delete-location';
 import { Breadcrumbs } from '@/components/ui/page-header';
 import { LocationDialog, type LocationDraft } from './location-dialog';
 import { InstrumentPanel } from './instrument-panel';
@@ -58,7 +60,15 @@ export function FunctionalLocationDetailPage() {
 
   const [renameOpen, setRenameOpen] = useState(false);
   const [areaOpen, setAreaOpen] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  // Every write here is re-authenticated when the role requires it (the API
+  // gates all three on their reauth actions); until 2026-10-03 the page sent
+  // them bare and a role that required re-auth got a 401 with no way forward.
+  const reauth = useReauth();
+  const remove = useDeleteLocation(reauth, async (loc) => {
+    await mutateTree();
+    // The page under a deleted location is gone: back to its Block, else the list.
+    navigate(loc.type === 'AREA' && data?.parentId ? `/functional-locations/${data.parentId}` : '/functional-locations');
+  });
 
   const tree = treeData?.data ?? [];
   const blocks = useMemo(() => tree.map((b) => ({ id: b.id, name: b.name })), [tree]);
@@ -97,10 +107,10 @@ export function FunctionalLocationDetailPage() {
    */
   const edit = async (draft: LocationDraft) => {
     const moved = draft.parentId !== (data?.parentId ?? null);
-    await apiClient.put(`/api/functional-locations/${id}`, {
-      name: draft.name,
-      parentId: draft.parentId,
-    });
+    const body = { name: draft.name, parentId: draft.parentId };
+    await reauth.executeWithResult('UPDATE_FUNCTIONAL_LOCATION', async (pw?: string) => (
+      pw ? apiClient.putWithReauth(`/api/functional-locations/${id}`, body, pw) : apiClient.put(`/api/functional-locations/${id}`, body)
+    ));
     toast.success(
       'Location updated',
       moved ? `"${draft.name}" moved to another block.` : `Now "${draft.name}".`,
@@ -109,30 +119,14 @@ export function FunctionalLocationDetailPage() {
   };
 
   const createArea = async (draft: LocationDraft) => {
-    await apiClient.post('/api/functional-locations', {
-      name: draft.name,
-      type: draft.type,
-      parentId: draft.parentId,
-    });
+    const body = { name: draft.name, type: draft.type, parentId: draft.parentId };
+    await reauth.executeWithResult('CREATE_FUNCTIONAL_LOCATION', async (pw?: string) => (
+      pw ? apiClient.postWithReauth('/api/functional-locations', body, pw) : apiClient.post('/api/functional-locations', body)
+    ));
     toast.success('Area created', `"${draft.name}" added.`);
     await refresh();
   };
 
-  const doDelete = async () => {
-    try {
-      await apiClient.delete(`/api/functional-locations/${id}`);
-      toast.success('Location deleted', `"${data?.name ?? ''}" removed.`);
-      await mutateTree();
-      navigate('/functional-locations');
-    } catch (e) {
-      // The API refuses a non-empty location with a 409 naming the counts.
-      // "still holds 3 instrument(s)" tells them what to do next; "delete
-      // failed" does not.
-      toast.error('Could not delete', (e as Error).message);
-    } finally {
-      setConfirmDelete(false);
-    }
-  };
 
   /** Before the record loads there is nothing to name it with. */
   const baseCrumbs = [
@@ -201,7 +195,7 @@ export function FunctionalLocationDetailPage() {
               <Button variant="secondary" size="sm" className={white} onClick={() => setRenameOpen(true)}>Edit</Button>
             )}
             {can('functional_locations.delete') && (
-              <Button variant="secondary" size="sm" className="border-rose-200/60 bg-rose-500/30 text-white hover:bg-rose-500/45" onClick={() => setConfirmDelete(true)}>Delete</Button>
+              <Button variant="secondary" size="sm" className="border-rose-200/60 bg-rose-500/30 text-white hover:bg-rose-500/45" onClick={() => remove.request(data)}>Delete</Button>
             )}
           </>
         }
@@ -308,13 +302,17 @@ export function FunctionalLocationDetailPage() {
         onSubmit={createArea}
       />
 
-      <ConfirmDialog
-        open={confirmDelete}
-        title="Delete functional location"
-        message={`Delete "${data.name}"? This is refused if it still holds instruments or areas.`}
-        confirmLabel="Delete"
-        onConfirm={doDelete}
-        onClose={() => setConfirmDelete(false)}
+      {remove.dialog}
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+        actionLabel="Functional Locations"
       />
     </div>
   );

@@ -371,6 +371,26 @@ history; `docs/recreation/` holds the inventory.
     MQTT) must be reconfigured to its code.** Proven live 2026-09-04: connect as
     code accepted, reading lands, UUID refused, foreign token/code refused,
     foreign topic publish and subscribe refused.
+- **A SUPER_ADMIN can DELETE a functional location WITH everything in it
+  (2026-10-03, operator: "add delete option for functional locations for
+  super admin").** `DELETE /api/functional-locations/:id?cascade=true`:
+  the Block's Areas go, every instrument in any of them is UNLINKED (never
+  deleted), one `FUNCTIONAL_LOCATION_DELETED` audit row per location naming
+  the instruments released, one transaction. Any other role holding
+  `FUNCTIONAL_LOCATION_DELETE` keeps the 409 for a non-empty location and
+  gets 403 `SUPER_ADMIN_ONLY` for the cascade; an empty location deletes for
+  either. **A cascade does NOT rewrite** a role / user `instrument_scope` or
+  an alarm-webhook scope that named the location — the stale id grants
+  nothing until re-scoped. Web: `routes/functional-locations/
+  delete-location.tsx` is the ONE flow (`deletePlan` pure; confirm → re-auth
+  → DELETE) behind the trash buttons on the list page's Block cards and Area
+  rows and the detail page's Delete. Also fixed: the list page's Arrange
+  buttons gated on a nonexistent `functional_locations.update` node (it is
+  `.edit`); and `audit_trail.signature_meaning` is `VARCHAR(255)` behind a
+  RAW insert, so a meaning over that is a 500 — the order route's listed
+  every block name; `boundedMeaning()` in `functional-locations/routes.ts`
+  bounds it. **Keep every `signatureMeaning` under 255 characters.** No
+  count moved.
 - **Instrument grouping — THREE concepts, one job each (2026-08-13).** Do not confuse them: **`FunctionalLocation`** (Block > Area tree, `Instrument.functionalLocationId`) is the AUTHORITATIVE logical grouping; **`roomId`** → `FloorplanRoom` is geometry on a drawn plan and drives the graphical view; **`profileId`** is device type. The free-text `Instrument.block` / `.area` columns are SUPERSEDED — no longer read for grouping, kept only so the migration stays comparable. A Block's instruments are its own PLUS its Areas', resolved by `functional-locations/tree.ts:resolveLocationIds()`; querying `functionalLocationId = :id` directly silently omits the Areas.
 - **Config:** **34 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery (33 → 34 on 2026-10-01: `sensor-offsets.def.ts`, no page), **23** corresponding pages (pages 22 → 23 on 2026-10-01: `report-settings.tsx`; defs 32 → 33 on 2026-10-01: `report-downloads.def.ts`, no page; pages 23 → 22 on 2026-09-22: `floorplans.tsx` → the `layout-designer/` folder; both re-derived `ls | wc -l` 2026-09-16: defs 31 → 32 with `attribute-labels.def.ts`, which adds NO page — its Display name column lives on `instrument-attributes.tsx`; earlier defs re-derived 2026-09-07, 30 → 31 with `report-approvers.def.ts`; both re-derived 2026-09-01; defs 29 → 30 that day with `trend-widgets.def.ts`, which adds no page — it renders through the dynamic config page; the page count read 24 here and in System Stats above until then and was **stale, not moved** — `alarm-rules.tsx` went with the 2026-08-31 rule removal and neither line was re-synced. This is the THIRD time this bullet has drifted from the one above it; the duplication itself is the defect it keeps warning about). **This bullet's def count went stale TWICE while the System Stats section above was current — 25 here against 26 then 27 there.** It is the same self-contradiction the 2026-08-29 audit raised as finding M8 for the page count, in the same bullet, and re-syncing only the half that was wrong that day is why it came back. Two live inventory lines for one number is the actual defect; re-derive both from `ls` whenever either moves. Defs 25 → 26 → 27 on 2026-08-31 (`inactivity-alarms.def.ts`, then `rs485-alarms.def.ts` — both render through the dynamic config page, so the page count did not move). Earlier note, still true: the 25 predated `dashboard-cards.tsx` being deleted on 2026-08-28. Defs verified `ls` 2026-08-27, unchanged at 25 — the def and page counts are NOT equal and should not be expected to be: `alarm-webhooks.tsx` is a page with no def (a CRUD module, not a `system_config` row), and several defs render through the dynamic config page with no file of their own. Earlier: pages 25 → 24 the same day — `routes/config/role-assignments.tsx` deleted as dead code: its 7 config defs went in the Phase 0 strip and `system_config` held 0 rows for them, so every section read an unregistered `/api/config/dynamic/<key>` route. Earlier counts VERIFIED by `ls` 2026-08-17 — `alarm-limits.def.ts` added 2026-08-17: super-admin config for the instrument-limit alarm work — an ordered alias list of attribute keys per bound (High/Low Temperature/Humidity Limit), since this install's keys have already drifted; plus a master switch and four status wordings. (It also carried a `severity`
   select until 2026-09-01, when severity stopped being administered anywhere; the

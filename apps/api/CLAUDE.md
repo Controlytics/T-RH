@@ -453,6 +453,23 @@ node apps/api/dist/app.js
     Pinned by `__tests__/module-f-layout.test.ts` (61; mutation-checked:
     the door anchoring). Applied to `compliance_core_db` only; AWS needs
     `--area "Module-F" --apply`.
+- **2026-10-03 — a SUPER_ADMIN deletes a functional location with everything
+  in it.** `DELETE /api/functional-locations/:id` takes `?cascade=true`:
+  refused 409 `NOT_EMPTY` without it (as before), 403 `SUPER_ADMIN_ONLY` with
+  it for any other role; for a super admin the Areas are deleted (before the
+  Block — the parent FK is RESTRICT), the instruments in any of them set to
+  `functionalLocationId: null`, and one `FUNCTIONAL_LOCATION_DELETED` row per
+  location written inside the transaction (`auditLog(entry, tx)`), the Block's
+  carrying `areasDeleted`, `instrumentsUnlinked` and
+  `instrumentsUnlinkedInAreas`. Pinned by `e2e/functional-location-delete
+  .e2e.test.ts` (4; the role gate mutation-checked). **`audit_trail
+  .signature_meaning` is `VARCHAR(255)` and the audit insert is RAW SQL, so a
+  longer meaning is a 500, not a truncation** — the order route's listed every
+  block name and `functional-location-order.e2e.test.ts` had been failing 2 of
+  14 on the test database's leftover blocks; `boundedMeaning()` (exported from
+  `functional-locations/routes.ts`, 3 unit tests) lists what fits and counts
+  the rest. Keep every `signatureMeaning` short; the detail belongs in
+  `beforeValue` / `afterValue` (JSONB, unbounded). No count moved.
 - **2026-09-16 — the instrument CODE is changeable.** `PUT /api/instruments/:id`
   accepts `code` (shared `updateInstrumentSchema`, same `codeSchema` as create).
   **No count moved, no migration.** The code is the MQTT client id and every

@@ -1,5 +1,57 @@
 # Changelog
 
+## [Unreleased] - Delete a functional location, with everything in it for a super admin (2026-10-03)
+
+Operator: *"add delete option for functional locations for super admin"*.
+
+- **What existed**: `DELETE /api/functional-locations/:id` (permission
+  `FUNCTIONAL_LOCATION_DELETE`, re-auth `DELETE_FUNCTIONAL_LOCATION`), refusing
+  any location that held an area or an instrument (409), and ONE Delete button
+  on the detail page that sent the request without the re-auth flow — a role
+  that required re-auth got a 401 with no way forward. On this installation
+  every location holds instruments, so nothing could be deleted.
+- **A SUPER_ADMIN may now delete a location WITH everything in it**
+  (`?cascade=true`): a Block's Areas go with it and every instrument in any
+  of them is UNLINKED — set to no location, never deleted; its readings and
+  alarms stay. One `FUNCTIONAL_LOCATION_DELETED` audit row per location
+  deleted, each naming the instruments it released (`instrumentsUnlinked`;
+  the Block's row also `areasDeleted` and `instrumentsUnlinkedInAreas`), in
+  one transaction. Any other role holding the delete permission still gets
+  the 409 for a non-empty location (its message now tells a super admin the
+  way through) and a 403 `SUPER_ADMIN_ONLY` if it asks for the cascade. An
+  empty location deletes as before, for any role with the permission.
+  **What a cascade does not touch, stated once**: a role or user whose
+  instrument scope named the location keeps the stale id (its location
+  branch then grants nothing; the instruments are reachable again when
+  re-linked or named outright), and an alarm webhook target scoped to it
+  likewise.
+- **Where**: a trash button on every Block card (*Delete block*) and beside
+  every Area row (*Delete area …*) on the Functional Locations page, and the
+  detail page's Delete — all through ONE flow (`delete-location.tsx`):
+  `deletePlan()` (pure) decides from the tree's own counts whether the role
+  may delete it as it stands; the confirm names the areas and the
+  instruments that become unassigned ("Delete with everything in it") or,
+  for an empty one, says it holds nothing; then the audited, re-authenticated
+  DELETE; the tree is re-read, the detail page returns to the Area's Block or
+  the list.
+- **Two bugs fixed on the way**: the list page gated *Arrange order* /
+  *Arrange areas* on a `functional_locations.update` node that does not exist
+  (the tree's is `.edit`), so every non-super-admin lost them; and the detail
+  page's create / edit writes and the list page's create now go through the
+  re-auth flow like the order save already did. And a third, pre-existing
+  and unrelated: the order route's audit `signatureMeaning` listed every
+  block name, and `audit_trail.signature_meaning` is `VARCHAR(255)` behind a
+  raw insert — a long list was a 500, which is what the order e2e had been
+  failing with on the test database. `boundedMeaning()` lists what fits and
+  counts the rest (the full order is in `afterValue`).
+- Tests: `functional-location-delete.e2e.test.ts` (4, over the real route and
+  database; the super-admin gate mutation-checked), `bounded-meaning.test.ts`
+  (3), `functional-location-order.e2e.test.ts` green again (14),
+  `index-page.test.tsx` 6 → 11, `detail-page.test.tsx` 5 → 7 (the cascade flag
+  and the non-super-admin refusal mutation-checked). `tsc` clean on both
+  apps, `vite build` OK. No count moved: no permission, reauth action, audit
+  action, model, migration, route or page. Not seen in the running app.
+
 ## [Unreleased] - Module-F as two floors, only the selected area's layouts, delete a plan (2026-10-01)
 
 Operator, three asks in one message: *"for module F there are 2 layouts ground

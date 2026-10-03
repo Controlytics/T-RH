@@ -14,6 +14,7 @@ import { ArrangeDialog } from './arrange-dialog';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { LocationGlyph } from './dialog-banner';
+import { useDeleteLocation } from './delete-location';
 import type { FlNode } from './types';
 
 /**
@@ -34,8 +35,37 @@ import type { FlNode } from './types';
  * the same day (operator: "remove live status") — this page shows the
  * GROUPING and its counts, nothing about whether a device is talking.
  *
- * Everything that CHANGES a location lives on the detail page. This page reads.
+ * Everything that CHANGES a location lives on the detail page. This page reads
+ * — except DELETE (2026-10-03, operator: "add delete option for functional
+ * locations for super admin"): a trash button on each Block card and each Area
+ * row, for a role holding the delete node; a super admin may delete a location
+ * with everything in it (see `delete-location.tsx`).
  */
+function TrashIcon() {
+  return (
+    <svg aria-hidden className="mr-1 h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+    </svg>
+  );
+}
+
+/** The trash button beside an Area row. */
+function DeleteButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className="shrink-0 rounded-md p-1.5 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+    >
+      <svg aria-hidden className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+      </svg>
+    </button>
+  );
+}
+
 export default function FunctionalLocationsPage() {
   const can = useCan();
   const { toast } = useToast();
@@ -62,15 +92,21 @@ export default function FunctionalLocationsPage() {
     );
   }, [tree, query]);
 
+  // The backend gates every write on its reauth action (PUT /order on
+  // UPDATE_FUNCTIONAL_LOCATION, the create on CREATE_FUNCTIONAL_LOCATION), so
+  // the frontend has to be able to supply it or the save 401s with no way forward.
+  const reauth = useReauth();
+  const remove = useDeleteLocation(reauth, async () => { await mutate(); });
+
   const totalInstruments = useMemo(() => tree.reduce((sum, b) => sum + b.totalCount, 0), [tree]);
   const areaCount = useMemo(() => tree.reduce((sum, b) => sum + (b.children?.length ?? 0), 0), [tree]);
 
   const submit = async (draft: LocationDraft) => {
-    await apiClient.post('/api/functional-locations', {
-      name: draft.name,
-      type: draft.type,
-      parentId: draft.parentId,
-    });
+    const body = { name: draft.name, type: draft.type, parentId: draft.parentId };
+    // Re-authenticated when the role requires it, like every other write here.
+    await reauth.executeWithResult('CREATE_FUNCTIONAL_LOCATION', async (pw?: string) => (
+      pw ? apiClient.postWithReauth('/api/functional-locations', body, pw) : apiClient.post('/api/functional-locations', body)
+    ));
     toast.success('Location created', `"${draft.name}" added.`);
     await mutate();
   };
@@ -80,9 +116,6 @@ export default function FunctionalLocationsPage() {
   // Holding the block id rather than a boolean means one dialog serves every
   // card, and it always knows whose siblings it is reordering.
   const [arrangeAreasOf, setArrangeAreasOf] = useState<string | null>(null);
-  // The backend gates PUT /order on UPDATE_FUNCTIONAL_LOCATION reauth, so the
-  // frontend has to be able to supply it or the save 401s with no way forward.
-  const reauth = useReauth();
 
   /**
    * Saves a manual sibling order — Blocks, or one Block's Areas.
@@ -119,7 +152,7 @@ export default function FunctionalLocationsPage() {
       {/* Arranging is an EDIT to these rows, so it is gated on the same
           permission as renaming them — and hidden entirely below two
           blocks, where there is no order to choose. */}
-      {can('functional_locations.update') && tree.length > 1 && (
+      {can('functional_locations.edit') && tree.length > 1 && (
         <Button
           variant="secondary"
           className="border-white/40 bg-white/15 text-white hover:bg-white/25"
@@ -242,7 +275,7 @@ export default function FunctionalLocationsPage() {
                     {/* Arranging Areas is per BLOCK, because Areas are siblings only
                         within their own Block. Shown from two Areas up — with one
                         there is no order to choose. */}
-                    {can('functional_locations.update') && areas.length > 1 && (
+                    {can('functional_locations.edit') && areas.length > 1 && (
                       <Button
                         type="button"
                         variant="ghost"
@@ -257,22 +290,29 @@ export default function FunctionalLocationsPage() {
                   </div>
                   <div className="space-y-1">
                     {areas.map((a) => (
-                        <Link
-                          key={a.id}
-                          to={`/functional-locations/${a.id}`}
-                          className="group/area flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-teal-50/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
-                        >
-                          <span aria-hidden className="h-8 w-1 shrink-0 rounded-full bg-gradient-to-b from-teal-700 to-teal-500" />
-                          <span className="min-w-0 flex-1 truncate text-[0.875rem] font-medium text-slate-800 group-hover/area:text-teal-900">{a.name}</span>
-                          {/* ONE count per row (operator, 2026-09-17: "count is
-                              showing two times for areas") — the pill carries
-                              the word, so it is not a bare number. */}
-                          <span className="inline-flex shrink-0 items-center rounded-[var(--radius-pill)] bg-teal-50 px-2 py-0.5 text-[0.75rem] font-semibold text-teal-800 ring-1 ring-inset ring-teal-600/20">
-                            <span className="tabular-nums">{a.ownCount}</span>
-                            {' '}
-                            <span className="font-medium">instrument{a.ownCount === 1 ? '' : 's'}</span>
-                          </span>
-                        </Link>
+                        // The row is a Link; the delete button sits BESIDE it,
+                        // never inside it (a button inside an anchor is invalid
+                        // and the click would navigate).
+                        <div key={a.id} className="flex items-center gap-1">
+                          <Link
+                            to={`/functional-locations/${a.id}`}
+                            className="group/area flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-2 hover:bg-teal-50/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
+                          >
+                            <span aria-hidden className="h-8 w-1 shrink-0 rounded-full bg-gradient-to-b from-teal-700 to-teal-500" />
+                            <span className="min-w-0 flex-1 truncate text-[0.875rem] font-medium text-slate-800 group-hover/area:text-teal-900">{a.name}</span>
+                            {/* ONE count per row (operator, 2026-09-17: "count is
+                                showing two times for areas") — the pill carries
+                                the word, so it is not a bare number. */}
+                            <span className="inline-flex shrink-0 items-center rounded-[var(--radius-pill)] bg-teal-50 px-2 py-0.5 text-[0.75rem] font-semibold text-teal-800 ring-1 ring-inset ring-teal-600/20">
+                              <span className="tabular-nums">{a.ownCount}</span>
+                              {' '}
+                              <span className="font-medium">instrument{a.ownCount === 1 ? '' : 's'}</span>
+                            </span>
+                          </Link>
+                          {can('functional_locations.delete') && (
+                            <DeleteButton label={`Delete area ${a.name}`} onClick={() => remove.request(a)} />
+                          )}
+                        </div>
                     ))}
                   </div>
                 </div>
@@ -281,10 +321,29 @@ export default function FunctionalLocationsPage() {
                   No areas yet
                 </p>
               )}
+              {/* Delete the BLOCK: a quiet footer action, red only on hover —
+                  the card is a place to browse, and a red button on every card
+                  would shout over the counts. */}
+              {can('functional_locations.delete') && (
+                <div className="flex justify-end border-t border-slate-100 px-3 py-1.5">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-[0.75rem] text-slate-500 hover:bg-rose-50 hover:text-rose-700"
+                    aria-label={`Delete block ${b.name}`}
+                    onClick={() => remove.request(b)}
+                  >
+                    <TrashIcon /> Delete block
+                  </Button>
+                </div>
+              )}
             </Card>
           );
         })}
       </div>
+
+      {remove.dialog}
 
       <ReauthDialog
         open={reauth.isOpen}

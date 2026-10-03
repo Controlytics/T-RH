@@ -312,6 +312,25 @@ Block), `detail.tsx` (hero band + Areas tiles + two instrument lists),
 - Tests: `__tests__/index-page.test.tsx`, `__tests__/detail-page.test.tsx`
   (run individually, by exit code). Not seen on screen.
 
+### Deleting a location (2026-10-03, operator: "add delete option for functional locations for super admin")
+
+`delete-location.tsx` is the ONE flow: `deletePlan(loc, isSuperAdmin)` (pure)
+reads the tree's own counts — an empty location confirms plainly; one that
+holds areas or instruments is, for a SUPER_ADMIN, a confirm that names the
+areas and the instruments that become unassigned and sends `?cascade=true`;
+for any other role it is the refusal toast and no request. `useDeleteLocation(
+reauth, onDeleted)` takes the page's `useReauth()` so one `ReauthDialog` serves
+every write, and returns `request(loc)` + the `dialog` to mount. Used by the
+list page (a *Delete block* footer action on each card, a trash button BESIDE
+each Area row — never inside the row's `<Link>`) and the detail page's Delete
+(which then goes to the Area's Block, else the list). **Both pages' create /
+edit writes go through `reauth.executeWithResult` now**; they were bare, and a
+role that required re-auth got a 401. The list page's Arrange buttons are
+gated on `functional_locations.edit` — they named a `.update` node that does
+not exist in the tree, which `useCan` denies, so every non-super-admin had
+lost them. Tests: `index-page.test.tsx` (11), `detail-page.test.tsx` (7); the
+cascade flag and the non-super-admin refusal mutation-checked.
+
 ## The report review workflow (2026-09-07)
 
 Every PDF download is a REQUEST an approver signs. Spec:
