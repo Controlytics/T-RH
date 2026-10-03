@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased] - Audit fixes, batch 4: the seed never resets an existing role's permissions (2026-10-03)
+
+Closes DATA-4 of `docs/audit/2026-10-03-technical-audit.md`.
+
+- Every customer upgrade runs "migrate deploy + seed" (`scripts/upgrade.ps1`,
+  `scripts/linux/digilog-lib.sh`), and the seed's role upsert wrote the
+  SHIPPED `permissions` and `hierarchyLevel` over whatever Roles & Access had
+  granted since the install — no audit row, toggles still showing on,
+  approvers suddenly 403. `prisma/seed-roles.ts` (`roleUpsertArgs`, pure,
+  bundled into `seed.mjs` like `default-roles`) now refreshes only display
+  name, description, colour and the system flag on an existing role; a
+  missing role is still created whole.
+- Proven on the test database: VIEWER's permissions before and after a seed
+  run are byte-identical. Unit test `src/lib/__tests__/seed-roles.test.ts`
+  (3). No count moved.
+
 ## [Unreleased] - Audit fixes, batch 3: backup restore verifies the real chain, strips credentials, creates partitions (2026-10-03)
 
 Closes DATA-1, DATA-5 and DATA-12 of `docs/audit/2026-10-03-technical-audit.md`.

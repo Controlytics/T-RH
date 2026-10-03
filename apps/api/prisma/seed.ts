@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { defaultRoles } from './default-roles.js';
+import { roleUpsertArgs } from './seed-roles.js';
 
 const prisma = new PrismaClient();
 
@@ -43,28 +44,10 @@ async function main() {
 
   // 1. Create default roles (imported from ./default-roles.ts — pure data, no side effects)
 
+  // An EXISTING role keeps its permissions and hierarchy level — see
+  // ./seed-roles.ts (audit 2026-10-03, DATA-4): the upgrade path reseeds.
   for (const role of defaultRoles) {
-    await prisma.role.upsert({
-      where: { name: role.name },
-      update: {
-        displayName: role.displayName,
-        description: role.description,
-        hierarchyLevel: role.hierarchyLevel,
-        permissions: role.permissions,
-        color: role.color,
-        isSystem: role.isSystem,
-      },
-      create: {
-        name: role.name,
-        displayName: role.displayName,
-        description: role.description,
-        hierarchyLevel: role.hierarchyLevel,
-        permissions: role.permissions,
-        color: role.color,
-        isSystem: role.isSystem,
-        createdBy: 'system',
-      },
-    });
+    await prisma.role.upsert(roleUpsertArgs(role));
   }
   console.log('  Created default roles');
 
