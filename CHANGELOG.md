@@ -1,5 +1,37 @@
 # Changelog
 
+## [Unreleased] - Dashboard-Screens.pptx: every screen of the app, images only (2026-10-03)
+
+Operator: *"make a presentation with all dashboard screens proper good
+presentation ppt"*, then *"just with images"*.
+
+- **`Layouts/presentation/Dashboard-Screens.pptx`** — 25 slides, 16:9: a
+  cover, 23 full-bleed screenshots each with one small screen-name label and
+  nothing else, a closing slide. Built by
+  `Layouts/presentation/build_dashboard_deck.py` (python-pptx) from
+  `Layouts/presentation/dashboard-shots/*.png`; edit the `SLIDES` list to
+  reorder, drop or relabel and run it again.
+- **The screenshots are REAL screens of the local app**, captured at
+  1600×900 on 2026-10-03: sign-in; dashboard overview; CWH Block's areas;
+  All Instruments tabular; an Area's alarms panel; QC graphical; QC, QC
+  Microbiology, QC 3, Module-E, Module-F ground + first and Stability floors
+  in full screen; the trend page and its charts over the last 30 days;
+  Alarms; Data Report (QC, 30 days); Settings (scoped to QC); Reports;
+  Instruments; Functional Locations; Audit Trail; Configuration. Readings are
+  the stored last values (every device here has been silent ~9 days, so the
+  status chips read Offline).
+- **How they were captured, since the browser the operator holds cannot be
+  reused**: a throwaway `vite.capture.config.ts` (deleted) served the app over
+  plain HTTP on port 5179 with `/api` proxied to the HTTPS backend, and
+  Playwright logged in as superadmin — which, the server refusing a second
+  session, took the sign-in page's "Continue & Logout Old Session" at the
+  operator's instruction ("superadmin and Admin@123"). Selects were driven
+  through the native value setter; the floor's full screen through its
+  button. No LibreOffice or PowerPoint on this machine, so the deck was
+  checked structurally (`validate.py` PASS; every screen slide one picture at
+  0,0 full size) and the captures by eye, not a rendered slide.
+- App untouched; no count moved.
+
 ## [Unreleased] - The trend page's breadcrumb leads back to the dashboard selection the reader left (2026-10-03)
 
 Operator: *"in dashboard when i click on all instruments trends option,

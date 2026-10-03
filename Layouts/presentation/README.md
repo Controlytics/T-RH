@@ -54,3 +54,24 @@ Headless Chrome does not composite a WebGL canvas into `--screenshot`, so the
 `preserveDrawingBuffer` and shows it as an `<img>`. The deck's screenshots were
 taken at 1600 x 1000 with
 `chrome --headless=new --user-data-dir=<temp> --screenshot=… "model-<m>.html[?still]#floor=<id>"`.
+
+## Dashboard-Screens.pptx (2026-10-03)
+
+Operator: "make a presentation with all dashboard screens … just with images".
+A second deck, separate from the layout models: 25 slides, 16:9, a cover,
+23 full-bleed screenshots of the REAL app (each with one small screen-name
+label and nothing else) and a closing slide.
+
+| File | What it is |
+|---|---|
+| `Dashboard-Screens.pptx` | The deck |
+| `dashboard-shots/*.png` | The 23 captures, 1600×900, numbered in slide order |
+| `build_dashboard_deck.py` | Rebuilds the deck from the captures (`python Layouts/presentation/build_dashboard_deck.py`); edit its `SLIDES` list to reorder, drop or relabel |
+
+The captures were taken on 2026-10-03 against the local database, logged in
+as superadmin through a throwaway HTTP dev server on port 5179 (Playwright
+cannot reach the HTTPS API from a page; serving the SPA over HTTP and letting
+Vite proxy `/api` avoids that). Every local device had been silent ~9 days, so
+the status chips read Offline and the readings are the stored last values. To
+refresh a screen, recapture it at 1600×900 under the same file name and run
+the builder again.
