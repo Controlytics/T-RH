@@ -370,10 +370,18 @@ Every PDF download is a REQUEST an approver signs. Spec:
   an angle) and no signature line. Pinned by `lib/__tests__/pdf-report-snapshot.test.ts`;
   mutation-checked (no watermark → the draft case fails).
 - **`routes/settings/index.tsx`** (sidebar `settings`, route `/settings`, gate
-  `INSTRUMENT_READ`; 2026-09-08): a Common settings bar with ONE instrument
-  picker (`SearchableSelect` over `GET /api/instruments?<ALL_RECORDS_PARAM>` —
-  the server's scope IS the selection; last pick remembered in `localStorage`,
-  else the first) and ONE full-width widget (was square for an hour — operator: "remove the square shape, make widget full width")
+  `INSTRUMENT_READ`; 2026-09-08): a Common settings bar with a **Block →
+  Area → instrument cascade** (since 2026-10-03, operator: "in settings page
+  give block/area/instrument wise selection" — two native `Select`s over
+  `GET /api/functional-locations` using `history-selection.ts`'s `scopeIdFor`
+  / `areasOf`, the Area disabled until a Block is chosen, then the
+  `SearchableSelect` picker over `GET /api/instruments?limit=<ALL_RECORDS>
+  [&functionalLocationId=<scope>]` — the server's scope IS the selection and
+  the server expands a Block to its Areas; `instrumentListKey()` is the ONE
+  builder of that URL; Block, Area and the last pick remembered in
+  `localStorage` (`settings.scope`, `settings.instrumentId`), else the first
+  in scope; an empty scope reads "No instruments in this selection.") and
+  ONE full-width widget (was square for an hour — operator: "remove the square shape, make widget full width")
   of key / value rows: Instrument ID, then every attribute from
   `GET /api/instruments/:id/attributes` as TILES (accent + ink by the server's
   `slot`: temperature = `.tv-h-temp` orange, humidity = `.tv-h-rh` green, else
@@ -388,10 +396,16 @@ Every PDF download is a REQUEST an approver signs. Spec:
   (`RemarkDialog` `changes` prop), one `reauth.execute` whose callback is
   idempotent because the hook replays it after a 401, each changed KEY PUT with
   the reason, the code PUT last to `/api/instruments/:id`. Test:
-  `routes/settings/__tests__/settings-page.test.tsx` — 13 cases (picker, rows,
+  `routes/settings/__tests__/settings-page.test.tsx` — 23 cases: 13 (picker, rows,
   display names, inline edit: inputs in place, Cancel, batch remark + PUTs by
   key, no-op Save, code PUT + list refresh, wildcard refused, SELECTED and
-  ALL_VIEW rules); mutation-checked (no write and no wildcard guard each fail). The first cut was a table with
+  ALL_VIEW rules); mutation-checked (no write and no wildcard guard each fail);
+  + 3 hidden-field cases (below) + 7 cascade cases (2026-10-03: Block options,
+  Area waits for a Block, the scope id sent per level, the picker narrowing to
+  the server's answer, an empty scope, the fallback pick, the remembered and
+  the malformed scope; dropping the scope from the list request fails five).
+  The picker's entries are read from its LISTBOX, since the native selects'
+  `<option>`s share the role. The first cut was a table with
   expandable rows and an inline details form (`bee0363`) — replaced the same
   day on the operator's restatement. **Which tiles it draws is administered
   (2026-09-21)**: `useAttributeLabels()` also returns `settingsHidden` /

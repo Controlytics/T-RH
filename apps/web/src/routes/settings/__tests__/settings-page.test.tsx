@@ -56,10 +56,34 @@ const labels = { current: {} as Record<string, string> };
 /** Which fields the Settings page hides (2026-09-21), from the same route. */
 const hidden = { current: { instrumentId: false, keys: [] as string[] } };
 
+/**
+ * Block → Area → instrument (2026-10-03). The tree is what `GET
+ * /api/functional-locations` returns; the list mock plays the SERVER's part
+ * for `functionalLocationId=` — a Block expands to its Areas, an Area is
+ * itself — so the page is tested on what the server returned, never on a
+ * tree walk of its own.
+ */
+const tree = [
+  { id: 'b-1', name: 'CWH Block', type: 'BLOCK', parentId: null, children: [
+    { id: 'a-1', name: 'Stability', type: 'AREA', parentId: 'b-1', children: [] },
+    { id: 'a-2', name: 'QC', type: 'AREA', parentId: 'b-1', children: [] },
+  ] },
+  { id: 'b-2', name: 'Annex', type: 'BLOCK', parentId: null, children: [] },
+];
+const LOCATION_IDS: Record<string, string[]> = { 'b-1': ['a-1', 'a-2'], 'b-2': [], 'a-1': ['a-1'], 'a-2': ['a-2'] };
+/** Every list URL the page asked for, in order. */
+let listRequests: string[] = [];
+
 vi.mock('swr', () => ({
   default: (key: any) => {
     const k = typeof key === 'function' ? key() : key;
-    if (typeof k === 'string' && k.startsWith('/api/instruments?')) return { data: { data: rows, total: rows.length }, isLoading: false, mutate: mutateList };
+    if (k === '/api/functional-locations') return { data: { data: tree }, isLoading: false, mutate: vi.fn() };
+    if (typeof k === 'string' && k.startsWith('/api/instruments?')) {
+      listRequests.push(k);
+      const scope = new URLSearchParams(k.slice(k.indexOf('?'))).get('functionalLocationId');
+      const data = scope ? rows.filter((r) => LOCATION_IDS[scope]?.includes(r.functionalLocationId as string)) : rows;
+      return { data: { data, total: data.length }, isLoading: false, mutate: mutateList };
+    }
     if (typeof k === 'string' && /\/api\/instruments\/(i-\d)\/attributes$/.test(k)) {
       const id = k.match(/\/api\/instruments\/(i-\d)\/attributes$/)![1];
       return { data: { data: attributes[id] }, isLoading: false, mutate: mutateAttrs };
@@ -110,7 +134,8 @@ function mount() {
 }
 const widget = () => screen.getByTestId('settings-widget');
 const rowValue = (label: string) => within(widget()).getByText(label).closest('[data-row]')!.querySelector('dd')!.textContent;
-// The picker's trigger is the one button with a listbox popup.
+// The picker's trigger is the one button with a listbox popup. Its entries are read from the
+// LISTBOX, since the Block / Area selects' native <option>s share the role (2026-10-03).
 const openPicker = () => fireEvent.click(screen.getByRole('button', { expanded: false }));
 
 describe('SettingsPage', () => {
@@ -121,6 +146,7 @@ describe('SettingsPage', () => {
     put.mockReset().mockResolvedValue({});
     putWithReauth.mockReset().mockResolvedValue({});
     mutateList.mockReset(); mutateAttrs.mockReset();
+    listRequests = [];
     try { localStorage.clear(); } catch { /* jsdom */ }
   });
 
@@ -130,7 +156,7 @@ describe('SettingsPage', () => {
     // UI v3 (2026-09-21): the picker rides INSIDE the band, not in a bar under it.
     expect(screen.getByTestId('page-hero').contains(screen.getByRole('button', { expanded: false }))).toBe(true);
     openPicker();
-    const options = screen.getAllByRole('option').map((o) => o.textContent);
+    const options = within(screen.getByRole('listbox')).getAllByRole('option').map((o) => o.textContent);
     expect(options).toEqual(['CWH/RDU/001-00', 'CWH/RDU/002-00']);
     expect(rowValue('Instrument ID')).toBe('CWH/RDU/001-00');
   });
@@ -333,5 +359,96 @@ describe('SettingsPage — fields hidden by configuration', () => {
     ));
     expect(put.mock.calls.some(([url]) => String(url).endsWith('/attributes/Building'))).toBe(false);
     expect(put.mock.calls.some(([url]) => url === '/api/instruments/i-1')).toBe(false);
+  });
+});
+
+/**
+ * Block → Area → instrument (2026-10-03, operator: "in settings page give
+ * block/area/instrument wise selection"). The two selects are the Data Report
+ * page's cascade; the scope is the Area, else the Block, else everything, and
+ * it goes to the LIST route as `functionalLocationId` — the server expands a
+ * Block to its Areas and applies the caller's instrument scope. Every
+ * assertion here is on what was REQUESTED and what the server's answer made
+ * the picker offer; the page walks no tree of its own.
+ */
+describe('SettingsPage — Block / Area / instrument selection', () => {
+  beforeEach(() => {
+    grants = new Set(['settings.view']);
+    labels.current = {};
+    hidden.current = { instrumentId: false, keys: [] };
+    access.current = { mode: null, keys: [], requireReauth: false };
+    mutateList.mockReset(); mutateAttrs.mockReset();
+    listRequests = [];
+    try { localStorage.clear(); } catch { /* jsdom */ }
+  });
+  const block = () => screen.getByRole('combobox', { name: 'Block' }) as HTMLSelectElement;
+  const area = () => screen.getByRole('combobox', { name: 'Area' }) as HTMLSelectElement;
+  const optionsOf = (sel: HTMLSelectElement) => Array.from(sel.options).map((o) => o.textContent);
+  const lastScope = () => new URLSearchParams(listRequests.at(-1)!.split('?')[1]).get('functionalLocationId');
+
+  it('offers every Block from the tree with "All blocks" first; the Area select waits for a Block, and no scope is sent', () => {
+    mount();
+    expect(optionsOf(block())).toEqual(['All blocks', 'CWH Block', 'Annex']);
+    expect(area()).toBeDisabled();
+    expect(optionsOf(area())).toEqual(['Choose a block first']);
+    expect(lastScope()).toBeNull();
+    // The whole scoped list, so the unassigned instrument is reachable.
+    openPicker();
+    expect(within(screen.getByRole('listbox')).getAllByRole('option').map((o) => o.textContent)).toEqual(['CWH/RDU/001-00', 'CWH/RDU/002-00']);
+  });
+
+  it('choosing a Block sends ITS id as the scope, offers its Areas, and the picker narrows to what the server returned', () => {
+    mount();
+    fireEvent.change(block(), { target: { value: 'b-1' } });
+    expect(lastScope()).toBe('b-1');
+    expect(area()).toBeEnabled();
+    expect(optionsOf(area())).toEqual(['All areas', 'Stability', 'QC']);
+    openPicker();
+    expect(within(screen.getByRole('listbox')).getAllByRole('option').map((o) => o.textContent)).toEqual(['CWH/RDU/001-00']);
+    expect(rowValue('Instrument ID')).toBe('CWH/RDU/001-00');
+  });
+
+  it('choosing an Area sends the AREA id, not the Block\'s; choosing another Block clears the Area', () => {
+    mount();
+    fireEvent.change(block(), { target: { value: 'b-1' } });
+    fireEvent.change(area(), { target: { value: 'a-1' } });
+    expect(lastScope()).toBe('a-1');
+    expect(rowValue('Instrument ID')).toBe('CWH/RDU/001-00');
+    fireEvent.change(block(), { target: { value: 'b-2' } });
+    expect(area().value).toBe('');
+    expect(lastScope()).toBe('b-2');
+  });
+
+  it('a scope with nothing in it says so and draws no widget — not "assigned to you", which is a different fact', () => {
+    mount();
+    fireEvent.change(block(), { target: { value: 'b-1' } });
+    fireEvent.change(area(), { target: { value: 'a-2' } });
+    expect(screen.getByText('No instruments in this selection.')).toBeInTheDocument();
+    expect(screen.queryByText('No instruments are assigned to you.')).toBeNull();
+    expect(screen.queryByTestId('settings-widget')).toBeNull();
+  });
+
+  it('when the remembered instrument is not in the new scope, the first in scope is shown', () => {
+    mount();
+    openPicker();
+    fireEvent.click(screen.getByRole('option', { name: 'CWH/RDU/002-00' }));
+    expect(rowValue('Instrument ID')).toBe('CWH/RDU/002-00');
+    fireEvent.change(block(), { target: { value: 'b-1' } });
+    expect(rowValue('Instrument ID')).toBe('CWH/RDU/001-00');
+  });
+
+  it('the Block and Area are remembered per browser and the first request carries them', () => {
+    localStorage.setItem('settings.scope', JSON.stringify({ blockId: 'b-1', areaId: 'a-1' }));
+    mount();
+    expect(block().value).toBe('b-1');
+    expect(area().value).toBe('a-1');
+    expect(lastScope()).toBe('a-1');
+  });
+
+  it('a malformed remembered scope falls back to "All blocks" rather than breaking the page', () => {
+    localStorage.setItem('settings.scope', '{not json');
+    mount();
+    expect(block().value).toBe('');
+    expect(lastScope()).toBeNull();
   });
 });

@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { AttributeValueInput } from '@/components/attribute-value-input';
 import useSWR from 'swr';
 import {
-  ALL_RECORDS_PARAM, isInstrumentReporting, INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN,
+  ALL_RECORDS, isInstrumentReporting, INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN,
   canEditAttributeKey, type AttributeAccess,
 } from '@digilog/shared';
+import { scopeIdFor, areasOf, type LocationNode } from '@/routes/instruments/history-selection';
 import { useCan } from '@/hooks/use-can';
 import { useReauth } from '@/hooks/use-reauth';
 import { useToast } from '@/hooks/use-toast';
@@ -14,6 +15,7 @@ import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { PageHero } from '@/components/ui/page-hero';
 import { Button } from '@/components/ui/button';
 import { SearchableSelect } from '@/components/ui/searchable-select';
+import { Select } from '@/components/ui/select';
 import { type StatusTone } from '@/components/ui/status-badge';
 import { Input } from '@/components/ui/input';
 import { ReauthDialog } from '@/components/reauth-dialog';
@@ -36,6 +38,18 @@ import { RemarkDialog } from '@/routes/instruments/remark-dialog';
  * the instrument scope, which the SERVER applies to the list endpoint this
  * page reads; the picker offers exactly what came back and nothing is
  * re-derived here.
+ *
+ * THE PICKER IS A CASCADE SINCE 2026-10-03 (operator: "in settings page give
+ * block/area/instrument wise selection"): Block, then the Block's Areas, then
+ * the instruments in that scope — the Data Report page's selection, with the
+ * same rules (`history-selection.ts`). The scope is the Area, else the Block,
+ * else everything, sent as `functionalLocationId` to the list route, where
+ * the SERVER expands a Block to its Areas and applies the caller's instrument
+ * scope; the browser never walks the tree itself. "All blocks" is the whole
+ * scoped list and is the only way to reach an instrument with no functional
+ * location. Block, Area and the pick are remembered per browser; when the
+ * scope changes and the remembered instrument is not in it, the first in
+ * scope is shown.
  *
  * BUILDING AND AREA ARE ATTRIBUTES, NOT SYNTHESISED ROWS. Every instrument on
  * this installation carries `Building` and `Area` as attribute keys (100 of
@@ -90,6 +104,8 @@ const TILE: Record<'temperature' | 'humidity' | 'other', { bar: string; wash: st
 
 /** An attribute with nothing stored prints "(empty)", the panel's word. */
 const LAST_PICK_KEY = 'settings.instrumentId';
+/** The remembered Block / Area, `{blockId, areaId}` — a per-browser convenience like the pick. */
+const LAST_SCOPE_KEY = 'settings.scope';
 
 function statusOf(r: Row, activeWindow: number): { tone: StatusTone; label: string } {
   if (!r.isActive) return { tone: 'idle', label: 'Disabled' };
@@ -101,13 +117,50 @@ function statusOf(r: Row, activeWindow: number): { tone: StatusTone; label: stri
 function readLastPick(): string {
   try { return localStorage.getItem(LAST_PICK_KEY) ?? ''; } catch { return ''; }
 }
+function readLastScope(): { blockId: string; areaId: string } {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LAST_SCOPE_KEY) ?? 'null') as unknown;
+    if (raw && typeof raw === 'object') {
+      const o = raw as Record<string, unknown>;
+      return {
+        blockId: typeof o.blockId === 'string' ? o.blockId : '',
+        areaId: typeof o.areaId === 'string' ? o.areaId : '',
+      };
+    }
+  } catch { /* storage unavailable or malformed */ }
+  return { blockId: '', areaId: '' };
+}
+
+/** The list route's key for a scope — ONE builder, so the fetch and its revalidation cannot name two URLs. */
+export function instrumentListKey(scopeId: string | null): string {
+  const qs = new URLSearchParams({ limit: String(ALL_RECORDS) });
+  if (scopeId) qs.set('functionalLocationId', scopeId);
+  return `/api/instruments?${qs}`;
+}
 
 export function SettingsPage() {
   const can = useCan();
   const canEdit = can('settings.edit');
   const { formatDateTime } = useDatetimeFormat();
 
-  const { data, isLoading, error } = useSWR<{ data: Row[]; total: number }>(`/api/instruments?${ALL_RECORDS_PARAM}`);
+  // Block → Area → instrument. The tree is for the two selects only; the
+  // Block → Areas expansion for the LIST is the server's (`resolveLocationIds`).
+  const { data: treeData } = useSWR<{ data: LocationNode[] }>('/api/functional-locations');
+  const tree = useMemo(() => treeData?.data ?? [], [treeData]);
+  const [scope, setScope] = useState(readLastScope);
+  const { blockId, areaId } = scope;
+  const areas = areasOf(tree, blockId);
+  const scopeId = scopeIdFor(blockId, areaId);
+  const rememberScope = (next: { blockId: string; areaId: string }) => {
+    setScope(next);
+    try { localStorage.setItem(LAST_SCOPE_KEY, JSON.stringify(next)); } catch { /* storage unavailable */ }
+  };
+  // Choosing a Block clears the Area: an Area of the previous Block is not in the new one.
+  const setBlock = (id: string) => rememberScope({ blockId: id, areaId: '' });
+  const setArea = (id: string) => rememberScope({ blockId, areaId: id });
+
+  const listKey = instrumentListKey(scopeId);
+  const { data, isLoading, error } = useSWR<{ data: Row[]; total: number }>(listKey);
   const { data: activityConfig } = useSWR<{ activeWindowMinutes?: number }>('/api/config/instrument-activity/current');
   const activeWindow = activityConfig?.activeWindowMinutes ?? INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN;
 
@@ -127,7 +180,7 @@ export function SettingsPage() {
   };
 
   const { data: attrs, mutate: mutateAttrs } = useSWR<{ data: Attribute[] }>(selected ? `/api/instruments/${selected.id}/attributes` : null);
-  const { mutate: mutateList } = useSWR<{ data: Row[]; total: number }>(`/api/instruments?${ALL_RECORDS_PARAM}`);
+  const { mutate: mutateList } = useSWR<{ data: Row[]; total: number }>(listKey);
   const { labelFor, settingsHidden, isHiddenInSettings } = useAttributeLabels();
   const { toast } = useToast();
   const reauth = useReauth();
@@ -309,6 +362,31 @@ export function SettingsPage() {
         {/* Common settings: the one control every widget on this page reads.
             Inside the band (UI v3, 2026-09-21), not in a bar under it. */}
         <section aria-label="Common settings" className="flex flex-wrap items-center gap-4">
+          {/* Block → Area → Instrument, the Data Report page's cascade. The
+              Block select is first because it decides what the next two offer. */}
+          <span className="text-xs font-bold uppercase tracking-[0.08em] text-white/85">Block</span>
+          <Select
+            selectSize="md"
+            value={blockId}
+            aria-label="Block"
+            onChange={(e) => setBlock(e.target.value)}
+            className="w-52"
+          >
+            <option value="">All blocks</option>
+            {tree.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </Select>
+          <span className="text-xs font-bold uppercase tracking-[0.08em] text-white/85">Area</span>
+          <Select
+            selectSize="md"
+            value={areaId}
+            aria-label="Area"
+            disabled={!blockId}
+            onChange={(e) => setArea(e.target.value)}
+            className="w-52"
+          >
+            <option value="">{blockId ? 'All areas' : 'Choose a block first'}</option>
+            {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </Select>
           <span className="text-xs font-bold uppercase tracking-[0.08em] text-white/85">Instrument</span>
         <SearchableSelect
           value={selected?.id ?? ''}
@@ -320,7 +398,9 @@ export function SettingsPage() {
           className="w-72"
         />
         {!isLoading && !error && options.length === 0 && (
-          <span className="text-sm text-white/85">No instruments are assigned to you.</span>
+          <span className="text-sm text-white/85">
+            {scopeId ? 'No instruments in this selection.' : 'No instruments are assigned to you.'}
+          </span>
         )}
         {error && <span className="text-sm font-medium text-white">The instruments could not be loaded. Try again.</span>}
         </section>

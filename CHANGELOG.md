@@ -1,5 +1,35 @@
 # Changelog
 
+## [Unreleased] - Settings: Block / Area / instrument selection (2026-10-03)
+
+Operator: *"in settings page give block/area/instrument wise selection"*.
+
+- **The Common settings bar is a cascade now**: a **Block** select ("All
+  blocks" + every Block), an **Area** select (disabled until a Block is
+  chosen; "All areas" + that Block's Areas), then the existing Instrument
+  picker, which offers only the instruments in that scope. The Data Report
+  page's selection, with the same pure rules (`history-selection.ts`:
+  `scopeIdFor`, `areasOf`). The scope is the Area, else the Block, else
+  everything, sent as `functionalLocationId` to `GET /api/instruments`,
+  where the SERVER expands a Block to its Areas (`resolveLocationIds`) and
+  applies the caller's instrument scope — the page walks no tree of its
+  own. "All blocks" is the whole scoped list and the only way to reach an
+  instrument with no functional location. Block, Area and the pick are
+  remembered per browser (`settings.scope` beside `settings.instrumentId`);
+  when the remembered instrument is not in a new scope, the first in scope
+  is shown. An empty scope says "No instruments in this selection." —
+  distinct from "No instruments are assigned to you.", a different fact.
+- `instrumentListKey(scopeId)` is the ONE builder of the list URL, so the
+  fetch and the post-rename revalidation cannot name two keys.
+- Tests: `settings-page.test.tsx` 16 → **23** (the Block options, Area
+  waits for a Block, the scope id sent per level, the picker narrowing to
+  the server's answer, an empty scope, the fallback pick, the remembered and
+  the malformed scope). Mutation-checked: dropping the scope from the list
+  request fails five. The picker's entries are read from its LISTBOX in
+  every case, since the native selects' `<option>`s share the role.
+- No count moved: no model, enum, migration, route, permission, reauth
+  action, config def, page, hook or lib module. Not seen on screen.
+
 ## [Unreleased] - Floor layout models for the client to choose from (2026-10-03)
 
 Operator: *"now prepare layouts not 2d, and other like normal and 3d and other

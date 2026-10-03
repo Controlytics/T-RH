@@ -1244,7 +1244,15 @@ GET    /api/config/report-downloads/current     — (2026-10-01) per report KIND
     of key / value rows: Instrument ID, then every attribute (the server's
     `display` form where given). "Assigned to that user" is the instrument
     scope, applied by the SERVER on `GET /api/instruments`; the picker offers
-    exactly what came back. **Building and Area are ATTRIBUTES here (100 of
+    exactly what came back. **The picker is a Block → Area → instrument
+    CASCADE since 2026-10-03** (operator: "in settings page give
+    block/area/instrument wise selection"): the Data Report page's selection
+    with the same pure rules (`history-selection.ts`); the scope (Area, else
+    Block, else everything) goes to the list route as `functionalLocationId`,
+    where the server expands a Block to its Areas — the page walks no tree.
+    "All blocks" is the whole scoped list and the only way to reach an
+    unassigned instrument. Block, Area and pick are remembered per browser.
+    No count moved. **Building and Area are ATTRIBUTES here (100 of
     100 instruments carry both) and print once, as attributes.** A cut that
     also synthesised them from the functional location drew "why area and
     building coming 2 times"; do not add placement rows beside the attributes.
