@@ -48,7 +48,7 @@ import { statusClasses, readingAge } from '@/routes/dashboard/status';
 import { usePanels } from '@/hooks/use-panels';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { trendCrumbs, originFrom } from './trend-breadcrumbs';
+import { trendCrumbs, originFrom, trailFrom } from './trend-breadcrumbs';
 import { ALL_RECORDS_PARAM } from '@digilog/shared';
 
 /**
@@ -804,7 +804,7 @@ export function InstrumentTrend() {
           page never re-judges it. */}
       <PageHero
         title={inst?.code ?? '…'}
-        crumbs={trendCrumbs(originFrom(location.state), id ?? null, inst?.code ?? null)}
+        crumbs={trendCrumbs(originFrom(location.state), id ?? null, inst?.code ?? null, trailFrom(location.state))}
         // The page's download is the DATA REPORT — the same document, dialog
         // (period, interval, remarks) and audit type as the Time Series card
         // below. It was the combined-charts document until 2026-09-07

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveNav, ALL_INSTRUMENTS, type NavNode } from '../location-nav';
+import { resolveNav, trailFor, ALL_INSTRUMENTS, type NavNode } from '../location-nav';
 
 // activeCount is carried alongside totalCount everywhere; the fixtures give a
 // MIX of active and inactive so a card that silently reported "all active"
@@ -147,5 +147,28 @@ describe('resolveNav — bad input', () => {
   it('handles an empty tree without throwing', () => {
     const nav = resolveNav(null, []);
     expect(nav.cards.map((c) => c.id)).toEqual([ALL_INSTRUMENTS]);
+  });
+});
+
+/**
+ * 2026-10-03: the trail the dashboard hands the trend page (see
+ * trend-breadcrumbs.ts). Each crumb of `nav.breadcrumb` becomes a link back
+ * to THAT selection — `/?fl=<id>`, or `/` for the root — so the trend page
+ * can return the reader to All Instruments, or a Block's Area, not merely
+ * to the top of the dashboard.
+ */
+describe('trailFor', () => {
+  it('maps the breadcrumb to dashboard URLs, the root to /', () => {
+    expect(trailFor([{ label: 'Dashboard', id: null }, { label: 'All Instruments', id: '__all__' }]))
+      .toEqual([{ label: 'Dashboard', to: '/' }, { label: 'All Instruments', to: '/?fl=__all__' }]);
+  });
+
+  it('URL-encodes an id and carries a directly-linked suffix as it is', () => {
+    expect(trailFor([{ label: 'CWH', id: 'b 1' }, { label: 'Directly linked', id: 'b-1:direct' }]))
+      .toEqual([{ label: 'CWH', to: '/?fl=b+1' }, { label: 'Directly linked', to: '/?fl=b-1%3Adirect' }]);
+  });
+
+  it('is empty at the top level, where there is no selection to return to', () => {
+    expect(trailFor([])).toEqual([]);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { trendCrumbs, originFrom, FALLBACK_ORIGIN } from '../trend-breadcrumbs';
+import { trendCrumbs, originFrom, trailFrom, FALLBACK_ORIGIN } from '../trend-breadcrumbs';
 
 /**
  * A breadcrumb naming a path the reader did not take is worse than none: its
@@ -65,5 +65,47 @@ describe('trendCrumbs', () => {
       const last = trendCrumbs(origin, 'i-1', 'X').at(-1)!;
       expect(last).toEqual({ label: 'Trend' });
     }
+  });
+});
+
+/**
+ * 2026-10-03, operator: "in dashboard when i click on all instruments trends
+ * option, trends page is opened but when i click on its not going to all
+ * instruments page its going to instruments page". The dashboard's selection
+ * (All Instruments, or a Block and its Area) lives in its URL as `?fl=`, and
+ * the link into this page carried only `from: 'dashboard'` — so the trail
+ * here read Dashboard / <code> / Trend with no crumb for the view the reader
+ * left, and the code crumb went to the instrument's detail page. The link
+ * now carries the dashboard's own breadcrumb TRAIL, and it heads the crumbs.
+ */
+describe('the dashboard trail', () => {
+  const trail = [{ label: 'Dashboard', to: '/' }, { label: 'All Instruments', to: '/?fl=__all__' }];
+
+  it('trailFrom reads a well-formed trail out of router state, and nothing else', () => {
+    expect(trailFrom({ from: 'dashboard', trail })).toEqual(trail);
+    for (const bad of [null, undefined, {}, { trail: 'x' }, { trail: [{ label: 'A' }] }, { trail: [{ to: '/' }] }, { trail: [{ label: 1, to: '/' }] }]) {
+      expect(trailFrom(bad)).toBeNull();
+    }
+  });
+
+  it('heads the crumbs with the trail when the reader came from the dashboard — All Instruments is the hop back', () => {
+    const crumbs = trendCrumbs('dashboard', 'i-1', 'CWH/RDU/001-00', trail);
+    expect(crumbs).toEqual([
+      { label: 'Dashboard', to: '/' },
+      { label: 'All Instruments', to: '/?fl=__all__' },
+      { label: 'CWH/RDU/001-00', to: '/instruments/i-1' },
+      { label: 'Trend' },
+    ]);
+  });
+
+  it('a Block / Area selection comes through as two linked crumbs', () => {
+    const t = [{ label: 'Dashboard', to: '/' }, { label: 'CWH Block', to: '/?fl=b-1' }, { label: 'Stability', to: '/?fl=a-1' }];
+    expect(trendCrumbs('dashboard', 'i-1', 'X', t).map((c) => c.label)).toEqual(['Dashboard', 'CWH Block', 'Stability', 'X', 'Trend']);
+  });
+
+  it('ignores a trail when the reader came from Instruments, and falls back to the bare Dashboard crumb without one', () => {
+    expect(trendCrumbs('instruments', 'i-1', 'X', trail).map((c) => c.label)).toEqual(['Dashboard', 'Instruments', 'X', 'Trend']);
+    expect(trendCrumbs('dashboard', 'i-1', 'X', null).map((c) => c.label)).toEqual(['Dashboard', 'X', 'Trend']);
+    expect(trendCrumbs('dashboard', 'i-1', 'X', []).map((c) => c.label)).toEqual(['Dashboard', 'X', 'Trend']);
   });
 });

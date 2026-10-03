@@ -1,5 +1,39 @@
 # Changelog
 
+## [Unreleased] - The trend page's breadcrumb leads back to the dashboard selection the reader left (2026-10-03)
+
+Operator: *"in dashboard when i click on all instruments trends option,
+trends page is opened but when i click on its not going to all instruments
+page its going to instruments page"*, then *"and also same in area trends
+also"*.
+
+- **The defect.** The dashboard's selection — All Instruments, a Block, an
+  Area — lives in its URL as `?fl=`. The readings table's Trend arrow told
+  the trend page only `from: 'dashboard'`, so its crumbs read Dashboard /
+  <code> / Trend: the Dashboard crumb went to the dashboard's TOP level and
+  the code crumb to the instrument's detail page. Nothing led back to the
+  view the reader had been looking at. The GRAPHICAL view was worse: its
+  four room / tile navigations sent no state at all, so from an Area's floor
+  the trend page claimed Dashboard / Instruments / <code> / Trend — a path
+  never taken.
+- **The fix.** `trailFor(nav.breadcrumb)` (`dashboard/location-nav.ts`,
+  pure) turns the dashboard's own breadcrumb into links — `/?fl=<id>`,
+  encoded as the dashboard encodes it, `/` for the root — and the dashboard
+  hands that trail to BOTH the readings table (`trail` prop, in the Trend
+  arrow's router state beside `from`) and the floor view (every way into the
+  trend page now goes through one `goTrend()` carrying origin and trail). The
+  trend page reads it with `trailFrom(location.state)` (validated shape;
+  malformed = none) and `trendCrumbs()` HEADS its crumbs with it, so the
+  trail reads Dashboard / All Instruments / <code> / Trend, or Dashboard /
+  CWH Block / Stability / <code> / Trend, each a link back to exactly that
+  view. The code crumb still goes to the instrument's detail page; a refresh
+  or pasted URL still falls back to the hierarchy.
+- Tests: `trend-breadcrumbs.test.ts` 9 → **13**, `location-nav.test.ts`
+  18 → **21**, `telemetry-table.test.tsx` 17 → **18** and
+  `floorplan-empty-rooms.test.tsx` 5 → **7** — the last two read the state at
+  the DESTINATION through a probe route, since the state is what the next
+  page receives. No count moved. Not seen on screen.
+
 ## [Unreleased] - The header's "AWS testing" chip is removed (2026-10-03)
 
 Operator: *"remove aws testing testing on top nav bar"*. The chip added on

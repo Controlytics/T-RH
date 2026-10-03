@@ -5,7 +5,7 @@ import { useAuth } from '@/hooks/use-auth';
 import useSWR from 'swr';
 import { TelemetryTable } from './telemetry-table';
 import { FloorplanView } from './floorplan-view';
-import { resolveNav, ALL_INSTRUMENTS, type NavNode } from './location-nav';
+import { resolveNav, trailFor, ALL_INSTRUMENTS, type NavNode } from './location-nav';
 import { usePanels } from '@/hooks/use-panels';
 import { SelectionAlarms } from './selection-alarms';
 import { READING_PANELS, hiddenPanelsFor } from './view-panels';
@@ -387,7 +387,7 @@ export function DashboardPage() {
                     autoHeight={AUTO_HEIGHT_PANELS.has(it.i)}
                     onNaturalHeight={reportHeight(it.i)}
                   >
-                    <TelemetryTable functionalLocationId={nav.functionalLocationId} directOnly={nav.directOnly} />
+                    <TelemetryTable functionalLocationId={nav.functionalLocationId} directOnly={nav.directOnly} trail={trailFor(nav.breadcrumb)} />
                   </PanelCard>
                 )}
                 {/* `dashboard_history` (the Instrument History widget) rendered
@@ -404,7 +404,7 @@ export function DashboardPage() {
                     onStyleChange={(next) => layout.setStyle(it.i, next)}
                     onSizeChange={(w, h) => layout.setSize(it.i, w, h)}
                   >
-                    <FloorplanView functionalLocationId={nav.functionalLocationId} directOnly={nav.directOnly} />
+                    <FloorplanView functionalLocationId={nav.functionalLocationId} directOnly={nav.directOnly} trail={trailFor(nav.breadcrumb)} />
                   </PanelCard>
                 )}
                 {it.i === 'dashboard_alarms' && (

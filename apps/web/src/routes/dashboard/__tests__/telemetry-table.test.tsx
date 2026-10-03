@@ -276,3 +276,31 @@ describe('TelemetryTable — readings and set points are highlighted chips (2026
     expect(badges[1].querySelector('.tv-range-v')?.textContent).toBe('60 (For Reference)');
   });
 });
+
+/**
+ * 2026-10-03, operator: "in dashboard when i click on all instruments trends
+ * option, trends page is opened but when i click on its not going to all
+ * instruments page its going to instruments page". The Trend arrow's router
+ * state carries the dashboard's breadcrumb TRAIL beside `from: 'dashboard'`,
+ * so the trend page's crumbs can lead back to the selection the reader left.
+ * Read at the DESTINATION through a probe route, since the state is what the
+ * next page receives — not an attribute on the link.
+ */
+describe('TelemetryTable — the Trend arrow carries the dashboard trail', () => {
+  it('hands the trail to the trend page in router state, beside the origin', async () => {
+    const { Routes, Route, useLocation } = await import('react-router-dom');
+    const Probe = () => <pre data-testid="state">{JSON.stringify(useLocation().state)}</pre>;
+    const trail = [{ label: 'Dashboard', to: '/' }, { label: 'All Instruments', to: '/?fl=__all__' }];
+    rows = [row];
+    render(
+      <MemoryRouter initialEntries={['/?fl=__all__']}>
+        <Routes>
+          <Route path="/" element={<TelemetryTable trail={trail} />} />
+          <Route path="/instruments/:id/trend" element={<Probe />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('link', { name: 'Open trend page for CWH/RDU/001-00' }));
+    expect(JSON.parse(screen.getByTestId('state').textContent!)).toEqual({ from: 'dashboard', trail });
+  });
+});

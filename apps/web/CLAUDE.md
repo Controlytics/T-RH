@@ -209,6 +209,21 @@ narrower. And the SEARCH must match every visible text column, with the
 placeholder naming them: a column the reader can see and cannot search reads as
 a broken search box.
 
+**Every link from the dashboard into the trend page carries the dashboard's
+breadcrumb TRAIL (2026-10-03, operator: "when i click on its not going to all
+instruments page its going to instruments page", "same in area trends
+also").** The selection lives in `?fl=`; `trailFor(nav.breadcrumb)`
+(`location-nav.ts`, pure) turns it into links and `index.tsx` passes it as
+`trail` to BOTH `TelemetryTable` (the Trend arrow's router state, beside
+`from: 'dashboard'`) and `FloorplanView` (ONE `goTrend()` for the room click,
+the tile click and both keyboard paths — four bare `navigate()` calls sent no
+state until then, so the floor's trend page claimed a path through
+Instruments). The trend page reads it with `trailFrom(location.state)` and
+`trendCrumbs()` heads its crumbs with it: Dashboard / All Instruments /
+<code> / Trend. Add a new way into the trend page and it MUST carry both;
+the two destination-probe tests (`telemetry-table`, `floorplan-empty-rooms`)
+are the pattern.
+
 **"Live" is polling.** There is no browser-facing WebSocket or SSE channel here
 (the `@fastify/websocket` registration is INBOUND device ingest), so every live
 surface is an SWR `refreshInterval` and the UI says "updates every Ns".

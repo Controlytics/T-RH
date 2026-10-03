@@ -883,9 +883,22 @@ interface RoomView {
   status: InstrumentStatus;
 }
 
-export function FloorplanView({ functionalLocationId, directOnly }: { functionalLocationId?: string; directOnly?: boolean } = {}) {
+export function FloorplanView({ functionalLocationId, directOnly, trail }: {
+  functionalLocationId?: string;
+  directOnly?: boolean;
+  /** The dashboard's breadcrumb as links, carried to the trend page so its
+   *  crumbs lead back to THIS selection (2026-10-03; the readings table's
+   *  Trend arrow does the same). */
+  trail?: { label: string; to: string }[];
+} = {}) {
   const sensorWords = useSensorWords();
   const navigate = useNavigate();
+  // Every way into the trend page from the floor goes through here, with the
+  // origin AND the trail — four bare `navigate()` calls until 2026-10-03 sent
+  // nothing, so the trend page's crumbs claimed a path through Instruments
+  // that was never taken (operator: "same in area trends also").
+  const goTrend = (instrumentId: string) =>
+    navigate(`/instruments/${instrumentId}/trend`, { state: { from: 'dashboard', trail } });
   const { plans, isLoading: plansLoading } = useFloorplans();
   // Scoped server-side. When a functional location is selected the rows are only
   // that location's instruments, so the rooms drawn below narrow with it.
@@ -1252,11 +1265,11 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                   // each tile opens its own.
                   {...(roomRows.length > 0
                     ? {
-                      onClick: () => navigate(`/instruments/${roomRows[0].instrumentId}/trend`),
+                      onClick: () => goTrend(roomRows[0].instrumentId),
                       style: { cursor: 'pointer' },
                       role: 'button',
                       tabIndex: 0,
-                      onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') navigate(`/instruments/${roomRows[0].instrumentId}/trend`); },
+                      onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') goTrend(roomRows[0].instrumentId); },
                     }
                     : { role: 'group' })}
                   aria-label={`${room.code}${room.label ? ` ${room.label}` : ''}${
@@ -1413,13 +1426,13 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                       return (
                         <g
                           key={row.instrumentId}
-                          onClick={(e) => { e.stopPropagation(); navigate(`/instruments/${row.instrumentId}/trend`); }}
+                          onClick={(e) => { e.stopPropagation(); goTrend(row.instrumentId); }}
                           role="button"
                           tabIndex={0}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' || e.key === ' ') {
                               e.stopPropagation();
-                              navigate(`/instruments/${row.instrumentId}/trend`);
+                              goTrend(row.instrumentId);
                             }
                           }}
                           aria-label={`${row.code}${
@@ -1634,7 +1647,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                     const [t, h] = tileValues(row, sensorWords);
                     const locFont = locationFont(spec, k);
                     const idLines = splitCode(row.code, spec.idLines);
-                    const go = () => navigate(`/instruments/${row.instrumentId}/trend`);
+                    const go = () => goTrend(row.instrumentId);
                     const tempV = row.temperature?.value ?? null;
                     const rhV = row.humidity?.value ?? null;
                     return (

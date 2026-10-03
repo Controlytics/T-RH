@@ -27,6 +27,17 @@ export type TrendOrigin = 'dashboard' | 'instruments';
 /** What a link into this page puts in `location.state`. */
 export interface TrendNavState {
   from?: TrendOrigin;
+  /**
+   * The dashboard's OWN breadcrumb at the moment the reader left it — each
+   * crumb a link back to that selection (`/?fl=…`), see `trailFor` in
+   * `dashboard/location-nav.ts`. Added 2026-10-03 (operator: "when i click
+   * on its not going to all instruments page its going to instruments
+   * page"): `from: 'dashboard'` alone produced Dashboard / <code> / Trend,
+   * with no crumb for the All Instruments (or Block / Area) view the reader
+   * had been looking at, because that selection lives in the dashboard's
+   * URL and was never carried across.
+   */
+  trail?: Crumb[];
 }
 
 /**
@@ -48,18 +59,36 @@ export function originFrom(state: unknown): TrendOrigin {
 }
 
 /**
+ * Reads the dashboard trail out of an untyped router state. `null` unless it
+ * is an array of `{label: string, to: string}` — a malformed entry from an
+ * older link or a hand-built state must not become a dead crumb.
+ */
+export function trailFrom(state: unknown): Crumb[] | null {
+  const trail = (state as TrendNavState | null | undefined)?.trail;
+  if (!Array.isArray(trail)) return null;
+  const ok = trail.every((c) => c && typeof c === 'object'
+    && typeof (c as Crumb).label === 'string' && typeof (c as Crumb).to === 'string');
+  return ok ? trail.map((c) => ({ label: c.label, to: c.to })) : null;
+}
+
+/**
  * @param origin where the reader came from
  * @param instrumentId `null` while the route param is missing
  * @param code the instrument's code, or null before it has loaded — the crumb
  *   then reads "Instrument" rather than an empty gap, and still links.
+ * @param trail the dashboard's breadcrumb when the reader came from there
+ *   (`trailFrom(location.state)`); it HEADS the crumbs so the view they left
+ *   — All Instruments, a Block, an Area — is one click back. Ignored for any
+ *   other origin; absent or empty, the bare Dashboard crumb stands.
  */
 export function trendCrumbs(
   origin: TrendOrigin,
   instrumentId: string | null,
   code: string | null,
+  trail?: Crumb[] | null,
 ): Crumb[] {
   const head: Crumb[] = origin === 'dashboard'
-    ? [{ label: 'Dashboard', to: '/' }]
+    ? (trail && trail.length > 0 ? trail : [{ label: 'Dashboard', to: '/' }])
     : [{ label: 'Dashboard', to: '/' }, { label: 'Instruments', to: '/instruments' }];
 
   return [

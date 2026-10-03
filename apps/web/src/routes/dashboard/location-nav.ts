@@ -65,6 +65,21 @@ export interface Nav {
 const flatten = (tree: NavNode[]): NavNode[] => tree.flatMap((b) => [b, ...b.children]);
 
 /**
+ * The dashboard's breadcrumb as LINKS, for a page the reader leaves it for —
+ * the trend page (2026-10-03, operator: "when i click on its not going to all
+ * instruments page its going to instruments page"). A crumb's `id` is the
+ * `?fl=` value that selects it (the same param `go()` sets), the root is `/`.
+ * Encoded by `URLSearchParams`, as the dashboard encodes it, so following the
+ * link lands on byte-for-byte the URL the reader left.
+ */
+export function trailFor(breadcrumb: readonly NavCrumb[]): { label: string; to: string }[] {
+  return breadcrumb.map((c) => ({
+    label: c.label,
+    to: c.id === null ? '/' : `/?${new URLSearchParams({ fl: c.id })}`,
+  }));
+}
+
+/**
  * @param totalInstruments every registered instrument, INCLUDING those in no
  *   location. Must be supplied: summing the tree counts only placed instruments, so
  *   the "All Instruments" card would read 5 while its own view showed 20. Omitted,

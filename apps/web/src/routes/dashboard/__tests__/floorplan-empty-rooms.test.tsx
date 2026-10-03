@@ -33,10 +33,11 @@ vi.mock('../use-telemetry', async (orig) => ({
 }));
 
 const { FloorplanView } = await import('../floorplan-view');
-function Where() { const l = useLocation(); return <p data-testid="where">{l.pathname}</p>; }
+function Where() { const l = useLocation(); return <><p data-testid="where">{l.pathname}</p><pre data-testid="state">{JSON.stringify(l.state)}</pre></>; }
+const TRAIL = [{ label: 'Dashboard', to: '/' }, { label: 'Stability', to: '/?fl=a-1' }];
 const mount = () => render(
   <MemoryRouter initialEntries={['/']}>
-    <Routes><Route path="/" element={<FloorplanView />} /><Route path="*" element={<Where />} /></Routes>
+    <Routes><Route path="/" element={<FloorplanView trail={TRAIL} />} /><Route path="*" element={<Where />} /></Routes>
   </MemoryRouter>,
 );
 
@@ -70,6 +71,24 @@ describe('rooms without an instrument are not clickable (2026-10-01)', () => {
     mount();
     fireEvent.click(document.querySelector('g[aria-label^="CWH/RDU/001-00"]')!);
     expect(screen.getByTestId('where')).toHaveTextContent('/instruments/i1/trend');
+  });
+
+  /**
+   * 2026-10-03, operator: "same in area trends also". Every way into the trend
+   * page from the floor carries the origin AND the dashboard's breadcrumb
+   * trail in router state, so the trend page's crumbs lead back to the Area
+   * the reader left — four bare `navigate()` calls sent nothing until then,
+   * and the trend page claimed a path through Instruments.
+   */
+  it('a room click and a tile click both hand the trend page the origin and the dashboard trail', () => {
+    mount();
+    fireEvent.click(document.querySelector('g[aria-label^="R-LAB"]')!);
+    expect(JSON.parse(screen.getByTestId('state').textContent!)).toEqual({ from: 'dashboard', trail: TRAIL });
+  });
+  it('the keyboard path carries the same state', () => {
+    mount();
+    fireEvent.keyDown(document.querySelector('g[aria-label^="CWH/RDU/001-00"]')!, { key: 'Enter' });
+    expect(JSON.parse(screen.getByTestId('state').textContent!)).toEqual({ from: 'dashboard', trail: TRAIL });
   });
 
   it('prints the instrument ID and its Location large and BOLD (16 and 14; operator: "increase location font size and bold same for instrument id also")', () => {

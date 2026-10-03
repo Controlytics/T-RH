@@ -304,7 +304,17 @@ function setPointSource(source: OverviewRow['limitSource']): string | undefined 
   return 'No limits set — neither this instrument nor its room specifies a range.';
 }
 
-export function TelemetryTable({ functionalLocationId, directOnly }: { functionalLocationId?: string; directOnly?: boolean } = {}) {
+export function TelemetryTable({ functionalLocationId, directOnly, trail }: {
+  functionalLocationId?: string;
+  directOnly?: boolean;
+  /**
+   * The dashboard's breadcrumb as links (`trailFor(nav.breadcrumb)`), handed
+   * to the trend page in the Trend arrow's router state so its crumbs lead
+   * back to THIS selection — All Instruments, a Block, an Area — not merely
+   * to the top of the dashboard (2026-10-03).
+   */
+  trail?: { label: string; to: string }[];
+} = {}) {
   // The administered word for a failed sensor. One hook, so the table, the
   // tiles and the Alarms page cannot show three different words for one fault.
   const sensorWords = useSensorWords();
@@ -715,8 +725,10 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
                       to={`/instruments/${r.instrumentId}/trend`}
                       // Tells the trend page's breadcrumb where the reader
                       // actually came from; without it the trail claims a
-                      // path through Instruments that was never taken.
-                      state={{ from: 'dashboard' }}
+                      // path through Instruments that was never taken. The
+                      // trail is the selection they left (All Instruments, a
+                      // Block, an Area) so the crumbs can lead back to it.
+                      state={{ from: 'dashboard', trail }}
                       title={`Trend page for ${r.code} — last reading ${readingAge(latest)}`}
                       aria-label={`Open trend page for ${r.code}`}
                       className="inline-flex text-blue-600 transition-colors hover:text-blue-800"
