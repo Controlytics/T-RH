@@ -1,5 +1,43 @@
 # Changelog
 
+## [Unreleased] - Fix: popups inside the hero band were clipped and painted over; every Select was transparent (2026-10-03)
+
+Operator: *"instrument selection dropdown was not showing values properly in
+dropdown"*. Reproduced by rendering the Settings page with the list open in
+headless Chrome against the built stylesheet; THREE causes, two of them on
+every page, none in the picker itself:
+
+- **`PageHero` clipped its content.** The band's root carried
+  `overflow-hidden` to clip its two decorative circles, and that clipped every
+  popup a caller's toolbar opens inside it — the Settings picker's list, the
+  Export menu on the Alarms and Audit heroes — to the band's bottom padding.
+  Only a sliver of the search box showed. The circles now sit in their own
+  `absolute inset-0 overflow-hidden rounded-[inherit]` wrapper
+  (`data-testid="page-hero-decoration"`); the root no longer clips.
+- **The band's toolbar wrapper trapped the popup under the next card.** Its
+  `backdrop-blur-sm` is a `backdrop-filter`, which forms a stacking context,
+  so the list's `z-50` ranked only among the toolbar's children and the
+  widget card below (a positioned sibling of the band) painted over the
+  options. The blur is gone — it softened the circles' edges behind a
+  translucent plate, nothing more — and the toolbar is `relative z-10`, so it
+  stays above the band's siblings whatever is added to the wrapper later.
+- **Every native `Select` in the app had no background.** `cn()` runs
+  tailwind-merge, which read the chevron's untyped `bg-[right_0.6rem_center]`
+  as a background COLOUR and dropped the `bg-white` before it as a duplicate.
+  On a white card that is invisible; the Settings page's Block select is the
+  first one on the band, and it rendered dark with its white border. The
+  position carries the `position:` hint now
+  (`bg-[position:right_0.6rem_center]`), which tailwind-merge files under
+  background-position. Verified by reading the MERGED class string out of the
+  dump — `bg-white` was simply absent.
+- Tests: `page-hero.test.tsx` 6 → **8** (root not clipped, decoration
+  clipped; toolbar no backdrop filter, `relative z-10`), new
+  `select.test.tsx` (4: `bg-white` AND the hinted position survive the merge
+  at every size; a caller's background override still wins). Both read the
+  FINAL class string, which is the one tailwind-merge emits — a test on the
+  source literal passes for the version that does not work. The picture was
+  checked before and after in headless Chrome. No count moved.
+
 ## [Unreleased] - Settings: Block / Area / instrument selection (2026-10-03)
 
 Operator: *"in settings page give block/area/instrument wise selection"*.

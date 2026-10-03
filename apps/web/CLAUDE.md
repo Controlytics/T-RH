@@ -1488,6 +1488,25 @@ system in the language of their mockups (`Alarms.png`, `screen-2.png`,
 - **Test gotcha**: `\bbg-white\b` also matches `hover:bg-white/10` (`/` is a
   word boundary); assert a class token with `(^|\s)bg-white(\s|$)`. And jsdom
   has no `matchMedia` — the sidebar test stubs it.
+- **`PageHero` does NOT clip its content, and its toolbar is `relative z-10`
+  with no backdrop filter (2026-10-03, operator: "instrument selection
+  dropdown was not showing values properly in dropdown").** The root's
+  `overflow-hidden` (for the two circles) clipped every popup opened from a
+  toolbar inside the band — the Settings picker's list, the Export menu on
+  Alarms and Audit — to the band's bottom padding; the circles are now
+  clipped by their own `page-hero-decoration` wrapper. And the toolbar's
+  `backdrop-blur-sm` was a stacking context that trapped a popup's `z-50`
+  under the next card on the page. Both pinned in `page-hero.test.tsx` as
+  class tokens; the picture was checked in headless Chrome with the built
+  stylesheet, which is how both were found — one at a time, the second only
+  visible once the first was fixed.
+- **`cn()` is tailwind-merge, and an UNTYPED arbitrary `bg-[…]` is read as
+  a background COLOUR** (2026-10-03). `Select`'s chevron position
+  `bg-[right_0.6rem_center]` made it drop the `bg-white` before it, so every
+  native Select in the app was transparent — invisible on white cards, dark
+  on the hero band. Write `bg-[position:…]` / `bg-[length:…]` (hinted), and
+  when a primitive's class looks absent on screen, read the MERGED class
+  string off the DOM before reading the source. `select.test.tsx` reads it.
 - Batches 2–4 rebuild the screens on these; see the spec §4. Status colours,
   PDFs, fetch keys and gates are untouched throughout.
 

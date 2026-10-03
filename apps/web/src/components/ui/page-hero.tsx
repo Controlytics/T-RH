@@ -47,13 +47,25 @@ export function PageHero({
       data-testid={testId ?? 'page-hero'}
       data-hero="v3"
       className={cn(
-        'relative overflow-hidden rounded-[var(--radius-card)] px-6 py-5 text-white shadow-[var(--elev-2)]',
+        // NO `overflow-hidden` here (2026-10-03, operator: "instrument
+        // selection dropdown was not showing values properly in dropdown").
+        // It clipped every popup a caller's toolbar opens inside the band —
+        // the Settings picker's list, the Export menu on the Alarms and Audit
+        // heroes — to the band's bottom padding. The circles are clipped by
+        // their own wrapper below; the content layer is free to hang out.
+        'relative rounded-[var(--radius-card)] px-6 py-5 text-white shadow-[var(--elev-2)]',
         className,
       )}
       style={{ background: 'var(--band-gradient)' }}
     >
-      <span aria-hidden className="pointer-events-none absolute -right-16 -top-24 h-64 w-64 rounded-full bg-white/10" />
-      <span aria-hidden className="pointer-events-none absolute -bottom-28 right-24 h-56 w-56 rounded-full bg-white/[0.06]" />
+      <span
+        aria-hidden="true"
+        data-testid="page-hero-decoration"
+        className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]"
+      >
+        <span className="absolute -right-16 -top-24 h-64 w-64 rounded-full bg-white/10" />
+        <span className="absolute -bottom-28 right-24 h-56 w-56 rounded-full bg-white/[0.06]" />
+      </span>
       <div className="relative space-y-5">
         <PageHeader inverted title={title} icon={icon} crumbs={crumbs} actions={actions} meta={meta} />
         {tiles && tiles.length > 0 && (
@@ -70,7 +82,12 @@ export function PageHero({
           </dl>
         )}
         {children && (
-          <div data-testid="page-hero-toolbar" className="rounded-[var(--radius-card)] bg-white/10 p-3 backdrop-blur-sm">
+          // No `backdrop-blur` here, and `relative z-10` on purpose
+          // (2026-10-03): a backdrop filter is a stacking context, which
+          // trapped a popup's z-50 under the next card on the page; the
+          // z-10 lifts the toolbar — and any list opened from it — above
+          // the band's siblings whatever is added to this wrapper later.
+          <div data-testid="page-hero-toolbar" className="relative z-10 rounded-[var(--radius-card)] bg-white/10 p-3">
             {children}
           </div>
         )}
