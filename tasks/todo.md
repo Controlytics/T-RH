@@ -63,3 +63,10 @@ verify-chain on Ubuntu: intact, 45 rows, 0 anomalies. GitHub deploy key added vi
 - [x] Uploads (2 files) + local INSTRUMENT_TOKEN_KEY onto the box
 - [x] Audit sequence defect (setval 5354 rode in the dump) repaired: one row renumbered → 48; verify-chain intact, 50 rows
 - [x] Temp bucket deleted (never used — upload denied as exfiltration; SSM SSH used instead); both SSM parameters deleted
+
+## 2026-10-03 — Strict technical audit (read-only)
+
+- [x] Six parallel read-only reviews (security, API correctness, data/§11, web, ingest/alarms, docs/tooling); lead re-derived 36 findings incl. every HIGH
+- [x] Report: `docs/audit/2026-10-03-technical-audit.md` — 105 findings, 16 runtime HIGH + 4 docs HIGH, health 70/100 (Aug 74)
+- [ ] Fix order in §3 of the report: partitions at boot + batch-loss dead letter → role-config privilege check + required scope body → backup verifier/secrets → seed permission reset → user_role width + central signature bound → FL PUT serializer → visibility on attribute read + writes → public admin-request attribution → alarm double-clear + range coercion → reauth strip/lockout → SA password boxes, `/` and `/users` guards, chart axis format
+- [ ] Operator decisions needed: untrack the dangling `.claude/worktrees/ui-redesign-stage2` gitlink; whether instrument WRITE routes are meant to be unscoped; hard-delete default off in installer env
