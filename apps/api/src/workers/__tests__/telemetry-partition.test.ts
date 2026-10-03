@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { prisma } from '../../lib/prisma.js';
 import {
-  ensurePartitions, dropExpiredPartitions, partitionName, retentionSettings, ensurePartitionsAtBoot,
+  ensurePartitions, dropExpiredPartitions, partitionName, retentionSettings, ensurePartitionsAtBoot, partitionDdl,
 } from '../telemetry-partition.worker.js';
 
 /**
@@ -210,6 +210,17 @@ describe('ensurePartitionsAtBoot', () => {
     } finally {
       delete client.$executeRawUnsafe;
     }
+  });
+});
+
+describe('partitionDdl', () => {
+  it('is the one month-partition statement, UTC-anchored, for any day of the month', () => {
+    const { name, sql } = partitionDdl(new Date('2026-10-17T13:22:00Z'));
+    expect(name).toBe('instrument_telemetry_history_2026_10');
+    expect(sql).toBe(
+      'CREATE TABLE IF NOT EXISTS "instrument_telemetry_history_2026_10" PARTITION OF "instrument_telemetry_history" '
+      + "FOR VALUES FROM ('2026-10-01 00:00:00+00') TO ('2026-11-01 00:00:00+00')",
+    );
   });
 });
 

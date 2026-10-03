@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
+import { partitionDdl } from '../../workers/telemetry-partition.worker.js';
 import { AppError } from '../../lib/errors.js';
 import type { BackupData } from './backup.helpers.js';
 import { logger } from '../../lib/logger.js';
@@ -272,8 +273,44 @@ function stripSensitiveColumns(table: string, rows: Record<string, any>[]): Reco
     }
     return rows;
   }
+  // Stored service credentials (audit 2026-10-03, DATA-5): the SMTP password,
+  // the SMS provider secrets, the AD bind password and OAuth2 tokens live in
+  // `system_config` rows in clear text, and a webhook target's headers may
+  // carry a bearer. They left in every backup; the §11.10(d) reasoning that
+  // strips bcrypt hashes applies at least as strongly to a live credential.
+  // Each secret becomes the sentinel and restore re-applies the TARGET's own
+  // current value (see the restore loop), exactly as `password_hash` does.
+  if (table === 'system_config') {
+    for (const row of rows) {
+      const keys = SYSTEM_CONFIG_SECRET_KEYS[row.config_key as string];
+      if (!keys || !row.config_value || typeof row.config_value !== 'object') continue;
+      const value = { ...(row.config_value as Record<string, unknown>) };
+      for (const k of keys) if (value[k] !== undefined && value[k] !== null && value[k] !== '') value[k] = PASSWORD_STRIPPED_SENTINEL;
+      row.config_value = value;
+    }
+    return rows;
+  }
+  if (table === 'alarm_webhook_targets') {
+    for (const row of rows) {
+      if (row.headers && typeof row.headers === 'object' && Object.keys(row.headers as object).length > 0) {
+        row.headers = { [PASSWORD_STRIPPED_SENTINEL]: true };
+      }
+    }
+    return rows;
+  }
   return rows;
 }
+
+/**
+ * Which keys of which `system_config` row are secrets. Mirrors what each
+ * surface MASKS on read (`notification-delivery/routes.ts`, `ldap/routes.ts`);
+ * if a surface gains a secret, add it here or it ships in every backup.
+ */
+const SYSTEM_CONFIG_SECRET_KEYS: Record<string, readonly string[]> = {
+  'notification-email': ['password', 'clientSecret', 'accessToken', 'refreshToken', 'oauth2PendingState'],
+  'notification-sms': ['twilioAuthToken', 'vonageApiSecret'],
+  'ldap': ['bindPassword'],
+};
 
 /**
  * Per-table row cap. Closes the immediate failure mode of May 16 §1.9 /
@@ -356,7 +393,7 @@ export async function fetchAllTablesRaw(): Promise<Record<string, Record<string,
  * Returns the count of chained / pre-chain rows it inspected. Throws with
  * a structured error on anomaly so the caller surfaces a clean 400.
  */
-async function verifyBackupAuditChain(rows: Array<Record<string, any>>): Promise<{
+export async function verifyBackupAuditChain(rows: Array<Record<string, any>>): Promise<{
   preChainRows: number;
   chainedRows: number;
 }> {
@@ -372,15 +409,33 @@ async function verifyBackupAuditChain(rows: Array<Record<string, any>>): Promise
   let priorChecksum: string | null = null;
   for (let i = 0; i < sorted.length; i++) {
     const row = sorted[i];
+    // EVERY hashed column, exactly as `lib/audit-verify.ts` maps them (audit
+    // 2026-10-03, DATA-1). Since 2026-07-04 the writer hashes the EXPANDED set
+    // (user_name, user_role, before_value, reason, ip, user_agent, session,
+    // signature_meaning); this check passed only the reduced set, so no real
+    // row could match and every restore was run with `force: true` — which
+    // disables the one tamper check restore has. A row missing here would
+    // reconstruct the field set with nulls and fail the way it used to.
     const perRowOk = verifyAuditChecksum({
       timestamp: row.timestamp,
       userId: row.user_id ?? null,
+      userName: row.user_name ?? null,
+      userRole: row.user_role ?? null,
       action: row.action,
       targetType: row.target_type ?? null,
       targetId: row.target_id ?? null,
+      beforeValue: row.before_value ?? undefined,
       afterValue: row.after_value ?? undefined,
+      reason: row.reason ?? null,
+      ipAddress: row.ip_address ?? null,
+      userAgent: row.user_agent ?? null,
+      sessionId: row.session_id ?? null,
+      signatureMeaning: row.signature_meaning ?? null,
       checksum: row.checksum,
       previousChecksum: row.previous_checksum ?? null,
+      // A redacted row keeps its original checksum over payloads that are now
+      // NULL; the verifier short-circuits on this, as the chain walk does.
+      redactedAt: row.redacted_at ?? undefined,
       // Route keyed-era rows (v3) to the HMAC path; old backups lack the column
       // (undefined → legacy V1/V2 verify, unchanged).
       checksumVersion: (row as { checksum_version?: number | null }).checksum_version ?? null,
@@ -518,6 +573,18 @@ export async function restoreFromBackup(backup: BackupData, opts: { force?: bool
       const curHist: any[] = await tx.$queryRawUnsafe(`SELECT id, password_hash FROM "password_history"`);
       for (const h of curHist) currentPasswordHistory.set(h.id, h.password_hash);
 
+      // The target's own stored service credentials and webhook headers, for
+      // the rows the export stripped (audit 2026-10-03, DATA-5).
+      const currentConfigValues = new Map<string, Record<string, unknown>>();
+      const curCfg: any[] = await tx.$queryRawUnsafe(
+        `SELECT config_key, config_value FROM "system_config" WHERE config_key = ANY($1::text[])`,
+        Object.keys(SYSTEM_CONFIG_SECRET_KEYS),
+      );
+      for (const c of curCfg) currentConfigValues.set(c.config_key, (c.config_value ?? {}) as Record<string, unknown>);
+      const currentWebhookHeaders = new Map<string, unknown>();
+      const curHooks: any[] = await tx.$queryRawUnsafe(`SELECT id, headers FROM "alarm_webhook_targets"`);
+      for (const h of curHooks) currentWebhookHeaders.set(h.id, h.headers);
+
       // Truncate every DB table in one statement — CASCADE handles all FKs in a single pass
       for (const t of dbTables) assertSafeIdentifier(t);
       await tx.$executeRawUnsafe(
@@ -550,6 +617,44 @@ export async function restoreFromBackup(backup: BackupData, opts: { force?: bool
             }
             return r;
           });
+        } else if (table === 'system_config') {
+          // Re-apply the target's own secret for each stripped key; a key the
+          // target never held keeps the sentinel, which no provider will accept,
+          // so the operator re-enters it rather than a backup silently carrying
+          // a credential across installations.
+          rows = rows.map((r: Record<string, any>) => {
+            const keys = SYSTEM_CONFIG_SECRET_KEYS[r.config_key];
+            if (!keys || !r.config_value || typeof r.config_value !== 'object') return r;
+            const value = { ...(r.config_value as Record<string, unknown>) };
+            const current = currentConfigValues.get(r.config_key) ?? {};
+            for (const k of keys) {
+              if (value[k] === PASSWORD_STRIPPED_SENTINEL) value[k] = current[k] ?? PASSWORD_STRIPPED_SENTINEL;
+            }
+            return { ...r, config_value: value };
+          });
+        } else if (table === 'alarm_webhook_targets') {
+          rows = rows.map((r: Record<string, any>) => {
+            if (r.headers && typeof r.headers === 'object' && (r.headers as Record<string, unknown>)[PASSWORD_STRIPPED_SENTINEL]) {
+              return { ...r, headers: currentWebhookHeaders.get(r.id) ?? {} };
+            }
+            return r;
+          });
+        } else if (table === 'instrument_telemetry_history') {
+          // Every month the archive's readings fall in must have a partition on
+          // the TARGET, or the INSERT fails and the whole restore rolls back
+          // (audit 2026-10-03, DATA-12): an archive restored onto a fresh
+          // install, or onto one whose old partitions retention has dropped.
+          // Same DDL the maintenance worker runs, in THIS transaction.
+          const months = new Set<string>();
+          for (const r of rows as Record<string, any>[]) {
+            const ts = r.ts ? new Date(r.ts) : null;
+            if (!ts || Number.isNaN(ts.getTime())) continue;
+            months.add(`${ts.getUTCFullYear()}-${String(ts.getUTCMonth() + 1).padStart(2, '0')}`);
+          }
+          for (const m of [...months].sort()) {
+            const { sql } = partitionDdl(new Date(`${m}-01T00:00:00Z`));
+            await tx.$executeRawUnsafe(sql);
+          }
         }
         const selfRefCols = selfRefs[table] ?? [];
         await insertRows(tx, table, rows, selfRefCols);

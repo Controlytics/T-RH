@@ -1,5 +1,42 @@
 # Changelog
 
+## [Unreleased] - Audit fixes, batch 3: backup restore verifies the real chain, strips credentials, creates partitions (2026-10-03)
+
+Closes DATA-1, DATA-5 and DATA-12 of `docs/audit/2026-10-03-technical-audit.md`.
+
+- **The restore's audit-chain pre-check maps EVERY hashed column**
+  (`verifyBackupAuditChain` in `backup.repository.ts`), exactly as
+  `lib/audit-verify.ts` does: `user_name`, `user_role`, `before_value`,
+  `reason`, `ip_address`, `user_agent`, `session_id`, `signature_meaning`
+  and `redacted_at` beside the nine it passed before. Since 2026-07-04 the
+  writer has hashed the expanded set, so no genuine archive could pass the
+  check and every restore was run with `force: true` — the only tamper
+  check restore has, disabled as routine. A genuine export now passes the
+  per-row check on every row.
+- **Service credentials no longer leave in a backup.** `system_config`
+  secrets (SMTP `password`, `clientSecret`, OAuth2 tokens and pending state;
+  SMS `twilioAuthToken`, `vonageApiSecret`; LDAP `bindPassword` —
+  `SYSTEM_CONFIG_SECRET_KEYS`, mirroring what each surface masks on read)
+  and a webhook target's `headers` are replaced by the same sentinel the
+  password hashes use; restore re-applies the TARGET's own current value
+  for each, so a restore never wipes a credential and a backup never
+  carries one across installations. A key the target never held keeps the
+  sentinel, which no provider accepts, so the operator re-enters it.
+- **Restore creates the telemetry partitions the archive needs**, in its
+  own transaction, before inserting `instrument_telemetry_history` — one
+  `partitionDdl()` (exported from the partition worker; `ensurePartitions`
+  uses the same one) per month present in the rows. An archive restored
+  onto a fresh install, or onto a database whose old partitions retention
+  dropped, used to roll the whole restore back with "no partition … found".
+- Tests: `backup-restore.e2e.test.ts` 10 → **13** (every exported audit row
+  passes the per-row check and a contiguous tail passes the walk — the full
+  walk is not asserted because the shared test database carries a chain
+  gap from the hard-delete suites, which the file already documents; SMTP
+  password sentinel on export, real value after restore; webhook headers
+  likewise), `telemetry-partition.test.ts` 14 → **15** (`partitionDdl`).
+  Mutation-checked: dropping two fields from the verifier fails the per-row
+  case. No count moved.
+
 ## [Unreleased] - Audit fixes, batch 2: role-config saves check the caller's privilege; scope and panel bodies are required (2026-10-03)
 
 Closes API-1 and API-2 of `docs/audit/2026-10-03-technical-audit.md`.

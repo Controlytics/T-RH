@@ -64,6 +64,24 @@ const boundUtc = (d: Date) => `${d.toISOString().slice(0, 10)} 00:00:00+00`;
 export const partitionName = (d: Date, parent = PARENT) => `${parent}_${yyyymm(d)}`;
 
 /**
+ * The DDL for ONE month's partition, for a caller that must run it inside its
+ * own transaction (the backup restore, audit 2026-10-03 DATA-12 — an archive
+ * holding a month whose partition the target lacks used to roll the whole
+ * restore back with "no partition … found for row"). Same statement
+ * `ensurePartitions` runs; one definition.
+ */
+export function partitionDdl(monthOf: Date, parent = PARENT): { name: string; sql: string } {
+  const start = monthStart(monthOf, 0);
+  const end = monthStart(monthOf, 1);
+  const name = partitionName(start, parent);
+  return {
+    name,
+    sql: `CREATE TABLE IF NOT EXISTS "${name}" PARTITION OF "${parent}" `
+      + `FOR VALUES FROM ('${boundUtc(start)}') TO ('${boundUtc(end)}')`,
+  };
+}
+
+/**
  * Create the current month plus `monthsAhead` following months.
  * Idempotent — CREATE TABLE IF NOT EXISTS, safe to run repeatedly.
  */
@@ -72,15 +90,10 @@ export async function ensurePartitions(
 ): Promise<string[]> {
   const created: string[] = [];
   for (let i = 0; i <= monthsAhead; i++) {
-    const start = monthStart(now, i);
-    const end = monthStart(now, i + 1);
-    const name = partitionName(start, parent);
     // Identifiers cannot be parameterised. Every component here is derived from
     // a Date and formatted numerically, so nothing user-supplied reaches the SQL.
-    await prisma.$executeRawUnsafe(
-      `CREATE TABLE IF NOT EXISTS "${name}" PARTITION OF "${parent}" `
-      + `FOR VALUES FROM ('${boundUtc(start)}') TO ('${boundUtc(end)}')`,
-    );
+    const { name, sql } = partitionDdl(monthStart(now, i), parent);
+    await prisma.$executeRawUnsafe(sql);
     created.push(name);
   }
   return created;
