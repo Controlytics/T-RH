@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
-import { Navigate, useSearchParams } from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { loginSchema, type LoginInput } from '@digilog/shared';
 import { useAuth } from '@/hooks/use-auth';
@@ -14,7 +14,6 @@ import { checkExistingUserSession, type ActiveSessionInfo } from '@/hooks/use-si
 
 export function LoginPage() {
   const { login, isAuthenticated, isLoading } = useAuth();
-  const [searchParams] = useSearchParams();
 
   // All hooks must be called unconditionally before any early return
   const { branding } = useBranding();
@@ -54,9 +53,10 @@ export function LoginPage() {
 
   // If already authenticated, redirect to home — prevents back-button to login.
   // This must appear AFTER all hook calls to satisfy React Rules of Hooks.
+  // Always the dashboard (2026-10-03): a `?returnUrl=` here is a page the
+  // previous user left, not this one's. See the note in use-auth.ts login.
   if (!isLoading && isAuthenticated) {
-    const returnUrl = searchParams.get("returnUrl") || "/";
-    return <Navigate to={returnUrl} replace />;
+    return <Navigate to="/" replace />;
   }
 
   const onSubmit = async (data: LoginInput) => {

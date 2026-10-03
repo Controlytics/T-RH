@@ -103,8 +103,11 @@ export function AppLayout() {
     );
   }
 
+  // No `?returnUrl=` (2026-10-03, operator): the login page never returns to
+  // the page a session ended on — the next sign-in may be another role, and
+  // its first screen was Access Denied. Every login lands on the dashboard.
   if (!isAuthenticated) {
-    return <Navigate to={`/login?returnUrl=${encodeURIComponent(location.pathname)}`} replace />;
+    return <Navigate to="/login" replace />;
   }
 
   // Force password change redirect

@@ -1762,7 +1762,15 @@ resizes it with no drag. `routes/dashboard/panel-auto-height.ts` holds the maths
 
 ## Auth Flow
 - Token stored in sessionStorage (not localStorage — for shared workstation security)
-- Auto-redirect to `/` (dashboard) after login, or returnUrl from query param
+- **Every login lands on `/` (the dashboard) — there is NO return-URL (2026-10-03,
+  operator: "after every login user should come to dashboard page only dont
+  redirect to other pages").** The layout and the API client's 401 handler send
+  an unauthenticated visitor to a bare `/login`; the login page's signed-in
+  redirect and `useAuth().login` go to `/` whatever the query string says. The
+  `?returnUrl=` that lived here sent the NEXT user on a shared workstation to
+  the page the PREVIOUS one left — Access Denied for a role without it. Pinned
+  by `routes/auth/__tests__/login-lands-on-dashboard.test.tsx`, whose hook
+  case sets `window.location` too (the old code read it, not the router).
 - 30-minute JWT refresh cycle
 - Session timeout warning dialog
 - Single-tab enforcement per user (BroadcastChannel)

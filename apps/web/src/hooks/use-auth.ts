@@ -85,13 +85,14 @@ export function useAuth() {
       navigate('/change-password', { replace: true });
     } else {
       await mutate();
-      // Navigate to returnUrl if present (e.g., from QR code scan), otherwise home
-      // Validate returnUrl is internal pathname only (prevent open redirect)
-      const params = new URLSearchParams(window.location.search);
-      const returnUrl = params.get("returnUrl");
-      const isSafeReturnUrl = returnUrl && returnUrl.startsWith('/') && !returnUrl.startsWith('//') && !returnUrl.includes(':');
-      navigate(isSafeReturnUrl ? returnUrl : "/", { replace: true });
-
+      // ALWAYS the dashboard (2026-10-03, operator: "after every login user
+      // should come to dashboard page only dont redirect to other pages").
+      // Until then a `?returnUrl=` on the login page — written by the layout
+      // and the API client when a session ended on some page — sent the NEXT
+      // user to the page the PREVIOUS one logged out of, which for a role
+      // without that page was an Access Denied screen as its first sight of
+      // the app. A `returnUrl` still in a bookmark is ignored.
+      navigate('/', { replace: true });
     }
 
     return res;

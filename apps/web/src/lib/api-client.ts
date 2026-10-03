@@ -76,8 +76,9 @@ class ApiClient {
             if (isMobile) {
               window.location.href = '/m/login';
             } else {
-              const returnPath = window.location.pathname + window.location.search;
-              window.location.href = returnPath !== '/' ? `/login?returnUrl=${encodeURIComponent(returnPath)}` : '/login';
+              // No `?returnUrl=` (2026-10-03): the next sign-in lands on the
+              // dashboard whatever page the session ended on. See use-auth.ts.
+              window.location.href = '/login';
             }
           }
         }

@@ -1,5 +1,31 @@
 # Changelog
 
+## [Unreleased] - Every login lands on the dashboard; no return-URL (2026-10-03)
+
+Operator: *"i logined and go to some page and there only i directly logout,
+after that i logined another role user its coming to where i logout that
+page, if that page is access for both then its showing other wise showing
+access denied, after every login user should come to dashboard page only
+dont redirect to other pages"*.
+
+- **The defect.** The layout (`app-layout.tsx`) and the API client's 401
+  handler sent an unauthenticated visitor to `/login?returnUrl=<the page>`,
+  and both the login page (already signed in) and `useAuth().login` honoured
+  it. On a shared workstation that is the page the PREVIOUS user left, so
+  the next user's first screen was Access Denied whenever their role lacked
+  it.
+- **The fix.** All four sites changed: the layout and the API client send to
+  `/login` with no query; the login page's signed-in redirect and the hook's
+  post-login navigation go to `/` unconditionally. A `returnUrl` still in a
+  bookmark is ignored. The open-redirect guard went with the feature it
+  guarded.
+- Tests: new `login-lands-on-dashboard.test.tsx` (2): the signed-in visitor
+  to `/login?returnUrl=/alarms` lands on `/`; the hook's login on that URL
+  lands on `/`. **The second sets `window.location` as well as the router's
+  location** — the old code read `window.location.search`, and a mutant
+  that put that read back passed the router-only version. Mutation-checked
+  after the fix. No count moved.
+
 ## [Unreleased] - Dashboard-Screens.pptx: every screen of the app, images only (2026-10-03)
 
 Operator: *"make a presentation with all dashboard screens proper good
