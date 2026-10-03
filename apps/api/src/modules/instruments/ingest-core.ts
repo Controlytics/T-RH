@@ -46,7 +46,7 @@ const MAX_DEAD_LETTERS_PER_BATCH = 20;
 // `rejected ?? 0` and never has to know which shape it got.
 export type IngestOutcome =
   | { ok: true; accepted: number; rejected?: number }
-  | { ok: false; code: 'UNPARSEABLE' | 'NOT_A_GATEWAY' | 'TOO_MANY_KEYS'; message: string };
+  | { ok: false; code: 'UNPARSEABLE' | 'NOT_A_GATEWAY' | 'TOO_MANY_KEYS' | 'WRITE_FAILED'; message: string };
 
 interface DeadLetterRow {
   id: string;
@@ -62,6 +62,41 @@ interface DeadLetterRow {
  * into a 500 and — on the batch path, where dead-letters are written before
  * `writeBatch` — would discard the readings that were perfectly good.
  */
+/**
+ * Writes a batch, and when the database refuses it, RECORDS the refusal
+ * instead of letting it escape (audit 2026-10-03, INGEST-1). `writeBatch` is
+ * one multi-row INSERT in one transaction, so one row Postgres cannot place
+ * (a timestamp outside every partition: a dead RTC, a buffered reading, an
+ * epoch in seconds read as 1970) rejected the WHOLE batch — and on MQTT the
+ * broker had already acked, on TCP the socket was killed, on WS it was a log
+ * line: thirty children's readings gone every minute with nothing in the
+ * dead-letter table to say so. Now the raw payload lands there with the
+ * database's own words, against the sender, and the caller gets
+ * `WRITE_FAILED` (503 on HTTP so a device retries after the partition is
+ * created). Never throws.
+ */
+async function writeBatchOrDeadLetter(
+  readings: Parameters<typeof writeBatch>[0],
+  sender: { id: string; code: string },
+  transport: string,
+  raw: Buffer,
+): Promise<string | null> {
+  try {
+    await writeBatch(await applySensorOffsets(readings));
+    return null;
+  } catch (e) {
+    const message = (e as { message?: string })?.message ?? String(e);
+    logger.error({ err: e, instrumentId: sender.id, code: sender.code, readings: readings.length, transport },
+      'telemetry write failed — batch dead-lettered');
+    await safeWriteDeadLetters([{
+      id: randomUUID(), instrumentId: sender.id, transport,
+      reason: `Telemetry write failed (${readings.length} reading${readings.length === 1 ? '' : 's'} lost): ${message.slice(0, 500)}`,
+      rawPayload: raw.toString('utf8').slice(0, 4000),
+    }]);
+    return message;
+  }
+}
+
 async function safeWriteDeadLetters(rows: DeadLetterRow[]): Promise<void> {
   try {
     await writeDeadLetters(rows);
@@ -165,7 +200,10 @@ export async function ingestPayload(args: {
 
     if (readings.length > 0) {
       // Each child's own sensor offset, applied before the write (2026-10-01).
-      await writeBatch(await applySensorOffsets(readings));
+      const failure = await writeBatchOrDeadLetter(readings, identity, transport, raw);
+      if (failure !== null) {
+        return { ok: false, code: 'WRITE_FAILED', message: `Readings could not be stored: ${failure}` };
+      }
       await stampLastSeen([...new Set(readings.map((r) => r.instrumentId))], 'gateway');
       // Readings landed, so judge them now rather than at the next minute tick.
       // ENQUEUES, never evaluates: the evaluator must stay out of this path, or a
@@ -207,7 +245,12 @@ export async function ingestPayload(args: {
   const readings = toReadings(parsed.values, ts);
   // The instrument's sensor offset, applied BEFORE the write (2026-10-01): the
   // corrected value is what is stored, shown and alarmed on.
-  await writeBatch(await applySensorOffsets(readings.map((r) => ({ ...r, instrumentId: identity.id }))));
+  const failure = await writeBatchOrDeadLetter(
+    readings.map((r) => ({ ...r, instrumentId: identity.id })), identity, transport, raw,
+  );
+  if (failure !== null) {
+    return { ok: false, code: 'WRITE_FAILED', message: `Readings could not be stored: ${failure}` };
+  }
   // "Is it talking?" is answered by the INSTRUMENT's own column, not by the
   // credential's lastUsedAt (spec D9) — a gateway-reported child never
   // presents a credential of its own. Throttled and never allowed to fail an

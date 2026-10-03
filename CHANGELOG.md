@@ -1,5 +1,38 @@
 # Changelog
 
+## [Unreleased] - Audit fixes, batch 1: telemetry partitions at boot; a refused write is a dead letter (2026-10-03)
+
+Operator: *"fix all the issues"* (after the strict audit,
+`docs/audit/2026-10-03-technical-audit.md`). This batch closes INGEST-1 and
+INGEST-2 / DATA-2, the two HIGHs that block a fresh customer install.
+
+- **Partitions exist before the first reading.** `ensurePartitionsAtBoot()`
+  (`workers/telemetry-partition.worker.ts`) is called from `app.ts` at every
+  boot, independent of the job runner, idempotent, never throws (a failure is
+  logged loudly and the cron retries). Migration
+  `20261003120000_telemetry_partitions_bootstrap` creates the month it runs in
+  plus three ahead with a `DO` block on `now()`, so `migrate deploy` on a
+  fresh database — the installers' path — covers the window before the first
+  boot; applied to both local databases, drift guard PASS. The two partition
+  crons carry `fill=4w` instead of `fill=0s`, so a machine that was off at
+  00:05 on the 1st/15th runs the job when it comes back.
+- **A write the database refuses is recorded, not lost.**
+  `writeBatchOrDeadLetter()` in `ingest-core.ts` wraps both `writeBatch` calls:
+  on failure the raw payload is dead-lettered against the sender with the
+  database's own message and the reading count, nothing is stamped as
+  delivered, and the caller gets `WRITE_FAILED` — **503 on HTTP** (declared in
+  the response schema) so a device retries after the fault is repaired. Until
+  now one row Postgres could not place failed the whole batch's single INSERT
+  and the loss was a log line, after the broker had already acked.
+- Tests: `ingest-core.test.ts` 10 → **12** (flat and gateway write failures
+  dead-lettered, `WRITE_FAILED`, no last-seen stamp),
+  `telemetry-partition.test.ts` 12 → **14** (boot creates and reports the
+  current month plus `monthsAhead` on the REAL parent; a failing statement is
+  logged and returns `[]` — an own-property override on the Prisma proxy, since
+  `vi.spyOn(...).mockRestore()` leaves the proxy method undefined).
+  `gateway-ingest.test.ts` (12) and `migration-guard.test.ts` (23) unchanged
+  and green. No count moved.
+
 ## [Unreleased] - Every login lands on the dashboard; no return-URL (2026-10-03)
 
 Operator: *"i logined and go to some page and there only i directly logout,

@@ -47,6 +47,7 @@ export default async function ingestRoutes(app: FastifyInstance) {
         202: { type: 'object', properties: { accepted: { type: 'integer' } } },
         400: { type: 'object', properties: { error: { type: 'string' }, message: { type: 'string' } } },
         401: { type: 'object', properties: { error: { type: 'string' } } },
+        503: { type: 'object', properties: { error: { type: 'string' }, message: { type: 'string' } } },
       },
     },
   }, async (req, reply) => {
@@ -61,6 +62,10 @@ export default async function ingestRoutes(app: FastifyInstance) {
       // there is nothing a naive retry would fix, so do not invite a retry
       // storm from a broken device. The other refusals are the caller's to fix.
       if (outcome.code === 'UNPARSEABLE') return reply.code(202).send({ accepted: 0 });
+      // 503 for a write the DATABASE refused (a missing partition, an outage):
+      // the payload was fine, it is recorded as a dead letter, and a retry
+      // after the fault is repaired is exactly what the device should do.
+      if (outcome.code === 'WRITE_FAILED') return reply.code(503).send({ error: outcome.code, message: outcome.message });
       return reply.code(400).send({ error: outcome.code, message: outcome.message });
     }
 

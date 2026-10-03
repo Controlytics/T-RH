@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { prisma } from '../../lib/prisma.js';
 import {
-  ensurePartitions, dropExpiredPartitions, partitionName, retentionSettings,
+  ensurePartitions, dropExpiredPartitions, partitionName, retentionSettings, ensurePartitionsAtBoot,
 } from '../telemetry-partition.worker.js';
 
 /**
@@ -173,3 +173,43 @@ describe('retentionSettings', () => {
     expect(s.retentionMonths).toBeGreaterThanOrEqual(1);
   });
 });
+
+/**
+ * Audit 2026-10-03, INGEST-2 / DATA-2: the migrations ship `2026_08` and
+ * `2026_09` by name and the cron runs on the 1st/15th with no backfill, so a
+ * fresh install between those dates refused every reading. `app.ts` now calls
+ * this at boot. It runs against the REAL parent on purpose — that is the table
+ * a boot must prepare — and is idempotent, so the test database only gains the
+ * months it should already have.
+ */
+describe('ensurePartitionsAtBoot', () => {
+  it('creates the current month and the administered months ahead on the real parent, and reports them', async () => {
+    const info: unknown[] = [];
+    const names = await ensurePartitionsAtBoot({ info: (o) => info.push(o), error: () => { throw new Error('must not log an error'); } });
+    const settings = await retentionSettings();
+    expect(names).toHaveLength(settings.monthsAhead + 1);
+    expect(names[0]).toBe(partitionName(new Date()));
+    const rows = await prisma.$queryRawUnsafe<{ relname: string }[]>(
+      `SELECT c.relname FROM pg_inherits i JOIN pg_class c ON c.oid = i.inhrelid JOIN pg_class p ON p.oid = i.inhparent WHERE p.relname = 'instrument_telemetry_history'`,
+    );
+    for (const n of names) expect(rows.map((r) => r.relname)).toContain(n);
+    expect(info).toHaveLength(1);
+  });
+
+  it('never throws — a failure is logged and the cron is left to retry', async () => {
+    const errors: unknown[] = [];
+    // An OWN property shadows the Prisma proxy's method; deleting it afterwards
+    // hands the call back to the proxy (vi.spyOn's restore leaves it undefined).
+    const client = prisma as unknown as Record<string, unknown>;
+    client.$executeRawUnsafe = vi.fn().mockRejectedValueOnce(new Error('boom: no parent'));
+    try {
+      const names = await ensurePartitionsAtBoot({ info: () => { throw new Error('must not log success'); }, error: (o) => errors.push(o) });
+      expect(names).toEqual([]);
+      expect(errors).toHaveLength(1);
+      expect(String((errors[0] as { err: Error }).err.message)).toContain('boom');
+    } finally {
+      delete client.$executeRawUnsafe;
+    }
+  });
+});
+

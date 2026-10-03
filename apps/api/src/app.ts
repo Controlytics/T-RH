@@ -42,7 +42,7 @@ import notificationRulesRoutes from './modules/notification-rules/routes.js';
 import { notificationTask } from './workers/notification.worker.js';
 import { passwordExpiryCheckTask } from './workers/password-expiry.worker.js';
 import { sessionSweepTask } from './workers/session-sweep.worker.js';
-import { telemetryPartitionTask } from './workers/telemetry-partition.worker.js';
+import { telemetryPartitionTask, ensurePartitionsAtBoot } from './workers/telemetry-partition.worker.js';
 import { startJobRunner, stopJobRunner } from '@digilog/queue';
 import { AppError, prismaErrorToResponse } from './lib/errors.js';
 import { dispatchNotification } from './modules/notification-delivery/notification-dispatcher.js';
@@ -538,6 +538,12 @@ try {
       'graphile-worker job runner FAILED to start — all scheduled jobs (notifications, PM overdue, password expiry, session sweep) will not run. Server continuing.',
     );
   }
+
+  // Telemetry partitions for the current month and the months ahead, at BOOT
+  // (audit 2026-10-03). Independent of the job runner above: the cron that
+  // also creates them runs on the 1st/15th, and a fresh install between those
+  // dates refused every reading until then. Never throws.
+  await ensurePartitionsAtBoot(app.log);
 } catch (err) {
   app.log.error(err);
   process.exit(1);

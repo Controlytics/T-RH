@@ -118,3 +118,37 @@ describe('ingestPayload — envelope payload', () => {
     expect(rows()[0]).toMatchObject({ key: 't', value: 1, instrumentId: 'a1' });
   });
 });
+
+/**
+ * Audit 2026-10-03, INGEST-1: a write the DATABASE refuses (a timestamp outside
+ * every partition, an outage) used to escape `ingestPayload` — one bad row
+ * failed the whole batch's single INSERT, the broker had already acked, and
+ * nothing recorded the loss. Now the raw payload is dead-lettered with the
+ * database's words and the caller gets WRITE_FAILED; nothing throws.
+ */
+describe('ingestPayload — a refused write is recorded, never lost silently', () => {
+  it('flat path: dead-letters the raw payload with the DB error and returns WRITE_FAILED', async () => {
+    writeBatch.mockRejectedValueOnce(new Error('no partition of relation "instrument_telemetry_history" found for row'));
+    const r = await ingestPayload({ identity: plain, raw: buf({ temperature: 21.5, ts: '2019-01-01T00:00:00Z' }), transport: 'mqtt' });
+    expect(r).toMatchObject({ ok: false, code: 'WRITE_FAILED' });
+    expect((r as { message: string }).message).toContain('no partition');
+    const row = writeDeadLetters.mock.calls[0][0][0];
+    expect(row).toMatchObject({ instrumentId: 'i1', transport: 'mqtt' });
+    expect(row.reason).toContain('Telemetry write failed');
+    expect(row.reason).toContain('no partition');
+    expect(row.rawPayload).toContain('2019-01-01');
+    // The sender is not stamped as having delivered readings that were not stored.
+    expect(stampLastSeen).not.toHaveBeenCalled();
+  });
+
+  it('gateway path: the whole batch is dead-lettered against the gateway and the children are not stamped', async () => {
+    writeBatch.mockRejectedValueOnce(new Error('connection terminated'));
+    const r = await ingestPayload({ identity: gw, raw: buf({ devices: { 'CH-A': { t: 1 } } }), transport: 'mqtt' });
+    expect(r).toMatchObject({ ok: false, code: 'WRITE_FAILED' });
+    const row = writeDeadLetters.mock.calls.at(-1)![0][0];
+    expect(row).toMatchObject({ instrumentId: gw.id, transport: 'mqtt' });
+    expect(row.reason).toContain('1 reading lost');
+    expect(stampLastSeen).not.toHaveBeenCalled();
+  });
+});
+

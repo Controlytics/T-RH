@@ -87,6 +87,30 @@ export async function ensurePartitions(
 }
 
 /**
+ * Partitions at BOOT (audit 2026-10-03, INGEST-2 / DATA-2). Until this
+ * existed the only creator was the 1st/15th cron with `fill=0s`, and the
+ * migrations ship only `2026_08` / `2026_09`: a customer installed on the 3rd
+ * of a later month refused every reading until the 15th, and only if the
+ * machine was up at 00:05 then. Called from `app.ts` right after the job
+ * runner starts (and independently of whether it started), and from the
+ * installers through the bootstrap migration. Idempotent; never throws — a
+ * failure is logged loudly and the cron keeps trying.
+ */
+export async function ensurePartitionsAtBoot(
+  log: { info: (o: unknown, m: string) => void; error: (o: unknown, m: string) => void },
+): Promise<string[]> {
+  try {
+    const settings = await retentionSettings();
+    const names = await ensurePartitions(settings.monthsAhead);
+    log.info({ partitions: names }, 'telemetry partitions ensured at boot');
+    return names;
+  } catch (err) {
+    log.error({ err }, 'telemetry partitions could NOT be ensured at boot — readings will be REFUSED once the last existing partition ends; the partition cron will retry');
+    return [];
+  }
+}
+
+/**
  * Drop partitions whose ENTIRE month is older than the retention window.
  *
  * Deliberately conservative. A partition covers [start, start+1month); it is

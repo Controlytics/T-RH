@@ -39,8 +39,8 @@
 # insert whose ts falls outside every partition, so if this never runs, device
 # telemetry stops being accepted at midnight on the 1st. Twice a month so a
 # single missed run (machine off on the 1st) is still covered.
-5 0 1 * * telemetry_partition_maintenance ?id=telemetry_partition_dom01&max=1&fill=0s
-5 0 15 * * telemetry_partition_maintenance ?id=telemetry_partition_dom15&max=1&fill=0s
+5 0 1 * * telemetry_partition_maintenance ?id=telemetry_partition_dom01&max=1&fill=4w
+5 0 15 * * telemetry_partition_maintenance ?id=telemetry_partition_dom15&max=1&fill=4w
 # Alarm evaluation — every minute. Raises an alarm when a configurable rule's
 # condition is met and clears it when the condition ends. Per-minute because an
 # excursion nobody is told about for five minutes is five minutes of unrecorded
