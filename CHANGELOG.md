@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased] - Audit fixes, batch 7: the public admin-request form writes a SYSTEM audit row, never a caller-typed actor (2026-10-03)
+
+Closes API-6 of `docs/audit/2026-10-03-technical-audit.md`.
+
+- `admin-request.service.ts` stamped `requesterEmployeeId` — whatever the
+  unauthenticated caller typed — into `audit_trail.user_id` on
+  `ADMIN_REQUEST_SUBMITTED`, so an anonymous POST could attribute a
+  hash-chained row to `superadmin`. The row has NO acting user now;
+  `ADMIN_REQUEST_SUBMITTED` joins `SYSTEM_AUDIT_ACTIONS` (the allow-list for
+  a NULL actor), and the typed id stays where it always also was, as data in
+  `afterValue.requesterEmployeeId`.
+- Test: `admin-requests.e2e.test.ts` 33 → **34** (a submit naming
+  `superadmin` lands a row with `user_id` NULL and the id in `afterValue`).
+  No count moved.
+
 ## [Unreleased] - Audit fixes, batch 6: instrument visibility on the attribute read, the writes, the pickers, the location detail and the profile cascade (2026-10-03)
 
 Closes API-5, API-8, API-9 and API-10 of `docs/audit/2026-10-03-technical-audit.md`.

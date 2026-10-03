@@ -44,6 +44,7 @@ const SYSTEM_AUDIT_ACTIONS = new Set<string>([
   'BACKUP_RETENTION_PRUNE',     // retention sweep
   'DLQ_OVERFLOW',               // dead-letter overflow
   'INSTRUMENT_ATTRIBUTE_REPORTED', // an attribute written by the DEVICE over MQTT (2026-09-05) — the device's code is in the row, there is no user
+  'ADMIN_REQUEST_SUBMITTED',    // the PUBLIC admin-request form (2026-10-03): the caller is unauthenticated, the typed employee id is data in afterValue
   'DEVIATION_OPENED',           // PM overdue sweep — auto-opens a deviation (no user when cron-fired)
   'DEVIATION_CLOSED',           // PM overdue sweep — auto-closes when filters cleaned (no user when cron-fired)
   'DEVIATION_OPEN_BLOCKED',     // PM overdue sweep — re-overdue task whose deviation row is already CLOSED (no user when cron-fired)

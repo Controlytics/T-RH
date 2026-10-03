@@ -53,7 +53,12 @@ export const adminRequestService = {
       requester: asked,
     });
     await auditLog({
-      userId: request.requesterEmployeeId ?? undefined,
+      // NO `userId` (audit 2026-10-03, API-6): this is the PUBLIC endpoint and
+      // the employee id is whatever the caller typed — stamping it into the
+      // hash-chained trail's actor column attributed a row to "superadmin" on
+      // an anonymous POST. The action is a SYSTEM action (no actor); the
+      // typed id is recorded as DATA in `afterValue.requesterEmployeeId`.
+      userId: undefined,
       action: 'ADMIN_REQUEST_SUBMITTED',
       targetType: 'admin_request',
       targetId: request.id,

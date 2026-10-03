@@ -404,3 +404,36 @@ describe('admin-requests e2e', () => {
     });
   });
 });
+
+/**
+ * Audit 2026-10-03, API-6: the public form's audit row carried the TYPED
+ * employee id as the acting user, so an anonymous POST could attribute a
+ * hash-chained row to any username. The row is a SYSTEM action now — no actor
+ * — and the typed id is data on the record.
+ */
+describe('POST /api/admin-requests audit attribution', () => {
+  let app: FastifyInstance;
+  beforeAll(async () => { app = await buildApp(); });
+  afterAll(async () => { await app.close(); });
+
+  it('writes the submitted row with NO acting user; the typed employee id is data, not the actor', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/admin-requests',
+      payload: {
+        requestType: 'UNLOCK',
+        requesterName: 'Anyone At All',
+        requesterEmployeeId: 'superadmin',
+        requestData: { reason: 'attribution e2e' },
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    const id = res.json().requestId as string;
+    expect(id).toBeTruthy();
+    const row = await prisma.auditTrail.findFirst({ where: { action: 'ADMIN_REQUEST_SUBMITTED', targetId: id } });
+    expect(row).not.toBeNull();
+    expect(row!.userId).toBeNull();
+    expect((row!.afterValue as { requesterEmployeeId: string }).requesterEmployeeId).toBe('superadmin');
+    await prisma.adminRequest.deleteMany({ where: { id } });
+  });
+});
+
