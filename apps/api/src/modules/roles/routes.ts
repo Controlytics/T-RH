@@ -558,7 +558,7 @@ export default async function roleRoutes(app: FastifyInstance) {
       tags: ['Roles'],
       summary: 'Set a role\'s instrument visibility scope',
       params: { type: 'object', properties: { name: { type: 'string' } } },
-      body: { type: 'object', properties: { scope: scopeShape } },
+      body: { type: 'object', required: ['scope'], properties: { scope: scopeShape } },
     },
   }, async (req, reply) => {
     const { ok } = await enforceReauth('UPDATE_ROLE_CONFIG', req, reply);
@@ -769,7 +769,7 @@ export default async function roleRoutes(app: FastifyInstance) {
       tags: ['Roles'],
       summary: 'Set one user\'s instrument visibility scope, overriding their role',
       params: { type: 'object', properties: { userId: { type: 'string' } } },
-      body: { type: 'object', properties: { scope: scopeShape } },
+      body: { type: 'object', required: ['scope'], properties: { scope: scopeShape } },
     },
   }, async (req, reply) => {
     const { ok } = await enforceReauth('UPDATE_ROLE_CONFIG', req, reply);
@@ -891,7 +891,7 @@ export default async function roleRoutes(app: FastifyInstance) {
       tags: ['Roles'],
       summary: "Set a role's assignable panels",
       params: { type: 'object', properties: { name: { type: 'string' } } },
-      body: { type: 'object', properties: { panels: panelsShape } },
+      body: { type: 'object', required: ['panels'], properties: { panels: panelsShape } },
     },
   }, async (req, reply) => {
     const { ok } = await enforceReauth('UPDATE_ROLE_CONFIG', req, reply);
@@ -927,7 +927,7 @@ export default async function roleRoutes(app: FastifyInstance) {
       tags: ['Roles'],
       summary: "Set one user's assignable panels, overriding their role",
       params: { type: 'object', properties: { userId: { type: 'string' } } },
-      body: { type: 'object', properties: { panels: panelsShape } },
+      body: { type: 'object', required: ['panels'], properties: { panels: panelsShape } },
     },
   }, async (req, reply) => {
     const { ok } = await enforceReauth('UPDATE_ROLE_CONFIG', req, reply);

@@ -7,6 +7,7 @@ import { getDefaultTemplates, FEATURE_TO_PERMISSION_MAP, FEATURE_PRIVILEGES, SID
 import { validateUserId } from '../../lib/user-id-validator.js';
 import { prisma } from '../../lib/prisma.js';
 import { invalidateRolePermsCache } from '../../plugins/rbac.js';
+import { assertRoleWithinCallerPrivilege } from '../roles/role.service.js';
 import { invalidatePasswordPolicyCache } from '../../plugins/auth.js';
 import { sanitizeAuditValue } from '../../lib/audit-diff.js';
 import { configRegistry } from '../../lib/config-registry.js';
@@ -158,9 +159,90 @@ export const configService = {
     return config ?? { role, sidebarItems: [], homeWidgets: [], permissions: {} };
   },
 
+  /**
+   * The permission array a role-config save WOULD write, without writing it.
+   * Sync of feature privileges + sidebar selections to the role's permissions
+   * array (2026-06-15, user request): enabling a sidebar item for a role also
+   * grants that item's PRIMARY permission, so the menu actually appears without
+   * separately hand-granting the matching feature permission. Two sources feed
+   * the rebuild: (1) feature-privilege toggles (Permissions tab) — granular;
+   * (2) enabled sidebar items (Sidebar tab) — each grants its primary perm.
+   * Permissions NOT covered by any feature toggle are preserved (manual grants).
+   */
+  async planRolePermissions(
+    role: string,
+    data: { sidebarItems?: string[]; permissions?: Record<string, boolean> },
+    existing: { sidebarItems?: unknown } | null,
+  ): Promise<{ permissionsArray: string[]; currentPerms: string[]; added: string[]; hierarchyLevel: number }> {
+    const allMappedPerms = new Set<string>();
+    for (const perms of Object.values(FEATURE_TO_PERMISSION_MAP)) {
+      for (const p of perms) allMappedPerms.add(p);
+    }
+
+    const currentRole = await prisma.role.findFirst({ where: { name: role }, select: { permissions: true, hierarchyLevel: true } });
+    const currentPerms = (currentRole?.permissions as string[]) || [];
+
+    // Primary permissions implied by the role's effective sidebar selection
+    // (the just-saved list, or the existing one on a permissions-only save).
+    const effectiveSidebar = (data.sidebarItems ?? (existing?.sidebarItems as string[] | undefined) ?? []);
+    const sidebarPerms = effectiveSidebar.flatMap(primaryPermsForSidebarItem);
+
+    let permissionSet: Set<string>;
+    if (data.permissions) {
+      // Permissions tab save → full rebuild from the toggle map, preserving
+      // non-feature perms, then re-add sidebar-implied perms so a permissions
+      // save can't strip access the Sidebar tab granted.
+      permissionSet = new Set<string>(currentPerms.filter(p => !allMappedPerms.has(p)));
+      for (const [featureId, enabled] of Object.entries(data.permissions)) {
+        if (enabled && FEATURE_TO_PERMISSION_MAP[featureId]) {
+          for (const perm of FEATURE_TO_PERMISSION_MAP[featureId]) permissionSet.add(perm);
+        }
+      }
+    } else {
+      // Sidebar-only save → additive. Keep every current permission and just
+      // grant the primary perms for the enabled items. (Disabling a menu hides
+      // it via the sidebar allow-list; it does NOT revoke the permission, so a
+      // sidebar edit can never silently strip access granted elsewhere.)
+      permissionSet = new Set<string>(currentPerms);
+    }
+    for (const perm of sidebarPerms) permissionSet.add(perm);
+
+    const permissionsArray = Array.from(permissionSet);
+    const held = new Set(currentPerms);
+    return {
+      permissionsArray,
+      currentPerms,
+      added: permissionsArray.filter((p) => !held.has(p)),
+      hierarchyLevel: currentRole?.hierarchyLevel ?? 0,
+    };
+  },
+
   async updateRoleConfig(role: string, data: { sidebarItems?: string[]; homeWidgets?: string[]; permissions?: Record<string, boolean> }, ctx: RequestContext) {
     const existing = await configRepository.findRoleConfig(role);
     const beforeValue = existing ? { sidebarItems: existing.sidebarItems, homeWidgets: existing.homeWidgets, permissions: existing.permissions } : null;
+
+    // The permission set this save WOULD write is computed FIRST and checked
+    // against the caller's own privilege BEFORE anything is written (audit
+    // 2026-10-03, API-1). Until then this route — ROLE_MANAGE only — expanded
+    // the toggles and wrote `roles.permissions` with no check that the caller
+    // held what it granted: an ADMIN could give ADMIN `AUDIT_DELETE`,
+    // `BACKUP_RESTORE` or `ROLE_MANAGE` in one PUT, live on the next request.
+    // `assertRoleWithinCallerPrivilege` is the SAME rule the Roles page's own
+    // create/update already applies: SUPER_ADMIN exempt; otherwise no editing
+    // your own role, no role at or above your level, and no permission you do
+    // not hold yourself — grandfathered permissions the role already has are
+    // allowed. It fires only when the save would ADD a permission, so a
+    // sidebar-only rearrangement that grants nothing new is still allowed.
+    const plan = (data.permissions || data.sidebarItems)
+      ? await this.planRolePermissions(role, data, existing)
+      : null;
+    if (plan && plan.added.length > 0) {
+      await assertRoleWithinCallerPrivilege(
+        ctx,
+        { permissions: plan.added },
+        { name: role, hierarchyLevel: plan.hierarchyLevel, permissions: plan.currentPerms },
+      );
+    }
 
     const config = await configRepository.upsertRoleConfig(role, data, existing, ctx.userId);
 
@@ -172,44 +254,10 @@ export const configService = {
     //   (1) Feature-privilege toggles (Permissions tab) — granular.
     //   (2) Enabled sidebar items (Sidebar tab) — each grants its primary perm.
     // Permissions NOT covered by any feature toggle are preserved (manual grants).
-    if (data.permissions || data.sidebarItems) {
-      const allMappedPerms = new Set<string>();
-      for (const perms of Object.values(FEATURE_TO_PERMISSION_MAP)) {
-        for (const p of perms) allMappedPerms.add(p);
-      }
-
-      const currentRole = await prisma.role.findFirst({ where: { name: role }, select: { permissions: true } });
-      const currentPerms = (currentRole?.permissions as string[]) || [];
-
-      // Primary permissions implied by the role's effective sidebar selection
-      // (the just-saved list, or the existing one on a permissions-only save).
-      const effectiveSidebar = (data.sidebarItems ?? (existing?.sidebarItems as string[] | undefined) ?? []);
-      const sidebarPerms = effectiveSidebar.flatMap(primaryPermsForSidebarItem);
-
-      let permissionSet: Set<string>;
-      if (data.permissions) {
-        // Permissions tab save → full rebuild from the toggle map, preserving
-        // non-feature perms, then re-add sidebar-implied perms so a permissions
-        // save can't strip access the Sidebar tab granted.
-        permissionSet = new Set<string>(currentPerms.filter(p => !allMappedPerms.has(p)));
-        for (const [featureId, enabled] of Object.entries(data.permissions)) {
-          if (enabled && FEATURE_TO_PERMISSION_MAP[featureId]) {
-            for (const perm of FEATURE_TO_PERMISSION_MAP[featureId]) permissionSet.add(perm);
-          }
-        }
-      } else {
-        // Sidebar-only save → additive. Keep every current permission and just
-        // grant the primary perms for the enabled items. (Disabling a menu hides
-        // it via the sidebar allow-list; it does NOT revoke the permission, so a
-        // sidebar edit can never silently strip access granted elsewhere.)
-        permissionSet = new Set<string>(currentPerms);
-      }
-      for (const perm of sidebarPerms) permissionSet.add(perm);
-
-      const permissionsArray = Array.from(permissionSet);
+    if (plan) {
       await prisma.role.updateMany({
         where: { name: role },
-        data: { permissions: permissionsArray },
+        data: { permissions: plan.permissionsArray },
       });
       // Audit 2026-05-04 fix (api-supporting M11): rbac plugin caches role
       // permissions for 5s; invalidate so the new config takes effect on the

@@ -20,7 +20,7 @@ import { roleRepository } from './role.repository.js';
  * subset-checked, so editing a lower role's label/color that already holds a
  * permission the caller lacks is not falsely blocked.
  */
-async function assertRoleWithinCallerPrivilege(
+export async function assertRoleWithinCallerPrivilege(
   ctx: RequestContext,
   incoming: { hierarchyLevel?: number; permissions?: string[] },
   target?: { name: string; hierarchyLevel: number; permissions: string[] },

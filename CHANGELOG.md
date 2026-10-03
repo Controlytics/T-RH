@@ -1,5 +1,32 @@
 # Changelog
 
+## [Unreleased] - Audit fixes, batch 2: role-config saves check the caller's privilege; scope and panel bodies are required (2026-10-03)
+
+Closes API-1 and API-2 of `docs/audit/2026-10-03-technical-audit.md`.
+
+- **`PUT /api/config/roles/:role` can no longer grant what the caller does
+  not hold.** `config.service.ts` now computes the permission set the save
+  WOULD write (`planRolePermissions`, the unchanged toggle + sidebar algebra,
+  lifted out so it can run first) and, when that set ADDS a permission,
+  applies `assertRoleWithinCallerPrivilege` from `role.service.ts` — the same
+  rule the Roles page's own create/update has applied since the hierarchy
+  work — BEFORE anything is written: SUPER_ADMIN exempt; otherwise not your
+  own role, not a role at or above your level, and no permission you do not
+  hold yourself (grandfathered ones the role already has are allowed). A save
+  that grants nothing new still goes through, so rearranging a sidebar is
+  unaffected. Until now the route, behind `ROLE_MANAGE` alone, let an ADMIN
+  give ADMIN `AUDIT_DELETE`, `BACKUP_RESTORE` or `ROLE_MANAGE` in one request.
+- **The instrument-scope and panel-access PUTs (role and user, four routes)
+  declare their body `required`.** `{}` used to pass the schema, write SQL
+  NULL (unrestricted / all panels) through `?? Prisma.DbNull`, and then 500
+  on the signature line with no audit row. It is a 400 now and nothing is
+  written; an explicit `null` (inherit) is still accepted.
+- Tests: new `e2e/role-config-privilege.e2e.test.ts` (9, through the seeded
+  OPERATOR with `ROLE_MANAGE` granted for the suite; mutation-checked —
+  removing the gate fails 3). `roles.test.ts` (16),
+  `instrument-scope-selection.test.ts` (36) and `config.test.ts` (62)
+  unchanged and green. No count moved.
+
 ## [Unreleased] - Audit fixes, batch 1: telemetry partitions at boot; a refused write is a dead letter (2026-10-03)
 
 Operator: *"fix all the issues"* (after the strict audit,
